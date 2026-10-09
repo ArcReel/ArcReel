@@ -207,6 +207,29 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().queuedMessages).toEqual([]);
     });
 
+    it("sends an unsent message again and shows it queued, leaving the input alone", async () => {
+      const { result, stream } = await openRunningSession();
+      act(() => {
+        stream.emit("queue_upsert", {
+          session_id: "session-1",
+          message: { ...queuedMessage("u-1", "第 3 镜改成黄昏"), state: "unsent" },
+        });
+      });
+      const resend = vi.spyOn(API, "resendQueuedMessage").mockResolvedValue({
+        session_id: "session-1",
+        id: "u-1",
+        queued_message: queuedMessage("u-1", "第 3 镜改成黄昏"),
+      });
+
+      await act(async () => {
+        await result.current.resendQueuedMessage("u-1");
+      });
+
+      expect(resend).toHaveBeenCalledWith("demo", "session-1", "u-1");
+      expect(useAssistantStore.getState().queuedMessages).toEqual([queuedMessage("u-1", "第 3 镜改成黄昏")]);
+      expect(useAssistantStore.getState().composerAppends).toEqual([]);
+    });
+
     it("tells the user the agent already received it, then follows a later cancel back to the input", async () => {
       const { result, stream } = await openRunningSession();
       vi.spyOn(API, "withdrawQueuedMessage").mockResolvedValue({

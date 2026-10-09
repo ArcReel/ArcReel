@@ -615,6 +615,21 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, store, t],
   );
 
+  // 重新发送一条「未发送」消息：服务端必要时先重建会话连接，消息回到排队中
+  const resendQueuedMessage = useCallback(
+    async (messageId: string) => {
+      const sessionId = store.getState().currentSessionId;
+      if (!projectName || !sessionId) return;
+      try {
+        const result = await API.resendQueuedMessage(projectName, sessionId, messageId);
+        if (store.getState().currentSessionId === sessionId) store.getState().upsertQueuedMessage(result.queued_message);
+      } catch (err) {
+        store.getState().setError(errMsg(err, t("queued_message_resend_failed")));
+      }
+    },
+    [projectName, store, t],
+  );
+
   // 中断会话
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
@@ -860,6 +875,7 @@ export function useAssistantSession(projectName: string | null) {
     switchSession,
     deleteSession,
     withdrawQueuedMessage,
+    resendQueuedMessage,
   };
 }
 

@@ -134,6 +134,32 @@ class TestAssistantRoutes:
 
         assert response.status_code == status_code
 
+    def test_resending_an_unsent_message_returns_it_back_in_the_queue(self):
+        payload = {"session_id": "session-1", "id": "m-1", "queued_message": {"id": "m-1", "state": "queued"}}
+        resend = AsyncMock(return_value=payload)
+        with (
+            patch.object(assistant.assistant_service, "resend_queued_message", new=resend),
+            _build_client() as client,
+        ):
+            response = client.post(f"{PREFIX}/sessions/session-1/queued-messages/m-1/resend")
+
+        assert response.status_code == 200
+        assert response.json() == payload
+        assert resend.await_args.args == (PROJECT, "session-1", "m-1")
+
+    def test_resending_a_message_no_longer_queued_is_not_found(self):
+        with (
+            patch.object(
+                assistant.assistant_service,
+                "resend_queued_message",
+                new=AsyncMock(side_effect=QueuedMessageNotFoundError("gone")),
+            ),
+            _build_client() as client,
+        ):
+            response = client.post(f"{PREFIX}/sessions/session-1/queued-messages/m-1/resend")
+
+        assert response.status_code == 404
+
     def test_send_unexpected_error_no_leak(self):
         """send 末端 catch-all：未预期异常返回通用 500，不泄露内部细节。"""
         with (

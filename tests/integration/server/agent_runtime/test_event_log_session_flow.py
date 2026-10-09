@@ -1495,3 +1495,92 @@ class TestQueuedMessageWithdrawal:
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
         finally:
             await service.session_manager.close_session(SDK_ID)
+
+
+async def _wait_for_queue_state(manager: SessionManager, session_id: str, state: str) -> list[dict[str, Any]]:
+    deadline = asyncio.get_running_loop().time() + 5.0
+    while asyncio.get_running_loop().time() < deadline:
+        snapshot = manager.get_queued_messages_snapshot(session_id)
+        if snapshot and all(message["state"] == state for message in snapshot):
+            return snapshot
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"queued messages of {session_id} did not all reach {state!r}")
+
+
+class TestUnsentQueuedMessages:
+    """CLI 退出时仍在排队的消息转为「未发送」，留给用户发送、编辑或删除，从不自动重发。"""
+
+    async def _queue_then_exit(self, service: AssistantService, client: FakeSDKClient, **kwargs: Any) -> dict[str, Any]:
+        await TestQueuedMessages()._start_running_turn(service, client)
+        queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, **kwargs))["queued_message"]
+        client.close_stream()
+        return queued
+
+    async def test_queued_messages_turn_unsent_when_the_cli_exits_and_are_not_resent(self, service: AssistantService):
+        client = TestQueuedMessages._running_turn_client()
+        await TestQueuedMessages()._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1"))[
+                "queued_message"
+            ]
+            await stream.next("queue_upsert")
+            client.close_stream()
+
+            upsert = await stream.next("queue_upsert")
+            assert upsert["message"] == {**queued, "state": "unsent"}
+            assert await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent") == [upsert["message"]]
+            # 同键重试拿到同一条未发送消息，不再送入 CLI
+            retry = await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1")
+            assert retry["queued_message"] == upsert["message"]
+            assert len(client.sent_messages) == 2
+            assert [entry["type"] for entry in await service.event_log_store.list_after(SDK_ID)] == [
+                "user",
+                "assistant",
+            ]
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_sending_an_unsent_message_reconnects_and_hands_it_to_the_cli_again(self, service: AssistantService):
+        client = TestQueuedMessages._running_turn_client()
+        queued = await self._queue_then_exit(service, client)
+        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
+        revived = FakeSDKClient(frames=[_session_state_frame("running")])
+        try:
+            with _scripted_client(service.session_manager, revived):
+                result = await service.resend_queued_message("demo", SDK_ID, queued["id"])
+
+            assert result["queued_message"] == queued
+            assert len(revived.sent_messages) == 1
+            resent = revived.sent_messages[0]
+            assert resent["message"]["content"] == "加一段旁白"
+            assert resent["uuid"] != client.sent_messages[-1]["uuid"]
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]
+            # 重复点击不会再送一次
+            await service.resend_queued_message("demo", SDK_ID, queued["id"])
+            assert len(revived.sent_messages) == 1
+
+            revived.push_frame(started_frame(session_id=SDK_ID))
+            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 3)
+            assert entries[2]["uuid"] == queued["id"]
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    @pytest.mark.parametrize("intent", ["edit", "delete"])
+    async def test_withdrawing_an_unsent_message_removes_it_without_asking_the_cli(
+        self, service: AssistantService, intent: WithdrawalIntent
+    ):
+        client = TestQueuedMessages._running_turn_client()
+        queued = await self._queue_then_exit(service, client)
+        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
+        try:
+            result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent=intent)
+
+            assert result["outcome"] == "withdrawn"
+            assert result["message"] == ({**queued, "state": "unsent"} if intent == "edit" else None)
+            assert client.control_requests == []
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+        finally:
+            await service.session_manager.close_session(SDK_ID)
