@@ -2,9 +2,11 @@
 
 from unittest.mock import AsyncMock, patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from server.agent_runtime.session_manager import QueuedMessageNotFoundError, QueuedMessageWithdrawalPendingError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.i18n import get_translator
@@ -104,6 +106,33 @@ class TestAssistantRoutes:
 
         assert response.status_code == 200
         assert response.json() == interrupt_payload
+
+    @pytest.mark.parametrize(("method", "path", "intent"), [("post", "/edit", "edit"), ("delete", "", "delete")])
+    def test_queued_message_edit_and_delete_withdraw_with_their_intent(self, method: str, path: str, intent: str):
+        payload = {"session_id": "session-1", "id": "m-1", "outcome": "accepted", "message": None}
+        withdraw = AsyncMock(return_value=payload)
+        with (
+            patch.object(assistant.assistant_service, "withdraw_queued_message", new=withdraw),
+            _build_client() as client,
+        ):
+            response = getattr(client, method)(f"{PREFIX}/sessions/session-1/queued-messages/m-1{path}")
+
+        assert response.status_code == 200
+        assert response.json() == payload
+        withdraw.assert_awaited_once_with(PROJECT, "session-1", "m-1", intent=intent)
+
+    @pytest.mark.parametrize(
+        ("error", "status_code"),
+        [(QueuedMessageNotFoundError("gone"), 404), (QueuedMessageWithdrawalPendingError("busy"), 409)],
+    )
+    def test_queued_message_withdrawal_errors_are_mapped(self, error: Exception, status_code: int):
+        with (
+            patch.object(assistant.assistant_service, "withdraw_queued_message", new=AsyncMock(side_effect=error)),
+            _build_client() as client,
+        ):
+            response = client.delete(f"{PREFIX}/sessions/session-1/queued-messages/m-1")
+
+        assert response.status_code == status_code
 
     def test_send_unexpected_error_no_leak(self):
         """send 末端 catch-all：未预期异常返回通用 500，不泄露内部细节。"""

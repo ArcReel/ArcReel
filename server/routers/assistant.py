@@ -18,7 +18,7 @@ from pydantic_core import PydanticCustomError
 from lib import PROJECT_ROOT
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, ServiceUnavailableError
 from server.agent_runtime.failure_observation import build_startup_failure_observation
-from server.agent_runtime.models import SessionMeta
+from server.agent_runtime.models import SessionMeta, WithdrawalIntent
 from server.agent_runtime.service import (
     AssistantService,
     InterruptSettleTimeoutError,
@@ -29,7 +29,13 @@ from server.agent_runtime.service import (
     SessionSupersededError,
 )
 from server.agent_runtime.session_branch import SessionBranchError
-from server.agent_runtime.session_manager import AgentStartupError, SessionCapacityError, UnrecordedMessageError
+from server.agent_runtime.session_manager import (
+    AgentStartupError,
+    QueuedMessageNotFoundError,
+    QueuedMessageWithdrawalPendingError,
+    SessionCapacityError,
+    UnrecordedMessageError,
+)
 from server.i18n import Translator, get_locale
 
 router = APIRouter()
@@ -396,6 +402,38 @@ async def interrupt_session(project_name: str, session_id: str, _t: Translator):
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+async def _withdraw_queued_message(
+    project_name: str, session_id: str, message_id: str, intent: WithdrawalIntent, _t: Translator
+) -> dict:
+    try:
+        service = get_assistant_service()
+        return await service.withdraw_queued_message(project_name, session_id, message_id, intent=intent)
+    except QueuedMessageNotFoundError as exc:
+        raise NotFoundError("queued_message_not_found") from exc
+    except QueuedMessageWithdrawalPendingError as exc:
+        raise ConflictError("queued_message_withdrawal_pending") from exc
+    except FileNotFoundError as exc:
+        raise NotFoundError("session_not_found", session_id=session_id) from exc
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+@router.post("/sessions/{session_id}/queued-messages/{message_id}/edit")
+async def edit_queued_message(project_name: str, session_id: str, message_id: str, _t: Translator):
+    """把一条排队消息退回输入框：撤回成功时响应带回它的内容（``message``）。
+
+    ``outcome`` 为 ``withdrawn`` 时消息已移出排队；为 ``accepted`` 时 Agent 已接收它，消息照常进入对话。
+    """
+    return await _withdraw_queued_message(project_name, session_id, message_id, "edit", _t)
+
+
+@router.delete("/sessions/{session_id}/queued-messages/{message_id}")
+async def delete_queued_message(project_name: str, session_id: str, message_id: str, _t: Translator):
+    """删除一条排队消息：撤回成功即丢弃。响应形状同编辑端点，``message`` 恒为 null。"""
+    return await _withdraw_queued_message(project_name, session_id, message_id, "delete", _t)
 
 
 @router.post("/sessions/{session_id}/questions/{question_id}/answer")

@@ -15,9 +15,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
-import { MAX_ATTACHED_IMAGES, useImageAttachments, type AttachedImage } from "@/hooks/useImageAttachments";
+import {
+  imagePayloadToAttachment,
+  MAX_ATTACHED_IMAGES,
+  useImageAttachments,
+  type AttachedImage,
+} from "@/hooks/useImageAttachments";
 import { useAssistantStore } from "@/stores/assistant-store";
+import type { ContentBlock, QueuedMessageWithdrawal } from "@/types";
 import { voidCall } from "@/utils/async";
+import { turnImageAttachments, turnPlainText } from "./chat/utils";
 import { QueuedMessageTray } from "./QueuedMessageTray";
 import { SlashCommandMenu, useSlashCommands } from "./SlashCommandMenu";
 
@@ -40,6 +47,8 @@ interface AgentComposerProps {
   /** 发送消息；受理后清空输入与附件，未受理时保留供重试。 */
   onSend: (text: string, images?: AttachedImage[]) => Promise<boolean>;
   onInterrupt: () => void;
+  /** 编辑或删除一条排队消息；编辑撤回成功时内容经 store 的 composerAppends 退回输入框。 */
+  onWithdrawQueued: (id: string, intent: QueuedMessageWithdrawal) => Promise<void>;
 }
 
 /** 光标左侧以「/」开头、尚未输入空格的一段文字：返回「/」的位置与其后的筛选词。 */
@@ -68,6 +77,7 @@ export function AgentComposer({
   hidden,
   onSend,
   onInterrupt,
+  onWithdrawQueued,
 }: AgentComposerProps) {
   const { t } = useTranslation("dashboard");
   const groupRef = useRef<HTMLDivElement>(null);
@@ -94,13 +104,16 @@ export function AgentComposer({
     error: attachError,
     isReading,
     addFiles,
+    appendImages,
     removeImage,
     resetImages,
     invalidatePendingTranscodes,
   } = useImageAttachments();
   const attachDisabled = disabled || isReading || images.length >= MAX_ATTACHED_IMAGES;
   const hasContent = text.trim().length > 0 || images.length > 0;
-  const canSend = !disabled && !isReading && hasContent;
+  // 退回的排队消息可能让图片超过上限：全部保留，移除多出的才能发送
+  const tooManyImages = images.length > MAX_ATTACHED_IMAGES;
+  const canSend = !disabled && !isReading && hasContent && !tooManyImages;
   const previewImage = previewIndex === null ? undefined : images[previewIndex];
 
   const send = useCallback(() => {
@@ -132,6 +145,26 @@ export function AgentComposer({
       requestAnimationFrame(() => textareaRef.current?.focus());
     });
   }, []);
+
+  // 编辑排队消息退回的内容：文字接在已有文字之后另起一行，图片接在已有附件之后，都不覆盖
+  useEffect(() => {
+    const appendAll = (appends: ContentBlock[][]) => {
+      for (const content of appends) {
+        const appended = turnPlainText({ type: "user", content });
+        if (appended) setText((current) => (current.trim() ? `${current.trimEnd()}\n${appended}` : appended));
+        appendImages(turnImageAttachments({ type: "user", content }).map(imagePayloadToAttachment));
+      }
+    };
+    appendAll(useAssistantStore.getState().takeComposerAppends());
+    return useAssistantStore.subscribe((state, prev) => {
+      if (state.composerAppends.length === 0 || state.composerAppends === prev.composerAppends) return;
+      // 延后到微任务取走，避免在 zustand 订阅通知期间嵌套 dispatch
+      void Promise.resolve().then(() => {
+        appendAll(useAssistantStore.getState().takeComposerAppends());
+        requestAnimationFrame(() => textareaRef.current?.focus());
+      });
+    });
+  }, [appendImages]);
 
   const selectSlashCommand = useCallback(
     (command: string) => {
@@ -217,10 +250,10 @@ export function AgentComposer({
 
   return (
     <div hidden={hidden} className="shrink-0 border-t border-border p-3">
-      <QueuedMessageTray />
-      {attachError && (
+      <QueuedMessageTray onWithdraw={onWithdrawQueued} editDisabled={sending} />
+      {(attachError || tooManyImages) && (
         <p role="alert" className="mb-2 text-xs text-destructive">
-          {attachError}
+          {tooManyImages ? t("composer_too_many_images_hint", { count: MAX_ATTACHED_IMAGES }) : attachError}
         </p>
       )}
       {/* 拖入图片时整个输入框高亮；高亮画在外层，不改输入框原语的样式 */}

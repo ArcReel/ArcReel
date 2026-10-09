@@ -14,7 +14,7 @@ import pytest
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import EventLogService, EventLogStore, build_user_entry
-from server.agent_runtime.models import LiveMessage
+from server.agent_runtime.models import LiveMessage, WithdrawalIntent
 from server.agent_runtime.service import AssistantService
 from server.agent_runtime.session_manager import AgentStartupError, SessionManager, UnrecordedMessageError
 from server.agent_runtime.session_store import SessionMetaStore
@@ -1326,4 +1326,172 @@ class TestQueuedMessages:
             ]
         finally:
             await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+
+def _cancel_queued(client: FakeSDKClient) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """CLI 撤回仍在队列里的消息：先发 cancelled 帧，再应答 ``{cancelled: true}``。"""
+
+    def _respond(request: dict[str, Any]) -> dict[str, Any]:
+        client.push_frame(command_lifecycle_frame(request["message_uuid"], "cancelled", session_id=SDK_ID))
+        return {"cancelled": True}
+
+    return _respond
+
+
+class TestQueuedMessageWithdrawal:
+    """托盘里的排队消息可以编辑或删除：先向 CLI 撤回，撤回成功才退回输入框或丢弃。"""
+
+    @staticmethod
+    def _client() -> FakeSDKClient:
+        client = TestQueuedMessages._running_turn_client()
+        client.respond_control("cancel_async_message", _cancel_queued(client))
+        return client
+
+    async def _queue(self, service: AssistantService, client: FakeSDKClient, **kwargs: Any) -> dict[str, Any]:
+        await TestQueuedMessages()._start_running_turn(service, client)
+        return (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, **kwargs))["queued_message"]
+
+    async def test_editing_a_queued_message_the_cli_cancels_returns_its_content(self, service: AssistantService):
+        client = self._client()
+        image = {"data": "aGVsbG8=", "media_type": "image/png"}
+        await TestQueuedMessages()._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            queued = (
+                await service.send_or_create(
+                    "demo", "加一段旁白", session_id=SDK_ID, images=[SimpleNamespace(**image)], client_key="ck-1"
+                )
+            )["queued_message"]
+
+            result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent="edit")
+
+            assert result["outcome"] == "withdrawn"
+            assert result["message"]["content"] == [
+                {"type": "image", "source": {"type": "base64", **image}},
+                {"type": "text", "text": "加一段旁白"},
+            ]
+            assert client.control_requests == [
+                {"subtype": "cancel_async_message", "message_uuid": client.sent_messages[-1]["uuid"]}
+            ]
+            removed = await stream.next("queue_remove")
+            assert removed["id"] == queued["id"]
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+            # 撤回的消息不进时间线；幂等键随之释放，重新发送同一内容会再次送入 CLI
+            retry = await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1")
+            assert retry["queued_message"]["id"] != queued["id"]
+            assert [entry["type"] for entry in await service.event_log_store.list_after(SDK_ID)] == [
+                "user",
+                "assistant",
+            ]
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_deleting_a_queued_message_the_cli_cancels_discards_it(self, service: AssistantService):
+        client = self._client()
+        queued = await self._queue(service, client)
+        try:
+            result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent="delete")
+
+            assert result["outcome"] == "withdrawn"
+            assert result["message"] is None
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+            assert len(await service.event_log_store.list_after(SDK_ID)) == 2
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_withdrawal_the_agent_already_took_leaves_the_message_on_its_way(self, service: AssistantService):
+        client = self._client()
+        client.respond_control("cancel_async_message", {"cancelled": False})
+        queued = await self._queue(service, client)
+        try:
+            result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent="edit")
+
+            assert result == {"session_id": SDK_ID, "id": queued["id"], "outcome": "accepted", "message": None}
+            client.push_frame(started_frame(session_id=SDK_ID))
+            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 3)
+            assert entries[2]["uuid"] == queued["id"]
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_message_already_in_the_conversation_reports_accepted(self, service: AssistantService):
+        client = self._client()
+        queued = await self._queue(service, client)
+        try:
+            client.push_frame(started_frame(session_id=SDK_ID))
+            await _wait_for_entries(service.event_log_store, SDK_ID, 3)
+
+            result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent="delete")
+
+            assert result["outcome"] == "accepted"
+            assert client.control_requests == []
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    @pytest.mark.parametrize("intent", ["edit", "delete"])
+    async def test_a_cancel_after_a_failed_withdrawal_follows_the_withdrawal(
+        self, service: AssistantService, intent: WithdrawalIntent
+    ):
+        client = self._client()
+        client.respond_control("cancel_async_message", {"cancelled": False})
+        await TestQueuedMessages()._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            await stream.next("queue")
+            queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID))["queued_message"]
+            result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent=intent)
+            assert result["outcome"] == "accepted"
+
+            # CLI 已从队列取走它，却没把它并入轮次
+            client.push_frame(
+                lambda c: command_lifecycle_frame(c.sent_messages[-1]["uuid"], "cancelled", session_id=SDK_ID)
+            )
+            removed = await stream.next("queue_remove")
+
+            assert removed["id"] == queued["id"]
+            assert removed["withdrawn"] == intent
+            if intent == "edit":
+                assert removed["message"]["content"] == queued["content"]
+            else:
+                assert "message" not in removed
+            assert len(await service.event_log_store.list_after(SDK_ID)) == 2
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_cancel_the_user_did_not_ask_for_is_not_reported_as_a_withdrawal(self, service: AssistantService):
+        client = self._client()
+        await TestQueuedMessages()._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            await stream.next("queue")
+            queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID))["queued_message"]
+            client.push_frame(
+                lambda c: command_lifecycle_frame(c.sent_messages[-1]["uuid"], "cancelled", session_id=SDK_ID)
+            )
+            removed = await stream.next("queue_remove")
+            assert removed == {"session_id": SDK_ID, "id": queued["id"]}
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_cancel_request_error_keeps_the_message_queued_and_the_session_usable(
+        self, service: AssistantService
+    ):
+        client = self._client()
+        client.respond_control("cancel_async_message", RuntimeError("control request timed out"))
+        queued = await self._queue(service, client)
+        try:
+            with pytest.raises(RuntimeError):
+                await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent="delete")
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]
+
+            client.respond_control("cancel_async_message", _cancel_queued(client))
+            result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent="delete")
+
+            assert result["outcome"] == "withdrawn"
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+        finally:
             await service.session_manager.close_session(SDK_ID)

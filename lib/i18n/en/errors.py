@@ -688,6 +688,8 @@ MESSAGES = {
     "rewrite_blocked_by_question": "Answer the question card in the conversation before editing a message",
     "rewrite_blocked_by_queued_messages": "Wait until queued messages join the conversation before editing a message",
     "message_accepted_but_unrecorded": "This message is already being processed but wasn't saved to the conversation history; it won't be sent again, to avoid running it twice. Wait for the Agent's reply instead of resending it",
+    "queued_message_not_found": "This queued message no longer exists; it may have joined the conversation or been withdrawn. Refresh the session to check",
+    "queued_message_withdrawal_pending": "This message is already being withdrawn. Wait for the withdrawal to finish before trying again",
     "session_already_superseded": "This conversation has been replaced by an earlier edit; continue in the new one",
     "rewrite_unavailable": "Message editing is unavailable because conversation storage is turned off",
     "rewrite_interrupt_timeout": "Timed out waiting for the current reply to stop, please try again",

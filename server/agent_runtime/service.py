@@ -43,7 +43,14 @@ from server.agent_runtime.event_log import (
     build_user_entry,
 )
 from server.agent_runtime.keyed_locks import KeyedLocks
-from server.agent_runtime.models import Heartbeat, LiveMessage, SessionMeta, SessionStatus, SubscriptionReady
+from server.agent_runtime.models import (
+    Heartbeat,
+    LiveMessage,
+    SessionMeta,
+    SessionStatus,
+    SubscriptionReady,
+    WithdrawalIntent,
+)
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
 from server.agent_runtime.session_branch import (
     BranchAnchorError,
@@ -646,6 +653,25 @@ class AssistantService:
         await self.session_manager.answer_user_question(session_id, question_id, answers)
         return {"status": "accepted", "session_id": session_id, "question_id": question_id}
 
+    async def withdraw_queued_message(
+        self, project_name: str, session_id: str, message_id: str, *, intent: WithdrawalIntent
+    ) -> dict[str, Any]:
+        """编辑或删除一条排队消息：先向 CLI 撤回，撤回成功才移出排队，编辑时响应带回消息内容。
+
+        ``outcome`` 为 ``withdrawn`` 时消息已移出排队（编辑时 ``message`` 是要退回输入框的内容）；
+        为 ``accepted`` 时 Agent 已接收这条消息，它照常进入对话。
+        """
+        meta = await self.meta_store.get(session_id)
+        if meta is None or meta.project_name != project_name:
+            raise FileNotFoundError(f"session not found: {session_id}")
+        outcome, queued = await self.session_manager.withdraw_queued_message(session_id, message_id, intent)
+        return {
+            "session_id": session_id,
+            "id": message_id,
+            "outcome": outcome,
+            "message": queued.to_payload() if queued is not None and intent == "edit" else None,
+        }
+
     async def interrupt_session(self, session_id: str, *, meta: SessionMeta | None = None) -> dict[str, Any]:
         """Interrupt a running session."""
         if meta is None:
@@ -785,7 +811,9 @@ class AssistantService:
 
                 if msg_type == "queued_message":
                     if message.get("op") == "remove":
-                        yield self._sse_event("queue_remove", {"session_id": session_id, "id": message.get("id")})
+                        # 按用户撤回移出时带上意图（``withdrawn``）与编辑时退回输入框的内容（``message``）
+                        removed = {k: v for k, v in message.items() if k in ("id", "withdrawn", "message")}
+                        yield self._sse_event("queue_remove", {"session_id": session_id, **removed})
                     else:
                         yield self._sse_event(
                             "queue_upsert", {"session_id": session_id, "message": message.get("message")}

@@ -153,6 +153,19 @@ export interface QueuedMessage {
   state: QueuedMessageState;
 }
 
+/** 撤回排队消息的意图：`edit` 把内容退回输入框，`delete` 直接丢弃。 */
+export type QueuedMessageWithdrawal = "edit" | "delete";
+
+/** 编辑 / 删除排队消息的响应。 */
+export interface QueuedMessageWithdrawalResponse {
+  session_id: string;
+  id: string;
+  /** `withdrawn`：已撤回并移出排队；`accepted`：Agent 已接收，消息照常进入对话。 */
+  outcome: "withdrawn" | "accepted";
+  /** 编辑且撤回成功时为要退回输入框的消息，否则为 null。 */
+  message: QueuedMessage | null;
+}
+
 /** 发送与改写端点的受理响应：排队消息与权威条目二者恰有其一。 */
 export interface AcceptedMessageResponse {
   status: string;
