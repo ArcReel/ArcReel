@@ -29,7 +29,7 @@ from server.agent_runtime.service import (
     SessionSupersededError,
 )
 from server.agent_runtime.session_branch import SessionBranchError
-from server.agent_runtime.session_manager import AgentStartupError, SessionCapacityError
+from server.agent_runtime.session_manager import AgentStartupError, SessionCapacityError, UnrecordedMessageError
 from server.i18n import Translator, get_locale
 
 router = APIRouter()
@@ -161,6 +161,10 @@ async def send_message(
             locale=get_locale(request),
             client_key=req.client_key,
         )
+    except SessionSupersededError as exc:
+        raise ConflictError("session_already_superseded") from exc
+    except UnrecordedMessageError as exc:
+        raise ConflictError("message_accepted_but_unrecorded") from exc
     except SessionCapacityError as exc:
         raise ServiceUnavailableError("session_capacity_exceeded") from exc
     except FileNotFoundError as exc:

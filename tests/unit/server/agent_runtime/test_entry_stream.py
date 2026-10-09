@@ -145,6 +145,27 @@ class TestStreamEntryEvents:
         assert events[3][1]["messages"] == []
         assert events[4][1]["status"] == "completed"
 
+    async def test_queue_upsert_on_a_terminal_stream_is_preceded_by_running(self, entry_service):
+        """另一端发来的消息让会话重回 running：排队消息之前先推 running，不落在旧终态之下。"""
+        service, _store = entry_service
+        manager = _FakeEntrySessionManager(status="completed")
+        service.session_manager = manager
+
+        def _send():
+            manager.status_value = "running"
+
+        message = {"id": "user-1", "content": [{"type": "text", "text": "再改第 4 镜"}], "state": "queued"}
+        manager.queue.put_nowait(_send)
+        manager.queue.put_nowait({"type": "queued_message", "op": "upsert", "message": message})
+        manager.end_stream()
+
+        events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
+
+        statuses = [data["status"] for name, data, _ in events if name == "status"]
+        assert statuses == ["completed", "running"]
+        assert events[-1][0] == "queue_upsert"
+        assert events[-1][1]["message"] == message
+
     async def test_stream_stays_open_after_terminal_status_and_pushes_later_entries(self, entry_service):
         """终态 status 只更新状态、不关流：之后发送产生的新一轮照常推送。"""
         service, store = entry_service

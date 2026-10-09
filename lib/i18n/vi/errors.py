@@ -689,6 +689,7 @@ MESSAGES = {
     "rewrite_anchor_invalid": "Tin nhắn bạn muốn sửa không thuộc cuộc trò chuyện này, hãy tải lại rồi thử lại",
     "rewrite_blocked_by_question": "Hãy trả lời thẻ câu hỏi trong cuộc trò chuyện trước khi sửa tin nhắn",
     "rewrite_blocked_by_queued_messages": "Hãy đợi các tin nhắn đang xếp hàng vào cuộc trò chuyện rồi mới sửa tin nhắn",
+    "message_accepted_but_unrecorded": "Tin nhắn này đã bắt đầu được xử lý nhưng chưa được lưu vào lịch sử cuộc trò chuyện; tin nhắn sẽ không được gửi lại để tránh xử lý hai lần. Hãy đợi Agent phản hồi, không cần gửi lại",
     "session_already_superseded": "Cuộc trò chuyện này đã được thay thế bởi một lần sửa trước, hãy tiếp tục ở cuộc trò chuyện mới",
     "rewrite_unavailable": "Không thể sửa tin nhắn vì bản triển khai hiện tại chưa bật lưu trữ hội thoại",
     "rewrite_interrupt_timeout": "Hết thời gian chờ phản hồi hiện tại dừng lại, vui lòng thử lại",

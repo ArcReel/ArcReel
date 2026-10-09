@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import uuid4
 
@@ -431,6 +432,49 @@ class TestRewriteRejections:
         origin = await service.meta_store.get(session_id)
         assert origin is not None
         assert origin.superseded_by is None
+
+
+class TestRewriteAdmission:
+    async def test_a_send_during_the_interrupt_waits_and_is_refused_once_the_origin_is_superseded(self, rewriting):
+        """改写等中断结算期间另一端发来的消息不排进原会话：等分支发布后按「已被取代」拒绝。"""
+        service, runtime, session_id, _ = rewriting
+        runtime.statuses[session_id] = "running"
+        runtime.settle_after_interrupt = False
+        service._INTERRUPT_SETTLE_POLL = 0.01
+        interrupted = asyncio.Event()
+        interrupt_session = runtime.interrupt_session
+
+        async def _interrupt(session_id: str) -> str:
+            status = await interrupt_session(session_id)
+            interrupted.set()
+            return status
+
+        runtime.interrupt_session = _interrupt
+        rewrite = asyncio.create_task(_rewrite(service, session_id, SECOND_USER_ENTRY))
+        await interrupted.wait()
+
+        # 发送读会话元数据的那一步在受理锁内：读没读过，判别它是否停在锁上
+        meta_reads: list[str] = []
+        get_meta = service.meta_store.get
+
+        async def _get_meta(session_id: str) -> Any:
+            meta_reads.append(session_id)
+            return await get_meta(session_id)
+
+        service.meta_store.get = _get_meta
+        send = asyncio.create_task(service.send_or_create(PROJECT_NAME, "第 5 镜删掉", session_id=session_id))
+        # 让发送跑到它的第一个挂起点
+        await asyncio.sleep(0)
+        assert meta_reads == []
+        assert not send.done()
+
+        runtime.statuses[session_id] = "interrupted"
+        result = await rewrite
+        with pytest.raises(SessionSupersededError):
+            await send
+
+        assert runtime.queued.get(session_id) is None
+        assert [d["session_id"] for d in runtime.dispatched] == [result["session_id"]]
 
 
 class TestRewriteDispatchFailure:

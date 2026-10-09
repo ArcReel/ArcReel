@@ -125,6 +125,9 @@ class AssistantService:
         # 同一（原会话, client_key）的并发改写请求在此串行化：分叉的幂等预检读的是
         # 原会话的 superseded 指针，在途窗口内不串行会让两个请求各自分叉一次。
         self._rewrite_locks = KeyedLocks()
+        # 已有会话的消息受理锁：发送与改写互斥。改写从排队检查持有到分支发布，期间到达的发送
+        # 等它结束后看到原会话已被取代，不会排进一个即将被取代的会话。
+        self._admission_locks = KeyedLocks()
         self.stream_heartbeat_seconds = int(os.environ.get("ASSISTANT_STREAM_HEARTBEAT_SECONDS", "20"))
 
     async def startup(self, *, in_docker: bool = False, sandbox_enabled: bool = True) -> None:
@@ -276,29 +279,34 @@ class AssistantService:
 
         已有会话：有轮次在跑时同样受理，响应携带排队消息（``queued_message``），被 Agent 接纳时
         才作为条目经 entry 流下发；同一 ``client_key`` 的重试若消息已入日志，响应携带权威条目
-        （``entry``）。新会话：首条消息写入日志后才返回，响应携带权威条目。前端不渲染任何本地
-        合成消息。
+        （``entry``）。已被改写取代的会话不再受理消息（``SessionSupersededError``）。新会话：首条消息
+        写入日志后才返回，响应携带权威条目。前端不渲染任何本地合成消息。
         """
         self.pm.get_project_path(project_name)  # Validate project
 
         if session_id:
             # Existing session
-            meta = await self.meta_store.get(session_id)
-            if meta is None:
-                raise FileNotFoundError(f"session not found: {session_id}")
-            if meta.project_name != project_name:
-                raise FileNotFoundError(f"session not found: {session_id}")
-            prompt = self._prepare_content(content, images)
-            # 旧会话懒生成先行：保证本条消息排在重放重建的历史之后。
-            await self.event_log.ensure_backfilled(session_id, self._resolve_project_cwd_safe(meta.project_name))
-            accepted = await self.session_manager.send_message(
-                session_id,
-                prompt,
-                meta=meta,
-                locale=locale,
-                user_entry=self._build_user_log_entry(prompt),
-                client_key=client_key,
-            )
+            async with self._admission_locks.lock_for(session_id):
+                meta = await self.meta_store.get(session_id)
+                if meta is None:
+                    raise FileNotFoundError(f"session not found: {session_id}")
+                if meta.project_name != project_name:
+                    raise FileNotFoundError(f"session not found: {session_id}")
+                if meta.superseded_by is not None:
+                    raise SessionSupersededError(
+                        f"session {session_id} has already been superseded by {meta.superseded_by}"
+                    )
+                prompt = self._prepare_content(content, images)
+                # 旧会话懒生成先行：保证本条消息排在重放重建的历史之后。
+                await self.event_log.ensure_backfilled(session_id, self._resolve_project_cwd_safe(meta.project_name))
+                accepted = await self.session_manager.send_message(
+                    session_id,
+                    prompt,
+                    meta=meta,
+                    locale=locale,
+                    user_entry=self._build_user_log_entry(prompt),
+                    client_key=client_key,
+                )
             return self._accepted_response(session_id, accepted)
         # New session
         if not client_key:
@@ -505,13 +513,14 @@ class AssistantService:
         # 可回答的问答，读内存即读真相。
         if await self.session_manager.get_pending_questions_snapshot(session_id):
             raise PendingQuestionError(f"session {session_id} has pending questions")
-        # 中断只停当前轮，排队消息会接着执行，分支里也不会有它们
-        if self.session_manager.get_queued_messages_snapshot(session_id):
-            raise QueuedMessagesPendingError(f"session {session_id} has queued messages")
+        # 排队检查到分支发布之间不受理新消息：中断只停当前轮，排队消息会接着执行，分支里也不会有它们
+        async with self._admission_locks.lock_for(session_id):
+            if self.session_manager.get_queued_messages_snapshot(session_id):
+                raise QueuedMessagesPendingError(f"session {session_id} has queued messages")
 
-        await self._settle_running_session(session_id)
+            await self._settle_running_session(session_id)
 
-        branched = await self._branch_or_reject(session_id, anchor_entry_uuid)
+            branched = await self._branch_or_reject(session_id, anchor_entry_uuid)
         new_session_id = branched.session_id
         # 分支一旦发布（superseded 指针已指向新会话），其后每一步都在补偿范围内：
         # 中途失败若不撤回，原会话被隐藏、新会话又没收到改写后的消息，重试还会
@@ -749,9 +758,12 @@ class AssistantService:
                 message = stream_event.message
                 msg_type = message.get("type", "")
 
-                if msg_type in ("log_entry", "log_delta", "ask_user_question") and status != "running":
-                    # 发送、自主轮次都在 inbox 序上先切 running 再产出这些消息：
-                    # 先推 running，新一轮的内容不落在旧终态之下。
+                if (
+                    msg_type in ("log_entry", "log_delta", "ask_user_question", "queued_message")
+                    and status != "running"
+                ):
+                    # 发送、自主轮次都先切 running 再产出这些消息（发送登记排队消息与切 running 同步完成）：
+                    # 先推 running，新一轮的内容与排队消息不落在旧终态之下。
                     live_status = await self.session_manager.get_status(session_id) or status
                     if live_status == "running":
                         status = live_status

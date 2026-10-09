@@ -166,6 +166,51 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().entries.map((e) => e.uuid)).toEqual(["u-0"]);
   });
 
+  it("keeps a pending send locked when the stream reports the previous turn idle", async () => {
+    mockIdleSession();
+    const pending = createDeferred<AcceptedMessageResponse>();
+    const send = vi.spyOn(API, "sendAssistantMessage").mockReturnValue(pending.promise);
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => expect(FakeSseStream.instances).toHaveLength(1));
+    let first: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      first = result.current.sendMessage("补充要求");
+    });
+    act(() => {
+      FakeSseStream.instances[0].emit("status", { session_id: "session-1", status: "completed" });
+    });
+    expect(useAssistantStore.getState().sending).toBe(true);
+    await act(async () => {
+      expect(await result.current.sendMessage("补充要求")).toBe(false);
+      pending.resolve({ session_id: "session-1", status: "accepted", entry: null, queued_message: queuedMessage("u-1", "补充要求") });
+      expect(await first).toBe(true);
+    });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(useAssistantStore.getState().sending).toBe(false);
+  });
+
+  it("keeps server queue order when a send response arrives before earlier stream events", async () => {
+    mockIdleSession();
+    vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({
+      session_id: "session-1",
+      status: "accepted",
+      entry: null,
+      queued_message: queuedMessage("u-2", "本页发出的消息"),
+    });
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => expect(FakeSseStream.instances).toHaveLength(1));
+
+    await act(async () => {
+      expect(await result.current.sendMessage("本页发出的消息")).toBe(true);
+    });
+    act(() => {
+      const stream = FakeSseStream.instances[0];
+      stream.emit("queue_upsert", { session_id: "session-1", message: queuedMessage("u-1", "另一页先发出的消息") });
+      stream.emit("queue_upsert", { session_id: "session-1", message: queuedMessage("u-2", "本页发出的消息") });
+    });
+    expect(useAssistantStore.getState().queuedMessages.map((message) => message.id)).toEqual(["u-1", "u-2"]);
+  });
+
   it("puts a message sent during a reply into the tray, and a late response does not bring back one already taken", async () => {
     vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
       sessions: [makeSession("session-1", "running")],
@@ -190,6 +235,9 @@ describe("useAssistantSession", () => {
 
     await act(async () => {
       expect(await result.current.sendMessage("再改第 4 镜")).toBe(true);
+    });
+    act(() => {
+      stream.emit("queue_upsert", { session_id: "session-1", message: queuedMessage("u-1", "再改第 4 镜") });
     });
     expect(queuedIds()).toEqual(["u-1"]);
     expect(useAssistantStore.getState().sessionStatus).toBe("running");
@@ -364,6 +412,36 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().entries).toHaveLength(1);
     expect(FakeSseStream.instances).toHaveLength(1);
     expect(stream.close).not.toHaveBeenCalled();
+  });
+
+  it("keeps the CLI terminal status when the queued message left the queue unaccepted before the send response", async () => {
+    mockIdleSession();
+    const deferred = createDeferred<AcceptedMessageResponse>();
+    vi.spyOn(API, "sendAssistantMessage").mockReturnValue(deferred.promise);
+
+    const { result } = renderHook(() => useAssistantSession("demo"));
+    await waitFor(() => {
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+    const stream = FakeSseStream.instances[0];
+    let send: Promise<boolean>;
+    act(() => {
+      send = result.current.sendMessage("hello");
+    });
+    // CLI 没接纳就退出：消息离开排队、没有条目，会话落到终态
+    act(() => {
+      stream.emit("status", { status: "running" });
+      stream.emit("queue_upsert", { session_id: "session-1", message: queuedMessage("u-0", "hello") });
+      stream.emit("queue_remove", { session_id: "session-1", id: "u-0" });
+      stream.emit("status", { status: "error" });
+    });
+    await act(async () => {
+      deferred.resolve({ session_id: "session-1", status: "accepted", entry: null, queued_message: queuedMessage("u-0", "hello") });
+      expect(await send).toBe(true);
+    });
+
+    expect(useAssistantStore.getState().sessionStatus).toBe("error");
+    expect(useAssistantStore.getState().queuedMessages).toEqual([]);
   });
 
   it("sets running after accepted when only an older terminal snapshot arrived during send", async () => {

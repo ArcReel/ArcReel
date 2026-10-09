@@ -106,6 +106,10 @@ class SessionCapacityError(Exception):
     """所有并发槽位已被 running 会话占满，无法创建新连接。"""
 
 
+class UnrecordedMessageError(Exception):
+    """同键重试命中的消息已被 Agent 接纳，但没能写入事件日志：不再送入 CLI，避免同一消息执行两次。"""
+
+
 class AgentStartupError(RuntimeError):
     """ClaudeSDKClient 启动失败时携带 SDK stderr 的异常。
 
@@ -200,16 +204,6 @@ class _QueuedMessageSettled:
     lifecycle: CommandLifecycle
 
 
-# 送入 CLI 的消息 uuid、幂等键在会话内存中的保留条数：回放与重试都紧跟在发送之后，留足余量即可。
-_SENT_MESSAGE_MEMORY = 500
-
-
-def _remember(table: dict[str, str], key: str, value: str) -> None:
-    table[key] = value
-    while len(table) > _SENT_MESSAGE_MEMORY:
-        del table[next(iter(table))]
-
-
 def _user_message_frame(content: str | list[dict[str, Any]], cli_uuid: str) -> dict[str, Any]:
     """送入 CLI 的用户消息帧。带 uuid 的消息才会有 ``command_lifecycle`` 帧，回放也保留这个 uuid。"""
     return {
@@ -253,7 +247,7 @@ class ManagedSession:
     pending_questions: dict[str, PendingQuestion] = field(default_factory=dict)
     # 排队消息，按发送顺序：已交给 CLI、尚未被接纳进对话。CLI 报告开始处理（started）时写入日志并移出。
     queued_messages: list[QueuedMessage] = field(default_factory=list)
-    # 送入 CLI 的消息 uuid → 用户条目 uuid：CLI 回放的用户消息凭此认出自己，接纳后仍保留，重复回放幂等忽略。
+    # 送入 CLI 的消息 uuid → 用户条目 uuid：保留到会话清理，迟到的重复回放同样幂等忽略。
     sent_message_entries: dict[str, str] = field(default_factory=dict)
     # 幂等键 → 用户条目 uuid：排队期间的重试凭此返回同一条排队消息，接纳后由事件日志承担。
     sent_client_keys: dict[str, str] = field(default_factory=dict)
@@ -268,7 +262,9 @@ class ManagedSession:
     # 首条用户消息落库失败的异常：inbox 任务记录，send_new_session 醒来后
     # 据此显式回报失败（事件日志是时间线唯一读源，seq 0 缺失不可接受）。
     initial_user_entry_error: Exception | None = None
+    # 用量记账的 prompt：本轮 result 之前被接纳的消息并入同一轮，依次追加；result 之后被接纳的消息开新一轮。
     last_user_prompt: str = ""
+    turn_usage_recorded: bool = True
     assistant_model: str = ""
     interrupt_requested: bool = False
     last_activity: float | None = None  # updated on every send/receive
@@ -279,6 +275,8 @@ class ManagedSession:
     # 进入 running 的信号计数：送达消息、读到 CLI 报告非 idle 时递增。CLI 报 idle 时记下当时的值，
     # inbox 处理到它时若计数已变，说明其后又有消息送达或 CLI 又开始工作，这个 idle 已过时。
     _running_epoch: int = 0
+    # 最近一次读到 CLI 报 idle 时的进入 running 计数；与当前计数相同说明此后没有进入 running 的信号。
+    _cli_idle_epoch: int | None = None
     # inbox 已停止处理：actor 仍在读帧，但读到 CLI 开始工作也不再切入 running，否则无人收尾。
     _inbox_stopped: bool = False
     _cleanup_task: asyncio.Task | None = None  # current cleanup timer (idle TTL or terminal delay)
@@ -313,6 +311,18 @@ class ManagedSession:
         self.turn_outcome = None
         self.last_turn_result = None
         return True
+
+    def abandon_running(self, epoch: int) -> None:
+        """一次 ``enter_running`` 没把消息送到 CLI，``epoch`` 是进入前的计数。
+
+        计数不回退，否则之后的进入会与此前读出的 idle 重号。期间没有其他进入 running 的信号、
+        CLI 在这次进入之前或期间已报 idle 时，按当前计数补一次 idle 通知：此前读出的 idle 可能
+        已被当作过时忽略，此后也不会再有 idle 结算进行中的轮次。
+        """
+        if self._running_epoch != epoch + 1 or self._cli_idle_epoch not in (epoch, epoch + 1):
+            return
+        self._cli_idle_epoch = self._running_epoch
+        self._inbox.put_nowait(_CliIdleNotice(epoch=self._running_epoch))
 
     def _on_actor_message(self, msg: dict[str, Any]) -> None:
         """SessionActor 的 on_message 回调。同步，内存操作，不 await。
@@ -648,6 +658,7 @@ class SessionManager:
             managed._inbox.put_nowait(msg_dict)
             cli_state = _cli_session_state(msg_dict)
             if cli_state == "idle":
+                managed._cli_idle_epoch = managed._running_epoch
                 managed._inbox.put_nowait(_CliIdleNotice(epoch=managed._running_epoch))
             elif (
                 (cli_state in ("running", "requires_action") or is_main_turn_activity(msg_dict))
@@ -834,8 +845,9 @@ class SessionManager:
         # 登记 uuid 让 CLI 的回放认出自己，只关联 transcript 身份、不二次落库。
         cli_uuid = str(uuid4())
         if user_entry is not None:
-            _remember(managed.sent_message_entries, cli_uuid, str(user_entry["uuid"]))
+            managed.sent_message_entries[cli_uuid] = str(user_entry["uuid"])
         managed.last_user_prompt = _content_text(content)
+        managed.turn_usage_recorded = False
 
         try:
             await managed.send_query(_user_message_frame(content, cli_uuid))
@@ -1178,68 +1190,75 @@ class SessionManager:
         managed = await self.get_or_connect(session_id, meta=meta, locale=locale, resumable=resumable)
         managed.last_activity = time.monotonic()
 
-        if client_key is not None:
-            accepted = await self._find_sent_message(managed, session_id, client_key)
-            if accepted is not None:
-                return accepted
+        # 查重、登记、投递与失败回滚共用一个临界区；重试只认领已完成投递的消息。
+        async with managed.send_lock:
+            if client_key is not None:
+                accepted = await self._find_sent_message(managed, session_id, client_key)
+                if accepted is not None:
+                    return accepted
 
-        # 从这里到登记排队消息之间不 await：幂等键的内存查重与登记必须连在一起
-        if user_entry is None:
-            user_entry = build_user_entry([{"type": "text", "text": content}] if isinstance(content, str) else content)
-        cli_uuid = str(uuid4())
-        queued = QueuedMessage(entry=user_entry, cli_uuid=cli_uuid, client_key=client_key)
-        managed.queued_messages.append(queued)
-        _remember(managed.sent_message_entries, cli_uuid, queued.id)
-        if client_key is not None:
-            _remember(managed.sent_client_keys, client_key, queued.id)
-        managed.last_user_prompt = _content_text(content)
-        # 先广播再送入：CLI 报告 started 后移出的广播不能早于加入的广播
-        managed.channel.broadcast({"type": "queued_message", "op": "upsert", "message": queued.to_payload()})
-        # 登记即进入 running：闲置清理与驱逐不在送入之前断开会话
-        managed.enter_running()
+            if user_entry is None:
+                user_entry = build_user_entry(
+                    [{"type": "text", "text": content}] if isinstance(content, str) else content
+                )
+            cli_uuid = str(uuid4())
+            queued = QueuedMessage(entry=user_entry, cli_uuid=cli_uuid, client_key=client_key)
+            managed.queued_messages.append(queued)
+            managed.sent_message_entries[cli_uuid] = queued.id
+            if client_key is not None:
+                managed.sent_client_keys[client_key] = queued.id
+            # 先广播再送入：CLI 报告 started 后移出的广播不能早于加入的广播
+            managed.channel.broadcast({"type": "queued_message", "op": "upsert", "message": queued.to_payload()})
+            # 登记即进入 running：闲置清理与驱逐不在送入之前断开会话
+            epoch = managed._running_epoch
+            turn_in_progress = not managed.enter_running()
 
-        try:
-            # 锁在登记之后、不经 await 获取，消息按排队顺序进入 CLI
-            async with managed.send_lock:
-                await self.meta_store.update_status(session_id, "running")
-                await managed.send_query(_user_message_frame(content, cli_uuid), sdk_session_id=session_id)
-        except Exception as exc:
-            logger.error("会话消息处理失败: %s", redact_diagnostic_text(exc))
-            # 投递失败即受理失败：撤下排队消息并释放幂等键，同键重试会重新送入
-            managed.discard_queued_message(queued)
-            managed.status = "error"
+            delivering = False
             try:
-                await self.meta_store.update_status(session_id, "error")
-            except Exception:
-                logger.exception("持久化 error 状态失败 session_id=%s", session_id)
-            raise
-        return {"queued_message": queued.to_payload()}
+                await self.meta_store.update_status(session_id, "running")
+                delivering = True
+                await managed.send_query(_user_message_frame(content, cli_uuid), sdk_session_id=session_id)
+            except Exception as exc:
+                logger.error("会话消息处理失败: %s", redact_diagnostic_text(exc))
+                # 投递失败即受理失败：撤下排队消息并释放幂等键，同键重试会重新送入
+                managed.discard_queued_message(queued)
+                if turn_in_progress:
+                    # meta 写入失败时消息没送入 CLI，进行中的轮次照常由 CLI 的 idle 结算；
+                    # 写入 CLI 失败说明管道已断，actor 随之退出，由 send_query 与 actor 退出路径落 error
+                    if not delivering:
+                        managed.abandon_running(epoch)
+                    raise
+                managed.status = "error"
+                try:
+                    await self.meta_store.update_status(session_id, "error")
+                except Exception:
+                    logger.exception("持久化 error 状态失败 session_id=%s", session_id)
+                # 订阅者可能已随排队消息切到 running，没有轮次会再报 idle，终态须显式广播
+                managed.channel.broadcast({"type": "runtime_status", "status": "error", "reason": "send failed"})
+                raise
+            return {"queued_message": queued.to_payload()}
 
     async def _find_sent_message(
         self, managed: ManagedSession, session_id: str, client_key: str
     ) -> dict[str, Any] | None:
         """按幂等键找已受理的消息：仍在排队时返回排队消息，已入日志时返回权威条目；未受理过返回 None。
 
-        返回 None 时调用方须不经 await 立即登记：内存表在库查询之后再查一次，等库期间同一键的
-        并发请求已经登记的，这里能看到。
+        已被接纳但日志写入失败时抛 ``UnrecordedMessageError``，不把同一消息再送一次。
+
+        调用方持有 send_lock 直到投递或失败回滚完成，排队表只包含此前已完成投递的消息。
         """
         entry_uuid = managed.sent_client_keys.get(client_key)
-        if entry_uuid is None:
-            # 会话复活前受理的消息只在事件日志里
-            existing = await self.event_log_store.find_by_client_key(session_id, client_key)
-            if existing is not None:
-                return {"entry": existing}
-            entry_uuid = managed.sent_client_keys.get(client_key)
-            if entry_uuid is None:
-                return None
-        queued = managed.find_queued_message(message_id=entry_uuid)
-        if queued is not None:
-            return {"queued_message": queued.to_payload()}
+        if entry_uuid is not None:
+            queued = managed.find_queued_message(message_id=entry_uuid)
+            if queued is not None:
+                return {"queued_message": queued.to_payload()}
         entry = await self.event_log_store.find_by_client_key(session_id, client_key)
-        if entry is None:
-            # 已被接纳、日志写入失败：当作未受理，同键重试重新送入
-            return None
-        return {"entry": entry}
+        if entry is not None:
+            return {"entry": entry}
+        if entry_uuid is not None:
+            # 幂等键只在消息未被接纳就离开排队时释放：键还在却不在日志里，是接纳后日志写入失败
+            raise UnrecordedMessageError(f"message {entry_uuid} was accepted but not recorded")
+        return None
 
     async def _settle_queued_message(self, managed: ManagedSession, lifecycle: CommandLifecycle) -> None:
         """CLI 报告排队消息的去向：started 即被接纳，写入事件日志后移出排队列表。
@@ -1251,6 +1270,10 @@ class SessionManager:
         if queued is None:
             return
         if lifecycle.state == "started":
+            # 用量按轮次记账：送入时它可能还排在进行中的轮次之后，被接纳时才计入本轮的 prompt
+            text = _content_text(queued.entry.get("content", []))
+            managed.last_user_prompt = text if managed.turn_usage_recorded else f"{managed.last_user_prompt}\n{text}"
+            managed.turn_usage_recorded = False
             if managed.entry_pipeline is not None:
                 await managed.entry_pipeline.append_user_entry(queued.entry, client_key=queued.client_key)
             managed.remove_queued_message(queued)
@@ -1301,6 +1324,9 @@ class SessionManager:
                 msg_dict,
                 interrupt_requested=managed.interrupt_requested,
             )
+            # 中断只作用于它之后的第一个 result，在帧到达时就消费：排队消息开启的下一轮
+            # 可能在本轮收尾之前就结束，不能沿用这个标记
+            managed.interrupt_requested = False
         elif msg_dict.get("type") == "system" and msg_dict.get("subtype") == "init":
             self._check_auto_memory_path(managed, msg_dict)
 
@@ -1398,6 +1424,7 @@ class SessionManager:
             await self._record_assistant_usage(managed, result_msg, outcome)
         except Exception:
             logger.exception("记录 assistant usage 失败 session_id=%s", managed.session_id)
+        managed.turn_usage_recorded = True
         managed.interrupt_requested = False
 
     async def _settle_cli_idle(self, managed: ManagedSession, epoch: int) -> None:

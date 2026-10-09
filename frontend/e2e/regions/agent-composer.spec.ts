@@ -4,13 +4,14 @@ import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 import { idleSessionApi } from "../support/assistant-session.ts";
 
-// Agent 面板输入区：Agent 提问时的问卷、待办进度行、会话历史与删除确认、斜杠命令菜单、输入框里的图片附件。
-// 会话与提问都是手写的压力数据：长标题、长选项、多条会话。
+// Agent 面板输入区：Agent 提问时的问卷、待办进度行、排队消息托盘、会话历史与删除确认、斜杠命令菜单、
+// 输入框里的图片附件。会话、提问与排队消息都是手写的压力数据：长标题、长选项、多条会话、多条排队消息。
 const EPISODE_PATH = "/app/projects/demo/episodes/1";
 const SESSIONS_PATH = "/api/v1/projects/demo/assistant/sessions";
 const PANEL_WIDTH_KEY = "arcreel_assistant_panel_width";
 const ASK_SESSION_ID = "session-ask";
 const IDLE_SESSION_ID = "session-0";
+const QUEUE_SESSION_ID = "session-queue";
 
 // 160×96 的双色方格 PNG，缩略图里看得出是一张图。
 const IMAGE_DATA =
@@ -102,6 +103,40 @@ function buildStream(): string {
   return lines.join("\n");
 }
 
+// 回复进行中连发 20 条：长短交替，长的占满两行截断。
+const QUEUED_MESSAGES = Array.from({ length: 20 }, (_, index) => ({
+  id: `queued-${index + 1}`,
+  content: [
+    {
+      type: "text",
+      text:
+        index % 2 === 0
+          ? `第 ${index + 1} 条：第 ${index + 3} 个镜头改成黄昏，巡夜人的提灯要成为画面里唯一的暖色，旁白放慢半拍，和城门打开的声音对齐。`
+          : `第 ${index + 1} 条：结尾再加一个空镜`,
+    },
+  ],
+  timestamp: "2026-01-01T07:59:00.000Z",
+  state: "queued",
+}));
+
+/** running 会话：时间线从 entry 流回放，开场的排队消息快照里有 20 条消息。 */
+function buildQueueStream(): string {
+  const lines = ["retry: 30000", ""];
+  for (const entry of buildEntries()) {
+    lines.push(`id: ${entry.seq}`, "event: entry", `data: ${JSON.stringify(entry)}`, "");
+  }
+  lines.push(
+    "event: queue",
+    `data: ${JSON.stringify({ session_id: QUEUE_SESSION_ID, messages: QUEUED_MESSAGES })}`,
+    "",
+    "event: status",
+    `data: ${JSON.stringify({ session_id: QUEUE_SESSION_ID, status: "running" })}`,
+    "",
+    "",
+  );
+  return lines.join("\n");
+}
+
 function session(id: string, title: string, status: string, updatedAt: string) {
   return { id, project_name: "demo", title, status, created_at: "2026-01-01T05:00:00.000Z", updated_at: updatedAt };
 }
@@ -118,6 +153,15 @@ const ASK_API: ApiOverrides = {
   [`GET ${SESSIONS_PATH}`]: { status: 200, body: { sessions: [ASK_SESSION] } },
   [`GET ${SESSIONS_PATH}/${ASK_SESSION_ID}`]: { status: 200, body: { session: ASK_SESSION } },
   [`GET ${SESSIONS_PATH}/${ASK_SESSION_ID}/entries/stream`]: { status: 200, body: buildStream() },
+};
+
+const QUEUE_SESSION = session(QUEUE_SESSION_ID, "重新拆分第 1 集分镜", "running", "2026-01-01T07:59:00.000Z");
+
+const QUEUE_API: ApiOverrides = {
+  ...EVENTS_STREAM,
+  [`GET ${SESSIONS_PATH}`]: { status: 200, body: { sessions: [QUEUE_SESSION] } },
+  [`GET ${SESSIONS_PATH}/${QUEUE_SESSION_ID}`]: { status: 200, body: { session: QUEUE_SESSION } },
+  [`GET ${SESSIONS_PATH}/${QUEUE_SESSION_ID}/entries/stream`]: { status: 200, body: buildQueueStream() },
 };
 
 const HISTORY_TITLES = [
@@ -151,10 +195,16 @@ const transcript = (page: Page) => page.getByRole("region", { name: "对话记�
 const questionnaire = (page: Page) => page.getByRole("form", { name: "Agent 的提问" });
 const todoRow = (page: Page) => page.getByRole("button", { name: /正在拆分开场段落的镜头.*1\/6/ });
 const agentInput = (page: Page) => page.getByRole("combobox", { name: "Agent 输入" });
+const queueTray = (page: Page) => page.getByRole("list", { name: "排队消息" });
 
 async function questionReady(page: Page) {
   await questionnaire(page).waitFor();
   await todoRow(page).waitFor();
+  await page.getByText("生成时容易出现光线不一致").waitFor();
+}
+
+async function queueReady(page: Page) {
+  await expect(queueTray(page).getByRole("listitem")).toHaveCount(QUEUED_MESSAGES.length);
   await page.getByText("生成时容易出现光线不一致").waitFor();
 }
 
@@ -214,6 +264,20 @@ defineRegionScenarios("Agent 输入区", [
       await expect(list).toContainText("整理改动清单交给你确认");
       await waitForEntrance(list);
       await expect(questionnaire(page).getByRole("button", { name: "下一题" })).toBeInViewport();
+    },
+  },
+  {
+    name: "回复进行中排队 20 条消息：托盘在自己的区域里滚动，停在最新一条，输入框与停止按钮仍在面板内",
+    path: EPISODE_PATH,
+    api: QUEUE_API,
+    ready: queueReady,
+    act: async (page) => {
+      await expect(queueTray(page).getByText("第 20 条：结尾再加一个空镜")).toBeInViewport();
+      await expect(queueTray(page).getByText(/^第 1 条：/)).not.toBeInViewport();
+      await expect(agentInput(page)).toBeInViewport();
+      await expect(agentPanel(page).getByRole("button", { name: "停止回复", exact: true })).toBeInViewport();
+      const flowHeight = (await transcript(page).boundingBox())?.height ?? 0;
+      expect(flowHeight, "托盘之上仍要留出消息区").toBeGreaterThan(48);
     },
   },
   {
