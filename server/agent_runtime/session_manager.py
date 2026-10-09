@@ -586,7 +586,8 @@ class SessionManager:
         # CLI 自主开启新一轮、会话回到 running 时的通知出口（参数：项目名、会话 id），
         # 见 _persist_cli_resumed。
         self._autonomous_turn_listener: Callable[[str, str], None] | None = None
-        self._disconnecting: set[str] = set()
+        # 正在驱逐的会话 → 驱逐完成时置位的事件；连接在驱逐完成后才按冷会话重建，不与它交错。
+        self._disconnecting: dict[str, asyncio.Event] = {}
         # 优雅 send_disconnect 的等待上限；超时后各调用点再走无界的 cancel 兜底。
         self._session_actor_shutdown_timeout: float = 15.0
         self._connect_locks: dict[str, asyncio.Lock] = {}
@@ -1161,104 +1162,148 @@ class SessionManager:
         消息分叉出的分支）：这类会话没有历史可 resume，改以 ``session_id=`` 预指定
         身份开一个全新会话。首轮跑完 transcript 即存在，之后照常按 resume 复活。
         """
-        if session_id in self.sessions and session_id not in self._disconnecting:
-            return self.sessions[session_id]
+        cached = self.sessions.get(session_id)
+        if cached is not None and session_id not in self._disconnecting and not cached.actor_exited:
+            return cached
 
-        # Per-session lock prevents concurrent connect() for the same session_id.
-        if session_id not in self._connect_locks:
-            self._connect_locks[session_id] = asyncio.Lock()
-        lock = self._connect_locks[session_id]
+        while True:
+            # Per-session lock prevents concurrent connect() for the same session_id.
+            lock = self._connect_locks.setdefault(session_id, asyncio.Lock())
+            async with lock:
+                if self._connect_locks.get(session_id) is not lock:
+                    # 等锁期间驱逐摘掉了这把锁：改到当前的锁上排队，不与新锁的持有者并发连接
+                    continue
+                cached, detached = await self._retire_exited_session(session_id)
+                if cached is not None:
+                    return cached
+                try:
+                    managed = await self._connect_resumed_session(
+                        session_id, meta=meta, locale=locale, resumable=resumable
+                    )
+                except BaseException:
+                    channel = self._channels.get(session_id)
+                    if detached is not None and channel is not None:
+                        # 旧会话已驱逐、新连接没建起来：同驱逐一样丢弃排队消息，仍在的订阅者随之移出托盘
+                        for queued in detached.messages:
+                            channel.broadcast({"type": "queued_message", "op": "remove", "id": queued.id})
+                    raise
+                if detached is not None:
+                    managed.adopt_queued_messages(detached)
+                return managed
 
-        async with lock:
-            # Re-check after acquiring lock
-            if session_id in self.sessions and session_id not in self._disconnecting:
-                return self.sessions[session_id]
+    async def _retire_exited_session(self, session_id: str) -> tuple[ManagedSession | None, _DetachedQueue | None]:
+        """连接锁内调用：返回仍可用的常驻会话，或在没有可用会话时返回需要转入新连接的排队消息。
 
+        正在驱逐的会话等驱逐完成，此后按冷会话重建。actor 已退出（CLI 退出、会话尚未被清理）的会话
+        先等 inbox 处理完退出通知，再取走排队消息（不广播，「未发送」消息留在托盘、不自动重发）并驱逐它。
+        """
+        detached: _DetachedQueue | None = None
+        while (cached := self.sessions.get(session_id)) is not None:
+            eviction = self._disconnecting.get(session_id)
+            if eviction is not None:
+                await eviction.wait()
+                continue
+            if not cached.actor_exited:
+                return cached, None
+            if cached._process_task is not None and not cached._process_task.done():
+                # 退出通知把排队消息转为「未发送」、把会话落为终态，取走排队消息要排在它之后
+                await asyncio.wait({cached._process_task})
+                continue
+            # inbox 先于 actor 停止时没处理退出通知，CLI 同样已不在
+            cached.mark_queued_messages_unsent()
+            detached = cached.detach_queued_messages()
+            await self._evict_one(cached)
+        return None, detached
+
+    async def _connect_resumed_session(
+        self, session_id: str, *, meta: SessionMeta | None, locale: str, resumable: bool
+    ) -> ManagedSession:
+        """按冷会话路径启动 actor 并登记会话，调用方持有连接锁。"""
+        if meta is None:
+            meta = await self.meta_store.get(session_id)
             if meta is None:
-                meta = await self.meta_store.get(session_id)
-                if meta is None:
-                    raise FileNotFoundError(f"session not found: {session_id}")
+                raise FileNotFoundError(f"session not found: {session_id}")
 
-            if not SDK_AVAILABLE:
-                exc = RuntimeError("claude_agent_sdk is not installed")
-                raise _make_agent_startup_error(exc, project_name=meta.project_name, session_id=session_id) from exc
+        if not SDK_AVAILABLE:
+            exc = RuntimeError("claude_agent_sdk is not installed")
+            raise _make_agent_startup_error(exc, project_name=meta.project_name, session_id=session_id) from exc
 
-            await self._ensure_capacity()
-            managed_ref: list[ManagedSession | None] = [None]
+        await self._ensure_capacity()
+        managed_ref: list[ManagedSession | None] = [None]
 
-            # 见 send_new_session 同名注释：只在启动阶段无损收集，成功后释放。
-            startup_stderr = _StartupStderrCollector()
+        # 见 send_new_session 同名注释：只在启动阶段无损收集，成功后释放。
+        startup_stderr = _StartupStderrCollector()
 
-            try:
-                options = await self._build_options(
-                    meta.project_name,
-                    meta.id if resumable else None,  # SessionMeta.id 就是 sdk_session_id
-                    can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
-                    locale=locale,
-                    stderr=startup_stderr,
-                    session_id=None if resumable else meta.id,
-                )
-            except Exception as exc:
-                sdk_stderr = startup_stderr.render()
-                startup_stderr.stop()
-                raise _make_agent_startup_error(
-                    exc,
-                    project_name=meta.project_name,
-                    session_id=session_id,
-                    sdk_stderr=sdk_stderr,
-                ) from exc
-            assistant_model = resolve_configured_assistant_model(getattr(options, "env", None))
-
-            actor = SessionActor(
-                client_factory=lambda: ClaudeSDKClient(options=options),
-                on_message=self._make_actor_message_callback(managed_ref),
-                on_command_lifecycle=self._make_command_lifecycle_callback(managed_ref),
+        try:
+            options = await self._build_options(
+                meta.project_name,
+                meta.id if resumable else None,  # SessionMeta.id 就是 sdk_session_id
+                can_use_tool=await self._build_can_use_tool_callback(session_id, managed_ref),
+                locale=locale,
+                stderr=startup_stderr,
+                session_id=None if resumable else meta.id,
             )
-
-            resumed_status: SessionStatus = (
-                meta.status if meta.status in ("idle", "running", "interrupted", "error", "closed") else "idle"
-            )
-            managed = ManagedSession(
-                session_id=meta.id,  # 现在就是 sdk_session_id
-                actor=actor,
-                status=resumed_status,
+        except Exception as exc:
+            sdk_stderr = startup_stderr.render()
+            startup_stderr.stop()
+            raise _make_agent_startup_error(
+                exc,
                 project_name=meta.project_name,
-                assistant_model=assistant_model,
-                resolved_sdk_id=meta.id,  # 标记为已注册，防止重复创建 DB 记录
-                channel=self._session_channel(meta.id),
+                session_id=session_id,
+                sdk_stderr=sdk_stderr,
+            ) from exc
+        assistant_model = resolve_configured_assistant_model(getattr(options, "env", None))
+
+        actor = SessionActor(
+            client_factory=lambda: ClaudeSDKClient(options=options),
+            on_message=self._make_actor_message_callback(managed_ref),
+            on_command_lifecycle=self._make_command_lifecycle_callback(managed_ref),
+        )
+
+        resumed_status: SessionStatus = (
+            meta.status if meta.status in ("idle", "running", "interrupted", "error", "closed") else "idle"
+        )
+        managed = ManagedSession(
+            session_id=meta.id,  # 现在就是 sdk_session_id
+            actor=actor,
+            status=resumed_status,
+            project_name=meta.project_name,
+            assistant_model=assistant_model,
+            resolved_sdk_id=meta.id,  # 标记为已注册，防止重复创建 DB 记录
+            channel=self._session_channel(meta.id),
+        )
+        managed.sdk_id_event.set()  # 已有会话不需要等待 sdk_id
+        managed.entry_pipeline = self._build_entry_pipeline(managed)
+        managed_ref[0] = managed
+        managed.last_activity = time.monotonic()
+        self.sessions[session_id] = managed
+
+        try:
+            await actor.start()
+        except Exception as exc:
+            sdk_stderr = startup_stderr.render()
+            startup_error = _make_agent_startup_error(
+                exc,
+                project_name=meta.project_name,
+                session_id=session_id,
+                sdk_stderr=sdk_stderr,
             )
-            managed.sdk_id_event.set()  # 已有会话不需要等待 sdk_id
-            managed.entry_pipeline = self._build_entry_pipeline(managed)
-            managed_ref[0] = managed
-            managed.last_activity = time.monotonic()
-            self.sessions[session_id] = managed
+            self.sessions.pop(session_id, None)
+            self._release_channel(session_id)
+            raise startup_error from exc
+        finally:
+            startup_stderr.stop()
 
-            try:
-                await actor.start()
-            except Exception as exc:
-                sdk_stderr = startup_stderr.render()
-                startup_error = _make_agent_startup_error(
-                    exc,
-                    project_name=meta.project_name,
-                    session_id=session_id,
-                    sdk_stderr=sdk_stderr,
-                )
-                self.sessions.pop(session_id, None)
-                self._release_channel(session_id)
-                raise startup_error from exc
-            finally:
-                startup_stderr.stop()
+        # done_callback BEFORE processor spawn (avoids race where actor
+        # completes before the callback attaches and the None sentinel
+        # is never pushed).
+        actor.add_done_callback(self._make_actor_done_callback(managed))
 
-            # done_callback BEFORE processor spawn (avoids race where actor
-            # completes before the callback attaches and the None sentinel
-            # is never pushed).
-            actor.add_done_callback(self._make_actor_done_callback(managed))
-
-            managed._process_task = asyncio.create_task(
-                self._process_inbox(managed),
-                name=f"inbox-{session_id}",
-            )
-            return managed
+        managed._process_task = asyncio.create_task(
+            self._process_inbox(managed),
+            name=f"inbox-{session_id}",
+        )
+        return managed
 
     async def send_message(
         self,
@@ -1282,6 +1327,14 @@ class SessionManager:
         prompt only when the revival starts a fresh session (see there).
         ``resumable`` 透传给 ``get_or_connect``，见其文档。
         """
+        exited = self.sessions.get(session_id)
+        if client_key is not None and exited is not None and exited.actor_exited:
+            # CLI 已退出：已受理过的重试（如「未发送」消息）原样返回，不为查重复活会话
+            async with exited.send_lock:
+                accepted = await self._find_sent_message(exited, session_id, client_key)
+            if accepted is not None:
+                return accepted
+
         managed = await self.get_or_connect(session_id, meta=meta, locale=locale, resumable=resumable)
         managed.last_activity = time.monotonic()
 
@@ -1566,10 +1619,8 @@ class SessionManager:
         if queued.state != "unsent":
             return queued
         if managed.actor_exited:
-            detached = managed.detach_queued_messages()
-            await self._evict_one(managed)
+            # 复活会话，未发送的消息随之转入新连接（见 get_or_connect）
             managed = await self.get_or_connect(session_id, meta=meta, locale=locale)
-            managed.adopt_queued_messages(detached)
             if managed.find_queued_message(message_id=message_id) is not queued or queued.state != "unsent":
                 raise QueuedMessageNotFoundError(f"queued message {message_id} not found in session {session_id}")
 
@@ -1867,7 +1918,7 @@ class SessionManager:
         session_id = managed.session_id
         if session_id in self._disconnecting:
             return
-        self._disconnecting.add(session_id)
+        self._disconnecting[session_id] = asyncio.Event()
         try:
             # Cancel any pending cleanup timer first
             if managed._cleanup_task is not None and not managed._cleanup_task.done():
@@ -1921,8 +1972,11 @@ class SessionManager:
         finally:
             self.sessions.pop(session_id, None)
             self._release_channel(session_id)
-            self._connect_locks.pop(session_id, None)
-            self._disconnecting.discard(session_id)
+            # 连接锁被持有时不摘：持有者正在等这次驱逐完成后重建连接，摘掉会让后来者另起一把锁并发连接
+            lock = self._connect_locks.get(session_id)
+            if lock is not None and not lock.locked():
+                del self._connect_locks[session_id]
+            self._disconnecting.pop(session_id).set()
 
     async def _get_cleanup_delay(self) -> int:
         """返回会话清理延迟秒数，默认 300（5 分钟）。"""

@@ -175,7 +175,11 @@ class TestSessionManager:
             await asyncio.sleep(0)
             assert created_clients
             assert created_clients[0].connected
-            assert managed is await session_manager.get_or_connect(meta.id)
+            # 替身的 CLI 立即退出：再次连接丢弃 actor 已退出的旧会话，重建连接
+            await managed.actor.wait()
+            revived = await session_manager.get_or_connect(meta.id)
+            assert revived is not managed
+            assert len(created_clients) == 2
             # Graceful teardown so the actor task doesn't leak.
             await session_manager.close_session(meta.id)
 
