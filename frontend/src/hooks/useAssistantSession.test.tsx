@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { AgentFailureError, API } from "@/api";
+import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type {
   AcceptedMessageResponse,
@@ -164,6 +165,91 @@ describe("useAssistantSession", () => {
     });
     expect(queuedIds()).toEqual(["u-1"]);
     expect(useAssistantStore.getState().entries.map((e) => e.uuid)).toEqual(["u-0"]);
+  });
+
+  describe("editing and deleting queued messages", () => {
+    async function openRunningSession() {
+      vi.spyOn(API, "listAssistantSessions").mockResolvedValue({ sessions: [makeSession("session-1", "running")] });
+      vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+      const hook = renderHook(() => useAssistantSession("demo"));
+      await waitFor(() => expect(FakeSseStream.instances).toHaveLength(1));
+      const stream = FakeSseStream.instances[0];
+      act(() => {
+        stream.emit("queue", { session_id: "session-1", messages: [queuedMessage("u-1", "第 3 镜改成黄昏")] });
+      });
+      return { ...hook, stream };
+    }
+
+    it("hands the content of an edited message to the input once and drops it from the tray", async () => {
+      const { result, stream } = await openRunningSession();
+      const withdraw = vi.spyOn(API, "withdrawQueuedMessage").mockResolvedValue({
+        session_id: "session-1",
+        id: "u-1",
+        outcome: "withdrawn",
+        message: queuedMessage("u-1", "第 3 镜改成黄昏"),
+      });
+
+      await act(async () => {
+        await result.current.withdrawQueuedMessage("u-1", "edit");
+      });
+      // 流上的移出可能晚于响应到达：内容不再退回第二次
+      act(() => {
+        stream.emit("queue_remove", {
+          session_id: "session-1",
+          id: "u-1",
+          withdrawn: "edit",
+          message: queuedMessage("u-1", "第 3 镜改成黄昏"),
+        });
+      });
+
+      expect(withdraw).toHaveBeenCalledWith("demo", "session-1", "u-1", "edit");
+      expect(useAssistantStore.getState().composerAppends).toEqual([[{ type: "text", text: "第 3 镜改成黄昏" }]]);
+      expect(useAssistantStore.getState().queuedMessages).toEqual([]);
+    });
+
+    it("tells the user the agent already received it, then follows a later cancel back to the input", async () => {
+      const { result, stream } = await openRunningSession();
+      vi.spyOn(API, "withdrawQueuedMessage").mockResolvedValue({
+        session_id: "session-1",
+        id: "u-1",
+        outcome: "accepted",
+        message: null,
+      });
+
+      await act(async () => {
+        await result.current.withdrawQueuedMessage("u-1", "edit");
+      });
+
+      expect(useAppStore.getState().toast?.text).toBe("已被 Agent 接收，这条消息会照常进入对话");
+      expect(useAssistantStore.getState().queuedMessages.map((m) => m.id)).toEqual(["u-1"]);
+      // Agent 最终没有处理它：按编辑退回输入框
+      act(() => {
+        stream.emit("queue_remove", {
+          session_id: "session-1",
+          id: "u-1",
+          withdrawn: "edit",
+          message: queuedMessage("u-1", "第 3 镜改成黄昏"),
+        });
+      });
+      expect(useAssistantStore.getState().composerAppends).toEqual([[{ type: "text", text: "第 3 镜改成黄昏" }]]);
+      expect(useAssistantStore.getState().queuedMessages).toEqual([]);
+    });
+
+    it("drops a message another page edited without touching this page's input", async () => {
+      const { stream } = await openRunningSession();
+
+      act(() => {
+        stream.emit("queue_remove", {
+          session_id: "session-1",
+          id: "u-1",
+          withdrawn: "edit",
+          message: queuedMessage("u-1", "第 3 镜改成黄昏"),
+        });
+      });
+
+      expect(useAssistantStore.getState().queuedMessages).toEqual([]);
+      expect(useAssistantStore.getState().composerAppends).toEqual([]);
+    });
   });
 
   it("keeps a pending send locked when the stream reports the previous turn idle", async () => {

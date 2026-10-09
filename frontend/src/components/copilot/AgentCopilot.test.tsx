@@ -110,6 +110,7 @@ describe("AgentCopilot", () => {
   const createNewSession = vi.fn();
   const switchSession = vi.fn().mockResolvedValue(undefined);
   const deleteSession = vi.fn().mockResolvedValue(true);
+  const withdrawQueuedMessage = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
@@ -126,6 +127,7 @@ describe("AgentCopilot", () => {
       createNewSession,
       switchSession,
       deleteSession,
+      withdrawQueuedMessage,
     });
   });
 
@@ -363,6 +365,48 @@ describe("AgentCopilot", () => {
       expect(items[0]).toHaveTextContent("第 3 镜改成黄昏");
       expect(items[0]).toHaveTextContent("排队中");
       expect(items[1]).toHaveTextContent("1 张图片");
+    });
+
+    it("editing a queued message appends its text and images after what is already in the input", async () => {
+      const user = userEvent.setup();
+      const content = [
+        { type: "image" as const, source: { type: "base64" as const, media_type: "image/png", data: "AAAA" } },
+        { type: "text" as const, text: "第 3 镜改成黄昏" },
+      ];
+      // 撤回成功时 hook 把内容交给输入框
+      withdrawQueuedMessage.mockImplementationOnce(async () => {
+        useAssistantStore.getState().appendToComposer(content);
+      });
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [{ id: "q-1", content, state: "queued" }],
+      });
+      render(<AgentCopilot />);
+      const input = screen.getByRole("combobox", { name: "Agent 输入" });
+      await user.type(input, "片尾加字幕");
+
+      const item = within(screen.getByRole("list", { name: "排队消息" })).getByRole("listitem");
+      await user.click(within(item).getByRole("button", { name: "编辑" }));
+
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
+      await waitFor(() => expect(input).toHaveValue("片尾加字幕\n第 3 镜改成黄昏"));
+      expect(screen.getByRole("button", { name: "放大图片附件 1" })).toBeInTheDocument();
+    });
+
+    it("deleting a queued message withdraws it without touching the input", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "queued" }],
+      });
+      render(<AgentCopilot />);
+
+      await user.click(screen.getByRole("button", { name: "删除" }));
+
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
+      expect(screen.getByRole("combobox", { name: "Agent 输入" })).toHaveValue("");
     });
 
     it("scrolls a long queue inside the tray and follows the newest message, leaving the input and stop button in place", () => {

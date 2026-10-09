@@ -1,18 +1,29 @@
-import { useLayoutEffect, useRef } from "react";
-import { Clock } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Clock, Pencil, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { Button } from "@/components/ui/button";
 import { useAssistantStore } from "@/stores/assistant-store";
-import type { QueuedMessage } from "@/types";
+import type { QueuedMessage, QueuedMessageWithdrawal } from "@/types";
+import { voidCall } from "@/utils/async";
 import { turnPlainText } from "./chat/utils";
 
 // ---------------------------------------------------------------------------
 // QueuedMessageTray — 输入框正上方的排队消息托盘。
 // 回复进行中发出、Agent 尚未接纳的消息按发送顺序堆叠；被接纳的消息离开托盘，
 // 作为用户消息出现在时间线上。没有排队消息时不渲染。
+// 每条消息行尾是逐条操作，顺序为（立即发送、）编辑、删除：编辑把内容退回输入框，删除直接丢弃，
+// 两者都要先向 Agent 撤回，撤回请求在途时这条消息的操作暂不可用。
 // 高度上限是 Agent 面板高度的 30%，与待办清单一致，超出后在托盘内滚动，输入框与发送按钮不被挤出面板。
 // ---------------------------------------------------------------------------
 
-export function QueuedMessageTray() {
+interface QueuedMessageTrayProps {
+  /** 编辑或删除一条排队消息。 */
+  onWithdraw: (id: string, intent: QueuedMessageWithdrawal) => Promise<void>;
+  /** 发送请求在途：受理后会清空输入框，此时退回的内容会被一并清掉，暂不能编辑。 */
+  editDisabled: boolean;
+}
+
+export function QueuedMessageTray({ onWithdraw, editDisabled }: QueuedMessageTrayProps) {
   const { t } = useTranslation("dashboard");
   const messages = useAssistantStore((s) => s.queuedMessages);
   const listRef = useRef<HTMLUListElement>(null);
@@ -29,7 +40,7 @@ export function QueuedMessageTray() {
   if (messages.length === 0) return null;
 
   return (
-    // 列表里没有可聚焦的元素，列表自身可聚焦，键盘才能滚动
+    // 列表自身可聚焦，键盘才能滚动
     <ul
       ref={listRef}
       aria-label={t("queued_messages_label")}
@@ -38,14 +49,24 @@ export function QueuedMessageTray() {
       className="relative mb-2 flex max-h-[30cqh] flex-col gap-1 overflow-y-auto rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
     >
       {messages.map((message) => (
-        <QueuedMessageItem key={message.id} message={message} />
+        <QueuedMessageItem key={message.id} message={message} onWithdraw={onWithdraw} editDisabled={editDisabled} />
       ))}
     </ul>
   );
 }
 
-function QueuedMessageItem({ message }: { message: QueuedMessage }) {
+function QueuedMessageItem({
+  message,
+  onWithdraw,
+  editDisabled,
+}: { message: QueuedMessage } & QueuedMessageTrayProps) {
   const { t } = useTranslation("dashboard");
+  const [withdrawing, setWithdrawing] = useState(false);
+  const withdraw = (intent: QueuedMessageWithdrawal) => {
+    setWithdrawing(true);
+    // 撤回成功时这一行随排队消息移出而卸载，复位只对仍在托盘里的行生效
+    voidCall(onWithdraw(message.id, intent).finally(() => setWithdrawing(false)));
+  };
   const text = turnPlainText({ type: "user", content: message.content }).trim();
   const imageCount = message.content.filter((block) => block.type === "image").length;
 
@@ -57,6 +78,27 @@ function QueuedMessageItem({ message }: { message: QueuedMessage }) {
         {imageCount > 0 && <p className="text-muted-foreground">{t("queued_message_images", { count: imageCount })}</p>}
       </div>
       <span className="shrink-0 text-muted-foreground">{t("queued_message_state_queued")}</span>
+      {/* #3108 的「立即发送」排在编辑之前 */}
+      <div className="-my-0.5 flex shrink-0 items-center">
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          disabled={withdrawing || editDisabled}
+          onClick={() => withdraw("edit")}
+          aria-label={t("queued_message_edit")}
+        >
+          <Pencil aria-hidden />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          disabled={withdrawing}
+          onClick={() => withdraw("delete")}
+          aria-label={t("queued_message_delete")}
+        >
+          <Trash2 aria-hidden />
+        </Button>
+      </div>
     </li>
   );
 }

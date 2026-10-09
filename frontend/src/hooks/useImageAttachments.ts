@@ -213,6 +213,11 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     processNext();
   }, [images.length, processNext, t]);
 
+  // 退回输入框的图片已经过发送时的转码，原样追加；超过上限也全部保留，由用户自己挑掉多出的
+  const appendImages = useCallback((appended: AttachedImage[]) => {
+    if (appended.length > 0) setImages((current) => [...current, ...appended]);
+  }, []);
+
   const removeImage = useCallback((id: string) => {
     setImages((current) => current.filter((image) => image.id !== id));
     setError(null);
@@ -239,6 +244,7 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     error,
     isReading: pendingTranscodes > 0,
     addFiles,
+    appendImages,
     removeImage,
     resetImages,
     invalidatePendingTranscodes,

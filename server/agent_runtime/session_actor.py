@@ -31,13 +31,17 @@ async def _single_message(message: dict[str, Any]) -> AsyncIterator[dict[str, An
 
 @dataclass
 class SessionCommand:
-    type: Literal["query", "interrupt", "disconnect"]
+    type: Literal["query", "interrupt", "cancel", "disconnect"]
     # query 送入 CLI 的用户消息帧（带服务端分配的 uuid）
     message: dict[str, Any] | None = None
+    # cancel 要从 CLI 队列撤回的消息 uuid（送入时携带的那个）
+    message_uuid: str | None = None
+    # cancel 的结果：True 表示已从 CLI 队列撤回，False 表示 CLI 已取走或从未收到这条消息
+    cancelled: bool | None = None
     session_id: str = "default"
     # disconnect 之前先中断当前轮：会话仍在 running 时由会话层置位
     interrupt_first: bool = False
-    # 命令处理完毕：query 已写入 CLI 输入流（不代表 CLI 已开始处理它），或 interrupt / disconnect 已执行
+    # 命令处理完毕：query 已写入 CLI 输入流（不代表 CLI 已开始处理它），或 interrupt / cancel / disconnect 已执行
     done: asyncio.Event = field(default_factory=asyncio.Event)
     error: BaseException | None = None
 
@@ -202,6 +206,8 @@ class SessionActor:
                         raise caught
                 elif cmd.type == "query":
                     await self._send_query(client, cmd)
+                elif cmd.type == "cancel":
+                    await self._cancel_message(client, cmd)
         finally:
             pump.cancel()
             if cmd_task is not None:
@@ -219,6 +225,17 @@ class SessionActor:
         except BaseException as exc:
             cmd.complete(exc)
             raise
+        cmd.complete()
+
+    @staticmethod
+    async def _cancel_message(client: Any, cmd: SessionCommand) -> None:
+        """撤回失败（CLI 报错、控制请求超时）只回报给调用方：消息流仍在，会话照常可用。"""
+        assert cmd.message_uuid is not None
+        try:
+            cmd.cancelled = await sdk_frames.cancel_async_message(client, cmd.message_uuid)
+        except Exception as exc:
+            cmd.complete(exc)
+            return
         cmd.complete()
 
     async def enqueue(self, cmd: SessionCommand) -> None:

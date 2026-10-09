@@ -625,6 +625,8 @@ MESSAGES = {
     "rewrite_blocked_by_question": "请先回答对话中的提问卡片，再改写消息",
     "rewrite_blocked_by_queued_messages": "请等排队消息进入对话后，再改写消息",
     "message_accepted_but_unrecorded": "这条消息已开始处理，但没能写入对话记录；为避免重复执行，不会再次发送。请等待 Agent 回复，无需重发",
+    "queued_message_not_found": "找不到这条排队消息，它可能已进入对话或已被撤回。请刷新会话后查看",
+    "queued_message_withdrawal_pending": "这条消息正在撤回，请等撤回完成后再操作",
     "session_already_superseded": "这个会话已被一次消息改写取代，请在新的对话中继续",
     "rewrite_unavailable": "当前部署未开启会话记录存储，无法改写消息",
     "rewrite_interrupt_timeout": "等待当前回复停止超时，请稍后重试",

@@ -4,6 +4,7 @@ import { errMsg, voidCall } from "@/utils/async";
 import { AgentFailureError, API } from "@/api";
 import { uid } from "@/utils/id";
 import type { AttachedImage } from "@/hooks/useImageAttachments";
+import { useAppStore } from "@/stores/app-store";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type { SseStreamHandle } from "@/utils/sse-stream";
 import type {
@@ -12,6 +13,7 @@ import type {
   ImagePayload,
   PendingQuestion,
   QueuedMessage,
+  QueuedMessageWithdrawal,
   SessionMeta,
   TimelineEntry,
 } from "@/types";
@@ -81,6 +83,9 @@ export function useAssistantSession(projectName: string | null) {
   const pendingSendVersionRef = useRef(0);
   // 失败重试复用同一幂等键（同内容签名），成功后清除
   const failedSendRef = useRef<{ clientKey: string; signature: string } | null>(null);
+  // 本页点了「编辑」、内容还没退回输入框的排队消息 id。撤回答复失败后仍保留：Agent 随后若没处理它，
+  // 流上的移出事件会带回内容。退回一次即删除，响应与流上的移出谁先到都只退回一次；其他页面不在此列。
+  const pendingEditsRef = useRef(new Set<string>());
   const failedRewriteRef = useRef<{ clientKey: string; signature: string } | null>(null);
 
   const syncPendingQuestion = useCallback((question: PendingQuestion | null) => {
@@ -249,7 +254,15 @@ export function useAssistantSession(projectName: string | null) {
           if (isQueuedMessage(payload.message)) store.getState().upsertQueuedMessage(payload.message);
         },
         queue_remove(payload) {
-          if (typeof payload.id === "string") store.getState().removeQueuedMessage(payload.id);
+          if (typeof payload.id !== "string") return;
+          if (
+            pendingEditsRef.current.delete(payload.id) &&
+            payload.withdrawn === "edit" &&
+            isQueuedMessage(payload.message)
+          ) {
+            store.getState().appendToComposer(payload.message.content);
+          }
+          store.getState().removeQueuedMessage(payload.id);
         },
         question(payload) {
           const pendingQuestion = getPendingQuestionFromEvent(payload);
@@ -577,6 +590,31 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, store],
   );
 
+  // 编辑或删除一条排队消息：服务端先向 Agent 撤回。编辑撤回成功时内容追加到输入框；
+  // Agent 已接收时提示，消息照常进入对话
+  const withdrawQueuedMessage = useCallback(
+    async (messageId: string, intent: QueuedMessageWithdrawal) => {
+      const sessionId = store.getState().currentSessionId;
+      if (!projectName || !sessionId) return;
+      if (intent === "edit") pendingEditsRef.current.add(messageId);
+      try {
+        const result = await API.withdrawQueuedMessage(projectName, sessionId, messageId, intent);
+        if (result.outcome === "accepted") {
+          useAppStore.getState().pushToast(t("queued_message_already_accepted"), "info");
+          return;
+        }
+        if (result.message && pendingEditsRef.current.delete(messageId)) {
+          store.getState().appendToComposer(result.message.content);
+        }
+        if (store.getState().currentSessionId === sessionId) store.getState().removeQueuedMessage(messageId);
+      } catch (err) {
+        pendingEditsRef.current.delete(messageId);
+        store.getState().setError(errMsg(err, t("queued_message_withdraw_failed")));
+      }
+    },
+    [projectName, store, t],
+  );
+
   // 中断会话
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
@@ -813,7 +851,16 @@ export function useAssistantSession(projectName: string | null) {
     writeSessions,
   ]);
 
-  return { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession };
+  return {
+    sendMessage,
+    rewriteMessage,
+    answerQuestion,
+    interrupt,
+    createNewSession,
+    switchSession,
+    deleteSession,
+    withdrawQueuedMessage,
+  };
 }
 
 function isQueuedMessage(value: unknown): value is QueuedMessage {

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type {
+  ContentBlock,
   DraftDeltaPayload,
   DraftState,
   FailureObservation,
@@ -53,6 +54,8 @@ interface AssistantState {
 
   // Input
   input: string;
+  /** 待追加到输入框末尾的消息内容（编辑排队消息时退回），由输入框取走。 */
+  composerAppends: ContentBlock[][];
   sending: boolean;
   interrupting: boolean;
   error: string | null;
@@ -124,6 +127,10 @@ interface AssistantState {
   /** 这条消息是否已经离开排队（被接纳或被丢弃）。 */
   hasLeftQueue: (id: string) => boolean;
   setInput: (input: string) => void;
+  /** 把一条消息的内容交给输入框，追加在已有内容之后。 */
+  appendToComposer: (content: ContentBlock[]) => void;
+  /** 输入框取走待追加的内容。 */
+  takeComposerAppends: () => ContentBlock[][];
   setSending: (sending: boolean) => void;
   setInterrupting: (interrupting: boolean) => void;
   setError: (error: string | null) => void;
@@ -204,6 +211,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     historySeq: -1,
     queuedMessages: [],
     input: "",
+    composerAppends: [],
     sending: false,
     interrupting: false,
     error: null,
@@ -332,6 +340,12 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
     },
     hasLeftQueue: (id) => settledQueuedIds.has(id),
     setInput: (input) => set({ input }),
+    appendToComposer: (content) => set({ composerAppends: [...get().composerAppends, content] }),
+    takeComposerAppends: () => {
+      const appends = get().composerAppends;
+      if (appends.length > 0) set({ composerAppends: [] });
+      return appends;
+    },
     setSending: (sending) => set({ sending }),
     setInterrupting: (interrupting) => set({ interrupting }),
     setError: (error) => set({ error }),

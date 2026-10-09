@@ -11,7 +11,7 @@ import time
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, ClassVar, Optional
+from typing import Any, ClassVar, Literal, Optional
 from uuid import uuid4
 
 from lib.agent.agent_memory_paths import project_memory_dir
@@ -45,6 +45,7 @@ from server.agent_runtime.models import (
     SessionStatus,
     SessionStreamEvent,
     SubscriptionReady,
+    WithdrawalIntent,
 )
 from server.agent_runtime.options_assembler import OptionsAssembler
 from server.agent_runtime.result_status import resolve_result_status
@@ -108,6 +109,18 @@ class SessionCapacityError(Exception):
 
 class UnrecordedMessageError(Exception):
     """同键重试命中的消息已被 Agent 接纳，但没能写入事件日志：不再送入 CLI，避免同一消息执行两次。"""
+
+
+class QueuedMessageNotFoundError(Exception):
+    """要撤回的消息不是本会话排队过的消息（或会话已不在内存中，排队消息随之清理）。"""
+
+
+class QueuedMessageWithdrawalPendingError(Exception):
+    """同一条排队消息的撤回仍在等待 CLI 答复。"""
+
+
+WithdrawalOutcome = Literal["withdrawn", "accepted"]
+"""撤回排队消息的结果：``withdrawn`` 已撤回并移出排队，``accepted`` 已被 Agent 接收、照常进入对话。"""
 
 
 class AgentStartupError(RuntimeError):
@@ -354,18 +367,36 @@ class ManagedSession:
                 return queued
         return None
 
-    def remove_queued_message(self, queued: QueuedMessage) -> None:
-        """移出排队列表并广播；已不在列表中时什么也不做。"""
+    def remove_queued_message(self, queued: QueuedMessage, **broadcast_fields: Any) -> None:
+        """移出排队列表并广播；已不在列表中时什么也不做。``broadcast_fields`` 随移出广播一同下发。"""
         if queued not in self.queued_messages:
             return
         self.queued_messages.remove(queued)
-        self.channel.broadcast({"type": "queued_message", "op": "remove", "id": queued.id})
+        self.channel.broadcast({"type": "queued_message", "op": "remove", "id": queued.id, **broadcast_fields})
 
-    def discard_queued_message(self, queued: QueuedMessage) -> None:
+    def discard_queued_message(self, queued: QueuedMessage, **broadcast_fields: Any) -> None:
         """排队消息未被接纳就离开：移出并释放幂等键，同键重试会重新送入。"""
-        self.remove_queued_message(queued)
+        self.remove_queued_message(queued, **broadcast_fields)
         if queued.client_key is not None and self.sent_client_keys.get(queued.client_key) == queued.id:
             del self.sent_client_keys[queued.client_key]
+
+    def withdraw_queued_message(self, queued: QueuedMessage) -> None:
+        """排队消息按用户撤回离开：移出广播带上撤回意图，编辑时附上内容，发起撤回的页面据此退回输入框。
+
+        撤回成功的答复与 CLI 的 cancelled 帧谁先处理都走这里，重复调用什么也不做。
+        """
+        if queued not in self.queued_messages:
+            return
+        assert queued.withdrawal is not None
+        queued.withdrawn = True
+        fields: dict[str, Any] = {"withdrawn": queued.withdrawal}
+        if queued.withdrawal == "edit":
+            fields["message"] = queued.to_payload()
+        self.discard_queued_message(queued, **fields)
+
+    def was_sent(self, message_id: str) -> bool:
+        """这条消息曾作为排队消息送入本会话的 CLI。"""
+        return message_id in self.sent_message_entries.values()
 
     def drop_queued_messages(self) -> None:
         """CLI 已不在，排队消息不会再被处理：全部丢弃并广播。"""
@@ -1278,6 +1309,10 @@ class SessionManager:
                 await managed.entry_pipeline.append_user_entry(queued.entry, client_key=queued.client_key)
             managed.remove_queued_message(queued)
             return
+        if queued.withdrawal is not None:
+            # 撤回答复失败（CLI 已从队列取走它）之后 CLI 仍没处理它：按用户当初的意图收尾
+            managed.withdraw_queued_message(queued)
+            return
         logger.warning(
             "排队消息未被 CLI 处理 session_id=%s state=%s message_id=%s",
             managed.session_id,
@@ -1285,6 +1320,50 @@ class SessionManager:
             queued.id,
         )
         managed.discard_queued_message(queued)
+
+    async def withdraw_queued_message(
+        self, session_id: str, message_id: str, intent: WithdrawalIntent
+    ) -> tuple[WithdrawalOutcome, QueuedMessage | None]:
+        """按用户的编辑 / 删除撤回一条排队消息：经 actor 向 CLI 撤回，撤回成功才移出排队。
+
+        返回 ``("withdrawn", 消息)``：已从 CLI 队列撤回并移出排队，同时释放幂等键。返回
+        ``("accepted", None)``：CLI 已取走这条消息，它照常进入对话；之后 CLI 若仍报 cancelled，
+        按记下的 ``intent`` 收尾（见 ``_settle_queued_message``）。不是本会话排队过的消息时抛
+        ``QueuedMessageNotFoundError``；同一条消息的撤回仍在等待 CLI 答复时抛
+        ``QueuedMessageWithdrawalPendingError``。
+        """
+        managed = self.sessions.get(session_id)
+        queued = managed.find_queued_message(message_id=message_id) if managed is not None else None
+        if managed is None or queued is None:
+            if managed is not None and managed.was_sent(message_id):
+                # 已离开排队：在托盘移除送达之前点的编辑 / 删除，消息已进入对话
+                return "accepted", None
+            raise QueuedMessageNotFoundError(f"queued message {message_id} not found in session {session_id}")
+        if queued.withdrawing:
+            raise QueuedMessageWithdrawalPendingError(f"queued message {message_id} is being withdrawn")
+        previous_intent = queued.withdrawal
+        queued.withdrawal = intent
+        if previous_intent is not None:
+            # 此前的撤回已被 CLI 答复失败：不再问 CLI，只换成最新的意图
+            return "accepted", None
+
+        queued.withdrawing = True
+        try:
+            # 在发送锁内入队：撤回排在此前所有消息的投递之后，CLI 收到撤回时已经有这条消息
+            async with managed.send_lock:
+                cmd = SessionCommand(type="cancel", message_uuid=queued.cli_uuid)
+                await managed.actor.enqueue(cmd)
+            await cmd.done.wait()
+        finally:
+            queued.withdrawing = False
+        if cmd.error is not None:
+            queued.withdrawal = None
+            raise cmd.error
+        if cmd.cancelled:
+            managed.withdraw_queued_message(queued)
+        if queued.withdrawn:
+            return "withdrawn", queued
+        return "accepted", None
 
     async def interrupt_session(self, session_id: str) -> SessionStatus:
         """Interrupt a running session via the actor."""

@@ -40,8 +40,16 @@ export function AgentCopilot() {
 
   const { currentProjectName } = useProjectsStore();
   const toggleAssistantPanel = useAppStore((s) => s.toggleAssistantPanel);
-  const { sendMessage, rewriteMessage, answerQuestion, interrupt, createNewSession, switchSession, deleteSession } =
-    useAssistantSession(currentProjectName);
+  const {
+    sendMessage,
+    rewriteMessage,
+    answerQuestion,
+    interrupt,
+    createNewSession,
+    switchSession,
+    deleteSession,
+    withdrawQueuedMessage,
+  } = useAssistantSession(currentProjectName);
 
   const flowRef = useRef<MessageFlowHandle>(null);
   const composerRef = useRef<AgentComposerHandle>(null);
@@ -170,6 +178,7 @@ export function AgentCopilot() {
         placeholder={isRunning ? t("dashboard:generating_queue_hint") : t("dashboard:input_placeholder")}
         onSend={handleSend}
         onInterrupt={() => voidCall(interrupt())}
+        onWithdrawQueued={withdrawQueuedMessage}
       />
     </div>
   );
