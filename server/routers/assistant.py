@@ -405,17 +405,32 @@ async def interrupt_session(project_name: str, session_id: str, _t: Translator):
 
 
 async def _act_on_queued_message(
-    session_id: str, action: Callable[[AssistantService], Awaitable[dict]], _t: Translator
+    project_name: str, session_id: str, action: Callable[[AssistantService], Awaitable[dict]], _t: Translator
 ) -> dict:
-    """排队消息操作（编辑、删除、立即发送）共用的错误映射。"""
+    """排队消息操作（编辑、删除、重新发送、立即发送）共用的错误映射。
+
+    重新发送与对「未发送」消息的立即发送会在 CLI 已退出时重建会话连接，可能遇到容量已满或启动失败。
+    """
     try:
         return await action(get_assistant_service())
     except QueuedMessageNotFoundError as exc:
         raise NotFoundError("queued_message_not_found") from exc
     except QueuedMessageWithdrawalPendingError as exc:
         raise ConflictError("queued_message_withdrawal_pending") from exc
+    except SessionCapacityError as exc:
+        raise ServiceUnavailableError("session_capacity_exceeded") from exc
     except FileNotFoundError as exc:
         raise NotFoundError("session_not_found", session_id=session_id) from exc
+    except AgentStartupError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=agent_startup_failure_detail(
+                exc,
+                project_name=project_name,
+                session_id=session_id,
+                title=_t("agent_startup_failed_title"),
+            ),
+        ) from exc
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
@@ -425,6 +440,7 @@ async def _withdraw_queued_message(
     project_name: str, session_id: str, message_id: str, intent: WithdrawalIntent, _t: Translator
 ) -> dict:
     return await _act_on_queued_message(
+        project_name,
         session_id,
         lambda service: service.withdraw_queued_message(project_name, session_id, message_id, intent=intent),
         _t,
@@ -449,28 +465,12 @@ async def delete_queued_message(project_name: str, session_id: str, message_id: 
 @router.post("/sessions/{session_id}/queued-messages/{message_id}/resend")
 async def resend_queued_message(project_name: str, session_id: str, message_id: str, request: Request, _t: Translator):
     """把一条「未发送」消息重新交给 Agent，会话已中断时先重建连接。响应带回这条排队消息（``queued_message``）。"""
-    try:
-        service = get_assistant_service()
-        return await service.resend_queued_message(project_name, session_id, message_id, locale=get_locale(request))
-    except QueuedMessageNotFoundError as exc:
-        raise NotFoundError("queued_message_not_found") from exc
-    except SessionCapacityError as exc:
-        raise ServiceUnavailableError("session_capacity_exceeded") from exc
-    except FileNotFoundError as exc:
-        raise NotFoundError("session_not_found", session_id=session_id) from exc
-    except AgentStartupError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=agent_startup_failure_detail(
-                exc,
-                project_name=project_name,
-                session_id=session_id,
-                title=_t("agent_startup_failed_title"),
-            ),
-        ) from exc
-    except Exception as exc:
-        logger.exception("请求处理失败")
-        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+    return await _act_on_queued_message(
+        project_name,
+        session_id,
+        lambda service: service.resend_queued_message(project_name, session_id, message_id, locale=get_locale(request)),
+        _t,
+    )
 
 
 @router.post("/sessions/{session_id}/queued-messages/{message_id}/send-now")
@@ -480,7 +480,10 @@ async def send_queued_message_now(project_name: str, session_id: str, message_id
     ``outcome`` 为 ``sent`` 时已重新送入，消息仍留在托盘里直到被接纳；为 ``accepted`` 时 Agent 已接收它，不再重发。
     """
     return await _act_on_queued_message(
-        session_id, lambda service: service.send_queued_message_now(project_name, session_id, message_id), _t
+        project_name,
+        session_id,
+        lambda service: service.send_queued_message_now(project_name, session_id, message_id),
+        _t,
     )
 
 

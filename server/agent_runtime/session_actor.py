@@ -229,13 +229,20 @@ class SessionActor:
 
     @staticmethod
     async def _cancel_message(client: Any, cmd: SessionCommand) -> None:
-        """撤回失败（CLI 报错、控制请求超时）只回报给调用方：消息流仍在，会话照常可用。"""
+        """撤回失败（CLI 报错、控制请求超时）只回报给调用方：消息流仍在，会话照常可用。
+
+        等答复期间 actor 被取消（如驱逐等不到断开）时，命令已出队，队列清理够不着它：以 actor
+        已关闭唤醒调用方，取消照常向上传播。
+        """
         assert cmd.message_uuid is not None
         try:
             cmd.cancelled = await sdk_frames.cancel_async_message(client, cmd.message_uuid)
         except Exception as exc:
             cmd.complete(exc)
             return
+        except BaseException:
+            cmd.complete(_ActorClosed())
+            raise
         cmd.complete()
 
     async def enqueue(self, cmd: SessionCommand) -> None:

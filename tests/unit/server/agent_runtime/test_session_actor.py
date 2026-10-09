@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage
@@ -438,6 +439,37 @@ async def test_interrupt_failure_still_wakes_waiter():
     finally:
         # actor 已 crash；cancel 清理
         await actor.cancel_and_wait()
+
+
+class _HangingCancelClient(FakeSDKClient):
+    """撤回请求发出后 CLI 一直不答复。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cancel_requested = asyncio.Event()
+        self._query = SimpleNamespace(
+            receive_messages=self._query.receive_messages, _send_control_request=self._never_answer
+        )
+
+    async def _never_answer(self, request: dict) -> dict:
+        self.cancel_requested.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
+async def test_cancelling_the_actor_while_a_withdrawal_waits_for_the_cli_still_wakes_the_caller():
+    """驱逐等不到断开时会取消 actor：正在等 CLI 答复的撤回也要唤醒调用方，不能挂住它。"""
+    client = _HangingCancelClient()
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+    cmd = SessionCommand(type="cancel", message_uuid="u-1")
+    await actor.enqueue(cmd)
+    await asyncio.wait_for(client.cancel_requested.wait(), timeout=1.0)
+
+    await actor.cancel_and_wait()
+
+    assert cmd.done.is_set()
+    assert isinstance(cmd.error, _ActorClosed)
 
 
 async def test_actor_exits_when_message_stream_closes():

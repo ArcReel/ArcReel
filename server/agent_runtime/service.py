@@ -664,7 +664,9 @@ class AssistantService:
         meta = await self.meta_store.get(session_id)
         if meta is None or meta.project_name != project_name:
             raise FileNotFoundError(f"session not found: {session_id}")
-        outcome, queued = await self.session_manager.withdraw_queued_message(session_id, message_id, intent)
+        # 与发送共用受理锁：发送重建连接期间「未发送」消息暂离会话，撤回等连接建好后再找它
+        async with self._admission_locks.lock_for(session_id):
+            outcome, queued = await self.session_manager.withdraw_queued_message(session_id, message_id, intent)
         return {
             "session_id": session_id,
             "id": message_id,
@@ -693,7 +695,9 @@ class AssistantService:
         meta = await self.meta_store.get(session_id)
         if meta is None or meta.project_name != project_name:
             raise FileNotFoundError(f"session not found: {session_id}")
-        outcome = await self.session_manager.send_queued_message_now(session_id, message_id)
+        # 同撤回：不与发送重建连接交错；对「未发送」消息还会自己重建连接，与重新发送一样串行
+        async with self._admission_locks.lock_for(session_id):
+            outcome = await self.session_manager.send_queued_message_now(session_id, message_id)
         return {"session_id": session_id, "id": message_id, "outcome": outcome}
 
     async def interrupt_session(self, session_id: str, *, meta: SessionMeta | None = None) -> dict[str, Any]:

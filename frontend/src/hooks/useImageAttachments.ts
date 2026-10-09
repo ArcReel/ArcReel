@@ -223,13 +223,11 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     setError(null);
   }, []);
 
-  const resetImages = useCallback(() => {
-    generationRef.current += 1;
-    setImages([]);
+  // 发送受理后移除已发出的图片；发送途中追加的图片不在其中，保留
+  const removeImages = useCallback((ids: string[]) => {
+    const removed = new Set(ids);
+    setImages((current) => current.filter((image) => !removed.has(image.id)));
     setError(null);
-    setPendingTranscodes(0);
-    pendingSlotsRef.current = 0;
-    queueRef.current = [];
   }, []);
 
   const invalidatePendingTranscodes = useCallback(() => {
@@ -246,7 +244,7 @@ export function useImageAttachments(initialImages: AttachedImage[] | (() => Atta
     addFiles,
     appendImages,
     removeImage,
-    resetImages,
+    removeImages,
     invalidatePendingTranscodes,
   };
 }

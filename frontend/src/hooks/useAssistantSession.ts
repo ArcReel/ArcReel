@@ -595,20 +595,23 @@ export function useAssistantSession(projectName: string | null) {
   const withdrawQueuedMessage = useCallback(
     async (messageId: string, intent: QueuedMessageWithdrawal) => {
       const sessionId = store.getState().currentSessionId;
-      if (!projectName || !sessionId) return;
+      if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName) return;
       if (intent === "edit") pendingEditsRef.current.add(messageId);
       try {
         const result = await API.withdrawQueuedMessage(projectName, sessionId, messageId, intent);
+        // 输入框是共享草稿，导航后仍接收本页已撤回的内容；会话反馈另按作用域隔离。
+        if (result.message && pendingEditsRef.current.delete(messageId)) {
+          store.getState().appendToComposer(result.message.content);
+        }
+        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
         if (result.outcome === "accepted") {
           useAppStore.getState().pushToast(t("queued_message_already_accepted"), "info");
           return;
         }
-        if (result.message && pendingEditsRef.current.delete(messageId)) {
-          store.getState().appendToComposer(result.message.content);
-        }
-        if (store.getState().currentSessionId === sessionId) store.getState().removeQueuedMessage(messageId);
+        store.getState().removeQueuedMessage(messageId);
       } catch (err) {
         pendingEditsRef.current.delete(messageId);
+        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
         store.getState().setError(errMsg(err, t("queued_message_withdraw_failed")));
       }
     },
@@ -619,11 +622,12 @@ export function useAssistantSession(projectName: string | null) {
   const resendQueuedMessage = useCallback(
     async (messageId: string) => {
       const sessionId = store.getState().currentSessionId;
-      if (!projectName || !sessionId) return;
+      if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName) return;
       try {
-        const result = await API.resendQueuedMessage(projectName, sessionId, messageId);
-        if (store.getState().currentSessionId === sessionId) store.getState().upsertQueuedMessage(result.queued_message);
+        // 托盘只消费常驻流，响应里的 queued 可能已被之后的 CLI 退出更新为 unsent。
+        await API.resendQueuedMessage(projectName, sessionId, messageId);
       } catch (err) {
+        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
         store.getState().setError(errMsg(err, t("queued_message_resend_failed")));
       }
     },
@@ -634,11 +638,13 @@ export function useAssistantSession(projectName: string | null) {
   const sendQueuedMessageNow = useCallback(
     async (messageId: string) => {
       const sessionId = store.getState().currentSessionId;
-      if (!projectName || !sessionId) return;
+      if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName) return;
       try {
         const result = await API.sendQueuedMessageNow(projectName, sessionId, messageId);
+        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
         if (result.outcome === "accepted") useAppStore.getState().pushToast(t("queued_message_already_accepted"), "info");
       } catch (err) {
+        if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
         store.getState().setError(errMsg(err, t("queued_message_send_now_failed")));
       }
     },

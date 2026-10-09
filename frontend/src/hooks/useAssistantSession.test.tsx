@@ -8,6 +8,8 @@ import type {
   EntriesResponse,
   PendingQuestion,
   QueuedMessage,
+  QueuedMessageWithdrawalResponse,
+  QueuedMessageResendResponse,
   SessionMeta,
   SkillInfo,
   TimelineEntry,
@@ -171,7 +173,9 @@ describe("useAssistantSession", () => {
     async function openRunningSession() {
       vi.spyOn(API, "listAssistantSessions").mockResolvedValue({ sessions: [makeSession("session-1", "running")] });
       vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
-      const hook = renderHook(() => useAssistantSession("demo"));
+      const hook = renderHook(({ projectName }) => useAssistantSession(projectName), {
+        initialProps: { projectName: "demo" },
+      });
       await waitFor(() => expect(FakeSseStream.instances).toHaveLength(1));
       const stream = FakeSseStream.instances[0];
       act(() => {
@@ -215,10 +219,9 @@ describe("useAssistantSession", () => {
           message: { ...queuedMessage("u-1", "第 3 镜改成黄昏"), state: "unsent" },
         });
       });
-      const resend = vi.spyOn(API, "resendQueuedMessage").mockResolvedValue({
-        session_id: "session-1",
-        id: "u-1",
-        queued_message: queuedMessage("u-1", "第 3 镜改成黄昏"),
+      const resend = vi.spyOn(API, "resendQueuedMessage").mockImplementation(async () => {
+        stream.emit("queue_upsert", { session_id: "session-1", message: queuedMessage("u-1", "第 3 镜改成黄昏") });
+        return { session_id: "session-1", id: "u-1", queued_message: queuedMessage("u-1", "第 3 镜改成黄昏") };
       });
 
       await act(async () => {
@@ -230,7 +233,81 @@ describe("useAssistantSession", () => {
       expect(useAssistantStore.getState().composerAppends).toEqual([]);
     });
 
-    it("tells the user the agent already received it, then follows a later cancel back to the input", async () => {
+    it.each(["session", "project"] as const)("returns a late edit to the shared input after switching %s, without changing its tray or error", async (navigation) => {
+      const { result, rerender } = await openRunningSession();
+      vi.mocked(API.getAssistantSession).mockImplementation(async (_project, sessionId) => ({
+        session: makeSession(sessionId, "running"),
+      }));
+      const delayed = createDeferred<QueuedMessageWithdrawalResponse>();
+      vi.spyOn(API, "withdrawQueuedMessage").mockReturnValue(delayed.promise);
+      let editing = Promise.resolve();
+      act(() => { editing = result.current.withdrawQueuedMessage("u-1", "edit"); });
+
+      if (navigation === "session") {
+        await act(async () => { await result.current.switchSession("session-2"); });
+      } else {
+        rerender({ projectName: "other" });
+      }
+      await waitFor(() => expect(FakeSseStream.instances).toHaveLength(2));
+      const nextMessage = queuedMessage("u-2", "当前会话消息");
+      act(() => {
+        useAssistantStore.getState().setQueuedMessages([nextMessage]);
+        useAssistantStore.getState().setError("当前会话错误");
+      });
+      await act(async () => {
+        delayed.resolve({
+          session_id: "session-1", id: "u-1", outcome: "withdrawn",
+          message: queuedMessage("u-1", "第 3 镜改成黄昏"),
+        });
+        await editing;
+      });
+
+      expect(useAssistantStore.getState().currentSessionId).toBe(navigation === "session" ? "session-2" : "session-1");
+      expect(useAssistantStore.getState().composerAppends).toEqual([[{ type: "text", text: "第 3 镜改成黄昏" }]]);
+      expect(useAssistantStore.getState().queuedMessages).toEqual([nextMessage]);
+      expect(useAssistantStore.getState().error).toBe("当前会话错误");
+    });
+
+    it("keeps a later CLI exit ahead of a delayed resend response", async () => {
+      const { result, stream } = await openRunningSession();
+      const unsent = { ...queuedMessage("u-1", "第 3 镜改成黄昏"), state: "unsent" as const };
+      const delayed = createDeferred<QueuedMessageResendResponse>();
+      vi.spyOn(API, "resendQueuedMessage").mockReturnValue(delayed.promise);
+      act(() => { stream.emit("queue_upsert", { session_id: "session-1", message: unsent }); });
+      let resending = Promise.resolve();
+      act(() => { resending = result.current.resendQueuedMessage("u-1"); });
+      act(() => {
+        stream.emit("queue_upsert", { session_id: "session-1", message: queuedMessage("u-1", "第 3 镜改成黄昏") });
+        stream.emit("queue_upsert", { session_id: "session-1", message: unsent });
+      });
+      await act(async () => {
+        delayed.resolve({ session_id: "session-1", id: "u-1", queued_message: queuedMessage("u-1", "第 3 镜改成黄昏") });
+        await resending;
+      });
+      expect(useAssistantStore.getState().queuedMessages).toEqual([unsent]);
+    });
+
+    it.each(["withdraw", "resend", "send-now"] as const)("ignores a late %s error after closing the panel", async (action) => {
+      const { result, unmount } = await openRunningSession();
+      const delayed = createDeferred<never>();
+      vi.spyOn(API, "withdrawQueuedMessage").mockReturnValue(delayed.promise);
+      vi.spyOn(API, "resendQueuedMessage").mockReturnValue(delayed.promise);
+      vi.spyOn(API, "sendQueuedMessageNow").mockReturnValue(delayed.promise);
+      let request = Promise.resolve();
+      act(() => {
+        request = action === "withdraw" ? result.current.withdrawQueuedMessage("u-1", "edit")
+          : action === "resend" ? result.current.resendQueuedMessage("u-1")
+          : result.current.sendQueuedMessageNow("u-1");
+      });
+      unmount();
+      await act(async () => {
+        delayed.reject(new Error("old request failed"));
+        await request;
+      });
+      expect(useAssistantStore.getState().error).toBeNull();
+    });
+
+    it("follows a later cancel back to the input even after sending another message", async () => {
       const { result, stream } = await openRunningSession();
       vi.spyOn(API, "withdrawQueuedMessage").mockResolvedValue({
         session_id: "session-1",
@@ -245,6 +322,11 @@ describe("useAssistantSession", () => {
 
       expect(useAppStore.getState().toast?.text).toBe("已被 Agent 接收，这条消息会照常进入对话");
       expect(useAssistantStore.getState().queuedMessages.map((m) => m.id)).toEqual(["u-1"]);
+      vi.spyOn(API, "sendAssistantMessage").mockResolvedValue({
+        session_id: "session-1", status: "accepted", entry: null,
+        queued_message: queuedMessage("u-2", "再加一段旁白"),
+      });
+      await act(async () => { await result.current.sendMessage("再加一段旁白"); });
       // Agent 最终没有处理它：按编辑退回输入框
       act(() => {
         stream.emit("queue_remove", {
