@@ -12,6 +12,7 @@ from claude_agent_sdk import CLIConnectionError, CLINotFoundError, ProcessError
 from fastapi.encoders import jsonable_encoder
 
 from lib.infra.logging_utils import sanitize_diagnostic_payload
+from server.agent_runtime.turn_schema import infer_block_type
 
 
 def _utc_now_iso() -> str:
@@ -148,7 +149,7 @@ def _message_text(message: Mapping[str, Any] | None) -> str | None:
         texts = [
             str(block.get("text"))
             for block in content
-            if isinstance(block, Mapping) and block.get("type") == "text" and block.get("text") is not None
+            if isinstance(block, dict) and infer_block_type(block) == "text" and block.get("text") is not None
         ]
         if texts:
             return "\n".join(texts)

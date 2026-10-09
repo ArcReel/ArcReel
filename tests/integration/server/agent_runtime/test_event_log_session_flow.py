@@ -315,10 +315,9 @@ class TestNewSessionEventLogFlow:
         )
         assistant_error["error"] = "invalid_request"
         assistant_error["message"]["stop_reason"] = "stop_sequence"
-        # CLI 的 result 帧在 result 字段带回最后一条 assistant 文本
+        # result 帧不带 result 文本：摘要必须取自经真实解析路径序列化的 assistant 文本块
         result_error = result_frame(
             is_error=True,
-            result=upstream_message,
             api_error_status=404,
             errors=["upstream request failed"],
             session_id=SDK_ID,
