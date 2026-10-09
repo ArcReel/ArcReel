@@ -1393,6 +1393,20 @@ def _make_managed_for_state_test():
     )
 
 
+def test_interrupt_marker_applies_only_to_the_first_result_after_it(session_manager):
+    """被中断那一轮的 result 记为中断；排队消息开启的下一轮在收尾之前结束，也按自身结果判定。"""
+    managed = _make_managed_for_state_test()
+    managed.interrupt_requested = True
+    interrupted = result_frame("error_during_execution", is_error=True)
+    failed = result_frame("error_during_execution", is_error=True)
+
+    session_manager._handle_special_message(managed, interrupted)
+    session_manager._handle_special_message(managed, failed)
+
+    assert interrupted["session_status"] == "interrupted"
+    assert failed["session_status"] == "error"
+
+
 def test_on_actor_message_result_does_not_change_status():
     """P1 race 防护：sync 回调不再改 status；由 _finalize_turn 统一设置。"""
     for subtype in ("success", "error_during_execution", "error_max_turns"):

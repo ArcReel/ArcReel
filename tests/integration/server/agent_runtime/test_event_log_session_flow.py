@@ -16,7 +16,7 @@ from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import EventLogService, EventLogStore, build_user_entry
 from server.agent_runtime.models import LiveMessage
 from server.agent_runtime.service import AssistantService
-from server.agent_runtime.session_manager import AgentStartupError, SessionManager
+from server.agent_runtime.session_manager import AgentStartupError, SessionManager, UnrecordedMessageError
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import (
     FakeSDKClient,
@@ -954,6 +954,43 @@ async def service(manager: SessionManager, tmp_path) -> AssistantService:
 class TestQueuedMessages:
     """回复进行中发出的消息先成为排队消息，CLI 开始处理它时才进入时间线。"""
 
+    async def test_duplicate_send_waits_for_delivery_and_does_not_accept_a_failed_write(
+        self, service: AssistantService
+    ):
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        class FailingClient(FakeSDKClient):
+            async def query(self, prompt, session_id: str = "default") -> None:
+                entered.set()
+                await release.wait()
+                raise RuntimeError("CLI write failed")
+
+        client = FailingClient()
+        tasks: list[asyncio.Task] = []
+        try:
+            with _scripted_client(service.session_manager, client):
+                tasks.append(
+                    asyncio.create_task(
+                        service.send_or_create("demo", "补充要求", session_id=SDK_ID, client_key="same-key")
+                    )
+                )
+                await entered.wait()
+                tasks.append(
+                    asyncio.create_task(service.session_manager.send_message(SDK_ID, "补充要求", client_key="same-key"))
+                )
+                scheduled = asyncio.Event()
+                asyncio.get_running_loop().call_soon(scheduled.set)
+                await scheduled.wait()
+                assert not tasks[1].done()
+                release.set()
+                outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+                assert all(isinstance(outcome, Exception) for outcome in outcomes)
+                assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+        finally:
+            release.set()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            await service.session_manager.close_session(SDK_ID)
+
     async def _start_running_turn(self, service: AssistantService, client: FakeSDKClient) -> None:
         """发出第一条消息并等 Agent 开始输出：会话此后一直 running。"""
         with _scripted_client(service.session_manager, client):
@@ -1022,6 +1059,64 @@ class TestQueuedMessages:
             await stream.close()
             await service.session_manager.close_session(SDK_ID)
 
+    async def test_usage_of_each_turn_is_recorded_against_the_prompt_it_handled(
+        self, service: AssistantService, monkeypatch
+    ):
+        prompts: list[str] = []
+        backfill = service.session_manager.ledger.backfill
+
+        async def _capture(**kwargs: Any) -> Any:
+            prompts.append(kwargs["prompt"])
+            return await backfill(**kwargs)
+
+        monkeypatch.setattr(service.session_manager.ledger, "backfill", _capture)
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        try:
+            await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
+            # 第一轮先结束，排队消息随后开始新的一轮
+            usage = {"input_tokens": 10, "output_tokens": 5}
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1", usage=usage))
+            client.push_frame(started_frame(session_id=SDK_ID))
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-2", usage=usage))
+            client.push_frame(_idle_frame())
+            await _wait_for_status(service.session_manager, SDK_ID, "completed")
+
+            assert prompts == ["写分镜", "加一段旁白"]
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_messages_merged_into_the_running_turn_share_its_usage_prompt(
+        self, service: AssistantService, monkeypatch
+    ):
+        prompts: list[str] = []
+        backfill = service.session_manager.ledger.backfill
+
+        async def _capture(**kwargs: Any) -> Any:
+            prompts.append(kwargs["prompt"])
+            return await backfill(**kwargs)
+
+        monkeypatch.setattr(service.session_manager.ledger, "backfill", _capture)
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        try:
+            # CLI 在工具边界把排队消息并入进行中的轮次：两次 started 之后只有一个 result
+            usage = {"input_tokens": 10, "output_tokens": 5}
+            await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
+            client.push_frame(started_frame(1, session_id=SDK_ID))
+            await service.send_or_create("demo", "结尾再加一个空镜", session_id=SDK_ID)
+            client.push_frame(started_frame(2, session_id=SDK_ID))
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1", usage=usage))
+            await service.send_or_create("demo", "第 5 镜删掉", session_id=SDK_ID)
+            client.push_frame(started_frame(3, session_id=SDK_ID))
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-2", usage=usage))
+            client.push_frame(_idle_frame())
+            await _wait_for_status(service.session_manager, SDK_ID, "completed")
+
+            assert prompts == ["写分镜\n加一段旁白\n结尾再加一个空镜", "第 5 镜删掉"]
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
     async def test_replay_links_the_transcript_uuid_and_repeated_replays_add_no_entry(self, service: AssistantService):
         client = self._running_turn_client()
         await self._start_running_turn(service, client)
@@ -1040,6 +1135,169 @@ class TestQueuedMessages:
             linked = await service.event_log_store.find_user_message_link(SDK_ID, queued["id"])
             assert linked == client.sent_messages[-1]["uuid"]
         finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_queued_idempotency_and_replays_survive_many_later_sends(self, service: AssistantService):
+        client = FakeSDKClient()
+        try:
+            with _scripted_client(service.session_manager, client):
+                responses = [
+                    await service.send_or_create(
+                        "demo", f"message {index}", session_id=SDK_ID, client_key=f"key-{index}"
+                    )
+                    for index in range(501)
+                ]
+            first = responses[0]["queued_message"]
+            retry = await service.send_or_create("demo", "message 0", session_id=SDK_ID, client_key="key-0")
+            assert retry["queued_message"] == first
+            assert len(client.sent_messages) == 501
+
+            client.push_frame(replay_frame(0, session_id=SDK_ID))
+            client.push_frame(started_frame(0, session_id=SDK_ID))
+            client.push_frame(replay_frame(0, session_id=SDK_ID))
+            client.push_frame(result_frame(session_id=SDK_ID))
+            client.push_frame(_idle_frame())
+            await _wait_for_status(service.session_manager, SDK_ID, "completed")
+
+            entries = await service.event_log_store.list_after(SDK_ID)
+            assert [entry["uuid"] for entry in entries] == [first["id"]]
+            linked = await service.event_log_store.find_user_message_link(SDK_ID, first["id"])
+            assert linked == client.sent_messages[0]["uuid"]
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_failed_send_during_a_turn_leaves_the_turn_running_and_settled_by_the_cli(
+        self, service: AssistantService
+    ):
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        update_status = service.meta_store.update_status
+
+        async def _fail_running(session_id: str, status: str, *args: Any, **kwargs: Any) -> Any:
+            if status == "running":
+                raise RuntimeError("db down")
+            return await update_status(session_id, status, *args, **kwargs)
+
+        try:
+            with patch.object(service.meta_store, "update_status", new=_fail_running), pytest.raises(RuntimeError):
+                await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
+
+            assert service.session_manager.sessions[SDK_ID].status == "running"
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
+            client.push_frame(_idle_frame())
+            await _wait_for_status(service.session_manager, SDK_ID, "completed")
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    @pytest.mark.parametrize("idle_timing", ["read_before_send", "handled_during_write", "read_during_write"])
+    async def test_a_failed_send_does_not_strand_an_idle_the_cli_reported(
+        self, service: AssistantService, monkeypatch, idle_timing: str
+    ):
+        """回复进行中的发送在送入 CLI 之前失败：CLI 在发送前后报的 idle 照常结算，会话不会一直 running。"""
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        manager = service.session_manager
+        inbox_released, replay_linked = asyncio.Event(), asyncio.Event()
+        backfill = manager.ledger.backfill
+        record_link = service.event_log_store.record_user_message_link
+
+        async def _blocked_backfill(**kwargs: Any) -> Any:
+            await inbox_released.wait()
+            return await backfill(**kwargs)
+
+        async def _observed_link(*args: Any, **kwargs: Any) -> Any:
+            result = await record_link(*args, **kwargs)
+            replay_linked.set()
+            return result
+
+        monkeypatch.setattr(manager.ledger, "backfill", _blocked_backfill)
+        monkeypatch.setattr(service.event_log_store, "record_user_message_link", _observed_link)
+        update_status = service.meta_store.update_status
+        try:
+            async with manager.stream_messages(SDK_ID, idle_timeout=5) as stream:
+
+                async def _idle_read() -> None:
+                    while (await _next_broadcast(stream, "system")).get("data", {}).get("state") != "idle":
+                        pass
+
+                async def _fail_running(session_id: str, status: str, *args: Any, **kwargs: Any) -> Any:
+                    if status != "running":
+                        return await update_status(session_id, status, *args, **kwargs)
+                    if idle_timing == "read_during_write":
+                        client.push_frame(_idle_frame())
+                        await _idle_read()
+                    elif idle_timing == "handled_during_write":
+                        # 回放排在 idle 之后：它落库时，inbox 已在本次写入期间处理过 idle
+                        inbox_released.set()
+                        await replay_linked.wait()
+                    raise RuntimeError("db down")
+
+                # 用量记账卡住 result，其后的帧都排在 inbox 里
+                client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1", usage={"input_tokens": 10}))
+                if idle_timing != "read_during_write":
+                    client.push_frame(_idle_frame())
+                    client.push_frame(replay_frame(0, session_id=SDK_ID))
+                    await _idle_read()
+
+                with patch.object(service.meta_store, "update_status", new=_fail_running), pytest.raises(RuntimeError):
+                    await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
+                inbox_released.set()
+
+            await _wait_for_status(manager, SDK_ID, "completed")
+            assert (await service.meta_store.get(SDK_ID)).status == "completed"
+        finally:
+            inbox_released.set()
+            await manager.close_session(SDK_ID)
+
+    async def test_a_failed_send_to_an_idle_session_broadcasts_the_error_status(self, service: AssistantService):
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
+        client.push_frame(_idle_frame())
+        await _wait_for_status(service.session_manager, SDK_ID, "completed")
+        stream = _EntryStream(service, SDK_ID)
+        update_status = service.meta_store.update_status
+
+        async def _fail_running(session_id: str, status: str, *args: Any, **kwargs: Any) -> Any:
+            if status == "running":
+                raise RuntimeError("db down")
+            return await update_status(session_id, status, *args, **kwargs)
+
+        try:
+            assert (await stream.next("status"))["status"] == "completed"
+            with patch.object(service.meta_store, "update_status", new=_fail_running), pytest.raises(RuntimeError):
+                await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
+
+            # 流可能已随排队消息对齐到 running；失败的终态随后送达，不等心跳
+            statuses = [(await stream.next("status"))["status"]]
+            if statuses[0] == "running":
+                statuses.append((await stream.next("status"))["status"])
+            assert statuses[-1] == "error"
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_retry_of_an_accepted_message_whose_entry_failed_to_record_is_refused_not_resent(
+        self, service: AssistantService
+    ):
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1")
+            with patch.object(
+                service.event_log_store, "append_user_entry", new=AsyncMock(side_effect=RuntimeError("db down"))
+            ):
+                client.push_frame(started_frame(session_id=SDK_ID))
+                await stream.next("queue_remove")
+
+            with pytest.raises(UnrecordedMessageError):
+                await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1")
+
+            assert len(client.sent_messages) == 2
+        finally:
+            await stream.close()
             await service.session_manager.close_session(SDK_ID)
 
     async def test_a_message_the_cli_cancels_leaves_the_queue_and_its_retry_is_sent_again(

@@ -121,6 +121,8 @@ interface AssistantState {
   upsertQueuedMessage: (message: QueuedMessage) => void;
   /** 移出一条排队消息（已被接纳或已被丢弃）。 */
   removeQueuedMessage: (id: string) => void;
+  /** 这条消息是否已经离开排队（被接纳或被丢弃）。 */
+  hasLeftQueue: (id: string) => boolean;
   setInput: (input: string) => void;
   setSending: (sending: boolean) => void;
   setInterrupting: (interrupting: boolean) => void;
@@ -328,6 +330,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
       const queuedMessages = withoutQueued(get().queuedMessages, id);
       if (queuedMessages !== get().queuedMessages) set({ queuedMessages });
     },
+    hasLeftQueue: (id) => settledQueuedIds.has(id),
     setInput: (input) => set({ input }),
     setSending: (sending) => set({ sending }),
     setInterrupting: (interrupting) => set({ interrupting }),

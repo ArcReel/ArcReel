@@ -364,6 +364,54 @@ describe("AgentCopilot", () => {
       expect(items[0]).toHaveTextContent("排队中");
       expect(items[1]).toHaveTextContent("1 张图片");
     });
+
+    it("scrolls a long queue inside the tray and follows the newest message, leaving the input and stop button in place", () => {
+      // jsdom 没有布局：托盘按 160px 高、每条按 40px 高打桩，滚动位置按元素记住
+      const scrollTops = new WeakMap<Element, number>();
+      const isTray = (el: Element) => el.getAttribute("aria-label") === "排队消息";
+      const indexInTray = (el: Element) =>
+        el.parentElement && isTray(el.parentElement) ? Array.from(el.parentElement.children).indexOf(el) : -1;
+      vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) {
+        return isTray(this) ? 160 : 0;
+      });
+      vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) {
+        return Math.max(0, indexInTray(this)) * 40;
+      });
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return indexInTray(this) >= 0 ? 40 : 0;
+      });
+      vi.spyOn(Element.prototype, "scrollTop", "get").mockImplementation(function (this: Element) {
+        return scrollTops.get(this) ?? 0;
+      });
+      vi.spyOn(Element.prototype, "scrollTop", "set").mockImplementation(function (this: Element, value: number) {
+        scrollTops.set(this, value);
+      });
+      const queued = (index: number) => ({
+        id: `q-${index}`,
+        content: [{ type: "text" as const, text: `第 ${index} 条补充要求` }],
+        state: "queued" as const,
+      });
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: Array.from({ length: 20 }, (_, index) => queued(index + 1)),
+      });
+      render(<AgentCopilot />);
+
+      const tray = screen.getByRole("list", { name: "排队消息" });
+      expect(tray).toHaveClass("max-h-[30cqh]", "overflow-y-auto");
+      expect(tray).toHaveAttribute("tabindex", "0");
+      expect(tray.scrollTop).toBe(640);
+      expect(screen.getByRole("combobox", { name: "Agent 输入" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "停止回复" })).toBeEnabled();
+
+      // 用户把托盘滚回顶部后，最前面的消息被接纳：不跳动；再发一条：滚到新消息
+      tray.scrollTop = 0;
+      act(() => useAssistantStore.setState((s) => ({ queuedMessages: s.queuedMessages.slice(1) })));
+      expect(tray.scrollTop).toBe(0);
+      act(() => useAssistantStore.setState((s) => ({ queuedMessages: [...s.queuedMessages, queued(21)] })));
+      expect(tray.scrollTop).toBe(640);
+    });
   });
 
   it("does not send when Enter is used to confirm an IME composition", () => {

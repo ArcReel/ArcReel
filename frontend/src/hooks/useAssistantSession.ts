@@ -229,7 +229,6 @@ export function useAssistantSession(projectName: string | null) {
           store.getState().setSessionStatus(status as "idle");
 
           if (TERMINAL.has(status)) {
-            store.getState().setSending(false);
             store.getState().setInterrupting(false);
             clearPendingQuestion();
             // 中断时保留 draft：被中断的流式内容不入日志，刷新后自然消失
@@ -506,8 +505,7 @@ export function useAssistantSession(projectName: string | null) {
 
         if (store.getState().currentSessionId !== sessionId) return false;
 
-        // 排队消息进托盘；它被接纳时由流送来条目并移出托盘
-        if (result.queued_message) store.getState().upsertQueuedMessage(result.queued_message);
+        // 托盘只消费常驻流：HTTP 响应可能抢在另一客户端更早发送的消息之前到达。
         // 响应携带的权威条目（服务端已写日志分配身份），seq 门槛去重
         if (result.entry) {
           const lastSeq = lastEntrySeq(store.getState().entries);
@@ -524,12 +522,17 @@ export function useAssistantSession(projectName: string | null) {
           }
           store.getState().appendEntry(result.entry);
         }
-        // 常驻流可能已收到这条消息的条目乃至其后的 CLI idle；迟到的受理响应不能覆盖服务端状态。
+        // 常驻流可能已收到这条消息的条目乃至其后的 CLI idle，或者它没被接纳就离开了排队
+        // （CLI 取消、CLI 退出）；迟到的受理响应不能覆盖服务端状态。
         const acceptedId = result.queued_message?.id;
         const acceptedEntry =
           result.entry ?? (acceptedId ? store.getState().entries.find((e) => e.uuid === acceptedId) : undefined);
+        const discarded = !acceptedEntry && acceptedId !== undefined && store.getState().hasLeftQueue(acceptedId);
         const statusCursor = streamStatusCursorRef.current;
-        if (!acceptedEntry || statusCursor?.sessionId !== sessionId || statusCursor.seq < acceptedEntry.seq) {
+        if (
+          !discarded &&
+          (!acceptedEntry || statusCursor?.sessionId !== sessionId || statusCursor.seq < acceptedEntry.seq)
+        ) {
           statusRef.current = "running";
           store.getState().setSessionStatus("running");
         }
