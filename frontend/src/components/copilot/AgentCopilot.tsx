@@ -50,6 +50,7 @@ export function AgentCopilot() {
     deleteSession,
     withdrawQueuedMessage,
     resendQueuedMessage,
+    sendQueuedMessageNow,
   } = useAssistantSession(currentProjectName);
 
   const flowRef = useRef<MessageFlowHandle>(null);
@@ -181,6 +182,7 @@ export function AgentCopilot() {
         onInterrupt={() => voidCall(interrupt())}
         onWithdrawQueued={withdrawQueuedMessage}
         onResendQueued={resendQueuedMessage}
+        onSendQueuedNow={sendQueuedMessageNow}
       />
     </div>
   );

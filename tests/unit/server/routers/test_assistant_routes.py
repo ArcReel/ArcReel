@@ -121,16 +121,35 @@ class TestAssistantRoutes:
         assert response.json() == payload
         withdraw.assert_awaited_once_with(PROJECT, "session-1", "m-1", intent=intent)
 
+    def test_queued_message_send_now(self):
+        payload = {"session_id": "session-1", "id": "m-1", "outcome": "sent"}
+        send_now = AsyncMock(return_value=payload)
+        with (
+            patch.object(assistant.assistant_service, "send_queued_message_now", new=send_now),
+            _build_client() as client,
+        ):
+            response = client.post(f"{PREFIX}/sessions/session-1/queued-messages/m-1/send-now")
+
+        assert response.status_code == 200
+        assert response.json() == payload
+        send_now.assert_awaited_once_with(PROJECT, "session-1", "m-1")
+
+    @pytest.mark.parametrize(
+        ("service_method", "method", "path"),
+        [("withdraw_queued_message", "delete", ""), ("send_queued_message_now", "post", "/send-now")],
+    )
     @pytest.mark.parametrize(
         ("error", "status_code"),
         [(QueuedMessageNotFoundError("gone"), 404), (QueuedMessageWithdrawalPendingError("busy"), 409)],
     )
-    def test_queued_message_withdrawal_errors_are_mapped(self, error: Exception, status_code: int):
+    def test_queued_message_action_errors_are_mapped(
+        self, service_method: str, method: str, path: str, error: Exception, status_code: int
+    ):
         with (
-            patch.object(assistant.assistant_service, "withdraw_queued_message", new=AsyncMock(side_effect=error)),
+            patch.object(assistant.assistant_service, service_method, new=AsyncMock(side_effect=error)),
             _build_client() as client,
         ):
-            response = client.delete(f"{PREFIX}/sessions/session-1/queued-messages/m-1")
+            response = getattr(client, method)(f"{PREFIX}/sessions/session-1/queued-messages/m-1{path}")
 
         assert response.status_code == status_code
 

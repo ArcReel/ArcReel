@@ -8,7 +8,7 @@ ClaudeSDKClient 不能安全并发调用，且其内部运行在 anyio 上，跨
 
 消息调度只有 CLI 一层。CLI 自带消息队列：轮次进行中收到的用户消息在工具边界并入当前轮，或在本轮结束后与其他排队消息合并为新一轮；后台任务的完成通知走同一个队列，并会不经 query 开启自主轮次。因此：
 
-- **用户消息一律立即交给 CLI**，不按「有轮次在跑」拦截或暂存；每条消息带服务端分配的 uuid。
+- **用户消息一律立即交给 CLI**，不按「有轮次在跑」拦截或暂存；每条消息带服务端分配的 uuid，「立即发送」以 `now` 优先级送入，由 CLI 打断当前轮先处理。
 - **actor 不撮合 query 与 result**：result 只代表一轮结束，不对应任何一条 query。
 - **会话状态以 CLI 报告的 session state 为准**：消息送达即为 running，CLI 报 `idle`（队列排空、后台等待结束后才发出）或 actor 退出时才离开 running；result 不切换状态。
 - **排队消息的去向以 CLI 的 `command_lifecycle` 帧为准**（`started` 即被接纳，`cancelled` 即被丢弃）。Python SDK 的消息解析会丢弃这类帧，actor 因此直接读 `client._query.receive_messages()` 的原始帧，自行处理 `command_lifecycle`，其余帧交给 SDK 的 `parse_message`。

@@ -630,6 +630,21 @@ export function useAssistantSession(projectName: string | null) {
     [projectName, store, t],
   );
 
+  // 立即发送一条排队消息：Agent 打断当前轮先处理它，消息留在托盘里直到被接纳；Agent 已接收时提示
+  const sendQueuedMessageNow = useCallback(
+    async (messageId: string) => {
+      const sessionId = store.getState().currentSessionId;
+      if (!projectName || !sessionId) return;
+      try {
+        const result = await API.sendQueuedMessageNow(projectName, sessionId, messageId);
+        if (result.outcome === "accepted") useAppStore.getState().pushToast(t("queued_message_already_accepted"), "info");
+      } catch (err) {
+        store.getState().setError(errMsg(err, t("queued_message_send_now_failed")));
+      }
+    },
+    [projectName, store, t],
+  );
+
   // 中断会话
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
@@ -876,6 +891,7 @@ export function useAssistantSession(projectName: string | null) {
     deleteSession,
     withdrawQueuedMessage,
     resendQueuedMessage,
+    sendQueuedMessageNow,
   };
 }
 
