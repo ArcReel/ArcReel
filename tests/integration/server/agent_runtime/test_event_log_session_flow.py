@@ -1584,3 +1584,137 @@ class TestUnsentQueuedMessages:
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
         finally:
             await service.session_manager.close_session(SDK_ID)
+
+
+async def _wait_for_sent_messages(client: FakeSDKClient, count: int, timeout: float = 5.0) -> None:  # noqa: ASYNC109 -- 测试轮询 helper 的等待上限，非生产取消语义
+    """等 ArcReel 向 CLI 送入第 ``count`` 条用户消息（重新送入在 inbox 上异步发生）。"""
+    deadline = asyncio.get_running_loop().time() + timeout
+    while True:
+        if len(client.sent_messages) >= count:
+            return
+        if asyncio.get_running_loop().time() >= deadline:
+            raise AssertionError(f"only {len(client.sent_messages)} of {count} messages were sent within {timeout}s")
+        await asyncio.sleep(0.01)
+
+
+class TestSendQueuedMessageNow:
+    """立即发送：先撤回，撤回成功以 ``now`` 优先级重发同一条排队消息，打断当前轮先处理它。"""
+
+    async def test_a_withdrawn_message_is_sent_again_with_now_priority(self, service: AssistantService):
+        client = TestQueuedMessageWithdrawal._client()
+        await TestQueuedMessages()._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            await stream.next("queue")
+            queued = (await service.send_or_create("demo", "先停下改结局", session_id=SDK_ID, client_key="ck-1"))[
+                "queued_message"
+            ]
+            first_uuid = client.sent_messages[-1]["uuid"]
+
+            result = await service.send_queued_message_now("demo", SDK_ID, queued["id"])
+
+            assert result == {"session_id": SDK_ID, "id": queued["id"], "outcome": "sent"}
+            assert client.control_requests == [{"subtype": "cancel_async_message", "message_uuid": first_uuid}]
+            resent = client.sent_messages[-1]
+            assert resent["priority"] == "now"
+            assert resent["message"]["content"] == "先停下改结局"
+            assert resent["uuid"] != first_uuid
+            # 前端看到的仍是同一条排队消息：不移出托盘，幂等键照旧指向它
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]
+            retry = await service.send_or_create("demo", "先停下改结局", session_id=SDK_ID, client_key="ck-1")
+            assert retry["queued_message"] == queued
+            assert len(client.sent_messages) == 3
+
+            # CLI 以新的 uuid 接纳它：写入日志并离开托盘
+            client.push_frame(started_frame(session_id=SDK_ID))
+            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 3)
+            assert entries[2]["uuid"] == queued["id"]
+            assert (await stream.next("queue_remove")) == {"session_id": SDK_ID, "id": queued["id"]}
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_message_the_agent_already_took_is_not_sent_again(self, service: AssistantService):
+        client = TestQueuedMessageWithdrawal._client()
+        client.respond_control("cancel_async_message", {"cancelled": False})
+        queued = await TestQueuedMessageWithdrawal()._queue(service, client)
+        try:
+            result = await service.send_queued_message_now("demo", SDK_ID, queued["id"])
+
+            assert result == {"session_id": SDK_ID, "id": queued["id"], "outcome": "accepted"}
+            assert len(client.sent_messages) == 2
+            assert all("priority" not in sent for sent in client.sent_messages)
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_the_turn_it_preempts_is_interrupted_and_a_dropped_message_runs_after_it(
+        self, service: AssistantService
+    ):
+        client = TestQueuedMessageWithdrawal._client()
+        await TestQueuedMessages()._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            await stream.next("queue")
+            dropped = (await service.send_or_create("demo", "顺便配乐", session_id=SDK_ID))["queued_message"]
+            urgent = (await service.send_or_create("demo", "先停下改结局", session_id=SDK_ID))["queued_message"]
+            head_uuid, dropped_uuid = client.sent_messages[0]["uuid"], client.sent_messages[1]["uuid"]
+            assert (await service.send_queued_message_now("demo", SDK_ID, urgent["id"]))["outcome"] == "sent"
+            now_uuid = client.sent_messages[-1]["uuid"]
+
+            # CLI 打断当前轮：result 仍报 success，只能凭 terminal_reason 认出；这一轮的消息都收到 cancelled，
+            # 已进入对话的首条消息不受影响，从未进入对话的那条被丢掉
+            client.push_frame(result_frame(session_id=SDK_ID, terminal_reason="aborted_streaming", result=""))
+            client.push_frame(command_lifecycle_frame(head_uuid, "cancelled", session_id=SDK_ID))
+            client.push_frame(command_lifecycle_frame(dropped_uuid, "cancelled", session_id=SDK_ID))
+            client.push_frame(command_lifecycle_frame(now_uuid, "started", session_id=SDK_ID))
+
+            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 4)
+            assert [(entry["type"], entry.get("subtype")) for entry in entries] == [
+                ("user", None),
+                ("assistant", None),
+                ("system", "interrupt"),
+                ("user", None),
+            ]
+            assert entries[3]["uuid"] == urgent["id"]
+
+            # 被丢掉的消息换一个 uuid、按普通优先级重新送入，排在插队消息之后，托盘里仍是同一条
+            await _wait_for_sent_messages(client, 5)
+            requeued = client.sent_messages[4]
+            assert requeued["message"]["content"] == "顺便配乐"
+            assert requeued["uuid"] not in (dropped_uuid, now_uuid)
+            assert "priority" not in requeued
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [dropped]
+
+            # 插队消息这一轮正常结束，不被当成中断；重排的消息之后照常被接纳
+            client.push_frame(assistant_frame({"type": "text", "text": "结局改好了"}, uuid="a-2", session_id=SDK_ID))
+            client.push_frame(result_frame(session_id=SDK_ID, terminal_reason="completed"))
+            client.push_frame(command_lifecycle_frame(requeued["uuid"], "started", session_id=SDK_ID))
+            client.push_frame(result_frame(session_id=SDK_ID, terminal_reason="completed"))
+            client.push_frame(_idle_frame())
+            await _wait_for_status(service.session_manager, SDK_ID, "completed")
+            entries = await service.event_log_store.list_after(SDK_ID)
+            assert [entry["type"] for entry in entries[4:]] == ["assistant", "user"]
+            assert entries[5]["uuid"] == dropped["id"]
+            assert not any(entry.get("subtype") == "agent_turn_failure" for entry in entries)
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_cancel_after_the_agent_took_it_still_sends_it_now(self, service: AssistantService):
+        client = TestQueuedMessageWithdrawal._client()
+        client.respond_control("cancel_async_message", {"cancelled": False})
+        queued = await TestQueuedMessageWithdrawal()._queue(service, client)
+        try:
+            assert (await service.send_queued_message_now("demo", SDK_ID, queued["id"]))["outcome"] == "accepted"
+
+            # CLI 已从队列取走它，却没把它并入轮次：按立即发送的意图重新送入
+            client.push_frame(
+                lambda c: command_lifecycle_frame(c.sent_messages[-1]["uuid"], "cancelled", session_id=SDK_ID)
+            )
+            await _wait_for_sent_messages(client, 3)
+
+            assert client.sent_messages[2]["priority"] == "now"
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]
+        finally:
+            await service.session_manager.close_session(SDK_ID)

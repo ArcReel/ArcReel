@@ -684,6 +684,18 @@ class AssistantService:
             queued = await self.session_manager.resend_queued_message(session_id, message_id, meta=meta, locale=locale)
         return {"session_id": session_id, "id": message_id, "queued_message": queued.to_payload()}
 
+    async def send_queued_message_now(self, project_name: str, session_id: str, message_id: str) -> dict[str, Any]:
+        """立即发送一条排队消息：Agent 打断当前轮先处理它。
+
+        ``outcome`` 为 ``sent`` 时已以 ``now`` 优先级重新送入，它仍是托盘里的同一条消息；为
+        ``accepted`` 时 Agent 已接收这条消息，不再重发，它照常进入对话。
+        """
+        meta = await self.meta_store.get(session_id)
+        if meta is None or meta.project_name != project_name:
+            raise FileNotFoundError(f"session not found: {session_id}")
+        outcome = await self.session_manager.send_queued_message_now(session_id, message_id)
+        return {"session_id": session_id, "id": message_id, "outcome": outcome}
+
     async def interrupt_session(self, session_id: str, *, meta: SessionMeta | None = None) -> dict[str, Any]:
         """Interrupt a running session."""
         if meta is None:

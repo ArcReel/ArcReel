@@ -29,6 +29,7 @@ import type {
   QueuedMessageWithdrawal,
   QueuedMessageResendResponse,
   QueuedMessageWithdrawalResponse,
+  QueuedMessageSendNowResponse,
   SkillInfo,
   ProjectOverview,
   ProjectChangeBatchPayload,
@@ -2911,6 +2912,21 @@ class API {
   ): Promise<QueuedMessageResendResponse> {
     return this.request(
       `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}/resend`,
+      { method: "POST" }
+    );
+  }
+
+  /**
+   * 立即发送一条排队消息：服务端先向 Agent 撤回，撤回成功以 now 优先级重新送入，Agent 打断当前轮先处理它。
+   * Agent 已接收时 `outcome` 为 `accepted`，不再重发。
+   */
+  static async sendQueuedMessageNow(
+    projectName: string,
+    sessionId: string,
+    messageId: string
+  ): Promise<QueuedMessageSendNowResponse> {
+    return this.request(
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}/send-now`,
       { method: "POST" }
     );
   }

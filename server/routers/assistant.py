@@ -3,7 +3,7 @@ Assistant session APIs.
 """
 
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -404,12 +404,12 @@ async def interrupt_session(project_name: str, session_id: str, _t: Translator):
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
 
 
-async def _withdraw_queued_message(
-    project_name: str, session_id: str, message_id: str, intent: WithdrawalIntent, _t: Translator
+async def _act_on_queued_message(
+    session_id: str, action: Callable[[AssistantService], Awaitable[dict]], _t: Translator
 ) -> dict:
+    """排队消息操作（编辑、删除、立即发送）共用的错误映射。"""
     try:
-        service = get_assistant_service()
-        return await service.withdraw_queued_message(project_name, session_id, message_id, intent=intent)
+        return await action(get_assistant_service())
     except QueuedMessageNotFoundError as exc:
         raise NotFoundError("queued_message_not_found") from exc
     except QueuedMessageWithdrawalPendingError as exc:
@@ -419,6 +419,16 @@ async def _withdraw_queued_message(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+async def _withdraw_queued_message(
+    project_name: str, session_id: str, message_id: str, intent: WithdrawalIntent, _t: Translator
+) -> dict:
+    return await _act_on_queued_message(
+        session_id,
+        lambda service: service.withdraw_queued_message(project_name, session_id, message_id, intent=intent),
+        _t,
+    )
 
 
 @router.post("/sessions/{session_id}/queued-messages/{message_id}/edit")
@@ -461,6 +471,17 @@ async def resend_queued_message(project_name: str, session_id: str, message_id: 
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+@router.post("/sessions/{session_id}/queued-messages/{message_id}/send-now")
+async def send_queued_message_now(project_name: str, session_id: str, message_id: str, _t: Translator):
+    """立即发送一条排队消息：Agent 打断当前轮先处理它。
+
+    ``outcome`` 为 ``sent`` 时已重新送入，消息仍留在托盘里直到被接纳；为 ``accepted`` 时 Agent 已接收它，不再重发。
+    """
+    return await _act_on_queued_message(
+        session_id, lambda service: service.send_queued_message_now(project_name, session_id, message_id), _t
+    )
 
 
 @router.post("/sessions/{session_id}/questions/{question_id}/answer")

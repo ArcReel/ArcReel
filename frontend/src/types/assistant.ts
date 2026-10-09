@@ -173,6 +173,14 @@ export interface QueuedMessageResendResponse {
   queued_message: QueuedMessage;
 }
 
+/** 立即发送排队消息的响应。 */
+export interface QueuedMessageSendNowResponse {
+  session_id: string;
+  id: string;
+  /** `sent`：已重新送入，Agent 打断当前轮先处理它，消息留在托盘里直到被接纳；`accepted`：Agent 已接收，不再重发。 */
+  outcome: "sent" | "accepted";
+}
+
 /** 发送与改写端点的受理响应：排队消息与权威条目二者恰有其一。 */
 export interface AcceptedMessageResponse {
   status: string;

@@ -123,6 +123,9 @@ class QueuedMessageWithdrawalPendingError(Exception):
 WithdrawalOutcome = Literal["withdrawn", "accepted"]
 """撤回排队消息的结果：``withdrawn`` 已撤回并移出排队，``accepted`` 已被 Agent 接收、照常进入对话。"""
 
+SendNowOutcome = Literal["sent", "accepted"]
+"""立即发送的结果：``sent`` 已以 now 优先级重新送入，``accepted`` 已被 Agent 接收、不再重发。"""
+
 
 class AgentStartupError(RuntimeError):
     """ClaudeSDKClient 启动失败时携带 SDK stderr 的异常。
@@ -216,16 +219,26 @@ class _QueuedMessageSettled:
     """CLI 报告一条排队消息的去向（被并入一轮，或被丢弃），由 inbox 在此前的输出之后处理。"""
 
     lifecycle: CommandLifecycle
+    preempted: bool = False
+    """CLI 报告时有立即发送的消息尚未被接纳：这次丢弃来自被它打断的那一轮。"""
 
 
-def _user_message_frame(content: str | list[dict[str, Any]], cli_uuid: str) -> dict[str, Any]:
-    """送入 CLI 的用户消息帧。带 uuid 的消息才会有 ``command_lifecycle`` 帧，回放也保留这个 uuid。"""
-    return {
+def _user_message_frame(
+    content: str | list[dict[str, Any]], cli_uuid: str, *, priority: Literal["now"] | None = None
+) -> dict[str, Any]:
+    """送入 CLI 的用户消息帧。带 uuid 的消息才会有 ``command_lifecycle`` 帧，回放也保留这个 uuid。
+
+    ``priority="now"`` 让 CLI 打断当前轮先处理这条消息（立即发送）。
+    """
+    frame: dict[str, Any] = {
         "type": "user",
         "message": {"role": "user", "content": content},
         "parent_tool_use_id": None,
         "uuid": cli_uuid,
     }
+    if priority is not None:
+        frame["priority"] = priority
+    return frame
 
 
 def _content_text(content: str | list[dict[str, Any]]) -> str:
@@ -274,6 +287,9 @@ class ManagedSession:
     sent_message_entries: dict[str, str] = field(default_factory=dict)
     # 幂等键 → 用户条目 uuid：排队期间的重试凭此返回同一条排队消息，接纳后由事件日志承担。
     sent_client_keys: dict[str, str] = field(default_factory=dict)
+    # 以 now 优先级送入、CLI 尚未接纳的消息 uuid。非空期间以 aborted_* 结束的轮次是被立即发送打断的，
+    # 按中断处理；这期间被 CLI 丢弃、还没进入对话的排队消息重新送入。
+    now_messages_in_flight: set[str] = field(default_factory=set)
     # 发送路径的串行锁：等待者按到达顺序获锁，消息进入 CLI 的顺序与排队顺序一致。
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     # 事件日志写入点管道（UI 时间线唯一读源的 live 写侧）。
@@ -755,9 +771,12 @@ class SessionManager:
             managed = managed_ref[0]
             if managed is None or lifecycle.state in ("queued", "completed"):
                 return
+            # 按帧序判断：被打断那一轮的 result 与 cancelled 都先于插队消息的 started 到达
+            preempted = bool(managed.now_messages_in_flight)
+            managed.now_messages_in_flight.discard(lifecycle.command_uuid)
             if managed.find_queued_message(cli_uuid=lifecycle.command_uuid) is None:
                 return
-            managed._inbox.put_nowait(_QueuedMessageSettled(lifecycle))
+            managed._inbox.put_nowait(_QueuedMessageSettled(lifecycle, preempted=preempted))
 
         return _on_command_lifecycle
 
@@ -1046,7 +1065,7 @@ class SessionManager:
                     await self._persist_cli_resumed(managed)
                     continue
                 if isinstance(msg_dict, _QueuedMessageSettled):
-                    await self._settle_queued_message(managed, msg_dict.lifecycle)
+                    await self._settle_queued_message(managed, msg_dict.lifecycle, preempted=msg_dict.preempted)
                     continue
                 if msg_dict is None:
                     return None
@@ -1291,8 +1310,10 @@ class SessionManager:
         queued: QueuedMessage,
         *,
         on_failure: Callable[[QueuedMessage], None],
+        priority: Literal["now"] | None = None,
     ) -> None:
         """把已登记在排队列表里的消息交给 CLI；投递失败时先调 ``on_failure`` 撤回登记，再抛出。
+        ``priority="now"`` 让 CLI 打断当前轮先处理它（立即发送）。
 
         调用方持有 ``managed.send_lock``。
         """
@@ -1309,7 +1330,9 @@ class SessionManager:
         try:
             await self.meta_store.update_status(session_id, "running")
             delivering = True
-            await managed.send_query(_user_message_frame(queued.content, cli_uuid), sdk_session_id=session_id)
+            await managed.send_query(
+                _user_message_frame(queued.content, cli_uuid, priority=priority), sdk_session_id=session_id
+            )
         except Exception as exc:
             logger.error("会话消息处理失败: %s", redact_diagnostic_text(exc))
             on_failure(queued)
@@ -1350,11 +1373,14 @@ class SessionManager:
             raise UnrecordedMessageError(f"message {entry_uuid} was accepted but not recorded")
         return None
 
-    async def _settle_queued_message(self, managed: ManagedSession, lifecycle: CommandLifecycle) -> None:
+    async def _settle_queued_message(
+        self, managed: ManagedSession, lifecycle: CommandLifecycle, *, preempted: bool = False
+    ) -> None:
         """CLI 报告排队消息的去向：started 即被接纳，写入事件日志后移出排队列表。
 
         在 inbox 序上执行，条目排在此前已产生的输出之后；先广播条目、再广播移出，
-        客户端看到它从托盘消失时，时间线上已经有它。
+        客户端看到它从托盘消失时，时间线上已经有它。已写入日志的消息不在排队列表里，
+        之后的 cancelled（被打断那一轮的首条消息也会收到）不再处理。
         """
         queued = managed.find_queued_message(cli_uuid=lifecycle.command_uuid)
         if queued is None:
@@ -1368,9 +1394,17 @@ class SessionManager:
                 await managed.entry_pipeline.append_user_entry(queued.entry, client_key=queued.client_key)
             managed.remove_queued_message(queued)
             return
+        if queued.withdrawal == "send_now":
+            # 立即发送的撤回答复之前或之后，CLI 都没处理它：以 now 优先级重新送入
+            await self._redeliver_in_inbox(managed, queued, lifecycle.command_uuid, priority="now")
+            return
         if queued.withdrawal is not None:
             # 撤回答复失败（CLI 已从队列取走它）之后 CLI 仍没处理它：按用户当初的意图收尾
             managed.withdraw_queued_message(queued)
+            return
+        if preempted and lifecycle.state == "cancelled":
+            # 被立即发送打断的那一轮丢掉了它，它还没进入对话：排到插队消息之后重新送入
+            await self._redeliver_in_inbox(managed, queued, lifecycle.command_uuid)
             return
         logger.warning(
             "排队消息未被 CLI 处理 session_id=%s state=%s message_id=%s",
@@ -1391,25 +1425,67 @@ class SessionManager:
         ``QueuedMessageNotFoundError``；同一条消息的撤回仍在等待 CLI 答复时抛
         ``QueuedMessageWithdrawalPendingError``。
         """
-        managed = self.sessions.get(session_id)
-        queued = managed.find_queued_message(message_id=message_id) if managed is not None else None
-        if managed is None or queued is None:
-            if managed is not None and managed.was_sent(message_id):
-                # 已离开排队：在托盘移除送达之前点的编辑 / 删除，消息已进入对话
-                return "accepted", None
-            raise QueuedMessageNotFoundError(f"queued message {message_id} not found in session {session_id}")
-        if queued.withdrawing:
-            raise QueuedMessageWithdrawalPendingError(f"queued message {message_id} is being withdrawn")
+        located = self._locate_queued_message(session_id, message_id)
+        if located is None:
+            return "accepted", None
+        managed, queued = located
         if queued.state == "unsent":
             # CLI 已不在，没有可撤回的对象：直接按意图移出
             queued.withdrawal = intent
             managed.withdraw_queued_message(queued)
             return "withdrawn", queued
+        if await self._cancel_in_cli(managed, queued, intent):
+            managed.withdraw_queued_message(queued)
+        if queued.withdrawn:
+            return "withdrawn", queued
+        return "accepted", None
+
+    async def send_queued_message_now(self, session_id: str, message_id: str) -> SendNowOutcome:
+        """立即发送一条排队消息：先向 CLI 撤回，撤回成功以新的 uuid、``now`` 优先级重新送入。
+
+        CLI 打断当前轮先处理它；它仍是同一条排队消息（id、幂等键不变），被接纳时照常写入日志。
+        返回 ``"sent"``：已重新送入。返回 ``"accepted"``：CLI 已取走这条消息，不再重发，它照常
+        进入对话；之后 CLI 若仍报 cancelled，以 ``now`` 优先级重新送入。异常同 ``withdraw_queued_message``。
+        """
+        located = self._locate_queued_message(session_id, message_id)
+        if located is None:
+            return "accepted"
+        managed, queued = located
+        if queued.state == "unsent":
+            # CLI 已退出、没有轮次可打断：按「未发送」消息重新发送
+            await self.resend_queued_message(session_id, message_id)
+            return "sent"
+        cancelled_uuid = queued.cli_uuid
+        if await self._cancel_in_cli(managed, queued, "send_now"):
+            await self._redeliver_after_cancel(managed, queued, cancelled_uuid, priority="now")
+        # CLI 的 cancelled 帧先于撤回答复到达时，inbox 已经重新送入、换掉了 uuid
+        return "sent" if queued.cli_uuid != cancelled_uuid else "accepted"
+
+    def _locate_queued_message(self, session_id: str, message_id: str) -> tuple[ManagedSession, QueuedMessage] | None:
+        """找到用户要撤回或立即发送的排队消息；已离开排队、进入对话时返回 None。"""
+        managed = self.sessions.get(session_id)
+        queued = managed.find_queued_message(message_id=message_id) if managed is not None else None
+        if managed is None or queued is None:
+            if managed is not None and managed.was_sent(message_id):
+                # 已离开排队：在托盘移除送达之前点的操作，消息已进入对话
+                return None
+            raise QueuedMessageNotFoundError(f"queued message {message_id} not found in session {session_id}")
+        if queued.withdrawing:
+            raise QueuedMessageWithdrawalPendingError(f"queued message {message_id} is being withdrawn")
+        return managed, queued
+
+    @staticmethod
+    async def _cancel_in_cli(
+        managed: ManagedSession, queued: QueuedMessage, intent: WithdrawalIntent | Literal["send_now"]
+    ) -> bool:
+        """记下撤回意图并经 actor 向 CLI 撤回，返回 CLI 是否把它移出了队列。
+
+        此前的撤回已被 CLI 答复失败时不再问 CLI，只换成最新的意图并返回 False。
+        """
         previous_intent = queued.withdrawal
         queued.withdrawal = intent
         if previous_intent is not None:
-            # 此前的撤回已被 CLI 答复失败：不再问 CLI，只换成最新的意图
-            return "accepted", None
+            return False
 
         queued.withdrawing = True
         try:
@@ -1423,11 +1499,51 @@ class SessionManager:
         if cmd.error is not None:
             queued.withdrawal = None
             raise cmd.error
-        if cmd.cancelled:
-            managed.withdraw_queued_message(queued)
-        if queued.withdrawn:
-            return "withdrawn", queued
-        return "accepted", None
+        return bool(cmd.cancelled)
+
+    async def _redeliver_in_inbox(
+        self,
+        managed: ManagedSession,
+        queued: QueuedMessage,
+        cancelled_uuid: str,
+        *,
+        priority: Literal["now"] | None = None,
+    ) -> None:
+        """inbox 上的重新送入：送入失败时消息已转为「未发送」，不让 inbox 随之退出。"""
+        with contextlib.suppress(Exception):
+            await self._redeliver_after_cancel(managed, queued, cancelled_uuid, priority=priority)
+
+    async def _redeliver_after_cancel(
+        self,
+        managed: ManagedSession,
+        queued: QueuedMessage,
+        cancelled_uuid: str,
+        *,
+        priority: Literal["now"] | None = None,
+    ) -> None:
+        """CLI 把排队消息移出了队列、它还没进入对话：换一个 uuid 原样再送入，仍是同一条排队消息。
+
+        ``cancelled_uuid`` 是被移出的那次送入所带的 uuid。撤回答复与 CLI 的 cancelled 帧都会触发
+        重送，先到的一方同步换掉 uuid，另一方随之什么也不做。送入失败时消息转为「未发送」。
+        """
+        if queued.cli_uuid != cancelled_uuid or queued not in managed.queued_messages:
+            return
+        queued.cli_uuid = str(uuid4())
+        queued.withdrawal = None
+        if priority == "now":
+            managed.now_messages_in_flight.add(queued.cli_uuid)
+
+        def _not_delivered(failed: QueuedMessage) -> None:
+            # 它已不在 CLI 队列里：转为「未发送」，由用户决定重新发送、编辑或删除
+            managed.now_messages_in_flight.discard(failed.cli_uuid)
+            failed.state = "unsent"
+            managed.channel.broadcast({"type": "queued_message", "op": "upsert", "message": failed.to_payload()})
+
+        # 与发送共用发送锁：之后的撤回排在这次送入之后
+        async with managed.send_lock:
+            if queued not in managed.queued_messages:
+                return
+            await self._deliver_queued_message(managed, queued, on_failure=_not_delivered, priority=priority)
 
     async def resend_queued_message(
         self,
@@ -1508,6 +1624,7 @@ class SessionManager:
             msg_dict["session_status"] = self._resolve_result_status(
                 msg_dict,
                 interrupt_requested=managed.interrupt_requested,
+                preempted=bool(managed.now_messages_in_flight),
             )
             # 中断只作用于它之后的第一个 result，在帧到达时就消费：排队消息开启的下一轮
             # 可能在本轮收尾之前就结束，不能沿用这个标记
@@ -1905,9 +2022,10 @@ class SessionManager:
     def _resolve_result_status(
         result_message: dict[str, Any],
         interrupt_requested: bool = False,
+        preempted: bool = False,
     ) -> SessionStatus:
         """Map SDK result subtype/is_error to runtime session status."""
-        return resolve_result_status(result_message, interrupt_requested=interrupt_requested)
+        return resolve_result_status(result_message, interrupt_requested=interrupt_requested, preempted=preempted)
 
     async def _handle_ask_user_question(
         self,

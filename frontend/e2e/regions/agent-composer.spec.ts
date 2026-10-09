@@ -119,8 +119,8 @@ const QUEUED_MESSAGES = Array.from({ length: 20 }, (_, index) => ({
   state: "queued",
 }));
 
-/** running 会话：时间线从 entry 流回放，开场的排队消息快照里有 20 条消息。 */
-function buildQueueStream(): string {
+/** running 会话：时间线从 entry 流回放，开场的排队消息快照里有 20 条消息；`withQuestion` 时 Agent 同时在提问。 */
+function buildQueueStream(withQuestion = false): string {
   const lines = ["retry: 30000", ""];
   for (const entry of buildEntries()) {
     lines.push(`id: ${entry.seq}`, "event: entry", `data: ${JSON.stringify(entry)}`, "");
@@ -134,6 +134,7 @@ function buildQueueStream(): string {
     "",
     "",
   );
+  if (withQuestion) lines.push("event: question", `data: ${JSON.stringify(QUESTION)}`, "", "");
   return lines.join("\n");
 }
 
@@ -162,6 +163,11 @@ const QUEUE_API: ApiOverrides = {
   [`GET ${SESSIONS_PATH}`]: { status: 200, body: { sessions: [QUEUE_SESSION] } },
   [`GET ${SESSIONS_PATH}/${QUEUE_SESSION_ID}`]: { status: 200, body: { session: QUEUE_SESSION } },
   [`GET ${SESSIONS_PATH}/${QUEUE_SESSION_ID}/entries/stream`]: { status: 200, body: buildQueueStream() },
+};
+
+const QUEUE_ASK_API: ApiOverrides = {
+  ...QUEUE_API,
+  [`GET ${SESSIONS_PATH}/${QUEUE_SESSION_ID}/entries/stream`]: { status: 200, body: buildQueueStream(true) },
 };
 
 const HISTORY_TITLES = [
@@ -278,6 +284,23 @@ defineRegionScenarios("Agent 输入区", [
       await expect(agentPanel(page).getByRole("button", { name: "停止回复", exact: true })).toBeInViewport();
       const flowHeight = (await transcript(page).boundingBox())?.height ?? 0;
       expect(flowHeight, "托盘之上仍要留出消息区").toBeGreaterThan(48);
+    },
+  },
+  {
+    name: "Agent 提问期间排队 20 条消息：托盘与问卷都在面板内，托盘里没有立即发送",
+    path: EPISODE_PATH,
+    api: QUEUE_ASK_API,
+    ready: async (page) => {
+      await queueReady(page);
+      await questionnaire(page).waitFor();
+    },
+    act: async (page) => {
+      await expect(queueTray(page).getByText("第 20 条：结尾再加一个空镜")).toBeInViewport();
+      await expect(queueTray(page).getByRole("button", { name: "立即发送" })).toHaveCount(0);
+      await expect(queueTray(page).getByRole("button", { name: "编辑" }).last()).toBeInViewport();
+      await expect(questionnaire(page).getByRole("button", { name: "下一题" })).toBeInViewport();
+      const flowHeight = (await transcript(page).boundingBox())?.height ?? 0;
+      expect(flowHeight, "问卷与托盘之上仍要留出消息区").toBeGreaterThan(48);
     },
   },
   {

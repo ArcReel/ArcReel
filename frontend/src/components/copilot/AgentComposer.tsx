@@ -42,7 +42,7 @@ interface AgentComposerProps {
   /** 发送请求在途：发送按钮转圈。 */
   sending: boolean;
   placeholder: string;
-  /** 提问占用输入框位置时隐藏；仍保持挂载，已输入的文字与附件不丢。 */
+  /** 提问占用输入框位置时隐藏输入框；仍保持挂载，已输入的文字与附件不丢。排队消息托盘照常显示。 */
   hidden?: boolean;
   /** 发送消息；受理后清空输入与附件，未受理时保留供重试。 */
   onSend: (text: string, images?: AttachedImage[]) => Promise<boolean>;
@@ -51,6 +51,8 @@ interface AgentComposerProps {
   onWithdrawQueued: (id: string, intent: QueuedMessageWithdrawal) => Promise<void>;
   /** 重新发送一条「未发送」消息。 */
   onResendQueued: (id: string) => Promise<void>;
+  /** 立即发送一条排队消息。 */
+  onSendQueuedNow: (id: string) => Promise<void>;
 }
 
 /** 光标左侧以「/」开头、尚未输入空格的一段文字：返回「/」的位置与其后的筛选词。 */
@@ -81,6 +83,7 @@ export function AgentComposer({
   onInterrupt,
   onWithdrawQueued,
   onResendQueued,
+  onSendQueuedNow,
 }: AgentComposerProps) {
   const { t } = useTranslation("dashboard");
   const groupRef = useRef<HTMLDivElement>(null);
@@ -112,6 +115,7 @@ export function AgentComposer({
     resetImages,
     invalidatePendingTranscodes,
   } = useImageAttachments();
+  const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
   const attachDisabled = disabled || isReading || images.length >= MAX_ATTACHED_IMAGES;
   const hasContent = text.trim().length > 0 || images.length > 0;
   // 退回的排队消息可能让图片超过上限：全部保留，移除多出的才能发送
@@ -252,127 +256,136 @@ export function AgentComposer({
   const hasAttachments = images.length > 0;
 
   return (
-    <div hidden={hidden} className="shrink-0 border-t border-border p-3">
-      <QueuedMessageTray onWithdraw={onWithdrawQueued} onResend={onResendQueued} editDisabled={sending} />
-      {(attachError || tooManyImages) && (
-        <p role="alert" className="mb-2 text-xs text-destructive">
-          {tooManyImages ? t("composer_too_many_images_hint", { count: MAX_ATTACHED_IMAGES }) : attachError}
-        </p>
-      )}
-      {/* 拖入图片时整个输入框高亮；高亮画在外层，不改输入框原语的样式 */}
-      <div
-        className={cn("rounded-lg transition-shadow duration-fast", isDragOver && "ring-2 ring-primary")}
-        onDragOver={handleDragOver}
-        onDragLeave={() => setIsDragOver(false)}
-        onDrop={handleDrop}
-      >
-        <InputGroup ref={groupRef}>
-          {hasAttachments && (
-            <InputGroupAddon align="block-start">
-              <AttachmentGroup className="w-full">
-                {images.map((image, index) => (
-                  <Attachment key={image.id} size="xs">
-                    <AttachmentMedia variant="image">
-                      <img src={image.dataUrl} alt="" />
-                    </AttachmentMedia>
-                    <AttachmentContent>
-                      <AttachmentTitle>{t("chat_image_attachment", { index: index + 1 })}</AttachmentTitle>
-                    </AttachmentContent>
-                    <AttachmentTrigger
-                      aria-label={t("chat_image_enlarge", { index: index + 1 })}
-                      onClick={() => setPreviewIndex(index)}
-                    />
-                    <AttachmentActions>
-                      <AttachmentAction
-                        aria-label={t("composer_remove_image", { index: index + 1 })}
-                        onClick={() => removeImage(image.id)}
-                      >
-                        <X aria-hidden />
-                      </AttachmentAction>
-                    </AttachmentActions>
-                  </Attachment>
-                ))}
-              </AttachmentGroup>
-            </InputGroupAddon>
-          )}
-          {/* 随内容撑高，上限是 Agent 面板高度的 40%，超出后在框内滚动 */}
-          <InputGroupTextarea
-            ref={textareaRef}
-            role="combobox"
-            rows={1}
-            value={text}
-            onChange={handleChange}
-            onKeyDown={handleKeyDown}
-            onCompositionStart={() => {
-              composingRef.current = true;
-            }}
-            onCompositionEnd={() => {
-              composingRef.current = false;
-            }}
-            onPaste={handlePaste}
-            onBlur={() => setSlash(null)}
-            placeholder={placeholder}
-            aria-label={t("assistant_input")}
-            aria-autocomplete="list"
-            aria-expanded={slashOpen}
-            aria-controls={slashOpen ? slashListId : undefined}
-            aria-activedescendant={slashOpen ? slashActiveId : undefined}
-            disabled={disabled}
-            className="min-h-9"
-          />
-          <InputGroupAddon align="block-end">
-            <InputGroupButton
-              size="icon-sm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={attachDisabled}
-              aria-label={
-                images.length >= MAX_ATTACHED_IMAGES
-                  ? t("max_images_hint", { count: MAX_ATTACHED_IMAGES })
-                  : t("attach_image")
-              }
-            >
-              <Paperclip aria-hidden />
-            </InputGroupButton>
-            {sending ? (
-              <Button size="icon-sm" className="ml-auto" disabled aria-label={t("send_message_pending")}>
-                <Loader2 aria-hidden className="animate-spin" />
-              </Button>
-            ) : running && !hasContent ? (
-              <Button variant="outline" size="icon-sm" className="ml-auto" onClick={onInterrupt} aria-label={t("stop_session")}>
-                <Square aria-hidden />
-              </Button>
-            ) : (
-              <Button size="icon-sm" className="ml-auto" onClick={send} disabled={!canSend} aria-label={t("send_message")}>
-                <ArrowUp aria-hidden />
-              </Button>
+    <div hidden={hidden && !hasQueuedMessages} className="flex shrink-0 flex-col gap-2 border-t border-border p-3">
+      <QueuedMessageTray
+        onWithdraw={onWithdrawQueued}
+        onResend={onResendQueued}
+        onSendNow={onSendQueuedNow}
+        questionPending={Boolean(hidden)}
+        editDisabled={sending}
+      />
+      {/* 问卷替换的只是输入框：托盘在外，提问期间仍可编辑、删除排队消息 */}
+      <div hidden={hidden}>
+        {(attachError || tooManyImages) && (
+          <p role="alert" className="mb-2 text-xs text-destructive">
+            {tooManyImages ? t("composer_too_many_images_hint", { count: MAX_ATTACHED_IMAGES }) : attachError}
+          </p>
+        )}
+        {/* 拖入图片时整个输入框高亮；高亮画在外层，不改输入框原语的样式 */}
+        <div
+          className={cn("rounded-lg transition-shadow duration-fast", isDragOver && "ring-2 ring-primary")}
+          onDragOver={handleDragOver}
+          onDragLeave={() => setIsDragOver(false)}
+          onDrop={handleDrop}
+        >
+          <InputGroup ref={groupRef}>
+            {hasAttachments && (
+              <InputGroupAddon align="block-start">
+                <AttachmentGroup className="w-full">
+                  {images.map((image, index) => (
+                    <Attachment key={image.id} size="xs">
+                      <AttachmentMedia variant="image">
+                        <img src={image.dataUrl} alt="" />
+                      </AttachmentMedia>
+                      <AttachmentContent>
+                        <AttachmentTitle>{t("chat_image_attachment", { index: index + 1 })}</AttachmentTitle>
+                      </AttachmentContent>
+                      <AttachmentTrigger
+                        aria-label={t("chat_image_enlarge", { index: index + 1 })}
+                        onClick={() => setPreviewIndex(index)}
+                      />
+                      <AttachmentActions>
+                        <AttachmentAction
+                          aria-label={t("composer_remove_image", { index: index + 1 })}
+                          onClick={() => removeImage(image.id)}
+                        >
+                          <X aria-hidden />
+                        </AttachmentAction>
+                      </AttachmentActions>
+                    </Attachment>
+                  ))}
+                </AttachmentGroup>
+              </InputGroupAddon>
             )}
-          </InputGroupAddon>
-        </InputGroup>
+            {/* 随内容撑高，上限是 Agent 面板高度的 40%，超出后在框内滚动 */}
+            <InputGroupTextarea
+              ref={textareaRef}
+              role="combobox"
+              rows={1}
+              value={text}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              onCompositionStart={() => {
+                composingRef.current = true;
+              }}
+              onCompositionEnd={() => {
+                composingRef.current = false;
+              }}
+              onPaste={handlePaste}
+              onBlur={() => setSlash(null)}
+              placeholder={placeholder}
+              aria-label={t("assistant_input")}
+              aria-autocomplete="list"
+              aria-expanded={slashOpen}
+              aria-controls={slashOpen ? slashListId : undefined}
+              aria-activedescendant={slashOpen ? slashActiveId : undefined}
+              disabled={disabled}
+              className="min-h-9"
+            />
+            <InputGroupAddon align="block-end">
+              <InputGroupButton
+                size="icon-sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={attachDisabled}
+                aria-label={
+                  images.length >= MAX_ATTACHED_IMAGES
+                    ? t("max_images_hint", { count: MAX_ATTACHED_IMAGES })
+                    : t("attach_image")
+                }
+              >
+                <Paperclip aria-hidden />
+              </InputGroupButton>
+              {sending ? (
+                <Button size="icon-sm" className="ml-auto" disabled aria-label={t("send_message_pending")}>
+                  <Loader2 aria-hidden className="animate-spin" />
+                </Button>
+              ) : running && !hasContent ? (
+                <Button variant="outline" size="icon-sm" className="ml-auto" onClick={onInterrupt} aria-label={t("stop_session")}>
+                  <Square aria-hidden />
+                </Button>
+              ) : (
+                <Button size="icon-sm" className="ml-auto" onClick={send} disabled={!canSend} aria-label={t("send_message")}>
+                  <ArrowUp aria-hidden />
+                </Button>
+              )}
+            </InputGroupAddon>
+          </InputGroup>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*"
+          aria-label={t("upload_attachment_aria")}
+          className="hidden"
+          onChange={(event) => {
+            const files = Array.from(event.target.files ?? []);
+            if (files.length > 0) addFiles(files);
+            event.target.value = "";
+          }}
+        />
+
+        <SlashCommandMenu
+          anchor={groupRef}
+          skills={slashSkills}
+          active={slashActive}
+          onActiveChange={setSlashActive}
+          onSelect={selectSlashCommand}
+          onClose={() => setSlash(null)}
+          onIdsChange={handleSlashIds}
+        />
       </div>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        accept="image/*"
-        aria-label={t("upload_attachment_aria")}
-        className="hidden"
-        onChange={(event) => {
-          const files = Array.from(event.target.files ?? []);
-          if (files.length > 0) addFiles(files);
-          event.target.value = "";
-        }}
-      />
-
-      <SlashCommandMenu
-        anchor={groupRef}
-        skills={slashSkills}
-        active={slashActive}
-        onActiveChange={setSlashActive}
-        onSelect={selectSlashCommand}
-        onClose={() => setSlash(null)}
-        onIdsChange={handleSlashIds}
-      />
 
       <Dialog open={previewImage !== undefined} onOpenChange={(open) => !open && setPreviewIndex(null)}>
         <DialogContent size="xl">
