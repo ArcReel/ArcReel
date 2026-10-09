@@ -6,12 +6,14 @@ import math
 import struct
 import subprocess
 import wave
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+from lib.db.repositories.display_names import build_display_names
+from lib.i18n.display_names import DisplayNames
 from lib.infra.ffmpeg import ffmpeg_executable
 from server.agent_runtime.models import SessionMeta
 
@@ -24,6 +26,16 @@ def make_translator(locale: str = "zh") -> Callable[..., str]:
         return i18n_translate(key, locale=locale, **kwargs)
 
     return translate
+
+
+def make_display_names(
+    locale: str = "zh",
+    *,
+    providers: Mapping[str, str] | None = None,
+    models: Mapping[tuple[str, str], str] | None = None,
+) -> DisplayNames:
+    """内置注册表名称加上给定的自定义供应商与模型名称组成的显示名目录，不经数据库。"""
+    return build_display_names(locale, custom_providers=providers or {}, custom_models=models or {})
 
 
 def wav_bytes(duration_seconds: float, sample_rate: int = 8000, *, tone_hz: float | None = None) -> bytes:

@@ -139,6 +139,58 @@ export interface TimelineEntry {
   failure?: FailureObservation;
 }
 
+/** 排队消息的状态：`queued` 已交给 Agent、等待被接纳；`unsent` Agent 进程退出时仍在排队，需由用户决定发送、编辑或删除。 */
+export type QueuedMessageState = "queued" | "unsent";
+
+/**
+ * 排队消息：已发出、Agent 尚未接纳进对话的用户消息（服务端内存态，不入事件日志）。
+ * `id` 即被接纳后时间线用户条目的 uuid。
+ */
+export interface QueuedMessage {
+  id: string;
+  content: ContentBlock[];
+  timestamp?: string | null;
+  state: QueuedMessageState;
+}
+
+/** 撤回排队消息的意图：`edit` 把内容退回输入框，`delete` 直接丢弃。 */
+export type QueuedMessageWithdrawal = "edit" | "delete";
+
+/** 编辑 / 删除排队消息的响应。 */
+export interface QueuedMessageWithdrawalResponse {
+  session_id: string;
+  id: string;
+  /** `withdrawn`：已撤回并移出排队；`accepted`：Agent 已接收，消息照常进入对话。 */
+  outcome: "withdrawn" | "accepted";
+  /** 编辑且撤回成功时为要退回输入框的消息，否则为 null。 */
+  message: QueuedMessage | null;
+}
+
+/** 重新发送「未发送」消息的响应：同一条排队消息，已回到 `queued`。 */
+export interface QueuedMessageResendResponse {
+  session_id: string;
+  id: string;
+  queued_message: QueuedMessage;
+}
+
+/** 立即发送排队消息的响应。 */
+export interface QueuedMessageSendNowResponse {
+  session_id: string;
+  id: string;
+  /** `sent`：已重新送入，Agent 打断当前轮先处理它，消息留在托盘里直到被接纳；`accepted`：Agent 已接收，不再重发。 */
+  outcome: "sent" | "accepted";
+}
+
+/** 发送与改写端点的受理响应：排队消息与权威条目二者恰有其一。 */
+export interface AcceptedMessageResponse {
+  status: string;
+  session_id: string;
+  /** 新会话首条消息，或同一 client_key 的重试命中已被接纳的消息。 */
+  entry: TimelineEntry | null;
+  /** 已有会话的消息：等待 Agent 接纳。 */
+  queued_message: QueuedMessage | null;
+}
+
 /** 服务端流式预览态快照（身份为 message_id，不入日志）。 */
 export interface DraftState {
   message_id: string;

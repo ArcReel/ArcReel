@@ -10,7 +10,7 @@ from sqlalchemy import select
 from lib.db.models.api_call import ApiCall
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
-from tests.fakes import FakeSDKClient
+from tests.fakes import FakeSDKClient, session_state_message
 
 
 class StreamEvent:
@@ -73,6 +73,30 @@ class TestSessionManagerSdkSessionId:
         assert meta.project_name == "demo"
         assert meta.status == "running"
 
+    async def test_stream_opened_once_the_session_is_listed_subscribes_to_the_managed_channel(
+        self, session_manager, meta_store, monkeypatch
+    ):
+        """新会话的元数据一落库就可被列出：此时打开的 entry 流挂在会话实际广播的通道上。"""
+        sdk_session_id = "sdk-new-listed"
+        managed = _make_managed()
+        session_manager.sessions[managed.session_id] = managed
+        subscribed = []
+        real_create = meta_store.create
+
+        async def _create_then_client_subscribes(project_name, session_id):
+            meta = await real_create(project_name, session_id)
+            subscribed.append(session_manager._subscribe(session_id)[0])
+            return meta
+
+        monkeypatch.setattr(meta_store, "create", _create_then_client_subscribes)
+
+        await session_manager._on_sdk_session_id_received(
+            managed, StreamEvent(sdk_session_id), {"session_id": sdk_session_id}
+        )
+
+        assert subscribed == [managed.channel]
+        assert session_manager._channels[sdk_session_id] is managed.channel
+
     async def test_finalize_turn_records_assistant_usage(self, session_manager, meta_store):
         meta = await meta_store.create("demo", "sdk-usage-789")
         managed = _make_managed(session_id=meta.id, project_name="demo", assistant_model="claude-sonnet-4")
@@ -116,9 +140,6 @@ class TestSessionManagerSdkSessionId:
         assert row.usage_tokens == 1250
         assert row.cost_amount == pytest.approx(0.1234)
         assert row.currency == "USD"
-        refreshed = await meta_store.get(meta.id)
-        assert refreshed is not None
-        assert refreshed.status == "completed"
 
     async def test_finalize_turn_preserves_sdk_cost_for_failed_status(self, session_manager, meta_store):
         meta = await meta_store.create("demo", "sdk-usage-failed-789")
@@ -150,9 +171,6 @@ class TestSessionManagerSdkSessionId:
         assert row.status == "failed"
         assert row.cost_amount == pytest.approx(0.0456)
         assert row.currency == "USD"
-        refreshed = await meta_store.get(meta.id)
-        assert refreshed is not None
-        assert refreshed.status == "error"
 
     async def test_finalize_turn_uses_model_usage_cost_when_total_cost_missing(self, session_manager, meta_store):
         meta = await meta_store.create("demo", "sdk-model-usage-cost-789")
@@ -255,9 +273,10 @@ class TestSessionManagerSdkSessionId:
         assert row.cost_amount == pytest.approx(0.0042)
         assert row.currency == "USD"
 
-    async def test_finalize_turn_usage_failure_does_not_override_status(self, session_manager, meta_store, monkeypatch):
+    async def test_usage_failure_does_not_block_settling_the_turn(self, session_manager, meta_store, monkeypatch):
         meta = await meta_store.create("demo", "sdk-usage-error-789")
-        managed = _make_managed(session_id=meta.id, project_name="demo")
+        managed = _make_managed(session_id=meta.id, project_name="demo", status="running")
+        managed.resolved_sdk_id = meta.id
         called = False
 
         async def _raise_usage_error(*_args, **_kwargs):
@@ -267,10 +286,11 @@ class TestSessionManagerSdkSessionId:
 
         monkeypatch.setattr(session_manager, "_record_assistant_usage", _raise_usage_error)
 
-        await session_manager._finalize_turn(
-            managed,
-            {"type": "result", "session_status": "completed", "model": "claude-sonnet-4", "usage": {"input_tokens": 1}},
-        )
+        on_message = session_manager._make_actor_message_callback([managed])
+        on_message({"type": "result", "subtype": "success", "model": "claude-sonnet-4", "usage": {"input_tokens": 1}})
+        on_message(session_state_message("idle"))
+        managed._inbox.put_nowait(None)
+        await session_manager._process_inbox(managed)
 
         assert called is True
         refreshed = await meta_store.get(meta.id)

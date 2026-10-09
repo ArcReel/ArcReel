@@ -34,7 +34,7 @@ from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row
 from lib.custom_provider.factory import create_custom_backend
 from lib.generation.task_failure import render_failure
 from lib.generation.task_failure_encoding import encode_task_failure_message
-from tests.factories import comfyui_endpoint_definition, make_translator
+from tests.factories import comfyui_endpoint_definition, make_display_names, make_translator
 from tests.fakes import MP4_BYTES, bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -597,7 +597,9 @@ class TestFailures:
 
         assert caught.value.code == "comfyui_output_type_mismatch"
         assert view.call_count == 0
-        rendered = render_failure(encode_task_failure_message(caught.value), make_translator("zh"))
+        rendered = render_failure(
+            encode_task_failure_message(caught.value), make_translator("zh"), make_display_names("zh")
+        )
         assert ".m4v / .mov / .mp4" in rendered
         assert "h264-mp4" in rendered
 
@@ -616,7 +618,9 @@ class TestFailures:
         assert caught.value.code == "comfyui_output_container_mismatch"
         assert caught.value.params == {"filename": "final_00001.mp4", "media_type": "video"}
         assert not (tmp_path / "out.mp4").exists()
-        rendered = render_failure(encode_task_failure_message(caught.value), make_translator("zh"))
+        rendered = render_failure(
+            encode_task_failure_message(caught.value), make_translator("zh"), make_display_names("zh")
+        )
         assert ".m4v / .mov / .mp4" in rendered
 
     async def test_still_image_iso_bmff_bytes_under_an_mp4_name_are_refused(self, tmp_path: Path):
@@ -662,7 +666,7 @@ class TestFailures:
         """
         message = encode_task_failure_message(ComfyuiError(code, **params))
 
-        rendered = render_failure(message, make_translator(locale))
+        rendered = render_failure(message, make_translator(locale), make_display_names(locale))
 
         assert rendered
         assert code not in rendered
@@ -675,7 +679,7 @@ class TestFailures:
             ComfyuiError("comfyui_output_type_mismatch", filename="a.png", media_type="video")
         )
 
-        rendered = render_failure(message, make_translator(locale))
+        rendered = render_failure(message, make_translator(locale), make_display_names(locale))
 
         assert rendered
         assert ".m4v / .mov / .mp4" in rendered

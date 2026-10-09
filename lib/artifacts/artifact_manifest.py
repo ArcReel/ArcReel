@@ -19,12 +19,14 @@ import tempfile
 import threading
 import time
 import unicodedata
+from collections import OrderedDict
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import NamedTuple, Protocol, Self, cast
+from types import MappingProxyType
+from typing import BinaryIO, NamedTuple, Protocol, Self, cast
 
 import portalocker
 
@@ -584,11 +586,115 @@ class InMemoryArtifactManifestAdapter:
             return True
 
 
+MANIFEST_READ_CACHE_PROJECT_LIMIT = 32
+"""Projects whose latest parsed Manifest stays cached in process, one snapshot each."""
+
+_MANIFEST_SETTLED_AGE_NS = 2_000_000_000
+"""Age a Manifest change must have when read before its file identity alone proves it unchanged.
+
+Longer than common timestamp granularity (FAT: 2 s), so any later change gets a new
+identity; a younger file may still be rewritten in place within the same tick.
+"""
+
+
+class _ManifestFileIdentity(NamedTuple):
+    device: int
+    inode: int
+    size: int
+    modified_ns: int
+    changed_ns: int
+
+    @classmethod
+    def of(cls, file_stat: os.stat_result) -> Self | None:
+        # No inode means no identity.  Windows ``st_ctime`` is a tunnelled creation
+        # time, but its inode is a sequence-numbered file index.
+        if not file_stat.st_ino:
+            return None
+        changed_ns = file_stat.st_ctime_ns if os.name == "posix" else 0
+        return cls(file_stat.st_dev, file_stat.st_ino, file_stat.st_size, file_stat.st_mtime_ns, changed_ns)
+
+    @property
+    def last_change_ns(self) -> int:
+        return max(self.modified_ns, self.changed_ns)
+
+
+class _ParsedManifest:
+    """Immutable raw bytes and validated entries of one Manifest version."""
+
+    __slots__ = ("_decoded", "entries", "raw")
+
+    def __init__(self, raw: bytes, entries: dict[str, ArtifactManifestEntry]) -> None:
+        self.raw = raw
+        self.entries: Mapping[str, ArtifactManifestEntry] = MappingProxyType(entries)
+        self._decoded: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None
+
+    def decoded(self) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
+        decoded = self._decoded
+        if decoded is None:
+            decoded = MappingProxyType({ArtifactKey.decode(encoded): entry for encoded, entry in self.entries.items()})
+            self._decoded = decoded
+        return decoded
+
+
+@dataclass(frozen=True, slots=True)
+class _ManifestCacheSlot:
+    identity: _ManifestFileIdentity
+    settled: bool
+    parsed: _ParsedManifest
+
+
+class _ManifestReadCache:
+    """Thread-safe LRU of the latest parsed Manifest per project directory identity."""
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._slots: OrderedDict[tuple[int, int], _ManifestCacheSlot] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, project: tuple[int, int]) -> _ManifestCacheSlot | None:
+        with self._lock:
+            slot = self._slots.get(project)
+            if slot is not None:
+                self._slots.move_to_end(project)
+            return slot
+
+    def put(self, project: tuple[int, int], slot: _ManifestCacheSlot) -> None:
+        with self._lock:
+            self._slots[project] = slot
+            self._slots.move_to_end(project)
+            while len(self._slots) > self._limit:
+                self._slots.popitem(last=False)
+
+    def discard(self, project: tuple[int, int]) -> None:
+        with self._lock:
+            self._slots.pop(project, None)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._slots.clear()
+
+
+_MANIFEST_READ_CACHE = _ManifestReadCache(MANIFEST_READ_CACHE_PROJECT_LIMIT)
+
+
+def reset_manifest_read_cache_for_tests() -> None:
+    """Drop every cached Manifest parse so the next read in each project starts cold."""
+
+    _MANIFEST_READ_CACHE.clear()
+
+
 class ProjectArtifactManifestAdapter:
     """Safe project-directory adapter backed by a versioned JSON manifest."""
 
-    def __init__(self, project_dir: Path, *, nofollow_supported: bool = True) -> None:
+    def __init__(
+        self,
+        project_dir: Path,
+        *,
+        nofollow_supported: bool = True,
+        clock_ns: Callable[[], int] = time.time_ns,
+    ) -> None:
         self._nofollow_supported = nofollow_supported
+        self._clock_ns = clock_ns
         root_fd: int | None = None
         windows_handle: int | None = None
         try:
@@ -1014,13 +1120,14 @@ class ProjectArtifactManifestAdapter:
         )
 
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
-        return self._load_readonly().get(key.encode())
+        read = self._load_readonly()
+        return None if read is None else read.entries.get(key.encode())
 
     def snapshot_entries(self) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
-        entries = self._load_readonly()
-        return {ArtifactKey.decode(encoded): entry for encoded, entry in entries.items()}
+        read = self._load_readonly()
+        return {} if read is None else dict(read.decoded())
 
-    def _load_readonly(self) -> dict[str, ArtifactManifestEntry]:
+    def _load_readonly(self) -> _ParsedManifest | None:
         """Read one consistent snapshot without creating runtime state.
 
         Once a writer has created the durable lock file, readers serialize with
@@ -1035,23 +1142,20 @@ class ProjectArtifactManifestAdapter:
         lock_path = self._project_dir / LOCK_FILENAME
         if self._runtime_file_identity(lock_path, "manifest lock") is not None:
             with self._locked() as root_fd:
-                entries, _ = self._load_unlocked(root_fd)
-                return entries
+                return self._load_cached(root_fd)
 
         with self._guard_portable_project_root():
-            entries, original_bytes = self._load_unlocked(None)
+            original = self._load_cached(None)
             if self._runtime_file_identity(lock_path, "manifest lock") is not None:
                 with self._locked() as root_fd:
-                    locked_entries, _ = self._load_unlocked(root_fd)
-                    return locked_entries
-            repeated_entries, repeated_bytes = self._load_unlocked(None)
+                    return self._load_cached(root_fd)
+            repeated = self._load_cached(None)
             if self._runtime_file_identity(lock_path, "manifest lock") is not None:
                 with self._locked() as root_fd:
-                    locked_entries, _ = self._load_unlocked(root_fd)
-                    return locked_entries
-        if original_bytes != repeated_bytes or entries != repeated_entries:
+                    return self._load_cached(root_fd)
+        if original is not repeated and (original is None or repeated is None or original.raw != repeated.raw):
             raise ArtifactManifestError("artifact manifest changed during an unlocked read")
-        return entries
+        return original
 
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
         with self._locked() as root_fd:
@@ -1392,23 +1496,20 @@ class ProjectArtifactManifestAdapter:
         ):
             raise ArtifactManifestError(f"{label} changed while it was being opened: {path}")
 
-    def _load_unlocked(
-        self,
-        root_fd: int | None,
-        *,
-        validate_path_ownership: bool = True,
-    ) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
+    def _open_manifest(self, root_fd: int | None) -> BinaryIO | None:
+        """Open the manifest after the same no-follow and identity checks; ``None`` when absent."""
+
         path = self._project_dir / MANIFEST_FILENAME
         checked_manifest_identity: tuple[int, int] | None = None
         if root_fd is None or not self._nofollow_flag:
             checked_manifest_identity = self._runtime_file_identity(path, "artifact manifest")
             if checked_manifest_identity is None:
-                return {}, None
+                return None
         flags = os.O_RDONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0) | _binary_open_flag()
         try:
             fd = os.open(MANIFEST_FILENAME, flags, dir_fd=root_fd) if root_fd is not None else os.open(path, flags)
         except FileNotFoundError:
-            return {}, None
+            return None
         except OSError as exc:
             if exc.errno == errno.ELOOP:
                 raise ArtifactManifestError(f"artifact manifest is a symlink: {path}") from exc
@@ -1423,17 +1524,71 @@ class ProjectArtifactManifestAdapter:
                 )
             elif not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise ArtifactManifestError(f"artifact manifest is not a regular file: {path}")
-            handle = os.fdopen(fd, "rb")
+            return os.fdopen(fd, "rb")
         except BaseException:
             with contextlib.suppress(OSError):
                 os.close(fd)
             raise
+
+    def _read_open_manifest(self, handle: BinaryIO) -> bytes:
         try:
-            with handle:
-                raw = handle.read()
+            return handle.read()
         except OSError as exc:
-            raise ArtifactManifestError(f"cannot read artifact manifest: {path}: {exc}") from exc
+            raise ArtifactManifestError(
+                f"cannot read artifact manifest: {self._project_dir / MANIFEST_FILENAME}: {exc}"
+            ) from exc
+
+    def _load_unlocked(
+        self,
+        root_fd: int | None,
+        *,
+        validate_path_ownership: bool = True,
+    ) -> tuple[dict[str, ArtifactManifestEntry], bytes | None]:
+        # Writers mutate the result, so this path always reads and parses afresh.
+        handle = self._open_manifest(root_fd)
+        if handle is None:
+            return {}, None
+        with handle:
+            raw = self._read_open_manifest(handle)
         return _parse_manifest(raw, validate_path_ownership=validate_path_ownership), raw
+
+    def _load_cached(self, root_fd: int | None) -> _ParsedManifest | None:
+        """Read-only load that parses each Manifest version once per process.
+
+        Opening and every safety check still happen on each call; the cache key is
+        the identity of the descriptor actually opened.  Unsettled files are read in
+        full and reuse a parse only on byte equality, and a file whose identity
+        changes during the read is never cached.
+        """
+
+        handle = self._open_manifest(root_fd)
+        if handle is None:
+            _MANIFEST_READ_CACHE.discard(self._project_identity)
+            return None
+        with handle:
+            identity = _ManifestFileIdentity.of(self._fstat_open_manifest(handle))
+            slot = None if identity is None else _MANIFEST_READ_CACHE.get(self._project_identity)
+            if slot is not None and slot.settled and slot.identity == identity:
+                return slot.parsed
+            raw = self._read_open_manifest(handle)
+            if identity is not None and _ManifestFileIdentity.of(self._fstat_open_manifest(handle)) != identity:
+                identity = None
+        if slot is not None and slot.parsed.raw == raw:
+            parsed = slot.parsed
+        else:
+            parsed = _ParsedManifest(raw, _parse_manifest(raw))
+        if identity is not None:
+            settled = self._clock_ns() - identity.last_change_ns > _MANIFEST_SETTLED_AGE_NS
+            _MANIFEST_READ_CACHE.put(self._project_identity, _ManifestCacheSlot(identity, settled, parsed))
+        return parsed
+
+    def _fstat_open_manifest(self, handle: BinaryIO) -> os.stat_result:
+        try:
+            return os.fstat(handle.fileno())
+        except OSError as exc:
+            raise ArtifactManifestError(
+                f"opened artifact manifest is unavailable: {self._project_dir / MANIFEST_FILENAME}: {exc}"
+            ) from exc
 
     def _atomic_replace(self, content: bytes, root_fd: int | None) -> None:
         if root_fd is None:

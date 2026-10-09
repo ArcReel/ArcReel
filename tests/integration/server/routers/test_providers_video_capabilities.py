@@ -24,6 +24,7 @@ from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
 from server.routers import projects, providers
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+from tests.factories import make_display_names
 
 #: registry 里声明了「1080p 只剩 8 秒」的型号，用来观察真实 resolver 算出的收窄结果。
 VEO = "gemini-aistudio/veo-3.1-generate-preview"
@@ -93,7 +94,7 @@ class TestGetModelVideoCapabilities:
             )
         assert resp.status_code == 400
         assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_missing_r2v"].format(
-            provider="kling", model="kling-v3"
+            **make_display_names().apply({"provider": "kling", "model": "kling-v3"})
         )
 
 
@@ -128,7 +129,7 @@ class TestRealResolverResponse:
             )
         assert resp.status_code == 400
         assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_reference_unavailable"].format(
-            provider="gemini-aistudio", model="deleted-model"
+            **make_display_names().apply({"provider": "gemini-aistudio", "model": "deleted-model"})
         )
 
     def test_candidate_without_reference_capability_reports_bucket_failure(self, real_resolver_client):
@@ -139,7 +140,7 @@ class TestRealResolverResponse:
             )
         assert resp.status_code == 400
         assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_missing_r2v"].format(
-            provider="kling", model="kling-v3"
+            **make_display_names().apply({"provider": "kling", "model": "kling-v3"})
         )
 
     def test_reference_path_narrows_by_the_r2v_bucket(self, real_resolver_client):
@@ -245,7 +246,7 @@ def test_facts_failure_reports_its_problem_code(real_resolver_client, set_video_
         )
     assert response.status_code == 422
     assert response.json()["detail"] == zh_errors.MESSAGES["reference_supported_durations_incompatible"].format(
-        provider="gemini-aistudio", model="veo-3.1-generate-preview"
+        **make_display_names().apply({"provider": "gemini-aistudio", "model": "veo-3.1-generate-preview"})
     )
 
 

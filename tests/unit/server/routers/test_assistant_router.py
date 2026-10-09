@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.agent_runtime.session_manager import SessionBusyError, SessionCapacityError
+from server.agent_runtime.service import SessionSupersededError
+from server.agent_runtime.session_manager import SessionCapacityError, UnrecordedMessageError
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.i18n import get_translator
@@ -25,8 +26,10 @@ class _FakeService:
             raise FileNotFoundError(project_name)
         if project_name == "at-capacity":
             raise SessionCapacityError()
-        if project_name == "busy":
-            raise SessionBusyError("会话正在处理中")
+        if session_id == "superseded":
+            raise SessionSupersededError(session_id)
+        if session_id == "unrecorded":
+            raise UnrecordedMessageError(session_id)
         if not content.strip() and not images:
             raise ValueError("空消息")
         returned_id = session_id or "sdk-new-session"
@@ -113,12 +116,19 @@ class TestAssistantRouter:
             )
             assert send_at_capacity.status_code == 503
 
-            # POST /sessions/send — 目标会话正在处理中 → 409（与空消息的 400 区分）
-            send_busy = client.post(
-                "/api/v1/projects/busy/assistant/sessions/send",
-                json={"content": "hello"},
+            # POST /sessions/send — 会话已被改写取代 → 409
+            send_superseded = client.post(
+                f"{PREFIX}/sessions/send",
+                json={"content": "hello", "session_id": "superseded"},
             )
-            assert send_busy.status_code == 409
+            assert send_superseded.status_code == 409
+
+            # POST /sessions/send — 同键重试命中已接纳却没写入日志的消息 → 409，不再送入
+            send_unrecorded = client.post(
+                f"{PREFIX}/sessions/send",
+                json={"content": "hello", "session_id": "unrecorded", "client_key": "ck-1"},
+            )
+            assert send_unrecorded.status_code == 409
 
             listed = client.get(f"{PREFIX}/sessions")
             assert listed.status_code == 200

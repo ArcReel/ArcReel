@@ -168,7 +168,7 @@ def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencin
         ),
         pytest.param(
             {"voice_consistency": "none"},
-            {"key": WARN_SILENT_MODEL, "params": {"model": "doubao-seedance-2-0"}},
+            {"key": WARN_SILENT_MODEL, "params": {"provider": "", "model": "doubao-seedance-2-0"}},
             id="silent_model",
         ),
     ],
@@ -259,7 +259,7 @@ def test_silent_tier_keeps_dialogue_lines_but_injects_no_voice_declaration():
     assert "@音频" not in rendered.prompt
     # 台词照常渲染：供口型与表演
     assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
-    assert {"key": WARN_SILENT_MODEL, "params": {"model": "minimax-01"}} in rendered.warnings
+    assert {"key": WARN_SILENT_MODEL, "params": {"provider": "", "model": "minimax-01"}} in rendered.warnings
 
 
 def test_reference_audio_overflow_truncates_and_warns():

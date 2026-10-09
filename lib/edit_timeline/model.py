@@ -189,7 +189,6 @@ class TimelineRevision(_Frozen):
     parent: int | None = Field(default=None, ge=1, strict=True)
     author: RevisionAuthor
     summary: str = Field(min_length=1)
-    agent_turn: str | None = None
     created_at: str
     content: EditTimelineContent
     changed_clip_ids: tuple[Annotated[str, Field(pattern=ANY_CLIP_ID_PATTERN)], ...] | None = None

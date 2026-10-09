@@ -19,7 +19,7 @@ script_plan 就先取回一份草稿、改完走同一条晋升通道写盘。�
 信封形状::
 
     {"kind": ..., "episode": N, "meta": {..., "schema_version": V},
-     "violations": [{"code","label","message", "item_index"?, "item_id"?}, ...], "content": {...}}
+     "violations": [{"code","label","message", "item_index"?, "item_id"?, "params"?}, ...], "content": {...}}
 
 ``violations`` 是上一轮判定的快照，供 Agent 阅读定位与 Web 呈现——晋升时一律按 ``content`` 现值重判，
 不信任草稿里的这份记录。``meta`` 存重判所需、又无法从项目状态重新导出的上下文：script_plan 的源文
@@ -253,6 +253,8 @@ def violation_entries(violations: list[DraftViolation]) -> list[dict[str, Any]]:
             entry["item_index"] = violation.item_index
         if violation.item_id is not None:
             entry["item_id"] = violation.item_id
+        if violation.params is not None:
+            entry["params"] = violation.params
         entries.append(entry)
     return entries
 

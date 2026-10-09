@@ -206,6 +206,17 @@ class AdScriptRejectedError(TextGenerationError):
         self.problems = tuple(problems)
 
 
+class VideoRequestFactsUnavailableError(TextGenerationError):
+    """视频请求事实解析不出（模型能力不满足、时长档位缺失等），文本任务无法继续；携带失败对象。
+
+    ``failure`` 的问题码、参数与修复指引原样进入工具问题与任务失败，读侧按问题码渲染原因。
+    """
+
+    def __init__(self, failure: VideoRequestFactsFailure) -> None:
+        super().__init__(video_facts_failure_text(failure))
+        self.failure = failure
+
+
 class ScriptOverwriteRequiredError(TextGenerationError):
     """内容确认会覆盖该集已有的正式脚本，而调用方未认可覆盖；携带将被移除的条目与产物摘要。"""
 
@@ -359,9 +370,13 @@ def _project_default_duration(project: dict[str, Any]) -> int | None:
     return None
 
 
-def _video_facts_failure_text(failure: VideoRequestFactsFailure) -> str:
-    """视频请求事实解析不出时回给 Agent 的说明：问题码与参数就是失败契约，与预检、执行同码。"""
-    return f"❌ 视频时长档位无法解析：{failure.summary()}；请在设置中配置可用的视频模型后重试"
+def video_facts_failure_text(failure: VideoRequestFactsFailure) -> str:
+    """视频请求事实解析不出时回给 Agent 的说明：按问题码陈述原因与出路，附问题码与参数摘要。
+
+    问题码与参数就是失败契约，与预检、执行同码。
+    """
+    params: dict[str, Any] = failure.parameters()
+    return f"❌ {translate(failure.code, **params)}（{failure.summary()}）"
 
 
 async def fetch_storyboard_durations(
@@ -700,7 +715,7 @@ async def generate_episode_script(
         # 后者会引导 Agent 原样重试同一份必然失败的参数。
         raise TextGenerationError(f"❌ 编写范围无效: {exc}") from exc
     except VideoRequestFactsError as exc:
-        raise TextGenerationError(_video_facts_failure_text(exc.failure)) from exc
+        raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except FileNotFoundError as exc:
         raise TextGenerationError(f"❌ 文件错误: {exc}") from exc
     skipped_note = (
@@ -784,7 +799,7 @@ async def confirm_script_review(
                 overwrite,
             ) from exc
         if exc.problem is not None:
-            raise TextGenerationError(_video_facts_failure_text(exc.problem)) from exc
+            raise VideoRequestFactsUnavailableError(exc.problem) from exc
         raise TextGenerationError(f"❌ 无法完成 script_plan 内容确认（{exc.code}）：{exc.message or exc.code}") from exc
     return TextGenerationResult(
         f"✅ {_describe(projects, project_name, episode)} 的 script_plan 已确认并整份转为正式脚本，全部分镜待编写，"
@@ -982,7 +997,7 @@ async def generate_drama_script_plan(
     except (TextGenerationError, TextOutputTruncatedError):
         raise
     except VideoRequestFactsError as exc:
-        raise TextGenerationError(_video_facts_failure_text(exc.failure)) from exc
+        raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
         raise TextGenerationError(f"generate_script_plan 失败: {exc}") from exc
 
@@ -1069,10 +1084,14 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
     的修复闭环，不该退回丢弃重抽。
     """
     if not has_references and caps.text_problem is not None:
+        # 无图桶的视频模型配置问题：按问题码陈述原因与出路，Web 视图按问题码与参数本地化。
+        failure = caps.text_problem
+        params: dict[str, Any] = failure.parameters()
         raise DraftViolation(
-            f"{label} 无参考图视频档位未知（{caps.text_problem.code}）；请在设置中配置可用的图生视频模型",
-            code=caps.text_problem.code,
+            f"{label}：{translate(failure.code, **params)}（{failure.summary()}）",
+            code=failure.code,
             label=label,
+            params=params,
         )
     tiers = caps.tiers_for(has_references=has_references)
     if duration in tiers:
@@ -1717,7 +1736,7 @@ async def generate_reference_script_plan(
     except (TextGenerationError, TextOutputTruncatedError):
         raise
     except VideoRequestFactsError as exc:
-        raise TextGenerationError(_video_facts_failure_text(exc.failure)) from exc
+        raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
         raise TextGenerationError(f"generate_script_plan 失败: {exc}") from exc
 
@@ -1856,6 +1875,6 @@ async def generate_narration_script_plan(
     except (TextGenerationError, TextOutputTruncatedError):
         raise
     except VideoRequestFactsError as exc:
-        raise TextGenerationError(_video_facts_failure_text(exc.failure)) from exc
+        raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
         raise TextGenerationError(f"generate_script_plan 失败: {exc}") from exc

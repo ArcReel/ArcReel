@@ -120,13 +120,19 @@ def _render_unit_prompt(
     )
 
 
-def _reference_limit_warning(*, provider: str, model: str | None, count: int, max_refs: int) -> dict[str, Any]:
-    """参考图片超限 warning；通用路径与商品优先裁剪共用。"""
-    if provider.lower() == "openai" and (model or "").lower().startswith("sora") and max_refs == 1:
+def _reference_limit_warning(
+    *, backend_name: str, provider_id: str, model: str, count: int, max_refs: int
+) -> dict[str, Any]:
+    """参考图片超限 warning；通用路径与商品优先裁剪共用。
+
+    参数带注册表供应商 ID（族别名供应商与 backend 名不同），界面才能按 ``(供应商, 模型)`` 查到
+    显示名；只带模型时，两个供应商下同一上游模型 ID 名称不同就无从区分。
+    """
+    if backend_name.lower() == "openai" and model.lower().startswith("sora") and max_refs == 1:
         return {"key": "ref_sora_single_ref", "params": {}}
     return {
         "key": "ref_too_many_images",
-        "params": {"count": count, "model": model or provider, "max_count": max_refs},
+        "params": {"count": count, "provider": provider_id, "model": model, "max_count": max_refs},
     }
 
 
@@ -408,13 +414,14 @@ async def execute_reference_video_task(
                 continue
             warnings.append(
                 _reference_limit_warning(
-                    provider=provider_name,
+                    backend_name=provider_name,
+                    provider_id=actual_provider_id,
                     model=model_name,
                     count=count,
                     max_refs=max_count,
                 )
             )
-    duration_warning = projection.request_duration.warning(model=model_name)
+    duration_warning = projection.request_duration.warning(provider=actual_provider_id, model=model_name)
     if duration_warning is not None:
         warnings.append(duration_warning)
 
@@ -427,14 +434,7 @@ async def execute_reference_video_task(
     #    参考音频路径先解析再渲染：渲染层按「确实可用」判定绑定，`@音频N` 的编号与随请求
     #    发出的段数因此严格等长（字段指向已删文件时不会留下指向不存在段的编号）。
     audio_paths = await asyncio.to_thread(resolve_reference_audio_paths, project, project_path)
-    voice_settings = VoiceRenderSettings(
-        voice_consistency=request_facts.voice_consistency,
-        requested_generate_audio=request_facts.requested_generate_audio,
-        max_reference_audio=request_facts.max_reference_audio_count,
-        model_id=model_name,
-        audio_ready=audio_paths,
-        requires_reference_image=request_facts.reference_audio_per_image,
-    )
+    voice_settings = VoiceRenderSettings.from_request_facts(request_facts, audio_ready=audio_paths)
     rendered = _render_unit_prompt(
         unit,
         project,

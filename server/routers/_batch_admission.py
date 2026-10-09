@@ -8,12 +8,14 @@ from typing import Any
 from lib.generation.batch_admission import BatchAdmission
 from lib.generation.generation_queue_client import BatchTaskResult
 from lib.generation.generation_result import enqueue_problem
+from lib.i18n import render_message
+from lib.i18n.display_names import DisplayNames
 from server.i18n import Translator
 
 logger = logging.getLogger(__name__)
 
 
-def localized_admission_payload(admission: BatchAdmission, _t: Translator) -> dict[str, Any]:
+def localized_admission_payload(admission: BatchAdmission, _t: Translator, names: DisplayNames) -> dict[str, Any]:
     """Localize the shared admission envelope for the browser.
 
     Only the message strings are added: codes, actions, tiers and costs stay
@@ -31,7 +33,9 @@ def localized_admission_payload(admission: BatchAdmission, _t: Translator) -> di
             for problem in problems:
                 if isinstance(problem, dict):
                     params = problem.get("params")
-                    problem["message"] = _t(str(problem.get("code")), **(params if isinstance(params, dict) else {}))
+                    problem["message"] = render_message(
+                        str(problem.get("code")), params if isinstance(params, dict) else {}, _t, names
+                    )
     return payload
 
 

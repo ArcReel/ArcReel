@@ -120,7 +120,7 @@ from lib.generation.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
-from lib.generation.video_request_facts import VideoRequestFactsError
+from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
@@ -208,6 +208,7 @@ from server.draft_workflow import (
     PromoteDraftRequest,
 )
 from server.services.admission.prompt_preview import ItemPromptPreview, ScriptItemNotFound, preview_item_prompts
+from server.services.admission.video_batch_admission import generation_action_for
 from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
 from server.services.project.workflow_planner import WorkflowPlanner
@@ -227,6 +228,7 @@ from server.text_generation import (
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
+    VideoRequestFactsUnavailableError,
     generate_drama_script_plan,
     generate_narration_script_plan,
     generate_reference_script_plan,
@@ -261,17 +263,12 @@ class CallerContext:
     """调用方身份与宿主。
 
     ``source`` 决定长任务阻塞还是即返：``embedded`` 由 ``batch_waiter`` 入队并等到批次终态，
-    ``mcp`` 与 Web 的 ``webui`` 提交后立即返回批次句柄、不需要等待器。``agent_turn`` 在调用时给出 ArcReel Agent
-    当前所在的轮次；外部 Agent 没有轮次。
+    ``mcp`` 与 Web 的 ``webui`` 提交后立即返回批次句柄、不需要等待器。
     """
 
     user_id: str
     source: Literal["embedded", "mcp", "webui"]
     batch_waiter: BatchWaiter | None = None
-    agent_turn: Callable[[], str | None] | None = None
-
-    def current_agent_turn(self) -> str | None:
-        return self.agent_turn() if self.agent_turn is not None else None
 
     def waiting_with(self, **options: Any) -> CallerContext:
         """给等待器绑定额外选项（如 ``on_enqueued`` / ``stop_on_failure``）；没有等待器时原样返回。"""
@@ -623,6 +620,16 @@ def truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
     )
 
 
+def video_facts_problem(failure: VideoRequestFactsFailure, detail: str) -> ToolProblem:
+    """视频请求事实解析不出：问题码与参数原样透出，修复指引与批量准入同一映射（多为配置供应商）。"""
+    return ToolProblem(
+        failure.code,
+        detail,
+        action=generation_action_for(failure.action),
+        params=failure.parameters(),
+    )
+
+
 def _not_admitted_problem(exc: OperationNotAdmittedError) -> ToolProblem:
     """准入不成立的拒绝：``params.reason`` 与制作状态 ``operations`` 里同一操作的理由码一致。"""
     return ToolProblem(
@@ -660,6 +667,8 @@ async def _run_text_generation(
         return ToolOutcome(problem=_not_admitted_problem(exc))
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
+    except VideoRequestFactsUnavailableError as exc:
+        return ToolOutcome(problem=video_facts_problem(exc.failure, str(exc)))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except Exception as exc:
@@ -1451,6 +1460,8 @@ async def _run_draft(call: Awaitable[dict[str, Any]]) -> ToolOutcome[dict[str, A
     try:
         return ToolOutcome(value=await call)
     except DraftWorkflowError as exc:
+        if exc.failure is not None:
+            return ToolOutcome(problem=video_facts_problem(exc.failure, exc.detail))
         return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
@@ -1587,7 +1598,8 @@ async def _execute_draft_repair(
             request.episode_id, request.doc_type, request.base_revision, request.instructions
         )
     )
-    if outcome.problem is not None and outcome.problem.code == "text_output_truncated":
+    if outcome.problem is not None and outcome.problem.action is not None:
+        # 带修复指引的问题（输出截断、视频模型配置）原样透出：问题码即文案 key，失败原因按真实原因呈现。
         return ToolOutcome(problem=outcome.problem)
     if outcome.problem is not None:
         # 任务失败原因按问题码本地化呈现：换成草稿命令对应的错误文案 key，Agent 面向的 detail 只作诊断。

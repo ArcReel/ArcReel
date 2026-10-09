@@ -1,6 +1,7 @@
 import type { FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 import {
   Questionnaire,
   QuestionnaireActions,
@@ -17,6 +18,7 @@ import {
   QuestionnaireSubmit,
   QuestionnaireTitle,
 } from "@/components/ui/questionnaire";
+import { useAssistantStore } from "@/stores/assistant-store";
 import type { PendingQuestion } from "@/types";
 
 type Question = PendingQuestion["questions"][number];
@@ -62,11 +64,12 @@ interface AgentQuestionnaireProps {
 // ---------------------------------------------------------------------------
 // AgentQuestionnaire — Agent 提问时占用输入框的位置。
 // 头部与底部按钮固定，只有题目区滚动；高度上限是 Agent 面板高度的 70%，
-// 展开的待办清单再占去空间时继续压缩题目区。
+// 下方有排队消息托盘时与托盘分用这部分高度，问卷降到 50%；展开的待办清单再占去空间时继续压缩题目区。
 // 数字键选择选项，「其他」写在每题末尾的输入框里。
 // ---------------------------------------------------------------------------
 
 export function AgentQuestionnaire({ pendingQuestion, answering, error, onSubmit }: AgentQuestionnaireProps) {
+  const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
   const { t } = useTranslation("dashboard");
   const { questions } = pendingQuestion;
   if (questions.length === 0) return null;
@@ -84,7 +87,12 @@ export function AgentQuestionnaire({ pendingQuestion, answering, error, onSubmit
   };
 
   return (
-    <div className="flex max-h-[70cqh] min-h-0 flex-col border-t border-border px-3 pt-2.5 pb-3">
+    <div
+      className={cn(
+        "flex min-h-0 flex-col border-t border-border px-3 pt-2.5 pb-3",
+        hasQueuedMessages ? "max-h-[50cqh]" : "max-h-[70cqh]",
+      )}
+    >
       <Questionnaire
         key={pendingQuestion.question_id}
         items={items}

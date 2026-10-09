@@ -1436,9 +1436,8 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
     except HTTPException:
         raise
     except VisionCapabilityError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=_t("vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value),
+        raise BadRequestError(
+            "vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value
         ) from e
     except Exception as exc:
         logger.exception("请求处理失败")

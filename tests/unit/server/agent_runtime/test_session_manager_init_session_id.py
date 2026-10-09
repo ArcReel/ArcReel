@@ -10,35 +10,26 @@ from claude_agent_sdk.types import SystemMessage
 from server.agent_runtime.message_serialization import message_to_dict
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeSDKClient
+from tests.fakes import FakeSDKClient, system_frame
 
 SDK_ID = "sdk-init-only-1"
 
 
-def _init_message() -> dict:
-    return {
-        "type": "system",
-        "subtype": "init",
-        "data": {"type": "system", "subtype": "init", "cwd": "/tmp/demo", "session_id": SDK_ID, "tools": []},
-    }
+def _init_frame() -> dict:
+    return system_frame("init", cwd="/tmp/demo", session_id=SDK_ID, tools=[])
 
 
-def _api_retry_message(attempt: int) -> dict:
-    return {
-        "type": "system",
-        "subtype": "api_retry",
-        "data": {
-            "type": "system",
-            "subtype": "api_retry",
-            "attempt": attempt,
-            "max_retries": 10,
-            "retry_delay_ms": 500,
-            "error_status": 401,
-            "error": "authentication_failed",
-            "session_id": SDK_ID,
-            "uuid": f"retry-{attempt}",
-        },
-    }
+def _api_retry_frame(attempt: int) -> dict:
+    return system_frame(
+        "api_retry",
+        attempt=attempt,
+        max_retries=10,
+        retry_delay_ms=500,
+        error_status=401,
+        error="authentication_failed",
+        session_id=SDK_ID,
+        uuid=f"retry-{attempt}",
+    )
 
 
 def test_system_message_serializes_session_id_under_data() -> None:
@@ -57,10 +48,7 @@ async def test_send_new_session_resolves_id_from_init_when_only_system_messages_
     proj_dir.mkdir(parents=True)
     (proj_dir / "project.json").write_text('{"title": "t"}', encoding="utf-8")
 
-    client = FakeSDKClient(
-        messages=[_init_message(), _api_retry_message(1), _api_retry_message(2)],
-        block_forever=True,
-    )
+    client = FakeSDKClient(frames=[_init_frame(), _api_retry_frame(1), _api_retry_frame(2)])
 
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}

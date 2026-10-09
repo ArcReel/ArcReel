@@ -196,6 +196,46 @@ def write_legacy_retired_flash_lite_project(root: Path, *, provider_id: str) -> 
     return project_dir
 
 
+def write_legacy_timeline_agent_turn_project(root: Path) -> Path:
+    """schema 17 项目的剪辑时间线修订仍带 Agent 轮次字段（新建与编辑各一个修订）。"""
+
+    project_dir = write_legacy_storyboard_project(root, name="legacy-timeline-agent-turn")
+    advance_project_schema(project_dir, to_version=17)
+    clip = {"id": "c1", "unit_id": "E1S1", "source_volume": 1.0}
+    _write_json(
+        project_dir / "edit_timelines" / "episode_1" / "tl-0000abcd.json",
+        {
+            "schema_version": 1,
+            "id": "tl-0000abcd",
+            "episode": 1,
+            "name": "初剪",
+            "created_at": "2026-09-01T00:00:00Z",
+            "next_clip_number": 2,
+            "revisions": [
+                {
+                    "number": 1,
+                    "author": {"kind": "arcreel_agent"},
+                    "summary": "按脚本新建",
+                    "agent_turn": "user-entry-1",
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "content": {"clips": [clip]},
+                },
+                {
+                    "number": 2,
+                    "parent": 1,
+                    "author": {"kind": "creator", "user_id": "u1"},
+                    "summary": "调整音量",
+                    "agent_turn": None,
+                    "created_at": "2026-09-02T00:00:00Z",
+                    "content": {"clips": [{**clip, "source_volume": 0.6}]},
+                    "changed_clip_ids": ["c1"],
+                },
+            ],
+        },
+    )
+    return project_dir
+
+
 def write_legacy_episode_id_remnants_project(
     root: Path,
     name: str = "legacy-episode-id-remnants",
@@ -1226,6 +1266,7 @@ __all__ = [
     "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",
     "write_legacy_style_project",
+    "write_legacy_timeline_agent_turn_project",
     "write_legacy_tts_narration_project",
     "write_undescribed_style_bases_project",
 ]

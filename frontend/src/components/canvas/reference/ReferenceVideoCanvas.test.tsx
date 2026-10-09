@@ -933,7 +933,7 @@ describe("ReferenceVideoCanvas", () => {
     });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
     expect(await screen.findByText("图生视频（无参考图）档位未知")).toBeInTheDocument();
-    expect(screen.getByRole("alert")).toHaveTextContent("reference_capability_unavailable");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("reference_capability_unavailable");
     expect(screen.queryByRole("combobox", { name: /Duration|时长/ })).not.toBeInTheDocument();
   });
 

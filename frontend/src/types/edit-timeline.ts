@@ -28,7 +28,6 @@ export interface EditTimelineSummary extends EditTimelineRef {
   updated_at: string;
   updated_by: EditTimelineAuthor;
   update_summary: string;
-  agent_turn: string | null;
 }
 
 /** `unit_deleted` 渲染跳过、时长计 0；`video_missing` 时长暂按编排时长占位。 */

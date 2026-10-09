@@ -15,9 +15,11 @@ from lib.edit_timeline.errors import edit_timeline_message
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_result import decode_generation_problem
 from lib.generation.task_failure import parse_failure, render_failure
+from lib.i18n import render_message
+from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.project.project_manager import get_project_manager
-from server.i18n import Translator
+from server.i18n import DisplayNamesCatalog, Translator
 from server.services.project.episode_item_refs import with_episode_item_refs
 
 router = APIRouter()
@@ -27,7 +29,7 @@ def get_task_queue():
     return get_generation_queue()
 
 
-def _render_warnings(warnings: Any, translate: Callable[..., str]) -> list[str]:
+def _render_warnings(warnings: Any, translate: Callable[..., str], names: DisplayNames) -> list[str]:
     """把 ``result.warnings`` 的 ``{key, params}`` 条目渲染成当前语言文本。
 
     形态不符的条目跳过而非报错：warnings 是纯提示信息，畸形条目不该让整个任务列表 500。
@@ -45,7 +47,11 @@ def _render_warnings(warnings: Any, translate: Callable[..., str]) -> list[str]:
             continue
         params = entry.get("params")
         try:
-            text = translate(key, **cast(dict[str, Any], params)) if isinstance(params, dict) else translate(key)
+            text = (
+                render_message(key, cast(dict[str, Any], params), translate, names)
+                if isinstance(params, dict)
+                else translate(key)
+            )
         except TypeError:
             # params 里混入了保留字（如 "locale"）等畸形但合法的 JSON，翻译调用本身失败；
             # 跳过该条而非让整个任务列表 500，与本函数其余分支的容错口径一致。
@@ -54,16 +60,18 @@ def _render_warnings(warnings: Any, translate: Callable[..., str]) -> list[str]:
     return texts
 
 
-def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[str, Any]:
+def _localize_task(task: dict[str, Any], translate: Callable[..., str], names: DisplayNames) -> dict[str, Any]:
     """Return ``task`` with its stored failure reason and warnings rendered for the request locale.
 
     Known structured codes become localized text while their machine ``error_code`` and
-    ``error_params`` remain available to API consumers; raw exception text and legacy
-    rows pass through unchanged (see ``lib.generation.task_failure.render_failure``). Generation
+    ``error_params`` remain available to API consumers, and the stored server text moves to
+    ``error_detail``; raw exception text and legacy rows pass through unchanged without
+    ``error_detail`` (see ``lib.generation.task_failure.render_failure``). Generation
     warnings stored as ``result.warnings`` (``{key, params}`` entries written by the
     reference-video pipeline) are rendered in place into a list of strings, mirroring
-    how ``error_message`` is rendered. Internal execution checkpoints are stripped at
-    this API serialization boundary. The input dict is never mutated — a rendered copy
+    how ``error_message`` is rendered. Provider and model IDs render as display names from
+    ``names`` in the localized text only; ``error_params`` and ``error_detail`` keep them.
+    Internal execution checkpoints are stripped at this API serialization boundary. The input dict is never mutated — a rendered copy
     is returned when necessary — so dicts owned by the queue layer stay locale-neutral
     and cannot be polluted across requests.
     """
@@ -89,28 +97,28 @@ def _localize_task(task: dict[str, Any], translate: Callable[..., str]) -> dict[
             message = edit_timeline_message(problem.code, params)
             if message is not None:
                 key, params = message
-            translated = translate(key, **params)
-            localized = {
-                **localized,
-                "error_code": problem.code,
-                "error_params": problem.params,
-                "error_message": translated if translated != key else problem.detail,
-            }
+            translated = render_message(key, params, translate, names)
+            localized = {**localized, "error_code": problem.code, "error_params": problem.params}
+            if translated != key:
+                localized = {**localized, "error_message": translated, "error_detail": problem.detail}
+            else:
+                localized = {**localized, "error_message": problem.detail}
         elif failure is None:
-            localized = {**localized, "error_message": render_failure(message, translate)}
+            localized = {**localized, "error_message": render_failure(message, translate, names)}
         else:
             code, params = failure
             localized = {
                 **localized,
                 "error_code": code,
                 "error_params": params,
-                "error_message": render_failure(message, translate),
+                "error_message": render_failure(message, translate, names),
+                "error_detail": message,
             }
     result = localized.get("result")
     if isinstance(result, dict):
         result_dict = cast(dict[str, Any], result)
         if result_dict.get("warnings"):
-            rendered = _render_warnings(result_dict["warnings"], translate)
+            rendered = _render_warnings(result_dict["warnings"], translate, names)
             localized = {**localized, "result": {**result_dict, "warnings": rendered}}
     return localized
 
@@ -137,6 +145,7 @@ async def get_task_stats(project_name: str | None = None):
 @router.get("/tasks")
 async def list_tasks(
     _t: Translator,
+    names: DisplayNamesCatalog,
     project_name: str | None = None,
     status: str | None = None,
     task_type: str | None = None,
@@ -153,7 +162,9 @@ async def list_tasks(
         page=page,
         page_size=page_size,
     )
-    result["items"] = await _with_resource_refs([_localize_task(task, _t) for task in result.get("items", [])], _t)
+    result["items"] = await _with_resource_refs(
+        [_localize_task(task, _t, names) for task in result.get("items", [])], _t
+    )
     return result
 
 
@@ -161,6 +172,7 @@ async def list_tasks(
 async def list_project_tasks(
     project_name: str,
     _t: Translator,
+    names: DisplayNamesCatalog,
     status: str | None = None,
     task_type: str | None = None,
     source: str | None = None,
@@ -176,12 +188,14 @@ async def list_project_tasks(
         page=page,
         page_size=page_size,
     )
-    result["items"] = await _with_resource_refs([_localize_task(task, _t) for task in result.get("items", [])], _t)
+    result["items"] = await _with_resource_refs(
+        [_localize_task(task, _t, names) for task in result.get("items", [])], _t
+    )
     return result
 
 
 @router.get("/tasks/{task_id}/cancel-preview")
-async def cancel_preview(task_id: str, _t: Translator):
+async def cancel_preview(task_id: str, _t: Translator, names: DisplayNamesCatalog):
     queue = get_task_queue()
     try:
         preview = await queue.get_cancel_preview(task_id)
@@ -190,13 +204,13 @@ async def cancel_preview(task_id: str, _t: Translator):
     except ValueError as e:
         raise BadRequestError("task_not_found", id=task_id) from e
     [task, *cascaded] = await _with_resource_refs(
-        [_localize_task(task, _t) for task in [preview["task"], *preview["cascaded"]]], _t
+        [_localize_task(task, _t, names) for task in [preview["task"], *preview["cascaded"]]], _t
     )
     return {**preview, "task": task, "cascaded": cascaded}
 
 
 @router.post("/tasks/{task_id}/cancel")
-async def cancel_task(task_id: str, _t: Translator):
+async def cancel_task(task_id: str, _t: Translator, names: DisplayNamesCatalog):
     queue = get_task_queue()
     try:
         result = await queue.cancel_task(task_id)
@@ -207,12 +221,12 @@ async def cancel_task(task_id: str, _t: Translator):
     # 终态任务（含已失败的）原样回给调用方，其 error_message 与列表/详情/SSE 同源，
     # 不本地化就会在这一个出口泄露裸 [code] {params}。
     for key in ("cancelled", "skipped_terminal"):
-        result[key] = await _with_resource_refs([_localize_task(task, _t) for task in result.get(key, [])], _t)
+        result[key] = await _with_resource_refs([_localize_task(task, _t, names) for task in result.get(key, [])], _t)
     return result
 
 
 @router.post("/tasks/{task_id}/retry-download")
-async def retry_artifact_download(task_id: str, request: Request, _t: Translator):
+async def retry_artifact_download(task_id: str, request: Request, _t: Translator, names: DisplayNamesCatalog):
     queue = get_task_queue()
     worker = getattr(request.app.state, "generation_worker", None)
     if worker is None:
@@ -225,7 +239,7 @@ async def retry_artifact_download(task_id: str, request: Request, _t: Translator
         await worker.retry_artifact_download(task, poll_timeout_seconds=poll_timeout_seconds)
     except ValueError as exc:
         raise BadRequestError("task_retry_download_unavailable", id=task_id) from exc
-    [task] = await _with_resource_refs([_localize_task(task, _t)], _t)
+    [task] = await _with_resource_refs([_localize_task(task, _t, names)], _t)
     return {"task": task}
 
 
@@ -246,10 +260,11 @@ async def cancel_all_queued(project_name: str):
 async def get_task(
     task_id: str,
     _t: Translator,
+    names: DisplayNamesCatalog,
 ):
     queue = get_task_queue()
     task = await queue.get_task(task_id)
     if not task:
         raise NotFoundError("task_not_found", id=task_id)
-    [localized] = await _with_resource_refs([_localize_task(task, _t)], _t)
+    [localized] = await _with_resource_refs([_localize_task(task, _t, names)], _t)
     return {"task": localized}

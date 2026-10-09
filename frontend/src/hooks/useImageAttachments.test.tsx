@@ -221,7 +221,7 @@ describe("useImageAttachments", () => {
 
     act(() => {
       result.current.addFiles([imageFile("old.png", "image/png")]);
-      result.current.resetImages();
+      result.current.invalidatePendingTranscodes();
       result.current.addFiles([imageFile("new.png", "image/png")]);
     });
     expect(result.current.isReading).toBe(true);

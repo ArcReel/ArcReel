@@ -129,7 +129,7 @@ def validate_backend_value(value: str, field_name: str) -> None:
     provider_id, model_id = value.split("/", 1)
     provider_meta = PROVIDER_REGISTRY.get(provider_id)
     if provider_meta is None and not provider_id.startswith("custom-"):
-        raise BadRequestError("unknown_provider", provider_id=provider_id).with_diagnostic(f"field: {field_name}")
+        raise BadRequestError("unknown_provider", value=provider_id).with_diagnostic(f"field: {field_name}")
     expected_media_type = _FIELD_MEDIA_TYPES.get(field_name)
     if expected_media_type is not None and provider_meta is not None:
         model_info = provider_meta.models.get(model_id)

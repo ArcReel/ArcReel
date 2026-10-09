@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
 
 _NO_SDK_MESSAGES: tuple[dict[str, Any], ...] = ()
-# close_stream 注入的流终止标记：读到它之后每次 receive_response 都立即结束
+# close_stream 注入的流终止标记：读到它之后原始帧流结束，再次读取也立即结束
 _STREAM_EOF = object()
 
 #: 带真实文件头的产物替身字节。取件路径按文件头判容器（见
@@ -205,34 +205,188 @@ class FakeTextGenerator:
         return TextGenerationResult(text=response, provider="fake", model="fake-text")
 
 
+def assistant_frame(
+    *content: dict[str, Any],
+    uuid: str | None = None,
+    parent_tool_use_id: str | None = None,
+    session_id: str = "default",
+    model: str = "fake-model",
+    message_id: str | None = None,
+    usage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """CLI 输出的 assistant 原始帧；``content`` 是若干 content block。"""
+    message: dict[str, Any] = {"role": "assistant", "content": list(content), "model": model}
+    if message_id is not None:
+        message["id"] = message_id
+    if usage is not None:
+        message["usage"] = usage
+    return {
+        "type": "assistant",
+        "message": message,
+        "parent_tool_use_id": parent_tool_use_id,
+        "session_id": session_id,
+        "uuid": uuid,
+    }
+
+
+def system_frame(subtype: str, **fields: Any) -> dict[str, Any]:
+    """CLI 输出的 system 原始帧，字段平铺在顶层（SDK 解析后整帧放进 ``SystemMessage.data``）。"""
+    return {"type": "system", "subtype": subtype, **fields}
+
+
+def session_state_message(state: str) -> dict[str, Any]:
+    """CLI 的 ``session_state_changed`` 帧经 SDK 解析、序列化后交给会话层的形状（状态在 ``data`` 里）。
+
+    直接喂给 ``SessionManager._make_actor_message_callback`` 返回的读取回调；经替身发帧用
+    ``system_frame("session_state_changed", state=...)``。
+    """
+    return {
+        "type": "system",
+        "subtype": "session_state_changed",
+        "data": system_frame("session_state_changed", state=state),
+    }
+
+
+def stream_event_frame(
+    event: dict[str, Any],
+    *,
+    uuid: str = "stream-event",
+    session_id: str = "default",
+    parent_tool_use_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "type": "stream_event",
+        "uuid": uuid,
+        "session_id": session_id,
+        "event": event,
+        "parent_tool_use_id": parent_tool_use_id,
+    }
+
+
+def result_frame(
+    subtype: str = "success",
+    *,
+    is_error: bool = False,
+    session_id: str = "default",
+    uuid: str | None = None,
+    **fields: Any,
+) -> dict[str, Any]:
+    """CLI 输出的 result 原始帧；``fields`` 补充 ``stop_reason``、``terminal_reason``、``usage`` 等字段。"""
+    return {
+        "type": "result",
+        "subtype": subtype,
+        "duration_ms": 0,
+        "duration_api_ms": 0,
+        "is_error": is_error,
+        "num_turns": 1,
+        "session_id": session_id,
+        "uuid": uuid,
+        **fields,
+    }
+
+
+def command_lifecycle_frame(command_uuid: str, state: str, *, session_id: str = "default") -> dict[str, Any]:
+    """CLI 报告一条带 uuid 送入的用户消息的去向（``queued`` / ``started`` / ``completed`` / ``cancelled`` 等）。"""
+    return {
+        "type": "command_lifecycle",
+        "command_uuid": command_uuid,
+        "state": state,
+        "uuid": f"lifecycle-{command_uuid}-{state}",
+        "session_id": session_id,
+    }
+
+
+ScriptedFrame = dict[str, Any] | Callable[["FakeSDKClient"], dict[str, Any]]
+"""替身发出的帧，或在发出时按替身状态生成帧的函数（用来引用 ArcReel 送入的消息 uuid）。"""
+
+
+def replay_frame(index: int = -1, *, session_id: str = "default") -> Callable[[FakeSDKClient], dict[str, Any]]:
+    """CLI 回放第 ``index`` 条送入的用户消息，保留送入时的 uuid。"""
+
+    def _build(client: FakeSDKClient) -> dict[str, Any]:
+        sent = client.sent_messages[index]
+        return {
+            "type": "user",
+            "message": {"role": "user", "content": sent["message"]["content"]},
+            "parent_tool_use_id": None,
+            "session_id": session_id,
+            "uuid": sent["uuid"],
+            "isReplay": True,
+        }
+
+    return _build
+
+
+ControlResponse = dict[str, Any] | BaseException | Callable[[dict[str, Any]], dict[str, Any]]
+
+
+class _FakeQuery:
+    """``ClaudeSDKClient._query`` 的替身：原始帧流与控制请求入口。"""
+
+    def __init__(self, client: FakeSDKClient):
+        self._client = client
+
+    async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
+        client = self._client
+        client._record("receive_messages")
+        while not client._stream_closed:
+            frame = await client._frames.get()
+            if frame is _STREAM_EOF:
+                client._stream_closed = True
+                return
+            yield frame
+
+    async def _send_control_request(self, request: dict[str, Any]) -> dict[str, Any]:
+        client = self._client
+        client._record("control_request")
+        client.control_requests.append(request)
+        subtype = request.get("subtype")
+        if subtype not in client._control_responses:
+            raise AssertionError(f"测试没有为控制请求 {subtype!r} 指定应答")
+        response = client._control_responses[subtype]
+        if isinstance(response, BaseException):
+            raise response
+        if callable(response):
+            return response(request)
+        return response
+
+
 class FakeSDKClient:
     """Fake Claude Agent SDK client for SessionActor / SessionManager tests.
 
-    支持：
+    替身发出的是 CLI 写到 stdout 的原始帧（用 ``assistant_frame`` 等构造），经
+    ``_query.receive_messages()`` 交给 actor，由真实的 SDK 解析器解析；替身不模拟 CLI 的队列逻辑。
+
     - `async with`：`__aenter__` 记录 connect 的 current_task，`__aexit__` 记录 disconnect
     - `method_tasks`: dict[str, list[asyncio.Task]] 记录每个方法被调用时的 task
-    - `messages` 初始化参数：首次 `query()` 后 `receive_response` 依次 yield 的首轮回复
-    - `receive_response` 默认在 yield `type="result"` 后结束；
-    - `block_forever=True` 时，仅在 `interrupt()` 注入 None sentinel 后才结束（用于测试 interrupt 中断 query 的场景）
-    - `interrupt_message`：`interrupt()` 被调用时注入给 `receive_response` 的最后一条消息
+    - `frames`：首次 `query()` 后依次发出的首轮原始帧；之后用 `push_frame` 按脚本发帧。帧可以是
+      ``replay_frame()`` 这类在发出时按替身状态生成帧的函数
+    - `sent_messages`：ArcReel 送入的用户消息帧（带 uuid）；`sent_queries` 是其中的消息内容
+    - 一轮在 result 帧处结束；不发 result 帧，这一轮就一直在途
+    - `interrupt_frame`：`interrupt()` 被调用时发出的帧（通常是该轮的 result）
+    - `control_responses`：按控制请求 subtype 指定应答——应答 dict、要抛出的异常，
+      或接收请求返回应答的函数（可在其中 `push_frame`）；发出的请求记录在 `control_requests`
     - `connect_error`：`__aenter__` 时抛出的异常，用于模拟连接失败
     """
 
     def __init__(
         self,
-        messages=None,
+        frames: list[ScriptedFrame] | None = None,
         *,
-        block_forever: bool = False,
-        interrupt_message: dict | None = None,
+        interrupt_frame: dict[str, Any] | None = None,
+        control_responses: Mapping[str, ControlResponse] | None = None,
         connect_error: Exception | None = None,
     ):
-        self._initial_messages = list(messages) if messages else []
-        self._block_forever = block_forever
-        self._interrupt_message = interrupt_message
+        self._initial_frames = list(frames) if frames else []
+        self._interrupt_frame = interrupt_frame
+        self._control_responses: dict[str, ControlResponse] = dict(control_responses or {})
         self._connect_error = connect_error
-        self._pending_messages: asyncio.Queue[Any] = asyncio.Queue()
+        self._frames: asyncio.Queue[Any] = asyncio.Queue()
+        self._query = _FakeQuery(self)
         self.method_tasks: dict[str, list[asyncio.Task]] = {}
         self.sent_queries: list = []
+        self.sent_messages: list[dict[str, Any]] = []
+        self.control_requests: list[dict[str, Any]] = []
         self.interrupted = False
         self.disconnected = False
         self._stream_closed = False
@@ -253,40 +407,34 @@ class FakeSDKClient:
 
     async def query(self, prompt, session_id: str = "default") -> None:
         self._record("query")
-        self.sent_queries.append(prompt)
+        if isinstance(prompt, str):
+            self.sent_queries.append(prompt)
+        else:
+            async for message in prompt:
+                self.sent_messages.append(message)
+                self.sent_queries.append(message["message"]["content"])
         # 与真实 CLI 一致：首轮回复在收到 prompt 之后才产出
-        for msg in self._initial_messages:
-            await self._pending_messages.put(msg)
-        self._initial_messages.clear()
+        for frame in self._initial_frames:
+            await self._frames.put(frame(self) if callable(frame) else frame)
+        self._initial_frames.clear()
 
     async def interrupt(self) -> None:
         self._record("interrupt")
         self.interrupted = True
-        if self._interrupt_message is not None:
-            await self._pending_messages.put(self._interrupt_message)
-        # 告知 receive_response "可以停止了"
-        await self._pending_messages.put(None)  # sentinel
+        if self._interrupt_frame is not None:
+            await self._frames.put(self._interrupt_frame)
 
-    async def receive_response(self):
-        self._record("receive_response")
-        while not self._stream_closed:
-            msg = await self._pending_messages.get()
-            if msg is _STREAM_EOF:
-                self._stream_closed = True
-                return
-            if msg is None:
-                return
-            yield msg
-            if msg.get("type") == "result" and not self._block_forever:
-                return
+    def push_frame(self, frame: ScriptedFrame) -> None:
+        """测试辅助：运行中让 CLI 发出一条原始帧。"""
+        self._frames.put_nowait(frame(self) if callable(frame) else frame)
 
-    def push_message(self, msg: dict) -> None:
-        """测试辅助：运行中往消息流注入一条消息。"""
-        self._pending_messages.put_nowait(msg)
+    def respond_control(self, subtype: str, response: ControlResponse) -> None:
+        """测试辅助：指定之后该 subtype 控制请求的应答。"""
+        self._control_responses[subtype] = response
 
     def close_stream(self) -> None:
-        """测试辅助：模拟 CLI 退出，已注入的消息读完后消息流终止，此后每次读取都立即结束。"""
-        self._pending_messages.put_nowait(_STREAM_EOF)
+        """测试辅助：模拟 CLI 退出，已发出的帧读完后原始帧流终止。"""
+        self._frames.put_nowait(_STREAM_EOF)
 
     # 向后兼容：保留原方法签名（旧测试仍使用 `await client.connect()` / `await client.disconnect()`）
     async def connect(self) -> None:
@@ -304,8 +452,7 @@ async def build_managed_with_actor(
     session_id: str = "s1",
     project_name: str = "demo",
     status: str = "idle",
-    messages: list[dict] | None = None,
-    block_forever: bool = False,
+    frames: list[dict] | None = None,
     on_message_hook=None,
 ):
     """测试辅助：围绕 FakeSDKClient 创建 SessionActor + ManagedSession，并启动 actor。
@@ -315,10 +462,11 @@ async def build_managed_with_actor(
     """
     from contextlib import asynccontextmanager
 
+    from server.agent_runtime.message_serialization import message_to_dict
     from server.agent_runtime.session_actor import SessionActor
     from server.agent_runtime.session_manager import ManagedSession
 
-    client = FakeSDKClient(messages=messages, block_forever=block_forever)
+    client = FakeSDKClient(frames=frames)
 
     @asynccontextmanager
     async def _factory_cm():
@@ -327,10 +475,12 @@ async def build_managed_with_actor(
 
     managed_ref: list = [None]
 
-    def _on_message(msg):
+    def _on_message(raw_msg):
         m = managed_ref[0]
         if m is None:
             return
+        # 与生产回调一致：actor 交来 SDK 消息，会话层处理其序列化后的 dict
+        msg = message_to_dict(raw_msg)
         if on_message_hook is not None:
             on_message_hook(m, msg)
         else:

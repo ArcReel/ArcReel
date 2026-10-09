@@ -17,7 +17,7 @@ from server.agent_runtime.event_log import EventLogStore, build_user_entry
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
-from tests.fakes import FakeSDKClient
+from tests.fakes import FakeSDKClient, result_frame, system_frame
 
 # ---------------------------------------------------------------------------
 # build_arcreel_mcp_server
@@ -120,7 +120,7 @@ def test_retired_tool_names_are_not_registered() -> None:
 
 
 @pytest.mark.parametrize("resume", [False, True], ids=["new", "resumed"])
-async def test_timeline_revision_records_the_session_turn(tmp_path: Path, file_db_factory, resume: bool) -> None:
+async def test_timeline_revision_records_the_agent_author(tmp_path: Path, file_db_factory, resume: bool) -> None:
     projects = ProjectManager(tmp_path / "data")
     projects.create_project("demo")
     projects.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -135,9 +135,9 @@ async def test_timeline_revision_records_the_session_turn(tmp_path: Path, file_d
     )
     session_id = "sdk-timeline-turn"
     client = FakeSDKClient(
-        messages=[
-            {"type": "system", "subtype": "init", "session_id": session_id, "uuid": "init-1"},
-            {"type": "result", "subtype": "success", "is_error": False, "session_id": session_id, "uuid": "r-1"},
+        frames=[
+            system_frame("init", session_id=session_id, uuid="init-1"),
+            result_frame(session_id=session_id, uuid="r-1"),
         ]
     )
     sdk_options: list[ClaudeAgentOptions] = []
@@ -162,6 +162,6 @@ async def test_timeline_revision_records_the_session_turn(tmp_path: Path, file_d
         created = await _call(config["instance"], "create_timeline", {"from": "script", "episode": 1, "name": "完整版"})
         assert created.isError is False
         [summary] = await EditTimelineService(projects).list_timelines("demo", episode=1)
-        assert (summary.updated_by.kind, summary.agent_turn) == ("arcreel_agent", user_entry["uuid"])
+        assert summary.updated_by.kind == "arcreel_agent"
     finally:
         await manager.close_session(session_id)

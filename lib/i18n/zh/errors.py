@@ -278,7 +278,7 @@ MESSAGES = {
     "source_too_large": "源文件「{filename}」过大（{size_mb} MB > {limit_mb} MB）",
     "source_conflict": "源文件「{existing}」已存在，建议改名为「{suggested}」",
     # Providers
-    "unknown_provider": "未知供应商: {provider_id}",
+    "unknown_provider": "未知供应商: {value}",
     "max_workers_must_be_positive_integer": "{field} 必须是正整数，收到：{value}",
     "credentials_not_found": "凭证不存在",
     "vertex_json_read_failed": "读取上传文件失败",
@@ -372,10 +372,10 @@ MESSAGES = {
         "ComfyUI 协议没有可发现的模型列表：能调用什么由 workflow 自身决定，请改为导入 ComfyUI 端点并挂到模型行上"
     ),
     "custom_endpoint_kind_conflicts_with_attachment": (
-        "这份定义换了容器类型，与该端点当前的挂接不相容：模型 {model_id}（供应商 {provider}）的协议接不了它。请先改动模型行的挂接，再替换定义"
+        "这份定义换了容器类型，与该端点当前的挂接不相容：模型 {model}（供应商 {provider}）的协议接不了它。请先改动模型行的挂接，再替换定义"
     ),
     "custom_endpoint_media_type_conflicts_with_attachment": (
-        "这份定义产出的是{media_type}，与端点当前的媒体类型不同，而模型 {model_id}（供应商 {provider}）还挂着它："
+        "这份定义产出的是{media_type}，与端点当前的媒体类型不同，而模型 {model}（供应商 {provider}）还挂着它："
         "模型行归哪一路由端点决定。请先摘掉挂接，再替换定义"
     ),
     "comfyui_endpoint_requires_comfyui_provider": (
@@ -619,11 +619,14 @@ MESSAGES = {
     "version_not_found": "版本 {version} 不存在",
     "version_resource_not_found": "资源 '{resource_type}/{resource_id}' 不存在",
     "version_snapshot_path_unmanaged": "'{resource_type}' 的版本记录指向非托管的快照路径，已拒绝该操作",
-    "session_busy": "会话正在处理中，请等待当前回复完成后再发送",
     "session_capacity_exceeded": "并发会话数已达上限，请稍后再试",
     "session_question_unavailable": "会话未运行或没有待回答的问题",
     "rewrite_anchor_invalid": "要改写的消息不在这个会话里，请刷新后重试",
     "rewrite_blocked_by_question": "请先回答对话中的提问卡片，再改写消息",
+    "rewrite_blocked_by_queued_messages": "请等排队消息进入对话后，再改写消息",
+    "message_accepted_but_unrecorded": "这条消息已开始处理，但没能写入对话记录；为避免重复执行，不会再次发送。请等待 Agent 回复，无需重发",
+    "queued_message_not_found": "找不到这条排队消息，它可能已进入对话或已被撤回。请刷新会话后查看",
+    "queued_message_withdrawal_pending": "这条消息正在撤回，请等撤回完成后再操作",
     "session_already_superseded": "这个会话已被一次消息改写取代，请在新的对话中继续",
     "rewrite_unavailable": "当前部署未开启会话记录存储，无法改写消息",
     "rewrite_interrupt_timeout": "等待当前回复停止超时，请稍后重试",

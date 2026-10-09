@@ -84,6 +84,7 @@ class _FakeSessionManager:
     async def send_message(self, session_id, content, **kwargs):
         self.sent.append((session_id, content))
         self.sent_kwargs.append(kwargs)
+        return {"queued_message": {"id": "q1", "content": [], "timestamp": "t", "state": "queued"}}
 
     async def answer_user_question(self, session_id, question_id, answers):
         self.answered.append((session_id, question_id, answers))
@@ -176,13 +177,18 @@ class TestAssistantService:
 
         # send_or_create — new session (no session_id)
         new_result = await service.send_or_create("demo", "hello")
-        assert new_result == {"status": "accepted", "session_id": "sdk-new-id", "entry": None}
+        assert new_result == {"status": "accepted", "session_id": "sdk-new-id", "entry": None, "queued_message": None}
         assert len(sm.new_sessions) == 1
         assert sm.new_sessions[0][0] == "demo"
 
         # send_or_create — existing session
         existing_result = await service.send_or_create("demo", "world", session_id="s1")
-        assert existing_result == {"status": "accepted", "session_id": "s1", "entry": None}
+        assert existing_result == {
+            "status": "accepted",
+            "session_id": "s1",
+            "entry": None,
+            "queued_message": {"id": "q1", "content": [], "timestamp": "t", "state": "queued"},
+        }
         assert sm.sent == [("s1", "world")]
 
         # send_or_create — empty message raises ValueError
@@ -242,7 +248,7 @@ class TestAssistantService:
         await service.send_or_create("demo", "hello", session_id="s1", images=[image], locale="vi")
 
         assert sm.sent_kwargs[0]["locale"] == "vi"
-        assert sm.sent_kwargs[0]["echo_content"] is not None
+        assert [block["type"] for block in sm.sent[0][1]] == ["image", "text"]
 
     @pytest.mark.asyncio
     async def test_send_or_create_concurrent_same_client_key_creates_one_session(self, tmp_path):
@@ -668,8 +674,6 @@ class TestAssistantService:
         assert sse_event.event == "status"
         assert sse_event.data == {"x": 1}
 
-        assert service._resolve_result_status({"session_status": "interrupted"}) == "interrupted"
-        assert service._resolve_result_status({"subtype": "error_x", "is_error": True}) == "error"
         payload = service._build_status_event_payload("error", "s1", None)
         assert payload["status"] == "error"
         assert payload["subtype"] == "error"

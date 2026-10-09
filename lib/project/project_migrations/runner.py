@@ -56,6 +56,10 @@ from lib.project.project_migrations.v13_to_v14_legacy_style_values import migrat
 from lib.project.project_migrations.v14_to_v15_formal_script_truth import migrate_v14_to_v15
 from lib.project.project_migrations.v15_to_v16_edit_decisions import RecordedEpisodeIds, migrate_v15_to_v16
 from lib.project.project_migrations.v16_to_v17_retired_text_model_ids import migrate_v16_to_v17
+from lib.project.project_migrations.v17_to_v18_timeline_agent_turn import (
+    migrate_v17_to_v18,
+    timeline_backup_sources,
+)
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -326,6 +330,8 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
             # v15→v16 改写呈现模型登记。
             (project_dir / ".arcreel_artifacts.json", project_backup_versions),
             *((source, project_backup_versions) for source in _bound_script_sources(project_dir)),
+            # v17→v18 删去剪辑时间线修订上的 Agent 轮次；时间线删除后备份仍要回收。
+            *((source, project_backup_versions) for source in timeline_backup_sources(project_dir)),
         )
         for source, versions in sources:
             for bak in versioned_backup_candidates(source, versions):
@@ -364,3 +370,4 @@ MIGRATORS[13] = migrate_v13_to_v14
 MIGRATORS[14] = migrate_v14_to_v15
 MIGRATORS[15] = migrate_v15_to_v16
 MIGRATORS[16] = migrate_v16_to_v17
+MIGRATORS[17] = migrate_v17_to_v18

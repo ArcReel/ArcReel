@@ -28,7 +28,7 @@ class EndpointAttachment(NamedTuple):
     协议」配对用的事实，多带一个协议字段就得改动 409 响应的公开形状。
     """
 
-    provider_display_name: str
+    provider_id: int
     model_id: str
     discovery_format: str
 
@@ -115,7 +115,7 @@ class CustomEndpointRepository(BaseRepository):
         """
         stmt = (
             select(
-                CustomProvider.display_name,
+                CustomProvider.id,
                 CustomProviderModel.model_id,
                 CustomProvider.discovery_format,
             )

@@ -3,7 +3,7 @@
 路由函数体只保留 happy path，领域异常与 lib 层异常在此统一完成：
 
 - 状态码映射（``ApiError`` 自带；lib 异常按类型固定）
-- 按请求 ``Accept-Language`` 翻译（复用 ``get_translator``）
+- 按请求 ``Accept-Language`` 翻译（复用 ``get_translator``），供应商与模型 ID 换成显示名
 - 脱敏：除 i18n key 显式声明的 params 外，异常消息一律不回传客户端——
   ``FileNotFoundError`` / 未预期异常的 ``str(exc)`` 可能含服务器绝对路径，只进日志
 
@@ -21,10 +21,10 @@ from fastapi.responses import JSONResponse
 
 from lib.generation.generation_queue import ActiveTaskRequestConflict
 from lib.generation.generation_queue_client import TaskSpecValidationError
-from lib.i18n import render_generation_input_error
+from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError
 from lib.script.script_editor import ScriptEditError
-from server.i18n import get_translator
+from server.i18n import get_translator, request_display_names
 from server.services.project.episode_display import present_request_diagnostics
 
 logger = logging.getLogger(__name__)
@@ -89,7 +89,8 @@ def register_error_handlers(
     @app.exception_handler(ApiError)
     async def _handle_api_error(request: Request, exc: ApiError) -> JSONResponse:
         _t = get_translator(request)
-        content: dict[str, object] = {"detail": render_generation_input_error(exc.key, exc.params, _t)}
+        names = await request_display_names(request)
+        content: dict[str, object] = {"detail": render_generation_input_error(exc.key, exc.params, _t, names)}
         if exc.diagnostic is not None:
             content["diagnostic"] = exc.diagnostic
         content = await present_request_diagnostics(content, request, _t)
@@ -113,7 +114,8 @@ def register_error_handlers(
     @app.exception_handler(TaskSpecValidationError)
     async def _handle_task_spec_error(request: Request, exc: TaskSpecValidationError) -> JSONResponse:
         _t = get_translator(request)
-        detail = await present_request_diagnostics(_t(exc.code, **exc.params), request, _t)
+        names = await request_display_names(request)
+        detail = await present_request_diagnostics(render_message(exc.code, exc.params, _t, names), request, _t)
         return JSONResponse(status_code=400, content={"detail": detail})
 
     @app.exception_handler(ActiveTaskRequestConflict)

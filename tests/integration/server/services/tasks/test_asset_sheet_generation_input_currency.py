@@ -10,6 +10,7 @@ from lib.i18n import _
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_manager import ProjectManager
 from server.services.tasks import derivative_sheet_tasks, generation_tasks
+from tests.factories import make_display_names
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -81,7 +82,10 @@ async def test_missing_original_is_refused_before_the_provider_is_resolved(tmp_p
     assert refused.value.key == "asset_original_missing"
     stored = encode_task_failure_message(refused.value)
     assert parse_failure(stored)[0] == "asset_original_missing"
-    assert render_failure(stored, _zh) == "声明的原图读不到：character: Alice；请重新上传原图，或清除原图字段"
+    assert (
+        render_failure(stored, _zh, make_display_names())
+        == "声明的原图读不到：character: Alice；请重新上传原图，或清除原图字段"
+    )
     assert lanes == []
     assert generator.image_calls == []
 
@@ -107,7 +111,7 @@ async def test_derivative_without_a_usable_owner_sheet_is_refused_with_every_gap
     ]
     stored = encode_task_failure_message(refused.value)
     assert parse_failure(stored)[0] == "derivative_description_required"
-    detail = render_failure(stored, _zh)
+    detail = render_failure(stored, _zh, make_display_names())
     assert "衍生「劲装」还没有填写外观变化" in detail
     assert "角色「Alice」还没有资产图" in detail
     assert lanes == []

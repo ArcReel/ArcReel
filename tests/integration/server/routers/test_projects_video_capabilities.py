@@ -14,7 +14,7 @@ from lib.generation.video_request_facts import (
 )
 from lib.i18n.zh import errors as zh_errors
 from server.routers import projects
-from tests.factories import seed_endpoint_fixed_video_model
+from tests.factories import make_display_names, seed_endpoint_fixed_video_model
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     build_projects_client,
@@ -83,7 +83,7 @@ class TestGetVideoCapabilities:
             resp = client.get("/api/v1/projects/ready/video-capabilities")
             assert resp.status_code == 400
             assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_missing_r2v"].format(
-                provider="kling", model="kling-v3"
+                **make_display_names().apply({"provider": "kling", "model": "kling-v3"})
             )
 
 
@@ -154,7 +154,7 @@ class TestRealResolverResponse:
             )
         assert resp.status_code == 400
         assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_reference_unavailable"].format(
-            provider="gemini-aistudio", model="deleted-model"
+            **make_display_names().apply({"provider": "gemini-aistudio", "model": "deleted-model"})
         )
 
     def test_explicit_auto_resolution_does_not_fall_back_to_saved(self, client):
@@ -291,7 +291,7 @@ class TestDurationConstraintsMatchRequestFacts:
             response = client.get("/api/v1/projects/ready/video-capabilities", params={"resolution": "4k"})
         assert response.status_code == 422
         assert response.json()["detail"] == zh_errors.MESSAGES["video_supported_durations_incompatible"].format(
-            provider="gemini-aistudio", model="veo-3.1-generate-preview"
+            **make_display_names().apply({"provider": "gemini-aistudio", "model": "veo-3.1-generate-preview"})
         )
 
     @pytest.mark.parametrize("candidate", [False, True], ids=["saved-model", "candidate-model"])

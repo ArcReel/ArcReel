@@ -1,6 +1,7 @@
 import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
+import { idleSessionApi } from "../support/assistant-session.ts";
 
 // Agent 面板的工序行：ArcReel 工具的显示名与摘要、失败与运行中的收起状态、长结果的截断与
 // 「显示全部」、子智能体的子时间线与结论。会话是手写的压力数据：长命令、长结果、长错误、
@@ -140,10 +141,7 @@ const API: ApiOverrides = {
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
   [`GET ${SESSIONS_PATH}`]: { status: 200, body: { sessions: [SESSION] } },
   [`GET ${SESSIONS_PATH}/${SESSION_ID}`]: { status: 200, body: { session: SESSION } },
-  [`GET ${SESSIONS_PATH}/${SESSION_ID}/entries`]: {
-    status: 200,
-    body: { session_id: SESSION_ID, status: "idle", entries: buildEntries(), draft: null, draft_rev: 0 },
-  },
+  ...idleSessionApi(SESSIONS_PATH, SESSION_ID, buildEntries()),
 };
 
 const agentPanel = (page: Page) => page.getByRole("complementary", { name: "Agent 面板" });

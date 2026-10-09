@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -23,19 +24,13 @@ from tests.integration.server.agent_tool_support import ToolHarness, run_declare
 
 
 @pytest.mark.parametrize(
-    ("caller", "author", "agent_turn"),
+    ("caller", "author"),
     [
-        (
-            CallerContext(user_id=DEFAULT_USER_ID, source="embedded", agent_turn=lambda: "user-turn-1"),
-            "arcreel_agent",
-            "user-turn-1",
-        ),
-        (CallerContext(user_id=DEFAULT_USER_ID, source="mcp"), "external_agent", None),
+        (CallerContext(user_id=DEFAULT_USER_ID, source="embedded"), "arcreel_agent"),
+        (CallerContext(user_id=DEFAULT_USER_ID, source="mcp"), "external_agent"),
     ],
 )
-async def test_created_revision_records_author_and_agent_turn(
-    tmp_path: Path, caller: CallerContext, author: str, agent_turn: str | None
-) -> None:
+async def test_created_revision_records_author(tmp_path: Path, caller: CallerContext, author: str) -> None:
     pm = ProjectManager(tmp_path)
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -48,7 +43,11 @@ async def test_created_revision_records_author_and_agent_turn(
     assert created.problem is None
     assert listed.value is not None
     [summary] = listed.value
-    assert (summary.updated_by.kind, summary.agent_turn) == (author, agent_turn)
+    assert summary.updated_by.kind == author
+    stored = json.loads(
+        (tmp_path / "projects" / "demo" / "edit_timelines" / "episode_1" / f"{summary.id}.json").read_text()
+    )
+    assert all("agent_turn" not in revision for revision in stored["revisions"])
 
 
 @pytest.fixture
@@ -57,7 +56,7 @@ def harness(tmp_path: Path) -> ToolHarness:
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.save_script("demo", {"episode": 1, "title": "E1", "content_mode": "narration", "segments": []}, "episode_1.json")
-    caller = CallerContext(user_id=DEFAULT_USER_ID, source="embedded", agent_turn=lambda: "user-turn-2")
+    caller = CallerContext(user_id=DEFAULT_USER_ID, source="embedded")
     return ToolHarness("demo", tmp_path, pm, caller=caller)
 
 
@@ -117,9 +116,7 @@ async def test_rename_list_revisions_and_restore_through_the_tools(harness: Tool
     assert listed.value is not None
     assert [item.name for item in listed.value] == ["定稿"]
     assert history.value is not None
-    assert [(item.number, item.author.kind, item.agent_turn) for item in history.value.revisions] == [
-        (1, "arcreel_agent", "user-turn-2")
-    ]
+    assert [(item.number, item.author.kind) for item in history.value.revisions] == [(1, "arcreel_agent")]
     assert unchanged.problem is not None
     assert unchanged.problem.code == "revision_unchanged"
 

@@ -295,7 +295,7 @@ MESSAGES = {
     "source_too_large": "Source file '{filename}' is too large ({size_mb} MB > {limit_mb} MB)",
     "source_conflict": "Source file '{existing}' already exists; suggested rename: '{suggested}'",
     # Providers
-    "unknown_provider": "Unknown provider: {provider_id}",
+    "unknown_provider": "Unknown provider: {value}",
     "max_workers_must_be_positive_integer": "{field} must be a positive integer, got: {value}",
     "credentials_not_found": "Credentials not found",
     "vertex_json_read_failed": "Failed to read the uploaded file",
@@ -393,11 +393,11 @@ MESSAGES = {
         "itself. Import a ComfyUI endpoint and attach it to a model row instead"
     ),
     "custom_endpoint_kind_conflicts_with_attachment": (
-        "The replacement definition changes the endpoint kind, which no longer fits the current attachment: the provider protocol of model {model_id} (provider {provider}) cannot take it. Change the model row's attachment first, then replace the definition"
+        "The replacement definition changes the endpoint kind, which no longer fits the current attachment: the provider protocol of model {model} (provider {provider}) cannot take it. Change the model row's attachment first, then replace the definition"
     ),
     "custom_endpoint_media_type_conflicts_with_attachment": (
         "This definition produces {media_type}, which differs from the endpoint's current media type, while model "
-        "{model_id} (provider {provider}) is still attached: an endpoint decides which lane its models belong to. "
+        "{model} (provider {provider}) is still attached: an endpoint decides which lane its models belong to. "
         "Detach the models first, then replace the definition"
     ),
     "comfyui_endpoint_requires_comfyui_provider": (
@@ -682,11 +682,14 @@ MESSAGES = {
     "version_not_found": "Version {version} does not exist",
     "version_resource_not_found": "Resource '{resource_type}/{resource_id}' does not exist",
     "version_snapshot_path_unmanaged": "A '{resource_type}' version record points to an unmanaged snapshot path; the operation was refused",
-    "session_busy": "The session is busy; wait for the current reply to finish before sending",
     "session_capacity_exceeded": "Concurrent session limit reached, please try again later",
     "session_question_unavailable": "The session is not running or has no pending question",
     "rewrite_anchor_invalid": "The message you are editing is not part of this conversation; refresh and try again",
     "rewrite_blocked_by_question": "Answer the question card in the conversation before editing a message",
+    "rewrite_blocked_by_queued_messages": "Wait until queued messages join the conversation before editing a message",
+    "message_accepted_but_unrecorded": "This message is already being processed but wasn't saved to the conversation history; it won't be sent again, to avoid running it twice. Wait for the Agent's reply instead of resending it",
+    "queued_message_not_found": "This queued message no longer exists; it may have joined the conversation or been withdrawn. Refresh the session to check",
+    "queued_message_withdrawal_pending": "This message is already being withdrawn. Wait for the withdrawal to finish before trying again",
     "session_already_superseded": "This conversation has been replaced by an earlier edit; continue in the new one",
     "rewrite_unavailable": "Message editing is unavailable because conversation storage is turned off",
     "rewrite_interrupt_timeout": "Timed out waiting for the current reply to stop, please try again",

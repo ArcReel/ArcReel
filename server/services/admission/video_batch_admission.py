@@ -72,7 +72,11 @@ from lib.script.storyboard_sequence import StoryboardImageUnavailable
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, require_script_unit_admitted
 from server.services.admission.cost_estimation import quote_video_request
 from server.services.admission.reference_admission import reference_admission_problems
-from server.services.tasks.video_caps import assert_audio_switch_supported, resolve_project_is_silent
+from server.services.tasks.video_caps import (
+    AudioSwitchConflict,
+    assert_audio_switch_supported,
+    resolve_project_is_silent,
+)
 
 
 def video_target_states(
@@ -448,7 +452,7 @@ _PROBLEM_ACTIONS: dict[str, GenerationAction] = {
 }
 
 
-def _action_for(raw: object) -> GenerationAction:
+def generation_action_for(raw: object) -> GenerationAction:
     """Map a request-planning action onto the generation-result action set.
 
     Anything the planning modules add later degrades to ``FIX_INPUT``: telling a
@@ -471,7 +475,7 @@ def _generation_problem(problem: ProjectionProblem, *, unit_id: str) -> Generati
     return GenerationProblem(
         code=problem.code,
         detail=str(payload.get("reason") or problem.code),
-        action=_action_for(payload.get("action")),
+        action=generation_action_for(payload.get("action")),
         params=params if isinstance(params, dict) else {},
     )
 
@@ -815,7 +819,7 @@ async def resolve_voice_context(project: dict[str, Any], content_mode: str) -> d
 
 async def audio_switch_conflict(
     project: dict[str, Any], *, request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
-) -> str | None:
+) -> GenerationProblem | None:
     """分镜图生视频的音频闸门（``assert_audio_switch_supported``，与 WebUI 提交入口同一判据）。
 
     成片恒有声的模型收不到关闭音频的请求，放行只会让无声判据把音色约束整批裁掉。闸门与创作类型
@@ -825,8 +829,8 @@ async def audio_switch_conflict(
     过滤时本就不会产生任何请求，此时拒绝等于把一次正常的空转变成报错。
     参考生视频由公共 request projection 给出同一音频能力判定。
 
-    返回冲突说明文本；无冲突返回 ``None``。调用方把它折成逐目标的准入结论，与其它缺口
-    一起在建任务之前一次报全。
+    返回冲突问题，参数带冲突的供应商与模型供界面按显示名渲染；无冲突返回 ``None``。调用方
+    把它折成逐目标的准入结论，与其它缺口一起在建任务之前一次报全。
     """
     try:
         await assert_audio_switch_supported(
@@ -834,8 +838,13 @@ async def audio_switch_conflict(
             video_bucket_for_generation_mode(project.get("generation_mode")),
             request_facts=request_facts,
         )
-    except ValueError as exc:
-        return str(exc)
+    except AudioSwitchConflict as exc:
+        return GenerationProblem(
+            code="video_audio_switch_not_supported",
+            detail=str(exc),
+            action=GenerationAction.CONFIGURE_PROVIDER,
+            params={"provider": exc.provider_id, "model": exc.model_id},
+        )
     return None
 
 
@@ -1008,7 +1017,7 @@ async def admit_storyboard_video_request(
     request_facts = (
         (video_request_facts or await storyboard_video_request_facts(project, config_resolver)) if specs else None
     )
-    conflict_detail = await audio_switch_conflict(project, request_facts=request_facts) if specs else None
+    conflict = await audio_switch_conflict(project, request_facts=request_facts) if specs else None
     admission = await admit_storyboard_video_batch(
         project_name=project_name,
         project=project,
@@ -1022,16 +1031,10 @@ async def admit_storyboard_video_request(
         config_resolver=config_resolver,
         video_request_facts=request_facts,
     )
-    if conflict_detail is None:
+    if conflict is None:
         return admission
     # 音频开关冲突与投影侧的缺口写进同一批票：短路返回只会报出这一条，用户改完配置
     # 重试才撞见下一个已知缺口，正是这道门要免掉的逐条试探。
-    conflict = GenerationProblem(
-        code="video_audio_switch_not_supported",
-        detail=conflict_detail,
-        action=GenerationAction.CONFIGURE_PROVIDER,
-        params={},
-    )
     target_ids = {spec.resource_id for spec in specs}
     return replace(
         admission,

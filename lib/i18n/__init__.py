@@ -4,6 +4,7 @@ import logging
 from collections.abc import Callable, Mapping
 from typing import Any
 
+from .display_names import DisplayNames
 from .en import assets as en_assets
 from .en import emails as en_emails
 from .en import errors as en_errors
@@ -101,8 +102,19 @@ _GENERATION_INPUT_LIST_CODES = frozenset(
 )
 
 
-def render_generation_input_error(key: str, params: Mapping[str, Any], translate: Callable[..., str]) -> str:
-    """Render mixed generation-input gaps by cause while preserving the first machine code."""
+def render_message(key: str, params: Mapping[str, Any], translate: Callable[..., str], names: DisplayNames) -> str:
+    """按请求语言渲染一条带参数的失败文案，供应商与模型 ID 换成 ``names`` 里的显示名。"""
+    return translate(key, **names.apply(params))
+
+
+def render_generation_input_error(
+    key: str, params: Mapping[str, Any], translate: Callable[..., str], names: DisplayNames
+) -> str:
+    """Render mixed generation-input gaps by cause while preserving the first machine code.
+
+    Provider and model IDs in ``params`` render as display names from ``names``.
+    """
+    params = names.apply(params)
     gaps = params.get("gaps")
     if not isinstance(gaps, list):
         return translate(key, **params)
@@ -128,11 +140,11 @@ def render_generation_input_error(key: str, params: Mapping[str, Any], translate
     if len(grouped) < 2 or next(iter(grouped)) != key:
         return translate(key, **params)
     details = []
-    for code, names in grouped.items():
+    for code, targets in grouped.items():
         if (subject := _GENERATION_INPUT_SUBJECT_PARAMS.get(code)) is not None:
-            details.append(translate(code, **{subject: names[0]}))
+            details.append(translate(code, **{subject: targets[0]}))
         else:
-            details.append(translate(code, missing_text=", ".join(names)))
+            details.append(translate(code, missing_text=", ".join(targets)))
     return translate("generation_input_multiple_gaps", details="; ".join(details))
 
 

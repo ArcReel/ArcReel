@@ -68,21 +68,21 @@ def test_non_integer_total_rounds_up_to_fitting_slot():
 
 
 def test_slot_warning_carries_key_and_params_when_adjusted():
-    up = resolve_duration_slot(5, [4, 8, 12]).warning(model="veo-3")
+    up = resolve_duration_slot(5, [4, 8, 12]).warning(provider="gemini-aistudio", model="veo-3")
     assert up == {
         "key": "ref_duration_rounded_up",
-        "params": {"total": 5, "duration": 8, "model": "veo-3"},
+        "params": {"total": 5, "duration": 8, "provider": "gemini-aistudio", "model": "veo-3"},
     }
-    down = resolve_duration_slot(20, [4, 8, 12]).warning(model="veo-3")
+    down = resolve_duration_slot(20, [4, 8, 12]).warning(provider="gemini-aistudio", model="veo-3")
     assert down == {
         "key": "ref_duration_exceeded",
-        "params": {"total": 20, "duration": 12, "model": "veo-3"},
+        "params": {"total": 20, "duration": 12, "provider": "gemini-aistudio", "model": "veo-3"},
     }
 
 
 def test_slot_warning_is_none_when_not_adjusted():
-    assert resolve_duration_slot(8, [4, 8, 12]).warning(model="veo-3") is None
-    assert resolve_duration_slot(8, []).warning(model="veo-3") is None
+    assert resolve_duration_slot(8, [4, 8, 12]).warning(provider="gemini-aistudio", model="veo-3") is None
+    assert resolve_duration_slot(8, []).warning(provider="gemini-aistudio", model="veo-3") is None
 
 
 def test_projection_narrows_to_the_fitting_tier_and_asks_for_confirmation_once():

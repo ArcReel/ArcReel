@@ -343,6 +343,7 @@ docker compose start arcreel
 - `project.json` 登记的正式剧本文件；
 - 已存在的 `.arcreel_artifacts.json`；
 - 改写版本记录的迁移另备份 `versions/versions.json`。
+- 改写剪辑时间线的迁移另备份被改写的 `edit_timelines/episode_*/*.json`。
 
 迁移可安全重试：如果上次启动在备份或提交中断，下一次启动会重新校验，并确保至少有一份与迁移前内容完全一致的备份后再继续；内容相同的备份只保留一份，反复失败不会堆出多份。自动生成的这些项目级备份只用于迁移恢复，不能代替数据库与整个数据根的部署级备份。
 

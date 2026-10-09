@@ -156,6 +156,21 @@ def video_request_facts(set_video_request_facts) -> None:
     set_video_request_facts(make_video_request_facts(route="reference_video", generation_type="i2v"))
 
 
+@pytest.fixture
+def set_error_handler_sessions(monkeypatch: pytest.MonkeyPatch) -> Callable[[async_sessionmaker[AsyncSession]], None]:
+    """让 app 级错误处理器加载显示名目录时用测试给定的会话工厂。
+
+    错误处理器拿不到依赖注入，自开会话（见 ``server.i18n.request_display_names``），
+    ``dependency_overrides[get_async_session]`` 管不到它。
+    """
+    from server import i18n
+
+    def configure(sessions: async_sessionmaker[AsyncSession]) -> None:
+        monkeypatch.setattr(i18n, "async_session_factory", sessions)
+
+    return configure
+
+
 def _discard_pooled_connections_in_forked_child() -> None:
     """fork 出的子进程丢弃模块级 engine 池里从父进程继承的连接。
 

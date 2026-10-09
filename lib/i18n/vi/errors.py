@@ -295,7 +295,7 @@ MESSAGES = {
     "source_too_large": "Tệp nguồn '{filename}' quá lớn ({size_mb} MB > {limit_mb} MB)",
     "source_conflict": "Tệp nguồn '{existing}' đã tồn tại; gợi ý đổi tên: '{suggested}'",
     # Providers
-    "unknown_provider": "Nhà cung cấp không xác định: {provider_id}",
+    "unknown_provider": "Nhà cung cấp không xác định: {value}",
     "max_workers_must_be_positive_integer": "{field} phải là số nguyên dương, đã nhận: {value}",
     "credentials_not_found": "Không tìm thấy thông tin xác thực",
     "vertex_json_read_failed": "Không đọc được tệp đã tải lên",
@@ -393,11 +393,11 @@ MESSAGES = {
         "Hãy nhập một endpoint ComfyUI và gắn nó vào một dòng mô hình"
     ),
     "custom_endpoint_kind_conflicts_with_attachment": (
-        "Định nghĩa thay thế đổi loại endpoint nên không còn khớp với liên kết hiện tại: giao thức của nhà cung cấp cho mô hình {model_id} (nhà cung cấp {provider}) không nhận được nó. Hãy đổi liên kết của dòng mô hình trước, rồi mới thay định nghĩa"
+        "Định nghĩa thay thế đổi loại endpoint nên không còn khớp với liên kết hiện tại: giao thức của nhà cung cấp cho mô hình {model} (nhà cung cấp {provider}) không nhận được nó. Hãy đổi liên kết của dòng mô hình trước, rồi mới thay định nghĩa"
     ),
     "custom_endpoint_media_type_conflicts_with_attachment": (
         "Định nghĩa này tạo ra {media_type}, khác với loại phương tiện hiện tại của endpoint, trong khi mô hình "
-        "{model_id} (nhà cung cấp {provider}) vẫn đang gắn với nó: endpoint quyết định mô hình thuộc luồng nào. "
+        "{model} (nhà cung cấp {provider}) vẫn đang gắn với nó: endpoint quyết định mô hình thuộc luồng nào. "
         "Hãy gỡ liên kết trước, rồi mới thay thế định nghĩa"
     ),
     "comfyui_endpoint_requires_comfyui_provider": (
@@ -684,11 +684,14 @@ MESSAGES = {
     "version_not_found": "Phiên bản {version} không tồn tại",
     "version_resource_not_found": "Tài nguyên '{resource_type}/{resource_id}' không tồn tại",
     "version_snapshot_path_unmanaged": "Bản ghi phiên bản '{resource_type}' trỏ tới đường dẫn ảnh chụp không được quản lý; thao tác đã bị từ chối",
-    "session_busy": "Phiên đang xử lý; vui lòng đợi phản hồi hiện tại hoàn tất trước khi gửi",
     "session_capacity_exceeded": "Đã đạt giới hạn phiên đồng thời, vui lòng thử lại sau",
     "session_question_unavailable": "Phiên chưa chạy hoặc không có câu hỏi đang chờ",
     "rewrite_anchor_invalid": "Tin nhắn bạn muốn sửa không thuộc cuộc trò chuyện này, hãy tải lại rồi thử lại",
     "rewrite_blocked_by_question": "Hãy trả lời thẻ câu hỏi trong cuộc trò chuyện trước khi sửa tin nhắn",
+    "rewrite_blocked_by_queued_messages": "Hãy đợi các tin nhắn đang xếp hàng vào cuộc trò chuyện rồi mới sửa tin nhắn",
+    "message_accepted_but_unrecorded": "Tin nhắn này đã bắt đầu được xử lý nhưng chưa được lưu vào lịch sử cuộc trò chuyện; tin nhắn sẽ không được gửi lại để tránh xử lý hai lần. Hãy đợi Agent phản hồi, không cần gửi lại",
+    "queued_message_not_found": "Không tìm thấy tin nhắn đang xếp hàng này; có thể tin nhắn đã vào cuộc trò chuyện hoặc đã được thu hồi. Hãy làm mới phiên để kiểm tra",
+    "queued_message_withdrawal_pending": "Tin nhắn này đang được thu hồi. Hãy đợi thu hồi xong rồi thử lại",
     "session_already_superseded": "Cuộc trò chuyện này đã được thay thế bởi một lần sửa trước, hãy tiếp tục ở cuộc trò chuyện mới",
     "rewrite_unavailable": "Không thể sửa tin nhắn vì bản triển khai hiện tại chưa bật lưu trữ hội thoại",
     "rewrite_interrupt_timeout": "Hết thời gian chờ phản hồi hiện tại dừng lại, vui lòng thử lại",

@@ -55,6 +55,7 @@ from lib.generation.video_request_facts import (
     reference_migration_durations,
     require_video_request_facts,
 )
+from lib.i18n import _ as translate
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.content_digest import sha256_file
 from lib.infra.text_utils import strip_json_code_fences
@@ -2210,12 +2211,14 @@ class ScriptGenerator:
                 try:
                     facts.require(bucket)
                 except VideoRequestFactsError as exc:
-                    state, remedy = ("带参考图", "参考生视频") if bucket == "r2v" else ("无参考图", "图生视频")
+                    # 视频模型配置问题而非正文违约：按问题码陈述原因与出路，Web 视图按问题码本地化。
+                    params: dict[str, Any] = exc.params
                     raise DraftViolation(
-                        f"unit {s[id_field]} {state}视频档位未知（{exc.failure.summary()}）；请配置可用的{remedy}模型",
+                        f"unit {s[id_field]}：{translate(exc.code, **params)}（{exc.failure.summary()}）",
                         code=exc.code,
                         label=f"unit {s[id_field]}",
                         item_id=str(s[id_field]),
+                        params=params,
                     ) from exc
                 unit_tiers = self._unit_duration_off_tier(target_duration, facts=facts, generation_type=bucket)
                 if unit_tiers is not None:

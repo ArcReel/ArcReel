@@ -10,11 +10,13 @@ import logging
 from fastapi import APIRouter, Body, Depends
 from pydantic import BaseModel, ConfigDict, Field
 
+from lib.i18n import render_message
+from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import NotFoundError
 from lib.project.project_manager import get_project_manager
 from lib.script.script_review import overwrite_with_text
 from server.dependencies import require_project_migration_ok
-from server.i18n import Translator
+from server.i18n import DisplayNamesCatalog, Translator
 from server.routers._script_review_errors import raise_review_error
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 
@@ -24,7 +26,7 @@ router = APIRouter()
 
 
 async def _attach_duration_tiers(
-    service: ScriptReviewService, project_name: str, episode: int, state: dict, _t: Translator
+    service: ScriptReviewService, project_name: str, episode: int, state: dict, _t: Translator, names: DisplayNames
 ) -> dict:
     """把逐 unit 时长档位与本地化降级提示挂到 state 上；三个端点（GET/PUT/POST）
     都要走这一步——否则保存 / 确认后 ``adopt()`` 用不带 ``duration_tiers`` 的响应覆盖 GET
@@ -40,7 +42,7 @@ async def _attach_duration_tiers(
         project_name, episode, units if isinstance(units, list) else ()
     )
     for soft in state.get("soft_violations") or []:
-        soft["message"] = _t(soft["code"], **soft["params"])
+        soft["message"] = render_message(soft["code"], soft["params"], _t, names)
     return state
 
 
@@ -50,13 +52,15 @@ def _attach_overwrite_text(state: dict, _t: Translator) -> dict:
     return state
 
 
-def localize_draft_view(view: dict | None, _t: Translator) -> dict | None:
+def localize_draft_view(view: dict | None, _t: Translator, names: DisplayNames) -> dict | None:
     """把草稿视图里的固定文案违约与降级提示换成按 ``_t`` 渲染的本地化文本。
 
     ``quarantine_unreadable`` 只由两处产出（草稿信封本身损坏 / 重算所需的 meta 缺失损坏），都是不带
-    插值的固定字符串；带 ``params`` 的条目是视频请求事实的失败，问题码即文案 key，与内容确认的 422
+    插值的固定字符串；带 ``params`` 的条目是视频请求事实的失败，既可属于整集，也可带 ``item_id``
+    定位到具体条目；问题码即文案 key，与内容确认的 422
     同一呈现。二者都不涉及 ``lib.script.reference_video.draft_validation`` 里其余违约类型那种产出时已
     渲染好插值的模板——违约的本地化范围限定在这两类。降级提示一律以 ``code`` 为文案 key 成文。
+    参数里的供应商与模型 ID 按 ``names`` 换成显示名。
     """
     if view is None:
         return None
@@ -64,14 +68,14 @@ def localize_draft_view(view: dict | None, _t: Translator) -> dict | None:
         if violation["code"] == "quarantine_unreadable":
             violation["message"] = _t("script_review_quarantine_unreadable")
         elif isinstance(violation.get("params"), dict):
-            violation["message"] = _t(violation["code"], **violation["params"])
+            violation["message"] = render_message(violation["code"], violation["params"], _t, names)
     for soft in view.get("soft_violations") or []:
-        soft["message"] = _t(soft["code"], **soft["params"])
+        soft["message"] = render_message(soft["code"], soft["params"], _t, names)
     return view
 
 
 @router.get("/projects/{project_name}/episodes/{episode}/script-review")
-async def get_script_review(project_name: str, episode: int, _t: Translator):
+async def get_script_review(project_name: str, episode: int, _t: Translator, names: DisplayNamesCatalog):
     """读取该集 script_plan 结构化中间态 + 内容确认状态（供 web 渲染与编辑）。
 
     ``quarantine`` 字段单独合并（reference_video 变体、草稿在场时才非 None）：它按产出时
@@ -86,9 +90,9 @@ async def get_script_review(project_name: str, episode: int, _t: Translator):
         service = ScriptReviewService(get_project_manager())
         quarantine = await service.get_quarantine_info(project_name, episode)
         state = await service.get_state(project_name, episode)
-        await _attach_duration_tiers(service, project_name, episode, state, _t)
+        await _attach_duration_tiers(service, project_name, episode, state, _t, names)
         _attach_overwrite_text(state, _t)
-        state["quarantine"] = localize_draft_view(quarantine, _t)
+        state["quarantine"] = localize_draft_view(quarantine, _t, names)
         return state
     except ScriptReviewError as exc:
         raise_review_error(exc, episode, _t)
@@ -101,6 +105,7 @@ async def update_script_review_content(
     project_name: str,
     episode: int,
     _t: Translator,
+    names: DisplayNamesCatalog,
     content: dict = Body(...),
     base_fingerprint: str | None = None,
 ):
@@ -123,9 +128,9 @@ async def update_script_review_content(
         service = ScriptReviewService(get_project_manager())
         state = await service.save_content(project_name, episode, content, base_fingerprint)
         quarantine = await service.get_quarantine_info(project_name, episode)
-        await _attach_duration_tiers(service, project_name, episode, state, _t)
+        await _attach_duration_tiers(service, project_name, episode, state, _t, names)
         _attach_overwrite_text(state, _t)
-        state["quarantine"] = localize_draft_view(quarantine, _t)
+        state["quarantine"] = localize_draft_view(quarantine, _t, names)
         return state
     except ScriptReviewError as exc:
         raise_review_error(exc, episode, _t)
@@ -149,6 +154,7 @@ async def confirm_script_review(
     project_name: str,
     episode: int,
     _t: Translator,
+    names: DisplayNamesCatalog,
     req: ConfirmScriptReviewRequest | None = None,
 ):
     """用户显式确认 script_plan 内容：整份转为正式脚本（全部分镜待编写），放行 prompt_authoring 视觉生成。
@@ -165,9 +171,9 @@ async def confirm_script_review(
         state = await service.confirm(
             project_name, episode, overwrite_revision=req.overwrite_revision if req is not None else None
         )
-        await _attach_duration_tiers(service, project_name, episode, state, _t)
+        await _attach_duration_tiers(service, project_name, episode, state, _t, names)
         _attach_overwrite_text(state, _t)
-        state["quarantine"] = localize_draft_view(await service.get_quarantine_info(project_name, episode), _t)
+        state["quarantine"] = localize_draft_view(await service.get_quarantine_info(project_name, episode), _t, names)
         return state
     except ScriptReviewError as exc:
         raise_review_error(exc, episode, _t)

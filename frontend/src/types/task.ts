@@ -40,6 +40,8 @@ export interface TaskItem {
   /** Present when error_message was stored as a machine-encoded task failure. */
   error_code?: string;
   error_params?: Record<string, unknown>;
+  /** 服务端原文；只在 error_message 已换成本地化文案时出现，未知错误的原文就在 error_message 里。 */
+  error_detail?: string;
   cancelled_by: "user" | "cascade" | "interrupted" | null;
   provider_id: string | null;
   provider_job_id: string | null;

@@ -241,7 +241,9 @@ class DraftRepair:
             revalidation = await revalidate_script_plan_draft(
                 self.ctx.project_path, project, episode, draft, config_resolver=self.ctx.config_resolver
             )
-        except (VideoRequestFactsError, ValueError) as exc:
+        except VideoRequestFactsError as exc:
+            raise DraftWorkflowError.video_facts(exc.failure) from exc
+        except ValueError as exc:
             raise DraftWorkflowError("draft_repair_failed", f"草稿无法重新校验：{exc}") from exc
         return violation_entries(revalidation.violations)
 

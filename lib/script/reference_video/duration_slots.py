@@ -42,14 +42,14 @@ class DurationSlot:
         """申请秒数与请求时长基准不一致时需用户确认。"""
         return self.adjustment in (UP, DOWN)
 
-    def warning(self, *, model: str) -> dict | None:
+    def warning(self, *, provider: str, model: str) -> dict | None:
         """取档偏移了请求时长基准时的任务 warning（i18n key + 参数）；未偏移返回 None。"""
         if not self.needs_confirmation:
             return None
         key = "ref_duration_rounded_up" if self.adjustment == UP else "ref_duration_exceeded"
         return {
             "key": key,
-            "params": {"total": self.total_seconds, "duration": self.seconds, "model": model},
+            "params": {"total": self.total_seconds, "duration": self.seconds, "provider": provider, "model": model},
         }
 
 

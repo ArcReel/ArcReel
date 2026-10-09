@@ -1,4 +1,4 @@
-"""SSE entry 流与 REST entries：cursor 续传、draft 首帧、状态事件。"""
+"""SSE entry 流与 REST entries：cursor 续传、draft 首帧、状态事件、常驻不关流。"""
 
 from __future__ import annotations
 
@@ -10,9 +10,8 @@ from fastapi import FastAPI
 from fastapi.sse import ServerSentEvent
 from fastapi.testclient import TestClient
 
-from lib.i18n import DEFAULT_LOCALE
 from server.agent_runtime.event_log import EventLogService, EventLogStore
-from server.agent_runtime.models import LiveMessage, SubscriptionReady
+from server.agent_runtime.models import Heartbeat, LiveMessage, SubscriptionReady
 from server.agent_runtime.service import AssistantService
 from server.auth import CurrentUserInfo, get_current_user
 from server.i18n import get_translator
@@ -21,6 +20,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_session_meta, make_translator
 
 SESSION_ID = "entry-stream-s1"
+HEARTBEAT = object()
 
 
 class _FakeMetaStore:
@@ -65,14 +65,27 @@ class _FakeEntrySessionManager:
     async def get_pending_questions_snapshot(self, session_id):
         return list(self.pending)
 
+    def get_queued_messages_snapshot(self, session_id):
+        return []
+
+    def end_stream(self):
+        """模拟客户端离开：常驻流本身不会结束，测试据此收尾。"""
+        self.queue.put_nowait(None)
+
     @contextlib.asynccontextmanager
-    async def stream_messages(self, session_id, *, idle_timeout=20.0, locale=DEFAULT_LOCALE):
+    async def stream_messages(self, session_id, *, idle_timeout=20.0):
         async def _iter():
             yield SubscriptionReady()
             while True:
                 message = await self.queue.get()
                 if message is None:
                     return
+                if message is HEARTBEAT:
+                    yield Heartbeat()
+                    continue
+                if callable(message):
+                    message()
+                    continue
                 yield LiveMessage(message=message)
 
         yield _iter()
@@ -88,6 +101,10 @@ async def entry_service(db_factory, tmp_path):
     service.event_log_store = store
     service.event_log = EventLogService(store, _FakeAdapter())
     return service, store
+
+
+# CLI 报 idle 后会话层广播的终态（见 SessionManager._settle_cli_idle）
+_CLI_IDLE_COMPLETED = {"type": "runtime_status", "status": "completed", "reason": "cli idle", "subtype": "success"}
 
 
 def _collect(event: ServerSentEvent) -> tuple[str, dict, str | None]:
@@ -113,23 +130,100 @@ class TestStreamEntryEvents:
         assert events[1][1]["status"] == "error"
         assert await store.list_after(SESSION_ID) == []
 
-    async def test_non_running_emits_entries_then_terminal_status(self, entry_service):
+    async def test_non_running_opens_with_entries_draft_queue_and_status(self, entry_service):
         service, store = entry_service
-        service.session_manager = _FakeEntrySessionManager(status="completed")
+        manager = _FakeEntrySessionManager(status="completed")
+        service.session_manager = manager
         await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}, {"type": "assistant", "uuid": "b"}])
+        manager.end_stream()
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
 
-        assert [name for name, _, _ in events] == ["entry", "entry", "status"]
+        assert [name for name, _, _ in events] == ["entry", "entry", "draft", "queue", "status"]
         # SSE 事件 id 即 seq
         assert [sse_id for _, _, sse_id in events[:2]] == ["0", "1"]
-        assert events[2][1]["status"] == "completed"
+        assert events[3][1]["messages"] == []
+        assert events[4][1]["status"] == "completed"
+
+    async def test_queue_upsert_on_a_terminal_stream_is_preceded_by_running(self, entry_service):
+        """另一端发来的消息让会话重回 running：排队消息之前先推 running，不落在旧终态之下。"""
+        service, _store = entry_service
+        manager = _FakeEntrySessionManager(status="completed")
+        service.session_manager = manager
+
+        def _send():
+            manager.status_value = "running"
+
+        message = {"id": "user-1", "content": [{"type": "text", "text": "再改第 4 镜"}], "state": "queued"}
+        manager.queue.put_nowait(_send)
+        manager.queue.put_nowait({"type": "queued_message", "op": "upsert", "message": message})
+        manager.end_stream()
+
+        events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
+
+        statuses = [data["status"] for name, data, _ in events if name == "status"]
+        assert statuses == ["completed", "running"]
+        assert events[-1][0] == "queue_upsert"
+        assert events[-1][1]["message"] == message
+
+    async def test_stream_stays_open_after_terminal_status_and_pushes_later_entries(self, entry_service):
+        """终态 status 只更新状态、不关流：之后发送产生的新一轮照常推送。"""
+        service, store = entry_service
+        manager = _FakeEntrySessionManager(status="running")
+        service.session_manager = manager
+        await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}])
+
+        def _finish_turn():
+            manager.status_value = "completed"
+
+        def _send_next():
+            manager.status_value = "running"
+            manager.draft_state = {"draft": None, "rev": 0}
+
+        manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
+        manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
+        manager.queue.put_nowait(_finish_turn)
+        manager.queue.put_nowait(_CLI_IDLE_COMPLETED)
+        manager.queue.put_nowait(_send_next)
+        manager.queue.put_nowait(
+            {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "user", "uuid": "c"}}
+        )
+        manager.queue.put_nowait(
+            {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 2, "type": "assistant", "uuid": "d"}}
+        )
+        manager.end_stream()
+
+        events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
+
+        names = [name for name, _, _ in events]
+        assert names == ["entry", "draft", "queue", "status", "status", "status", "draft", "entry", "entry"]
+        assert [e[1]["status"] for e in events if e[0] == "status"] == ["running", "completed", "running"]
+        assert [e[2] for e in events if e[0] == "entry"] == ["0", "1", "2"]
+
+    async def test_heartbeat_reports_status_change_without_broadcast(self, entry_service):
+        """驱逐等不经广播的状态变化由心跳补推，流不关闭。"""
+        service, _store = entry_service
+        manager = _FakeEntrySessionManager(status="running")
+        service.session_manager = manager
+
+        def _evicted():
+            manager.status_value = "interrupted"
+
+        manager.queue.put_nowait(_evicted)
+        manager.queue.put_nowait(HEARTBEAT)
+        manager.queue.put_nowait(HEARTBEAT)
+        manager.end_stream()
+
+        events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
+
+        assert [e[1]["status"] for e in events if e[0] == "status"] == ["running", "interrupted"]
 
     async def test_after_cursor_skips_earlier_entries(self, entry_service):
         service, store = entry_service
         service.session_manager = _FakeEntrySessionManager(status="completed")
         await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}, {"type": "assistant", "uuid": "b"}])
 
+        service.session_manager.end_stream()
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID, after_seq=0)]
 
         entry_events = [e for e in events if e[0] == "entry"]
@@ -147,7 +241,7 @@ class TestStreamEntryEvents:
         await store.append(SESSION_ID, [{"type": "user", "uuid": "a"}, {"type": "assistant", "uuid": "b"}])
 
         # 直播队列：重复条目（seq 1，已在存量中）须被 seq 门槛跳过；
-        # 新条目 seq 2 放行；delta 透传；result 产出终态 status 并结束。
+        # 新条目 seq 2 放行；delta 透传；CLI 报 idle 后的 runtime_status 产出终态 status。
         manager.queue.put_nowait(
             {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "assistant", "uuid": "b"}}
         )
@@ -167,11 +261,13 @@ class TestStreamEntryEvents:
         )
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
         manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
+        manager.queue.put_nowait(_CLI_IDLE_COMPLETED)
+        manager.end_stream()
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID, after_seq=-1)]
 
         names = [name for name, _, _ in events]
-        assert names == ["entry", "entry", "draft", "entry", "delta", "status"]
+        assert names == ["entry", "entry", "draft", "queue", "status", "entry", "delta", "status"]
         # 存量 entry：seq 0、1；直播放行的只有 seq 2（seq 1 重复被跳过）
         assert [e[2] for e in events if e[0] == "entry"] == ["0", "1", "2"]
         # draft 首帧快照携带累积态与 rev 门槛
@@ -195,17 +291,15 @@ class TestStreamEntryEvents:
         )
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
         manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
+        manager.end_stream()
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID, after_seq=1)]
 
         entry_events = [e for e in events if e[0] == "entry"]
         assert [e[2] for e in entry_events] == ["2"]
 
-    async def test_final_entry_after_raw_result_still_delivered(self, entry_service):
-        """末条 log_entry 晚于原始 result 广播到达（inbox 落库延迟）时仍须送达。
-
-        终态由 log_turn_complete 触发，不在原始 result 处提前终结。
-        """
+    async def test_result_does_not_push_status_before_cli_idle(self, entry_service):
+        """result 只代表一轮结束：状态停在 running，CLI 报 idle 后的 runtime_status 才推终态，排在本轮条目之后。"""
         service, store = entry_service
         manager = _FakeEntrySessionManager(status="running")
         service.session_manager = manager
@@ -217,13 +311,17 @@ class TestStreamEntryEvents:
             {"type": "log_entry", "session_id": SESSION_ID, "entry": {"seq": 1, "type": "assistant", "uuid": "b"}}
         )
         manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
+        manager.queue.put_nowait(HEARTBEAT)
+        manager.queue.put_nowait(HEARTBEAT)
+        manager.queue.put_nowait(_CLI_IDLE_COMPLETED)
+        manager.end_stream()
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
 
         names = [name for name, _, _ in events]
         assert names[-2:] == ["entry", "status"]
         assert [e[2] for e in events if e[0] == "entry"] == ["0", "1"]
-        assert events[-1][1]["status"] == "completed"
+        assert [e[1]["status"] for e in events if e[0] == "status"] == ["running", "completed"]
 
     async def test_pending_questions_replayed_on_subscribe(self, entry_service):
         service, _store = entry_service
@@ -232,6 +330,7 @@ class TestStreamEntryEvents:
         service.session_manager = manager
         manager.queue.put_nowait({"type": "result", "subtype": "success", "is_error": False})
         manager.queue.put_nowait({"type": "log_turn_complete", "session_id": SESSION_ID})
+        manager.end_stream()
 
         events = [_collect(e) async for e in service.stream_entry_events(SESSION_ID)]
 

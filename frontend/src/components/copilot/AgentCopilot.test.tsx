@@ -110,6 +110,9 @@ describe("AgentCopilot", () => {
   const createNewSession = vi.fn();
   const switchSession = vi.fn().mockResolvedValue(undefined);
   const deleteSession = vi.fn().mockResolvedValue(true);
+  const withdrawQueuedMessage = vi.fn().mockResolvedValue(undefined);
+  const resendQueuedMessage = vi.fn().mockResolvedValue(undefined);
+  const sendQueuedMessageNow = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
@@ -126,6 +129,9 @@ describe("AgentCopilot", () => {
       createNewSession,
       switchSession,
       deleteSession,
+      withdrawQueuedMessage,
+      resendQueuedMessage,
+      sendQueuedMessageNow,
     });
   });
 
@@ -236,6 +242,19 @@ describe("AgentCopilot", () => {
       expect(screen.getByRole("status")).toHaveTextContent("没有匹配的会话");
     });
 
+    it.each(["queued", "unsent"] as const)("returns from history when sending a %s tray message", async (state) => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({ queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "改结局" }], state }] });
+      render(<AgentCopilot />);
+      const toggle = screen.getByRole("button", { name: "会话历史" });
+      await user.click(toggle);
+      expect(screen.getByRole("searchbox", { name: "搜索会话" })).toBeInTheDocument();
+      const tray = screen.getByRole("list", { name: "排队消息" });
+      await user.click(within(tray).getByRole("button", { name: state === "queued" ? "立即发送" : "发送" }));
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect(screen.queryByRole("searchbox", { name: "搜索会话" })).not.toBeInTheDocument();
+    });
+
     it("deletes a session only after confirming in an alert dialog", async () => {
       const user = userEvent.setup();
       deleteSession.mockImplementationOnce(async (id: string) => {
@@ -327,6 +346,269 @@ describe("AgentCopilot", () => {
       expect(input).toHaveValue("/");
     });
 
+    it("while the agent replies, one button stops on an empty input and sends once there is content", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({ currentSessionId: "session-1", sessionStatus: "running" });
+      render(<AgentCopilot />);
+
+      await user.click(screen.getByRole("button", { name: "停止回复" }));
+      expect(interrupt).toHaveBeenCalledTimes(1);
+
+      const input = screen.getByRole("combobox", { name: "Agent 输入" });
+      await user.type(input, "结尾再加一个空镜");
+      expect(screen.queryByRole("button", { name: "停止回复" })).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+
+      expect(sendMessage).toHaveBeenCalledWith("结尾再加一个空镜", undefined);
+    });
+
+    it("stacks queued messages above the input in send order", () => {
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [
+          { id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "queued" },
+          {
+            id: "q-2",
+            content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } }],
+            state: "queued",
+          },
+        ],
+      });
+      render(<AgentCopilot />);
+
+      const items = within(screen.getByRole("list", { name: "排队消息" })).getAllByRole("listitem");
+      expect(items).toHaveLength(2);
+      expect(items[0]).toHaveTextContent("第 3 镜改成黄昏");
+      expect(items[0]).toHaveTextContent("排队中");
+      expect(items[1]).toHaveTextContent("1 张图片");
+    });
+
+    it("editing a queued message appends its text and images after what is already in the input", async () => {
+      const user = userEvent.setup();
+      const content = [
+        { type: "image" as const, source: { type: "base64" as const, media_type: "image/png", data: "AAAA" } },
+        { type: "text" as const, text: "第 3 镜改成黄昏" },
+      ];
+      // 撤回成功时 hook 把内容交给输入框
+      withdrawQueuedMessage.mockImplementationOnce(async () => {
+        useAssistantStore.getState().appendToComposer(content);
+      });
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [{ id: "q-1", content, state: "queued" }],
+      });
+      render(<AgentCopilot />);
+      const input = screen.getByRole("combobox", { name: "Agent 输入" });
+      await user.type(input, "片尾加字幕");
+
+      const item = within(screen.getByRole("list", { name: "排队消息" })).getByRole("listitem");
+      await user.click(within(item).getByRole("button", { name: "编辑" }));
+
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
+      await waitFor(() => expect(input).toHaveValue("片尾加字幕\n第 3 镜改成黄昏"));
+      expect(screen.getByRole("button", { name: "放大图片附件 1" })).toBeInTheDocument();
+    });
+
+    it("content returned by an edit while a send is in flight stays in the input after the send is accepted", async () => {
+      const user = userEvent.setup();
+      const image = (data: string) => ({
+        type: "image" as const,
+        source: { type: "base64" as const, media_type: "image/png", data },
+      });
+      const first = [image("AAAA"), { type: "text" as const, text: "第 3 镜改成黄昏" }];
+      const second = [image("BBBB"), { type: "text" as const, text: "片尾加字幕" }];
+      withdrawQueuedMessage.mockImplementationOnce(async () => {
+        useAssistantStore.getState().appendToComposer(first);
+      });
+      let returnSecond!: () => void;
+      withdrawQueuedMessage.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            returnSecond = () => {
+              useAssistantStore.getState().appendToComposer(second);
+              resolve();
+            };
+          }),
+      );
+      let acceptSend!: () => void;
+      sendMessage.mockImplementationOnce(() => {
+        useAssistantStore.setState({ sending: true });
+        return new Promise<boolean>((resolve) => {
+          acceptSend = () => {
+            useAssistantStore.setState({ sending: false });
+            resolve(true);
+          };
+        });
+      });
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [
+          { id: "q-1", content: first, state: "queued" },
+          { id: "q-2", content: second, state: "queued" },
+        ],
+      });
+      render(<AgentCopilot />);
+      const input = screen.getByRole("combobox", { name: "Agent 输入" });
+      const tray = screen.getByRole("list", { name: "排队消息" });
+      await user.click(within(within(tray).getAllByRole("listitem")[0]).getByRole("button", { name: "编辑" }));
+      await waitFor(() => expect(input).toHaveValue("第 3 镜改成黄昏"));
+
+      // 第二条的编辑还在等撤回答复时发出输入框里的内容；答复在发送受理前到达，内容追加进输入框
+      await user.click(within(within(tray).getAllByRole("listitem")[1]).getByRole("button", { name: "编辑" }));
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+      expect(sendMessage).toHaveBeenCalledWith("第 3 镜改成黄昏", [expect.objectContaining({ mimeType: "image/png" })]);
+      act(() => returnSecond());
+      await waitFor(() => expect(input).toHaveValue("第 3 镜改成黄昏\n片尾加字幕"));
+      act(() => acceptSend());
+
+      // 只清掉已发出的文字和图片，发送途中退回的内容留在输入框
+      await waitFor(() => expect(input).toHaveValue("片尾加字幕"));
+      expect(screen.getByRole("button", { name: "放大图片附件 1" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "放大图片附件 2" })).not.toBeInTheDocument();
+    });
+
+    it("deleting a queued message withdraws it without touching the input", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "queued" }],
+      });
+      render(<AgentCopilot />);
+
+      await user.click(screen.getByRole("button", { name: "删除" }));
+
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
+      expect(screen.getByRole("combobox", { name: "Agent 输入" })).toHaveValue("");
+    });
+
+    it("explains unsent messages and offers send, edit and delete on each of them", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "error",
+        queuedMessages: [
+          { id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "unsent" },
+          { id: "q-2", content: [{ type: "text", text: "加一段旁白" }], state: "queued" },
+        ],
+      });
+      render(<AgentCopilot />);
+
+      expect(screen.getByText("会话已中断，以下消息尚未发送")).toBeInTheDocument();
+      const [unsent, queued] = within(screen.getByRole("list", { name: "排队消息" })).getAllByRole("listitem");
+      expect(within(unsent).getByText("未发送")).toBeInTheDocument();
+      expect(within(queued).queryByRole("button", { name: "发送" })).not.toBeInTheDocument();
+      // 未发送的消息不在 CLI 队列里，没有轮次可打断：只有发送，没有立即发送
+      expect(within(unsent).queryByRole("button", { name: "立即发送" })).not.toBeInTheDocument();
+
+      await user.click(within(unsent).getByRole("button", { name: "发送" }));
+      expect(resendQueuedMessage).toHaveBeenCalledWith("q-1");
+      await user.click(within(unsent).getByRole("button", { name: "编辑" }));
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
+      await user.click(within(unsent).getByRole("button", { name: "删除" }));
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
+      expect(screen.getByRole("combobox", { name: "Agent 输入" })).toHaveValue("");
+    });
+
+    it("shows no interruption notice while every message is still queued", () => {
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "加一段旁白" }], state: "queued" }],
+      });
+      render(<AgentCopilot />);
+
+      expect(screen.queryByText("会话已中断，以下消息尚未发送")).not.toBeInTheDocument();
+    });
+
+    it("sends a queued message now so the agent handles it first", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "先停下改结局" }], state: "queued" }],
+      });
+      render(<AgentCopilot />);
+
+      const actions = within(screen.getByRole("list", { name: "排队消息" })).getAllByRole("button");
+      expect(actions.map((button) => button.getAttribute("aria-label"))).toEqual(["立即发送", "编辑", "删除"]);
+      await user.click(screen.getByRole("button", { name: "立即发送" }));
+
+      expect(sendQueuedMessageNow).toHaveBeenCalledWith("q-1");
+      expect(withdrawQueuedMessage).not.toHaveBeenCalled();
+    });
+
+    it("keeps the tray while the agent asks a question, without sending now but still editable and deletable", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        pendingQuestion: makePendingQuestion(),
+        queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "queued" }],
+      });
+      render(<AgentCopilot />);
+
+      expect(screen.getByRole("form", { name: "Agent 的提问" })).toBeInTheDocument();
+      const tray = screen.getByRole("list", { name: "排队消息" });
+      expect(within(tray).getByText("第 3 镜改成黄昏")).toBeVisible();
+      expect(within(tray).queryByRole("button", { name: "立即发送" })).not.toBeInTheDocument();
+
+      await user.click(within(tray).getByRole("button", { name: "删除" }));
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
+      await user.click(within(tray).getByRole("button", { name: "编辑" }));
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
+    });
+
+    it("scrolls a long queue inside the tray and follows the newest message, leaving the input and stop button in place", () => {
+      // jsdom 没有布局：托盘按 160px 高、每条按 40px 高打桩，滚动位置按元素记住
+      const scrollTops = new WeakMap<Element, number>();
+      const isTray = (el: Element) => el.getAttribute("aria-label") === "排队消息";
+      const indexInTray = (el: Element) =>
+        el.parentElement && isTray(el.parentElement) ? Array.from(el.parentElement.children).indexOf(el) : -1;
+      vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) {
+        return isTray(this) ? 160 : 0;
+      });
+      vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (this: HTMLElement) {
+        return Math.max(0, indexInTray(this)) * 40;
+      });
+      vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+        return indexInTray(this) >= 0 ? 40 : 0;
+      });
+      vi.spyOn(Element.prototype, "scrollTop", "get").mockImplementation(function (this: Element) {
+        return scrollTops.get(this) ?? 0;
+      });
+      vi.spyOn(Element.prototype, "scrollTop", "set").mockImplementation(function (this: Element, value: number) {
+        scrollTops.set(this, value);
+      });
+      const queued = (index: number) => ({
+        id: `q-${index}`,
+        content: [{ type: "text" as const, text: `第 ${index} 条补充要求` }],
+        state: "queued" as const,
+      });
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: Array.from({ length: 20 }, (_, index) => queued(index + 1)),
+      });
+      render(<AgentCopilot />);
+
+      const tray = screen.getByRole("list", { name: "排队消息" });
+      expect(tray).toHaveClass("max-h-[30cqh]", "overflow-y-auto");
+      expect(tray).toHaveAttribute("tabindex", "0");
+      expect(tray.scrollTop).toBe(640);
+      expect(screen.getByRole("combobox", { name: "Agent 输入" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "停止回复" })).toBeEnabled();
+
+      // 用户把托盘滚回顶部后，最前面的消息被接纳：不跳动；再发一条：滚到新消息
+      tray.scrollTop = 0;
+      act(() => useAssistantStore.setState((s) => ({ queuedMessages: s.queuedMessages.slice(1) })));
+      expect(tray.scrollTop).toBe(0);
+      act(() => useAssistantStore.setState((s) => ({ queuedMessages: [...s.queuedMessages, queued(21)] })));
+      expect(tray.scrollTop).toBe(640);
+    });
   });
 
   it("does not send when Enter is used to confirm an IME composition", () => {

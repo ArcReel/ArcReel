@@ -39,6 +39,7 @@ from lib.i18n import MESSAGES
 from lib.i18n import _ as i18n_translate
 from lib.references.reference_compression import ReferencePayloadFloorError
 from lib.script.reference_video.request_projection import ProjectionProblem, ReferenceProjectionBlockedError
+from tests.factories import make_display_names
 
 # AST 守卫扫的是真实源码树、渲染断言用的是真实 i18n 目录，不 mock 任何被测入口。
 
@@ -382,7 +383,7 @@ def test_stored_reason_renders_per_locale():
         # 期望值独立取自该 locale 的模板目录，而非拿渲染结果互相比对——只断言"三者不同"
         # 的话，zh/en/vi 模板或 locale 映射被互换仍会通过。
         expected = MESSAGES[locale]["video_duration_not_supported"].format(duration=7, supported="5, 10")
-        assert render_failure(stored, _translator(locale)) == expected
+        assert render_failure(stored, _translator(locale), make_display_names(locale)) == expected
 
 
 def test_artifact_download_failure_is_eligible_for_retry_download():
@@ -390,7 +391,7 @@ def test_artifact_download_failure_is_eligible_for_retry_download():
 
     assert stored == '[artifact_download_failed] {"detail": "cdn unavailable"}'
     for locale in ("zh", "en", "vi"):
-        assert render_failure(stored, _translator(locale)) == MESSAGES[locale][
+        assert render_failure(stored, _translator(locale), make_display_names(locale)) == MESSAGES[locale][
             "task_fail_artifact_download_failed"
         ].format(detail="cdn unavailable")
 
@@ -406,9 +407,9 @@ def test_an_endpoint_whose_media_runtime_is_missing_fails_in_the_reader_s_langua
 
     assert stored.startswith("[provider_unsupported_media]")
     for locale in ("zh", "en", "vi"):
-        assert render_failure(stored, _translator(locale)) == MESSAGES[locale][
+        assert render_failure(stored, _translator(locale), make_display_names(locale)) == MESSAGES[locale][
             "task_fail_provider_unsupported_media"
-        ].format(provider_id="custom-1", media_type="audio")
+        ].format(**make_display_names(locale).apply({"provider_id": "custom-1", "media_type": "audio"}))
 
 
 def test_encode_covers_every_capability_exception_type():
@@ -421,7 +422,7 @@ def test_encode_covers_every_capability_exception_type():
     for exc in cases:
         stored = encode_task_failure_message(exc)
         assert stored.startswith(f"[{exc.code}]")
-        assert render_failure(stored, _translator("en")) != stored
+        assert render_failure(stored, _translator("en"), make_display_names("en")) != stored
 
 
 @pytest.mark.parametrize("code", sorted(REFERENCE_PROJECTION_FAILURE_CODES))
@@ -464,8 +465,8 @@ def test_projection_failure_preserves_canonical_code_and_params_for_localized_ta
     stored = encode_task_failure_message(ReferenceProjectionBlockedError(problem))
     assert json.loads(stored.split("] ", 1)[1]) == json.loads(json.dumps(expected_params, ensure_ascii=False))
     for locale in ("zh", "en", "vi"):
-        expected = MESSAGES[locale][problem.code].format(**expected_params)
-        assert render_failure(stored, _translator(locale)) == expected
+        expected = MESSAGES[locale][problem.code].format(**make_display_names(locale).apply(expected_params))
+        assert render_failure(stored, _translator(locale), make_display_names(locale)) == expected
 
 
 @pytest.mark.parametrize("code", sorted(VIDEO_REQUEST_FACTS_FAILURE_CODES))
@@ -484,8 +485,10 @@ def test_video_request_facts_rejection_keeps_code_and_params_for_localized_tasks
     assert stored.startswith("[video_supported_durations_incompatible]")
     assert json.loads(stored.split("] ", 1)[1]) == params
     for locale in ("zh", "en", "vi"):
-        expected = MESSAGES[locale]["video_supported_durations_incompatible"].format(**params)
-        assert render_failure(stored, _translator(locale)) == expected
+        expected = MESSAGES[locale]["video_supported_durations_incompatible"].format(
+            **make_display_names(locale).apply(params)
+        )
+        assert render_failure(stored, _translator(locale), make_display_names(locale)) == expected
 
 
 #: 视频生成不再读旁白交付后删掉的失败码与重试标记；历史任务行上的原文照原样透传。
@@ -510,7 +513,7 @@ def test_retired_narrated_video_codes_are_gone_and_historic_rows_pass_through(co
     for locale in ("zh", "en", "vi"):
         assert code not in MESSAGES[locale]
     stored = f'[{code}] {{"resource_id": "E1U01"}}'
-    assert render_failure(stored, _translator("zh")) == stored
+    assert render_failure(stored, _translator("zh"), make_display_names("zh")) == stored
 
 
 @pytest.mark.parametrize(
@@ -537,8 +540,10 @@ def test_encode_video_bucket_capability_error_renders_per_locale(code: str, gene
     stored = encode_task_failure_message(exc)
     assert stored.startswith(f"[{code}]")
     for locale in ("zh", "en", "vi"):
-        expected = MESSAGES[locale][code].format(provider="minimax", model="MiniMax-Hailuo-2.3")
-        assert render_failure(stored, _translator(locale)) == expected
+        expected = MESSAGES[locale][code].format(
+            **make_display_names(locale).apply({"provider": "minimax", "model": "MiniMax-Hailuo-2.3"})
+        )
+        assert render_failure(stored, _translator(locale), make_display_names(locale)) == expected
 
 
 @pytest.mark.parametrize("generation_type", ["t2i", "i2i"])
@@ -549,8 +554,10 @@ def test_encode_image_bucket_capability_error_renders_per_locale(generation_type
     code = f"image_capability_missing_{generation_type}"
     assert stored.startswith(f"[{code}]")
     for locale in ("zh", "en", "vi"):
-        expected = MESSAGES[locale][code].format(provider="custom-3", model="relay-img")
-        assert render_failure(stored, _translator(locale)) == expected
+        expected = MESSAGES[locale][code].format(
+            **make_display_names(locale).apply({"provider": "custom-3", "model": "relay-img"})
+        )
+        assert render_failure(stored, _translator(locale), make_display_names(locale)) == expected
 
 
 @pytest.mark.parametrize(
@@ -607,13 +614,13 @@ def test_unregistered_capability_code_degrades_to_passthrough_text():
     exc = VideoCapabilityError("video_totally_new_code", model="x")
     stored = encode_task_failure_message(exc)
     assert stored == "video_totally_new_code"
-    assert render_failure(stored, _translator("zh")) == stored
+    assert render_failure(stored, _translator("zh"), make_display_names("zh")) == stored
 
 
 def test_non_capability_exception_still_passes_through():
     stored = encode_task_failure_message(RuntimeError("provider socket closed"))
     assert stored == "provider socket closed"
-    assert render_failure(stored, _translator("en")) == stored
+    assert render_failure(stored, _translator("en"), make_display_names("en")) == stored
 
 
 def test_provider_rejection_stores_status_and_reason_as_separate_params():
@@ -634,7 +641,7 @@ def test_provider_rejection_stores_status_and_reason_as_separate_params():
     }
     assert "SECRETKEY" not in stored
     for locale in ("zh", "en", "vi"):
-        rendered = render_failure(stored, _translator(locale))
+        rendered = render_failure(stored, _translator(locale), make_display_names(locale))
         assert rendered == MESSAGES[locale]["task_fail_provider_rejected"].format(status=400)
         # 摘要是上游原文，不进译文——读侧按独立字段展示。
         assert "InvalidParameter" not in rendered
@@ -654,9 +661,9 @@ def test_provider_rejection_without_a_reason_still_stores_the_status():
     assert json.loads(stored.split("] ", 1)[1]) == {"status": 401}
     assert "SECRETKEY" not in stored
     for locale in ("zh", "en", "vi"):
-        assert render_failure(stored, _translator(locale)) == MESSAGES[locale]["task_fail_provider_rejected"].format(
-            status=401
-        )
+        assert render_failure(stored, _translator(locale), make_display_names(locale)) == MESSAGES[locale][
+            "task_fail_provider_rejected"
+        ].format(status=401)
 
 
 @pytest.mark.parametrize(
@@ -672,7 +679,7 @@ def test_provider_rejection_without_a_reason_still_stores_the_status():
 )
 def test_legacy_rows_render_without_error(legacy):
     """存量行（空值 / 纯文本 / 无法解析的伪结构化）读取不炸，一律原样返回。"""
-    assert render_failure(legacy, _translator("en")) == legacy
+    assert render_failure(legacy, _translator("en"), make_display_names("en")) == legacy
 
 
 def _encode_cascade(dependency_task_id: str, reason: str) -> str:
@@ -686,7 +693,9 @@ def test_cascade_reason_renders_upstream_reason_per_locale():
     )
     stored = _encode_cascade("5a38f38e", upstream)
 
-    rendered = {locale: render_failure(stored, _translator(locale)) for locale in ("zh", "en", "vi")}
+    rendered = {
+        locale: render_failure(stored, _translator(locale), make_display_names(locale)) for locale in ("zh", "en", "vi")
+    }
     assert len({*rendered.values()}) == 3, rendered
     for locale, text in rendered.items():
         assert "video_duration_not_supported" not in text
@@ -712,7 +721,7 @@ def test_deep_cascade_chain_keeps_root_cause_renderable():
     for depth in range(1, 21):
         stored = _encode_bounded_cascade_failure(dependency_task_id=f"{depth:032d}", reason=stored)
         lengths.add(len(stored))
-        rendered = render_failure(stored, _translator("zh"))
+        rendered = render_failure(stored, _translator("zh"), make_display_names("zh"))
         assert rendered is not None
         # 直接依赖与根本原因两项都在，且没有任何机器码碎片漏出。
         assert f"{depth:032d}" in rendered
@@ -733,7 +742,7 @@ def test_collapse_cascade_reason_leaves_non_cascade_reason_untouched():
 def test_cascade_reason_with_unstructured_upstream_still_renders():
     """上游原因是 provider 原始异常文本时，包裹层仍本地化，内层原样透传。"""
     stored = _encode_cascade("5a38f38e", "provider rejected")
-    rendered = render_failure(stored, _translator("zh"))
+    rendered = render_failure(stored, _translator("zh"), make_display_names("zh"))
     assert rendered != stored
     assert "provider rejected" in (rendered or "")
 
@@ -750,7 +759,7 @@ def test_render_degrades_when_json_hits_recursion_limit(monkeypatch):
 
     monkeypatch.setattr(task_failure.json, "loads", _boom)
 
-    assert render_failure(stored, _translator("en")) == stored
+    assert render_failure(stored, _translator("en"), make_display_names("en")) == stored
 
 
 def test_bound_reason_shrinks_oversized_non_string_params():
@@ -767,7 +776,7 @@ def test_bound_reason_shrinks_oversized_non_string_params():
 
     assert len(bounded) <= 2000
     # 仍是合法信封：读侧解析得出来，渲染成本地化文案而非裸机器码。
-    rendered = render_failure(bounded, _translator("en"))
+    rendered = render_failure(bounded, _translator("en"), make_display_names("en"))
     assert rendered is not None
     assert rendered != bounded
     assert "video_duration_invalid" not in rendered
@@ -787,7 +796,7 @@ def test_bound_reason_shrinks_escape_heavy_params():
     bounded = bound_reason(stored, 900)
 
     assert len(bounded) <= 900
-    rendered = render_failure(bounded, _translator("en"))
+    rendered = render_failure(bounded, _translator("en"), make_display_names("en"))
     assert rendered is not None
     assert "image_reference_images_unreadable" not in rendered
     # 预算够放下相当一部分参数时就不该削空——诊断内容是这条原因的全部价值。

@@ -208,6 +208,29 @@ class _PlannerInputObservation:
         return self._committed.get(key)
 
 
+class SharedVersionMetadata:
+    """一次比对或对账内各 planner 共享的 ``versions/versions.json`` 解析结果。
+
+    每个 planner 照常检查、读取并登记版本历史的字节；只有读到的字节与这里记下的完全相同时
+    才复用解析结果，字节不同就重新解析并替换，因此文件被替换、删除或损坏后不会返回陈旧结果。
+    解析结果是同一份对象，被所有使用方共享：使用方不得修改它，包括嵌套的版本记录。对外类型只标为
+    ``Mapping``，只能约束顶层，嵌套结构靠这条约定保证。
+    """
+
+    __slots__ = ("_parsed", "_raw")
+
+    def __init__(self) -> None:
+        self._raw: bytes | None = None
+        self._parsed: Mapping[str, Any] | None = None
+
+    def parse(self, raw: bytes, decode: Callable[[bytes], Mapping[str, Any]]) -> Mapping[str, Any]:
+        if self._parsed is not None and self._raw == raw:
+            return self._parsed
+        parsed = decode(raw)
+        self._raw, self._parsed = raw, parsed
+        return parsed
+
+
 def _refusal_reason(refused: InputRefused) -> str:
     return "generation input refused: " + ", ".join(
         f"{gap.code}({gap.asset_type}: {gap.name})" if gap.asset_type else f"{gap.code}({gap.name})"
@@ -226,6 +249,7 @@ class TargetStatePlanner:
         pending_renames: Mapping[str, str] | None = None,
         pending_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
         legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
+        shared_versions: SharedVersionMetadata | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
@@ -259,7 +283,8 @@ class TargetStatePlanner:
         self.formal_paths: dict[ArtifactKey, str] = {}
         self._path_owners: dict[str, ArtifactKey] = {}
         self.skipped: list[MigrationSkippedArtifact] = []
-        self._versions: dict[str, Any] | None = None
+        self._versions: Mapping[str, Any] | None = None
+        self._shared_versions = shared_versions or SharedVersionMetadata()
         self._activation_mode = False
         self._planned: set[str] = set()
 
@@ -1576,10 +1601,14 @@ class TargetStatePlanner:
             self._versions = {}
             return self._versions
         raw = self._read_dependency(relative, "version metadata")
-        parsed = self._parse_json(raw, "version metadata")
+        self._versions = self._shared_versions.parse(raw, self._parse_versions)
+        return self._versions
+
+    @classmethod
+    def _parse_versions(cls, raw: bytes) -> Mapping[str, Any]:
+        parsed = cls._parse_json(raw, "version metadata")
         if not isinstance(parsed, dict):
             raise ValueError("version metadata must contain an object")
-        self._versions = parsed
         return parsed
 
     def _add_if_present(self, key: ArtifactKey, artifact_path: str, basis: ArtifactBasis) -> None:

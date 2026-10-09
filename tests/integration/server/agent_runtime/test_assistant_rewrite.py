@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import uuid4
 
@@ -22,6 +23,7 @@ from server.agent_runtime.service import (
     AssistantService,
     InterruptSettleTimeoutError,
     PendingQuestionError,
+    QueuedMessagesPendingError,
     RewriteAnchorError,
     RewriteUnavailableError,
     SessionSupersededError,
@@ -39,9 +41,9 @@ SECOND_USER_ENTRY = "user-second"
 class FakeSessionManager:
     """运行时替身：只保留改写编排真正依赖的那几件事。
 
-    ``send_message`` 复刻真实实现里与编排相关的两步——先把用户条目写进事件日志
-    分配身份（含同 client_key 命中即不重复投递），再把 prompt 投递出去——因此
-    幂等与日志顺序的断言测的是真行为，而不是替身的记账。
+    ``send_message`` 复刻真实实现里与编排相关的两步——消息先成为排队消息（含同 client_key
+    命中即不重复投递），被 Agent 接纳（``accept``）时才写入事件日志——因此幂等与日志顺序的
+    断言测的是真行为，而不是替身的记账。
     """
 
     def __init__(self, event_log_store: EventLogStore) -> None:
@@ -50,6 +52,7 @@ class FakeSessionManager:
         self.statuses: dict[str, str] = {}
         self.pending_questions: dict[str, list[dict[str, Any]]] = {}
         self.dispatched: list[dict[str, Any]] = []
+        self.queued: dict[str, list[tuple[dict[str, Any], str | None]]] = {}
         self.interrupted: list[str] = []
         self.closed: list[str] = []
         self.send_failure: BaseException | None = None
@@ -73,42 +76,51 @@ class FakeSessionManager:
     async def close_session(self, session_id: str, *, reason: str = "") -> None:
         self.closed.append(session_id)
 
+    @staticmethod
+    def _queued_payload(entry: dict[str, Any]) -> dict[str, Any]:
+        return {"id": entry["uuid"], "content": entry["content"], "timestamp": entry["timestamp"], "state": "queued"}
+
+    def get_queued_messages_snapshot(self, session_id: str) -> list[dict[str, Any]]:
+        return [self._queued_payload(entry) for entry, _key in self.queued.get(session_id, [])]
+
+    def find_queued_message_by_client_key(self, session_id: str, client_key: str) -> dict[str, Any] | None:
+        for entry, key in self.queued.get(session_id, []):
+            if key == client_key:
+                return {"queued_message": self._queued_payload(entry)}
+        return None
+
     async def send_message(
         self,
         session_id: str,
-        prompt: Any,
+        content: Any,
         *,
-        echo_text: str | None = None,
-        echo_content: list[dict[str, Any]] | None = None,
         meta: Any = None,
         locale: str = "zh",
         user_entry: dict[str, Any] | None = None,
         client_key: str | None = None,
         resumable: bool = True,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, Any]:
         if self.send_failure is not None:
             raise self.send_failure
-        if user_entry is not None and client_key is not None:
+        if client_key is not None:
+            accepted = self.find_queued_message_by_client_key(session_id, client_key)
+            if accepted is not None:
+                return accepted
             existing = await self._event_log_store.find_by_client_key(session_id, client_key)
             if existing is not None:
-                return existing
-        entry: dict[str, Any] | None = None
-        if user_entry is not None:
-            entry, _created = await self._event_log_store.append_user_entry(
-                session_id, user_entry, client_key=client_key
-            )
+                return {"entry": existing}
+        assert user_entry is not None
+        self.queued.setdefault(session_id, []).append((user_entry, client_key))
         self.dispatched.append(
-            {
-                "session_id": session_id,
-                "prompt": prompt,
-                "resumable": resumable,
-                "client_key": client_key,
-                "echo_text": echo_text,
-                "echo_content": echo_content,
-            }
+            {"session_id": session_id, "prompt": content, "resumable": resumable, "client_key": client_key}
         )
         self.statuses[session_id] = "running"
-        return entry
+        return {"queued_message": self._queued_payload(user_entry)}
+
+    async def accept(self, session_id: str) -> None:
+        """CLI 开始处理排队消息：写入事件日志并移出排队列表。"""
+        for entry, client_key in self.queued.pop(session_id, []):
+            await self._event_log_store.append_user_entry(session_id, entry, client_key=client_key)
 
 
 @pytest.fixture
@@ -171,11 +183,6 @@ def _image_block(data: str, media_type: str = "image/png") -> dict[str, Any]:
     return {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": data}}
 
 
-async def _collect_prompt(prompt: Any) -> list[dict[str, Any]]:
-    """多模态 prompt 是 async generator——把它投递出的 wire 消息收下来。"""
-    return [message async for message in prompt]
-
-
 class TestRewriteHappyPath:
     async def test_rewrite_lands_on_a_new_session_and_dispatches_the_new_instruction(self, rewriting):
         service, runtime, session_id, _ = rewriting
@@ -185,7 +192,7 @@ class TestRewriteHappyPath:
         assert result["status"] == "accepted"
         assert result["session_id"] != session_id
         assert result["origin_session_id"] == session_id
-        assert result["entry"] is not None
+        assert result["queued_message"] is not None
         # 改写后的消息作为新会话的输入被派发出去，无需用户再操作一步。
         assert [d["session_id"] for d in runtime.dispatched] == [result["session_id"]]
         assert runtime.dispatched[0]["prompt"] == "只改第 3 集"
@@ -207,14 +214,15 @@ class TestRewriteHappyPath:
 
         SSE 与冷读共用这份日志、按 seq 发号，时间线正确即断线重连的续传点正确。
         """
-        service, _, session_id, project_cwd = rewriting
+        service, runtime, session_id, project_cwd = rewriting
 
         result = await _rewrite(service, session_id, SECOND_USER_ENTRY)
+        await runtime.accept(result["session_id"])
 
         entries = await service.event_log.list_entries(result["session_id"], project_cwd)
         assert [e["type"] for e in entries] == ["user", "assistant", "user"]
         assert [e["seq"] for e in entries] == [0, 1, 2]
-        assert entries[-1]["uuid"] == result["entry"]["uuid"]
+        assert entries[-1]["uuid"] == result["queued_message"]["id"]
         # 被丢弃的分支不进新会话：原会话第二轮的回复不在时间线里。
         assert not any("批量改好了" in str(e) for e in entries)
 
@@ -223,6 +231,7 @@ class TestRewriteHappyPath:
         service, runtime, session_id, _ = rewriting
 
         result = await _rewrite(service, session_id, FIRST_USER_ENTRY)
+        await runtime.accept(result["session_id"])
 
         assert runtime.dispatched[0]["resumable"] is False
         entries = await service.event_log.list_entries(result["session_id"], None)
@@ -258,25 +267,21 @@ class TestRewriteHappyPath:
             images=[_image("AAAA"), _image("BBBB", "image/jpeg")],
         )
 
-        # 派发给 SDK 的是多模态 prompt，与普通带图发送同构：图在前、文本在后
-        messages = await _collect_prompt(runtime.dispatched[0]["prompt"])
-        assert [m["message"]["content"] for m in messages] == [
-            [
-                _image_block("AAAA"),
-                _image_block("BBBB", "image/jpeg"),
-                {"type": "text", "text": "只改第 3 集"},
-            ]
+        # 派发给 CLI 的是多模态内容，与普通带图发送同构：图在前、文本在后
+        assert runtime.dispatched[0]["prompt"] == [
+            _image_block("AAAA"),
+            _image_block("BBBB", "image/jpeg"),
+            {"type": "text", "text": "只改第 3 集"},
         ]
-        # 落库的权威条目同样带图，刷新后时间线仍能渲染出这两张图
+        # 被接纳后落库的权威条目同样带图，刷新后时间线仍能渲染出这两张图
+        await runtime.accept(result["session_id"])
         entries = await service.event_log.list_entries(result["session_id"], project_cwd)
         assert entries[-1]["content"] == [
             _image_block("AAAA"),
             _image_block("BBBB", "image/jpeg"),
             {"type": "text", "text": "只改第 3 集"},
         ]
-        assert entries[-1]["uuid"] == result["entry"]["uuid"]
-        # 正文非空时 echo 匹配仍按改写后的文本落链——SDK 回放丢掉图块，只剩这段文本
-        assert runtime.dispatched[0]["echo_text"] == "只改第 3 集"
+        assert entries[-1]["uuid"] == result["queued_message"]["id"]
 
     async def test_text_only_rewrite_stays_a_plain_string_prompt(self, rewriting):
         """不带附件的改写不因附件透传而改变形态。"""
@@ -285,7 +290,6 @@ class TestRewriteHappyPath:
         await _rewrite(service, session_id, SECOND_USER_ENTRY, images=[])
 
         assert runtime.dispatched[0]["prompt"] == "只改第 3 集"
-        assert runtime.dispatched[0]["echo_content"] is None
 
 
 class TestRewriteIdempotency:
@@ -297,7 +301,10 @@ class TestRewriteIdempotency:
         second = await _rewrite(service, session_id, SECOND_USER_ENTRY)
 
         assert second["session_id"] == first["session_id"]
-        assert second["entry"] == first["entry"]
+        assert second["queued_message"] == first["queued_message"]
+        await runtime.accept(first["session_id"])
+        third = await _rewrite(service, session_id, SECOND_USER_ENTRY)
+        assert third["entry"]["uuid"] == first["queued_message"]["id"], "已被接纳的重试返回权威条目"
         assert len(runtime.dispatched) == 1, "重试不得重复执行同一 prompt"
         listed = {meta.id for meta in await service.meta_store.list(project_name=PROJECT_NAME)}
         assert listed == {first["session_id"]}
@@ -341,7 +348,7 @@ class TestRewriteRejections:
         service, runtime, session_id, project_cwd = rewriting
         await service.event_log.ensure_backfilled(session_id, project_cwd)
         pending, _created = await service.event_log_store.append_user_entry(
-            session_id, service._build_user_log_entry("刚受理还没回放", None)
+            session_id, service._build_user_log_entry("刚受理还没回放")
         )
 
         with pytest.raises(RewriteAnchorError):
@@ -365,6 +372,19 @@ class TestRewriteRejections:
         assert origin.superseded_by is None
         assert runtime.interrupted == []
 
+    async def test_queued_messages_block_the_rewrite(self, rewriting):
+        """排队消息还没进入对话 → 拒绝，原会话不被中断、不被取代。"""
+        service, runtime, session_id, _ = rewriting
+        await runtime.send_message(session_id, "第 5 镜删掉", user_entry=service._build_user_log_entry("第 5 镜删掉"))
+
+        with pytest.raises(QueuedMessagesPendingError):
+            await _rewrite(service, session_id, SECOND_USER_ENTRY)
+
+        origin = await service.meta_store.get(session_id)
+        assert origin is not None
+        assert origin.superseded_by is None
+        assert runtime.interrupted == []
+
     async def test_empty_content_is_refused_before_any_side_effect(self, rewriting):
         service, runtime, session_id, _ = rewriting
 
@@ -381,10 +401,8 @@ class TestRewriteRejections:
         result = await _rewrite(service, session_id, SECOND_USER_ENTRY, content="   ", images=[_image("AAAA")])
 
         assert result["status"] == "accepted"
-        assert result["entry"]["content"] == [_image_block("AAAA")]
-        # 纯图消息的 echo 匹配靠 sentinel：显示文本为空、echo_content 非空即走那条路径
-        assert runtime.dispatched[0]["echo_text"] == ""
-        assert runtime.dispatched[0]["echo_content"] == [_image_block("AAAA")]
+        assert result["queued_message"]["content"] == [_image_block("AAAA")]
+        assert runtime.dispatched[0]["prompt"] == [_image_block("AAAA")]
 
     async def test_session_from_another_project_is_not_found(self, rewriting):
         service, _, session_id, _ = rewriting
@@ -416,6 +434,49 @@ class TestRewriteRejections:
         assert origin.superseded_by is None
 
 
+class TestRewriteAdmission:
+    async def test_a_send_during_the_interrupt_waits_and_is_refused_once_the_origin_is_superseded(self, rewriting):
+        """改写等中断结算期间另一端发来的消息不排进原会话：等分支发布后按「已被取代」拒绝。"""
+        service, runtime, session_id, _ = rewriting
+        runtime.statuses[session_id] = "running"
+        runtime.settle_after_interrupt = False
+        service._INTERRUPT_SETTLE_POLL = 0.01
+        interrupted = asyncio.Event()
+        interrupt_session = runtime.interrupt_session
+
+        async def _interrupt(session_id: str) -> str:
+            status = await interrupt_session(session_id)
+            interrupted.set()
+            return status
+
+        runtime.interrupt_session = _interrupt
+        rewrite = asyncio.create_task(_rewrite(service, session_id, SECOND_USER_ENTRY))
+        await interrupted.wait()
+
+        # 发送读会话元数据的那一步在受理锁内：读没读过，判别它是否停在锁上
+        meta_reads: list[str] = []
+        get_meta = service.meta_store.get
+
+        async def _get_meta(session_id: str) -> Any:
+            meta_reads.append(session_id)
+            return await get_meta(session_id)
+
+        service.meta_store.get = _get_meta
+        send = asyncio.create_task(service.send_or_create(PROJECT_NAME, "第 5 镜删掉", session_id=session_id))
+        # 让发送跑到它的第一个挂起点
+        await asyncio.sleep(0)
+        assert meta_reads == []
+        assert not send.done()
+
+        runtime.statuses[session_id] = "interrupted"
+        result = await rewrite
+        with pytest.raises(SessionSupersededError):
+            await send
+
+        assert runtime.queued.get(session_id) is None
+        assert [d["session_id"] for d in runtime.dispatched] == [result["session_id"]]
+
+
 class TestRewriteDispatchFailure:
     async def test_failed_dispatch_discards_the_branch_and_frees_the_origin(self, rewriting):
         """派发失败即整次改写失败：分支整体撤回，原会话回到可再改写的状态。"""
@@ -435,12 +496,13 @@ class TestRewriteDispatchFailure:
         runtime.send_failure = None
         result = await _rewrite(service, session_id, SECOND_USER_ENTRY)
         assert result["session_id"] != session_id
+        await runtime.accept(result["session_id"])
         entries = await service.event_log.list_entries(result["session_id"], project_cwd)
         assert [e["type"] for e in entries] == ["user", "assistant", "user"]
 
     async def test_failed_prefix_backfill_discards_the_branch_too(self, rewriting):
         """补偿范围覆盖分支发布之后的每一步，不止派发那一句。"""
-        service, _, session_id, project_cwd = rewriting
+        service, runtime, session_id, project_cwd = rewriting
         original_backfill = service.event_log.ensure_backfilled
 
         async def failing_backfill(*args: object, **kwargs: object) -> None:
@@ -459,5 +521,6 @@ class TestRewriteDispatchFailure:
 
         service.event_log.ensure_backfilled = original_backfill
         result = await _rewrite(service, session_id, SECOND_USER_ENTRY)
+        await runtime.accept(result["session_id"])
         entries = await service.event_log.list_entries(result["session_id"], project_cwd)
         assert [e["type"] for e in entries] == ["user", "assistant", "user"]

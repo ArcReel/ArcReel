@@ -13,8 +13,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from lib.generation.video_request_facts import VideoRequestFactsFailure
+from lib.i18n import SUPPORTED_LOCALES, _, render_message
 from lib.script.reference_video.request_projection import resolve_reference_assets
-from tests.factories import make_video_request_facts, wav_bytes
+from tests.factories import make_display_names, make_video_request_facts, wav_bytes
 from tests.fakes import FakeConfigResolver
 from tests.integration.server.services.tasks.reference_video_tasks_support import (
     _TINY_PNG,
@@ -986,7 +987,7 @@ async def test_execute_reference_video_task_reports_reference_image_limit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """参考图超出型号上限：截断到上限张，并按 count / model / max_count 报出一条超限 warning。"""
+    """参考图超出型号上限：截断到上限张，并按 count / provider / model / max_count 报出一条超限 warning。"""
     proj_dir = write_project(tmp_path)
     project = json.loads((proj_dir / "project.json").read_text(encoding="utf-8"))
 
@@ -1016,8 +1017,8 @@ async def test_execute_reference_video_task_reports_reference_image_limit(
         monkeypatch,
         rvt,
         fake_generator,
-        backend_name="ark",
-        backend_model="doubao-seedance-2-0-260128",
+        backend_name="custom-7",
+        backend_model="shared-model",
         max_refs=1,
     )
 
@@ -1033,8 +1034,22 @@ async def test_execute_reference_video_task_reports_reference_image_limit(
     assert len(captured["reference_images"]) == 1
     assert {
         "key": "ref_too_many_images",
-        "params": {"count": 2, "model": "doubao-seedance-2-0-260128", "max_count": 1},
+        "params": {"count": 2, "provider": "custom-7", "model": "shared-model", "max_count": 1},
     } in result["warnings"]
+    # warning 带上供应商：另一个供应商下同一上游模型 ID 名称不同时，界面仍能查到这一个模型名
+    (warning,) = [warning for warning in result["warnings"] if warning["key"] == "ref_too_many_images"]
+    models = {("custom-7", "shared-model"): "甲网关模型", ("custom-8", "shared-model"): "乙网关模型"}
+    for locale in SUPPORTED_LOCALES:
+        names = make_display_names(locale, providers={"custom-7": "我的网关"}, models=models)
+        rendered = render_message(
+            warning["key"],
+            warning["params"],
+            lambda key, locale=locale, **params: _(key, locale=locale, **params),
+            names,
+        )
+        assert "custom-7" not in rendered
+        assert "shared-model" not in rendered
+        assert "甲网关模型" in rendered
 
 
 @pytest.mark.asyncio

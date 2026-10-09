@@ -21,7 +21,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
-from lib.artifacts.artifact_planner import TargetStatePlanner, episode_scope_for_key
+from lib.artifacts.artifact_planner import SharedVersionMetadata, TargetStatePlanner, episode_scope_for_key
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_schema import (
     CURRENT_PROJECT_SCHEMA_VERSION,
@@ -122,7 +122,8 @@ class ArtifactCurrencyResolver:
 
     def __init__(self, project_dir: Path) -> None:
         self._project_dir = Path(project_dir)
-        root_planner = TargetStatePlanner(project_dir)
+        self._shared_versions = SharedVersionMetadata()
+        root_planner = TargetStatePlanner(project_dir, shared_versions=self._shared_versions)
         if not project_schema_is_current(root_planner.project):
             raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
         # Validate the sidecar once even when a workflow phase has no artifacts
@@ -142,6 +143,7 @@ class ArtifactCurrencyResolver:
                 self._project_dir,
                 episode_scope=scope,
                 project_bytes=self._project_bytes,
+                shared_versions=self._shared_versions,
             )
             self._planners[scope] = planner
         return planner

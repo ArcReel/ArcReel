@@ -633,10 +633,10 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
     assert "generate_episode_script 失败" not in text
 
 
-async def test_generate_episode_script_facts_failure_is_refused_with_problem_code(
+async def test_generate_episode_script_facts_failure_reports_the_real_problem(
     fake_ctx: ToolHarness, set_video_request_facts
 ) -> None:
-    """分镜档位的视频请求事实解析不出：报「拒绝生成」并带问题码与参数，不冒成 internal_error 引导重试。"""
+    """分镜档位的视频请求事实解析不出：报真实问题码、参数与「去配置供应商」，不冒成 internal_error 引导重试。"""
     (fake_ctx.project_path / "project.json").write_text(
         json.dumps(
             {
@@ -660,7 +660,11 @@ async def test_generate_episode_script_facts_failure_is_refused_with_problem_cod
 
     assert out.problem is not None
     problem = problem_of(out).model_dump()
-    assert problem["code"] == "generation_refused"
+    assert (problem["code"], problem["action"], problem["params"]) == (
+        "video_supported_durations_incompatible",
+        "configure_provider",
+        {"provider": "p", "model": "m", "resolution": "1080p", "capability": "i2v"},
+    )
     assert "video_supported_durations_incompatible（provider=p, model=m, resolution=1080p" in said(out)
 
 
