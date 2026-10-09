@@ -1567,6 +1567,105 @@ class TestUnsentQueuedMessages:
         finally:
             await service.session_manager.close_session(SDK_ID)
 
+    async def test_a_new_message_after_the_cli_exits_reconnects_and_leaves_unsent_ones_in_the_tray(
+        self, service: AssistantService
+    ):
+        client = TestQueuedMessages._running_turn_client()
+        unsent = await self._queue_then_exit(service, client)
+        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
+        stale = service.session_manager.sessions[SDK_ID]
+        revived = FakeSDKClient(frames=[_session_state_frame("running")])
+        try:
+            with _scripted_client(service.session_manager, revived):
+                result = await service.send_or_create("demo", "换个结局", session_id=SDK_ID)
+
+            assert service.session_manager.sessions[SDK_ID] is not stale
+            # 只送入新消息，「未发送」的那条不自动重发，仍在托盘里排在前面
+            assert [sent["message"]["content"] for sent in revived.sent_messages] == ["换个结局"]
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [
+                {**unsent, "state": "unsent"},
+                result["queued_message"],
+            ]
+
+            revived.push_frame(started_frame(session_id=SDK_ID))
+            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 3)
+            assert entries[2]["uuid"] == result["queued_message"]["id"]
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [{**unsent, "state": "unsent"}]
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_concurrent_sends_after_the_cli_exits_share_one_new_connection(self, service: AssistantService):
+        client = TestQueuedMessages._running_turn_client()
+        unsent = await self._queue_then_exit(service, client)
+        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
+        revived = FakeSDKClient(frames=[_session_state_frame("running")])
+        connections: list[object] = []
+
+        def _connect(options: object) -> FakeSDKClient:
+            connections.append(options)
+            return revived
+
+        try:
+            with (
+                patch.object(
+                    service.session_manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))
+                ),
+                patch("server.agent_runtime.session_manager.ClaudeSDKClient", _connect),
+            ):
+                first, second = await asyncio.gather(
+                    service.send_or_create("demo", "换个结局", session_id=SDK_ID),
+                    service.resend_queued_message("demo", SDK_ID, unsent["id"]),
+                )
+
+            assert len(connections) == 1
+            assert sorted(sent["message"]["content"] for sent in revived.sent_messages) == ["加一段旁白", "换个结局"]
+            assert second["queued_message"] == unsent
+            assert {message["id"] for message in service.session_manager.get_queued_messages_snapshot(SDK_ID)} == {
+                unsent["id"],
+                first["queued_message"]["id"],
+            }
+        finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_send_during_eviction_waits_for_it_and_connects_once(self, service: AssistantService):
+        client = TestQueuedMessages._running_turn_client()
+        await self._queue_then_exit(service, client)
+        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
+        manager = service.session_manager
+        stale = manager.sessions[SDK_ID]
+        revived = FakeSDKClient(frames=[_session_state_frame("running")])
+        release = asyncio.Event()
+        disconnect = stale.send_disconnect
+
+        async def _slow_disconnect() -> None:
+            await release.wait()
+            await disconnect()
+
+        try:
+            with _scripted_client(manager, revived), patch.object(stale, "send_disconnect", _slow_disconnect):
+                # 驱逐先开始、迟迟不结束：发送等驱逐完成后按冷会话重建，不被驱逐收尾时一并移出
+                eviction = asyncio.create_task(manager.close_session(SDK_ID))
+                sending = asyncio.create_task(service.send_or_create("demo", "换个结局", session_id=SDK_ID))
+                # 发送到达连接锁（新连接要等驱逐）或已经完成（与驱逐交错地建了连接）
+                deadline = asyncio.get_running_loop().time() + 5.0
+                while not (sending.done() or manager._connect_locks[SDK_ID].locked()):
+                    assert asyncio.get_running_loop().time() < deadline
+                    await asyncio.sleep(0.01)
+                await asyncio.sleep(0.05)
+                assert not sending.done()
+                release.set()
+                await eviction
+                result = await sending
+
+            managed = manager.sessions[SDK_ID]
+            assert managed is not stale
+            assert managed.actor_exited is False
+            # 驱逐照旧丢弃「未发送」消息
+            assert manager.get_queued_messages_snapshot(SDK_ID) == [result["queued_message"]]
+            assert [sent["message"]["content"] for sent in revived.sent_messages] == ["换个结局"]
+        finally:
+            await manager.close_session(SDK_ID)
+
     @pytest.mark.parametrize("intent", ["edit", "delete"])
     async def test_withdrawing_an_unsent_message_removes_it_without_asking_the_cli(
         self, service: AssistantService, intent: WithdrawalIntent
