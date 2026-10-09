@@ -1243,7 +1243,10 @@ class TestQueuedMessages:
                     await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
                 inbox_released.set()
 
-            await _wait_for_status(manager, SDK_ID, "completed")
+                # 内存状态先于 meta 落库切换，终态广播在落库之后：等广播再读 meta
+                while (await _next_broadcast(stream, "runtime_status"))["status"] != "completed":
+                    pass
+
             assert (await service.meta_store.get(SDK_ID)).status == "completed"
         finally:
             inbox_released.set()
