@@ -78,6 +78,18 @@ export function AgentCopilot() {
     [sendMessage],
   );
 
+  const handleResendQueued = useCallback((id: string) => {
+    setHistoryOpen(false);
+    flowRef.current?.scrollToEnd();
+    return resendQueuedMessage(id);
+  }, [resendQueuedMessage]);
+
+  const handleSendQueuedNow = useCallback((id: string) => {
+    setHistoryOpen(false);
+    flowRef.current?.scrollToEnd();
+    return sendQueuedMessageNow(id);
+  }, [sendQueuedMessageNow]);
+
   // 改写成功后由会话切换重建时间线（编辑态随 resetTimeline 清空）；失败保留编辑态，
   // 用户可以改完再试，错误经消息区下方的错误条呈现
   const handleSubmitEdit = useCallback(
@@ -181,8 +193,8 @@ export function AgentCopilot() {
         onSend={handleSend}
         onInterrupt={() => voidCall(interrupt())}
         onWithdrawQueued={withdrawQueuedMessage}
-        onResendQueued={resendQueuedMessage}
-        onSendQueuedNow={sendQueuedMessageNow}
+        onResendQueued={handleResendQueued}
+        onSendQueuedNow={handleSendQueuedNow}
       />
     </div>
   );

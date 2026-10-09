@@ -1499,23 +1499,19 @@ class TestQueuedMessageWithdrawal:
             await service.session_manager.close_session(SDK_ID)
 
 
-async def _wait_for_queue_state(manager: SessionManager, session_id: str, state: str) -> list[dict[str, Any]]:
-    deadline = asyncio.get_running_loop().time() + 5.0
-    while asyncio.get_running_loop().time() < deadline:
-        snapshot = manager.get_queued_messages_snapshot(session_id)
-        if snapshot and all(message["state"] == state for message in snapshot):
-            return snapshot
-        await asyncio.sleep(0.02)
-    raise AssertionError(f"queued messages of {session_id} did not all reach {state!r}")
-
-
 class TestUnsentQueuedMessages:
     """CLI 退出时仍在排队的消息转为「未发送」，留给用户发送、编辑或删除，从不自动重发。"""
 
     async def _queue_then_exit(self, service: AssistantService, client: FakeSDKClient, **kwargs: Any) -> dict[str, Any]:
         await TestQueuedMessages()._start_running_turn(service, client)
         queued = (await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, **kwargs))["queued_message"]
-        client.close_stream()
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            await stream.next("queue")
+            client.close_stream()
+            await stream.next("queue_upsert")
+        finally:
+            await stream.close()
         return queued
 
     async def test_queued_messages_turn_unsent_when_the_cli_exits_and_are_not_resent(self, service: AssistantService):
@@ -1531,7 +1527,7 @@ class TestUnsentQueuedMessages:
 
             upsert = await stream.next("queue_upsert")
             assert upsert["message"] == {**queued, "state": "unsent"}
-            assert await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent") == [upsert["message"]]
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [upsert["message"]]
             # 同键重试拿到同一条未发送消息，不再送入 CLI
             retry = await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID, client_key="ck-1")
             assert retry["queued_message"] == upsert["message"]
@@ -1547,7 +1543,6 @@ class TestUnsentQueuedMessages:
     async def test_sending_an_unsent_message_reconnects_and_hands_it_to_the_cli_again(self, service: AssistantService):
         client = TestQueuedMessages._running_turn_client()
         queued = await self._queue_then_exit(service, client)
-        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
         revived = FakeSDKClient(frames=[_session_state_frame("running")])
         try:
             with _scripted_client(service.session_manager, revived):
@@ -1575,7 +1570,6 @@ class TestUnsentQueuedMessages:
     ):
         client = TestQueuedMessages._running_turn_client()
         unsent = await self._queue_then_exit(service, client)
-        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
         stale = service.session_manager.sessions[SDK_ID]
         revived = FakeSDKClient(frames=[_session_state_frame("running")])
         try:
@@ -1600,7 +1594,6 @@ class TestUnsentQueuedMessages:
     async def test_concurrent_sends_after_the_cli_exits_share_one_new_connection(self, service: AssistantService):
         client = TestQueuedMessages._running_turn_client()
         unsent = await self._queue_then_exit(service, client)
-        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
         revived = FakeSDKClient(frames=[_session_state_frame("running")])
         connections: list[object] = []
 
@@ -1633,14 +1626,15 @@ class TestUnsentQueuedMessages:
     async def test_a_send_during_eviction_waits_for_it_and_connects_once(self, service: AssistantService):
         client = TestQueuedMessages._running_turn_client()
         await self._queue_then_exit(service, client)
-        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
         manager = service.session_manager
         stale = manager.sessions[SDK_ID]
         revived = FakeSDKClient(frames=[_session_state_frame("running")])
         release = asyncio.Event()
+        disconnect_entered = asyncio.Event()
         disconnect = stale.send_disconnect
 
         async def _slow_disconnect() -> None:
+            disconnect_entered.set()
             await release.wait()
             await disconnect()
 
@@ -1648,17 +1642,22 @@ class TestUnsentQueuedMessages:
             with _scripted_client(manager, revived), patch.object(stale, "send_disconnect", _slow_disconnect):
                 # 驱逐先开始、迟迟不结束：发送等驱逐完成后按冷会话重建，不被驱逐收尾时一并移出
                 eviction = asyncio.create_task(manager.close_session(SDK_ID))
-                sending = asyncio.create_task(service.send_or_create("demo", "换个结局", session_id=SDK_ID))
-                # 发送到达连接锁（新连接要等驱逐）或已经完成（与驱逐交错地建了连接）
-                deadline = asyncio.get_running_loop().time() + 5.0
-                while not (sending.done() or manager._connect_locks[SDK_ID].locked()):
-                    assert asyncio.get_running_loop().time() < deadline
-                    await asyncio.sleep(0.01)
-                await asyncio.sleep(0.05)
-                assert not sending.done()
-                release.set()
-                await eviction
-                result = await sending
+                await asyncio.wait_for(disconnect_entered.wait(), timeout=5.0)
+                eviction_event = manager._disconnecting[SDK_ID]
+                wait = eviction_event.wait
+                waiting_for_eviction = asyncio.Event()
+
+                async def _wait() -> None:
+                    waiting_for_eviction.set()
+                    await wait()
+
+                with patch.object(eviction_event, "wait", _wait):
+                    sending = asyncio.create_task(service.send_or_create("demo", "换个结局", session_id=SDK_ID))
+                    await asyncio.wait_for(waiting_for_eviction.wait(), timeout=5.0)
+                    assert not sending.done()
+                    release.set()
+                    await eviction
+                    result = await sending
 
             managed = manager.sessions[SDK_ID]
             assert managed is not stale
@@ -1675,7 +1674,6 @@ class TestUnsentQueuedMessages:
     ):
         client = TestQueuedMessages._running_turn_client()
         queued = await self._queue_then_exit(service, client)
-        await _wait_for_queue_state(service.session_manager, SDK_ID, "unsent")
         try:
             result = await service.withdraw_queued_message("demo", SDK_ID, queued["id"], intent=intent)
 
@@ -1686,16 +1684,64 @@ class TestUnsentQueuedMessages:
         finally:
             await service.session_manager.close_session(SDK_ID)
 
+    @pytest.mark.parametrize("action", ["edit", "delete", "send_now"])
+    async def test_acting_on_an_unsent_message_while_the_session_reconnects_waits_for_it(
+        self, service: AssistantService, action: str
+    ):
+        client = TestQueuedMessages._running_turn_client()
+        unsent = await self._queue_then_exit(service, client)
+        revived = FakeSDKClient(frames=[_session_state_frame("running")])
+        building = asyncio.Event()
+        proceed = asyncio.Event()
 
-async def _wait_for_sent_messages(client: FakeSDKClient, count: int, timeout: float = 5.0) -> None:  # noqa: ASYNC109 -- 测试轮询 helper 的等待上限，非生产取消语义
-    """等 ArcReel 向 CLI 送入第 ``count`` 条用户消息（重新送入在 inbox 上异步发生）。"""
-    deadline = asyncio.get_running_loop().time() + timeout
-    while True:
-        if len(client.sent_messages) >= count:
-            return
-        if asyncio.get_running_loop().time() >= deadline:
-            raise AssertionError(f"only {len(client.sent_messages)} of {count} messages were sent within {timeout}s")
-        await asyncio.sleep(0.01)
+        async def _build_options(*args: Any, **kwargs: Any) -> SimpleNamespace:
+            building.set()
+            await proceed.wait()
+            return SimpleNamespace(env=None)
+
+        try:
+            with (
+                patch.object(service.session_manager, "_build_options", _build_options),
+                patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: revived),
+            ):
+                # 新消息触发重建连接：连接建立前「未发送」消息已离开旧会话，还没转入新连接
+                sending = asyncio.create_task(service.send_or_create("demo", "换个结局", session_id=SDK_ID))
+                await asyncio.wait_for(building.wait(), timeout=5.0)
+                get_meta = service.meta_store.get
+                checked = asyncio.Event()
+
+                async def _get_meta(session_id: str) -> Any:
+                    meta = await get_meta(session_id)
+                    if asyncio.current_task() is acting:
+                        # 读完 meta 后操作同步走到撤回或停在等待处，测试随后才恢复
+                        checked.set()
+                    return meta
+
+                with patch.object(service.meta_store, "get", _get_meta):
+                    if action == "send_now":
+                        acting = asyncio.create_task(service.send_queued_message_now("demo", SDK_ID, unsent["id"]))
+                    else:
+                        acting = asyncio.create_task(
+                            service.withdraw_queued_message("demo", SDK_ID, unsent["id"], intent=action)
+                        )
+                    await asyncio.wait_for(checked.wait(), timeout=5.0)
+                proceed.set()
+                sent = (await sending)["queued_message"]
+                outcome = (await acting)["outcome"]
+
+            snapshot = service.session_manager.get_queued_messages_snapshot(SDK_ID)
+            if action == "send_now":
+                assert outcome == "sent"
+                assert [message["message"]["content"] for message in revived.sent_messages] == [
+                    "换个结局",
+                    "加一段旁白",
+                ]
+                assert snapshot == [unsent, sent]
+            else:
+                assert outcome == "withdrawn"
+                assert snapshot == [sent]
+        finally:
+            await service.session_manager.close_session(SDK_ID)
 
 
 class TestSendQueuedMessageNow:
@@ -1780,7 +1826,7 @@ class TestSendQueuedMessageNow:
             assert entries[3]["uuid"] == urgent["id"]
 
             # 被丢掉的消息换一个 uuid、按普通优先级重新送入，排在插队消息之后，托盘里仍是同一条
-            await _wait_for_sent_messages(client, 5)
+            assert len(client.sent_messages) == 5
             requeued = client.sent_messages[4]
             assert requeued["message"]["content"] == "顺便配乐"
             assert requeued["uuid"] not in (dropped_uuid, now_uuid)
@@ -1810,10 +1856,18 @@ class TestSendQueuedMessageNow:
             assert (await service.send_queued_message_now("demo", SDK_ID, queued["id"]))["outcome"] == "accepted"
 
             # CLI 已从队列取走它，却没把它并入轮次：按立即发送的意图重新送入
-            client.push_frame(
-                lambda c: command_lifecycle_frame(c.sent_messages[-1]["uuid"], "cancelled", session_id=SDK_ID)
-            )
-            await _wait_for_sent_messages(client, 3)
+            delivered = asyncio.Event()
+            query = client.query
+
+            async def _query(prompt, session_id: str = "default") -> None:
+                await query(prompt, session_id=session_id)
+                delivered.set()
+
+            with patch.object(client, "query", _query):
+                client.push_frame(
+                    lambda c: command_lifecycle_frame(c.sent_messages[-1]["uuid"], "cancelled", session_id=SDK_ID)
+                )
+                await asyncio.wait_for(delivered.wait(), timeout=5.0)
 
             assert client.sent_messages[2]["priority"] == "now"
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]

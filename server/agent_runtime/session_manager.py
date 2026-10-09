@@ -1583,8 +1583,6 @@ class SessionManager:
             return
         queued.cli_uuid = str(uuid4())
         queued.withdrawal = None
-        if priority == "now":
-            managed.now_messages_in_flight.add(queued.cli_uuid)
 
         def _not_delivered(failed: QueuedMessage) -> None:
             # 它已不在 CLI 队列里：转为「未发送」，由用户决定重新发送、编辑或删除
@@ -1596,6 +1594,9 @@ class SessionManager:
         async with managed.send_lock:
             if queued not in managed.queued_messages:
                 return
+            # 确定送入才登记：等锁期间它可能已离开排队，登记残留会让之后的 aborted_* 轮次都被当成插队打断
+            if priority == "now":
+                managed.now_messages_in_flight.add(queued.cli_uuid)
             await self._deliver_queued_message(managed, queued, on_failure=_not_delivered, priority=priority)
 
     async def resend_queued_message(

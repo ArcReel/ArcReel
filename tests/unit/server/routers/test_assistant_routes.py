@@ -6,7 +6,12 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from server.agent_runtime.session_manager import QueuedMessageNotFoundError, QueuedMessageWithdrawalPendingError
+from server.agent_runtime.session_manager import (
+    AgentStartupError,
+    QueuedMessageNotFoundError,
+    QueuedMessageWithdrawalPendingError,
+    SessionCapacityError,
+)
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.i18n import get_translator
@@ -152,6 +157,35 @@ class TestAssistantRoutes:
             response = getattr(client, method)(f"{PREFIX}/sessions/session-1/queued-messages/m-1{path}")
 
         assert response.status_code == status_code
+
+    @pytest.mark.parametrize(
+        ("service_method", "path"),
+        [("resend_queued_message", "/resend"), ("send_queued_message_now", "/send-now")],
+    )
+    def test_queued_message_reconnect_failures_explain_the_cause(self, service_method: str, path: str):
+        # 对「未发送」消息的重新发送与立即发送都会重建会话连接
+        with (
+            patch.object(
+                assistant.assistant_service, service_method, new=AsyncMock(side_effect=SessionCapacityError("full"))
+            ),
+            _build_client() as client,
+        ):
+            response = client.post(f"{PREFIX}/sessions/session-1/queued-messages/m-1{path}")
+        assert response.status_code == 503
+        assert response.json()["detail"] == make_translator()("session_capacity_exceeded")
+
+        with (
+            patch.object(
+                assistant.assistant_service, service_method, new=AsyncMock(side_effect=AgentStartupError("boom"))
+            ),
+            _build_client() as client,
+        ):
+            response = client.post(f"{PREFIX}/sessions/session-1/queued-messages/m-1{path}")
+        assert response.status_code == 502
+        detail = response.json()["detail"]
+        assert detail["code"] == "agent_startup_failed"
+        assert detail["failure"]["project_name"] == PROJECT
+        assert detail["failure"]["session_id"] == "session-1"
 
     def test_resending_an_unsent_message_returns_it_back_in_the_queue(self):
         payload = {"session_id": "session-1", "id": "m-1", "queued_message": {"id": "m-1", "state": "queued"}}

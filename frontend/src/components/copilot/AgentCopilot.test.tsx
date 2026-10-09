@@ -242,6 +242,19 @@ describe("AgentCopilot", () => {
       expect(screen.getByRole("status")).toHaveTextContent("没有匹配的会话");
     });
 
+    it.each(["queued", "unsent"] as const)("returns from history when sending a %s tray message", async (state) => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({ queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "改结局" }], state }] });
+      render(<AgentCopilot />);
+      const toggle = screen.getByRole("button", { name: "会话历史" });
+      await user.click(toggle);
+      expect(screen.getByRole("searchbox", { name: "搜索会话" })).toBeInTheDocument();
+      const tray = screen.getByRole("list", { name: "排队消息" });
+      await user.click(within(tray).getByRole("button", { name: state === "queued" ? "立即发送" : "发送" }));
+      expect(toggle).toHaveAttribute("aria-pressed", "false");
+      expect(screen.queryByRole("searchbox", { name: "搜索会话" })).not.toBeInTheDocument();
+    });
+
     it("deletes a session only after confirming in an alert dialog", async () => {
       const user = userEvent.setup();
       deleteSession.mockImplementationOnce(async (id: string) => {
@@ -396,6 +409,65 @@ describe("AgentCopilot", () => {
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
       await waitFor(() => expect(input).toHaveValue("片尾加字幕\n第 3 镜改成黄昏"));
       expect(screen.getByRole("button", { name: "放大图片附件 1" })).toBeInTheDocument();
+    });
+
+    it("content returned by an edit while a send is in flight stays in the input after the send is accepted", async () => {
+      const user = userEvent.setup();
+      const image = (data: string) => ({
+        type: "image" as const,
+        source: { type: "base64" as const, media_type: "image/png", data },
+      });
+      const first = [image("AAAA"), { type: "text" as const, text: "第 3 镜改成黄昏" }];
+      const second = [image("BBBB"), { type: "text" as const, text: "片尾加字幕" }];
+      withdrawQueuedMessage.mockImplementationOnce(async () => {
+        useAssistantStore.getState().appendToComposer(first);
+      });
+      let returnSecond!: () => void;
+      withdrawQueuedMessage.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            returnSecond = () => {
+              useAssistantStore.getState().appendToComposer(second);
+              resolve();
+            };
+          }),
+      );
+      let acceptSend!: () => void;
+      sendMessage.mockImplementationOnce(() => {
+        useAssistantStore.setState({ sending: true });
+        return new Promise<boolean>((resolve) => {
+          acceptSend = () => {
+            useAssistantStore.setState({ sending: false });
+            resolve(true);
+          };
+        });
+      });
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [
+          { id: "q-1", content: first, state: "queued" },
+          { id: "q-2", content: second, state: "queued" },
+        ],
+      });
+      render(<AgentCopilot />);
+      const input = screen.getByRole("combobox", { name: "Agent 输入" });
+      const tray = screen.getByRole("list", { name: "排队消息" });
+      await user.click(within(within(tray).getAllByRole("listitem")[0]).getByRole("button", { name: "编辑" }));
+      await waitFor(() => expect(input).toHaveValue("第 3 镜改成黄昏"));
+
+      // 第二条的编辑还在等撤回答复时发出输入框里的内容；答复在发送受理前到达，内容追加进输入框
+      await user.click(within(within(tray).getAllByRole("listitem")[1]).getByRole("button", { name: "编辑" }));
+      await user.click(screen.getByRole("button", { name: "发送消息" }));
+      expect(sendMessage).toHaveBeenCalledWith("第 3 镜改成黄昏", [expect.objectContaining({ mimeType: "image/png" })]);
+      act(() => returnSecond());
+      await waitFor(() => expect(input).toHaveValue("第 3 镜改成黄昏\n片尾加字幕"));
+      act(() => acceptSend());
+
+      // 只清掉已发出的文字和图片，发送途中退回的内容留在输入框
+      await waitFor(() => expect(input).toHaveValue("片尾加字幕"));
+      expect(screen.getByRole("button", { name: "放大图片附件 1" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "放大图片附件 2" })).not.toBeInTheDocument();
     });
 
     it("deleting a queued message withdraws it without touching the input", async () => {

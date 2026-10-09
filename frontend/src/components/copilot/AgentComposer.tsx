@@ -44,7 +44,7 @@ interface AgentComposerProps {
   placeholder: string;
   /** 提问占用输入框位置时隐藏输入框；仍保持挂载，已输入的文字与附件不丢。排队消息托盘照常显示。 */
   hidden?: boolean;
-  /** 发送消息；受理后清空输入与附件，未受理时保留供重试。 */
+  /** 发送消息；受理后清掉已发出的文字与附件，未受理时保留供重试。 */
   onSend: (text: string, images?: AttachedImage[]) => Promise<boolean>;
   onInterrupt: () => void;
   /** 编辑或删除一条排队消息；编辑撤回成功时内容经 store 的 composerAppends 退回输入框。 */
@@ -64,6 +64,14 @@ function findSlashToken(value: string, cursor: number): { pos: number; filter: s
   const filter = before.slice(pos + 1);
   if (!atBoundary || /\s/.test(filter)) return null;
   return { pos, filter };
+}
+
+/** 发送受理后去掉已发出的文字。发送途中编辑退回的内容追加在它后面，保留下来。 */
+function withoutSubmittedText(current: string, submitted: string): string {
+  const sent = submitted.trimEnd();
+  if (!current.startsWith(sent)) return current;
+  const rest = current.slice(sent.length);
+  return rest.trim() ? rest.trimStart() : "";
 }
 
 // ---------------------------------------------------------------------------
@@ -112,7 +120,7 @@ export function AgentComposer({
     addFiles,
     appendImages,
     removeImage,
-    resetImages,
+    removeImages,
     invalidatePendingTranscodes,
   } = useImageAttachments();
   const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
@@ -127,14 +135,17 @@ export function AgentComposer({
     if (!canSend) return;
     invalidatePendingTranscodes();
     setSlash(null);
+    const submittedText = text;
+    const submittedImages = images;
     voidCall(
-      onSend(text.trim(), images.length > 0 ? images : undefined).then((accepted) => {
+      onSend(submittedText.trim(), submittedImages.length > 0 ? submittedImages : undefined).then((accepted) => {
         if (!accepted) return;
-        setText("");
-        resetImages();
+        // 只清掉这次发出的文字与图片：发送途中编辑退回的内容不在这次发送里，留给用户再发
+        setText((current) => withoutSubmittedText(current, submittedText));
+        removeImages(submittedImages.map((image) => image.id));
       }),
     );
-  }, [canSend, images, invalidatePendingTranscodes, onSend, resetImages, text]);
+  }, [canSend, images, invalidatePendingTranscodes, onSend, removeImages, text]);
 
   useImperativeHandle(ref, () => ({ send }), [send]);
 
