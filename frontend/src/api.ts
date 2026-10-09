@@ -27,6 +27,7 @@ import type {
   EntriesResponse,
   AcceptedMessageResponse,
   QueuedMessageWithdrawal,
+  QueuedMessageResendResponse,
   QueuedMessageWithdrawalResponse,
   SkillInfo,
   ProjectOverview,
@@ -2901,6 +2902,17 @@ class API {
     return intent === "edit"
       ? this.request(`${path}/edit`, { method: "POST" })
       : this.request(path, { method: "DELETE" });
+  }
+
+  static async resendQueuedMessage(
+    projectName: string,
+    sessionId: string,
+    messageId: string
+  ): Promise<QueuedMessageResendResponse> {
+    return this.request(
+      `${this.assistantBase(projectName)}/sessions/${encodeURIComponent(sessionId)}/queued-messages/${encodeURIComponent(messageId)}/resend`,
+      { method: "POST" }
+    );
   }
 
   static async interruptAssistantSession(

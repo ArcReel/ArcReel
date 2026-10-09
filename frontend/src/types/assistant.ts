@@ -139,8 +139,8 @@ export interface TimelineEntry {
   failure?: FailureObservation;
 }
 
-/** 排队消息的状态：已交给 Agent、等待被接纳。 */
-export type QueuedMessageState = "queued";
+/** 排队消息的状态：`queued` 已交给 Agent、等待被接纳；`unsent` Agent 进程退出时仍在排队，需由用户决定发送、编辑或删除。 */
+export type QueuedMessageState = "queued" | "unsent";
 
 /**
  * 排队消息：已发出、Agent 尚未接纳进对话的用户消息（服务端内存态，不入事件日志）。
@@ -164,6 +164,13 @@ export interface QueuedMessageWithdrawalResponse {
   outcome: "withdrawn" | "accepted";
   /** 编辑且撤回成功时为要退回输入框的消息，否则为 null。 */
   message: QueuedMessage | null;
+}
+
+/** 重新发送「未发送」消息的响应：同一条排队消息，已回到 `queued`。 */
+export interface QueuedMessageResendResponse {
+  session_id: string;
+  id: string;
+  queued_message: QueuedMessage;
 }
 
 /** 发送与改写端点的受理响应：排队消息与权威条目二者恰有其一。 */

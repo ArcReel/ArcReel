@@ -111,6 +111,7 @@ describe("AgentCopilot", () => {
   const switchSession = vi.fn().mockResolvedValue(undefined);
   const deleteSession = vi.fn().mockResolvedValue(true);
   const withdrawQueuedMessage = vi.fn().mockResolvedValue(undefined);
+  const resendQueuedMessage = vi.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
     useAssistantStore.setState(useAssistantStore.getInitialState(), true);
@@ -128,6 +129,7 @@ describe("AgentCopilot", () => {
       switchSession,
       deleteSession,
       withdrawQueuedMessage,
+      resendQueuedMessage,
     });
   });
 
@@ -407,6 +409,43 @@ describe("AgentCopilot", () => {
 
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
       expect(screen.getByRole("combobox", { name: "Agent 输入" })).toHaveValue("");
+    });
+
+    it("explains unsent messages and offers send, edit and delete on each of them", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "error",
+        queuedMessages: [
+          { id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "unsent" },
+          { id: "q-2", content: [{ type: "text", text: "加一段旁白" }], state: "queued" },
+        ],
+      });
+      render(<AgentCopilot />);
+
+      expect(screen.getByText("会话已中断，以下消息尚未发送")).toBeInTheDocument();
+      const [unsent, queued] = within(screen.getByRole("list", { name: "排队消息" })).getAllByRole("listitem");
+      expect(within(unsent).getByText("未发送")).toBeInTheDocument();
+      expect(within(queued).queryByRole("button", { name: "发送" })).not.toBeInTheDocument();
+
+      await user.click(within(unsent).getByRole("button", { name: "发送" }));
+      expect(resendQueuedMessage).toHaveBeenCalledWith("q-1");
+      await user.click(within(unsent).getByRole("button", { name: "编辑" }));
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
+      await user.click(within(unsent).getByRole("button", { name: "删除" }));
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
+      expect(screen.getByRole("combobox", { name: "Agent 输入" })).toHaveValue("");
+    });
+
+    it("shows no interruption notice while every message is still queued", () => {
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "加一段旁白" }], state: "queued" }],
+      });
+      render(<AgentCopilot />);
+
+      expect(screen.queryByText("会话已中断，以下消息尚未发送")).not.toBeInTheDocument();
     });
 
     it("scrolls a long queue inside the tray and follows the newest message, leaving the input and stop button in place", () => {

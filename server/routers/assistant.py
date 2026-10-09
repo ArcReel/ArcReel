@@ -436,6 +436,33 @@ async def delete_queued_message(project_name: str, session_id: str, message_id: 
     return await _withdraw_queued_message(project_name, session_id, message_id, "delete", _t)
 
 
+@router.post("/sessions/{session_id}/queued-messages/{message_id}/resend")
+async def resend_queued_message(project_name: str, session_id: str, message_id: str, request: Request, _t: Translator):
+    """把一条「未发送」消息重新交给 Agent，会话已中断时先重建连接。响应带回这条排队消息（``queued_message``）。"""
+    try:
+        service = get_assistant_service()
+        return await service.resend_queued_message(project_name, session_id, message_id, locale=get_locale(request))
+    except QueuedMessageNotFoundError as exc:
+        raise NotFoundError("queued_message_not_found") from exc
+    except SessionCapacityError as exc:
+        raise ServiceUnavailableError("session_capacity_exceeded") from exc
+    except FileNotFoundError as exc:
+        raise NotFoundError("session_not_found", session_id=session_id) from exc
+    except AgentStartupError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=agent_startup_failure_detail(
+                exc,
+                project_name=project_name,
+                session_id=session_id,
+                title=_t("agent_startup_failed_title"),
+            ),
+        ) from exc
+    except Exception as exc:
+        logger.exception("请求处理失败")
+        raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
 @router.post("/sessions/{session_id}/questions/{question_id}/answer")
 async def answer_question(
     project_name: str,

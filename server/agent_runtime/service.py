@@ -672,6 +672,18 @@ class AssistantService:
             "message": queued.to_payload() if queued is not None and intent == "edit" else None,
         }
 
+    async def resend_queued_message(
+        self, project_name: str, session_id: str, message_id: str, *, locale: str = DEFAULT_LOCALE
+    ) -> dict[str, Any]:
+        """把一条「未发送」消息重新交给 CLI，必要时先复活会话；响应带回这条排队消息。"""
+        # 与发送、改写共用受理锁：复活会话与送入 CLI 不与它们交错
+        async with self._admission_locks.lock_for(session_id):
+            meta = await self.meta_store.get(session_id)
+            if meta is None or meta.project_name != project_name:
+                raise FileNotFoundError(f"session not found: {session_id}")
+            queued = await self.session_manager.resend_queued_message(session_id, message_id, meta=meta, locale=locale)
+        return {"session_id": session_id, "id": message_id, "queued_message": queued.to_payload()}
+
     async def interrupt_session(self, session_id: str, *, meta: SessionMeta | None = None) -> dict[str, Any]:
         """Interrupt a running session."""
         if meta is None:

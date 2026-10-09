@@ -49,6 +49,8 @@ interface AgentComposerProps {
   onInterrupt: () => void;
   /** 编辑或删除一条排队消息；编辑撤回成功时内容经 store 的 composerAppends 退回输入框。 */
   onWithdrawQueued: (id: string, intent: QueuedMessageWithdrawal) => Promise<void>;
+  /** 重新发送一条「未发送」消息。 */
+  onResendQueued: (id: string) => Promise<void>;
 }
 
 /** 光标左侧以「/」开头、尚未输入空格的一段文字：返回「/」的位置与其后的筛选词。 */
@@ -78,6 +80,7 @@ export function AgentComposer({
   onSend,
   onInterrupt,
   onWithdrawQueued,
+  onResendQueued,
 }: AgentComposerProps) {
   const { t } = useTranslation("dashboard");
   const groupRef = useRef<HTMLDivElement>(null);
@@ -250,7 +253,7 @@ export function AgentComposer({
 
   return (
     <div hidden={hidden} className="shrink-0 border-t border-border p-3">
-      <QueuedMessageTray onWithdraw={onWithdrawQueued} editDisabled={sending} />
+      <QueuedMessageTray onWithdraw={onWithdrawQueued} onResend={onResendQueued} editDisabled={sending} />
       {(attachError || tooManyImages) && (
         <p role="alert" className="mb-2 text-xs text-destructive">
           {tooManyImages ? t("composer_too_many_images_hint", { count: MAX_ATTACHED_IMAGES }) : attachError}
