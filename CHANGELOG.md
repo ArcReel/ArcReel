@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.34.0](https://github.com/ArcReel/ArcReel/compare/v0.33.0...v0.34.0) (2026-10-10)
+
+
+### ✨ 新功能
+
+* **assistant:** Agent 进程退出时排队消息转为「未发送」，可重新发送、编辑或删除 ([b6e2017](https://github.com/ArcReel/ArcReel/commit/b6e2017eec383622fcdf8489f46a58bede1595ea)), closes [#3109](https://github.com/ArcReel/ArcReel/issues/3109)
+* **assistant:** 会话状态以 CLI 报告的空闲为准，轮次之间不再闪烁为完成 ([6669ebf](https://github.com/ArcReel/ArcReel/commit/6669ebfbf0f4f67dcc2ab27e2d103f55bf923d37)), closes [#3105](https://github.com/ArcReel/ArcReel/issues/3105)
+* **assistant:** 会话面板保持一条常驻消息流，轮次结束不再断流 ([f12c524](https://github.com/ArcReel/ArcReel/commit/f12c5245bdc2cf4f3a66e44ecb283dab128d180f)), closes [#3104](https://github.com/ArcReel/ArcReel/issues/3104)
+* **assistant:** 回复进行中也能发送消息，发出的消息在输入框上方排队 ([506e561](https://github.com/ArcReel/ArcReel/commit/506e561c300e530c991a6c09e9aa911b12175275)), closes [#3106](https://github.com/ArcReel/ArcReel/issues/3106)
+* **assistant:** 排队消息可以立即发送，Agent 打断当前轮先处理它 ([56ab5fc](https://github.com/ArcReel/ArcReel/commit/56ab5fc139af3cd795fae76f1502634bfcfc9e53)), closes [#3108](https://github.com/ArcReel/ArcReel/issues/3108)
+* **assistant:** 排队消息可以编辑或删除 ([7d63295](https://github.com/ArcReel/ArcReel/commit/7d632952d856c88e65870af6e7792437bfbb7aee)), closes [#3107](https://github.com/ArcReel/ArcReel/issues/3107)
+
+
+### 🐛 Bug 修复
+
+* **assistant:** Agent 轮次失败的摘要优先显示最后一条 assistant 文本 ([ae02fe3](https://github.com/ArcReel/ArcReel/commit/ae02fe39f3cb54e13005d9297b9d06fc96798546)), closes [#3119](https://github.com/ArcReel/ArcReel/issues/3119)
+* **assistant:** Agent 进程退出后、会话被清理前，直接发送新消息也能重建会话连接 ([de71105](https://github.com/ArcReel/ArcReel/commit/de711055afc32894b7d87a2827b9ef3a9a5e6d09)), closes [#3121](https://github.com/ArcReel/ArcReel/issues/3121)
+* **assistant:** 修复常驻消息流与会话状态切换的竞态 ([bf7bcd9](https://github.com/ArcReel/ArcReel/commit/bf7bcd90358ac1d0023b5769a210db074d3abba9)), closes [#3103](https://github.com/ArcReel/ArcReel/issues/3103) [#3104](https://github.com/ArcReel/ArcReel/issues/3104) [#3105](https://github.com/ArcReel/ArcReel/issues/3105)
+* **assistant:** 修复排队消息的幂等、改写并发与状态同步 ([036e7cd](https://github.com/ArcReel/ArcReel/commit/036e7cd4eaf60eec68978cd4b5433e89ce28d67b)), closes [#3106](https://github.com/ArcReel/ArcReel/issues/3106)
+* **assistant:** 排队消息操作保留共享草稿、与重建连接串行并隔离迟到反馈 ([08ab3b3](https://github.com/ArcReel/ArcReel/commit/08ab3b32328bd24de9d5793296df32ed8dd6cb9f))
+* **db:** 删除的自定义供应商 ID 不再被新供应商复用 ([936420b](https://github.com/ArcReel/ArcReel/commit/936420b7c7a7d7ab6d286f2c01decb0c4087555e)), closes [#3099](https://github.com/ArcReel/ArcReel/issues/3099)
+* **frontend:** 参考生视频规划预览的档位未知提示不再显示问题码 ([7194fbf](https://github.com/ArcReel/ArcReel/commit/7194fbf21c377504f2466b25fbb6cb118e13ab22)), closes [#3097](https://github.com/ArcReel/ArcReel/issues/3097)
+* 失败提示的显示名目录加载失败时保留原响应，删除的自定义供应商 ID 升级后也不复用 ([e2fa98f](https://github.com/ArcReel/ArcReel/commit/e2fa98fe62ad9201960e03162a59f7d1ba094373))
+* 失败提示里的供应商与模型显示为设置中的名称，已删除的供应商显示泛称 ([76df13b](https://github.com/ArcReel/ArcReel/commit/76df13b579fb0c9e4072621a24a6e1e8947ba431)), closes [#3098](https://github.com/ArcReel/ArcReel/issues/3098)
+* 待修复草稿与 Web 端保存草稿因视频模型配置失败时说清原因 ([6586535](https://github.com/ArcReel/ArcReel/commit/65865358c470f0f79284d5ecb61b158691ed040a)), closes [#3100](https://github.com/ArcReel/ArcReel/issues/3100)
+* 文本任务因视频模型配置失败时说清真实原因，集页失败条带可展开详情 ([6cf14e3](https://github.com/ArcReel/ArcReel/commit/6cf14e331a4cfa73ae3b72bd857302cf71536c26)), closes [#3096](https://github.com/ArcReel/ArcReel/issues/3096)
+* 音频开关冲突与参考图截取提示显示供应商与模型名称 ([7928c1f](https://github.com/ArcReel/ArcReel/commit/7928c1f8cad5291d9435076f49daf67819002373)), closes [#3110](https://github.com/ArcReel/ArcReel/issues/3110)
+
+
+### ⚡ 性能优化
+
+* **artifacts:** 产物状态查询不再随产物件数平方变慢 ([#3111](https://github.com/ArcReel/ArcReel/issues/3111)) ([ec74120](https://github.com/ArcReel/ArcReel/commit/ec741200941f25f86a1a116980b413dc872ed331))
+* **artifacts:** 同一次比对内按集建的规划共享 versions.json 解析结果 ([#3115](https://github.com/ArcReel/ArcReel/issues/3115)) ([d76988b](https://github.com/ArcReel/ArcReel/commit/d76988bb526b3902904a0c373eacde1bfdcba0c7))
+
+
+### ♻️ 重构
+
+* **agent-runtime:** 会话 actor 改读 CLI 原始帧流，接住 command_lifecycle 帧 ([f464d14](https://github.com/ArcReel/ArcReel/commit/f464d14570ced3302f7b0ab970745f8a259c8b1b)), closes [#3102](https://github.com/ArcReel/ArcReel/issues/3102)
+* **edit-timeline:** 剪辑时间线修订不再记录 Agent 轮次 ([8dcb9e9](https://github.com/ArcReel/ArcReel/commit/8dcb9e9ed3b5add6177191ee8d4b8eb7643f7d15)), closes [#3103](https://github.com/ArcReel/ArcReel/issues/3103)
+
 ## [0.33.0](https://github.com/ArcReel/ArcReel/compare/v0.32.0...v0.33.0) (2026-10-08)
 
 
