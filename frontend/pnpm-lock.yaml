@@ -91,7 +91,7 @@ importers:
         version: 1.4.0
       wouter:
         specifier: ^3.10.0
-        version: 3.11.1(react@19.3.0)
+        version: 3.13.0(react@19.3.0)
       zustand:
         specifier: ^5.0.15
         version: 5.0.15(@types/react@19.3.0)(immer@11.1.18)(react@19.3.0)(use-sync-external-store@1.7.0(react@19.3.0))
@@ -4968,8 +4968,8 @@ packages:
     resolution: {integrity: sha512-BN22B5eaMMI9UMtjrGd5g5eCYPpCPDUy0FJXbYsaT5zYxjFOckS53SQDE3pWkVoWpHXVb3BrYcEN4Twa55B5cA==}
     engines: {node: '>=0.10.0'}
 
-  wouter@3.11.1:
-    resolution: {integrity: sha512-HodhSFaJTnASOFifOKl+eFXmwDMsEkxb9lO0r1GGUptm1nsWxJfpf/PThCUI4GMHw5ANFMzZAycZgmW7T2Nf+g==}
+  wouter@3.13.0:
+    resolution: {integrity: sha512-p1RoCuVyxwb3X5jLjDdkwDzlXj+/UGZqZb+806uaJOVEHvNfGkjET0KiQ/CGiDKC90rLsALMgMj4onNVKxgNdQ==}
     peerDependencies:
       react: '>=16.8.0'
 
@@ -10351,7 +10351,7 @@ snapshots:
 
   word-wrap@1.2.5: {}
 
-  wouter@3.11.1(react@19.3.0):
+  wouter@3.13.0(react@19.3.0):
     dependencies:
       react: 19.3.0
       regexparam: 3.0.0
