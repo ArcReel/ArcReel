@@ -154,7 +154,18 @@ class SessionActor:
             raise
         finally:
             # 正常 / 异常退出都 drain 残留命令，避免调用方挂死
-            self._drain_pending_commands(self._fatal or _ActorClosed())
+            self._drain_pending_commands(self._closed_error())
+
+    def _closed_error(self) -> BaseException:
+        """actor 退出后未处理命令的完成值：以异常退出的沿用那个异常，被取消或正常退出的报 actor 已关闭。
+
+        取消是 actor 自己的控制流，不能交给调用方：调用方在另一个 task 里 ``raise cmd.error``，
+        ``CancelledError`` 会越过 ``except Exception`` 一路穿出 HTTP 请求。
+        """
+        fatal = self._fatal
+        if fatal is None or isinstance(fatal, asyncio.CancelledError):
+            return _ActorClosed()
+        return fatal
 
     async def _command_loop(self, client: Any) -> None:
         """在同一 task 内交织消费消息流与命令队列，直到 disconnect。
@@ -182,32 +193,8 @@ class SessionActor:
                 if cmd_task not in done:
                     continue
                 cmd, cmd_task = cmd_task.result(), None
-
-                if cmd.type == "disconnect":
-                    # cmd 已出队，interrupt 抛错时 finally 与队列清理都够不着它，在此兜底释放
-                    try:
-                        if cmd.interrupt_first:
-                            await client.interrupt()
-                    finally:
-                        cmd.complete()
+                if await self._dispatch(client, cmd):
                     return  # 触发 __aexit__，同 task disconnect
-                if cmd.type == "interrupt":
-                    # 无论 client.interrupt() 成败都要唤醒等待者——常规失败时
-                    # 把异常挂到 cmd.error 透传给 send_interrupt；CancelledError 等
-                    # 控制流异常不拦截，但 finally 仍保证 cmd 被 complete 避免挂死。
-                    caught: Exception | None = None
-                    try:
-                        await client.interrupt()
-                    except Exception as exc:
-                        caught = exc
-                    finally:
-                        cmd.complete(caught)
-                    if caught is not None:
-                        raise caught
-                elif cmd.type == "query":
-                    await self._send_query(client, cmd)
-                elif cmd.type == "cancel":
-                    await self._cancel_message(client, cmd)
         finally:
             pump.cancel()
             if cmd_task is not None:
@@ -215,39 +202,46 @@ class SessionActor:
                     cmd_task.cancel()
                 elif not cmd_task.cancelled() and cmd_task.exception() is None:
                     # 与消息流异常同轮取出、尚未处理的命令：不释放会让调用方挂死
-                    cmd_task.result().complete(_ActorClosed())
+                    cmd_task.result().complete(self._closed_error())
 
-    @staticmethod
-    async def _send_query(client: Any, cmd: SessionCommand) -> None:
-        assert cmd.message is not None
+    async def _dispatch(self, client: Any, cmd: SessionCommand) -> bool:
+        """执行一条已出队的命令，并保证它在每条退出路径上都被 complete。返回 True 表示 disconnect，命令循环应退出。
+
+        命令出队后队列清理够不着它，处理器抛错或 actor 被取消时只有这里能唤醒等待者。
+        处理器自己 complete 过的（撤回的非致命失败）保持原值；其余正常返回按成功收口，
+        异常退出挂上那个异常，actor 被取消则报 actor 已关闭，异常照常向上传播让 actor 退出。
+        """
         try:
-            await client.query(_single_message(cmd.message), session_id=cmd.session_id)
+            if cmd.type == "disconnect":
+                if cmd.interrupt_first:
+                    await client.interrupt()
+            elif cmd.type == "interrupt":
+                await client.interrupt()
+            elif cmd.type == "query":
+                assert cmd.message is not None
+                await client.query(_single_message(cmd.message), session_id=cmd.session_id)
+            elif cmd.type == "cancel":
+                await self._cancel_message(client, cmd)
         except BaseException as exc:
-            cmd.complete(exc)
+            if not cmd.done.is_set():
+                cmd.complete(_ActorClosed() if isinstance(exc, asyncio.CancelledError) else exc)
             raise
-        cmd.complete()
+        if not cmd.done.is_set():
+            cmd.complete()
+        return cmd.type == "disconnect"
 
     @staticmethod
     async def _cancel_message(client: Any, cmd: SessionCommand) -> None:
-        """撤回失败（CLI 报错、控制请求超时）只回报给调用方：消息流仍在，会话照常可用。
-
-        等答复期间 actor 被取消（如驱逐等不到断开）时，命令已出队，队列清理够不着它：以 actor
-        已关闭唤醒调用方，取消照常向上传播。
-        """
+        """撤回失败（CLI 报错、控制请求超时）只回报给调用方：消息流仍在，会话照常可用。"""
         assert cmd.message_uuid is not None
         try:
             cmd.cancelled = await sdk_frames.cancel_async_message(client, cmd.message_uuid)
         except Exception as exc:
             cmd.complete(exc)
-            return
-        except BaseException:
-            cmd.complete(_ActorClosed())
-            raise
-        cmd.complete()
 
     async def enqueue(self, cmd: SessionCommand) -> None:
         if self._task is not None and self._task.done():
-            cmd.complete(self._fatal or _ActorClosed())
+            cmd.complete(self._closed_error())
             return
         await self._cmd_queue.put(cmd)
 

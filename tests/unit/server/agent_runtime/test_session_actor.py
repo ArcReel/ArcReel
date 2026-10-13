@@ -472,6 +472,50 @@ async def test_cancelling_the_actor_while_a_withdrawal_waits_for_the_cli_still_w
     assert isinstance(cmd.error, _ActorClosed)
 
 
+class _HangingClient(FakeSDKClient):
+    """query 与 interrupt 写出后 CLI 一直不回应。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.reached = asyncio.Event()
+
+    async def query(self, prompt, session_id: str = "default") -> None:
+        self._record("query")
+        self.reached.set()
+        await asyncio.Event().wait()
+
+    async def interrupt(self) -> None:
+        self._record("interrupt")
+        self.reached.set()
+        await asyncio.Event().wait()
+
+
+@pytest.mark.parametrize("in_flight_type", ["query", "interrupt"])
+async def test_cancelling_the_actor_reports_actor_closed_on_every_command_it_abandons(in_flight_type: str):
+    """取消是 actor 自己的控制流：在途命令、队列里的命令与退出后的命令都以 actor 已关闭唤醒调用方。
+
+    调用方在自己的 task 里 ``raise cmd.error``，``CancelledError`` 会越过 ``except Exception``
+    穿出 HTTP 请求；被取消的 interrupt 也不能报成成功。
+    """
+    client = _HangingClient()
+    actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
+    await actor.start()
+    in_flight = _query("hi") if in_flight_type == "query" else SessionCommand(type="interrupt")
+    queued = _query("later")
+    await actor.enqueue(in_flight)
+    await actor.enqueue(queued)
+    await asyncio.wait_for(client.reached.wait(), timeout=1.0)
+
+    await actor.cancel_and_wait()
+
+    assert in_flight.done.is_set()
+    assert isinstance(in_flight.error, _ActorClosed)
+    assert isinstance(queued.error, _ActorClosed)
+    late = _query("after")
+    await actor.enqueue(late)
+    assert isinstance(late.error, _ActorClosed)
+
+
 async def test_actor_exits_when_message_stream_closes():
     client = FakeSDKClient()
     actor = SessionActor(client_factory=lambda: client, on_message=lambda m: None)
