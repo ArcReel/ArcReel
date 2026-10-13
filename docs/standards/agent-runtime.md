@@ -14,6 +14,10 @@ paths:
 
 新增会话操作通过 actor 投递，不直接持有 `ClaudeSDKClient`（`docs/adr/0028`）。绕开 actor 的调用会与 actor 内的调用并发访问同一个 client。
 
+### actor 命令的完成只在 `SessionActor._dispatch` 收口
+
+`_dispatch` 在每条退出路径上 complete 已出队的命令：正常返回按成功收口，处理器抛错挂上那个异常，actor 被取消报 `_ActorClosed`。处理器只在要带特定错误提前唤醒调用方时自行 complete（撤回的非致命失败）。处理器里另写一套完成路径，漏掉的分支会让等待 `cmd.done` 的调用方永久挂住；把 `CancelledError` 交给调用方，它会越过 `except Exception` 穿出 HTTP 请求。
+
 ### Agent 工具只在 `server/agent_toolset/` 声明一次
 
 内嵌会话经 `server/agent_runtime/arcreel_mcp.py` 构建进程内 MCP server 供 Skill 调用，同一份声明经远程 MCP 暴露给外部 Agent（`docs/adr/0087`）。在某一侧单独注册工具，两类 Agent 的能力就会分叉。
