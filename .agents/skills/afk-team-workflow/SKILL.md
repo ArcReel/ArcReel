@@ -15,16 +15,16 @@ disable-model-invocation: true
 | | Spec 批次 | 零散批次 |
 |---|---|---|
 | 范围 | `batch-poll.sh --spec <N>` | 用户给出编号时 `--issues <N,...>`；要求处理非 Spec 的 `ready-for-agent` issue 时 `--ready` |
-| stage 划分 | 最少的、可独立审查和合入的 stage；小批次保持单 stage | 每个 stage 的 issues 共用一个 conventional scope，即能共用一个带 scope 的 PR 标题；在 stage 顺序服从依赖的前提下取最少 stage，同一 scope 可分布在多个 stage；清尾 issue 同样适用 |
+| stage 划分 | 最少的、可独立审查和合入的 stage；小批次保持单 stage | 每个 stage 的 issues 共用一个 conventional scope，即能共用一个带 scope 的 PR 标题；在 stage 顺序服从依赖的前提下取最少 stage；清尾 issue 同样适用 |
 | 验收来源 | Spec 与本 stage issues | 本 stage issues |
 | PR 引用 | `Closes #<N>`，另用 `Refs #<Spec>` 引用 Spec，不自动关闭它 | `Closes #<N>` |
-| 清尾 issue | 按 [issue-tracker 约定](../../../docs/agents/issue-tracker.md) 挂接父 Spec | 独立创建，用 `ledger.sh <batch-id> decision --scope-issues <N>` 追加为批次成员；用户授权时指定了 Spec 则另挂接该 Spec |
+| 清尾 issue | 按 [issue-tracker 约定](../../../docs/agents/issue-tracker.md) 挂接父 Spec | 独立创建；用户授权时指定了 Spec 则挂接该 Spec |
 | 人工 QA 清单 | 发布在 Spec issue | 发布为最后一个 stage PR 的评论 |
-| 账本 scope | `--scope-spec <N>` | `--scope-issues <N,...>`；批次成员为各行 `scope.issues` 的并集 |
+| 账本 scope | `--scope-spec <N>` | `--scope-issues <N,...>` |
 
 1. 运行 `scripts/batch-poll.sh --repo-root <repo-root>`，范围参数按上表。随后逐个通读 issue 正文与评论，得到真实的验收边界、canonical dependency graph、triage 与认领状态。`--ready` 只做机械筛选，调研、评估等不产出代码的 issue 由你剔除。
 2. 确定 frontier：只有 `OPEN` issue 可进入 stage 与 PR `Closes` 清单；其中带 `ready-for-agent`、无他人认领且 blockers 已完成的进入 frontier。issue 没有 triage 标签时按语义裁决；`ready-for-human` issue 及其被阻塞的下游留在 frontier 之外。
-3. 将本批范围与 `.afk/` 中未 `closed` 账本的批次成员、用户告知的并行批次对照。范围相同时暂停并让用户选择接管或重开，两者均先读 [recovery.md](references/recovery.md)；部分重叠时列入第 5 步的展示。
+3. 将本批范围与 `.afk/` 中未 `closed` 账本的 scope、用户告知的并行批次对照。范围相同时暂停并让用户选择接管或重开，两者均先读 [recovery.md](references/recovery.md)；部分重叠时列入第 5 步的展示。
 4. 按上表将依赖图划成交付 stage。按 [model-selection.md](references/model-selection.md) 为各角色选模型与 effort。
 5. 向用户展示 stage、依赖、模型理由、跳过项及下游影响；`--ready` 批次另列入选与剔除两份清单，由用户确认或删减。同时一次性请求两项授权：全部 stage PR 的 rebase merge；最终清尾轮中对符合范围的真缺陷自行立 issue。未获授权的清尾候选只转呈。
 6. 用 `scripts/ledger.sh --new` 创建薄账本，scope 参数按上表（`--ready` 批次传用户确认后的入选编号），记录计划裁决与授权；它生成并输出本批 `batch-id`。账本只记 Git / GitHub 无法重推的事实。
