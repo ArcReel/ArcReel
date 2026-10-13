@@ -548,7 +548,10 @@ class GenerationQueue:
             batch = await repo.get_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
         if batch is None:
             raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
-        return build_generation_batch_read_model(batch, batch["memberships"], batch["queue_depth"], resolver)
+        # 读模型按产物清单与内容摘要判定成员产物时效，读盘、等清单锁都放进工作线程。
+        return await asyncio.to_thread(
+            build_generation_batch_read_model, batch, batch["memberships"], batch["queue_depth"], resolver
+        )
 
     async def delete_fresh_generation_batch(
         self,

@@ -32,7 +32,7 @@ from lib.artifacts.artifact_activation import (
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.config.resolver import ConfigResolver
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-from lib.generation.batch_admission import BatchAdmission
+from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
 from lib.generation.generation_batch import GenerationBatchReadModel, build_generation_batch_admission
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import (
@@ -491,18 +491,31 @@ async def load_storyboard_video_batch_plan(
     ``video_request_facts`` 缺省时按项目当前配置求值；准入与报价读同一份。
     """
 
-    loaded = await asyncio.to_thread(load_episode_storyboard_script, projects, project_name, episode_id)
-    items, id_field, *_fields = get_storyboard_items(loaded.script)
-    clean, screen_refused = screen_storyboard_items(items, id_field, requested_ids=None)
-    resolver = await asyncio.to_thread(active_artifact_currency_resolver, loaded.project_path, loaded.project)
-    states = video_target_states(clean, id_field, episode=loaded.episode, resolver=resolver)
-    selection = select_generation_targets(
-        candidates=[state.candidate for state in states.values()],
-        requested_ids=None,
-        resolver=resolver,
-    )
-    target_ids = set(selection.target_ids)
-    pending = [item for item in clean if str(storyboard_item_id(item, id_field) or "") in target_ids]
+    # 选目标与判跳过都要读产物清单（含等清单锁）、核对分镜图文件，只读，各自整段放进工作线程。
+    def _select() -> tuple[
+        EpisodeStoryboardScript,
+        str,
+        list[UnitAdmissionTicket],
+        ArtifactCurrencyResolver,
+        dict[str, GenerationTargetState],
+        GenerationSelection,
+        list[dict[str, Any]],
+    ]:
+        loaded = load_episode_storyboard_script(projects, project_name, episode_id)
+        items, id_field, *_fields = get_storyboard_items(loaded.script)
+        clean, screen_refused = screen_storyboard_items(items, id_field, requested_ids=None)
+        resolver = active_artifact_currency_resolver(loaded.project_path, loaded.project)
+        states = video_target_states(clean, id_field, episode=loaded.episode, resolver=resolver)
+        selection = select_generation_targets(
+            candidates=[state.candidate for state in states.values()],
+            requested_ids=None,
+            resolver=resolver,
+        )
+        target_ids = set(selection.target_ids)
+        pending = [item for item in clean if str(storyboard_item_id(item, id_field) or "") in target_ids]
+        return loaded, id_field, screen_refused, resolver, states, selection, pending
+
+    loaded, id_field, screen_refused, resolver, states, selection, pending = await asyncio.to_thread(_select)
     generating = await _active_resource_ids(
         queue,
         project_name=project_name,
@@ -511,31 +524,35 @@ async def load_storyboard_video_batch_plan(
         resource_ids=[str(storyboard_item_id(item, id_field)) for item in pending],
         user_id=user_id,
     )
-
-    skips: list[BatchSkip] = []
-    candidates: list[dict[str, Any]] = []
-    for item in pending:
-        unit_id = str(storyboard_item_id(item, id_field))
-        reason = _video_skip_reason(item, unit_id=unit_id, generating=generating, loaded=loaded, resolver=resolver)
-        if reason is None:
-            candidates.append(item)
-        else:
-            skips.append(BatchSkip(unit_id, reason))
-
     content_mode = resolve_content_mode(loaded.script, loaded.project)
-    specs, refused = build_storyboard_video_specs(
-        items=candidates,
-        id_field=id_field,
-        content_mode=content_mode,
-        skeleton_kind=resolve_script_kind(loaded.script),
-        script_filename=loaded.script_file,
-        project_dir=loaded.project_path,
-        project=loaded.project,
-        episode=loaded.episode,
-        resolver=resolver,
-        skip_ids=None,
-        voice_characters=await resolve_voice_context(loaded.project, content_mode),
-    )
+    voice_characters = await resolve_voice_context(loaded.project, content_mode)
+
+    def _build_specs() -> tuple[list[BatchSkip], list[dict[str, Any]], list[TaskSpec], list[UnitAdmissionTicket]]:
+        skips: list[BatchSkip] = []
+        candidates: list[dict[str, Any]] = []
+        for item in pending:
+            unit_id = str(storyboard_item_id(item, id_field))
+            reason = _video_skip_reason(item, unit_id=unit_id, generating=generating, loaded=loaded, resolver=resolver)
+            if reason is None:
+                candidates.append(item)
+            else:
+                skips.append(BatchSkip(unit_id, reason))
+        specs, refused = build_storyboard_video_specs(
+            items=candidates,
+            id_field=id_field,
+            content_mode=content_mode,
+            skeleton_kind=resolve_script_kind(loaded.script),
+            script_filename=loaded.script_file,
+            project_dir=loaded.project_path,
+            project=loaded.project,
+            episode=loaded.episode,
+            resolver=resolver,
+            skip_ids=None,
+            voice_characters=voice_characters,
+        )
+        return skips, candidates, specs, refused
+
+    skips, candidates, specs, refused = await asyncio.to_thread(_build_specs)
     facts = (
         (video_request_facts or await storyboard_video_request_facts(loaded.project, config_resolver))
         if specs

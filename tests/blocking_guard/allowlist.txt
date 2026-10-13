@@ -14,8 +14,6 @@
 #       && pip install -q uv && uv sync -q --frozen \
 #       && uv run python -m pytest tests -n 4 --dist loadfile -q -p no:cacheprovider'
 
-lib/generation/generation_admission.py::generation_admission_lock  # os.mkdir, os.stat
-lib/generation/generation_queue.py::GenerationQueue.get_generation_batch  # io.BufferedReader.read, io.TextIOWrapper.read, os.stat, 产物清单锁（轮询等待）, 版本管理锁（RLock）
 lib/generation/media_generator.py::MediaGenerator._run_with_reference_compression  # ScandirIterator.__next__, os.path.samestat, os.rmdir, os.unlink
 lib/generation/media_generator.py::MediaGenerator.generate_audio_async  # io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.replace, os.sendfile, os.stat, os.unlink, 版本管理锁（RLock）
 lib/generation/media_generator.py::MediaGenerator.generate_image_async  # io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.replace, os.sendfile, os.stat, os.unlink, 版本管理锁（RLock）
@@ -23,19 +21,6 @@ lib/generation/media_generator.py::MediaGenerator.generate_video_async  # os.mkd
 lib/generation/media_generator.py::MediaGenerator.resume_video_async  # os.mkdir, os.stat, os.unlink
 lib/generation/media_generator.py::_remove_staged_output_on_error  # os.unlink
 lib/generation/restart_recovery.py::RestartRecovery.handle_orphans  # os.stat
-server/routers/reference_videos.py::_unit_capabilities  # os.stat
-server/routers/reference_videos.py::add_unit  # io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, os.unlink, 产物清单锁（轮询等待）, 文件锁（portalocker 阻塞模式）, 版本管理锁（RLock）
-server/routers/reference_videos.py::delete_unit  # io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, 产物清单锁（轮询等待）, 文件锁（portalocker 阻塞模式）
-server/routers/reference_videos.py::generate_unit  # io.TextIOWrapper.read, os.stat
-server/routers/reference_videos.py::generate_units_batch  # io.BufferedReader.read, io.TextIOWrapper.read, os.stat, 产物清单锁（轮询等待）
-server/routers/reference_videos.py::list_units  # io.TextIOWrapper.read, os.stat
-server/routers/reference_videos.py::move_unit  # io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, 产物清单锁（轮询等待）, 文件锁（portalocker 阻塞模式）
-server/routers/reference_videos.py::patch_unit  # io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, 产物清单锁（轮询等待）, 文件锁（portalocker 阻塞模式）
-server/routers/reference_videos.py::precheck_unit_duration  # io.TextIOWrapper.read, os.stat
-server/routers/reference_videos.py::preview_script  # io.TextIOWrapper.read, os.stat
-server/routers/reference_videos.py::preview_unit_prompt  # io.TextIOWrapper.read, os.stat
-server/services/admission/cost_estimation.py::CostEstimationService._estimate_unit_reference_video_episode  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/services/admission/storyboard_batch.py::load_storyboard_video_batch_plan  # io.BufferedReader.read, os.listdir, os.stat, 产物清单锁（轮询等待）
 server/services/currency/video_artifact_currency.py::complete_video_artifact_commit  # io.TextIOWrapper.read, os.stat
 server/services/currency/video_artifact_currency.py::complete_video_artifact_commit.<locals>._finalize_and_complete  # os.stat
 server/services/tasks/derivative_sheet_tasks.py::execute_character_derivative_task  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
