@@ -16,7 +16,7 @@ paths:
 
 ### actor 命令的完成只在 `SessionActor._dispatch` 收口
 
-`_dispatch` 在每条退出路径上 complete 已出队的命令：正常返回按成功收口，处理器抛错挂上那个异常，actor 被取消报 `_ActorClosed`。处理器只在要带特定错误提前唤醒调用方时自行 complete（撤回的非致命失败）。处理器里另写一套完成路径，漏掉的分支会让等待 `cmd.done` 的调用方永久挂住；把 `CancelledError` 交给调用方，它会越过 `except Exception` 穿出 HTTP 请求。
+`_dispatch` 在每条退出路径上 complete 已派发的命令：正常返回按成功收口，处理器抛错挂上那个异常，actor 被取消报 `_ActorClosed`。处理器只在要带特定错误提前唤醒调用方时自行 complete（撤回的非致命失败）。没有派发就随 actor 退出的命令（仍在队列里、与消息流异常同轮取出、退出后才入队）统一用 `_closed_error()` 完成，取消同样换成 `_ActorClosed`。处理器里另写一套完成路径，漏掉的分支会让等待 `cmd.done` 的调用方永久挂住；把 `CancelledError` 交给调用方，它会越过 `except Exception` 穿出 HTTP 请求。
 
 ### Agent 工具只在 `server/agent_toolset/` 声明一次
 

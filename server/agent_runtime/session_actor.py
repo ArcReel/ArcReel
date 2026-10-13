@@ -10,7 +10,7 @@ import contextlib
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, assert_never
 
 from server.agent_runtime import sdk_frames
 from server.agent_runtime.sdk_frames import CommandLifecycle
@@ -163,9 +163,12 @@ class SessionActor:
         ``CancelledError`` 会越过 ``except Exception`` 一路穿出 HTTP 请求。
         """
         fatal = self._fatal
-        if fatal is None or isinstance(fatal, asyncio.CancelledError):
-            return _ActorClosed()
-        return fatal
+        return _ActorClosed() if fatal is None else self._as_closed_error(fatal)
+
+    @staticmethod
+    def _as_closed_error(exc: BaseException) -> BaseException:
+        """交给调用方的完成值：取消换成 actor 已关闭，其余异常原样。"""
+        return _ActorClosed() if isinstance(exc, asyncio.CancelledError) else exc
 
     async def _command_loop(self, client: Any) -> None:
         """在同一 task 内交织消费消息流与命令队列，直到 disconnect。
@@ -222,9 +225,11 @@ class SessionActor:
                 await client.query(_single_message(cmd.message), session_id=cmd.session_id)
             elif cmd.type == "cancel":
                 await self._cancel_message(client, cmd)
+            else:
+                assert_never(cmd.type)
         except BaseException as exc:
             if not cmd.done.is_set():
-                cmd.complete(_ActorClosed() if isinstance(exc, asyncio.CancelledError) else exc)
+                cmd.complete(self._as_closed_error(exc))
             raise
         if not cmd.done.is_set():
             cmd.complete()

@@ -990,6 +990,33 @@ class TestQueuedMessages:
             await asyncio.gather(*tasks, return_exceptions=True)
             await service.session_manager.close_session(SDK_ID)
 
+    async def test_a_send_abandoned_by_eviction_fails_as_a_plain_error_and_leaves_nothing_queued(
+        self, service: AssistantService
+    ):
+        """驱逐时 actor 被取消：在途的发送拿到普通异常而不是 CancelledError，排队消息不残留，会话落终态。"""
+        entered = asyncio.Event()
+
+        class HangingClient(FakeSDKClient):
+            async def query(self, prompt, session_id: str = "default") -> None:
+                entered.set()
+                await asyncio.Event().wait()
+
+        service.session_manager._session_actor_shutdown_timeout = 0.05
+        with _scripted_client(service.session_manager, HangingClient()):
+            sending = asyncio.create_task(
+                service.send_or_create("demo", "补充要求", session_id=SDK_ID, client_key="ck-1")
+            )
+            await asyncio.wait_for(entered.wait(), timeout=5.0)
+            await service.session_manager.close_session(SDK_ID)
+
+        outcome = (await asyncio.gather(sending, return_exceptions=True))[0]
+        assert isinstance(outcome, Exception)
+        assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == []
+        # 发送路径先按失败写 error，驱逐收尾最后写 interrupted：以驱逐的结论为准
+        meta = await service.meta_store.get(SDK_ID)
+        assert meta is not None
+        assert meta.status == "interrupted"
+
     async def _start_running_turn(self, service: AssistantService, client: FakeSDKClient) -> None:
         """发出第一条消息并等 Agent 开始输出：会话此后一直 running。"""
         with _scripted_client(service.session_manager, client):
@@ -1891,4 +1918,36 @@ class TestSendQueuedMessageNow:
             assert client.sent_messages[2]["priority"] == "now"
             assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [queued]
         finally:
+            await service.session_manager.close_session(SDK_ID)
+
+    async def test_a_late_cancel_also_moves_the_message_to_the_front_of_the_tray(self, service: AssistantService):
+        client = TestQueuedMessageWithdrawal._client()
+        client.respond_control("cancel_async_message", {"cancelled": False})
+        await TestQueuedMessages()._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            await stream.next("queue")
+            earlier = (await service.send_or_create("demo", "顺便配乐", session_id=SDK_ID))["queued_message"]
+            urgent = (await service.send_or_create("demo", "先停下改结局", session_id=SDK_ID))["queued_message"]
+            urgent_uuid = client.sent_messages[-1]["uuid"]
+            assert (await service.send_queued_message_now("demo", SDK_ID, urgent["id"]))["outcome"] == "accepted"
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [earlier, urgent]
+
+            # 撤回答复失败后 CLI 仍报 cancelled：inbox 上的重送同样把它排到最前
+            delivered = asyncio.Event()
+            query = client.query
+
+            async def _query(prompt, session_id: str = "default") -> None:
+                await query(prompt, session_id=session_id)
+                delivered.set()
+
+            with patch.object(client, "query", _query):
+                client.push_frame(command_lifecycle_frame(urgent_uuid, "cancelled", session_id=SDK_ID))
+                await asyncio.wait_for(delivered.wait(), timeout=5.0)
+
+            assert client.sent_messages[-1]["priority"] == "now"
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [urgent, earlier]
+            assert (await stream.next("queue")) == {"session_id": SDK_ID, "messages": [urgent, earlier]}
+        finally:
+            await stream.close()
             await service.session_manager.close_session(SDK_ID)

@@ -503,11 +503,13 @@ describe("AgentCopilot", () => {
       await user.click(screen.getByRole("button", { name: "删除" }));
       await user.click(screen.getByRole("button", { name: "取消" }));
       expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
+      // 退出确认后焦点交还删除按钮，键盘用户不会掉到 body
+      expect(screen.getByRole("button", { name: "删除" })).toHaveFocus();
 
       await user.click(screen.getByRole("button", { name: "删除" }));
       await user.keyboard("{Escape}");
       expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "删除" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "删除" })).toHaveFocus();
       expect(withdrawQueuedMessage).not.toHaveBeenCalled();
     });
 

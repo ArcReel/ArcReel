@@ -13,8 +13,9 @@ import { turnPlainText } from "./chat/utils";
 // 回复进行中发出、Agent 尚未接纳的消息按发送顺序堆叠；被接纳的消息离开托盘，
 // 作为用户消息出现在时间线上。没有排队消息时不渲染。
 // 每条消息行尾是逐条操作，顺序为立即发送、编辑、删除：立即发送让 Agent 打断当前轮先处理它，编辑把内容
-// 退回输入框，删除直接丢弃。三者都要先向 Agent 撤回，请求在途时这条消息的操作暂不可用。
-// 删除不可撤销，点删除后在这一行原地换成确认与取消，焦点落在取消上，误按 Enter 不会删除。
+// 退回输入框。三者都要先向 Agent 撤回，请求在途时这条消息的操作暂不可用。
+// 删除不可撤销，点删除后在这一行原地换成确认与取消，焦点落在取消上，误按 Enter 不会删除；
+// 取消或 Esc 退出确认并把焦点交还删除按钮。
 // Agent 提问期间托盘照常显示在问卷下方，只是不提供立即发送，免得打断提问。
 // Agent 进程退出时仍在排队的消息转为「未发送」：托盘顶部说明会话已中断，这些消息行尾多一个发送，
 // 由创作者决定重新发送、编辑或删除，不自动重发。
@@ -106,14 +107,26 @@ function QueuedMessageItem({
   const text = turnPlainText({ type: "user", content: message.content }).trim();
   const imageCount = message.content.filter((block) => block.type === "image").length;
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const deleteRef = useRef<HTMLButtonElement>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  // 退出确认时把焦点交还删除按钮；确认删除后这一行随消息移出而卸载，不交还
+  const returnFocusRef = useRef(false);
   useEffect(() => {
-    if (confirmingDelete) cancelDeleteRef.current?.focus();
+    if (confirmingDelete) {
+      cancelDeleteRef.current?.focus();
+    } else if (returnFocusRef.current) {
+      returnFocusRef.current = false;
+      deleteRef.current?.focus();
+    }
   }, [confirmingDelete]);
+  const dismissDelete = () => {
+    returnFocusRef.current = true;
+    setConfirmingDelete(false);
+  };
   const dismissOnEscape = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       event.stopPropagation();
-      setConfirmingDelete(false);
+      dismissDelete();
     }
   };
 
@@ -139,13 +152,7 @@ function QueuedMessageItem({
           >
             {t("queued_message_delete_confirm")}
           </Button>
-          <Button
-            ref={cancelDeleteRef}
-            variant="ghost"
-            size="xs"
-            onKeyDown={dismissOnEscape}
-            onClick={() => setConfirmingDelete(false)}
-          >
+          <Button ref={cancelDeleteRef} variant="outline" size="xs" onKeyDown={dismissOnEscape} onClick={dismissDelete}>
             {t("cancel")}
           </Button>
         </div>
@@ -182,6 +189,7 @@ function QueuedMessageItem({
               <Pencil aria-hidden />
             </Button>
             <Button
+              ref={deleteRef}
               variant="ghost"
               size="icon-xs"
               disabled={busy}
