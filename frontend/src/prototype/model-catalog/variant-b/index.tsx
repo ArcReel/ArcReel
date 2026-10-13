@@ -19,7 +19,6 @@ import {
   ENDPOINTS,
   MEDIA_LABEL,
   MEDIA_TYPES,
-  effectiveMultiplier,
   effectiveOf,
   priceSummary,
   type CatalogEntry,
@@ -101,12 +100,10 @@ export function ProvidersView() {
   );
 }
 
-type Filter = "all" | "enabled" | "modified" | "unpriced";
+type Filter = "all" | "enabled";
 const FILTERS: { id: Filter; label: string; test: (m: ProviderModel, flags: ModelFlag[]) => boolean }[] = [
   { id: "all", label: "全部", test: () => true },
   { id: "enabled", label: "已启用", test: (m) => m.enabled },
-  { id: "modified", label: "条目已修改或自建", test: (_, f) => f.includes("modified") || f.includes("user-created") },
-  { id: "unpriced", label: "未定价", test: (_, f) => f.includes("unpriced") || f.includes("unmapped") },
 ];
 
 function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string | null }) {
@@ -147,9 +144,6 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
           {provider.kind === "builtin" ? <ProviderIcon providerId={provider.id} className="mt-0.5 size-7 shrink-0" /> : <Glyph name={provider.displayName} />}
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <h2 className="text-lg font-medium">{provider.displayName}</h2>
-            <p className="text-sm text-muted-foreground">
-              {provider.kind === "builtin" ? "内置供应商，调用模型厂商的官方接口。" : "自定义供应商。"}已配置 {provider.credentialCount} 个密钥（原型未实现密钥管理）。
-            </p>
           </div>
         </div>
       }
@@ -164,7 +158,7 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
             </label>
           )}
           <label className="flex flex-col gap-1.5 text-sm font-medium">
-            供应商倍率
+            倍率
             <div className="flex items-center gap-2">
               <Input
                 type="number"
@@ -175,7 +169,7 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
                 onChange={(e) => unit.setValue((v) => ({ ...v, multiplier: Number(e.target.value) }))}
               />
               <span className="text-xs font-normal text-muted-foreground">
-                {provider.id === "ark-agent-plan" ? "订阅制计费，倍率默认为 0，调用费用记为 0。" : "这个供应商的所有调用，参考费用都乘以这个倍率。"}
+                {provider.id === "ark-agent-plan" ? "订阅制套餐，默认为 0，不计算费用。" : "费用按官方价格乘以倍率计算，例如 0.8 表示八折。"}
               </span>
             </div>
           </label>
@@ -217,7 +211,6 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
                 <ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border">
                   {group.map(({ model, entry, flags }) => {
                     const data = entry ? effectiveOf(entry) : null;
-                    const mult = effectiveMultiplier(provider, model);
                     return (
                       <li key={model.key} className={cn("flex items-center gap-3 px-3 py-2 hover:bg-muted/40", !model.enabled && "opacity-60")}>
                         <Switch
@@ -234,9 +227,6 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
                           <span className="flex max-w-full flex-wrap items-center gap-1.5">
                             <span className="truncate text-sm">{data?.displayName ?? model.apiModelName}</span>
                             {model.isDefault && <span className="rounded-full bg-primary/15 px-1.5 text-xs text-primary">默认</span>}
-                            {provider.kind === "builtin" && model.responsibility === "user" && (
-                              <span className="rounded-full border border-border px-1.5 text-xs text-subtle-foreground">用户添加</span>
-                            )}
                             {flags.map((f) => (
                               <FlagBadge key={f} flag={f} />
                             ))}
@@ -244,9 +234,7 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
                           <span className="flex max-w-full items-center gap-3 truncate text-xs text-muted-foreground">
                             <span className="font-mono">{model.apiModelName}</span>
                             {data && data.price.meters.length > 0 && <span>{priceSummary(data.price)}</span>}
-                            {mult !== 1 && <span className={cn(mult === 0 && "text-good")}>倍率 {mult}</span>}
                             {model.endpoint && <span>{ENDPOINTS[model.endpoint].label}</span>}
-                            {model.pathOverrides && Object.keys(model.pathOverrides).length > 0 && <span>已覆盖路径</span>}
                           </span>
                         </button>
                       </li>

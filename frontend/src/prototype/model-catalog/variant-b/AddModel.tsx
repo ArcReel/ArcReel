@@ -15,7 +15,6 @@ import {
   makerLabel,
   priceFromPreset,
   priceSummary,
-  statusOf,
   type CatalogEntry,
   type Currency,
   type EntryData,
@@ -24,7 +23,7 @@ import {
   type Provider,
 } from "../model";
 import { useProto } from "../store";
-import { Chip, StatusBadge, endpointFor, matchEntry } from "./bits";
+import { Chip, endpointFor, matchEntry } from "./bits";
 
 function EntryItem({ entry, onSelect, suffix }: { entry: CatalogEntry; onSelect: () => void; suffix?: React.ReactNode }) {
   const d = effectiveOf(entry);
@@ -42,7 +41,6 @@ function EntryItem({ entry, onSelect, suffix }: { entry: CatalogEntry; onSelect:
         </span>
       </div>
       {suffix}
-      <StatusBadge status={statusOf(entry)} />
     </CommandItem>
   );
 }
@@ -65,12 +63,12 @@ export function EntryPicker({
   const [filter, setFilter] = useState<MediaType | "all">(media ?? "all");
   const list = entries.filter((e) => filter === "all" || effectiveOf(e).mediaType === filter);
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="选择模型条目" description="搜索模型目录" className="top-[8dvh] sm:max-w-2xl">
+    <CommandDialog open={open} onOpenChange={onOpenChange} title="从模型目录选择" description="搜索模型目录" className="top-[8dvh] sm:max-w-2xl">
       <Command>
-        <CommandInput placeholder="搜索模型名、条目 ID 或别名" />
+        <CommandInput placeholder="搜索模型名称" />
         <MediaChips value={filter} onChange={setFilter} entries={entries} />
         <CommandList className="max-h-[calc(84dvh-150px)]">
-          <CommandEmpty>模型目录中没有匹配的条目。</CommandEmpty>
+          <CommandEmpty>模型目录中没有匹配的模型。</CommandEmpty>
           <CommandGroup heading={`模型目录（${list.length}）`}>
             {list.map((e) => (
               <EntryItem
@@ -108,10 +106,10 @@ function MediaChips({ value, onChange, entries }: { value: MediaType | "all"; on
 function CreateFooter({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-sm">
-      <span className="text-muted-foreground">目录中没有需要的模型时，可以新建条目。</span>
+      <span className="text-muted-foreground">目录中找不到？</span>
       <Button variant="ghost" size="sm" className="ml-auto" onClick={onCreate}>
         <Plus aria-hidden />
-        新建条目
+        手动填写
       </Button>
     </div>
   );
@@ -165,12 +163,12 @@ export function AddModelDialog({
     <>
       <CommandDialog open={open && !creating} onOpenChange={onOpenChange} title={`添加模型到「${provider.displayName}」`} description="搜索模型目录" className="top-[8dvh] sm:max-w-2xl">
         <Command>
-          <CommandInput placeholder="搜索模型名、条目 ID，或输入 API 模型名" value={query} onValueChange={setQuery} />
+          <CommandInput placeholder="搜索模型名称，或输入模型 ID" value={query} onValueChange={setQuery} />
           <MediaChips value={filter} onChange={setFilter} entries={entries} />
           <CommandList className="max-h-[calc(84dvh-150px)]">
             <CommandEmpty>没有匹配的模型。</CommandEmpty>
             {disabledOfficial.length > 0 && (
-              <CommandGroup heading="官方收录、未启用">
+              <CommandGroup heading="未启用的模型">
                 {disabledOfficial.map((m) => {
                   const e = entryOf(m.entryId);
                   return e ? (
@@ -189,7 +187,7 @@ export function AddModelDialog({
               </CommandGroup>
             )}
             {query.trim() && (
-              <CommandGroup heading="按 API 模型名添加">
+              <CommandGroup heading="按模型 ID 添加">
                 <CommandItem value={`manual ${query}`} onSelect={() => add(query.trim(), matchEntry(entries, query.trim())?.id ?? null)}>
                   <Search aria-hidden />
                   添加「<span className="font-mono">{query.trim()}</span>」
@@ -249,8 +247,8 @@ export function NewEntryDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>新建模型条目</DialogTitle>
-          <DialogDescription>为目录中没有的模型新建条目，条目由你维护。</DialogDescription>
+          <DialogTitle>手动填写模型信息</DialogTitle>
+          <DialogDescription>为目录中没有的模型填写能力和价格。</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
@@ -259,20 +257,17 @@ export function NewEntryDialog({
               <Input value={maker} onChange={(e) => setMaker(e.target.value)} placeholder="例如 bfl" />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              官方模型名
+              模型名称
               <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如 flux-kontext-max" />
             </label>
           </div>
-          <p className="text-xs text-muted-foreground">
-            条目 ID：<span className="font-mono">{id}</span>
-            {taken && <span className="ml-2 text-warn">目录中已有这个条目，请直接选择。</span>}
-          </p>
+          {taken && <p className="text-xs text-warn">模型目录中已有这个模型，请直接选择。</p>}
           <label className="flex flex-col gap-1 text-sm">
-            显示名
-            <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={name || "显示在模型选择器里的名字"} />
+            显示名称
+            <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={name || "选择模型时看到的名称"} />
           </label>
           <div className="flex flex-col gap-1 text-sm">
-            媒体类型
+            类型
             <div className="flex gap-1.5">
               {MEDIA_TYPES.map((m) => (
                 <Chip key={m} active={media === m} onClick={() => setMedia(m)}>
@@ -296,7 +291,7 @@ export function NewEntryDialog({
                 </Chip>
               ))}
             </div>
-            <span className="text-xs text-muted-foreground">计价方式只决定初始计量项。新建后可以继续添加价格档和分档条件。</span>
+            
           </div>
         </DialogBody>
         <DialogFooter>
@@ -324,7 +319,7 @@ export function NewEntryDialog({
               onCreated(data);
             }}
           >
-            新建条目
+            保存
           </Button>
         </DialogFooter>
       </DialogContent>

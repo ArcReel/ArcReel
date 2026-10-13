@@ -68,28 +68,26 @@ export function DiscoverModelsDialog({ provider, onOpenChange }: { provider: Pro
         <DialogHeader>
           <DialogTitle>从「{provider.displayName}」获取的模型</DialogTitle>
           <DialogDescription>
-            {rows.length === 0
-              ? `获取到 ${found.length} 个模型，都已在模型列表中。`
-              : `获取到 ${found.length} 个模型，其中 ${rows.length} 个尚未添加。勾选要添加的模型。`}
+            {rows.length === 0 ? "供应商提供的模型都已添加。" : "勾选要添加的模型。"}
           </DialogDescription>
         </DialogHeader>
         {rows.length > 0 && (
           <DialogBody className="relative flex max-h-[60dvh] flex-col gap-4 overflow-y-auto">
             {matched.length > 0 && (
-              <Group title={`有对应的模型条目（${matched.length}）`} hint="能力和价格从条目读取。">
+              <Group title={`已识别（${matched.length}）`}>
                 {matched.map((r) => (
                   <DiscoveredRow key={r.apiModelName} row={r} custom={custom} checked={checked.has(r.apiModelName)} onCheck={toggle} onEndpoint={(ep) => setRows((rs) => rs.map((x) => (x === r ? { ...x, endpoint: ep } : x)))} />
                 ))}
               </Group>
             )}
             {unmatched.length > 0 && (
-              <Group title={`没有对应的模型条目（${unmatched.length}）`} hint="添加后调用费用记为未定价。可以在模型详情中选择或新建条目。">
+              <Group title={`未识别（${unmatched.length}）`} hint="没有这些模型的价格，调用费用会记为未定价。">
                 {unmatched.map((r) => (
                   <DiscoveredRow key={r.apiModelName} row={r} custom={custom} checked={checked.has(r.apiModelName)} onCheck={toggle} onEndpoint={(ep) => setRows((rs) => rs.map((x) => (x === r ? { ...x, endpoint: ep } : x)))} />
                 ))}
               </Group>
             )}
-            {alreadyAdded > 0 && <p className="text-xs text-muted-foreground">另有 {alreadyAdded} 个模型已在模型列表中，未列出。</p>}
+            {alreadyAdded > 0 && <p className="text-xs text-muted-foreground">另有 {alreadyAdded} 个已添加的模型未列出。</p>}
           </DialogBody>
         )}
         <DialogFooter>
@@ -107,12 +105,12 @@ export function DiscoverModelsDialog({ provider, onOpenChange }: { provider: Pro
   );
 }
 
-function Group({ title, hint, children }: { title: string; hint: string; children: React.ReactNode }) {
+function Group({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section className="flex flex-col gap-1.5">
       <div className="flex flex-col gap-0.5">
         <h3 className="text-sm font-medium">{title}</h3>
-        <p className="text-xs text-muted-foreground">{hint}</p>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
       <ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border">{children}</ul>
     </section>
@@ -138,7 +136,7 @@ function DiscoveredRow({
       <Checkbox checked={checked} onCheckedChange={(v) => onCheck(row.apiModelName, v)} aria-label={`添加 ${row.apiModelName}`} />
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate font-mono text-sm">{row.apiModelName}</span>
-        <span className="truncate text-xs text-muted-foreground">{data ? `${data.displayName}（${MEDIA_LABEL[data.mediaType]}）` : "未对应条目"}</span>
+        {data && <span className="truncate text-xs text-muted-foreground">{`${data.displayName}（${MEDIA_LABEL[data.mediaType]}）`}</span>}
       </div>
       {custom && row.endpoint && (
         <Select

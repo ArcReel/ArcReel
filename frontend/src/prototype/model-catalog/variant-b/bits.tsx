@@ -25,21 +25,23 @@ export function providersPath(provider: Provider, pmKey?: string): string {
 
 export type ModelFlag = "modified" | "unpriced" | "deprecated" | "user-created" | "unmapped";
 
-/** 供应商模型在列表与 Sheet 上要提示的状态，按严重程度排列。 */
+/**
+ * 供应商模型在列表与 Sheet 上要提示的状态。只留用户需要知道的三种：改过、下架、算不出费用。
+ * 没对应条目与条目没价格对用户是同一个后果（未定价），合并成一个标记。
+ */
 export function flagsOf(_model: ProviderModel, entry: CatalogEntry | undefined): ModelFlag[] {
-  if (!entry) return ["unmapped"];
+  if (!entry) return ["unpriced"];
   const flags: ModelFlag[] = [];
   const status = statusOf(entry);
   const data = effectiveOf(entry);
   if (status === "modified" || status === "modified-outdated") flags.push("modified");
-  if (status === "user-created" || status === "user-created-official") flags.push("user-created");
   if (data.deprecated) flags.push("deprecated");
   if (!data.price.meters.length) flags.push("unpriced");
   return flags;
 }
 
 const FLAG_LABEL: Record<ModelFlag, string> = {
-  modified: "条目已修改",
+  modified: "已修改",
   unpriced: "未定价",
   deprecated: "已下架",
   "user-created": "自建条目",

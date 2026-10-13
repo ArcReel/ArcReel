@@ -22,20 +22,20 @@ export type MeterKey =
   | "requests";
 
 export const METER_LABEL: Record<MeterKey, string> = {
-  input_tokens: "未缓存输入",
-  cache_read_tokens: "缓存读",
-  cache_write_5m_tokens: "缓存写（5 分钟）",
-  cache_write_1h_tokens: "缓存写（1 小时）",
+  input_tokens: "输入",
+  cache_read_tokens: "命中缓存的输入",
+  cache_write_5m_tokens: "写入缓存（保留 5 分钟）",
+  cache_write_1h_tokens: "写入缓存（保留 1 小时）",
   output_tokens: "输出",
   image_input_tokens: "图片输入",
-  image_cache_read_tokens: "图片缓存读",
+  image_cache_read_tokens: "命中缓存的图片输入",
   image_output_tokens: "图片输出",
-  output_images: "输出张数",
-  input_images: "参考图张数",
-  output_seconds: "输出秒数",
+  output_images: "生成图片",
+  input_images: "参考图",
+  output_seconds: "视频时长",
   video_tokens: "视频 token",
-  characters: "字符数",
-  requests: "次数",
+  characters: "文字",
+  requests: "调用次数",
 };
 
 export type MeterUnit = "per_1m" | "per_item" | "per_second" | "per_10k";
@@ -50,11 +50,11 @@ export const UNIT_SHORT: Record<MeterUnit, string> = { per_1m: "/M", per_item: "
 /** 选择维度由代码定义，目录数据不能自创（ADR 0099）。 */
 export type DimKey = "context_tier" | "resolution" | "audio" | "quality" | "service_tier" | "duration";
 export const DIM_LABEL: Record<DimKey, string> = {
-  context_tier: "上下文档",
+  context_tier: "上下文长度",
   resolution: "分辨率",
-  audio: "有声",
-  quality: "质量档",
-  service_tier: "服务档",
+  audio: "声音",
+  quality: "质量",
+  service_tier: "服务等级",
   duration: "时长",
 };
 /** 每个选择维度的候选值，价格编辑器新增行时用。 */
@@ -72,6 +72,7 @@ export function dimValueLabel(dim: DimKey, v: string | number | boolean | null |
   if (dim === "audio") return v ? "有声" : "无声";
   if (dim === "duration") return `${v} 秒`;
   if (dim === "service_tier") return ({ default: "标准", flex: "Flex", fast: "Fast" } as Record<string, string>)[String(v)] ?? String(v);
+  if (dim === "quality") return ({ std: "标准", pro: "专业", "4k": "4K" } as Record<string, string>)[String(v)] ?? String(v);
   return String(v);
 }
 
@@ -315,9 +316,9 @@ export const ENDPOINTS: Record<EndpointKey, EndpointDef> = {
     kind: "python",
     autoV1: true,
     requests: [
-      { name: "create", label: "提交", method: "POST", defaultPath: "/videos" },
-      { name: "retrieve", label: "轮询", method: "GET", defaultPath: "/videos/{task_id}" },
-      { name: "content", label: "取结果", method: "GET", defaultPath: "/videos/{task_id}/content" },
+      { name: "create", label: "提交任务", method: "POST", defaultPath: "/videos" },
+      { name: "retrieve", label: "查询进度", method: "GET", defaultPath: "/videos/{task_id}" },
+      { name: "content", label: "下载结果", method: "GET", defaultPath: "/videos/{task_id}/content" },
     ],
   },
   "newapi-video": {
@@ -327,8 +328,8 @@ export const ENDPOINTS: Record<EndpointKey, EndpointDef> = {
     kind: "declarative",
     autoV1: false,
     requests: [
-      { name: "submit", label: "提交", method: "POST", defaultPath: "/v1/video/generations" },
-      { name: "poll", label: "轮询", method: "GET", defaultPath: "/v1/video/generations/{task_id}" },
+      { name: "submit", label: "提交任务", method: "POST", defaultPath: "/v1/video/generations" },
+      { name: "poll", label: "查询进度", method: "GET", defaultPath: "/v1/video/generations/{task_id}" },
     ],
   },
   "openrouter-video": {
@@ -338,8 +339,8 @@ export const ENDPOINTS: Record<EndpointKey, EndpointDef> = {
     kind: "declarative",
     autoV1: false,
     requests: [
-      { name: "submit", label: "提交", method: "POST", defaultPath: "/videos" },
-      { name: "poll", label: "轮询", method: "GET", defaultPath: "/videos/{task_id}" },
+      { name: "submit", label: "提交任务", method: "POST", defaultPath: "/videos" },
+      { name: "poll", label: "查询进度", method: "GET", defaultPath: "/videos/{task_id}" },
     ],
   },
   "openai-tts": { key: "openai-tts", label: "OpenAI TTS", mediaType: "audio", kind: "python", autoV1: true, requests: [{ name: "speech", label: "合成", method: "POST", defaultPath: "/audio/speech" }] },
@@ -371,7 +372,7 @@ export interface CapabilityOverride {
   inputModes?: ("t2v" | "first_frame" | "last_frame")[];
   maxReferenceImages?: number;
 }
-export const INPUT_MODE_LABEL = { t2v: "文生视频", first_frame: "首帧", last_frame: "尾帧" } as const;
+export const INPUT_MODE_LABEL = { t2v: "文生视频", first_frame: "首帧生视频", last_frame: "首尾帧生视频" } as const;
 
 export interface ProviderModel {
   key: string;

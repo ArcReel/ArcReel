@@ -26,10 +26,8 @@ export function PathBars({ baseUrl, endpoint, apiModelName, overrides, onChange,
         const path = preview.url.slice(base.length + (preview.autoAdded?.length ?? 0));
         return (
           <li key={req.name} className="flex flex-col gap-1">
-            <div className="flex items-center gap-2 text-xs">
-              <span className="rounded bg-muted px-1.5 py-0.5 font-medium tabular-nums">{req.method}</span>
-              <span className="text-subtle-foreground">{req.label}</span>
-              <span className="font-mono text-muted-foreground">{req.name}</span>
+            <div className="flex min-h-4 items-center gap-2 text-xs">
+              {def.requests.length > 1 && <span className="text-subtle-foreground">{req.label}</span>}
               {preview.overridden && !readOnly && (
                 <button
                   type="button"
@@ -40,7 +38,7 @@ export function PathBars({ baseUrl, endpoint, apiModelName, overrides, onChange,
                     onChange(next);
                   }}
                 >
-                  恢复默认路径
+                  恢复默认
                 </button>
               )}
             </div>
@@ -57,7 +55,7 @@ export function PathBars({ baseUrl, endpoint, apiModelName, overrides, onChange,
                   >
                     {preview.autoAdded}
                   </TooltipTrigger>
-                  <TooltipContent>未设置路径覆盖时自动补上 {preview.autoAdded}，设置覆盖后不再补。</TooltipContent>
+                  <TooltipContent>自动补上的 {preview.autoAdded}。修改路径后不再自动补。</TooltipContent>
                 </Tooltip>
               )}
               <PathSegment
@@ -71,7 +69,7 @@ export function PathBars({ baseUrl, endpoint, apiModelName, overrides, onChange,
             </div>
             {preview.overridden && (
               <p className="text-xs text-muted-foreground">
-                默认路径：<span className="font-mono">{req.defaultPath}</span>
+                默认：<span className="font-mono">{req.defaultPath}</span>
               </p>
             )}
           </li>
