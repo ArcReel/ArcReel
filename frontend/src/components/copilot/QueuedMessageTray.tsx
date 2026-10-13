@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, CircleAlert, Clock, Pencil, Send, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
@@ -14,6 +14,7 @@ import { turnPlainText } from "./chat/utils";
 // 作为用户消息出现在时间线上。没有排队消息时不渲染。
 // 每条消息行尾是逐条操作，顺序为立即发送、编辑、删除：立即发送让 Agent 打断当前轮先处理它，编辑把内容
 // 退回输入框，删除直接丢弃。三者都要先向 Agent 撤回，请求在途时这条消息的操作暂不可用。
+// 删除不可撤销，点删除后在这一行原地换成确认与取消，焦点落在取消上，误按 Enter 不会删除。
 // Agent 提问期间托盘照常显示在问卷下方，只是不提供立即发送，免得打断提问。
 // Agent 进程退出时仍在排队的消息转为「未发送」：托盘顶部说明会话已中断，这些消息行尾多一个发送，
 // 由创作者决定重新发送、编辑或删除，不自动重发。
@@ -104,6 +105,17 @@ function QueuedMessageItem({
   const unsent = message.state === "unsent";
   const text = turnPlainText({ type: "user", content: message.content }).trim();
   const imageCount = message.content.filter((block) => block.type === "image").length;
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const cancelDeleteRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirmingDelete) cancelDeleteRef.current?.focus();
+  }, [confirmingDelete]);
+  const dismissOnEscape = (event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      setConfirmingDelete(false);
+    }
+  };
 
   return (
     <li className="flex items-start gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs">
@@ -112,46 +124,75 @@ function QueuedMessageItem({
         {text && <p className="line-clamp-2 whitespace-pre-wrap break-words">{text}</p>}
         {imageCount > 0 && <p className="text-muted-foreground">{t("queued_message_images", { count: imageCount })}</p>}
       </div>
-      <span className="shrink-0 text-muted-foreground">
-        {t(unsent ? "queued_message_state_unsent" : "queued_message_state_queued")}
-      </span>
-      {/* 「未发送」消息的发送与排队中消息的立即发送都排在最前 */}
-      <div className="-my-0.5 flex shrink-0 items-center">
-        {unsent && (
-          <Button variant="ghost" size="icon-xs" disabled={busy} onClick={resend} aria-label={t("queued_message_resend")}>
-            <Send aria-hidden />
-          </Button>
-        )}
-        {!unsent && !questionPending && (
+      {confirmingDelete ? (
+        <div role="group" aria-label={t("queued_message_delete_prompt")} className="-my-0.5 flex shrink-0 items-center gap-1">
+          <span className="text-muted-foreground">{t("queued_message_delete_prompt")}</span>
           <Button
-            variant="ghost"
-            size="icon-xs"
+            variant="destructive"
+            size="xs"
             disabled={busy}
-            onClick={() => withdrawThen(() => onSendNow(message.id))}
-            aria-label={t("queued_message_send_now")}
+            onKeyDown={dismissOnEscape}
+            onClick={() => {
+              setConfirmingDelete(false);
+              withdraw("delete");
+            }}
           >
-            <ArrowUp aria-hidden />
+            {t("queued_message_delete_confirm")}
           </Button>
-        )}
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          disabled={busy || editDisabled}
-          onClick={() => withdraw("edit")}
-          aria-label={t("queued_message_edit")}
-        >
-          <Pencil aria-hidden />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          disabled={busy}
-          onClick={() => withdraw("delete")}
-          aria-label={t("queued_message_delete")}
-        >
-          <Trash2 aria-hidden />
-        </Button>
-      </div>
+          <Button
+            ref={cancelDeleteRef}
+            variant="ghost"
+            size="xs"
+            onKeyDown={dismissOnEscape}
+            onClick={() => setConfirmingDelete(false)}
+          >
+            {t("cancel")}
+          </Button>
+        </div>
+      ) : (
+        <>
+          <span className="shrink-0 text-muted-foreground">
+            {t(unsent ? "queued_message_state_unsent" : "queued_message_state_queued")}
+          </span>
+          {/* 「未发送」消息的发送与排队中消息的立即发送都排在最前 */}
+          <div className="-my-0.5 flex shrink-0 items-center">
+            {unsent && (
+              <Button variant="ghost" size="icon-xs" disabled={busy} onClick={resend} aria-label={t("queued_message_resend")}>
+                <Send aria-hidden />
+              </Button>
+            )}
+            {!unsent && !questionPending && (
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={busy}
+                onClick={() => withdrawThen(() => onSendNow(message.id))}
+                aria-label={t("queued_message_send_now")}
+              >
+                <ArrowUp aria-hidden />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              disabled={busy || editDisabled}
+              onClick={() => withdraw("edit")}
+              aria-label={t("queued_message_edit")}
+            >
+              <Pencil aria-hidden />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              disabled={busy}
+              onClick={() => setConfirmingDelete(true)}
+              aria-label={t("queued_message_delete")}
+            >
+              <Trash2 aria-hidden />
+            </Button>
+          </div>
+        </>
+      )}
     </li>
   );
 }

@@ -603,6 +603,8 @@ export default {
   'queued_message_send_now': 'Gửi ngay',
   'queued_message_edit': 'Sửa',
   'queued_message_delete': 'Xóa',
+  'queued_message_delete_prompt': 'Xóa tin nhắn này?',
+  'queued_message_delete_confirm': 'Xác nhận xóa',
   'queued_message_already_accepted': 'Agent đã nhận tin nhắn này. Tin nhắn vẫn sẽ vào cuộc trò chuyện như bình thường',
   'queued_message_withdraw_failed': 'Không thu hồi được tin nhắn đang xếp hàng này. Hãy thử lại sau',
   'queued_message_send_now_failed': 'Không gửi ngay được tin nhắn đang xếp hàng này. Hãy thử lại sau',

@@ -1781,6 +1781,25 @@ class TestSendQueuedMessageNow:
             await stream.close()
             await service.session_manager.close_session(SDK_ID)
 
+    async def test_a_message_sent_now_moves_to_the_front_of_the_tray(self, service: AssistantService):
+        client = TestQueuedMessageWithdrawal._client()
+        await TestQueuedMessages()._start_running_turn(service, client)
+        stream = _EntryStream(service, SDK_ID)
+        try:
+            await stream.next("queue")
+            earlier = (await service.send_or_create("demo", "顺便配乐", session_id=SDK_ID))["queued_message"]
+            urgent = (await service.send_or_create("demo", "先停下改结局", session_id=SDK_ID))["queued_message"]
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [earlier, urgent]
+
+            assert (await service.send_queued_message_now("demo", SDK_ID, urgent["id"]))["outcome"] == "sent"
+
+            # 托盘顺序跟随 CLI 的处理顺序：整份快照重播一次，插队消息排到最前
+            assert service.session_manager.get_queued_messages_snapshot(SDK_ID) == [urgent, earlier]
+            assert (await stream.next("queue")) == {"session_id": SDK_ID, "messages": [urgent, earlier]}
+        finally:
+            await stream.close()
+            await service.session_manager.close_session(SDK_ID)
+
     async def test_a_message_the_agent_already_took_is_not_sent_again(self, service: AssistantService):
         client = TestQueuedMessageWithdrawal._client()
         client.respond_control("cancel_async_message", {"cancelled": False})

@@ -481,8 +481,34 @@ describe("AgentCopilot", () => {
 
       await user.click(screen.getByRole("button", { name: "删除" }));
 
+      // 删除不可撤销：先在这一行原地确认，焦点落在取消上，误按 Enter 不会删除
+      const confirm = screen.getByRole("group", { name: "删除这条消息？" });
+      expect(withdrawQueuedMessage).not.toHaveBeenCalled();
+      expect(within(confirm).getByRole("button", { name: "取消" })).toHaveFocus();
+      await user.click(within(confirm).getByRole("button", { name: "确认删除" }));
+
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
       expect(screen.getByRole("combobox", { name: "Agent 输入" })).toHaveValue("");
+    });
+
+    it("keeps a queued message when its deletion is cancelled or dismissed with Escape", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "queued" }],
+      });
+      render(<AgentCopilot />);
+
+      await user.click(screen.getByRole("button", { name: "删除" }));
+      await user.click(screen.getByRole("button", { name: "取消" }));
+      expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "删除" }));
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "删除" })).toBeInTheDocument();
+      expect(withdrawQueuedMessage).not.toHaveBeenCalled();
     });
 
     it("explains unsent messages and offers send, edit and delete on each of them", async () => {
@@ -509,6 +535,7 @@ describe("AgentCopilot", () => {
       await user.click(within(unsent).getByRole("button", { name: "编辑" }));
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
       await user.click(within(unsent).getByRole("button", { name: "删除" }));
+      await user.click(within(unsent).getByRole("button", { name: "确认删除" }));
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
       expect(screen.getByRole("combobox", { name: "Agent 输入" })).toHaveValue("");
     });
@@ -557,6 +584,7 @@ describe("AgentCopilot", () => {
       expect(within(tray).queryByRole("button", { name: "立即发送" })).not.toBeInTheDocument();
 
       await user.click(within(tray).getByRole("button", { name: "删除" }));
+      await user.click(within(tray).getByRole("button", { name: "确认删除" }));
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
       await user.click(within(tray).getByRole("button", { name: "编辑" }));
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
