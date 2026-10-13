@@ -606,6 +606,8 @@ export default {
   'queued_message_send_now': 'Send now',
   'queued_message_edit': 'Edit',
   'queued_message_delete': 'Delete',
+  'queued_message_delete_prompt': 'Delete this message?',
+  'queued_message_delete_confirm': 'Confirm delete',
   'queued_message_already_accepted': 'Already received by the Agent. This message will join the conversation as usual',
   'queued_message_withdraw_failed': "Couldn't withdraw this queued message. Try again later",
   'queued_message_send_now_failed': "Couldn't send this queued message now. Try again later",

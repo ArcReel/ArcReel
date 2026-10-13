@@ -754,7 +754,7 @@ class AssistantService:
         生命周期跟随会话面板：开场依次下发 ``entry``×N（cursor 之后的存量）、
         ``draft``（流式累积态 + rev 过滤门槛）、``queue``（排队消息快照）、``question``×N
         （未决问题）和当前 ``status``，之后直播 entry / delta / 排队消息变化（``queue_upsert`` /
-        ``queue_remove``）/ question / status。``status`` 只更新
+        ``queue_remove``，立即发送重排托盘时再发一次 ``queue``）/ question / status。``status`` 只更新
         状态、不关流；流只在客户端离开（或订阅者被溢出移除，即重连信号）时结束。
         会话不常驻时同样建流等待，之后由发送复活的会话照常推送。
         """
@@ -842,6 +842,9 @@ class AssistantService:
                         # 按用户撤回移出时带上意图（``withdrawn``）与编辑时退回输入框的内容（``message``）
                         removed = {k: v for k, v in message.items() if k in ("id", "withdrawn", "message")}
                         yield self._sse_event("queue_remove", {"session_id": session_id, **removed})
+                    elif message.get("op") == "reorder":
+                        # 立即发送把消息排到最前：重播整份快照，客户端按它重排托盘
+                        yield self._sse_event("queue", {"session_id": session_id, "messages": message.get("messages")})
                     else:
                         yield self._sse_event(
                             "queue_upsert", {"session_id": session_id, "message": message.get("message")}

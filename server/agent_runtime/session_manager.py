@@ -400,6 +400,20 @@ class ManagedSession:
         self.queued_messages.remove(queued)
         self.channel.broadcast({"type": "queued_message", "op": "remove", "id": queued.id, **broadcast_fields})
 
+    def move_queued_message_first(self, queued: QueuedMessage) -> None:
+        """把一条排队消息移到最前并重播整份快照：立即发送后托盘顺序跟随 CLI 的处理顺序。"""
+        if self.queued_messages[0] is queued:
+            return
+        self.queued_messages.remove(queued)
+        self.queued_messages.insert(0, queued)
+        self.channel.broadcast(
+            {
+                "type": "queued_message",
+                "op": "reorder",
+                "messages": [item.to_payload() for item in self.queued_messages],
+            }
+        )
+
     def discard_queued_message(self, queued: QueuedMessage, **broadcast_fields: Any) -> None:
         """排队消息未被接纳就离开：移出并释放幂等键，同键重试会重新送入。"""
         self.remove_queued_message(queued, **broadcast_fields)
@@ -1597,6 +1611,8 @@ class SessionManager:
             # 确定送入才登记：等锁期间它可能已离开排队，登记残留会让之后的 aborted_* 轮次都被当成插队打断
             if priority == "now":
                 managed.now_messages_in_flight.add(queued.cli_uuid)
+                # CLI 先处理它：托盘也把它排到最前
+                managed.move_queued_message_first(queued)
             await self._deliver_queued_message(managed, queued, on_failure=_not_delivered, priority=priority)
 
     async def resend_queued_message(

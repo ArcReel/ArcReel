@@ -605,6 +605,8 @@ export default {
   'queued_message_send_now': '立即发送',
   'queued_message_edit': '编辑',
   'queued_message_delete': '删除',
+  'queued_message_delete_prompt': '删除这条消息？',
+  'queued_message_delete_confirm': '确认删除',
   'queued_message_already_accepted': '已被 Agent 接收，这条消息会照常进入对话',
   'queued_message_withdraw_failed': '没能撤回这条排队消息，请稍后重试',
   'queued_message_send_now_failed': '没能立即发送这条排队消息，请稍后重试',
