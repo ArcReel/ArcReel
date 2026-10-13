@@ -1001,7 +1001,8 @@ class TestQueuedMessages:
                 entered.set()
                 await asyncio.Event().wait()
 
-        service.session_manager._session_actor_shutdown_timeout = 0.05
+        # 断开超时设为 0：query 已挂起（entered 握手）时断开不可能完成，不等墙钟直接走取消兜底
+        service.session_manager._session_actor_shutdown_timeout = 0
         with _scripted_client(service.session_manager, HangingClient()):
             sending = asyncio.create_task(
                 service.send_or_create("demo", "补充要求", session_id=SDK_ID, client_key="ck-1")

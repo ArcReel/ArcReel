@@ -1396,9 +1396,11 @@ class SessionManager:
         delivering = False
         try:
             await self.meta_store.update_status(session_id, "running")
-            if self.sessions.get(session_id) is not managed:
-                # 落库期间会话已被驱逐完：这次 running 落在驱逐写的终态之后，补写回终态，再按失败收尾
-                await self.meta_store.update_status(session_id, managed.status)
+            live = self.sessions.get(session_id)
+            if live is not managed:
+                # 落库期间会话已被驱逐完：这次 running 落在驱逐写的终态之后，按当前真相补写——同一 id 已有
+                # 新会话就写新会话的状态，否则写回驱逐的终态；之后按失败收尾
+                await self.meta_store.update_status(session_id, managed.status if live is None else live.status)
                 raise RuntimeError("session evicted while the message was being delivered")
             delivering = True
             await managed.send_query(
