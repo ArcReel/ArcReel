@@ -148,7 +148,13 @@ function QueuedMessageItem({
         {imageCount > 0 && <p className="text-muted-foreground">{t("queued_message_images", { count: imageCount })}</p>}
       </div>
       {confirmingDelete ? (
-        <div role="group" aria-label={t("queued_message_delete_prompt")} className="-my-0.5 flex shrink-0 items-center gap-1">
+        // 面板最窄 320px 时提示文字加两个按钮放不下一行：允许换行，宽度不够时提示文字先折到上一行。
+        // Esc 绑在两个按钮上而不是这个容器上：容器不是交互元素，jsx-a11y 不允许在它上面挂键盘事件
+        <div
+          role="group"
+          aria-label={t("queued_message_delete_prompt")}
+          className="-my-0.5 flex min-w-0 flex-wrap items-center justify-end gap-1"
+        >
           <span className="text-muted-foreground">{t("queued_message_delete_prompt")}</span>
           <Button variant="destructive" size="xs" disabled={busy} onKeyDown={dismissOnEscape} onClick={() => withdraw("delete")}>
             {t("queued_message_delete_confirm")}
