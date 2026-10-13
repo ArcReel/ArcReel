@@ -37,7 +37,7 @@ disable-model-invocation: true
 
 1. 从最新 `origin/main` 创建 `afk/<batch-id>/stage-<K>` 与专属 worktree，并 push stage branch。
 2. 将依赖已满足且改动面可安全并发的 frontier 认领并委派。每个 issue 使用独立 worktree，implementer 按 [implementer.md](references/implementer.md) 交付一个 issue commit。
-3. 在 stage worktree 串行 cherry-pick 交付的 issue commits 并 push。冲突时 abort，由原 implementer 基于最新 stage branch 解决、验证并重新交付。带 `Refs #<N>` 的 commit 出现在远程 stage branch 后，该 issue 才算完成并可解锁新 frontier。
+3. 在 stage worktree 串行 cherry-pick 交付的 issue commits 并 push。冲突时 abort，由原 implementer 基于最新 stage branch 解决、验证并重新交付。带 `Refs #<N>` 的 commit 出现在远程 stage branch 后，该 issue 才算完成并可解锁新 frontier；先核对，再用单独的命令清理 issue worktree 与本地 branch。
 4. 最后一个 stage 先聚合全批 handoff 的 follow-up：只处理经验证存在、属于批次范围且无需业务取舍的真缺陷，清尾 issue 按上表挂接后沿用同一接力；其余转呈。
 5. 全部 issues 集成后，由未参与本 stage 实现的 stage-reviewer 按 [stage-reviewer.md](references/stage-reviewer.md) 审查整个 stage diff 并交付 **green HEAD**。
 6. 创建 draft PR，按上表用 `Closes #<N>` 覆盖本 stage issues，再启动 review-looper 收敛 AI 审查与 commit history。
