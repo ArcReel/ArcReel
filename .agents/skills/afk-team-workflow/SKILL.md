@@ -27,7 +27,7 @@ disable-model-invocation: true
 3. 将本批范围与 `.afk/` 中未 `closed` 账本的批次成员、用户告知的并行批次对照。范围相同时暂停并让用户选择接管或重开，两者均先读 [recovery.md](references/recovery.md)；部分重叠时列入第 5 步的展示。
 4. 按上表将依赖图划成交付 stage。按 [model-selection.md](references/model-selection.md) 为各角色选模型与 effort。
 5. 向用户展示 stage、依赖、模型理由、跳过项及下游影响；`--ready` 批次另列入选与剔除两份清单，由用户确认或删减。同时一次性请求两项授权：全部 stage PR 的 rebase merge；最终清尾轮中对符合范围的真缺陷自行立 issue。未获授权的清尾候选只转呈。
-6. 用 `scripts/ledger.sh --new` 创建薄账本，记录 scope、计划裁决与授权；它生成并输出本批 `batch-id`。账本只记 Git / GitHub 无法重推的事实。
+6. 用 `scripts/ledger.sh --new` 创建薄账本，scope 参数按上表（`--ready` 批次传用户确认后的入选编号），记录计划裁决与授权；它生成并输出本批 `batch-id`。账本只记 Git / GitHub 无法重推的事实。
 
 ## 2. 执行 task graph
 

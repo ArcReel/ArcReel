@@ -2,8 +2,8 @@
 # Expand an AFK batch and project the issue dependency graph. This is a planning
 # snapshot only; stage progress lives in the remote stage branch and PR.
 # Scope is a Spec's sub-issues (--spec), an explicit issue list (--issues), or the
-# discovered loose issues (--ready: open, labelled ready-for-agent, unassigned and not
-# a sub-issue of any parent).
+# discovered loose issues (--ready: open, labelled ready-for-agent, not labelled Spec,
+# unassigned and not a sub-issue of any parent).
 # stdout: {generated_for, issues: [{number, title, state, state_reason, labels,
 # assignees, blocked_by, blockers_completed}], initial_frontier: [number]}.
 # initial_frontier is only the mechanical open/unassigned/blockers projection;
@@ -77,7 +77,7 @@ else
         cat "$TASK_TMP_DIR/fetch.err" >&2
         exit 5
       }
-    ISSUES_CSV=$(jq -r '[.[][] | select(.pull_request == null and (.assignees // []) == []) | .number] | sort | join(",")' \
+    ISSUES_CSV=$(jq -r '[.[][] | select(.pull_request == null and (.assignees // []) == [] and ([.labels[]?.name] | index("Spec") | not)) | .number] | sort | join(",")' \
       "$TASK_TMP_DIR/ready.json")
     [[ -n "$ISSUES_CSV" ]] || {
       jq -nc '{generated_for: {ready: true}, issues: [], initial_frontier: []}'
