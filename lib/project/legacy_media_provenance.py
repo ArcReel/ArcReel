@@ -39,6 +39,7 @@ from lib.project.project_migration_report import MigrationSkippedArtifact
 from lib.project.resource_paths import resource_relative_path
 from lib.script.reference_video.execution_checkpoint import CHECKPOINT_SCHEMA_VERSION
 from lib.script.script_editor import ScriptEditError, resolve_items
+from lib.speech.speech_composition import replan_marked_only_for_mixed_speech
 
 PROVENANCE_BACKFILLED_AT_FIELD = "provenance_backfilled_at"
 """Set on a version record whose typed provenance was projected by a migration."""
@@ -87,11 +88,15 @@ def backfill_legacy_media_provenance(project_dir: Path, *, record_gaps: bool = F
             if not isinstance(assets, Mapping):
                 continue
             resource_id = str(item.get(id_field))
+            video_only = False
             if item.get("needs_replan") is True:
-                # 需要重新规划的单位已有持久状态，不进迁移报告（ADR 0098）。
-                continue
+                # 需要重新规划的单位已有持久状态，不进迁移报告（ADR 0098）。只因混合发声带标记的
+                # 单位，存量视频照常补写来源、补录登记，配音不补。
+                if not (record_gaps and replan_marked_only_for_mixed_speech(kind, item)):
+                    continue
+                video_only = True
             audio_path = assets.get("narration_audio")
-            if isinstance(audio_path, str) and audio_path:
+            if isinstance(audio_path, str) and audio_path and not video_only:
                 record = _selected_record(versions_data, "audio", resource_id)
                 if record is not None and not _is_typed("audio", record):
                     skipped.append(

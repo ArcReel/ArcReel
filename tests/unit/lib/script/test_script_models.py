@@ -325,9 +325,7 @@ class TestNarrationVisualLayerHasNoDialogue:
     def test_response_schema_does_not_expose_dialogue(self):
         schema = NarrationVisualEpisodeScript.model_json_schema()
         video_prompt_refs = [
-            definition
-            for definition in schema["$defs"].values()
-            if "camera_motion" in definition.get("properties", {})
+            definition for definition in schema["$defs"].values() if "camera_motion" in definition.get("properties", {})
         ]
         assert video_prompt_refs
         for definition in video_prompt_refs:

@@ -107,6 +107,7 @@ from lib.speech.speech_composition import (
     SpeechPreparation,
     SpeechUnitSnapshot,
     admit_script_unit,
+    replan_marked_only_for_mixed_speech,
 )
 from lib.speech.speech_presentation import (
     PresentationMedia,
@@ -699,9 +700,13 @@ class TargetStatePlanner:
             return
         script_plan_rel = script_plan_path.relative_to(self.project_dir).as_posix()
         observation = self.adapter.inspect_artifact(self._pending_source(script_plan_rel))
+        script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
+        if observation.blocker is not None and self._activation_mode:
+            # 读不出的草稿原样保留、不登记，进迁移报告（ADR 0098）。
+            self._skip_blocked(script_plan_key, script_plan_rel, observation.blocker)
+            return
         if observation.blocker is not None or not observation.present:
             return
-        script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
         try:
             script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
             self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
@@ -973,6 +978,11 @@ class TargetStatePlanner:
                 continue
             rel = path.relative_to(self.project_dir).as_posix()
             try:
+                observation = self.adapter.inspect_artifact(rel)
+                blocker = observation.blocker
+                if self._activation_mode and blocker is not None and blocker.code == "artifact_unreadable":
+                    # 文件本身打不开与内容坏了同等对待；符号链接等不安全路径仍按原样拒绝。
+                    raise ValueError(blocker.detail)
                 loaded.append(self._load_grid_record(path, rel))
             except ValueError:
                 if not self._activation_mode:
@@ -1013,14 +1023,19 @@ class TargetStatePlanner:
         versions = self._load_versions()
         for episode in self.episodes:
             for item in episode.items:
+                video_only = False
                 if item.get("needs_replan") is True:
-                    continue
+                    # 需要重新规划的单位的媒体不是正式产物；只因混合发声带标记的单位，存量视频照常
+                    # 登记、按常规判时效（ADR 0098），配音仍不算。
+                    if not (self._records_gaps and replan_marked_only_for_mixed_speech(episode.kind, item)):
+                        continue
+                    video_only = True
                 resource_id = str(item[episode.id_field])
                 assets = item.get("generated_assets")
                 if not isinstance(assets, Mapping):
                     continue
                 audio_path = assets.get("narration_audio")
-                if isinstance(audio_path, str) and audio_path:
+                if isinstance(audio_path, str) and audio_path and not video_only:
                     self._plan_one_typed_media(
                         versions,
                         episode=episode,
@@ -1121,6 +1136,16 @@ class TargetStatePlanner:
         if not VersionManager.is_managed_snapshot_path(resource_type, snapshot_rel):
             self._skip(key, artifact_path, "selected version snapshot is not a managed history path")
             return
+        observation = self.adapter.inspect_artifact(artifact_path)
+        if observation.blocker is not None:
+            # 当前媒体文件打不开：只有读不出才进「未能带入」，符号链接、非普通文件只记账。
+            self._skip_blocked(key, artifact_path, observation.blocker)
+            return
+        snapshot_observation = self.adapter.inspect_artifact(cast(str, snapshot_rel))
+        if snapshot_observation.blocker is not None and snapshot_observation.blocker.code == "artifact_unreadable":
+            # 选中版本的快照打不开，当前媒体无从对证：同样算读不出。
+            self._skip(key, artifact_path, "selected version snapshot cannot be read", category="unreadable")
+            return
         artifact = self._safe_present_path(artifact_path)
         snapshot = self._safe_present_path(cast(str, snapshot_rel))
         if artifact is None or snapshot is None:
@@ -1137,7 +1162,7 @@ class TargetStatePlanner:
         try:
             snapshot_digest = visual_file_digest(snapshot)
         except OSError:
-            self._skip(key, artifact_path, "selected version snapshot cannot be read")
+            self._skip(key, artifact_path, "selected version snapshot cannot be read", category="unreadable")
             return
         if artifact_digest != snapshot_digest:
             self._skip(key, artifact_path, "current media file differs from the selected version snapshot")

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from lib.project.project_migration_report import MigrationAdjustment
 from lib.project.project_migrations.v6_to_v7_ad_reference_video_units import migrate_v6_to_v7
 from lib.script.reference_video.text_parser import extract_mentions
 
@@ -326,7 +327,8 @@ def test_a_duplicate_legacy_unit_id_is_renumbered_and_its_media_stays_with_the_f
     )
     _write_json(project_dir / "scripts/episode_1.json", script)
 
-    adjustments = migrate_v6_to_v7(project_dir)
+    adjustments: list[MigrationAdjustment] = []
+    migrate_v6_to_v7(project_dir, record=adjustments)
 
     first, second = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
     assert (first["unit_id"], first["generated_assets"]) == ("E1U1", {"video_clip": "reference_videos/E1U1.mp4"})
@@ -344,7 +346,8 @@ def test_a_duplicate_shot_id_keeps_the_later_shot_in_a_unit_of_its_own(tmp_path:
     script["shots"][1]["voiceover_text"] = "第二个同号镜头"
     _write_json(project_dir / "scripts/episode_1.json", script)
 
-    adjustments = migrate_v6_to_v7(project_dir)
+    adjustments: list[MigrationAdjustment] = []
+    migrate_v6_to_v7(project_dir, record=adjustments)
 
     first, second = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
     assert first["unit_id"] == "E1U1"
@@ -367,7 +370,9 @@ def test_a_unit_the_current_model_rejects_is_kept_and_marked_for_replanning(tmp_
     )
     _write_json(project_dir / "scripts/episode_1.json", script)
 
-    assert migrate_v6_to_v7(project_dir) == ()
+    adjustments: list[MigrationAdjustment] = []
+    migrate_v6_to_v7(project_dir, record=adjustments)
+    assert adjustments == []
 
     first, second = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
     assert (first["generated_assets"], first["needs_replan"]) == ({"legacy_field": "x"}, True)

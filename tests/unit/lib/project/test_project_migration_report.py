@@ -14,6 +14,8 @@ from lib.project.project_migration_report import (
     build_migration_report,
     extend_migration_report,
     load_migration_report,
+    merge_skipped,
+    migration_report_path,
     visible_migration_report,
     write_migration_report,
 )
@@ -103,6 +105,25 @@ def test_new_items_make_an_acknowledged_report_visible_again(tmp_path: Path) -> 
     assert visible.item_count == 2
 
 
+def test_acknowledging_the_report_shown_before_new_items_were_added_leaves_them_visible(tmp_path: Path) -> None:
+    _write(tmp_path, adjusted=[_PLACEHOLDER])
+    shown = visible_migration_report(tmp_path)
+    assert shown is not None
+    report_path = migration_report_path(tmp_path)
+    stored = json.loads(report_path.read_text(encoding="utf-8"))
+    stored["migrated_at"] = "2000-01-01T00:00:00Z"
+    report_path.write_text(json.dumps(stored), encoding="utf-8")
+    shown = visible_migration_report(tmp_path)
+    assert shown is not None
+
+    extend_migration_report(tmp_path, skipped=[_SKIP])
+
+    assert acknowledge_migration_report(tmp_path, migrated_at=shown.migrated_at) is False
+    visible = visible_migration_report(tmp_path)
+    assert visible is not None
+    assert visible.item_count == 2
+
+
 def test_a_basis_that_cannot_be_computed_is_not_shown(tmp_path: Path) -> None:
     """报告只给用户看读不出的文件与旧版旁白音频；依据算不出的跳过只记账，写盘时去掉。"""
     gap = MigrationSkippedArtifact(
@@ -116,6 +137,22 @@ def test_a_basis_that_cannot_be_computed_is_not_shown(tmp_path: Path) -> None:
     report = load_migration_report(tmp_path)
     assert report is not None
     assert report.skipped == [unreadable]
+
+
+def test_a_skip_shown_to_the_user_wins_over_an_unclassified_one_for_the_same_artifact() -> None:
+    """前一步因生成缺口跳过（只记账），后一步发现同一文件读不出：合并后留读不出那条，报告才看得到。"""
+    gap = MigrationSkippedArtifact(
+        kind="episode-storyboard",
+        episode=1,
+        resource_id="E1S01",
+        artifact_path="storyboards/scene_E1S01.png",
+        reason="gap",
+    )
+    unreadable = gap.model_copy(update={"reason": "unreadable", "category": "unreadable"})
+
+    assert merge_skipped([gap], [unreadable]) == (unreadable,)
+    assert merge_skipped([unreadable], [gap]) == (unreadable,)
+    assert merge_skipped([_SKIP], [_SKIP.model_copy(update={"reason": "later"})]) == (_SKIP,)
 
 
 def test_adding_nothing_writes_nothing(tmp_path: Path) -> None:

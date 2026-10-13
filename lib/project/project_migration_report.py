@@ -12,7 +12,8 @@ so the production status can surface it without a database round trip.
 The migration runner writes it when a chain finishes. A chain that fails after
 adjusting files writes an incomplete report holding those adjustments only, so
 the retry that finishes the chain still reports them; an incomplete report is
-never shown. Archive import adds its placeholder adjustments to the staged
+never shown. A chain that fails only after committing the current schema is not
+rerun, so the runner completes its report when it finds the project current. Archive import adds its placeholder adjustments to the staged
 report and acknowledges it once the user confirms the import.
 """
 
@@ -184,12 +185,19 @@ class ArtifactBackfillOutcome:
 def merge_skipped(
     *groups: Sequence[MigrationSkippedArtifact],
 ) -> tuple[MigrationSkippedArtifact, ...]:
-    """Merge skip lists; the first group naming an artifact keeps its reason."""
+    """Merge skip lists; the first group naming an artifact keeps its reason.
+
+    A record the user is shown (``category`` set) wins over an unclassified one for the same
+    artifact: an earlier step may have skipped it for a generation gap before a later one found
+    the file unreadable, and the unclassified record would hide it from the report.
+    """
 
     merged: dict[SkippedArtifactIdentity, MigrationSkippedArtifact] = {}
     for group in groups:
         for item in group:
-            merged.setdefault(item.identity, item)
+            kept = merged.get(item.identity)
+            if kept is None or (kept.category is None and item.category is not None):
+                merged[item.identity] = item
     return tuple(merged.values())
 
 
@@ -246,8 +254,14 @@ def _units_needing_replan(project_dir: Path) -> frozenset[tuple[int, str]]:
             continue
         try:
             script = json.loads(script_path.read_bytes())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(script, dict):
+            # 根不是对象的剧本同样读不出：迁移链失败时这里正为它写未完成的报告，不能盖过链本身的失败。
+            continue
+        try:
             items, id_field, _kind = resolve_items(script)
-        except (OSError, ValueError, ScriptEditError):
+        except ScriptEditError:
             continue
         units.update(
             (episode, str(item.get(id_field)))
@@ -309,6 +323,24 @@ def load_migration_report(project_dir: Path) -> MigrationReport | None:
         return None
 
 
+def complete_migration_report(project_dir: Path, *, to_schema_version: int) -> bool:
+    """Mark an incomplete report complete once its chain is known to have finished. Returns whether one was.
+
+    The adjustments it holds are already on disk; a chain that failed after committing the
+    current schema is never rerun, so this is the only way they reach the user.
+    Raises when the report cannot be rewritten.
+    """
+
+    report = load_migration_report(project_dir)
+    if report is None or report.complete:
+        return False
+    write_migration_report(
+        project_dir,
+        report.model_copy(update={"complete": True, "to_schema_version": to_schema_version, "migrated_at": _utc_now()}),
+    )
+    return True
+
+
 def visible_migration_report(project_dir: Path) -> MigrationReport | None:
     """The report the user is still to be told about: complete, non-empty, not yet acknowledged."""
 
@@ -318,8 +350,11 @@ def visible_migration_report(project_dir: Path) -> MigrationReport | None:
     return report
 
 
-def acknowledge_migration_report(project_dir: Path) -> bool:
+def acknowledge_migration_report(project_dir: Path, *, migrated_at: str | None = None) -> bool:
     """Mark the report as seen so the notice stops showing. Returns whether a report was marked.
+
+    ``migrated_at`` names the report the user was shown; a different report on disk (a later
+    upgrade wrote it meanwhile) stays unacknowledged so it can still be shown.
 
     Raises when the report exists but cannot be rewritten: the notice would
     otherwise come back on the next read while the caller reports success.
@@ -327,6 +362,8 @@ def acknowledge_migration_report(project_dir: Path) -> bool:
 
     report = load_migration_report(project_dir)
     if report is None or report.acknowledged_at is not None:
+        return False
+    if migrated_at is not None and report.migrated_at != migrated_at:
         return False
     write_migration_report(project_dir, report.model_copy(update={"acknowledged_at": _utc_now()}))
     return True
@@ -340,8 +377,9 @@ def extend_migration_report(
 ) -> None:
     """Add what the archive import changed or left out outside the chain, creating the report when absent.
 
-    Items already in the report are not repeated.  New items make the report unacknowledged again,
-    so the user is told about them.
+    Items already in the report are not repeated.  New items make the report unacknowledged again
+    and give it a new ``migrated_at``, so the user is told about them and an acknowledgement of the
+    earlier report does not cover them.
     """
 
     # 依据算不出的跳过不给用户看，并进来也会在写盘时去掉；先滤掉，免得它让已确认的报告重新出现。
@@ -364,7 +402,14 @@ def extend_migration_report(
         return
     write_migration_report(
         project_dir,
-        report.model_copy(update={"adjusted": merged_adjusted, "skipped": merged_skipped, "acknowledged_at": None}),
+        report.model_copy(
+            update={
+                "adjusted": merged_adjusted,
+                "skipped": merged_skipped,
+                "migrated_at": _utc_now(),
+                "acknowledged_at": None,
+            }
+        ),
     )
 
 
@@ -378,6 +423,7 @@ __all__ = [
     "SkippedArtifactCategory",
     "acknowledge_migration_report",
     "build_migration_report",
+    "complete_migration_report",
     "extend_migration_report",
     "load_migration_report",
     "merge_skipped",

@@ -10,7 +10,7 @@ and reproject narration audio through the version's execution-frozen settings.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -52,7 +52,8 @@ from lib.script.script_editor import resolve_items
 from lib.script.storyboard_sequence import (
     EndFrameImageUnavailable,
     StoryboardImageUnavailable,
-    resolve_storyboard_video_inputs,
+    resolve_end_frame_snapshot,
+    resolve_storyboard_video_image,
 )
 from lib.speech.character_voice import character_voice_binding
 from lib.speech.narration_config import PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION, project_tts_settings
@@ -240,24 +241,25 @@ def _storyboard_visual_basis(
     gaps: list[InputGap] = []
     if prompt is None and record_gaps:
         gaps.append(InputGap(PROMPT_PENDING_CODE, name=resource_id))
-    storyboard: Path | None
-    end_frame: Path | None
-    try:
-        storyboard, end_frame = resolve_storyboard_video_inputs(
-            project_path=project_path,
-            resource_id=resource_id,
-            item=item,
-        )
-    except (OSError, TypeError, ValueError) as exc:
-        if not record_gaps or not isinstance(exc, StoryboardImageUnavailable | EndFrameImageUnavailable):
-            raise ValueError(f"storyboard inputs are unavailable: {exc}") from exc
-        storyboard, end_frame = _available_storyboard(project_path, resource_id, item), None
-        if storyboard is None:
-            gaps.append(InputGap(STORYBOARD_UNAVAILABLE_CODE, name=resource_id))
-        if isinstance(exc, EndFrameImageUnavailable) or (
-            storyboard is None and item.get("end_frame_image") not in (None, "")
-        ):
-            gaps.append(InputGap(END_FRAME_UNAVAILABLE_CODE, name=resource_id))
+    # 两帧分开解析：分镜图缺失时尾帧照样是这条视频的输入，只有真读不到的那一帧记为缺席。
+    storyboard = _video_frame_input(
+        resolve_storyboard_video_image,
+        StoryboardImageUnavailable,
+        STORYBOARD_UNAVAILABLE_CODE,
+        project_path=project_path,
+        resource_id=resource_id,
+        item=item,
+        gaps=gaps if record_gaps else None,
+    )
+    end_frame = _video_frame_input(
+        resolve_end_frame_snapshot,
+        EndFrameImageUnavailable,
+        END_FRAME_UNAVAILABLE_CODE,
+        project_path=project_path,
+        resource_id=resource_id,
+        item=item,
+        gaps=gaps if record_gaps else None,
+    )
     return build_storyboard_video_artifact_visual_basis(
         resource_id=resource_id,
         visual_prompt=prompt,
@@ -268,18 +270,37 @@ def _storyboard_visual_basis(
     )
 
 
-def _available_storyboard(project_path: Path, resource_id: str, item: Mapping[str, Any]) -> Path | None:
-    """尾帧不可用时单独解析分镜图；分镜图本身也不可用时返回 ``None``。"""
+def _video_frame_input(
+    resolve: Callable[..., Path | None],
+    unavailable: type[ValueError],
+    gap_code: str,
+    *,
+    project_path: Path,
+    resource_id: str,
+    item: dict[str, Any],
+    gaps: list[InputGap] | None,
+) -> Path | None:
+    """解析一帧画面输入。``gaps`` 给出时，这一帧不可用（缺失或打不开）记为缺席并返回 ``None``；其余失败照常拒绝。"""
 
     try:
-        storyboard, _ = resolve_storyboard_video_inputs(
-            project_path=project_path,
-            resource_id=resource_id,
-            item={key: value for key, value in item.items() if key != "end_frame_image"},
-        )
-    except StoryboardImageUnavailable:
+        frame = resolve(project_path=project_path, resource_id=resource_id, item=item)
+    except (OSError, TypeError, ValueError) as exc:
+        if gaps is None or not isinstance(exc, unavailable):
+            raise ValueError(f"storyboard inputs are unavailable: {exc}") from exc
+        gaps.append(InputGap(gap_code, name=resource_id))
         return None
-    return storyboard
+    if frame is not None and gaps is not None and not _can_open(frame):
+        gaps.append(InputGap(gap_code, name=resource_id))
+        return None
+    return frame
+
+
+def _can_open(path: Path) -> bool:
+    try:
+        with path.open("rb"):
+            return True
+    except OSError:
+        return False
 
 
 def build_current_video_artifact_basis(

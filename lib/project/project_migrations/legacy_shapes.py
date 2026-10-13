@@ -17,7 +17,8 @@ v6→v7 的剧本改写、产物目标态规划（v7→v8 起的各步与归档�
 - **同一资产表里名字归一后相同**（去两端空白、Unicode NFC），或名字归一后为空：留第一条，其余从
   资产表去掉；资产图文件不动，改前的 ``project.json`` 留作保留副本。
 - **剧本条目缺 id 或 id 重复**：缺的补新 id，重复的从第二条起换新 id（取号规则同新增条目）；换号
-  条目上指向原 id 规范媒体路径的产物引用清空——那些文件属于保留原 id 的条目。
+  条目上指向原 id 规范媒体路径的产物引用清空——那些文件属于保留原 id 的条目；只描述这些媒体的
+  生成状态一并清空，换号条目读作尚未生成。
 - **两集里有同号条目**：媒体与登记归 id 前缀所指的那一集，对不上时归账本里靠前的那一集；另一集的
   条目在本集换新 id，不带走媒体。
 - **新旧草稿名并存**（schema < 10）：以新名为准，旧名文件挪成保留副本。
@@ -33,7 +34,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.episode.episode_paths import episode_drafts_dir, episode_script_relpath
@@ -60,6 +61,11 @@ _MEDIA_FIELDS: tuple[tuple[str, str, str], ...] = (
     ("video_clip", "videos", "reference_videos"),
     ("narration_audio", "audio", "audio"),
 )
+#: 只描述某个主媒体的生成状态：主媒体不在时它们没有可描述的对象。
+_MEDIA_COMPANION_FIELDS: dict[str, tuple[str, ...]] = {
+    "storyboard_image": ("storyboard_last_image", "grid_id", "grid_cell_index"),
+    "video_clip": ("video_thumbnail", "video_uri", "video_generated_at"),
+}
 
 
 @dataclass
@@ -67,10 +73,15 @@ class _Work:
     project_dir: Path
     schema_version: int
     project: dict[str, Any]
+    #: 内存里的 ``project`` 有尚未写盘的改动。
     project_changed: bool = False
+    #: 已落盘的规整项：重跑发现不了它们，中途失败也要记下。改动 ``project.json`` 的规整项排在最前。
     adjusted: list[MigrationAdjustment] = field(default_factory=list)
-    #: 改动 ``project.json`` 的规整项；保留副本路径要等写盘时才知道。
+    #: 改动 ``project.json`` 的规整项；写盘后才移进 ``adjusted``，保留副本路径要等第一次写盘时才知道。
     project_adjustments: list[MigrationAdjustment] = field(default_factory=list)
+    project_recorded: int = 0
+    project_committed: bool = False
+    project_backup: str | None = None
 
     def rel(self, path: Path) -> str:
         return path.relative_to(self.project_dir).as_posix()
@@ -152,6 +163,9 @@ def _split_shared_bindings(work: _Work) -> None:
         if len({episode for episode, _entry in sharers}) < 2:
             continue
         script = _load_object(path) if path.is_file() and not path.is_symlink() else None
+        if script is None and path.is_file():
+            # 读不出的剧本不归规整：绑定原样留下，之后的迁移步照旧拒绝整个项目。
+            continue
         claimed = script.get("episode") if script is not None else None
         owner = next((sharer for sharer in sharers if sharer[0] == claimed), sharers[0])
         for episode, entry in sharers:
@@ -197,8 +211,71 @@ def _correct_script_episodes(work: _Work) -> None:
         )
 
 
-def _rewrite_script_references(work: _Work, episode: int, old_paths: set[str], canonical: str) -> None:
-    """改绑后让版本记录与宫格记录里指向旧剧本的引用跟着改到规范路径。"""
+def _commit_project(work: _Work) -> None:
+    """把内存里的 ``project`` 写回盘上，写过的 ``project.json`` 规整项随之记进 ``adjusted``。
+
+    第一次写之前留备份：有改动 ``project.json`` 的规整项时留保留副本（报告指向它），否则留版本化备份。
+    """
+
+    project_file = work.project_dir / "project.json"
+    if not work.project_committed:
+        if work.project_adjustments:
+            work.project_backup = work.rel(set_aside_as_kept_copy(project_file, work.schema_version, copy=True))
+        else:
+            ensure_versioned_backup(project_file, work.schema_version)
+        work.project_committed = True
+    atomic_write_json(project_file, work.project)
+    work.project_changed = False
+    committed = [
+        item.model_copy(update={"backup": work.project_backup})
+        for item in work.project_adjustments[work.project_recorded :]
+    ]
+    work.adjusted[work.project_recorded : work.project_recorded] = committed
+    work.project_recorded = len(work.project_adjustments)
+
+
+@dataclass
+class _Rebind:
+    """一集从非规范绑定改到规范路径。
+
+    ``source`` 是要挪过去的剧本文件，没有可挪的文件时为 ``None``；``old_paths`` 是版本记录与宫格记录里
+    可能指向它的旧写法。
+    """
+
+    episode: int
+    entry: dict[str, Any]
+    raw: str
+    old_paths: set[str]
+    source: Path | None
+
+    @property
+    def canonical_rel(self) -> str:
+        return episode_script_relpath(self.episode)
+
+
+def _staged_path(bound: Path, episode: int) -> Path:
+    """交叉绑定成环时剧本的临时名。由原绑定与集号确定，中断后重跑据此认回。"""
+
+    return bound.with_name(f".{bound.name}.rebind-{episode}")
+
+
+def _unstaged_path(path: Path, episode: int) -> Path | None:
+    """``path`` 是这一集成环时的临时名时，返回挪到临时名之前的原绑定。"""
+
+    prefix, suffix = ".", f".rebind-{episode}"
+    if not (path.name.startswith(prefix) and path.name.endswith(suffix)):
+        return None
+    name = path.name[len(prefix) : -len(suffix)]
+    return path.with_name(name) if name else None
+
+
+def _rewrite_script_references(work: _Work, episode: int, old_paths: set[str], target_rel: str) -> None:
+    """让版本记录与宫格记录里指向该集旧剧本的引用改到 ``target_rel``。
+
+    写入的是不带目录的文件名，与生成任务、宫格请求写下的形态一致（宫格按字面比对剧本）。
+    """
+
+    target = target_rel.removeprefix("scripts/")
 
     def points_at_old(value: object) -> bool:
         if not isinstance(value, str) or not value:
@@ -217,7 +294,7 @@ def _rewrite_script_references(work: _Work, episode: int, old_paths: set[str], c
                 records = resource.get("versions") if isinstance(resource, dict) else None
                 for record in records if isinstance(records, list) else []:
                     if isinstance(record, dict) and points_at_old(record.get("execution_script_file")):
-                        record["execution_script_file"] = canonical
+                        record["execution_script_file"] = target
                         changed = True
         if changed:
             ensure_versioned_backup(versions_path, work.schema_version)
@@ -229,7 +306,7 @@ def _rewrite_script_references(work: _Work, episode: int, old_paths: set[str], c
             record = _load_object(path)
             if record is None or record.get("episode") != episode or not points_at_old(record.get("script_file")):
                 continue
-            record["script_file"] = canonical
+            record["script_file"] = target
             ensure_versioned_backup(path, work.schema_version)
             atomic_write_json(path, record)
 
@@ -248,9 +325,31 @@ def _rebind_manifest_entry(work: _Work, episode: int, canonical: str) -> None:
         raise RuntimeError("artifact manifest changed while rebinding an episode script")
 
 
+def _relocate(work: _Work, rebind: _Rebind, target_rel: str) -> None:
+    """把一集剧本的引用与绑定改到 ``target_rel`` 并立即提交 ``project.json``。
+
+    调用前剧本文件已经挪到位。每挪一次就提交一次：中断后重跑时，账本已改绑的集按新绑定处理，
+    没改绑的集原绑定上已没有文件（或留有临时名），不会把别集挪进来的剧本认成自己的。
+    """
+
+    _rewrite_script_references(work, rebind.episode, rebind.old_paths, target_rel)
+    rebind.entry["script_file"] = target_rel
+    work.project_changed = True
+    _commit_project(work)
+    rebind.old_paths = {target_rel}
+
+
 def _canonicalize_bindings(work: _Work) -> None:
+    """集绑定不是 ``scripts/episode_N.json`` 时，剧本挪到规范路径并改绑。
+
+    一集的规范路径可能正是另一集还没挪走的剧本（旧版按剧本自报的集号建绑定，文件名与集号可以交叉），
+    所以先挪规范路径没被占用的那些；彼此占用成环时，先把其中一份挪到临时名断开。规范路径上剩下的是
+    不归任何一集的文件，内容不同时挪成保留副本。
+    """
+
     if work.schema_version >= _CANONICAL_BINDING_SCHEMA_VERSION:
         return
+    rebinds: list[_Rebind] = []
     for episode, entry in _episode_entries(work.project):
         raw = entry.get("script_file")
         canonical_rel = episode_script_relpath(episode)
@@ -258,28 +357,69 @@ def _canonicalize_bindings(work: _Work) -> None:
             continue
         canonical = work.project_dir / canonical_rel
         bound = _bound_path(work.project_dir, raw)
-        backup: str | None = None
-        if bound is not None and bound != canonical and bound.is_file():
-            if canonical.is_file() and canonical.read_bytes() != bound.read_bytes():
-                backup = work.rel(set_aside_as_kept_copy(canonical, work.schema_version))
-            canonical.parent.mkdir(parents=True, exist_ok=True)
-            bound.replace(canonical)
         old_paths = {raw.replace("\\", "/").removeprefix("./")}
+        source: Path | None = None
         if bound is not None:
             old_paths.add(work.rel(bound))
-        _rebind_manifest_entry(work, episode, canonical_rel)
-        _rewrite_script_references(work, episode, old_paths, canonical_rel)
-        entry["script_file"] = canonical_rel
-        work.project_changed = True
-        work.adjusted.append(
-            MigrationAdjustment(
-                code="script_binding_canonicalized",
-                episode=episode,
-                file=canonical_rel,
-                backup=backup,
-                params={"from": raw, "to": canonical_rel},
-            )
-        )
+            original = _unstaged_path(bound, episode)
+            if original is not None:
+                # 上一次成环时改绑到临时名后中断：报告仍写原来的绑定。
+                raw = work.rel(original)
+            staged = _staged_path(bound, episode)
+            if staged.is_file():
+                # 上一次在成环处中断：这一集的剧本在临时名下，原绑定上若有文件也是别集挪进来的。
+                source = staged
+                old_paths.add(work.rel(staged))
+            elif bound != canonical and bound.is_file():
+                source = bound
+        if source is not None and _load_object(source) is None:
+            # 读不出的剧本不归规整，之后的迁移步照旧拒绝整个项目；这时不挪任何一集的剧本，
+            # 免得它被别集挪成保留副本、或拒绝点名的不再是盘上原来的文件。
+            return
+        rebinds.append(_Rebind(episode=episode, entry=entry, raw=raw, old_paths=old_paths, source=source))
+
+    # 没有可挪文件的集也排进来：它的规范路径若正是别集待挪的剧本，等那一集挪走后再改它的引用。
+    pending = rebinds
+    while pending:
+        sources = {rebind.source for rebind in pending if rebind.source is not None}
+        ready = next((r for r in pending if work.project_dir / r.canonical_rel not in sources), None)
+        if ready is None:
+            canonicals = {work.project_dir / r.canonical_rel for r in pending}
+            blocking = next(r for r in pending if r.source is not None and r.source in canonicals)
+            source = cast(Path, blocking.source)
+            staged = _staged_path(source, blocking.episode)
+            source.replace(staged)
+            blocking.source = staged
+            _relocate(work, blocking, work.rel(staged))
+            continue
+        pending.remove(ready)
+        backup: str | None = None
+        try:
+            if ready.source is not None:
+                canonical = work.project_dir / ready.canonical_rel
+                if canonical.is_file() and canonical.read_bytes() != ready.source.read_bytes():
+                    backup = work.rel(set_aside_as_kept_copy(canonical, work.schema_version))
+                canonical.parent.mkdir(parents=True, exist_ok=True)
+                ready.source.replace(canonical)
+            _rebind_manifest_entry(work, ready.episode, ready.canonical_rel)
+            _relocate(work, ready, ready.canonical_rel)
+        except BaseException:
+            if backup is not None:
+                # 保留副本已经挪出来，重跑时发现不了它：中途失败也让报告指向它。重跑完成同一处改绑时
+                # 记下的那一条不带保留副本，按同一处改动只记一次。
+                work.adjusted.append(_binding_canonicalized(ready, backup))
+            raise
+        work.adjusted.append(_binding_canonicalized(ready, backup))
+
+
+def _binding_canonicalized(rebind: _Rebind, backup: str | None) -> MigrationAdjustment:
+    return MigrationAdjustment(
+        code="script_binding_canonicalized",
+        episode=rebind.episode,
+        file=rebind.canonical_rel,
+        backup=backup,
+        params={"from": rebind.raw, "to": rebind.canonical_rel},
+    )
 
 
 def _drop_duplicate_assets(work: _Work) -> None:
@@ -406,6 +546,15 @@ def _repair_item_ids(work: _Work) -> None:
 
 
 def _release_media_of(item: dict[str, Any], old_id: str, kind: str) -> None:
+    """换号条目放下原 id 的规范媒体，连同只描述那些媒体的生成状态，读作尚未生成。
+
+    缩略图、视频 URI、生成时刻跟着视频走，尾帧快照、宫格归属跟着分镜图走：主媒体不在时它们描述的是
+    原 id 那一条的产物，一并清掉。指向别处的媒体引用不是原 id 的规范路径，留着，它的伴随状态也留着。
+    落盘的 ``status`` 按剩下的媒体重算，口径同 ``ProjectManager.update_scene_status``。
+    """
+
+    if item.get("end_frame_image") == resource_relative_path("end_frames", old_id):
+        item.pop("end_frame_image")
     assets = item.get("generated_assets")
     if not isinstance(assets, dict):
         return
@@ -413,6 +562,18 @@ def _release_media_of(item: dict[str, Any], old_id: str, kind: str) -> None:
         resource_type = unit_type if kind == "video_units" else storyboard_type
         if assets.get(field_name) == resource_relative_path(resource_type, old_id):
             assets[field_name] = None
+    for field_name, companions in _MEDIA_COMPANION_FIELDS.items():
+        if not assets.get(field_name):
+            for companion in companions:
+                if assets.get(companion) is not None:
+                    assets[companion] = None
+    if "status" in assets:
+        if assets.get("video_clip"):
+            assets["status"] = "completed"
+        elif assets.get("storyboard_image"):
+            assets["status"] = "storyboard_ready"
+        else:
+            assets["status"] = "pending"
 
 
 def _resolve_draft_name_conflicts(work: _Work) -> None:
@@ -437,32 +598,41 @@ def _resolve_draft_name_conflicts(work: _Work) -> None:
             )
 
 
-def normalize_legacy_shapes(project_dir: Path, *, schema_version: int) -> tuple[MigrationAdjustment, ...]:
-    """规整 ``project_dir`` 里的旧形态并返回做过的改动；无事可做时返回空元组、不写盘。"""
+def _adjustment_identity(item: MigrationAdjustment) -> str:
+    return item.model_dump_json(exclude={"backup"})
+
+
+def normalize_legacy_shapes(project_dir: Path, *, schema_version: int, record: list[MigrationAdjustment]) -> None:
+    """规整 ``project_dir`` 里的旧形态，做过的改动追加进 ``record``；无事可做时不写盘。
+
+    中途失败时，此前已落盘的改动照样追加进 ``record``：重跑时规整已经发现不了它们，要靠未完成的
+    报告带到重试。``project.json`` 上的改动只在它写盘之后才算落盘。
+    """
 
     project_file = project_dir / "project.json"
     project = _load_object(project_file)
     if project is None:
-        return ()
+        return
     work = _Work(project_dir=project_dir, schema_version=schema_version, project=project)
-    _drop_duplicate_episodes(work)
-    _split_shared_bindings(work)
-    _canonicalize_bindings(work)
-    _correct_script_episodes(work)
-    _drop_duplicate_assets(work)
-    _repair_item_ids(work)
-    _resolve_draft_name_conflicts(work)
-    if work.project_changed:
-        backup = None
-        if work.project_adjustments:
-            backup = work.rel(set_aside_as_kept_copy(project_file, schema_version, copy=True))
-        else:
-            ensure_versioned_backup(project_file, schema_version)
-        atomic_write_json(project_file, work.project)
-        work.adjusted[:0] = [item.model_copy(update={"backup": backup}) for item in work.project_adjustments]
+    try:
+        _drop_duplicate_episodes(work)
+        _split_shared_bindings(work)
+        # 资产去重只改 project.json；先于改绑做完，改绑第一次提交 project.json 时留下的保留副本
+        # 就能覆盖全部 project.json 规整项。
+        _drop_duplicate_assets(work)
+        _canonicalize_bindings(work)
+        _correct_script_episodes(work)
+        _repair_item_ids(work)
+        _resolve_draft_name_conflicts(work)
+        if work.project_changed:
+            _commit_project(work)
+    finally:
+        # 上一次中途失败时已记下的改动，重跑时可能再次发现（如改绑没来得及提交）：同一处改动只记一次，
+        # 留先记下的那条，它带着当时挪出的保留副本。
+        recorded = {_adjustment_identity(item) for item in record}
+        record.extend(item for item in work.adjusted if _adjustment_identity(item) not in recorded)
     if work.adjusted:
         logger.info("规整旧形态 %s：%d 处", project_dir.name, len(work.adjusted))
-    return tuple(work.adjusted)
 
 
 __all__ = ["NORMALIZE_FROM_SCHEMA_VERSION", "normalize_legacy_shapes"]

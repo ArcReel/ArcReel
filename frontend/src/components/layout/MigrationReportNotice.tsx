@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Info, Loader2, X } from "lucide-react";
 
 import { API } from "@/api";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { MigrationReportContent, migrationReportItemCount } from "@/components/shared/MigrationReportContent";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,9 +49,12 @@ export function MigrationReportNotice({
     if (dismissing) return;
     setDismissing(true);
     try {
-      await API.acknowledgeMigrationReport(projectName);
+      // 只确认展示的这一份。盘上已换成新报告或已在别处确认时服务端不确认：刷新制作状态，
+      // 新报告照常出现，已确认的不再出现。
+      const { acknowledged } = await API.acknowledgeMigrationReport(projectName, report.migrated_at);
       setOpen(false);
-      setDismissedAt(report.migrated_at);
+      if (acknowledged) setDismissedAt(report.migrated_at);
+      else await refreshAfterWrite(projectName, t);
     } catch (err) {
       useAppStore.getState().pushToast(t("dashboard:migration_report_dismiss_failed", { message: errMsg(err) }), "error");
     } finally {

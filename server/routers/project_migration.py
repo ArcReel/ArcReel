@@ -8,10 +8,11 @@
 import asyncio
 
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from lib.infra.api_errors import NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
-from lib.project.project_manager import get_project_manager
+from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.project_migration_report import acknowledge_migration_report
 from server.auth import CurrentUser
 from server.tool_runtime import (
@@ -49,11 +50,22 @@ async def retry_migration(name: str, user: CurrentUser):
     return {"success": True}
 
 
+class AcknowledgeReportRequest(BaseModel):
+    #: 用户看过的那份报告的生成时间。盘上已换成另一份报告（之后又升级过）时不确认，新报告照常提示。
+    migrated_at: str
+
+
 @router.post("/projects/{name}/migration-report/acknowledge")
-async def acknowledge_report(name: str, _user: CurrentUser):
-    """记下用户已看过上一次升级的报告：项目页不再提示。没有待确认的报告时同样成功。"""
-    pm = get_project_manager()
+async def acknowledge_report(name: str, body: AcknowledgeReportRequest, _user: CurrentUser):
+    """记下用户已看过上一次升级的报告：项目页不再提示。没有待确认的报告时同样成功。
+
+    ``acknowledged`` 为假表示盘上没有这份待确认的报告：要么已确认过，要么已换成另一份。
+    """
+    acknowledged = await run_sync_transaction(_acknowledge, get_project_manager(), name, body.migrated_at)
+    return {"success": True, "acknowledged": acknowledged}
+
+
+def _acknowledge(pm: ProjectManager, name: str, migrated_at: str) -> bool:
     if not pm.project_exists(name):
         raise NotFoundError("project_not_found", name=name)
-    await run_sync_transaction(acknowledge_migration_report, pm.get_project_path(name))
-    return {"success": True}
+    return acknowledge_migration_report(pm.get_project_path(name), migrated_at=migrated_at)

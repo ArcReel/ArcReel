@@ -26,6 +26,7 @@ from lib.project.project_migration_report import (
     ArtifactBackfillOutcome,
     MigrationAdjustment,
     build_migration_report,
+    complete_migration_report,
     load_migration_report,
     merge_skipped,
     write_migration_report,
@@ -72,9 +73,9 @@ CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 #: v9→v10 改过名，改名前后两侧都可能留着待回收的备份，故回收侧两侧一起枚举。
 _DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES.values())
 
-#: 迁移器返回值：改写产物清单的那几步返回本步登记与跳过的产物，runner 把链上最后一份折进迁移报告；
-#: 按确定规则改了用户数据的那几步（如 v6→v7、v8→v9 换编号）返回改动，runner 并进报告的「已调整」。
-MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | tuple[MigrationAdjustment, ...] | None]] = {}
+#: 迁移器返回值：改写产物清单的那几步返回本步登记与跳过的产物，runner 把链上最后一份折进迁移报告。
+#: 按确定规则改了用户数据的那几步（如 v6→v7 换编号）把改动追加进 runner 传入的 ``record``，并进报告的「已调整」。
+MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | None]] = {}
 #: 自行备份输入的迁移器（清单激活按依赖集备份；v8、v9、v14 备份自己改写的文件），runner 不为它们备份 project.json。
 _MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12, 14})
 
@@ -176,7 +177,10 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
     ``recorded_episode_ids`` 按项目名查任务与调用记录里出现过的最大集 ID，转交 v15→v16 覆盖进
     项目历史最高号；缺省时只看项目目录本身。"""
     version = _load_schema_version(project_dir)
-    if version < 0 or version >= CURRENT_SCHEMA_VERSION:
+    if version < 0:
+        return False
+    if version >= CURRENT_SCHEMA_VERSION:
+        _finish_unfinished_report(project_dir)
         return False
     start_version = version
     outcome: ArtifactBackfillOutcome | None = None
@@ -192,7 +196,7 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
         while version < CURRENT_SCHEMA_VERSION:
             if not normalized and version >= NORMALIZE_FROM_SCHEMA_VERSION:
                 # 旧形态规整先于这条链上第一次产物目标态规划，后者认不得这些形态。
-                adjusted.extend(normalize_legacy_shapes(project_dir, schema_version=version))
+                normalize_legacy_shapes(project_dir, schema_version=version, record=adjusted)
                 normalized = True
             # Activation migrations must finish their complete read-only preflight
             # before creating any backup.  Their commit boundary owns the backup so
@@ -207,14 +211,12 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
             migrator = MIGRATORS.get(version)
             if not migrator:
                 raise RuntimeError(f"no migrator from v{version}")
-            step_outcome = (
-                migrate_v15_to_v16(project_dir, recorded_episode_ids=recorded_episode_ids)
-                if migrator is migrate_v15_to_v16
-                else migrator(project_dir)
-            )
-            if isinstance(step_outcome, tuple):
-                adjusted.extend(step_outcome)
-                step_outcome = None
+            if migrator is migrate_v15_to_v16:
+                step_outcome = migrate_v15_to_v16(project_dir, recorded_episode_ids=recorded_episode_ids)
+            elif migrator is migrate_v6_to_v7:
+                step_outcome = migrate_v6_to_v7(project_dir, record=adjusted)
+            else:
+                step_outcome = migrator(project_dir)
             if step_outcome is not None:
                 if step_outcome.preserve_previous_skips:
                     previous_report = load_migration_report(project_dir) if outcome is None else None
@@ -232,34 +234,56 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
                     )
                 outcome = step_outcome
             version += 1
+        if outcome is not None or adjusted:
+            # 链上最后一次清单改写描述的是迁移完成时清单的全貌，报告只留这一份。
+            write_migration_report(
+                project_dir,
+                build_migration_report(
+                    outcome,
+                    from_schema_version=start_version,
+                    to_schema_version=CURRENT_SCHEMA_VERSION,
+                    adjusted=adjusted,
+                ),
+            )
     except BaseException:
-        if adjusted:
-            _record_unfinished_adjustments(project_dir, adjusted, from_version=start_version, to_version=version)
+        # 收尾那次写报告失败、或最后一步提交了当前版本之后才失败，同样留下未完成的报告：
+        # 下次启动看到项目已在当前版本，由 ``_finish_unfinished_report`` 补写成完成的报告。
+        # 链已走完时 ``outcome`` 就是清单的全貌，跳过项随报告留下；中途失败时重试会重新算出它们。
+        finished = outcome if version >= CURRENT_SCHEMA_VERSION else None
+        if adjusted or finished is not None:
+            _record_unfinished_report(project_dir, finished, adjusted, from_version=start_version, to_version=version)
         raise
-    if outcome is not None or adjusted:
-        # 链上最后一次清单改写描述的是迁移完成时清单的全貌，报告只留这一份。
-        write_migration_report(
-            project_dir,
-            build_migration_report(
-                outcome,
-                from_schema_version=start_version,
-                to_schema_version=CURRENT_SCHEMA_VERSION,
-                adjusted=adjusted,
-            ),
-        )
     return True
 
 
-def _record_unfinished_adjustments(
-    project_dir: Path, adjusted: list[MigrationAdjustment], *, from_version: int, to_version: int
+def _finish_unfinished_report(project_dir: Path) -> None:
+    """项目已在当前版本、报告却仍未完成时补写成完成的报告；写不下只记日志，下次启动再补。
+
+    链在提交当前版本之后才失败（最后一步提交后报错，或收尾那次写报告失败）时，重跑不会再进链，
+    未完成的报告不补写就永远不对用户显示。
+    """
+
+    try:
+        complete_migration_report(project_dir, to_schema_version=CURRENT_SCHEMA_VERSION)
+    except OSError as exc:
+        logger.warning("无法补写未完成的迁移报告：%s（%s）", project_dir, exc)
+
+
+def _record_unfinished_report(
+    project_dir: Path,
+    outcome: ArtifactBackfillOutcome | None,
+    adjusted: list[MigrationAdjustment],
+    *,
+    from_version: int,
+    to_version: int,
 ) -> None:
-    """链中途失败时留下已落盘的规整记录；写不下只记日志，不盖过链本身的失败。"""
+    """链失败时留下已落盘的规整记录（链已走完时连同清单结果）；写不下只记日志，不盖过链本身的失败。"""
 
     try:
         write_migration_report(
             project_dir,
             build_migration_report(
-                None,
+                outcome,
                 from_schema_version=from_version,
                 to_schema_version=to_version,
                 adjusted=adjusted,
@@ -342,6 +366,7 @@ def run_project_migrations(
                 # A project that reached the current schema by any route is not blocked;
                 # a verdict left over from an earlier attempt would strand it forever.
                 clear_migration_failure(child)
+                _finish_unfinished_report(child)
                 summary.skipped.append(child.name)
                 continue
 

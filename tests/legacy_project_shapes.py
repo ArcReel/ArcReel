@@ -1428,3 +1428,36 @@ def reuse_item_id_across_episodes(project_dir: Path, item_id: str) -> None:
     (project_dir / "storyboards" / f"scene_{item_id}.png").write_bytes(b"shared storyboard")
     project["episodes"].append({"episode": 2, "title": "第2集", "script_file": "scripts/episode_2.json"})
     _write_json(project_path, project)
+
+
+def cross_bind_episode_scripts(project_dir: Path, filenames: dict[int, str], *, ledger_order: list[int]) -> None:
+    """旧版 SSE 索引同步按剧本自报的集号建绑定，文件名与集号可以交叉（如第 1 集的剧本叫 ``episode_2.json``）。
+
+    账本里补登第 2 集（剧本复制自第 1 集，条目换成第 2 集的号、不带媒体），再把各集剧本改名为
+    ``scripts/<filenames[集号]>`` 并改绑，账本按 ``ledger_order`` 排列；清单里第 1 集剧本的登记随之指向新文件名。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    first_path = project_dir / _ledger_entry(project, 1)["script_file"]
+    first = _load_json_object(first_path)
+    second = {**json.loads(json.dumps(first)), "episode": 2, "title": "第2集"}
+    for segment in second["segments"]:
+        segment["segment_id"] = segment["segment_id"].replace("E1", "E2", 1)
+        segment["generated_assets"] = {}
+    first_path.unlink()
+    for episode, script in ((1, first), (2, second)):
+        _write_json(project_dir / "scripts" / filenames[episode], script)
+    entries = {entry["episode"]: entry for entry in project["episodes"]}
+    entries.setdefault(2, {"episode": 2, "title": "第2集"})
+    for episode in (1, 2):
+        entries[episode]["script_file"] = f"scripts/{filenames[episode]}"
+    project["episodes"] = [entries[episode] for episode in ledger_order]
+    _write_json(project_path, project)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    key = ArtifactKey.episode_script(1)
+    entry = adapter.get_entry(key)
+    if entry is not None:
+        adapter.put_entry(
+            key, ArtifactManifestEntry(artifact_path=f"scripts/{filenames[1]}", basis_digest=entry.basis_digest)
+        )

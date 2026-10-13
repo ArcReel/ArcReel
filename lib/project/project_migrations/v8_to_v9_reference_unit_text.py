@@ -254,8 +254,8 @@ def migrate_v8_to_v9(project_dir: Path) -> None:
                 draft = _readable_file(draft_path, draft_label)
                 if draft is not None:
                     plans.append((draft_path, migrate_reference_script_plan_draft(draft, location=draft_label)))
-            except ValueError as exc:
-                # 损坏的脚本规划草稿原样保留、不改写，不拒绝整个项目（ADR 0098 收窄 ADR 0064）。
+            except (OSError, ValueError) as exc:
+                # 损坏或打不开的脚本规划草稿原样保留、不改写，不拒绝整个项目（ADR 0098 收窄 ADR 0064）。
                 logger.warning("第 %s 集脚本规划草稿无法迁移，原样保留：%s（%s）", episode, draft_path, exc)
 
     # 预检全部成功后才创建备份；所有文件（含 project.json）先备份完，再开始替换。

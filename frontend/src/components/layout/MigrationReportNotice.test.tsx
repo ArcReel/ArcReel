@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import type { WorkflowMigrationReport } from "@/types/workflow";
 
 import { MigrationReportNotice } from "./MigrationReportNotice";
@@ -72,14 +73,29 @@ describe("MigrationReportNotice", () => {
   });
 
   it("disappears once dismissed and records the acknowledgement", async () => {
-    const acknowledge = vi.spyOn(API, "acknowledgeMigrationReport").mockResolvedValue({ success: true });
+    const acknowledge = vi
+      .spyOn(API, "acknowledgeMigrationReport")
+      .mockResolvedValue({ success: true, acknowledged: true });
     render(<MigrationReportNotice projectName="demo" report={report()} episodes={EPISODES} />);
     const user = userEvent.setup();
 
     await user.click(screen.getByRole("button", { name: "关闭升级提示" }));
 
-    expect(acknowledge).toHaveBeenCalledWith("demo");
+    expect(acknowledge).toHaveBeenCalledWith("demo", report().migrated_at);
     expect(screen.queryByRole("button", { name: "本次升级调整了 3 项内容" })).not.toBeInTheDocument();
+  });
+
+  it("refreshes the status instead of hiding when the report on disk has changed", async () => {
+    vi.spyOn(API, "acknowledgeMigrationReport").mockResolvedValue({ success: true, acknowledged: false });
+    const refreshProject = vi.fn().mockResolvedValue("success");
+    useProjectsStore.setState({ refreshProject });
+    render(<MigrationReportNotice projectName="demo" report={report()} episodes={EPISODES} />);
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole("button", { name: "关闭升级提示" }));
+
+    expect(refreshProject).toHaveBeenCalledWith("demo", undefined);
+    expect(screen.getByRole("button", { name: "本次升级调整了 3 项内容" })).toBeInTheDocument();
   });
 
   it("stays and explains why when the acknowledgement cannot be saved", async () => {

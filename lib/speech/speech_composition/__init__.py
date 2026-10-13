@@ -563,6 +563,18 @@ def video_unit_replan_problems(
     return admit_script_unit("video_units", unit, ignore_marker=ignore_marker).problems
 
 
+def replan_marked_only_for_mixed_speech(skeleton_kind: str, unit: Mapping[str, object]) -> bool:
+    """单位带 ``needs_replan``，且去掉标记后发声准入只因台词与画外音混合而不通过。
+
+    这类单位的存量视频照常补录、按常规判时效，单位本身仍需重新规划（``docs/adr/0098``）；其余原因
+    带标记的单位，以及这类单位的分镜图、配音与呈现，仍不是正式产物。
+    """
+    if unit.get("needs_replan") is not True:
+        return False
+    problems = admit_script_unit(skeleton_kind, unit, ignore_marker=True).problems
+    return bool(problems) and all(problem.code is SpeechProblemCode.MIXED_SPEECH for problem in problems)
+
+
 def refresh_video_unit_replan_state(
     unit: dict[str, object],
     *,
@@ -607,6 +619,7 @@ __all__ = [
     "adapt_video_unit",
     "admit_script_unit",
     "refresh_video_unit_replan_state",
+    "replan_marked_only_for_mixed_speech",
     "require_script_unit_admitted",
     "video_unit_replan_problems",
 ]

@@ -1917,10 +1917,17 @@ class API {
     });
   }
 
-  /** 记下用户已看过上一次升级的报告：之后制作状态不再给出它。没有待确认的报告时同样成功。 */
-  static async acknowledgeMigrationReport(projectName: string): Promise<{ success: boolean }> {
+  /**
+   * 记下用户已看过 `migratedAt` 那一份升级报告：之后制作状态不再给出它。没有待确认的报告时同样成功。
+   * 盘上已换成另一份报告时不确认，`acknowledged` 为假。
+   */
+  static async acknowledgeMigrationReport(
+    projectName: string,
+    migratedAt: string,
+  ): Promise<{ success: boolean; acknowledged: boolean }> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/migration-report/acknowledge`, {
       method: "POST",
+      body: JSON.stringify({ migrated_at: migratedAt }),
     });
   }
 

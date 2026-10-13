@@ -14,11 +14,11 @@ from lib.artifacts.artifact_currency import (
     resolve_current_artifact_basis,
     resolve_current_artifact_target,
 )
-from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey
+from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.artifacts.artifact_planner import plan_artifact_target_state_by_gap_rule
 from lib.edit_timeline import EditTimelineService
 from lib.project.project_manager import ProjectManager
-from lib.project.project_migration_report import load_migration_report
+from lib.project.project_migration_report import load_migration_report, skipped_artifact_identity
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
 from lib.project.project_migrations.runner import cleanup_stale_backups, migrate_project_dir
 from lib.speech.speech_composition import SpeechProblemCode, admit_script_unit
@@ -145,11 +145,86 @@ def test_a_mixed_speech_stock_video_is_registered_but_its_unit_still_needs_repla
     assert comparison.status.value == "current"
     report = load_migration_report(project_dir)
     assert report is not None
-    assert [item for item in report.skipped if item.resource_id == "E1S1" and item.kind == "video"] == []
+    assert skipped_artifact_identity(video) not in {item.identity for item in report.skipped}
     segment = _read_json(script_path)["segments"][0]
     admission = admit_script_unit("segments", segment)
     assert not admission.allowed
     assert [problem.code for problem in admission.preparation.problems] == [SpeechProblemCode.MIXED_SPEECH]
+
+
+def test_a_stock_video_of_a_unit_marked_for_replanning_over_mixed_speech_is_registered(tmp_path: Path) -> None:
+    """机器产出的混合发声片段落盘时带 needs_replan：存量视频照样登记，片段的分镜图仍不算正式产物。"""
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = _read_json(script_path)
+    segment = script["segments"][0]
+    segment["video_prompt"]["dialogue"] = [{"speaker": "张三", "line": "别回头。"}]
+    segment["needs_replan"] = True
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    assets = segment["generated_assets"]
+
+    assert migrate_project_dir(project_dir) is True
+
+    video = ArtifactKey.episode_video(1, "E1S1")
+    resolver = ArtifactCurrencyResolver(project_dir)
+    assert resolver.compare(video, artifact_path=assets["video_clip"]).status.value == "current"
+    entries = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+    assert ArtifactKey.episode_storyboard(1, "E1S1") not in entries
+    report = load_migration_report(project_dir)
+    assert report is None or not [item for item in report.skipped if item.resource_id == "E1S1"]
+    segment = _read_json(script_path)["segments"][0]
+    assert segment["needs_replan"] is True
+    admission = admit_script_unit("segments", segment)
+    assert not admission.allowed
+    assert SpeechProblemCode.NEEDS_REPLAN in {problem.code for problem in admission.preparation.problems}
+
+
+def test_a_stock_video_whose_storyboard_is_gone_still_depends_on_its_end_frame(tmp_path: Path) -> None:
+    """分镜图已不在、尾帧还在：补录的视频依据只把分镜图记为缺席，之后换掉尾帧视频读作 stale。"""
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = _read_json(script_path)
+    script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S1.png"
+    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    end_frame = project_dir / "end_frames" / "scene_E1S1.png"
+    end_frame.parent.mkdir()
+    end_frame.write_bytes(b"end frame")
+    (project_dir / "storyboards" / "scene_E1S1.png").unlink()
+
+    assert migrate_project_dir(project_dir) is True
+
+    video = ArtifactKey.episode_video(1, "E1S1")
+    entry = _manifest_entries(project_dir)[video.encode()]
+    assert ArtifactCurrencyResolver(project_dir).compare(video, artifact_path=entry["artifact_path"]).status.value == (
+        "current"
+    )
+    end_frame.write_bytes(b"another end frame")
+
+    resolver = ArtifactCurrencyResolver(project_dir)
+    assert resolver.compare(video, artifact_path=entry["artifact_path"]).status.value == "stale"
+
+
+@pytest.mark.skipif(
+    os.name != "posix" or os.geteuid() == 0, reason="needs POSIX permissions that the current user cannot bypass"
+)
+def test_a_stock_video_whose_storyboard_cannot_be_opened_is_registered_with_the_storyboard_absent(
+    tmp_path: Path,
+) -> None:
+    """分镜图在盘上却打不开：分镜图进「未能带入」，存量视频照常补录，依据把分镜图记为缺席。"""
+    project_dir = write_legacy_storyboard_project(tmp_path / "projects")
+    storyboard = project_dir / "storyboards" / "scene_E1S1.png"
+    storyboard.chmod(0)
+    try:
+        assert migrate_project_dir(project_dir) is True
+    finally:
+        storyboard.chmod(0o644)
+
+    assert ArtifactKey.episode_video(1, "E1S1").encode() in _manifest_entries(project_dir)
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert ("episode-storyboard", "storyboards/scene_E1S1.png") in {
+        (item.kind, item.artifact_path) for item in report.skipped
+    }
 
 
 @pytest.mark.parametrize(

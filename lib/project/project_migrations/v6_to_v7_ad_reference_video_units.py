@@ -353,21 +353,24 @@ def _script_paths(project_dir: Path, project: dict[str, Any]) -> list[tuple[Path
     return result
 
 
-def migrate_v6_to_v7(project_dir: Path) -> tuple[MigrationAdjustment, ...]:
-    """先预检所有剧本，再逐文件原子替换，最后提交 ``project.json`` 版本；返回换过编号的记录。"""
+def migrate_v6_to_v7(project_dir: Path, *, record: list[MigrationAdjustment] | None = None) -> None:
+    """先预检所有剧本，再逐文件原子替换，最后提交 ``project.json`` 版本。
+
+    换过编号的记录在对应剧本写盘后立即追加进 ``record``：之后一步失败时，已转换的剧本重跑时发现
+    不了换号，要靠未完成的报告带到重试。
+    """
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
     if not project_file.is_file():
-        return ()
+        return
     project = load_json(project_file)
     if not isinstance(project, dict):
         raise ValueError("project.json 必须是对象")
     if int(project.get("schema_version") or 0) >= 7:
-        return ()
+        return
 
     target_route = project.get("content_mode") == "ad" and project.get("generation_mode") == "reference_video"
-    plans: list[tuple[Path, dict[str, Any]]] = []
-    adjustments: list[MigrationAdjustment] = []
+    plans: list[tuple[Path, dict[str, Any], list[MigrationAdjustment]]] = []
     if target_route:
         # 此循环只读：任一文件损坏时还没有备份或业务文件写入。
         for path, episode in _script_paths(project_dir, project):
@@ -375,8 +378,7 @@ def migrate_v6_to_v7(project_dir: Path) -> tuple[MigrationAdjustment, ...]:
             if not isinstance(payload, dict):
                 raise ValueError(f"剧本必须是对象: {path.relative_to(project_dir)}")
             migrated, renumbered = migrate_ad_reference_script(payload, episode=episode)
-            plans.append((path, migrated))
-            adjustments.extend(
+            adjustments = [
                 MigrationAdjustment(
                     code="item_id_reassigned",
                     episode=episode,
@@ -384,18 +386,20 @@ def migrate_v6_to_v7(project_dir: Path) -> tuple[MigrationAdjustment, ...]:
                     params={"from": old_id, "to": new_id},
                 )
                 for old_id, new_id in renumbered
-            )
+            ]
+            plans.append((path, migrated, adjustments))
 
         # 预检全部成功后才创建备份；所有脚本先备份完，再开始替换。
-        for path, _payload in plans:
+        for path, _payload, _adjustments in plans:
             ensure_versioned_backup(path, 6)
-        for path, payload in plans:
+        for path, payload, adjustments in plans:
             atomic_write_json(path, payload)
+            if record is not None:
+                record.extend(adjustments)
 
     migrated_project = copy.deepcopy(project)
     migrated_project["schema_version"] = 7
     atomic_write_json(project_file, migrated_project)
-    return tuple(adjustments)
 
 
 __all__ = ["migrate_ad_reference_script", "migrate_v6_to_v7"]
