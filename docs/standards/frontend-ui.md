@@ -140,7 +140,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 
 AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操作。确认按钮用 `variant="destructive"`；提交中禁用两个按钮，并在 `onOpenChange` 中忽略关闭请求，Esc 不会在请求未完成时关掉对话框。
 
-列表行内的轻量对象（如托盘里的排队消息）原地确认：该行换成提示文字、`variant="destructive"` 的确认按钮与 `outline` 的「取消」，焦点落在「取消」按钮上，Esc 或取消退出确认并把焦点交还触发它的按钮。先例是 `QueuedMessageTray` 的删除。
+列表行内的轻量对象（如托盘里的排队消息）原地确认：该行换成提示文字、`variant="destructive"` 的确认按钮与 `outline` 的「取消」，焦点落在「取消」按钮上，Esc 或取消退出确认并把焦点交还触发它的按钮，焦点离开确认区域也退出确认。先例是 `QueuedMessageTray` 的删除。
 
 移除、移动、隐藏这类可以恢复的操作不弹确认，执行后调用 `pushToast(text, tone, { action: { label: t("common:undo"), onClick } })`。点击「撤销」会执行回调并关闭这条提示。
 
