@@ -812,6 +812,71 @@ async def test_manual_upload_uses_explicit_unverified_raw_presentation_everywher
         assert json.loads(archive.read("presentation.json"))["provenance"] == "unavailable"
 
 
+def _mark_e1s01_manual_upload(project_path: Path) -> None:
+    versions_path = project_path / "versions" / "versions.json"
+    versions_value = json.loads(versions_path.read_text(encoding="utf-8"))
+    record = versions_value["videos"]["E1S01"]["versions"][0]
+    versions_value["videos"]["E1S01"]["versions"][0] = {
+        key: value
+        for key, value in record.items()
+        if key in {"version", "file", "prompt", "created_at", "_previous_current_version"}
+    } | {"source": "manual_upload"}
+    _write_json(versions_path, versions_value)
+    ProjectArtifactManifestAdapter(project_path).delete_entry(ArtifactKey.episode_video(1, "E1S01"))
+
+
+def _add_planned_episode_without_script(project_path: Path, *, first: bool) -> None:
+    project_file = project_path / "project.json"
+    project = json.loads(project_file.read_text(encoding="utf-8"))
+    planned = {"episode": 2, "script_file": "scripts/episode_2.json"}
+    project["episodes"] = [planned, *project["episodes"]] if first else [*project["episodes"], planned]
+    _write_json(project_file, project)
+    assert not (project_path / "scripts" / "episode_2.json").exists()
+
+
+async def test_manual_upload_skips_planned_episode_without_script(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    _mark_e1s01_manual_upload(project_path)
+    _add_planned_episode_without_script(project_path, first=True)
+
+    async def probe(_path: Path) -> float | None:
+        return 6.25
+
+    read_model = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+        duration_probe=probe,
+    )
+    result = await read_model.materialize_unit(
+        project_name="demo",
+        resource_type="videos",
+        resource_id="E1S01",
+        variant="use_tts",
+    )
+
+    assert result.episode == 1
+    assert result.presentation.provenance == "unavailable"
+
+
+async def test_manual_upload_unit_missing_from_existing_scripts_stays_unavailable(tmp_path: Path) -> None:
+    pm, project_path, settings = _setup_narrator_project(tmp_path)
+    _mark_e1s01_manual_upload(project_path)
+    _add_planned_episode_without_script(project_path, first=False)
+    (project_path / "scripts" / "episode_1.json").unlink()
+
+    read_model = PresentationReadModelService(
+        pm,
+        settings_resolver_factory=lambda _project_name, _project_path: _SettingsResolver(settings),
+    )
+    with pytest.raises(PresentationUnavailableError):
+        await read_model.materialize_unit(
+            project_name="demo",
+            resource_type="videos",
+            resource_id="E1S01",
+            variant="use_tts",
+        )
+
+
 async def test_generated_video_without_typed_provenance_fails_closed(tmp_path: Path) -> None:
     pm, project_path, settings = _setup_narrator_project(tmp_path)
     versions_path = project_path / "versions" / "versions.json"
