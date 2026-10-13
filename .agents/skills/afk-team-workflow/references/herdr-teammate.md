@@ -21,4 +21,4 @@ teammate 只向 prompt 注入的 team-lead pane ID 发消息。消息写明 `bat
 
 消息只做唤醒与定位；完整上下文留在 issue、commit 和 handoff。Herdr 拓扑 ID 不写入账本。
 
-team-lead 以 handoff 或 request 通知为完成信号。reviewer 与 looper 等闸门或 CI 期间会周期性 idle，看守 teammate 状态时只对 blocked、消失或长时间 idle 做出反应。
+team-lead 以 handoff 通知为交付完成信号，以 request 通知为需要裁决的唤醒信号。reviewer 与 looper 等闸门或 CI 期间会周期性 idle，看守 teammate 状态时只对 blocked、消失或长时间 idle 做出反应。

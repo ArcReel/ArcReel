@@ -40,15 +40,25 @@ export function QueuedMessageTray(props: QueuedMessageTrayProps) {
   const { t } = useTranslation("dashboard");
   const messages = useAssistantStore((s) => s.queuedMessages);
   const listRef = useRef<HTMLUListElement>(null);
-  const lastId = messages.at(-1)?.id;
+  // 上一次渲染时托盘里的消息 id，按顺序；据此分辨末尾是新发出的消息还是重排后换上来的
+  const previousIdsRef = useRef<string[]>([]);
 
-  // 新发出的消息排在末尾：末尾换了一条就把它滚到托盘底边，前面的消息被接纳离开时不跳动。
+  // 新发出的消息排在末尾：末尾出现没见过的消息就把它滚到托盘底边，前面的消息被接纳离开时不跳动。
+  // 立即发送把已有消息排到最前：原先的首条仍在时说明是重排，滚到顶边露出它。
   // 只滚托盘自身：面板收起时宽度为 0，scrollIntoView 会连带滚动外层裁切容器
   useLayoutEffect(() => {
     const list = listRef.current;
-    const last = list?.lastElementChild;
-    if (list && last instanceof HTMLElement) list.scrollTop = last.offsetTop + last.offsetHeight - list.clientHeight;
-  }, [lastId]);
+    const ids = messages.map((message) => message.id);
+    const previousIds = previousIdsRef.current;
+    previousIdsRef.current = ids;
+    if (!list || ids.length === 0) return;
+    const last = list.lastElementChild;
+    if (!previousIds.includes(ids[ids.length - 1])) {
+      if (last instanceof HTMLElement) list.scrollTop = last.offsetTop + last.offsetHeight - list.clientHeight;
+    } else if (ids[0] !== previousIds[0] && previousIds[0] !== undefined && ids.includes(previousIds[0])) {
+      list.scrollTop = 0;
+    }
+  }, [messages]);
 
   if (messages.length === 0) return null;
   const hasUnsent = messages.some((message) => message.state === "unsent");

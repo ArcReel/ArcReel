@@ -401,8 +401,8 @@ class ManagedSession:
         self.channel.broadcast({"type": "queued_message", "op": "remove", "id": queued.id, **broadcast_fields})
 
     def move_queued_message_first(self, queued: QueuedMessage) -> None:
-        """把一条排队消息移到最前并重播整份快照：立即发送后托盘顺序跟随 CLI 的处理顺序。"""
-        if self.queued_messages[0] is queued:
+        """把一条排队消息移到最前并重播整份快照：立即发送后托盘顺序跟随 CLI 的处理顺序。已不在列表中时什么也不做。"""
+        if queued not in self.queued_messages or self.queued_messages[0] is queued:
             return
         self.queued_messages.remove(queued)
         self.queued_messages.insert(0, queued)
@@ -1408,6 +1408,9 @@ class SessionManager:
                 # 写入 CLI 失败说明管道已断，actor 随之退出，由 send_query 与 actor 退出路径落 error
                 if not delivering:
                     managed.abandon_running(epoch)
+                raise
+            if session_id in self._disconnecting:
+                # 驱逐期间 actor 被取消才走到这里：终态由驱逐收尾写入，这里不抢写 error
                 raise
             managed.status = "error"
             try:
