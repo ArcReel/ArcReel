@@ -46,6 +46,7 @@ from lib.infra.logging_config import (
     setup_logging,
     warn_if_log_dir_env_set,
 )
+from lib.infra.loop_stall_probe import start_loop_stall_probe, stop_loop_stall_probe
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.script.source_loader.migration import migrate_project_source_encoding
@@ -498,10 +499,13 @@ async def lifespan(app: FastAPI):
         project_event_service.publish_assistant_session_resumed
     )
 
+    # 卡顿探针放在启动步骤之后：迁移等启动期同步工作不算线上卡顿，避免误报。
+    stall_probe = start_loop_stall_probe()
     async with remote_mcp_host.run():
         yield
 
     # Shutdown
+    await stop_loop_stall_probe(stall_probe)
     assistant.assistant_service.session_manager.set_autonomous_turn_listener(None)
     project_event_service = getattr(app.state, "project_event_service", None)
     if project_event_service:
