@@ -150,8 +150,9 @@ function QueuedMessageItem({
     dismissDelete(false);
   };
   const keepFocusInside = (event: PointerEvent<HTMLDivElement>) => {
-    // 点区域内的提示文字不让焦点落到 body：按钮照常接收焦点
-    if (!(event.target instanceof HTMLButtonElement)) event.preventDefault();
+    // 点区域内的提示文字不让焦点落到 body：按钮（含按钮内的图标、文字节点）照常接收焦点
+    if (event.target instanceof Element && event.target.closest("button")) return;
+    event.preventDefault();
   };
 
   return (

@@ -1396,6 +1396,10 @@ class SessionManager:
         delivering = False
         try:
             await self.meta_store.update_status(session_id, "running")
+            if self.sessions.get(session_id) is not managed:
+                # 落库期间会话已被驱逐完：这次 running 落在驱逐写的终态之后，补写回终态，再按失败收尾
+                await self.meta_store.update_status(session_id, managed.status)
+                raise RuntimeError("session evicted while the message was being delivered")
             delivering = True
             await managed.send_query(
                 _user_message_frame(queued.content, cli_uuid, priority=priority), sdk_session_id=session_id
@@ -1409,8 +1413,8 @@ class SessionManager:
                 if not delivering:
                     managed.abandon_running(epoch)
                 raise
-            if session_id in self._disconnecting:
-                # 驱逐期间 actor 被取消才走到这里：终态由驱逐收尾写入，这里不抢写 error
+            if session_id in self._disconnecting or self.sessions.get(session_id) is not managed:
+                # 会话正在被驱逐，或等 meta 写库期间已被驱逐完：终态由驱逐收尾写入，这里不抢写 error
                 raise
             managed.status = "error"
             try:

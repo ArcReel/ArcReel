@@ -1017,6 +1017,39 @@ class TestQueuedMessages:
         assert meta is not None
         assert meta.status == "interrupted"
 
+    async def test_a_send_that_resumes_after_a_graceful_eviction_keeps_the_eviction_status(
+        self, service: AssistantService
+    ):
+        """发送在 running 落库期间挂起、会话被完整驱逐后才恢复：拿到普通异常，不把驱逐写的终态改成 error。"""
+        client = self._running_turn_client()
+        await self._start_running_turn(service, client)
+        client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
+        client.push_frame(_idle_frame())
+        await _wait_for_status(service.session_manager, SDK_ID, "completed")
+        update_status = service.meta_store.update_status
+        suspended, release = asyncio.Event(), asyncio.Event()
+
+        async def _suspend_running(session_id: str, status: str, *args: Any, **kwargs: Any) -> Any:
+            if status == "running":
+                suspended.set()
+                await release.wait()
+            return await update_status(session_id, status, *args, **kwargs)
+
+        with patch.object(service.meta_store, "update_status", new=_suspend_running):
+            sending = asyncio.create_task(service.send_or_create("demo", "加一段旁白", session_id=SDK_ID))
+            await asyncio.wait_for(suspended.wait(), timeout=5.0)
+            # 没有在途命令，actor 正常断开，驱逐完整收尾并写入终态
+            await service.session_manager.close_session(SDK_ID)
+            release.set()
+            outcome = (await asyncio.gather(sending, return_exceptions=True))[0]
+
+        assert isinstance(outcome, Exception)
+        assert SDK_ID not in service.session_manager.sessions
+        # 驱逐看到的是已登记 running 的会话，按中断收尾；晚到的 running 落库之后补写回的也是这个终态
+        meta = await service.meta_store.get(SDK_ID)
+        assert meta is not None
+        assert meta.status == "interrupted"
+
     async def _start_running_turn(self, service: AssistantService, client: FakeSDKClient) -> None:
         """发出第一条消息并等 Agent 开始输出：会话此后一直 running。"""
         with _scripted_client(service.session_manager, client):
