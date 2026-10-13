@@ -82,7 +82,8 @@ describe("CharacterDerivativeRow", () => {
     fireEvent.click(screen.getByRole("button", { name: "重新生成" }));
 
     const confirm = await screen.findByRole("alertdialog");
-    expect(confirm).toHaveTextContent("2 张分镜图、1 段视频");
+    // 弹窗先以「加载中」打开，影响摘要随后才到
+    await waitFor(() => expect(confirm).toHaveTextContent("2 张分镜图、1 段视频"));
     expect(spy).not.toHaveBeenCalled();
     fireEvent.click(within(confirm).getByRole("button", { name: "重新生成" }));
 
