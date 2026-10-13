@@ -121,6 +121,7 @@ updates:
           - "import-linter"
           - "respx"
           - "mutmut"
+          - "blockbuster"
         update-types:
           - "minor"
           - "patch"

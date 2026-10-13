@@ -66,6 +66,7 @@ dev = [
     "respx>=0.22.0",
     "deptry>=0.24.0",
     "pytest-testmon>=2.2.0",
+    "blockbuster>=1.5.29",
 ]
 # 变异测试工具，不进 dev：只在按批次跑 mutmut 时 `uv sync --group mutation` 装入。
 # 独立成组是为了让版本 pin 进 uv.lock、被 dependabot 看到；流程见 docs/testing/mutmut-runbook.md。
@@ -308,6 +309,7 @@ DEP004 = [
     "_pytest",        # pytest 的内部模块，根 conftest 复用其选择参数解析器
     "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）
     "respx",          # httpx 的测试替身
+    "blockbuster",    # 事件循环阻塞检测，tests/blocking_guard 护栏的拦截点来源
 ]
 
 [tool.ruff]

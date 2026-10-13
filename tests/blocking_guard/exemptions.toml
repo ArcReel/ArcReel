@@ -1,0 +1,39 @@
+# 事件循环阻塞的永久豁免：只收应用启动与关停路径上的一次性阻塞，每条写明理由。
+# 条目格式与临时白名单相同：<文件>::<最近的 lib/server async 函数>。
+# 请求、任务、轮询路径上的阻塞不进这里：修掉它，或在治理期间留在 allowlist.txt。
+
+[[exemption]]
+key = "server/app.py::lifespan"
+reason = "应用生命周期本身：启动时的沙箱与 Docker 探测、日志文件处理器挂载、首次生成鉴权密码写 .env，关停时的收尾；每个进程各执行一次。"
+
+[[exemption]]
+key = "server/app.py::_migrate_source_encoding_on_startup"
+reason = "只由 lifespan 启动步骤调用：扫描项目目录、迁移旧源文件编码，每个进程一次。"
+
+[[exemption]]
+key = "lib/agent/agent_session_store/import_local.py::migrate_local_transcripts_to_store"
+reason = "只由 lifespan 启动步骤调用：一次性把本地会话转录导入存储，靠标记文件只执行一次。"
+
+[[exemption]]
+key = "lib/config/migration.py::migrate_json_to_db"
+reason = "只由 lifespan 启动步骤调用：一次性把旧 JSON 配置迁入数据库并改名源文件。"
+
+[[exemption]]
+key = "lib/infra/data_root_layout_migration.py::_move_projects_into_projects_dir"
+reason = "数据根布局迁移步骤，只经 lifespan 调用的 migrate_data_root_layout 在启动时执行一次。"
+
+[[exemption]]
+key = "lib/infra/data_root_layout_migration.py::_rename_global_assets_dir"
+reason = "数据根布局迁移步骤，只经 lifespan 调用的 migrate_data_root_layout 在启动时执行一次。"
+
+[[exemption]]
+key = "lib/infra/data_root_layout_migration.py::_move_user_data_to_users_dir"
+reason = "数据根布局迁移步骤，只经 lifespan 调用的 migrate_data_root_layout 在启动时执行一次。"
+
+[[exemption]]
+key = "lib/infra/data_root_layout_migration.py::_move_runtime_state_to_runtime_dir"
+reason = "数据根布局迁移步骤，只经 lifespan 调用的 migrate_data_root_layout 在启动时执行一次。"
+
+[[exemption]]
+key = "server/remote_mcp.py::RemoteMCPHost.run"
+reason = "只由 lifespan 以 async with 进入：启动时构造远程 MCP 服务并运行其会话管理器，请求处理不经过这一帧。"
