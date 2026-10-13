@@ -44,22 +44,30 @@ _FALLBACK_MAX_ATTEMPTS = 2
 _SUBSCHEMA_MAP_KEYS = frozenset({"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"})
 # 这些关键字的值是「实例数据」而非子 schema：不可递归进去（里面恰好叫 ``const`` 的内容是数据）。
 _INSTANCE_KEYWORDS = frozenset({"const", "enum", "default", "examples"})
+# Gemini Developer API 的 ``responseSchema`` 不认识的 schema 关键字：作为关键字出现时剥除。
+_UNSUPPORTED_KEYWORDS = frozenset({"additionalProperties"})
 
 
 def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
-    """归一 schema 的枚举形约束为 ``responseSchema`` 通道可表达的形态。
+    """归一 schema 为 ``responseSchema`` 通道可表达的形态。
 
-    两步归一（同一次位置感知遍历完成）：
+    三步归一（同一次位置感知遍历完成）：
     1. 「值为标量」的 ``const: X`` → ``enum: [X]``（语义等价）。单值 ``Literal`` 在
        ``model_json_schema()`` 里渲染为 ``const``，而 ``types.Schema`` 无 ``const`` 字段。
     2. 含非字符串成员的 ``enum`` → 字符串枚举 + ``type: string``。``types.Schema`` 的
        ``enum`` 仅支持字符串（proto 定义如此），整数时长枚举 ``[4,6,8]`` 转为 ``["4","6","8"]``
        后精确集合的约束解码依然成立；解析侧 ``_duration_literal`` 的机械强转恢复 int。
+    3. 剥除 schema 关键字 ``additionalProperties``。严格模型（``extra="forbid"``）的
+       ``model_json_schema()`` 在每层对象都带 ``additionalProperties: false``，google-genai 对假值
+       原样发出 ``additional_properties``，Gemini Developer API 的 ``responseSchema`` 不认识该字段，
+       直接 400 INVALID_ARGUMENT。约束解码本身不会生成 schema 外的属性，剥除不损失约束，
+       下游仍按严格 Pydantic 模型复验。
 
     ``const`` 出现的位置有三种，须区分对待（这是正确性的不可约最小状态机）：
     - **schema 关键字**：归一（仅标量，对齐本仓库唯一的 const 形态——单值时长 Literal）；
+      ``additionalProperties`` 同理仅在此位置剥除；
     - **字段名**（``_SUBSCHEMA_MAP_KEYS`` 映射的 key）：当前 dict 的 key 是名字，其值仍是子 schema，
-      继续按 schema 递归（里面真正的 const 照常归一）；
+      继续按 schema 递归（里面真正的 const 照常归一；叫 ``additionalProperties`` 的字段保留）；
     - **实例数据**（``_INSTANCE_KEYWORDS`` 的值）：原样保留、不递归。
     """
     if isinstance(node, list):
@@ -71,6 +79,8 @@ def _const_to_enum(node: object, *, in_subschema_map: bool = False) -> object:
         return {k: _const_to_enum(v) for k, v in node.items()}
     out: dict = {}
     for k, v in node.items():
+        if k in _UNSUPPORTED_KEYWORDS:
+            continue  # Gemini responseSchema 不认识，且对约束解码无影响
         if k in _INSTANCE_KEYWORDS:
             out[k] = v  # 值是实例数据，原样保留
         else:
@@ -91,7 +101,7 @@ def _to_response_schema(schema: dict | type) -> dict:
     ``responseJsonSchema``，较新，多数代理网关的请求解析结构体不认识、会静默丢弃——丢弃后上游按
     无 schema 的纯 JSON 模式自由生成，枚举/必填约束全部失效，线上大面积复现）。统一走前者：
     先 ``resolve_schema`` 内联 ``$ref``，再经 ``_const_to_enum`` 把 ``const`` 与非字符串 ``enum``
-    归一为 ``types.Schema`` 可表达的字符串枚举。
+    归一为 ``types.Schema`` 可表达的字符串枚举，并剥除 ``additionalProperties``。
     """
     normalized = _const_to_enum(resolve_schema(schema))
     assert isinstance(normalized, dict)  # resolve_schema 必返回 dict
