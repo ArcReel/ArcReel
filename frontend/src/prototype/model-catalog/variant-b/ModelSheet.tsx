@@ -312,7 +312,7 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
                 )}
 
                 <Field label="价格">
-                  <PriceCards value={draft.entry.price} onChange={(price) => setEntry({ price })} official={userOwnsEntry ? official?.price : null} />
+                  <PriceCards value={draft.entry.price} onChange={(price) => setEntry({ price })} official={userOwnsEntry ? official?.price : null} media={draft.entry.mediaType} optional />
                 </Field>
               </>
             )}

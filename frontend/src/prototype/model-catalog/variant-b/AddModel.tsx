@@ -10,20 +10,18 @@ import { Input } from "@/components/ui/input";
 import {
   MEDIA_LABEL,
   MEDIA_TYPES,
-  PRICE_PRESET_LABEL,
   effectiveOf,
   makerLabel,
-  priceFromPreset,
   priceSummary,
   type CatalogEntry,
-  type Currency,
   type EntryData,
   type MediaType,
-  type PricePreset,
+  type PriceTable,
   type Provider,
 } from "../model";
 import { useProto } from "../store";
 import { Chip, endpointFor, matchEntry } from "./bits";
+import { PriceCards } from "./PriceCards";
 
 function EntryItem({ entry, onSelect, suffix }: { entry: CatalogEntry; onSelect: () => void; suffix?: React.ReactNode }) {
   const d = effectiveOf(entry);
@@ -237,18 +235,17 @@ export function NewEntryDialog({
   const [name, setName] = useState(initialName);
   const [displayName, setDisplayName] = useState("");
   const [media, setMedia] = useState<MediaType>("text");
-  const [preset, setPreset] = useState<PricePreset>("token");
-  const [currency, setCurrency] = useState<Currency>("USD");
+  const [price, setPrice] = useState<PriceTable>({ currency: "USD", meters: [] });
   const id = `${maker.trim() || "custom"}/${name.trim()}`;
   const taken = entries.some((e) => e.id === id);
   const valid = name.trim() && !taken;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle>手动填写模型信息</DialogTitle>
-          <DialogDescription>为目录中没有的模型填写能力和价格。</DialogDescription>
+          <DialogDescription>为目录中没有的模型填写基本信息，价格可以之后再补。</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
@@ -276,22 +273,9 @@ export function NewEntryDialog({
               ))}
             </div>
           </div>
-          <div className="flex flex-col gap-1 text-sm">
-            计价方式
-            <div className="flex flex-wrap gap-1.5">
-              {(Object.keys(PRICE_PRESET_LABEL) as PricePreset[]).map((p) => (
-                <Chip key={p} active={preset === p} onClick={() => setPreset(p)}>
-                  {PRICE_PRESET_LABEL[p]}
-                </Chip>
-              ))}
-              <span className="mx-1 h-7 w-px bg-border" />
-              {(["USD", "CNY"] as Currency[]).map((c) => (
-                <Chip key={c} active={currency === c} onClick={() => setCurrency(c)}>
-                  {c}
-                </Chip>
-              ))}
-            </div>
-            
+          <div className="flex flex-col gap-1.5 text-sm">
+            价格（可选）
+            <PriceCards value={price} onChange={setPrice} media={media} optional />
           </div>
         </DialogBody>
         <DialogFooter>
@@ -312,7 +296,7 @@ export function NewEntryDialog({
                 resolutions: [],
                 durationConstraints: {},
                 maxOutputTokens: media === "text" ? 8192 : null,
-                price: priceFromPreset(preset, currency),
+                price,
                 version: "user",
               };
               createEntry(data);

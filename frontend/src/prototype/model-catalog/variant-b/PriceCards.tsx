@@ -19,6 +19,7 @@ import {
   type DimValue,
   type Meter,
   type MeterKey,
+  type MediaType,
   type MeterUnit,
   type PriceTable,
 } from "../model";
@@ -43,6 +44,7 @@ const METER_UNIT: Record<MeterKey, MeterUnit> = {
 
 /** 计数单位跟着计量项走：图片按张，调用按次。 */
 function unitOf(m: Meter): { label: string; short: string } {
+  if (m.unit === "per_1m") return { label: UNIT_LABEL[m.unit], short: "/百万 token" };
   if (m.unit !== "per_item") return { label: UNIT_LABEL[m.unit], short: UNIT_SHORT[m.unit] };
   return m.meter === "requests" ? { label: "每次", short: "/次" } : { label: "每张", short: "/张" };
 }
@@ -57,15 +59,27 @@ function meterText(m: Meter | undefined, cur: Currency | null): string {
     .join("；");
 }
 
+/** 各媒体类型可用的计费项，「添加计费项」只列这些。 */
+const MEDIA_METERS: Record<MediaType, MeterKey[]> = {
+  text: ["input_tokens", "cache_read_tokens", "cache_write_5m_tokens", "cache_write_1h_tokens", "output_tokens", "requests"],
+  image: ["output_images", "input_images", "image_input_tokens", "image_cache_read_tokens", "image_output_tokens", "input_tokens", "requests"],
+  video: ["output_seconds", "video_tokens", "requests"],
+  audio: ["characters", "requests"],
+};
+
 interface Props {
   value: PriceTable;
+  /** 限定「添加计费项」的候选；不传则列出全部。 */
+  media?: MediaType;
+  /** 价格可以不填（如手动填写模型信息时），空状态用中性提示。 */
+  optional?: boolean;
   onChange: (next: PriceTable) => void;
   /** 有官方值且与当前值不同时，在卡片下方就地标注。 */
   official?: PriceTable | null;
   readOnly?: boolean;
 }
 
-export function PriceCards({ value, onChange, official, readOnly }: Props) {
+export function PriceCards({ value, onChange, official, readOnly, media, optional }: Props) {
   const cur = value.currency;
   const setMeter = (i: number, next: Meter | null) => {
     const meters = [...value.meters];
@@ -73,11 +87,12 @@ export function PriceCards({ value, onChange, official, readOnly }: Props) {
     else meters.splice(i, 1);
     onChange({ ...value, meters });
   };
-  const missing = (Object.keys(METER_LABEL) as MeterKey[]).filter((k) => !value.meters.some((m) => m.meter === k));
+  const missing = (media ? MEDIA_METERS[media] : (Object.keys(METER_LABEL) as MeterKey[])).filter((k) => !value.meters.some((m) => m.meter === k));
   const officialMissing = official ? official.meters.filter((m) => !value.meters.some((x) => x.meter === m.meter)) : [];
 
   return (
     <div className="flex flex-col gap-3">
+      {value.meters.length > 0 && (
       <div className="flex items-center gap-2 text-sm">
         <span className="text-muted-foreground">币种</span>
         {(["USD", "CNY"] as Currency[]).map((c) => (
@@ -95,8 +110,10 @@ export function PriceCards({ value, onChange, official, readOnly }: Props) {
           </button>
         ))}
       </div>
+      )}
 
-      {value.meters.length === 0 && (
+      {value.meters.length === 0 && optional && <p className="text-xs text-muted-foreground">不填价格时，调用费用记为未定价。</p>}
+      {value.meters.length === 0 && !optional && (
         <p className="rounded-lg border border-dashed border-warn/50 px-3 py-3 text-sm text-warn">
           还没有价格，调用费用会记为未定价。
         </p>
@@ -134,7 +151,7 @@ export function PriceCards({ value, onChange, official, readOnly }: Props) {
             <Plus aria-hidden />
             添加计费项
           </DropdownMenuTrigger>
-          <DropdownMenuContent>
+          <DropdownMenuContent className="min-w-56">
             {missing.map((k) => (
               <DropdownMenuItem
                 key={k}
@@ -165,7 +182,6 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
     <section className="rounded-lg border border-border bg-card/40">
       <header className="flex items-center gap-2 border-b border-border px-3 py-2">
         <h4 className="text-sm font-medium">{METER_LABEL[meter.meter]}</h4>
-        <span className="text-xs text-muted-foreground">{unitOf(meter).label}</span>
         {!readOnly && (
           <Button variant="ghost" size="icon-xs" className="ml-auto" aria-label={`删除「${METER_LABEL[meter.meter]}」`} onClick={() => onChange(null)}>
             <Trash2 aria-hidden />
@@ -175,6 +191,9 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
       <ul className="flex flex-col divide-y divide-border/60">
         {meter.rows.map((row, i) => (
           <li key={i} className="flex flex-wrap items-center gap-1.5 px-3 py-1.5">
+            {/* 不分条件时只有一个单价，不需要「条件 → 单价」的结构 */}
+            {meter.dims.length === 0 && <span className="text-sm text-muted-foreground">单价</span>}
+            {meter.dims.length > 0 && (
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
             {meter.dims.map((d) => (
               <DimChip
@@ -186,7 +205,8 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
               />
             ))}
             </div>
-            <span aria-hidden className="px-1 text-muted-foreground">→</span>
+            )}
+            {meter.dims.length > 0 && <span aria-hidden className="px-1 text-muted-foreground">→</span>}
             <div className="flex items-center gap-1">
               <span className="text-sm text-muted-foreground">{symbol}</span>
               <Input
