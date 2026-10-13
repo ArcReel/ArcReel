@@ -14,36 +14,8 @@
 #       && pip install -q uv && uv sync -q --frozen \
 #       && uv run python -m pytest tests -n 4 --dist loadfile -q -p no:cacheprovider'
 
-lib/backends/audio_backends/openai.py::OpenAIAudioBackend.synthesize  # io.BufferedWriter.write
-lib/backends/backend_assembly/assembler.py::assemble_backend  # io.TextIOWrapper.read
-lib/backends/image_backends/dashscope.py::DashScopeImageBackend.generate  # io.BufferedReader.read, os.stat
-lib/backends/image_backends/gemini.py::GeminiImageBackend.generate  # io.BufferedRandom.write, os.mkdir, os.stat
-lib/backends/image_backends/grok.py::GrokImageBackend.generate  # os.stat
-lib/backends/image_backends/vidu.py::ViduImageBackend.generate  # io.BufferedReader.read
-lib/backends/text_backends/openai.py::OpenAITextBackend.generate  # io.BufferedReader.read
-lib/backends/video_backends/ark.py::ArkVideoBackend._create_task  # os.stat
-lib/backends/video_backends/dashscope.py::DashScopeVideoBackend.generate  # io.BufferedReader.read, os.stat
-lib/backends/video_backends/grok.py::GrokVideoBackend._create_video  # os.stat
-lib/backends/video_backends/kling.py::KlingVideoBackend.generate  # io.BufferedReader.read, os.stat
-lib/backends/video_backends/openai.py::OpenAIVideoBackend.generate  # os.stat
-lib/bgm/service.py::BgmLibraryService.list  # os.stat
-lib/bgm/service.py::BgmLibraryService.upload  # os.stat
-lib/custom_provider/declarative_backend.py::DeclarativeVideoBackend.generate  # io.BufferedReader.read
-lib/custom_provider/declarative_image_backend.py::DeclarativeImageBackend.generate  # io.BufferedReader.read
-lib/custom_provider/endpoint_test/trial_run.py::TrialRunManager._execute  # ScandirIterator.__next__, io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.path.samestat, os.rmdir, os.stat, os.unlink
-lib/custom_provider/endpoint_test/trial_run.py::TrialRunManager.cancel  # ScandirIterator.__next__, os.mkdir, os.path.samestat, os.rmdir, os.stat
-lib/custom_provider/endpoint_test/trial_run.py::TrialRunManager.start  # os.listdir, os.mkdir, os.stat
-lib/custom_provider/endpoint_test/trial_run.py::TrialRunManager.wait  # io.TextIOWrapper.read, os.mkdir, os.stat
-lib/edit_timeline/sources.py::load_episode_sources  # os.stat
-lib/episode/episode_planner.py::EpisodePlanner.create  # os.mkdir
-lib/episode/episode_planner.py::EpisodePlanner.plan  # io.TextIOWrapper.read, os.listdir, os.stat
-lib/episode/episode_planner.py::EpisodePlanner.plan_candidate  # io.TextIOWrapper.read, os.stat
-lib/final_cut/overview.py::episode_edit_overview  # os.stat
-lib/final_cut/service.py::FinalCutService._checked  # os.stat
-lib/final_cut/service.py::FinalCutService.render  # os.stat
 lib/generation/generation_admission.py::generation_admission_lock  # os.mkdir, os.stat
 lib/generation/generation_queue.py::GenerationQueue.get_generation_batch  # io.BufferedReader.read, io.TextIOWrapper.read, os.stat, 产物清单锁（轮询等待）, 版本管理锁（RLock）
-lib/generation/generation_queue.py::_derive_execution_model_for_enqueue  # os.mkdir, os.stat
 lib/generation/media_generator.py::MediaGenerator._run_with_reference_compression  # ScandirIterator.__next__, os.path.samestat, os.rmdir, os.unlink
 lib/generation/media_generator.py::MediaGenerator.generate_audio_async  # io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.replace, os.sendfile, os.stat, os.unlink, 版本管理锁（RLock）
 lib/generation/media_generator.py::MediaGenerator.generate_image_async  # io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.replace, os.sendfile, os.stat, os.unlink, 版本管理锁（RLock）
@@ -51,81 +23,6 @@ lib/generation/media_generator.py::MediaGenerator.generate_video_async  # os.mkd
 lib/generation/media_generator.py::MediaGenerator.resume_video_async  # os.mkdir, os.stat, os.unlink
 lib/generation/media_generator.py::_remove_staged_output_on_error  # os.unlink
 lib/generation/restart_recovery.py::RestartRecovery.handle_orphans  # os.stat
-lib/generation/video_resume.py::cleanup_video_staging  # os.mkdir
-lib/infra/mp4_faststart.py::ensure_faststart  # os.unlink
-lib/infra/subprocess_deadline.py::_reap  # os.unlink
-lib/infra/thumbnail.py::_run_ffmpeg_to_output  # os.replace, os.stat, os.unlink
-lib/infra/thumbnail.py::extract_video_frame_before  # os.mkdir, os.stat
-lib/infra/thumbnail.py::extract_video_last_frame  # os.mkdir, os.stat
-lib/infra/thumbnail.py::extract_video_thumbnail  # os.mkdir, os.stat
-lib/project/project_manager.py::ProjectManager.async_file_lock  # os.mkdir, os.stat
-lib/project/project_manager.py::ProjectManager.generate_overview  # ScandirIterator.__next__, io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.replace, os.stat, 文件锁（portalocker 阻塞模式）
-lib/script/script_generator.py::ScriptGenerator._author_ad_reference_units  # os.mkdir, os.stat
-lib/script/script_generator.py::ScriptGenerator._author_reference_units  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-lib/script/script_generator.py::ScriptGenerator._generate_and_save  # os.mkdir, os.stat
-lib/script/script_generator.py::ScriptGenerator._load_plan_entries_for_materialization  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-lib/script/script_generator.py::ScriptGenerator.build_prompt  # io.BufferedReader.read, io.TextIOWrapper.read, os.mkdir, os.stat, 产物清单锁（轮询等待）
-lib/script/script_generator.py::ScriptGenerator.generate  # os.mkdir, os.stat
-lib/script/script_generator.py::ScriptGenerator.materialize_script_plan  # io.TextIOWrapper.read, os.mkdir, os.stat
-lib/speech/audio_utils.py::probe_audio_duration_seconds  # io.BufferedRandom.write, os.unlink
-lib/video_review/signals.py::signals_for  # io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat
-server/agent_runtime/options_assembler.py::OptionsAssembler._build_append_prompt  # os.stat
-server/agent_runtime/options_assembler.py::OptionsAssembler._build_file_access_hook.<locals>._file_access_hook  # os.stat
-server/agent_runtime/options_assembler.py::OptionsAssembler._build_json_post_validation_hook.<locals>._json_post_validation_impl  # io.BufferedWriter.write, io.TextIOWrapper.write, os.stat
-server/agent_runtime/options_assembler.py::OptionsAssembler._build_json_validation_hook.<locals>._json_validation_hook  # os.stat
-server/agent_runtime/options_assembler.py::OptionsAssembler.build  # ScandirIterator.__next__, os.listdir, os.mkdir, os.stat
-server/agent_runtime/service.py::AssistantService._rewrite_message_once  # os.stat
-server/agent_runtime/service.py::AssistantService.list_session_entries  # os.stat
-server/agent_runtime/service.py::AssistantService.rewrite_message  # os.stat
-server/agent_runtime/service.py::AssistantService.send_or_create  # os.stat
-server/agent_runtime/service.py::AssistantService.stream_entry_events  # os.stat
-server/agent_runtime/session_branch.py::SessionBranchService.branch  # os.stat
-server/agent_runtime/session_branch.py::SessionBranchService.discard  # os.stat
-server/agent_toolset/remote.py::remote_tool.<locals>.invoke  # os.stat
-server/app.py::spa_deep_link  # os.stat
-server/draft_repair.py::DraftRepair._source_text  # os.stat
-server/draft_repair.py::DraftRepair._violations  # os.stat
-server/draft_repair.py::DraftRepair.check  # os.stat
-server/draft_workflow.py::DraftWorkflow.discard  # io.BufferedWriter.write, os.mkdir, os.replace, os.stat, os.unlink
-server/draft_workflow.py::DraftWorkflow.open  # os.mkdir, os.stat
-server/draft_workflow.py::DraftWorkflow.patch  # os.mkdir, os.stat
-server/draft_workflow.py::DraftWorkflow.promote  # os.mkdir, os.stat
-server/draft_workflow.py::DraftWorkflow.save  # os.stat
-server/draft_workflow.py::_open_drama_script_plan_for_edit  # os.stat
-server/draft_workflow.py::_open_narration_script_plan_for_edit  # os.stat
-server/draft_workflow.py::_open_reference_script_plan_for_edit  # os.stat
-server/draft_workflow.py::_promote_narration_script_plan  # os.stat
-server/draft_workflow.py::_promote_reference_script_plan  # os.stat
-server/draft_workflow.py::revalidate_reference_script_plan_draft  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/routers/assets.py::_copy_into_global_pool  # os.mkdir, os.stat
-server/routers/assets.py::_save_upload  # os.mkdir, os.stat
-server/routers/assets.py::apply_to_project  # io.TextIOWrapper.read, os.stat
-server/routers/assets.py::create_asset  # os.unlink
-server/routers/assets.py::delete_asset  # os.unlink
-server/routers/assets.py::from_project  # io.TextIOWrapper.read, os.stat, os.unlink
-server/routers/endpoint_tests.py::get_trial_run  # io.TextIOWrapper.read, os.mkdir, os.stat
-server/routers/endpoint_tests.py::get_trial_run_artifact  # io.BufferedReader.read, os.mkdir, os.stat
-server/routers/endpoint_tests.py::start_trial_run  # ScandirIterator.__next__, io.BufferedWriter.write, os.mkdir, os.path.samestat, os.rmdir, os.stat
-server/routers/episode_planning.py::_run_replan  # os.stat
-server/routers/files.py::_handle_episode_source_upload  # os.stat
-server/routers/files.py::_handle_source_upload  # os.stat
-server/routers/files.py::serve_global_asset  # os.mkdir, os.stat
-server/routers/files.py::serve_project_file  # os.stat
-server/routers/grids.py::generate_grid  # ScandirIterator.__next__, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, 文件锁（portalocker 阻塞模式）
-server/routers/grids.py::get_grid  # io.TextIOWrapper.read, os.mkdir, os.stat, 文件锁（portalocker 阻塞模式）
-server/routers/grids.py::list_grids  # ScandirIterator.__next__, io.TextIOWrapper.read, os.mkdir, os.stat
-server/routers/grids.py::regenerate_grid  # io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, 文件锁（portalocker 阻塞模式）
-server/routers/grids.py::split_grid  # io.TextIOWrapper.read, os.mkdir, os.stat, 文件锁（portalocker 阻塞模式）
-server/routers/grids.py::upload_grid_image  # io.TextIOWrapper.read, os.mkdir, os.stat, 文件锁（portalocker 阻塞模式）
-server/routers/market_submissions.py::check  # ScandirIterator.__next__, io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, os.listdir, os.mkdir, os.path.samestat, os.rmdir, os.stat, os.unlink
-server/routers/market_submissions.py::create_submission  # ScandirIterator.__next__, io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, os.listdir, os.mkdir, os.path.samestat, os.rmdir, os.stat, os.unlink
-server/routers/project_migration.py::retry_migration  # os.stat
-server/routers/projects.py::delete_project  # os.mkdir
-server/routers/projects.py::edit_script_batch  # os.stat
-server/routers/projects.py::get_archive_service  # os.mkdir
-server/routers/projects.py::get_video_capabilities  # io.TextIOWrapper.read, os.stat
-server/routers/projects.py::import_project_archive  # os.unlink
-server/routers/providers.py::upload_vertex_credential  # io.BufferedWriter.write, os.mkdir, os.replace, os.stat
 server/routers/reference_videos.py::_unit_capabilities  # os.stat
 server/routers/reference_videos.py::add_unit  # io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, os.unlink, 产物清单锁（轮询等待）, 文件锁（portalocker 阻塞模式）, 版本管理锁（RLock）
 server/routers/reference_videos.py::delete_unit  # io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, 产物清单锁（轮询等待）, 文件锁（portalocker 阻塞模式）
@@ -137,60 +34,16 @@ server/routers/reference_videos.py::patch_unit  # io.BufferedReader.read, io.Buf
 server/routers/reference_videos.py::precheck_unit_duration  # io.TextIOWrapper.read, os.stat
 server/routers/reference_videos.py::preview_script  # io.TextIOWrapper.read, os.stat
 server/routers/reference_videos.py::preview_unit_prompt  # io.TextIOWrapper.read, os.stat
-server/routers/system.py::download_logs  # ScandirIterator.__next__, io.BufferedReader.read, io.TextIOWrapper.read, os.access, os.listdir, os.read, os.stat, time.sleep
-server/routers/tasks.py::_with_resource_refs  # os.mkdir
-server/routers/usage.py::get_usage_summary  # io.BufferedReader.read, os.stat
 server/services/admission/cost_estimation.py::CostEstimationService._estimate_unit_reference_video_episode  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
 server/services/admission/storyboard_batch.py::load_storyboard_video_batch_plan  # io.BufferedReader.read, os.listdir, os.stat, 产物清单锁（轮询等待）
-server/services/currency/upload_finalize.py::commit_manual_storyboard_upload  # os.stat
-server/services/currency/upload_finalize.py::commit_manual_video_upload  # os.stat
-server/services/currency/upload_finalize.py::save_uploaded_video_stream  # os.mkdir, os.stat
 server/services/currency/video_artifact_currency.py::complete_video_artifact_commit  # io.TextIOWrapper.read, os.stat
 server/services/currency/video_artifact_currency.py::complete_video_artifact_commit.<locals>._finalize_and_complete  # os.stat
-server/services/grid/grid_split.py::apply_grid_split  # os.mkdir, os.stat
-server/services/grid/grid_submission.py::plan_grid_submission  # ScandirIterator.__next__, io.BufferedReader.read, io.TextIOWrapper.read, os.listdir, os.mkdir, os.stat, 产物清单锁（轮询等待）
-server/services/presentation/presentation_bundle.py::PresentationBundleService.export_unit  # ScandirIterator.__next__, os.mkdir, os.path.samestat, os.rmdir, os.unlink
-server/services/presentation/presentation_read_model.py::PresentationReadModelService._materialize_episode_once  # os.stat
-server/services/presentation/timeline_jianying_draft.py::JianyingDraftJob.render  # os.stat
-server/services/presentation/timeline_jianying_draft.py::TimelineJianyingDraftService.package_download  # ScandirIterator.__next__, os.mkdir, os.path.samestat, os.rmdir, os.unlink
-server/services/presentation/timeline_jianying_draft.py::TimelineJianyingDraftService.prepare  # os.stat
-server/services/presentation/timeline_preview.py::TimelinePreviewService.media  # os.stat
-server/services/presentation/timeline_units.py::TimelineUnitMaterials.__call__  # os.stat
-server/services/project/episode_display.py::present_request_diagnostics  # os.mkdir, os.stat
-server/services/project/episode_drafts.py::EpisodeDraftService._prompt_authoring_view  # os.stat
-server/services/project/episode_drafts.py::EpisodeDraftService.list_drafts  # os.stat
-server/services/project/script_review.py::ScriptReviewService.confirm  # os.stat
-server/services/project/script_review.py::ScriptReviewService.get_quarantine_info  # os.stat
-server/services/project/script_review.py::ScriptReviewService.get_reference_duration_tiers  # os.stat
-server/services/project/workflow_planner.py::WorkflowPlanner._active_tasks  # os.mkdir, os.stat
-server/services/project/workflow_planner.py::WorkflowPlanner._migration_problem  # os.stat
 server/services/tasks/derivative_sheet_tasks.py::execute_character_derivative_task  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
 server/services/tasks/formal_image_commit.py::run_formal_image_task.<locals>._submit  # os.stat
 server/services/tasks/generation_context.py::resolve_generation_context  # os.stat
-server/services/tasks/generation_tasks.py::execute_generation_task  # io.TextIOWrapper.read, os.mkdir, os.stat
+server/services/tasks/generation_tasks.py::execute_generation_task  # io.TextIOWrapper.read, os.stat
 server/services/tasks/generation_tasks.py::execute_grid_task  # io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, 文件锁（portalocker 阻塞模式）
 server/services/tasks/generation_tasks.py::execute_video_task  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
 server/services/tasks/generation_tasks.py::finalize_video_task  # os.unlink
 server/services/tasks/reference_video_tasks.py::execute_reference_video_task  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
 server/services/tasks/reference_video_tasks.py::finalize_reference_video_unit  # os.mkdir, os.stat, os.unlink
-server/text_generation.py::confirm_script_review  # io.TextIOWrapper.read, os.stat
-server/text_generation.py::generate_drama_script_plan  # io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat
-server/text_generation.py::generate_episode_script  # io.TextIOWrapper.read, os.stat
-server/text_generation.py::generate_narration_script_plan  # io.BufferedReader.read, os.mkdir, os.stat
-server/text_generation.py::generate_reference_script_plan  # io.BufferedReader.read, os.mkdir, os.stat, 产物清单锁（轮询等待）
-server/tool_runtime.py::_draft_replan_window  # os.stat
-server/tool_runtime.py::_execute_plan_episodes  # io.TextIOWrapper.read, os.stat
-server/tool_runtime.py::_execute_replan_window  # os.stat
-server/tool_runtime.py::continue_episode_replan  # os.stat
-server/tool_runtime.py::edit_source_text  # os.stat
-server/tool_runtime.py::execute_queued_text_task  # os.mkdir, os.stat
-server/tool_runtime.py::generate_episode_script  # os.stat
-server/tool_runtime.py::generate_script_plan  # os.stat
-server/tool_runtime.py::get_generation_batch  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/tool_runtime.py::get_source_text  # os.stat
-server/tool_runtime.py::list_project_files  # os.stat
-server/tool_runtime.py::list_source_files  # os.stat
-server/tool_runtime.py::read_project_file  # os.stat
-server/tool_runtime.py::reset_episode_planning  # io.TextIOWrapper.read, os.stat
-server/tool_runtime.py::retry_project_migration  # os.stat
-server/tool_runtime.py::start_episode_replan  # io.TextIOWrapper.read, os.stat

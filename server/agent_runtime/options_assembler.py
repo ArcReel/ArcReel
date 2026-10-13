@@ -29,6 +29,7 @@ from lib.agent.agent_session_store.store import DbSessionStore
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import DataRootLayout
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
@@ -37,7 +38,7 @@ from server.auth import create_token, is_auth_enabled
 
 logger = logging.getLogger(__name__)
 
-from claude_agent_sdk import ClaudeAgentOptions
+from claude_agent_sdk import ClaudeAgentOptions, McpSdkServerConfig
 from claude_agent_sdk.types import HookEvent, HookMatcher, SettingSource, SystemPromptPreset
 
 SDK_AVAILABLE = True
@@ -70,6 +71,13 @@ async def load_provider_env_overrides() -> dict[str, str]:
     for key in OTHER_PROVIDER_ENV_KEYS:
         result[key] = ""
     return result
+
+
+def _resolve_and_read_text(project_cwd: Path, file_path: str) -> tuple[Path, str]:
+    """解析 hook 收到的文件路径（相对路径按项目 cwd）并读出 UTF-8 文本。"""
+    p = Path(file_path)
+    resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()
+    return resolved, resolved.read_text(encoding="utf-8")
 
 
 class OptionsAssembler:
@@ -133,7 +141,7 @@ class OptionsAssembler:
         lang = LOCALE_LANGUAGE_MAP.get(locale, "中文")
         parts = [builtin_templates.render("text/agent_language_rule", lang=lang)]
 
-        project_context = self._build_project_context(project_name)
+        project_context = await asyncio.to_thread(self._build_project_context, project_name)
         if project_context:
             parts.append(project_context)
 
@@ -269,7 +277,7 @@ class OptionsAssembler:
 
         policy = self._access_policy_provider()
 
-        project_cwd = self._resolve_project_cwd(project_name)
+        project_cwd = await asyncio.to_thread(self._resolve_project_cwd, project_name)
 
         # Build PreToolUse hooks — file access control MUST use hooks because
         # Read/Glob/Grep are matched by allow rules (step 4 in the SDK
@@ -328,20 +336,22 @@ class OptionsAssembler:
                 ),
             }
         )
-        sandbox_typed = policy.build_sandbox_settings(project_cwd, user_id=self._user_id_provider())
+        user_id = self._user_id_provider()
+
+        def _build_sandbox_and_mcp_server() -> tuple[dict[str, Any], McpSdkServerConfig]:
+            # 两者都会扫盘/建目录（sandbox 敏感路径解析、MCP 服务的 ProjectManager），合并一次卸到线程。
+            sandbox = policy.build_sandbox_settings(project_cwd, user_id=user_id)
+            # 内置 ArcReel in-process MCP server — handler 跑在主进程，绕过 sandbox。
+            server = build_arcreel_mcp_server(project_name=project_name, data_root=self.data_root, user_id=user_id)
+            return sandbox, server
+
+        sandbox_typed, arcreel_server = await asyncio.to_thread(_build_sandbox_and_mcp_server)
 
         # Windows 回退：sandbox 关闭时 Bash 系列被剥离出 allowed_tools，
         # 让 _can_use_tool 接管 prefix 白名单匹配。
         allowed_tools = policy.filter_allowed_tools(self._allowed_tools)
-        # 内置 ArcReel in-process MCP server — handler 跑在主进程，绕过 sandbox。
         # 通配符让后续新增 tool 不必同步改 allowed_tools。
         allowed_tools.append("mcp__arcreel__*")
-
-        arcreel_server = build_arcreel_mcp_server(
-            project_name=project_name,
-            data_root=self.data_root,
-            user_id=self._user_id_provider(),
-        )
 
         return ClaudeAgentOptions(
             cwd=str(project_cwd),
@@ -464,7 +474,8 @@ class OptionsAssembler:
             file_path = tool_input.get(path_key)
 
             if file_path:
-                allowed, deny_reason = policy.check_path_access(
+                allowed, deny_reason = await asyncio.to_thread(
+                    policy.check_path_access,
                     file_path,
                     tool_name,
                     project_cwd,
@@ -569,10 +580,8 @@ class OptionsAssembler:
                         },
                     }
 
-                p = Path(file_path)
-                resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()  # noqa: ASYNC240 -- 仅路径解析（resolve），不读文件内容
                 try:
-                    current = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
+                    resolved, current = await asyncio.to_thread(_resolve_and_read_text, project_cwd, file_path)
                 except OSError as read_err:
                     logger.info(
                         "JSON 校验 hook: tool=Edit file=%s skip=读取失败 error=%s",
@@ -691,11 +700,8 @@ class OptionsAssembler:
             # Pop the backup regardless of outcome to avoid memory leaks
             backup = json_backups.pop(tool_use_id, None) if tool_use_id else None
 
-            p = Path(file_path)
-            resolved = (project_cwd / p).resolve() if not p.is_absolute() else p.resolve()  # noqa: ASYNC240 -- 仅路径解析（resolve），不读文件内容
-
             try:
-                actual = await asyncio.to_thread(resolved.read_text, encoding="utf-8")
+                _, actual = await asyncio.to_thread(_resolve_and_read_text, project_cwd, file_path)
             except OSError:
                 return {}
 
@@ -713,7 +719,7 @@ class OptionsAssembler:
                 if backup:
                     backup_path, backup_content = backup
                     try:
-                        backup_path.write_text(backup_content, encoding="utf-8")
+                        await run_sync_transaction(backup_path.write_text, backup_content, encoding="utf-8")
                         restored = True
                         logger.warning(
                             "PostToolUse JSON 校验拦截并恢复: file=%s tool=%s error=%s backup_restored=True",

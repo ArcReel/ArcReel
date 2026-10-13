@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -139,7 +140,7 @@ class DashScopeImageBackend:
             raise ImageCapabilityError("image_endpoint_mismatch_no_t2i", model=self._model)
 
         size = self._resolve_size(request, has_refs)
-        content = self._build_content(request, has_refs)
+        content = await asyncio.to_thread(self._build_content, request, has_refs)
 
         parameters: dict = {
             "n": 1,

@@ -7,6 +7,7 @@
 import asyncio
 import copy
 import errno
+import functools
 import hashlib
 import json
 import logging
@@ -23,7 +24,7 @@ from contextlib import ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, ClassVar, Literal, TypeGuard, cast
 
 import portalocker
 from pydantic import BaseModel, Field
@@ -66,6 +67,7 @@ from lib.episode.episode_target_duration import (
 )
 from lib.episode.source_kinds import project_overview_source_kind
 from lib.infra.app_data_dir import app_data_dir
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.content_digest import canonical_json_digest
 from lib.infra.data_root_layout import PROJECT_FILENAME, PROJECT_NAME_PATTERN, DataRootLayout, list_project_dirs
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json, load_json, load_json_or_none
@@ -1979,9 +1981,13 @@ class ProjectManager:
         path: Path,
     ) -> AsyncGenerator[None]:
         """Cancellation-safe async counterpart of :meth:`file_lock`."""
-        path.parent.mkdir(parents=True, exist_ok=True)
         lock_path = path.parent / f".{path.name}.lock"
-        handle = lock_path.open("a+b")
+
+        def _open_lock_file() -> BinaryIO:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return lock_path.open("a+b")
+
+        handle = await run_sync_transaction(_open_lock_file)
         acquired = False
         try:
             while not acquired:
@@ -4053,7 +4059,7 @@ class ProjectManager:
         from lib.prompts.prompt_builders_script import build_overview_prompt
 
         # 读取源文件内容
-        source_content = self._read_source_files(project_name)
+        source_content = await asyncio.to_thread(self._read_source_files, project_name)
         if not source_content:
             raise EmptySourceError("source 目录为空，无法生成概述")
 
@@ -4064,7 +4070,7 @@ class ProjectManager:
 
         # 调用 TextGenerator（Structured Outputs）。全部源文都是剧本时翻为「提取优先」：
         # 作者写下的创作方案前言优先照用，缺失才退回从正文归纳；混合时按小说口径。
-        project_data = self.load_project(project_name)
+        project_data = await asyncio.to_thread(self.load_project, project_name)
         source_kind = project_overview_source_kind(project_data)
         # source_language 来自 project.json，可能是非字符串脏数据；非字符串或空串回退默认语言
         raw_source_language = project_data.get("source_language")
@@ -4092,24 +4098,23 @@ class ProjectManager:
             project["overview"] = overview_dict
             project["source_language"] = overview_dict["language"]
 
-        self.update_project(project_name, _mutate)
+        await run_sync_transaction(self.update_project, project_name, _mutate)
 
         logger.info("项目概述已生成并保存")
         return overview_dict
 
 
-_project_manager: ProjectManager | None = None
+@functools.cache
+def _project_manager_singleton() -> ProjectManager:
+    # 构造时会确保项目目录存在；无参缓存保证每个进程只执行一次
+    return ProjectManager(app_data_dir())
 
 
 def get_project_manager() -> ProjectManager:
     """返回懒加载的全局 ProjectManager 单例（标准项目根目录）。"""
-    global _project_manager
-    if _project_manager is None:
-        _project_manager = ProjectManager(app_data_dir())
-    return _project_manager
+    return _project_manager_singleton()
 
 
 def reset_project_manager_for_tests() -> None:
     """清掉 :func:`get_project_manager` 的单例，下次调用按当前数据根重建。"""
-    global _project_manager
-    _project_manager = None
+    _project_manager_singleton.cache_clear()

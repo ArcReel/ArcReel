@@ -188,14 +188,8 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         # 始终下传合法 size 以锁定比例（sora 固定档，不传则上游用自家默认比例）
         kwargs["size"] = _resolve_size(self._model, request.resolution, request.aspect_ratio)
 
-        # 收集所有参考图：start_image + reference_images
-        ref_paths: list[Path] = []
-        if request.start_image and Path(request.start_image).exists():  # noqa: ASYNC240 -- 首帧存在性检查，本地元数据
-            ref_paths.append(Path(request.start_image))
-        if request.reference_images:
-            ref_paths.extend(p for p in request.reference_images if p.exists())
-        # 读整张图取上传字节是阻塞 I/O，逐张卸载到线程后并发等待，避免堵住事件循环
-        refs = list(await asyncio.gather(*[asyncio.to_thread(_encode_start_image, p) for p in ref_paths]))
+        # 收集所有参考图（start_image + reference_images）：存在性检查与读图都是阻塞 I/O，整体卸载到线程
+        refs = await asyncio.to_thread(_encode_input_references, request)
         if refs:
             # 单张图时保持 tuple 格式（API 兼容），多张时用 list
             kwargs["input_reference"] = refs[0] if len(refs) == 1 else refs
@@ -314,6 +308,15 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
 def _encode_start_image(image_path: Path) -> tuple[str, bytes, str]:
     mime = IMAGE_MIME_TYPES.get(image_path.suffix.lower(), "image/png")
     return (image_path.name, image_path.read_bytes(), mime)
+
+
+def _encode_input_references(request: VideoGenerationRequest) -> list[tuple[str, bytes, str]]:
+    ref_paths: list[Path] = []
+    if request.start_image and (start_path := Path(request.start_image)).exists():
+        ref_paths.append(start_path)
+    if request.reference_images:
+        ref_paths.extend(p for p in request.reference_images if p.exists())
+    return [_encode_start_image(p) for p in ref_paths]
 
 
 def _is_openai_not_found(exc: BaseException) -> bool:

@@ -7,7 +7,7 @@ import logging
 import os
 import shutil
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -23,6 +23,7 @@ from lib.db import async_session_factory
 from lib.db.models.asset import AssetDerivative
 from lib.db.repositories.asset_repo import AssetRepository
 from lib.infra.api_errors import NotFoundError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.asset_derivatives import (
     derivative_artifact_id,
     derivative_artifact_key,
@@ -95,8 +96,13 @@ async def _copy_into_global_pool(source: Path, asset_type: str, default_ext: str
     """把一个文件拷进全局资产库的 ``{type}/`` 下，返回相对数据根的登记路径。"""
     ext = source.suffix.lower() or default_ext
     pm = get_project_manager()
-    target = pm.get_global_assets_root() / asset_type / f"{uuid.uuid4().hex}{ext}"
-    await asyncio.to_thread(shutil.copyfile, source, target)
+
+    def _copy() -> Path:
+        target = pm.get_global_assets_root() / asset_type / f"{uuid.uuid4().hex}{ext}"
+        shutil.copyfile(source, target)
+        return target
+
+    target = await run_sync_transaction(_copy)
     return target.relative_to(pm.data_root).as_posix()
 
 
@@ -122,8 +128,13 @@ async def _save_upload(file: UploadFile, asset_type: str, _t: Translator) -> str
         raise HTTPException(status_code=413, detail=_t("asset_upload_too_large"))
 
     pm = get_project_manager()
-    target = pm.get_global_assets_root() / asset_type / f"{uuid.uuid4().hex}{ext}"
-    await asyncio.to_thread(target.write_bytes, data)
+
+    def _write() -> Path:
+        target = pm.get_global_assets_root() / asset_type / f"{uuid.uuid4().hex}{ext}"
+        target.write_bytes(data)
+        return target
+
+    target = await run_sync_transaction(_write)
     # 存相对数据根的路径
     return target.relative_to(pm.data_root).as_posix()
 
@@ -137,6 +148,19 @@ def _delete_global_asset_file(rel_path: str) -> None:
         return
     except OSError:
         logger.warning("delete global asset file failed: %s", rel_path)
+
+
+async def _delete_global_asset_files(rel_paths: Iterable[str]) -> None:
+    """在线程里依次删除库存储文件；单个失败只记日志，与 ``_delete_global_asset_file`` 同口径。"""
+    paths = list(rel_paths)
+    if not paths:
+        return
+
+    def _delete_all() -> None:
+        for rel_path in paths:
+            _delete_global_asset_file(rel_path)
+
+    await run_sync_transaction(_delete_all)
 
 
 @router.get("")
@@ -211,7 +235,7 @@ async def create_asset(
             except IntegrityError as exc:
                 await s.rollback()
                 if image_path:
-                    _delete_global_asset_file(image_path)
+                    await _delete_global_asset_files([image_path])
                     image_path = None
                 raise HTTPException(status_code=409, detail=_t("asset_already_exists", name=name)) from exc
     except HTTPException:
@@ -219,7 +243,7 @@ async def create_asset(
     except Exception:
         # 其它错误路径也不留 orphan
         if image_path:
-            _delete_global_asset_file(image_path)
+            await _delete_global_asset_files([image_path])
         raise
 
     return {"asset": _serialize(a)}
@@ -271,8 +295,7 @@ async def delete_asset(asset_id: str, _t: Translator):
             await repo.delete(asset_id)
             await s.commit()
             # 文件删除放在提交之后：它不可回滚，提前删会在事务失败时留下指向缺失文件的行。
-            for path in stored_files:
-                _delete_global_asset_file(path)
+            await _delete_global_asset_files(stored_files)
     return
 
 
@@ -303,12 +326,12 @@ async def replace_image(
             await s.refresh(a)
             payload = await _serialize_one(repo, a)
     except Exception:
-        _delete_global_asset_file(new_path)
+        await _delete_global_asset_files([new_path])
         raise
 
     # 4) DB 更新成功后才删除旧文件
     if old_path and old_path != new_path:
-        _delete_global_asset_file(old_path)
+        await _delete_global_asset_files([old_path])
 
     return {"asset": payload}
 
@@ -332,7 +355,7 @@ async def from_project(
 
     # 2) 加载项目
     try:
-        project = get_project_manager().load_project(req.project_name)
+        project = await asyncio.to_thread(get_project_manager().load_project, req.project_name)
     except FileNotFoundError as exc:
         raise NotFoundError("asset_target_project_not_found", project=req.project_name) from exc
     except Exception as exc:
@@ -360,65 +383,70 @@ async def from_project(
     description = resource.get("description") or ""
     voice_style = resource.get("voice_style", "") if req.resource_type == "character" else ""
 
-    try:
-        source_project_dir: Path | None = get_project_manager().get_project_path(req.project_name)
-    except FileNotFoundError:
-        source_project_dir = None
-
-    sheet_key = SHEET_KEY[req.resource_type]
-    # 非法路径、项目丢失或文件缺失：视作无源图继续流程
-    source_sheet_path = (
-        _project_file_if_present(source_project_dir, resource.get(sheet_key) or "")
-        if source_project_dir is not None
-        else None
-    )
-
-    # 衍生随本体整套入库：每条带上变化描述与自己那张资产图；图缺失的衍生仍然入库（名与
-    # 描述才是它的身份，图可在目标项目里重新生成），与本体资产图缺失时的降级同口径。
-    derivative_sources: list[tuple[str, str, Path | None]] = []
-    if ASSET_SPECS[req.resource_type].supports_derivatives:
-        for raw_name, raw_derivative in derivative_table(resource).items():
-            if not isinstance(raw_derivative, dict):
-                continue
-            try:
-                derivative_name = validate_asset_name(raw_name)
-            except ValueError:
-                logger.warning("from_project: skip derivative with unsafe name: %r", raw_name)
-                continue
-            raw_description = raw_derivative.get("description")
-            derivative_sheet = raw_derivative.get(sheet_key)
-            derivative_sources.append(
-                (
-                    derivative_name,
-                    raw_description if isinstance(raw_description, str) else "",
-                    _project_file_if_present(source_project_dir, derivative_sheet)
-                    if source_project_dir is not None and isinstance(derivative_sheet, str)
-                    else None,
-                )
-            )
-
-    # 音频只有 character 类型有意义（reference_audio，不是 sheet 概念）；缺失/路径非法同图片一样
-    # 静默降级为「无源音频」，不中断入库流程。
-    audio_rel = resource.get("reference_audio") or "" if req.resource_type == "character" else ""
-    source_audio_path: Path | None = None
-    if audio_rel:
+    # 定位源项目里的资产图、衍生图与参考音频要逐个 stat，整体放进线程。
+    def _locate_sources() -> tuple[Path | None, list[tuple[str, str, Path | None]], Path | None]:
         try:
-            project_dir = get_project_manager().get_project_path(req.project_name)
-            ProjectManager._safe_subpath(project_dir, audio_rel)
-            candidate = project_dir / audio_rel
-            # reference_audio 可经通用角色 PATCH 被写成项目内任意字符串（extra_string_fields
-            # 只做类型校验），仅 _safe_subpath 防越界不足以防止把 project.json 等其它项目
-            # 文件当作音频复制进全局库；额外校验父目录命中 characters/refs_audio，与
-            # server/routers/files.py::_resolve_audio_ref_path 同一口径。
-            audio_refs_dir = project_dir / "characters" / "refs_audio"
-            if (
-                candidate.exists()
-                and candidate.is_file()
-                and os.path.realpath(candidate.parent) == os.path.realpath(audio_refs_dir)  # noqa: ASYNC240 -- 仅路径解析（realpath）做越界校验，不读文件内容
-            ):
-                source_audio_path = candidate
-        except (ValueError, FileNotFoundError):
-            source_audio_path = None
+            source_project_dir: Path | None = get_project_manager().get_project_path(req.project_name)
+        except FileNotFoundError:
+            source_project_dir = None
+
+        sheet_key = SHEET_KEY[req.resource_type]
+        # 非法路径、项目丢失或文件缺失：视作无源图继续流程
+        source_sheet_path = (
+            _project_file_if_present(source_project_dir, resource.get(sheet_key) or "")
+            if source_project_dir is not None
+            else None
+        )
+
+        # 衍生随本体整套入库：每条带上变化描述与自己那张资产图；图缺失的衍生仍然入库（名与
+        # 描述才是它的身份，图可在目标项目里重新生成），与本体资产图缺失时的降级同口径。
+        derivative_sources: list[tuple[str, str, Path | None]] = []
+        if ASSET_SPECS[req.resource_type].supports_derivatives:
+            for raw_name, raw_derivative in derivative_table(resource).items():
+                if not isinstance(raw_derivative, dict):
+                    continue
+                try:
+                    derivative_name = validate_asset_name(raw_name)
+                except ValueError:
+                    logger.warning("from_project: skip derivative with unsafe name: %r", raw_name)
+                    continue
+                raw_description = raw_derivative.get("description")
+                derivative_sheet = raw_derivative.get(sheet_key)
+                derivative_sources.append(
+                    (
+                        derivative_name,
+                        raw_description if isinstance(raw_description, str) else "",
+                        _project_file_if_present(source_project_dir, derivative_sheet)
+                        if source_project_dir is not None and isinstance(derivative_sheet, str)
+                        else None,
+                    )
+                )
+
+        # 音频只有 character 类型有意义（reference_audio，不是 sheet 概念）；缺失/路径非法同图片一样
+        # 静默降级为「无源音频」，不中断入库流程。
+        audio_rel = resource.get("reference_audio") or "" if req.resource_type == "character" else ""
+        source_audio_path: Path | None = None
+        if audio_rel:
+            try:
+                project_dir = get_project_manager().get_project_path(req.project_name)
+                ProjectManager._safe_subpath(project_dir, audio_rel)
+                candidate = project_dir / audio_rel
+                # reference_audio 可经通用角色 PATCH 被写成项目内任意字符串（extra_string_fields
+                # 只做类型校验），仅 _safe_subpath 防越界不足以防止把 project.json 等其它项目
+                # 文件当作音频复制进全局库；额外校验父目录命中 characters/refs_audio，与
+                # server/routers/files.py::_resolve_audio_ref_path 同一口径。
+                audio_refs_dir = project_dir / "characters" / "refs_audio"
+                if (
+                    candidate.exists()
+                    and candidate.is_file()
+                    and os.path.realpath(candidate.parent) == os.path.realpath(audio_refs_dir)
+                ):
+                    source_audio_path = candidate
+            except (ValueError, FileNotFoundError):
+                source_audio_path = None
+        return source_sheet_path, derivative_sources, source_audio_path
+
+    source_sheet_path, derivative_sources, source_audio_path = await asyncio.to_thread(_locate_sources)
 
     # 4) DB 预检查（orphan-safe：先查再拷贝文件）
     async with async_session_factory() as s:
@@ -465,8 +493,7 @@ async def from_project(
                 copied_paths.append(derivative_image)
             derivative_rows.append((derivative_name, derivative_description, derivative_image))
     except Exception:
-        for copied in copied_paths:
-            _delete_global_asset_file(copied)
+        await _delete_global_asset_files(copied_paths)
         raise
 
     # 6) 写 DB：失败路径清理拷贝文件
@@ -493,12 +520,9 @@ async def from_project(
                 await s.commit()
                 await s.refresh(a)
                 payload = await _serialize_one(repo, a)
-                if old_image:
-                    _delete_global_asset_file(old_image)
-                if old_audio:
-                    _delete_global_asset_file(old_audio)
-                for stale_image in stale_derivative_images:
-                    _delete_global_asset_file(stale_image)
+                await _delete_global_asset_files(
+                    [path for path in (old_image, old_audio) if path] + stale_derivative_images
+                )
             else:
                 try:
                     a = await repo.create(
@@ -516,8 +540,7 @@ async def from_project(
                     payload = await _serialize_one(repo, a)
                 except IntegrityError as exc:
                     await s.rollback()
-                    for copied in copied_paths:
-                        _delete_global_asset_file(copied)
+                    await _delete_global_asset_files(copied_paths)
                     raise HTTPException(
                         status_code=409,
                         detail=_t("asset_already_exists", name=asset_name),
@@ -525,8 +548,7 @@ async def from_project(
     except HTTPException:
         raise
     except Exception:
-        for copied in copied_paths:
-            _delete_global_asset_file(copied)
+        await _delete_global_asset_files(copied_paths)
         raise
 
     return {"asset": payload}
@@ -562,7 +584,7 @@ async def apply_to_project(
     # 2) 校验目标项目存在
     project_manager = get_project_manager()
     try:
-        project = project_manager.load_project(req.target_project)
+        project = await asyncio.to_thread(project_manager.load_project, req.target_project)
     except ProjectAssetNameConflictError as exc:
         raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
     except FileNotFoundError as exc:
@@ -582,7 +604,22 @@ async def apply_to_project(
 
     # 4) 先在内存里算好每条 asset 的目标名 + 是否需要拷贝文件，
     #    再一次性执行文件拷贝和 project.json 写回
-    project_dir = project_manager.get_project_path(req.target_project)
+    def _probe_planning_inputs() -> tuple[Path, set[str]]:
+        # 规划只需知道库存储里哪些文件还在；目录解析与逐个 stat 一次性放进线程。
+        target_dir = project_manager.get_project_path(req.target_project)
+        stored = {
+            path
+            for a in assets
+            for path in (
+                a.image_path,
+                a.audio_path,
+                *(d.image_path for d in derivatives_by_asset.get(a.id, ())),
+            )
+            if path
+        }
+        return target_dir, {path for path in stored if (project_manager.data_root / path).is_file()}
+
+    project_dir, present_files = await asyncio.to_thread(_probe_planning_inputs)
     # 四类资产共用一份名称占用表；owner 用于区分同类 overwrite 与不可覆盖的跨类型冲突。
     occupied: dict[str, tuple[str, str]] = {}
     for asset_type, bucket_key in BUCKET_KEY.items():
@@ -628,7 +665,7 @@ async def apply_to_project(
         copy_dst: Path | None = None
         if a.image_path:
             src = project_manager.data_root / a.image_path
-            if src.exists() and src.is_file():
+            if a.image_path in present_files:
                 ext = src.suffix.lower() or ".png"
                 rel_sheet = f"{bucket_key}/{desired_name}{ext}"
                 try:
@@ -654,7 +691,7 @@ async def apply_to_project(
         copy_audio_dst: Path | None = None
         if a.type == "character" and a.audio_path:
             audio_src = project_manager.data_root / a.audio_path
-            if audio_src.exists() and audio_src.is_file():
+            if a.audio_path in present_files:
                 audio_ext = audio_src.suffix.lower() or ".wav"
                 rel_audio = f"characters/refs_audio/{desired_name}{audio_ext}"
                 try:
@@ -681,9 +718,8 @@ async def apply_to_project(
             for derivative in derivatives_by_asset.get(a.id, ()):
                 derivative_src: Path | None = None
                 if derivative.image_path:
-                    candidate = project_manager.data_root / derivative.image_path
-                    if candidate.exists() and candidate.is_file():
-                        derivative_src = candidate
+                    if derivative.image_path in present_files:
+                        derivative_src = project_manager.data_root / derivative.image_path
                     else:
                         logger.warning(
                             "apply_to_project: asset %s derivative %r image file missing on disk: %s",

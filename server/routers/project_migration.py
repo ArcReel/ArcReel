@@ -4,6 +4,8 @@
 其余写入入口都被阻断，本入口正是解除阻断的途径，所以不挂 ``require_project_migration_ok``。
 """
 
+import asyncio
+
 from fastapi import APIRouter
 
 from lib.infra.api_errors import NotFoundError, UnprocessableError
@@ -28,7 +30,7 @@ async def retry_migration(name: str, user: CurrentUser):
     升级仍失败时 422，诊断里的 ``reason`` 是失败原文，``details`` 是结构化明细（集 / 文件 / 违约）。
     """
     pm = get_project_manager()
-    if not pm.project_exists(name):
+    if not await asyncio.to_thread(pm.project_exists, name):
         raise NotFoundError("project_not_found", name=name)
     outcome = await retry_project_migration(
         ToolRequest(NoArguments()),

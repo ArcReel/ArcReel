@@ -211,7 +211,7 @@ class ReplanDiscardRequest(BaseModel):
 async def _run_replan[T](name: str, user_id: str, _t: Translator, action: Callable[[ProjectManager], T]) -> T:
     """候选生成进行中时拒绝；其余在线程里执行，``ReplanError`` 映射为对应状态码与文案。"""
     scope, caller, services = _context(name, user_id)
-    if not services.projects.project_exists(name):
+    if not await asyncio.to_thread(services.projects.project_exists, name):
         raise NotFoundError("project_not_found", name=name)
     if await episode_planning_active(scope, caller, services):
         raise HTTPException(status_code=409, detail=_t("episode_replan_generating"))

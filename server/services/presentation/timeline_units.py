@@ -105,7 +105,7 @@ class TimelineUnitMaterials:
         project_dir = await asyncio.to_thread(self._projects.get_project_path, project_name)
         kind, items = await asyncio.to_thread(load_episode_items, self._projects, project_name, project, episode)
         resource_type = video_resource_type_for(kind)
-        versions = VersionManager(project_dir)
+        versions = await asyncio.to_thread(VersionManager, project_dir)
         materials: dict[str, UnitMaterial] = {}
         bases: list[DraftUnitBasis] = []
         for unit_id in draft_unit_ids(content, items):

@@ -79,7 +79,7 @@ from lib.speech.audio_utils import (
 from server.dependencies import require_project_migration_ok
 from server.i18n import Translator
 from server.routers._episode_source_errors import episode_source_http_error
-from server.routers._file_responses import cached_file_response
+from server.routers._file_responses import cached_file_response, guess_media_type
 from server.routers._script_review_errors import raise_review_error
 from server.routers._source_file_changes import (
     ensure_no_displaced_tasks,
@@ -335,20 +335,28 @@ async def serve_project_file(project_name: str, path: str, request: Request, _t:
                     width=thumbnail_width,
                 )
                 if thumbnail is not None:
-                    return thumbnail
+                    thumbnail_path, thumbnail_stat = thumbnail
+                    return thumbnail_path, thumbnail_stat, guess_media_type(thumbnail_path)
                 # 生成期间源文件可能已被替换：回退原图时按此刻的文件计算长度与 ETag
                 stat_result = _regular_file_stat(file_path)
                 if stat_result is None:
                     raise HTTPException(status_code=404, detail=_t("file_not_found", path=path))
 
-            return file_path, stat_result
+            return file_path, stat_result, guess_media_type(file_path)
 
         thumbnail_width = snap_thumbnail_width(request.query_params.get("w"))
-        file_path, stat_result = await asyncio.to_thread(_sync)
+        file_path, stat_result, media_type = await asyncio.to_thread(_sync)
 
         # 内容寻址缓存：带 ?v= 参数或 versions/ 路径时设 immutable，其余每次再验证
         immutable = bool(request.query_params.get("v")) or path.startswith("versions/")
-        return cached_file_response(file_path, stat_result, request, immutable=immutable, headers=_PUBLIC_FILE_HEADERS)
+        return cached_file_response(
+            file_path,
+            stat_result,
+            request,
+            immutable=immutable,
+            headers=_PUBLIC_FILE_HEADERS,
+            media_type=media_type,
+        )
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
@@ -361,24 +369,28 @@ async def serve_global_asset(asset_type: str, filename: str, request: Request, _
     if "/" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail=_t("invalid_asset_filename"))
 
-    root = get_project_manager().get_global_assets_root()
-    # 防御性检查：即使 filename 通过了字符串校验，也要确保解析后的路径仍在 root 之内
-    # （防御 symlink / URL 编码等边界场景）
-    try:
-        path = safe_join(root, asset_type, filename)
-    except PathTraversalError as exc:
-        raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
+    def _sync() -> tuple[Path, os.stat_result, str]:
+        root = get_project_manager().get_global_assets_root()
+        # 防御性检查：即使 filename 通过了字符串校验，也要确保解析后的路径仍在 root 之内
+        # （防御 symlink / URL 编码等边界场景）
+        try:
+            path = safe_join(root, asset_type, filename)
+        except PathTraversalError as exc:
+            raise HTTPException(status_code=403, detail=_t("forbidden_access")) from exc
 
-    stat_result = (
-        await asyncio.to_thread(_regular_file_stat, path) if path.suffix.lower() in PUBLIC_MEDIA_EXTENSIONS else None
-    )
-    if stat_result is None:
-        raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
+        stat_result = _regular_file_stat(path) if path.suffix.lower() in PUBLIC_MEDIA_EXTENSIONS else None
+        if stat_result is None:
+            raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
+        return path, stat_result, guess_media_type(path)
+
+    path, stat_result, media_type = await asyncio.to_thread(_sync)
 
     # 文件名是 uuid，前端以 ?fp=<updated_at> 作版本键（?v= 同义）；带版本键即 immutable
     query = request.query_params
     immutable = bool(query.get("fp") or query.get("v"))
-    return cached_file_response(path, stat_result, request, immutable=immutable, headers=_PUBLIC_FILE_HEADERS)
+    return cached_file_response(
+        path, stat_result, request, immutable=immutable, headers=_PUBLIC_FILE_HEADERS, media_type=media_type
+    )
 
 
 @router.post("/projects/{project_name}/upload/{upload_type}")
@@ -675,7 +687,7 @@ async def _handle_source_upload(
 
     try:
         manager = get_project_manager()
-        project_dir = manager.get_project_path(project_name)
+        project_dir = await asyncio.to_thread(manager.get_project_path, project_name)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 
@@ -762,7 +774,7 @@ async def _handle_source_upload(
         # 竞态窗口：get_project_path 通过后项目目录被并发删除，SourceLoader 写入时才炸。
         # 不映射会落到 app 级兜底的泛化 resource_not_found，丢失项目语义。
         # 仅在项目目录确实消失时转换：tmp 文件/加载器内部的文件缺失不是项目问题，继续上抛
-        if project_dir.exists():
+        if await asyncio.to_thread(project_dir.exists):
             raise
         raise NotFoundError("project_not_found", name=project_name) from exc
     except (UnsupportedFormatError, FileSizeExceededError, SourceDecodeError, CorruptFileError) as exc:
@@ -810,7 +822,7 @@ async def _handle_episode_source_upload(
 
     try:
         manager = get_project_manager()
-        project_dir = manager.get_project_path(project_name)
+        project_dir = await asyncio.to_thread(manager.get_project_path, project_name)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
 

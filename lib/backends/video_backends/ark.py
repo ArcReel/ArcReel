@@ -318,59 +318,8 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
         # Ark 视频 API 要求每个 image_url 条目在顶层带 `role` 字段
         # （first_frame / last_frame / reference_image），否则 400 InvalidParameter。
-        if request.start_image:
-            from lib.backends.image_backends.base import image_to_base64_data_uri
-
-            data_uri = await asyncio.to_thread(image_to_base64_data_uri, request.start_image)
-            content.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": data_uri},
-                    "role": "first_frame",
-                }
-            )
-
-        if request.end_image:
-            from lib.backends.image_backends.base import image_to_base64_data_uri
-
-            end_path = Path(request.end_image)
-            if not end_path.is_file():  # noqa: ASYNC240 -- 尾帧存在性检查，本地元数据
-                # 尾帧缺失不静默跳过：跳过后任务照常提交并计费，用户拿到一段没有尾帧、
-                # 与分镜衔接不上的视频却无从知道原因。
-                raise VideoCapabilityError(
-                    "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
-                )
-            data_uri = await asyncio.to_thread(image_to_base64_data_uri, request.end_image)
-            content.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": data_uri},
-                    "role": "last_frame",
-                }
-            )
-
-        if request.reference_images:
-            from lib.backends.image_backends.base import image_to_base64_data_uri
-
-            missing = [p for r in request.reference_images if not (p := Path(r)).is_file()]
-            if missing:
-                # 与尾帧同理：少一张参考图仍会出片并计费，成片里的角色/场景却已跑偏。
-                raise VideoCapabilityError(
-                    "video_reference_images_unreadable",
-                    model=self._model,
-                    names=", ".join(p.name or str(p) for p in missing),
-                )
-            ref_data_uris = await asyncio.gather(
-                *[asyncio.to_thread(image_to_base64_data_uri, Path(ref_path)) for ref_path in request.reference_images]
-            )
-            content.extend(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": data_uri},
-                    "role": "reference_image",
-                }
-                for data_uri in ref_data_uris
-            )
+        # 存在性检查与读图编码都是阻塞 I/O，整体卸载到线程。
+        content.extend(await asyncio.to_thread(self._build_image_content, request))
 
         if request.reference_audio_files:
             # 音频条目与图片条目同列 content 数组，各自按类型独立编号：prompt 里的「音频N」
@@ -436,6 +385,55 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         而非产物通道常见的 403/404，故在共用谓词之上补这一条。
         """
         await download_video(video_url, output_path, label="Ark", retry_if=_retry_ark_download)
+
+    def _build_image_content(self, request: VideoGenerationRequest) -> list[dict[str, Any]]:
+        """首帧 / 尾帧 / 参考图 → image_url 条目（同步：读本地图片，调用方放线程里跑）。"""
+        from lib.backends.image_backends.base import image_to_base64_data_uri
+
+        content: list[dict[str, Any]] = []
+        if request.start_image:
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_to_base64_data_uri(request.start_image)},
+                    "role": "first_frame",
+                }
+            )
+
+        if request.end_image:
+            end_path = Path(request.end_image)
+            if not end_path.is_file():
+                # 尾帧缺失不静默跳过：跳过后任务照常提交并计费，用户拿到一段没有尾帧、
+                # 与分镜衔接不上的视频却无从知道原因。
+                raise VideoCapabilityError(
+                    "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
+                )
+            content.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_to_base64_data_uri(request.end_image)},
+                    "role": "last_frame",
+                }
+            )
+
+        if request.reference_images:
+            missing = [p for r in request.reference_images if not (p := Path(r)).is_file()]
+            if missing:
+                # 与尾帧同理：少一张参考图仍会出片并计费，成片里的角色/场景却已跑偏。
+                raise VideoCapabilityError(
+                    "video_reference_images_unreadable",
+                    model=self._model,
+                    names=", ".join(p.name or str(p) for p in missing),
+                )
+            content.extend(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": image_to_base64_data_uri(Path(ref_path))},
+                    "role": "reference_image",
+                }
+                for ref_path in request.reference_images
+            )
+        return content
 
     @contextmanager
     def _polling_client(self, request: VideoGenerationRequest) -> Generator[Any]:

@@ -288,37 +288,42 @@ async def plan_grid_submission(
     ensure_grid_submittable(project, script)
     # 4×4 / 5×5 只在图像分辨率档为 4K 时放行；判定与费用估算、前端预览同源
     allow_large_grid = await large_grid_gate(project)
-    # 规划不落任何文件：宫格目录尚不存在时即没有记录，不经 GridManager 建目录
-    gm = GridManager(project_path) if (project_path / "grids").is_dir() else None
 
     def episode_records() -> list[GridGeneration]:
+        # 规划不落任何文件：宫格目录尚不存在时即没有记录，不经 GridManager 建目录
+        if not (project_path / "grids").is_dir():
+            return []
         return [
-            g
-            for g in (gm.list_all() if gm is not None else [])
-            if g.script_file == script_file and g.episode == episode
+            g for g in GridManager(project_path).list_all() if g.script_file == script_file and g.episode == episode
         ]
 
-    records = episode_records()
+    records = await asyncio.to_thread(episode_records)
     marked_ids = [g.id for g in records if g.status in GRID_IN_FLIGHT_STATUSES]
     active: set[str] = set()
     if marked_ids:
         active = set(await active_grid_tasks(marked_ids))
         # 执行器先把记录写成终态，任务才离开活动集：探测之后重读，探测前刚跑完的宫格以终态出现，不被当成孤儿
-        records = episode_records()
+        records = await asyncio.to_thread(episode_records)
     marked = [g for g in records if g.status in GRID_IN_FLIGHT_STATUSES]
     in_flight = [g for g in marked if g.id in active]
-    return _Planner(
-        project=project,
-        project_path=project_path,
-        script=script,
-        script_file=script_file,
-        episode=episode,
-        allow_large_grid=allow_large_grid,
-        records=records,
-        in_flight=in_flight,
-        abandoned=frozenset(g.id for g in marked) - {g.id for g in in_flight},
-        section=section,
-    ).plan(scene_ids)
+    abandoned = frozenset(g.id for g in marked) - {g.id for g in in_flight}
+
+    # 规划只读：产物时效判定会读清单、算摘要、列目录，整体放到线程里
+    def _plan() -> GridSubmissionPlan:
+        return _Planner(
+            project=project,
+            project_path=project_path,
+            script=script,
+            script_file=script_file,
+            episode=episode,
+            allow_large_grid=allow_large_grid,
+            records=records,
+            in_flight=in_flight,
+            abandoned=abandoned,
+            section=section,
+        ).plan(scene_ids)
+
+    return await asyncio.to_thread(_plan)
 
 
 def commit_grid_submission(plan: GridSubmissionPlan, project_path: Path) -> tuple[GridSubmissionTask, ...]:

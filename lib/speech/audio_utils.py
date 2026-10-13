@@ -7,6 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.ffmpeg import FfmpegUnavailableError
 from lib.infra.media_probe import MediaProbe, MediaProbeError, probe_media
 from lib.infra.path_safety import safe_resolve
@@ -92,15 +93,8 @@ async def _probe_or_none(path: Path) -> MediaProbe | None:
         return None
 
 
-async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | None:
-    """探测音频字节的时长（秒），并确认其中确有可解码的音频流。
-
-    随包 ffmpeg 不可用时返回 None，调用方按降级处理：跳过时长校验，不阻断上传。
-
-    Raises:
-        ValueError: 无法解析、探测超时、容器内没有音频流（如把视频文件改名为 .wav/.mp3
-            上传），或容器格式与扩展名不符（如把 m4a/aac 改名为 .wav 上传）。
-    """
+def _write_probe_temp_file(content: bytes, suffix: str) -> Path:
+    """把待探测的字节写进系统临时目录；写入失败时删掉已建的临时文件再抛出。"""
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(dir=tempfile.gettempdir(), suffix=suffix, delete=False) as tmp:
@@ -110,7 +104,19 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
         raise
+    return tmp_path
 
+
+async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | None:
+    """探测音频字节的时长（秒），并确认其中确有可解码的音频流。
+
+    随包 ffmpeg 不可用时返回 None，调用方按降级处理：跳过时长校验，不阻断上传。
+
+    Raises:
+        ValueError: 无法解析、探测超时、容器内没有音频流（如把视频文件改名为 .wav/.mp3
+            上传），或容器格式与扩展名不符（如把 m4a/aac 改名为 .wav 上传）。
+    """
+    tmp_path = await run_sync_transaction(_write_probe_temp_file, content, suffix)
     try:
         probe = await probe_media(tmp_path, deadline_seconds=_UPLOAD_PROBE_DEADLINE_SECONDS)
     except (FfmpegUnavailableError, OSError):
@@ -119,7 +125,7 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
     except MediaProbeError:
         raise ValueError("音频文件无法解析") from None
     finally:
-        tmp_path.unlink(missing_ok=True)
+        await run_sync_transaction(tmp_path.unlink, missing_ok=True)
 
     if probe.first_stream("audio") is None:
         raise ValueError("音频文件无法解析")

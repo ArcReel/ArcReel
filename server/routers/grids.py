@@ -24,7 +24,7 @@ from lib.artifacts.version_manager import VersionManager
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_result import GenerationProblemCode
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
-from lib.infra.async_thread import run_noninterruptible_sync
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.image_utils import MAX_UPLOAD_PIXELS, ImagePixelLimitError, normalize_storyboard_upload
 from lib.infra.json_io import domain_error_on_value_error
 from lib.project.project_change_hints import project_change_source
@@ -124,13 +124,18 @@ async def generate_grid(
     规划与落地见 :mod:`server.services.grid.grid_submission`；准入是整批的，任一分镜受阻即
     不建任何任务。
     """
-    # 广告/短片项目与关闭宫格开关的项目在此一并拒绝：写入边界（create/PATCH 拒 ad 开启
-    # grid_storyboard）之外，动作端点再设一道防线，不让 HTTP 直调绕过开关产生计费任务
-    project = _load_project_for_grid_write(project_name)
-    # 路径穿越、解绑、集号失配均是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
-    # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500。
-    script = _load_admitted_grid_script(project_name, project, req.script_file, episode)
-    project_path = get_project_manager().get_project_path(project_name)
+
+    def _prepare() -> tuple[dict, dict, Path]:
+        # 广告/短片项目与关闭宫格开关的项目在此一并拒绝：写入边界（create/PATCH 拒 ad 开启
+        # grid_storyboard）之外，动作端点再设一道防线，不让 HTTP 直调绕过开关产生计费任务
+        project = _load_project_for_grid_write(project_name)
+        # 路径穿越、解绑、集号失配均是坏请求，400 而非落入下方 500 兜底；剧本文件损坏
+        # （JSONDecodeError）不能被误判为非法 script_file，交由 app 级 catch-all 收口为通用 500。
+        script = _load_admitted_grid_script(project_name, project, req.script_file, episode)
+        return project, script, get_project_manager().get_project_path(project_name)
+
+    # 读剧本可能顺带落盘迁移
+    project, script, project_path = await run_sync_transaction(_prepare)
     queue = get_generation_queue()
 
     grid_ids: list[str] = []
@@ -153,7 +158,7 @@ async def generate_grid(
             large_grid_gate=resolve_large_grid_allowed,
         )
         _raise_for_refused_submission(project, plan)
-        for submission in commit_grid_submission(plan, project_path):
+        for submission in await run_sync_transaction(commit_grid_submission, plan, project_path):
             task = await queue.enqueue_task(
                 project_name=project_name,
                 task_type="grid",
@@ -226,8 +231,12 @@ async def get_grid_capability(project_name: str):
     前端批次预览据此镜像后端阶梯——预览与入队若各自判定 4K 门控，批次数会漂移。
     路径不挂在 ``/grids/`` 下，避免与 ``/grids/{grid_id}`` 抢匹配。
     """
-    with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
-        project = get_project_manager().load_project(project_name)
+
+    def _load() -> dict:
+        with domain_error_on_value_error(lambda _exc: BadRequestError("invalid_project_name", name=project_name)):
+            return get_project_manager().load_project(project_name)
+
+    project = await asyncio.to_thread(_load)
     allowed = await resolve_large_grid_allowed(project)
     return GridCapabilityResponse(
         large_grid_allowed=allowed,
@@ -241,15 +250,21 @@ async def get_grid_capability(project_name: str):
 @router.get("/grids")
 async def list_grids(project_name: str, request: Request, _t: Translator):
     """列出项目下所有宫格图记录。"""
-    try:
-        project_path = get_project_manager().get_project_path(project_name)
-    except ValueError as exc:
-        raise BadRequestError("invalid_project_name", name=project_name) from exc
-    gm = GridManager(project_path)
-    return await present_request_diagnostics([g.to_dict() for g in gm.list_all()], request, _t)
+
+    def _list() -> list[dict]:
+        return [g.to_dict() for g in GridManager(_grid_project_path(project_name)).list_all()]
+
+    return await present_request_diagnostics(await asyncio.to_thread(_list), request, _t)
 
 
 # ==================== 宫格图详情 ====================
+
+
+def _grid_project_path(project_name: str) -> Path:
+    try:
+        return get_project_manager().get_project_path(project_name)
+    except ValueError as exc:
+        raise BadRequestError("invalid_project_name", name=project_name) from exc
 
 
 def _load_grid_or_404(project_path: Path, grid_id: str) -> GridGeneration:
@@ -266,11 +281,7 @@ def _load_grid_or_404(project_path: Path, grid_id: str) -> GridGeneration:
 @router.get("/grids/{grid_id}")
 async def get_grid(project_name: str, grid_id: str, request: Request, _t: Translator):
     """获取单个宫格图记录。"""
-    try:
-        project_path = get_project_manager().get_project_path(project_name)
-    except ValueError as exc:
-        raise BadRequestError("invalid_project_name", name=project_name) from exc
-    grid = _load_grid_or_404(project_path, grid_id)
+    grid = await asyncio.to_thread(lambda: _load_grid_or_404(_grid_project_path(project_name), grid_id))
     return await present_request_diagnostics(grid.to_dict(), request, _t)
 
 
@@ -293,6 +304,12 @@ def _load_project_for_grid_write(project_name: str) -> dict:
     return project
 
 
+def _grid_write_target(project_name: str) -> tuple[dict, Path]:
+    """宫格写操作的项目与项目目录。"""
+    project = _load_project_for_grid_write(project_name)
+    return project, get_project_manager().get_project_path(project_name)
+
+
 async def _ensure_grid_idle(project_name: str, grid: GridGeneration, user_id: str) -> None:
     """生成在途（pending/generating）的宫格拒绝切分/上传：worker 完成时会覆写联合图，
     与刚上传的图或按旧图的切分互相踩踏。只有队列里仍有活动任务才算在途；任务被取消、
@@ -313,13 +330,16 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
     读记录、置 pending 与入队同在提交临界区内：另一提交既不会在其间清理掉这条记录，
     也不会看到它停在 pending 却还没有任务。
     """
-    project = _load_project_for_grid_write(project_name)
-    project_path = get_project_manager().get_project_path(project_name)
-    gm = GridManager(project_path)
+    project, project_path = await asyncio.to_thread(_grid_write_target, project_name)
     queue = get_generation_queue()
     async with grid_submission_section(project_name):
-        grid = _load_grid_or_404(project_path, grid_id)
-        script = _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
+
+        def _load_grid_and_script() -> tuple[GridGeneration, dict]:
+            grid = _load_grid_or_404(project_path, grid_id)
+            return grid, _load_admitted_grid_script(project_name, project, grid.script_file, grid.episode)
+
+        # 读剧本可能顺带落盘迁移
+        grid, script = await run_sync_transaction(_load_grid_and_script)
         ensure_grid_submittable(project, script)
         items, id_field, _, _, _ = get_storyboard_items(script)
         # 重生成是又一次付费出图：准入与首次生成同一份判定，按记录冻结的分镜集合求值。
@@ -343,7 +363,7 @@ async def regenerate_grid(project_name: str, grid_id: str, user: CurrentUser):
         grid.model = ""
         # 存量记录的冻结值在此补齐；已有冻结值时是恒等写入
         grid.video_aspect_ratio = aspect_ratio
-        gm.save(grid)
+        await run_sync_transaction(lambda: GridManager(project_path).save(grid))
         task = await queue.enqueue_task(
             project_name=project_name,
             task_type="grid",
@@ -377,12 +397,13 @@ async def split_grid(project_name: str, grid_id: str, user: CurrentUser):
     逐格覆写前旧文件补登版本、覆写后登记新版本；frame_chain 中已不在剧本内的
     scene id 跳过（missing_scene_ids 返回）。切坏可在分镜格的版本史逐格回滚。
     """
-    _load_project_for_grid_write(project_name)
-    project_path = get_project_manager().get_project_path(project_name)
+    _, project_path = await asyncio.to_thread(_grid_write_target, project_name)
     async with grid_submission_section(project_name):
-        grid = _load_grid_or_404(project_path, grid_id)
+        grid = await asyncio.to_thread(_load_grid_or_404, project_path, grid_id)
         await _ensure_grid_idle(project_name, grid, user.id)
-        if not grid.grid_image_path or not GridManager(project_path).image_path(grid_id).exists():
+        if not grid.grid_image_path or not await asyncio.to_thread(
+            lambda: GridManager(project_path).image_path(grid_id).exists()
+        ):
             raise BadRequestError("grid_image_not_ready", grid_id=grid_id)
 
         try:
@@ -418,9 +439,12 @@ async def upload_grid_image(
     布局正确性由用户自行负责），登记为一个新的 grids 版本；不触发切分、
     不触碰任何分镜格。
     """
-    project = _load_project_for_grid_write(project_name)
-    project_path = get_project_manager().get_project_path(project_name)
-    grid = _load_grid_or_404(project_path, grid_id)
+
+    def _prepare() -> tuple[dict, Path, GridGeneration]:
+        project, project_path = _grid_write_target(project_name)
+        return project, project_path, _load_grid_or_404(project_path, grid_id)
+
+    project, project_path, grid = await asyncio.to_thread(_prepare)
     await _ensure_grid_idle(project_name, grid, user.id)
     aspect_ratio = video_aspect_ratio_of(project)
 
@@ -439,20 +463,22 @@ async def upload_grid_image(
     except ValueError as exc:
         raise BadRequestError("invalid_image_file") from exc
 
-    grid_manager = GridManager(project_path)
-    target = grid_manager.image_path(grid_id)
-    versions = VersionManager(project_path)
+    def _stage() -> tuple[Path, Path]:
+        target = GridManager(project_path).image_path(grid_id)
+        return target, stage_uploaded_bytes(png_bytes, target)
 
     with project_change_source("webui"):
-        staged_file = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
+        target, staged_file = await asyncio.to_thread(_stage)
     try:
         async with grid_submission_section(project_name):
             # 入队与记录写入在同一临界区内完成。这里在持有临界区后重读并再次探测，
             # 防止早先的孤儿判定之后、提交之前插入一次重新生成。
-            current_grid = _load_grid_or_404(project_path, grid_id)
+            current_grid = await asyncio.to_thread(_load_grid_or_404, project_path, grid_id)
             await _ensure_grid_idle(project_name, current_grid, user.id)
 
             def _commit() -> int:
+                grid_manager = GridManager(project_path)
+                versions = VersionManager(project_path)
                 version_box: list[int] = []
 
                 def _replace_record(current_grid: GridGeneration) -> None:

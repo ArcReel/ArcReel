@@ -367,6 +367,16 @@ class ScriptGenerator:
             config_resolver=config_resolver,
         )
 
+    def _formal_script_baseline(self, episode: int, output_filename: str | None) -> tuple[str, str | None]:
+        """该集正式剧本的文件名与写入基线指纹（文件不存在时指纹为 None）。"""
+        filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
+        return filename, content_fingerprint(self.project_path / "scripts" / filename)
+
+    def _save_script(self, script_data: dict[str, Any], filename: str, **kwargs: Any) -> Path:
+        """经写盘统一入口保存剧本；ProjectManager 构造时会建目录，须在线程里调用。"""
+        pm = ProjectManager.for_project_dir(self.project_path)
+        return pm.save_script(self.project_path.name, script_data, filename, **kwargs)
+
     def _load_prompt_authoring_targets(
         self,
         episode: int,
@@ -470,11 +480,9 @@ class ScriptGenerator:
         self._artifact_basis = None
         self._script_plan_input_claim = None
         gen_mode = self.generation_mode
-        filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
-
         # 基线先于读入正式剧本：编写用的快照与 expected_fingerprint 出自同一时刻之前，两者之间
         # 落下的并发保存在写入时按冲突拒绝，而不是被本次写回覆盖。
-        formal_baseline = await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
+        filename, formal_baseline = await asyncio.to_thread(self._formal_script_baseline, episode, output_filename)
         if regenerate:
             if self.content_mode != "ad":
                 raise PromptAuthoringTargetError("整份重做只适用于广告/短片；其他创作类型请重跑脚本规划并重新确认")
@@ -559,10 +567,8 @@ class ScriptGenerator:
         )
         authored = self._merge_visual_layer(targets, self._parse_visual_layer(result.text, targets), episode)
         script_data = self._authored_script(episode, targets, authored)
-        pm = ProjectManager.for_project_dir(self.project_path)
         saved_path = await run_sync_transaction(
-            pm.save_script,
-            self.project_path.name,
+            self._save_script,
             script_data,
             filename,
             validate=True,
@@ -695,10 +701,10 @@ class ScriptGenerator:
             units = await run_sync_transaction(
                 self._load_reference_script_plan, episode, self._reference_migration_durations(facts)
             )
-            self._assert_reference_script_plan_durations(units, facts=facts)
+            await asyncio.to_thread(functools.partial(self._assert_reference_script_plan_durations, units, facts=facts))
             return "reference_video", units
         if self.content_mode != "narration":
-            content = self._load_drama_script_plan_content(episode)
+            content = await asyncio.to_thread(self._load_drama_script_plan_content, episode)
             raw_scenes = content.get("scenes")
             scenes: list = raw_scenes if isinstance(raw_scenes, list) else []
             for scene in scenes:
@@ -706,7 +712,7 @@ class ScriptGenerator:
             await self._assert_drama_script_plan_durations(scenes)
             return "drama", scenes
         supported = self._storyboard_planning_durations(await self._fetch_video_request_facts())
-        return "narration", self._load_narration_script_plan(episode, supported)
+        return "narration", await asyncio.to_thread(self._load_narration_script_plan, episode, supported)
 
     async def materialize_script_plan(
         self,
@@ -746,7 +752,7 @@ class ScriptGenerator:
             new_assets.apply_to_project(project)
             project_update(project)
 
-        filename = formal_script_filename(self.project_path, self.project_json, episode)
+        filename = await asyncio.to_thread(formal_script_filename, self.project_path, self.project_json, episode)
         # 集标题取分集账本：drama 规划里模型起的标题照填、不采用，免得冻结派生集名或覆盖用户的标题。
         script_data = build_materialized_script(
             self.project_json, episode, plan_kind=plan_kind, plan_entries=plan_entries, title=None
@@ -760,7 +766,6 @@ class ScriptGenerator:
         if plan_path is None:
             raise FileNotFoundError(f"集（id={episode}）不适用脚本规划")
         claim = self._script_plan_input_claim
-        pm = ProjectManager.for_project_dir(self.project_path)
 
         def _commit() -> None:
             # 持脚本规划锁复核指纹后落盘：加载之后被保存、重跑或晋升改写的脚本规划不能以旧内容物化，
@@ -773,8 +778,7 @@ class ScriptGenerator:
                     )
                 if claim is not None:
                     assert_current_artifact_input_claims_usable(self.project_path, (claim,))
-                pm.save_script(
-                    self.project_path.name,
+                self._save_script(
                     script_data,
                     filename,
                     validate=True,
@@ -869,12 +873,13 @@ class ScriptGenerator:
         ``previous`` 是用户认可覆盖的旧正式剧本：以它的指纹为写入基线，同 id 条目名下的旧产物随写入撤登记。
         """
         assert self.generator is not None  # generate() 入口已检查
-        filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
-        formal_baseline = (
-            previous.fingerprint
-            if previous is not None
-            else await asyncio.to_thread(content_fingerprint, self.project_path / "scripts" / filename)
-        )
+        if previous is None:
+            filename, formal_baseline = await asyncio.to_thread(self._formal_script_baseline, episode, output_filename)
+        else:
+            filename = output_filename or await asyncio.to_thread(
+                formal_script_filename, self.project_path, self.project_json, episode
+            )
+            formal_baseline = previous.fingerprint
         logger.info("正在生成第 %d 集剧本...", episode)
         result = await self._generate_text(
             TextGenerationRequest(
@@ -910,11 +915,9 @@ class ScriptGenerator:
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
         # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
         # 本次新增资产与正式剧本在同一写事务里登记进项目。
-        pm = ProjectManager.for_project_dir(self.project_path)
         output_path = await run_sync_transaction(
             functools.partial(
-                pm.save_script,
-                self.project_path.name,
+                self._save_script,
                 script_data,
                 filename,
                 validate=True,
@@ -1041,9 +1044,12 @@ class ScriptGenerator:
         渲染一份不会被发出的空 prompt。``instructions`` 的注入口径与 `generate()` 一致。
         dry-run 恒以该集绑定的正式剧本为准：它不落盘，也就没有 ``output_filename`` 可言。
         """
-        targets = self._load_prompt_authoring_targets(
-            episode, formal_script_filename(self.project_path, self.project_json, episode), entry_ids, rewrite=rewrite
-        )
+
+        def load_targets() -> PromptAuthoringTargets | None:
+            filename = formal_script_filename(self.project_path, self.project_json, episode)
+            return self._load_prompt_authoring_targets(episode, filename, entry_ids, rewrite=rewrite)
+
+        targets = await asyncio.to_thread(load_targets)
         if targets is None:
             if self.content_mode != "ad":
                 raise PromptAuthoringTargetError(
@@ -1564,8 +1570,12 @@ class ScriptGenerator:
         """
         facts = await self._fetch_video_request_facts()
         units = list(targets.entries)
-        self._assert_reference_units_authorable(units, facts=facts)
-        if await asyncio.to_thread(self._reference_prompt_authoring_draft_revision, episode) is not None:
+
+        def preflight() -> str | None:
+            self._assert_reference_units_authorable(units, facts=facts)
+            return self._reference_prompt_authoring_draft_revision(episode)
+
+        if await asyncio.to_thread(preflight) is not None:
             raise DraftViolation(
                 "reference prompt_authoring 草稿待处置；正式生成已中止，请先晋升或丢弃现有草稿",
                 code="draft_revision_conflict",
@@ -1595,11 +1605,14 @@ class ScriptGenerator:
 
         # _add_metadata 一并纳入草稿保护：它按落地后的最终正文重算生效档位，一个新增 / 去掉了
         # `@` 引用的 unit 要到合并之后才判出档——不接住的话，这份已付费产出只存在于内存里。
-        try:
+        def author() -> dict[str, Any]:
             authored = self._merge_reference_visual(units, response_text, episode, max_refs=max_refs)
-            script_data = self._authored_script(
+            return self._authored_script(
                 episode, targets, authored, reference_unit_durations=self._unit_durations(targets), facts=facts
             )
+
+        try:
+            script_data = await asyncio.to_thread(author)
         except DraftViolation as exc:
             raise await quarantine(exc) from exc
         try:
@@ -1739,10 +1752,8 @@ class ScriptGenerator:
         if problems:
             raise ValueError("提示词编写产出的单元正文不合规：" + "；".join(problems))
         script_data = self._authored_script(episode, targets, authored)
-        pm = ProjectManager.for_project_dir(self.project_path)
         output_path = await run_sync_transaction(
-            pm.save_script,
-            self.project_path.name,
+            self._save_script,
             script_data,
             filename,
             validate=True,

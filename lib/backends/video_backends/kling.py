@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -432,7 +433,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     # ── generate / resume ───────────────────────────────────────────────
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        subpath, payload = self._build_payload(request)
+        # 组装 payload 要读首帧 / 尾帧 / 参考图并编码，放线程里跑，避免阻塞事件循环
+        subpath, payload = await asyncio.to_thread(self._build_payload, request)
         generate_audio = self._effective_audio(request, subpath=subpath)
         logger.info("调用 Kling 视频 API payload=%s", self._safe_log_view(subpath, payload))
         # 建任务与轮询与产物下载共用出站目的地闸：base_url 由用户配置，同按不可信目标处理。

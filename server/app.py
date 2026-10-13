@@ -921,18 +921,22 @@ frontend_dist_dir = PROJECT_ROOT / "frontend" / "dist"
 
 if (frontend_dist_dir / "index.html").is_file():
 
-    @app.get("/app/{_rest:path}", include_in_schema=False)
-    async def spa_deep_link(_rest: str) -> FileResponse:
+    def _spa_deep_link_response(rest: str) -> FileResponse:
         # SPA 深链末段可能带扩展名（如 /app/projects/x/source/chapter1.txt），
         # app.frontend 的 fallback 会将其判为静态资源请求返回 404，此处显式兜底回 SPA 外壳。
         # 本路由注册在 app.frontend 之前，/app/ 下任何请求都会先到这里——若构建产物中
         # 恰好存在 dist/app/... 下的真实静态文件（URL 路径与 app.frontend 的映射规则一致，
         # 即相对 dist 根目录同路径），须优先返回该文件，避免被无条件遮蔽。
-        # _rest 是用户可控的 URL 段：越界一律降级回 SPA 外壳，不暴露 dist 之外的文件
-        candidate = try_safe_join(frontend_dist_dir / "app", _rest, require_file=True)
+        # rest 是用户可控的 URL 段：越界一律降级回 SPA 外壳，不暴露 dist 之外的文件
+        candidate = try_safe_join(frontend_dist_dir / "app", rest, require_file=True)
         if candidate is not None:
             return FileResponse(candidate)
         return FileResponse(frontend_dist_dir / "index.html")
+
+    @app.get("/app/{_rest:path}", include_in_schema=False)
+    async def spa_deep_link(_rest: str) -> FileResponse:
+        # 探测静态文件与 FileResponse 构造（首次 guess_type 会加载系统 mime 表）都触盘，整体卸到线程。
+        return await asyncio.to_thread(_spa_deep_link_response, _rest)
 
     app.frontend("/", directory=frontend_dist_dir, fallback="index.html")
 else:
