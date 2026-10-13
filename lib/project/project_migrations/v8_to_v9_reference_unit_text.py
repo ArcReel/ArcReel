@@ -13,23 +13,25 @@
   单元仍然阻断生成、仍需重新规划。
 
 同一套改写作用于剧集脚本与 script_plan 草稿：草稿是同一份正文的上一形态，留在旧形状会让审阅 gate
-读不出内容。
+读不出内容。读不出或改写不了的草稿原样保留、不改写，不拒绝整个项目（ADR 0098）。剧本里转换
+不了或不符合当前单元模型的单元同样不拒绝整个项目：标为待重新规划，交给运行期的重新规划处理。
 
 写入顺序沿用本目录约定：先只读预检全部文件并算出目标载荷，全部通过后才创建备份、再逐文件
 原子替换，最后提交 ``project.json`` 版本。``project.json`` 的备份也由本迁移在这个提交边界上
 自建（runner 的 ``_MIGRATORS_WITH_OWNED_BACKUP``），否则 runner 会在预检之前先落一个备份文件。
-任一文件损坏时项目目录一个字节都没被动过，runner 据此落「需要修复」裁决。
+任一剧本损坏时项目目录一个字节都没被动过，runner 据此落「需要修复」裁决。
 """
 
 from __future__ import annotations
 
 import copy
+import logging
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from lib.episode.episode_paths import episode_drafts_dir
 from lib.infra.json_io import atomic_write_json, load_json
@@ -38,6 +40,8 @@ from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_migrations.backups import ensure_versioned_backup
 from lib.script.reference_video.duration_migration import migrate_unit_durations
 from lib.script.script_models import ReferenceScriptPlanUnit, ReferenceVideoUnit
+
+logger = logging.getLogger(__name__)
 
 _TARGET_VERSION = 9
 
@@ -80,12 +84,8 @@ def _unit_text(unit: dict[str, Any], location: str) -> str:
     return "\n".join(parts)
 
 
-def _migrate_unit(unit: object, location: str, model: type[BaseModel]) -> dict[str, Any]:
-    """转换一个单元并按目标模型自检。
-
-    校验只覆盖单元本身：本迁移只改单元形状，把整份剧本拿去校验会让一处与镜头无关的存量脏
-    字段（缺 title 之类）把整个项目判成「需要修复」。
-    """
+def _convert_unit(unit: object, location: str) -> dict[str, Any]:
+    """机械改写一个单元的形状：收编镜头时长、拼回正文、去掉 ``shots`` 与 ``references``。"""
 
     if not isinstance(unit, dict):
         raise ValueError(f"{location} 必须是对象")
@@ -100,8 +100,51 @@ def _migrate_unit(unit: object, location: str, model: type[BaseModel]) -> dict[s
     if migrated.pop("migration_requires_content_replan", None) is True:
         migrated["needs_replan"] = True
     migrated["text"] = text
+    return migrated
+
+
+def _without_transition(unit: dict[str, Any]) -> dict[str, Any]:
     # 转场到 v15→v16 才从条目上删除，自检的当前模型已不含它。
-    model.model_validate({key: value for key, value in migrated.items() if key != "transition_to_next"})
+    return {key: value for key, value in unit.items() if key != "transition_to_next"}
+
+
+def _migrate_unit(unit: object, location: str, model: type[BaseModel]) -> dict[str, Any]:
+    """转换一个单元并按目标模型自检。
+
+    校验只覆盖单元本身：本迁移只改单元形状，把整份剧本拿去校验会让一处与镜头无关的存量脏
+    字段（缺 title 之类）把整个项目判成「需要修复」。
+    """
+
+    migrated = _convert_unit(unit, location)
+    model.model_validate(_without_transition(migrated))
+    return migrated
+
+
+def _migrate_script_unit(unit: object, location: str) -> dict[str, Any]:
+    """转换剧本里的一个单元；转换不了或不符合当前单元模型的单元标为待重新规划，不拒绝整个项目。
+
+    转换不了的单元原样留下；转换后不合格的单元保留转换结果。两者都交给运行期的重新规划处理
+    （ADR 0098）。
+    """
+
+    if not isinstance(unit, dict):
+        raise ValueError(f"{location} 必须是对象")
+    try:
+        migrated = _convert_unit(unit, location)
+    except ValueError as exc:
+        logger.warning("%s 无法转换，原样保留并标为待重新规划：%s", location, exc)
+        kept = copy.deepcopy(unit)
+        kept["needs_replan"] = True
+        return kept
+    try:
+        ReferenceVideoUnit.model_validate(_without_transition(migrated))
+    except ValidationError as exc:
+        logger.warning("%s 不符合当前单元模型，标为待重新规划：%s", location, exc)
+        migrated["needs_replan"] = True
+        text = migrated.get("text")
+        if isinstance(text, str) and not text.strip():
+            # 没有正文的单元按待重新规划的空壳处理：空壳的编排时长为 0。
+            migrated["duration_seconds"] = 0
     return migrated
 
 
@@ -113,7 +156,7 @@ def migrate_reference_script(payload: dict[str, Any], *, location: str) -> dict[
         raise ValueError(f"{location}.video_units 必须是数组")
     migrated = copy.deepcopy(payload)
     migrated["video_units"] = [
-        _migrate_unit(unit, f"{location}.video_units[{index}]", ReferenceVideoUnit) for index, unit in enumerate(units)
+        _migrate_script_unit(unit, f"{location}.video_units[{index}]") for index, unit in enumerate(units)
     ]
     return migrated
 
@@ -207,10 +250,13 @@ def migrate_v8_to_v9(project_dir: Path) -> None:
 
             draft_path = _reference_units_draft_path(project_dir, episode)
             draft_label = f"第 {episode} 集 {draft_path.name}"
-            with _located(episode, draft_path.name):
+            try:
                 draft = _readable_file(draft_path, draft_label)
                 if draft is not None:
                     plans.append((draft_path, migrate_reference_script_plan_draft(draft, location=draft_label)))
+            except ValueError as exc:
+                # 损坏的脚本规划草稿原样保留、不改写，不拒绝整个项目（ADR 0098 收窄 ADR 0064）。
+                logger.warning("第 %s 集脚本规划草稿无法迁移，原样保留：%s（%s）", episode, draft_path, exc)
 
     # 预检全部成功后才创建备份；所有文件（含 project.json）先备份完，再开始替换。
     for path, _payload in [*plans, (project_file, project)]:

@@ -996,6 +996,140 @@ def bind_episode_script_to_filename(project_dir: Path, episode: int, filename: s
         adapter.put_entry(key, ArtifactManifestEntry(artifact_path=script_file, basis_digest=entry.basis_digest))
 
 
+def _load_json_object(path: Path) -> dict[str, Any]:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _ledger_entry(project: dict[str, Any], episode: int) -> dict[str, Any]:
+    return next(entry for entry in project["episodes"] if entry["episode"] == episode)
+
+
+def add_duplicate_ledger_entry(project_dir: Path, episode: int, filename: str) -> None:
+    """旧版 SSE 索引同步按剧本自报的集号登记，同一集号可登记出多条（schema ≤ 14）。
+
+    把该集剧本复制成 ``scripts/<filename>``，账本里再登记一条绑到副本的同号条目。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    entry = _ledger_entry(project, episode)
+    copy_rel = f"scripts/{filename}"
+    (project_dir / copy_rel).write_bytes((project_dir / entry["script_file"]).read_bytes())
+    project["episodes"].append({**entry, "script_file": copy_rel})
+    _write_json(project_path, project)
+
+
+def share_episode_script(project_dir: Path, episode: int, *, with_episode: int) -> None:
+    """旧版同步按剧本自报的集号建条目：剧本的集号改过后再同步，两个集号绑到同一份剧本。
+
+    账本里新登记 ``with_episode``，绑到 ``episode`` 的剧本文件。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    entry = _ledger_entry(project, episode)
+    project["episodes"].append(
+        {"episode": with_episode, "title": f"第{with_episode}集", "script_file": entry["script_file"]}
+    )
+    _write_json(project_path, project)
+
+
+def set_script_episode(project_dir: Path, episode: int, value: int | None) -> None:
+    """旧版同步与保存都接受顶层不写集号、或集号与绑定不符的剧本；``None`` 表示删去该字段。"""
+
+    project = _load_json_object(project_dir / "project.json")
+    script_path = project_dir / _ledger_entry(project, episode)["script_file"]
+    script = _load_json_object(script_path)
+    if value is None:
+        script.pop("episode", None)
+    else:
+        script["episode"] = value
+    _write_json(script_path, script)
+
+
+def add_colliding_asset_name(project_dir: Path, bucket: str, name: str) -> str:
+    """资产名比对坐标系（去两端空白、Unicode NFC）引入前，可登记出归一后同名的两条资产。
+
+    在 ``bucket`` 里加一条与 ``name`` 只差尾随空格的资产，返回新名字。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    colliding = f"{name} "
+    project[bucket][colliding] = {"description": "同名的另一份"}
+    _write_json(project_path, project)
+    return colliding
+
+
+def break_script_item_ids(project_dir: Path, episode: int) -> None:
+    """降级保存的剧本可以有重复或缺失的条目 id。
+
+    在第一个条目后追加一条同 id 的条目（提示词不同）与一条没有 id、没有产物的条目。
+    """
+
+    project = _load_json_object(project_dir / "project.json")
+    script_path = project_dir / _ledger_entry(project, episode)["script_file"]
+    script = _load_json_object(script_path)
+    kind = next(key for key in ("segments", "scenes", "shots", "video_units") if key in script)
+    id_field = {"segments": "segment_id", "scenes": "scene_id", "shots": "shot_id", "video_units": "unit_id"}[kind]
+    first = script[kind][0]
+    duplicate = {**first, "image_prompt": "另一镜"}
+    missing = {key: value for key, value in first.items() if key != id_field}
+    missing["generated_assets"] = {}
+    script[kind] = [first, duplicate, missing]
+    _write_json(script_path, script)
+
+
+def duplicate_legacy_ad_ids(project_dir: Path) -> None:
+    """schema 6 广告旧镜头索引里的重复编号：第二个镜头与第二个单元沿用第一个的编号。"""
+
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = _load_json_object(script_path)
+    script["shots"][1]["shot_id"] = script["shots"][0]["shot_id"]
+    script["reference_units"][1]["unit_id"] = script["reference_units"][0]["unit_id"]
+    script["reference_units"][1]["shot_ids"] = []
+    _write_json(script_path, script)
+
+
+def blank_reference_unit_shots(project_dir: Path, unit_id: str) -> None:
+    """v8 的单元模型只要求至少一个镜头、不要求镜头有正文：拼回正文后是空的，时长却不为 0。"""
+
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = _load_json_object(script_path)
+    unit = next(unit for unit in script["video_units"] if unit["unit_id"] == unit_id)
+    unit.pop("text", None)
+    unit["shots"] = [{"shot_id": f"{unit_id}S1", "text": ""}]
+    unit["references"] = []
+    _write_json(script_path, script)
+
+
+def write_unreadable_grid_record(project_dir: Path, grid_id: str = "grid_0123456789ab") -> Path:
+    """单个宫格记录损坏（不是合法 JSON）。"""
+
+    record = project_dir / "grids" / f"{grid_id}.json"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_bytes(b"{not json")
+    return record
+
+
+def write_unreadable_script_plan_draft(project_dir: Path, episode: int, name: str) -> Path:
+    """单份脚本规划草稿损坏（不是合法 JSON）。"""
+
+    draft = project_dir / "drafts" / f"episode_{episode}" / name
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_bytes(b"{not json")
+    return draft
+
+
+def write_non_utf8_episode_source(project_dir: Path, episode: int, text: str) -> Path:
+    """集原文不是 UTF-8（上传时没有转码的 GBK 文本）。"""
+
+    source = project_dir / "source" / f"episode_{episode}.txt"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(text.encode("gbk"))
+    return source
+
+
 def write_legacy_presentation_project(
     root: Path,
     name: str = "legacy-presentation",
@@ -1270,3 +1404,27 @@ __all__ = [
     "write_legacy_tts_narration_project",
     "write_undescribed_style_bases_project",
 ]
+
+
+def reuse_item_id_across_episodes(project_dir: Path, item_id: str) -> None:
+    """旧版剧本 id 只在本集内判重：复制来的剧本可以和另一集有同号条目，两边认领同一个媒体文件。
+
+    账本里新登记第 2 集，剧本复制自第 1 集；两集首个条目都改成 ``item_id``，分镜图引用指向它的规范路径，
+    盘上放一张该路径的分镜图。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    first_path = project_dir / _ledger_entry(project, 1)["script_file"]
+    first = _load_json_object(first_path)
+    second = {**json.loads(json.dumps(first)), "episode": 2, "title": "第2集"}
+    for script in (first, second):
+        segment = script["segments"][0]
+        segment["segment_id"] = item_id
+        segment["generated_assets"]["storyboard_image"] = f"storyboards/scene_{item_id}.png"
+    _write_json(first_path, first)
+    _write_json(project_dir / "scripts" / "episode_2.json", second)
+    (project_dir / "storyboards").mkdir(exist_ok=True)
+    (project_dir / "storyboards" / f"scene_{item_id}.png").write_bytes(b"shared storyboard")
+    project["episodes"].append({"episode": 2, "title": "第2集", "script_file": "scripts/episode_2.json"})
+    _write_json(project_path, project)

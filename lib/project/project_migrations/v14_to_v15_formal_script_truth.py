@@ -2,9 +2,9 @@
 
 存量项目在这一步收编成新机制的形态：
 
-- **集绑定**：``script_file`` 只认逐字等于该集规范剧本 ``scripts/episode_N.json`` 的绑定。其余写法
-  与同一集号在账本里出现多条时整个项目在写盘前被拒，失败裁决写明集号与绑定；本步不改名、不另存、
-  不改写任何引用，运维把剧本挪到规范路径并改绑后重跑。绑定缺席的集按规范路径处理。
+- **集绑定**：``script_file`` 只认逐字等于该集规范剧本 ``scripts/episode_N.json`` 的绑定。旧版写出的
+  非规范绑定与重复集号由链上的旧形态规整（:mod:`lib.project.project_migrations.legacy_shapes`）在本步之前
+  改成规范形态；本步仍在写盘前拒绝漏网的两种形态，失败裁决写明集号与绑定。绑定缺席的集按规范路径处理。
 - **指纹字段**：剧本条目的 ``script_plan_entry_revision`` 与剧本 metadata 的 ``script_plan_revision``
   删除。
 - **已确认、尚无正式脚本的集**：按确认过的脚本规划整份转为正式脚本（全部条目待编写），与内容
@@ -240,8 +240,8 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         if not is_episode_number(entry_episode):
             continue
         if entry_episode in seen_episodes:
-            # 同一集号出现两次时账本认不出哪一条是这一集：目标态规划按「绑定不唯一」拒绝整个项目，
-            # 而那时剧本已经改写落盘。在只读预检里拒绝，裁决写明集号与绑定。
+            # 同一集号出现两次时账本认不出哪一条是这一集。旧形态规整已在链上先行去重，这里只拦
+            # 漏网的形态：在只读预检里拒绝，裁决写明集号与绑定。
             raise ProjectMigrationError(
                 "ledger has more than one entry for this episode",
                 episode=entry_episode,
@@ -250,8 +250,7 @@ def _preflight(project_dir: Path, project: dict[str, Any]) -> _Plan:
         seen_episodes.add(entry_episode)
         raw_binding = entry.get("script_file")
         if isinstance(raw_binding, str) and raw_binding and not _is_canonical_binding(raw_binding, entry_episode):
-            # 非规范绑定一律不认：本步不改名也不改写引用，拒绝整个项目并把集号与绑定写进裁决，
-            # 运维把剧本挪到规范路径、改绑后重跑。
+            # 非规范绑定已由旧形态规整改成规范路径；漏网的一律不认，把集号与绑定写进裁决。
             raise ProjectMigrationError(
                 "script binding is not this episode's canonical script", episode=entry_episode, file=raw_binding
             )

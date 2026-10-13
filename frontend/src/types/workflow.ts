@@ -256,26 +256,51 @@ export interface WorkflowContent {
   project_complete?: boolean;
 }
 
-/** 上一次跑完的项目迁移没能登记的一件产物及原因。 */
+/** 上一次迁移没能带入的一件产物：文件原地保留，没有登记。 */
 export interface WorkflowMigrationSkippedArtifact {
   kind: string;
   episode: number | null;
   resource_id: string;
   artifact_path: string;
   reason: string;
+  /** 进「未能带入」的原因：文件本身读不出，或旧版旁白音频没有合成设置记录。 */
+  category?: "unreadable" | "legacy_audio_basis" | null;
+}
+
+/** 迁移或导入对用户数据做的一处调整；`code` 决定展示文案，`params` 是文案里的值。 */
+export type WorkflowMigrationAdjustmentCode =
+  | "draft_name_conflict_resolved"
+  | "duplicate_episode_entry_removed"
+  | "shared_script_binding_split"
+  | "script_episode_corrected"
+  | "script_binding_canonicalized"
+  | "item_id_reassigned"
+  | "duplicate_asset_removed"
+  | "placeholder_asset_added";
+
+export interface WorkflowMigrationAdjustment {
+  code: WorkflowMigrationAdjustmentCode;
+  episode: number | null;
+  file: string | null;
+  /** 被替下的那一份留存的位置（项目内相对路径）；不会被自动清理。 */
+  backup: string | null;
+  params: Record<string, string>;
 }
 
 /**
- * 上一次跑完的项目迁移登记与跳过了什么。只作说明，不参与状态与阻断；
- * 迁移失败的项目走 `blockers` 里的 `project_migration_failed`，这里为空。
+ * 上一次迁移调整了什么（`adjusted`）、没能带入什么（`skipped`）。只作说明，不参与状态与阻断；
+ * 制作状态只在报告非空、用户尚未确认过时给出。迁移失败的项目走 `blockers` 里的 `project_migration_failed`。
  */
 export interface WorkflowMigrationReport {
-  schema_version: 1;
+  schema_version: 2;
   migrated_at: string;
   from_schema_version: number;
   to_schema_version: number;
+  complete: boolean;
   registered: Record<string, number>;
+  adjusted: WorkflowMigrationAdjustment[];
   skipped: WorkflowMigrationSkippedArtifact[];
+  acknowledged_at: string | null;
 }
 
 /**

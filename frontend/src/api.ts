@@ -125,7 +125,13 @@ import type {
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
-import type { EpisodeNextStep, WorkflowPlan, WorkflowPlanRequest, WorkflowStatus } from "@/types/workflow";
+import type {
+  EpisodeNextStep,
+  WorkflowMigrationReport,
+  WorkflowPlan,
+  WorkflowPlanRequest,
+  WorkflowStatus,
+} from "@/types/workflow";
 import type {
   EditTimelinePreviewMedia,
   EditTimelineReadout,
@@ -811,13 +817,20 @@ class API {
     return API.postFileUpload(`/projects/${encodeURIComponent(projectName)}/upload/bgm`, file);
   }
 
+  /**
+   * 导入项目 ZIP。导入包升级时有调整或没能带入的内容、且未带 `confirmReport` 时，服务端以 409 拒绝并
+   * 不留下任何项目数据：抛出的错误带 `confirmation_required` 与 `migration_report`，用户确认后带上
+   * `confirmReport` 重新提交。
+   */
   static async importProject(
     file: File,
-    conflictPolicy: ImportConflictPolicy = "prompt"
+    conflictPolicy: ImportConflictPolicy = "prompt",
+    options: { confirmReport?: boolean } = {},
   ): Promise<ImportProjectResponse> {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("conflict_policy", conflictPolicy);
+    if (options.confirmReport) formData.append("confirm_report", "true");
 
     const response = await fetch(
       `${API_BASE}/projects/import`,
@@ -840,6 +853,9 @@ class API {
         errors?: string[];
         warnings?: string[];
         conflict_project_name?: string;
+        confirmation_required?: boolean;
+        migration_report?: WorkflowMigrationReport;
+        migration_report_episodes?: { episode: number; title: string }[];
         diagnostics?: ImportFailureDiagnostics;
       };
       error.status = response.status;
@@ -848,6 +864,13 @@ class API {
       error.warnings = Array.isArray(payload.warnings) ? payload.warnings : [];
       if (typeof payload.conflict_project_name === "string") {
         error.conflict_project_name = payload.conflict_project_name;
+      }
+      if (payload.confirmation_required === true && payload.migration_report) {
+        error.confirmation_required = true;
+        error.migration_report = payload.migration_report as WorkflowMigrationReport;
+        error.migration_report_episodes = Array.isArray(payload.episodes)
+          ? (payload.episodes as { episode: number; title: string }[])
+          : [];
       }
       error.diagnostics = normalizeImportFailureDiagnostics(payload.diagnostics);
       throw error;
@@ -1890,6 +1913,13 @@ class API {
    */
   static async retryProjectMigration(projectName: string): Promise<{ success: boolean }> {
     return this.request(`/projects/${encodeURIComponent(projectName)}/migration/retry`, {
+      method: "POST",
+    });
+  }
+
+  /** 记下用户已看过上一次升级的报告：之后制作状态不再给出它。没有待确认的报告时同样成功。 */
+  static async acknowledgeMigrationReport(projectName: string): Promise<{ success: boolean }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/migration-report/acknowledge`, {
       method: "POST",
     });
   }

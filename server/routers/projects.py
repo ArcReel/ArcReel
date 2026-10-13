@@ -401,8 +401,13 @@ async def import_project_archive(
     archive_service: ArchiveServiceDep,
     file: UploadFile = File(...),
     conflict_policy: str = Form("prompt"),
+    confirm_report: bool = Form(False),
 ):
-    """从 ZIP 导入项目。"""
+    """从 ZIP 导入项目。
+
+    导入包升级时有调整或没能带入的内容时，未带 ``confirm_report`` 的请求以 409 返回
+    ``confirmation_required`` 与 ``migration_report``，不留下任何项目数据；用户确认后带上它重新提交。
+    """
     # 临时文件一建好就登记路径，取消或失败时 finally 仍能清理
     upload_paths: list[str] = []
     try:
@@ -428,6 +433,7 @@ async def import_project_archive(
                 Path(upload_path),
                 uploaded_filename=file.filename,
                 conflict_policy=conflict_policy,
+                confirm_report=confirm_report,
                 translate=_t,
             )
 

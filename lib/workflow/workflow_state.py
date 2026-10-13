@@ -46,7 +46,7 @@ from lib.project.project_migration_failure import (
     MigrationFailureRecord,
     load_migration_verdict,
 )
-from lib.project.project_migration_report import MigrationReport, load_migration_report
+from lib.project.project_migration_report import MigrationReport, visible_migration_report
 from lib.project.source_revision import SourceRevisionResult, SourceScope, compute_source_revision
 from lib.references.reference_admission import admit_references, admit_storyboard_items
 from lib.references.reference_catalog import build_reference_catalog
@@ -255,7 +255,7 @@ class WorkflowStatus(BaseModel):
     next_action: WorkflowNextAction
     next_alternatives: list[WorkflowNextAction] = Field(default_factory=list)
     migration_report: MigrationReport | None = None
-    """上一次跑完的项目迁移登记与跳过了什么；只作说明，不影响状态与阻断。"""
+    """上一次迁移调整了什么、没能带入什么，用户尚未确认过时才给出；只作说明，不影响状态与阻断。"""
 
 
 #: 剪辑时间线目录读不出、或有时间线文件无法解析时记下的 issue 码。
@@ -825,7 +825,7 @@ class WorkflowStateService:
             return self._migration_blocked_status(project, failure)
         shared = self._shared_facts(project_path, project)
         status = self._get_status(project_name, project, project_path, episode, shared)
-        status.migration_report = load_migration_report(project_path)
+        status.migration_report = visible_migration_report(project_path)
         return status
 
     def get_episode_next_steps(self, project_name: str) -> list[EpisodeNextStep]:

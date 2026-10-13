@@ -13,6 +13,9 @@
 改名的草稿文件。两者不改写，清单在下一次读取时整体判为损坏。产物指纹 ``basis_digest``
 不动——它由 ``lib.artifacts.artifact_provenance`` 的冻结 basis token 保证跨改名稳定。
 
+新旧草稿名并存时由链上的旧形态规整（:mod:`lib.project.project_migrations.legacy_shapes`）先以新名为准、
+旧名文件挪成保留副本，本步只拦漏网的并存。
+
 写入顺序沿用本目录约定：先只读预检并算出全部目标载荷，全部通过后才创建备份、再逐文件
 落盘。任一处损坏时项目目录一个字节都没被动过，runner 据此落「需要修复」裁决。
 """

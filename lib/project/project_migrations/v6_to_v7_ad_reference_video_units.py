@@ -3,6 +3,11 @@
 产出的是当前的单元形状（一段 ``text`` + 编排时长，见 ADR 0064）：旧 shot 的画面文本按顺序
 拼进同一段正文，参考图与发声归属改由正文的记号读时派生，不另存数组。后续 v8→v9 对这批
 单元因此是空操作。转场保留到 v15→v16 统一丢弃，当前模型自检时不含转场。
+
+旧数据里的编号冲突按确定规则处理，不拒绝整个项目（ADR 0098）：重复的 ``shot_id`` 只有第一个
+镜头可被旧索引引用，其余镜头各自收进新的问题单元；重复的 ``unit_id`` 从第二个起换新编号、
+标为待重新规划，原编号的付费产物留给第一个。换号记进迁移报告的「已调整」。自检只覆盖单元
+本身：不符合当前单元模型的单元原样留下、标为待重新规划，交给运行期的重新规划处理。
 """
 
 from __future__ import annotations
@@ -13,11 +18,14 @@ from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from lib.infra.json_io import atomic_write_json, load_json
 from lib.infra.path_safety import safe_join
 from lib.project.asset_types import asset_name_comparison_key
+from lib.project.project_migration_report import MigrationAdjustment
 from lib.project.project_migrations.backups import ensure_versioned_backup
-from lib.script.script_models import REFERENCE_UNIT_DURATION_RANGE, ReferenceVideoScript
+from lib.script.script_models import REFERENCE_UNIT_DURATION_RANGE, ReferenceVideoUnit
 from lib.speech.speech_composition import SpeechComposition, SpeechProblemCode, adapt_video_unit
 
 _REFERENCE_TYPES = (
@@ -153,31 +161,39 @@ def _unit_from_shots(
     return unit
 
 
-def _without_unit_transitions(script: dict[str, Any]) -> dict[str, Any]:
-    """已转换单元上可能留着转场：它到 v15→v16 才从条目上删除，自检的当前模型已不含它。"""
-    units = script.get("video_units")
-    if not isinstance(units, list):
-        return script
-    return {
-        **script,
-        "video_units": [
-            {key: value for key, value in unit.items() if key != "transition_to_next"}
-            if isinstance(unit, dict)
-            else unit
-            for unit in units
-        ],
-    }
+def _mark_invalid_units(units: list[Any]) -> None:
+    """按当前单元模型逐个自检；不合格的单元原样保留并标为待重新规划，不拒绝整份剧本。
+
+    整份剧本不拿去校验：一处与单元无关的存量脏字段（缺 title 之类）不该让整个项目迁移失败。
+    """
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        candidate = {key: value for key, value in unit.items() if key != "transition_to_next"}
+        try:
+            ReferenceVideoUnit.model_validate(candidate)
+        except ValidationError:
+            unit["needs_replan"] = True
+            text = unit.get("text")
+            if isinstance(text, str) and not text.strip():
+                # 没有正文的单元按待重新规划的空壳处理：空壳的编排时长为 0。
+                unit["duration_seconds"] = 0
 
 
-def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dict[str, Any]:
-    """纯转换旧广告剧本；已转换脚本原样返回，供中断后安全重跑。"""
+def migrate_ad_reference_script(
+    payload: dict[str, Any], *, episode: int
+) -> tuple[dict[str, Any], tuple[tuple[str, str], ...]]:
+    """纯转换旧广告剧本，返回改写后的剧本与换过的编号（原编号, 新编号）。
+
+    已转换脚本原样返回，供中断后安全重跑。
+    """
     if "video_units" in payload and "shots" not in payload and "reference_units" not in payload:
         existing_units = payload.get("video_units")
         if not isinstance(existing_units, list):
             raise ValueError("video_units 必须是数组")
         migrated = copy.deepcopy(payload)
-        ReferenceVideoScript.model_validate(_without_unit_transitions(migrated))
-        return migrated
+        _mark_invalid_units(migrated["video_units"])
+        return migrated, ()
 
     raw_shots = payload.get("shots")
     if not isinstance(raw_shots, list):
@@ -190,10 +206,10 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
         shot = copy.deepcopy(raw_shot)
         shots.append(shot)
         shot_id = shot.get("shot_id")
-        if isinstance(shot_id, str) and shot_id:
-            if shot_id in shot_by_id:
-                raise ValueError(f"shots[{index}].shot_id 重复: {shot_id}")
+        # 重复的 shot_id 只认第一个镜头；其余镜头不被旧索引引用，下面各自收进新的问题单元。
+        if isinstance(shot_id, str) and shot_id and shot_id not in shot_by_id:
             shot_by_id[shot_id] = shot
+    renumbered: list[tuple[str, str]] = []
 
     raw_units = payload.get("reference_units")
     units: list[dict[str, Any]] = []
@@ -210,10 +226,11 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
     else:
         if not isinstance(raw_units, list):
             raise ValueError("reference_units 必须是数组或 null")
-        covered_shot_ids: set[str] = set()
+        covered_shots: set[int] = set()
         used_unit_ids: set[str] = set()
         membership_counts: dict[str, int] = {}
         prepared_units: list[tuple[dict[str, Any], str, list[str]]] = []
+        duplicate_unit_indexes: list[int] = []
         for index, raw_unit in enumerate(raw_units):
             if not isinstance(raw_unit, dict):
                 raise ValueError(f"reference_units[{index}] 必须是对象")
@@ -221,7 +238,7 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
             if not isinstance(unit_id, str) or not unit_id:
                 raise ValueError(f"reference_units[{index}].unit_id 必须是非空字符串")
             if unit_id in used_unit_ids:
-                raise ValueError(f"reference_units[{index}].unit_id 重复: {unit_id}")
+                duplicate_unit_indexes.append(len(prepared_units))
             used_unit_ids.add(unit_id)
             shot_ids = raw_unit.get("shot_ids")
             if not isinstance(shot_ids, list):
@@ -235,14 +252,31 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
                     membership_counts[shot_id] = membership_counts.get(shot_id, 0) + 1
             prepared_units.append((raw_unit, unit_id, normalized_shot_ids))
 
-        for raw_unit, unit_id, shot_ids in prepared_units:
+        next_ordinal = 1
+
+        def fresh_unit_id() -> str:
+            nonlocal next_ordinal
+            while f"E{episode}U{next_ordinal}" in used_unit_ids:
+                next_ordinal += 1
+            unit_id = f"E{episode}U{next_ordinal}"
+            used_unit_ids.add(unit_id)
+            next_ordinal += 1
+            return unit_id
+
+        for position, (raw_unit, unit_id, shot_ids) in enumerate(prepared_units):
+            duplicate = position in duplicate_unit_indexes
+            if duplicate:
+                # 原编号的付费产物留给第一个同号单元；这一个换新编号、不带产物，待重新规划。
+                new_id = fresh_unit_id()
+                renumbered.append((unit_id, new_id))
+                unit_id = new_id
             members: list[dict[str, Any]] = []
             unresolved_shot_ids: list[str] = []
             overlapping_shot_ids: list[str] = []
             for shot_id in shot_ids:
                 if shot_id in shot_by_id:
                     members.append(shot_by_id[shot_id])
-                    covered_shot_ids.add(shot_id)
+                    covered_shots.add(id(shot_by_id[shot_id]))
                     if membership_counts[shot_id] > 1:
                         overlapping_shot_ids.append(shot_id)
                 else:
@@ -251,8 +285,11 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
                 _unit_from_shots(
                     unit_id=unit_id,
                     shots=members,
-                    generated_assets=raw_unit.get("generated_assets"),
-                    requires_replan=not shot_ids or bool(unresolved_shot_ids) or bool(overlapping_shot_ids),
+                    generated_assets={} if duplicate else raw_unit.get("generated_assets"),
+                    requires_replan=duplicate
+                    or not shot_ids
+                    or bool(unresolved_shot_ids)
+                    or bool(overlapping_shot_ids),
                     note=_migration_note(
                         unresolved_shot_ids=unresolved_shot_ids,
                         overlapping_shot_ids=overlapping_shot_ids,
@@ -262,16 +299,13 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
 
         # 非空旧索引也可能已落后于权威 shots。保留索引内可证明的 unit 身份与付费产物，
         # 再把未覆盖镜头逐条收进新问题单元；用户确认编排前禁止误生成，也不因删除 shots 丢内容。
-        next_ordinal = 1
         for shot in shots:
-            shot_id = shot.get("shot_id")
-            if isinstance(shot_id, str) and shot_id and shot_id in covered_shot_ids:
+            if id(shot) in covered_shots:
                 continue
-            while f"E{episode}U{next_ordinal}" in used_unit_ids:
-                next_ordinal += 1
-            unit_id = f"E{episode}U{next_ordinal}"
-            used_unit_ids.add(unit_id)
-            next_ordinal += 1
+            unit_id = fresh_unit_id()
+            shot_id = shot.get("shot_id")
+            if isinstance(shot_id, str) and shot_id and shot_by_id.get(shot_id) is not shot:
+                renumbered.append((shot_id, unit_id))
             units.append(
                 _unit_from_shots(
                     unit_id=unit_id,
@@ -285,9 +319,9 @@ def migrate_ad_reference_script(payload: dict[str, Any], *, episode: int) -> dic
     migrated.pop("shots", None)
     migrated.pop("reference_units", None)
     migrated["video_units"] = units
+    _mark_invalid_units(units)
     migrated["duration_seconds"] = sum(_positive_seconds(unit.get("duration_seconds")) for unit in units)
-    ReferenceVideoScript.model_validate(_without_unit_transitions(migrated))
-    return migrated
+    return migrated, tuple(renumbered)
 
 
 def _script_paths(project_dir: Path, project: dict[str, Any]) -> list[tuple[Path, int]]:
@@ -319,30 +353,38 @@ def _script_paths(project_dir: Path, project: dict[str, Any]) -> list[tuple[Path
     return result
 
 
-def migrate_v6_to_v7(project_dir: Path) -> None:
-    """先预检所有剧本，再逐文件原子替换，最后提交 ``project.json`` 版本。"""
+def migrate_v6_to_v7(project_dir: Path) -> tuple[MigrationAdjustment, ...]:
+    """先预检所有剧本，再逐文件原子替换，最后提交 ``project.json`` 版本；返回换过编号的记录。"""
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
     if not project_file.is_file():
-        return
+        return ()
     project = load_json(project_file)
     if not isinstance(project, dict):
         raise ValueError("project.json 必须是对象")
     if int(project.get("schema_version") or 0) >= 7:
-        return
+        return ()
 
     target_route = project.get("content_mode") == "ad" and project.get("generation_mode") == "reference_video"
     plans: list[tuple[Path, dict[str, Any]]] = []
+    adjustments: list[MigrationAdjustment] = []
     if target_route:
         # 此循环只读：任一文件损坏时还没有备份或业务文件写入。
         for path, episode in _script_paths(project_dir, project):
-            try:
-                payload = load_json(path)
-            except json.JSONDecodeError:
-                raise
+            payload = load_json(path)
             if not isinstance(payload, dict):
                 raise ValueError(f"剧本必须是对象: {path.relative_to(project_dir)}")
-            plans.append((path, migrate_ad_reference_script(payload, episode=episode)))
+            migrated, renumbered = migrate_ad_reference_script(payload, episode=episode)
+            plans.append((path, migrated))
+            adjustments.extend(
+                MigrationAdjustment(
+                    code="item_id_reassigned",
+                    episode=episode,
+                    file=path.relative_to(project_dir).as_posix(),
+                    params={"from": old_id, "to": new_id},
+                )
+                for old_id, new_id in renumbered
+            )
 
         # 预检全部成功后才创建备份；所有脚本先备份完，再开始替换。
         for path, _payload in plans:
@@ -353,6 +395,7 @@ def migrate_v6_to_v7(project_dir: Path) -> None:
     migrated_project = copy.deepcopy(project)
     migrated_project["schema_version"] = 7
     atomic_write_json(project_file, migrated_project)
+    return tuple(adjustments)
 
 
 __all__ = ["migrate_ad_reference_script", "migrate_v6_to_v7"]

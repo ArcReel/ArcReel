@@ -82,6 +82,7 @@ from lib.artifacts.visual_artifact_provenance import (
 )
 from lib.infra.content_digest import TextModeDigest
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
+from lib.project.project_migration_report import MigrationSkippedArtifact, skipped_artifact_identity
 from lib.project.project_schema import project_schema_is_current
 
 _EPISODE_RESOURCE_KINDS = frozenset(
@@ -161,7 +162,7 @@ def ensure_imported_artifact_target_state(
     project_dir: Path,
     *,
     preserved_manifest: ArtifactManifestArchiveSnapshot | None = None,
-) -> bool:
+) -> tuple[MigrationSkippedArtifact, ...]:
     """Eagerly materialize the v8 sidecar at the archive staging boundary.
 
     Official exports carry the complete source Manifest in their visible archive
@@ -177,6 +178,9 @@ def ensure_imported_artifact_target_state(
     (``docs/adr/0098``, the same rule as the v17→v18 backfill); other unclaimed
     artifacts stay unregistered.  Legacy archives without the envelope retain the
     self-proving path.
+
+    返回规划器看见、但最终没有登记的产物及原因：导入不分 schema 版本都把它们列进迁移报告的
+    「未能带入」（ADR 0098）。
     """
 
     raw = (project_dir / "project.json").read_bytes()
@@ -222,8 +226,12 @@ def ensure_imported_artifact_target_state(
             restored.update(gap_backfill_entries(preserved_entries, gaps_refused.entries, gaps_recorded.entries))
             for checked in (plan, gaps_refused, gaps_recorded):
                 assert_artifact_target_state_plan_unchanged(project_dir, checked, expected_project_bytes=raw)
-            return adapter.replace_entries_atomically(restored)
-    return activate_artifact_target_state(project_dir, bump_schema=False)
+            adapter.replace_entries_atomically(restored)
+            registered = {skipped_artifact_identity(key) for key in restored}
+            return tuple(item for item in plan.skipped if item.identity not in registered)
+    plan = plan_artifact_target_state(project_dir)
+    activate_artifact_target_state(project_dir, bump_schema=False, plan=plan)
+    return plan.skipped
 
 
 def snapshot_preserved_artifact_manifest(

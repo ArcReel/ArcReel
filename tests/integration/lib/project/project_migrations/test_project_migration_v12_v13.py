@@ -223,7 +223,9 @@ def test_full_chain_from_schema7_writes_a_migration_report_exposed_on_status(tmp
     assert status.migration_report == report
 
 
-def test_media_on_a_needs_replan_unit_is_reported_instead_of_dropped(tmp_path: Path) -> None:
+def test_media_on_a_needs_replan_unit_stays_out_of_the_report(tmp_path: Path) -> None:
+    """需要重新规划的单位已有持久状态，迁移报告不列它的媒体（ADR 0098）。"""
+
     project_dir = write_legacy_reference_video_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=12)
     script_path = project_dir / "scripts" / "episode_1.json"
@@ -235,8 +237,7 @@ def test_media_on_a_needs_replan_unit_is_reported_instead_of_dropped(tmp_path: P
 
     assert outcome is not None
     assert outcome.registered["episode-video"] == 1
-    assert [(item.kind, item.resource_id) for item in outcome.skipped] == [("episode-video", "E1U02")]
-    assert "needs_replan" in outcome.skipped[0].reason
+    assert [item for item in outcome.skipped if item.resource_id == "E1U02"] == []
 
 
 def test_script_binding_outside_the_project_is_ignored_by_the_backfill(tmp_path: Path) -> None:

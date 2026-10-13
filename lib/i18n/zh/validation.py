@@ -150,9 +150,6 @@ MESSAGES = {
     "arch_deprecated_field_removed": "{field} 字段已废弃（改为读时计算），已移除",
     "arch_deprecated_clue_field_removed": "{items_key}[{index}]: 废弃字段 {field} 已移除（请改用 scenes/props）",
     "arch_missing_field_filled": "{items_key}[{index}]: 补全缺失字段 {field}",
-    "arch_missing_asset_definition": (
-        "{items_key}[{index}]: {field} 引用了不存在于 project.json 的{asset_type}: {names}"
-    ),
     "arch_unit_unresolved_mentions": (
         "video_units[{index}]: 正文引用了不存在于 project.json 的资产名: {names}；这些引用不会生成参考图"
     ),
@@ -160,6 +157,7 @@ MESSAGES = {
     "arch_missing_generated_assets": "{label}[{index}]: 补全缺失字段 generated_assets",
     "arch_invalid_generated_assets": "{label}[{index}]: generated_assets 形态异常（{actual}），已重置为默认结构",
     "arch_placeholder_character_added": "自动补充缺失角色定义: {name}",
+    "arch_placeholder_asset_added": "自动补充缺失{asset_type}定义: {name}",
     "arch_canonical_path_normalized": "{location}: 规范化为 {path}",
     "arch_current_asset_materialized": "{location}: 从 {source} 恢复当前文件 {target}",
     "arch_current_asset_restored_from_version": "{location}: 从 {source} 恢复当前文件 {target}",
@@ -167,7 +165,9 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "无效的冲突策略",
     "arch_conflict_policy_unsupported": "conflict_policy 仅支持 prompt、rename 或 overwrite，收到: {value}",
     "arch_import_validation_failed": "导入包校验失败",
-    "arch_artifact_activation_failed": "导入项目的产物状态不一致",
+    "arch_artifact_activation_failed": "导入项目的产物状态不一致：{reason}",
+    "arch_project_migration_failed": "导入包里的项目数据无法升级到当前版本：{reason}",
+    "arch_import_confirmation_required": "导入包升级时调整了部分内容，请确认后再导入",
     "arch_not_a_zip": "上传文件不是有效的 ZIP 归档",
     "arch_zip_encrypted_entry": "ZIP 包含加密条目，无法导入: {name}",
     "arch_zip_absolute_path_entry": "ZIP 包含绝对路径条目: {name}",

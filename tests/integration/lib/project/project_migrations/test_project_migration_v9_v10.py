@@ -16,7 +16,7 @@ from lib.artifacts.artifact_manifest import (
     encode_artifact_key_parts,
 )
 from lib.infra.content_digest import HASH_ALGORITHM
-from lib.project.project_migration_failure import load_migration_failure
+from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations.runner import migrate_project_dir, migrate_project_with_verdict
 from lib.project.project_migrations.v9_to_v10_script_plan_naming import migrate_v9_to_v10
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -182,30 +182,31 @@ def test_artifact_manifest_key_and_path_follow_the_rename(tmp_path: Path) -> Non
     assert snapshot[ArtifactKey.episode_script_plan(1)].artifact_path == "drafts/episode_1/script_plan_segments.json"
 
 
-def test_a_project_already_holding_both_names_is_refused_without_touching_disk(tmp_path: Path) -> None:
-    """新旧两个名字同时在场时拒绝改名：无从判定保留哪一份，项目目录一个字节都不动。"""
+def test_a_project_holding_both_names_keeps_the_new_one_and_sets_the_old_one_aside(tmp_path: Path) -> None:
+    """新旧两个名字同时在场：以新名为准，旧名文件挪成保留副本，迁移报告列出这一取舍。"""
 
     project_dir = _project(tmp_path, content_mode="narration", generation_mode="storyboard")
     drafts_dir = project_dir / "drafts" / "episode_1"
     _write_json(drafts_dir / "step1_segments.json", {"segments": [{"novel_text": "旧"}]})
     _write_json(drafts_dir / "script_plan_segments.json", {"segments": [{"novel_text": "新"}]})
-    snapshot = {
-        str(path.relative_to(project_dir)): path.read_bytes()
-        for path in sorted(project_dir.rglob("*"))
-        if path.is_file()
-    }
+    old_bytes = (drafts_dir / "step1_segments.json").read_bytes()
 
-    record = migrate_project_with_verdict(project_dir)
+    assert migrate_project_with_verdict(project_dir) is None
 
-    assert record is not None
-    assert load_migration_failure(project_dir) is not None
-    survivors = {
-        str(path.relative_to(project_dir)): path.read_bytes()
-        for path in sorted(project_dir.rglob("*"))
-        if path.is_file() and not path.name.startswith(".migration")
-    }
-    assert {name: data for name, data in survivors.items() if name in snapshot} == snapshot
-    assert _read_json(project_dir / "project.json")["schema_version"] == 9
+    assert _read_json(drafts_dir / "script_plan_segments.json") == {"segments": [{"novel_text": "新"}]}
+    assert not (drafts_dir / "step1_segments.json").exists()
+    [kept] = drafts_dir.glob("step1_segments.json.kept.v*")
+    assert kept.read_bytes() == old_bytes
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert [(item.code, item.episode, item.file, item.backup) for item in report.adjusted] == [
+        (
+            "draft_name_conflict_resolved",
+            1,
+            "drafts/episode_1/script_plan_segments.json",
+            kept.relative_to(project_dir).as_posix(),
+        )
+    ]
 
 
 def test_migrating_twice_is_a_no_op(tmp_path: Path) -> None:

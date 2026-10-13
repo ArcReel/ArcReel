@@ -150,6 +150,11 @@ export interface ImportErrorPayload {
   errors?: string[];
   warnings?: string[];
   conflict_project_name?: string;
+  /** 导入包升级时有调整或没能带入的内容：带上 `migration_report`，确认后重新提交。 */
+  confirmation_required?: boolean;
+  migration_report?: unknown;
+  /** 导入包的集列表（集 ID 与标题），供确认窗显示集名。 */
+  episodes?: unknown;
   diagnostics?: unknown;
 }
 

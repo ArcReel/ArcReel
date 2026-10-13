@@ -22,7 +22,7 @@ from lib.artifacts.artifact_provenance import build_episode_script_basis, projec
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_migration_report import build_migration_report, load_migration_report, write_migration_report
-from lib.project.project_migrations.runner import migrate_project_dir
+from lib.project.project_migrations.runner import migrate_project_dir, migrate_project_with_verdict
 from lib.project.project_migrations.v14_to_v15_formal_script_truth import migrate_v14_to_v15
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.grid.grid_manager import GridManager
@@ -214,7 +214,9 @@ def test_script_already_stale_before_the_migration_stays_stale(tmp_path: Path) -
 
 
 @pytest.mark.parametrize("start_version", [14, 15])
-def test_unmaterializable_confirmed_episode_appears_in_the_migration_report(tmp_path: Path, start_version: int) -> None:
+def test_unmaterializable_confirmed_episode_stays_out_of_the_migration_report(
+    tmp_path: Path, start_version: int
+) -> None:
     root = tmp_path / "projects"
     project_dir = _project_at_v14(root)
     plan_path = project_dir / "drafts" / "episode_2" / _PLAN_FILES["narration"]
@@ -231,10 +233,10 @@ def test_unmaterializable_confirmed_episode_appears_in_the_migration_report(tmp_
         )
     migrate_project_dir(project_dir)
 
+    # 转不出正式脚本不是读不出的文件：该集回到待确认，不进「未能带入」（ADR 0098）。
     report = load_migration_report(project_dir)
-    assert report is not None
-    assert report.to_schema_version == CURRENT_PROJECT_SCHEMA_VERSION
-    assert [(item.kind, item.episode) for item in report.skipped if item.episode == 2] == [("episode-script", 2)]
+    assert report is None or [item for item in report.skipped if item.episode == 2] == []
+    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
     assert not (project_dir / "scripts" / "episode_2.json").exists()
 
 
@@ -289,6 +291,51 @@ def test_non_canonical_binding_is_rejected_and_the_project_is_left_verbatim(tmp_
 
     assert (excinfo.value.episode, excinfo.value.file) == (1, "scripts/custom.json")
     assert _snapshot(project_dir) == before
+
+
+def test_non_canonical_binding_is_moved_to_the_canonical_script_through_the_chain(tmp_path: Path) -> None:
+    """旧版 SSE 索引同步写出的非规范绑定：链上规整挪到规范路径并改绑，引用它的记录随之改写。"""
+
+    project_dir = _project_at_v14(tmp_path / "projects")
+    _bind_episode_1_to_custom(project_dir)
+    _reference_the_bound_script(project_dir)
+    bound_title = _read_json(project_dir / "scripts" / "custom.json")["title"]
+
+    assert migrate_project_with_verdict(project_dir) is None
+
+    project = _read_json(project_dir / "project.json")
+    assert project["episodes"][0]["script_file"] == "scripts/episode_1.json"
+    assert not (project_dir / "scripts" / "custom.json").exists()
+    assert _read_json(project_dir / "scripts" / "episode_1.json")["title"] == bound_title
+    [grid] = (project_dir / "grids").glob("grid_*.json")
+    assert _read_json(grid)["script_file"] == "scripts/episode_1.json"
+    record = _read_json(project_dir / "versions" / "versions.json")["videos"]["E1S01"]["versions"][0]
+    assert record["execution_script_file"] == "scripts/episode_1.json"
+    entry = ProjectArtifactManifestAdapter(project_dir).get_entry(_SCRIPT)
+    assert entry is not None
+    assert entry.artifact_path == "scripts/episode_1.json"
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert [(item.code, item.episode, item.params) for item in report.adjusted] == [
+        ("script_binding_canonicalized", 1, {"from": "scripts/custom.json", "to": "scripts/episode_1.json"})
+    ]
+
+
+def test_a_canonical_script_displaced_by_the_rebinding_is_kept_as_a_copy(tmp_path: Path) -> None:
+    project_dir = _project_at_v14(tmp_path / "projects")
+    _bind_episode_1_to_custom(project_dir)
+    stray = {"episode": 1, "title": "另一份", "content_mode": "narration", "segments": []}
+    _write_json(project_dir / "scripts" / "episode_1.json", stray)
+    bound_bytes = (project_dir / "scripts" / "custom.json").read_bytes()
+
+    assert migrate_project_with_verdict(project_dir) is None
+
+    report = load_migration_report(project_dir)
+    assert report is not None
+    [adjustment] = report.adjusted
+    assert adjustment.backup is not None
+    assert _read_json(project_dir / adjustment.backup) == stray
+    assert _read_json(project_dir / "scripts" / "episode_1.json")["title"] == json.loads(bound_bytes)["title"]
 
 
 def test_canonical_bindings_are_left_verbatim(tmp_path: Path) -> None:

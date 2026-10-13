@@ -18,6 +18,7 @@ from lib.artifacts.artifact_manifest import (
     PROJECT_LEVEL_ARTIFACT_KINDS,
     ArtifactBasis,
     ArtifactBasisDescriptor,
+    ArtifactBlocker,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifestEntry,
@@ -76,7 +77,7 @@ from lib.project.asset_types import (
     resolve_asset_key,
 )
 from lib.project.project_migration_failure import ProjectMigrationError
-from lib.project.project_migration_report import MigrationSkippedArtifact
+from lib.project.project_migration_report import MigrationSkippedArtifact, SkippedArtifactCategory
 from lib.project.project_schema import (
     CURRENT_PROJECT_SCHEMA_VERSION,
     parse_project_schema_version,
@@ -295,6 +296,7 @@ class TargetStatePlanner:
         self._planned: set[str] = set()
         #: 生成缺口记为缺席、照常投影（ADR 0098）；schema < 18 沿用缺口即投影不出的口径。
         self._records_gaps = project_basis_records_gaps(self.project)
+        self._unreadable_grid_ids: set[str] = set()
 
     def plan(self) -> ArtifactTargetStatePlan:
         schema = parse_project_schema_version(self.project)
@@ -699,9 +701,16 @@ class TargetStatePlanner:
         observation = self.adapter.inspect_artifact(self._pending_source(script_plan_rel))
         if observation.blocker is not None or not observation.present:
             return
-        script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
-        self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
         script_plan_key = ArtifactKey.episode_script_plan(binding.episode)
+        try:
+            script_plan_raw = self._read_dependency(script_plan_rel, "formal script_plan")
+            self._parse_json(script_plan_raw, f"formal script_plan {script_plan_rel}")
+        except ValueError:
+            if not self._activation_mode:
+                raise
+            # 损坏的脚本规划草稿原样保留、不登记，不拒绝整个项目（ADR 0098 收窄 ADR 0064）。
+            self._skip(script_plan_key, script_plan_rel, "script_plan draft cannot be read", category="unreadable")
+            return
         entry = episode_entry(self.project, binding.episode)
         # 账本记录了集原文来源（v16 起）且为无原文时，盘上同名的集文件不是这一集的规划依据。
         if entry is not None and SOURCE_ORIGIN_FIELD in entry and episode_source_origin(entry) is SourceOrigin.NONE:
@@ -713,7 +722,11 @@ class TargetStatePlanner:
             try:
                 source_content = decode_script_plan_source(source_raw)
             except UnicodeDecodeError as exc:
-                raise ValueError(f"episode source {source_rel} is not UTF-8") from exc
+                if not self._activation_mode:
+                    raise ValueError(f"episode source {source_rel} is not UTF-8") from exc
+                # 依据以源文为输入，源文解不出就算不出依据：草稿原样保留、不登记。
+                self._skip(script_plan_key, script_plan_rel, f"episode source {source_rel} is not UTF-8")
+                return
             try:
                 script_plan_basis = build_script_plan_basis(
                     source_content,
@@ -761,6 +774,8 @@ class TargetStatePlanner:
                     if grid_target is not None:
                         key, basis = grid_target
                         self._add_if_present(key, artifact_path, basis)
+                    elif assets.get("grid_id") in self._unreadable_grid_ids:
+                        self._skip(key, artifact_path, "grid record of this storyboard cannot be read")
                     continue
                 self._plan_generated_image(
                     key,
@@ -957,20 +972,40 @@ class TargetStatePlanner:
             if not _GRID_RECORD_RE.fullmatch(path.name):
                 continue
             rel = path.relative_to(self.project_dir).as_posix()
-            raw = self._read_dependency(rel, "grid record")
-            parsed = self._parse_json(raw, f"grid record {rel}")
-            if not isinstance(parsed, dict):
-                raise ValueError(f"grid record {rel} must contain an object")
             try:
-                grid = GridGeneration.from_dict(parsed)
-            except (KeyError, TypeError, ValueError) as exc:
-                raise ValueError(f"grid record {rel} is malformed") from exc
-            if f"{grid.id}.json" != path.name:
-                raise ValueError(f"grid record {rel} does not match its filename")
-            loaded.append(grid)
+                loaded.append(self._load_grid_record(path, rel))
+            except ValueError:
+                if not self._activation_mode:
+                    raise
+                # 单个宫格记录读不出：记录原样保留，它的宫格图与切格分镜不登记，进迁移报告。
+                grid_id = path.name.removesuffix(".json")
+                self._unreadable_grid_ids.add(grid_id)
+                self.skipped.append(
+                    MigrationSkippedArtifact(
+                        kind=ArtifactKind.EPISODE_GRID.value,
+                        resource_id=grid_id,
+                        # 读不出的是宫格记录本身：报告指向它，而不是仍可读的宫格图。
+                        artifact_path=rel,
+                        reason=f"grid record {rel} cannot be read",
+                        category="unreadable",
+                    )
+                )
         result = tuple(loaded)
         self._grids = result
         return result
+
+    def _load_grid_record(self, path: Path, rel: str) -> GridGeneration:
+        raw = self._read_dependency(rel, "grid record")
+        parsed = self._parse_json(raw, f"grid record {rel}")
+        if not isinstance(parsed, dict):
+            raise ValueError(f"grid record {rel} must contain an object")
+        try:
+            grid = GridGeneration.from_dict(parsed)
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"grid record {rel} is malformed") from exc
+        if f"{grid.id}.json" != path.name:
+            raise ValueError(f"grid record {rel} does not match its filename")
+        return grid
 
     def _plan_typed_media(self) -> None:
         if "typed-media" in self._planned:
@@ -1009,8 +1044,25 @@ class TargetStatePlanner:
                     )
         self._planned.add("typed-media")
 
-    def _skip(self, key: ArtifactKey, artifact_path: str, reason: str) -> None:
-        self.skipped.append(MigrationSkippedArtifact.for_key(key, artifact_path=artifact_path, reason=reason))
+    def _skip(
+        self,
+        key: ArtifactKey,
+        artifact_path: str,
+        reason: str,
+        *,
+        category: SkippedArtifactCategory | None = None,
+    ) -> None:
+        """记一件没登记的产物；``category`` 为空表示依据算不出，只记账、不给用户看。"""
+
+        self.skipped.append(
+            MigrationSkippedArtifact.for_key(key, artifact_path=artifact_path, reason=reason, category=category)
+        )
+
+    def _skip_blocked(self, key: ArtifactKey, artifact_path: str, blocker: ArtifactBlocker) -> None:
+        """文件在场却被拦下：只有文件本身读不出才进「未能带入」，符号链接、非普通文件只记账。"""
+
+        category: SkippedArtifactCategory | None = "unreadable" if blocker.code == "artifact_unreadable" else None
+        self._skip(key, artifact_path, blocker.detail, category=category)
 
     def _plan_one_typed_media(
         self,
@@ -1054,7 +1106,13 @@ class TargetStatePlanner:
         try:
             target = parse_typed_media_version_target(resource_type, record)
         except (TypeError, ValueError):
-            self._skip(key, artifact_path, "selected version lacks typed provenance")
+            # 旧版旁白音频的版本记录没有合成设置，依据无从补写：这一类给用户看（ADR 0098）。
+            self._skip(
+                key,
+                artifact_path,
+                "selected version lacks typed provenance",
+                category="legacy_audio_basis" if resource_type == "audio" else None,
+            )
             return
         if target.episode != episode.episode or normalize_script_binding(target.script_file) != episode.script_file:
             self._skip(key, artifact_path, "selected version was generated for another episode or script")
@@ -1073,9 +1131,13 @@ class TargetStatePlanner:
                 self._skip(key, artifact_path, "current media file is the version snapshot itself")
                 return
             artifact_digest = visual_file_digest(artifact)
+        except OSError:
+            self._skip(key, artifact_path, "current media file cannot be read", category="unreadable")
+            return
+        try:
             snapshot_digest = visual_file_digest(snapshot)
         except OSError:
-            self._skip(key, artifact_path, "current media file or its version snapshot cannot be read")
+            self._skip(key, artifact_path, "selected version snapshot cannot be read")
             return
         if artifact_digest != snapshot_digest:
             self._skip(key, artifact_path, "current media file differs from the selected version snapshot")
@@ -1255,7 +1317,7 @@ class TargetStatePlanner:
             key = bgm_key(track.id)
             observation = self.adapter.inspect_artifact_content(track.file)
             if observation.blocker is not None:
-                self._skip(key, track.file, observation.blocker.detail)
+                self._skip_blocked(key, track.file, observation.blocker)
                 continue
             if not observation.present or observation.content_digest is None:
                 self._skip(key, track.file, "uploaded BGM file is not present")
@@ -1649,6 +1711,10 @@ class TargetStatePlanner:
             raise ValueError(f"multiple canonical bases claim artifact key {key.encode()}")
         self.bases[key] = basis
         observation = self.adapter.inspect_artifact(self._pending_source(artifact_path))
+        if observation.blocker is not None and self._activation_mode:
+            # 读不出的文件原地保留、不登记，进迁移报告（ADR 0098）。
+            self._skip_blocked(key, artifact_path, observation.blocker)
+            return
         if observation.blocker is not None or not observation.present:
             return
         canonical = self._canonical_target(artifact_path, observation.artifact_path)

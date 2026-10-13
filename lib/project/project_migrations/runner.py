@@ -24,6 +24,7 @@ from lib.project.project_migration_failure import (
 )
 from lib.project.project_migration_report import (
     ArtifactBackfillOutcome,
+    MigrationAdjustment,
     build_migration_report,
     load_migration_report,
     merge_skipped,
@@ -34,6 +35,7 @@ from lib.project.project_migrations.backups import (
     versioned_backup_candidates,
     versioned_backup_name,
 )
+from lib.project.project_migrations.legacy_shapes import NORMALIZE_FROM_SCHEMA_VERSION, normalize_legacy_shapes
 from lib.project.project_migrations.staged_swap import (
     cleanup_completed_swap_dirs,
     ensure_disk_headroom,
@@ -70,8 +72,9 @@ CURRENT_SCHEMA_VERSION = CURRENT_PROJECT_SCHEMA_VERSION
 #: v9→v10 改过名，改名前后两侧都可能留着待回收的备份，故回收侧两侧一起枚举。
 _DRAFT_BACKUP_NAMES: tuple[str, ...] = (*DRAFT_FILE_RENAMES, *DRAFT_FILE_RENAMES.values())
 
-#: 迁移器返回值：改写产物清单的那几步返回本步登记与跳过的产物，runner 把链上最后一份折进迁移报告。
-MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | None]] = {}
+#: 迁移器返回值：改写产物清单的那几步返回本步登记与跳过的产物，runner 把链上最后一份折进迁移报告；
+#: 按确定规则改了用户数据的那几步（如 v6→v7、v8→v9 换编号）返回改动，runner 并进报告的「已调整」。
+MIGRATORS: dict[int, Callable[[Path], ArtifactBackfillOutcome | tuple[MigrationAdjustment, ...] | None]] = {}
 #: 自行备份输入的迁移器（清单激活按依赖集备份；v8、v9、v14 备份自己改写的文件），runner 不为它们备份 project.json。
 _MIGRATORS_WITH_OWNED_BACKUP = frozenset({7, 8, 9, 12, 14})
 
@@ -177,43 +180,63 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
         return False
     start_version = version
     outcome: ArtifactBackfillOutcome | None = None
-    while version < CURRENT_SCHEMA_VERSION:
-        # Activation migrations must finish their complete read-only preflight
-        # before creating any backup.  Their commit boundary owns the backup so
-        # the runner cannot leave writes behind when preflight rejects a project.
-        preflight = _MIGRATOR_PREFLIGHTS.get(version)
-        if preflight:
-            preflight(project_dir)
-        if version not in _MIGRATORS_WITH_OWNED_BACKUP:
-            _backup_project_json(project_dir, version)
-        if version == 0:
-            _hardlink_backup_clues(project_dir, version)
-        migrator = MIGRATORS.get(version)
-        if not migrator:
-            raise RuntimeError(f"no migrator from v{version}")
-        step_outcome = (
-            migrate_v15_to_v16(project_dir, recorded_episode_ids=recorded_episode_ids)
-            if migrator is migrate_v15_to_v16
-            else migrator(project_dir)
-        )
-        if step_outcome is not None:
-            if step_outcome.preserve_previous_skips:
-                previous_report = load_migration_report(project_dir) if outcome is None else None
-                previous_skips = (
-                    outcome.skipped
-                    if outcome is not None
-                    else (previous_report.skipped if previous_report is not None else ())
-                )
-                # 这一步之后已登记的产物，此前的跳过记录不再成立（如 v17→v18 补录了因生成缺口跳过的产物）。
-                still_skipped = [skip for skip in previous_skips if skip.identity not in step_outcome.resolved]
-                step_outcome = ArtifactBackfillOutcome(
-                    registered=step_outcome.registered,
-                    skipped=merge_skipped(still_skipped, step_outcome.skipped),
-                    resolved=step_outcome.resolved,
-                )
-            outcome = step_outcome
-        version += 1
-    if outcome is not None:
+    # 上一次没走完的链规整过的旧形态已经落盘，这一次规整不会再发现它们：从未完成的报告里接着记。
+    carried = load_migration_report(project_dir)
+    if carried is not None and not carried.complete:
+        start_version = min(start_version, carried.from_schema_version)
+        adjusted: list[MigrationAdjustment] = list(carried.adjusted)
+    else:
+        adjusted = []
+    normalized = False
+    try:
+        while version < CURRENT_SCHEMA_VERSION:
+            if not normalized and version >= NORMALIZE_FROM_SCHEMA_VERSION:
+                # 旧形态规整先于这条链上第一次产物目标态规划，后者认不得这些形态。
+                adjusted.extend(normalize_legacy_shapes(project_dir, schema_version=version))
+                normalized = True
+            # Activation migrations must finish their complete read-only preflight
+            # before creating any backup.  Their commit boundary owns the backup so
+            # the runner cannot leave writes behind when preflight rejects a project.
+            preflight = _MIGRATOR_PREFLIGHTS.get(version)
+            if preflight:
+                preflight(project_dir)
+            if version not in _MIGRATORS_WITH_OWNED_BACKUP:
+                _backup_project_json(project_dir, version)
+            if version == 0:
+                _hardlink_backup_clues(project_dir, version)
+            migrator = MIGRATORS.get(version)
+            if not migrator:
+                raise RuntimeError(f"no migrator from v{version}")
+            step_outcome = (
+                migrate_v15_to_v16(project_dir, recorded_episode_ids=recorded_episode_ids)
+                if migrator is migrate_v15_to_v16
+                else migrator(project_dir)
+            )
+            if isinstance(step_outcome, tuple):
+                adjusted.extend(step_outcome)
+                step_outcome = None
+            if step_outcome is not None:
+                if step_outcome.preserve_previous_skips:
+                    previous_report = load_migration_report(project_dir) if outcome is None else None
+                    previous_skips = (
+                        outcome.skipped
+                        if outcome is not None
+                        else (previous_report.skipped if previous_report is not None else ())
+                    )
+                    # 这一步之后已登记的产物，此前的跳过记录不再成立（如 v17→v18 补录了因生成缺口跳过的产物）。
+                    still_skipped = [skip for skip in previous_skips if skip.identity not in step_outcome.resolved]
+                    step_outcome = ArtifactBackfillOutcome(
+                        registered=step_outcome.registered,
+                        skipped=merge_skipped(still_skipped, step_outcome.skipped),
+                        resolved=step_outcome.resolved,
+                    )
+                outcome = step_outcome
+            version += 1
+    except BaseException:
+        if adjusted:
+            _record_unfinished_adjustments(project_dir, adjusted, from_version=start_version, to_version=version)
+        raise
+    if outcome is not None or adjusted:
         # 链上最后一次清单改写描述的是迁移完成时清单的全貌，报告只留这一份。
         write_migration_report(
             project_dir,
@@ -221,9 +244,30 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
                 outcome,
                 from_schema_version=start_version,
                 to_schema_version=CURRENT_SCHEMA_VERSION,
+                adjusted=adjusted,
             ),
         )
     return True
+
+
+def _record_unfinished_adjustments(
+    project_dir: Path, adjusted: list[MigrationAdjustment], *, from_version: int, to_version: int
+) -> None:
+    """链中途失败时留下已落盘的规整记录；写不下只记日志，不盖过链本身的失败。"""
+
+    try:
+        write_migration_report(
+            project_dir,
+            build_migration_report(
+                None,
+                from_schema_version=from_version,
+                to_schema_version=to_version,
+                adjusted=adjusted,
+                complete=False,
+            ),
+        )
+    except OSError as exc:
+        logger.warning("无法记下未完成迁移的规整记录：%s（%s）", project_dir, exc)
 
 
 def _append_error_log(project_dir: Path, tb: str) -> None:

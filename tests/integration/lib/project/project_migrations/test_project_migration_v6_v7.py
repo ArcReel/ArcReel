@@ -316,24 +316,63 @@ def test_overlapping_legacy_members_mark_every_affected_unit_for_replanning(tmp_
     assert json.loads(second["note"]) == {"overlapping_legacy_shot_ids": ["E1S1"]}
 
 
-def test_duplicate_legacy_unit_ids_fail_preflight_without_writes(tmp_path: Path) -> None:
+def test_a_duplicate_legacy_unit_id_is_renumbered_and_its_media_stays_with_the_first(tmp_path: Path) -> None:
     project_dir = _project(tmp_path)
     script = _script(
         units=[
-            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "generated_assets": {}},
-            {"unit_id": "E1U1", "shot_ids": ["E1S2"], "generated_assets": {}},
+            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"}},
+            {"unit_id": "E1U1", "shot_ids": ["E1S2"], "generated_assets": {"video_clip": "reference_videos/E1U1.mp4"}},
         ]
     )
     _write_json(project_dir / "scripts/episode_1.json", script)
-    project_before = (project_dir / "project.json").read_bytes()
-    script_before = (project_dir / "scripts/episode_1.json").read_bytes()
 
-    with pytest.raises(ValueError, match=r"reference_units\[1\]\.unit_id 重复: E1U1"):
-        migrate_v6_to_v7(project_dir)
+    adjustments = migrate_v6_to_v7(project_dir)
 
-    assert (project_dir / "project.json").read_bytes() == project_before
-    assert (project_dir / "scripts/episode_1.json").read_bytes() == script_before
-    assert not list((project_dir / "scripts").glob("*.bak.v6-*"))
+    first, second = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
+    assert (first["unit_id"], first["generated_assets"]) == ("E1U1", {"video_clip": "reference_videos/E1U1.mp4"})
+    assert "needs_replan" not in first
+    assert (second["unit_id"], second["generated_assets"], second["needs_replan"]) == ("E1U2", {}, True)
+    assert [(item.code, item.episode, item.params) for item in adjustments] == [
+        ("item_id_reassigned", 1, {"from": "E1U1", "to": "E1U2"})
+    ]
+
+
+def test_a_duplicate_shot_id_keeps_the_later_shot_in_a_unit_of_its_own(tmp_path: Path) -> None:
+    project_dir = _project(tmp_path)
+    script = _script(units=[{"unit_id": "E1U1", "shot_ids": ["E1S1"], "generated_assets": {}}])
+    script["shots"][1]["shot_id"] = "E1S1"
+    script["shots"][1]["voiceover_text"] = "第二个同号镜头"
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    adjustments = migrate_v6_to_v7(project_dir)
+
+    first, second = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
+    assert first["unit_id"] == "E1U1"
+    assert "第二个同号镜头" not in first["text"]
+    assert "第二个同号镜头" in second["text"]
+    assert second["needs_replan"] is True
+    assert [(item.code, item.params) for item in adjustments] == [
+        ("item_id_reassigned", {"from": "E1S1", "to": second["unit_id"]})
+    ]
+
+
+def test_a_unit_the_current_model_rejects_is_kept_and_marked_for_replanning(tmp_path: Path) -> None:
+    """旧 unit 的产物字段带当前模型不认的键：原样保留、标为待重新规划，不拒绝整个项目。"""
+    project_dir = _project(tmp_path)
+    script = _script(
+        units=[
+            {"unit_id": "E1U1", "shot_ids": ["E1S1"], "generated_assets": {"legacy_field": "x"}},
+            {"unit_id": "E1U2", "shot_ids": ["E1S2"], "generated_assets": {}},
+        ]
+    )
+    _write_json(project_dir / "scripts/episode_1.json", script)
+
+    assert migrate_v6_to_v7(project_dir) == ()
+
+    first, second = _read_json(project_dir / "scripts/episode_1.json")["video_units"]
+    assert (first["generated_assets"], first["needs_replan"]) == ({"legacy_field": "x"}, True)
+    assert "needs_replan" not in second
+    assert _read_json(project_dir / "project.json")["schema_version"] == 7
 
 
 def test_empty_legacy_members_become_replan_shell_and_same_name_uses_product_priority(tmp_path: Path) -> None:

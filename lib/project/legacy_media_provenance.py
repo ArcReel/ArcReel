@@ -88,7 +88,7 @@ def backfill_legacy_media_provenance(project_dir: Path, *, record_gaps: bool = F
                 continue
             resource_id = str(item.get(id_field))
             if item.get("needs_replan") is True:
-                skipped.extend(_replan_skips(episode, resource_id, assets))
+                # 需要重新规划的单位已有持久状态，不进迁移报告（ADR 0098）。
                 continue
             audio_path = assets.get("narration_audio")
             if isinstance(audio_path, str) and audio_path:
@@ -101,6 +101,7 @@ def backfill_legacy_media_provenance(project_dir: Path, *, record_gaps: bool = F
                             resource_id=resource_id,
                             artifact_path=audio_path,
                             reason="legacy audio version has no TTS settings to project a basis from",
+                            category="legacy_audio_basis",
                         )
                     )
             video_path = assets.get("video_clip")
@@ -143,28 +144,6 @@ def backfill_legacy_media_provenance(project_dir: Path, *, record_gaps: bool = F
     if amended:
         atomic_write_json(versions_path, versions_data)
     return LegacyProvenanceBackfill(amended=tuple(amended), skipped=tuple(skipped))
-
-
-def _replan_skips(episode: int, resource_id: str, assets: Mapping[str, Any]) -> list[MigrationSkippedArtifact]:
-    """Media hanging off a unit marked ``needs_replan`` is not formal; say so instead of dropping it."""
-
-    skips: list[MigrationSkippedArtifact] = []
-    for field, key in (
-        ("narration_audio", ArtifactKey.episode_audio(episode, resource_id)),
-        ("video_clip", ArtifactKey.episode_video(episode, resource_id)),
-    ):
-        path = assets.get(field)
-        if isinstance(path, str) and path:
-            skips.append(
-                MigrationSkippedArtifact(
-                    kind=key.kind.value,
-                    episode=episode,
-                    resource_id=resource_id,
-                    artifact_path=path,
-                    reason="script unit is marked needs_replan; its media is not a formal artifact",
-                )
-            )
-    return skips
 
 
 def _bound_scripts(project_dir: Path, project: dict[str, Any]) -> list[tuple[int, str, dict[str, Any]]]:
