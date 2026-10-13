@@ -184,8 +184,9 @@ describe("EndpointsSection", () => {
       expect(await screen.findByDisplayValue("Example Video API")).toBeInTheDocument();
     });
 
-    it("drops an inference that comes back after the dialog was dismissed", async () => {
+    it("drops an inference that comes back after the dialog was dismissed", { timeout: 15_000 }, async () => {
       // 推断在途时取消：迟到的那一份会把一个已经被放弃的 workflow 装进详情并跳过去。
+      // 放宽超时：粘贴后要真实等完 400ms 的校验防抖，再加整页渲染与多次 userEvent，高负载下超过默认 5 秒。
       const workflow = { "9": { class_type: "SaveVideo", inputs: { fps: 16 } } };
       const wrapped: ComfyuiEndpointDefinition = {
         kind: "comfyui",
