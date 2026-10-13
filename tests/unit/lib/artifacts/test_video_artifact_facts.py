@@ -199,3 +199,64 @@ def test_video_artifact_currency_rejects_empty_or_non_string_style_description(d
     """描述为空时依据不记该键；空串或非字符串不是构造函数能写出的形态。"""
     with pytest.raises(ValueError, match="reference visual basis has invalid canonical inputs"):
         _reference_facts({**_REFERENCE_VISUAL_INPUTS, "style_description": description})
+
+
+def _gapped_facts(
+    *, frames: list[dict[str, object]], absent: list[dict[str, object]] | None
+) -> VideoArtifactCurrencyFacts:
+    """分镜图不可用、单位混合发声：视觉与发声依据都带缺席记录（``docs/adr/0098``）。"""
+    visual_inputs: dict[str, object] = {
+        "resource_id": "E1S01",
+        "visual_prompt": None,
+        "canvas": {"aspect_ratio": "9:16"},
+        "frames": frames,
+    }
+    if absent is not None:
+        visual_inputs["absent"] = absent
+    visual = ArtifactBasis.build("artifact-visual/video-storyboard", kind_version=1, inputs=visual_inputs)
+    speech = ArtifactBasis.build(
+        "artifact-speech/video",
+        kind_version=1,
+        inputs={
+            "mode": None,
+            "utterances": [
+                {"owner": "character", "speaker": "阿离", "text": "走。"},
+                {"owner": "narrator", "speaker": None, "text": "雨夜。"},
+            ],
+            "absent": [{"code": "mixed_speech", "id": "E1S01"}],
+        },
+    )
+    duration = build_video_duration_basis(8)
+    return VideoArtifactCurrencyFacts(
+        episode=1,
+        request_duration_seconds=8,
+        visual_basis=visual,
+        speech_basis=speech,
+        duration_basis=duration,
+        video_basis=compose_video_artifact_basis(visual=visual, speech=speech, duration=duration),
+        voice_style_speakers=(),
+        duration_tiers=(4, 8, 12),
+        reference_image_limit=None,
+        parent_version=3,
+    )
+
+
+def test_video_artifact_currency_accepts_components_that_record_generation_input_gaps() -> None:
+    facts = _gapped_facts(
+        frames=[],
+        absent=[{"code": "script_prompt_pending"}, {"code": "generate_storyboard_first", "id": "E1S01"}],
+    )
+
+    assert VideoArtifactCurrencyFacts.from_dict(facts.to_dict()) == facts
+
+
+@pytest.mark.parametrize(
+    "absent",
+    [None, [], [{"type": "storyboard"}], [{"code": "x", "extra": 1}]],
+    ids=["no-record", "empty", "no-code", "unknown-field"],
+)
+def test_video_artifact_currency_rejects_a_missing_storyboard_without_a_valid_absent_record(
+    absent: list[dict[str, object]] | None,
+) -> None:
+    with pytest.raises(ValueError, match="visual basis has invalid"):
+        _gapped_facts(frames=[], absent=absent)

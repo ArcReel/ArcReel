@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from lib.artifacts.artifact_manifest import (
@@ -17,17 +19,22 @@ from lib.speech.narration_delivery import POST_PRODUCTION, USE_TTS, TtsSynthesis
 from lib.speech.speech_artifact_provenance import (
     CharacterVoiceEvidence,
     SelectedMediaEvidence,
+    build_blocked_subtitle_basis,
+    build_blocked_video_speech_basis,
     build_mechanical_subtitle_basis,
     build_presentation_basis,
     build_video_duration_basis,
     build_video_speech_basis,
+    speech_preparation_gaps,
 )
 from lib.speech.speech_composition import (
     SpeechFieldLocation,
     SpeechMode,
     SpeechOwner,
     SpeechPreparation,
+    SpeechProblemCode,
     SpeechUtterance,
+    admit_script_unit,
 )
 
 
@@ -370,3 +377,50 @@ def test_selected_media_evidence_rejects_non_digest_content_digest(invalid: obje
             content_digest=invalid,
             actual_duration_seconds=8.0,
         )
+
+
+def _mixed_speech(narration_text: str = "旁白正文") -> SpeechPreparation:
+    """说书片段里同时写了原文旁白和角色台词：准入不通过，没有唯一发声归属。"""
+    preparation = admit_script_unit(
+        "segments",
+        {
+            "segment_id": "E1S1",
+            "novel_text": narration_text,
+            "video_prompt": {"dialogue": [{"speaker": "张三", "line": "你好"}]},
+        },
+    ).preparation
+    assert preparation.mode is None
+    assert [problem.code for problem in preparation.problems] == [SpeechProblemCode.MIXED_SPEECH]
+    return preparation
+
+
+def test_admitted_video_speech_keeps_the_digest_from_before_gaps_were_recorded() -> None:
+    """准入通过的单位不写缺席键，视频发声依据与缺口改为记录之前的固定样本相同。"""
+    preparation = admit_script_unit(
+        "scenes",
+        {"scene_id": "E1S1", "utterances": [{"kind": "dialogue", "speaker": "张三", "text": "你好"}]},
+    ).preparation
+
+    assert build_video_speech_basis(preparation).digest == (
+        "sha256-v1:af4f56a2cc125129ff93e5e743face65093d80fa26a4d9b4b1d8fc9019979cd2"
+    )
+    assert speech_preparation_gaps(preparation) == ()
+    with pytest.raises(ValueError, match="admitted"):
+        build_blocked_video_speech_basis(preparation)
+
+
+def test_blocked_speech_bases_record_ownership_and_the_admission_problem() -> None:
+    """混合发声单位照常投影视频发声与字幕依据：逐条记归属，准入问题记为缺席；改文本让依据变化。"""
+    video = _media("test/video", "v1", content="a", duration=8.0)
+    preparation = _mixed_speech()
+
+    speech = build_blocked_video_speech_basis(preparation)
+    subtitle = build_blocked_subtitle_basis(preparation, variant=POST_PRODUCTION, video=video)
+
+    speech_inputs = json.loads(speech.normalized_bytes())["inputs"]
+    assert speech_inputs["mode"] is None
+    assert [item["owner"] for item in speech_inputs["utterances"]] == ["character", "narrator"]
+    assert speech_inputs["absent"] == [{"code": "mixed_speech", "id": "E1S1"}]
+    assert json.loads(subtitle.normalized_bytes())["inputs"]["absent"] == speech_inputs["absent"]
+    assert build_blocked_video_speech_basis(_mixed_speech("改过的旁白")) != speech
+    assert build_blocked_subtitle_basis(_mixed_speech("改过的旁白"), variant=POST_PRODUCTION, video=video) != subtitle

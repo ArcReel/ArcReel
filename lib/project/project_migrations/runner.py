@@ -204,9 +204,12 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
                     if outcome is not None
                     else (previous_report.skipped if previous_report is not None else ())
                 )
+                # 这一步之后已登记的产物，此前的跳过记录不再成立（如 v17→v18 补录了因生成缺口跳过的产物）。
+                still_skipped = [skip for skip in previous_skips if skip.identity not in step_outcome.resolved]
                 step_outcome = ArtifactBackfillOutcome(
                     registered=step_outcome.registered,
-                    skipped=merge_skipped(previous_skips, step_outcome.skipped),
+                    skipped=merge_skipped(still_skipped, step_outcome.skipped),
+                    resolved=step_outcome.resolved,
                 )
             outcome = step_outcome
         version += 1

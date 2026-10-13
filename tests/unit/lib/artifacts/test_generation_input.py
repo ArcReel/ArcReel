@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -131,7 +132,7 @@ class _Fixture:
             adapter.put_entry(key, ArtifactManifestEntry(artifact_path=path, basis_digest=_REGISTERED_BASIS))
         return ManifestInputObservation(self.root, adapter)
 
-    def assemble(self, resource_id: str = TARGET) -> StoryboardImageInput | InputRefused:
+    def assemble(self, resource_id: str = TARGET) -> StoryboardImageInput:
         return storyboard_image_input(
             self.project,
             self.script,
@@ -146,7 +147,7 @@ class _Fixture:
 
 def _admitted(fixture: _Fixture, resource_id: str = TARGET) -> StoryboardImageInput:
     result = fixture.assemble(resource_id)
-    assert isinstance(result, StoryboardImageInput), result
+    assert not result.gaps, result
     return result
 
 
@@ -174,7 +175,7 @@ def test_legacy_asset_name_with_surrounding_whitespace_resolves_in_storyboard(tm
 
     result = fixture.assemble()
 
-    assert isinstance(result, StoryboardImageInput), result
+    assert not result.gaps, result
     assert "characters/derivatives/张三/劲装.png" in [ref.artifact_path for ref in result.references]
 
 
@@ -345,7 +346,7 @@ class TestGaps:
         fixture = _Fixture(tmp_path)
         mutate(fixture)
 
-        assert fixture.assemble() == InputRefused(reasons=tuple(expected))
+        assert fixture.assemble().refusal == InputRefused(reasons=tuple(expected))
 
     def test_all_gaps_are_reported_at_once_in_assembly_order(self, tmp_path):
         fixture = _Fixture(tmp_path)
@@ -359,7 +360,7 @@ class TestGaps:
         fixture.registered.pop(ArtifactKey.asset_sheet("character", "张三/劲装"))
         _unset_sheet(fixture, "props", "玉佩", "prop_sheet")
 
-        refused = fixture.assemble()
+        refused = fixture.assemble().refusal
 
         assert refused == InputRefused(
             reasons=(
@@ -371,6 +372,32 @@ class TestGaps:
                 InputGap("reference_asset_missing", "prop", "玉佩"),
             )
         )
+
+    @pytest.mark.parametrize(("mutate", "expected"), [pytest.param(m, e, id=i) for i, m, e in _GAP_CASES])
+    def test_a_gapped_input_still_projects_a_basis_recording_the_gap(self, tmp_path, mutate, expected):
+        fixture = _Fixture(tmp_path)
+        complete = _admitted(fixture).expected_basis()
+        mutate(fixture)
+
+        basis = fixture.assemble().expected_basis()
+
+        assert basis != complete
+        assert json.loads(basis.normalized_bytes())["inputs"]["absent"] == [gap.evidence() for gap in expected]
+
+    def test_a_complete_input_records_no_absent_inputs(self, tmp_path):
+        basis = _admitted(_Fixture(tmp_path)).expected_basis()
+
+        assert "absent" not in json.loads(basis.normalized_bytes())["inputs"]
+
+    def test_a_gapped_input_cannot_be_rendered_or_frozen(self, tmp_path):
+        fixture = _Fixture(tmp_path)
+        fixture.target().update(image_prompt=None)
+        generation_input = fixture.assemble()
+
+        with pytest.raises(ValueError, match="gaps"):
+            generation_input.render(max_reference_images=8, model="m")
+        with pytest.raises(ValueError, match="gaps"):
+            generation_input.freeze(max_reference_images=8, model="m", bind_claims=_identity_binder)
 
     def test_a_malformed_reference_field_is_structural_damage(self, tmp_path):
         fixture = _Fixture(tmp_path)
@@ -406,7 +433,9 @@ class TestProducts:
         fixture = _Fixture(tmp_path)
         fixture.registered.pop(ArtifactKey.asset_sheet("product", "保温杯"))
 
-        assert fixture.assemble() == InputRefused(reasons=(InputGap("reference_asset_missing", "product", "保温杯"),))
+        assert fixture.assemble().refusal == InputRefused(
+            reasons=(InputGap("reference_asset_missing", "product", "保温杯"),)
+        )
 
 
 class TestCanvasRatio:
@@ -492,7 +521,7 @@ class TestFreeze:
         assert (fixture.project, fixture.script) == (project, script)
 
 
-def _grid(fixture: _Fixture, member_ids: Sequence[str]) -> GridReferences | InputRefused:
+def _grid(fixture: _Fixture, member_ids: Sequence[str]) -> GridReferences:
     return grid_references(fixture.project, fixture.script, member_ids=member_ids, observation=fixture.observation())
 
 
@@ -503,7 +532,7 @@ class TestGridReferences:
 
         references = _grid(fixture, ["E1S01", TARGET])
 
-        assert isinstance(references, GridReferences)
+        assert not references.gaps
         assert [
             (ref.visual.logical_type, ref.visual.logical_id, ref.artifact_path) for ref in references.references
         ] == [
@@ -531,7 +560,7 @@ class TestGridReferences:
         fixture.project["characters"]["张三"]["derivatives"]["劲装"]["character_sheet"] = ""
         fixture.remove_file("props/玉佩.png")
 
-        refused = _grid(fixture, ["E1S01", TARGET, "E1S03"])
+        refused = _grid(fixture, ["E1S01", TARGET, "E1S03"]).refusal
 
         assert refused == InputRefused(
             reasons=(

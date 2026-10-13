@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -25,7 +26,6 @@ from lib.artifacts.generation_input import (
     AssetSheetInput,
     DerivativeSheetInput,
     InputGap,
-    InputRefused,
     ManifestInputObservation,
     asset_sheet_input,
     derivative_sheet_input,
@@ -89,10 +89,10 @@ class _Fixture:
             adapter.put_entry(key, ArtifactManifestEntry(artifact_path=path, basis_digest=_REGISTERED_BASIS))
         return ManifestInputObservation(self.root, adapter)
 
-    def sheet(self, asset_type: str, name: str) -> AssetSheetInput | InputRefused:
+    def sheet(self, asset_type: str, name: str) -> AssetSheetInput:
         return asset_sheet_input(self.project, asset_type=asset_type, name=name, observation=self.observation())
 
-    def derivative(self, owner: str = "张三", derivative: str = "劲装") -> DerivativeSheetInput | InputRefused:
+    def derivative(self, owner: str = "张三", derivative: str = "劲装") -> DerivativeSheetInput:
         return derivative_sheet_input(self.project, owner=owner, derivative=derivative, observation=self.observation())
 
 
@@ -117,7 +117,7 @@ def test_legacy_asset_name_with_surrounding_whitespace_resolves_for_sheet(tmp_pa
 
     result = fixture.sheet("character", "张三")
 
-    assert isinstance(result, AssetSheetInput), result
+    assert not result.gaps, result
     assert result.semantics.name == "张三"
 
 
@@ -145,7 +145,7 @@ class TestAssetSheetReferences:
     def test_originals_by_asset_type(self, tmp_path, asset_type, name, expected):
         result = _Fixture(tmp_path).sheet(asset_type, name)
 
-        assert isinstance(result, AssetSheetInput), result
+        assert not result.gaps, result
         assert _references(result) == expected
         assert all(ref.claim is None for ref in result.references)
         assert result.canvas_ratio == "16:9"
@@ -156,7 +156,7 @@ class TestAssetSheetReferences:
 
         result = fixture.sheet("scene", "祠堂")
 
-        assert isinstance(result, AssetSheetInput)
+        assert not result.gaps
         assert "古旧祠堂" in result.render(max_reference_images=0, model="m").prompt
 
     def test_nfd_name_resolves_to_the_stored_entry(self, tmp_path):
@@ -165,7 +165,7 @@ class TestAssetSheetReferences:
 
         result = fixture.sheet("prop", "Ngọc bội")
 
-        assert isinstance(result, AssetSheetInput)
+        assert not result.gaps
         assert result.semantics.name == unicodedata.normalize("NFC", "Ngọc bội")
 
 
@@ -223,10 +223,36 @@ class TestAssetSheetGaps:
         fixture = _Fixture(tmp_path)
         mutate(fixture)
 
-        result = fixture.sheet(asset_type, name)
+        result = fixture.sheet(asset_type, name).refusal
 
-        assert isinstance(result, InputRefused), result
+        assert result is not None
         assert list(result.reasons) == expected
+
+    @pytest.mark.parametrize(
+        ("mutate", "asset_type", "name", "expected"),
+        [pytest.param(*case[1:], id=case[0]) for case in _ASSET_GAP_CASES],
+    )
+    def test_a_gapped_sheet_still_projects_a_basis_recording_the_gap(
+        self, tmp_path, mutate, asset_type, name, expected
+    ):
+        fixture = _Fixture(tmp_path)
+        mutate(fixture)
+
+        basis = fixture.sheet(asset_type, name).expected_basis()
+
+        assert json.loads(basis.normalized_bytes())["inputs"]["absent"] == [gap.evidence() for gap in expected]
+
+    def test_filling_in_an_empty_description_changes_the_basis(self, tmp_path):
+        fixture = _Fixture(tmp_path)
+        fixture.project["scenes"]["祠堂"]["description"] = ""
+        gapped = fixture.sheet("scene", "祠堂").expected_basis()
+        fixture.project["scenes"]["祠堂"]["description"] = "古旧祠堂"
+
+        filled = fixture.sheet("scene", "祠堂")
+
+        assert not filled.gaps
+        assert filled.expected_basis() != gapped
+        assert "absent" not in json.loads(filled.expected_basis().normalized_bytes())["inputs"]
 
     @pytest.mark.parametrize(
         ("asset_type", "name", "mutate", "match"),
@@ -261,7 +287,7 @@ class TestDerivativeSheet:
     def test_owner_sheet_is_the_only_reference_with_a_claim(self, tmp_path):
         result = _Fixture(tmp_path).derivative()
 
-        assert isinstance(result, DerivativeSheetInput), result
+        assert not result.gaps, result
         assert _references(result) == [(_OWNER_SHEET, "derivative_source", "sheet")]
         [reference] = result.references
         assert reference.claim == ArtifactInputClaim(
@@ -310,10 +336,12 @@ class TestDerivativeSheet:
         fixture = _Fixture(tmp_path)
         mutate(fixture)
 
-        result = fixture.derivative()
+        result = fixture.derivative().refusal
 
-        assert isinstance(result, InputRefused), result
+        assert result is not None
         assert list(result.reasons) == expected
+        basis = fixture.derivative().expected_basis()
+        assert json.loads(basis.normalized_bytes())["inputs"]["absent"] == [gap.evidence() for gap in expected]
 
     @pytest.mark.parametrize(("owner", "derivative"), [("王五", "劲装"), ("张三", "便装")])
     def test_missing_owner_or_derivative_raises(self, tmp_path, owner, derivative):
@@ -324,7 +352,7 @@ class TestDerivativeSheet:
 class TestFreeze:
     def test_clamp_only_limits_what_is_sent(self, tmp_path):
         result = _Fixture(tmp_path).sheet("product", "保温杯")
-        assert isinstance(result, AssetSheetInput)
+        assert not result.gaps
 
         with result.freeze(max_reference_images=1, model="m", bind_claims=_identity_binder) as frozen:
             assert frozen.basis == result.expected_basis()
@@ -334,7 +362,7 @@ class TestFreeze:
 
     def test_derivative_claim_is_bound_to_frozen_bytes(self, tmp_path):
         result = _Fixture(tmp_path).derivative()
-        assert isinstance(result, DerivativeSheetInput)
+        assert not result.gaps
 
         with result.freeze(max_reference_images=0, model="m", bind_claims=_identity_binder) as frozen:
             assert frozen.basis == result.expected_basis()
@@ -349,14 +377,14 @@ class TestFreeze:
         fixture.project = changed
         after = fixture.sheet("character", "张三")
 
-        assert isinstance(before, AssetSheetInput)
-        assert isinstance(after, AssetSheetInput)
+        assert not before.gaps
+        assert not after.gaps
         assert before.expected_basis() != after.expected_basis()
 
     @pytest.mark.parametrize("limit", [0, 1])
     def test_preview_render_matches_the_frozen_prompt(self, tmp_path, limit):
         result = _Fixture(tmp_path).sheet("product", "保温杯")
-        assert isinstance(result, AssetSheetInput)
+        assert not result.gaps
 
         rendered = result.render(max_reference_images=limit, model="m")
         with result.freeze(max_reference_images=limit, model="m", bind_claims=_identity_binder) as frozen:

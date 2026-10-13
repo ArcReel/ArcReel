@@ -24,6 +24,8 @@ from lib.artifacts.artifact_manifest import (
     compose_video_artifact_basis,
 )
 from lib.artifacts.artifact_version_provenance import parse_typed_audio_settings, parse_typed_media_version_target
+from lib.artifacts.generation_input import PROMPT_PENDING_CODE
+from lib.artifacts.input_gap import InputGap, add_absent_inputs, project_basis_records_gaps
 from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
@@ -36,6 +38,7 @@ from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, resolve_episode_script_binding
 from lib.project.project_schema import parse_project_schema_version
 from lib.project.resource_paths import resource_relative_path
+from lib.references.reference_admission import SHEET_MISSING_CODE
 from lib.script.reference_video.duration_slots import resolve_duration_slot
 from lib.script.reference_video.prompt_render import resolve_reference_audio_paths
 from lib.script.reference_video.request_projection import (
@@ -46,16 +49,27 @@ from lib.script.reference_video.request_projection import (
     unit_reference_declarations,
 )
 from lib.script.script_editor import resolve_items
-from lib.script.storyboard_sequence import resolve_storyboard_video_inputs
+from lib.script.storyboard_sequence import (
+    EndFrameImageUnavailable,
+    StoryboardImageUnavailable,
+    resolve_storyboard_video_inputs,
+)
 from lib.speech.character_voice import character_voice_binding
 from lib.speech.narration_config import PROJECT_TTS_SNAPSHOT_SCHEMA_VERSION, project_tts_settings
 from lib.speech.narration_delivery import build_narration_audio_basis
 from lib.speech.speech_artifact_provenance import (
+    build_blocked_video_speech_basis,
     build_video_duration_basis,
     build_video_speech_basis,
     project_character_voice_evidence,
 )
-from lib.speech.speech_composition import admit_script_unit
+from lib.speech.speech_composition import SpeechPreparation, admit_script_unit
+
+#: 视频依据里缺席项的缺口码，沿用视频生成入口拒绝时的同一码。
+STORYBOARD_UNAVAILABLE_CODE = "generate_storyboard_first"
+END_FRAME_UNAVAILABLE_CODE = "invalid_end_frame_image_path"
+DURATION_UNSUPPORTED_CODE = "video_duration_not_supported"
+DURATION_INVALID_CODE = "video_duration_invalid"
 
 
 def build_current_audio_artifact_basis(
@@ -132,17 +146,66 @@ def project_video_basis_components(
     resource_type: str,
     resource_id: str,
     shape: VideoExecutionShape,
+    record_gaps: bool = False,
 ) -> VideoBasisComponents:
     """Project the current script item through ``shape`` into the three video basis components.
 
     The registration path (backfill) and the comparison path (currency) both
     build their basis here, so the two can never disagree on what a video
     depends on. Raises ``ValueError`` naming what could not be projected.
+
+    ``record_gaps`` 打开时，生成缺口不阻止投影（``docs/adr/0098``）：发声准入不通过的单位投影出
+    带发声归属的发声依据，待生成的视频提示词、不可用的分镜图或尾帧、缺图的参考资产与落不进档位
+    的时长都在对应组件里记为缺席。输入完整时依据与关闭时逐字节相同。
     """
 
     admission = admit_script_unit(skeleton_kind, item)
     if not admission.allowed:
-        raise ValueError("script unit is not admitted for speech composition")
+        if not record_gaps:
+            raise ValueError("script unit is not admitted for speech composition")
+        speech = build_blocked_video_speech_basis(admission.preparation)
+    else:
+        speech = _admitted_speech_basis(project_path, project, admission.preparation, shape)
+
+    if resource_type == "videos":
+        visual = _storyboard_visual_basis(
+            project_path=project_path,
+            project=project,
+            item=item,
+            resource_id=resource_id,
+            record_gaps=record_gaps,
+        )
+    elif resource_type == "reference_videos":
+        declared = unit_reference_declarations(project, item)
+        resolved = resolve_reference_assets(project, project_path, item)
+        hydration = hydrate_reference_assets(declared, resolved, FilesystemReferenceAssets(project_path))
+        if hydration.missing and not record_gaps:
+            raise ValueError("declared reference assets are missing")
+        visual = build_reference_video_artifact_visual_basis(
+            unit=item,
+            request_assets=clamp_reference_assets(hydration.available, shape.reference_image_limit),
+            style=project.get("style") if isinstance(project.get("style"), str) else None,
+            style_description=project_basis_style_description(project),
+            aspect_ratio=resolve_video_aspect_ratio(project),
+            absent=[InputGap(SHEET_MISSING_CODE, reference.type, reference.name) for reference in hydration.missing],
+        )
+    else:
+        raise ValueError(f"resource type does not carry video artifact metadata: {resource_type}")
+
+    duration = _current_duration_tier_basis(project=project, item=item, duration_tiers=shape.duration_tiers)
+    if duration is None:
+        if not record_gaps:
+            raise ValueError("planned duration cannot be placed on the paid duration tiers")
+        duration = _unplaceable_duration_basis(project=project, item=item)
+    return VideoBasisComponents(visual=visual, speech=speech, duration=duration)
+
+
+def _admitted_speech_basis(
+    project_path: Path,
+    project: dict[str, Any],
+    preparation: SpeechPreparation,
+    shape: VideoExecutionShape,
+) -> ArtifactBasis:
 
     # 角色声音绑定方式属于交付内容（ADR 0062 的分界线：这一位改变用户拿到的成品）：项目切回提示词
     # 软约束后，已挂过参考音频的成片不再对得上当前设置，投影里因此不再重放那批音频，条目随之判
@@ -152,53 +215,71 @@ def project_video_basis_components(
     selected_audio = {
         speaker: available_audio[speaker] for speaker in shape.reference_audio_speakers if speaker in available_audio
     }
-    speech = build_video_speech_basis(
-        admission.preparation,
+    return build_video_speech_basis(
+        preparation,
         voices=project_character_voice_evidence(
-            admission.preparation,
+            preparation,
             characters=project.get("characters"),
             voice_style_speakers=shape.voice_style_speakers,
             reference_audio_paths=selected_audio,
         ),
     )
 
-    if resource_type == "videos":
-        prompt = item.get("video_prompt")
-        try:
-            storyboard, end_frame = resolve_storyboard_video_inputs(
-                project_path=project_path,
-                resource_id=resource_id,
-                item=item,
-            )
-        except (OSError, TypeError, ValueError) as exc:
-            raise ValueError(f"storyboard inputs are unavailable: {exc}") from exc
-        visual = build_storyboard_video_artifact_visual_basis(
-            resource_id=resource_id,
-            visual_prompt=prompt,
-            storyboard_image=storyboard,
-            end_frame_image=end_frame,
-            aspect_ratio=resolve_video_aspect_ratio(project),
-        )
-    elif resource_type == "reference_videos":
-        declared = unit_reference_declarations(project, item)
-        resolved = resolve_reference_assets(project, project_path, item)
-        hydration = hydrate_reference_assets(declared, resolved, FilesystemReferenceAssets(project_path))
-        if hydration.missing:
-            raise ValueError("declared reference assets are missing")
-        visual = build_reference_video_artifact_visual_basis(
-            unit=item,
-            request_assets=clamp_reference_assets(hydration.available, shape.reference_image_limit),
-            style=project.get("style") if isinstance(project.get("style"), str) else None,
-            style_description=project_basis_style_description(project),
-            aspect_ratio=resolve_video_aspect_ratio(project),
-        )
-    else:
-        raise ValueError(f"resource type does not carry video artifact metadata: {resource_type}")
 
-    duration = _current_duration_tier_basis(project=project, item=item, duration_tiers=shape.duration_tiers)
-    if duration is None:
-        raise ValueError("planned duration cannot be placed on the paid duration tiers")
-    return VideoBasisComponents(visual=visual, speech=speech, duration=duration)
+def _storyboard_visual_basis(
+    *,
+    project_path: Path,
+    project: Mapping[str, Any],
+    item: dict[str, Any],
+    resource_id: str,
+    record_gaps: bool,
+) -> ArtifactBasis:
+    """分镜视频的画面依据。``record_gaps`` 打开时，待生成的提示词与不可用的分镜图、尾帧记为缺席。"""
+
+    prompt = item.get("video_prompt")
+    gaps: list[InputGap] = []
+    if prompt is None and record_gaps:
+        gaps.append(InputGap(PROMPT_PENDING_CODE, name=resource_id))
+    storyboard: Path | None
+    end_frame: Path | None
+    try:
+        storyboard, end_frame = resolve_storyboard_video_inputs(
+            project_path=project_path,
+            resource_id=resource_id,
+            item=item,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        if not record_gaps or not isinstance(exc, StoryboardImageUnavailable | EndFrameImageUnavailable):
+            raise ValueError(f"storyboard inputs are unavailable: {exc}") from exc
+        storyboard, end_frame = _available_storyboard(project_path, resource_id, item), None
+        if storyboard is None:
+            gaps.append(InputGap(STORYBOARD_UNAVAILABLE_CODE, name=resource_id))
+        if isinstance(exc, EndFrameImageUnavailable) or (
+            storyboard is None and item.get("end_frame_image") not in (None, "")
+        ):
+            gaps.append(InputGap(END_FRAME_UNAVAILABLE_CODE, name=resource_id))
+    return build_storyboard_video_artifact_visual_basis(
+        resource_id=resource_id,
+        visual_prompt=prompt,
+        storyboard_image=storyboard,
+        end_frame_image=end_frame,
+        aspect_ratio=resolve_video_aspect_ratio(project),
+        absent=gaps,
+    )
+
+
+def _available_storyboard(project_path: Path, resource_id: str, item: Mapping[str, Any]) -> Path | None:
+    """尾帧不可用时单独解析分镜图；分镜图本身也不可用时返回 ``None``。"""
+
+    try:
+        storyboard, _ = resolve_storyboard_video_inputs(
+            project_path=project_path,
+            resource_id=resource_id,
+            item={key: value for key, value in item.items() if key != "end_frame_image"},
+        )
+    except StoryboardImageUnavailable:
+        return None
+    return storyboard
 
 
 def build_current_video_artifact_basis(
@@ -251,6 +332,7 @@ def build_current_video_artifact_basis(
             resource_type=resource_type,
             resource_id=resource_id,
             shape=shape,
+            record_gaps=project_basis_records_gaps(project),
         )
         if parse_project_schema_version(project) < 16:
             legacy_duration = _legacy_narrated_duration(
@@ -346,6 +428,19 @@ def _current_duration_tier_basis(
     if slot.adjustment == "down" and planned > slot.seconds:
         return None
     return build_video_duration_basis(slot.seconds)
+
+
+def _unplaceable_duration_basis(*, project: Mapping[str, Any], item: Mapping[str, Any]) -> ArtifactBasis:
+    """编排时长落不进冻结档位时的时长依据：记下编排时长，档位记为缺席。"""
+
+    planned = item.get("duration_seconds")
+    if type(planned) is not int or planned <= 0:
+        planned = project.get("default_duration")
+    planned_seconds = planned if type(planned) is int and planned > 0 else None
+    inputs: dict[str, object] = {"request_duration_seconds": None, "planned_duration_seconds": planned_seconds}
+    code = DURATION_UNSUPPORTED_CODE if planned_seconds is not None else DURATION_INVALID_CODE
+    add_absent_inputs(inputs, [InputGap(code)])
+    return ArtifactBasis.build("artifact-speech/video-duration", kind_version=1, inputs=inputs)
 
 
 def _execution_reference_audio_speakers(value: object) -> tuple[str, ...] | None:

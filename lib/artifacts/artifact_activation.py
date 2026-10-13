@@ -60,7 +60,9 @@ from lib.artifacts.artifact_planner import (
     SharedVersionMetadata,
     TargetStatePlanner,
     episode_scope_for_key,
+    gap_backfill_entries,
     plan_artifact_target_state,
+    plan_artifact_target_state_by_gap_rule,
 )
 from lib.artifacts.artifact_registration import (
     artifact_key_for_resource,
@@ -170,7 +172,11 @@ def ensure_imported_artifact_target_state(
     the frozen claim; a digest that only matches the text-mode view (CRLF folded,
     cut at ``0x1A``) cannot prove the whole artifact, so that key is re-registered
     from the current self-proving projection instead; any other digest rejects the
-    import.  Legacy archives without the envelope retain the self-proving path.
+    import.  Formal artifacts the envelope carries no claim for because generation-input
+    gaps once blocked their projection are backfilled from the self-proving projection
+    (``docs/adr/0098``, the same rule as the v17→v18 backfill); other unclaimed
+    artifacts stay unregistered.  Legacy archives without the envelope retain the
+    self-proving path.
     """
 
     raw = (project_dir / "project.json").read_bytes()
@@ -187,6 +193,8 @@ def ensure_imported_artifact_target_state(
             raise ValueError("archive Artifact Manifest content evidence does not cover every formal claim")
         with project_metadata_lock(project_dir):
             plan = _plan_preserved_artifact_target_state(project_dir)
+            gaps_refused = plan_artifact_target_state_by_gap_rule(project_dir, project, record_gaps=False)
+            gaps_recorded = plan_artifact_target_state_by_gap_rule(project_dir, project, record_gaps=True)
             rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
             invalid = [key.encode() for key, archived in preserved_entries.items() if rebased[key] != archived]
             if invalid:
@@ -211,7 +219,9 @@ def ensure_imported_artifact_target_state(
                 raise ValueError(
                     f"archive Artifact Manifest formal artifact content does not match its claims: {sorted(replaced)}"
                 )
-            assert_artifact_target_state_plan_unchanged(project_dir, plan)
+            restored.update(gap_backfill_entries(preserved_entries, gaps_refused.entries, gaps_recorded.entries))
+            for checked in (plan, gaps_refused, gaps_recorded):
+                assert_artifact_target_state_plan_unchanged(project_dir, checked, expected_project_bytes=raw)
             return adapter.replace_entries_atomically(restored)
     return activate_artifact_target_state(project_dir, bump_schema=False)
 

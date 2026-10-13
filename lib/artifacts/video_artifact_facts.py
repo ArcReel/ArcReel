@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Self, cast
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor, compose_video_artifact_basis
+from lib.artifacts.input_gap import ABSENT_INPUTS_FIELD
 from lib.infra.content_digest import CONTENT_DIGEST_RE, PREFIXED_DIGEST_RE, prefixed_canonical_json_digest
 from lib.infra.schema_guards import is_str
 from lib.project.asset_types import asset_name_comparison_key
@@ -199,24 +200,57 @@ def _canvas_is_valid(value: object) -> bool:
     return isinstance(value, Mapping) and set(value) == {"aspect_ratio"} and _nonempty(value["aspect_ratio"])
 
 
+def _absent_inputs_are_valid(inputs: Mapping[str, Any]) -> bool:
+    """缺席记录（``lib.artifacts.input_gap``）：键在场时是非空列表，每项带缺口码。"""
+
+    if ABSENT_INPUTS_FIELD not in inputs:
+        return True
+    absent = inputs[ABSENT_INPUTS_FIELD]
+    return (
+        isinstance(absent, list)
+        and bool(absent)
+        and all(
+            isinstance(item, Mapping)
+            and "code" in item
+            and set(item) <= {"code", "type", "id"}
+            and all(_nonempty(value) for value in item.values())
+            for item in absent
+        )
+    )
+
+
 def _validate_visual_inputs(basis: ArtifactBasis) -> None:
     inputs = _basis_inputs(basis)
+    if not _absent_inputs_are_valid(inputs):
+        raise ValueError("video visual basis has invalid absent inputs")
+    has_gaps = ABSENT_INPUTS_FIELD in inputs
     if basis.kind == _STORYBOARD_VISUAL_KIND:
-        if set(inputs) != {"resource_id", "visual_prompt", "canvas", "frames"}:
+        if set(inputs) - {ABSENT_INPUTS_FIELD} != {"resource_id", "visual_prompt", "canvas", "frames"}:
             raise ValueError("storyboard visual basis has invalid canonical inputs")
         prompt = inputs["visual_prompt"]
-        prompt_valid = (_nonempty(prompt)) or (
-            isinstance(prompt, Mapping)
-            and set(prompt) == {"action", "camera_motion"}
-            and _nonempty(prompt["action"])
-            and isinstance(prompt["camera_motion"], str)
+        prompt_valid = (
+            (_nonempty(prompt))
+            or (
+                isinstance(prompt, Mapping)
+                and set(prompt) == {"action", "camera_motion"}
+                and _nonempty(prompt["action"])
+                and isinstance(prompt["camera_motion"], str)
+            )
+            # 待生成的提示词只随缺席记录出现。
+            or (has_gaps and prompt is None)
         )
         frames = inputs["frames"]
+        roles = (
+            [frame.get("role") for frame in frames if isinstance(frame, Mapping)] if isinstance(frames, list) else []
+        )
+        # 不可用的分镜图只随缺席记录出现。
+        allowed_roles = [["storyboard"], ["storyboard", "end_frame"]]
+        if has_gaps:
+            allowed_roles += [[], ["end_frame"]]
         frames_valid = (
             isinstance(frames, list)
-            and len(frames) in {1, 2}
-            and [frame.get("role") for frame in frames if isinstance(frame, Mapping)]
-            == (["storyboard"] if len(frames) == 1 else ["storyboard", "end_frame"])
+            and len(roles) == len(frames)
+            and roles in allowed_roles
             and all(
                 isinstance(frame, Mapping)
                 and set(frame) == {"role", "sha256"}
@@ -232,7 +266,7 @@ def _validate_visual_inputs(basis: ArtifactBasis) -> None:
         return
 
     required = {"unit_id", "visual_lines", "style", "canvas", "request_references"}
-    if set(inputs) - {"style_description"} != required:
+    if set(inputs) - {"style_description", ABSENT_INPUTS_FIELD} != required:
         raise ValueError("reference visual basis has invalid canonical inputs")
     # 风格描述非空才入依据：键在场时必为非空字符串。
     if "style_description" in inputs and not _nonempty(inputs["style_description"]):
@@ -273,6 +307,9 @@ def _reference_evidence_is_valid(value: object) -> bool:
 def _validate_speech_inputs(basis: ArtifactBasis) -> None:
     inputs = _basis_inputs(basis)
     mode = inputs.get("mode")
+    if mode is None:
+        _validate_blocked_speech_inputs(inputs)
+        return
     if mode in {"silent", "narrator_voiceover"}:
         if set(inputs) != {"mode"}:
             raise ValueError("non-character video speech basis has invalid canonical inputs")
@@ -307,3 +344,20 @@ def _validate_speech_inputs(basis: ArtifactBasis) -> None:
             or (digest is not None and (not isinstance(digest, str) or PREFIXED_DIGEST_RE.fullmatch(digest) is None))
         ):
             raise ValueError("character video speech voice evidence is not canonical")
+
+
+def _validate_blocked_speech_inputs(inputs: Mapping[str, Any]) -> None:
+    """发声准入不通过的单位的发声依据：没有唯一归属，逐条记归属，问题记为缺席。"""
+
+    if set(inputs) != {"mode", "utterances", ABSENT_INPUTS_FIELD} or not _absent_inputs_are_valid(inputs):
+        raise ValueError("blocked video speech basis has invalid canonical inputs")
+    utterances = inputs["utterances"]
+    if not isinstance(utterances, list) or any(
+        not isinstance(utterance, Mapping)
+        or set(utterance) != {"owner", "speaker", "text"}
+        or utterance["owner"] not in {"character", "narrator"}
+        or (utterance["speaker"] is not None and not _nonempty(utterance["speaker"]))
+        or not isinstance(utterance["text"], str)
+        for utterance in utterances
+    ):
+        raise ValueError("blocked video speech utterance is not canonical")

@@ -32,7 +32,6 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.generation_input import (
     AssetSheetInput,
     FrozenGenerationInput,
-    InputRefused,
     StoryboardImageInput,
     asset_sheet_input,
     grid_references,
@@ -474,8 +473,8 @@ async def execute_storyboard_task(
             observation=project_input_observation(_project_path),
         )
         # 生成输入不成立时在解析供应商通道与付费之前失败，一次报出全部缺口。
-        if isinstance(_generation_input, InputRefused):
-            raise input_refusal_error(_generation_input)
+        if (_refusal := _generation_input.refusal) is not None:
+            raise input_refusal_error(_refusal)
         return _StoryboardImageInputs(
             project=_project,
             project_path=_project_path,
@@ -1445,8 +1444,8 @@ async def execute_asset_sheet_task(
             observation=project_input_observation(_project_path),
         )
         # 生成输入不成立时在解析供应商通道与付费之前失败，一次报出全部缺口。
-        if isinstance(_generation_input, InputRefused):
-            raise input_refusal_error(_generation_input)
+        if (_refusal := _generation_input.refusal) is not None:
+            raise input_refusal_error(_refusal)
         return _project, _project_path, _generation_input
 
     project, project_path, generation_input = await asyncio.to_thread(_load)
@@ -1654,8 +1653,8 @@ async def execute_grid_task(
             observation=project_input_observation(project_path),
         )
         # 参考图集不成立时在解析供应商通道与付费之前失败，一次报出全部缺口。
-        if isinstance(grid_input, InputRefused):
-            raise input_refusal_error(grid_input)
+        if (grid_refusal := grid_input.refusal) is not None:
+            raise input_refusal_error(grid_refusal)
         assembled = grid_input.references
         visual_references = [reference.visual for reference in assembled]
         currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)

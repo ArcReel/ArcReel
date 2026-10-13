@@ -11,6 +11,11 @@ frozen at generation time.
 
 Audio records are not backfilled: their basis includes the TTS settings the
 audio was synthesised with, which no legacy record carries.
+
+With ``record_gaps`` (the v17→v18 re-run, ``docs/adr/0098``) generation-input
+gaps no longer block the projection: a mixed-speech unit, a missing storyboard
+or reference image and a pending prompt are recorded as absent in the projected
+basis. Manual uploads are left alone there: their basis is the uploaded bytes.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ from typing import Any
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.artifacts.artifact_version_provenance import parse_typed_media_version_target
 from lib.artifacts.media_artifact_currency import VideoExecutionShape, project_video_basis_components
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.content_digest import canonical_json_digest
 from lib.infra.json_io import atomic_write_json, load_json
@@ -50,11 +55,12 @@ class LegacyProvenanceBackfill:
     skipped: tuple[MigrationSkippedArtifact, ...]
 
 
-def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackfill:
+def backfill_legacy_media_provenance(project_dir: Path, *, record_gaps: bool = False) -> LegacyProvenanceBackfill:
     """Amend every selected legacy video record the bound scripts still point at.
 
     Writes ``versions/versions.json`` once, atomically, and only when at least
     one record was amended. Records that already parse as typed are untouched.
+    ``record_gaps`` records generation-input gaps as absent instead of skipping.
     """
 
     project_dir = Path(project_dir)
@@ -104,6 +110,8 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
             record = _selected_record(versions_data, resource_type, resource_id)
             if record is None or _is_typed(resource_type, record):
                 continue
+            if record_gaps and record.get("source") == MANUAL_UPLOAD_VERSION_SOURCE:
+                continue
             try:
                 amendment = _project_video_provenance(
                     project_dir=project_dir,
@@ -115,6 +123,7 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
                     episode=episode,
                     script_file=script_file,
                     record=record,
+                    record_gaps=record_gaps,
                 )
             except (KeyError, OSError, TypeError, ValueError) as exc:
                 skipped.append(
@@ -222,6 +231,7 @@ def _project_video_provenance(
     episode: int,
     script_file: str,
     record: Mapping[str, Any],
+    record_gaps: bool,
 ) -> dict[str, Any]:
     snapshot_rel = record.get("file")
     if not VersionManager.is_managed_snapshot_path(resource_type, snapshot_rel):
@@ -244,6 +254,7 @@ def _project_video_provenance(
         resource_type=resource_type,
         resource_id=resource_id,
         shape=shape,
+        record_gaps=record_gaps,
     )
     facts = VideoArtifactCurrencyFacts(
         episode=episode,

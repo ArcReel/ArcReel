@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +29,9 @@ logger = logging.getLogger(__name__)
 MIGRATION_REPORT_FILENAME = ".migration_report.json"
 
 
+type SkippedArtifactIdentity = tuple[str, int | None, str]
+
+
 class MigrationSkippedArtifact(BaseModel):
     """One formal artifact the backfill could not register, and why."""
 
@@ -39,6 +42,22 @@ class MigrationSkippedArtifact(BaseModel):
     resource_id: str
     artifact_path: str
     reason: str
+
+    @classmethod
+    def for_key(cls, key: ArtifactKey, *, artifact_path: str, reason: str) -> MigrationSkippedArtifact:
+        kind, episode, resource_id = skipped_artifact_identity(key)
+        return cls(kind=kind, episode=episode, resource_id=resource_id, artifact_path=artifact_path, reason=reason)
+
+    @property
+    def identity(self) -> SkippedArtifactIdentity:
+        return (self.kind, self.episode, self.resource_id)
+
+
+def skipped_artifact_identity(key: ArtifactKey) -> SkippedArtifactIdentity:
+    """一件产物在迁移报告里的身份：产物种类、集号（项目级产物为空）与资源 id。"""
+
+    episode = key.components[0]
+    return (key.kind.value, episode if type(episode) is int else None, str(key.components[-1]))
 
 
 class MigrationReport(BaseModel):
@@ -67,6 +86,8 @@ class ArtifactBackfillOutcome:
     skipped: tuple[MigrationSkippedArtifact, ...]
     preserve_previous_skips: bool = False
     """Rewriting existing claims alone cannot resolve skips from earlier steps."""
+    resolved: frozenset[SkippedArtifactIdentity] = frozenset()
+    """Artifacts this step newly registered; earlier skips naming them no longer hold."""
 
     @classmethod
     def from_entries(
@@ -74,6 +95,7 @@ class ArtifactBackfillOutcome:
         entries: Mapping[ArtifactKey, object],
         *skipped_groups: Sequence[MigrationSkippedArtifact],
         preserve_previous_skips: bool = False,
+        resolved: Iterable[ArtifactKey] = (),
     ) -> ArtifactBackfillOutcome:
         """Count registered entries per kind; skip groups merge with the first reason winning."""
 
@@ -82,6 +104,7 @@ class ArtifactBackfillOutcome:
             registered=dict(registered),
             skipped=merge_skipped(*skipped_groups),
             preserve_previous_skips=preserve_previous_skips,
+            resolved=frozenset(skipped_artifact_identity(key) for key in resolved),
         )
 
 
@@ -90,10 +113,10 @@ def merge_skipped(
 ) -> tuple[MigrationSkippedArtifact, ...]:
     """Merge skip lists; the first group naming an artifact keeps its reason."""
 
-    merged: dict[tuple[str, int | None, str], MigrationSkippedArtifact] = {}
+    merged: dict[SkippedArtifactIdentity, MigrationSkippedArtifact] = {}
     for group in groups:
         for item in group:
-            merged.setdefault((item.kind, item.episode, item.resource_id), item)
+            merged.setdefault(item.identity, item)
     return tuple(merged.values())
 
 

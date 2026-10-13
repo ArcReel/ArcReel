@@ -31,7 +31,6 @@ from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescript
 from lib.artifacts.generation_input import (
     DerivativeSheetInput,
     FrozenGenerationInput,
-    InputRefused,
     derivative_sheet_input,
     project_input_observation,
 )
@@ -194,8 +193,8 @@ def _load(project_name: str, owner_name: str, derivative_name: str) -> _Derivati
         observation=project_input_observation(project_path),
     )
     # 缺变化描述或本体资产图不可用时在解析供应商通道与付费之前失败，一次报出全部缺口。
-    if isinstance(generation_input, InputRefused):
-        raise input_refusal_error(generation_input)
+    if (refusal := generation_input.refusal) is not None:
+        raise input_refusal_error(refusal)
     return _DerivativeSheetInputs(
         project=project,
         project_path=project_path,
