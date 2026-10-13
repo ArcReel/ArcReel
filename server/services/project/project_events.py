@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from lib import PROJECT_ROOT
+from lib.infra.content_digest import FileIdentity, file_identity
 from lib.project.project_change_hints import (
     ProjectChangeBatch,
     ProjectChangeSource,
@@ -97,18 +98,16 @@ def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
     return ProjectState(project=project, scripts=scripts, drafts=_read_draft_digests(project_path))
 
 
-#: 项目状态输入文件的 stat 标识：(设备, inode, 大小, 纳秒 mtime)。
-FileStat = tuple[int, int, int, int]
-#: 项目状态全部输入文件的 stat 标识：(相对项目目录的路径, 标识) 按路径排序；不在场的文件不入列。
-ProjectInputStamp = tuple[tuple[str, FileStat], ...]
+#: 项目状态全部输入文件的 stat 标识：(相对项目目录的路径, (设备, inode, 大小, 纳秒 mtime)) 按路径排序；
+#: 不在场的文件不入列。
+ProjectInputStamp = tuple[tuple[str, FileIdentity], ...]
 
 
-def _file_stat(path: Path) -> FileStat | None:
+def _file_stat(path: Path) -> FileIdentity | None:
     try:
-        st = path.stat()
+        return file_identity(path.stat())
     except FileNotFoundError:
         return None
-    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
 
 
 def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputStamp:
@@ -124,7 +123,7 @@ def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputSt
     if scripts_dir.exists():
         candidates.extend((f"scripts/{path.name}", path) for path in sorted(scripts_dir.glob("*.json")))
     candidates.extend((f"drafts:{key}", path) for key, path in _draft_paths(project_path))
-    stamp: list[tuple[str, FileStat]] = []
+    stamp: list[tuple[str, FileIdentity]] = []
     for label, path in candidates:
         identity = _file_stat(path)
         if identity is not None:
@@ -620,11 +619,12 @@ class ProjectEventService:
                 try:
                     await asyncio.wait_for(channel.scan_now.wait(), timeout=self.poll_interval)
                 except TimeoutError:
-                    forced = False
-                    continue
+                    # 超时取消等待之后、本协程恢复之前到达的 hint 只留下置位的事件，同样按 hint 重建。
+                    forced = channel.scan_now.is_set()
+                else:
+                    forced = True
                 finally:
                     channel.scan_now.clear()
-                forced = True
         except asyncio.CancelledError:
             raise
 

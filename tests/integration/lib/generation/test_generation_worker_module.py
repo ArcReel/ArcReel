@@ -1167,6 +1167,31 @@ class TestVideoClaimByRecordedProvider:
         assert (legacy["status"], legacy["provider_id"]) == ("queued", "minimax")
         assert executed == [("vid-ready", "ark")]
 
+    async def test_recorded_provider_that_no_longer_supports_video_is_projected_once_and_recorded(
+        self, monkeypatch, worker_db
+    ):
+        """记录的供应商排队期间去掉了视频能力：按现状推算一次并写回，任务不判 provider_unsupported_media。"""
+        executed: list[str] = []
+
+        async def _execute(task, *, claimed_provider_id):
+            executed.append(claimed_provider_id)
+            return {"ok": True}
+
+        monkeypatch.setattr(stub_executors, "generation", _execute)
+        projection = _CountingProjection("minimax")
+        worker = self._worker(
+            db_queue(worker_db), projection, {"custom": {"image": 1, "video": 0}, "minimax": {"video": 1}}
+        )
+        await _seed_queued_video(worker_db, "vid-stale", task_type="reference_video", provider_id="custom", order=0)
+
+        await worker._claim_tasks()
+        await asyncio.gather(*worker._slots.all_active_tasks())
+
+        assert projection.calls == ["vid-stale"]
+        assert executed == ["minimax"]
+        row = await _task_row(worker_db, "vid-stale")
+        assert (row["status"], row["provider_id"]) == ("succeeded", "minimax")
+
     @pytest.mark.parametrize("task_type", ["video", "reference_video"])
     async def test_provider_edited_while_queued_is_requeued_by_execution_entry_then_runs_on_new_slot(
         self, monkeypatch, worker_db, task_type: str

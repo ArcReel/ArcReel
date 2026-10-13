@@ -22,11 +22,11 @@ from lib.infra.content_digest import (
     canonical_json,
     canonical_json_bytes,
     canonical_json_digest,
-    clear_file_digest_cache,
     digest_stream,
     prefixed,
     prefixed_canonical_json_digest,
     prefixed_sha256_file,
+    reset_file_digest_cache_for_tests,
     sha256_file,
     sha256_file_with_size,
 )
@@ -151,8 +151,8 @@ def test_text_mode_digest_folds_across_chunk_boundaries(chunks: tuple[bytes, ...
 
 
 @pytest.fixture(autouse=True)
-def _fresh_digest_cache() -> None:
-    clear_file_digest_cache()
+def fresh_digest_cache() -> None:
+    reset_file_digest_cache_for_tests()
 
 
 @pytest.fixture

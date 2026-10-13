@@ -4,11 +4,12 @@
 ``server/`` 下（护栏按 rootdir 下的这两个目录判定业务代码），锁取真实的 lib 实现。契约：
 
 - 阻塞调用被业务代码的宽泛异常捕获包住，用例照样失败；放进工作线程的同一调用、进程级缓存的
-  加载器函数体不算违规。
+  加载器函数体不算违规，有容量上限、按参数缓存的加载器仍算。
 - 同步用例经 ``TestClient`` 进入的应用代码同样受检。
+- asyncpg 建连时解析连接参数的文件探测不记到调用方头上。
 - 在事件循环线程上阻塞地获取项目文件锁、版本管理锁记为违规，非阻塞的尝试加锁不算。
 - 白名单里的条目放行；完整运行时未触发的条目以警告列出，部分运行不报。
-- 写出模式把全部违规整体写成白名单，部分运行拒绝写出。
+- 写出模式把全部违规整体写成白名单，部分运行（含 ``--ignore`` 跳过路径、``--collect-only`` 等不执行用例的模式）拒绝写出。
 """
 
 from __future__ import annotations
@@ -28,9 +29,11 @@ _ALLOWLIST = Path("tests/blocking_guard/allowlist.txt")
 
 _SAMPLES = """
 import asyncio
-from functools import cache
+import contextlib
+from functools import cache, lru_cache
 from pathlib import Path
 
+import asyncpg
 import portalocker
 
 from lib.artifacts.formal_write import project_metadata_lock
@@ -57,6 +60,15 @@ async def read_cached(path: Path) -> str:
     return load_once(path)
 
 
+@lru_cache(maxsize=1)
+def load_bounded(path: Path) -> str:
+    return path.read_text()
+
+
+async def read_bounded_cache(path: Path) -> str:
+    return load_bounded(path)
+
+
 async def allowlisted_read(path: Path) -> str:
     return path.read_text()
 
@@ -78,6 +90,11 @@ async def try_lock_once(lock_file: Path) -> bool:
 
 async def read_versions(project_dir: Path) -> dict:
     return VersionManager(project_dir).get_versions("storyboards", "E1S01")
+
+
+async def connect_unreachable_postgres() -> None:
+    with contextlib.suppress(OSError):
+        await asyncpg.connect("postgresql://arcreel@127.0.0.1:1/arcreel", timeout=5)
 """
 
 _APP = """
@@ -118,6 +135,12 @@ async def test_cached_loader(tmp_path):
     assert await samples.read_cached(target) == "content"
 
 
+async def test_bounded_cache_loader(tmp_path):
+    target = tmp_path / "a.txt"
+    target.write_text("content")
+    assert await samples.read_bounded_cache(target) == "content"
+
+
 def test_sync_testclient_route(tmp_path):
     target = tmp_path / "a.txt"
     target.write_text("content")
@@ -141,6 +164,10 @@ async def test_nonblocking_try_lock(tmp_path):
 
 async def test_version_lock(tmp_path):
     assert await samples.read_versions(tmp_path) == {"current_version": 0, "versions": []}
+
+
+async def test_postgres_connect():
+    await samples.connect_unreachable_postgres()
 """
 
 
@@ -208,6 +235,19 @@ def test_offloaded_cached_and_allowlisted_calls_pass(probe_run):
     assert outcomes["test_cached_loader"] == "PASSED", probe_run.stdout
 
 
+def test_postgres_driver_connection_setup_is_not_charged_to_the_caller(probe_run):
+    # asyncpg 建连时在事件循环上探测 ~/.pgpass 与 ~/.postgresql 下的证书文件，每条新连接一次，
+    # 归属落在恰好让连接池新建连接的那个调用方上，随运行顺序变化。
+    assert _outcomes(probe_run.stdout)["test_postgres_connect"] == "PASSED", probe_run.stdout
+
+
+def test_bounded_per_argument_cache_is_still_checked(probe_run):
+    assert _outcomes(probe_run.stdout)["test_bounded_cache_loader"] == "FAILED", probe_run.stdout
+    assert "lib/blocking_samples.py::read_bounded_cache" in _failure_section(
+        probe_run.stdout, "test_bounded_cache_loader"
+    )
+
+
 def test_app_code_behind_sync_testclient_is_checked(probe_run):
     assert _outcomes(probe_run.stdout)["test_sync_testclient_route"] == "FAILED", probe_run.stdout
     assert "server/blocking_app.py::read" in _failure_section(probe_run.stdout, "test_sync_testclient_route")
@@ -239,6 +279,18 @@ def test_full_run_warns_about_untriggered_allowlist_entries(tmp_path: Path):
     assert stale not in partial.stdout
 
 
+@pytest.mark.parametrize(
+    "partial_args",
+    [("--ignore=test_probe.py",), ("--ignore-glob=*_probe.py",), ("--collect-only",), ("--setup-only",)],
+)
+def test_write_mode_refuses_runs_that_skip_or_do_not_execute_tests(tmp_path: Path, partial_args: tuple[str, ...]):
+    root = _make_session_dir(tmp_path / "session", [])
+
+    refused = _run(root, *partial_args, write=True)
+
+    assert refused.returncode == pytest.ExitCode.USAGE_ERROR, refused.stdout + refused.stderr
+
+
 def test_write_mode_regenerates_the_allowlist_from_a_full_run(tmp_path: Path):
     root = _make_session_dir(tmp_path / "session", ["lib/blocking_samples.py::never_called"])
 
@@ -255,6 +307,7 @@ def test_write_mode_regenerates_the_allowlist_from_a_full_run(tmp_path: Path):
     assert entries == [
         "lib/blocking_samples.py::allowlisted_read",
         "lib/blocking_samples.py::hold_project_lock",
+        "lib/blocking_samples.py::read_bounded_cache",
         "lib/blocking_samples.py::read_or_default",
         "lib/blocking_samples.py::read_versions",
         "server/blocking_app.py::read",

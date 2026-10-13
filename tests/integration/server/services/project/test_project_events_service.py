@@ -799,10 +799,9 @@ class TestProjectEventService:
         finally:
             await service.shutdown()
 
-    @pytest.mark.asyncio
     @pytest.mark.parametrize("edited_input", ["project_json", "existing_script", "new_script", "draft"])
-    async def test_polling_pushes_change_to_any_input_file_after_idle_polls(self, tmp_path, edited_input):
-        """订阅后项目静置了若干个轮询周期，再有输入文件在盘上变化（绕过 hint，只靠轮询发现）：照常推送。"""
+    async def test_polling_pushes_change_to_any_input_file(self, tmp_path, edited_input):
+        """首轮快照之后，任一输入文件在盘上变化（绕过 hint，只靠轮询比对输入标识发现）：照常推送。"""
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "drama")
@@ -852,8 +851,6 @@ class TestProjectEventService:
                 event_name, _snapshot = await anext(stream)
                 assert event_name == "snapshot"
 
-                # 静置：让轮询在输入未变的情况下空转若干轮
-                await asyncio.sleep(0.3)
                 await asyncio.to_thread(edit_on_disk)
 
                 seen: set[str] = set()

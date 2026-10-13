@@ -501,11 +501,14 @@ async def lifespan(app: FastAPI):
 
     # 卡顿探针放在启动步骤之后：迁移等启动期同步工作不算线上卡顿，避免误报。
     stall_probe = start_loop_stall_probe()
-    async with remote_mcp_host.run():
-        yield
+    try:
+        async with remote_mcp_host.run():
+            yield
+    finally:
+        # 运行期异常或关停被取消时同样撤销延时转储，免得收尾阶段误写调用栈。
+        await stop_loop_stall_probe(stall_probe)
 
     # Shutdown
-    await stop_loop_stall_probe(stall_probe)
     assistant.assistant_service.session_manager.set_autonomous_turn_listener(None)
     project_event_service = getattr(app.state, "project_event_service", None)
     if project_event_service:

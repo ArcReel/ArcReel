@@ -1,7 +1,7 @@
 """内容摘要缓存对产物时效结论的影响：摘要仍是内容哈希，缓存只省重复的读。
 
 断言的是外部结论（依赖资产设计图的产物判 stale / current）；只有「stat 不变时同一文件只哈希一次」
-这条性能约定例外，沿用 #2277 的写法：在文件系统边界上按 inode 记录产物内容被整读的次数。
+这条性能约定例外：在文件系统边界上按 inode 记录产物内容被整读的次数。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import IO, Any
 
 import pytest
 
-from lib.infra.content_digest import clear_file_digest_cache
+from lib.infra.content_digest import reset_file_digest_cache_for_tests
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_manager import ProjectManager
 from lib.workflow.workflow_state import WorkflowStateService
@@ -30,8 +30,8 @@ STORYBOARD = "storyboards/scene_E1S01.png"
 
 
 @pytest.fixture(autouse=True)
-def _fresh_digest_cache() -> None:
-    clear_file_digest_cache()
+def fresh_digest_cache() -> None:
+    reset_file_digest_cache_for_tests()
 
 
 def _age(path: Path, *, seconds: int = 3600) -> None:
@@ -63,7 +63,7 @@ def _storyboard_project(tmp_path: Path) -> tuple[ProjectManager, Path]:
     _register_produced_artifacts(project_path)
     _age(project_path / SHEET)
     _age(project_path / STORYBOARD)
-    clear_file_digest_cache()
+    reset_file_digest_cache_for_tests()
     return pm, project_path
 
 
@@ -162,7 +162,7 @@ def test_a_copy_that_changes_the_mtime_keeps_the_storyboard_current(
 
 
 def test_unchanged_stat_hashes_the_design_sheet_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """性能约定（先例 #2277）：stat 不变时，反复读产物状态也只整读一次设计图；stat 变了才再读。"""
+    """性能约定：stat 不变时，反复读产物状态也只整读一次设计图；stat 变了才再读。"""
 
     pm, project_path = _storyboard_project(tmp_path)
     sheet = project_path / SHEET

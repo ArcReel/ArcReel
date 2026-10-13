@@ -17,13 +17,14 @@
 ``to_thread``），不计。整条栈没有 async 帧时（事件循环直接回调的同步函数）取最外层的
 lib/server 帧。
 
-**始终放行**：日志落盘、traceback 取源码行、``realpath`` 解析符号链接、函数内的延迟 import，
-以及模块级 ``functools.cache`` 加载器的函数体。后两类每个进程只执行一次，首次调用落在哪个
-用例取决于调度顺序。
+**始终放行**：日志落盘、traceback 取源码行、``realpath`` 解析符号链接、函数内的延迟 import、
+asyncpg 建连时解析连接参数，以及模块级的无上限缓存（``functools.cache``）或无参缓存加载器的
+函数体。后两类每个进程只执行一次，首次调用落在哪个用例取决于调度顺序；有容量上限、按参数缓存
+的函数会被淘汰后重读，不放行。
 
 两份清单：
 
-- ``allowlist.txt``：临时白名单，治理期间登记现有违规，修好一处删一处，Spec #3147 收尾时清空。
+- ``allowlist.txt``：临时白名单，治理期间登记现有违规，修好一处删一处，目标是清空。
   由写出模式整体再生成，必须在 Linux 上生成，命令见文件头与 ``docs/agents/testing.md``。
 - ``exemptions.toml``：永久豁免，只收应用启动与关停路径上的一次性阻塞，每条写明理由。
 
@@ -63,10 +64,10 @@ docker run --rm -v "$PWD":/repo -w /repo \\
     && uv run python -m pytest tests -n 4 --dist loadfile -q -p no:cacheprovider'"""
 
 ALLOWLIST_HEADER = f"""\
-# 事件循环阻塞的临时白名单（Spec #3147）。每行一个条目：<文件>::<最近的 lib/server async 函数>，
+# 事件循环阻塞的临时白名单。每行一个条目：<文件>::<最近的 lib/server async 函数>，
 # 行尾注释是该函数里被拦截的调用，仅供参考，匹配只看条目本身。
 #
-# 修好一处就删掉对应条目；Spec 收尾时本文件必须为空。不要手工追加条目：新违规要么修掉，
+# 修好一处就删掉对应条目，目标是清空本文件。不要手工追加条目：新违规要么修掉，
 # 要么（仅限启动与关停路径的一次性阻塞）写进同目录的 exemptions.toml 并注明理由。
 #
 # 本文件由写出模式整体再生成，必须在 Linux 上生成（macOS 的文件复制走另一套系统调用，
@@ -82,12 +83,16 @@ _LOGGING_DIR = str(Path(logging.__file__).resolve().parent) + os.sep
 # 与业务阻塞无关、在任何栈上都放行的帧：日志落盘、traceback 取源码行、函数内延迟 import。
 # realpath 逐段 lstat（不在拦截点内），只有路径经过符号链接时才 readlink：macOS 的临时目录
 # 在 /var -> /private/var 之下，Linux 不是，不放行会让同一段代码只在 macOS 上违规。
+# asyncpg 解析连接参数时在事件循环上探测 ~/.pgpass 与 ~/.postgresql 下的证书文件，每条新连接
+# 一次。违规会记到恰好让连接池新建连接的调用方头上，随运行顺序变化，也只在 PostgreSQL 下出现，
+# 在 SQLite 上生成的白名单收录不到。
 _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("posixpath.py", frozenset({"realpath", "_joinrealpath"})),
     ("<frozen posixpath>", frozenset({"realpath", "_joinrealpath"})),
     ("linecache.py", frozenset({"getlines", "updatecache", "checkcache", "lazycache"})),
     ("<frozen importlib._bootstrap>", None),
     ("<frozen importlib._bootstrap_external>", None),
+    ("asyncpg/connect_utils.py", frozenset({"_parse_connect_arguments"})),
 )
 
 _STACK_PREVIEW_FRAMES = 6
@@ -227,16 +232,23 @@ class BlockingGuard:
 
 
 def _runs_once_per_process(frame: FrameType) -> bool:
-    """帧是否是模块级 ``functools.cache`` / ``lru_cache`` 函数的函数体。
+    """帧是否是模块级、每个进程按参数只执行一次的缓存加载器的函数体。
 
-    这类加载器（随包分发的 schema、规则表）每个进程按参数只执行一次，与函数内的延迟 import
-    同类。它们的首次调用落在哪个用例取决于 xdist 的调度，不放行会让白名单随运行顺序变化。
+    这类加载器（随包分发的 schema、规则表）与函数内的延迟 import 同类，首次调用落在哪个用例
+    取决于 xdist 的调度，不放行会让白名单随运行顺序变化。只认无上限的 ``functools.cache``
+    （``lru_cache(maxsize=None)``）和无参函数：有容量上限、按参数缓存的函数会淘汰后重读，
+    每次重读都是一次真实的阻塞。
     """
     code = frame.f_code
     candidate = frame.f_globals.get(code.co_name)
     if candidate is None or not hasattr(candidate, "cache_info"):
         return False
-    return getattr(getattr(candidate, "__wrapped__", None), "__code__", None) is code
+    if getattr(getattr(candidate, "__wrapped__", None), "__code__", None) is not code:
+        return False
+    takes_no_arguments = not (
+        code.co_argcount or code.co_kwonlyargcount or code.co_flags & (inspect.CO_VARARGS | inspect.CO_VARKEYWORDS)
+    )
+    return candidate.cache_info().maxsize is None or takes_no_arguments
 
 
 def _absolute_path_arg(path: object, *_: object, **__: object) -> bool:
@@ -397,7 +409,12 @@ def _selects_whole_suite(config: pytest.Config) -> bool:
         resolved = (path if path.is_absolute() else config.invocation_params.dir / path).resolve()
         if resolved not in targets:
             return False
-    filters = ("keyword", "markexpr", "lf", "stepwise", "testmon", "deselect")
+    # --ignore/--ignore-glob 在收集期跳过路径，既不改 config.args，也不经过 pytest_deselected；
+    # --collect-only/--setup-only/--setup-plan 不执行用例，记录不到任何违规。
+    filters = (
+        *("keyword", "markexpr", "lf", "stepwise", "testmon", "deselect", "ignore", "ignore_glob"),
+        *("collectonly", "setuponly", "setupplan"),
+    )
     return not any(getattr(config.option, name, None) for name in filters)
 
 

@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
@@ -95,11 +96,14 @@ FILE_DIGEST_CACHE_CAPACITY = 4096
 # 超过窗口之后再哈希的文件才入缓存，窗口内的读取照常哈希。
 FILE_DIGEST_RACY_WINDOW_NS = 3_000_000_000
 
-# (st_dev, st_ino, st_size, st_mtime_ns)
-_FileIdentity = tuple[int, int, int, int]
+# stat 时这些错误码说明路径上没有可读的常规文件（与 ``Path.is_file`` 忽略的错误码一致）。
+_ABSENT_PATH_ERRNOS = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
+
+#: 文件的 stat 标识：(st_dev, st_ino, st_size, st_mtime_ns)。
+FileIdentity = tuple[int, int, int, int]
 
 
-def file_identity(file_stat: os.stat_result) -> _FileIdentity:
+def file_identity(file_stat: os.stat_result) -> FileIdentity:
     """文件摘要缓存的键：设备、inode、大小、纳秒 mtime。"""
 
     return file_stat.st_dev, file_stat.st_ino, file_stat.st_size, file_stat.st_mtime_ns
@@ -110,17 +114,17 @@ class _FileDigestCache:
 
     def __init__(self, capacity: int) -> None:
         self._capacity = capacity
-        self._entries: OrderedDict[_FileIdentity, str] = OrderedDict()
+        self._entries: OrderedDict[FileIdentity, str] = OrderedDict()
         self._lock = threading.Lock()
 
-    def get(self, identity: _FileIdentity) -> str | None:
+    def get(self, identity: FileIdentity) -> str | None:
         with self._lock:
             hexdigest = self._entries.get(identity)
             if hexdigest is not None:
                 self._entries.move_to_end(identity)
             return hexdigest
 
-    def put(self, identity: _FileIdentity, hexdigest: str) -> None:
+    def put(self, identity: FileIdentity, hexdigest: str) -> None:
         with self._lock:
             self._entries[identity] = hexdigest
             self._entries.move_to_end(identity)
@@ -156,7 +160,7 @@ def remember_file_digest(file_stat: os.stat_result, hexdigest: str) -> None:
     _FILE_DIGEST_CACHE.put(file_identity(file_stat), hexdigest)
 
 
-def clear_file_digest_cache() -> None:
+def reset_file_digest_cache_for_tests() -> None:
     """清空文件摘要缓存（测试隔离用）。"""
 
     _FILE_DIGEST_CACHE.clear()
@@ -171,8 +175,12 @@ def sha256_file_with_size(path: Path) -> tuple[str, int]:
 
     try:
         file_stat = path.stat()
-    except OSError:
-        raise FileNotFoundError(path) from None
+    except OSError as exc:
+        # 与 ``Path.is_file`` 同一口径：路径不存在、上级不是目录、符号链接成环判为不在场；
+        # 权限不足等其它错误照常抛出，不冒充「文件不存在」。
+        if exc.errno in _ABSENT_PATH_ERRNOS:
+            raise FileNotFoundError(path) from None
+        raise
     if not stat.S_ISREG(file_stat.st_mode):
         raise FileNotFoundError(path)
     cached = cached_file_digest(file_stat)
@@ -238,17 +246,18 @@ __all__ = [
     "FILE_DIGEST_RACY_WINDOW_NS",
     "HASH_ALGORITHM",
     "PREFIXED_DIGEST_RE",
+    "FileIdentity",
     "cached_file_digest",
     "canonical_json",
     "canonical_json_bytes",
     "canonical_json_digest",
-    "clear_file_digest_cache",
     "digest_stream",
     "file_identity",
     "prefixed",
     "prefixed_canonical_json_digest",
     "prefixed_sha256_file",
     "remember_file_digest",
+    "reset_file_digest_cache_for_tests",
     "sha256_file",
     "sha256_file_with_size",
 ]
