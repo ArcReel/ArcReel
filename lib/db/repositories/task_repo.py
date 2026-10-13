@@ -472,15 +472,18 @@ class TaskRepository(BaseRepository):
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
-        exclude_task_ids: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
         """领取下一个 queued 任务。
 
         ``pool_full_providers`` 为本 cycle 已知池满的 provider_id 集合（黑名单语义）：
         - ``None`` / 空集合 —— 不做 provider 过滤
-        - 非空集合 —— 排除这些 provider 的任务。``provider_id IS NULL`` 的老数据和
-          ``provider_id`` 不在已知池集合里的任务（例如自定义 provider 被删除）都不会
-          被排除，worker claim 后由 ``_extract_provider`` 派生 provider 再校验。
+        - 非空集合 —— 按排队时记录的 ``provider_id`` 排除这些 provider 的任务，所有任务类型
+          同一口径。``provider_id IS NULL`` 的老数据和 ``provider_id`` 不在已知池集合里的任务
+          （例如自定义 provider 被删除）都不会被排除，worker claim 后再校验容量。
+
+        记录的 provider 可能已与项目现状不一致，按记录过滤不会让任务永久卡住：黑名单只含
+        此刻占满的 provider，它们的在跑任务结束后就会空出槽位，任务届时照常被领取，由执行
+        入口按现状核对 provider，不一致时改写记录并原位回队。
 
         采用黑名单语义而非白名单（早期实现）的原因：白名单会把"已知但未在当前
         ``_pools`` 里的 provider"任务永久过滤掉（例如自定义 provider 被禁用 / 删除），
@@ -493,17 +496,8 @@ class TaskRepository(BaseRepository):
         provider_filter = ""
         if pool_full_providers:
             # SQLite/PG 都支持 expanding bindparam：list 形式 + NOT IN (:providers)
-            # reference_video 的 provider_id 只是入队时投影；项目配置可能已改变，必须先
-            # claim 并按当前 unit 重投影，不能让过期列值在 SQL 层永久挡住任务。
-            provider_filter = (
-                "AND (tasks.task_type = 'reference_video' "
-                "OR tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
-            )
+            provider_filter = "AND (tasks.provider_id IS NULL OR tasks.provider_id NOT IN :providers)"
             params["providers"] = tuple(pool_full_providers)
-        task_filter = ""
-        if exclude_task_ids:
-            task_filter = "AND tasks.task_id NOT IN :excluded_task_ids"
-            params["excluded_task_ids"] = tuple(exclude_task_ids)
 
         # Use raw SQL for the dependency join (clearer than ORM for self-join)
         raw_stmt = text(f"""
@@ -514,7 +508,6 @@ class TaskRepository(BaseRepository):
             WHERE tasks.status = 'queued'
               AND tasks.media_type = :media_type
               {provider_filter}
-              {task_filter}
               AND (
                 tasks.dependency_task_id IS NULL
                 OR dependency.status = 'succeeded'
@@ -524,8 +517,6 @@ class TaskRepository(BaseRepository):
         """)
         if "providers" in params:
             raw_stmt = raw_stmt.bindparams(sa_bindparam("providers", expanding=True))
-        if "excluded_task_ids" in params:
-            raw_stmt = raw_stmt.bindparams(sa_bindparam("excluded_task_ids", expanding=True))
 
         result = await self.session.execute(raw_stmt, params)
         row = result.first()
@@ -929,10 +920,11 @@ class TaskRepository(BaseRepository):
         await self.session.commit()
 
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
-        """把 worker 重投影的 provider advisory 写回 ``task.provider_id``。
+        """改写 ``task.provider_id`` 这份排队记录，worker 的池满过滤与槽位归属都按它走。
 
-        未提交的 reference_video 任务在排队期间可以改项目配置；worker 认领后如果发现
-        持久化列与当前投影分裂时，回队前刷新该列，让后续 claim 过滤与限流路由使用当前 provider。
+        写入时机：认领时推算了 provider 的任务（没有记录的存量视频任务、池满回队的其它任务）
+        写回推算值；执行入口按项目现状解析出的 provider 与记录不一致时，回队前写入实际值，
+        下一次认领即落到新 provider 的槽位。
         它不锁定 model，也不是执行身份。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
         """
         now = utc_now()

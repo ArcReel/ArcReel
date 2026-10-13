@@ -282,10 +282,10 @@ async def _derive_execution_model_for_enqueue(
 ) -> tuple[ProviderModel, VideoGenerationType | None] | None:
     """入队时按 project + payload 派生任务的 advisory provider 与视频桶。
 
-    ``provider_id`` 落 task 行供 claim SQL 池过滤使用；两种视频生成模式都只保存 advisory provider，
-    worker 开始处理时重新投影当前状态。与 worker ``_extract_provider`` 同套解析逻辑，
-    但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
-    兜底分支，由 worker claim 后做二次校验，比硬塞一个可能错误的 provider 安全。
+    ``provider_id`` 落 task 行，worker 认领时按它做池满过滤与槽位归属；两种视频生成模式都只保存
+    advisory provider，执行入口按项目现状核对，不一致时改写记录并回队。与 worker ``_extract_provider``
+    同套解析逻辑，但失败时返回 ``None``（不强行回 DEFAULT_PROVIDER）——让任务走 ``provider_id IS NULL``
+    兜底分支，由 worker claim 后推算，比硬塞一个可能错误的 provider 安全。
     """
     if media_type == RENDER_MEDIA_TYPE:
         from lib.config.resolver import ProviderModel
@@ -414,7 +414,7 @@ class GenerationQueue:
             payload = reference_video_enqueue_payload(payload, script_file=script_file)
 
         # caller 没传 provider_id → 入队时主动派生一次，让 claim 走 SQL 池过滤快路径；
-        # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 二次校验。
+        # 派生失败留 NULL，走 IS NULL 兜底，由 worker claim 后 _extract_provider 推算。
         # 派生成功只把 provider_id 作为 claim/rate-limit advisory；视频 model 不在入队时冻结。
         if provider_id is None:
             derived = await _derive_execution_model_for_enqueue(
@@ -640,14 +640,9 @@ class GenerationQueue:
         media_type: str,
         *,
         pool_full_providers: frozenset[str] | None = None,
-        exclude_task_ids: frozenset[str] | None = None,
     ) -> dict[str, Any] | None:
         async with self._task_repo() as repo:
-            task = await repo.claim_next(
-                media_type,
-                pool_full_providers=pool_full_providers,
-                exclude_task_ids=exclude_task_ids,
-            )
+            task = await repo.claim_next(media_type, pool_full_providers=pool_full_providers)
         if task:
             logger.debug("任务被领取 task_id=%s", task["task_id"])
         return task

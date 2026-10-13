@@ -1,6 +1,6 @@
 import asyncio
 import contextlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -238,88 +238,6 @@ class TestExtractProvider:
             "resource_id": "E1U1",
         }
         assert await _extract_provider(task) == "minimax"
-
-    async def test_queued_reference_video_reprojects_provider_after_project_edit(
-        self, tmp_path, monkeypatch, patch_empty_db
-    ):
-        """队列行只保存 advisory provider；领取/执行前按项目最新 provider/model 重新投影。"""
-
-        from lib.generation.generation_queue import GenerationQueue, reference_projection_for_queued_task
-
-        holder = {"model": "ark/doubao-seedance-1-5-pro-251215"}
-        script = {"video_units": [{"unit_id": "E1U1", "text": "空镜", "duration_seconds": 5}]}
-        activated = activate_reference_project(tmp_path, {"video_generate_audio": True})
-
-        class _PM:
-            def load_project(self, _name):
-                return {**activated, "video_provider_i2v": holder["model"]}
-
-            def load_script(self, _name, _filename):
-                return script
-
-            def get_project_path(self, _name):
-                return tmp_path
-
-        for target in (
-            "lib.generation.generation_worker.get_project_manager",
-            "lib.config.resolver.get_project_manager",
-        ):
-            monkeypatch.setattr(target, _PM)
-        queue = GenerationQueue(session_factory=patch_empty_db)
-        enqueued = await queue.enqueue_task(
-            project_name="demo",
-            task_type="reference_video",
-            media_type="video",
-            resource_id="E1U1",
-            payload={"script_file": "ep1.json"},
-            script_file="ep1.json",
-        )
-        task = await queue.get_task(enqueued["task_id"])
-        assert task is not None
-        assert task["provider_id"] == "ark"
-        assert "video_provider_i2v" not in task["payload"]
-        assert "video_provider_r2v" not in task["payload"]
-
-        first = await reference_projection_for_queued_task(
-            project=_PM().load_project(task["project_name"]),
-            project_name=task["project_name"],
-            payload=task["payload"],
-            resource_id=task["resource_id"],
-        )
-        assert first is not None
-        assert (first.provider_id, first.model_id) == ("ark", "doubao-seedance-1-5-pro-251215")
-        assert await _extract_provider(task) == "ark"
-
-        holder["model"] = "ark/doubao-seedance-2-0-260128"
-        second = await reference_projection_for_queued_task(
-            project=_PM().load_project(task["project_name"]),
-            project_name=task["project_name"],
-            payload=task["payload"],
-            resource_id=task["resource_id"],
-        )
-        assert second is not None
-        assert (second.provider_id, second.model_id) == ("ark", "doubao-seedance-2-0-260128")
-
-        holder["model"] = "grok/grok-imagine-video"
-        third = await reference_projection_for_queued_task(
-            project=_PM().load_project(task["project_name"]),
-            project_name=task["project_name"],
-            payload=task["payload"],
-            resource_id=task["resource_id"],
-        )
-        assert third is not None
-        assert (third.provider_id, third.model_id) == ("grok", "grok-imagine-video")
-        assert await _extract_provider(task) == "grok"
-
-    async def test_current_project_provider_takes_precedence_over_stale_payload(self, monkeypatch):
-        """分镜视频在认领时重投影当前项目配置，不复用 enqueue payload 的旧 provider。"""
-        _patch_pm(monkeypatch, {"video_backend": "grok/grok-imagine-video"})
-        task = {
-            "payload": {"video_provider_i2v": "ark/doubao-seedance-2-0-260128"},
-            "project_name": "demo",
-            "task_type": "video",
-        }
-        assert await _extract_provider(task) == "grok"
 
     async def test_deleted_project_load_failure_falls_back_not_raises(self, monkeypatch):
         """指向已删除/不可读项目的残留任务：load_project 抛错也须回退 DEFAULT_PROVIDER，
@@ -1087,76 +1005,6 @@ class TestGenerationWorker:
         # Wait for tasks to complete
         await asyncio.gather(*worker._slots.all_active_tasks(), return_exceptions=True)
 
-    @pytest.mark.asyncio
-    async def test_claim_requeue_on_full_pool_refreshes_provider_projection(self, monkeypatch, worker_db):
-        """池满回队前把重派生的 provider 刷回投影列。
-
-        走到二次校验池满这条路，说明存量投影与现值分裂（NULL 兜底，或入队后剧本参考集 /
-        供应商配置被改）；不刷新的话存量值躲过 pool_full 的 SQL 过滤，满池期间每个 cycle
-        都重复 claim → requeue → break，同 lane 其他可跑任务被持续排头阻塞。
-        """
-
-        class _StaleProjectionQueue(FakeWorkerQueue):
-            def __init__(self):
-                super().__init__()
-                self._tasks = [
-                    {
-                        "task_id": "vid-ready",
-                        "task_type": "video",
-                        "media_type": "video",
-                        "provider_id": "ark",
-                        "payload": {"video_provider_i2v": "ark/model"},
-                    },
-                    {
-                        "task_id": "vid-stale",
-                        "task_type": "reference_video",
-                        "media_type": "video",
-                        "provider_id": "ark",  # 入队时的投影，与现值分裂
-                        "payload": {},
-                    },
-                ]
-                self.claim_kwargs: list[dict] = []
-
-            async def claim_next_task(self, media_type, **kwargs):
-                self.claim_kwargs.append(kwargs)
-                if media_type == "video" and self._tasks:
-                    return self._tasks.pop()
-                return None
-
-        queue = _StaleProjectionQueue()
-
-        async def _current_provider(task):
-            return "minimax" if task["task_id"] == "vid-stale" else "ark"
-
-        worker = GenerationWorker(
-            queue=queue,
-            capacity=capacity_table({"minimax": {"video": 1}, "ark": {"video": 1}}),
-            provider_projection=_current_provider,
-            executor=stub_executors.execute,
-            resume_executor=stub_executors.execute_resume,
-        )
-
-        async def _execute(_task, *, claimed_provider_id):
-            assert claimed_provider_id == "ark"
-            return {"ok": True}
-
-        monkeypatch.setattr(stub_executors, "generation", _execute)
-
-        # 永不完成的占位 future 把 minimax 的 video 槽占满；不用 sleep，避免真实时间等待
-        occupier = asyncio.get_running_loop().create_future()
-        worker._slots.register("minimax", "video", "vid-running", occupier)
-        await seed_running_task(worker_db, "vid-stale", task_type="reference_video", resource_id="E1U1")
-        try:
-            await worker._claim_tasks()
-            await asyncio.gather(*[t for t in worker._slots.all_active_tasks() if t is not occupier])
-        finally:
-            occupier.cancel()
-
-        assert await task_status(worker_db, "vid-stale") == "queued"
-        assert queue.persisted_providers == [("vid-stale", "minimax")]
-        assert queue.succeeded == [("vid-ready", {"ok": True})]
-        assert any(kwargs.get("exclude_task_ids") == frozenset({"vid-stale"}) for kwargs in queue.claim_kwargs)
-
     # ------------------------------------------------------------------
     # _pool_full_providers
     # ------------------------------------------------------------------
@@ -1200,6 +1048,158 @@ class TestGenerationWorker:
         # video lane 无任何占用 → 黑名单为空（无占用就不可能"满"）
         assert worker._pool_full_providers("video") == frozenset()
         loop.close()
+
+
+class _CountingProjection:
+    """按项目现状推算 provider 的替身：返回 ``current`` 并记下被推算的任务。"""
+
+    def __init__(self, current: str) -> None:
+        self.current = current
+        self.calls: list[str] = []
+
+    async def __call__(self, task: dict[str, Any]) -> str:
+        self.calls.append(task["task_id"])
+        return self.current
+
+
+async def _seed_queued_video(factory, task_id: str, *, task_type: str, provider_id: str | None, order: int) -> None:
+    await seed_running_task(
+        factory,
+        task_id,
+        task_type=task_type,
+        resource_id=f"E1U{order}",
+        status="queued",
+        started_at=None,
+        queued_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(seconds=order),
+        provider_id=provider_id,
+    )
+
+
+async def _task_row(factory, task_id: str) -> dict[str, Any]:
+    from lib.db.models.task import Task
+
+    async with factory() as session:
+        row = await session.get(Task, task_id)
+        assert row is not None
+        return {"status": row.status, "provider_id": row.provider_id, "queued_at": row.queued_at}
+
+
+class TestVideoClaimByRecordedProvider:
+    """视频认领只按排队时记录的 provider 做池满过滤与槽位归属；项目现状由执行入口核对。"""
+
+    @staticmethod
+    def _worker(queue, projection, limits: dict[str, dict[str, int]]) -> GenerationWorker:
+        return GenerationWorker(
+            queue=queue,
+            capacity=capacity_table(limits),
+            provider_projection=projection,
+            lanes=("video",),
+            executor=stub_executors.execute,
+            resume_executor=stub_executors.execute_resume,
+        )
+
+    @pytest.mark.parametrize("queued", [5, 50])
+    async def test_full_pool_claim_cycle_projects_no_queued_video(self, worker_db, queued: int):
+        projection = _CountingProjection("ark")
+        worker = self._worker(db_queue(worker_db), projection, {"ark": {"video": 1}})
+        occupier = asyncio.get_running_loop().create_future()
+        worker._slots.register("ark", "video", "vid-running", occupier)
+        for n in range(queued):
+            task_type = "reference_video" if n % 2 == 0 else "video"
+            await _seed_queued_video(worker_db, f"vid-{n}", task_type=task_type, provider_id="ark", order=n)
+        try:
+            claimed = await worker._claim_tasks()
+        finally:
+            occupier.cancel()
+
+        assert claimed is False
+        assert projection.calls == []
+        assert {(await _task_row(worker_db, f"vid-{n}"))["status"] for n in range(queued)} == {"queued"}
+
+    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    async def test_legacy_task_without_recorded_provider_is_projected_once_and_recorded(
+        self, monkeypatch, worker_db, task_type: str
+    ):
+        executed: list[str] = []
+
+        async def _execute(task, *, claimed_provider_id):
+            executed.append(claimed_provider_id)
+            return {"ok": True}
+
+        monkeypatch.setattr(stub_executors, "generation", _execute)
+        projection = _CountingProjection("minimax")
+        worker = self._worker(db_queue(worker_db), projection, {"minimax": {"video": 1}})
+        await _seed_queued_video(worker_db, "vid-legacy", task_type=task_type, provider_id=None, order=0)
+
+        await worker._claim_tasks()
+        await asyncio.gather(*worker._slots.all_active_tasks())
+
+        assert projection.calls == ["vid-legacy"]
+        assert executed == ["minimax"]
+        row = await _task_row(worker_db, "vid-legacy")
+        assert (row["status"], row["provider_id"]) == ("succeeded", "minimax")
+
+    async def test_legacy_task_projected_into_full_pool_is_recorded_and_not_projected_again(
+        self, monkeypatch, worker_db
+    ):
+        executed: list[tuple[str, str]] = []
+
+        async def _execute(task, *, claimed_provider_id):
+            executed.append((task["task_id"], claimed_provider_id))
+            return {"ok": True}
+
+        monkeypatch.setattr(stub_executors, "generation", _execute)
+        projection = _CountingProjection("minimax")
+        worker = self._worker(db_queue(worker_db), projection, {"minimax": {"video": 1}, "ark": {"video": 1}})
+        occupier = asyncio.get_running_loop().create_future()
+        worker._slots.register("minimax", "video", "vid-running", occupier)
+        await _seed_queued_video(worker_db, "vid-legacy", task_type="reference_video", provider_id=None, order=0)
+        await _seed_queued_video(worker_db, "vid-ready", task_type="video", provider_id="ark", order=1)
+        try:
+            for _cycle in range(2):
+                await worker._claim_tasks()
+                await asyncio.gather(*[t for t in worker._slots.all_active_tasks() if t is not occupier])
+        finally:
+            occupier.cancel()
+
+        assert projection.calls == ["vid-legacy"]
+        legacy = await _task_row(worker_db, "vid-legacy")
+        assert (legacy["status"], legacy["provider_id"]) == ("queued", "minimax")
+        assert executed == [("vid-ready", "ark")]
+
+    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    async def test_provider_edited_while_queued_is_requeued_by_execution_entry_then_runs_on_new_slot(
+        self, monkeypatch, worker_db, task_type: str
+    ):
+        """项目改了供应商：认领仍占记录的槽，执行入口发现漂移后改记录并原位回队，下一周期走新槽。"""
+        from lib.generation.generation_queue import DispatchProviderChanged
+
+        executed: list[str] = []
+
+        async def _execute(task, *, claimed_provider_id):
+            executed.append(claimed_provider_id)
+            if claimed_provider_id != "grok":
+                raise DispatchProviderChanged(claimed_provider_id=claimed_provider_id, actual_provider_id="grok")
+            return {"ok": True}
+
+        monkeypatch.setattr(stub_executors, "generation", _execute)
+        projection = _CountingProjection("grok")
+        worker = self._worker(db_queue(worker_db), projection, {"ark": {"video": 1}, "grok": {"video": 1}})
+        await _seed_queued_video(worker_db, "vid-edited", task_type=task_type, provider_id="ark", order=0)
+        queued_at = (await _task_row(worker_db, "vid-edited"))["queued_at"]
+
+        await worker._claim_tasks()
+        await asyncio.gather(*worker._slots.all_active_tasks())
+        await worker._drain_finished_tasks()
+        requeued = await _task_row(worker_db, "vid-edited")
+        assert requeued == {"status": "queued", "provider_id": "grok", "queued_at": queued_at}
+
+        await worker._claim_tasks()
+        await asyncio.gather(*worker._slots.all_active_tasks())
+
+        assert executed == ["ark", "grok"]
+        assert projection.calls == []
+        assert (await _task_row(worker_db, "vid-edited"))["status"] == "succeeded"
 
 
 class TestOrphanOnceAndLeaseFlap:

@@ -336,19 +336,19 @@ class TestRepoStateMachineGuards:
         assert third is not None
         assert third["task_id"] == t1["task_id"]
 
-    async def test_claim_next_reprojects_reference_task_despite_stale_full_provider(self, db_session):
-        """参考任务的缓存 provider 不能在读取当前 unit 前参与排除。"""
+    async def test_claim_next_filters_reference_task_by_recorded_provider(self, db_session):
+        """参考生视频与其它任务同一口径：按排队记录的 provider 过滤，不为现状推算放行。"""
         repo = TaskRepository(db_session)
-        reference = await repo.enqueue(
+        await repo.enqueue(
             project_name="demo",
             task_type="reference_video",
             media_type="video",
             resource_id="E1U1",
             payload={"script_file": "ep1.json"},
             script_file="ep1.json",
-            provider_id="provider-before-edit",
+            provider_id="provider-full",
         )
-        await repo.enqueue(
+        ready = await repo.enqueue(
             project_name="demo",
             task_type="video",
             media_type="video",
@@ -360,11 +360,11 @@ class TestRepoStateMachineGuards:
 
         claimed = await repo.claim_next(
             "video",
-            pool_full_providers=frozenset({"provider-before-edit"}),
+            pool_full_providers=frozenset({"provider-full"}),
         )
 
         assert claimed is not None
-        assert claimed["task_id"] == reference["task_id"]
+        assert claimed["task_id"] == ready["task_id"]
 
     async def test_finalize_interrupted_from_running(self, db_session):
         """进程级打断把 running 直接落 cancelled，任务不会停在 running 被重启自愈反复拉起。"""

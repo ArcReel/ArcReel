@@ -387,6 +387,9 @@ class SlotTable:
 async def _extract_provider(task: dict[str, Any]) -> str:
     """Extract a provider_id from a claimed task, used **only** for rate-limit slot routing.
 
+    视频任务只在排队记录缺失（或记录的 provider 已不支持视频）时调用一次，结果写回记录；
+    图片、音频等其它 lane 每次认领都调用。
+
     这是解析链的薄投影：按 media lane（``media_type``）派发到 ``resolve_video_backend`` /
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``generation_type="t2i"`` 取一个
     **代表性** provider——worker 认领时拿不到真实任务类型（见 ``docs/adr/0001``），这点近似不影响
@@ -394,8 +397,8 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     唯一例外（必然 i2i、入队即知），按 i2i 槽精确解析。两种视频生成模式都忽略 enqueue payload 中的旧身份，分镜视频定桶经
     ``video_bucket_for_queued_task`` 与入队派生共用；reference_video 则重读最新
     project/script/unit，以实际可用资产调用公共 request projection。
-    这份 provider 投影只服务 claim 过滤与限流路由，不是执行身份；正常 executor 会在开始时
-    再按同一最新状态物化请求。
+    这份 provider 投影只服务槽位归属与限流路由，不是执行身份；executor 在开始时按最新状态
+    物化请求，视频与认领槽位不一致时回队。
     解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
@@ -642,33 +645,26 @@ class GenerationWorker:
     async def _claim_tasks(self) -> bool:
         """Claim tasks from queue and route to per-provider slots.
 
-        池满 task 不再 claim → requeue 反复刷屏；改为在 SQL 层按
-        ``pool_full_providers`` 黑名单过滤，池满 task 始终保持 ``queued``。
-        ``provider_id IS NULL`` 老数据和未知 provider 任务不被过滤，claim 后由
-        worker 二次 ``_extract_provider`` 派生 provider 再校验容量。
+        池满过滤在 SQL 层按 ``pool_full_providers`` 黑名单完成，池满任务始终保持 ``queued``。
+        视频任务的槽位归属只看排队时记录的 provider，认领时不按项目现状推算，视频池满时
+        一个认领周期的开销因此与排队任务数无关。排队期间项目改了供应商，由执行入口核对出
+        漂移、改写记录并原位回队，新供应商在下一次认领时才占槽。没有记录的存量视频任务
+        在认领时推算一次并写回。其它媒体类型认领后仍按现状推算 provider 再校验容量。
         """
         claimed_any = False
 
         for media_type in self._lanes:
-            attempted_current_state_tasks: set[str] = set()
             while True:
                 # 每轮重算池满集合：刚 claim 的任务可能让某 provider 进入满状态
                 pool_full = self._pool_full_providers(media_type)
-                if attempted_current_state_tasks:
-                    task = await self.queue.claim_next_task(
-                        media_type=media_type,
-                        pool_full_providers=pool_full,
-                        exclude_task_ids=frozenset(attempted_current_state_tasks),
-                    )
-                else:
-                    task = await self.queue.claim_next_task(
-                        media_type=media_type,
-                        pool_full_providers=pool_full,
-                    )
+                task = await self.queue.claim_next_task(media_type=media_type, pool_full_providers=pool_full)
                 if not task:
                     break
 
-                provider_id = await self._provider_projection(task)
+                if media_type == "video":
+                    provider_id, recorded = await self._video_slot_provider(task)
+                else:
+                    provider_id, recorded = await self._provider_projection(task), False
                 cap = self._capacity.get(provider_id, media_type)
 
                 if cap <= 0:
@@ -691,35 +687,23 @@ class GenerationWorker:
                     continue
 
                 if not self._slots.has_room(provider_id, media_type, cap):
-                    # NULL 老数据 / 未知 provider 通过 SQL 兜底走到这里：二次校验仍满
-                    # → 回队让下次 cycle 再试（FIFO 顺序由 queued_at 维持）。绝不能
-                    # mark_failed：入队后 provider_id 才被派生，资料完整的任务也可能
-                    # 因部署窗口 / 解析失败而 NULL，这条路径必须保持可重试。
+                    # 认领后推算出的 provider 躲过了 SQL 过滤（NULL 存量任务，或非视频任务的
+                    # 记录与现状不一致）且池满 → 回队等下个 cycle（FIFO 顺序由 queued_at 维持）。
+                    # 绝不能 mark_failed：NULL 不等于"无效任务"，这条路径必须保持可重试。
                     logger.info(
                         "供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
                         provider_id,
                         media_type,
                         task["task_id"],
                     )
-                    # 回队前把重派生的 provider 刷回投影列：走到这里说明存量投影与现值
-                    # 分裂（NULL 兜底，或入队后剧本参考集 / 供应商配置被改），不刷新的话
-                    # 存量值躲过 pool_full 的 SQL 过滤，之后每个 cycle 都重复
-                    # claim → requeue → break，满池期间同 lane 其他可跑任务被持续排头阻塞。
-                    # best-effort：刷新失败只损失过滤精度，回队重试本身不受影响。
-                    try:
-                        await self.queue.persist_execution_provider_id(task["task_id"], provider_id)
-                    except Exception:
-                        logger.warning(
-                            "回队前投影刷新失败 task_id=%s provider=%s", task["task_id"], provider_id, exc_info=True
-                        )
+                    # 回队前把推算出的 provider 写回记录，下一轮 SQL 黑名单就能过滤它，
+                    # 不会每个 cycle 重复 claim → requeue。写回失败只损失过滤精度。
+                    if not recorded:
+                        recorded = await self._record_provider(task["task_id"], provider_id)
                     await self._requeue_single_task(task["task_id"])
-                    if task.get("task_type") in ("video", "reference_video"):
-                        # 两种视频生成模式都必须先重投影才能判断当前 provider；本 cycle 排除已
-                        # 重投影且仍池满的任务，继续寻找其它 provider 的可运行任务。
-                        attempted_current_state_tasks.add(task["task_id"])
+                    if media_type == "video" and recorded:
+                        # 记录已指向池满 provider，下一轮 SQL 排除它，继续找其它 provider 的可运行任务。
                         continue
-                    # 其它任务的 provider 身份在队列中稳定，下一轮 SQL 会按重算的
-                    # pool_full 过滤该 provider，避免反复 claim 同一 task。
                     break
 
                 # Dispatch：登记占用（INFLIGHT），bucket 由 register 自动创建
@@ -742,14 +726,35 @@ class GenerationWorker:
 
         return claimed_any
 
+    async def _video_slot_provider(self, task: dict[str, Any]) -> tuple[str, bool]:
+        """视频任务的槽位归属：返回 ``(provider_id, 任务行是否已记录该 provider)``。
+
+        有记录且该 provider 支持视频时直接用记录。没有记录的存量任务，或记录的 provider
+        已不支持视频时，按项目现状推算一次并写回，之后的认领不再推算。
+        """
+        recorded = task.get("provider_id")
+        if isinstance(recorded, str) and recorded and self._capacity.get(recorded, "video") > 0:
+            return recorded, True
+        provider_id = await self._provider_projection(task)
+        return provider_id, await self._record_provider(task["task_id"], provider_id)
+
+    async def _record_provider(self, task_id: str, provider_id: str) -> bool:
+        """best-effort 写回任务行的 provider 记录，返回是否写入成功。"""
+        try:
+            await self.queue.persist_execution_provider_id(task_id, provider_id)
+        except Exception:
+            logger.warning("provider 记录写回失败 task_id=%s provider=%s", task_id, provider_id, exc_info=True)
+            return False
+        return True
+
     async def _requeue_single_task(self, task_id: str) -> bool:
         """Put a claimed (running) task back to queued status.
 
-        正常路径下大多数池满任务通过 ``pool_full_providers`` SQL 过滤在 claim 阶段被
-        排除；当 ``provider_id IS NULL`` 走 IS NULL 兜底而 worker 二次校验发现池满时，
-        本方法把任务放回 queued 等下次 cycle 重试（不可 mark_failed——派生 provider 在
-        入队后才发生，NULL 不等于"无效任务"）。执行入口发现 provider 漂移时也复用
-        同一条 guarded UPDATE，并根据返回值决定能否安全退出当前执行槽。
+        池满任务通常在 claim 阶段被 ``pool_full_providers`` SQL 过滤排除；认领后推算出的
+        provider 池满时（``provider_id IS NULL`` 的存量任务等），本方法把任务放回 queued
+        等下次 cycle 重试（不可 mark_failed——NULL 不等于"无效任务"）。执行入口发现
+        provider 漂移时也复用同一条 guarded UPDATE，并根据返回值决定能否安全退出当前执行槽。
+        回队不改 ``queued_at``，任务保留原排队位置。
         """
         try:
             async with safe_session_factory() as session:
