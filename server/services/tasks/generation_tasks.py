@@ -65,7 +65,7 @@ from lib.generation.video_request_facts import (
     audio_switch_conflict,
     require_video_request_facts,
 )
-from lib.infra.async_thread import run_noninterruptible_sync
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join, try_safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE, DERIVATIVE_TASK_TYPE
@@ -1065,11 +1065,7 @@ async def execute_video_task(
     )
     generator = ctx.generator
     registry_provider_id = ctx.video.provider_model.provider_id
-    if claimed_provider_id is not None and registry_provider_id != claimed_provider_id:
-        raise DispatchProviderChanged(
-            claimed_provider_id=claimed_provider_id,
-            actual_provider_id=registry_provider_id,
-        )
+    ensure_dispatch_provider(claimed_provider_id, registry_provider_id)
     if ctx.video.request_facts is None:
         raise RuntimeError("storyboard video lane is missing its request facts")
     request_facts = require_video_request_facts(ctx.video.request_facts)
@@ -1797,7 +1793,7 @@ async def execute_grid_task(
             restored.error_message = error_before_claim
             grid_manager.save(restored)
 
-        await asyncio.to_thread(_restore_status_before_claim)
+        await run_sync_transaction(_restore_status_before_claim)
         raise
     except Exception:
         # The formal-write transaction restores the durable grid record on failure.

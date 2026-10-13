@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import tempfile
+import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
@@ -93,6 +95,32 @@ class TestProbeAudioDuration:
         """m4a 有音轨也能探出时长，但容器不是 wav，改名上传应被拒绝而非当作 wav 收下。"""
         with pytest.raises(ValueError, match=r"音频文件无法解析"):
             await audio_utils_module.probe_audio_duration_seconds(_m4a_bytes(), ".wav")
+
+    async def test_cancel_during_temp_write_still_removes_temp_file(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(audio_utils_module.tempfile, "gettempdir", lambda: str(tmp_path))
+        written = threading.Event()
+        release = threading.Event()
+        original_named_temporary_file = tempfile.NamedTemporaryFile
+
+        @contextmanager
+        def gated_named_temporary_file(*args, **kwargs):
+            # 临时文件写完、交还路径之前停住，让取消恰好落在这一程。
+            with original_named_temporary_file(*args, **kwargs) as tmp:
+                yield tmp
+            written.set()
+            release.wait(5)
+
+        monkeypatch.setattr(audio_utils_module.tempfile, "NamedTemporaryFile", gated_named_temporary_file)
+        task = asyncio.create_task(audio_utils_module.probe_audio_duration_seconds(wav_bytes(1), ".wav"))
+        try:
+            assert await asyncio.to_thread(written.wait, 5)
+            task.cancel()
+        finally:
+            release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert list(tmp_path.iterdir()) == []
 
 
 class TestProbeExistingVideoDuration:

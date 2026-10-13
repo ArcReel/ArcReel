@@ -7,7 +7,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.ffmpeg import FfmpegUnavailableError
 from lib.infra.media_probe import MediaProbe, MediaProbeError, probe_media
 from lib.infra.path_safety import safe_resolve
@@ -93,17 +93,12 @@ async def _probe_or_none(path: Path) -> MediaProbe | None:
         return None
 
 
-def _write_probe_temp_file(content: bytes, suffix: str) -> Path:
-    """把待探测的字节写进系统临时目录；写入失败时删掉已建的临时文件再抛出。"""
-    tmp_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(dir=tempfile.gettempdir(), suffix=suffix, delete=False) as tmp:
-            tmp_path = Path(tmp.name)
-            tmp.write(content)
-    except OSError:
-        if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
-        raise
+def _write_probe_temp_file(content: bytes, suffix: str, created: list[Path]) -> Path:
+    """把待探测的字节写进系统临时目录。文件一建好就登记进 ``created``，由调用方负责删除。"""
+    with tempfile.NamedTemporaryFile(dir=tempfile.gettempdir(), suffix=suffix, delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+        created.append(tmp_path)
+        tmp.write(content)
     return tmp_path
 
 
@@ -116,16 +111,20 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
         ValueError: 无法解析、探测超时、容器内没有音频流（如把视频文件改名为 .wav/.mp3
             上传），或容器格式与扩展名不符（如把 m4a/aac 改名为 .wav 上传）。
     """
-    tmp_path = await run_sync_transaction(_write_probe_temp_file, content, suffix)
+    # 取消落在写临时文件那一程时返回值会丢，靠登记的路径回收。
+    created: list[Path] = []
     try:
-        probe = await probe_media(tmp_path, deadline_seconds=_UPLOAD_PROBE_DEADLINE_SECONDS)
-    except (FfmpegUnavailableError, OSError):
-        logger.info("随包 ffmpeg 不可用，跳过音频时长探测", exc_info=True)
-        return None
-    except MediaProbeError:
-        raise ValueError("音频文件无法解析") from None
+        tmp_path = await run_sync_transaction(_write_probe_temp_file, content, suffix, created)
+        try:
+            probe = await probe_media(tmp_path, deadline_seconds=_UPLOAD_PROBE_DEADLINE_SECONDS)
+        except (FfmpegUnavailableError, OSError):
+            logger.info("随包 ffmpeg 不可用，跳过音频时长探测", exc_info=True)
+            return None
+        except MediaProbeError:
+            raise ValueError("音频文件无法解析") from None
     finally:
-        await run_sync_transaction(tmp_path.unlink, missing_ok=True)
+        for path in created:
+            await run_noninterruptible_sync(path.unlink, missing_ok=True)
 
     if probe.first_stream("audio") is None:
         raise ValueError("音频文件无法解析")

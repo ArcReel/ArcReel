@@ -26,7 +26,7 @@ from lib.config.resolver import VideoGenerationType
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import (
-    DispatchProviderChanged,
+    ensure_dispatch_provider,
     get_generation_queue,
     without_reference_video_execution_identity,
 )
@@ -340,11 +340,7 @@ async def execute_reference_video_task(
     generator = ctx.generator
     video = ctx.video
     actual_provider_id = video.provider_model.provider_id
-    if claimed_provider_id is not None and actual_provider_id != claimed_provider_id:
-        raise DispatchProviderChanged(
-            claimed_provider_id=claimed_provider_id,
-            actual_provider_id=actual_provider_id,
-        )
+    ensure_dispatch_provider(claimed_provider_id, actual_provider_id)
     provider_name = video.backend_name
     model_name = video.backend_model
 

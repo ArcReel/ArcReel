@@ -1983,11 +1983,21 @@ class ProjectManager:
         """Cancellation-safe async counterpart of :meth:`file_lock`."""
         lock_path = path.parent / f".{path.name}.lock"
 
+        # 句柄一打开就登记：取消落在打开那一程时返回值会丢，靠它关闭。
+        handles: list[BinaryIO] = []
+
         def _open_lock_file() -> BinaryIO:
             path.parent.mkdir(parents=True, exist_ok=True)
-            return lock_path.open("a+b")
+            handle = lock_path.open("a+b")
+            handles.append(handle)
+            return handle
 
-        handle = await run_sync_transaction(_open_lock_file)
+        try:
+            handle = await run_sync_transaction(_open_lock_file)
+        except BaseException:
+            for opened in handles:
+                opened.close()
+            raise
         acquired = False
         try:
             while not acquired:
