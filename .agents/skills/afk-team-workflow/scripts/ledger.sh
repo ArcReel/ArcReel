@@ -150,11 +150,10 @@ elif [[ -n "$SCOPE_ISSUES_CSV" ]]; then
   SCOPE_JSON=$(echo "$scope_nums" | tr ' ' '\n' | jq -R 'tonumber' | jq -sc '{issues: .}')
 fi
 
-NOW=$(date -u +%s)
-TS=$(date -u -r "$NOW" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$NOW" +%Y-%m-%dT%H:%M:%SZ)
+# one date call stamps both the line and a new batch-id, so they agree to the second
+read -r TS STAMP < <(date -u '+%Y-%m-%dT%H:%M:%SZ %Y%m%d-%H%M%S')
 
 if [[ -n "$NEW" ]]; then
-  STAMP=$(date -u -r "$NOW" +%Y%m%d-%H%M%S 2>/dev/null || date -u -d "@$NOW" +%Y%m%d-%H%M%S)
   if [[ -n "$SCOPE_SPEC" ]]; then
     BATCH_ID="spec-${SCOPE_SPEC}-${STAMP}"
   else
