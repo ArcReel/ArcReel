@@ -1,4 +1,4 @@
-import { type FocusEvent, type KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type FocusEvent, type KeyboardEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, CircleAlert, Clock, Pencil, Send, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
@@ -144,8 +144,14 @@ function QueuedMessageItem({
     }
   };
   const dismissOnFocusLeave = (event: FocusEvent<HTMLDivElement>) => {
-    // relatedTarget 为空是点了不可聚焦的地方或窗口失焦：确认态保留
-    if (event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)) dismissDelete(false);
+    const next = event.relatedTarget;
+    // 焦点仍在区域内，或整个窗口失焦（relatedTarget 为空且文档已不持有焦点）：确认态保留
+    if (next instanceof Node ? event.currentTarget.contains(next) : !document.hasFocus()) return;
+    dismissDelete(false);
+  };
+  const keepFocusInside = (event: PointerEvent<HTMLDivElement>) => {
+    // 点区域内的提示文字不让焦点落到 body：按钮照常接收焦点
+    if (!(event.target instanceof HTMLButtonElement)) event.preventDefault();
   };
 
   return (
@@ -164,6 +170,7 @@ function QueuedMessageItem({
           aria-label={t("queued_message_delete_prompt")}
           className="-my-0.5 flex min-w-0 flex-wrap items-center justify-end gap-1"
           onBlur={dismissOnFocusLeave}
+          onPointerDown={keepFocusInside}
         >
           <span className="text-muted-foreground">{t("queued_message_delete_prompt")}</span>
           <Button variant="destructive" size="xs" disabled={busy} onKeyDown={dismissOnEscape} onClick={() => withdraw("delete")}>

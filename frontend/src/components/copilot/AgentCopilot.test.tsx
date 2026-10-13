@@ -516,6 +516,13 @@ describe("AgentCopilot", () => {
       await user.tab();
       expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "删除" })).not.toHaveFocus();
+
+      // 点区域内的提示文字不算离开；点区域外不可聚焦的消息文字算离开
+      await user.click(screen.getByRole("button", { name: "删除" }));
+      await user.click(screen.getByText("删除这条消息？"));
+      expect(screen.getByRole("group", { name: "删除这条消息？" })).toBeInTheDocument();
+      await user.click(screen.getByText("第 3 镜改成黄昏"));
+      expect(screen.queryByRole("group", { name: "删除这条消息？" })).not.toBeInTheDocument();
       expect(withdrawQueuedMessage).not.toHaveBeenCalled();
     });
 
