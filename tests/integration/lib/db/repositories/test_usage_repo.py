@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from lib.backends.providers import CallStatus
 from lib.db.base import DEFAULT_USER_ID, utc_now
@@ -20,6 +20,12 @@ from lib.db.repositories.usage_repo import (
     UsageFilters,
     UsageRepository,
 )
+
+
+async def backdate_call(session, call_id: int, *, delta: timedelta) -> None:
+    """把调用行的 started_at 改到 ``delta`` 之前，模拟长期停在 pending 的行。"""
+    await session.execute(update(ApiCall).where(ApiCall.id == call_id).values(started_at=utc_now() - delta))
+    await session.commit()
 
 
 async def stored_calls(session, project_name: str = "demo") -> list[ApiCall]:
@@ -419,6 +425,20 @@ class TestFinalizePendingByCallId:
         # started_at 与 finished_at 同瞬间内完成；duration_ms 必须是已写入的非 None 整数
         assert item.duration_ms is not None
         assert item.duration_ms >= 0
+
+    async def test_settles_call_pending_for_over_int32_milliseconds(self, async_session):
+        """停机超过 24.8 天后续接：墙钟耗时超出 int4 毫秒上限，PostgreSQL 下也要写入真实耗时。"""
+        repo = UsageRepository(async_session)
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        await backdate_call(async_session, call_id, delta=timedelta(days=30))
+
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
+
+        assert affected == 1
+        row = await async_session.get(ApiCall, call_id)
+        assert row.status == "success"
+        assert row.duration_ms is not None
+        assert row.duration_ms >= 30 * 24 * 3600 * 1000
 
     async def test_generate_audio_override_passed_to_cost_calculator(self, async_session, monkeypatch):
         """provider 在 submit 后可能降级/关闭音频；finalize 接受 caller 透传的 generate_audio
@@ -961,6 +981,38 @@ class TestSettleInterruptedPendingCalls:
         assert row.error_params == {}
         assert row.cost_amount == 0.0
         assert row.finished_at is not None
+
+    async def test_stale_taskless_call_settles_without_overflow_and_leaves_duration_null(self, async_session):
+        """30 天前发起的无任务行：墙钟时长超出 int4 毫秒上限，收口不得整批回滚；中断行不记耗时。"""
+        stale_id = await self._seed_pending_call(async_session)
+        await backdate_call(async_session, stale_id, delta=timedelta(days=30))
+        fresh_id = await self._seed_pending_call(async_session)
+        await self._seed_task(async_session, "t-gone", "failed")
+        bound_id = await self._seed_pending_call(async_session, task_id="t-gone")
+        await backdate_call(async_session, bound_id, delta=timedelta(days=30))
+
+        settled = await UsageRepository(async_session).settle_interrupted_pending_calls(
+            taskless_started_before=utc_now() + timedelta(seconds=1)
+        )
+
+        assert sorted(s.call_id for s in settled) == sorted([stale_id, fresh_id, bound_id])
+        for call_id in (stale_id, fresh_id, bound_id):
+            row = await self._row(async_session, call_id)
+            assert row.status == "failed"
+            assert row.duration_ms is None
+        assert (await self._row(async_session, stale_id)).error_code == "interrupted"
+
+    async def test_finish_call_still_records_positive_duration(self, async_session):
+        """中断行不记耗时，不影响正常结算：finish_call 照旧按 finished_at - started_at 写入。"""
+        repo = UsageRepository(async_session)
+        call_id = await self._seed_pending_call(async_session)
+        await backdate_call(async_session, call_id, delta=timedelta(seconds=5))
+
+        await repo.finish_call(call_id, status=CallStatus.SUCCESS, settlement=SettlementInput(cost_amount=1.5))
+
+        row = await self._row(async_session, call_id)
+        assert row.duration_ms is not None
+        assert row.duration_ms >= 5000
 
     async def test_taskless_call_is_kept_when_excluded_but_task_bound_still_settles(self, async_session):
         """进程存活期间的重扫只收口绑定任务的行：无任务身份的调用可能正在跑，原样留 pending。"""

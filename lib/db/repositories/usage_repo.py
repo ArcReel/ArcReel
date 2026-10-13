@@ -420,7 +420,8 @@ class UsageRepository(BaseRepository):
         无任务行（进程存活期间的重扫）。
 
         零费用是这里的口径：调用没走完结算，没有任何可信的计费维度可用，按 0 记账不给用户凭空
-        补账。每行的 UPDATE 带 ``status='pending'`` 守卫，与并发的正常结算竞态时只会有一方生效。
+        补账；``duration_ms`` 同理写 NULL（墙钟时长不是调用耗时，长期停摆的行还会超出整数宽度）。
+        每行的 UPDATE 带 ``status='pending'`` 守卫，与并发的正常结算竞态时只会有一方生效。
         """
         finished_at = utc_now()
         pending_rows = (
@@ -456,7 +457,8 @@ class UsageRepository(BaseRepository):
             values: dict[str, Any] = {
                 "status": status,
                 "finished_at": finished_at,
-                "duration_ms": effective.duration_ms,
+                # 中断调用没走完结算，「发起到本次重启」的墙钟时长不是调用耗时，与零费用同口径留空。
+                "duration_ms": None,
                 "cost_amount": effective.cost_amount,
                 "currency": effective.currency,
             }

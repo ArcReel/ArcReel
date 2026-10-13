@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, Index, Integer, String, Text
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, Float, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin, UserOwnedMixin
@@ -40,7 +40,7 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     inputs: Mapped[object | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    duration_ms: Mapped[int | None] = mapped_column(Integer)
+    duration_ms: Mapped[int | None] = mapped_column(BigInteger)
     retry_count: Mapped[int] = mapped_column(Integer, server_default="0")
     cost_amount: Mapped[float] = mapped_column(Float, server_default="0.0")
     currency: Mapped[str] = mapped_column(String, server_default="USD")
