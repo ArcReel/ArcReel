@@ -14,21 +14,3 @@
 #       && pip install -q uv && uv sync -q --frozen \
 #       && uv run python -m pytest tests -n 4 --dist loadfile -q -p no:cacheprovider'
 
-lib/generation/media_generator.py::MediaGenerator._run_with_reference_compression  # ScandirIterator.__next__, os.path.samestat, os.rmdir, os.unlink
-lib/generation/media_generator.py::MediaGenerator.generate_audio_async  # io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.replace, os.sendfile, os.stat, os.unlink, 版本管理锁（RLock）
-lib/generation/media_generator.py::MediaGenerator.generate_image_async  # io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.replace, os.sendfile, os.stat, os.unlink, 版本管理锁（RLock）
-lib/generation/media_generator.py::MediaGenerator.generate_video_async  # os.mkdir, os.stat, os.unlink
-lib/generation/media_generator.py::MediaGenerator.resume_video_async  # os.mkdir, os.stat, os.unlink
-lib/generation/media_generator.py::_remove_staged_output_on_error  # os.unlink
-lib/generation/restart_recovery.py::RestartRecovery.handle_orphans  # os.stat
-server/services/currency/video_artifact_currency.py::complete_video_artifact_commit  # io.TextIOWrapper.read, os.stat
-server/services/currency/video_artifact_currency.py::complete_video_artifact_commit.<locals>._finalize_and_complete  # os.stat
-server/services/tasks/derivative_sheet_tasks.py::execute_character_derivative_task  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/services/tasks/formal_image_commit.py::run_formal_image_task.<locals>._submit  # os.stat
-server/services/tasks/generation_context.py::resolve_generation_context  # os.stat
-server/services/tasks/generation_tasks.py::execute_generation_task  # io.TextIOWrapper.read, os.stat
-server/services/tasks/generation_tasks.py::execute_grid_task  # io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.mkdir, os.replace, os.stat, 文件锁（portalocker 阻塞模式）
-server/services/tasks/generation_tasks.py::execute_video_task  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/services/tasks/generation_tasks.py::finalize_video_task  # os.unlink
-server/services/tasks/reference_video_tasks.py::execute_reference_video_task  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/services/tasks/reference_video_tasks.py::finalize_reference_video_unit  # os.mkdir, os.stat, os.unlink

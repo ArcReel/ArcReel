@@ -14,7 +14,7 @@ from lib.artifacts.artifact_activation import (
     assert_current_artifact_input_claims_usable,
     resolve_usable_episode_script_input,
 )
-from lib.artifacts.artifact_manifest import compose_video_artifact_basis
+from lib.artifacts.artifact_manifest import ArtifactInputClaim, compose_video_artifact_basis
 from lib.artifacts.version_manager import VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.video_visual_provenance import build_reference_video_visual_basis, resolve_video_aspect_ratio
@@ -35,6 +35,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsFailure,
 )
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.project_manager import get_project_manager
@@ -312,14 +313,23 @@ async def execute_reference_video_task(
             raise ValueError(f"unit not found: {resource_id}")
         if video_unit_replan_problems(unit):
             raise ValueError(f"unit needs replanning: {resource_id}")
-        return project, project_path, script, unit, script_input
+        # 参考图可用性判定要读产物清单、对设计图算摘要，与上下文加载同在工作线程里完成。
+        declared_references = unit_reference_declarations(project, unit)
+        resolved_assets = resolve_reference_assets(project, project_path, unit)
+        asset_availability = CurrentReferenceAssets(project_path, project)
+        hydration = hydrate_reference_assets(declared_references, resolved_assets, asset_availability)
+        return project, project_path, script, unit, script_input, resolved_assets, asset_availability, hydration
 
-    project, project_path, script, unit, script_input = await asyncio.to_thread(_load)
-
-    declared_references = unit_reference_declarations(project, unit)
-    resolved_assets = resolve_reference_assets(project, project_path, unit)
-    asset_availability = CurrentReferenceAssets(project_path, project)
-    hydration = hydrate_reference_assets(declared_references, resolved_assets, asset_availability)
+    (
+        project,
+        project_path,
+        script,
+        unit,
+        script_input,
+        resolved_assets,
+        asset_availability,
+        hydration,
+    ) = await asyncio.to_thread(_load)
 
     # 2. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
@@ -377,7 +387,7 @@ async def execute_reference_video_task(
     if task_id is None:
         formal_input_claims = (
             script_input.claim,
-            *asset_availability.snapshot_selected_claims(constrained_entries),
+            *await asyncio.to_thread(asset_availability.snapshot_selected_claims, constrained_entries),
         )
     constrained_refs = [entry.path for entry in constrained_entries]
     aspect_ratio = resolve_video_aspect_ratio(project)
@@ -495,23 +505,29 @@ async def execute_reference_video_task(
             staged_reference_digests = {
                 media.source_locator: media.sha256 for media in staged_media if media.role == "reference_image"
             }
-            formal_input_claims = (
-                script_input.claim,
-                *asset_availability.snapshot_selected_claims(
-                    constrained_entries,
-                    staged_content_digests=staged_reference_digests,
-                ),
-            )
-            provider_refs = [
-                safe_join(project_path, media.staged_locator, require_file=True)
-                for media in staged_media
-                if media.role == "reference_image"
-            ]
-            staged_audio_paths = [
-                safe_join(project_path, media.staged_locator, require_file=True)
-                for media in staged_media
-                if media.role == "reference_audio"
-            ]
+
+            def _bind_staged_media() -> tuple[tuple[ArtifactInputClaim, ...], list[Path], list[Path]]:
+                # 选中依据快照按暂存字节的摘要绑定，暂存路径逐个核实为文件：都要读盘，整体在线程里做。
+                claims = (
+                    script_input.claim,
+                    *asset_availability.snapshot_selected_claims(
+                        constrained_entries,
+                        staged_content_digests=staged_reference_digests,
+                    ),
+                )
+                image_paths = [
+                    safe_join(project_path, media.staged_locator, require_file=True)
+                    for media in staged_media
+                    if media.role == "reference_image"
+                ]
+                audio_paths = [
+                    safe_join(project_path, media.staged_locator, require_file=True)
+                    for media in staged_media
+                    if media.role == "reference_audio"
+                ]
+                return claims, image_paths, audio_paths
+
+            formal_input_claims, provider_refs, staged_audio_paths = await asyncio.to_thread(_bind_staged_media)
             provider_audio = staged_audio_paths or None
             visual_basis_digest = await asyncio.to_thread(
                 materialized_reference_video_visual_basis_digest,
@@ -594,7 +610,8 @@ async def execute_reference_video_task(
                     project_path,
                     formal_input_claims,
                 )
-                checkpoint = _build_checkpoint()
+                # 检查点要读版本记录（版本管理锁）并绑定摘要，放进工作线程构造。
+                checkpoint = await asyncio.to_thread(_build_checkpoint)
                 await get_generation_queue().persist_execution_checkpoint(
                     task_id,
                     checkpoint.to_json(),
@@ -747,12 +764,12 @@ async def finalize_reference_video_unit(
     warnings = warnings if warnings is not None else []
 
     thumb_dir = project_path / "reference_videos" / "thumbnails"
-    thumb_dir.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(thumb_dir.mkdir, parents=True, exist_ok=True)
     thumb_path = thumb_dir / f"{resource_id}.jpg"
     if await extract_video_thumbnail(output_path, thumb_path):
         thumb_rel: str | None = f"reference_videos/thumbnails/{resource_id}.jpg"
     else:
-        thumb_path.unlink(missing_ok=True)
+        await run_sync_transaction(thumb_path.unlink, missing_ok=True)
         thumb_rel = None
 
     def _update_unit_assets() -> str | None:

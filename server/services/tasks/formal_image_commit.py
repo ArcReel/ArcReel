@@ -7,7 +7,9 @@ Manifest registration commit together, and a failed commit never leaves the new 
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Mapping
+import asyncio
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,7 +25,7 @@ from lib.artifacts.generation_input import ASSET_SHEET_CANVAS_RATIO, FrozenGener
 from lib.artifacts.image_reference_snapshot import FrozenImageReferences
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.generation.generation_queue import ensure_dispatch_provider
-from lib.infra.async_thread import run_noninterruptible_sync
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.project.asset_types import ASSET_SPECS, AssetSpec, resolve_asset_key
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
@@ -354,6 +356,26 @@ def storyboard_formal_image_callback(
     )
 
 
+@asynccontextmanager
+async def frozen_generation_input(freeze: Callable[[], FrozenGenerationInput]) -> AsyncGenerator[FrozenGenerationInput]:
+    """在工作线程里冻结生成输入，退出时在工作线程里清理任务私有的参考图快照。
+
+    冻结结果在线程里一建好就登记：取消落在冻结那一程时返回值会丢，退出时按登记回收快照目录。
+    """
+
+    frozen: list[FrozenGenerationInput] = []
+
+    def _freeze() -> None:
+        frozen.append(freeze())
+
+    try:
+        await run_sync_transaction(_freeze)
+        yield frozen[0]
+    finally:
+        if frozen:
+            await run_noninterruptible_sync(frozen[0].references.cleanup)
+
+
 @dataclass(frozen=True, slots=True)
 class FormalImagePlan:
     """Per-task differences of the shared formal image submit/activate pipeline."""
@@ -412,6 +434,8 @@ async def run_formal_image_task(
         optional: dict[str, Any] = {}
         if plan.before_submit is not None:
             optional["before_submit"] = plan.before_submit
+        # 提交回调的构造要定位项目目录（stat），放进工作线程。
+        commit_formal_output = await asyncio.to_thread(plan.build_commit_callback, generator, formal_outcomes)
         await generator.generate_image_async(
             prompt=plan.prompt,
             resource_type=plan.resource_type,
@@ -421,7 +445,7 @@ async def run_formal_image_task(
             image_size=ctx.image.resolution,
             formal_output=True,
             task_id=task_id,
-            commit_formal_output=plan.build_commit_callback(generator, formal_outcomes),
+            commit_formal_output=commit_formal_output,
             **optional,
             **plan.version_metadata,
         )

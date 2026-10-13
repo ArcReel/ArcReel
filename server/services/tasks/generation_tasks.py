@@ -131,6 +131,7 @@ from server.services.tasks.formal_image_commit import (
     FormalImageCommitOutcome,
     FormalImagePlan,
     StagedImageCommit,
+    frozen_generation_input,
     get_aspect_ratio,
     grid_formal_image_callback,
     run_asset_sheet_image_task,
@@ -515,7 +516,7 @@ async def execute_storyboard_task(
         )
 
     artifact_path = f"storyboards/scene_{resource_id}.png"
-    with await asyncio.to_thread(_freeze) as frozen:
+    async with frozen_generation_input(_freeze) as frozen:
         # 剧本 claim 排在最前，其后是参考图按冻结字节绑定的 claims。
         formal_claims = (inputs.script_claim, *frozen.claims)
 
@@ -861,7 +862,7 @@ async def execute_tts_task(
 
     version_record: dict[str, Any] | None = None
     try:
-        records = generator.versions.get_versions("audio", resource_id)["versions"]
+        records = (await asyncio.to_thread(generator.versions.get_versions, "audio", resource_id))["versions"]
         version_record = next(
             (record for record in reversed(records) if record.get("version") == version),
             None,
@@ -1078,16 +1079,22 @@ async def execute_video_task(
 
     artifact_episode = script_input.episode
     formal_input_claims: list[ArtifactInputClaim] = [script_input.claim]
-    currency_resolver = active_artifact_currency_resolver(project_path, project)
-    storyboard_file, end_image = resolve_usable_storyboard_video_inputs(
-        project_path=project_path,
-        project=project,
-        episode=artifact_episode,
-        resource_id=resource_id,
-        item=item,
-        resolver=currency_resolver,
-        claims=formal_input_claims,
-    )
+
+    def _resolve_usable_inputs() -> tuple[ArtifactCurrencyResolver, Path, Path | None]:
+        # 首尾帧可用性判定要读产物清单、对分镜图算摘要，整体放进工作线程。
+        resolver = active_artifact_currency_resolver(project_path, project)
+        start, end = resolve_usable_storyboard_video_inputs(
+            project_path=project_path,
+            project=project,
+            episode=artifact_episode,
+            resource_id=resource_id,
+            item=item,
+            resolver=resolver,
+            claims=formal_input_claims,
+        )
+        return resolver, start, end
+
+    currency_resolver, storyboard_file, end_image = await asyncio.to_thread(_resolve_usable_inputs)
     aspect_ratio = get_aspect_ratio(project, "videos")
     seed = payload.get("seed")
 
@@ -1169,7 +1176,8 @@ async def execute_video_task(
     staged_media: tuple[StagedProviderMedia, ...] = ()
     if task_id is not None:
         artifact_speech_preparation = admit_script_unit(script_kind, item).preparation
-        artifact_speech = freeze_video_speech_facts(
+        artifact_speech = await asyncio.to_thread(
+            freeze_video_speech_facts,
             artifact_speech_preparation,
             characters=project.get("characters"),
             include_voice_styles=not ctx.video.is_silent,
@@ -1204,24 +1212,30 @@ async def execute_video_task(
             )
         staged_media = await stage_provider_media_for_task(project_path, task_id, tuple(media_inputs))
         try:
-            formal_input_claims = list(
-                bind_artifact_input_claims_to_content_digests(
-                    resolver=currency_resolver,
-                    claims=formal_input_claims,
-                    content_digests={media.source_locator: media.sha256 for media in staged_media},
+
+            def _bind_staged_media() -> tuple[list[ArtifactInputClaim], Path, Path | None]:
+                # 执行时的摘要绑定与暂存路径核实都要读盘，整体在工作线程里做。
+                claims = list(
+                    bind_artifact_input_claims_to_content_digests(
+                        resolver=currency_resolver,
+                        claims=formal_input_claims,
+                        content_digests={media.source_locator: media.sha256 for media in staged_media},
+                    )
                 )
-            )
-            provider_start_image = safe_join(
-                project_path,
-                next(media.staged_locator for media in staged_media if media.role == "start_image"),
-                require_file=True,
-            )
-            staged_end = next((media for media in staged_media if media.role == "end_image"), None)
-            provider_end_image = (
-                safe_join(project_path, staged_end.staged_locator, require_file=True)
-                if staged_end is not None
-                else None
-            )
+                start = safe_join(
+                    project_path,
+                    next(media.staged_locator for media in staged_media if media.role == "start_image"),
+                    require_file=True,
+                )
+                staged_end = next((media for media in staged_media if media.role == "end_image"), None)
+                end = (
+                    safe_join(project_path, staged_end.staged_locator, require_file=True)
+                    if staged_end is not None
+                    else None
+                )
+                return claims, start, end
+
+            formal_input_claims, provider_start_image, provider_end_image = await asyncio.to_thread(_bind_staged_media)
             visual_basis_digest = await asyncio.to_thread(
                 _visual_basis_digest_for, provider_start_image, provider_end_image
             )
@@ -1240,8 +1254,7 @@ async def execute_video_task(
                 duration=artifact_duration_basis,
             )
 
-            async def _checkpoint_before_submit() -> Mapping[str, object]:
-                await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
+            def _build_checkpoint() -> StoryboardSubmissionCheckpoint:
                 artifact_currency = VideoArtifactCurrencyFacts(
                     episode=artifact_episode,
                     request_duration_seconds=duration_seconds,
@@ -1254,7 +1267,7 @@ async def execute_video_task(
                     reference_image_limit=None,
                     parent_version=generator.versions.get_current_version("videos", resource_id),
                 )
-                checkpoint = StoryboardSubmissionCheckpoint.create(
+                return StoryboardSubmissionCheckpoint.create(
                     task_id=task_id,
                     project_name=project_name,
                     script_file=script_file,
@@ -1276,6 +1289,11 @@ async def execute_video_task(
                     media=staged_media,
                     reference_audio_targets=None,
                 )
+
+            async def _checkpoint_before_submit() -> Mapping[str, object]:
+                await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_input_claims)
+                # 检查点要读版本记录（版本管理锁）并绑定摘要，放进工作线程构造。
+                checkpoint = await asyncio.to_thread(_build_checkpoint)
                 await get_generation_queue().persist_execution_checkpoint(
                     task_id,
                     checkpoint.to_json(),
@@ -1404,7 +1422,7 @@ async def finalize_video_task(
             asset_path=f"thumbnails/scene_{resource_id}.jpg",
         )
     else:
-        thumbnail_file.unlink(missing_ok=True)
+        await run_sync_transaction(thumbnail_file.unlink, missing_ok=True)
 
     created_at = await asyncio.to_thread(
         lambda: generator.versions.get_versions("videos", resource_id)["versions"][-1]["created_at"]
@@ -1467,7 +1485,7 @@ async def execute_asset_sheet_task(
             bind_claims=_originals_have_no_claims,
         )
 
-    with await asyncio.to_thread(_freeze) as frozen:
+    async with frozen_generation_input(_freeze) as frozen:
         return await run_asset_sheet_image_task(
             asset_type=kind,
             project_name=project_name,
@@ -1591,13 +1609,17 @@ async def execute_grid_task(
     """
     from lib.script.grid.grid_manager import GridManager
     from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, grid_aspect_ratio_for
+    from lib.script.grid.models import GridGeneration
     from lib.script.grid.prompt_builder import build_grid_prompt
 
     project_path = await asyncio.to_thread(get_project_manager().get_project_path, project_name)
-    grid_manager = GridManager(project_path)
+
+    def _load_grid() -> tuple[GridManager, GridGeneration | None]:
+        manager = GridManager(project_path)
+        return manager, manager.get(resource_id)
 
     # a) Load grid
-    grid = grid_manager.get(resource_id)
+    grid_manager, grid = await asyncio.to_thread(_load_grid)
     if grid is None:
         raise ValueError(f"grid not found: {resource_id}")
     project = await asyncio.to_thread(get_project_manager().load_project, project_name)
@@ -1633,7 +1655,7 @@ async def execute_grid_task(
         # b) Set status to generating
         grid.status = "generating"
         grid.error_message = None
-        grid_manager.save(grid)
+        await run_sync_transaction(grid_manager.save, grid)
 
         items, id_field, _char_field, _scene_field, _prop_field = get_storyboard_items(script)
         item_by_id = {str(item.get(id_field)): item for item in items if isinstance(item, dict)}
@@ -1647,11 +1669,12 @@ async def execute_grid_task(
         from lib.script.grid.models import ReferenceImage
 
         grid_input = await asyncio.to_thread(
-            grid_references,
-            project,
-            script,
-            member_ids=grid.scene_ids,
-            observation=project_input_observation(project_path),
+            lambda: grid_references(
+                project,
+                script,
+                member_ids=grid.scene_ids,
+                observation=project_input_observation(project_path),
+            )
         )
         # 参考图集不成立时在解析供应商通道与付费之前失败，一次报出全部缺口。
         if isinstance(grid_input, InputRefused):
@@ -1705,7 +1728,7 @@ async def execute_grid_task(
             grid.reference_images.append(
                 ReferenceImage(path=reference.artifact_path, name=visual.logical_id, ref_type=visual.logical_type)
             )
-        grid_manager.save(grid)
+        await run_sync_transaction(grid_manager.save, grid)
 
         # d) Generate grid image
         members = tuple(
@@ -1748,7 +1771,7 @@ async def execute_grid_task(
         grid.provider = ctx.image.provider_model.provider_id
         grid.model = ctx.image.backend_model
         grid.prompt = prompt_text
-        grid_manager.save(grid)
+        await run_sync_transaction(grid_manager.save, grid)
         # 保底档与档位门控（``large_grid_allowed``）取同一常量，避免门控按 2K 判定、
         # 渲染却按别的档位下发
         image_size = ctx.image.resolution or GRID_FALLBACK_RESOLUTION
@@ -1796,15 +1819,21 @@ async def execute_grid_task(
         await run_sync_transaction(_restore_status_before_claim)
         raise
     except Exception:
-        # The formal-write transaction restores the durable grid record on failure.
-        # Reload it before recording failure so the in-memory ``grid`` never carries
-        # completion fields that did not become durable.
-        grid = grid_manager.get(resource_id) or grid
-        grid.status = "failed"
         import traceback
 
-        grid.error_message = traceback.format_exc()
-        grid_manager.save(grid)
+        # traceback 只能在异常上下文所在的事件循环线程上取，取完再进线程落盘。
+        failure_text = traceback.format_exc()
+
+        def _record_failure() -> None:
+            # The formal-write transaction restores the durable grid record on failure.
+            # Reload it before recording failure so the in-memory ``grid`` never carries
+            # completion fields that did not become durable.
+            failed = grid_manager.get(resource_id) or grid
+            failed.status = "failed"
+            failed.error_message = failure_text
+            grid_manager.save(failed)
+
+        await run_sync_transaction(_record_failure)
         raise
     finally:
         if frozen_references is not None:
@@ -1888,7 +1917,9 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
                 claimed_provider_id=claimed_provider_id,
             )
         # 成功事件发出失败时不回滚产物：已写入的产物保持有效，异常照常上抛。
-        emit_generation_success_batch(
+        # 发事件要读剧本、算产物指纹，放进工作线程；to_thread 复制上下文，事件来源仍是 worker。
+        await asyncio.to_thread(
+            emit_generation_success_batch,
             task_type=task_type,
             project_name=project_name,
             resource_id=resource_id,

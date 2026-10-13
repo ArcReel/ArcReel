@@ -1,7 +1,9 @@
 """Tests for formal_image_commit."""
 
+import asyncio
 import json
 import threading
+from typing import cast
 
 import pytest
 
@@ -10,6 +12,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactKey,
     ProjectArtifactManifestAdapter,
 )
+from lib.artifacts.generation_input import FrozenGenerationInput
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.tasks import formal_image_commit, generation_tasks
@@ -696,3 +699,38 @@ class TestGenerationTasks:
         assert current.read_bytes() == b"old-sheet"
         assert versions.get_current_version("characters", "Alice") == old_version
         assert pm.load_project("demo")["characters"]["Alice"].get("character_sheet") == ""
+
+
+async def test_frozen_generation_input_cleans_snapshots_when_cancelled_during_freeze():
+    """取消落在线程里冻结的那一程：冻结完成后照样回收参考图快照，不进入正文。"""
+    freezing = threading.Event()
+    release = threading.Event()
+    cleaned: list[bool] = []
+    entered: list[bool] = []
+
+    class _References:
+        def cleanup(self) -> None:
+            cleaned.append(True)
+
+    class _Frozen:
+        references = _References()
+
+    def _freeze() -> FrozenGenerationInput:
+        freezing.set()
+        release.wait(5)
+        return cast(FrozenGenerationInput, _Frozen())
+
+    async def _use() -> None:
+        async with formal_image_commit.frozen_generation_input(_freeze):
+            entered.append(True)
+
+    task = asyncio.create_task(_use())
+    await asyncio.to_thread(freezing.wait, 5)
+    task.cancel()
+    await asyncio.sleep(0)
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cleaned == [True]
+    assert entered == []

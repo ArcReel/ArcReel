@@ -52,6 +52,7 @@ from server.services.tasks.formal_image_commit import (
     FormalImageCommitOutcome,
     FormalImagePlan,
     StagedImageCommit,
+    frozen_generation_input,
     run_formal_image_task,
     staged_formal_image_callback,
 )
@@ -230,7 +231,7 @@ async def execute_character_derivative_task(
         image=ImageLaneRequest(generation_type="i2i"),
     )
     ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
-    currency_resolver = active_artifact_currency_resolver(project_path, project)
+    currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
 
     def _bind_claims(
         claims: Sequence[ArtifactInputClaim], content_digests: Mapping[str, str]
@@ -249,7 +250,7 @@ async def execute_character_derivative_task(
         )
 
     pm = get_project_manager()
-    with await asyncio.to_thread(_freeze) as frozen:
+    async with frozen_generation_input(_freeze) as frozen:
 
         def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
             return derivative_sheet_commit_callback(

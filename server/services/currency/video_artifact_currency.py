@@ -22,7 +22,7 @@ from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.artifacts.video_artifact_commit import commit_paid_video_artifact
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.generation.generation_admission import generation_admission_lock, generation_admission_lock_sync
-from lib.infra.async_thread import run_noninterruptible_async
+from lib.infra.async_thread import run_noninterruptible_async, run_noninterruptible_sync
 from lib.infra.json_io import atomic_write_bytes
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, resolve_episode_script_binding
@@ -385,7 +385,8 @@ async def finalize_selected_video_result(
         return await finalize()
     except BaseException as failure:
         try:
-            _require_video_selection_compensation(committer)
+            # 补偿要改写正式文件与版本记录：放进工作线程，并在线程结算后才继续传播原异常。
+            await run_noninterruptible_sync(_require_video_selection_compensation, committer)
         except BaseException as compensation_failure:
             failure.add_note(f"video selection compensation also failed: {compensation_failure}")
         raise
@@ -474,10 +475,14 @@ async def complete_video_artifact_commit(
 ) -> dict[str, Any]:
     """Finish normal and resumed video generation through one selection seam."""
 
+    async def _notify_completed() -> None:
+        # 完成回调（发项目变更事件）会读剧本、算产物指纹，放进工作线程。
+        if on_completed is not None:
+            await asyncio.to_thread(on_completed)
+
     async def _finalize_and_complete() -> dict[str, Any]:
         result = await finalize()
-        if on_completed is not None:
-            on_completed()
+        await _notify_completed()
         return result
 
     if committer is None:
@@ -495,8 +500,7 @@ async def complete_video_artifact_commit(
                 video_uri=video_uri,
                 warnings=warnings,
             )
-            if on_completed is not None:
-                on_completed()
+            await _notify_completed()
             return result
         return await finalize_selected_video_result(committer=committer, finalize=_finalize_and_complete)
     finally:

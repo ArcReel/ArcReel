@@ -1,5 +1,7 @@
 import asyncio
+import contextlib
 import json
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import ClassVar
@@ -1346,6 +1348,46 @@ class TestProjectRelativePath:
 
 
 class TestReferenceCompressionSeam:
+    async def test_cancel_during_compression_still_removes_the_compressed_copies(self, tmp_path, monkeypatch):
+        """取消落在线程里压缩的那一程：压缩完成后照样清理临时副本，且不调用供应商。"""
+        from lib.references import reference_compression
+
+        gen = _build_generator(tmp_path)
+        backend = _ConfigurableImageBackend()
+        gen._image_backend = backend
+        src = _noise_png(tmp_path, "ref.png", 64, 64)
+        compressing = threading.Event()
+        release = threading.Event()
+        cleaned: list[bool] = []
+
+        @contextlib.contextmanager
+        def _slow_payload(specs, *, limits, start_step=0):
+            compressing.set()
+            release.wait(5)
+            try:
+                yield start_step, []
+            finally:
+                cleaned.append(True)
+
+        monkeypatch.setattr(reference_compression, "compressed_reference_payload", _slow_payload)
+        task = asyncio.create_task(
+            gen.generate_image_async(
+                prompt="p",
+                resource_type="storyboards",
+                resource_id="E1S01",
+                reference_images=[str(src)],
+            )
+        )
+        await asyncio.to_thread(compressing.wait, 5)
+        task.cancel()
+        await asyncio.sleep(0)
+        release.set()
+
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert cleaned == [True]
+        assert backend.calls == []
+
     async def test_backend_receives_compressed_copy_source_untouched(self, tmp_path):
         gen = _build_generator(tmp_path)
         backend = _ConfigurableImageBackend()

@@ -40,7 +40,7 @@ from lib.billing.ledger import Ledger
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.video_request_facts import DEFAULT_PLANNED_DURATION_SECONDS
-from lib.infra.async_thread import run_noninterruptible_sync
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.resource_paths import resource_relative_path
 from lib.speech.audio_utils import probe_reference_audio_total_seconds
@@ -102,6 +102,13 @@ def cleanup_staged_video_output(
     _remove_task_video_staging_path(task_video_staging_path(output_path, task_id))
 
 
+async def _discard_staged_output(path: Path | None) -> None:
+    """在工作线程里删除 staging 文件，删除结算完再返回或传播取消。"""
+
+    if path is not None:
+        await run_sync_transaction(path.unlink, missing_ok=True)
+
+
 @asynccontextmanager
 async def _remove_staged_output_on_error(path: Path | None):
     """Remove a formal-output staging file whenever the guarded operation aborts."""
@@ -109,8 +116,7 @@ async def _remove_staged_output_on_error(path: Path | None):
     try:
         yield
     except BaseException:
-        if path is not None:
-            path.unlink(missing_ok=True)  # noqa: ASYNC240 -- 失败路径删除 staging 文件，本地元数据
+        await _discard_staged_output(path)
         raise
 
 
@@ -209,6 +215,23 @@ def _collect_result_warnings(warnings: list[dict[str, Any]] | None, result: "Vid
     warnings.extend(dict(warning) for warning in result.warnings)
 
 
+def _commit_formal_image_output(
+    commit_formal_output: Callable[[Path, Path, Mapping[str, Any]], int],
+    staged_output_path: Path,
+    output_path: Path,
+    metadata: Mapping[str, Any],
+) -> int:
+    """在工作线程里校验 staging 产物、提交正式图片，提交成功后删除 staging。"""
+
+    if not staged_output_path.is_file():
+        raise RuntimeError("image backend completed without a regular staged output file")
+    new_version = commit_formal_output(staged_output_path, output_path, metadata)
+    if type(new_version) is not int or new_version < 1:
+        raise RuntimeError("formal image commit did not return a positive version")
+    staged_output_path.unlink(missing_ok=True)
+    return new_version
+
+
 class MediaGenerator:
     """
     媒体生成器中间层
@@ -303,6 +326,69 @@ class MediaGenerator:
         staged_output_path = task_image_staging_path(output_path, staging_token)
         _remove_task_staging_path(staged_output_path)
         return staged_output_path, staged_output_path
+
+    def _prepare_image_target_sync(
+        self,
+        *,
+        resource_type: str,
+        resource_id: str,
+        formal_output: bool,
+        task_id: str | None,
+        prompt: str,
+        tracked_metadata: Mapping[str, Any],
+    ) -> tuple[Path, Path | None, Path]:
+        """在工作线程里定位图片输出：建目录、清理本任务 staging、登记未入账的旧文件。"""
+
+        output_path = self._get_output_path(resource_type, resource_id)
+        self._ensure_parent_dir(output_path)
+        staged_output_path, backend_output_path = self._prepare_image_output(
+            output_path,
+            formal_output=formal_output,
+            task_id=task_id,
+        )
+        if staged_output_path is None and output_path.exists():
+            self.versions.ensure_current_tracked(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                current_file=output_path,
+                prompt=prompt,
+                **tracked_metadata,
+            )
+        return output_path, staged_output_path, backend_output_path
+
+    def _prepare_video_target_sync(self, resource_type: str, resource_id: str, *, track_existing: bool) -> Path:
+        """在工作线程里定位视频输出并建目录；``track_existing`` 时登记未入账的旧文件。
+
+        这里的 prompt / duration / provider 选项都属于即将发起的新请求，不能写到来源不明的
+        legacy current 上；否则新产物被拒绝回滚后，旧视频会冒充新请求档位，后续被错误地当作
+        可复用成片。未知事实保持未知，新产物在 add_version 时再登记完整请求元数据。
+        """
+
+        output_path = self._get_output_path(resource_type, resource_id)
+        self._ensure_parent_dir(output_path)
+        if track_existing and output_path.exists():
+            self.versions.ensure_current_tracked(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                current_file=output_path,
+                prompt="",
+            )
+        return output_path
+
+    def _prepare_audio_staging_sync(self, resource_id: str) -> tuple[Path, Path]:
+        """在工作线程里定位音频输出，并保留同目录唯一的 staging 文件名（不留占位文件）。"""
+
+        output_path = self._get_output_path("audio", resource_id)
+        self._ensure_parent_dir(output_path)
+        fd, staged_name = tempfile.mkstemp(
+            prefix=f".{output_path.stem}.",
+            suffix=output_path.suffix,
+            dir=output_path.parent,
+        )
+        os.close(fd)
+        staged_path = Path(staged_name)
+        staged_path.unlink()
+        return output_path, staged_path
 
     def _commit_video_output_version_sync(
         self,
@@ -494,26 +580,35 @@ class MediaGenerator:
         limits = await self._reference_limits(provider_id)
         step = 0
         while True:
-            # 压缩是 CPU 密集的 PIL 解码/编码 + 写盘，放进线程避免阻塞 worker 事件循环
-            # （心跳 / SSE / 另一并发通道）。手动驱动上下文管理器：__enter__（含压缩）走线程，
-            # __exit__（清理临时目录，轻量）留在循环里。预检 floor 在 __enter__ 内抛出，此时
-            # 尚未进入 try，临时目录也未创建（select_ladder_step 先于写盘），无需清理、直接冒泡。
+            # 压缩是 CPU 密集的 PIL 解码/编码 + 写盘，清理临时目录要遍历删除，两头都放进线程，
+            # 避免阻塞 worker 事件循环（心跳 / SSE / 另一并发通道）。手动驱动上下文管理器：
+            # __enter__ 在线程里一完成就登记，取消落在压缩那一程时返回值会丢，finally 按登记清理。
+            # 预检 floor 在 __enter__ 内抛出，此时临时目录尚未创建（select_ladder_step 先于写盘），
+            # 不登记、直接冒泡。
             cm = compressed_reference_payload(specs, limits=limits, start_step=step)
-            landed, compressed = await asyncio.to_thread(cm.__enter__)
+            entered: list[tuple[int, list[CompressedRef]]] = []
+
+            def _enter(cm=cm, entered=entered) -> None:
+                entered.append(cm.__enter__())
+
             try:
-                return await _call_once(compressed)
-            except Exception as e:
-                if not _is_413(e) or (provider_resubmit_is_unsafe is not None and provider_resubmit_is_unsafe()):
-                    raise
-                # 从「实际落定档位 landed」续档，而非请求值 step——主动预检可能已因字节超限
-                # 降到 landed>step，必须 landed+1 才严格更小、保证降档单调。
-                if landed < LADDER_STEPS:
-                    step = landed + 1
-                    continue
-                # 已在地板仍 413 → 耗尽 → 用户可见硬错误（保 413 cause）
-                raise ReferencePayloadFloorError() from e
+                await run_sync_transaction(_enter)
+                landed, compressed = entered[0]
+                try:
+                    return await _call_once(compressed)
+                except Exception as e:
+                    if not _is_413(e) or (provider_resubmit_is_unsafe is not None and provider_resubmit_is_unsafe()):
+                        raise
+                    # 从「实际落定档位 landed」续档，而非请求值 step——主动预检可能已因字节超限
+                    # 降到 landed>step，必须 landed+1 才严格更小、保证降档单调。
+                    if landed < LADDER_STEPS:
+                        step = landed + 1
+                        continue
+                    # 已在地板仍 413 → 耗尽 → 用户可见硬错误（保 413 cause）
+                    raise ReferencePayloadFloorError() from e
             finally:
-                cm.__exit__(None, None, None)
+                if entered:
+                    await run_sync_transaction(cm.__exit__, None, None, None)
 
     async def generate_image_async(
         self,
@@ -546,26 +641,18 @@ class MediaGenerator:
         """
         from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
 
-        output_path = self._get_output_path(resource_type, resource_id)
-        self._ensure_parent_dir(output_path)
         if formal_output and commit_formal_output is None:
             raise ValueError("formal image output requires an artifact commit callback")
-        staged_output_path, backend_output_path = self._prepare_image_output(
-            output_path,
+        # 1. 定位输出、清理本任务残留的 staging；非正式输出时若已存在，确保旧文件被记录。
+        output_path, staged_output_path, backend_output_path = await run_sync_transaction(
+            self._prepare_image_target_sync,
+            resource_type=resource_type,
+            resource_id=resource_id,
             formal_output=formal_output,
             task_id=task_id,
+            prompt=prompt,
+            tracked_metadata={"aspect_ratio": aspect_ratio, **version_metadata},
         )
-
-        # 1. 若已存在，确保旧文件被记录
-        if staged_output_path is None and output_path.exists():
-            self.versions.ensure_current_tracked(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                current_file=output_path,
-                prompt=prompt,
-                aspect_ratio=aspect_ratio,
-                **version_metadata,
-            )
 
         if self._image_backend is None:
             raise RuntimeError("image_backend not configured")
@@ -649,7 +736,8 @@ class MediaGenerator:
 
             metadata: dict[str, Any] = {"aspect_ratio": aspect_ratio, **version_metadata}
             if staged_output_path is None:
-                new_version = self.versions.add_version(
+                new_version = await run_noninterruptible_sync(
+                    self.versions.add_version,
                     resource_type=resource_type,
                     resource_id=resource_id,
                     prompt=prompt,
@@ -657,18 +745,14 @@ class MediaGenerator:
                     **metadata,
                 )
             else:
-                if not staged_output_path.is_file():
-                    raise RuntimeError("image backend completed without a regular staged output file")
                 assert commit_formal_output is not None
                 new_version = await run_noninterruptible_sync(
+                    _commit_formal_image_output,
                     commit_formal_output,
                     staged_output_path,
                     output_path,
                     metadata,
                 )
-                if type(new_version) is not int or new_version < 1:
-                    raise RuntimeError("formal image commit did not return a positive version")
-                staged_output_path.unlink(missing_ok=True)
 
         return output_path, new_version
 
@@ -706,22 +790,12 @@ class MediaGenerator:
         from lib.backends.audio_backends.base import AudioSynthesisRequest
 
         resource_type = "audio"
-        output_path = self._get_output_path(resource_type, resource_id)
-        self._ensure_parent_dir(output_path)
-
         if self._audio_backend is None:
             raise RuntimeError("audio_backend not configured")
 
         # 后端只写同目录唯一 staging 文件。只有同步合成完整成功且确实产出普通文件后，
         # 才以原子 replace 提升为 canonical；失败或取消均不会触碰旧付费音频。
-        fd, staged_name = tempfile.mkstemp(
-            prefix=f".{output_path.stem}.",
-            suffix=output_path.suffix,
-            dir=output_path.parent,
-        )
-        os.close(fd)
-        staged_path = Path(staged_name)
-        staged_path.unlink()  # noqa: ASYNC240 -- 删除 mkstemp 占位文件，本地元数据
+        output_path, staged_path = await run_sync_transaction(self._prepare_audio_staging_sync, resource_id)
 
         # audio 合成字符数 → 计费 token 的语义转写已收进 ledger union 分发（_settlement_from_result），
         # 此处仅把 backend 结果对象递交给 call.success。
@@ -753,7 +827,7 @@ class MediaGenerator:
                 if before_submit is not None:
                     await before_submit()
                 result = await self._audio_backend.synthesize(request)
-                if not staged_path.is_file():  # noqa: ASYNC240 -- staging 产物存在性检查，本地元数据
+                if not await asyncio.to_thread(staged_path.is_file):
                     raise RuntimeError("audio backend completed without a regular output file")
                 call.success(result)
 
@@ -762,7 +836,8 @@ class MediaGenerator:
             commit = commit_staged
             selected_current = True
             if commit is None:
-                version = self.versions.commit_staged_version(
+                version = await run_noninterruptible_sync(
+                    self.versions.commit_staged_version,
                     resource_type=resource_type,
                     resource_id=resource_id,
                     prompt=text,
@@ -777,11 +852,11 @@ class MediaGenerator:
                     selected_current = committed.selected
                 else:
                     version = committed
-            if selected_current and not output_path.is_file():
+            if selected_current and not await asyncio.to_thread(output_path.is_file):
                 raise RuntimeError("audio commit completed without a regular formal output file")
             return output_path, version
         finally:
-            staged_path.unlink(missing_ok=True)  # noqa: ASYNC240 -- 收尾删除 staging 文件，本地元数据
+            await _discard_staged_output(staged_path)
 
     async def generate_video_async(
         self,
@@ -832,9 +907,6 @@ class MediaGenerator:
         Returns:
             (output_path, version_number, video_ref, video_uri) 四元组
         """
-        output_path = self._get_output_path(resource_type, resource_id)
-        self._ensure_parent_dir(output_path)
-
         # 先把 duration 归一为 int：上游可能传 "8.0" 浮点字符串，直接 int("8.0") 会 ValueError
         # 走兜底分支静默掉真实值（"10.0" 会被吞成 8）。先 float() 再 int() 保留语义。
         # 提前到所有 ensure_current_tracked / add_version / VideoGenerationRequest 之前，
@@ -845,17 +917,13 @@ class MediaGenerator:
         except (ValueError, TypeError):
             duration_int = DEFAULT_PLANNED_DURATION_SECONDS
 
-        # 1. 若已存在，确保旧文件被记录。这里的 prompt / duration / provider 选项都属于即将
-        # 发起的新请求，不能写到来源不明的 legacy current 上；否则新产物被拒绝回滚后，旧视频
-        # 会冒充新请求档位，后续被错误地当作可复用成片。未知事实保持未知，新产物在 add_version
-        # 时再登记完整请求元数据。
-        if output_path.exists() and not formal_output:
-            self.versions.ensure_current_tracked(
-                resource_type=resource_type,
-                resource_id=resource_id,
-                current_file=output_path,
-                prompt="",
-            )
+        # 1. 若已存在，确保旧文件被记录（只登记未知来源的旧文件，见 _prepare_video_target_sync）。
+        output_path = await run_sync_transaction(
+            self._prepare_video_target_sync,
+            resource_type,
+            resource_id,
+            track_existing=not formal_output,
+        )
 
         if self._video_backend is None:
             raise RuntimeError("video_backend not configured")
@@ -926,7 +994,8 @@ class MediaGenerator:
             configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
         effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 
-        staged_output_path, backend_output_path = self._prepare_video_output(
+        staged_output_path, backend_output_path = await run_sync_transaction(
+            self._prepare_video_output,
             output_path,
             formal_output=formal_output,
             task_id=task_id,
@@ -1041,8 +1110,7 @@ class MediaGenerator:
                     provider_resubmit_is_unsafe=lambda: provider_resubmit_unsafe,
                 )
             except BaseException:
-                if staged_output_path is not None:
-                    staged_output_path.unlink(missing_ok=True)
+                await _discard_staged_output(staged_output_path)
                 raise
             video_uri = result.video_uri
             _merge_result_provenance(version_metadata, result)
@@ -1108,8 +1176,12 @@ class MediaGenerator:
 
         Returns: (output_path, version_number, video_ref, video_uri) 四元组。
         """
-        output_path = self._get_output_path(resource_type, resource_id)
-        self._ensure_parent_dir(output_path)
+        output_path = await run_sync_transaction(
+            self._prepare_video_target_sync,
+            resource_type,
+            resource_id,
+            track_existing=False,
+        )
 
         # 先把 duration 归一为 int：上游可能传 "8.0" 浮点字符串，直接 int("8.0") 会 ValueError
         # 走兜底分支静默掉真实值（"10.0" 会被吞成 8）。先 float() 再 int() 保留语义。
@@ -1134,7 +1206,8 @@ class MediaGenerator:
             configured_generate_audio = ConfigResolver._DEFAULT_VIDEO_GENERATE_AUDIO
         effective_generate_audio = version_metadata.get("generate_audio", configured_generate_audio)
 
-        staged_output_path, backend_output_path = self._prepare_video_output(
+        staged_output_path, backend_output_path = await run_sync_transaction(
+            self._prepare_video_output,
             output_path,
             formal_output=formal_output,
             task_id=task_id,
@@ -1177,13 +1250,11 @@ class MediaGenerator:
                     await self.ledger.resume_failed(call_id=api_call_id, failure=exc)
                 raise
         except asyncio.CancelledError:
-            if staged_output_path is not None:
-                staged_output_path.unlink(missing_ok=True)
+            await _discard_staged_output(staged_output_path)
             raise
         except Exception:
             logger.exception("resume 失败 (video) task_id=%s job_id=%s", task_id, job_id)
-            if staged_output_path is not None:
-                staged_output_path.unlink(missing_ok=True)
+            await _discard_staged_output(staged_output_path)
             raise
 
         video_ref = None
