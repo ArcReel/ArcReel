@@ -32,7 +32,6 @@ import {
   officialOf,
   statusOf,
   type Capability,
-  type EndpointKey,
   type EntryData,
   type Provider,
   type ProviderModel,
@@ -40,7 +39,7 @@ import {
 import { referencesOf, useProto } from "../store";
 import { EntryPicker, NewEntryDialog } from "./AddModel";
 import { CapabilityOverrides } from "./CapabilityOverrides";
-import { FlagBadge, OfficialHint, SectionTitle, StatusBadge, flagsOf } from "./bits";
+import { FlagBadge, OfficialHint, SectionTitle, StatusBadge, endpointLabel, flagsOf } from "./bits";
 import { PathBars } from "./PathBar";
 import { PriceCards } from "./PriceCards";
 
@@ -103,7 +102,8 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
     provider.kind === "custom" && draft.model.endpoint !== model.endpoint && Object.keys(model.pathOverrides ?? {}).length > 0;
 
   const title = draft.entry?.displayName ?? draft.model.apiModelName;
-  const flags = flagsOf(model, storeEntry);
+  // 条目自身的状态（已修改、自建）标在下段条目标题旁，这里只留影响调用的提示
+  const flags = flagsOf(model, storeEntry).filter((f) => f !== "modified" && f !== "user-created");
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
@@ -115,22 +115,23 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
               <FlagBadge key={f} flag={f} />
             ))}
           </SheetTitle>
-          <SheetDescription>
-            {provider.displayName} · <span className="font-mono">{draft.model.apiModelName}</span>
+          <SheetDescription className="flex flex-wrap gap-x-3">
+            <span>{provider.displayName}</span>
+            <span className="font-mono">{draft.model.apiModelName}</span>
           </SheetDescription>
         </SheetHeader>
 
         <SheetBody className="flex flex-col gap-0 p-0">
           {/* 上段：本供应商的设置 */}
           <section className="flex flex-col gap-4 px-5 py-5">
-            <div className="flex items-center gap-2">
-              <span className="rounded-md bg-muted px-1.5 py-0.5 text-xs text-subtle-foreground">只影响 {provider.displayName}</span>
-              <h3 className="text-base font-medium">本供应商的设置</h3>
+            <div className="flex flex-col gap-0.5">
+              <h3 className="text-base font-medium">供应商设置</h3>
+              <p className="text-xs text-muted-foreground">修改只影响「{provider.displayName}」。</p>
             </div>
             {readOnlyChannel && (
               <p className="flex items-start gap-2 rounded-md bg-muted/50 px-3 py-2 text-xs text-subtle-foreground">
                 <Info aria-hidden className="mt-0.5 size-3.5 shrink-0" />
-                官方收录，全部跟随官方数据；只能启用、停用、设为默认。
+                这个模型由官方收录，设置随官方数据更新，只能启用、停用或设为默认。
               </p>
             )}
             <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -140,11 +141,11 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
               </label>
               <label className="flex items-center gap-2 text-sm">
                 <Switch checked={draft.model.isDefault} onCheckedChange={(v) => setModel({ isDefault: v, ...(v ? { enabled: true } : {}) })} />
-                设为{draft.entry ? MEDIA_LABEL[draft.entry.mediaType] : ""}默认
+                设为默认{draft.entry ? MEDIA_LABEL[draft.entry.mediaType] : ""}模型
               </label>
             </div>
 
-            <Field label="API 模型名" hint="实际发给供应商的模型名，可以与条目的官方模型名不同">
+            <Field label="API 模型名" hint="请求中发给供应商的模型名，可以与条目的官方模型名不同。">
               <Input
                 className="font-mono"
                 readOnly={readOnlyChannel}
@@ -157,7 +158,7 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
               <Field label="调用端点">
                 <Select
                   value={draft.model.endpoint ?? null}
-                  items={Object.values(ENDPOINTS).map((e) => ({ value: e.key, label: `${e.label}（${MEDIA_LABEL[e.mediaType]}）` }))}
+                  items={Object.values(ENDPOINTS).map((e) => ({ value: e.key, label: endpointLabel(e.key) }))}
                   onValueChange={(v) => v && setModel({ endpoint: v, pathOverrides: {} })}
                 >
                   <SelectTrigger className="w-72">
@@ -166,16 +167,16 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
                   <SelectContent>
                     {Object.values(ENDPOINTS).map((e) => (
                       <SelectItem key={e.key} value={e.key}>
-                        {e.label}（{MEDIA_LABEL[e.mediaType]}）{e.kind === "declarative" ? " · 声明式" : ""}
+                        {endpointLabel(e.key)}{e.kind === "declarative" ? "，声明式" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                {endpointChangedWithOverrides && <p className="mt-1 text-xs text-warn">改挂端点后，原有路径覆盖将丢弃。</p>}
+                {endpointChangedWithOverrides && <p className="mt-1 text-xs text-warn">更换调用端点后，已设置的路径覆盖会被清除。</p>}
               </Field>
             )}
 
-            <Field label="倍率" hint={readOnlyChannel ? "官方收录的供应商模型倍率随官方数据下发" : "供应商模型倍率，乘在整笔参考费用上"}>
+            <Field label="模型倍率" hint={readOnlyChannel ? "官方收录的模型，倍率随官方数据更新。" : "在供应商倍率之上，再乘以这个倍率。"}>
               <div className="flex items-center gap-2">
                 <Input
                   type="number"
@@ -187,13 +188,13 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
                   onChange={(e) => setModel({ multiplier: Number(e.target.value) })}
                 />
                 <span className="text-xs text-muted-foreground">
-                  生效倍率 = 供应商 ×{provider.multiplier} × 本模型 ×{draft.model.multiplier} = ×{effectiveMultiplier(provider, draft.model)}
+                  实际倍率：{provider.multiplier}（供应商）× {draft.model.multiplier}（模型）= {effectiveMultiplier(provider, draft.model)}
                 </span>
               </div>
             </Field>
 
             {!readOnlyChannel && (draft.entry?.mediaType === "video" || draft.entry?.mediaType === "image") && (
-              <Field label="能力覆盖" hint="渠道与条目或端点声明不一致时用覆盖表达，按维度整体替换，优先级最高">
+              <Field label="能力覆盖" hint="这个供应商支持的能力与模型条目不一致时使用。覆盖值整项替换原值。">
                 <CapabilityOverrides
                   entry={draft.entry}
                   endpoint={draft.model.endpoint}
@@ -205,7 +206,7 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
             )}
 
             {provider.kind === "custom" && draft.model.endpoint && (
-              <Field label="请求路径" hint="点击路径段修改。覆盖整条替换路径，相对于 base_url 原样值">
+              <Field label="请求路径" hint="点击路径修改。覆盖值替换整条默认路径，直接拼接在接口地址之后。">
                 <PathBarsLazy provider={provider} draft={draft} onChange={(v) => setModel({ pathOverrides: v })} />
               </Field>
             )}
@@ -220,29 +221,33 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
                   onClose();
                 }}
               >
-                <Trash2 aria-hidden />从 {provider.displayName} 移除
+                <Trash2 aria-hidden />从「{provider.displayName}」移除
               </Button>
             )}
           </section>
 
           {/* 下段：模型条目 */}
           <section className="flex flex-col gap-4 border-t-4 border-border bg-card/30 px-5 py-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-xs text-primary">所有供应商共用</span>
-              <h3 className="text-base font-medium">模型条目</h3>
-              {status && <StatusBadge status={status} />}
+            <div className="flex flex-wrap items-start gap-2">
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                <h3 className="flex items-center gap-2 text-base font-medium">
+                  模型条目
+                  {status && <StatusBadge status={status} />}
+                </h3>
+                <p className="text-xs text-muted-foreground">描述模型本身的能力和价格，所有使用这个条目的供应商共用。</p>
+              </div>
               {!readOnlyChannel && (
-                <Button variant="ghost" size="xs" className="ml-auto" onClick={() => setPickEntry(true)}>
+                <Button variant="ghost" size="xs" onClick={() => setPickEntry(true)}>
                   <ArrowLeftRight aria-hidden />
-                  换一个条目
+                  更换条目
                 </Button>
               )}
             </div>
 
             {!draft.entry || !draftCatalogEntry ? (
               <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-warn/50 px-4 py-4">
-                <p className="text-sm text-warn">这个供应商模型没有对应到模型条目，调用记为未定价。</p>
-                <p className="text-xs text-muted-foreground">选一个目录里的条目，能力与价格就从条目取；目录里没有就新建一个。</p>
+                <p className="text-sm text-warn">这个模型没有对应的模型条目，调用费用记为未定价。</p>
+                <p className="text-xs text-muted-foreground">选择目录中的条目后，能力和价格从条目读取。目录中没有时，可以新建条目。</p>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => setPickEntry(true)}>
                     选择条目
@@ -256,15 +261,14 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
               <>
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                   <span className="font-mono text-subtle-foreground">{draftCatalogEntry.id}</span>
-                  <span className="text-muted-foreground">
-                    {makerLabel(draft.entry.maker)} · {MEDIA_LABEL[draft.entry.mediaType]}
-                  </span>
+                  <span className="text-muted-foreground">{makerLabel(draft.entry.maker)}</span>
+                  <span className="text-muted-foreground">{MEDIA_LABEL[draft.entry.mediaType]}</span>
                 </div>
 
                 <p className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/[0.07] px-3 py-2 text-xs text-subtle-foreground">
                   <Link2 aria-hidden className="mt-0.5 size-3.5 shrink-0 text-primary" />
                   <span>
-                    修改会影响 {refs.length} 个供应商模型：
+                    修改条目会影响以下 {refs.length} 个供应商模型：
                     {refs.map((r, i) => (
                       <span key={r.model.key}>
                         {i > 0 && "、"}
@@ -284,16 +288,6 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
                   onTurnOff={() => setEntrySync(draftCatalogEntry.id, false)}
                   onRestore={() => setConfirmRestore(true)}
                 />
-                {status === "modified-outdated" && (
-                  <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-                    官方在你修改后更新过（官方 {official?.version}，你的版本基于 {draftCatalogEntry.user?.version}）。不同之处已在各字段下方标出，可以逐项采用，或恢复官方值。
-                  </p>
-                )}
-                {status === "user-created-official" && (
-                  <p className="rounded-md border border-good/40 bg-good/10 px-3 py-2 text-xs text-good">
-                    官方已收录同一身份的条目。打开官方同步即改用官方数据，你的版本会丢弃。
-                  </p>
-                )}
 
                 <Field label="显示名">
                   <Input value={draft.entry.displayName} onChange={(e) => setEntry({ displayName: e.target.value })} />
@@ -301,7 +295,7 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
                 </Field>
 
                 {CAPS_BY_MEDIA[draft.entry.mediaType].length > 0 && (
-                  <Field label="能力" hint="模型本身的事实；渠道差异用上方的能力覆盖">
+                  <Field label="能力" hint="模型本身支持的能力。某个供应商不支持时，在上方的能力覆盖中设置。">
                     <div className="flex flex-wrap gap-1.5">
                       {CAPS_BY_MEDIA[draft.entry.mediaType].map((c) => {
                         const on = draft.entry!.capabilities.includes(c);
@@ -349,7 +343,7 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
                   </Field>
                 )}
 
-                <Field label="价目表" hint="费用 = 倍率 × Σ 计量项（用量 − 免费额度）× 单价">
+                <Field label="价目表" hint="参考费用 = 各计量项（用量 − 免费额度）× 单价之和 × 实际倍率">
                   <PriceCards value={draft.entry.price} onChange={(price) => setEntry({ price })} official={userOwnsEntry ? official?.price : null} />
                 </Field>
               </>
@@ -359,7 +353,7 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
 
         <SheetFooter className="flex-col items-stretch gap-2">
           {entryDirty && draftCatalogEntry?.syncOn && (
-            <p className="text-xs text-warn">保存后将关闭这个条目的官方同步，{refs.length} 个供应商模型都改用你的版本。</p>
+            <p className="text-xs text-warn">保存后，这个条目不再跟随官方数据，{refs.length} 个供应商模型都使用修改后的条目。</p>
           )}
           <SaveBar unit={unit} />
         </SheetFooter>
@@ -390,9 +384,9 @@ export function ModelSheet({ provider, model, onClose }: { provider: Provider; m
       <AlertDialog open={confirmRestore} onOpenChange={setConfirmRestore}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>恢复官方值？</AlertDialogTitle>
+            <AlertDialogTitle>恢复官方值</AlertDialogTitle>
             <AlertDialogDescription>
-              你对这个条目的修改会丢弃，{refs.length} 个供应商模型改用官方数据，之后继续接收官方同步。
+              对「{draft.entry?.displayName}」的修改会被丢弃，且无法撤销。{refs.length} 个供应商模型改用官方数据，之后随官方数据更新。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -432,12 +426,12 @@ function SyncRow({
         <span className="text-sm">官方同步</span>
         <span className="text-xs text-muted-foreground">
           {!hasOfficial
-            ? "官方没有收录这个条目，由你负责"
+            ? "官方未收录这个模型，条目由你维护。"
             : syncOn
-              ? entryStatus === "factory"
-                ? "跟随官方数据，当前用的是出厂快照"
-                : "跟随官方数据，有更新时自动应用"
-              : "已关闭：这个条目由你负责，官方更新不再应用"}
+              ? "跟随官方数据，官方更新后自动应用。"
+              : entryStatus === "user-created-official"
+                ? "官方已收录这个模型。打开后改用官方数据，你的条目会被丢弃。"
+                : "已关闭，条目由你维护，官方更新不会应用。"}
         </span>
       </div>
       {!syncOn && hasOfficial && (
@@ -478,7 +472,7 @@ function ListInput({ value, onChange, suffix, numeric }: { value: (string | numb
           onChange(next);
         }}
       />
-      <span className="text-xs text-muted-foreground">{suffix ? `${suffix}，` : ""}用逗号分隔</span>
+      <span className="text-xs text-muted-foreground">{suffix ? `单位为${suffix}，` : ""}用逗号分隔</span>
     </div>
   );
 }

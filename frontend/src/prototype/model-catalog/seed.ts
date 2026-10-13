@@ -233,6 +233,25 @@ function withExtras(providers: Provider[]): Provider[] {
   return providers;
 }
 
+/** 自定义供应商「获取模型」返回的 API 模型名（示意）：已添加的、能对应条目的、对应不上的各有几个。 */
+const CUSTOM_DISCOVERED: Record<string, string[]> = {
+  c1: [
+    "anthropic/claude-sonnet-4.5",
+    "anthropic/claude-haiku-4.5",
+    "openai/gpt-5.4",
+    "openai/gpt-5.4-mini",
+    "google/gemini-3.1-pro-preview",
+    "google/gemini-3.1-flash-image-preview",
+    "google/veo-3.1-fast",
+    "deepseek/deepseek-v4-flash",
+    "moonshotai/kimi-k2.6",
+    "x-ai/grok-4.20",
+    "meta-llama/llama-4-maverick",
+  ],
+  c2: ["glm-5.1", "glm-4.6v", "glm-4.5-air", "embedding-3"],
+  c3: ["claude-sonnet-4-5-20250929", "doubao-seedance-2-0", "doubao-seedance-2-0-fast", "kling-v3", "kling-v3-omni", "flux-kontext-pro", "gpt-image-2", "MiniMax-H3", "xh-story-writer", "xh-story-writer-pro"],
+};
+
 function customProviders(): Provider[] {
   return [
     {
@@ -299,5 +318,5 @@ function customProviders(): Provider[] {
 }
 
 export function seedProviders(): Provider[] {
-  return [...withExtras(builtinProviders()), ...customProviders()];
+  return [...withExtras(builtinProviders()), ...customProviders().map((p) => ({ ...p, discovered: CUSTOM_DISCOVERED[p.id] }))];
 }

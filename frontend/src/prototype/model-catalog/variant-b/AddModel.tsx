@@ -1,5 +1,5 @@
-// PROTOTYPE — #3091 变体 B 浏览整个模型目录的唯一入口：「添加模型」与「换一个条目」共用的 Command 面板，
-// 以及目录里没有时的「新建条目」对话框。
+// PROTOTYPE — #3091 变体 B 浏览整个模型目录的唯一入口：「添加模型」与「更换条目」共用的 Command 面板，
+// 以及目录中没有时的「新建条目」对话框。批量拉取供应商的模型列表另见 DiscoverModels。
 
 import { useMemo, useState } from "react";
 import { Plus, Search } from "lucide-react";
@@ -24,15 +24,7 @@ import {
   type Provider,
 } from "../model";
 import { useProto } from "../store";
-import { Chip, DEFAULT_ENDPOINT, StatusBadge } from "./bits";
-
-function matchEntry(entries: CatalogEntry[], apiName: string): CatalogEntry | undefined {
-  const n = apiName.toLowerCase();
-  return entries.find((e) => {
-    const d = effectiveOf(e);
-    return d.name.toLowerCase() === n || e.id.toLowerCase() === n || (d.aliases ?? []).some((a) => a.toLowerCase() === n);
-  });
-}
+import { Chip, StatusBadge, endpointFor, matchEntry } from "./bits";
 
 function EntryItem({ entry, onSelect, suffix }: { entry: CatalogEntry; onSelect: () => void; suffix?: React.ReactNode }) {
   const d = effectiveOf(entry);
@@ -41,10 +33,12 @@ function EntryItem({ entry, onSelect, suffix }: { entry: CatalogEntry; onSelect:
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="flex items-center gap-2 truncate">
           {d.displayName}
-          {d.deprecated && <span className="text-xs text-destructive">官方已下架</span>}
+          {d.deprecated && <span className="text-xs text-destructive">已下架</span>}
         </span>
-        <span className="truncate text-xs text-muted-foreground">
-          {makerLabel(d.maker)} · {MEDIA_LABEL[d.mediaType]} · {priceSummary(d.price)}
+        <span className="flex gap-3 truncate text-xs text-muted-foreground">
+          <span>{makerLabel(d.maker)}</span>
+          <span>{MEDIA_LABEL[d.mediaType]}</span>
+          <span>{priceSummary(d.price)}</span>
         </span>
       </div>
       {suffix}
@@ -71,13 +65,13 @@ export function EntryPicker({
   const [filter, setFilter] = useState<MediaType | "all">(media ?? "all");
   const list = entries.filter((e) => filter === "all" || effectiveOf(e).mediaType === filter);
   return (
-    <CommandDialog open={open} onOpenChange={onOpenChange} title="选择模型条目" description="在模型目录里搜索" className="top-[8dvh] sm:max-w-2xl">
+    <CommandDialog open={open} onOpenChange={onOpenChange} title="选择模型条目" description="搜索模型目录" className="top-[8dvh] sm:max-w-2xl">
       <Command>
-        <CommandInput placeholder="搜索模型名、条目 id 或别名" />
+        <CommandInput placeholder="搜索模型名、条目 ID 或别名" />
         <MediaChips value={filter} onChange={setFilter} entries={entries} />
         <CommandList className="max-h-[calc(84dvh-150px)]">
-          <CommandEmpty>目录里没有匹配的条目。</CommandEmpty>
-          <CommandGroup heading={`模型目录 · ${list.length} 个条目`}>
+          <CommandEmpty>模型目录中没有匹配的条目。</CommandEmpty>
+          <CommandGroup heading={`模型目录（${list.length}）`}>
             {list.map((e) => (
               <EntryItem
                 key={e.id}
@@ -114,8 +108,8 @@ function MediaChips({ value, onChange, entries }: { value: MediaType | "all"; on
 function CreateFooter({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex items-center gap-2 border-t border-border px-3 py-2 text-sm">
-      <span className="text-muted-foreground">目录里没有？</span>
-      <Button variant="ghost" size="sm" onClick={onCreate}>
+      <span className="text-muted-foreground">目录中没有需要的模型时，可以新建条目。</span>
+      <Button variant="ghost" size="sm" className="ml-auto" onClick={onCreate}>
         <Plus aria-hidden />
         新建条目
       </Button>
@@ -123,7 +117,7 @@ function CreateFooter({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-/** 「添加模型」：内置供应商先列官方收录未启用的、获取模型得到的未收录 id，再列整个目录。 */
+/** 「添加模型」：内置供应商先列官方收录、未启用的模型，再列整个目录；也可以直接按 API 模型名添加。 */
 export function AddModelDialog({
   provider,
   open,
@@ -148,10 +142,6 @@ export function AddModelDialog({
     return filter === "all" || (e ? effectiveOf(e).mediaType === filter : false);
   };
   const disabledOfficial = builtin ? provider.models.filter((m) => m.responsibility === "official" && !m.enabled && inFilter(m.entryId)) : [];
-  const listedNames = new Set(provider.models.map((m) => m.apiModelName));
-  const unlisted = builtin
-    ? (provider.discovered ?? []).filter((id) => !listedNames.has(id) && (filter === "all" || inFilter(matchEntry(entries, id)?.id ?? null)))
-    : [];
   const catalog = useMemo(() => entries.filter((e) => filter === "all" || effectiveOf(e).mediaType === filter), [entries, filter]);
   const entryOf = (id: string | null) => entries.find((e) => e.id === id);
 
@@ -165,7 +155,7 @@ export function AddModelDialog({
       isDefault: false,
       responsibility: "user",
       multiplier: 1,
-      ...(provider.kind === "custom" ? { endpoint: DEFAULT_ENDPOINT[media ?? "text"] } : {}),
+      ...(provider.kind === "custom" ? { endpoint: endpointFor(provider, media ?? "text", entries) } : {}),
     });
     onOpenChange(false);
     onAdded(key);
@@ -173,14 +163,14 @@ export function AddModelDialog({
 
   return (
     <>
-      <CommandDialog open={open && !creating} onOpenChange={onOpenChange} title={`给 ${provider.displayName} 添加模型`} description="在模型目录里搜索" className="top-[8dvh] sm:max-w-2xl">
+      <CommandDialog open={open && !creating} onOpenChange={onOpenChange} title={`添加模型到「${provider.displayName}」`} description="搜索模型目录" className="top-[8dvh] sm:max-w-2xl">
         <Command>
-          <CommandInput placeholder="搜索模型名、条目 id 或 API 模型名" value={query} onValueChange={setQuery} />
+          <CommandInput placeholder="搜索模型名、条目 ID，或输入 API 模型名" value={query} onValueChange={setQuery} />
           <MediaChips value={filter} onChange={setFilter} entries={entries} />
           <CommandList className="max-h-[calc(84dvh-150px)]">
             <CommandEmpty>没有匹配的模型。</CommandEmpty>
             {disabledOfficial.length > 0 && (
-              <CommandGroup heading="官方收录，尚未启用">
+              <CommandGroup heading="官方收录、未启用">
                 {disabledOfficial.map((m) => {
                   const e = entryOf(m.entryId);
                   return e ? (
@@ -198,36 +188,15 @@ export function AddModelDialog({
                 })}
               </CommandGroup>
             )}
-            {builtin && provider.discoverable && unlisted.length > 0 && (
-              <CommandGroup heading="获取模型得到、官方未收录">
-                {unlisted.map((id) => {
-                  const e = matchEntry(entries, id);
-                  return (
-                    <CommandItem key={id} value={`discovered ${id}`} onSelect={() => add(id, e?.id ?? null, e ? effectiveOf(e).mediaType : undefined)}>
-                      <div className="flex min-w-0 flex-1 flex-col">
-                        <span className="font-mono text-sm">{id}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {e ? `对应条目 ${effectiveOf(e).displayName}` : "没有对应的条目，添加后记为未定价，可再选择或新建条目"}
-                        </span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">由你负责</span>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            )}
-            {builtin && !provider.discoverable && (
-              <div className="px-3 py-2 text-xs text-muted-foreground">{provider.displayName} 没有模型列表接口，官方未收录的模型只能按 id 手动添加。</div>
-            )}
             {query.trim() && (
-              <CommandGroup heading="按 id 添加">
+              <CommandGroup heading="按 API 模型名添加">
                 <CommandItem value={`manual ${query}`} onSelect={() => add(query.trim(), matchEntry(entries, query.trim())?.id ?? null)}>
                   <Search aria-hidden />
-                  添加 API 模型名「<span className="font-mono">{query.trim()}</span>」
+                  添加「<span className="font-mono">{query.trim()}</span>」
                 </CommandItem>
               </CommandGroup>
             )}
-            <CommandGroup heading={`模型目录 · ${catalog.length} 个条目`}>
+            <CommandGroup heading={`模型目录（${catalog.length}）`}>
               {catalog.map((e) => {
                 const d = effectiveOf(e);
                 return <EntryItem key={e.id} entry={e} onSelect={() => add(d.name, e.id, d.mediaType)} />;
@@ -281,22 +250,22 @@ export function NewEntryDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>新建模型条目</DialogTitle>
-          <DialogDescription>目录里没有的模型由你新建并负责；日后官方收录了同一身份，可以打开官方同步改用官方数据。</DialogDescription>
+          <DialogDescription>为目录中没有的模型新建条目，条目由你维护。</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1 text-sm">
               模型厂商
-              <Input value={maker} onChange={(e) => setMaker(e.target.value)} placeholder="如 bfl" />
+              <Input value={maker} onChange={(e) => setMaker(e.target.value)} placeholder="例如 bfl" />
             </label>
             <label className="flex flex-col gap-1 text-sm">
               官方模型名
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="如 flux-kontext-max" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="例如 flux-kontext-max" />
             </label>
           </div>
           <p className="text-xs text-muted-foreground">
-            条目 id：<span className="font-mono">{id}</span>
-            {taken && <span className="ml-2 text-warn">已存在，请直接选用</span>}
+            条目 ID：<span className="font-mono">{id}</span>
+            {taken && <span className="ml-2 text-warn">目录中已有这个条目，请直接选择。</span>}
           </p>
           <label className="flex flex-col gap-1 text-sm">
             显示名
@@ -327,7 +296,7 @@ export function NewEntryDialog({
                 </Chip>
               ))}
             </div>
-            <span className="text-xs text-muted-foreground">预设只决定初始的计量项，建好后可以继续加档、加条件。</span>
+            <span className="text-xs text-muted-foreground">计价方式只决定初始计量项。新建后可以继续添加价格档和分档条件。</span>
           </div>
         </DialogBody>
         <DialogFooter>

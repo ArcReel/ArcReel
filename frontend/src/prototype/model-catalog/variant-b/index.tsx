@@ -1,10 +1,11 @@
 // PROTOTYPE — #3091 变体 B「条目嵌在供应商里」。
 // 侧栏不新增分区：一切从「供应商」进入。供应商模型列表点开右侧 Sheet，上段是本供应商的设置，下段是共用的模型条目；
-// 浏览整个目录只经「添加模型」的 Command 面板。
+// 浏览整个目录只经「添加模型」的 Command 面板；有模型列表接口的供应商另有「获取模型」。
+// 官方同步全自动、不打扰，界面上不设全局同步状态，只在用户维护的条目上就地标出官方值。
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
-import { Plus } from "lucide-react";
+import { Download, Loader2, Plus } from "lucide-react";
 import { cn } from "cn";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
 import { SecondaryRail, type SecondaryRailGroup } from "@/components/shared/master-detail/SecondaryRail";
@@ -29,8 +30,8 @@ import {
 import { useProto } from "../store";
 import { AddModelDialog } from "./AddModel";
 import { Chip, FlagBadge, flagsOf, providersPath, type ModelFlag } from "./bits";
+import { DiscoverModelsDialog } from "./DiscoverModels";
 import { ModelSheet } from "./ModelSheet";
-import { SyncBlock } from "./SyncBlock";
 
 function Glyph({ name }: { name: string }) {
   return (
@@ -63,7 +64,7 @@ export function ProvidersView() {
           .map((p) => ({
             id: p.id,
             label: p.displayName,
-            description: p.credentialCount > 0 ? `${p.models.filter((m) => m.enabled).length} 个模型启用` : "未配置",
+            description: p.credentialCount > 0 ? `已启用 ${p.models.filter((m) => m.enabled).length} 个模型` : "未配置密钥",
             icon: <ProviderIcon providerId={p.id} className="size-4" />,
             href: providersPath(p),
           })),
@@ -88,14 +89,7 @@ export function ProvidersView() {
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <div className="flex w-14 shrink-0 flex-col border-r border-border @5xl/page:w-66">
-        <div className="hidden px-3 pt-4 @5xl/page:block">
-          <SyncBlock />
-        </div>
-        <div className="flex min-h-0 flex-1 [&>nav]:w-full [&>nav]:flex-1 [&>nav]:border-r-0">
-          <SecondaryRail label="供应商列表" groups={groups} activeId={provider?.id ?? null} replace />
-        </div>
-      </div>
+      <SecondaryRail label="供应商列表" groups={groups} activeId={provider?.id ?? null} replace />
       {provider ? (
         <ProviderPane key={provider.id} provider={provider} pmKey={pmKey} />
       ) : (
@@ -107,13 +101,12 @@ export function ProvidersView() {
   );
 }
 
-type Filter = "all" | "enabled" | "modified" | "outdated" | "unpriced";
+type Filter = "all" | "enabled" | "modified" | "unpriced";
 const FILTERS: { id: Filter; label: string; test: (m: ProviderModel, flags: ModelFlag[]) => boolean }[] = [
   { id: "all", label: "全部", test: () => true },
   { id: "enabled", label: "已启用", test: (m) => m.enabled },
-  { id: "modified", label: "条目已修改", test: (_, f) => f.includes("modified") || f.includes("user-created") || f.includes("user-created-official") },
-  { id: "outdated", label: "官方有更新", test: (_, f) => f.includes("outdated") || f.includes("user-created-official") },
-  { id: "unpriced", label: "未定价", test: (_, f) => f.includes("unpriced") },
+  { id: "modified", label: "条目已修改或自建", test: (_, f) => f.includes("modified") || f.includes("user-created") },
+  { id: "unpriced", label: "未定价", test: (_, f) => f.includes("unpriced") || f.includes("unmapped") },
 ];
 
 function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string | null }) {
@@ -123,6 +116,15 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
   const [, navigate] = useLocation();
   const [filter, setFilter] = useState<Filter>("all");
   const [adding, setAdding] = useState(false);
+  const [fetching, setFetching] = useState(false);
+  const [discovered, setDiscovered] = useState(false);
+  const fetchModels = () => {
+    setFetching(true);
+    window.setTimeout(() => {
+      setFetching(false);
+      setDiscovered(true);
+    }, 700);
+  };
 
   const entryOf = useCallback((id: string | null) => entries.find((e) => e.id === id), [entries]);
   const rows = provider.models.map((m) => ({ model: m, entry: entryOf(m.entryId), flags: flagsOf(m, entryOf(m.entryId)) }));
@@ -146,7 +148,7 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <h2 className="text-lg font-medium">{provider.displayName}</h2>
             <p className="text-sm text-muted-foreground">
-              {provider.kind === "builtin" ? "内置供应商，代表官方渠道" : "自定义供应商"} · 密钥 {provider.credentialCount} 个（原型不展示密钥管理）
+              {provider.kind === "builtin" ? "内置供应商，调用模型厂商的官方接口。" : "自定义供应商。"}已配置 {provider.credentialCount} 个密钥（原型未实现密钥管理）。
             </p>
           </div>
         </div>
@@ -157,7 +159,7 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
         <section className="flex flex-wrap items-end gap-4">
           {provider.kind === "custom" && (
             <label className="flex min-w-80 flex-1 flex-col gap-1.5 text-sm font-medium">
-              base_url
+              接口地址
               <Input className="font-mono font-normal" value={unit.value.baseUrl} onChange={(e) => unit.setValue((v) => ({ ...v, baseUrl: e.target.value }))} />
             </label>
           )}
@@ -173,7 +175,7 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
                 onChange={(e) => unit.setValue((v) => ({ ...v, multiplier: Number(e.target.value) }))}
               />
               <span className="text-xs font-normal text-muted-foreground">
-                {provider.id === "ark-agent-plan" ? "订阅制，默认 0：费用记 0，不查价" : "乘在这个供应商的全部参考费用上"}
+                {provider.id === "ark-agent-plan" ? "订阅制计费，倍率默认为 0，调用费用记为 0。" : "这个供应商的所有调用，参考费用都乘以这个倍率。"}
               </span>
             </div>
           </label>
@@ -182,10 +184,18 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
         <section className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-base font-medium">模型</h3>
-            <Button size="sm" onClick={() => setAdding(true)}>
-              <Plus aria-hidden />
-              添加模型
-            </Button>
+            <div className="flex items-center gap-2">
+              {provider.discoverable && (
+                <Button size="sm" variant="outline" disabled={fetching} onClick={fetchModels}>
+                  {fetching ? <Loader2 aria-hidden className="animate-spin" /> : <Download aria-hidden />}
+                  {fetching ? "获取中……" : "获取模型"}
+                </Button>
+              )}
+              <Button size="sm" onClick={() => setAdding(true)}>
+                <Plus aria-hidden />
+                添加模型
+              </Button>
+            </div>
           </div>
           <div className="flex flex-wrap gap-1.5">
             {FILTERS.map((f) => (
@@ -202,7 +212,7 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
             return (
               <div key={media} className="flex flex-col">
                 <h4 className="px-1 pb-1 text-xs text-muted-foreground">
-                  {MEDIA_LABEL[media]} · {group.length}
+                  {MEDIA_LABEL[media]}（{group.length}）
                 </h4>
                 <ul className="flex flex-col divide-y divide-border/60 rounded-lg border border-border">
                   {group.map(({ model, entry, flags }) => {
@@ -231,12 +241,12 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
                               <FlagBadge key={f} flag={f} />
                             ))}
                           </span>
-                          <span className="flex max-w-full items-center gap-1.5 truncate text-xs text-muted-foreground">
+                          <span className="flex max-w-full items-center gap-3 truncate text-xs text-muted-foreground">
                             <span className="font-mono">{model.apiModelName}</span>
-                            {data && data.price.meters.length > 0 && <span>· {priceSummary(data.price)}</span>}
-                            {mult !== 1 && <span className={cn(mult === 0 && "text-good")}>· 倍率 ×{mult}</span>}
-                            {model.endpoint && <span>· {ENDPOINTS[model.endpoint].label}</span>}
-                            {model.pathOverrides && Object.keys(model.pathOverrides).length > 0 && <span>· 路径已覆盖</span>}
+                            {data && data.price.meters.length > 0 && <span>{priceSummary(data.price)}</span>}
+                            {mult !== 1 && <span className={cn(mult === 0 && "text-good")}>倍率 {mult}</span>}
+                            {model.endpoint && <span>{ENDPOINTS[model.endpoint].label}</span>}
+                            {model.pathOverrides && Object.keys(model.pathOverrides).length > 0 && <span>已覆盖路径</span>}
                           </span>
                         </button>
                       </li>
@@ -249,6 +259,7 @@ function ProviderPane({ provider, pmKey }: { provider: Provider; pmKey: string |
         </section>
       </div>
 
+      {discovered && <DiscoverModelsDialog provider={provider} onOpenChange={setDiscovered} />}
       <AddModelDialog provider={provider} open={adding} onOpenChange={setAdding} onAdded={(key) => navigate(providersPath(provider, key), { replace: true })} />
       {openModel && (
         <ModelSheet key={openModel.key} provider={provider} model={openModel} onClose={() => navigate(providersPath(provider), { replace: true })} />

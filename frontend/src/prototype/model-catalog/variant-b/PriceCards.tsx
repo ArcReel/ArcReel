@@ -85,17 +85,17 @@ export function PriceCards({ value, onChange, official, readOnly }: Props) {
               cur === c ? "border-primary/50 bg-primary/15" : "border-border text-subtle-foreground hover:bg-muted/50",
             )}
           >
-            {c === "USD" ? "$ 美元" : "¥ 人民币"}
+            {c === "USD" ? "美元（$）" : "人民币（¥）"}
           </button>
         ))}
         {official && official.currency !== value.currency && (
-          <span className="text-xs text-muted-foreground">官方币种：{official.currency ?? "无"}</span>
+          <span className="text-xs text-muted-foreground">官方币种：{official.currency === "CNY" ? "人民币" : official.currency === "USD" ? "美元" : "无"}</span>
         )}
       </div>
 
       {value.meters.length === 0 && (
         <p className="rounded-lg border border-dashed border-warn/50 px-3 py-3 text-sm text-warn">
-          没有价格。调用这个模型会记为未定价，使用记录里单独显示。
+          尚未设置价格。调用费用记为未定价，在使用记录中单独列出。
         </p>
       )}
 
@@ -117,7 +117,7 @@ export function PriceCards({ value, onChange, official, readOnly }: Props) {
 
       {officialMissing.map((om) => (
         <div key={om.meter} className="rounded-lg border border-dashed border-border px-3 py-2">
-          <p className="text-sm text-subtle-foreground">{METER_LABEL[om.meter]}：你的版本没有这一项</p>
+          <p className="text-sm text-subtle-foreground">{METER_LABEL[om.meter]}：当前条目没有这一计量项</p>
           <OfficialHint
             value={meterText(om, official!.currency)}
             onAdopt={readOnly ? undefined : () => onChange({ ...value, meters: [...value.meters, structuredClone(om)] })}
@@ -164,7 +164,7 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
         <h4 className="text-sm font-medium">{METER_LABEL[meter.meter]}</h4>
         <span className="text-xs text-muted-foreground">{UNIT_LABEL[meter.unit]}</span>
         {meter.dims.length > 0 && (
-          <span className="text-xs text-muted-foreground">· 按{meter.dims.map((d) => DIM_LABEL[d]).join("、")}分档</span>
+          <span className="text-xs text-muted-foreground">按{meter.dims.map((d) => DIM_LABEL[d]).join("、")}分档</span>
         )}
         {!readOnly && (
           <Button variant="ghost" size="icon-xs" className="ml-auto" aria-label={`删除计量项 ${METER_LABEL[meter.meter]}`} onClick={() => onChange(null)}>
@@ -176,7 +176,7 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
         {meter.rows.map((row, i) => (
           <li key={i} className="flex flex-wrap items-center gap-1.5 px-3 py-1.5">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
-            {meter.dims.length === 0 && <span className="text-xs text-muted-foreground">所有请求</span>}
+            {meter.dims.length === 0 && <span className="text-xs text-muted-foreground">不分档</span>}
             {meter.dims.map((d) => (
               <DimChip
                 key={d}
@@ -203,7 +203,7 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
               <span className="text-xs text-muted-foreground">{UNIT_SHORT[meter.unit]}</span>
             </div>
             {!readOnly && meter.rows.length > 1 && (
-              <Button variant="ghost" size="icon-xs" aria-label="删除这一档" onClick={() => setRow(i, null)}>
+              <Button variant="ghost" size="icon-xs" aria-label="删除这一价格档" onClick={() => setRow(i, null)}>
                 <X aria-hidden />
               </Button>
             )}
@@ -212,7 +212,7 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
       </ul>
       {meter.freeAllowance !== undefined && (
         <div className="flex items-center gap-2 border-t border-border/60 px-3 py-1.5 text-sm">
-          <span className="text-muted-foreground">每次请求免费</span>
+          <span className="text-muted-foreground">每次请求的免费额度</span>
           <Input
             type="number"
             min={0}
@@ -224,7 +224,7 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
           />
           <span className="text-xs text-muted-foreground">{UNIT_LABEL[meter.unit].replace("每", "")}</span>
           {!readOnly && (
-            <Button variant="ghost" size="icon-xs" className="ml-auto" aria-label="去掉免费额度" onClick={() => onChange({ ...meter, freeAllowance: undefined })}>
+            <Button variant="ghost" size="icon-xs" className="ml-auto" aria-label="删除免费额度" onClick={() => onChange({ ...meter, freeAllowance: undefined })}>
               <X aria-hidden />
             </Button>
           )}
@@ -238,13 +238,13 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
             onClick={() => onChange({ ...meter, rows: [...meter.rows, structuredClone(meter.rows[meter.rows.length - 1] ?? { when: {}, price: 0 })] })}
           >
             <Plus aria-hidden />
-            添加一档
+            添加价格档
           </Button>
           {unusedDims.length > 0 && (
             <DropdownMenu>
               <DropdownMenuTrigger render={<Button variant="ghost" size="xs" />}>
                 <Plus aria-hidden />
-                按条件分档
+                添加分档条件
               </DropdownMenuTrigger>
               <DropdownMenuContent>
                 {unusedDims.map((d) => (
@@ -263,7 +263,7 @@ function MeterCard({ meter, currency, onChange, readOnly }: { meter: Meter; curr
           {meter.freeAllowance === undefined && (
             <Button variant="ghost" size="xs" onClick={() => onChange({ ...meter, freeAllowance: 0 })}>
               <Plus aria-hidden />
-              免费额度
+              添加免费额度
             </Button>
           )}
         </footer>

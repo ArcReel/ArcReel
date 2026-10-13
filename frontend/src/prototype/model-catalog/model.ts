@@ -198,7 +198,7 @@ export function money(v: number, cur: Currency | null): string {
   return `${s}${Number(v.toFixed(digits))}`;
 }
 
-/** 价目表的一行摘要，如「$2 /M 输入 · $12 /M 输出」或「¥0.6–1.2 /秒」。 */
+/** 价目表的一行摘要，如「$2/M 输入，$12/M 输出」或「¥0.6–1.2/秒」。 */
 export function priceSummary(p: PriceTable): string {
   if (!p.meters.length) return "未定价";
   const parts = p.meters
@@ -212,7 +212,7 @@ export function priceSummary(p: PriceTable): string {
       const label = m.meter === "input_tokens" ? " 输入" : m.meter === "output_tokens" ? " 输出" : "";
       return `${range}${UNIT_SHORT[m.unit]}${label}`;
     });
-  return parts.join(" · ");
+  return parts.join("，");
 }
 
 export function hasCacheMeters(p: PriceTable): boolean {
@@ -398,7 +398,7 @@ export interface Provider {
   multiplier: number;
   credentialCount: number;
   mediaTypes: MediaType[];
-  /** 内置供应商「获取模型」返回的 id；null 表示没有列表接口。 */
+  /** 有模型列表接口时可以「获取模型」；discovered 是原型里模拟的返回结果。 */
   discoverable: boolean;
   discovered?: string[];
   models: ProviderModel[];

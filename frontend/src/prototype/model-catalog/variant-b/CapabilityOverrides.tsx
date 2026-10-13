@@ -121,7 +121,7 @@ function OverrideEditor({ dim, value, onChange }: { dim: Dim; value: CapabilityO
           else onChange(Number(e.target.value) || 0);
         }}
       />
-      <span className="text-xs text-muted-foreground">{dim === "maxReferenceImages" ? "张" : "用逗号分隔"}，整维替换</span>
+      <span className="text-xs text-muted-foreground">{dim === "maxReferenceImages" ? "张" : "用逗号分隔"}</span>
     </div>
   );
 }

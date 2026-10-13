@@ -2,6 +2,7 @@
 // ←/→ 切换变体（输入框聚焦时不拦截）；仅开发构建显示。
 
 import { useEffect } from "react";
+import { NEXT_VERSION } from "./seed";
 import { VARIANT_NAME, syncVariantUrl, useProto } from "./store";
 
 function isTyping(el: Element | null): boolean {
@@ -16,6 +17,7 @@ export function ProtoBar() {
   const reset = useProto((s) => s.reset);
   const sync = useProto((s) => s.sync);
   const setOffline = useProto((s) => s.setOffline);
+  const checkForUpdates = useProto((s) => s.checkForUpdates);
 
   useEffect(() => {
     syncVariantUrl();
@@ -48,13 +50,25 @@ export function ProtoBar() {
         </button>
         <span className="mx-1 h-4 w-px bg-neutral-200" />
         <span className="px-1 text-neutral-500 tabular-nums">官方数据 {sync.appliedVersion}</span>
-        <button
-          type="button"
-          className={`rounded-full px-2.5 py-1 ${sync.status === "offline" ? "bg-neutral-900 text-white" : "hover:bg-neutral-100"}`}
-          onClick={() => setOffline(sync.status !== "offline")}
-        >
-          {sync.status === "offline" ? "已模拟离线" : "模拟离线"}
-        </button>
+        {variant === "B" ? (
+          // B 的界面上没有同步状态与检查更新，这里替它模拟一次官方数据更新，便于看就地标出的官方值
+          <button
+            type="button"
+            className="rounded-full px-2.5 py-1 hover:bg-neutral-100 disabled:text-neutral-400"
+            disabled={sync.status === "checking" || sync.appliedVersion >= NEXT_VERSION}
+            onClick={checkForUpdates}
+          >
+            {sync.status === "checking" ? "更新中……" : "模拟官方更新"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={`rounded-full px-2.5 py-1 ${sync.status === "offline" ? "bg-neutral-900 text-white" : "hover:bg-neutral-100"}`}
+            onClick={() => setOffline(sync.status !== "offline")}
+          >
+            {sync.status === "offline" ? "已模拟离线" : "模拟离线"}
+          </button>
+        )}
         <button type="button" className="rounded-full px-2.5 py-1 hover:bg-neutral-100" onClick={reset}>
           重置数据
         </button>

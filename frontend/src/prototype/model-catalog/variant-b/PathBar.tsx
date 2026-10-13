@@ -1,5 +1,5 @@
 // PROTOTYPE — #3091 变体 B 的路径覆盖：每条请求一条拆段的 URL 拼接条。
-// base_url 弱化不可改；未覆盖时自动补的 /v1 用虚线框；路径段可点击就地编辑，已覆盖的高亮并可恢复默认。
+// 接口地址弱化不可改；未覆盖时自动补的 /v1 用虚线框；路径段可点击就地编辑，已覆盖的高亮并可恢复默认路径。
 
 import { useState } from "react";
 import { cn } from "cn";
@@ -29,7 +29,7 @@ export function PathBars({ baseUrl, endpoint, apiModelName, overrides, onChange,
             <div className="flex items-center gap-2 text-xs">
               <span className="rounded bg-muted px-1.5 py-0.5 font-medium tabular-nums">{req.method}</span>
               <span className="text-subtle-foreground">{req.label}</span>
-              <span className="text-muted-foreground">请求名 {req.name}</span>
+              <span className="font-mono text-muted-foreground">{req.name}</span>
               {preview.overridden && !readOnly && (
                 <button
                   type="button"
@@ -40,7 +40,7 @@ export function PathBars({ baseUrl, endpoint, apiModelName, overrides, onChange,
                     onChange(next);
                   }}
                 >
-                  恢复默认
+                  恢复默认路径
                 </button>
               )}
             </div>
@@ -57,7 +57,7 @@ export function PathBars({ baseUrl, endpoint, apiModelName, overrides, onChange,
                   >
                     {preview.autoAdded}
                   </TooltipTrigger>
-                  <TooltipContent>未覆盖时自动补上；设置路径覆盖后不再补</TooltipContent>
+                  <TooltipContent>未设置路径覆盖时自动补上 {preview.autoAdded}，设置覆盖后不再补。</TooltipContent>
                 </Tooltip>
               )}
               <PathSegment
@@ -71,7 +71,7 @@ export function PathBars({ baseUrl, endpoint, apiModelName, overrides, onChange,
             </div>
             {preview.overridden && (
               <p className="text-xs text-muted-foreground">
-                默认路径 <span className="font-mono">{req.defaultPath}</span>；覆盖相对于 base_url 原样值
+                默认路径：<span className="font-mono">{req.defaultPath}</span>
               </p>
             )}
           </li>

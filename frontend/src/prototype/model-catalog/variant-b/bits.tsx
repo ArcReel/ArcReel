@@ -3,6 +3,8 @@
 import { cn } from "cn";
 import { settingsSectionPath } from "@/app-routes";
 import {
+  ENDPOINTS,
+  MEDIA_LABEL,
   effectiveOf,
   statusOf,
   type CatalogEntry,
@@ -21,18 +23,16 @@ export function providersPath(provider: Provider, pmKey?: string): string {
   return settingsSectionPath("providers", params);
 }
 
-export type ModelFlag = "modified" | "outdated" | "unpriced" | "deprecated" | "user-created" | "user-created-official" | "unmapped";
+export type ModelFlag = "modified" | "unpriced" | "deprecated" | "user-created" | "unmapped";
 
 /** 供应商模型在列表与 Sheet 上要提示的状态，按严重程度排列。 */
-export function flagsOf(model: ProviderModel, entry: CatalogEntry | undefined): ModelFlag[] {
-  if (!entry) return ["unmapped", "unpriced"];
+export function flagsOf(_model: ProviderModel, entry: CatalogEntry | undefined): ModelFlag[] {
+  if (!entry) return ["unmapped"];
   const flags: ModelFlag[] = [];
   const status = statusOf(entry);
   const data = effectiveOf(entry);
-  if (status === "modified-outdated") flags.push("outdated");
   if (status === "modified" || status === "modified-outdated") flags.push("modified");
-  if (status === "user-created") flags.push("user-created");
-  if (status === "user-created-official") flags.push("user-created-official");
+  if (status === "user-created" || status === "user-created-official") flags.push("user-created");
   if (data.deprecated) flags.push("deprecated");
   if (!data.price.meters.length) flags.push("unpriced");
   return flags;
@@ -40,21 +40,17 @@ export function flagsOf(model: ProviderModel, entry: CatalogEntry | undefined): 
 
 const FLAG_LABEL: Record<ModelFlag, string> = {
   modified: "条目已修改",
-  outdated: "官方有更新",
   unpriced: "未定价",
-  deprecated: "官方已下架",
-  "user-created": "用户新建条目",
-  "user-created-official": "官方已收录",
+  deprecated: "已下架",
+  "user-created": "自建条目",
   unmapped: "未对应条目",
 };
 
 const FLAG_TONE: Record<ModelFlag, string> = {
   modified: "border-primary/40 text-primary",
-  outdated: "border-warn/50 text-warn",
   unpriced: "border-warn/50 text-warn",
   deprecated: "border-destructive/50 text-destructive",
   "user-created": "border-border text-subtle-foreground",
-  "user-created-official": "border-good/50 text-good",
   unmapped: "border-warn/50 text-warn",
 };
 
@@ -70,17 +66,17 @@ const STATUS_TONE: Record<EntryStatus, string> = {
   factory: "border-border text-subtle-foreground",
   synced: "border-border text-subtle-foreground",
   modified: "border-primary/40 text-primary",
-  "modified-outdated": "border-warn/50 text-warn",
+  "modified-outdated": "border-primary/40 text-primary",
   "user-created": "border-border text-subtle-foreground",
-  "user-created-official": "border-good/50 text-good",
+  "user-created-official": "border-border text-subtle-foreground",
 };
 const STATUS_TEXT: Record<EntryStatus, string> = {
-  factory: "跟随官方 · 出厂快照",
+  factory: "跟随官方",
   synced: "跟随官方",
   modified: "已修改",
-  "modified-outdated": "已修改 · 官方有更新",
-  "user-created": "用户新建",
-  "user-created-official": "用户新建 · 官方已收录",
+  "modified-outdated": "已修改",
+  "user-created": "自建",
+  "user-created-official": "自建",
 };
 
 export function StatusBadge({ status }: { status: EntryStatus }) {
@@ -117,6 +113,42 @@ export const DEFAULT_ENDPOINT: Record<MediaType, EndpointKey> = {
   audio: "openai-tts",
 };
 
+/** 自定义供应商新加模型时挑端点：沿用这个供应商同媒体类型用得最多的端点，并列时优先默认端点；一个都没有就用默认。 */
+export function endpointFor(provider: Provider, media: MediaType, entries: CatalogEntry[]): EndpointKey {
+  const counts = new Map<EndpointKey, number>();
+  for (const m of provider.models) {
+    const e = entries.find((x) => x.id === m.entryId);
+    if (m.endpoint && e && effectiveOf(e).mediaType === media) counts.set(m.endpoint, (counts.get(m.endpoint) ?? 0) + 1);
+  }
+  const fallback = DEFAULT_ENDPOINT[media];
+  let best: EndpointKey = fallback;
+  let bestCount = counts.get(fallback) ?? 0;
+  for (const [ep, n] of counts) if (n > bestCount) [best, bestCount] = [ep, n];
+  return best;
+}
+
+/** 端点名本身不含媒体类型时补上，如「OpenAI Chat（文本）」；「new-api 视频」不再重复。 */
+export function endpointLabel(key: EndpointKey): string {
+  const e = ENDPOINTS[key];
+  const media = MEDIA_LABEL[e.mediaType];
+  return e.label.includes(media) ? e.label : `${e.label}（${media}）`;
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/^[^/]+\//, "").replace(/\./g, "-");
+
+/**
+ * 按 API 模型名找对应的条目：去掉「厂商/」前缀、点号视同连字符后，与官方模型名或别名相同，
+ * 或者两者只差一段日期后缀（如 claude-sonnet-4-5-20250929、doubao-seedance-2-0-260128）。
+ */
+export function matchEntry(entries: CatalogEntry[], apiName: string): CatalogEntry | undefined {
+  const n = norm(apiName);
+  const dated = (long: string, short: string) => long.startsWith(`${short}-`) && /^\d{6,8}$/.test(long.slice(short.length + 1));
+  return entries.find((e) => {
+    const d = effectiveOf(e);
+    return [d.name, ...(d.aliases ?? [])].map(norm).some((c) => c === n || dated(n, c) || dated(c, n));
+  });
+}
+
 export function SectionTitle({ title, hint, action }: { title: string; hint?: string; action?: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between gap-3">
@@ -129,7 +161,7 @@ export function SectionTitle({ title, hint, action }: { title: string; hint?: st
   );
 }
 
-/** 字段下方的官方值标注：差异就地显示，带「采用」。 */
+/** 字段下方的官方值标注：用户维护的条目与官方数据不同时就地显示，带「采用」。 */
 export function OfficialHint({ value, onAdopt }: { value: string; onAdopt?: () => void }) {
   return (
     <div className="mt-1 flex items-start gap-2 text-xs text-muted-foreground">
