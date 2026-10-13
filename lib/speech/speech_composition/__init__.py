@@ -324,7 +324,13 @@ def _append_video_prompt_dialogue(
 
 
 def adapt_narration_segment(segment: Mapping[str, object]) -> SpeechUnitSnapshot:
-    """Translate a narration segment without persisting a duplicate utterance."""
+    """Translate a narration segment into its spoken entries.
+
+    Each ``video_prompt.dialogue`` line becomes a speaker-owned entry, followed by
+    ``novel_text`` as one speakerless voiceover entry. Nothing is deduplicated: a
+    segment that carries dialogue therefore composes as mixed speech, even when the
+    dialogue repeats or quotes the body text (ADR 0089).
+    """
 
     unit_id = segment.get("segment_id")
     normalized_unit_id = unit_id if isinstance(unit_id, str) else ""

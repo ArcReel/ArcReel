@@ -76,7 +76,7 @@ MCP 工具内部通过 `ScriptGenerator` 完成以下步骤：
 3. **构建 Prompt** — 由 `lib.prompts.prompt_builders_script`、`lib.prompts.prompt_builders_reference` 或 `lib.prompts.prompt_builders_ad` 生成，输入是这些条目的内容字段
 4. **调用 TextBackend** — 由 `TextGenerator` 按项目配置选择文本模型，传入 Pydantic schema 作为 `response_schema` 强约束 JSON 结构
 5. **Pydantic 验证与写回** — LLM 只产出视觉层，后端按条目 id 写回正式脚本，内容字段不进 LLM 输出，从工程上杜绝其经 Structured Outputs 漂移：
-   - narration → `NarrationVisualEpisodeScript`（`segment_id` + image_prompt + video_prompt）
+   - narration → `NarrationVisualEpisodeScript`（`segment_id` + image_prompt + video_prompt；video_prompt 不含台词）
    - drama（storyboard，含 grid_storyboard）→ `DramaVisualScript`（`scene_id` + image_prompt + video_prompt）
    - ad 分镜 → `AdVisualScript`（`shot_id` + image_prompt + video_prompt）；ad 整份生成 → `AdEpisodeScript` 加 `new_assets`（storyboard）或 `AdReferenceFlatScript`（reference_video），新增资产按处理决定改写引用后与正式脚本同一次写入登记
    - reference_video → `ReferencePromptAuthoringFlatScript`：待编写单元按顺序各一段改写后的正文，台词逐字保留

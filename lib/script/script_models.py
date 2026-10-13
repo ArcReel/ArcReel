@@ -146,6 +146,9 @@ class _VideoPromptCore(BaseModel):
 class VideoPrompt(_VideoPromptCore):
     """narration / ad 视频生成 Prompt：含角色对话 dialogue。
 
+    narration 片段落盘仍按本模型读入，存量带台词的片段由发声准入判为混合；提示词编写的
+    视觉层改用不产台词的 ``NarrationVideoPrompt``。
+
     drama 的有序发声由 ``DramaScene.utterances`` 承载，video_prompt 使用无-dialogue 的
     ``DramaVideoPrompt``（见 ADR 0040）。
     """
@@ -153,6 +156,25 @@ class VideoPrompt(_VideoPromptCore):
     dialogue: Annotated[list[Dialogue], BeforeValidator(_none_to_empty_list)] = Field(
         default_factory=list, description="对话列表，仅当原文有引号对话时填写"
     )
+
+
+def _require_no_dialogue(value: list[Dialogue]) -> list[Dialogue]:
+    if value:
+        raise ValueError("旁白/解说片段不写台词：角色说的话由旁白在正文里转述")
+    return value
+
+
+class NarrationVideoPrompt(_VideoPromptCore):
+    """旁白/解说提示词编写的视频提示词：``dialogue`` 不进 response_schema，恒为空。
+
+    片段正文必填且就是画外音，再带台词即为混合发声（ADR 0089），所以模型不能写台词。
+    漂移通道写出的 ``null`` 或 ``[]`` 归一为空；非空 dialogue 校验即拒。落盘形状与
+    ``VideoPrompt`` 一致（``dialogue: []``）。
+    """
+
+    dialogue: SkipJsonSchema[
+        Annotated[list[Dialogue], BeforeValidator(_none_to_empty_list), AfterValidator(_require_no_dialogue)]
+    ] = Field(default_factory=list, description="恒为空：旁白/解说片段不写台词")
 
 
 class DramaVideoPrompt(_VideoPromptCore):
@@ -400,7 +422,7 @@ class NarrationVisualSegment(BaseModel):
 
     segment_id: str = Field(min_length=1, description="对齐锚：必须取自 script_plan 分镜表，逐一对应、不增不减")
     image_prompt: ImagePrompt = Field(description="分镜图生成提示词")
-    video_prompt: VideoPrompt = Field(description="视频生成提示词")
+    video_prompt: NarrationVideoPrompt = Field(description="视频生成提示词（不含台词）")
 
 
 class NarrationVisualEpisodeScript(BaseModel):

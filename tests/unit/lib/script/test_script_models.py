@@ -13,6 +13,8 @@ from lib.script.script_models import (
     ImagePrompt,
     NarrationEpisodeScript,
     NarrationSegment,
+    NarrationVisualEpisodeScript,
+    NarrationVisualSegment,
     Utterance,
     VideoPrompt,
     get_generated_assets,
@@ -306,6 +308,59 @@ class TestScriptModels:
         assert narration.content_mode == "narration"
         assert drama.content_mode == "drama"
         assert drama.scenes[0].duration_seconds == 8
+
+
+class TestNarrationVisualLayerHasNoDialogue:
+    """旁白/解说片段不写台词（ADR 0089）：提示词编写的视觉层不能产出非空 dialogue。"""
+
+    @staticmethod
+    def _visual_segment(**video_prompt_overrides) -> dict:
+        video_prompt = {"action": "转身", "camera_motion": "Static", "ambiance_audio": "风声", **video_prompt_overrides}
+        return {
+            "segment_id": "E1S01",
+            "image_prompt": _image_prompt().model_dump(),
+            "video_prompt": video_prompt,
+        }
+
+    def test_response_schema_does_not_expose_dialogue(self):
+        schema = NarrationVisualEpisodeScript.model_json_schema()
+        video_prompt_refs = [
+            definition
+            for definition in schema["$defs"].values()
+            if "camera_motion" in definition.get("properties", {})
+        ]
+        assert video_prompt_refs
+        for definition in video_prompt_refs:
+            assert "dialogue" not in definition["properties"]
+
+    def test_rejects_non_empty_dialogue(self):
+        with pytest.raises(ValidationError):
+            NarrationVisualSegment.model_validate(
+                self._visual_segment(dialogue=[{"speaker": "姜月茴", "line": "等等"}])
+            )
+
+    @pytest.mark.parametrize("drifted", [[], None])
+    def test_tolerates_empty_or_null_dialogue_as_empty(self, drifted):
+        segment = NarrationVisualSegment.model_validate(self._visual_segment(dialogue=drifted))
+        assert segment.model_dump()["video_prompt"]["dialogue"] == []
+
+    def test_omitted_dialogue_dumps_as_empty(self):
+        segment = NarrationVisualSegment.model_validate(self._visual_segment())
+        assert segment.model_dump()["video_prompt"]["dialogue"] == []
+
+    def test_stored_narration_segment_still_loads_existing_dialogue(self):
+        """存量带台词的片段照常读入，由发声准入判 mixed_speech，不在模型层丢弃。"""
+        segment = NarrationSegment.model_validate(
+            {
+                "segment_id": "E1S01",
+                "duration_seconds": 4,
+                "novel_text": "原文",
+                "characters_in_segment": ["姜月茴"],
+                "video_prompt": self._visual_segment(dialogue=[{"speaker": "姜月茴", "line": "等等"}])["video_prompt"],
+            }
+        )
+        assert isinstance(segment.video_prompt, VideoPrompt)
+        assert segment.video_prompt.dialogue == [Dialogue(speaker="姜月茴", line="等等")]
 
 
 class TestAdScriptModels:

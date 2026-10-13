@@ -65,6 +65,31 @@ class TestPromptBuildersScript:
         # 多行 novel_text 续行缩进进原文块（前缀两空格），不 flush-left 溢出分镜结构
         assert "原文：第一行。\n  第二行。" in prompt
 
+    def test_build_narration_prompt_forbids_dialogue(self):
+        """旁白/解说片段不写台词（ADR 0089）：角色的话由旁白在正文里转述，提示词不再引导填写 dialogue。"""
+        prompt = build_narration_prompt(
+            project_overview={"synopsis": "故事", "genre": "悬疑", "theme": "真相", "world_setting": "古代"},
+            style="古风",
+            style_description="cinematic",
+            characters={"姜月茴": {}},
+            scenes={},
+            props={},
+            script_plan_segments=[
+                {
+                    "segment_id": "E1S01",
+                    "novel_text": "姜月茴说：“等等。”",
+                    "duration_seconds": 4,
+                    "segment_break": False,
+                    "characters_in_segment": ["姜月茴"],
+                }
+            ],
+            aspect_ratio="9:16",
+            episode=1,
+        )
+        assert "video_prompt.dialogue" not in prompt
+        assert "不写台词" in prompt
+        assert "转述" in prompt
+
     def _drama_prompt_authoring_prompt(self, **overrides) -> str:
         """prompt_authoring（视觉层）drama prompt；内容已在 script_plan 定稿，只收渲染好的内容块。"""
         kwargs = {

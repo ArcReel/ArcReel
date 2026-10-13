@@ -73,6 +73,8 @@ Agent session 的当前工作目录（cwd）已绑定到当前项目根，**所�
 
 本项目为**旁白/解说**（narration）。剧本数据结构为 `segments[]`，每个分镜对应一段朗读 + 一张分镜画面。
 
+分镜正文 `novel_text` 整段是画外音，原文里角色说的话也由旁白在正文里转述，所以分镜的 `video_prompt.dialogue` 始终留空，改剧本时同样只改正文。带台词的分镜属于混合发声，会被标为需要重新规划、不能生成。
+
 > 生成模式（storyboard / reference_video）由 `project.json` 顶层 `generation_mode` 字段唯一决定，项目创建后不可更改；与创作类型独立。详细规格见 `.claude/references/generation-modes.md`。
 
 ---

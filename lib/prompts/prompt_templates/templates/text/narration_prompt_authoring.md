@@ -68,7 +68,7 @@ segments 表每个分镜已定稿（segment_id、逐字原文、时长、出场�
 - **video_prompt.action**：{{ partial("shared/action_writing_guide") }}
 - **video_prompt.camera_motion**：按画面内容自行选择。
 - **video_prompt.ambiance_audio**：{{ partial("shared/ambiance_audio_writing_guide") }}
-- **video_prompt.dialogue**：speaker 必须出现在该分镜的出场角色中。
+- **不写台词**：分镜原文就是旁白，整段由画外音交付；原文里角色说的话也由旁白转述，不另写成角色台词，视频提示词里不要让角色念出原文中的话。
 
 # 创作目标
 
