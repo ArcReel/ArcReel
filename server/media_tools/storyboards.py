@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from datetime import UTC, datetime
@@ -12,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_activation import (
+    ArtifactCurrencyResolver,
     active_artifact_currency_resolver,
     resolve_artifact_episode,
 )
@@ -20,6 +22,7 @@ from lib.generation.generation_result import (
     normalize_requested_ids,
     record_batch_outcomes,
 )
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.resource_paths import resource_relative_path
 from lib.script.script_models import resolve_content_mode
 from lib.script.script_skeleton import ensure_route_skeleton
@@ -31,7 +34,11 @@ from server.media_tools.context import (
     generation_result_outcome,
     tool_error,
 )
-from server.services.admission.storyboard_batch import STORYBOARD_BATCH_OPERATION, plan_storyboard_image_batch
+from server.services.admission.storyboard_batch import (
+    STORYBOARD_BATCH_OPERATION,
+    StoryboardImageBatchPlan,
+    plan_storyboard_image_batch,
+)
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolRequest, submit_media_generation
 
 _OPERATION = STORYBOARD_BATCH_OPERATION
@@ -92,42 +99,47 @@ async def generate_storyboards(
         script_filename = request.value.script
         segment_ids = normalize_requested_ids(request.value.segment_ids, field="segment_ids")
 
-        script = services.projects.load_script(scope.project_name, script_filename)
-        project_dir = services.projects.get_project_path(scope.project_name)
+        def plan_batch() -> tuple[Path, ArtifactCurrencyResolver, StoryboardImageBatchPlan]:
+            script = services.projects.load_script(scope.project_name, script_filename)
+            project_dir = services.projects.get_project_path(scope.project_name)
 
-        try:
-            project_data = services.projects.load_project(scope.project_name)
-        except FileNotFoundError:
-            # project.json 缺失时允许降级到空 dict（style 走默认值）；
-            # JSON 损坏 / 权限错误等其他异常应该让外层 tool_error 暴露出来，
-            # 否则会用空 style 静默继续入队，丢掉了配置。
-            project_data = {}
+            try:
+                project_data = services.projects.load_project(scope.project_name)
+            except FileNotFoundError:
+                # project.json 缺失时允许降级到空 dict（style 走默认值）；
+                # JSON 损坏 / 权限错误等其他异常应该让外层 tool_error 暴露出来，
+                # 否则会用空 style 静默继续入队，丢掉了配置。
+                project_data = {}
 
-        if project_data:
-            # 失配剧本在此被拒：按分镜图生视频该读的数组不在剧本里，继续走下去
-            # 会落进空结果的假成功，把成因埋掉。project.json 缺失时无生成模式可依，
-            # 沿用上面的降级放行。
-            ensure_route_skeleton(
-                script, resolve_content_mode(script, project_data), project_data.get("generation_mode")
+            if project_data:
+                # 失配剧本在此被拒：按分镜图生视频该读的数组不在剧本里，继续走下去
+                # 会落进空结果的假成功，把成因埋掉。project.json 缺失时无生成模式可依，
+                # 沿用上面的降级放行。
+                ensure_route_skeleton(
+                    script, resolve_content_mode(script, project_data), project_data.get("generation_mode")
+                )
+
+            resolver = active_artifact_currency_resolver(project_dir, project_data)
+            episode = (
+                resolve_artifact_episode(
+                    project=project_data,
+                    script=script,
+                    script_filename=script_filename,
+                )
+                or 1
             )
-
-        resolver = active_artifact_currency_resolver(project_dir, project_data)
-        episode = (
-            resolve_artifact_episode(
+            plan = plan_storyboard_image_batch(
                 project=project_data,
                 script=script,
-                script_filename=script_filename,
+                script_file=script_filename,
+                episode=episode,
+                resolver=resolver,
+                requested_ids=segment_ids,
             )
-            or 1
-        )
-        plan = plan_storyboard_image_batch(
-            project=project_data,
-            script=script,
-            script_file=script_filename,
-            episode=episode,
-            resolver=resolver,
-            requested_ids=segment_ids,
-        )
+            return project_dir, resolver, plan
+
+        # 读项目与剧本、建产物时效判定器、按文件内容判定时效都是同步文件读写与哈希
+        project_dir, resolver, plan = await asyncio.to_thread(plan_batch)
         by_id = plan.states
         specs = plan.task_specs(source=caller.source)
 
@@ -150,10 +162,11 @@ async def generate_storyboards(
             resource_type = "segment" if plan.id_field == "segment_id" else "scene"
             for br in submitted.failures:
                 recorder.record(br.resource_id, resource_type, br.error or "unknown")
-            recorder.save()
+            await run_sync_transaction(recorder.save)
 
             builder = GenerationResultBuilder.from_preflight(plan.preflight)
-            record_batch_outcomes(
+            await asyncio.to_thread(
+                record_batch_outcomes,
                 builder,
                 successes=submitted.successes,
                 failures=submitted.failures,

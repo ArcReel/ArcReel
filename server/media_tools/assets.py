@@ -189,22 +189,27 @@ async def generate_assets(
             states=dict(plan.states),
             dependencies=plan.dependencies,
         )
-        if submitted.successes is None or submitted.failures is None:
+        successes, failures = submitted.successes, submitted.failures
+        if successes is None or failures is None:
             return generation_batch_submission_outcome(submitted.batch)
 
         builder = GenerationResultBuilder.from_preflight(plan.preflight)
-        resolver = await asyncio.to_thread(
-            active_artifact_currency_resolver, services.projects.get_project_path(scope.project_name), project
-        )
-        record_batch_outcomes(
-            builder,
-            successes=submitted.successes,
-            failures=submitted.failures,
-            states=plan.states,
-            resolver=resolver,
-            fallback_path=lambda unit_id: plan.units[unit_id].default_sheet_path,
-            dependencies=plan.dependencies,
-        )
+
+        def record_outcomes() -> None:
+            resolver = active_artifact_currency_resolver(
+                services.projects.get_project_path(scope.project_name), project
+            )
+            record_batch_outcomes(
+                builder,
+                successes=successes,
+                failures=failures,
+                states=plan.states,
+                resolver=resolver,
+                fallback_path=lambda unit_id: plan.units[unit_id].default_sheet_path,
+                dependencies=plan.dependencies,
+            )
+
+        await asyncio.to_thread(record_outcomes)
         return generation_result_outcome(builder.build(), batch_id=submitted.batch.batch_id)
     except AssetBatchEpisodeNotFound as exc:
         return tool_problem(str(exc), code="episode_not_found", params={"episode_id": exc.episode_id})

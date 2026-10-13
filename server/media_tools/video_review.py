@@ -151,37 +151,51 @@ async def inspect_video_units(
         )
     frames = min(request.value.frames, MAX_FRAMES_PER_CALL // len(unit_ids))
     try:
-        project = services.projects.load_project(scope.project_name)
-        known = project_video_unit_ids(services.projects, scope.project_name, project)
-        missing = [unit_id for unit_id in unit_ids if unit_id not in known]
+
+        def find_missing_units() -> tuple[dict[str, Any], list[str]]:
+            project = services.projects.load_project(scope.project_name)
+            known = project_video_unit_ids(services.projects, scope.project_name, project)
+            return project, [unit_id for unit_id in unit_ids if unit_id not in known]
+
+        project, missing = await asyncio.to_thread(find_missing_units)
         if missing:
             return tool_problem(
                 f"视频单元不存在：{', '.join(missing)}", code="video_unit_not_found", params={"unit_ids": missing}
             )
 
         resource_type = "reference_videos" if is_reference_video_project(project) else "videos"
-        project_path = services.projects.get_project_path(scope.project_name)
-        versions = VersionManager(project_path)
-        targets: list[tuple[str, int | None, Path | None]] = []
-        available_by_unit: dict[str, list[int]] = {}
-        for unit_id in unit_ids:
-            version = request.value.version
-            available = available_by_unit[unit_id] = _available_versions(versions, resource_type, unit_id)
-            if version is None:
-                current = versions.get_current_version(resource_type, unit_id)
-                version = current if current > 0 else None
-            elif version not in available:
-                return tool_problem(
-                    f"视频单元「{unit_id}」没有版本 v{version}；现有版本：{', '.join(map(str, available)) or '无'}",
-                    code="version_not_found",
-                    params={"unit_id": unit_id, "available_versions": available},
+
+        def resolve_versions() -> (
+            tuple[Path, dict[str, list[int]], list[tuple[str, int | None, Path | None]]] | ToolOutcome[Any]
+        ):
+            project_path = services.projects.get_project_path(scope.project_name)
+            versions = VersionManager(project_path)
+            targets: list[tuple[str, int | None, Path | None]] = []
+            available_by_unit: dict[str, list[int]] = {}
+            for unit_id in unit_ids:
+                version = request.value.version
+                available = available_by_unit[unit_id] = _available_versions(versions, resource_type, unit_id)
+                if version is None:
+                    current = versions.get_current_version(resource_type, unit_id)
+                    version = current if current > 0 else None
+                elif version not in available:
+                    return tool_problem(
+                        f"视频单元「{unit_id}」没有版本 v{version}；现有版本：{', '.join(map(str, available)) or '无'}",
+                        code="version_not_found",
+                        params={"unit_id": unit_id, "available_versions": available},
+                    )
+                video = (
+                    _snapshot_of(project_path, versions, resource_type, unit_id, version)
+                    if version is not None
+                    else None
                 )
-            video = (
-                await asyncio.to_thread(_snapshot_of, project_path, versions, resource_type, unit_id, version)
-                if version is not None
-                else None
-            )
-            targets.append((unit_id, version, video))
+                targets.append((unit_id, version, video))
+            return project_path, available_by_unit, targets
+
+        resolved = await asyncio.to_thread(resolve_versions)
+        if isinstance(resolved, ToolOutcome):
+            return resolved
+        project_path, available_by_unit, targets = resolved
 
         limiter = asyncio.Semaphore(_EXTRACT_CONCURRENCY)
         units = await asyncio.gather(

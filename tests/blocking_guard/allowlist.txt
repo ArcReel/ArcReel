@@ -98,22 +98,6 @@ server/draft_workflow.py::_open_reference_script_plan_for_edit  # os.stat
 server/draft_workflow.py::_promote_narration_script_plan  # os.stat
 server/draft_workflow.py::_promote_reference_script_plan  # os.stat
 server/draft_workflow.py::revalidate_reference_script_plan_draft  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/media_tools/assets.py::generate_assets  # os.stat
-server/media_tools/grid.py::_split_one  # io.TextIOWrapper.read, os.stat, 文件锁（portalocker 阻塞模式）
-server/media_tools/grid.py::_submit  # ScandirIterator.__next__, io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.listdir, os.mkdir, os.replace, os.stat, os.unlink, 产物清单锁（轮询等待）, 文件锁（portalocker 阻塞模式）
-server/media_tools/grid.py::generate_grid  # io.TextIOWrapper.read, os.stat
-server/media_tools/grid.py::split_grids  # io.TextIOWrapper.read, os.mkdir, os.stat
-server/media_tools/image_edits.py::edit_images  # io.BufferedReader.read, io.TextIOWrapper.read, os.stat, 产物清单锁（轮询等待）
-server/media_tools/narration_audio.py::generate_narration_audio  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/media_tools/storyboards.py::generate_storyboards  # io.BufferedReader.read, io.TextIOWrapper.read, os.listdir, os.path.samestat, os.stat, 产物清单锁（轮询等待）
-server/media_tools/video_review.py::inspect_video_units  # ScandirIterator.__next__, io.TextIOWrapper.read, os.stat, 版本管理锁（RLock）
-server/media_tools/video_versions.py::select_video_version  # ScandirIterator.__next__, io.TextIOWrapper.read, os.stat, 版本管理锁（RLock）
-server/media_tools/videos.py::_StoryboardBatch.build_specs  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/media_tools/videos.py::_generate_all  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/media_tools/videos.py::_generate_episode  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-server/media_tools/videos.py::_generate_reference_units  # io.BufferedReader.read, os.mkdir, os.stat, 产物清单锁（轮询等待）
-server/media_tools/videos.py::_generate_selected  # io.BufferedReader.read, os.path.samestat, os.stat, 产物清单锁（轮询等待）
-server/media_tools/videos.py::_run_reference_batch  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
 server/routers/assets.py::_copy_into_global_pool  # os.mkdir, os.stat
 server/routers/assets.py::_save_upload  # os.mkdir, os.stat
 server/routers/assets.py::apply_to_project  # io.TextIOWrapper.read, os.stat

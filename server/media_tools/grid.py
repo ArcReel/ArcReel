@@ -10,11 +10,13 @@ user reviewed the composite and agreed to split it.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import json
 import logging
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,7 +30,7 @@ from lib.artifacts.artifact_activation import (
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.config.resolver import ConfigResolver
 from lib.generation.generation_queue import GenerationQueue
-from lib.generation.generation_queue_client import TaskSpec
+from lib.generation.generation_queue_client import BatchTaskResult, TaskSpec
 from lib.generation.generation_result import (
     GenerationAction,
     GenerationCandidate,
@@ -48,6 +50,7 @@ from lib.generation.generation_result import (
 from lib.i18n import DEFAULT_LOCALE
 from lib.i18n import _ as translate
 from lib.infra.api_errors import ApiError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_change_hints import project_change_source
 from lib.script.grid.grid_access import ensure_grid_writable
 from lib.script.grid.grid_manager import GridManager
@@ -246,8 +249,13 @@ async def generate_grid(
         scene_ids = normalize_requested_ids(request.value.scene_ids, field="scene_ids")
         project_name = scope.project_name
 
-        project = services.projects.load_project(project_name)
-        script = services.projects.load_script(project_name, script_filename)
+        def load_inputs() -> tuple[dict[str, Any], dict[str, Any]]:
+            return (
+                services.projects.load_project(project_name),
+                services.projects.load_script(project_name, script_filename),
+            )
+
+        project, script = await asyncio.to_thread(load_inputs)
         # ``list_only`` 与生成同样先过闸门：未开宫格的项目靠预览拿到成功响应，调用方会误以为
         # 该工具适用于当前项目。
         try:
@@ -262,7 +270,7 @@ async def generate_grid(
         async with grid_submission_section(project_name) as section:
             plan = await plan_grid_submission(
                 project=project,
-                project_path=services.projects.get_project_path(project_name),
+                project_path=await asyncio.to_thread(services.projects.get_project_path, project_name),
                 script=script,
                 script_file=script_filename,
                 episode=episode,
@@ -283,14 +291,31 @@ async def generate_grid(
         return tool_error(_OPERATION, exc)
 
 
-async def _submit(
-    plan: GridSubmissionPlan,
-    scope: ProjectScope,
-    caller: CallerContext,
-    services: Services,
-) -> ToolOutcome[GridToolValue]:
+@dataclass(slots=True)
+class _CommittedSubmission:
+    """宫格记录已落地、待入队的一批提交。"""
+
+    project_path: Path
+    builder: GenerationResultBuilder
+    log: list[str]
+    unsplit_ids: list[str]
+    specs: list[TaskSpec]
+    states: dict[str, GenerationTargetState]
+    report_ids_by_grid: dict[str, tuple[str, ...]]
+    grid_id_by_result: dict[str, str]
+    reused_grid_ids: set[str]
+
+
+def _commit_submission(
+    plan: GridSubmissionPlan, project_name: str, services: Services, caller_source: str
+) -> _CommittedSubmission | ToolOutcome[GridToolValue]:
+    """同步部分：观测产物时效、整批受阻时直接给结论，否则落地宫格记录并备好入队任务。
+
+    读项目目录、哈希、写宫格记录都是同步文件读写，整体在工作线程里跑。
+    """
+
     episode = plan.episode
-    project_path = services.projects.get_project_path(scope.project_name)
+    project_path = services.projects.get_project_path(project_name)
     resolver = active_artifact_currency_resolver(project_path, plan.project)
     builder = GenerationResultBuilder(_OPERATION, plan.selection)
     log: list[str] = []
@@ -365,31 +390,46 @@ async def _submit(
                 resource_id=grid_id,
                 payload=submission.payload,
                 script_file=plan.script_file,
-                source=caller.source,
+                source=caller_source,
                 unit_id=report_ids[0],
                 batch_unit_ids=report_ids,
             )
         )
 
-    submitted = await submit_media_generation(
-        scope=scope,
-        # 入队完成即离开提交临界区：等联合图生成期间，同一项目的其他提交照常进行
-        caller=caller.waiting_with(on_enqueued=plan.section.end),
-        services=services,
-        operation=_OPERATION,
-        preflight=builder.build(),
-        pending_ids=[scene_id for ids in report_ids_by_grid.values() for scene_id in ids],
+    return _CommittedSubmission(
+        project_path=project_path,
+        builder=builder,
+        log=log,
+        unsplit_ids=unsplit_ids,
         specs=specs,
         states=states,
+        report_ids_by_grid=report_ids_by_grid,
+        grid_id_by_result=grid_id_by_result,
+        reused_grid_ids=reused_grid_ids,
     )
-    if submitted.successes is None or submitted.failures is None:
-        return generation_batch_submission_outcome(submitted.batch)
 
+
+def _collect_results(
+    plan: GridSubmissionPlan,
+    committed: _CommittedSubmission,
+    successes: Sequence[BatchTaskResult],
+    failures: Sequence[BatchTaskResult],
+    batch_id: str,
+) -> ToolOutcome[GridToolValue]:
+    """同步部分：按出图后的宫格记录重新判定产物时效，汇总逐分镜结果。"""
+
+    episode = plan.episode
+    builder = committed.builder
+    log = committed.log
+    unsplit_ids = committed.unsplit_ids
+    report_ids_by_grid = committed.report_ids_by_grid
+    grid_id_by_result = committed.grid_id_by_result
+    reused_grid_ids = committed.reused_grid_ids
     # resolver 首次比较时按当时的宫格记录规划目标态、此后不再重读；上面观测未切分宫格时已用过它，
     # 本批出图结果须换一个按出图后记录规划的 resolver 判定
-    resolver = active_artifact_currency_resolver(project_path, plan.project)
+    resolver = active_artifact_currency_resolver(committed.project_path, plan.project)
     ready: list[str] = []
-    for result in [*submitted.successes, *submitted.failures]:
+    for result in [*successes, *failures]:
         grid_id = grid_id_by_result[result.resource_id]
         report_ids = report_ids_by_grid[grid_id]
         # 联合图一次生成，参考图裁剪之类的 warning 属于整张宫格：逐格照录
@@ -439,8 +479,37 @@ async def _submit(
     return generation_result_outcome(
         builder.build(),
         log,
-        batch_id=submitted.batch.batch_id,
+        batch_id=batch_id,
         grid_ids_awaiting_split=awaiting_split,
+    )
+
+
+async def _submit(
+    plan: GridSubmissionPlan,
+    scope: ProjectScope,
+    caller: CallerContext,
+    services: Services,
+) -> ToolOutcome[GridToolValue]:
+    # 落地宫格记录要写正式文件：已开始的线程事务先结算再响应取消
+    committed = await run_sync_transaction(_commit_submission, plan, scope.project_name, services, caller.source)
+    if isinstance(committed, ToolOutcome):
+        return committed
+
+    submitted = await submit_media_generation(
+        scope=scope,
+        # 入队完成即离开提交临界区：等联合图生成期间，同一项目的其他提交照常进行
+        caller=caller.waiting_with(on_enqueued=plan.section.end),
+        services=services,
+        operation=_OPERATION,
+        preflight=committed.builder.build(),
+        pending_ids=[scene_id for ids in committed.report_ids_by_grid.values() for scene_id in ids],
+        specs=committed.specs,
+        states=committed.states,
+    )
+    if submitted.successes is None or submitted.failures is None:
+        return generation_batch_submission_outcome(submitted.batch)
+    return await asyncio.to_thread(
+        _collect_results, plan, committed, submitted.successes, submitted.failures, submitted.batch.batch_id
     )
 
 
@@ -480,13 +549,16 @@ async def split_grids(
 ) -> ToolOutcome[dict[str, Any]]:
     try:
         grid_ids = normalize_requested_ids(request.value.grid_ids, field="grid_ids") or []
-        project = services.projects.load_project(scope.project_name)
+        project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
         try:
             ensure_grid_writable(project)
         except ApiError as exc:
             return _gate_problem(exc)
 
-        gm = GridManager(services.projects.get_project_path(scope.project_name))
+        def open_grids() -> GridManager:
+            return GridManager(services.projects.get_project_path(scope.project_name))
+
+        gm = await asyncio.to_thread(open_grids)
         # 逐张顺序切分：每张都在项目元数据锁内提交，并发不会更快
         results = [
             await _split_one(
@@ -522,7 +594,7 @@ async def _split_one(
 ) -> dict[str, Any]:
     async with grid_submission_section(project_name):
         try:
-            grid = gm.get(grid_id)
+            grid = await asyncio.to_thread(gm.get, grid_id)
         except Exception as exc:
             # 非法 ID 视同不存在；JSON 损坏、缺字段等记录读不出来时只记这一张失败，同批其余宫格照常切分
             if isinstance(exc, ValueError) and not isinstance(exc, json.JSONDecodeError):
