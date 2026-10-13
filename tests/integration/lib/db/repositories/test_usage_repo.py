@@ -1002,8 +1002,8 @@ class TestSettleInterruptedPendingCalls:
             assert row.duration_ms is None
         assert (await self._row(async_session, stale_id)).error_code == "interrupted"
 
-    async def test_finish_call_still_records_positive_duration(self, async_session):
-        """中断行不记耗时，不影响正常结算：finish_call 照旧按 finished_at - started_at 写入。"""
+    async def test_finish_call_records_positive_duration(self, async_session):
+        """正常结算记真实耗时：finish_call 按 finished_at - started_at 写入，与收口中断行留空的口径不同。"""
         repo = UsageRepository(async_session)
         call_id = await self._seed_pending_call(async_session)
         await backdate_call(async_session, call_id, delta=timedelta(seconds=5))

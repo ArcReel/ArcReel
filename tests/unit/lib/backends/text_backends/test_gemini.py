@@ -1,6 +1,5 @@
 """GeminiTextBackend tests."""
 
-import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -16,6 +15,7 @@ from lib.backends.text_backends.base import (
 )
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from tests.fakes import bounded_poll_clock
+from tests.http_capture import capture_http, request_json
 
 
 @pytest.fixture
@@ -550,8 +550,8 @@ class TestAdditionalPropertiesStripped:
     async def test_request_body_response_schema_has_no_additional_properties(self):
         """请求体层面：真实 google-genai 序列化后的 generationConfig.responseSchema 不含该字段。
 
-        google-genai 默认走 aiohttp，respx 拦不到；这里给真实 Client 注入挂了 MockTransport 的
-        httpx 异步客户端，请求在 transport 层被截获，不触网。
+        google-genai 装有 aiohttp 时默认走 aiohttp，respx 拦不到；注入 ``httpx_async_client`` 后 SDK
+        改走该 httpx 客户端（含降级链的后续请求），由 respx 在 transport 层截获，未声明的请求直接抛错。
         """
         from google import genai as real_genai
 
@@ -559,27 +559,19 @@ class TestAdditionalPropertiesStripped:
             "candidates": [{"content": {"parts": [{"text": "{}"}], "role": "model"}, "finishReason": "STOP"}],
             "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1},
         }
-        captured: list[httpx.Request] = []
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            captured.append(request)
-            return httpx.Response(200, json=reply)
-
         backend = GeminiTextBackend(api_key="k")
-        backend._client = real_genai.Client(
-            api_key="k",
-            http_options={"httpx_async_client": httpx.AsyncClient(transport=httpx.MockTransport(handler))},
-        )
-        models = _strict_response_schema_models()
-        for model in models:
-            captured.clear()
-            # 回包只是空对象，过不了各模型的校验，会走降级链；本用例只看首个原生结构化请求
-            with pytest.raises(StructuredOutputExhaustedError):
-                await backend.generate(TextGenerationRequest(prompt="x", response_schema=model))
-            assert captured, model.__name__
-            assert captured[0].url.path.endswith(":generateContent")
-            response_schema = json.loads(captured[0].content)["generationConfig"]["responseSchema"]
-            assert response_schema["type"] == "OBJECT"
-            assert _keys_anywhere(response_schema, {"additional_properties", "additionalProperties"}) == [], (
-                model.__name__
-            )
+        with capture_http() as router:
+            route = router.post(url__regex=r":generateContent$").mock(return_value=httpx.Response(200, json=reply))
+            async with httpx.AsyncClient() as http_client:
+                backend._client = real_genai.Client(api_key="k", http_options={"httpx_async_client": http_client})
+                for model in _strict_response_schema_models():
+                    route.calls.reset()
+                    # 回包只是空对象，过不了各模型的校验，会走降级链；本用例只看首个原生结构化请求
+                    with pytest.raises(StructuredOutputExhaustedError):
+                        await backend.generate(TextGenerationRequest(prompt="x", response_schema=model))
+                    assert route.called, model.__name__
+                    response_schema = request_json(route.calls[0].request)["generationConfig"]["responseSchema"]
+                    assert response_schema["type"] == "OBJECT"
+                    assert _keys_anywhere(response_schema, {"additional_properties", "additionalProperties"}) == [], (
+                        model.__name__
+                    )
