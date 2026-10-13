@@ -15,10 +15,10 @@ disable-model-invocation: true
 | | Spec 批次 | 零散批次 |
 |---|---|---|
 | 范围 | `batch-poll.sh --spec <N>` | 用户给出编号时 `--issues <N,...>`；要求处理非 Spec 的 `ready-for-agent` issue 时 `--ready` |
-| stage 划分 | 最少的、可独立审查和合入的 stage；小批次保持单 stage | 一个 stage 一个 conventional scope：stage 内 issues 能共用一个带 scope 的 PR 标题，写不出时按依赖连通分量拆开 |
+| stage 划分 | 最少的、可独立审查和合入的 stage；小批次保持单 stage | 一个 stage 一个 conventional scope：stage 内 issues 能共用一个带 scope 的 PR 标题；按 scope 分组后，stage 顺序服从依赖 |
 | 验收来源 | Spec 与本 stage issues | 本 stage issues |
 | PR 引用 | `Closes #<N>`，另用 `Refs #<Spec>` 引用 Spec，不自动关闭它 | `Closes #<N>` |
-| 清尾 issue | 按 [issue-tracker 约定](../../../docs/agents/issue-tracker.md) 挂接父 Spec | 独立创建；用户授权时指定了 Spec 则挂接该 Spec |
+| 清尾 issue | 按 [issue-tracker 约定](../../../docs/agents/issue-tracker.md) 挂接父 Spec | 独立创建，用 `ledger.sh <batch-id> decision --scope-issues <N>` 追加为批次成员；用户授权时指定了 Spec 则另挂接该 Spec |
 | 人工 QA 清单 | 发布在 Spec issue | 发布为最后一个 stage PR 的评论 |
 | 账本 scope | `--scope-spec <N>` | `--scope-issues <N,...>` |
 
