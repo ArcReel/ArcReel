@@ -513,6 +513,25 @@ describe("AgentCopilot", () => {
       expect(withdrawQueuedMessage).not.toHaveBeenCalled();
     });
 
+    it("stays in the delete confirmation with focus on cancel when the deletion leaves the message in place", async () => {
+      const user = userEvent.setup();
+      useAssistantStore.setState({
+        currentSessionId: "session-1",
+        sessionStatus: "running",
+        queuedMessages: [{ id: "q-1", content: [{ type: "text", text: "第 3 镜改成黄昏" }], state: "queued" }],
+      });
+      render(<AgentCopilot />);
+
+      await user.click(screen.getByRole("button", { name: "删除" }));
+      await user.click(screen.getByRole("button", { name: "确认删除" }));
+
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
+      // 撤回没能移出消息时这一行还在：确认态不退出，焦点回到取消，可以重试或取消
+      const confirm = screen.getByRole("group", { name: "删除这条消息？" });
+      await waitFor(() => expect(within(confirm).getByRole("button", { name: "取消" })).toHaveFocus());
+      expect(within(confirm).getByRole("button", { name: "确认删除" })).toBeEnabled();
+    });
+
     it("explains unsent messages and offers send, edit and delete on each of them", async () => {
       const user = userEvent.setup();
       useAssistantStore.setState({
@@ -585,11 +604,11 @@ describe("AgentCopilot", () => {
       expect(within(tray).getByText("第 3 镜改成黄昏")).toBeVisible();
       expect(within(tray).queryByRole("button", { name: "立即发送" })).not.toBeInTheDocument();
 
+      await user.click(within(tray).getByRole("button", { name: "编辑" }));
+      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
       await user.click(within(tray).getByRole("button", { name: "删除" }));
       await user.click(within(tray).getByRole("button", { name: "确认删除" }));
       expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "delete");
-      await user.click(within(tray).getByRole("button", { name: "编辑" }));
-      expect(withdrawQueuedMessage).toHaveBeenCalledWith("q-1", "edit");
     });
 
     it("scrolls a long queue inside the tray and follows the newest message, leaving the input and stop button in place", () => {
@@ -638,6 +657,14 @@ describe("AgentCopilot", () => {
       expect(tray.scrollTop).toBe(0);
       act(() => useAssistantStore.setState((s) => ({ queuedMessages: [...s.queuedMessages, queued(21)] })));
       expect(tray.scrollTop).toBe(640);
+
+      // 立即发送把末尾那条排到最前：快照重排不是追加，滚到顶部露出它
+      act(() =>
+        useAssistantStore.setState((s) => ({
+          queuedMessages: [s.queuedMessages[s.queuedMessages.length - 1]!, ...s.queuedMessages.slice(0, -1)],
+        })),
+      );
+      expect(tray.scrollTop).toBe(0);
     });
   });
 

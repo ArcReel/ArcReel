@@ -15,7 +15,7 @@ import { turnPlainText } from "./chat/utils";
 // 每条消息行尾是逐条操作，顺序为立即发送、编辑、删除：立即发送让 Agent 打断当前轮先处理它，编辑把内容
 // 退回输入框。三者都要先向 Agent 撤回，请求在途时这条消息的操作暂不可用。
 // 删除不可撤销，点删除后在这一行原地换成确认与取消，焦点落在取消上，误按 Enter 不会删除；
-// 取消或 Esc 退出确认并把焦点交还删除按钮。
+// 取消或 Esc 退出确认并把焦点交还删除按钮。确认后请求在途时两个按钮禁用，失败后仍停在确认态，成功后这一行随消息移出。
 // Agent 提问期间托盘照常显示在问卷下方，只是不提供立即发送，免得打断提问。
 // Agent 进程退出时仍在排队的消息转为「未发送」：托盘顶部说明会话已中断，这些消息行尾多一个发送，
 // 由创作者决定重新发送、编辑或删除，不自动重发。
@@ -119,19 +119,19 @@ function QueuedMessageItem({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const deleteRef = useRef<HTMLButtonElement>(null);
   const cancelDeleteRef = useRef<HTMLButtonElement>(null);
-  // 退出确认时把焦点交还删除按钮；确认删除后这一行随消息移出而卸载，不交还
-  const returnFocusRef = useRef(false);
+  const wasConfirmingRef = useRef(false);
+  // 确认态焦点落在取消上；请求在途时两个按钮禁用，请求失败后这一行还在，busy 复位时焦点回到取消。
+  // 退出确认态把焦点交还删除按钮。确认成功后这一行随消息移出而卸载。
   useEffect(() => {
     if (confirmingDelete) {
-      cancelDeleteRef.current?.focus();
-    } else if (returnFocusRef.current) {
-      returnFocusRef.current = false;
+      if (!busy) cancelDeleteRef.current?.focus();
+    } else if (wasConfirmingRef.current) {
       deleteRef.current?.focus();
     }
-  }, [confirmingDelete]);
+    wasConfirmingRef.current = confirmingDelete;
+  }, [confirmingDelete, busy]);
   const dismissDelete = () => {
-    returnFocusRef.current = true;
-    setConfirmingDelete(false);
+    if (!busy) setConfirmingDelete(false);
   };
   const dismissOnEscape = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
@@ -150,19 +150,17 @@ function QueuedMessageItem({
       {confirmingDelete ? (
         <div role="group" aria-label={t("queued_message_delete_prompt")} className="-my-0.5 flex shrink-0 items-center gap-1">
           <span className="text-muted-foreground">{t("queued_message_delete_prompt")}</span>
+          <Button variant="destructive" size="xs" disabled={busy} onKeyDown={dismissOnEscape} onClick={() => withdraw("delete")}>
+            {t("queued_message_delete_confirm")}
+          </Button>
           <Button
-            variant="destructive"
+            ref={cancelDeleteRef}
+            variant="outline"
             size="xs"
             disabled={busy}
             onKeyDown={dismissOnEscape}
-            onClick={() => {
-              setConfirmingDelete(false);
-              withdraw("delete");
-            }}
+            onClick={dismissDelete}
           >
-            {t("queued_message_delete_confirm")}
-          </Button>
-          <Button ref={cancelDeleteRef} variant="outline" size="xs" onKeyDown={dismissOnEscape} onClick={dismissDelete}>
             {t("cancel")}
           </Button>
         </div>

@@ -48,7 +48,7 @@ Spec 和按 Spec 拆出的 ticket 在**列表视图**即可区分与溯源：
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue. After publishing a batch, read every issue back and check its title matches its body's title: a shifted or empty title is the easiest mistake to make here and the hardest for the next agent to notice.
+Create a GitHub issue. After publishing a batch, read every issue back (`gh issue view <n> --json title,body`) and check each title is the one the approved breakdown assigned to that body: a title shifted onto the next issue, or left empty, is the easiest mistake to make here and the hardest for the next agent to notice.
 
 ## When a skill says "fetch the relevant ticket"
 
