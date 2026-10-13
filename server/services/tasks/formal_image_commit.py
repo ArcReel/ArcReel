@@ -22,6 +22,7 @@ from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.artifacts.generation_input import ASSET_SHEET_CANVAS_RATIO, FrozenGenerationInput
 from lib.artifacts.image_reference_snapshot import FrozenImageReferences
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
+from lib.generation.generation_queue import ensure_dispatch_provider
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.project.asset_types import ASSET_SPECS, AssetSpec, resolve_asset_key
 from lib.project.project_manager import ProjectManager
@@ -382,12 +383,14 @@ async def run_formal_image_task(
     frozen_references: FrozenImageReferences,
     plan: FormalImagePlan,
     context: GenerationContext | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """Submit one formal image and return the outcome its staged activation recorded.
 
     ``context`` 供已经解析过 image lane 的调用方复用同一次解析——提示词里的参考图编号按
     backend 的上限裁剪过，重解析可能落到别的 backend、让编号与实发张数错位。不传则在提交
-    前按参考图有无定 t2i / i2i 槽自行解析。
+    前按参考图有无定 t2i / i2i 槽自行解析。``claimed_provider_id`` 是 worker 认领时占用的槽，image
+    lane 的 provider 与它不一致时在提交前抛 ``DispatchProviderChanged``。
     """
 
     reference_images = frozen_references.reference_images
@@ -401,6 +404,7 @@ async def run_formal_image_task(
             user_id=user_id,
             image=ImageLaneRequest(generation_type="i2i" if reference_images else "t2i"),
         )
+        ensure_dispatch_provider(claimed_provider_id, ctx.image.provider_model.provider_id)
         generator = ctx.generator
         if plan.pre_submit is not None:
             await plan.pre_submit(generator)

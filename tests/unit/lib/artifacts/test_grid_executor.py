@@ -292,6 +292,51 @@ class TestExecuteGridTask:
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
 
+    @pytest.mark.parametrize("status_before_claim", ["pending", "failed"])
+    async def test_provider_changed_since_claim_restores_the_grid_and_skips_the_provider(
+        self, project_with_script, grid_json, status_before_claim
+    ):
+        """执行入口解析出的供应商与认领槽不一致：不调供应商，宫格记录回到领取前的状态，等任务回队重领。"""
+        from lib.generation.generation_queue import DispatchProviderChanged
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        record = project_with_script / "grids" / f"{grid_json.id}.json"
+        stored = json.loads(record.read_text(encoding="utf-8"))
+        stored["status"] = status_before_claim
+        stored["error_message"] = "上次失败" if status_before_claim == "failed" else None
+        record.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock()
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.tasks.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator, provider="openai"),
+            ),
+        ):
+            mock_pm_fn.return_value.get_project_path.return_value = project_with_script
+            mock_pm_fn.return_value.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            mock_pm_fn.return_value.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+            )
+
+            with pytest.raises(DispatchProviderChanged) as caught:
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                    claimed_provider_id="gemini-aistudio",
+                )
+
+        assert (caught.value.claimed_provider_id, caught.value.actual_provider_id) == ("gemini-aistudio", "openai")
+        mock_generator.generate_image_async.assert_not_called()
+        restored = json.loads(record.read_text(encoding="utf-8"))
+        assert (restored["status"], restored["error_message"]) == (stored["status"], stored["error_message"])
+
     @staticmethod
     def _complete(project_with_script, grid, *, registered: bool):
         from PIL import Image

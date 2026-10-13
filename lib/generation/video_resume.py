@@ -78,7 +78,8 @@ async def fail_task_of_deleted_project(queue: GenerationQueue, task: dict[str, A
     logger.warning("任务 %s 执行期间项目 %s 已删除，放弃落盘", task_id, task.get("project_name"))
     await asyncio.shield(queue.mark_task_failed(task_id, encode_failure("project_deleted_during_task")))
     try:
-        await asyncio.to_thread(get_project_manager().remove_project_directory_residue, task["project_name"])
+        # 取项目管理器本身也会碰文件系统（首次构造建目录），整体放进工作线程。
+        await asyncio.to_thread(lambda: get_project_manager().remove_project_directory_residue(task["project_name"]))
     except Exception:
         logger.warning("已删除项目的残余目录清理失败 task_id=%s", task_id, exc_info=True)
 

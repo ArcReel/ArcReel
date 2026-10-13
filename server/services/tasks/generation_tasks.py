@@ -54,6 +54,7 @@ from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import (
     DispatchProviderChanged,
+    ensure_dispatch_provider,
     get_generation_queue,
     without_video_execution_identity,
 )
@@ -445,6 +446,7 @@ async def execute_storyboard_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     script_file = payload.get("script_file")
     if not script_file:
@@ -494,6 +496,7 @@ async def execute_storyboard_task(
         user_id=user_id,
         image=ImageLaneRequest(generation_type="i2i" if inputs.generation_input.references else "t2i"),
     )
+    ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
 
     def _bind_claims(
         claims: Sequence[ArtifactInputClaim], content_digests: Mapping[str, str]
@@ -578,6 +581,7 @@ async def execute_tts_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """为一个 narrator-owned script unit 合成独立旁白配音。"""
     script_file = payload.get("script_file")
@@ -656,6 +660,7 @@ async def execute_tts_task(
         user_id=user_id,
         audio=AudioLaneRequest(),
     )
+    ensure_dispatch_provider(claimed_provider_id, ctx.audio.provider_model.provider_id)
     # 自定义后端可回退到默认型号；旁白快照不允许用另一个型号合成并登记为所选型号。
     if ctx.audio.backend_model != settings.model_id:
         raise NarrationConfigError("narration_tts_model_invalid")
@@ -923,6 +928,7 @@ async def execute_character_voice_sample_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """为角色参考音频候选生成一段 TTS 试听样本（预览用，不写入角色资产）。
 
@@ -955,6 +961,7 @@ async def execute_character_voice_sample_task(
         user_id=user_id,
         audio=AudioLaneRequest(),
     )
+    ensure_dispatch_provider(claimed_provider_id, ctx.audio.provider_model.provider_id)
     generator = ctx.generator
 
     sample_id = voice_sample_resource_id(character_name, task_id)
@@ -1428,6 +1435,7 @@ async def execute_asset_sheet_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """资产图（角色、场景、道具、商品）：描述取自存储的条目，参考图与依据取自生成输入。"""
 
@@ -1454,6 +1462,7 @@ async def execute_asset_sheet_task(
         user_id=user_id,
         image=ImageLaneRequest(generation_type="i2i" if generation_input.references else "t2i"),
     )
+    ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
 
     def _freeze() -> FrozenGenerationInput:
         return generation_input.freeze(
@@ -1494,9 +1503,16 @@ async def execute_character_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     return await execute_asset_sheet_task(
-        "character", project_name, resource_id, payload, user_id=user_id, task_id=task_id
+        "character",
+        project_name,
+        resource_id,
+        payload,
+        user_id=user_id,
+        task_id=task_id,
+        claimed_provider_id=claimed_provider_id,
     )
 
 
@@ -1507,8 +1523,17 @@ async def execute_scene_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
-    return await execute_asset_sheet_task("scene", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+    return await execute_asset_sheet_task(
+        "scene",
+        project_name,
+        resource_id,
+        payload,
+        user_id=user_id,
+        task_id=task_id,
+        claimed_provider_id=claimed_provider_id,
+    )
 
 
 async def execute_prop_task(
@@ -1518,8 +1543,17 @@ async def execute_prop_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
-    return await execute_asset_sheet_task("prop", project_name, resource_id, payload, user_id=user_id, task_id=task_id)
+    return await execute_asset_sheet_task(
+        "prop",
+        project_name,
+        resource_id,
+        payload,
+        user_id=user_id,
+        task_id=task_id,
+        claimed_provider_id=claimed_provider_id,
+    )
 
 
 async def execute_product_task(
@@ -1529,9 +1563,16 @@ async def execute_product_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     return await execute_asset_sheet_task(
-        "product", project_name, resource_id, payload, user_id=user_id, task_id=task_id
+        "product",
+        project_name,
+        resource_id,
+        payload,
+        user_id=user_id,
+        task_id=task_id,
+        claimed_provider_id=claimed_provider_id,
     )
 
 
@@ -1542,6 +1583,7 @@ async def execute_grid_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute a grid joint-image generation task.
 
@@ -1589,6 +1631,8 @@ async def execute_grid_task(
         raise ValueError(f"grid episode {grid.episode} does not match bound script episode {artifact_episode}")
 
     frozen_references: FrozenImageReferences | None = None
+    # 执行入口发现供应商与认领槽不一致时任务回队，宫格记录要回到领取前的状态，不能留在 generating。
+    status_before_claim, error_before_claim = grid.status, grid.error_message
     try:
         # b) Set status to generating
         grid.status = "generating"
@@ -1629,6 +1673,7 @@ async def execute_grid_task(
             user_id=user_id,
             image=ImageLaneRequest(generation_type="i2i" if assembled else "t2i"),
         )
+        ensure_dispatch_provider(claimed_provider_id, ctx.image.provider_model.provider_id)
         frozen_references = await asyncio.to_thread(
             freeze_image_references,
             [reference.visual.path for reference in assembled] or None,
@@ -1744,6 +1789,16 @@ async def execute_grid_task(
         # formal_output=True 时 generate_image_async 恒经活化回调提交，回调恰好记录一条结果。
         outcome = formal_outcomes[0]
 
+    except DispatchProviderChanged:
+
+        def _restore_status_before_claim() -> None:
+            restored = grid_manager.get(resource_id) or grid
+            restored.status = status_before_claim
+            restored.error_message = error_before_claim
+            grid_manager.save(restored)
+
+        await asyncio.to_thread(_restore_status_before_claim)
+        raise
     except Exception:
         # The formal-write transaction restores the durable grid record on failure.
         # Reload it before recording failure so the in-memory ``grid`` never carries
@@ -1828,7 +1883,14 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
                 poll_timeout_seconds=video_poll_timeout_seconds,
             )
         else:
-            result = await executor(project_name, resource_id, payload, user_id=user_id, task_id=queue_task_id)
+            result = await executor(
+                project_name,
+                resource_id,
+                payload,
+                user_id=user_id,
+                task_id=queue_task_id,
+                claimed_provider_id=claimed_provider_id,
+            )
         # 成功事件发出失败时不回滚产物：已写入的产物保持有效，异常照常上抛。
         emit_generation_success_batch(
             task_type=task_type,

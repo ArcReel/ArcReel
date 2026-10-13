@@ -25,6 +25,7 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.version_manager import PaidVersionCommit
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.generation.generation_queue import DispatchProviderChanged
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.script_editor import resolve_items
 from lib.speech.narration_config import NarrationConfigError
@@ -392,6 +393,26 @@ class TestExecuteTtsTask:
             )
 
         assert gen.audio_calls == []
+
+    @pytest.mark.parametrize(("claimed", "drifted"), [("openai", True), ("dashscope", False)])
+    async def test_provider_changed_since_claim_is_raised_before_synthesis(self, tts_env, claimed, drifted):
+        """执行入口解析出的供应商与认领槽不一致时，在合成之前抛出，交给 worker 改记录并回队。"""
+        _pm, gen = tts_env
+        task = {
+            "task_id": "task-tts",
+            "task_type": "tts",
+            "project_name": "demo",
+            "resource_id": "E1S01",
+            "payload": {"text": "你好世界"},
+        }
+        if drifted:
+            with pytest.raises(DispatchProviderChanged) as caught:
+                await generation_tasks.execute_generation_task(task, claimed_provider_id=claimed)
+            assert (caught.value.claimed_provider_id, caught.value.actual_provider_id) == (claimed, "dashscope")
+            assert gen.audio_calls == []
+        else:
+            await generation_tasks.execute_generation_task(task, claimed_provider_id=claimed)
+            assert len(gen.audio_calls) == 1
 
     async def test_explicit_payload_text(self, tts_env):
         pm, gen = tts_env

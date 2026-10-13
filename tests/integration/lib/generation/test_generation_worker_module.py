@@ -361,14 +361,14 @@ class TestGenerationWorker:
             "generation",
             _fake_execute,
         )
-        await worker._process_task({"task_id": "t1"})
+        await worker._process_task({"task_id": "t1"}, claimed_provider_id="test")
         assert queue.succeeded == [("t1", {"ok": "t1"})]
 
         async def _raise(_task, **_kwargs):
             raise RuntimeError("boom")
 
         monkeypatch.setattr(stub_executors, "generation", _raise)
-        await worker._process_task({"task_id": "t2"})
+        await worker._process_task({"task_id": "t2"}, claimed_provider_id="test")
         assert queue.failed
         assert queue.failed[0][0] == "t2"
 
@@ -392,7 +392,7 @@ class TestGenerationWorker:
 
         monkeypatch.setattr(stub_executors, "generation", _fake_execute)
 
-        await worker._process_task({"task_id": "task-reuse", "task_type": "video"})
+        await worker._process_task({"task_id": "task-reuse", "task_type": "video"}, claimed_provider_id="test")
 
         assert queue.succeeded == [("task-reuse", reused)]
         assert queue.failed == []
@@ -524,7 +524,7 @@ class TestGenerationWorker:
             "generation",
             _raise_script_edit_error,
         )
-        await worker._process_task({"task_id": "t_script_edit"})
+        await worker._process_task({"task_id": "t_script_edit"}, claimed_provider_id="test")
         assert queue.failed
         assert queue.failed[0] == (
             "t_script_edit",
@@ -543,7 +543,7 @@ class TestGenerationWorker:
             return {"ok": True}
 
         monkeypatch.setattr(stub_executors, "generation", _project_deleted_before_return)
-        await worker._process_task({"task_id": "t_deleted", "project_name": "demo"})
+        await worker._process_task({"task_id": "t_deleted", "project_name": "demo"}, claimed_provider_id="test")
         assert queue.succeeded == []
         assert queue.failed == [("t_deleted", "[project_deleted_during_task]")]
 
@@ -565,7 +565,7 @@ class TestGenerationWorker:
             "generation",
             _raise_unregistered,
         )
-        await worker._process_task({"task_id": "t_unregistered"})
+        await worker._process_task({"task_id": "t_unregistered"}, claimed_provider_id="test")
         assert queue.failed
         assert queue.failed[0] == ("t_unregistered", "[script_edit_error]")
 
@@ -592,7 +592,7 @@ class TestGenerationWorker:
             "generation",
             _raise_circular_params,
         )
-        await worker._process_task({"task_id": "t_circular"})
+        await worker._process_task({"task_id": "t_circular"}, claimed_provider_id="test")
         assert queue.failed
         assert queue.failed[0] == ("t_circular", "[script_edit_error]")
 
@@ -611,7 +611,7 @@ class TestGenerationWorker:
             resume_executor=stub_executors.execute_resume,
         )
         with pytest.raises(asyncio.CancelledError):
-            await worker._process_task({"task_id": "tc", "media_type": "image"})
+            await worker._process_task({"task_id": "tc", "media_type": "image"}, claimed_provider_id="test")
 
         assert await task_status(worker_db, "tc") == "cancelled"
 
@@ -633,7 +633,7 @@ class TestGenerationWorker:
             executor=_execute,
             resume_executor=stub_executors.execute_resume,
         )
-        await worker._process_task({"task_id": "t0rows", "media_type": "video"})
+        await worker._process_task({"task_id": "t0rows", "media_type": "video"}, claimed_provider_id="test")
 
         assert await task_status(worker_db, "t0rows") == "queued"
 
@@ -660,7 +660,7 @@ class TestGenerationWorker:
         worker.heartbeat_interval = 0.01
         worker.poll_interval = 0.01
         running = asyncio.create_task(
-            worker._process_task({"task_id": "shutdown-run", "media_type": "image"}),
+            worker._process_task({"task_id": "shutdown-run", "media_type": "image"}, claimed_provider_id="test"),
             name="generation-image-shutdown-run",
         )
         worker._slots.register("test", "image", "shutdown-run", running)
@@ -773,18 +773,10 @@ class TestGenerationWorker:
 
     @pytest.mark.asyncio
     async def test_drain_lands_cancelled_when_interruption_hits_before_process_task_try(self, monkeypatch):
-        """打断落在 _process_task 进 try 之前（provider 投影 await）：drain 端兜底落终态。"""
+        """打断落在 _process_task 进 try 之前（协程尚未开始执行）：drain 端兜底落终态。"""
         queue = FakeWorkerQueue()
-        in_extract = asyncio.Event()
-
-        async def _blocking_projection(_task):
-            in_extract.set()
-            await asyncio.sleep(10)  # 停在入口解析，模拟打断落在 _process_task 的 try 之前
-            return "test"
-
         worker = GenerationWorker(
             queue=queue,
-            provider_projection=_blocking_projection,
             executor=stub_executors.execute,
             resume_executor=stub_executors.execute_resume,
         )
@@ -792,19 +784,18 @@ class TestGenerationWorker:
         worker.poll_interval = 0.01
 
         async def _execute(_task, **_kwargs):
-            raise AssertionError("execute 不应被调用：打断在 provider 投影阶段就到")
+            raise AssertionError("execute 不应被调用：打断在协程开始执行之前就到")
 
         monkeypatch.setattr(stub_executors, "generation", _execute)
 
         t = asyncio.create_task(
-            worker._process_task({"task_id": "tid", "media_type": "video"}),
+            worker._process_task({"task_id": "tid", "media_type": "video"}, claimed_provider_id="test"),
             name="generation-video-tid",
         )
         worker._slots.register("test", "video", "tid", t)
+        t.cancel()  # 协程还没被调度过，打断落在 try 之前
 
         await worker.start()
-        await in_extract.wait()  # 确保停在 provider 投影（try 之前）
-        t.cancel()
         await asyncio.wait_for(queue.claim_after_interruption.wait(), timeout=2.0)
 
         # _process_task 没机会落终态（打断在 try 之前）→ drain 端兜底
@@ -834,7 +825,7 @@ class TestGenerationWorker:
         monkeypatch.setattr(stub_executors, "generation", _block)
 
         t = asyncio.create_task(
-            worker._process_task({"task_id": "tid", "media_type": "video"}),
+            worker._process_task({"task_id": "tid", "media_type": "video"}, claimed_provider_id="test"),
             name="generation-video-tid",
         )
         worker._slots.register("test", "video", "tid", t)
@@ -906,7 +897,7 @@ class TestGenerationWorker:
         running: list[asyncio.Task] = []
         for tid in vid_ids:
             t = asyncio.create_task(
-                worker._process_task({"task_id": tid, "media_type": "video"}),
+                worker._process_task({"task_id": tid, "media_type": "video"}, claimed_provider_id="test"),
                 name=f"generation-video-{tid}",
             )
             worker._slots.register("gemini-aistudio", "video", tid, t)
@@ -1062,11 +1053,14 @@ class _CountingProjection:
         return self.current
 
 
-async def _seed_queued_video(factory, task_id: str, *, task_type: str, provider_id: str | None, order: int) -> None:
+async def _seed_queued(
+    factory, task_id: str, *, media_type: str, task_type: str, provider_id: str | None, order: int
+) -> None:
     await seed_running_task(
         factory,
         task_id,
         task_type=task_type,
+        media_type=media_type,
         resource_id=f"E1U{order}",
         status="queued",
         started_at=None,
@@ -1084,29 +1078,72 @@ async def _task_row(factory, task_id: str) -> dict[str, Any]:
         return {"status": row.status, "provider_id": row.provider_id, "queued_at": row.queued_at}
 
 
-class TestVideoClaimByRecordedProvider:
-    """视频认领只按排队时记录的 provider 做池满过滤与槽位归属；项目现状由执行入口核对。"""
+# (media_type, task_type)：图片、音频、视频三种媒体类型的代表任务；视频再覆盖参考生视频。
+_MEDIA_TASKS = [
+    pytest.param("image", "storyboard", id="image"),
+    pytest.param("audio", "tts", id="audio"),
+    pytest.param("video", "video", id="video"),
+    pytest.param("video", "reference_video", id="reference_video"),
+]
+
+
+class _GatedExecution:
+    """执行替身：认领周期结束后才放行执行体，记录每次执行收到的认领槽。
+
+    内存库的 session 共用一条连接，执行体落库若与同一周期里的下一次认领交错，会被那次认领的回滚
+    一并撤销；放行握手让两者先后发生。``drift_to`` 给定时，认领槽与它不同即按执行入口漂移抛错。
+    """
+
+    def __init__(self, *, drift_to: str | None = None) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._drift_to = drift_to
+        self._released = asyncio.Event()
+
+    async def __call__(self, task: dict[str, Any], *, claimed_provider_id: str) -> dict[str, Any]:
+        from lib.generation.generation_queue import ensure_dispatch_provider
+
+        await self._released.wait()
+        self.calls.append((task["task_id"], claimed_provider_id))
+        if self._drift_to is not None:
+            ensure_dispatch_provider(claimed_provider_id, self._drift_to)
+        return {"ok": True}
+
+    async def cycle(self, worker: GenerationWorker, *, keep: tuple[asyncio.Future[Any], ...] = ()) -> None:
+        """跑一个认领周期，放行并等完本周期派发的执行体（``keep`` 是测试自己登记的占位占用）。"""
+        await worker._claim_tasks()
+        self._released.set()
+        await asyncio.gather(*[t for t in worker._slots.all_active_tasks() if t not in keep])
+        await worker._drain_finished_tasks()
+        self._released.clear()
+
+
+class TestClaimByRecordedProvider:
+    """图片、音频、视频认领只按排队时记录的 provider 做池满过滤与槽位归属；项目现状由执行入口核对。"""
 
     @staticmethod
-    def _worker(queue, projection, limits: dict[str, dict[str, int]]) -> GenerationWorker:
+    def _worker(queue, projection, limits: dict[str, dict[str, int]], media_type: str) -> GenerationWorker:
         return GenerationWorker(
             queue=queue,
             capacity=capacity_table(limits),
             provider_projection=projection,
-            lanes=("video",),
+            lanes=(media_type,),
             executor=stub_executors.execute,
             resume_executor=stub_executors.execute_resume,
         )
 
+    @pytest.mark.parametrize(("media_type", "task_type"), _MEDIA_TASKS)
     @pytest.mark.parametrize("queued", [5, 50])
-    async def test_full_pool_claim_cycle_projects_no_queued_video(self, worker_db, queued: int):
+    async def test_full_pool_claim_cycle_projects_no_queued_task(
+        self, worker_db, media_type: str, task_type: str, queued: int
+    ):
         projection = _CountingProjection("ark")
-        worker = self._worker(db_queue(worker_db), projection, {"ark": {"video": 1}})
+        worker = self._worker(db_queue(worker_db), projection, {"ark": {media_type: 1}}, media_type)
         occupier = asyncio.get_running_loop().create_future()
-        worker._slots.register("ark", "video", "vid-running", occupier)
+        worker._slots.register("ark", media_type, "running", occupier)
         for n in range(queued):
-            task_type = "reference_video" if n % 2 == 0 else "video"
-            await _seed_queued_video(worker_db, f"vid-{n}", task_type=task_type, provider_id="ark", order=n)
+            await _seed_queued(
+                worker_db, f"task-{n}", media_type=media_type, task_type=task_type, provider_id="ark", order=n
+            )
         try:
             claimed = await worker._claim_tasks()
         finally:
@@ -1114,117 +1151,136 @@ class TestVideoClaimByRecordedProvider:
 
         assert claimed is False
         assert projection.calls == []
-        assert {(await _task_row(worker_db, f"vid-{n}"))["status"] for n in range(queued)} == {"queued"}
+        assert {(await _task_row(worker_db, f"task-{n}"))["status"] for n in range(queued)} == {"queued"}
 
-    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
-    async def test_legacy_task_without_recorded_provider_is_projected_once_and_recorded(
-        self, monkeypatch, worker_db, task_type: str
+    @pytest.mark.parametrize(("media_type", "task_type"), _MEDIA_TASKS)
+    async def test_claim_runs_recorded_provider_without_projecting(
+        self, monkeypatch, worker_db, media_type: str, task_type: str
     ):
-        executed: list[str] = []
-
-        async def _execute(task, *, claimed_provider_id):
-            executed.append(claimed_provider_id)
-            return {"ok": True}
-
-        monkeypatch.setattr(stub_executors, "generation", _execute)
+        execution = _GatedExecution()
+        monkeypatch.setattr(stub_executors, "generation", execution)
         projection = _CountingProjection("minimax")
-        worker = self._worker(db_queue(worker_db), projection, {"minimax": {"video": 1}})
-        await _seed_queued_video(worker_db, "vid-legacy", task_type=task_type, provider_id=None, order=0)
+        worker = self._worker(db_queue(worker_db), projection, {"ark": {media_type: 1}}, media_type)
+        await _seed_queued(
+            worker_db, "task-recorded", media_type=media_type, task_type=task_type, provider_id="ark", order=0
+        )
 
-        await worker._claim_tasks()
-        await asyncio.gather(*worker._slots.all_active_tasks())
+        await execution.cycle(worker)
 
-        assert projection.calls == ["vid-legacy"]
-        assert executed == ["minimax"]
-        row = await _task_row(worker_db, "vid-legacy")
+        assert projection.calls == []
+        assert execution.calls == [("task-recorded", "ark")]
+        assert (await _task_row(worker_db, "task-recorded"))["status"] == "succeeded"
+
+    @pytest.mark.parametrize(("media_type", "task_type"), _MEDIA_TASKS)
+    async def test_legacy_task_without_recorded_provider_is_projected_once_and_recorded(
+        self, monkeypatch, worker_db, media_type: str, task_type: str
+    ):
+        execution = _GatedExecution()
+        monkeypatch.setattr(stub_executors, "generation", execution)
+        projection = _CountingProjection("minimax")
+        worker = self._worker(db_queue(worker_db), projection, {"minimax": {media_type: 1}}, media_type)
+        await _seed_queued(
+            worker_db, "task-legacy", media_type=media_type, task_type=task_type, provider_id=None, order=0
+        )
+
+        await execution.cycle(worker)
+
+        assert projection.calls == ["task-legacy"]
+        assert execution.calls == [("task-legacy", "minimax")]
+        row = await _task_row(worker_db, "task-legacy")
         assert (row["status"], row["provider_id"]) == ("succeeded", "minimax")
 
+    @pytest.mark.parametrize(("media_type", "task_type"), _MEDIA_TASKS)
     async def test_legacy_task_projected_into_full_pool_is_recorded_and_not_projected_again(
-        self, monkeypatch, worker_db
+        self, monkeypatch, worker_db, media_type: str, task_type: str
     ):
-        executed: list[tuple[str, str]] = []
-
-        async def _execute(task, *, claimed_provider_id):
-            executed.append((task["task_id"], claimed_provider_id))
-            return {"ok": True}
-
-        monkeypatch.setattr(stub_executors, "generation", _execute)
+        execution = _GatedExecution()
+        monkeypatch.setattr(stub_executors, "generation", execution)
         projection = _CountingProjection("minimax")
-        worker = self._worker(db_queue(worker_db), projection, {"minimax": {"video": 1}, "ark": {"video": 1}})
+        worker = self._worker(
+            db_queue(worker_db), projection, {"minimax": {media_type: 1}, "ark": {media_type: 1}}, media_type
+        )
         occupier = asyncio.get_running_loop().create_future()
-        worker._slots.register("minimax", "video", "vid-running", occupier)
-        await _seed_queued_video(worker_db, "vid-legacy", task_type="reference_video", provider_id=None, order=0)
-        await _seed_queued_video(worker_db, "vid-ready", task_type="video", provider_id="ark", order=1)
+        worker._slots.register("minimax", media_type, "running", occupier)
+        await _seed_queued(
+            worker_db, "task-legacy", media_type=media_type, task_type=task_type, provider_id=None, order=0
+        )
+        await _seed_queued(
+            worker_db, "task-ready", media_type=media_type, task_type=task_type, provider_id="ark", order=1
+        )
         try:
             for _cycle in range(2):
-                await worker._claim_tasks()
-                await asyncio.gather(*[t for t in worker._slots.all_active_tasks() if t is not occupier])
+                await execution.cycle(worker, keep=(occupier,))
         finally:
             occupier.cancel()
 
-        assert projection.calls == ["vid-legacy"]
-        legacy = await _task_row(worker_db, "vid-legacy")
+        assert projection.calls == ["task-legacy"]
+        legacy = await _task_row(worker_db, "task-legacy")
         assert (legacy["status"], legacy["provider_id"]) == ("queued", "minimax")
-        assert executed == [("vid-ready", "ark")]
+        assert execution.calls == [("task-ready", "ark")]
 
-    async def test_recorded_provider_that_no_longer_supports_video_is_projected_once_and_recorded(
-        self, monkeypatch, worker_db
+    @pytest.mark.parametrize(("media_type", "task_type"), _MEDIA_TASKS)
+    async def test_recorded_provider_that_no_longer_supports_the_media_is_projected_once_and_recorded(
+        self, monkeypatch, worker_db, media_type: str, task_type: str
     ):
-        """记录的供应商排队期间去掉了视频能力：按现状推算一次并写回，任务不判 provider_unsupported_media。"""
-        executed: list[str] = []
-
-        async def _execute(task, *, claimed_provider_id):
-            executed.append(claimed_provider_id)
-            return {"ok": True}
-
-        monkeypatch.setattr(stub_executors, "generation", _execute)
+        """记录的供应商排队期间去掉了该媒体能力：按现状推算一次并写回，任务不判 provider_unsupported_media。"""
+        execution = _GatedExecution()
+        monkeypatch.setattr(stub_executors, "generation", execution)
         projection = _CountingProjection("minimax")
         worker = self._worker(
-            db_queue(worker_db), projection, {"custom": {"image": 1, "video": 0}, "minimax": {"video": 1}}
+            db_queue(worker_db), projection, {"custom": {media_type: 0}, "minimax": {media_type: 1}}, media_type
         )
-        await _seed_queued_video(worker_db, "vid-stale", task_type="reference_video", provider_id="custom", order=0)
+        await _seed_queued(
+            worker_db, "task-stale", media_type=media_type, task_type=task_type, provider_id="custom", order=0
+        )
 
-        await worker._claim_tasks()
-        await asyncio.gather(*worker._slots.all_active_tasks())
+        await execution.cycle(worker)
 
-        assert projection.calls == ["vid-stale"]
-        assert executed == ["minimax"]
-        row = await _task_row(worker_db, "vid-stale")
+        assert projection.calls == ["task-stale"]
+        assert execution.calls == [("task-stale", "minimax")]
+        row = await _task_row(worker_db, "task-stale")
         assert (row["status"], row["provider_id"]) == ("succeeded", "minimax")
 
-    @pytest.mark.parametrize("task_type", ["video", "reference_video"])
+    @pytest.mark.parametrize(("media_type", "task_type"), _MEDIA_TASKS)
     async def test_provider_edited_while_queued_is_requeued_by_execution_entry_then_runs_on_new_slot(
-        self, monkeypatch, worker_db, task_type: str
+        self, monkeypatch, worker_db, media_type: str, task_type: str
     ):
         """项目改了供应商：认领仍占记录的槽，执行入口发现漂移后改记录并原位回队，下一周期走新槽。"""
-        from lib.generation.generation_queue import DispatchProviderChanged
-
-        executed: list[str] = []
-
-        async def _execute(task, *, claimed_provider_id):
-            executed.append(claimed_provider_id)
-            if claimed_provider_id != "grok":
-                raise DispatchProviderChanged(claimed_provider_id=claimed_provider_id, actual_provider_id="grok")
-            return {"ok": True}
-
-        monkeypatch.setattr(stub_executors, "generation", _execute)
+        execution = _GatedExecution(drift_to="grok")
+        monkeypatch.setattr(stub_executors, "generation", execution)
         projection = _CountingProjection("grok")
-        worker = self._worker(db_queue(worker_db), projection, {"ark": {"video": 1}, "grok": {"video": 1}})
-        await _seed_queued_video(worker_db, "vid-edited", task_type=task_type, provider_id="ark", order=0)
-        queued_at = (await _task_row(worker_db, "vid-edited"))["queued_at"]
+        worker = self._worker(
+            db_queue(worker_db), projection, {"ark": {media_type: 1}, "grok": {media_type: 1}}, media_type
+        )
+        await _seed_queued(
+            worker_db, "task-edited", media_type=media_type, task_type=task_type, provider_id="ark", order=1
+        )
+        # 排在它后面、已记录新供应商的任务：回队后被编辑的任务仍排在它前面，先占到新槽。
+        await _seed_queued(
+            worker_db, "task-later", media_type=media_type, task_type=task_type, provider_id="grok", order=2
+        )
+        queued_at = (await _task_row(worker_db, "task-edited"))["queued_at"]
+        occupier = asyncio.get_running_loop().create_future()
+        worker._slots.register("grok", media_type, "running", occupier)
 
-        await worker._claim_tasks()
-        await asyncio.gather(*worker._slots.all_active_tasks())
+        try:
+            await execution.cycle(worker, keep=(occupier,))
+        finally:
+            occupier.cancel()
         await worker._drain_finished_tasks()
-        requeued = await _task_row(worker_db, "vid-edited")
-        assert requeued == {"status": "queued", "provider_id": "grok", "queued_at": queued_at}
 
-        await worker._claim_tasks()
-        await asyncio.gather(*worker._slots.all_active_tasks())
+        assert await _task_row(worker_db, "task-edited") == {
+            "status": "queued",
+            "provider_id": "grok",
+            "queued_at": queued_at,
+        }
 
-        assert executed == ["ark", "grok"]
+        await execution.cycle(worker)
+
+        assert execution.calls == [("task-edited", "ark"), ("task-edited", "grok")]
         assert projection.calls == []
-        assert (await _task_row(worker_db, "vid-edited"))["status"] == "succeeded"
+        assert (await _task_row(worker_db, "task-edited"))["status"] == "succeeded"
+        assert (await _task_row(worker_db, "task-later"))["status"] == "queued"
 
 
 class TestOrphanOnceAndLeaseFlap:

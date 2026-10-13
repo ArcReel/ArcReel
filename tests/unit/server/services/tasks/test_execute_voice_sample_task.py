@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from lib.config.resolver import ProviderModel
+from lib.generation.generation_queue import DispatchProviderChanged
 from lib.project.resource_paths import resource_relative_path
 from server.services.tasks import generation_tasks
 from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
@@ -102,6 +103,21 @@ class TestExecuteCharacterVoiceSampleTask:
         assert result["voice"] == "Cherry"
         assert result["duration_seconds"] == 5.0
         assert result["file_path"] == resource_relative_path("audio", "voice_sample__艾莉__task-1")
+
+    async def test_provider_changed_since_claim_is_raised_before_synthesis(self, voice_sample_env):
+        """执行入口解析出的音频供应商与认领槽不一致：不合成，交给 worker 改记录并回队。"""
+        _pm, gen = voice_sample_env
+        with pytest.raises(DispatchProviderChanged) as caught:
+            await generation_tasks.execute_character_voice_sample_task(
+                "demo",
+                "艾莉",
+                {"prompt": "你好，这是一段声音示例。", "voice": "Cherry"},
+                task_id="task-1",
+                claimed_provider_id="openai",
+            )
+
+        assert (caught.value.claimed_provider_id, caught.value.actual_provider_id) == ("openai", "dashscope")
+        assert gen.audio_calls == []
 
     async def test_resource_id_namespaced_away_from_narration_segments(self, voice_sample_env):
         # 旁白 segment id 与角色名可能撞字面量；voice_sample_resource_id 前缀确保命名空间隔离。

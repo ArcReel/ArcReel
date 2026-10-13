@@ -23,6 +23,7 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ConfigResolver, ProviderModel
+from lib.generation.generation_queue import DispatchProviderChanged
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_failure import ProjectMigrationError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -844,6 +845,26 @@ class TestExecuteImageEditTask:
         assert fake_pm.script_commits == ["episode_1.json"]
         assert fake_pm.script["segments"][0]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S01.png"
         assert result["file_path"] == "storyboards/scene_E1S01.png"
+
+    async def test_provider_changed_since_claim_is_raised_before_the_provider_call(self, tmp_path, monkeypatch):
+        """执行入口解析出的 i2i 供应商与认领槽不一致：不补登旧图、不调供应商，交给 worker 改记录并回队。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        _patch_common(monkeypatch, fake_pm, fake_generator)
+
+        with pytest.raises(DispatchProviderChanged) as caught:
+            await execute_image_edit_task(
+                "demo",
+                "Alice",
+                {"resource_type": "character", "prompt": "把头发改成红色"},
+                claimed_provider_id="openai",
+            )
+
+        assert (caught.value.claimed_provider_id, caught.value.actual_provider_id) == ("openai", "gemini-aistudio")
+        assert fake_generator.image_calls == []
+        assert fake_generator.tracked == []
+        assert fake_pm.project_commits == 0
 
     async def test_no_current_image_raises(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

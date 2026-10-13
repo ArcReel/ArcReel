@@ -36,6 +36,7 @@ from lib.artifacts.generation_input import (
     project_input_observation,
 )
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation.generation_queue import ensure_dispatch_provider
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
     DerivativeSheetTarget,
@@ -210,6 +211,7 @@ async def execute_character_derivative_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """执行一次衍生资产图生成：本体图 → i2i → 新版本覆盖 current → 写回衍生条目。
 
@@ -227,6 +229,7 @@ async def execute_character_derivative_task(
         user_id=user_id,
         image=ImageLaneRequest(generation_type="i2i"),
     )
+    ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
     currency_resolver = active_artifact_currency_resolver(project_path, project)
 
     def _bind_claims(

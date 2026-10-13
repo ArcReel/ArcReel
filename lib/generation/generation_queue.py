@@ -129,6 +129,16 @@ class DispatchProviderChanged(RuntimeError):
         super().__init__(f"dispatch provider changed: {claimed_provider_id} -> {actual_provider_id}")
 
 
+def ensure_dispatch_provider(claimed_provider_id: str | None, actual_provider_id: str) -> None:
+    """执行入口核对：按项目现状解析出的 provider 与认领时占用的槽不一致时抛 :class:`DispatchProviderChanged`。
+
+    调用方必须在任何供应商调用之前核对。``claimed_provider_id`` 为 None 表示调用方不经 worker
+    认领（直接调用），不核对。
+    """
+    if claimed_provider_id is not None and actual_provider_id != claimed_provider_id:
+        raise DispatchProviderChanged(claimed_provider_id=claimed_provider_id, actual_provider_id=actual_provider_id)
+
+
 def reference_video_enqueue_payload(
     payload: dict[str, Any] | None,
     *,

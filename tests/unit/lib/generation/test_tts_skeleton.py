@@ -454,7 +454,7 @@ class TestWorkerAudioLane:
             resume_executor=refuse_resume_execution,
         )
 
-        async def _fake_process(task):
+        async def _fake_process(task, *, claimed_provider_id):
             await asyncio.sleep(0)
 
         w._process_task = _fake_process

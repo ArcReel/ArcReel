@@ -44,7 +44,6 @@ lib/final_cut/service.py::FinalCutService.render  # os.stat
 lib/generation/generation_admission.py::generation_admission_lock  # os.mkdir, os.stat
 lib/generation/generation_queue.py::GenerationQueue.get_generation_batch  # io.BufferedReader.read, io.TextIOWrapper.read, os.stat, 产物清单锁（轮询等待）, 版本管理锁（RLock）
 lib/generation/generation_queue.py::_derive_execution_model_for_enqueue  # os.mkdir, os.stat
-lib/generation/generation_worker.py::_extract_provider  # os.mkdir
 lib/generation/media_generator.py::MediaGenerator._run_with_reference_compression  # ScandirIterator.__next__, os.path.samestat, os.rmdir, os.unlink
 lib/generation/media_generator.py::MediaGenerator.generate_audio_async  # io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.replace, os.sendfile, os.stat, os.unlink, 版本管理锁（RLock）
 lib/generation/media_generator.py::MediaGenerator.generate_image_async  # io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.replace, os.sendfile, os.stat, os.unlink, 版本管理锁（RLock）

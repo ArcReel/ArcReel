@@ -88,7 +88,8 @@ async def test_task_running_when_project_replaced_leaves_no_trace(monkeypatch, d
                 executor=generation_tasks.execute_generation_task,
                 resume_executor=refuse_resume_execution,
             )
-            await worker._process_task(task, claimed_provider_id="dashscope")
+            # 认领槽与假生成上下文的 image lane provider 一致，执行入口核对放行。
+            await worker._process_task(task, claimed_provider_id="openai")
 
     async with db_factory() as session:
         finished = await TaskRepository(session).get(task["task_id"])
