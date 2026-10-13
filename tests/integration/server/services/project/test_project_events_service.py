@@ -14,6 +14,7 @@ from lib.edit_timeline import EditTimelineService
 from lib.generation.generation_queue import GenerationQueue
 from lib.project.project_change_hints import emit_project_change_batch, project_change_source
 from lib.project.project_manager import ProjectManager
+from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, quarantine_path
 from lib.workflow.workflow_plan import WorkflowPlanRequest
 from lib.workflow.workflow_state import WorkflowStateService, workflow_finished
 from server.agent_toolset.edit_timelines import CREATE_TIMELINE
@@ -795,6 +796,71 @@ class TestProjectEventService:
                         break
                 else:
                     raise AssertionError("窗口内落盘的角色变更从未广播")
+        finally:
+            await service.shutdown()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("edited_input", ["project_json", "existing_script", "new_script", "draft"])
+    async def test_polling_pushes_change_to_any_input_file_after_idle_polls(self, tmp_path, edited_input):
+        """订阅后项目静置了若干个轮询周期，再有输入文件在盘上变化（绕过 hint，只靠轮询发现）：照常推送。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "drama")
+        scene = {
+            "scene_id": "E1S01",
+            "duration_seconds": 8,
+            "utterances": [{"kind": "dialogue", "speaker": "甲", "text": "旧台词"}],
+            "generated_assets": _pending_assets(),
+        }
+        script = {"episode": 1, "title": "第一集", "content_mode": "drama", "scenes": [scene]}
+        with project_change_source("filesystem"):
+            pm.save_script("demo", script, "episode_1.json", validate=False)
+        project_path = pm.get_project_path("demo")
+
+        def edit_on_disk() -> None:
+            if edited_input == "project_json":
+                path = project_path / ProjectManager.PROJECT_FILE
+                data = json.loads(path.read_text(encoding="utf-8"))
+                data.setdefault("characters", {})["新角色"] = {"description": "d"}
+                path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            elif edited_input == "existing_script":
+                path = project_path / "scripts" / "episode_1.json"
+                data = json.loads(path.read_text(encoding="utf-8"))
+                data["scenes"][0]["utterances"][0]["text"] = "新台词，比旧台词长"
+                path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            elif edited_input == "new_script":
+                other = {**script, "episode": 2, "title": "第二集"}
+                (project_path / "scripts" / "episode_2.json").write_text(
+                    json.dumps(other, ensure_ascii=False), encoding="utf-8"
+                )
+            else:
+                path = quarantine_path(project_path, 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+                path.parent.mkdir(parents=True)
+                path.write_text("{}", encoding="utf-8")
+
+        expected_entity_type = {
+            "project_json": "character",
+            "existing_script": "drama_scene",
+            "new_script": "episode",
+            "draft": "draft",
+        }[edited_input]
+
+        service = ProjectEventService(tmp_path, poll_interval=0.1)
+        await service.start()
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                event_name, _snapshot = await anext(stream)
+                assert event_name == "snapshot"
+
+                # 静置：让轮询在输入未变的情况下空转若干轮
+                await asyncio.sleep(0.3)
+                await asyncio.to_thread(edit_on_disk)
+
+                seen: set[str] = set()
+                while expected_entity_type not in seen:
+                    event_name, payload = await _next_event(stream, timeout=3.0)
+                    assert event_name == "changes"
+                    seen |= {change["entity_type"] for change in payload["changes"]}
         finally:
             await service.shutdown()
 

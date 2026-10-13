@@ -52,23 +52,33 @@ def _utc_now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _read_draft_digests(project_path: Path) -> dict[str, str]:
-    """在场草稿的文件内容摘要；信封损坏的草稿同样在场，按字节摘要比对。"""
+def _draft_paths(project_path: Path) -> list[tuple[str, Path]]:
+    """可能在场的草稿文件（状态键 → 路径）；各集各来源都列出，文件是否存在由调用方判定。"""
     drafts_root = project_path / "drafts"
-    digests: dict[str, str] = {}
+    paths: list[tuple[str, Path]] = []
     if not drafts_root.is_dir():
-        return digests
+        return paths
     for episode_dir in sorted(drafts_root.glob("episode_*")):
         suffix = episode_dir.name.removeprefix("episode_")
         if not suffix.isdigit():
             continue
         episode = int(suffix)
-        for kind in DOC_TYPE_TO_QUARANTINE_KIND.values():
-            try:
-                payload = quarantine_path(project_path, episode, kind).read_bytes()
-            except FileNotFoundError:
-                continue
-            digests[draft_state_key(episode, kind)] = hashlib.sha256(payload).hexdigest()
+        paths.extend(
+            (draft_state_key(episode, kind), quarantine_path(project_path, episode, kind))
+            for kind in DOC_TYPE_TO_QUARANTINE_KIND.values()
+        )
+    return paths
+
+
+def _read_draft_digests(project_path: Path) -> dict[str, str]:
+    """在场草稿的文件内容摘要；信封损坏的草稿同样在场，按字节摘要比对。"""
+    digests: dict[str, str] = {}
+    for key, path in _draft_paths(project_path):
+        try:
+            payload = path.read_bytes()
+        except FileNotFoundError:
+            continue
+        digests[key] = hashlib.sha256(payload).hexdigest()
     return digests
 
 
@@ -85,6 +95,41 @@ def read_project_state(pm: ProjectManager, project_name: str) -> ProjectState:
             except Exception:
                 logger.warning("跳过无法解析的剧本快照 project=%s file=%s", project_name, script_path.name)
     return ProjectState(project=project, scripts=scripts, drafts=_read_draft_digests(project_path))
+
+
+#: 项目状态输入文件的 stat 标识：(设备, inode, 大小, 纳秒 mtime)。
+FileStat = tuple[int, int, int, int]
+#: 项目状态全部输入文件的 stat 标识：(相对项目目录的路径, 标识) 按路径排序；不在场的文件不入列。
+ProjectInputStamp = tuple[tuple[str, FileStat], ...]
+
+
+def _file_stat(path: Path) -> FileStat | None:
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return None
+    return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+
+
+def project_input_stamp(pm: ProjectManager, project_name: str) -> ProjectInputStamp:
+    """:func:`read_project_state` 读取的全部输入文件的 stat 标识：``project.json``、``scripts/*.json``
+    与在场草稿。只做 stat，不读内容；项目目录不存在时抛 ``FileNotFoundError``。
+
+    标识不变就说明输入没变，轮询据此跳过重新解析与重建。读盘入口新增输入文件时须同步纳入这里，
+    否则那类变更不会被轮询发现。
+    """
+    project_path = pm.get_project_path(project_name)
+    candidates = [(ProjectManager.PROJECT_FILE, project_path / ProjectManager.PROJECT_FILE)]
+    scripts_dir = project_path / "scripts"
+    if scripts_dir.exists():
+        candidates.extend((f"scripts/{path.name}", path) for path in sorted(scripts_dir.glob("*.json")))
+    candidates.extend((f"drafts:{key}", path) for key, path in _draft_paths(project_path))
+    stamp: list[tuple[str, FileStat]] = []
+    for label, path in candidates:
+        identity = _file_stat(path)
+        if identity is not None:
+            stamp.append((label, identity))
+    return tuple(stamp)
 
 
 # 同一件事在发布方与快照差分两侧的 action 命名差异：参考生视频任务完成时，发布方按 task_type
@@ -122,6 +167,8 @@ class _ProjectChannel:
     pending_sources: set[ProjectChangeSource] = field(default_factory=set)
     task: asyncio.Task | None = None
     snapshot: ProjectSnapshot | None = None
+    # ``snapshot`` 读盘前的输入 stat 标识，与 ``snapshot`` 同时更新；轮询据此在输入未变时跳过重建。
+    input_stamp: ProjectInputStamp | None = None
 
 
 class ProjectEventService:
@@ -396,7 +443,7 @@ class ProjectEventService:
                 covered_sources = channel.pending_sources
                 channel.pending_sources = set()
                 try:
-                    snapshot = await asyncio.to_thread(self._rebuild_snapshot, project_name)
+                    stamp, snapshot = await asyncio.to_thread(self._rebuild_snapshot, project_name)
                 except FileNotFoundError:
                     channel.pending_sources |= covered_sources
                     await self._handle_scan_file_not_found(
@@ -411,6 +458,7 @@ class ProjectEventService:
                 # 以下在事件循环线程中执行，线程安全
                 previous = channel.snapshot
                 channel.snapshot = snapshot
+                channel.input_stamp = stamp
 
                 self._broadcast_changes(
                     project_name,
@@ -475,9 +523,23 @@ class ProjectEventService:
             return []
         return [change for change in diff_snapshots(previous, snapshot) if _change_identity(change) not in covered]
 
-    def _rebuild_snapshot(self, project_name: str) -> ProjectSnapshot:
-        """同步方法（在线程池中执行）：只读加载项目状态并归一成快照。"""
-        return build_snapshot(self._read_state(project_name))
+    def _rebuild_snapshot(self, project_name: str) -> tuple[ProjectInputStamp, ProjectSnapshot]:
+        """同步方法（在线程池中执行）：只读加载项目状态并归一成快照，连同读盘前的输入标识。
+
+        标识取在读盘之前：读盘期间落盘的变更只会让下一轮标识比对判为已变，多重建一次，
+        不会把更新的盘面误记成旧标识下的快照。
+        """
+        stamp = project_input_stamp(self.pm, project_name)
+        return stamp, build_snapshot(self._read_state(project_name))
+
+    def _poll_snapshot(
+        self, project_name: str, known_stamp: ProjectInputStamp | None
+    ) -> tuple[ProjectInputStamp, ProjectSnapshot | None]:
+        """同步方法（在线程池中执行）：轮询用的重建——输入标识与 ``known_stamp`` 一致时跳过，快照返回 ``None``。"""
+        stamp = project_input_stamp(self.pm, project_name)
+        if stamp == known_stamp:
+            return stamp, None
+        return stamp, build_snapshot(self._read_state(project_name))
 
     def _project_directory_gone(self, project_name: str) -> bool:
         """判定项目目录当前是否确已不存在（``get_project_path`` 语义）。
@@ -527,14 +589,22 @@ class ProjectEventService:
         return False
 
     async def _watch_project(self, project_name: str, channel: _ProjectChannel) -> None:
+        # 首轮与 hint 唤醒的扫描照常读盘重建；只有定时轮询才凭输入标识不变而跳过。
+        forced = True
         try:
             while channel.sse.has_subscribers:
                 try:
                     async with channel.rebuild_lock:
+                        known_stamp = None if forced or channel.snapshot is None else channel.input_stamp
                         # 仅文件 I/O 在线程中执行
-                        snapshot = await asyncio.to_thread(self._rebuild_snapshot, project_name)
-                        # 状态更新和广播在事件循环线程中执行（线程安全）
-                        self._apply_scan_result(project_name, channel, snapshot)
+                        stamp, snapshot = await asyncio.to_thread(self._poll_snapshot, project_name, known_stamp)
+                        if snapshot is None:
+                            # 输入未变：快照沿用，只结算来源标记（与无差异的扫描同一口径）
+                            channel.pending_sources.clear()
+                        else:
+                            # 状态更新和广播在事件循环线程中执行（线程安全）
+                            channel.input_stamp = stamp
+                            self._apply_scan_result(project_name, channel, snapshot)
                 except asyncio.CancelledError:
                     raise
                 except FileNotFoundError:
@@ -550,9 +620,11 @@ class ProjectEventService:
                 try:
                     await asyncio.wait_for(channel.scan_now.wait(), timeout=self.poll_interval)
                 except TimeoutError:
+                    forced = False
                     continue
                 finally:
                     channel.scan_now.clear()
+                forced = True
         except asyncio.CancelledError:
             raise
 
