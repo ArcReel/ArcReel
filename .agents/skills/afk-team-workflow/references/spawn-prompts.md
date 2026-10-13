@@ -16,7 +16,7 @@
 
 ```text
 你负责 afk-team-workflow 批次 stage <K> 的集成审查，未参与本 stage 任何 issue 的实现。读 <skill 目录绝对路径>/references/stage-reviewer.md 并按契约工作。
-输入：stage-branch=<branch>；worktree=<path>；spec=#<Spec；显式 issue 批次省略>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md。
+输入：stage-branch=<branch>；worktree=<path>；spec=#<Spec；零散批次省略>；issues=<N,...>；handoffs=<repo-root>/.afk/<batch-id>/；stage-handoff=<repo-root>/.afk/<batch-id>/handoff-stage-<K>.md。
 补充：<必要背景信息；无则省略>
 ```
 

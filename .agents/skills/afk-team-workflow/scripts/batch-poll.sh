@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Expand an AFK batch and project the issue dependency graph. This is a planning
 # snapshot only; stage progress lives in the remote stage branch and PR.
+# Scope is a Spec's sub-issues (--spec), an explicit issue list (--issues), or the
+# discovered loose issues (--ready: open, labelled ready-for-agent, unassigned and not
+# a sub-issue of any parent).
 # stdout: {generated_for, issues: [{number, title, state, state_reason, labels,
 # assignees, blocked_by, blockers_completed}], initial_frontier: [number]}.
 # initial_frontier is only the mechanical open/unassigned/blockers projection;
@@ -15,20 +18,26 @@ enter_repo_root "BATCH_POLL_ERROR" "$@"
 shift "$REPO_CONTEXT_SHIFT"
 
 usage() {
-  echo "BATCH_POLL_ERROR: usage: bash batch-poll.sh [--repo-root <path>] (--spec <N> | --issues 1,2,3)" >&2
+  echo "BATCH_POLL_ERROR: usage: bash batch-poll.sh [--repo-root <path>] (--spec <N> | --issues 1,2,3 | --ready)" >&2
 }
 
 SPEC=""
 ISSUES_CSV=""
+READY=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --spec) SPEC="${2:-}"; shift 2 || { usage; exit 2; } ;;
     --issues) ISSUES_CSV="${2:-}"; shift 2 || { usage; exit 2; } ;;
+    --ready) READY=1; shift ;;
     *) echo "BATCH_POLL_ERROR: unknown argument: $1" >&2; usage; exit 2 ;;
   esac
 done
 
-if [[ -n "$SPEC" && -n "$ISSUES_CSV" ]] || [[ -z "$SPEC" && -z "$ISSUES_CSV" ]]; then
+MODES=0
+for mode in "$SPEC" "$ISSUES_CSV" "$READY"; do
+  [[ -n "$mode" ]] && MODES=$((MODES + 1))
+done
+if [[ "$MODES" -ne 1 ]]; then
   usage
   exit 2
 fi
@@ -59,6 +68,22 @@ if [[ -n "$SPEC" ]]; then
   }
   jq "[.[][] | ${PROJECT_ISSUE}]" "$TASK_TMP_DIR/raw.json" >"$TASK_TMP_DIR/issues.json"
 else
+  if [[ -n "$READY" ]]; then
+    # The list endpoint omits parent_issue_url, so candidates are narrowed here and the
+    # sub-issue filter runs on the per-issue fetch below.
+    gh api "repos/${OWNER_REPO}/issues?state=open&labels=ready-for-agent&per_page=100" --paginate --slurp \
+      >"$TASK_TMP_DIR/ready.json" 2>"$TASK_TMP_DIR/fetch.err" || {
+        echo "BATCH_POLL_ERROR: ready-for-agent issues fetch failed" >&2
+        cat "$TASK_TMP_DIR/fetch.err" >&2
+        exit 5
+      }
+    ISSUES_CSV=$(jq -r '[.[][] | select(.pull_request == null and (.assignees // []) == []) | .number] | sort | join(",")' \
+      "$TASK_TMP_DIR/ready.json")
+    [[ -n "$ISSUES_CSV" ]] || {
+      jq -nc '{generated_for: {ready: true}, issues: [], initial_frontier: []}'
+      exit 0
+    }
+  fi
   issue_numbers=""
   seen=" "
   while IFS= read -r token; do
@@ -74,11 +99,17 @@ else
   issue_numbers="${issue_numbers% }"
   [[ -n "$issue_numbers" ]] || { echo "BATCH_POLL_ERROR: --issues had no numbers" >&2; exit 2; }
 
-  GENERATED_FOR=$(echo "$issue_numbers" | tr ' ' '\n' | jq -R 'tonumber' | jq -sc '{issues: .}')
+  if [[ -n "$READY" ]]; then
+    GENERATED_FOR='{"ready":true}'
+    ISSUE_FILTER='select(.parent_issue_url == null) | '
+  else
+    GENERATED_FOR=$(echo "$issue_numbers" | tr ' ' '\n' | jq -R 'tonumber' | jq -sc '{issues: .}')
+    ISSUE_FILTER=''
+  fi
   : >"$TASK_TMP_DIR/issues.jsonl"
   for issue in $issue_numbers; do
     gh api "repos/${OWNER_REPO}/issues/${issue}" 2>"$TASK_TMP_DIR/issue-${issue}.err" \
-      | jq "$PROJECT_ISSUE" >>"$TASK_TMP_DIR/issues.jsonl" || {
+      | jq "${ISSUE_FILTER}${PROJECT_ISSUE}" >>"$TASK_TMP_DIR/issues.jsonl" || {
         echo "BATCH_POLL_ERROR: issue #${issue} fetch failed" >&2
         cat "$TASK_TMP_DIR/issue-${issue}.err" >&2
         exit 5
