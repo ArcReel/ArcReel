@@ -103,10 +103,13 @@ def cleanup_staged_video_output(
 
 
 async def _discard_staged_output(path: Path | None) -> None:
-    """在工作线程里删除 staging 文件，删除结算完再返回或传播取消。"""
+    """在工作线程里删除 staging 文件，删除结算完再返回。
+
+    只用在收尾与失败路径上：不引入新的取消点，成功路径照常返回结果，失败路径照常传播原异常。
+    """
 
     if path is not None:
-        await run_sync_transaction(path.unlink, missing_ok=True)
+        await run_noninterruptible_sync(path.unlink, missing_ok=True)
 
 
 @asynccontextmanager
@@ -583,6 +586,7 @@ class MediaGenerator:
             # 压缩是 CPU 密集的 PIL 解码/编码 + 写盘，清理临时目录要遍历删除，两头都放进线程，
             # 避免阻塞 worker 事件循环（心跳 / SSE / 另一并发通道）。手动驱动上下文管理器：
             # __enter__ 在线程里一完成就登记，取消落在压缩那一程时返回值会丢，finally 按登记清理。
+            # 清理不可打断：供应商已返回时，清理期间到达的取消不能丢掉付费结果。
             # 预检 floor 在 __enter__ 内抛出，此时临时目录尚未创建（select_ladder_step 先于写盘），
             # 不登记、直接冒泡。
             cm = compressed_reference_payload(specs, limits=limits, start_step=step)
@@ -608,7 +612,7 @@ class MediaGenerator:
                     raise ReferencePayloadFloorError() from e
             finally:
                 if entered:
-                    await run_sync_transaction(cm.__exit__, None, None, None)
+                    await run_noninterruptible_sync(cm.__exit__, None, None, None)
 
     async def generate_image_async(
         self,
@@ -827,7 +831,8 @@ class MediaGenerator:
                 if before_submit is not None:
                     await before_submit()
                 result = await self._audio_backend.synthesize(request)
-                if not await asyncio.to_thread(staged_path.is_file):
+                # 供应商已返回：核对产物不引入新的取消点，免得付费结果没记成 success。
+                if not await run_noninterruptible_sync(staged_path.is_file):
                     raise RuntimeError("audio backend completed without a regular output file")
                 call.success(result)
 
@@ -852,7 +857,7 @@ class MediaGenerator:
                     selected_current = committed.selected
                 else:
                     version = committed
-            if selected_current and not await asyncio.to_thread(output_path.is_file):
+            if selected_current and not await run_noninterruptible_sync(output_path.is_file):
                 raise RuntimeError("audio commit completed without a regular formal output file")
             return output_path, version
         finally:

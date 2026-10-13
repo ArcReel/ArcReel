@@ -351,6 +351,63 @@ class TestExecuteGridTask:
         restored = json.loads(record.read_text(encoding="utf-8"))
         assert (restored["status"], restored["error_message"]) == (stored["status"], stored["error_message"])
 
+    async def test_reference_snapshots_are_cleaned_when_cancelled_while_freezing(self, project_with_script, grid_json):
+        """取消落在线程里冻结参考图的那一程：冻结完成后照样回收快照目录，不调供应商。"""
+        import threading
+
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        freezing = threading.Event()
+        release = threading.Event()
+        cleaned: list[bool] = []
+
+        class _Frozen:
+            def cleanup(self) -> None:
+                cleaned.append(True)
+
+        def _blocking_freeze(*_args, **_kwargs):
+            freezing.set()
+            release.wait(5)
+            return _Frozen()
+
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock()
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.tasks.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
+            ),
+            patch("server.services.tasks.generation_tasks.freeze_image_references", new=_blocking_freeze),
+        ):
+            mock_pm_fn.return_value.get_project_path.return_value = project_with_script
+            mock_pm_fn.return_value.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            mock_pm_fn.return_value.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+            )
+
+            task = asyncio.create_task(
+                execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+            )
+            assert await asyncio.to_thread(freezing.wait, 5)
+            task.cancel()
+            await asyncio.sleep(0)
+            release.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert cleaned == [True]
+        mock_generator.generate_image_async.assert_not_called()
+
     @staticmethod
     def _complete(project_with_script, grid, *, registered: bool):
         from PIL import Image

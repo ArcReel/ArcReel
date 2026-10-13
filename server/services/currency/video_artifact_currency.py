@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import copy
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractAsyncContextManager, contextmanager, nullcontext
@@ -476,9 +475,10 @@ async def complete_video_artifact_commit(
     """Finish normal and resumed video generation through one selection seam."""
 
     async def _notify_completed() -> None:
-        # 完成回调（发项目变更事件）会读剧本、算产物指纹，放进工作线程。
+        # 完成回调（发项目变更事件）会读剧本、算产物指纹，放进工作线程。产物已定型，回调不可打断：
+        # 取消若在发事件时打断等待，补偿会与仍在发事件的线程竞争，客户端可能收到已撤销视频的成功事件。
         if on_completed is not None:
-            await asyncio.to_thread(on_completed)
+            await run_noninterruptible_sync(on_completed)
 
     async def _finalize_and_complete() -> dict[str, Any]:
         result = await finalize()
@@ -491,7 +491,8 @@ async def complete_video_artifact_commit(
         if committer.outcome is None:
             raise RuntimeError("formal video generator returned without invoking the artifact commit callback")
         if not committer.outcome.selected:
-            result = await asyncio.to_thread(
+            # 付费版本已入历史：取结果同样不可打断。
+            result = await run_noninterruptible_sync(
                 paid_video_history_result,
                 versions=versions,
                 resource_type=resource_type,

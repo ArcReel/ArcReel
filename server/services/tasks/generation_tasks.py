@@ -862,7 +862,8 @@ async def execute_tts_task(
 
     version_record: dict[str, Any] | None = None
     try:
-        records = (await asyncio.to_thread(generator.versions.get_versions, "audio", resource_id))["versions"]
+        # 音频已提交，读版本记录不可打断，取消不能把已付费成功的任务改判为中断。
+        records = (await run_noninterruptible_sync(generator.versions.get_versions, "audio", resource_id))["versions"]
         version_record = next(
             (record for record in reversed(records) if record.get("version") == version),
             None,
@@ -1693,11 +1694,17 @@ async def execute_grid_task(
             image=ImageLaneRequest(generation_type="i2i" if assembled else "t2i"),
         )
         ensure_dispatch_provider(claimed_provider_id, ctx.image.provider_model.provider_id)
-        frozen_references = await asyncio.to_thread(
-            freeze_image_references,
-            [reference.visual.path for reference in assembled] or None,
-            visual_references,
-        )
+
+        def _freeze_references() -> FrozenImageReferences:
+            # 快照在线程里一建好就登记：取消落在冻结那一程时返回值会丢，finally 按登记回收快照目录。
+            nonlocal frozen_references
+            frozen_references = freeze_image_references(
+                [reference.visual.path for reference in assembled] or None,
+                visual_references,
+            )
+            return frozen_references
+
+        frozen_references = await run_sync_transaction(_freeze_references)
         # 剧本 claim 排在最前，其后是参考图按冻结字节绑定的 claims。
         formal_claims = list(
             await asyncio.to_thread(
@@ -1918,7 +1925,8 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
             )
         # 成功事件发出失败时不回滚产物：已写入的产物保持有效，异常照常上抛。
         # 发事件要读剧本、算产物指纹，放进工作线程；to_thread 复制上下文，事件来源仍是 worker。
-        await asyncio.to_thread(
+        # 产物已提交，发事件不可打断：取消不能把已付费成功的任务改判为中断。
+        await run_noninterruptible_sync(
             emit_generation_success_batch,
             task_type=task_type,
             project_name=project_name,

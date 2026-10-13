@@ -1393,6 +1393,44 @@ class TestReferenceCompressionSeam:
         assert cleaned == [True]
         assert backend.calls == []
 
+    async def test_cancel_during_compressed_copy_cleanup_keeps_the_paid_result(self, tmp_path, monkeypatch):
+        """供应商已返回后，取消落在线程里清理压缩副本的那一程：清理结算后照常提交并返回付费结果。"""
+        from lib.references import reference_compression
+
+        gen = _build_generator(tmp_path)
+        backend = _ConfigurableImageBackend()
+        gen._image_backend = backend
+        src = _noise_png(tmp_path, "ref.png", 64, 64)
+        cleaning = threading.Event()
+        release = threading.Event()
+
+        @contextlib.contextmanager
+        def _slow_cleanup_payload(specs, *, limits, start_step=0):
+            try:
+                yield start_step, []
+            finally:
+                cleaning.set()
+                release.wait(5)
+
+        monkeypatch.setattr(reference_compression, "compressed_reference_payload", _slow_cleanup_payload)
+        task = asyncio.create_task(
+            gen.generate_image_async(
+                prompt="p",
+                resource_type="storyboards",
+                resource_id="E1S01",
+                reference_images=[str(src)],
+            )
+        )
+        await asyncio.to_thread(cleaning.wait, 5)
+        task.cancel()
+        await asyncio.sleep(0)
+        release.set()
+
+        output_path, version = await task
+        assert version == 1
+        assert await asyncio.to_thread(output_path.read_bytes) == b"img"
+        assert len(backend.calls) == 1
+
     async def test_backend_receives_compressed_copy_source_untouched(self, tmp_path):
         gen = _build_generator(tmp_path)
         backend = _ConfigurableImageBackend()
