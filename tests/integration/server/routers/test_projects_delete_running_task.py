@@ -1,5 +1,6 @@
 """删除或覆盖项目时仍在执行的任务放弃落盘：不写进同名的新项目，也不在已删除项目下留下残余目录。"""
 
+import asyncio
 import contextvars
 from pathlib import Path
 
@@ -73,9 +74,9 @@ async def test_task_running_when_project_replaced_leaves_no_trace(monkeypatch, d
             if replacement != "deleted-only":
                 new_project.update(_tree(project_dir))
 
-        def _delete_while_generating(_request: httpx.Request) -> httpx.Response:
-            # 删除、重建与覆盖导入来自别的请求，不在任务的执行上下文里。
-            contextvars.Context().run(_replace)
+        async def _delete_while_generating(_request: httpx.Request) -> httpx.Response:
+            # 删除、重建与覆盖导入来自别的请求，不在任务的执行上下文里，也不占任务所在的事件循环。
+            await asyncio.to_thread(contextvars.Context().run, _replace)
             return httpx.Response(
                 200, json={"output": {"choices": [{"message": {"content": [{"image": RESULT_URL}]}}]}}
             )

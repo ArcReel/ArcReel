@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -1529,6 +1530,11 @@ def ad_reference_ctx(fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch) -> 
     return fake_ctx
 
 
+def _write_video(output: Path) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"\x00")
+
+
 def _successful_reference_batch(ctx: ToolHarness, enqueued: list[Any]):
     async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None, **_batch_kwargs):
         from lib.generation.generation_queue_client import BatchTaskResult
@@ -1536,9 +1542,8 @@ def _successful_reference_batch(ctx: ToolHarness, enqueued: list[Any]):
         successes: list[BatchTaskResult] = []
         for spec in specs:
             enqueued.append(spec)
-            output = ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4"
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_bytes(b"\x00")
+            # 产物由生成 worker 在别处落盘，不占工具所在的事件循环。
+            await asyncio.to_thread(_write_video, ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4")
             result = BatchTaskResult(
                 resource_id=spec.resource_id,
                 task_id="t1",

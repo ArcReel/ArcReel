@@ -24,6 +24,12 @@ from tests.integration.server.services.tasks.reference_video_tasks_support impor
 )
 
 
+def _write_output(path: Path, content: bytes) -> None:
+    """生产后端在工作线程里落盘产物；替身经 ``asyncio.to_thread`` 调用本函数，同样不占事件循环。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
 def _wire_locked_script(fake_pm: MagicMock) -> None:
     """让 fake_pm.locked_script 产出磁盘上的真实剧本 dict。
 
@@ -162,8 +168,7 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     # Mock generator.generate_video_async: 创建伪视频文件
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         # (output_path, version, video_ref, video_uri)
         return out, 1, None, None
 
@@ -215,8 +220,7 @@ async def test_execute_reference_video_task_passes_planned_duration_when_endpoin
     async def _fake_generate_video_async(**kwargs):
         await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -374,8 +378,7 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
 
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -501,8 +504,7 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -598,8 +600,7 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -786,8 +787,7 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -850,8 +850,7 @@ async def test_execute_reference_video_task_omits_audio_field_for_soft_tier(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -899,8 +898,7 @@ async def test_execute_reference_video_task_surfaces_backend_warnings(tmp_path: 
     async def _fake_generate_video_async(**kwargs):
         kwargs["warnings"].append(warning)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -954,8 +952,7 @@ async def test_execute_reference_video_task_surfaces_render_warnings(tmp_path: P
 
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1006,8 +1003,7 @@ async def test_execute_reference_video_task_reports_reference_image_limit(
     async def _fake_generate_video_async(**kwargs):
         captured["reference_images"] = kwargs.get("reference_images")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1088,8 +1084,7 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     # 新后端不返回 video_uri（第 4 个元素为 None）
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1144,8 +1139,7 @@ async def test_execute_reference_video_task_sends_the_request_facts_resolution(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1199,8 +1193,7 @@ async def test_execute_reference_video_task_picks_the_tier_from_narrowed_request
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1381,7 +1374,10 @@ async def test_execute_reference_video_task_rechecks_formal_sheet_claim_before_p
     provider_submissions: list[str] = []
 
     async def _fake_generate_video_async(**kwargs):
-        ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.asset_sheet("character", "张三"))
+        # 模拟另一处并发撤掉认领：在工作线程里改清单，不占事件循环
+        await asyncio.to_thread(
+            lambda: ProjectArtifactManifestAdapter(proj_dir).delete_entry(ArtifactKey.asset_sheet("character", "张三"))
+        )
         await kwargs["before_submit"]()
         provider_submissions.append("submitted")
         raise AssertionError("provider submission must remain unreachable")
@@ -1495,7 +1491,8 @@ async def test_execute_reference_video_task_rejects_a_replaced_sheet_before_prov
     provider_submissions: list[str] = []
 
     async def _fake_generate_video_async(**kwargs):
-        (proj_dir / "characters" / "张三.png").write_bytes(b"replacement-sheet")
+        # 模拟另一处并发替换设定图：在工作线程里写盘，不占事件循环
+        await asyncio.to_thread((proj_dir / "characters" / "张三.png").write_bytes, b"replacement-sheet")
         await kwargs["before_submit"]()
         provider_submissions.append("submitted")
         raise AssertionError("provider submission must remain unreachable")
@@ -1620,8 +1617,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
         async def generate(self, request):
             captured_requests.append(request)
-            request.output_path.parent.mkdir(parents=True, exist_ok=True)
-            request.output_path.write_bytes(b"\x00\x00\x00 ftypmp42")
+            await asyncio.to_thread(_write_output, request.output_path, b"\x00\x00\x00 ftypmp42")
             return VideoGenerationResult(
                 video_path=request.output_path,
                 provider=self.name,
@@ -1710,8 +1706,7 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
         call_count["n"] += 1
         captured["reference_images"] = kwargs.get("reference_images")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
+        await asyncio.to_thread(_write_output, out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1771,8 +1766,7 @@ async def test_execute_reference_video_task_rejects_duration_above_lane_maximum(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
+        await asyncio.to_thread(_write_output, out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1849,8 +1843,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
+        await asyncio.to_thread(_write_output, out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1961,8 +1954,7 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
+        await asyncio.to_thread(_write_output, out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2040,8 +2032,7 @@ async def test_execute_reference_video_task_requests_planned_tier_regardless_of_
         captured.update(kwargs)
         await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
+        await asyncio.to_thread(_write_output, out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2109,8 +2100,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     async def _fake_generate_video_async(**kwargs):
         await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
+        await asyncio.to_thread(_write_output, out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2166,8 +2156,7 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
     async def _fake_generate_video_async(**kwargs):
         await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
+        await asyncio.to_thread(_write_output, out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2223,8 +2212,7 @@ async def test_execute_reference_video_task_persists_execution_identity(
         await kwargs["before_submit"]()
         events.append("provider_submit")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00")
+        await asyncio.to_thread(_write_output, out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2302,7 +2290,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     async def _edit_source_before_staging(project_path, task_id, inputs):
         """经 ``stage_media_for_task`` 注入：在现摘要与暂存之间改写源文件，其余照真实暂存跑。"""
         if inputs:
-            inputs[0].path.write_bytes(b"edited-between-live-basis-and-staging")
+            await asyncio.to_thread(inputs[0].path.write_bytes, b"edited-between-live-basis-and-staging")
         return await rvt.stage_provider_media_for_task(project_path, task_id, inputs, stage=rvt.stage_provider_media)
 
     async def _fake_generate_video_async(**kwargs):
@@ -2317,8 +2305,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
         submitted["checkpoint_metadata"] = await kwargs["before_submit"]()
         events.append("provider_submit")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"paid-video")
+        await asyncio.to_thread(_write_output, out, b"paid-video")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2392,7 +2379,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
     assert not (proj_dir / ".arcreel" / "tasks" / "task-submit" / "provider_media").exists()
 
     async def _cancel_after_staging(**_kwargs):
-        assert (proj_dir / ".arcreel" / "tasks" / "task-cancel" / "provider_media").is_dir()
+        assert await asyncio.to_thread((proj_dir / ".arcreel" / "tasks" / "task-cancel" / "provider_media").is_dir)
         raise asyncio.CancelledError
 
     fake_generator.generate_video_async = AsyncMock(side_effect=_cancel_after_staging)
@@ -2445,7 +2432,9 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
         raise RuntimeError("checkpoint construction failed")
 
     async def _invoke_rejected_checkpoint(**kwargs):
-        assert (proj_dir / ".arcreel" / "tasks" / "task-checkpoint-failure" / "provider_media").is_dir()
+        assert await asyncio.to_thread(
+            (proj_dir / ".arcreel" / "tasks" / "task-checkpoint-failure" / "provider_media").is_dir
+        )
         await kwargs["before_submit"]()
         raise AssertionError("provider submit must not run after checkpoint construction fails")
 

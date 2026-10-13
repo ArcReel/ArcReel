@@ -556,14 +556,18 @@ async def test_episode_materialization_restarts_as_one_snapshot_after_script_edi
             return 4.5
         video_probes += 1
         if video_probes == 2:
-            edited = pm.load_script("demo", "episode_1.json")
-            for item in edited["segments"]:
-                item["novel_text"] = "新旁白"
-            pm.save_script("demo", edited, "episode_1.json")
-            project = pm.load_project("demo")
-            project["aspect_ratio"] = "16:9"
-            pm.save_project("demo", project)
+            # 探测期间另一个请求在工作线程里改了剧本与项目
+            await asyncio.to_thread(_edit_script_and_project)
         return 6.25
+
+    def _edit_script_and_project() -> None:
+        edited = pm.load_script("demo", "episode_1.json")
+        for item in edited["segments"]:
+            item["novel_text"] = "新旁白"
+        pm.save_script("demo", edited, "episode_1.json")
+        project = pm.load_project("demo")
+        project["aspect_ratio"] = "16:9"
+        pm.save_project("demo", project)
 
     service = PresentationReadModelService(
         pm,
@@ -912,30 +916,34 @@ async def test_current_presentation_reselects_when_version_changes_during_media_
         nonlocal switched
         if path.suffix == ".mp4" and not switched:
             switched = True
-            current = versions.get_versions("videos", "E1S01")["versions"][0]
-            versions.add_version(
-                "videos",
-                "E1S01",
-                "replacement",
-                source_file=project_path / current["file"],
-                **{
-                    key: value
-                    for key, value in current.items()
-                    if key
-                    not in {
-                        "version",
-                        "file",
-                        "filename",
-                        "prompt",
-                        "created_at",
-                        "is_current",
-                        "file_url",
-                        "restored_from",
-                        "_previous_current_version",
-                    }
-                },
-            )
+            # 探测期间另一个请求在工作线程里换了当前版本
+            await asyncio.to_thread(_add_replacement_version)
         return 6.25
+
+    def _add_replacement_version() -> None:
+        current = versions.get_versions("videos", "E1S01")["versions"][0]
+        versions.add_version(
+            "videos",
+            "E1S01",
+            "replacement",
+            source_file=project_path / current["file"],
+            **{
+                key: value
+                for key, value in current.items()
+                if key
+                not in {
+                    "version",
+                    "file",
+                    "filename",
+                    "prompt",
+                    "created_at",
+                    "is_current",
+                    "file_url",
+                    "restored_from",
+                    "_previous_current_version",
+                }
+            },
+        )
 
     service = PresentationReadModelService(
         pm,

@@ -1970,7 +1970,7 @@ async def set_project_source(
 async def generate_overview(name: str, _t: Translator):
     """使用 AI 生成项目概述"""
     try:
-        get_project_manager().get_project_path(name)
+        await asyncio.to_thread(get_project_manager().get_project_path, name)
     except ValueError as e:
         # 非法项目名（路径穿越等）先于生成流程拦截，避免落入下面 generate_overview()
         # 内部供应商解析链路的 except ValueError，被误判为「未配置供应商」

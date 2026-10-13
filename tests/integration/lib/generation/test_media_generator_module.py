@@ -22,6 +22,16 @@ from tests.fakes import MP4_BYTES, PNG_BYTES, FakeConfigResolver, bounded_poll_c
 from tests.http_capture import capture_http
 
 
+async def _write_backend_output(path: Path, data: bytes) -> None:
+    """后端替身落产物：生产后端在工作线程里写产物文件，替身照同一契约放进线程。"""
+
+    def _write() -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    await asyncio.to_thread(_write)
+
+
 class _FakeImageBackend:
     """Fake ImageBackend conforming to the protocol."""
 
@@ -35,8 +45,7 @@ class _FakeImageBackend:
     async def generate(self, request):
         self.calls.append(request)
         # Touch the output file so version tracking works
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(b"fake-image-data")
+        await _write_backend_output(request.output_path, b"fake-image-data")
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=self.name,
@@ -69,8 +78,7 @@ class _FakeVideoBackend:
 
     async def generate(self, request):
         self.calls.append(request)
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(b"fake-video-data")
+        await _write_backend_output(request.output_path, b"fake-video-data")
         duration = (
             self._result_duration_seconds if self._result_duration_seconds is not None else request.duration_seconds
         )
@@ -416,8 +424,7 @@ class TestMediaGenerator:
 
         class _BlockingImageBackend(_FakeImageBackend):
             async def generate(self, request) -> ImageGenerationResult:
-                request.output_path.parent.mkdir(parents=True, exist_ok=True)
-                request.output_path.write_bytes(b"new-image")
+                await _write_backend_output(request.output_path, b"new-image")
                 backend_written.set()
                 await keep_running.wait()
                 return ImageGenerationResult(
@@ -630,8 +637,7 @@ class TestMediaGenerator:
                 self.calls.append(request)
                 if self.attempts == 1:
                     raise _http_413_error()
-                request.output_path.parent.mkdir(parents=True, exist_ok=True)
-                request.output_path.write_bytes(b"paid-video")
+                await _write_backend_output(request.output_path, b"paid-video")
                 return _FakeVideoResult()
 
         backend = _RetryBackend()
@@ -702,7 +708,7 @@ class TestMediaGenerator:
 
         class _FailAfterWrite(_FakeVideoBackend):
             async def generate(self, request):
-                request.output_path.write_bytes(b"partial-new")
+                await _write_backend_output(request.output_path, b"partial-new")
                 raise RuntimeError("provider download failed")
 
         gen._video_backend = _FailAfterWrite()
@@ -759,7 +765,7 @@ class TestMediaGenerator:
         events = []
 
         async def _prepare(staged_file, duration_seconds, version_metadata):
-            assert staged_file.read_bytes() == b"fake-video-data"
+            assert await asyncio.to_thread(staged_file.read_bytes) == b"fake-video-data"
             assert duration_seconds == 8
             assert version_metadata["execution_request_digest"] == "d" * 64
             events.append("prepared")
@@ -943,7 +949,7 @@ class TestMediaGenerator:
         class _CapturePathBackend(_FakeVideoBackend):
             async def generate(self, request):
                 assert request.output_path == staged
-                assert not request.output_path.exists()
+                assert not await asyncio.to_thread(request.output_path.exists)
                 return await super().generate(request)
 
         gen._video_backend = _CapturePathBackend()
@@ -1260,8 +1266,7 @@ class _ConfigurableImageBackend:
         if self._fail_left > 0:
             self._fail_left -= 1
             raise _http_413_error()
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(b"img")
+        await _write_backend_output(request.output_path, b"img")
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=self.name,
@@ -1483,14 +1488,16 @@ class TestReferenceCompressionSeam:
                 self.ref_dims: list[tuple[int, int]] = []
 
             async def generate(self, request):
-                if request.start_image:
-                    with Image.open(request.start_image) as im:
-                        self.start_dims = im.size
-                for r in request.reference_images or []:
-                    with Image.open(r) as im:
-                        self.ref_dims.append(im.size)
-                request.output_path.parent.mkdir(parents=True, exist_ok=True)
-                request.output_path.write_bytes(b"v")
+                def _read_dims() -> None:
+                    if request.start_image:
+                        with Image.open(request.start_image) as im:
+                            self.start_dims = im.size
+                    for r in request.reference_images or []:
+                        with Image.open(r) as im:
+                            self.ref_dims.append(im.size)
+
+                await asyncio.to_thread(_read_dims)
+                await _write_backend_output(request.output_path, b"v")
                 return _FakeVideoResult()
 
         backend = _CapturingVideoBackend()
@@ -1534,8 +1541,7 @@ class TestReferenceCompressionSeam:
 
             async def generate(self, request):
                 self.received_audio = request.reference_audio_files
-                request.output_path.parent.mkdir(parents=True, exist_ok=True)
-                request.output_path.write_bytes(b"v")
+                await _write_backend_output(request.output_path, b"v")
                 return _FakeVideoResult()
 
         backend = _AudioCapturingVideoBackend()
@@ -1624,8 +1630,7 @@ class TestReferenceCompressionSeam:
             )
 
             async def generate(self, request):
-                request.output_path.parent.mkdir(parents=True, exist_ok=True)
-                request.output_path.write_bytes(b"v")
+                await _write_backend_output(request.output_path, b"v")
                 return _FakeVideoResult()
 
         gen._video_backend = _AudioDurationLimitedVideoBackend()
@@ -1665,8 +1670,7 @@ class TestReferenceCompressionSeam:
             )
 
             async def generate(self, request):
-                request.output_path.parent.mkdir(parents=True, exist_ok=True)
-                request.output_path.write_bytes(b"v")
+                await _write_backend_output(request.output_path, b"v")
                 return _FakeVideoResult()
 
         gen._video_backend = _NoDurationLimitVideoBackend()
@@ -1733,8 +1737,7 @@ class TestReferenceCompressionSeam:
             video_capabilities = VideoCapabilities(max_prompt_chars=10)
 
             async def generate(self, request):
-                request.output_path.parent.mkdir(parents=True, exist_ok=True)
-                request.output_path.write_bytes(b"v")
+                await _write_backend_output(request.output_path, b"v")
                 return _FakeVideoResult()
 
         gen._video_backend = _PromptLimitedVideoBackend()

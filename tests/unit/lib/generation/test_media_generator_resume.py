@@ -22,6 +22,16 @@ from lib.generation.media_generator import MediaGenerator
 from tests.fakes import FakeConfigResolver, select_formal_video
 
 
+async def _write_backend_output(path: Path, data: bytes) -> None:
+    """后端替身落产物：生产后端在工作线程里写产物文件，替身照同一契约放进线程。"""
+
+    def _write() -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    await asyncio.to_thread(_write)
+
+
 class _FakeVideoResult:
     def __init__(
         self,
@@ -55,8 +65,7 @@ class _FakeVideoBackend:
         self.calls.append((job_id, request))
         if self.raises is not None:
             raise self.raises
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(b"fake-resume-video")
+        await _write_backend_output(request.output_path, b"fake-resume-video")
         return self._result if self._result is not None else _FakeVideoResult()
 
 
@@ -327,7 +336,7 @@ async def test_resume_formal_output_uses_same_staged_version_transaction(tmp_pat
     events = []
 
     async def _prepare(staged_file, duration_seconds, version_metadata):
-        assert staged_file.read_bytes() == b"fake-resume-video"
+        assert await asyncio.to_thread(staged_file.read_bytes) == b"fake-resume-video"
         assert duration_seconds == 8
         events.append("prepared")
 
@@ -442,8 +451,7 @@ async def test_resume_passes_usage_tokens_to_finalize(tmp_path):
 
         async def resume_video(self, job_id, request):
             self.calls.append((job_id, request))
-            request.output_path.parent.mkdir(parents=True, exist_ok=True)
-            request.output_path.write_bytes(b"fake-resume-video")
+            await _write_backend_output(request.output_path, b"fake-resume-video")
             return _ArkLikeResult()
 
     gen = _build_generator(tmp_path)
@@ -585,7 +593,7 @@ async def test_resume_expired_cleans_formal_staging_when_finalize_fails(tmp_path
 
     class _WriteThenExpireBackend(_FakeVideoBackend):
         async def resume_video(self, job_id, request):
-            request.output_path.write_bytes(b"partial-download")
+            await _write_backend_output(request.output_path, b"partial-download")
             raise ResumeExpiredError(job_id=job_id, provider="openai")
 
     gen = _build_generator(tmp_path)
@@ -615,7 +623,7 @@ async def test_resume_cancellation_cleans_partial_formal_staging(tmp_path):
 
     class _WriteThenCancelBackend(_FakeVideoBackend):
         async def resume_video(self, job_id, request):
-            request.output_path.write_bytes(b"partial-download")
+            await _write_backend_output(request.output_path, b"partial-download")
             raise asyncio.CancelledError
 
     gen = _build_generator(tmp_path)
@@ -666,8 +674,7 @@ async def test_resume_passes_generate_audio_to_finalize(tmp_path):
 
         async def resume_video(self, job_id, request):
             self.calls.append((job_id, request))
-            request.output_path.parent.mkdir(parents=True, exist_ok=True)
-            request.output_path.write_bytes(b"fake-resume-video")
+            await _write_backend_output(request.output_path, b"fake-resume-video")
             return _AudioDowngradeResult()
 
     gen = _build_generator(tmp_path)
@@ -713,8 +720,7 @@ async def test_resume_passes_billed_duration_to_finalize(tmp_path):
 
         async def resume_video(self, job_id, request):
             self.calls.append((job_id, request))
-            request.output_path.parent.mkdir(parents=True, exist_ok=True)
-            request.output_path.write_bytes(b"fake-resume-video")
+            await _write_backend_output(request.output_path, b"fake-resume-video")
             return _BilledDurationResult()
 
     gen = _build_generator(tmp_path)

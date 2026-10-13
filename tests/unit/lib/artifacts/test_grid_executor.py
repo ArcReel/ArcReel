@@ -1,5 +1,6 @@
 """Tests for grid generation task executor."""
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -70,9 +71,22 @@ class _FormalVersions:
         return {"versions": [{"version": self.version, "created_at": "2026-01-01T00:00:00Z"}]}
 
 
-def _commit_formal(kwargs: dict, image_path: Path) -> tuple[Path, int]:
-    """与 MediaGenerator 一样经 formal_output 的活化回调提交，返回回调给出的版本号。"""
-    return image_path, kwargs["commit_formal_output"](image_path, image_path, {})
+async def _commit_formal(kwargs: dict, image_path: Path) -> tuple[Path, int]:
+    """与 MediaGenerator 一样经 formal_output 的活化回调提交，返回回调给出的版本号。
+
+    提交回调会写正式文件，MediaGenerator 经 run_noninterruptible_sync 在工作线程里调用，替身同样放进线程。
+    """
+    version = await asyncio.to_thread(kwargs["commit_formal_output"], image_path, image_path, {})
+    return image_path, version
+
+
+def _committing_to(image_path: Path):
+    """``generate_image_async`` 的 AsyncMock side_effect：按生产口径提交到 ``image_path``。"""
+
+    async def _generate(**kwargs) -> tuple[Path, int]:
+        return await _commit_formal(kwargs, image_path)
+
+    return _generate
 
 
 @pytest.fixture
@@ -245,7 +259,7 @@ class TestExecuteGridTask:
 
         mock_generator = MagicMock()
         mock_generator.versions = _FormalVersions()
-        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
+        mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -415,7 +429,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 captured.append(kwargs)
-                return _commit_formal(kwargs, grid_image_path)
+                return await _commit_formal(kwargs, grid_image_path)
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -487,7 +501,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 captured.append(kwargs)
-                return _commit_formal(kwargs, grid_image_path)
+                return await _commit_formal(kwargs, grid_image_path)
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -581,7 +595,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 captured.append(kwargs)
-                return _commit_formal(kwargs, grid_image_path)
+                return await _commit_formal(kwargs, grid_image_path)
 
         hook_claim_recheck(
             monkeypatch,
@@ -671,7 +685,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 script["segments"][0]["image_prompt"] = "latest prompt"
-                return _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
+                return await _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
 
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
@@ -751,7 +765,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 captured_prompt.append(kwargs["prompt"])
-                return _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
+                return await _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -822,7 +836,7 @@ class TestExecuteGridTask:
         Image.new("RGB", (400, 400), color=(128, 200, 100)).save(grid_image_path, format="PNG")
         mock_generator = MagicMock()
         mock_generator.versions = _FormalVersions(version=2)
-        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
+        mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -880,7 +894,7 @@ class TestExecuteGridTask:
 
         mock_generator = MagicMock()
         mock_generator.versions = _FormalVersions()
-        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
+        mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -977,7 +991,7 @@ class TestGridMetadataT2II2ISlotSelection:
 
         mock_generator = MagicMock()
         mock_generator.versions = _FormalVersions()
-        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
+        mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         async def _cap_aware_resolve(project_name, req_payload, *, image, **kwargs):
             # generation_type-aware：grid 任务按 reference_images 是否非空选 t2i/i2i 槽，

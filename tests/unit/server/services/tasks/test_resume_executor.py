@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import tempfile
 from pathlib import Path
@@ -44,6 +45,11 @@ class _FakeProjectManager:
         self.scene_assets.append(kwargs)
 
 
+def _write_output(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
 class _FakeGenerator:
     """模拟 MediaGenerator：resume_video_async 可控、versions 提供历史查询。"""
 
@@ -57,8 +63,8 @@ class _FakeGenerator:
         if self.raises is not None:
             raise self.raises
         output_path = kwargs.get("output_path") or Path(tempfile.gettempdir()) / "video.mp4"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"paid-resume-video")
+        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
+        await asyncio.to_thread(_write_output, output_path, b"paid-resume-video")
         prepare = kwargs.get("before_formal_commit")
         if prepare is not None:
             metadata = {key: value for key, value in kwargs.items() if key.startswith(("execution_", "artifact_"))}

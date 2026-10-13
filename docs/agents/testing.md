@@ -21,7 +21,7 @@ worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文�
 
 ## 事件循环阻塞护栏
 
-根 conftest 加载 `tests/blocking_guard`：同步与异步用例全程记录 lib/server 代码在事件循环线程上的阻塞调用（含同步 `TestClient` 背后的应用线程），用例结束时白名单外的违规让该用例失败，失败信息给出条目和调用栈。条目是离阻塞点最近的 lib/server async 函数（`<文件>::<限定名>`）。
+根 conftest 加载 `tests/blocking_guard`：同步与异步用例全程记录 lib/server 代码在事件循环线程上的阻塞调用（含同步 `TestClient` 背后的应用线程），用例结束时白名单外的违规让该用例失败，失败信息给出条目和调用栈。条目是离阻塞点最近的 lib/server async 函数（`<文件>::<限定名>`），阻塞发生在 `tests/` 下的替身里也一样：换成生产依赖后，同一位置同样会阻塞事件循环。替身误报时，按生产实现的线程契约修替身：能用内存实现的就改成内存实现；替身的职责本身就要落盘的（后端写产物、模拟并发写方、调用会写正式文件的生产回调），把这段 I/O 放进 `asyncio.to_thread`。外层没有 lib/server async 函数的阻塞（测试函数直接调用同步 lib 代码）不计。
 
 - `tests/blocking_guard/allowlist.txt` 是临时白名单，Spec #3147 收尾时必须清空。修好一处后删掉对应条目，再按下面的命令整体再生成，确认没有新增条目。完整运行时，未触发的条目会在结尾以警告列出。macOS 上的文件复制走另一套系统调用，所以本机出现未触发的条目属于正常现象，以 Linux 上的结果为准。
 - `tests/blocking_guard/exemptions.toml` 是永久豁免，只收应用启动与关停路径上的一次性阻塞，每条写明理由。

@@ -13,9 +13,11 @@
 把白名单外的违规改判为失败。
 
 **归属。** 从阻塞点沿调用栈向外找，第一个 lib/server 的 async 函数就是违规条目（文件 +
-限定名）；先遇到 ``tests/`` 的帧说明阻塞由测试自身驱动（同步辅助、替身、内联的
-``to_thread``），不计。整条栈没有 async 帧时（事件循环直接回调的同步函数）取最外层的
-lib/server 帧。
+限定名），途中经过 ``tests/`` 的帧也一样：lib/server 的 async 函数调用的替身在 ``tests/`` 下
+读写磁盘，换成生产依赖后同一位置同样阻塞事件循环。替身自身做了生产实现不会做的 I/O 时，
+把替身改成内存实现。整条栈没有 lib/server 的 async 帧时，经过 ``tests/`` 帧说明阻塞由
+测试自身驱动（测试直接调同步 lib 代码），不计；否则是事件循环直接回调的同步函数，取最外层的
+lib/server 帧。测试内联的 ``to_thread`` 在工作线程上执行，本就不受检。
 
 **始终放行**：日志落盘、traceback 取源码行、``realpath`` 解析符号链接、函数内的延迟 import、
 asyncpg 建连时解析连接参数，以及模块级的无上限缓存（``functools.cache``）或无参缓存加载器的
@@ -182,30 +184,41 @@ class BlockingGuard:
 
         key: str | None = None
         outermost_scanned: FrameType | None = None
+        driven_by_tests = False
         for candidate in frames:
             filename = candidate.f_code.co_filename
             module = candidate.f_globals.get("__name__", "")
             if filename.startswith(_GUARD_DIR) or module.startswith(_GUARD_MODULE):
                 continue
-            # 模块名兜底：pytest 断言重写的缓存不修正 co_filename，跨机器复用缓存时路径对不上。
-            if filename.startswith(self.tests_prefix) or module.startswith(f"{TESTS_DIR}."):
-                return
+            if self._is_tests_frame(candidate):
+                # 替身、测试辅助函数的帧不终止查找：外层若有 lib/server 的 async 函数，
+                # 换成生产依赖后同一位置同样阻塞事件循环，照样记到它名下。
+                driven_by_tests = True
+                continue
             if filename.startswith(self.scanned_prefixes):
                 if candidate.f_code.co_flags & _ASYNC_CODE_FLAGS:
                     key = self._key(candidate)
                     break
                 outermost_scanned = candidate
         if key is None:
-            if outermost_scanned is None:
+            # 没有 lib/server 的 async 函数包住阻塞点：经过 tests/ 帧说明由测试自身驱动
+            # （测试直接调同步 lib 代码），不计；否则是事件循环直接回调的同步函数，取最外层。
+            if outermost_scanned is None or driven_by_tests:
                 return
             key = self._key(outermost_scanned)
 
         stack = tuple(
             f"{self._relpath(f.f_code.co_filename)}:{f.f_lineno} in {f.f_code.co_qualname}"
             for f in frames
-            if f.f_code.co_filename.startswith(self.scanned_prefixes)
+            if f.f_code.co_filename.startswith(self.scanned_prefixes) or self._is_tests_frame(f)
         )[:_STACK_PREVIEW_FRAMES]
         self.pending.append(Violation(key, call, threading.current_thread().name, stack))
+
+    def _is_tests_frame(self, frame: FrameType) -> bool:
+        # 模块名兜底：pytest 断言重写的缓存不修正 co_filename，跨机器复用缓存时路径对不上。
+        return frame.f_code.co_filename.startswith(self.tests_prefix) or frame.f_globals.get("__name__", "").startswith(
+            f"{TESTS_DIR}."
+        )
 
     def _relpath(self, filename: str) -> str:
         return filename.removeprefix(str(self.root) + os.sep).replace(os.sep, "/")

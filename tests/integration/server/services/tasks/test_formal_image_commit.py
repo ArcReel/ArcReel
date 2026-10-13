@@ -25,6 +25,7 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
     prepare_files,
     register_asset_sheet_claims,
     register_stale_visual_claim,
+    stage_and_commit,
 )
 
 
@@ -407,10 +408,15 @@ class TestGenerationTasks:
                 self.reference_bytes: list[bytes] = []
 
             async def generate_image_async(self, **kwargs):
-                character_path.write_bytes(b"changed-character")
-                previous_path.write_bytes(b"changed-previous")
                 refs = kwargs["reference_images"]
-                self.reference_bytes = [(ref["image"] if isinstance(ref, dict) else ref).read_bytes() for ref in refs]
+
+                def _race_then_read() -> list[bytes]:
+                    # 生成期间另一方改写了原始参考图；供应商读到的应是冻结时的字节
+                    character_path.write_bytes(b"changed-character")
+                    previous_path.write_bytes(b"changed-previous")
+                    return [(ref["image"] if isinstance(ref, dict) else ref).read_bytes() for ref in refs]
+
+                self.reference_bytes = await asyncio.to_thread(_race_then_read)
                 return await super().generate_image_async(**kwargs)
 
         fake_generator = _RacingGenerator()
@@ -443,8 +449,7 @@ class TestGenerationTasks:
                 self.versions = self
 
             async def generate_image_async(self, **kwargs):
-                staged.write_bytes(b"generated")
-                version = kwargs["commit_formal_output"](staged, current, {})
+                version = await stage_and_commit(kwargs["commit_formal_output"], staged, current, b"generated", {})
                 return current, version
 
             def commit_staged_version(self, **kwargs):
@@ -619,11 +624,8 @@ class TestGenerationTasks:
             async def generate_image_async(self, **kwargs):
                 # 直接调用（非队列任务）没有 task_id：staging 身份由生成器内部造，替身自造一个。
                 staged = task_image_staging_path(current, kwargs["task_id"] or "inline-test")
-                staged.write_bytes(b"generated-sheet")
-                version = kwargs["commit_formal_output"](
-                    staged,
-                    current,
-                    {"aspect_ratio": "16:9"},
+                version = await stage_and_commit(
+                    kwargs["commit_formal_output"], staged, current, b"generated-sheet", {"aspect_ratio": "16:9"}
                 )
                 return current, version
 
@@ -676,8 +678,9 @@ class TestGenerationTasks:
             async def generate_image_async(self, **kwargs):
                 assert kwargs["formal_output"] is True
                 staged = task_image_staging_path(current, kwargs["task_id"])
-                staged.write_bytes(b"new-sheet")
-                version = kwargs["commit_formal_output"](staged, current, {"aspect_ratio": "16:9"})
+                version = await stage_and_commit(
+                    kwargs["commit_formal_output"], staged, current, b"new-sheet", {"aspect_ratio": "16:9"}
+                )
                 return current, version
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)

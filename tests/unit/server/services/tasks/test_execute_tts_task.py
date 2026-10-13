@@ -124,6 +124,11 @@ class _FakePM:
         assets["status"] = "completed" if assets.get("video_clip") else "pending"
 
 
+def _write_output(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(content)
+
+
 class _FakeAudioGenerator:
     def __init__(self, project_path: Path):
         self.project_path = project_path
@@ -139,16 +144,16 @@ class _FakeAudioGenerator:
             await before_submit()
         self.audio_calls.append(kwargs)
         output = self.project_path / "audio" / f"segment_{kwargs['resource_id']}.wav"
-        output.parent.mkdir(parents=True, exist_ok=True)
         staged = output.with_name(f".{output.stem}.staged{output.suffix}")
-        staged.write_bytes(b"RIFF-current-audio")
+        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
+        await asyncio.to_thread(_write_output, staged, b"RIFF-current-audio")
         if before_commit := kwargs.get("before_commit"):
             await before_commit(staged)
         if commit_staged := kwargs.get("commit_staged"):
             committed = await asyncio.to_thread(commit_staged, staged, output)
             version = committed.version if isinstance(committed, PaidVersionCommit) else committed
         else:
-            staged.replace(output)
+            await asyncio.to_thread(staged.replace, output)
             version = 3
         return output, version
 
@@ -319,7 +324,7 @@ class TestExecuteTtsTask:
             before_submit = kwargs["before_submit"]
 
             async def _forget_then_admit() -> None:
-                _forget_script_claim(pm.project_path)
+                await asyncio.to_thread(_forget_script_claim, pm.project_path)
                 await before_submit()
                 provider_submissions.append("submitted")
 
@@ -348,7 +353,8 @@ class TestExecuteTtsTask:
             async def _replace_then_admit() -> None:
                 replacement = copy.deepcopy(pm.script)
                 replacement["segments"][0]["novel_text"] = "并发保存后的另一版旁白。"
-                (pm.project_path / "scripts" / "episode_1.json").write_text(
+                await asyncio.to_thread(
+                    (pm.project_path / "scripts" / "episode_1.json").write_text,
                     json.dumps(replacement, ensure_ascii=False),
                     encoding="utf-8",
                 )
