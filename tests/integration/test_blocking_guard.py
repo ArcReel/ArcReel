@@ -11,8 +11,8 @@
   lib 代码、测试内联 ``to_thread`` 的阻塞不计。
 - asyncpg 建连时解析连接参数的文件探测不记到调用方头上。
 - 在事件循环线程上阻塞地获取项目文件锁、版本管理锁记为违规，非阻塞的尝试加锁不算。
-- 白名单里的条目放行；完整运行时未触发的条目以警告列出，部分运行不报。
-- 写出模式把全部违规整体写成白名单，部分运行（含 ``--ignore`` 跳过路径、``--collect-only`` 等不执行用例的模式）拒绝写出。
+- 永久豁免清单里的条目放行，没有别的豁免途径；完整运行时未触发的豁免条目让会话失败，部分运行
+  （含 ``--ignore`` 跳过路径、``--collect-only`` 等不执行用例的模式）不报。
 """
 
 from __future__ import annotations
@@ -27,8 +27,7 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-_WRITE_ENV = "ARCREEL_BLOCKING_ALLOWLIST_WRITE"
-_ALLOWLIST = Path("tests/blocking_guard/allowlist.txt")
+_EXEMPTIONS = Path("tests/blocking_guard/exemptions.toml")
 # 用例与替身放在会话目录的 tests/ 下：护栏按这个目录区分测试自身驱动的阻塞。
 _PROBE_RELPATH = Path("tests/test_probe.py")
 
@@ -86,7 +85,7 @@ async def read_bounded_cache(path: Path) -> str:
     return load_bounded(path)
 
 
-async def allowlisted_read(path: Path) -> str:
+async def exempted_read(path: Path) -> str:
     return path.read_text()
 
 
@@ -199,10 +198,10 @@ def test_sync_testclient_route(tmp_path):
         assert client.get("/read", params={"path": str(target)}).json() == {"text": "content"}
 
 
-async def test_allowlisted_read(tmp_path):
+async def test_exempted_read(tmp_path):
     target = tmp_path / "a.txt"
     target.write_text("content")
-    assert await samples.allowlisted_read(target) == "content"
+    assert await samples.exempted_read(target) == "content"
 
 
 async def test_project_file_lock(tmp_path):
@@ -222,7 +221,7 @@ async def test_postgres_connect():
 """
 
 
-def _make_session_dir(root: Path, allowlist: list[str]) -> Path:
+def _make_session_dir(root: Path, exemptions: dict[str, str]) -> Path:
     (root / "lib").mkdir(parents=True)
     (root / "server").mkdir()
     (root / "lib" / "blocking_samples.py").write_text(textwrap.dedent(_SAMPLES), encoding="utf-8")
@@ -233,17 +232,18 @@ def _make_session_dir(root: Path, allowlist: list[str]) -> Path:
         '[tool.pytest.ini_options]\nasyncio_mode = "auto"\npythonpath = ["lib", "server"]\n',
         encoding="utf-8",
     )
-    allowlist_file = root / _ALLOWLIST
-    allowlist_file.parent.mkdir(parents=True)
-    allowlist_file.write_text("".join(f"{entry}\n" for entry in allowlist), encoding="utf-8")
+    exemptions_file = root / _EXEMPTIONS
+    exemptions_file.parent.mkdir(parents=True)
+    exemptions_file.write_text(
+        "".join(f'[[exemption]]\nkey = "{key}"\nreason = "{reason}"\n\n' for key, reason in exemptions.items()),
+        encoding="utf-8",
+    )
     return root
 
 
-def _run(root: Path, *args: str, write: bool = False) -> subprocess.CompletedProcess[str]:
-    env = {key: value for key, value in os.environ.items() if key != _WRITE_ENV}
+def _run(root: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(_REPO_ROOT), env.get("PYTHONPATH")]))
-    if write:
-        env[_WRITE_ENV] = "1"
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-p", "tests.blocking_guard", "-p", "no:cacheprovider", "-rA", *args],
         cwd=root,
@@ -267,7 +267,10 @@ def _failure_section(output: str, test_name: str) -> str:
 
 @pytest.fixture(scope="module")
 def probe_run(tmp_path_factory: pytest.TempPathFactory) -> subprocess.CompletedProcess[str]:
-    root = _make_session_dir(tmp_path_factory.mktemp("session"), ["lib/blocking_samples.py::allowlisted_read"])
+    root = _make_session_dir(
+        tmp_path_factory.mktemp("session"),
+        {"lib/blocking_samples.py::exempted_read": "样本：模拟启动路径上的一次性阻塞"},
+    )
     return _run(root)
 
 
@@ -279,10 +282,10 @@ def test_blocking_call_fails_the_test_even_when_business_code_swallows_errors(pr
     assert "io.TextIOWrapper.read" in section
 
 
-def test_offloaded_cached_and_allowlisted_calls_pass(probe_run):
+def test_offloaded_cached_and_exempted_calls_pass(probe_run):
     outcomes = _outcomes(probe_run.stdout)
     assert outcomes["test_offloaded_read"] == "PASSED", probe_run.stdout
-    assert outcomes["test_allowlisted_read"] == "PASSED", probe_run.stdout
+    assert outcomes["test_exempted_read"] == "PASSED", probe_run.stdout
     assert outcomes["test_nonblocking_try_lock"] == "PASSED", probe_run.stdout
     assert outcomes["test_cached_loader"] == "PASSED", probe_run.stdout
 
@@ -340,14 +343,15 @@ def test_blocking_lock_acquisition_on_the_loop_is_a_violation(probe_run, test_na
     assert rule in section
 
 
-def test_full_run_warns_about_untriggered_allowlist_entries(tmp_path: Path):
+def test_full_run_fails_on_untriggered_exemptions_but_partial_run_does_not(tmp_path: Path):
     stale = "lib/blocking_samples.py::never_called"
-    root = _make_session_dir(tmp_path / "session", [stale])
+    root = _make_session_dir(tmp_path / "session", {stale: "样本：从未触发的豁免"})
 
     full = _run(root)
     partial = _run(root, "-k", "offloaded")
 
-    assert f"临时白名单未触发：{stale}" in full.stdout
+    assert full.returncode == pytest.ExitCode.TESTS_FAILED, full.stdout
+    assert f"永久豁免未触发，请从 {_EXEMPTIONS} 删除：{stale}" in full.stdout
     assert partial.returncode == 0, partial.stdout
     assert stale not in partial.stdout
 
@@ -356,34 +360,12 @@ def test_full_run_warns_about_untriggered_allowlist_entries(tmp_path: Path):
     "partial_args",
     [("--ignore=tests/test_probe.py",), ("--ignore-glob=*_probe.py",), ("--collect-only",), ("--setup-only",)],
 )
-def test_write_mode_refuses_runs_that_skip_or_do_not_execute_tests(tmp_path: Path, partial_args: tuple[str, ...]):
-    root = _make_session_dir(tmp_path / "session", [])
+def test_runs_that_skip_or_do_not_execute_tests_do_not_report_untriggered_exemptions(
+    tmp_path: Path, partial_args: tuple[str, ...]
+):
+    stale = "lib/blocking_samples.py::never_called"
+    root = _make_session_dir(tmp_path / "session", {stale: "样本：从未触发的豁免"})
 
-    refused = _run(root, *partial_args, write=True)
+    partial = _run(root, *partial_args)
 
-    assert refused.returncode == pytest.ExitCode.USAGE_ERROR, refused.stdout + refused.stderr
-
-
-def test_write_mode_regenerates_the_allowlist_from_a_full_run(tmp_path: Path):
-    root = _make_session_dir(tmp_path / "session", ["lib/blocking_samples.py::never_called"])
-
-    refused = _run(root, "-k", "offloaded", write=True)
-    written = _run(root, write=True)
-
-    assert refused.returncode == pytest.ExitCode.USAGE_ERROR, refused.stdout + refused.stderr
-    assert written.returncode == pytest.ExitCode.OK, written.stdout
-    entries = [
-        line.split("#", 1)[0].strip()
-        for line in (root / _ALLOWLIST).read_text(encoding="utf-8").splitlines()
-        if line.split("#", 1)[0].strip()
-    ]
-    assert entries == [
-        "lib/blocking_samples.py::allowlisted_read",
-        "lib/blocking_samples.py::hold_project_lock",
-        "lib/blocking_samples.py::load_with",
-        "lib/blocking_samples.py::load_with_async",
-        "lib/blocking_samples.py::read_bounded_cache",
-        "lib/blocking_samples.py::read_or_default",
-        "lib/blocking_samples.py::read_versions",
-        "server/blocking_app.py::read",
-    ]
+    assert stale not in partial.stdout, partial.stdout

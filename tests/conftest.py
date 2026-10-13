@@ -101,7 +101,7 @@ from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFa
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
-# 事件循环阻塞护栏：同步与异步用例全程启用，白名单外的阻塞调用让用例失败，见 tests/blocking_guard。
+# 事件循环阻塞护栏：同步与异步用例全程启用，豁免清单外的阻塞调用让用例失败，见 tests/blocking_guard。
 pytest_plugins = ["tests.blocking_guard"]
 
 
