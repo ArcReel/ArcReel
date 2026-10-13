@@ -28,9 +28,6 @@ lib/backends/video_backends/kling.py::KlingVideoBackend.generate  # io.BufferedR
 lib/backends/video_backends/openai.py::OpenAIVideoBackend.generate  # os.stat
 lib/bgm/service.py::BgmLibraryService.list  # os.stat
 lib/bgm/service.py::BgmLibraryService.upload  # os.stat
-lib/config/resolver.py::ConfigResolver._resolve_provider_config  # os.stat
-lib/config/resolver.py::ConfigResolver._resolve_text_backend  # io.TextIOWrapper.read, os.mkdir, os.stat
-lib/config/resolver.py::ConfigResolver._resolve_video_generate_audio  # io.TextIOWrapper.read, os.stat
 lib/custom_provider/declarative_backend.py::DeclarativeVideoBackend.generate  # io.BufferedReader.read
 lib/custom_provider/declarative_image_backend.py::DeclarativeImageBackend.generate  # io.BufferedReader.read
 lib/custom_provider/endpoint_test/trial_run.py::TrialRunManager._execute  # ScandirIterator.__next__, io.BufferedWriter.write, io.TextIOWrapper.write, os.mkdir, os.path.samestat, os.rmdir, os.stat, os.unlink
@@ -64,9 +61,6 @@ lib/infra/thumbnail.py::extract_video_last_frame  # os.mkdir, os.stat
 lib/infra/thumbnail.py::extract_video_thumbnail  # os.mkdir, os.stat
 lib/project/project_manager.py::ProjectManager.async_file_lock  # os.mkdir, os.stat
 lib/project/project_manager.py::ProjectManager.generate_overview  # ScandirIterator.__next__, io.BufferedReader.read, io.BufferedWriter.write, io.TextIOWrapper.read, io.TextIOWrapper.write, os.replace, os.stat, 文件锁（portalocker 阻塞模式）
-lib/script/reference_video/request_projection.py::ReferenceUnitRequestProjector.project_current  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-lib/script/reference_video/request_projection.py::project_reference_unit_request  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
-lib/script/reference_video/unit_capabilities.py::evaluate_reference_unit_capabilities  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
 lib/script/script_generator.py::ScriptGenerator._author_ad_reference_units  # os.mkdir, os.stat
 lib/script/script_generator.py::ScriptGenerator._author_reference_units  # io.BufferedReader.read, os.stat, 产物清单锁（轮询等待）
 lib/script/script_generator.py::ScriptGenerator._generate_and_save  # os.mkdir, os.stat
@@ -128,7 +122,7 @@ server/routers/assets.py::delete_asset  # os.unlink
 server/routers/assets.py::from_project  # io.TextIOWrapper.read, os.stat, os.unlink
 server/routers/endpoint_tests.py::get_trial_run  # io.TextIOWrapper.read, os.mkdir, os.stat
 server/routers/endpoint_tests.py::get_trial_run_artifact  # io.BufferedReader.read, os.mkdir, os.stat
-server/routers/endpoint_tests.py::start_trial_run  # ScandirIterator.__next__, io.BufferedWriter.write, os.mkdir, os.path.samestat, os.rmdir
+server/routers/endpoint_tests.py::start_trial_run  # ScandirIterator.__next__, io.BufferedWriter.write, os.mkdir, os.path.samestat, os.rmdir, os.stat
 server/routers/episode_planning.py::_run_replan  # os.stat
 server/routers/files.py::_handle_episode_source_upload  # os.stat
 server/routers/files.py::_handle_source_upload  # os.stat
