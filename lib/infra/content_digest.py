@@ -9,7 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import stat
+import threading
+import time
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 
@@ -83,13 +88,105 @@ class TextModeDigest:
         return digest.hexdigest()
 
 
-def sha256_file_with_size(path: Path) -> tuple[str, int]:
-    """流式取文件摘要与字节数；路径不是常规文件时抛 ``FileNotFoundError``。"""
+# 文件摘要缓存的容量上限（条目数）。每条只存一个 64 字符摘要与大小，满了淘汰最久未用的一条。
+FILE_DIGEST_CACHE_CAPACITY = 4096
+# 刚被写过的文件不入缓存：mtime 距「读完」不足此窗口时，同一时间戳下的再次写入可能不改变任何一项
+# stat 标识（粗粒度文件系统的时间戳精度可达数毫秒到 2 秒），缓存会把「写了两次」当成「没变」。
+# 超过窗口之后再哈希的文件才入缓存，窗口内的读取照常哈希。
+FILE_DIGEST_RACY_WINDOW_NS = 3_000_000_000
 
-    if not path.is_file():
+# (st_dev, st_ino, st_size, st_mtime_ns)
+_FileIdentity = tuple[int, int, int, int]
+
+
+def file_identity(file_stat: os.stat_result) -> _FileIdentity:
+    """文件摘要缓存的键：设备、inode、大小、纳秒 mtime。"""
+
+    return file_stat.st_dev, file_stat.st_ino, file_stat.st_size, file_stat.st_mtime_ns
+
+
+class _FileDigestCache:
+    """进程内、有容量上限的文件摘要缓存（LRU）；线程安全，调用方可能在工作线程里取摘要。"""
+
+    def __init__(self, capacity: int) -> None:
+        self._capacity = capacity
+        self._entries: OrderedDict[_FileIdentity, str] = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, identity: _FileIdentity) -> str | None:
+        with self._lock:
+            hexdigest = self._entries.get(identity)
+            if hexdigest is not None:
+                self._entries.move_to_end(identity)
+            return hexdigest
+
+    def put(self, identity: _FileIdentity, hexdigest: str) -> None:
+        with self._lock:
+            self._entries[identity] = hexdigest
+            self._entries.move_to_end(identity)
+            while len(self._entries) > self._capacity:
+                self._entries.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+
+_FILE_DIGEST_CACHE = _FileDigestCache(FILE_DIGEST_CACHE_CAPACITY)
+
+
+def cached_file_digest(file_stat: os.stat_result) -> str | None:
+    """按 stat 标识取已缓存的内容摘要；标识没见过或已变则返回 ``None``。"""
+
+    return _FILE_DIGEST_CACHE.get(file_identity(file_stat))
+
+
+def remember_file_digest(file_stat: os.stat_result, hexdigest: str) -> None:
+    """登记「读取前后 stat 一致」的那次哈希结果；mtime 过新的文件不入缓存（见 ``FILE_DIGEST_RACY_WINDOW_NS``）。
+
+    ``file_stat`` 必须是读取开始前取得的，且调用方已确认读取结束后标识未变。
+    """
+
+    if time.time_ns() - file_stat.st_mtime_ns < FILE_DIGEST_RACY_WINDOW_NS:
+        return
+    _FILE_DIGEST_CACHE.put(file_identity(file_stat), hexdigest)
+
+
+def clear_file_digest_cache() -> None:
+    """清空文件摘要缓存（测试隔离用）。"""
+
+    _FILE_DIGEST_CACHE.clear()
+
+
+def sha256_file_with_size(path: Path) -> tuple[str, int]:
+    """流式取文件摘要与字节数；路径不是常规文件时抛 ``FileNotFoundError``。
+
+    摘要按 stat 标识（设备、inode、大小、纳秒 mtime）缓存：标识不变直接复用，变了重新哈希。
+    摘要值始终是内容哈希，复制、导入、恢复改变 mtime 只会触发一次重算，内容相同则摘要相同。
+    """
+
+    try:
+        file_stat = path.stat()
+    except OSError:
+        raise FileNotFoundError(path) from None
+    if not stat.S_ISREG(file_stat.st_mode):
         raise FileNotFoundError(path)
+    cached = cached_file_digest(file_stat)
+    if cached is not None:
+        return cached, file_stat.st_size
     with path.open("rb") as handle:
+        opened_stat = os.fstat(handle.fileno())
         hexdigest, size, _ = digest_stream(handle.read)
+        completed_stat = os.fstat(handle.fileno())
+    if (
+        file_identity(opened_stat) == file_identity(completed_stat)
+        and opened_stat.st_ctime_ns == completed_stat.st_ctime_ns
+    ):
+        remember_file_digest(opened_stat, hexdigest)
     return hexdigest, size
 
 
@@ -137,15 +234,21 @@ def prefixed_canonical_json_digest(value: object, *, allow_nan: bool = True) -> 
 __all__ = [
     "CHUNK_BYTES",
     "CONTENT_DIGEST_RE",
+    "FILE_DIGEST_CACHE_CAPACITY",
+    "FILE_DIGEST_RACY_WINDOW_NS",
     "HASH_ALGORITHM",
     "PREFIXED_DIGEST_RE",
+    "cached_file_digest",
     "canonical_json",
     "canonical_json_bytes",
     "canonical_json_digest",
+    "clear_file_digest_cache",
     "digest_stream",
+    "file_identity",
     "prefixed",
     "prefixed_canonical_json_digest",
     "prefixed_sha256_file",
+    "remember_file_digest",
     "sha256_file",
     "sha256_file_with_size",
 ]

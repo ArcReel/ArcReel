@@ -34,9 +34,11 @@ from lib.infra.content_digest import (
     CONTENT_DIGEST_RE,
     HASH_ALGORITHM,
     PREFIXED_DIGEST_RE,
+    cached_file_digest,
     canonical_json_bytes,
     digest_stream,
     prefixed,
+    remember_file_digest,
 )
 from lib.infra.schema_guards import is_str
 from lib.project.asset_types import ASSET_TYPES, asset_name_comparison_key
@@ -808,6 +810,11 @@ class ProjectArtifactManifestAdapter:
             os.read(fd, 1)
             return None, None, None
 
+        # 只要摘要的读取按文件 stat 标识复用；需要字节快照或逐块旁路的调用方必须真读。
+        reusable = chunk_observer is None and not include_content_bytes
+        if reusable and (cached := cached_file_digest(opened_stat)) is not None:
+            return cached, None, None
+
         def _read(size: int) -> bytes:
             chunk = os.read(fd, size)
             if chunk_observer is not None and chunk:
@@ -828,6 +835,8 @@ class ProjectArtifactManifestAdapter:
                     f"artifact changed while its content digest was being read: {normalized}",
                 ),
             )
+        if reusable:
+            remember_file_digest(opened_stat, hexdigest)
         return hexdigest, content, None
 
     def _inspect_artifact_posix(
