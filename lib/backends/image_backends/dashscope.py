@@ -29,10 +29,13 @@ from lib.backends.image_backends.base import (
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     download_image_to_path,
+    per_image_usage,
 )
 from lib.backends.providers import PROVIDER_DASHSCOPE
 from lib.backends.transport_layer import TransportLayer
+from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -127,6 +130,13 @@ class DashScopeImageBackend:
     def max_reference_images(self) -> int:
         return _WAN_REF_LIMIT if self._is_wan else _QWEN_REF_LIMIT
 
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        """预估只报张数：百炼图片按张统一价，尺寸不影响费用。"""
+        refs = facts.reference_count
+        limit = _WAN_REF_LIMIT if facts.model.lower().startswith("wan") else _QWEN_REF_LIMIT
+        return per_image_usage(output_images=1, input_images=None if refs is None else min(refs, limit))
+
     @with_retry_async(retry_if=should_retry_submit)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         has_refs = bool(request.reference_images)
@@ -179,6 +189,11 @@ class DashScopeImageBackend:
             provider=PROVIDER_DASHSCOPE,
             model=self._model,
             image_uri=url,
+            usage=per_image_usage(
+                output_images=1,
+                input_images=sum(1 for part in content if "image" in part),
+                dimensions={"resolution": size},
+            ),
         )
 
     def _resolve_size(self, request: ImageGenerationRequest, has_refs: bool) -> str:

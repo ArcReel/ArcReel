@@ -23,10 +23,13 @@ from lib.backends.image_backends.base import (
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     download_image_to_path,
     image_to_base64_data_uri,
+    per_image_usage,
 )
 from lib.backends.providers import PROVIDER_AGNES
+from lib.billing.metering import Usage
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -106,6 +109,42 @@ class AgnesImageBackend:
         # Agnes 不按数量裁剪参考图，全量随请求发出。
         return 0
 
+    @staticmethod
+    def _uses_v25(model: str) -> bool:
+        return model.startswith("agnes-image-2.5")
+
+    @staticmethod
+    def _request_size(model: str, image_size: str | None, aspect_ratio: str) -> str:
+        """请求的 ``size`` 字段：2.5 发档位词，其余发按比例算出的宽高。"""
+        if AgnesImageBackend._uses_v25(model):
+            return (image_size or "1K").upper()
+        short = resolution_to_short_edge(
+            image_size or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT
+        )
+        width, height = aspect_size(aspect_ratio, short, round_to=_ROUND_TO, max_long_edge=_MAX_LONG_EDGE)
+        return f"{width}x{height}"
+
+    @staticmethod
+    def _billing_resolution(model: str, size: str) -> str:
+        """Agnes 按输出分辨率档计费：2.5 的 ``size`` 就是档位词；其余发的是宽高，按短边换算成档位。
+
+        宽高由档位短边推出（``IMAGE_TIER_SHORT_EDGE``），长边又收口在 2048 以内，所以短边不超过 1K 档短边的
+        记 1K，其余记 2K。
+        """
+        if AgnesImageBackend._uses_v25(model):
+            return size
+        width, height = (int(edge) for edge in size.split("x"))
+        return "1K" if min(width, height) <= IMAGE_TIER_SHORT_EDGE["1K"] else "2K"
+
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        size = AgnesImageBackend._request_size(facts.model, facts.image_size, facts.aspect_ratio)
+        return per_image_usage(
+            output_images=1,
+            input_images=facts.reference_count,
+            dimensions={"resolution": AgnesImageBackend._billing_resolution(facts.model, size)},
+        )
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
         # 重试范围（_submit / _download_result），避免下载失败回退到重跑生成 POST 造成重复计费。
@@ -116,12 +155,9 @@ class AgnesImageBackend:
             "prompt": request.prompt,
             "n": 1,
         }
-        if self._uses_v25_contract():
-            payload["size"] = (request.image_size or "1K").upper()
+        payload["size"] = self._request_size(self._model, request.image_size, request.aspect_ratio)
+        if self._uses_v25(self._model):
             payload["ratio"] = request.aspect_ratio
-        else:
-            width, height = self._resolve_dimensions(request)
-            payload["size"] = f"{width}x{height}"
         if request.reference_images:
             # I2I 参考图随同一请求体下发 data-URI 列表（image 字段）。读盘 + base64 编码
             # （可能数 MB）offload 到线程，避免阻塞事件循环。
@@ -136,10 +172,12 @@ class AgnesImageBackend:
             provider=PROVIDER_AGNES,
             model=self._model,
             image_uri=image_uri,
+            usage=per_image_usage(
+                output_images=1,
+                input_images=len(payload.get("image", [])),
+                dimensions={"resolution": self._billing_resolution(self._model, payload["size"])},
+            ),
         )
-
-    def _uses_v25_contract(self) -> bool:
-        return self._model.startswith("agnes-image-2.5")
 
     @with_retry_async(retry_if=should_retry_submit)
     async def _submit(self, payload: dict) -> dict:
@@ -165,17 +203,6 @@ class AgnesImageBackend:
                 provider=PROVIDER_AGNES,
             )
             return resp.json()
-
-    def _resolve_dimensions(self, request: ImageGenerationRequest) -> tuple[int, int]:
-        """按「比例优先、清晰度其次」算出 (宽, 高)。
-
-        比例永远来自 aspect_ratio；image_size（档位词 / 自定义 宽*高 / None）只决定清晰度短边，
-        自定义值剥离其自带比例（取 min）。结果被 8 整除、长边受 2048 收口。
-        """
-        short = resolution_to_short_edge(
-            request.image_size or None, tier_map=IMAGE_TIER_SHORT_EDGE, default_short=_DEFAULT_SHORT
-        )
-        return aspect_size(request.aspect_ratio, short, round_to=_ROUND_TO, max_long_edge=_MAX_LONG_EDGE)
 
     def _build_reference_images(self, request: ImageGenerationRequest) -> list[str]:
         """构建 I2I 参考图列表（data-URI base64）。

@@ -23,9 +23,12 @@ from lib.backends.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
+    per_image_usage,
 )
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.transport_layer import TransportLayer
+from lib.billing.metering import Usage
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_sync_transaction
@@ -115,6 +118,22 @@ class GeminiImageBackend:
     def max_reference_images(self) -> int:
         return _MAX_REFERENCE_IMAGES if self._image_model in _MODELS_WITH_14_REFERENCES else 0
 
+    @staticmethod
+    def _usage(image_size: str | None) -> Usage:
+        """上报输出张数，分辨率取请求里的 ``image_size``（没发就不报）。
+
+        参考图按输入 token 计费，不报张数，以免与输入 token 重叠；输入 token 与思考 token 目前不在价目表里，也不报。
+        """
+        return per_image_usage(
+            output_images=1,
+            input_images=None,
+            dimensions={"resolution": image_size} if image_size is not None else None,
+        )
+
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        return GeminiImageBackend._usage(facts.image_size)
+
     @with_retry_async(max_attempts=5, backoff_seconds=(2, 4, 8, 16, 32))
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """异步生成图片。"""
@@ -161,6 +180,7 @@ class GeminiImageBackend:
             image_path=request.output_path,
             provider=PROVIDER_GEMINI,
             model=self._image_model,
+            usage=self._usage(request.image_size),
         )
 
     @staticmethod

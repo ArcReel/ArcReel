@@ -21,6 +21,7 @@ aware(finished_at) 相减，duration_ms 按真实步进（单次 start→finish 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -38,7 +39,13 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
-from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
+from lib.backends.image_backends.base import (
+    ImageCapability,
+    ImageGenerationRequest,
+    ImageGenerationResult,
+    ImageRequestFacts,
+)
+from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import (
     TextCapability,
@@ -48,6 +55,7 @@ from lib.backends.text_backends.base import (
 )
 from lib.backends.text_generator import TextGenerator
 from lib.billing.ledger import Ledger
+from lib.billing.metering import Usage
 from lib.billing.multipliers import set_provider_multiplier
 from lib.config.resolver import ConfigResolver
 from lib.db.models.api_call import ApiCall
@@ -206,11 +214,13 @@ class _FakeImageBackend:
         model: str,
         result_fields: dict[str, Any] | None = None,
         error: BaseException | None = None,
+        usage_from_request: Callable[[ImageGenerationRequest], Usage] | None = None,
     ) -> None:
         self._provider = provider
         self._model = model
         self._result_fields = result_fields or {}
         self._error = error
+        self._usage_from_request = usage_from_request
 
     @property
     def name(self) -> str:
@@ -228,10 +238,12 @@ class _FakeImageBackend:
         if self._error is not None:
             raise self._error
         await write_backend_output(request.output_path, _PNG_BYTES)
+        usage = self._usage_from_request(request) if self._usage_from_request is not None else None
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=self._provider,
             model=self._model,
+            usage=usage,
             **self._result_fields,
         )
 
@@ -485,6 +497,69 @@ class TestImageChannel:
                 text_output_tokens=10_000,
             ),
         )
+
+    @pytest.mark.parametrize(("image_size", "expected_cost"), [("4K", 0.24), ("2K", 0.134), (None, 0.134)])
+    async def test_builtin_call_priced_by_resolution_sent_in_request(
+        self, tmp_path: Path, acct: _AccountingDb, image_size: str | None, expected_cost: float
+    ) -> None:
+        # 调用通道按请求里的 image_size 上报分辨率（与 GeminiImageBackend 同一函数），单价按它落档；
+        # 没发分辨率时按价目表的默认档（1K）计
+        gen = _media_generator(
+            tmp_path,
+            acct,
+            image_backend=_FakeImageBackend(
+                provider="gemini-aistudio",
+                model="gemini-3-pro-image",
+                usage_from_request=lambda request: GeminiImageBackend.estimate_usage(
+                    ImageRequestFacts(
+                        model="gemini-3-pro-image", aspect_ratio=request.aspect_ratio, image_size=request.image_size
+                    )
+                ),
+            ),
+        )
+
+        await gen.generate_image_async(
+            prompt="p", resource_type="characters", resource_id="婉儿", image_size=image_size
+        )
+
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="generation_task",
+                call_type="image",
+                model="gemini-3-pro-image",
+                provider="gemini-aistudio",
+                prompt="p",
+                resolution=image_size,
+                aspect_ratio="9:16",
+                output_path="characters/婉儿.png",
+                cost_amount=pytest.approx(expected_cost),
+            ),
+        )
+
+    async def test_builtin_openai_tokens_priced_from_catalog(self, tmp_path: Path, acct: _AccountingDb) -> None:
+        gen = _media_generator(
+            tmp_path,
+            acct,
+            image_backend=_FakeImageBackend(
+                provider="openai",
+                model="gpt-image-2",
+                usage_from_request=lambda _request: Usage(
+                    quantities={
+                        "uncached_input_tokens": 1_000,
+                        "uncached_image_input_tokens": 2_000,
+                        "image_output_tokens": 1_756,
+                    },
+                    dimensions={"resolution": "1024x1024", "quality": "medium"},
+                ),
+            ),
+        )
+
+        await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="婉儿", image_size="1K")
+
+        row = await acct.fetch_only_row()
+        assert row["cost_amount"] == pytest.approx((1_000 * 5 + 2_000 * 8 + 1_756 * 30) / 1_000_000)
+        assert row["unpriced_reason"] is None
 
     async def test_failure_flips_failed_with_truncated_error(self, tmp_path: Path, acct: _AccountingDb) -> None:
         gen = _media_generator(

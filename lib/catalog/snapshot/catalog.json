@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-15T12:00:00Z",
+  "dataset_version": "2026-10-15T14:00:00Z",
   "entries": [
     {
       "maker": "google",
@@ -2014,6 +2014,16 @@
               {
                 "when": {},
                 "price": 0.02
+              }
+            ]
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.002
               }
             ]
           }
@@ -5718,6 +5728,17 @@
             "defaults": {
               "resolution": "1K"
             }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.003
+              }
+            ],
+            "free_allowance": 3
           }
         ]
       }
@@ -5773,6 +5794,17 @@
             "defaults": {
               "resolution": "1K"
             }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.003
+              }
+            ],
+            "free_allowance": 3
           }
         ]
       }

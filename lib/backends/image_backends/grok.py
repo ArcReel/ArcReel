@@ -13,10 +13,13 @@ from lib.backends.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     download_image_to_path,
     image_to_base64_data_uri,
+    per_image_usage,
 )
 from lib.backends.providers import PROVIDER_GROK
+from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -88,6 +91,15 @@ class GrokImageBackend:
     def max_reference_images(self) -> int:
         return _MAX_REFERENCE_IMAGES
 
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        refs = facts.reference_count
+        return per_image_usage(
+            output_images=1,
+            input_images=None if refs is None else min(refs, _MAX_REFERENCE_IMAGES),
+            dimensions={"resolution": facts.image_size} if facts.image_size is not None else None,
+        )
+
     @with_retry_async(retry_if=grok_should_retry)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         """生成图片（T2I 或 I2I）。"""
@@ -100,6 +112,7 @@ class GrokImageBackend:
             generate_kwargs["resolution"] = request.image_size
 
         # I2I：将所有参考图转为 base64 data URI 列表
+        reference_count = 0
         if request.reference_images:
             refs = request.reference_images
             if len(refs) > _MAX_REFERENCE_IMAGES:
@@ -109,6 +122,7 @@ class GrokImageBackend:
             data_uris = await asyncio.to_thread(_encode_existing_refs, [ref.path for ref in refs])
             if data_uris:
                 generate_kwargs["image_urls"] = data_uris
+                reference_count = len(data_uris)
                 logger.info("Grok I2I 模式: %d 张参考图", len(data_uris))
 
         logger.info("Grok 图片生成开始: model=%s", self._model)
@@ -129,4 +143,9 @@ class GrokImageBackend:
             provider=PROVIDER_GROK,
             model=self._model,
             image_uri=response.url,
+            usage=per_image_usage(
+                output_images=1,
+                input_images=reference_count,
+                dimensions={"resolution": generate_kwargs["resolution"]} if "resolution" in generate_kwargs else None,
+            ),
         )

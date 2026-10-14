@@ -23,8 +23,10 @@ from lib.backends.image_backends.base import (
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     download_image_to_path,
     image_to_base64_data_uri,
+    per_image_usage,
 )
 from lib.backends.minimax_shared import (
     extract_image_base64,
@@ -37,6 +39,7 @@ from lib.backends.minimax_shared import (
 )
 from lib.backends.providers import PROVIDER_MINIMAX
 from lib.backends.transport_layer import TransportLayer
+from lib.billing.metering import Usage
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -102,6 +105,12 @@ class MiniMaxImageBackend:
     def max_reference_images(self) -> int:
         return _SUBJECT_REF_LIMIT
 
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        """预估只报张数：image-01 按张统一价，尺寸不影响费用。"""
+        refs = facts.reference_count
+        return per_image_usage(output_images=1, input_images=None if refs is None else min(refs, _SUBJECT_REF_LIMIT))
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
         # 重试范围（_submit / _download_result），避免下载失败回退到重跑生成 POST 造成重复计费。
@@ -133,6 +142,11 @@ class MiniMaxImageBackend:
             provider=PROVIDER_MINIMAX,
             model=self._model,
             image_uri=image_uri,
+            usage=per_image_usage(
+                output_images=1,
+                input_images=len(payload.get("subject_reference", [])),
+                dimensions={"resolution": f"{width}x{height}"},
+            ),
         )
 
     @with_retry_async(retry_if=should_retry_submit)

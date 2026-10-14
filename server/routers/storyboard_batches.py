@@ -40,6 +40,7 @@ from server.services.admission.storyboard_batch import (
     submit_storyboard_image_batch,
     submit_storyboard_video_batch,
 )
+from server.services.tasks.formal_image_commit import get_aspect_ratio
 
 router = APIRouter(prefix="/projects/{project_name}/episodes/{episode}")
 
@@ -98,6 +99,7 @@ async def preview_storyboard_batch(project_name: str, episode: int, user: Curren
     estimated = await estimate_image_batch_cost(
         loaded.project,
         [plan.lanes[unit_id] for unit_id in new_ids],
+        aspect_ratio=get_aspect_ratio(loaded.project, "storyboards"),
         resolver=ConfigResolver(async_session_factory),
         session_factory=async_session_factory,
     )

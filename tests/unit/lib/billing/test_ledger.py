@@ -26,6 +26,7 @@ from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import CallPurpose, CallStatus
 from lib.backends.text_backends.base import TextGenerationResult, merge_billed_usage
 from lib.billing.ledger import Ledger, _settlement_from_result
+from lib.billing.metering import Usage
 from lib.db.base import utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import UsageRepository
@@ -64,6 +65,7 @@ class _ImgResult:
     image_output_tokens: int | None = None
     text_input_tokens: int | None = None
     text_output_tokens: int | None = None
+    usage: Usage | None = None
 
 
 @dataclass

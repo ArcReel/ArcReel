@@ -203,6 +203,10 @@ class TestArkImageBackendGenerate:
         assert result.image_path == output
         assert output.exists()
         assert output.read_bytes() == base64.b64decode(FAKE_B64)
+        # 按生成张数上报，分辨率取请求里实际发的 size
+        assert result.usage is not None
+        assert result.usage.quantities == {"output_images": 1, "input_images": 0}
+        assert result.usage.dimensions == {"resolution": call_kwargs["size"]}
 
     async def test_t2i_with_seed(self, backend_and_client, tmp_path: Path):
         backend, client = backend_and_client

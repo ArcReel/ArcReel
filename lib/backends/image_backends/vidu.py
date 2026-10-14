@@ -25,7 +25,9 @@ from lib.backends.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     download_image_to_path,
+    per_image_usage,
 )
 from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.vidu_shared import (
@@ -39,6 +41,7 @@ from lib.backends.vidu_shared import (
     safe_body_for_log,
     vidu_failure_reason,
 )
+from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -94,6 +97,22 @@ class ViduImageBackend:
     def max_reference_images(self) -> int:
         return _MAX_REFERENCE_IMAGES
 
+    @staticmethod
+    def _sent_resolution(model: str, image_size: str | None) -> str | None:
+        """请求里会带的 ``resolution``：只发白名单里的值，其余不发、由 Vidu 取默认。"""
+        allowed = _RESOLUTION_WHITELIST.get(model)
+        return image_size if image_size and allowed and image_size in allowed else None
+
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        refs = facts.reference_count
+        resolution = ViduImageBackend._sent_resolution(facts.model, facts.image_size)
+        return per_image_usage(
+            output_images=1,
+            input_images=None if refs is None else min(refs, _MAX_REFERENCE_IMAGES),
+            dimensions={"resolution": resolution} if resolution is not None else None,
+        )
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         # viduq1 必须 1-7 张；viduq2 允许 0-7 张。这里截断到上限。
         refs = list(request.reference_images or [])
@@ -123,17 +142,16 @@ class ViduImageBackend:
                 )
 
         # resolution 白名单兜底
-        if request.image_size:
-            res_allowed = _RESOLUTION_WHITELIST.get(self._model)
-            if res_allowed and request.image_size in res_allowed:
-                body["resolution"] = request.image_size
-            elif res_allowed:
-                logger.warning(
-                    "Vidu image resolution %s 不在 model=%s 白名单 %s，使用默认",
-                    request.image_size,
-                    self._model,
-                    res_allowed,
-                )
+        resolution = self._sent_resolution(self._model, request.image_size)
+        if resolution is not None:
+            body["resolution"] = resolution
+        elif request.image_size and _RESOLUTION_WHITELIST.get(self._model):
+            logger.warning(
+                "Vidu image resolution %s 不在 model=%s 白名单 %s，使用默认",
+                request.image_size,
+                self._model,
+                _RESOLUTION_WHITELIST[self._model],
+            )
         if request.seed is not None:
             body["seed"] = request.seed
 
@@ -169,6 +187,11 @@ class ViduImageBackend:
             model=self._model,
             seed=request.seed,
             usage_tokens=int(actual_credits) if actual_credits is not None else None,
+            usage=per_image_usage(
+                output_images=1,
+                input_images=len(refs),
+                dimensions={"resolution": resolution} if resolution is not None else None,
+            ),
         )
 
     @with_retry_async(retryable_errors=VIDU_RETRYABLE_ERRORS)

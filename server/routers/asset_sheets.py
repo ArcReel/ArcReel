@@ -38,6 +38,7 @@ from server.services.admission.asset_sheet_batch import (
 )
 from server.services.admission.cost_estimation import estimate_image_batch_cost
 from server.services.currency.asset_regeneration_impact import asset_regeneration_impact
+from server.services.tasks.formal_image_commit import get_aspect_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +141,7 @@ async def preview_asset_sheet_batch(project_name: str, request: AssetSheetBatchR
     estimated = await estimate_image_batch_cost(
         project,
         ["i2i" if plan.units[unit_id].image_to_image else "t2i" for unit_id in new_ids],
+        aspect_ratio=get_aspect_ratio(project, "characters"),
         resolver=ConfigResolver(async_session_factory),
         session_factory=async_session_factory,
     )

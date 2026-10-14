@@ -37,8 +37,10 @@ from lib.backends.image_backends.base import (
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     ReferenceImage,
     download_image_to_path,
+    per_image_usage,
 )
 from lib.backends.kling_backend_base import KlingBackendBase
 from lib.backends.kling_shared import (
@@ -47,6 +49,7 @@ from lib.backends.kling_shared import (
 )
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.transport_layer import TransportLayer
+from lib.billing.metering import Usage
 
 logger = logging.getLogger(__name__)
 
@@ -173,6 +176,13 @@ class KlingImageBackend(KlingBackendBase):
 
     # ── generate ────────────────────────────────────────────────────────
 
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        """请求体不带分辨率（见模块说明），不报分辨率，按价目表的默认档计。"""
+        refs = facts.reference_count
+        limit = _MODEL_REF_LIMITS.get(facts.model, _DEFAULT_REF_LIMIT)
+        return per_image_usage(output_images=1, input_images=None if refs is None else min(refs, limit))
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         payload = self._build_payload(request)
         logger.info("调用 Kling 图像 API payload=%s", self._safe_log_view(payload))
@@ -197,4 +207,6 @@ class KlingImageBackend(KlingBackendBase):
             model=self._model,
             image_uri=download_url,
             seed=request.seed,
+            # 请求体不带分辨率，不报分辨率。
+            usage=per_image_usage(output_images=1, input_images=len(payload.get("image", []))),
         )

@@ -314,6 +314,14 @@ class TestOpenAIImageBackend:
         assert result.image_input_tokens == 0
         assert result.image_output_tokens == 2200  # 顶层 fallback
         assert result.text_output_tokens is None
+        # 用量契约：按 token 上报，选择维度取自请求里的 size 与 quality
+        assert result.usage is not None
+        assert result.usage.quantities == {
+            "uncached_input_tokens": 500,
+            "uncached_image_input_tokens": 0,
+            "image_output_tokens": 2200,
+        }
+        assert result.usage.dimensions == {"resolution": "1008x1792", "quality": "medium"}
 
     async def test_text_to_image_no_usage_returns_none(self, tmp_path: Path):
         """SDK 不返回 usage 时，4 个 token 字段全部为 None。"""
@@ -337,6 +345,9 @@ class TestOpenAIImageBackend:
         assert result.image_output_tokens is None
         assert result.text_input_tokens is None
         assert result.text_output_tokens is None
+        # 拿不到 usage：只报输出张数，不按尺寸与质量估 token 记账
+        assert result.usage is not None
+        assert result.usage.quantities == {"output_images": 1}
 
     async def test_partial_usage_no_input_details_falls_back(self, tmp_path: Path):
         """usage 顶层 input_tokens 存在但 input_tokens_details 缺失：4 字段全 None，让 cost 走静态 fallback。
@@ -544,3 +555,57 @@ class TestModeGating:
             assert excinfo.value.code == "image_endpoint_mismatch_no_i2i"
             assert excinfo.value.params.get("model") == "m"
             assert excinfo.value.params.get("detail") == "all reference images failed to open"
+
+
+class TestOutputTokenEstimate:
+    """gpt-image-2 输出 token 估算与官方计算器、官方单图价一致。"""
+
+    @pytest.mark.parametrize(
+        ("size", "quality", "tokens", "official_price"),
+        [
+            ("1024x1024", "low", 196, 0.006),
+            ("1024x1536", "low", 158, 0.005),
+            ("1024x1024", "medium", 1756, 0.053),
+            ("1536x1024", "medium", 1372, 0.041),
+            ("1024x1024", "high", 7024, 0.211),
+            ("1024x1536", "high", 5488, 0.165),
+        ],
+    )
+    def test_matches_official_table(self, size: str, quality: str, tokens: int, official_price: float) -> None:
+        from lib.backends.image_backends.openai import estimate_gpt_image_2_output_tokens
+
+        assert estimate_gpt_image_2_output_tokens(size, quality) == tokens
+        # 官方表按 $30 / 百万输出 token 折成单图价，保留三位小数
+        assert round(tokens * 30 / 1_000_000, 3) == official_price
+
+    def test_unknown_quality_or_size_has_no_estimate(self) -> None:
+        from lib.backends.image_backends.openai import estimate_gpt_image_2_output_tokens
+
+        assert estimate_gpt_image_2_output_tokens("1024x1024", "auto") is None
+        assert estimate_gpt_image_2_output_tokens("1K", "medium") is None
+
+    def test_estimate_usage_uses_request_size_and_quality(self) -> None:
+        from lib.backends.image_backends.base import ImageRequestFacts
+        from lib.backends.image_backends.openai import OpenAIImageBackend
+
+        usage = OpenAIImageBackend.estimate_usage(
+            ImageRequestFacts(model="gpt-image-2", aspect_ratio="9:16", image_size="1K", reference_count=0)
+        )
+        assert usage.dimensions == {"resolution": "1008x1792", "quality": "medium"}
+        assert usage.quantities["image_output_tokens"] == 1234
+        # 提示词文字 token 拿不到，记 0；文生图没有参考图，图片输入 token 记 0
+        assert usage.quantities["uncached_input_tokens"] == 0
+        assert usage.quantities["uncached_image_input_tokens"] == 0
+
+    def test_estimate_without_quality_or_with_references_leaves_tokens_unknown(self) -> None:
+        from lib.backends.image_backends.base import ImageRequestFacts
+        from lib.backends.image_backends.openai import OpenAIImageBackend
+
+        no_quality = OpenAIImageBackend.estimate_usage(
+            ImageRequestFacts(model="gpt-image-2", aspect_ratio="9:16", image_size=None)
+        )
+        assert "image_output_tokens" not in no_quality.quantities
+        with_refs = OpenAIImageBackend.estimate_usage(
+            ImageRequestFacts(model="gpt-image-2", aspect_ratio="9:16", image_size="1K", reference_count=None)
+        )
+        assert "uncached_image_input_tokens" not in with_refs.quantities

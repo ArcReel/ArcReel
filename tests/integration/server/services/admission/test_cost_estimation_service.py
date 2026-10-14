@@ -995,7 +995,7 @@ class TestCostEstimationService:
             "grid_storyboard": True,
             # 显式钉住按分辨率分档定价的型号：测试要验的是「计价档随解析结果走」，
             # 不该依赖全局默认图片模型恰好是分档定价的
-            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",
+            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 9)}
@@ -1020,9 +1020,8 @@ class TestCostEstimationService:
         )
 
     async def test_plain_storyboard_estimate_prices_at_resolved_resolution(self, db_factory, monkeypatch):
-        """普通（非宫格）分镜图同样按执行期生效的分辨率档计价，未配置时按保底档。"""
+        """普通（非宫格）分镜图同样按执行期生效的分辨率档计价；未配置时不下发分辨率，按价目表的默认档计。"""
         from server.services.admission import cost_estimation as ce
-        from server.services.admission.cost_estimation import _IMAGE_PRICING_FALLBACK_RESOLUTION
 
         seg_ids = [f"E1S{i:03d}" for i in range(1, 4)]
         project_data = {
@@ -1030,7 +1029,7 @@ class TestCostEstimationService:
             "content_mode": "narration",
             "generation_mode": "storyboard",
             # 按分辨率分档定价的型号，档位差异才可观测
-            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image-preview",
+            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
         scripts = {"ep1.json": _make_script(1, seg_ids, [6] * 3)}
@@ -1044,12 +1043,12 @@ class TestCostEstimationService:
             result = await service.compute(project_data, scripts, project_name="proj")
             return sum(seg["estimate"]["image"]["USD"] for seg in result["episodes"][0]["segments"])
 
-        total_fallback = await _estimated_image_total(_IMAGE_PRICING_FALLBACK_RESOLUTION)
-        assert total_fallback > 0
-        # 该型号 4K 单价高于保底档，估算须随之上浮而非恒按保底档
-        assert await _estimated_image_total("4K") > total_fallback
-        # 解析失败（未配置图像供应商）按保底档计价，不抛错
-        assert await _estimated_image_total(None) == pytest.approx(total_fallback)
+        total_1k = await _estimated_image_total("1K")
+        assert total_1k > 0
+        # 该型号 4K 单价高于 1K，估算须随之上浮
+        assert await _estimated_image_total("4K") > total_1k
+        # 未配置分辨率：执行时不下发，价目表默认档是 1K
+        assert await _estimated_image_total(None) == pytest.approx(total_1k)
 
     async def test_grid_estimate_duplicate_ids_across_groups_each_correct(self, db_factory):
         """同 ID 条目落在不同分组时各自展示本组的均摊估算，不被后写的分组覆盖。"""
@@ -1066,6 +1065,7 @@ class TestCostEstimationService:
             "content_mode": "narration",
             "generation_mode": "storyboard",
             "grid_storyboard": True,
+            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image",
             "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
         }
 
@@ -1248,6 +1248,7 @@ class TestCostEstimationService:
             "title": "Ad",
             "content_mode": "ad",
             "generation_mode": "storyboard",
+            "image_provider_t2i": "gemini-aistudio/gemini-3.1-flash-image",
             "video_provider_i2v": "gemini-aistudio/veo-3.1-generate-preview",
             "target_duration": 30,
             "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
@@ -2481,3 +2482,46 @@ class TestUnpricedCosts:
         )
 
         assert result["missing_local_calls"] is expected
+
+
+class TestImageBatchEstimate:
+    """整批图片预估与结算同一个目录查询与计算器：用量由调用通道按请求事实推出。"""
+
+    async def test_openai_output_tokens_estimated_from_size_and_quality(self, db_factory):
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "openai/gpt-image-2",
+            "model_settings": {"openai/gpt-image-2": {"resolution": "1K"}},
+        }
+
+        estimated = await estimate_image_batch_cost(
+            project, ["t2i", "t2i"], aspect_ratio="1:1", resolver=ConfigResolver(db_factory), session_factory=db_factory
+        )
+
+        # 1K → quality medium、1:1 → 1024x1024：官方计算器 1756 个输出 token × $30/百万；提示词文字 token 记 0
+        assert estimated == {"USD": pytest.approx(2 * 1756 * 30 / 1_000_000)}
+
+    async def test_unknown_reference_count_is_unpriced_when_references_are_billed(self, db_factory):
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "agnes/agnes-image-2.5-flash",
+            "image_provider_i2i": "agnes/agnes-image-2.5-flash",
+        }
+        resolver = ConfigResolver(db_factory)
+
+        assert await estimate_image_batch_cost(
+            project, ["t2i"], aspect_ratio="9:16", resolver=resolver, session_factory=db_factory
+        ) == {"USD": pytest.approx(0.01)}
+        # 图生图只知道走参考图、不知道几张；Agnes 第 4 张起按张加价，算不出
+        assert (
+            await estimate_image_batch_cost(
+                project, ["i2i"], aspect_ratio="9:16", resolver=resolver, session_factory=db_factory
+            )
+            is None
+        )

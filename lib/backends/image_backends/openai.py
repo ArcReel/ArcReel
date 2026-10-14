@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from pathlib import Path
 from typing import ClassVar, Literal
 
@@ -15,6 +16,8 @@ from lib.backends.image_backends.base import (
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
+    per_image_usage,
     save_image_from_response_item,
 )
 from lib.backends.openai_shared import (
@@ -26,6 +29,7 @@ from lib.backends.openai_shared import (
 )
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
+from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -82,6 +86,68 @@ def _resolve_openai_params(
     return params
 
 
+# gpt-image-2 输出 token 估算：官方「Calculating costs」计算器的公式，各质量档的基数取自同一处。
+# https://developers.openai.com/api/docs/guides/image-generation#calculating-costs
+_GPT_IMAGE_2_QUALITY_BASE = {"low": 16, "medium": 48, "high": 96}
+
+
+def _is_gpt_image_2(model: str) -> bool:
+    """``gpt-image-2`` 与它的日期快照（如 ``gpt-image-2-2026-04-21``），不含 2.5 等后续型号。"""
+    return model == "gpt-image-2" or model.startswith("gpt-image-2-")
+
+
+def estimate_gpt_image_2_output_tokens(size: str, quality: str) -> int | None:
+    """按尺寸与质量估 gpt-image-2 一张图的输出 token；质量不是 low / medium / high 或尺寸不是宽x高时返回 ``None``。
+
+    照搬官方计算器：短边方向的块数 = 质量基数 ÷ 宽高比（四舍五入，恰好 .5 取偶），块数 = 基数 × 短边块数，
+    token = ⌈块数 × (2,000,000 + 宽 × 高) ÷ 4,000,000⌉。
+    """
+    base = _GPT_IMAGE_2_QUALITY_BASE.get(quality)
+    width_text, sep, height_text = size.partition("x")
+    if base is None or not sep or not width_text.isdigit() or not height_text.isdigit():
+        return None
+    width, height = int(width_text), int(height_text)
+    if width <= 0 or height <= 0:
+        return None
+    scaled = base / (max(width, height) / min(width, height))
+    floor = math.floor(scaled)
+    short_blocks = floor + floor % 2 if scaled - floor == 0.5 else math.floor(scaled + 0.5)
+    return math.ceil(base * short_blocks * (2_000_000 + width * height) / 4_000_000)
+
+
+def _token_usage(
+    *,
+    text_input: int | None,
+    image_input: int | None,
+    image_output: int | None,
+    text_output: int | None,
+    dimensions: dict[str, object],
+) -> Usage:
+    """按 token 计价的用量：提示词文字、参考图（图片输入 token）与输出图片各一项，没有的项不报。
+
+    Images API 不走缓存（官方：缓存价只适用于 Responses API），不报缓存读。
+    """
+    quantities = {
+        meter: value
+        for meter, value in (
+            ("uncached_input_tokens", text_input),
+            ("uncached_image_input_tokens", image_input),
+            ("image_output_tokens", image_output),
+            ("output_tokens", text_output),
+        )
+        if value is not None
+    }
+    return Usage(quantities=quantities, dimensions=dimensions)
+
+
+def _dimensions(params: dict[str, str]) -> dict[str, object]:
+    """请求里的 ``size`` 与 ``quality`` 作为选择维度；没发 ``quality`` 时不报。"""
+    dims: dict[str, object] = {"resolution": params["size"]}
+    if "quality" in params:
+        dims["quality"] = params["quality"]
+    return dims
+
+
 class OpenAIImageBackend:
     """OpenAI 图片生成后端，按 mode 决定支持 T2I / I2I / 两者。"""
 
@@ -123,6 +189,32 @@ class OpenAIImageBackend:
     def max_reference_images(self) -> int:
         return _MAX_REFERENCE_IMAGES
 
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        """预估用量：输出 token 按官方计算器公式估（目前只有 gpt-image-2）。
+
+        提示词文字 token 记 0：费用页与整批预估拿不到提示词，这部分会偏低。文字输出与缓存在 Images API 上
+        不发生，记 0。参考图的图片输入 token 无法从请求事实估出：没有参考图时记 0，有参考图时不报。
+        """
+        params = _resolve_openai_params(facts.image_size, facts.aspect_ratio)
+        quality = params.get("quality")
+        output = (
+            estimate_gpt_image_2_output_tokens(params["size"], quality)
+            if quality is not None and _is_gpt_image_2(facts.model)
+            else None
+        )
+        usage = _token_usage(
+            text_input=0,
+            image_input=0 if facts.reference_count == 0 else None,
+            image_output=output,
+            text_output=0,
+            dimensions=_dimensions(params),
+        )
+        return Usage(
+            quantities={**usage.quantities, "cache_read_tokens": 0, "image_cache_read_tokens": 0},
+            dimensions=usage.dimensions,
+        )
+
     @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         has_refs = bool(request.reference_images)
@@ -138,10 +230,11 @@ class OpenAIImageBackend:
             "prompt": request.prompt,
             "n": 1,
         }
-        kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
+        params = _resolve_openai_params(request.image_size, request.aspect_ratio)
+        kwargs.update(params)
         logger.info("调用 %s 图片 SDK (T2I) kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         response = await self._client.images.generate(**kwargs)
-        return await self._save_and_return(response, request)
+        return await self._save_and_return(response, request, params)
 
     async def _generate_edit(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         refs = request.reference_images
@@ -176,16 +269,19 @@ class OpenAIImageBackend:
             "image": image_files,
             "prompt": request.prompt,
         }
-        edit_kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
+        params = _resolve_openai_params(request.image_size, request.aspect_ratio)
+        edit_kwargs.update(params)
         logger.info(
             "调用 %s 图片 SDK (I2I) kwargs=%s",
             self.name,
             format_kwargs_for_log({**edit_kwargs, "image": f"<{len(image_files)} files>"}),
         )
         response = await self._client.images.edit(**edit_kwargs)
-        return await self._save_and_return(response, request)
+        return await self._save_and_return(response, request, params)
 
-    async def _save_and_return(self, response, request: ImageGenerationRequest) -> ImageGenerationResult:
+    async def _save_and_return(
+        self, response, request: ImageGenerationRequest, params: dict[str, str]
+    ) -> ImageGenerationResult:
         data = getattr(response, "data", None) or []
         if not data:
             # 空 data 通常是内容安全过滤命中或上游网关异常，给出清晰错误便于排查
@@ -194,15 +290,15 @@ class OpenAIImageBackend:
             )
         await save_image_from_response_item(data[0], request.output_path)
         logger.info("OpenAI 图片生成完成: %s", request.output_path)
-        quality = _quality_for(request.image_size)
+        quality = params.get("quality")
 
         img_in = img_out = txt_in = txt_out = None
         usage = getattr(response, "usage", None)
         if usage is not None:
             try:
                 in_details = getattr(usage, "input_tokens_details", None)
-                # 必须拿到 input 拆分（image_tokens / text_tokens 至少一项有值），否则保留 None
-                # 让 cost_calculator 走静态 fallback，避免部分字段缺失场景下漏算 input 费用
+                # 必须拿到 input 拆分（image_tokens / text_tokens 至少一项有值），否则保留 None，
+                # 避免部分字段缺失场景下漏算 input 费用
                 in_image = getattr(in_details, "image_tokens", None) if in_details is not None else None
                 in_text = getattr(in_details, "text_tokens", None) if in_details is not None else None
                 if in_image is not None or in_text is not None:
@@ -215,17 +311,31 @@ class OpenAIImageBackend:
                     if img_out is None:
                         # 部分模型只在顶层暴露 output_tokens（GPT Image 输出基本为 image token）
                         img_out = getattr(usage, "output_tokens", None)
-                    # 输入拆分到手但输出完全拿不到 → 数据残缺，撤回让上层走静态 fallback
+                    # 输入拆分到手但输出完全拿不到 → 数据残缺，撤回，按拿不到 usage 处理
                     if img_out is None and txt_out is None:
                         img_in = txt_in = None
             except Exception:
                 logger.warning("OpenAI image usage 解析失败", exc_info=True)
                 img_in = img_out = txt_in = txt_out = None
 
+        # 有 usage 时按 token 上报（参考图已计入图片输入 token，不报张数）；拿不到 usage 时只报输出张数，
+        # 价目表按 token 计价，这笔会记为未定价，不按估算值记账。
+        usage = (
+            _token_usage(
+                text_input=txt_in,
+                image_input=img_in,
+                image_output=img_out,
+                text_output=txt_out,
+                dimensions=_dimensions(params),
+            )
+            if img_out is not None or txt_out is not None
+            else per_image_usage(output_images=len(data), input_images=None, dimensions=_dimensions(params))
+        )
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=PROVIDER_OPENAI,
             model=self._model,
+            usage=usage,
             quality=quality,
             image_input_tokens=img_in,
             image_output_tokens=img_out,

@@ -73,6 +73,25 @@ class TestWhitelistConfig:
         assert _PROMPT_MAX_LEN == 2000
 
 
+class TestEstimateUsage:
+    """预估的分辨率维度与请求同源：只报白名单里会真正下发的值。"""
+
+    def test_whitelisted_resolution_is_reported(self):
+        from lib.backends.image_backends.base import ImageRequestFacts
+
+        usage = ViduImageBackend.estimate_usage(
+            ImageRequestFacts(model="viduq2", aspect_ratio="9:16", image_size="2K", reference_count=3)
+        )
+        assert usage.dimensions == {"resolution": "2K"}
+        assert usage.quantities == {"output_images": 1, "input_images": 3}
+
+    def test_resolution_outside_whitelist_is_not_sent(self):
+        from lib.backends.image_backends.base import ImageRequestFacts
+
+        usage = ViduImageBackend.estimate_usage(ImageRequestFacts(model="viduq1", aspect_ratio="9:16", image_size="2K"))
+        assert usage.dimensions == {}
+
+
 class TestCapabilityMismatchRaises:
     async def test_q2_with_refs_path_does_not_raise_capability(
         self, tmp_path: Path, image_output_path: Path, monkeypatch

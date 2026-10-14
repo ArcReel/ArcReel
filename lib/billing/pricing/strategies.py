@@ -83,36 +83,14 @@ def _per_image_by_resolution(pricing: PerImageByResolution, params: PricingParam
 
 def _per_image_openai_token(pricing: PerImageOpenAIToken, params: PricingParams) -> tuple[float, str]:
     model = params.model or pricing.default_model
-    has_usage = any(
-        t is not None
-        for t in (
-            params.image_input_tokens,
-            params.image_output_tokens,
-            params.text_input_tokens,
-            params.text_output_tokens,
-        )
-    )
-    if has_usage:
-        rates = pricing.token_rates.get(model, pricing.token_rates[pricing.default_model])
-        amount = (
-            (params.image_input_tokens or 0) * rates["image_in"]
-            + (params.image_output_tokens or 0) * rates["image_out"]
-            + (params.text_input_tokens or 0) * rates["text_in"]
-            + (params.text_output_tokens or 0) * rates["text_out"]
-        ) / 1_000_000
-        return amount, pricing.currency
-
-    # 主路径按 token 计费已覆盖绝大多数；此处为 SDK 不返回 usage 的兜底。不再用静态
-    # (resolution, aspect_ratio) → size 表反查（已废弃），size 缺失即落默认档，接受兜底
-    # 丧失按尺寸区分成本——避免为兜底引入额外尺寸真相源（见 docs/adr/0011）。
-    quality = params.quality or "medium"
-    size = params.size or "1024x1024"
-    model_costs = pricing.fallback_rates.get(model, pricing.fallback_rates[pricing.default_model])
-    per_image = model_costs.get(
-        (quality, size),
-        model_costs.get((quality, "1024x1024"), model_costs.get(("medium", "1024x1024"), 0.034)),
-    )
-    return per_image * params.n, pricing.currency
+    rates = pricing.token_rates.get(model, pricing.token_rates[pricing.default_model])
+    amount = (
+        (params.image_input_tokens or 0) * rates["image_in"]
+        + (params.image_output_tokens or 0) * rates["image_out"]
+        + (params.text_input_tokens or 0) * rates["text_in"]
+        + (params.text_output_tokens or 0) * rates["text_out"]
+    ) / 1_000_000
+    return amount, pricing.currency
 
 
 def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple[float, str]:

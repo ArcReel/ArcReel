@@ -432,11 +432,13 @@ ArcReel can record costs by provider and media type, but keep in mind:
 - Some failed tasks may still incur charges;
 - The provider's final invoice is authoritative.
 
-Costs of text and voiceover calls are computed from each model's official prices:
+Costs of text, voiceover, and image calls on built-in providers are computed from each model's official prices:
 
 - Cache hits and cache writes are charged at their own prices, not as regular input;
 - For models priced by input length, the tier is chosen by the total input of the single request (including cache), and the whole request uses that tier's prices;
 - Voiceover models that officially count each Chinese character as 2 characters are counted the same way;
+- Images are priced by the resolution and quality actually sent to the provider; when the request carries no resolution, the provider's default tier applies;
+- For image models that officially charge for reference images (for example, beyond a number of free images), reference images are counted per image;
 - A call with no applicable price is recorded as "Unpriced" instead of being estimated with another model's or another tier's price.
 
 Each provider can have a multiplier that applies to the cost of all its calls, to reflect top-up discounts or relay price differences.

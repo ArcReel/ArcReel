@@ -79,6 +79,7 @@ def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: s
     """成功通道 union 分发：按 call_type 从 backend 结果对象提取计费维度。
 
     语义转写的唯一落点：
+    - image 的调用通道已按用量契约上报计量项与选择维度，原样转交；
     - text 的总输入与三项缓存 → 互不重叠的 token 计量项（未缓存输入 = 总输入 − 缓存读 − 两档缓存写），
       降级链上的多次请求各出一份，计费时逐次落上下文档；
     - audio 的原始文本 → 计量用的 ``text``（字符数由计算器按价目表统计），另把字符数记进 ``usage_tokens``；
@@ -96,6 +97,8 @@ def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: s
             image_output_tokens=result.image_output_tokens,
             text_input_tokens=result.text_input_tokens,
             text_output_tokens=result.text_output_tokens,
+            # 内置调用通道按用量契约上报；自定义供应商的调用通道不报，沿用旧计价。
+            usage=(result.usage,) if result.usage is not None else (),
         )
     if call_type == "audio":
         return SettlementInput(

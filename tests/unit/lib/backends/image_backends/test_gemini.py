@@ -140,6 +140,10 @@ class TestGenerate:
         assert result.image_path == output_file
         assert result.provider == "gemini"
         assert output_file.exists()
+        # 没发 image_size：只报输出张数，不报分辨率（按价目表默认档计）
+        assert result.usage is not None
+        assert result.usage.quantities == {"output_images": 1}
+        assert result.usage.dimensions == {}
 
     async def test_generate_with_reference_images(self, backend_aistudio, tmp_path):
         """参考图按顺序作为图片内容送入 SDK，prompt 置于末尾，中间不夹任何名称标签。"""

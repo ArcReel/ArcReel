@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
-from lib.backends.image_backends.base import ImageBackend, ImageCapability
+from lib.backends.image_backends.base import ImageBackend, ImageCapability, ImageUsageEstimator
 
 _BACKEND_FACTORIES: dict[str, Callable[..., ImageBackend]] = {}
 
@@ -33,3 +33,14 @@ def channel_capabilities(name: str) -> frozenset[ImageCapability]:
     if not isinstance(declared, frozenset):
         raise ValueError(f"image backend {name!r} does not declare CHANNEL_CAPABILITIES")
     return declared
+
+
+def channel_usage_estimator(name: str) -> ImageUsageEstimator:
+    """读某个内置调用通道的预估函数（类上的 ``estimate_usage``），不构造实例。"""
+    factory = _BACKEND_FACTORIES.get(name)
+    if factory is None:
+        raise ValueError(f"Unknown image backend: {name}")
+    estimator = getattr(factory, "estimate_usage", None)
+    if not callable(estimator):
+        raise ValueError(f"image backend {name!r} does not provide estimate_usage")
+    return cast(ImageUsageEstimator, estimator)
