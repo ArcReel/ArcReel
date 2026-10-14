@@ -1378,6 +1378,7 @@ export default {
   'endpoint_openai_chat_display': 'OpenAI Chat Completions',
   'endpoint_openai_responses_display': 'OpenAI Responses',
   'endpoint_gemini_generate_display': 'Google Gemini',
+  'endpoint_anthropic_messages_display': 'Anthropic Messages',
   'endpoint_openai_images_display': 'Ảnh OpenAI',
   'endpoint_openai_images_generations_display': 'Ảnh OpenAI (chỉ T2I)',
   'endpoint_openai_images_edits_display': 'Ảnh OpenAI (chỉ I2I)',

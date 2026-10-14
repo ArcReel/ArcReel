@@ -49,6 +49,8 @@ dependencies = [
     "arcreel-market-core",
     # 随包分发的 ffmpeg，经 lib/infra/ffmpeg.py 的查找器取用；不依赖系统 ffmpeg / ffprobe。
     "imageio-ffmpeg>=0.6.0",
+    # 1.x 改用 httpx2，respx 与基于 httpx 的自定义 transport 拦截不到；约束见 docs/agents/dependencies.md。
+    "anthropic>=0.125.0,<1",
 ]
 
 [dependency-groups]

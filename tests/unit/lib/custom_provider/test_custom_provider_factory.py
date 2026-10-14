@@ -23,6 +23,7 @@ from lib.custom_provider.factory import create_custom_backend
 
 # endpoints 模块里被 build_backend 闭包直接构造的全部后端类。
 _ENDPOINT_BACKEND_CLASSES = (
+    "AnthropicTextBackend",
     "ArkVideoBackend",
     "DashScopeImageBackend",
     "DashScopeVideoBackend",
@@ -302,6 +303,16 @@ class TestUrlNormalization:
         _result, built = _built(provider, "viduq3-turbo", "vidu-video")
         assert built["kwargs"]["base_url"] == "https://relay.example.com/ent/v2"
 
+    def test_anthropic_messages_strips_pasted_endpoint_suffix(self):
+        # SDK 自己拼 /v1/messages：用户整条复制的端点地址剥掉后缀，前缀原样保留、不补 /v1
+        provider = _make_provider(base_url="https://relay.example.com/anthropic/v1/messages")
+        result, built = _built(provider, "claude-x", "anthropic-messages")
+        assert isinstance(result, CustomTextBackend)
+        assert built == {
+            "backend": "AnthropicTextBackend",
+            "kwargs": {"api_key": "sk-test", "base_url": "https://relay.example.com/anthropic", "model": "claude-x"},
+        }
+
     def test_ark_empty_base_url_normalizes_to_none(self):
         """空 base_url → _ensure_url_path_suffix 归一化为 None 下传（不强行补挂载路径）。"""
         provider = _make_provider(base_url="")
@@ -318,7 +329,7 @@ class TestErrors:
     def test_unknown_endpoint(self):
         provider = _make_provider()
         with pytest.raises(ValueError, match="unknown endpoint"):
-            create_custom_backend(provider=provider, model_id="claude-4", endpoint="anthropic-messages")
+            create_custom_backend(provider=provider, model_id="claude-4", endpoint="acme-unknown")
 
     def test_v2_empty_base_url_raises(self):
         """v2-video-generations 强制要求 base_url（无默认 host），空值 fail-loud。"""

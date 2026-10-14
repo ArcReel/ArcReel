@@ -29,6 +29,7 @@ from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
+from lib.backends.text_backends.anthropic import AnthropicTextBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
@@ -37,7 +38,12 @@ from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classif
 from lib.backends.video_backends.kling import KlingVideoBackend
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend
-from lib.config.url_utils import ensure_google_base_url, ensure_openai_base_url
+from lib.config.url_utils import (
+    ANTHROPIC_MESSAGES_PATH,
+    ensure_google_base_url,
+    ensure_openai_base_url,
+    normalize_anthropic_base_url,
+)
 from lib.custom_provider import is_custom_endpoint
 from lib.custom_provider.backends import (
     CustomAudioBackend,
@@ -236,6 +242,13 @@ def _build_gemini_generate(provider, model_id: str) -> CustomTextBackend:
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_anthropic_messages(provider, model_id: str) -> CustomTextBackend:
+    # SDK 自己在 base_url 后拼 /v1/messages，这里只剥掉用户整条复制进来的端点后缀，不补也不剥 /vN
+    base_url = normalize_anthropic_base_url(provider.base_url or "") or None
+    delegate = AnthropicTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 def _build_openai_images(provider, model_id: str) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
@@ -390,6 +403,15 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1beta/models/{model}:generateContent",
         build_backend=_build_gemini_generate,
+    ),
+    "anthropic-messages": EndpointSpec(
+        key="anthropic-messages",
+        media_type="text",
+        family="anthropic",
+        display_name_key="endpoint_anthropic_messages_display",
+        request_method="POST",
+        request_path_template=ANTHROPIC_MESSAGES_PATH,
+        build_backend=_build_anthropic_messages,
     ),
     "openai-images": EndpointSpec(
         key="openai-images",

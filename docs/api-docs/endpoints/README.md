@@ -2,6 +2,7 @@
 
 文件名与 `lib.custom_provider.endpoints.ENDPOINT_REGISTRY` 的 endpoint id 一致。Endpoint 是协议端口，不是 provider 身份。
 
+- [anthropic-messages](anthropic-messages.md)
 - [ark-seedance](ark-seedance.md)
 - [dashscope-async-video](dashscope-async-video.md)
 - [dashscope-image](dashscope-image.md)

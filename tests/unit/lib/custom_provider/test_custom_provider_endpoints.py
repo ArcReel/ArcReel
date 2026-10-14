@@ -22,6 +22,7 @@ class TestRegistry:
             "openai-chat",
             "openai-responses",
             "gemini-generate",
+            "anthropic-messages",
             "openai-images",
             "openai-images-generations",
             "openai-images-edits",
@@ -53,6 +54,7 @@ class TestRegistry:
             assert spec.family in {
                 "openai",
                 "google",
+                "anthropic",
                 "newapi",
                 "v2",
                 "ark",
@@ -246,7 +248,7 @@ class TestRegistry:
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         audio_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "audio"}
         assert audio_keys == {"openai-tts"}
-        assert text_keys == {"openai-chat", "openai-responses", "gemini-generate"}
+        assert text_keys == {"openai-chat", "openai-responses", "gemini-generate", "anthropic-messages"}
         assert image_keys == {
             "openai-images",
             "openai-images-generations",
@@ -281,7 +283,7 @@ class TestHelpers:
 
     def test_get_endpoint_spec_unknown_raises(self):
         with pytest.raises(ValueError, match="unknown endpoint"):
-            get_endpoint_spec("anthropic-messages")
+            get_endpoint_spec("acme-unknown")
 
     def test_endpoint_to_media_type(self):
         assert endpoint_to_media_type("newapi-video") == "video"
@@ -293,7 +295,7 @@ class TestHelpers:
 
     def test_list_endpoints_by_media_type(self):
         text = list_endpoints_by_media_type("text")
-        assert {s.key for s in text} == {"openai-chat", "openai-responses", "gemini-generate"}
+        assert {s.key for s in text} == {"openai-chat", "openai-responses", "gemini-generate", "anthropic-messages"}
 
     @pytest.mark.parametrize(
         ("definition", "required"),

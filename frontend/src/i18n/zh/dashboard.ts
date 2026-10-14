@@ -1387,6 +1387,7 @@ export default {
   'endpoint_openai_chat_display': 'OpenAI 文本',
   'endpoint_openai_responses_display': 'OpenAI Responses 文本',
   'endpoint_gemini_generate_display': 'Gemini 文本',
+  'endpoint_anthropic_messages_display': 'Anthropic 文本',
   'endpoint_openai_images_display': 'OpenAI 图片',
   'endpoint_openai_images_generations_display': 'OpenAI 图片（仅文生图）',
   'endpoint_openai_images_edits_display': 'OpenAI 图片（仅图生图）',

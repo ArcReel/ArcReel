@@ -190,6 +190,7 @@ class TestEndpointCatalog:
             "openai-chat",
             "openai-responses",
             "gemini-generate",
+            "anthropic-messages",
             "openai-images",
             "openai-images-generations",
             "openai-images-edits",
@@ -988,7 +989,7 @@ class TestUnknownEndpointRejected:
                     {
                         "model_id": "m1",
                         "display_name": "M",
-                        "endpoint": "anthropic-messages",
+                        "endpoint": "acme-unknown",
                         "is_enabled": True,
                     },
                 ],
@@ -1447,7 +1448,7 @@ async def test_create_provider_with_unknown_endpoint_returns_422(custom_provider
             {
                 "model_id": "claude-4",
                 "display_name": "Claude 4",
-                "endpoint": "anthropic-messages",  # 非法
+                "endpoint": "acme-unknown",  # 非法
                 "is_default": False,
                 "is_enabled": True,
             }
@@ -1455,7 +1456,7 @@ async def test_create_provider_with_unknown_endpoint_returns_422(custom_provider
     }
     resp = custom_providers_client.post("/api/v1/custom-providers", json=payload)
     assert resp.status_code == 422
-    assert "unknown_endpoint" in resp.text or "anthropic-messages" in resp.text
+    assert "unknown_endpoint" in resp.text or "acme-unknown" in resp.text
 
 
 @pytest.mark.asyncio

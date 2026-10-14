@@ -99,7 +99,7 @@ function imageDefaultsCollide(a: ImageCap[], b: ImageCap[]): boolean {
 }
 
 /** 一行模型占用的「默认槽位」集合：非 image → media_type 自身；image → 各 capability
- *  前缀 `image:`。endpoint 不在 catalog（如 anthropic-messages）或 catalog 未加载 →
+ *  前缀 `image:`。endpoint 不在 catalog（如已下线的端点）或 catalog 未加载 →
  *  空集，该行不参与互斥（与后端 _check_unique_defaults 对未知 endpoint 跳过校验一致）。 */
 function defaultSlotsFor(
   endpoint: EndpointKey,

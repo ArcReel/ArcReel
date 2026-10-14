@@ -134,7 +134,7 @@ describe("toggleDefaultReducer", () => {
   it("falls back to single-row toggle when target endpoint is not in catalog", () => {
     const rows = [
       { key: "a", endpoint: "openai-chat", is_default: true },
-      { key: "b", endpoint: "anthropic-messages", is_default: false },
+      { key: "b", endpoint: "acme-unknown", is_default: false },
     ];
     const result = toggleDefaultReducer(rows, "b", ENDPOINT_TO_MEDIA);
     expect(result.find((r) => r.key === "a")?.is_default).toBe(true);
