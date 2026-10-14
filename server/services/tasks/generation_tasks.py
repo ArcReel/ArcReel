@@ -1408,12 +1408,12 @@ async def finalize_video_task(
                 asset_path=video_uri,
             )
 
-    await run_sync_transaction(_update_video_metadata)
+    await run_noninterruptible_sync(_update_video_metadata)
 
     video_file = project_path / f"videos/scene_{resource_id}.mp4"
     thumbnail_file = project_path / f"thumbnails/scene_{resource_id}.jpg"
     if await extract_video_thumbnail(video_file, thumbnail_file):
-        await run_sync_transaction(
+        await run_noninterruptible_sync(
             get_project_manager().update_scene_asset,
             project_name=project_name,
             script_filename=script_file,
@@ -1422,9 +1422,9 @@ async def finalize_video_task(
             asset_path=f"thumbnails/scene_{resource_id}.jpg",
         )
     else:
-        await run_sync_transaction(thumbnail_file.unlink, missing_ok=True)
+        await run_noninterruptible_sync(thumbnail_file.unlink, missing_ok=True)
 
-    created_at = await asyncio.to_thread(
+    created_at = await run_noninterruptible_sync(
         lambda: generator.versions.get_versions("videos", resource_id)["versions"][-1]["created_at"]
     )
 

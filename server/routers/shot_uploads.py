@@ -21,7 +21,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.api_errors import ApiError, NotFoundError
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.image_utils import normalize_storyboard_upload
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_change_hints import project_change_source
@@ -109,7 +109,7 @@ async def upload_shot_media(
                     await run_sync_transaction(_stage)
                 except BaseException:
                     for path in staged_images:
-                        await asyncio.to_thread(path.unlink, missing_ok=True)
+                        await run_noninterruptible_sync(path.unlink, missing_ok=True)
                     raise
                 version = await commit_manual_storyboard_upload(
                     project_name=project_name,

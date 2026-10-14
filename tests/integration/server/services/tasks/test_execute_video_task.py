@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import threading
 from collections.abc import Mapping
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -132,6 +133,45 @@ class TestGenerationTasks:
         )
 
         assert result["warnings"] == [warning]
+
+    async def test_finalize_video_completes_when_cancelled_during_script_write(self, monkeypatch, tmp_path):
+        """取消落在视频落账段的剧本回写上：写完照常走完收尾并交回结果，取消不再传给选中补偿。"""
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        writing = threading.Event()
+        release = threading.Event()
+        original_update = fake_pm.update_scene_asset
+
+        def _blocking_update(**kwargs):
+            if kwargs["asset_type"] == "video_clip":
+                writing.set()
+                release.wait(5)
+            return original_update(**kwargs)
+
+        monkeypatch.setattr(fake_pm, "update_scene_asset", _blocking_update)
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", AsyncMock(return_value=False))
+        task = asyncio.create_task(
+            generation_tasks.finalize_video_task(
+                project_name="demo",
+                script_file="episode_1.json",
+                project_path=project_path,
+                resource_id="E1S01",
+                version=2,
+                video_uri="uri",
+                generator=FakeGenerator(),
+            )
+        )
+        try:
+            assert await asyncio.to_thread(writing.wait, 5)
+            task.cancel()
+            await asyncio.sleep(0)
+        finally:
+            release.set()
+        result = await task
+
+        assert result["version"] == 2
+        assert [update["asset_type"] for update in fake_pm.updated_assets] == ["video_clip", "video_uri"]
 
     async def test_storyboard_worker_materializes_current_request_and_checkpoints_staged_frames(
         self,

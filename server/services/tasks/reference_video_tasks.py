@@ -35,7 +35,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsFailure,
 )
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.project_manager import get_project_manager
@@ -764,12 +764,12 @@ async def finalize_reference_video_unit(
     warnings = warnings if warnings is not None else []
 
     thumb_dir = project_path / "reference_videos" / "thumbnails"
-    await asyncio.to_thread(thumb_dir.mkdir, parents=True, exist_ok=True)
+    await run_noninterruptible_sync(thumb_dir.mkdir, parents=True, exist_ok=True)
     thumb_path = thumb_dir / f"{resource_id}.jpg"
     if await extract_video_thumbnail(output_path, thumb_path):
         thumb_rel: str | None = f"reference_videos/thumbnails/{resource_id}.jpg"
     else:
-        await run_sync_transaction(thumb_path.unlink, missing_ok=True)
+        await run_noninterruptible_sync(thumb_path.unlink, missing_ok=True)
         thumb_rel = None
 
     def _update_unit_assets() -> str | None:
@@ -778,7 +778,7 @@ async def finalize_reference_video_unit(
         with pm.locked_script(project_name, script_file, validate=False) as script:
             return apply_unit_video_assets(script, resource_id, video_uri=video_uri, thumb_rel=thumb_rel)
 
-    await run_sync_transaction(_update_unit_assets)
+    await run_noninterruptible_sync(_update_unit_assets)
 
     def _latest_created_at() -> str | None:
         # 与上面的档案补写读同一个 versions.json，同样在产物与剧本落盘之后：文件不可读时
@@ -793,7 +793,7 @@ async def finalize_reference_video_unit(
             return None
         return records[-1].get("created_at")
 
-    created_at = await asyncio.to_thread(_latest_created_at)
+    created_at = await run_noninterruptible_sync(_latest_created_at)
 
     return {
         "version": version,
