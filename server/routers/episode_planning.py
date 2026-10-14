@@ -28,6 +28,7 @@ from lib.episode.episode_replan import (
     render_replan_adoption_text,
 )
 from lib.infra.api_errors import ApiError, ConflictError, NotFoundError, UnprocessableError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import ProjectManager, get_project_manager
 from server.agent_toolset.envelope import json_value
@@ -221,7 +222,7 @@ async def _run_replan[T](name: str, user_id: str, _t: Translator, action: Callab
             return action(services.projects)
 
     try:
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except ReplanError as exc:
         raise _replan_http_error(exc.code, _t) from exc
     except (HTTPException, ApiError):

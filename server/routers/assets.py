@@ -887,7 +887,7 @@ async def apply_to_project(
             VersionManager(project_dir).commit_installed_versions(commits, on_commit=_register_imported_sheet_claims)
 
         try:
-            await asyncio.to_thread(
+            await run_sync_transaction(
                 project_manager.update_project_with_file_copies,
                 req.target_project,
                 _apply_all,

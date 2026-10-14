@@ -51,6 +51,7 @@ from lib.episode.source_file_changes import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.image_thumbnails import ensure_image_thumbnail, is_thumbnail_source, snap_thumbnail_width
 from lib.infra.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.infra.json_io import atomic_write_bytes
@@ -582,7 +583,7 @@ async def upload_file(
                 "url": f"/api/v1/files/{project_name}/{relative_path}",
             }
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
@@ -655,7 +656,7 @@ async def delete_character_reference_audio(project_name: str, name: str, _t: Tra
 
             return {"success": True}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
@@ -716,7 +717,7 @@ async def _handle_source_upload(
                 ),
                 _t,
             )
-            outcome = await asyncio.to_thread(_replace)
+            outcome = await run_sync_transaction(_replace)
         except SourceFileChangeError as exc:
             raise source_file_change_http_error(exc, _t) from exc
         payload = source_file_change_payload(outcome, project, _t)
@@ -769,7 +770,7 @@ async def _handle_source_upload(
             tmp_path.unlink(missing_ok=True)
 
     try:
-        outcome = await asyncio.to_thread(_sync)
+        outcome = await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         # 竞态窗口：get_project_path 通过后项目目录被并发删除，SourceLoader 写入时才炸。
         # 不映射会落到 app 级兜底的泛化 resource_not_found，丢失项目语义。
@@ -839,7 +840,7 @@ async def _handle_episode_source_upload(
             return add_own_source_episode(project_dir, project, extracted.text, undo=undo, source_kind=source_kind)
 
     try:
-        episode = await asyncio.to_thread(_sync)
+        episode = await run_sync_transaction(_sync)
     except UnsupportedFormatError as exc:
         raise HTTPException(status_code=400, detail=_t("source_unsupported_format", ext=exc.ext)) from exc
     except FileSizeExceededError as exc:
@@ -1030,7 +1031,7 @@ async def update_source_file(
                     register_whole_source_file(project, rel)
             return {"success": True, "path": f"source/{filename}"}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
 
     except SourceFileChangeError as exc:
         raise source_file_change_http_error(exc, _t) from exc
@@ -1091,7 +1092,7 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
                         raw_file.unlink()
             return {"success": True}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
 
     except SourceFileChangeError as exc:
         raise source_file_change_http_error(exc, _t) from exc
@@ -1254,7 +1255,7 @@ async def update_draft_content(
             except ScriptReviewError as exc:
                 raise_review_error(exc, episode, _t)
         else:
-            is_new = await asyncio.to_thread(
+            is_new = await run_sync_transaction(
                 _write_plain_draft, project_name, project_dir, episode, draft_path, content, _t
             )
 
@@ -1356,7 +1357,7 @@ async def delete_draft(project_name: str, episode: int, stage: str, _t: Translat
                 return {"success": True}
             raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc
@@ -1401,7 +1402,7 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
 
             return output_path, style_filename
 
-        output_path, style_filename = await asyncio.to_thread(_sync_prepare)
+        output_path, style_filename = await run_sync_transaction(_sync_prepare)
 
         # 调用 TextGenerator 分析风格（自动追踪用量）
         from lib.backends.providers import CallPurpose
@@ -1434,7 +1435,7 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
             with project_change_source("webui"):
                 get_project_manager().update_project(project_name, _mutate)
 
-        await asyncio.to_thread(_sync_save)
+        await run_sync_transaction(_sync_save)
 
         return {
             "success": True,

@@ -55,6 +55,7 @@ from lib.generation.generation_result import (
     select_generation_targets,
 )
 from lib.generation.video_request_facts import VideoRequestCostFacts, VideoRequestFacts, VideoRequestFactsFailure
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.schema_guards import is_int
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.prompts.prompt_builders import render_storyboard_image_prompt
@@ -386,7 +387,8 @@ async def load_storyboard_image_batch_plan(
         )
         return loaded, plan
 
-    loaded, plan = await asyncio.to_thread(_read)
+    # 读剧本可能顺带落盘迁移
+    loaded, plan = await run_sync_transaction(_read)
     generating = await _active_resource_ids(
         queue,
         project_name=project_name,
@@ -491,7 +493,8 @@ async def load_storyboard_video_batch_plan(
     ``video_request_facts`` 缺省时按项目当前配置求值；准入与报价读同一份。
     """
 
-    # 选目标与判跳过都要读产物清单（含等清单锁）、核对分镜图文件，只读，各自整段放进工作线程。
+    # 选目标与判跳过都要读产物清单（含等清单锁）、核对分镜图文件，各自整段放进工作线程。
+    # 选目标读剧本可能顺带落盘迁移，按写事务调用；判跳过只读。
     def _select() -> tuple[
         EpisodeStoryboardScript,
         str,
@@ -515,7 +518,7 @@ async def load_storyboard_video_batch_plan(
         pending = [item for item in clean if str(storyboard_item_id(item, id_field) or "") in target_ids]
         return loaded, id_field, screen_refused, resolver, states, selection, pending
 
-    loaded, id_field, screen_refused, resolver, states, selection, pending = await asyncio.to_thread(_select)
+    loaded, id_field, screen_refused, resolver, states, selection, pending = await run_sync_transaction(_select)
     generating = await _active_resource_ids(
         queue,
         project_name=project_name,

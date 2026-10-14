@@ -463,13 +463,18 @@ async def upload_grid_image(
     except ValueError as exc:
         raise BadRequestError("invalid_image_file") from exc
 
-    def _stage() -> tuple[Path, Path]:
-        target = GridManager(project_path).image_path(grid_id)
-        return target, stage_uploaded_bytes(png_bytes, target)
+    # 暂存文件一落盘就登记：暂存进行中被取消时返回值随之丢弃，finally 按登记回收。
+    staged_files: list[Path] = []
 
-    with project_change_source("webui"):
-        target, staged_file = await asyncio.to_thread(_stage)
+    def _stage() -> Path:
+        target = GridManager(project_path).image_path(grid_id)
+        staged_files.append(stage_uploaded_bytes(png_bytes, target))
+        return target
+
     try:
+        with project_change_source("webui"):
+            target = await run_sync_transaction(_stage)
+        staged_file = staged_files[0]
         async with grid_submission_section(project_name):
             # 入队与记录写入在同一临界区内完成。这里在持有临界区后重读并再次探测，
             # 防止早先的孤儿判定之后、提交之前插入一次重新生成。
@@ -534,7 +539,8 @@ async def upload_grid_image(
         with project_change_source("webui"):
             from server.services.tasks.generation_tasks import emit_generation_success_batch
 
-            fingerprints = await asyncio.to_thread(
+            # 读剧本可能顺带落盘迁移
+            fingerprints = await run_sync_transaction(
                 emit_generation_success_batch,
                 task_type="grid",
                 project_name=project_name,
@@ -542,7 +548,8 @@ async def upload_grid_image(
                 payload={"script_file": grid.script_file},
             )
     finally:
-        await asyncio.to_thread(staged_file.unlink, missing_ok=True)
+        for path in staged_files:
+            await asyncio.to_thread(path.unlink, missing_ok=True)
 
     return {
         "success": True,
