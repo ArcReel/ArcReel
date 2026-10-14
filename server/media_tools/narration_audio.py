@@ -32,6 +32,7 @@ from lib.generation.generation_result import (
     record_batch_outcomes,
     select_generation_targets,
 )
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.resource_paths import resource_relative_path
 from lib.script.script_editor import resolve_items
 from lib.script.script_models import get_generated_assets, resolve_content_mode
@@ -152,7 +153,7 @@ async def generate_narration_audio(
                 services.projects.load_project(scope.project_name),
             )
 
-        script, project = await asyncio.to_thread(load_inputs)
+        script, project = await run_sync_transaction(load_inputs)
         try:
             require_project_tts_generation(project)
         except NarrationConfigError as exc:

@@ -4,6 +4,7 @@
 import asyncio
 import json
 import tempfile
+import threading
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -845,6 +846,41 @@ class TestExecuteImageEditTask:
         assert result["resource_id"] == "Alice"
         assert result["version"] == 2
         assert result["file_path"] == "characters/Alice.png"
+
+    async def test_reference_snapshot_is_cleaned_when_cancelled_while_preparing(self, tmp_path, monkeypatch):
+        """取消落在线程里准备底图快照的那一程：快照建好后照样回收，不调供应商。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_generator = _FakeGenerator()
+        _patch_common(monkeypatch, fake_pm, fake_generator)
+        freezing = threading.Event()
+        release = threading.Event()
+        snapshots: list[Path] = []
+        original_freeze = image_edit_tasks.freeze_image_references
+
+        def _blocking_freeze(*args, **kwargs):
+            freezing.set()
+            release.wait(5)
+            frozen = original_freeze(*args, **kwargs)
+            snapshots.extend(Path(ref).parent for ref in frozen.reference_images or ())
+            return frozen
+
+        monkeypatch.setattr(image_edit_tasks, "freeze_image_references", _blocking_freeze)
+        task = asyncio.create_task(
+            execute_image_edit_task("demo", "Alice", {"resource_type": "character", "prompt": "把头发改成红色"})
+        )
+        try:
+            assert await asyncio.to_thread(freezing.wait, 5)
+            task.cancel()
+            await asyncio.sleep(0)
+        finally:
+            release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert snapshots
+        assert not any(path.exists() for path in snapshots)
+        assert fake_generator.image_calls == []
 
     async def test_storyboard_edit_reads_pointer_writes_canonical(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)

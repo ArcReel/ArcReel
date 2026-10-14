@@ -255,7 +255,7 @@ async def generate_grid(
                 services.projects.load_script(project_name, script_filename),
             )
 
-        project, script = await asyncio.to_thread(load_inputs)
+        project, script = await run_sync_transaction(load_inputs)
         # ``list_only`` 与生成同样先过闸门：未开宫格的项目靠预览拿到成功响应，调用方会误以为
         # 该工具适用于当前项目。
         try:

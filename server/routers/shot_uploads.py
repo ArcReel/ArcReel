@@ -21,6 +21,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.api_errors import ApiError, NotFoundError
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.image_utils import normalize_storyboard_upload
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_change_hints import project_change_source
@@ -84,7 +85,7 @@ async def upload_shot_media(
                 raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=shot_id)) from exc
             return project_path, VersionManager(project_path)
 
-        project_path, versions = await asyncio.to_thread(_validate_shot)
+        project_path, versions = await run_sync_transaction(_validate_shot)
         target = project_path / relative_path
 
         with project_change_source("webui"):
@@ -97,13 +98,25 @@ async def upload_shot_media(
                     png_bytes = await asyncio.to_thread(normalize_storyboard_upload, content)
                 except ValueError as exc:
                     raise HTTPException(status_code=400, detail=_t("invalid_image_file")) from exc
-                staged_image = await asyncio.to_thread(stage_uploaded_bytes, png_bytes, target)
+                # 暂存文件一落盘就登记：暂存进行中被取消时返回值随之丢弃，按登记回收；
+                # 暂存成功后由 commit_manual_storyboard_upload 的 finally 回收。
+                staged_images: list[Path] = []
+
+                def _stage() -> None:
+                    staged_images.append(stage_uploaded_bytes(png_bytes, target))
+
+                try:
+                    await run_sync_transaction(_stage)
+                except BaseException:
+                    for path in staged_images:
+                        await asyncio.to_thread(path.unlink, missing_ok=True)
+                    raise
                 version = await commit_manual_storyboard_upload(
                     project_name=project_name,
                     script_file=script_file,
                     shot_id=shot_id,
                     asset_path=relative_path,
-                    staged_image=staged_image,
+                    staged_image=staged_images[0],
                     current_image=target,
                     versions=versions,
                     original_filename=file.filename,
@@ -123,7 +136,7 @@ async def upload_shot_media(
 
             # emit 内部会读剧本解析 episode 并计算指纹，放线程池避免阻塞事件循环；
             # 返回的指纹直接复用进响应体，免二次计算
-            fingerprints = await asyncio.to_thread(
+            fingerprints = await run_sync_transaction(
                 emit_generation_success_batch,
                 task_type=kind,
                 project_name=project_name,

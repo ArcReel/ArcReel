@@ -139,7 +139,7 @@ async def generate_storyboards(
             return project_dir, resolver, plan
 
         # 读项目与剧本、建产物时效判定器、按文件内容判定时效都是同步文件读写与哈希
-        project_dir, resolver, plan = await asyncio.to_thread(plan_batch)
+        project_dir, resolver, plan = await run_sync_transaction(plan_batch)
         by_id = plan.states
         specs = plan.task_specs(source=caller.source)
 

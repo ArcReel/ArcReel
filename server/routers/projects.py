@@ -526,14 +526,26 @@ async def export_project_archive(
     except pyjwt.InvalidTokenError as exc:
         raise HTTPException(status_code=401, detail=_t("download_token_invalid")) from exc
 
+    # zip 一落盘就登记：打包进行中被取消时返回值随之丢弃，finally 按登记回收；
+    # 交给 FileResponse 之后由响应的后台任务回收。
+    archive_paths: list[Path] = []
+
+    def _export() -> tuple[Path, str]:
+        archive_path, download_name = archive_service.export_project(name, scope=scope)
+        archive_paths.append(archive_path)
+        return archive_path, download_name
+
+    handed_off = False
     try:
-        archive_path, download_name = await asyncio.to_thread(lambda: archive_service.export_project(name, scope=scope))
-        return FileResponse(
+        archive_path, download_name = await run_sync_transaction(_export)
+        response = FileResponse(
             archive_path,
             media_type="application/zip",
             filename=download_name,
             background=BackgroundTask(_cleanup_temp_file, str(archive_path)),
         )
+        handed_off = True
+        return response
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
@@ -541,6 +553,10 @@ async def export_project_archive(
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+    finally:
+        if not handed_off:
+            for path in archive_paths:
+                await run_noninterruptible_sync(_cleanup_temp_file, str(path))
 
 
 _NO_ACTIVITY = datetime.min.replace(tzinfo=UTC)
@@ -631,7 +647,7 @@ async def list_projects(summaries: WorkflowStateServiceDep, _t: Translator):
         projects.sort(key=lambda p: last_activity.get(p["name"], _NO_ACTIVITY), reverse=True)
         return {"projects": projects}
 
-    return await asyncio.to_thread(_sync)
+    return await run_sync_transaction(_sync)
 
 
 @router.post("/projects")
@@ -738,7 +754,7 @@ async def create_project(
                 )
             return {"success": True, "name": project_name, "project": project}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except ValueError as e:
         # 项目名 / duration / brief 等配置校验失败，str(e) 只进日志
         logger.warning("创建项目参数错误: name=%s (%s)", req.name or req.title, e)
@@ -935,7 +951,7 @@ async def get_project(
                 "asset_fingerprints": fingerprints,
             }
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
@@ -984,7 +1000,7 @@ async def reset_agent_profile(name: str, _t: Translator):
         return {"customized": False, "customized_files": []}
 
     try:
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except ApiError:
@@ -1143,7 +1159,7 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
                 project = manager.update_project_reconciling_episode_bindings(name, _mutate)
                 return {"success": True, "project": project}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
@@ -1161,7 +1177,7 @@ async def delete_project(name: str, _t: Translator):
         project_dir = await asyncio.to_thread(manager.get_project_path, name)
         # 先收尾记录再删目录：排队任务不会在删了一半的目录上开跑，执行中的任务照常跑完但放弃落盘。
         await retire_project(async_session_factory, project_dir.name)
-        await asyncio.to_thread(manager.delete_project_directory, name)
+        await run_sync_transaction(manager.delete_project_directory, name)
         return {"success": True, "message": _t("project_deleted", name=name)}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -1176,7 +1192,7 @@ async def delete_project(name: str, _t: Translator):
 async def get_script(name: str, script_file: str, _t: Translator):
     """获取剧本内容"""
     try:
-        script = await asyncio.to_thread(get_project_manager().load_script, name, script_file)
+        script = await run_sync_transaction(get_project_manager().load_script, name, script_file)
         return {"script": script, "revision": script_revision(script)}
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=script_file) from exc
@@ -1211,7 +1227,7 @@ async def edit_script_batch(
             raise NotFoundError("project_not_found", name=name) from exc
 
         with project_change_source("webui"):
-            result = await asyncio.to_thread(make_script_batch_editor(manager).execute, name, command)
+            result = await run_sync_transaction(make_script_batch_editor(manager).execute, name, command)
         return JSONResponse(status_code=script_batch_status(result), content=result.model_dump(mode="json"))
     except FileNotFoundError as exc:
         if manager is None or not await asyncio.to_thread(manager.project_exists, name):
@@ -1342,7 +1358,7 @@ async def insert_script_item(
             )
             return {"success": True, "item": inserted, "edit_result": result.model_dump(mode="json")}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
@@ -1366,7 +1382,7 @@ async def start_episode_blank_script(name: str, episode: int):
             return start_blank_script(get_project_manager(), name, episode)
 
     try:
-        script_file = await asyncio.to_thread(_sync)
+        script_file = await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except BlankScriptError as exc:
@@ -1408,7 +1424,7 @@ async def remove_script_item(
             require_script_edit_result(result, operation_not_found=True)
             return {"success": True, "edit_result": result.model_dump(mode="json")}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=script_file) from exc
     except ValueError as exc:
@@ -1459,7 +1475,7 @@ async def move_script_item(
             require_script_edit_result(result)
             return {"success": True, "edit_result": result.model_dump(mode="json")}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
@@ -1538,7 +1554,7 @@ async def update_scene(
             matched = next(scene for scene in saved["scenes"] if scene.get("scene_id") == scene_id)
             return {"success": True, "scene": matched, "edit_result": result.model_dump(mode="json")}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
@@ -1641,7 +1657,7 @@ async def update_shot(
             matched = next(shot for shot in saved["shots"] if shot.get("shot_id") == shot_id)
             return {"success": True, "shot": matched, "edit_result": result.model_dump(mode="json")}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
@@ -1750,7 +1766,7 @@ async def update_segment(
             matched = next(segment for segment in saved["segments"] if segment.get("segment_id") == segment_id)
             return {"success": True, "segment": matched, "edit_result": result.model_dump(mode="json")}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=req.script_file) from exc
     except ValueError as exc:
@@ -1822,7 +1838,7 @@ async def update_episode(name: str, episode: int, req: UpdateEpisodeRequest, _t:
             # 不再锁后二次 load_project：省一次读盘，且避免锁外读取被并发写者污染返回值。
             return {"success": True, "episode": {"episode": episode, "title": title}}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except (HTTPException, ApiError):
         # ApiError 与 HTTPException 并列：_sync 内部抛出的 NotFoundError 不是
         # HTTPException 子类，不并入这里会被下面的 except Exception 吞成 500
@@ -1860,7 +1876,7 @@ async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourc
         }
 
     try:
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except EpisodeSourceError as exc:
         raise episode_source_http_error(exc, _t, episode=episode) from exc
     except (HTTPException, ApiError):
@@ -1938,7 +1954,7 @@ async def set_project_source(
                 register_whole_source_file(project, f"source/{safe_filename}")
                 return safe_filename, len(text_content)
 
-        safe_filename, chars = await asyncio.to_thread(_sync_write)
+        safe_filename, chars = await run_sync_transaction(_sync_write)
 
         result: dict = {"success": True, "filename": safe_filename, "chars": chars}
 
@@ -2060,7 +2076,7 @@ async def update_overview(name: str, req: UpdateOverviewRequest, _t: Translator)
                 manager.update_project(name, _mutate)
             return {"success": True, "overview": captured["overview"]}
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):

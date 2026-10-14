@@ -24,6 +24,7 @@ from lib.artifacts.artifact_version_provenance import parse_image_version_basis
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.infra.api_errors import BadRequestError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.asset_derivatives import DerivativeSheetTarget, derivative_artifact_id, split_derivative_artifact_id
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
@@ -416,7 +417,7 @@ async def restore_resource_version(
                 "asset_fingerprints": asset_fingerprints,
             }
 
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
 
     except ValueError as e:
         # 非法项目名 / 越界 resource_id 等坏请求，str(e) 可能含路径只进日志

@@ -29,7 +29,7 @@ from lib.generation.generation_batch import (
 )
 from lib.generation.render_lane import RENDER_MEDIA_TYPE, RENDER_PROVIDER_ID, is_render_task_type
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES, emit_task_terminal_events
-from lib.infra.async_thread import run_noninterruptible_async
+from lib.infra.async_thread import run_noninterruptible_async, run_sync_transaction
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_guard import assert_project_migration_ok
@@ -222,7 +222,7 @@ async def reference_projection_for_queued_task(
         return None
     try:
         pm = get_project_manager()
-        script = await asyncio.to_thread(pm.load_script, project_name, str(script_file))
+        script = await run_sync_transaction(pm.load_script, project_name, str(script_file))
         project_path = await asyncio.to_thread(pm.get_project_path, project_name)
         unit = find_reference_unit(script, str(resource_id))
         if unit is None:

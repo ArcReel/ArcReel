@@ -1,11 +1,12 @@
 """分镜级分镜图/视频上传路由 + 参考单元视频上传端点测试。"""
 
 import asyncio
+import threading
 from io import BytesIO
 from pathlib import Path
 
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -292,6 +293,49 @@ class TestShotStoryboardUpload:
             )
             assert resp.status_code == 404
             assert resp.json()["detail"] == zh_errors.MESSAGES["project_not_found"].format(name="nope")
+
+    async def test_cancelled_while_staging_leaves_no_staged_file(self, tmp_path, monkeypatch):
+        """暂存写盘进行中被取消：等线程写完再传播取消，调用方按登记回收暂存文件。"""
+        pm = _seed_shot_project(tmp_path)
+        monkeypatch.setattr(shot_uploads, "get_project_manager", lambda: pm)
+        storyboards_dir = pm.get_project_path("demo") / "storyboards"
+        storyboards_dir.mkdir(parents=True, exist_ok=True)
+        started = threading.Event()
+        release = threading.Event()
+        staged = threading.Event()
+        original_stage = shot_uploads.stage_uploaded_bytes
+
+        def _stage(*args, **kwargs):
+            started.set()
+            release.wait(5)
+            try:
+                return original_stage(*args, **kwargs)
+            finally:
+                staged.set()
+
+        monkeypatch.setattr(shot_uploads, "stage_uploaded_bytes", _stage)
+        content = _img_bytes("PNG")
+        task = asyncio.create_task(
+            shot_uploads.upload_shot_media(
+                project_name="demo",
+                shot_id="E1S01",
+                kind="storyboard",
+                script_file="episode_1.json",
+                _t=lambda key, **_kwargs: key,
+                file=UploadFile(file=BytesIO(content), filename="board.png", size=len(content)),
+            )
+        )
+        try:
+            assert await asyncio.to_thread(started.wait, 5)
+            task.cancel()
+            await asyncio.sleep(0)
+        finally:
+            release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert await asyncio.to_thread(staged.wait, 5)
+
+        assert list(storyboards_dir.iterdir()) == []
 
 
 class TestShotVideoUpload:

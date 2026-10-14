@@ -122,6 +122,7 @@ from lib.generation.generation_result import (
 )
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
 from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
 from lib.infra.data_root_layout import DataRootLayout
@@ -1859,7 +1860,7 @@ async def _run_source_file_change(
     """跑一个整本源文文件改动命令（``command(dry_run)``）。带着确认过的 ``revision`` 执行前，要移除或退下的集
     还有排队或执行中的任务时不写入。"""
     if revision is not None:
-        preview = await asyncio.to_thread(command, True)
+        preview = await run_sync_transaction(command, True)
         if preview.revision == revision:
             for episode in (*preview.impact.retired, *preview.impact.removed):
                 if await episode_has_active_tasks(services.queue, scope.project_name, episode):

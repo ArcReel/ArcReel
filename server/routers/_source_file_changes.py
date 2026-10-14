@@ -4,7 +4,6 @@
 同一结果给出同一种响应形态。
 """
 
-import asyncio
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -15,6 +14,7 @@ from lib.episode.source_file_changes import (
     SourceFileChangeOutcome,
     render_source_file_impact_text,
 )
+from lib.infra.async_thread import run_sync_transaction
 from server.i18n import Translator
 from server.routers.episode_management import episode_has_active_tasks
 
@@ -56,7 +56,7 @@ async def ensure_no_displaced_tasks(
     """
     if revision is None:
         return
-    outcome = await asyncio.to_thread(preview)
+    outcome = await run_sync_transaction(preview)
     if outcome.revision != revision:
         return
     for episode in (*outcome.impact.retired, *outcome.impact.removed):

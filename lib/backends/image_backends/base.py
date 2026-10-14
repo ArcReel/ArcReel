@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -14,6 +13,7 @@ from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, Provide
 from lib.backends.artifact_download_guard import IMAGE_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.backend_runtime import stream_to_file
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
+from lib.infra.async_thread import run_sync_transaction
 
 
 def image_to_base64_data_uri(image_path: Path) -> str:
@@ -41,7 +41,7 @@ async def save_image_from_response_item(item, output_path: Path) -> None:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_bytes(image_bytes)
 
-        await asyncio.to_thread(_decode_and_save)
+        await run_sync_transaction(_decode_and_save)
         return
     url = getattr(item, "url", None)
     if url:

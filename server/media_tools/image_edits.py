@@ -34,6 +34,7 @@ from lib.generation.generation_result import (
     GenerationTargetState,
     record_batch_outcomes,
 )
+from lib.infra.async_thread import run_sync_transaction
 from server.media_tools.context import (
     GenerationToolValue,
     ScriptFilename,
@@ -243,7 +244,7 @@ async def edit_images(
             return script, project, project_path, artifact_episode, resolver
 
         # 读剧本与项目、建产物时效判定器都是同步文件读写
-        script, project, project_path, artifact_episode, resolver = await asyncio.to_thread(load_inputs)
+        script, project, project_path, artifact_episode, resolver = await run_sync_transaction(load_inputs)
 
         warnings: list[str] = []
         builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)

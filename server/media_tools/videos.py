@@ -46,6 +46,7 @@ from lib.generation.generation_result import (
     select_generation_targets,
 )
 from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import ProjectManager, is_reference_video_project
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.script_models import get_generated_assets, resolve_content_mode
@@ -822,7 +823,7 @@ async def _run_reference_units(
             call.projects.load_script(call.project_name, script_filename),
         )
 
-    project, script = await asyncio.to_thread(load_inputs)
+    project, script = await run_sync_transaction(load_inputs)
     episode = _reference_episode(project, script, script_filename)
 
     selected, unmatched, duplicated = _select_reference_units(script, unit_ids)
@@ -1364,7 +1365,7 @@ async def generate_videos(
     target = args.target
     log: list[str] = []
     try:
-        context = await asyncio.to_thread(_video_request_context, call, args)
+        context = await run_sync_transaction(_video_request_context, call, args)
         if isinstance(target, EpisodeTarget):
             await asyncio.to_thread(_check_target_episode, call, context, target.episode_id)
             return await _generate_episode(call, context, log)

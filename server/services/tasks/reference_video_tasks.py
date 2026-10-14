@@ -329,7 +329,7 @@ async def execute_reference_video_task(
         resolved_assets,
         asset_availability,
         hydration,
-    ) = await asyncio.to_thread(_load)
+    ) = await run_sync_transaction(_load)
 
     # 2. 单次解析生成上下文（声明 video lane）：构造 generator 并按实际 backend 身份
     #    查能力上限与 resolution。provider 身份解析收口于 GenerationContext
@@ -778,7 +778,7 @@ async def finalize_reference_video_unit(
         with pm.locked_script(project_name, script_file, validate=False) as script:
             return apply_unit_video_assets(script, resource_id, video_uri=video_uri, thumb_rel=thumb_rel)
 
-    await asyncio.to_thread(_update_unit_assets)
+    await run_sync_transaction(_update_unit_assets)
 
     def _latest_created_at() -> str | None:
         # 与上面的档案补写读同一个 versions.json，同样在产物与剧本落盘之后：文件不可读时

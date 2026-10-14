@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -21,6 +20,7 @@ from pathlib import Path
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.render_plan import PlannedClip, RenderPlan, RenderSegment
 from lib.final_cut.subtitles import BurnedSubtitle, ass_document
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.ffmpeg import local_file_input
 from lib.infra.media_probe import MediaProbeError, probe_media
 from lib.infra.subprocess_deadline import (
@@ -342,7 +342,7 @@ async def render_plan_to_file(
     fps = plan.profile.fps
     burn = subtitles is not None
     if subtitles is not None:
-        await asyncio.to_thread(_stage_subtitles, workspace, ass_document(subtitles, plan.profile))
+        await run_sync_transaction(_stage_subtitles, workspace, ass_document(subtitles, plan.profile))
     segment_files: list[Path] = []
     for index, segment in enumerate(plan.segments):
         segment_file = workspace / f"segment_{index:04d}.mp4"
@@ -364,7 +364,7 @@ async def render_plan_to_file(
         output=audio_file,
     )
     concat_list = workspace / "segments.txt"
-    await asyncio.to_thread(
+    await run_sync_transaction(
         concat_list.write_text, "".join(f"file '{path.name}'\n" for path in segment_files), encoding="utf-8"
     )
     await _run(

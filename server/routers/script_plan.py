@@ -5,13 +5,13 @@
 任务进度经任务事件呈现；产出的脚本规划进入内容确认。附加指令按集保存，重新生成时预填。
 """
 
-import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.infra.api_errors import ConflictError, UnprocessableError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import get_project_manager
 from server.agent_toolset.envelope import json_value
 from server.auth import CurrentUser
@@ -52,7 +52,7 @@ def _raise_problem(problem: ToolProblem, episode: int, _t: Translator) -> None:
 
 
 async def _save(project_name: str, episode: int, instructions: str | None) -> None:
-    await asyncio.to_thread(
+    await run_sync_transaction(
         save_episode_instructions,
         get_project_manager(),
         project_name,

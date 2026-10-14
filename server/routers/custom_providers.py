@@ -48,6 +48,7 @@ from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.infra.api_errors import BadRequestError
+from lib.infra.async_thread import run_sync_transaction
 from server.i18n import Translator
 
 
@@ -998,7 +999,7 @@ async def delete_provider(
     await session.commit()
     await _invalidate_caches(request)
     # 清理引用该 provider 的项目级配置（同步文件 I/O，放到线程池避免阻塞事件循环）
-    await asyncio.to_thread(_cleanup_project_refs, prefix, _PROJECT_BACKEND_KEYS)
+    await run_sync_transaction(_cleanup_project_refs, prefix, _PROJECT_BACKEND_KEYS)
 
 
 # ---------------------------------------------------------------------------

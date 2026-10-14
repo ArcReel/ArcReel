@@ -31,6 +31,7 @@ from lib.bgm.library import (
     read_bgm_library,
 )
 from lib.bgm.loudness import LoudnessMeasurementError, measure_integrated_loudness
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.content_digest import sha256_file
 from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable
 from lib.infra.media_probe import MediaProbeError, probe_media
@@ -108,7 +109,7 @@ class BgmLibraryService:
         staged = bgm_dir / f".{bgm_id}.{secrets.token_hex(4)}.upload{extension}"
         await asyncio.to_thread(bgm_dir.mkdir, exist_ok=True)
         try:
-            await asyncio.to_thread(staged.write_bytes, content)
+            await run_sync_transaction(staged.write_bytes, content)
             duration_us = await self._duration_us(staged)
             integrated = await self._loudness(ffmpeg, staged, duration_us)
             track = BgmTrack(
@@ -121,7 +122,7 @@ class BgmLibraryService:
                 content_digest=await asyncio.to_thread(sha256_file, staged),
                 uploaded_at=_utc_now(),
             )
-            await asyncio.to_thread(self._commit, project_name, project_dir, staged, track)
+            await run_sync_transaction(self._commit, project_name, project_dir, staged, track)
         finally:
             await asyncio.to_thread(staged.unlink, missing_ok=True)
         return track

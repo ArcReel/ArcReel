@@ -34,6 +34,7 @@ from lib.custom_provider.declarative_backend import (
     extract_text,
     response_extract_guard,
 )
+from lib.infra.async_thread import run_sync_transaction
 
 _HTTP_TIMEOUT_SECONDS = 60
 
@@ -245,7 +246,7 @@ async def _write_inline_image(state: ImageJobState, output_path: Path) -> None:
 
     try:
         # 解码大图是 CPU 密集操作，放到线程里免得卡住事件循环。
-        await asyncio.to_thread(decode_and_save)
+        await run_sync_transaction(decode_and_save)
     except ValueError as exc:
         raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
     except OSError as exc:

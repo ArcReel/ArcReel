@@ -484,7 +484,7 @@ async def execute_storyboard_task(
             generation_input=_generation_input,
         )
 
-    inputs = await asyncio.to_thread(_load)
+    inputs = await run_sync_transaction(_load)
     project, project_path = inputs.project, inputs.project_path
     # 参考图先于提示词定型：backend 的参考图上限决定实际发出几张，编号只能按裁剪后的序列渲染，
     # 故 image lane 在此解析一次并沿用到提交，避免重解析落到上限不同的 backend。
@@ -645,7 +645,7 @@ async def execute_tts_task(
         episode,
         reference_video_route,
         formal_input_claims,
-    ) = await asyncio.to_thread(_prepare)
+    ) = await run_sync_transaction(_prepare)
 
     # 旁白配音只按项目的 TTS 快照合成：项目改为后期配音或快照不完整时拒绝执行。
     settings = require_project_tts_generation(project)
@@ -1043,7 +1043,7 @@ async def execute_video_task(
             _script_input,
         )
 
-    project, project_path, item, content_mode, script_kind, _script, script_input = await asyncio.to_thread(_load)
+    project, project_path, item, content_mode, script_kind, _script, script_input = await run_sync_transaction(_load)
     # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
     # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
@@ -1408,12 +1408,12 @@ async def finalize_video_task(
                 asset_path=video_uri,
             )
 
-    await asyncio.to_thread(_update_video_metadata)
+    await run_sync_transaction(_update_video_metadata)
 
     video_file = project_path / f"videos/scene_{resource_id}.mp4"
     thumbnail_file = project_path / f"thumbnails/scene_{resource_id}.jpg"
     if await extract_video_thumbnail(video_file, thumbnail_file):
-        await asyncio.to_thread(
+        await run_sync_transaction(
             get_project_manager().update_scene_asset,
             project_name=project_name,
             script_filename=script_file,
@@ -1636,7 +1636,7 @@ async def execute_grid_task(
             raise ValueError(f"grid {resource_id} is completed but its composite is not usable")
         logger.info("宫格已完成，跳过重复入队的生成任务: grid_id=%s task_id=%s", resource_id, task_id)
         return {"file_path": grid_path, "resource_type": "grids", "resource_id": resource_id}
-    script = await asyncio.to_thread(get_project_manager().load_script, project_name, grid.script_file)
+    script = await run_sync_transaction(get_project_manager().load_script, project_name, grid.script_file)
     script_input = await asyncio.to_thread(
         resolve_usable_episode_script_input,
         project_path=project_path,
