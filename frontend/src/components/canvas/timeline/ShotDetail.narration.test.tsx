@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
+import { API } from "@/api";
 import type { NarrationSegment } from "@/types";
 import { makeNarrationSegment } from "@/test/factories";
 
@@ -70,6 +71,24 @@ describe("ShotDetail 旁白片段的台词", () => {
 
     expect(screen.getByText("你终于回来了。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "清除台词" })).toBeInTheDocument();
+  });
+
+  it("视频提示词切到文本形态后，台词随渲染文本保留，不提示已清除", async () => {
+    const rendered = "Action: 撑伞走过\nDialogue:\n- Speaker: 阿离\n  Line: 你终于回来了。";
+    vi.spyOn(API, "previewScriptItemPrompts").mockResolvedValue({
+      item_id: "E1S01",
+      content_mode: "narration",
+      storyboard_image: { text: "雨夜街道", unavailable: null, is_text_form: true, warnings: [] },
+      video: { text: rendered, unavailable: null, is_text_form: false, warnings: [] },
+    });
+    render(detailElement(legacyDialogueSegment([{ speaker: "阿离", line: "你终于回来了。" }]), { onUpdatePrompt: vi.fn() }));
+
+    const videoToText = screen.getAllByRole("button", { name: "文本" }).at(-1)!;
+    fireEvent.click(videoToText);
+
+    expect(await screen.findByDisplayValue(/Line: 你终于回来了。/)).toBeInTheDocument();
+    expect(screen.queryByText("台词已清除，保存后生效")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "清除台词" })).not.toBeInTheDocument();
   });
 
   it("只读模式（缺 onUpdatePrompt）：台词可读，不提供清除", () => {

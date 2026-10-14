@@ -17,6 +17,7 @@ import { VideoPromptEditor } from "./VideoPromptEditor";
 import { DialogueListEditor } from "./DialogueListEditor";
 import { UtteranceListEditor } from "./UtteranceListEditor";
 import { SourceTextReadonly } from "@/components/shared/SourceTextReadonly";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { ShotDetailLayout, ShotGroup, ShotMediaGrid, ShotSection, ShotSourceCollapsible } from "./ShotDetailLayout";
 import { ShotDetailHeader } from "./ShotDetailHeader";
 import { Badge } from "@/components/ui/badge";
@@ -840,12 +841,13 @@ export function ShotDetail({
   );
 
   // 台词：ad 编辑扁平 video_prompt.dialogue；drama 编辑分镜级 utterances（台词 + 画外音）。
-  // narration 不再提供台词编辑（旁白正文即画外音，再写台词会被判为混合发声）；存量台词只读列出，可清除。
+  // narration 不提供台词编辑（旁白正文即画外音，与台词并存会被判为混合发声）：已有台词只读列出，可清除。
+  // 草稿是文本形态时台词留在渲染文本里，不算清除。
   const savedLegacyDialogue = isNarration && isStructuredVideoPrompt(unit.savedValue.video_prompt)
     ? unit.savedValue.video_prompt.dialogue ?? []
     : [];
   const legacyDialogue = isNarration ? vidValue?.dialogue ?? [] : [];
-  const legacyDialogueCleared = savedLegacyDialogue.length > 0 && legacyDialogue.length === 0;
+  const legacyDialogueCleared = vidValue !== null && savedLegacyDialogue.length > 0 && legacyDialogue.length === 0;
   const speechGroup = (
     <ShotGroup>
       {isDrama ? (
@@ -863,7 +865,7 @@ export function ShotDetail({
             title={t("detail_section_dialogue")}
             actions={
               legacyDialogue.length > 0 && !readOnly ? (
-                <Button variant="ghost" size="xs" disabled={saving} onClick={() => handleDialogueChange([])}>
+                <Button variant="outline" size="xs" disabled={saving} onClick={() => handleDialogueChange([])}>
                   {t("detail_legacy_dialogue_clear")}
                 </Button>
               ) : undefined
@@ -875,8 +877,8 @@ export function ShotDetail({
                 <ul className="flex flex-col gap-1.5">
                   {legacyDialogue.map((d, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm">
-                      <span className="w-20 shrink-0 truncate text-muted-foreground">{d.speaker}</span>
-                      <span className="min-w-0 flex-1 whitespace-pre-wrap">{d.line}</span>
+                      <TruncatedText text={d.speaker} className="w-20 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1 wrap-break-word whitespace-pre-wrap">{d.line}</span>
                     </li>
                   ))}
                 </ul>
