@@ -403,7 +403,7 @@ class TestInstructorFallback:
         fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
         assert fallback_kwargs["model"] == "gpt-5.4-mini"
         assert fallback_kwargs["messages"] == [{"role": "user", "content": "Extract info"}]
-        assert fallback_kwargs["response_model"] is _PersonSchema
+        assert issubclass(fallback_kwargs["response_model"], _PersonSchema)
 
     async def test_schema_violating_json_triggers_instructor_fallback_pydantic(self):
         """原生返回 200 + 合法 JSON 但违反 response_schema（代理接受却不强制 schema），应降级到 Instructor。"""
@@ -582,7 +582,7 @@ class TestInstructorFallback:
         fallback_kwargs = mock_patched.chat.completions.create_with_completion.call_args.kwargs
         assert fallback_kwargs["model"] == "gpt-5.4-mini"
         assert fallback_kwargs["messages"] == [{"role": "user", "content": "Extract info"}]
-        assert fallback_kwargs["response_model"] is _PersonSchema
+        assert issubclass(fallback_kwargs["response_model"], _PersonSchema)
 
     async def test_response_format_rejected_succeeds_via_tools_mode(self):
         """上游拒收 response_format 但支持 tools：降级链首档 TOOLS 即产出合规结构化结果。"""

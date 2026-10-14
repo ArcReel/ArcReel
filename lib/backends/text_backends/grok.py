@@ -14,6 +14,8 @@ from lib.backends.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     check_truncation,
+    model_facing_response_model,
+    resolve_schema,
 )
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -136,9 +138,8 @@ class GrokTextBackend:
 
 def _response_model(response_schema: dict | type) -> type[BaseModel]:
     if isinstance(response_schema, type):
-        return response_schema
-    from lib.backends.text_backends.base import resolve_schema
-
+        # xai_sdk 自行调用 model_json_schema() 生成下发的 schema，不经 resolve_schema
+        return model_facing_response_model(response_schema)
     return _schema_to_pydantic(resolve_schema(response_schema))
 
 

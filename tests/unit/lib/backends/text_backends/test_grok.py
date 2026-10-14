@@ -1,11 +1,16 @@
 """GrokTextBackend tests."""
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
+from tests.unit.lib.backends.text_backends.response_schema_support import (
+    leaked_class_docstrings,
+    response_schema_params,
+)
 
 
 @pytest.fixture
@@ -91,6 +96,24 @@ class TestGenerate:
         name_field = dynamic_model.model_fields["name"]
         assert name_field.annotation == (str | None)
         assert name_field.is_required() is False
+
+    @pytest.mark.parametrize("model", response_schema_params())
+    async def test_pydantic_response_format_schema_has_no_class_docstrings(self, backend, model):
+        """xai_sdk 用 response_format.model_json_schema() 生成下发的 schema，其中不带类 docstring。"""
+        from pydantic import ValidationError
+
+        mock_chat = MagicMock()
+        mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="{}"))
+        backend._test_client.chat.create.return_value = mock_chat
+
+        # 回包只是空对象，过不了模型校验；本用例只看下发的 schema
+        with pytest.raises(ValidationError):
+            await backend.generate(TextGenerationRequest(prompt="gen", response_schema=model))
+
+        response_format = backend._test_client.chat.create.call_args.kwargs["response_format"]
+        assert issubclass(response_format, model)
+        wire_json = json.dumps(response_format.model_json_schema(), ensure_ascii=False)
+        assert leaked_class_docstrings(model, wire_json) == []
 
     async def test_max_output_tokens_passed_to_chat_create(self, backend):
         """max_output_tokens 透传为 xai_sdk chat.create(max_tokens=)。"""

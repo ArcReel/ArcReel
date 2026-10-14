@@ -1,7 +1,6 @@
 """TextBackend Protocol + data classes tests."""
 
 from pathlib import Path
-from typing import get_args
 
 import pytest
 from pydantic import BaseModel
@@ -16,9 +15,11 @@ from lib.backends.text_backends.base import (
     TextGenerationResult,
     TextTaskTier,
     TextTaskType,
+    model_facing_response_model,
     resolve_schema,
 )
 from tests.unit.lib.backends.text_backends.response_schema_support import (
+    class_docstring_texts,
     response_schema_models,
     response_schema_params,
 )
@@ -107,12 +108,6 @@ class TestTextGenerationResult:
         assert result.output_tokens == 50
 
 
-def _class_docstring_descriptions(raw: dict) -> set[str]:
-    """Pydantic 默认 schema 中由类 docstring 生成的说明：顶层与各 ``$defs`` 定义上的 ``description``。"""
-    nodes = [raw, *raw.get("$defs", {}).values()]
-    return {node["description"] for node in nodes if "description" in node}
-
-
 def _field_descriptions(raw: dict) -> set[str]:
     """Pydantic 默认 schema 中字段级的 ``description``。"""
     nodes = [raw, *raw.get("$defs", {}).values()]
@@ -122,28 +117,6 @@ def _field_descriptions(raw: dict) -> set[str]:
         for prop in node.get("properties", {}).values()
         if isinstance(prop, dict) and "description" in prop
     }
-
-
-def _model_field_descriptions(model: type[BaseModel]) -> set[str]:
-    """模型及其嵌套模型上全部字段的 ``description``。
-
-    默认 schema 在字段说明与被引用模型的 docstring 同文时省略字段侧的说明，无法从中区分这类文本，故从模型类上取。
-    """
-    seen: set[type[BaseModel]] = set()
-    found: set[str] = set()
-
-    def visit(tp: object) -> None:
-        if isinstance(tp, type) and issubclass(tp, BaseModel) and tp not in seen:
-            seen.add(tp)
-            for field in tp.model_fields.values():
-                if field.description:
-                    found.add(field.description)
-                visit(field.annotation)
-        for arg in get_args(tp):
-            visit(arg)
-
-    visit(model)
-    return found
 
 
 def _description_values(node: object) -> list[str]:
@@ -256,9 +229,9 @@ class TestResolveSchema:
 
     def test_response_schema_models_carry_docstrings_and_field_descriptions_by_default(self):
         """前提自检：默认 schema 确实带类 docstring 说明与字段说明，否则下面的参数化断言形同虚设。"""
-        raws = [model.model_json_schema() for model in response_schema_models()]
-        assert any(_class_docstring_descriptions(raw) for raw in raws)
-        assert any(_field_descriptions(raw) for raw in raws)
+        models = response_schema_models()
+        assert any(class_docstring_texts(model) for model in models)
+        assert any(_field_descriptions(model.model_json_schema()) for model in models)
 
     @pytest.mark.parametrize("model", response_schema_params())
     def test_response_schema_models_drop_class_docstrings_keep_field_descriptions(self, model: type[BaseModel]):
@@ -268,10 +241,37 @@ class TestResolveSchema:
         resolved = resolve_schema(model)
         descriptions = _description_values(resolved)
 
-        # 顶层与内联后的嵌套模型都不带类 docstring 说明（与字段说明同文的除外，如 Composition 的「构图信息」）
+        # 顶层与内联后的嵌套模型都不带类 docstring 说明
         assert "description" not in resolved
-        assert (_class_docstring_descriptions(raw) - _model_field_descriptions(model)).isdisjoint(descriptions)
+        assert class_docstring_texts(model).isdisjoint(descriptions)
         assert field_descriptions <= set(descriptions)
+
+
+class TestModelFacingResponseModel:
+    def test_schema_drops_class_docstrings_validation_and_dump_unchanged(self):
+        from pydantic import Field
+
+        class Inner(BaseModel):
+            """嵌套实现说明"""
+
+            x: int = Field(description="横坐标")
+
+        class Outer(BaseModel):
+            """顶层实现说明"""
+
+            inner: Inner
+
+        facing = model_facing_response_model(Outer)
+        schema = facing.model_json_schema()
+
+        assert facing.__name__ == "Outer"
+        assert facing.__doc__ is None
+        assert "description" not in schema
+        assert "description" not in schema["$defs"]["Inner"]
+        assert schema["$defs"]["Inner"]["properties"]["x"]["description"] == "横坐标"
+        parsed = facing.model_validate_json('{"inner": {"x": 1}}')
+        assert isinstance(parsed, Outer)
+        assert parsed.model_dump_json() == Outer(inner=Inner(x=1)).model_dump_json()
 
 
 class TestTextBackendProtocol:

@@ -331,6 +331,27 @@ class _ModelFacingJsonSchema(GenerateJsonSchema):
         return json_schema
 
 
+def model_facing_response_model[M: BaseModel](model: type[M]) -> type[M]:
+    """供自行生成 schema、不经 :func:`resolve_schema` 的库（Instructor、xai_sdk）使用的 ``model`` 子类。
+
+    子类不带 docstring，``model_json_schema`` 默认改用 :class:`_ModelFacingJsonSchema`，库据此生成的 schema
+    与工具说明都不含类 docstring；字段、校验与序列化沿用 ``model``。
+    """
+
+    def model_json_schema(cls: type[M], *args: Any, **kwargs: Any) -> dict[str, Any]:
+        # 子类不增改字段，schema 即 model 的 schema；类 docstring 由生成器剥除
+        kwargs.setdefault("schema_generator", _ModelFacingJsonSchema)
+        return model.model_json_schema(*args, **kwargs)
+
+    namespace = {
+        "__doc__": None,
+        "__module__": model.__module__,
+        "__qualname__": model.__qualname__,
+        "model_json_schema": classmethod(model_json_schema),
+    }
+    return type(model)(model.__name__, (model,), namespace)
+
+
 def resolve_schema(schema: dict | type[BaseModel]) -> dict:
     """将 response_schema 转为发给模型的、无 $ref 的纯 JSON Schema dict。
 
