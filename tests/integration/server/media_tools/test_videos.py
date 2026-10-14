@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -19,7 +18,7 @@ from server.media_tools import videos as enqueue_videos_mod
 from server.media_tools.context import generation_is_error
 from server.tool_runtime import ToolOutcome
 from tests.factories import make_video_request_facts
-from tests.fakes import fake_reference_request_facts
+from tests.fakes import fake_reference_request_facts, write_backend_output
 from tests.integration.server.agent_tool_support import (
     _CLAIMED_BASIS_DIGEST,
     ToolHarness,
@@ -1530,11 +1529,6 @@ def ad_reference_ctx(fake_ctx: ToolHarness, monkeypatch: pytest.MonkeyPatch) -> 
     return fake_ctx
 
 
-def _write_video(output: Path) -> None:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_bytes(b"\x00")
-
-
 def _successful_reference_batch(ctx: ToolHarness, enqueued: list[Any]):
     async def fake_batch(*, project_name: str, specs: list[Any], on_success=None, on_failure=None, **_batch_kwargs):
         from lib.generation.generation_queue_client import BatchTaskResult
@@ -1543,7 +1537,7 @@ def _successful_reference_batch(ctx: ToolHarness, enqueued: list[Any]):
         for spec in specs:
             enqueued.append(spec)
             # 产物由生成 worker 在别处落盘，不占工具所在的事件循环。
-            await asyncio.to_thread(_write_video, ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4")
+            await write_backend_output(ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4", b"\x00")
             result = BatchTaskResult(
                 resource_id=spec.resource_id,
                 task_id="t1",

@@ -11,6 +11,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from scripts.verify_reference_video_sdks import Provider, RunResult, parse_args, render_report, run_once
+from tests.fakes import write_backend_output
 
 
 def test_parse_args_provider_required():
@@ -128,8 +129,7 @@ class _FakeBackend:
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         type(self)._calls.append(request)
         # 模拟落盘：写入非空 dummy 字节，让 run_once 的落盘校验通过
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(b"\x00fake-video-payload")
+        await write_backend_output(request.output_path, b"\x00fake-video-payload")
         return VideoGenerationResult(
             video_path=request.output_path,
             provider=self.name,

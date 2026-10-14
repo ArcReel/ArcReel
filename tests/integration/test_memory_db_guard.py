@@ -1,8 +1,8 @@
 """内存库共享连接并发写检查（`tests/memory_db_guard`）的契约。
 
 内存库夹具上，一个任务的写事务未结束时另一个任务写库，写语句当场失败并指向对应的文件库夹具；
-失败被宽泛异常捕获吞掉时，engine 关闭时照样报告。先后完成的写、同一任务里嵌套的 session
-不算并发。
+写事务的发起任务已经结束、事务却没有提交或回滚时同样算数。失败被宽泛异常捕获吞掉时，engine
+关闭时照样报告。先后完成的写、同一任务里嵌套的 session 不算并发。
 """
 
 from __future__ import annotations
@@ -64,6 +64,26 @@ async def test_concurrent_write_fails_at_once_and_points_to_file_fixture(
     assert isinstance(error, SharedMemoryDbConcurrentWrite)
     assert "`file_db_factory`" in str(error)
     assert len(guard_for(db_engine).take_violations()) == 1
+
+
+async def test_write_fails_while_finished_task_left_its_write_open(
+    db_engine: AsyncEngine, db_factory: async_sessionmaker[AsyncSession]
+):
+    await _create_probe_table(db_factory)
+
+    async def write_and_hand_back_open_session() -> AsyncSession:
+        session = db_factory()
+        await _insert(session, "a")
+        return session
+
+    left_open = await asyncio.create_task(write_and_hand_back_open_session())
+    try:
+        with pytest.raises(SharedMemoryDbConcurrentWrite, match="`file_db_factory`"):
+            async with db_factory() as session:
+                await _insert(session, "b")
+    finally:
+        await left_open.close()
+    guard_for(db_engine).take_violations()
 
 
 async def test_swallowed_concurrent_write_is_still_reported(

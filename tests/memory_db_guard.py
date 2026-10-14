@@ -4,10 +4,10 @@
 「事务」只是 SQLAlchemy 层的记账：一个任务提交会把另一个任务未提交的写一并提交，回滚则一并
 撤销，交错严重时互相卡住。需要多个任务同时写库的用例应改用文件库夹具，每个连接独立。
 
-检查规则：某个任务在一个连接上执行写语句时，若另一个仍在运行的任务在别的连接上持有已写过
-数据、尚未结束的事务，就判为并发写。违规在写语句处直接抛 ``SharedMemoryDbConcurrentWrite``；
-被业务代码的宽泛异常捕获吞掉时，engine 关闭时 ``raise_if_violated`` 再抛一次。同一任务里嵌套
-打开的 session 不算并发。
+检查规则：某个任务在一个连接上执行写语句时，若另一个任务在别的连接上开启的写事务尚未提交
+或回滚，就判为并发写；发起写事务的任务已经结束、事务却留着没收尾的同样算。违规在写语句处
+直接抛 ``SharedMemoryDbConcurrentWrite``；被业务代码的宽泛异常捕获吞掉时，engine 关闭时
+``raise_if_violated`` 再抛一次。同一任务里嵌套打开的 session 不算并发。
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ class SharedConnectionWriteGuard:
             return
         writer = _current_task()
         for other, holder in self._dirty.items():
-            if other is conn or holder is writer or holder is None or holder.done():
+            if other is conn or holder is writer or holder is None:
                 continue
             message = self._message(writer, holder)
             self.violations.append(message)
