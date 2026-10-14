@@ -29,6 +29,7 @@ from lib.project.asset_derivatives import (
     derivative_artifact_key,
     derivative_sheet_relative_path,
     derivative_table,
+    find_derivative_name,
 )
 from lib.project.asset_types import (
     ASSET_SPECS,
@@ -826,11 +827,22 @@ async def apply_to_project(
                 previous = data[bk].get(key)
                 inherited = previous.get(DERIVATIVES_FIELD) if isinstance(previous, dict) else None
                 table = dict(inherited) if isinstance(inherited, dict) else {}
+                # 库里的衍生先解析成落盘名：存量键可能是 NFD 等价形态或只差大小写（衍生图按名落盘，
+                # 两者会落到同一个文件），命中就并入已有条目、沿用它的名字，避免并存两条。库里自带
+                # 只差大小写的两条时同样归到一个名下，后一条为准。
+                incoming: dict[str, dict] = {}
                 for derivative in plan["derivatives"]:
                     derivative_name = derivative["name"]
+                    derivative_key = (
+                        find_derivative_name(table, derivative_name)
+                        or find_derivative_name(incoming, derivative_name)
+                        or derivative_name
+                    )
+                    incoming[derivative_key] = derivative
+                for derivative_key, derivative in incoming.items():
                     derivative_sheet = ""
                     if derivative["copy_src"] is not None:
-                        relative = derivative_sheet_relative_path(name_, derivative_name)
+                        relative = derivative_sheet_relative_path(name_, derivative_key)
                         try:
                             ProjectManager._safe_subpath(project_dir, relative)
                         except ValueError:
@@ -843,9 +855,7 @@ async def apply_to_project(
                         else:
                             derivative_sheet = relative
                             file_copies.append((derivative["copy_src"], project_dir / relative))
-                            plan["derivative_sheet_names"].append(derivative_name)
-                    # 存量键可能是 NFD 等价形态；命中就写回同一个键，避免并存两条视觉同名衍生。
-                    derivative_key = resolve_asset_key(table, derivative_name) or derivative_name
+                            plan["derivative_sheet_names"].append(derivative_key)
                     if derivative_sheet:
                         plan["installed_sheets"].append(
                             _applied_sheet_version(

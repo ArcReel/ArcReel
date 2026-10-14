@@ -10,6 +10,9 @@
 - **并为衍生**（仅角色）：被并方成为保留方的一个衍生，衍生名就是被并方的名字，不记为别名。
   画面引用改指 ``保留方/被并方``，说话人只承载本体名（见 ``docs/adr/0072``），改指保留方。
 
+两种并法里，衍生与保留方已有衍生同名（按 :func:`find_derivative_name`，只差大小写也算）时并入
+已有的那个，引用改写到它的名字。
+
 本模块只承载无副作用的部分（就地改写载荷、返回计数与规划），供
 :meth:`lib.project.project_manager.ProjectManager.merge_asset` 在与重命名同一组锁内先扫描、再落盘。
 """
@@ -17,12 +20,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
-from lib.project.asset_derivatives import derivative_table
+from lib.project.asset_derivatives import derivative_table, find_derivative_name
 from lib.project.asset_types import ALIASES_FIELD, ASSET_SPECS, asset_name_comparison_key, resolve_asset_key
 from lib.references.reference_catalog import derivative_reference, split_derivative_reference
 from lib.script.reference_video.text_parser import extract_mentions, remap_mentions
@@ -100,11 +103,11 @@ class AssetMergeReport:
     as_derivative: bool
     #: 追加进保留方别名的名字（并为衍生时为空）。
     aliases_added: tuple[str, ...]
-    #: 并为衍生时新建的衍生名；保留方已有同名衍生时并入那个，这里为 ``None``。
+    #: 并为衍生时新建的衍生名；保留方已有同名（只差大小写也算）衍生时并入那个，这里为 ``None``。
     derivative_created: str | None
     #: 被并方名下迁到保留方的衍生。
     derivatives_moved: tuple[str, ...]
-    #: 被并方名下与保留方已有衍生同名、并入已有那个的衍生（这些衍生的描述与资产图不保留）。
+    #: 被并方名下与保留方已有衍生同名（只差大小写也算）、并入已有那个的衍生（这些衍生的描述与资产图不保留）。
     derivatives_folded: tuple[str, ...]
     episodes: tuple[AssetMergeEpisodeImpact, ...]
     dry_run: bool
@@ -116,33 +119,59 @@ class AssetMergeReport:
 
 @dataclass(frozen=True, slots=True)
 class DerivativeMergePlan:
-    """被并角色的衍生怎么处理：新建、迁移或并入保留方已有的同名衍生。"""
+    """被并角色的衍生怎么处理：新建、迁移或并入保留方已有的同名衍生，以及引用随之改写成的衍生名。"""
 
     created: str | None = None
     moved: tuple[str, ...] = ()
     folded: tuple[str, ...] = ()
+    #: 并为衍生时被并方本体在保留方名下的衍生名（新建的，或并入的已有衍生），比对坐标。
+    source_derivative: str | None = None
+    #: 被并方的衍生（比对坐标）→ 它在保留方名下的衍生名（比对坐标）；并入只差大小写的已有衍生时两者不同。
+    derivative_names: Mapping[str, str] = field(default_factory=dict)
+
+    def kept_derivative(self, derivative: str) -> str:
+        """被并方名下的衍生（比对坐标）合并后在保留方名下叫什么；不是被并方的衍生时原样返回。"""
+        return self.derivative_names.get(derivative, derivative)
 
 
-def merged_reference(name: str, source: str, target: str, *, as_derivative: bool, speaker: bool) -> str | None:
+_NO_DERIVATIVES = DerivativeMergePlan()
+
+
+def merged_reference(
+    name: str,
+    source: str,
+    target: str,
+    *,
+    as_derivative: bool,
+    speaker: bool,
+    derivatives: DerivativeMergePlan = _NO_DERIVATIVES,
+) -> str | None:
     """把一个引用名按一次合并改写；与被并方无关时返回 ``None``。
 
     *source* / *target* 是资产表里的条目名。``被并方/衍生`` 一律改指 ``保留方/衍生``（衍生随之
     迁到保留方名下）；被并方本体在并为衍生时改指 ``保留方/被并方``，但说话人位只认本体，仍改指保留方。
+    衍生名按 *derivatives* 规划改写：并入只差大小写的已有衍生时，改用已有衍生的名字。
     """
     key = asset_name_comparison_key(name)
     source_key = asset_name_comparison_key(source)
     base, derivative = split_derivative_reference(key)
     if derivative:
-        return derivative_reference(target, derivative) if base == source_key else None
+        return derivative_reference(target, derivatives.kept_derivative(derivative)) if base == source_key else None
     if key != source_key:
         return None
     if as_derivative and not speaker:
-        return derivative_reference(target, source_key)
+        return derivative_reference(target, derivatives.source_derivative or source_key)
     return target
 
 
 def merge_payload_references(
-    payload: dict[str, Any], asset_type: str, source: str, target: str, *, as_derivative: bool = False
+    payload: dict[str, Any],
+    asset_type: str,
+    source: str,
+    target: str,
+    *,
+    as_derivative: bool = False,
+    derivatives: DerivativeMergePlan = _NO_DERIVATIVES,
 ) -> ReferenceChanges:
     """就地把剧本 / 草稿载荷里指向被并方的引用改指保留方，返回各落点的改写数。
 
@@ -159,7 +188,12 @@ def merge_payload_references(
 
         def remap(name: str, is_speaker: bool) -> str | None:
             merged = merged_reference(
-                name, source, target, as_derivative=as_derivative, speaker=is_speaker and kind == "text"
+                name,
+                source,
+                target,
+                as_derivative=as_derivative,
+                speaker=is_speaker and kind == "text",
+                derivatives=derivatives,
             )
             if merged is None:
                 return None
@@ -180,7 +214,12 @@ def merge_payload_references(
             continue
         # 新增资产清单的 target 与说话人一样只认本体：并为衍生时改指保留方，不写成 ``保留方/被并方``。
         merged = merged_reference(
-            value, source, target, as_derivative=as_derivative, speaker=kind in ("speaker", "target")
+            value,
+            source,
+            target,
+            as_derivative=as_derivative,
+            speaker=kind in ("speaker", "target"),
+            derivatives=derivatives,
         )
         if merged is None:
             continue
@@ -316,29 +355,42 @@ def plan_derivative_merge(
     *,
     as_derivative: bool,
 ) -> DerivativeMergePlan:
-    """规划被并角色的衍生去留：迁到保留方名下，与保留方已有衍生同名（比对坐标）的并入那个。
+    """规划被并角色的衍生去留：迁到保留方名下，与保留方已有衍生同名的并入那个。
 
-    并为衍生时先新建以被并方命名的衍生；保留方已有同名衍生时并入它，不新建。被并方名下与之同名的
-    衍生同样并入。
+    同名按 :func:`find_derivative_name` 判定，只差大小写也算（衍生图按名落盘，两者会落到同一个
+    文件）；并入的衍生在引用里改用已有衍生的名字。并为衍生时先新建以被并方命名的衍生；保留方
+    已有同名衍生时并入它，不新建。被并方名下与之同名的衍生同样并入。
     """
-    target_table = derivative_table(target_entry)
-    taken = {asset_name_comparison_key(name) for name in target_table}
+    # 保留方名下的衍生：已有的，加上本次新建与迁入的。
+    kept: dict[str, None] = dict.fromkeys(derivative_table(target_entry))
     created: str | None = None
+    source_derivative: str | None = None
     if as_derivative:
         source_key = asset_name_comparison_key(source)
-        if source_key not in taken:
-            created = source_key
-        taken.add(source_key)
+        existing = find_derivative_name(kept, source_key)
+        if existing is None:
+            created = existing = source_key
+            kept[source_key] = None
+        source_derivative = asset_name_comparison_key(existing)
     moved: list[str] = []
     folded: list[str] = []
+    names: dict[str, str] = {}
     for name in derivative_table(source_entry):
-        key = asset_name_comparison_key(name)
-        if key in taken:
-            folded.append(name)
-        else:
+        existing = find_derivative_name(kept, name)
+        if existing is None:
             moved.append(name)
-            taken.add(key)
-    return DerivativeMergePlan(created=created, moved=tuple(moved), folded=tuple(folded))
+            kept[name] = None
+            existing = name
+        else:
+            folded.append(name)
+        names[asset_name_comparison_key(name)] = asset_name_comparison_key(existing)
+    return DerivativeMergePlan(
+        created=created,
+        moved=tuple(moved),
+        folded=tuple(folded),
+        source_derivative=source_derivative,
+        derivative_names=names,
+    )
 
 
 __all__ = [

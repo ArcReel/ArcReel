@@ -3355,7 +3355,7 @@ class ProjectManager:
         与 :meth:`rename_asset` 同一组锁、同一套「先扫描、再落盘」：全部剧集剧本与 script_plan 草稿里
         指向被并方的引用改指保留方（规则见 :mod:`lib.project.asset_merge`），保留方原样不动，只追加
         别名（并为本体）或衍生（并为衍生）。被并方的描述、资产图及版本历史、声音设置、原图与参考音频
-        都不保留，资产图撤销登记；它名下的衍生迁到保留方，与保留方已有衍生同名的并入那个。
+        都不保留，资产图撤销登记；它名下的衍生迁到保留方，与保留方已有衍生同名（只差大小写也算）的并入那个。
         ``dry_run=True`` 时只返回影响报告，预览与执行共用同一次扫描，数字必然一致。
 
         落盘顺序：剧本 → 草稿 → 衍生资产图搬迁 → project.json 与清单 → 被并方的版本历史与文件。
@@ -3416,6 +3416,14 @@ class ProjectManager:
             if not isinstance(source_entry, dict) or not isinstance(target_entry, dict):
                 raise ValueError(f"project asset {spec.bucket_key} entries must be objects")
 
+            # 被并角色的衍生：迁到保留方名下的随图、版本与清单键一起搬，并入已有同名衍生的整套清掉。
+            # 引用改写要用到规划出的衍生名（并入只差大小写的已有衍生时改用它的名字），故先于扫描规划。
+            derivative_plan = (
+                plan_derivative_merge(source_entry, target_entry, source, as_derivative=as_derivative)
+                if spec.supports_derivatives
+                else DerivativeMergePlan()
+            )
+
             # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
             impacts: dict[int, dict[str, int]] = {}
 
@@ -3431,7 +3439,9 @@ class ProjectManager:
             for filename in script_files:
                 script, _migrated = self._read_script_unlocked(project_name, filename)
                 before = copy.deepcopy(script)
-                changes = merge_payload_references(script, asset_type, source, target, as_derivative=as_derivative)
+                changes = merge_payload_references(
+                    script, asset_type, source, target, as_derivative=as_derivative, derivatives=derivative_plan
+                )
                 if not changes.total:
                     continue
                 changed_scripts.append((filename, script, before))
@@ -3455,7 +3465,9 @@ class ProjectManager:
                 if not isinstance(payload, dict):
                     continue
                 fingerprint = canonical_json_digest(payload)
-                changes = merge_payload_references(payload, asset_type, source, target, as_derivative=as_derivative)
+                changes = merge_payload_references(
+                    payload, asset_type, source, target, as_derivative=as_derivative, derivatives=derivative_plan
+                )
                 if not changes.total:
                     continue
                 changed_drafts.append((path, payload, fingerprint))
@@ -3467,12 +3479,6 @@ class ProjectManager:
                     prompt_text=changes.mentions,
                 )
 
-            # 被并角色的衍生：迁到保留方名下的随图、版本与清单键一起搬，并入已有同名衍生的整套清掉。
-            derivative_plan = (
-                plan_derivative_merge(source_entry, target_entry, source, as_derivative=as_derivative)
-                if spec.supports_derivatives
-                else DerivativeMergePlan()
-            )
             moved_pairs = tuple((name, name) for name in derivative_plan.moved)
             relocation = plan_derivative_sheet_relocation(
                 project_dir,
