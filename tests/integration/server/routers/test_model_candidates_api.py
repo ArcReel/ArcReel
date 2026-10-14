@@ -11,14 +11,15 @@ t2i+i2i、i2i-only 两类图片模型，一个 ready 供应商就能把四个桶
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from dataclasses import replace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
+from lib.catalog import query as catalog
+from lib.catalog.query import factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
@@ -28,6 +29,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.catalog_support import install_catalog, with_entry_changes
 
 CANDIDATES_URL = "/api/v1/system/config/model-candidates"
 
@@ -178,11 +180,10 @@ class TestBuiltinBucketFiltering:
         assert DS_R2V not in body["image"]["default"]
         assert DS_IMAGE_BOTH not in body["video"]["default"]
 
-    def test_hidden_models_absent_from_every_list(self, make_client):
-        meta = PROVIDER_REGISTRY["dashscope"]
+    def test_hidden_models_absent_from_every_list(self, make_client, monkeypatch):
         hidden_id = DS_R2V.split("/", 1)[1]
-        hidden_models = {**meta.models, hidden_id: replace(meta.models[hidden_id], hidden=True)}
-        with patch.dict(meta.models, hidden_models, clear=True), make_client(["dashscope"]) as client:
+        install_catalog(monkeypatch, with_entry_changes(factory_snapshot(), "dashscope", hidden_id, discontinued=True))
+        with make_client(["dashscope"]) as client:
             body = client.get(CANDIDATES_URL).json()
         assert DS_R2V not in body["video"]["default"]
         assert DS_R2V not in body["video"]["buckets"]["r2v"]
@@ -282,7 +283,7 @@ class TestCustomProviderBucketFiltering:
 
 
 # ---------------------------------------------------------------------------
-# 目录译名（与 /providers 同一条 translate_or 路径）
+# 目录名称：供应商名按语言翻译，模型名取目录条目
 # ---------------------------------------------------------------------------
 
 
@@ -293,8 +294,9 @@ class TestCatalogDisplayNames:
             en = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()
         assert zh["provider_names"]["ark"] == "火山方舟"
         assert en["provider_names"]["ark"] == "Volcengine Ark"
+        # 模型显示名取目录条目，不分语言
         assert zh["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "豆包 Seed 2.0 Pro"
-        assert en["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "Doubao Seed 2.0 Pro"
+        assert en["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "豆包 Seed 2.0 Pro"
 
     def test_model_names_cover_media_types_without_buckets(self, make_client):
         """model_names 不按 image/video 收窄——文本 / 音频下拉共用同一份译名表。"""
@@ -302,11 +304,12 @@ class TestCatalogDisplayNames:
             body = client.get(CANDIDATES_URL).json()
         assert DS_AUDIO in body["model_names"]
 
-    def test_unregistered_model_falls_back_to_registry_name(self, make_client):
-        """无译名条目的模型返回 registry 里的原名，而不是裸键。"""
+    def test_builtin_model_name_is_the_catalog_display_name(self, make_client):
         with make_client(["openai"]) as client:
             names = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()["model_names"]
-        assert names["openai/sora-2"] == PROVIDER_REGISTRY["openai"].models["sora-2"].display_name
+        model = catalog.get_model("openai", "sora-2")
+        assert model is not None
+        assert names["openai/sora-2"] == model.display_name
 
     async def test_custom_model_name_is_the_user_authored_one(self, make_client, session_factory_and_engine):
         factory, _engine = session_factory_and_engine

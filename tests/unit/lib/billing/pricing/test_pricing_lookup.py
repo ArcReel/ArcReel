@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 
 import pytest
 
@@ -17,7 +16,9 @@ from lib.billing.pricing.types import (
     PerTokenVideo,
     ViduDelegate,
 )
+from lib.catalog.query import factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
+from tests.catalog_support import install_catalog, with_entry_changes
 
 
 class TestRegistryHit:
@@ -275,10 +276,8 @@ class TestCrossModalModelMismatch:
 
 class TestHiddenModelStillResolves:
     def test_hidden_does_not_block_lookup(self, monkeypatch):
-        # 冻结费用边角：模型被下线（hidden=True）后，入队遗留任务仍需算价。
-        meta = PROVIDER_REGISTRY["gemini-aistudio"]
-        base = meta.models["gemini-3-flash-preview"]
-        hidden_model = replace(base, hidden=True)
-        monkeypatch.setitem(meta.models, "gemini-3-flash-retired", hidden_model)
-        pricing = lookup_pricing("gemini-aistudio", "gemini-3-flash-retired", "text")
-        assert pricing is hidden_model.pricing
+        # 冻结费用边角：模型的条目下架（hidden=True）后，入队遗留任务仍需算价。
+        data = with_entry_changes(factory_snapshot(), "gemini-aistudio", "gemini-3.1-pro-preview", discontinued=True)
+        install_catalog(monkeypatch, data)
+        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-pro-preview", "text")
+        assert pricing is PROVIDER_REGISTRY["gemini-aistudio"].models["gemini-3.1-pro-preview"].pricing

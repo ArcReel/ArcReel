@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from contextlib import asynccontextmanager
 
 import pytest
 from sqlalchemy import update
 
-from lib.config.registry import PROVIDER_REGISTRY
+from arcreel_catalog_core import DurationConstraints
+from lib.catalog.query import factory_snapshot
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -21,6 +21,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
 )
+from tests.catalog_support import install_catalog, with_entry_facts
 from tests.factories import seed_endpoint_fixed_video_model
 
 VEO_PROVIDER, VEO_MODEL = "gemini-aistudio", "veo-3.1-generate-preview"
@@ -229,9 +230,9 @@ async def test_tier_declaration_failures_use_the_route_code_family(
 
 
 async def test_constraints_narrowing_to_nothing_fail_instead_of_falling_back(resolver, monkeypatch):
-    models = PROVIDER_REGISTRY[VEO_PROVIDER].models
-    monkeypatch.setitem(
-        models, VEO_MODEL, dataclasses.replace(models[VEO_MODEL], duration_resolution_constraints={"1080p": [10]})
+    constraints = DurationConstraints(by_resolution={"1080p": (10,)}, with_reference_images=(8,))
+    install_catalog(
+        monkeypatch, with_entry_facts(factory_snapshot(), VEO_PROVIDER, VEO_MODEL, duration_constraints=constraints)
     )
 
     facts = await _read(resolver, _with_resolution({"video_provider_i2v": VEO}, VEO, "1080p"))

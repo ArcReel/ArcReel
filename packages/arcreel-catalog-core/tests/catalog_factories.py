@@ -81,7 +81,7 @@ def amphibious_image_entry() -> dict[str, Any]:
         "name": "kling-v3-omni",
         "media_type": "image",
         "display_name": "可灵 V3 Omni（图片）",
-        "facts": {"text_to_image": True, "image_to_image": True},
+        "facts": {"text_to_image": True, "image_to_image": True, "resolutions": ["1K", "2K"]},
         "price": {
             "currency": "CNY",
             "meters": [

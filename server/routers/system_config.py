@@ -206,7 +206,7 @@ async def _enumerate_candidates(
                     option=f"{provider_id}/{model_id}",
                     media_type=model_info.media_type,
                     buckets=builtin_model_buckets(provider_id, model_id, model_info),
-                    display_name=translate_or(f"model_name_{provider_id}_{model_id}", model_info.display_name, locale),
+                    display_name=model_info.display_name,
                 )
             )
 

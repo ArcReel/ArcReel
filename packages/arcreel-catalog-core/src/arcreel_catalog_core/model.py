@@ -24,6 +24,7 @@ class TextFacts:
 class ImageFacts:
     text_to_image: bool = False
     image_to_image: bool = False
+    resolutions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

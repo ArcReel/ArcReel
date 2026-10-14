@@ -220,6 +220,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
     { name = "anthropic" },
+    { name = "arcreel-catalog-core" },
     { name = "arcreel-market-core" },
     { name = "asyncpg" },
     { name = "beautifulsoup4" },
@@ -262,7 +263,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "arcreel-catalog-core" },
     { name = "basedpyright" },
     { name = "blockbuster" },
     { name = "deptry" },
@@ -287,6 +287,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "alembic", specifier = ">=1.18.4" },
     { name = "anthropic", specifier = ">=0.125.0,<1" },
+    { name = "arcreel-catalog-core", editable = "packages/arcreel-catalog-core" },
     { name = "arcreel-market-core", editable = "packages/arcreel-market-core" },
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
@@ -329,7 +330,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "arcreel-catalog-core", editable = "packages/arcreel-catalog-core" },
     { name = "basedpyright", specifier = ">=1.39.4" },
     { name = "blockbuster", specifier = ">=1.5.29" },
     { name = "deptry", specifier = ">=0.24.0" },

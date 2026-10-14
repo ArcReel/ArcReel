@@ -395,12 +395,7 @@ async def list_providers(
                 _video_reference_audio_mode(s.name, mid) if minfo.get("media_type") == "video" else "none"
             )
             models[mid] = ModelInfoResponse(
-                **{
-                    **minfo,
-                    # registry 的 display_name 是默认语言下的名字；有译名表的条目按请求语言成文，
-                    # 没有的（纯品牌名）原样返回。
-                    "display_name": translate_or(f"model_name_{s.name}_{mid}", minfo["display_name"], locale),
-                },
+                **minfo,
                 audio_track=audio_track,
                 reference_route_audio_track=reference_route_audio_track,
                 # generation_mode / character_voice_binding 均为 None：目录端点无项目上下文，按非

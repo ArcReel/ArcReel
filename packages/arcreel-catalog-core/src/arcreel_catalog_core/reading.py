@@ -80,7 +80,7 @@ _ENTRY_FIELDS = frozenset(
 )
 _FACT_FIELDS: Mapping[MediaType, frozenset[str]] = {
     "text": frozenset({"image_input", "structured_output", "max_output_tokens"}),
-    "image": frozenset({"text_to_image", "image_to_image"}),
+    "image": frozenset({"text_to_image", "image_to_image", "resolutions"}),
     "video": frozenset({"durations", "resolutions", "duration_constraints"}),
     "audio": frozenset(),
 }
@@ -277,6 +277,7 @@ class CatalogReader:
                 return ImageFacts(
                     text_to_image=self.flag_value(data, "text_to_image", path),
                     image_to_image=self.flag_value(data, "image_to_image", path),
+                    resolutions=self.texts(data.get("resolutions"), _at(path, "resolutions")),
                 )
             case "video":
                 durations = self.durations(data.get("durations"), _at(path, "durations"))

@@ -38,7 +38,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
 - `discontinued` 表示已下架；`context_length` 是上下文长度（token）。
 - `facts` 是模型事实，按媒体类型取不同字段：
   - `text`：`image_input`、`structured_output`、`max_output_tokens`；
-  - `image`：`text_to_image`、`image_to_image`；
+  - `image`：`text_to_image`、`image_to_image`、`resolutions`（可选分辨率档位）；
   - `video`：`durations`（可选时长，必填）、`resolutions`、`duration_constraints`
     （`by_resolution` 按分辨率收窄可选时长，`with_reference_images` 是使用参考图时允许的时长）；
   - `audio`：无。

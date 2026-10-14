@@ -47,6 +47,7 @@ dependencies = [
     "numpy>=2.5.2",
     "jinja2>=3.1.6",
     "arcreel-market-core",
+    "arcreel-catalog-core",
     # 随包分发的 ffmpeg，经 lib/infra/ffmpeg.py 的查找器取用；不依赖系统 ffmpeg / ffprobe。
     "imageio-ffmpeg>=0.6.0",
     # 1.x 改用 httpx2，respx 与基于 httpx 的自定义 transport 拦截不到；约束见 docs/agents/dependencies.md。
@@ -69,8 +70,6 @@ dev = [
     "deptry>=0.24.0",
     "pytest-testmon>=2.2.0",
     "blockbuster>=1.5.29",
-    # 目录数据校验器子包：应用代码尚未导入它，经 dev 组装进开发环境，供子包测试、类型检查与分层契约使用。
-    "arcreel-catalog-core",
 ]
 # 变异测试工具，不进 dev：只在按批次跑 mutmut 时 `uv sync --group mutation` 装入。
 # 独立成组是为了让版本 pin 进 uv.lock、被 dependabot 看到；流程见 docs/testing/mutmut-runbook.md。

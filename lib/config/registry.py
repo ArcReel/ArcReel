@@ -37,6 +37,14 @@ ModelCapability = Literal[
 
 @dataclass(frozen=True)
 class ModelInfo:
+    """注册表中一个模型的登记。
+
+    目录查询（``lib.catalog.query``）的模型清单、能力、显示名与默认模型改读出厂快照
+    ``lib/catalog/snapshot/``，这里除 ``pricing`` 外的字段已不被生产代码读取，只与快照逐项核对
+    （``tests/unit/lib/catalog/test_factory_snapshot.py``）：增删改模型时两处同步修改，改完快照用
+    ``python -m arcreel_catalog_core write-manifest lib/catalog/snapshot`` 重写清单文件。``pricing`` 仍是计费的数据来源。
+    """
+
     display_name: str
     media_type: str
     # 能力 token（词汇表见 ModelCapability）。图片模型的 text_to_image / image_to_image 是

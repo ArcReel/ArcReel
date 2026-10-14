@@ -5,7 +5,14 @@ from __future__ import annotations
 import pytest
 from catalog_factories import catalog
 
-from arcreel_catalog_core import CatalogFormatError, DurationConstraints, VideoFacts, parse_catalog, parse_entry
+from arcreel_catalog_core import (
+    CatalogFormatError,
+    DurationConstraints,
+    ImageFacts,
+    VideoFacts,
+    parse_catalog,
+    parse_entry,
+)
 
 
 def test_unknown_fields_are_ignored():
@@ -28,6 +35,7 @@ def test_unknown_fields_are_ignored():
         resolutions=("720p", "1080p"),
         duration_constraints=DurationConstraints(by_resolution={"1080p": (5,)}, with_reference_images=(5,)),
     )
+    assert parsed.entries[2].facts == ImageFacts(text_to_image=True, image_to_image=True, resolutions=("1K", "2K"))
 
 
 @pytest.mark.parametrize(

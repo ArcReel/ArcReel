@@ -175,20 +175,16 @@ async def test_fetch_reference_split_caps_takes_voice_settings_from_r2v_facts(se
 async def test_reference_split_planning_reports_empty_intersection_as_incompatible(monkeypatch, db_factory) -> None:
     """带图约束与分辨率约束交集为空时 r2v 桶按「不相容」失败码抛出。型号数据替换成自相矛盾的声明，
     收窄仍走真实规则。"""
-    import dataclasses
-
-    from lib.config.registry import PROVIDER_REGISTRY
+    from arcreel_catalog_core import DurationConstraints
+    from lib.catalog.query import factory_snapshot
     from lib.config.resolver import ConfigResolver
     from server.text_generation import _fetch_reference_split_caps
+    from tests.catalog_support import install_catalog, with_entry_facts
 
     provider_id, model_id = "gemini-aistudio", "veo-3.1-generate-preview"
-    models = PROVIDER_REGISTRY[provider_id].models
-    monkeypatch.setitem(
-        models,
-        model_id,
-        dataclasses.replace(
-            models[model_id], duration_resolution_constraints={"1080p": [6]}, reference_image_durations=[8]
-        ),
+    constraints = DurationConstraints(by_resolution={"1080p": (6,)}, with_reference_images=(8,))
+    install_catalog(
+        monkeypatch, with_entry_facts(factory_snapshot(), provider_id, model_id, duration_constraints=constraints)
     )
     project = {
         "generation_mode": "reference_video",
