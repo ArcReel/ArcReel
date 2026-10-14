@@ -21,6 +21,7 @@ from lib.backends.audio_backends.base import (
 from lib.backends.backend_runtime import should_retry_submit, submit_post
 from lib.backends.minimax_shared import minimax_headers, minimax_text_base_url, resolve_minimax_api_key
 from lib.backends.providers import PROVIDER_MINIMAX
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
@@ -85,6 +86,7 @@ class MiniMaxAudioBackend:
         base_url: str | None = None,
         provider_name: str = PROVIDER_MINIMAX,
         http_timeout: float = 120.0,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         self._api_key = resolve_minimax_api_key(api_key)
         # 与文本共用 {host}/v1 归一化：容忍用户填 host 或带 /v1 后缀
@@ -93,6 +95,7 @@ class MiniMaxAudioBackend:
         # 自定义供应商挂接时用真实 provider 记账
         self._provider_name = provider_name
         self._http_timeout = http_timeout
+        self._transport_layer = transport_layer
 
     @property
     def name(self) -> str:
@@ -144,7 +147,7 @@ class MiniMaxAudioBackend:
             payload["audio_setting"]["format"],
             len(request.text),
         )
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             # 合成是计费 POST：submit_post 把歧义传输错误转终态失败避免重复计费，>=400 交状态码分流
             resp = await submit_post(
                 lambda: client.post(

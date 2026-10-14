@@ -24,6 +24,7 @@ import httpx
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.retry import BASE_RETRYABLE_ERRORS
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ def create_vidu_client(
     api_key: str | None = None,
     base_url: str | None = None,
     timeout: float = 60.0,
+    transport_layer: TransportLayer | None = None,
 ) -> httpx.AsyncClient:
     """创建带 Authorization 头、经出站目的地校验的 ``httpx.AsyncClient``。"""
     token = resolve_vidu_api_key(api_key)
@@ -70,6 +72,7 @@ def create_vidu_client(
             "Content-Type": "application/json",
         },
         timeout=timeout,
+        transport_layer=transport_layer,
     )
 
 

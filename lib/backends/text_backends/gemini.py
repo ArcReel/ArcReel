@@ -12,8 +12,9 @@ from PIL import Image
 from lib.config.url_utils import normalize_base_url
 from lib.infra.logging_utils import format_kwargs_for_log
 
-from ..gemini_shared import VERTEX_SCOPES, with_retry_async
+from ..gemini_shared import VERTEX_SCOPES, gemini_http_options, with_retry_async
 from ..providers import PROVIDER_GEMINI
+from ..transport_layer import TransportLayer
 from .base import (
     TextCapability,
     TextGenerationRequest,
@@ -110,6 +111,7 @@ class GeminiTextBackend:
         base_url: str | None = None,
         gcs_bucket: str | None = None,
         credentials_path: str | None = None,
+        transport_layer: TransportLayer | None = None,
     ):
         self._model = model or DEFAULT_MODEL
         raw_backend = backend or "aistudio"
@@ -148,10 +150,9 @@ class GeminiTextBackend:
             if not api_key:
                 raise ValueError("Gemini API Key 未提供（API Key is required for AI Studio mode）。")
             effective_base_url = normalize_base_url(base_url)
-            http_options: genai.types.HttpOptionsDict | None = (
-                {"base_url": effective_base_url} if effective_base_url else None
+            self._client = genai.Client(
+                api_key=api_key, http_options=gemini_http_options(effective_base_url, transport_layer)
             )
-            self._client = genai.Client(api_key=api_key, http_options=http_options)
             if base_url:
                 logger.info("GeminiTextBackend: 使用 AI Studio 后端（Base URL: %s）", base_url)
             else:

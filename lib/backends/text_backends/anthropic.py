@@ -14,6 +14,7 @@ from anthropic import (
     APITimeoutError,
     AsyncAnthropic,
     BadRequestError,
+    DefaultAsyncHttpxClient,
     InternalServerError,
     RateLimitError,
     transform_schema,
@@ -33,6 +34,7 @@ from lib.backends.text_backends.base import (
     structured_fallback_reason,
     truncate_for_log,
 )
+from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.config.url_utils import OFFICIAL_ANTHROPIC_BASE_URL
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -53,13 +55,18 @@ class AnthropicTextBackend:
     凭证只取自定义供应商自己的 api_key 与 base_url，与 Agent 的 Anthropic 凭证隔离（ADR 0017）。
     """
 
-    def __init__(self, *, api_key: str, model: str, base_url: str | None = None):
+    def __init__(
+        self, *, api_key: str, model: str, base_url: str | None = None, transport_layer: TransportLayer | None = None
+    ):
         # base_url 为空时显式回填官方地址，断掉 SDK 对 ANTHROPIC_BASE_URL 的环境回落；
         # 禁用 SDK 内置重试，由 _generate_native 统一管理。
         self._client = AsyncAnthropic(
             api_key=api_key,
             base_url=(base_url or "").strip() or OFFICIAL_ANTHROPIC_BASE_URL,
             max_retries=0,
+            http_client=(
+                layer_async_client(DefaultAsyncHttpxClient(), transport_layer) if transport_layer is not None else None
+            ),
         )
         self._model = model
 

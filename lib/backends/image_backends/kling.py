@@ -44,6 +44,7 @@ from lib.backends.kling_shared import (
     image_to_base64,
 )
 from lib.backends.providers import PROVIDER_KLING
+from lib.backends.transport_layer import TransportLayer
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,7 @@ class KlingImageBackend(KlingBackendBase):
         api_model_name: str | None = None,
         base_url: str | None = None,
         http_timeout: float = 60.0,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         super().__init__(
             auth_mode=auth_mode,
@@ -86,6 +88,7 @@ class KlingImageBackend(KlingBackendBase):
             model=model or DEFAULT_MODEL,
             base_url=base_url,
             http_timeout=http_timeout,
+            transport_layer=transport_layer,
         )
         # 发给可灵 API 的模型名：调用方按 registry 解耦后传入；缺省回退 registry 键名（普通模型键名即 API 名）。
         self._api_model_name = api_model_name or self._model
@@ -173,7 +176,7 @@ class KlingImageBackend(KlingBackendBase):
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         payload = self._build_payload(request)
         logger.info("调用 Kling 图像 API payload=%s", self._safe_log_view(payload))
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._submit_task(client, _IMAGE_ENDPOINT, payload)
             logger.info("Kling 图像任务已创建: task_id=%s model=%s", task_id, self._model)
 

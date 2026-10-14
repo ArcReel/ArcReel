@@ -12,6 +12,7 @@ from PIL import Image
 from lib.backends.gemini_shared import (
     VERTEX_SCOPES,
     RateLimiter,
+    gemini_http_options,
     get_shared_rate_limiter,
     resolve_gemini_api_key,
     with_retry_async,
@@ -22,6 +23,7 @@ from lib.backends.image_backends.base import (
     ImageGenerationResult,
 )
 from lib.backends.providers import PROVIDER_GEMINI
+from lib.backends.transport_layer import TransportLayer
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_sync_transaction
@@ -53,6 +55,7 @@ class GeminiImageBackend:
         image_model: str | None = None,
         base_url: str | None = None,
         credentials_path: str | None = None,
+        transport_layer: TransportLayer | None = None,
     ):
         from google import genai as _genai
         from google.genai import types as _types
@@ -88,10 +91,9 @@ class GeminiImageBackend:
         else:
             api_key = resolve_gemini_api_key(api_key)
             effective_base_url = normalize_base_url(base_url)
-            http_options: _types.HttpOptionsDict | None = (
-                {"base_url": effective_base_url} if effective_base_url else None
+            self._client = _genai.Client(
+                api_key=api_key, http_options=gemini_http_options(effective_base_url, transport_layer)
             )
-            self._client = _genai.Client(api_key=api_key, http_options=http_options)
 
         self._capabilities: set[ImageCapability] = {
             ImageCapability.TEXT_TO_IMAGE,

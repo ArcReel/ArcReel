@@ -12,6 +12,10 @@ Ark (火山方舟) 共享工具模块
 
 from __future__ import annotations
 
+import httpx
+
+from lib.backends.transport_layer import TransportLayer, layer_sync_client
+
 ARK_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3"
 
 
@@ -33,8 +37,19 @@ def ark_base_url(configured: str | None = None) -> str:
     return base.rstrip("/") if base else ARK_BASE_URL
 
 
-def create_ark_client(*, api_key: str | None = None, base_url: str | None = None):
-    """创建 Ark 客户端；base_url 缺省走 ARK_BASE_URL（即 /api/v3），经 ark_base_url 归一化。"""
+def create_ark_client(
+    *, api_key: str | None = None, base_url: str | None = None, transport_layer: TransportLayer | None = None
+):
+    """创建 Ark 客户端；base_url 缺省走 ARK_BASE_URL（即 /api/v3），经 ark_base_url 归一化。
+
+    SDK 是同步客户端，``transport_layer`` 叠在同步 httpx 客户端之上。
+    """
     from volcenginesdkarkruntime import Ark
 
-    return Ark(base_url=ark_base_url(base_url), api_key=resolve_ark_api_key(api_key))
+    base = ark_base_url(base_url)
+    key = resolve_ark_api_key(api_key)
+    if transport_layer is None:
+        return Ark(base_url=base, api_key=key)
+    return Ark(
+        base_url=base, api_key=key, http_client=layer_sync_client(httpx.Client(follow_redirects=True), transport_layer)
+    )

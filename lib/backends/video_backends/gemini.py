@@ -33,8 +33,15 @@ from lib.backends.backend_runtime import (
     should_retry_poll,
     with_artifact_retry,
 )
-from lib.backends.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
+from lib.backends.gemini_shared import (
+    VERTEX_SCOPES,
+    RateLimiter,
+    gemini_http_options,
+    get_shared_rate_limiter,
+    resolve_gemini_api_key,
+)
 from lib.backends.providers import PROVIDER_GEMINI
+from lib.backends.transport_layer import TransportLayer
 from lib.catalog import query as catalog
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
@@ -81,6 +88,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         video_model: str | None = None,
         base_url: str | None = None,
         credentials_path: str | None = None,
+        transport_layer: TransportLayer | None = None,
     ):
         from google import genai as _genai
         from google.genai import types as _types
@@ -92,6 +100,8 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         self._project_id = None
         self._api_key: str | None = None
         self._base_url: str | None = None
+        self._transport_layer = transport_layer
+        self._http_options: _types.HttpOptions | _types.HttpOptionsDict | None = None
 
         from lib.billing.cost_calculator import cost_calculator
 
@@ -123,8 +133,18 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         else:
             self._api_key = resolve_gemini_api_key(api_key)
             self._base_url = normalize_base_url(base_url)
-            http_options: _types.HttpOptionsDict | None = {"base_url": self._base_url} if self._base_url else None
-            self._client = _genai.Client(api_key=self._api_key, http_options=http_options)
+            self._http_options = gemini_http_options(self._base_url, transport_layer)
+            self._client = _genai.Client(api_key=self._api_key, http_options=self._http_options)
+
+    async def _close_injected_http_clients(self) -> None:
+        # SDK 的 close/aclose 跳过外部传入的 httpx 客户端
+        options = self._http_options
+        if self._transport_layer is None or not isinstance(options, self._types.HttpOptions):
+            return
+        if options.httpx_async_client is not None:
+            await options.httpx_async_client.aclose()
+        if options.httpx_client is not None:
+            options.httpx_client.close()
 
     @property
     def name(self) -> str:
@@ -203,12 +223,14 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
                 rate_limiter=self._rate_limiter,
                 video_model=self._video_model,
                 base_url=submitted,
+                transport_layer=self._transport_layer,
             )
             try:
                 return await replay.resume_video(job_id, request)
             finally:
                 await replay._client.aio.aclose()
                 replay._client.close()
+                await replay._close_injected_http_clients()
         op = self._types.GenerateVideosOperation.model_validate({"name": job_id, "done": False})
         try:
             refreshed = await self._client.aio.operations.get(op)

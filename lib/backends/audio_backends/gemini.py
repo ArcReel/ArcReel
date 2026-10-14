@@ -20,7 +20,8 @@ from lib.backends.audio_backends.base import (
     AudioSynthesisResult,
     VoiceOption,
 )
-from lib.backends.gemini_shared import VERTEX_SCOPES, resolve_gemini_api_key, with_retry_async
+from lib.backends.gemini_shared import VERTEX_SCOPES, gemini_http_options, resolve_gemini_api_key, with_retry_async
+from lib.backends.transport_layer import TransportLayer
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_noninterruptible_sync
@@ -110,6 +111,7 @@ class GeminiAudioBackend:
         credentials_path: str | None = None,
         model: str | None = None,
         provider_name: str | None = None,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         from google import genai
         from google.genai import types
@@ -137,7 +139,7 @@ class GeminiAudioBackend:
             effective_base_url = normalize_base_url(base_url)
             self._client = genai.Client(
                 api_key=resolve_gemini_api_key(api_key),
-                http_options={"base_url": effective_base_url} if effective_base_url else None,
+                http_options=gemini_http_options(effective_base_url, transport_layer),
             )
 
     @property

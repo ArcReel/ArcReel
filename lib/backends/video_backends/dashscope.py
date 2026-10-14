@@ -61,6 +61,7 @@ from lib.backends.dashscope_shared import (
 from lib.backends.data_uri import file_to_data_uri
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_DASHSCOPE
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
     DEFAULT_BACKOFF_SECONDS,
@@ -448,6 +449,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         base_url: str | None = None,
         wan3_base_url: str | None = None,
         http_timeout: float = 60.0,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         self._api_key = resolve_dashscope_api_key(api_key)
         self._base_url = dashscope_native_base_url(base_url)
@@ -456,6 +458,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         self._wan3_base_url = (wan3_base_url or "").strip().rstrip("/") or None
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
+        self._transport_layer = transport_layer
         self._video_capabilities = _profile_for_model(self._model)
 
     @property
@@ -499,7 +502,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             self._model,
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._create_task(client, payload, request)
             logger.info("DashScope 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 一并写回实际提交域名（wan3.0 走独立 maas 域名，且两者都随用户配置可变）：
@@ -511,7 +514,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 DashScope task：仅 poll + 下载（ADR 0007）。"""
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             return await self._poll_and_build(client, job_id, request, is_resume=True)
 
     # ── request building ────────────────────────────────────────────────

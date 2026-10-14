@@ -24,6 +24,7 @@ from lib.backends.openai_shared import (
     create_openai_client,
 )
 from lib.backends.providers import PROVIDER_OPENAI
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -95,9 +96,10 @@ class OpenAIImageBackend:
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        transport_layer: TransportLayer | None = None,
         mode: ImageBackendMode = "both",
     ):
-        self._client = create_openai_client(api_key=api_key, base_url=base_url)
+        self._client = create_openai_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
         self._model = model or DEFAULT_MODEL
         self._capabilities = set(self._MODE_TO_CAPS[mode])
 

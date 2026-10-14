@@ -30,6 +30,7 @@ from lib.backends.image_backends.base import (
     download_image_to_path,
 )
 from lib.backends.providers import PROVIDER_DASHSCOPE
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -75,11 +76,13 @@ class DashScopeImageBackend:
         model: str | None = None,
         base_url: str | None = None,
         http_timeout: float = 120.0,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         self._api_key = resolve_dashscope_api_key(api_key)
         self._base_url = dashscope_native_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
+        self._transport_layer = transport_layer
         mid = self._model.lower()
         self._is_wan = mid.startswith("wan")
         self._is_edit = "qwen-image-edit" in mid
@@ -164,7 +167,7 @@ class DashScopeImageBackend:
             self._model,
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             # 同步图像生成是非幂等的「建图 + 计费」POST：submit_post 把歧义传输错误（请求可能已送达
             # 但响应在途丢失）转 AmbiguousSubmitError 终态失败，避免自动重试重复计费；>=400 落 body
             # 日志 + 抛 HTTPStatusError（保留 status_code 供咽喉层识别 413 降档），交 should_retry_submit

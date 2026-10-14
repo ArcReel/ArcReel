@@ -27,6 +27,7 @@ from lib.backends.backend_runtime import (
     submit_post,
 )
 from lib.backends.providers import PROVIDER_VIDU
+from lib.backends.transport_layer import TransportLayer
 from lib.backends.vidu_shared import (
     VIDU_RETRYABLE_ERRORS,
     assert_vidu_body_size,
@@ -170,9 +171,11 @@ class ViduVideoBackend:
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        transport_layer: TransportLayer | None = None,
     ):
         self._api_key = api_key
         self._base_url = base_url
+        self._transport_layer = transport_layer
         self._model = model or DEFAULT_MODEL
 
     @property
@@ -232,7 +235,9 @@ class ViduVideoBackend:
         # _build_request 已把 duration 归一化到 body["duration"]，统一使用以避免 None 崩溃及结果不一致。
         coerced_duration = int(body["duration"])
 
-        async with create_vidu_client(api_key=self._api_key, base_url=self._base_url) as client:
+        async with create_vidu_client(
+            api_key=self._api_key, base_url=self._base_url, transport_layer=self._transport_layer
+        ) as client:
             payload = await self._create_task(client, endpoint, body, request)
             task_id = payload["task_id"]
             if request.on_provider_resubmit_unsafe is not None:

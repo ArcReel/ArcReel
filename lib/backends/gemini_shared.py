@@ -10,17 +10,26 @@ providers / media_generator 等模块复用，避免循环依赖。
 - RateLimiter — 多模型滑动窗口限流器
 - _rate_limiter_limits_from_env / get_shared_rate_limiter / refresh_shared_rate_limiter
 - with_retry_async — 从 lib.infra.retry re-export 的通用重试装饰器
+- gemini_http_options — AI Studio 客户端的 http_options（base_url 与 transport 注入）
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import threading
 import time
 from collections import deque
-from typing import Optional
+from typing import TYPE_CHECKING
 
+import httpx
+
+from lib.backends.transport_layer import TransportLayer, layer_async_client, layer_sync_client
 from lib.billing.cost_calculator import cost_calculator
 from lib.infra.retry import BASE_RETRYABLE_ERRORS, with_retry_async
+
+if TYPE_CHECKING:
+    from google.genai.types import HttpOptions, HttpOptionsDict
 
 __all__ = [
     "BASE_RETRYABLE_ERRORS",
@@ -179,7 +188,26 @@ def resolve_gemini_api_key(api_key: str | None = None) -> str:
     return api_key.strip()
 
 
-_shared_rate_limiter: Optional["RateLimiter"] = None
+def gemini_http_options(
+    base_url: str | None, transport_layer: TransportLayer | None
+) -> HttpOptions | HttpOptionsDict | None:
+    """AI Studio 客户端的 http_options；未注入时只带非空的 ``base_url``。
+
+    注入的 ``transport_layer`` 叠在同步与异步两条 httpx 通道上。异步通道必须显式交给 SDK：未传
+    ``httpx_async_client`` 时，装有 aiohttp 的环境里异步请求走 aiohttp，注入层看不到。SDK 不关闭外部传入的客户端。
+    """
+    if transport_layer is None:
+        return {"base_url": base_url} if base_url else None
+    from google.genai.types import HttpOptions
+
+    return HttpOptions(
+        base_url=base_url or None,
+        httpx_client=layer_sync_client(httpx.Client(follow_redirects=True), transport_layer),
+        httpx_async_client=layer_async_client(httpx.AsyncClient(follow_redirects=True), transport_layer),
+    )
+
+
+_shared_rate_limiter: RateLimiter | None = None
 _shared_rate_limiter_lock = threading.Lock()
 
 
@@ -214,7 +242,7 @@ def get_shared_rate_limiter(
     image_model: str | None = None,
     video_model: str | None = None,
     request_gap: float | None = None,
-) -> "RateLimiter":
+) -> RateLimiter:
     """
     获取进程内共享的 RateLimiter
 
@@ -247,7 +275,7 @@ def refresh_shared_rate_limiter(
     image_model: str | None = None,
     video_model: str | None = None,
     request_gap: float | None = None,
-) -> "RateLimiter":
+) -> RateLimiter:
     """
     Refresh the process-wide shared RateLimiter in-place.
 

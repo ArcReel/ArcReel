@@ -27,6 +27,7 @@ from lib.backends.text_backends.base import (
     truncate_for_log,
 )
 from lib.backends.text_backends.openai import DEFAULT_MODEL
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -45,10 +46,13 @@ class OpenAIResponsesTextBackend:
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        transport_layer: TransportLayer | None = None,
         provider_name: str = PROVIDER_OPENAI,
     ):
         # 禁用 SDK 内置重试，由本层 _generate_once() 统一管理重试策略
-        self._client = create_openai_client(api_key=api_key, base_url=base_url, max_retries=0)
+        self._client = create_openai_client(
+            api_key=api_key, base_url=base_url, max_retries=0, transport_layer=transport_layer
+        )
         self._model = model or DEFAULT_MODEL
         self._provider_name = provider_name
         self._capabilities: set[TextCapability] = {

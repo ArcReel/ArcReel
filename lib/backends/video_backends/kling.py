@@ -48,6 +48,7 @@ from lib.backends.kling_shared import (
     image_to_base64,
 )
 from lib.backends.providers import PROVIDER_KLING
+from lib.backends.transport_layer import TransportLayer
 
 logger = logging.getLogger(__name__)
 
@@ -213,6 +214,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         model: str | None = None,
         base_url: str | None = None,
         http_timeout: float = 60.0,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         super().__init__(
             auth_mode=auth_mode,
@@ -222,6 +224,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             model=model or DEFAULT_MODEL,
             base_url=base_url,
             http_timeout=http_timeout,
+            transport_layer=transport_layer,
         )
         # 按 model 取能力位（归一化前缀/大小写后精确命中）；未登记 model（bearer 透传）回落保守默认。
         self._caps = _lookup_video_caps(self._model)
@@ -438,7 +441,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         generate_audio = self._effective_audio(request, subpath=subpath)
         logger.info("调用 Kling 视频 API payload=%s", self._safe_log_view(subpath, payload))
         # 建任务与轮询与产物下载共用出站目的地闸：base_url 由用户配置，同按不可信目标处理。
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._submit_task(client, f"videos/{subpath}", payload, request)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
@@ -464,7 +467,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         """
         subpath, task_id, persisted_audio = _decode_job_id(job_id)
         generate_audio = persisted_audio if persisted_audio is not None else False
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             return await self._poll_and_build(
                 client, subpath, task_id, request, generate_audio=generate_audio, resume_job_id=job_id
             )

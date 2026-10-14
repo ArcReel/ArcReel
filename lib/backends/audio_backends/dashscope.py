@@ -40,6 +40,7 @@ from lib.backends.dashscope_shared import (
     safe_body_for_log,
 )
 from lib.backends.providers import PROVIDER_DASHSCOPE
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -98,11 +99,13 @@ class DashScopeAudioBackend:
         model: str | None = None,
         base_url: str | None = None,
         http_timeout: float = 60.0,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         self._api_key = resolve_dashscope_api_key(api_key)
         self._base_url = dashscope_native_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
+        self._transport_layer = transport_layer
 
     @property
     def name(self) -> str:
@@ -160,7 +163,7 @@ class DashScopeAudioBackend:
             len(request.text),
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             # 合成是非幂等的「计费」POST：submit_post 把歧义传输错误（请求可能已送达但响应在途丢失）
             # 转 AmbiguousSubmitError 终态失败避免重复计费；>=400 落 body 日志 + 抛 HTTPStatusError
             # （保留 status_code），交 should_retry_submit 按状态码分流——4xx fail-fast、5xx/429 重试。
@@ -192,7 +195,7 @@ class DashScopeAudioBackend:
         # 日志与异常只带去掉 query 的 URL：预签名参数在有效期内等同下载凭证
         safe_url = url.split("?", 1)[0]
         async with (
-            artifact_http_client(timeout=self._http_timeout) as client,
+            artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client,
             client.stream("GET", url) as resp,
         ):
             if resp.status_code >= 400:

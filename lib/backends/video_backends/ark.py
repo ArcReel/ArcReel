@@ -29,6 +29,7 @@ from lib.backends.backend_runtime import (
     should_retry_download,
 )
 from lib.backends.providers import PROVIDER_ARK
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -106,8 +107,10 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        transport_layer: TransportLayer | None = None,
     ):
-        self._client = create_ark_client(api_key=api_key, base_url=base_url)
+        self._client = create_ark_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
+        self._transport_layer = transport_layer
         # 续跑回放提交域名时要按同一份凭据另建 client（SDK 在构造时绑定 base_url，没有换域名的公开方法）。
         self._api_key = api_key
         # 本实例请求实际发往的域名，与 create_ark_client 同一套归一化；提交时随 job_id 一并落库。
@@ -447,7 +450,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         if not submitted or ark_base_url(submitted) == self._base_url:
             yield self._client
             return
-        client = create_ark_client(api_key=self._api_key, base_url=submitted)
+        client = create_ark_client(api_key=self._api_key, base_url=submitted, transport_layer=self._transport_layer)
         try:
             yield client
         finally:

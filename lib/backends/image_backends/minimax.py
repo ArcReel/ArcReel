@@ -34,6 +34,7 @@ from lib.backends.minimax_shared import (
     safe_body_for_log,
 )
 from lib.backends.providers import PROVIDER_MINIMAX
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -72,11 +73,13 @@ class MiniMaxImageBackend:
         model: str | None = None,
         base_url: str | None = None,
         http_timeout: float = 120.0,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         self._api_key = resolve_minimax_api_key(api_key)
         self._base_url = minimax_text_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
+        self._transport_layer = transport_layer
 
     @property
     def name(self) -> str:
@@ -143,7 +146,7 @@ class MiniMaxImageBackend:
             self._model,
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             resp = await submit_post(
                 lambda: client.post(
                     f"{self._base_url}{_IMAGE_ENDPOINT}",

@@ -24,6 +24,7 @@ from typing import Any
 
 import httpx
 
+from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.retry import NonRetryableError
 
@@ -119,17 +120,19 @@ def artifact_http_client(
     *,
     resolver: Resolver = resolve_host,
     resolve_timeout: float = DNS_RESOLVE_TIMEOUT_SECONDS,
+    transport_layer: TransportLayer | None = None,
     **kwargs: Any,
 ) -> httpx.AsyncClient:
     """构造对每次请求（含每一跳重定向）先做目的地校验的 ``httpx.AsyncClient``。
 
+    ``transport_layer`` 叠在校验之上（见 :func:`layer_async_client`），校验的是它改写后的请求。
     其余关键字参数原样交给 ``httpx.AsyncClient``。
     """
 
     async def guard(request: httpx.Request) -> None:
         await check_destination(request.url, resolver=resolver, resolve_timeout=resolve_timeout)
 
-    return httpx.AsyncClient(event_hooks={"request": [guard]}, **kwargs)
+    return layer_async_client(httpx.AsyncClient(event_hooks={"request": [guard]}, **kwargs), transport_layer)
 
 
 def _declared_length(response: httpx.Response) -> int | None:
