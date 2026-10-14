@@ -27,10 +27,9 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
-from lib.project.asset_derivatives import ensure_derivative_table
+from lib.project.asset_derivatives import derivative_table, ensure_derivative_table, find_derivative_name
 from lib.project.asset_types import (
     ASSET_SPECS,
-    DERIVATIVES_FIELD,
     asset_name_comparison_key,
     asset_name_namespace_key,
     build_asset_entry,
@@ -259,14 +258,10 @@ def _namespace_names(project: Mapping[str, Any]) -> dict[str, tuple[str, str]]:
     return names
 
 
-def _derivative_names(project: Mapping[str, Any], base: str) -> dict[str, str]:
+def _derivatives_of(project: Mapping[str, Any], base: str) -> dict[str, Any]:
     characters = project.get(ASSET_SPECS["character"].bucket_key)
     key = resolve_asset_key(characters, base) if isinstance(characters, dict) else None
-    entry = characters.get(key) if isinstance(characters, dict) and key is not None else None
-    table = entry.get(DERIVATIVES_FIELD) if isinstance(entry, Mapping) else None
-    if not isinstance(table, Mapping):
-        return {}
-    return {asset_name_comparison_key(str(name)): str(name) for name in table}
+    return derivative_table(characters.get(key) if isinstance(characters, dict) and key is not None else None)
 
 
 class _Resolver:
@@ -307,6 +302,8 @@ class _Resolver:
         self.registrations: dict[str, dict[str, _Registration]] = {asset_type: {} for asset_type in _TYPES}
         self.aliases: list[tuple[str, str, str]] = []
         self.derivatives: list[tuple[str, str, str]] = []
+        #: 本体 → 本次新登记的衍生名（值不用）；同一本体下两项新增衍生只差大小写时后一项落不了地。
+        self.claimed_derivatives: dict[str, dict[str, None]] = {}
         self.auto_merged: list[tuple[str, str, str]] = []
         self.outcomes: dict[tuple[str, str], _Outcome] = {}
         self._assets: dict[tuple[str, str], str | None] = {}
@@ -433,9 +430,18 @@ class _Resolver:
             )
             return
         derivative = validate_asset_name(item.asset_name or item.name)
-        existing = _derivative_names(self.project, base).get(asset_name_comparison_key(derivative))
+        existing = find_derivative_name(_derivatives_of(self.project, base), derivative)
         if existing is None:
-            self.derivatives.append((base, derivative, item.description))
+            claimed = self.claimed_derivatives.setdefault(base, {})
+            existing = find_derivative_name(claimed, derivative)
+            if existing is None:
+                claimed[derivative] = None
+                self.derivatives.append((base, derivative, item.description))
+        if existing is not None and asset_name_comparison_key(existing) != asset_name_comparison_key(derivative):
+            self._problem(
+                "new_asset_name_taken", index, f"衍生名「{derivative}」与「{base}」已有的衍生「{existing}」重名"
+            )
+            return
         self.outcomes[("character", key)] = _Outcome("derivative", base, existing or derivative)
 
 

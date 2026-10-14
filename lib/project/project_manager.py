@@ -3253,10 +3253,11 @@ class ProjectManager:
             FileNotFoundError: 项目不存在。
             KeyError: 本体条目不存在。
             AssetRenameNotFoundError: 该本体下没有这个衍生。
-            AssetRenameConflictError: 新衍生名已被同一本体下的另一个衍生占用。
+            AssetRenameConflictError: 新衍生名已被同一本体下的另一个衍生占用（只差大小写也算）。
             ValueError: 新名非法（``validate_asset_name``）或条目结构不是对象。
         """
         from lib.project.asset_derivative_rename import plan_derivative_sheet_relocation, rewrite_derivative_sheet_paths
+        from lib.project.asset_derivatives import find_derivative_name
 
         spec = ASSET_SPECS[asset_type]
         new_clean = validate_asset_name(new_name)
@@ -3279,8 +3280,8 @@ class ProjectManager:
             old_key = resolve_asset_key(table, old_name)
             if old_key is None:
                 raise AssetRenameNotFoundError(f"{base_key} 下不存在名为 {old_name!r} 的衍生")
-            taken = resolve_asset_key(table, new_clean)
-            if taken is not None and normalize_asset_name(taken) != normalize_asset_name(old_key):
+            taken = find_derivative_name(table, new_clean, exclude=old_key)
+            if taken is not None:
                 raise AssetRenameConflictError(taken)
 
             old_reference = derivative_reference(base_key, old_key)

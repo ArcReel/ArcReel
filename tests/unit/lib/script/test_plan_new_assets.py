@@ -47,3 +47,36 @@ def test_a_registration_exactly_matching_a_registered_asset_still_merges_into_it
 
     assert resolution.registrations == {}
     assert resolution.auto_merged == [("character", " Alice ", "Alice")]
+
+
+def _derivative(name: str, target: str = "Alice", **fields: Any) -> dict[str, Any]:
+    return _new(name, decision="derivative", target=target, description="换装", **fields)
+
+
+def test_a_derivative_differing_only_in_case_from_an_existing_derivative_is_taken() -> None:
+    project = {"characters": {"Alice": {"description": "主角", "derivatives": {"Coat": {"description": "大衣"}}}}}
+
+    assert _problem_codes(project, [_derivative("coat")]) == [("new_asset_name_taken", 0)]
+    assert _problem_codes(project, [_derivative("外套", asset_name="COAT")]) == [("new_asset_name_taken", 0)]
+
+
+def test_two_new_derivatives_differing_only_in_case_under_one_base_cannot_both_register() -> None:
+    project = {"characters": {"Alice": {"description": "主角"}}}
+
+    assert _problem_codes(project, [_derivative("Coat"), _derivative("coat")]) == [("new_asset_name_taken", 1)]
+
+
+def test_a_derivative_exactly_matching_an_existing_derivative_still_resolves_to_it() -> None:
+    project = {
+        "characters": {
+            "Alice": {
+                "description": "主角",
+                "derivatives": {"Coat": {"description": "大衣"}, "coat": {"description": "旧版登记的另一件"}},
+            }
+        }
+    }
+
+    resolution = resolve_new_assets(project, [_derivative(" coat ")])
+
+    assert resolution.derivatives == []
+    assert resolution.outcomes[("character", "coat")].visual == "Alice/coat"
