@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -100,9 +101,9 @@ class _ExitedProcess:
         return b"", b""
 
 
-def _write_output(ffmpeg_args: tuple[str, ...], payload: bytes) -> None:
-    """ffmpeg 的输出路径是末位参数。"""
-    Path(ffmpeg_args[-1]).write_bytes(payload)
+async def _write_output(ffmpeg_args: tuple[str, ...], payload: bytes) -> None:
+    """ffmpeg 的输出路径是末位参数。真实输出由子进程写，替身放进工作线程，不占事件循环。"""
+    await asyncio.to_thread(Path(ffmpeg_args[-1]).write_bytes, payload)
 
 
 def _remux_writing(payload: bytes | None, *, returncode: int = 0) -> tuple[Callable[..., Any], list[tuple[str, ...]]]:
@@ -112,7 +113,7 @@ def _remux_writing(payload: bytes | None, *, returncode: int = 0) -> tuple[Calla
     async def spawn(*args: str, **_kwargs: Any) -> _ExitedProcess:
         calls.append(args)
         if payload is not None:
-            _write_output(args, payload)
+            await _write_output(args, payload)
         return _ExitedProcess(returncode)
 
     return spawn, calls
@@ -222,7 +223,7 @@ class TestEnsureFaststart:
         proc = HangingProcess(honors_terminate=True)
 
         async def spawn(*args: str, **_kwargs: Any) -> HangingProcess:
-            _write_output(args, b"partial")
+            await _write_output(args, b"partial")
             return proc
 
         assert await ensure_faststart(video, deadline_seconds=0, resolve_ffmpeg=_ffmpeg, spawn=spawn) is False

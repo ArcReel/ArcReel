@@ -14,6 +14,7 @@ import pytest
 from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
+from lib.generation.generation_queue import DispatchProviderChanged
 from lib.infra.api_errors import BadRequestError
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
@@ -90,6 +91,22 @@ class TestDerivativeSheetGeneration:
         assert sent.size == OWNER_SHEET_SIZE
         assert close_to(sent.convert("RGB").getpixel((8, 8)), OWNER_LEFT_RGB)
         assert close_to(sent.convert("RGB").getpixel((88, 40)), OWNER_RIGHT_RGB)
+
+    async def test_provider_changed_since_claim_is_raised_before_any_paid_call(self, tmp_path, monkeypatch):
+        """执行入口解析出的 i2i 供应商与认领槽不一致：不发请求，交给 worker 改记录并回队。"""
+        pm, project_path = seed_derivative_project(tmp_path)
+        generator = build_generator(project_path, _backend())
+        _wire(monkeypatch, pm, generator)
+
+        with capture_http() as router:
+            submit = _routes(router, result_bytes=solid_png_bytes(RESULT_IMAGE_RGB))
+            with pytest.raises(DispatchProviderChanged) as caught:
+                await execute_character_derivative_task(
+                    "demo", "阿岚/战斗装", {}, task_id="task-1", claimed_provider_id="dashscope"
+                )
+
+        assert (caught.value.claimed_provider_id, caught.value.actual_provider_id) == ("dashscope", "openai")
+        assert not submit.called
 
     async def test_result_lands_on_the_derivative_coordinates(self, tmp_path, monkeypatch):
         pm, project_path = seed_derivative_project(tmp_path)

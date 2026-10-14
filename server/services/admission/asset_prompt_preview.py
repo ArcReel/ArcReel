@@ -15,7 +15,6 @@ from typing import Any
 from lib.artifacts.generation_input import (
     AssetSheetInput,
     DerivativeSheetInput,
-    InputRefused,
     asset_sheet_input,
     derivative_sheet_input,
     project_input_observation,
@@ -62,7 +61,7 @@ async def render_asset_prompt(
     ``asset_key`` / ``derivative_key`` 是资产表与衍生表里的落盘真名。
     """
 
-    def _assemble() -> AssetSheetInput | DerivativeSheetInput | InputRefused:
+    def _assemble() -> AssetSheetInput | DerivativeSheetInput:
         draft = _with_draft_description(
             project, asset_type=asset_type, asset_key=asset_key, derivative_key=derivative_key, description=description
         )
@@ -75,8 +74,8 @@ async def render_asset_prompt(
         generation_input = await asyncio.to_thread(_assemble)
     except (ValueError, TypeError, KeyError):
         return RenderedPrompt(unavailable=UNAVAILABLE_INVALID, is_text_form=True)
-    if isinstance(generation_input, InputRefused):
-        refusal = input_refusal_error(generation_input)
+    if (refused := generation_input.refusal) is not None:
+        refusal = input_refusal_error(refused)
         return RenderedPrompt(unavailable=refusal.key, unavailable_params=dict(refusal.params), is_text_form=True)
     max_reference_images, model = (
         await reference_image_limit(project_name, dict(project), project_path)

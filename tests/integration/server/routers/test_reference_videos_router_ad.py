@@ -67,7 +67,9 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
 
-    monkeypatch.setattr(router_mod, "get_project_manager", lambda: ProjectManager(tmp_path))
+    # 与生产的 get_project_manager 一样复用同一个实例：构造时会建目录，不该每次请求都在事件循环上重做。
+    project_manager = ProjectManager(tmp_path)
+    monkeypatch.setattr(router_mod, "get_project_manager", lambda: project_manager)
     from tests.fakes import fake_reference_request_projector
 
     monkeypatch.setattr(

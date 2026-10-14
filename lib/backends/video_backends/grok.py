@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
 from arcreel_market_core.video_backend_contract import (
     IMAGE_MIME_TYPES,
@@ -163,29 +164,31 @@ class GrokVideoBackend:
         if request.resolution is not None:
             generate_kwargs["resolution"] = request.resolution
 
-        if request.start_image and Path(request.start_image).exists():  # noqa: ASYNC240 -- 首帧存在性检查，本地元数据；读图转 data URI 已 to_thread 卸载
-            image_path = Path(request.start_image)
-            generate_kwargs["image_url"] = await asyncio.to_thread(image_to_data_uri, image_path, IMAGE_MIME_TYPES)
-
-        if request.end_image:
-            # 能否带尾帧由 gate_video_request 按 video_capabilities.last_frame 前置判定，到这里只剩 1.5。
-            end_path = Path(request.end_image)
-            if not end_path.is_file():  # noqa: ASYNC240 -- 尾帧存在性检查，本地元数据；读图转 data URI 已 to_thread 卸载
-                # 尾帧缺失不静默跳过：跳过后照常出片计费，成片却落不到分镜要求的结尾画面。
-                raise VideoCapabilityError(
-                    "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
-                )
-            generate_kwargs["last_frame_url"] = await asyncio.to_thread(image_to_data_uri, end_path, IMAGE_MIME_TYPES)
-
-        if request.reference_images:
-            ref_paths = list(request.reference_images)
-            existing_paths = [p for p in ref_paths if p.exists()]
-            if existing_paths:
-                ref_urls = await asyncio.gather(
-                    *[asyncio.to_thread(image_to_data_uri, p, IMAGE_MIME_TYPES) for p in existing_paths]
-                )
-                generate_kwargs["reference_image_urls"] = list(ref_urls)
+        # 存在性检查与读图转 data URI 都是阻塞 I/O，整体卸载到线程
+        generate_kwargs.update(await asyncio.to_thread(self._encode_image_inputs, request))
 
         logger.info("Grok 视频生成开始: model=%s, duration=%ds", self._model, request.duration_seconds)
         logger.info("调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(generate_kwargs))
         return await self._client.video.generate(**generate_kwargs)
+
+    def _encode_image_inputs(self, request: VideoGenerationRequest) -> dict[str, Any]:
+        """首帧 / 尾帧 / 参考图 → SDK 的 data URI 参数（同步：读本地图片，调用方放线程里跑）。"""
+        kwargs: dict[str, Any] = {}
+        if request.start_image and (image_path := Path(request.start_image)).exists():
+            kwargs["image_url"] = image_to_data_uri(image_path, IMAGE_MIME_TYPES)
+
+        if request.end_image:
+            # 能否带尾帧由 gate_video_request 按 video_capabilities.last_frame 前置判定，到这里只剩 1.5。
+            end_path = Path(request.end_image)
+            if not end_path.is_file():
+                # 尾帧缺失不静默跳过：跳过后照常出片计费，成片却落不到分镜要求的结尾画面。
+                raise VideoCapabilityError(
+                    "video_end_image_unreadable", model=self._model, name=end_path.name or str(end_path)
+                )
+            kwargs["last_frame_url"] = image_to_data_uri(end_path, IMAGE_MIME_TYPES)
+
+        if request.reference_images:
+            ref_urls = [image_to_data_uri(p, IMAGE_MIME_TYPES) for p in request.reference_images if p.exists()]
+            if ref_urls:
+                kwargs["reference_image_urls"] = ref_urls
+        return kwargs

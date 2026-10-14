@@ -11,6 +11,11 @@ frozen at generation time.
 
 Audio records are not backfilled: their basis includes the TTS settings the
 audio was synthesised with, which no legacy record carries.
+
+With ``record_gaps`` (the v17→v18 re-run, ``docs/adr/0098``) generation-input
+gaps no longer block the projection: a mixed-speech unit, a missing storyboard
+or reference image and a pending prompt are recorded as absent in the projected
+basis. Manual uploads are left alone there: their basis is the uploaded bytes.
 """
 
 from __future__ import annotations
@@ -24,7 +29,7 @@ from typing import Any
 from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.artifacts.artifact_version_provenance import parse_typed_media_version_target
 from lib.artifacts.media_artifact_currency import VideoExecutionShape, project_video_basis_components
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.infra.content_digest import canonical_json_digest
 from lib.infra.json_io import atomic_write_json, load_json
@@ -34,6 +39,7 @@ from lib.project.project_migration_report import MigrationSkippedArtifact
 from lib.project.resource_paths import resource_relative_path
 from lib.script.reference_video.execution_checkpoint import CHECKPOINT_SCHEMA_VERSION
 from lib.script.script_editor import ScriptEditError, resolve_items
+from lib.speech.speech_composition import replan_marked_only_for_mixed_speech
 
 PROVENANCE_BACKFILLED_AT_FIELD = "provenance_backfilled_at"
 """Set on a version record whose typed provenance was projected by a migration."""
@@ -50,11 +56,12 @@ class LegacyProvenanceBackfill:
     skipped: tuple[MigrationSkippedArtifact, ...]
 
 
-def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackfill:
+def backfill_legacy_media_provenance(project_dir: Path, *, record_gaps: bool = False) -> LegacyProvenanceBackfill:
     """Amend every selected legacy video record the bound scripts still point at.
 
     Writes ``versions/versions.json`` once, atomically, and only when at least
     one record was amended. Records that already parse as typed are untouched.
+    ``record_gaps`` records generation-input gaps as absent instead of skipping.
     """
 
     project_dir = Path(project_dir)
@@ -81,11 +88,15 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
             if not isinstance(assets, Mapping):
                 continue
             resource_id = str(item.get(id_field))
+            video_only = False
             if item.get("needs_replan") is True:
-                skipped.extend(_replan_skips(episode, resource_id, assets))
-                continue
+                # 需要重新规划的单位已有持久状态，不进迁移报告（ADR 0098）。只因混合发声带标记的
+                # 单位，存量视频照常补写来源、补录登记，配音不补。
+                if not (record_gaps and replan_marked_only_for_mixed_speech(kind, item)):
+                    continue
+                video_only = True
             audio_path = assets.get("narration_audio")
-            if isinstance(audio_path, str) and audio_path:
+            if isinstance(audio_path, str) and audio_path and not video_only:
                 record = _selected_record(versions_data, "audio", resource_id)
                 if record is not None and not _is_typed("audio", record):
                     skipped.append(
@@ -95,6 +106,7 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
                             resource_id=resource_id,
                             artifact_path=audio_path,
                             reason="legacy audio version has no TTS settings to project a basis from",
+                            category="legacy_audio_basis",
                         )
                     )
             video_path = assets.get("video_clip")
@@ -103,6 +115,8 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
             resource_type = "reference_videos" if kind == "video_units" else "videos"
             record = _selected_record(versions_data, resource_type, resource_id)
             if record is None or _is_typed(resource_type, record):
+                continue
+            if record_gaps and record.get("source") == MANUAL_UPLOAD_VERSION_SOURCE:
                 continue
             try:
                 amendment = _project_video_provenance(
@@ -115,6 +129,7 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
                     episode=episode,
                     script_file=script_file,
                     record=record,
+                    record_gaps=record_gaps,
                 )
             except (KeyError, OSError, TypeError, ValueError) as exc:
                 skipped.append(
@@ -134,28 +149,6 @@ def backfill_legacy_media_provenance(project_dir: Path) -> LegacyProvenanceBackf
     if amended:
         atomic_write_json(versions_path, versions_data)
     return LegacyProvenanceBackfill(amended=tuple(amended), skipped=tuple(skipped))
-
-
-def _replan_skips(episode: int, resource_id: str, assets: Mapping[str, Any]) -> list[MigrationSkippedArtifact]:
-    """Media hanging off a unit marked ``needs_replan`` is not formal; say so instead of dropping it."""
-
-    skips: list[MigrationSkippedArtifact] = []
-    for field, key in (
-        ("narration_audio", ArtifactKey.episode_audio(episode, resource_id)),
-        ("video_clip", ArtifactKey.episode_video(episode, resource_id)),
-    ):
-        path = assets.get(field)
-        if isinstance(path, str) and path:
-            skips.append(
-                MigrationSkippedArtifact(
-                    kind=key.kind.value,
-                    episode=episode,
-                    resource_id=resource_id,
-                    artifact_path=path,
-                    reason="script unit is marked needs_replan; its media is not a formal artifact",
-                )
-            )
-    return skips
 
 
 def _bound_scripts(project_dir: Path, project: dict[str, Any]) -> list[tuple[int, str, dict[str, Any]]]:
@@ -222,6 +215,7 @@ def _project_video_provenance(
     episode: int,
     script_file: str,
     record: Mapping[str, Any],
+    record_gaps: bool,
 ) -> dict[str, Any]:
     snapshot_rel = record.get("file")
     if not VersionManager.is_managed_snapshot_path(resource_type, snapshot_rel):
@@ -244,6 +238,7 @@ def _project_video_provenance(
         resource_type=resource_type,
         resource_id=resource_id,
         shape=shape,
+        record_gaps=record_gaps,
     )
     facts = VideoArtifactCurrencyFacts(
         episode=episode,

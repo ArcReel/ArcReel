@@ -98,6 +98,45 @@ describe("ProjectStatusBar", () => {
     expect(location.history?.at(-1)).toBe("/episodes/7");
   });
 
+  it("puts the upgrade notice beside the bar only while the status carries a report", async () => {
+    setProject();
+    vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(
+      workflowStatus(action("author_prompts", { episode_id: 7 }), {
+        migration_report: {
+          schema_version: 2,
+          migrated_at: "2026-10-13T00:00:00Z",
+          from_schema_version: 14,
+          to_schema_version: 18,
+          complete: true,
+          registered: {},
+          adjusted: [
+            {
+              code: "item_id_reassigned",
+              episode: 7,
+              file: "scripts/episode_7.json",
+              backup: null,
+              params: { from: "E7S01", to: "E7S02" },
+            },
+          ],
+          skipped: [],
+          acknowledged_at: null,
+        },
+      }),
+    );
+    renderBar();
+
+    expect(await screen.findByRole("button", { name: "本次升级调整了 1 项内容" })).toBeInTheDocument();
+  });
+
+  it("shows no upgrade notice without a report", async () => {
+    setProject();
+    vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(workflowStatus(action("author_prompts", { episode_id: 7 })));
+    renderBar();
+
+    expect(await screen.findByRole("button", { name: /继续第 2 集/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /本次升级调整了/ })).not.toBeInTheDocument();
+  });
+
   it("leaves an episode's own alternatives to its panel instead of handing them to the agent", async () => {
     setProject();
     vi.spyOn(API, "getWorkflowStatus").mockResolvedValue(

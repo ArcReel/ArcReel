@@ -6,6 +6,7 @@ maps the service's domain errors to problems, and reports which version is now c
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -75,12 +76,17 @@ async def select_video_version(
 ) -> ToolOutcome[dict[str, Any]]:
     unit_id = request.value.unit_id
     try:
-        project = services.projects.load_project(scope.project_name)
-        if unit_id not in project_video_unit_ids(services.projects, scope.project_name, project):
+
+        def locate_unit() -> tuple[bool, str, VersionManager]:
+            project = services.projects.load_project(scope.project_name)
+            exists = unit_id in project_video_unit_ids(services.projects, scope.project_name, project)
+            resource_type = "reference_videos" if is_reference_video_project(project) else "videos"
+            return exists, resource_type, VersionManager(services.projects.get_project_path(scope.project_name))
+
+        exists, resource_type, versions = await asyncio.to_thread(locate_unit)
+        if not exists:
             return tool_problem(f"视频单元「{unit_id}」不存在", code="video_unit_not_found")
 
-        resource_type = "reference_videos" if is_reference_video_project(project) else "videos"
-        versions = VersionManager(services.projects.get_project_path(scope.project_name))
         try:
             restored = await restore_typed_media_resource(
                 project_manager=services.projects,
@@ -91,7 +97,9 @@ async def select_video_version(
                 version=request.value.version,
             )
         except ApiError as exc:
-            return _api_problem(exc, unit_id=unit_id, versions=versions, resource_type=resource_type)
+            return await asyncio.to_thread(
+                _api_problem, exc, unit_id=unit_id, versions=versions, resource_type=resource_type
+            )
         return ToolOutcome(
             value={
                 "unit_id": unit_id,

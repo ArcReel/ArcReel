@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Callable, Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 from instructor.core import InstructorRetryException
 
@@ -31,6 +31,16 @@ _STREAM_EOF = object()
 #: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
 MP4_BYTES = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mp4-bytes"
 PNG_BYTES = b"\x89PNG\r\n\x1a\npng-bytes"
+
+
+async def write_backend_output(path: Path, data: bytes) -> None:
+    """后端替身落产物：生产后端在工作线程里写产物文件，替身照同一契约放进线程，不占事件循环。"""
+
+    def _write() -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+
+    await asyncio.to_thread(_write)
 
 
 async def empty_sdk_response_stream() -> AsyncIterator[dict[str, Any]]:
@@ -761,22 +771,34 @@ def instructor_api_call_exhausted(cause: Exception) -> InstructorRetryException:
     return exc
 
 
+class _SteppingClock:
+    """``AsyncClock`` 替身：每读一次 ``monotonic`` 推进 ``step`` 秒，``sleep`` 只让出事件循环。"""
+
+    def __init__(self, step: float) -> None:
+        self._ticks = itertools.count(0.0, step)
+
+    def monotonic(self) -> float:
+        return next(self._ticks)
+
+    async def sleep(self, delay: float) -> None:
+        await asyncio.sleep(0)
+
+
 @contextmanager
-def bounded_poll_clock(step: float = 30.0):
+def bounded_poll_clock(step: float = 30.0) -> Generator[None]:
     """轮询与重试等待的唯一替身入口：sleep 不真等，每读一次表推进 step 秒。
 
-    ``retry_async`` 的退避与 ``poll_with_retry`` 的轮询间隔都经 ``lib.infra.retry`` 的
-    ``SystemClock`` 落到这两个符号上，压缩等待无需触碰 ``_compute_wait`` 等私有符号。
+    经 ``lib.infra.retry.bind_clock`` 把步进假表绑到当前上下文，``retry_async`` 的退避与
+    ``poll_with_retry`` 的轮询间隔都改走它；绑定只作用于本上下文及其派生任务，同进程里其他用例的
+    等待与事件循环计时不受影响。
 
-    终态判定失灵时（把已就绪的任务当成"仍在跑"），真实时钟下 sleep 被 mock 掉的轮询会以近乎
-    为零的真实耗时空转到天荒地老——测试表现为挂起而不是失败。假表让这类缺陷在几十次轮询内
-    撞上 ``max_wait`` 抛 ``TimeoutError``，红得快且可读。
+    终态判定失灵时（把已就绪的任务当成"仍在跑"），不真等的轮询会以近乎为零的真实耗时空转到
+    天荒地老——测试表现为挂起而不是失败。假表让这类缺陷在几十次轮询内撞上 ``max_wait`` 抛
+    ``TimeoutError``，红得快且可读。
     """
-    clock = itertools.count(0.0, step)
-    with (
-        patch("lib.infra.retry.asyncio.sleep", new_callable=AsyncMock),
-        patch("lib.infra.retry.time.monotonic", side_effect=lambda: next(clock)),
-    ):
+    from lib.infra.retry import bind_clock
+
+    with bind_clock(_SteppingClock(step)):
         yield
 
 

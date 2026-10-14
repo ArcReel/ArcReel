@@ -8,6 +8,7 @@ schema 头部追加必填 ``project``，每次调用显式定位项目；任何�
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable, Iterable
 from copy import deepcopy
 from typing import Any
@@ -114,8 +115,9 @@ def remote_tool(
                 declaration, await invoke_unscoped_declaration(declaration, arguments, caller(), services)
             )
         request_arguments = dict(arguments)
+        project = request_arguments.pop("project", None)
         try:
-            scope = resolve_project_scope(request_arguments.pop("project", None), projects)
+            scope = await asyncio.to_thread(resolve_project_scope, project, projects)
         except (FileNotFoundError, ValueError) as exc:
             return remote_result(declaration, ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
         return remote_result(

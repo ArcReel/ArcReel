@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unicodedata
 from copy import deepcopy
 from dataclasses import replace
@@ -16,6 +17,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
+from lib.artifacts.input_gap import InputGap
 from lib.artifacts.visual_artifact_provenance import (
     GridStoryboardVisual,
     VisualReference,
@@ -27,6 +29,7 @@ from lib.artifacts.visual_artifact_provenance import (
     build_storyboard_video_artifact_visual_basis,
     project_basis_style_description,
 )
+from lib.project.asset_derivatives import build_derivative_sheet_basis
 from lib.script.reference_video.request_projection import ResolvedReferenceAsset
 from lib.script.script_models import ReferenceResource
 
@@ -923,6 +926,126 @@ def test_storyboard_video_basis_refuses_a_pending_prompt(tmp_path: Path) -> None
             resource_id="E1S01",
             visual_prompt=None,
             storyboard_image=start,
+            end_frame_image=None,
+            aspect_ratio="16:9",
+        )
+
+
+#: 缺口记为缺席之前各类依据的固定摘要：输入完整时依据逐字节不变，已登记条目不因口径变化翻过期。
+_COMPLETE_INPUT_DIGESTS = {
+    "asset": "sha256-v1:cef57d4f7802240b4d935f5bdeaf53bb2fc9f26d38f3b64f29895d17db3f8d8f",
+    "storyboard": "sha256-v1:4ada14699d5753069b4fb512ca31c1f1d862e3ace18d81b9835256552246f668",
+    "derivative": "sha256-v1:7ef038ef4a89c540b44daad246ec90c458c664ac950a818bb0a1815f5ee64e7d",
+    "grid": "sha256-v1:8711b1b53d6e2f22e4ec2e6da5c46fc796762bd00ea487af866ba5515b6cd13a",
+    "video_visual": "sha256-v1:ea1d43fdc619a5f06dbb7bce4d18ff6fc6c5291dcb4ac93159428f6f74dd1c00",
+}
+
+
+def _complete_input_digests(tmp_path: Path, *, absent: tuple[InputGap, ...] = ()) -> dict[str, str]:
+    image = tmp_path / "a.png"
+    end_frame = tmp_path / "b.png"
+    image.write_bytes(b"image-a")
+    end_frame.write_bytes(b"image-b")
+    sheet = VisualReference(path=image, role="asset_sheet", logical_type="character", logical_id="张三", kind="sheet")
+    original = VisualReference(path=image, role="source", logical_type="character", logical_id="张三", kind="original")
+    return {
+        "asset": build_asset_sheet_visual_basis(
+            asset_type="character",
+            asset_id="张三",
+            description="主角",
+            style="写实",
+            style_description="电影感",
+            aspect_ratio="16:9",
+            references=(original,),
+            absent=absent,
+        ).digest,
+        "storyboard": build_storyboard_image_visual_basis(
+            resource_id="E1S1",
+            image_prompt={"scene": "画面"},
+            style="写实",
+            style_description="电影感",
+            aspect_ratio="9:16",
+            references=(sheet,),
+            absent=absent,
+        ).digest,
+        "derivative": build_derivative_sheet_basis(
+            owner_name="张三",
+            derivative_name="劲装",
+            description="换上劲装",
+            aspect_ratio="16:9",
+            source=sheet,
+            absent=absent,
+        ).digest,
+        "grid": build_grid_composite_visual_basis(
+            group_id="grid_1",
+            members=[GridStoryboardVisual("E1S1", {"scene": "画面"}, {"action": "走"})],
+            rows=1,
+            columns=1,
+            style="写实",
+            grid_aspect_ratio="9:16",
+            style_description="电影感",
+            references=(sheet,),
+            absent=absent,
+        ).digest,
+        "video_visual": build_storyboard_video_artifact_visual_basis(
+            resource_id="E1S1",
+            visual_prompt={"action": "走", "camera_motion": "Static"},
+            storyboard_image=image,
+            end_frame_image=end_frame,
+            aspect_ratio="9:16",
+            absent=absent,
+        ).digest,
+    }
+
+
+def test_complete_inputs_keep_the_digests_from_before_gaps_were_recorded(tmp_path: Path) -> None:
+    """输入完整时依据不写缺席键，摘要与缺口改为记录之前的固定样本相同。"""
+    assert _complete_input_digests(tmp_path) == _COMPLETE_INPUT_DIGESTS
+
+
+def test_a_recorded_gap_changes_every_basis_digest(tmp_path: Path) -> None:
+    """同样的输入值多一处缺席记录，依据就不同：补齐缺口让按缺口登记的产物判过期。"""
+    gapped = _complete_input_digests(tmp_path, absent=(InputGap("sheet_missing", "prop", "铜铃"),))
+    for kind, digest in gapped.items():
+        assert digest != _COMPLETE_INPUT_DIGESTS[kind], kind
+
+
+def test_storyboard_image_basis_records_a_pending_prompt_only_as_a_named_gap() -> None:
+    """待补提示词的分镜图依据只在调用方点名缺口时投影，提示词记为 None、缺口进缺席记录。"""
+    basis = build_storyboard_image_visual_basis(
+        resource_id="E1S01",
+        image_prompt=None,
+        style="水墨",
+        style_description="柔光",
+        aspect_ratio="16:9",
+        references=(),
+        absent=(InputGap("prompt_pending"),),
+    )
+
+    inputs = json.loads(basis.normalized_bytes())["inputs"]
+    assert inputs["image_prompt"] is None
+    assert inputs["absent"] == [{"code": "prompt_pending"}]
+
+
+def test_storyboard_video_basis_without_a_storyboard_records_the_gap(tmp_path: Path) -> None:
+    """分镜图不可用时视频依据只在点名缺口时投影，不取证首帧。"""
+    basis = build_storyboard_video_artifact_visual_basis(
+        resource_id="E1S01",
+        visual_prompt={"action": "推门"},
+        storyboard_image=None,
+        end_frame_image=None,
+        aspect_ratio="16:9",
+        absent=(InputGap("generate_storyboard_first", "storyboard", "E1S01"),),
+    )
+
+    inputs = json.loads(basis.normalized_bytes())["inputs"]
+    assert inputs["absent"] == [{"code": "generate_storyboard_first", "type": "storyboard", "id": "E1S01"}]
+    assert inputs["frames"] == []
+    with pytest.raises(ValueError, match="must record the gap"):
+        build_storyboard_video_artifact_visual_basis(
+            resource_id="E1S01",
+            visual_prompt={"action": "推门"},
+            storyboard_image=None,
             end_frame_image=None,
             aspect_ratio="16:9",
         )

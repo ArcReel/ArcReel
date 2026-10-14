@@ -290,6 +290,7 @@ async def execute_image_edit_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """执行图片编辑任务：读 current 图 → i2i → 新版本覆盖 current → 按资源类型写回。
 
@@ -455,6 +456,7 @@ async def execute_image_edit_task(
         user_id=user_id,
         task_id=task_id,
         frozen_references=frozen_references,
+        claimed_provider_id=claimed_provider_id,
         plan=FormalImagePlan(
             resource_type=version_resource_type,
             resource_id=resource_key,

@@ -19,7 +19,7 @@ from server.routers import files, versions
 from server.services.tasks import formal_image_commit, generation_tasks
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
-from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
+from tests.integration.server.services.tasks.generation_tasks_support import SheetGenerator, fake_resolve_ctx
 
 _KEY = ArtifactKey.asset_sheet("character", "Alice")
 
@@ -47,22 +47,7 @@ def _upload(client: TestClient, content: bytes) -> str:
     return response.json()["path"]
 
 
-class _SheetGenerator:
-    """按生产口径经正式图活化回调提交一张生成的资产图。"""
-
-    def __init__(self, project_dir: Path, content: bytes) -> None:
-        self.versions = VersionManager(project_dir)
-        self._project_dir = project_dir
-        self._content = content
-
-    async def generate_image_async(self, *, resource_type, resource_id, commit_formal_output, **_kwargs):
-        current = self._project_dir / resource_type / f"{resource_id}.png"
-        staged = self._project_dir / resource_type / f".{resource_id}.staged.png"
-        staged.write_bytes(self._content)
-        return current, commit_formal_output(staged, current, {})
-
-
-def _serve_generation(monkeypatch, pm: ProjectManager, generator: _SheetGenerator) -> None:
+def _serve_generation(monkeypatch, pm: ProjectManager, generator: SheetGenerator) -> None:
     resolve_ctx = fake_resolve_ctx(generator)
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", resolve_ctx)
@@ -128,7 +113,7 @@ async def test_generating_after_upload_returns_the_sheet_to_its_generation_basis
     client, pm, project_dir = _client(monkeypatch, tmp_path, description="银发少女")
     with client:
         _upload(client, solid_png_bytes((10, 10, 200)))
-    _serve_generation(monkeypatch, pm, _SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
+    _serve_generation(monkeypatch, pm, SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
 
     result = await generation_tasks.execute_character_task("demo", "Alice", {})
 
@@ -143,7 +128,7 @@ async def test_generating_a_sheet_without_description_is_still_refused_after_an_
     client, pm, project_dir = _client(monkeypatch, tmp_path, description="")
     with client:
         sheet_path = _upload(client, solid_png_bytes((120, 30, 30)))
-    _serve_generation(monkeypatch, pm, _SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
+    _serve_generation(monkeypatch, pm, SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
 
     with pytest.raises(BadRequestError) as excinfo:
         await generation_tasks.execute_character_task("demo", "Alice", {})
@@ -168,7 +153,7 @@ async def test_restoring_the_uploaded_version_claims_it_by_the_upload_again(tmp_
     uploaded = solid_png_bytes((200, 200, 10))
     with client:
         _upload(client, uploaded)
-    _serve_generation(monkeypatch, pm, _SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
+    _serve_generation(monkeypatch, pm, SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
     await generation_tasks.execute_character_task("demo", "Alice", {})
     monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
     [upload_version] = [

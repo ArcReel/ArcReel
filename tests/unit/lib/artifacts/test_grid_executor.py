@@ -1,5 +1,6 @@
 """Tests for grid generation task executor."""
 
+import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -70,9 +71,22 @@ class _FormalVersions:
         return {"versions": [{"version": self.version, "created_at": "2026-01-01T00:00:00Z"}]}
 
 
-def _commit_formal(kwargs: dict, image_path: Path) -> tuple[Path, int]:
-    """与 MediaGenerator 一样经 formal_output 的活化回调提交，返回回调给出的版本号。"""
-    return image_path, kwargs["commit_formal_output"](image_path, image_path, {})
+async def _commit_formal(kwargs: dict, image_path: Path) -> tuple[Path, int]:
+    """与 MediaGenerator 一样经 formal_output 的活化回调提交，返回回调给出的版本号。
+
+    提交回调会写正式文件，MediaGenerator 经 run_noninterruptible_sync 在工作线程里调用，替身同样放进线程。
+    """
+    version = await asyncio.to_thread(kwargs["commit_formal_output"], image_path, image_path, {})
+    return image_path, version
+
+
+def _committing_to(image_path: Path):
+    """``generate_image_async`` 的 AsyncMock side_effect：按生产口径提交到 ``image_path``。"""
+
+    async def _generate(**kwargs) -> tuple[Path, int]:
+        return await _commit_formal(kwargs, image_path)
+
+    return _generate
 
 
 @pytest.fixture
@@ -245,7 +259,7 @@ class TestExecuteGridTask:
 
         mock_generator = MagicMock()
         mock_generator.versions = _FormalVersions()
-        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
+        mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -291,6 +305,108 @@ class TestExecuteGridTask:
         assert updated_grid_data["grid_image_path"] == f"grids/{grid.id}.png"
         # 联合图内容更新后落格状态复位，等待显式切分
         assert updated_grid_data["split_at"] is None
+
+    @pytest.mark.parametrize("status_before_claim", ["pending", "failed"])
+    async def test_provider_changed_since_claim_restores_the_grid_and_skips_the_provider(
+        self, project_with_script, grid_json, status_before_claim
+    ):
+        """执行入口解析出的供应商与认领槽不一致：不调供应商，宫格记录回到领取前的状态，等任务回队重领。"""
+        from lib.generation.generation_queue import DispatchProviderChanged
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        record = project_with_script / "grids" / f"{grid_json.id}.json"
+        stored = json.loads(record.read_text(encoding="utf-8"))
+        stored["status"] = status_before_claim
+        stored["error_message"] = "上次失败" if status_before_claim == "failed" else None
+        record.write_text(json.dumps(stored, ensure_ascii=False), encoding="utf-8")
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock()
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.tasks.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator, provider="openai"),
+            ),
+        ):
+            mock_pm_fn.return_value.get_project_path.return_value = project_with_script
+            mock_pm_fn.return_value.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            mock_pm_fn.return_value.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+            )
+
+            with pytest.raises(DispatchProviderChanged) as caught:
+                await execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                    claimed_provider_id="gemini-aistudio",
+                )
+
+        assert (caught.value.claimed_provider_id, caught.value.actual_provider_id) == ("gemini-aistudio", "openai")
+        mock_generator.generate_image_async.assert_not_called()
+        restored = json.loads(record.read_text(encoding="utf-8"))
+        assert (restored["status"], restored["error_message"]) == (stored["status"], stored["error_message"])
+
+    async def test_reference_snapshots_are_cleaned_when_cancelled_while_freezing(self, project_with_script, grid_json):
+        """取消落在线程里冻结参考图的那一程：冻结完成后照样回收快照目录，不调供应商。"""
+        import threading
+
+        from server.services.tasks.generation_tasks import execute_grid_task
+
+        freezing = threading.Event()
+        release = threading.Event()
+        cleaned: list[bool] = []
+
+        class _Frozen:
+            def cleanup(self) -> None:
+                cleaned.append(True)
+
+        def _blocking_freeze(*_args, **_kwargs):
+            freezing.set()
+            release.wait(5)
+            return _Frozen()
+
+        mock_generator = MagicMock()
+        mock_generator.generate_image_async = AsyncMock()
+
+        with (
+            patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
+            patch(
+                "server.services.tasks.generation_tasks.resolve_generation_context",
+                new=_image_ctx(mock_generator),
+            ),
+            patch("server.services.tasks.generation_tasks.freeze_image_references", new=_blocking_freeze),
+        ):
+            mock_pm_fn.return_value.get_project_path.return_value = project_with_script
+            mock_pm_fn.return_value.load_project.return_value = json.loads(
+                (project_with_script / "project.json").read_text(encoding="utf-8")
+            )
+            mock_pm_fn.return_value.load_script.return_value = json.loads(
+                (project_with_script / "scripts" / "episode_1.json").read_text(encoding="utf-8")
+            )
+
+            task = asyncio.create_task(
+                execute_grid_task(
+                    "test-project",
+                    grid_json.id,
+                    {"prompt": "test grid prompt", "script_file": "episode_1.json"},
+                    user_id="test-user",
+                )
+            )
+            assert await asyncio.to_thread(freezing.wait, 5)
+            task.cancel()
+            await asyncio.sleep(0)
+            release.set()
+
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert cleaned == [True]
+        mock_generator.generate_image_async.assert_not_called()
 
     @staticmethod
     def _complete(project_with_script, grid, *, registered: bool):
@@ -370,7 +486,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 captured.append(kwargs)
-                return _commit_formal(kwargs, grid_image_path)
+                return await _commit_formal(kwargs, grid_image_path)
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -442,7 +558,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 captured.append(kwargs)
-                return _commit_formal(kwargs, grid_image_path)
+                return await _commit_formal(kwargs, grid_image_path)
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -536,7 +652,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 captured.append(kwargs)
-                return _commit_formal(kwargs, grid_image_path)
+                return await _commit_formal(kwargs, grid_image_path)
 
         hook_claim_recheck(
             monkeypatch,
@@ -626,7 +742,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 script["segments"][0]["image_prompt"] = "latest prompt"
-                return _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
+                return await _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
 
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
@@ -706,7 +822,7 @@ class TestExecuteGridTask:
 
             async def generate_image_async(self, **kwargs):
                 captured_prompt.append(kwargs["prompt"])
-                return _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
+                return await _commit_formal(kwargs, project_with_script / "grids" / f"{grid_json.id}.png")
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -777,7 +893,7 @@ class TestExecuteGridTask:
         Image.new("RGB", (400, 400), color=(128, 200, 100)).save(grid_image_path, format="PNG")
         mock_generator = MagicMock()
         mock_generator.versions = _FormalVersions(version=2)
-        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
+        mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -835,7 +951,7 @@ class TestExecuteGridTask:
 
         mock_generator = MagicMock()
         mock_generator.versions = _FormalVersions()
-        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
+        mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         with (
             patch("server.services.tasks.generation_tasks.get_project_manager") as mock_pm_fn,
@@ -932,7 +1048,7 @@ class TestGridMetadataT2II2ISlotSelection:
 
         mock_generator = MagicMock()
         mock_generator.versions = _FormalVersions()
-        mock_generator.generate_image_async = AsyncMock(side_effect=lambda **kw: _commit_formal(kw, grid_image_path))
+        mock_generator.generate_image_async = AsyncMock(side_effect=_committing_to(grid_image_path))
 
         async def _cap_aware_resolve(project_name, req_payload, *, image, **kwargs):
             # generation_type-aware：grid 任务按 reference_images 是否非空选 t2i/i2i 槽，

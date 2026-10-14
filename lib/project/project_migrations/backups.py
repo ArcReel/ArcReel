@@ -1,7 +1,8 @@
 """Versioned backups a migration step writes before touching one of its inputs.
 
 Backup names are ``<file>.bak.v<from_version>-<timestamp>``; the runner's
-cleanup recognises exactly this shape. A backup whose content already exists
+cleanup recognises exactly this shape. Kept copies (``<file>.kept.v<N>-<ts>``)
+hold the side a legacy-shape normalization set aside and are never cleaned up. A backup whose content already exists
 for the same starting version is not written again, so a migration that keeps
 failing on an unchanged project leaves one backup, not one per attempt.
 """
@@ -60,4 +61,36 @@ def ensure_versioned_backup(source: Path, from_version: int) -> Path | None:
     return backup
 
 
-__all__ = ["ensure_versioned_backup", "versioned_backup_candidates", "versioned_backup_name"]
+def kept_copy_name(base_name: str, from_version: int, ts: int) -> str:
+    """例如 script_plan_segments.json → script_plan_segments.json.kept.v9-1712345678。"""
+
+    return f"{base_name}.kept.v{from_version}-{ts}"
+
+
+def set_aside_as_kept_copy(source: Path, from_version: int, *, copy: bool = False) -> Path:
+    """Move (or copy) ``source`` to a kept copy beside it and return the copy's path.
+
+    A kept copy holds the side a legacy-shape normalization did not keep. Unlike
+    versioned backups it is never cleaned up: it is the user's content, and the
+    migration report names it. No reader picks it up under its new name.
+    """
+
+    ts = int(time.time())
+    target = source.with_name(kept_copy_name(source.name, from_version, ts))
+    while target.exists():
+        ts += 1
+        target = source.with_name(kept_copy_name(source.name, from_version, ts))
+    if copy:
+        atomic_write_bytes(target, source.read_bytes())
+    else:
+        source.replace(target)
+    return target
+
+
+__all__ = [
+    "ensure_versioned_backup",
+    "kept_copy_name",
+    "set_aside_as_kept_copy",
+    "versioned_backup_candidates",
+    "versioned_backup_name",
+]

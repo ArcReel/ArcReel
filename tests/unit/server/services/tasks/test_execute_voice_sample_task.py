@@ -8,9 +8,11 @@ from pathlib import Path
 import pytest
 
 from lib.config.resolver import ProviderModel
+from lib.generation.generation_queue import DispatchProviderChanged
 from lib.project.resource_paths import resource_relative_path
 from server.services.tasks import generation_tasks
 from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
+from tests.fakes import write_backend_output
 
 
 def _audio_ctx(generator):
@@ -54,10 +56,9 @@ class _FakeAudioGenerator:
         self.audio_calls.append(
             {"text": text, "resource_id": resource_id, "voice": voice, "speed": speed, "task_id": task_id}
         )
-        audio_rel = resource_relative_path("audio", resource_id)
-        path = self._project_path / audio_rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(self._content)
+        path = self._project_path / resource_relative_path("audio", resource_id)
+        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
+        await write_backend_output(path, self._content)
         return path, 1
 
     def get_versions(self, resource_type, resource_id):
@@ -102,6 +103,21 @@ class TestExecuteCharacterVoiceSampleTask:
         assert result["voice"] == "Cherry"
         assert result["duration_seconds"] == 5.0
         assert result["file_path"] == resource_relative_path("audio", "voice_sample__艾莉__task-1")
+
+    async def test_provider_changed_since_claim_is_raised_before_synthesis(self, voice_sample_env):
+        """执行入口解析出的音频供应商与认领槽不一致：不合成，交给 worker 改记录并回队。"""
+        _pm, gen = voice_sample_env
+        with pytest.raises(DispatchProviderChanged) as caught:
+            await generation_tasks.execute_character_voice_sample_task(
+                "demo",
+                "艾莉",
+                {"prompt": "你好，这是一段声音示例。", "voice": "Cherry"},
+                task_id="task-1",
+                claimed_provider_id="openai",
+            )
+
+        assert (caught.value.claimed_provider_id, caught.value.actual_provider_id) == ("openai", "dashscope")
+        assert gen.audio_calls == []
 
     async def test_resource_id_namespaced_away_from_narration_segments(self, voice_sample_env):
         # 旁白 segment id 与角色名可能撞字面量；voice_sample_resource_id 前缀确保命名空间隔离。

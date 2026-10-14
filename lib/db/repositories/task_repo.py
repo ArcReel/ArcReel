@@ -922,8 +922,8 @@ class TaskRepository(BaseRepository):
     async def persist_execution_provider_id(self, task_id: str, provider_id: str) -> None:
         """改写 ``task.provider_id`` 这份排队记录，worker 的池满过滤与槽位归属都按它走。
 
-        写入时机：认领时推算了 provider 的任务（没有记录的存量视频任务、池满回队的其它任务）
-        写回推算值；执行入口按项目现状解析出的 provider 与记录不一致时，回队前写入实际值，
+        写入时机：认领时推算了 provider 的任务（没有记录的存量任务，或记录的 provider 已不支持该
+        媒体类型）写回推算值；执行入口按项目现状解析出的 provider 与记录不一致时，回队前写入实际值，
         下一次认领即落到新 provider 的槽位。
         它不锁定 model，也不是执行身份。不带 WHERE 状态守卫，与 ``persist_provider_job_id`` 同理。
         """

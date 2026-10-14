@@ -1,7 +1,9 @@
 """Tests for formal_image_commit."""
 
+import asyncio
 import json
 import threading
+from typing import cast
 
 import pytest
 
@@ -10,6 +12,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactKey,
     ProjectArtifactManifestAdapter,
 )
+from lib.artifacts.generation_input import FrozenGenerationInput
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.tasks import formal_image_commit, generation_tasks
@@ -22,6 +25,7 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
     prepare_files,
     register_asset_sheet_claims,
     register_stale_visual_claim,
+    stage_and_commit,
 )
 
 
@@ -404,10 +408,15 @@ class TestGenerationTasks:
                 self.reference_bytes: list[bytes] = []
 
             async def generate_image_async(self, **kwargs):
-                character_path.write_bytes(b"changed-character")
-                previous_path.write_bytes(b"changed-previous")
                 refs = kwargs["reference_images"]
-                self.reference_bytes = [(ref["image"] if isinstance(ref, dict) else ref).read_bytes() for ref in refs]
+
+                def _race_then_read() -> list[bytes]:
+                    # 生成期间另一方改写了原始参考图；供应商读到的应是冻结时的字节
+                    character_path.write_bytes(b"changed-character")
+                    previous_path.write_bytes(b"changed-previous")
+                    return [(ref["image"] if isinstance(ref, dict) else ref).read_bytes() for ref in refs]
+
+                self.reference_bytes = await asyncio.to_thread(_race_then_read)
                 return await super().generate_image_async(**kwargs)
 
         fake_generator = _RacingGenerator()
@@ -440,8 +449,7 @@ class TestGenerationTasks:
                 self.versions = self
 
             async def generate_image_async(self, **kwargs):
-                staged.write_bytes(b"generated")
-                version = kwargs["commit_formal_output"](staged, current, {})
+                version = await stage_and_commit(kwargs["commit_formal_output"], staged, current, b"generated", {})
                 return current, version
 
             def commit_staged_version(self, **kwargs):
@@ -616,11 +624,8 @@ class TestGenerationTasks:
             async def generate_image_async(self, **kwargs):
                 # 直接调用（非队列任务）没有 task_id：staging 身份由生成器内部造，替身自造一个。
                 staged = task_image_staging_path(current, kwargs["task_id"] or "inline-test")
-                staged.write_bytes(b"generated-sheet")
-                version = kwargs["commit_formal_output"](
-                    staged,
-                    current,
-                    {"aspect_ratio": "16:9"},
+                version = await stage_and_commit(
+                    kwargs["commit_formal_output"], staged, current, b"generated-sheet", {"aspect_ratio": "16:9"}
                 )
                 return current, version
 
@@ -673,8 +678,9 @@ class TestGenerationTasks:
             async def generate_image_async(self, **kwargs):
                 assert kwargs["formal_output"] is True
                 staged = task_image_staging_path(current, kwargs["task_id"])
-                staged.write_bytes(b"new-sheet")
-                version = kwargs["commit_formal_output"](staged, current, {"aspect_ratio": "16:9"})
+                version = await stage_and_commit(
+                    kwargs["commit_formal_output"], staged, current, b"new-sheet", {"aspect_ratio": "16:9"}
+                )
                 return current, version
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
@@ -696,3 +702,38 @@ class TestGenerationTasks:
         assert current.read_bytes() == b"old-sheet"
         assert versions.get_current_version("characters", "Alice") == old_version
         assert pm.load_project("demo")["characters"]["Alice"].get("character_sheet") == ""
+
+
+async def test_frozen_generation_input_cleans_snapshots_when_cancelled_during_freeze():
+    """取消落在线程里冻结的那一程：冻结完成后照样回收参考图快照，不进入正文。"""
+    freezing = threading.Event()
+    release = threading.Event()
+    cleaned: list[bool] = []
+    entered: list[bool] = []
+
+    class _References:
+        def cleanup(self) -> None:
+            cleaned.append(True)
+
+    class _Frozen:
+        references = _References()
+
+    def _freeze() -> FrozenGenerationInput:
+        freezing.set()
+        release.wait(5)
+        return cast(FrozenGenerationInput, _Frozen())
+
+    async def _use() -> None:
+        async with formal_image_commit.frozen_generation_input(_freeze):
+            entered.append(True)
+
+    task = asyncio.create_task(_use())
+    await asyncio.to_thread(freezing.wait, 5)
+    task.cancel()
+    await asyncio.sleep(0)
+    release.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cleaned == [True]
+    assert entered == []

@@ -1,7 +1,7 @@
 """登记依据与期望依据同源：执行器经 ``freeze()`` 得到的依据等于目标态规划器经 ``expected_basis()`` 投影的依据。
 
 同一份项目覆盖衍生引用、商品（资产图 + 原图）与上一分镜图；激活模式下规划器看得到本轮已规划的
-资产图与上一分镜图，引用了未能登记资产图的分镜图不登记、进迁移报告。
+资产图与上一分镜图。生成输入有缺口的目标照常登记，缺口记在依据里，生成仍被拒（ADR 0098）。
 """
 
 from __future__ import annotations
@@ -22,8 +22,6 @@ from lib.artifacts.artifact_activation import (
 )
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactInputClaim, ArtifactKey
 from lib.artifacts.generation_input import (
-    AssetSheetInput,
-    DerivativeSheetInput,
     StoryboardImageInput,
     asset_sheet_input,
     derivative_sheet_input,
@@ -150,7 +148,7 @@ def _executor_input(project_dir: Path) -> StoryboardImageInput:
         resource_id="E1S02",
         observation=project_input_observation(project_dir),
     )
-    assert isinstance(generation_input, StoryboardImageInput), generation_input
+    assert not generation_input.gaps, generation_input
     return generation_input
 
 
@@ -191,23 +189,51 @@ def test_activation_sees_the_sheets_and_previous_storyboard_planned_in_the_same_
     assert plan.entries[TARGET_KEY].basis_digest == _registration_basis(project_dir).digest
 
 
-def test_activation_skips_a_storyboard_whose_referenced_sheet_cannot_be_registered(tmp_path: Path) -> None:
+def _absent(basis: ArtifactBasis | None) -> list[object]:
+    assert basis is not None
+    inputs = basis.to_evidence_dict()["inputs"]
+    assert isinstance(inputs, dict)
+    return inputs.get("absent", [])
+
+
+def test_activation_registers_a_sheet_and_its_storyboard_despite_an_empty_description(tmp_path: Path) -> None:
+    """生成缺口只拦生成：描述为空的资产图与引用它的分镜图照常登记，缺口记在依据里。"""
+
     project_dir = _project_dir(tmp_path, target_generated=True)
     project = _read_json(project_dir / "project.json")
     project["scenes"]["祠堂"]["description"] = ""
     _write_json(project_dir / "project.json", project)
+    sheet_key = ArtifactKey.asset_sheet("scene", "祠堂")
 
     plan = plan_artifact_target_state(project_dir)
+    activate_artifact_target_state(project_dir, bump_schema=False, plan=plan)
 
-    assert ArtifactKey.asset_sheet("scene", "祠堂") not in plan.entries
-    assert TARGET_KEY not in plan.entries
-    assert ArtifactKey.episode_storyboard(1, "E1S01") in plan.entries
-    [skipped] = [item for item in plan.skipped if item.resource_id == "E1S02"]
-    assert skipped.artifact_path == "storyboards/scene_E1S02.png"
-    assert "reference_asset_missing" in skipped.reason
+    assert {sheet_key, TARGET_KEY} <= set(plan.entries)
+    assert not [item for item in plan.skipped if item.resource_id in {"祠堂", "E1S02"}]
+    assert _absent(resolve_current_artifact_basis(project_dir, sheet_key)) == [
+        {"code": "asset_description_required", "type": "scene", "id": "祠堂"}
+    ]
+    resolver = ArtifactCurrencyResolver(project_dir)
+    assert resolver.compare(sheet_key, artifact_path="scenes/祠堂.png").status.value == "current"
+    assert resolver.compare(TARGET_KEY, artifact_path="storyboards/scene_E1S02.png").status.value == "current"
+    # 生成仍被拒，拒绝码不变。
+    project = _read_json(project_dir / "project.json")
+    refusal = asset_sheet_input(
+        project, asset_type="scene", name="祠堂", observation=project_input_observation(project_dir)
+    ).refusal
+    assert refusal is not None
+    assert refusal.codes == ("asset_description_required",)
+
+    project["scenes"]["祠堂"]["description"] = "古旧祠堂"
+    _write_json(project_dir / "project.json", project)
+
+    resolver = ArtifactCurrencyResolver(project_dir)
+    assert resolver.compare(sheet_key, artifact_path="scenes/祠堂.png").status.value == "stale"
 
 
-def test_activation_reports_pending_prompt_and_reference_gap_together(tmp_path: Path) -> None:
+def test_activation_registers_a_storyboard_with_a_pending_prompt_and_an_unregistered_reference(
+    tmp_path: Path,
+) -> None:
     project_dir = _project_dir(tmp_path, target_generated=True)
     script_path = project_dir / "scripts" / "episode_1.json"
     script = _read_json(script_path)
@@ -216,10 +242,27 @@ def test_activation_reports_pending_prompt_and_reference_gap_together(tmp_path: 
     _write_json(script_path, script)
 
     plan = plan_artifact_target_state(project_dir)
+    activate_artifact_target_state(project_dir, bump_schema=False, plan=plan)
 
-    [skipped] = [item for item in plan.skipped if item.resource_id == "E1S02"]
-    assert "script_prompt_pending" in skipped.reason
-    assert "reference_asset_unregistered" in skipped.reason
+    assert TARGET_KEY in plan.entries
+    assert _absent(resolve_current_artifact_basis(project_dir, TARGET_KEY)) == [
+        {"code": "script_prompt_pending", "id": "E1S02"},
+        {"code": "reference_asset_unregistered", "type": "character", "id": "未登记角色"},
+    ]
+    refusal = _executor_input_refusal(project_dir)
+    assert refusal == ("script_prompt_pending", "reference_asset_unregistered")
+
+
+def _executor_input_refusal(project_dir: Path) -> tuple[str, ...]:
+    refusal = storyboard_image_input(
+        _read_json(project_dir / "project.json"),
+        _read_json(project_dir / "scripts" / "episode_1.json"),
+        episode=1,
+        resource_id="E1S02",
+        observation=project_input_observation(project_dir),
+    ).refusal
+    assert refusal is not None
+    return refusal.codes
 
 
 @pytest.mark.parametrize(
@@ -262,10 +305,10 @@ def _sheet_registration_basis(project_dir: Path, key: ArtifactKey, reference_cou
     if "/" in name:
         owner, derivative = name.split("/")
         generation_input = derivative_sheet_input(project, owner=owner, derivative=derivative, observation=observation)
-        assert isinstance(generation_input, DerivativeSheetInput), generation_input
+        assert not generation_input.gaps, generation_input
     else:
         generation_input = asset_sheet_input(project, asset_type=asset_type, name=name, observation=observation)
-        assert isinstance(generation_input, AssetSheetInput), generation_input
+        assert not generation_input.gaps, generation_input
     assert len(generation_input.references) == reference_count
     with generation_input.freeze(max_reference_images=1, model="m", bind_claims=_unbound) as frozen:
         return frozen.basis
@@ -298,18 +341,21 @@ def test_activation_registers_sheets_and_derivatives_planned_after_their_owner(
     assert plan.entries[key].basis_digest == _sheet_registration_basis(project_dir, key, reference_count).digest
 
 
-def test_activation_skips_a_derivative_whose_owner_sheet_cannot_be_registered(tmp_path: Path) -> None:
+def test_activation_registers_a_derivative_whose_owner_sheet_lost_its_original(tmp_path: Path) -> None:
     project_dir = _project_dir(tmp_path)
     (project_dir / "characters" / "refs" / "张三.png").unlink()
 
     plan = plan_artifact_target_state(project_dir)
+    activate_artifact_target_state(project_dir, bump_schema=False, plan=plan)
 
     owner, derivative = ArtifactKey.asset_sheet("character", "张三"), ArtifactKey.asset_sheet("character", "张三/劲装")
-    assert owner not in plan.entries
-    assert derivative not in plan.entries
-    reasons = {item.resource_id: item.reason for item in plan.skipped if item.kind == "asset-sheet"}
-    assert "asset_original_missing" in reasons["张三"]
-    assert "derivative_owner_sheet_missing" in reasons["张三/劲装"]
+    assert {owner, derivative} <= set(plan.entries)
+    assert not [item for item in plan.skipped if item.kind == "asset-sheet"]
+    assert _absent(resolve_current_artifact_basis(project_dir, owner)) == [
+        {"code": "asset_original_missing", "type": "character", "id": "张三"}
+    ]
+    # 本体资产图已登记可用，衍生的生成输入完整。
+    assert _absent(resolve_current_artifact_basis(project_dir, derivative)) == []
 
 
 def test_moving_a_shot_stales_the_storyboards_whose_previous_storyboard_changed(tmp_path: Path) -> None:

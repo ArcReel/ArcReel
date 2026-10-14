@@ -1,5 +1,6 @@
 """server.services.tasks.generation_tasks 测试共享的替身与 helper。"""
 
+import asyncio
 import json
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,6 +11,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifest,
     ProjectArtifactManifestAdapter,
 )
+from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ProviderModel
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.tasks import generation_tasks
@@ -268,6 +270,34 @@ class _FakePM:
         return self.project
 
 
+async def stage_and_commit(commit_formal_output, staged: Path, current: Path, content: bytes, metadata: dict) -> int:
+    """替身生成器落盘产出并提交正式版本。
+
+    与 MediaGenerator 一样在工作线程里写 staging 产物、调正式提交回调：后端在线程里落盘，
+    提交回调经 ``run_noninterruptible_sync`` 执行。
+    """
+
+    def _run() -> int:
+        staged.write_bytes(content)
+        return commit_formal_output(staged, current, metadata)
+
+    return await asyncio.to_thread(_run)
+
+
+class SheetGenerator:
+    """按生产口径经正式图活化回调提交一张生成的资产图。"""
+
+    def __init__(self, project_dir: Path, content: bytes) -> None:
+        self.versions = VersionManager(project_dir)
+        self._project_dir = project_dir
+        self._content = content
+
+    async def generate_image_async(self, *, resource_type, resource_id, commit_formal_output, **_kwargs):
+        current = self._project_dir / resource_type / f"{resource_id}.png"
+        staged = self._project_dir / resource_type / f".{resource_id}.staged.png"
+        return current, await stage_and_commit(commit_formal_output, staged, current, self._content, {})
+
+
 class FakeGenerator:
     def __init__(self, project_path: Path | None = None):
         # 传入项目目录时把产出落到产物的规范路径，让任务按生产口径登记清单
@@ -280,6 +310,11 @@ class FakeGenerator:
 
     async def generate_image_async(self, **kwargs):
         self.image_calls.append(kwargs)
+        # 落盘产出、读参考图与提交版本都在工作线程里做：MediaGenerator 的后端在线程里写产物，
+        # 正式提交回调也经 run_noninterruptible_sync 在线程里执行
+        return await asyncio.to_thread(self._produce_and_commit, kwargs)
+
+    def _produce_and_commit(self, kwargs) -> tuple[Path, int]:
         self._materialize_image(kwargs["resource_type"], kwargs["resource_id"])
         self.image_reference_bytes.append(
             [

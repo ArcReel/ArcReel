@@ -127,16 +127,31 @@ def resolve_storyboard_video_inputs(
     same-named file that nothing claims.
     """
 
+    storyboard_file = resolve_storyboard_video_image(project_path=project_path, resource_id=resource_id, item=item)
+    return storyboard_file, resolve_end_frame_snapshot(project_path=project_path, resource_id=resource_id, item=item)
+
+
+def resolve_storyboard_video_image(*, project_path: Path, resource_id: str, item: dict[str, object]) -> Path:
+    """The storyboard bound to ``item``; raises :class:`StoryboardImageUnavailable` when it is unbound or missing."""
+
     storyboard_rel = get_generated_assets(item).get("storyboard_image")
     storyboard_file = resolve_storyboard_image_ref(project_path, storyboard_rel)
     if storyboard_file is None:
         raise StoryboardImageBindingRequired(f"storyboard binding missing: {resource_id}")
     if not storyboard_file.is_file():
         raise StoryboardImageUnavailable(f"storyboard not found: {storyboard_file.name}")
+    return storyboard_file
+
+
+def resolve_end_frame_snapshot(*, project_path: Path, resource_id: str, item: dict[str, object]) -> Path | None:
+    """The canonical end-frame snapshot ``item`` names, or ``None`` when it names none.
+
+    Raises :class:`EndFrameImageUnavailable` when the named snapshot is off its canonical path or missing.
+    """
 
     end_frame_rel = item.get("end_frame_image")
     if end_frame_rel in (None, ""):
-        return storyboard_file, None
+        return None
     if not isinstance(end_frame_rel, str):
         raise EndFrameImageUnavailable(f"invalid end frame snapshot path: {end_frame_rel!r}")
     normalized = end_frame_rel.strip().replace("\\", "/")
@@ -155,7 +170,7 @@ def resolve_storyboard_video_inputs(
         raise EndFrameImageUnavailable(f"invalid end frame snapshot path: {end_frame_rel!r}")
     if not end_frame_file.is_file():
         raise EndFrameImageUnavailable(f"end frame snapshot not found: {end_frame_file.name}")
-    return storyboard_file, end_frame_file
+    return end_frame_file
 
 
 def resolve_previous_storyboard_path(

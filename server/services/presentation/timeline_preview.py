@@ -116,7 +116,7 @@ class TimelinePreviewService:
         )
         resource_type = "reference_videos" if kind == "video_units" else "videos"
         narration = default_draft_narration(project)
-        versions = VersionManager(project_dir)
+        versions = await asyncio.to_thread(VersionManager, project_dir)
         units: list[PreviewUnitMedia] = []
         for unit_id in draft_unit_ids(document.latest.content, items):
             variant = await asyncio.to_thread(

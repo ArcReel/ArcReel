@@ -1155,6 +1155,39 @@ describe("API", () => {
       });
     });
 
+    it("carries the upgrade report that needs confirmation and resubmits with the confirmation", async () => {
+      const report = { schema_version: 2, adjusted: [], skipped: [] };
+      const fetchMock = vi.fn().mockResolvedValue(
+        mockResponse({
+          ok: false,
+          status: 409,
+          statusText: "Conflict",
+          jsonData: {
+            detail: "导入包升级时调整了部分内容，请确认后再导入",
+            errors: [],
+            warnings: [],
+            confirmation_required: true,
+            migration_report: report,
+            episodes: [{ episode: 1, title: "雨夜" }],
+            diagnostics: { blocking: [], auto_fixable: [], warnings: [] },
+          },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const file = new File(["zip"], "demo.zip", { type: "application/zip" });
+
+      await expect(API.importProject(file)).rejects.toMatchObject({
+        status: 409,
+        confirmation_required: true,
+        migration_report: report,
+        migration_report_episodes: [{ episode: 1, title: "雨夜" }],
+      });
+      expect(((fetchMock.mock.calls[0][1] as RequestInit).body as FormData).get("confirm_report")).toBeNull();
+
+      await expect(API.importProject(file, "prompt", { confirmReport: true })).rejects.toBeTruthy();
+      expect(((fetchMock.mock.calls[1][1] as RequestInit).body as FormData).get("confirm_report")).toBe("true");
+    });
+
     it("reuses unauthorized handling for import requests", async () => {
       const fetchMock = vi.fn().mockResolvedValue(
         mockResponse({

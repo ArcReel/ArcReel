@@ -349,8 +349,7 @@ class PresentationReadModelService:
     ) -> MaterializedEpisode:
         items, id_field, kind = resolve_items(snapshot.script)
         resource_type = "reference_videos" if kind == "video_units" else "videos"
-        project_path = await asyncio.to_thread(self._project_manager.get_project_path, project_name)
-        versions = VersionManager(project_path)
+        versions = await asyncio.to_thread(lambda: VersionManager(self._project_manager.get_project_path(project_name)))
         results: list[MaterializedPresentation] = []
         for item in items:
             if not isinstance(item, dict):

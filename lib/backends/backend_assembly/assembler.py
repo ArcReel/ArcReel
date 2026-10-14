@@ -7,6 +7,7 @@ backend 实例缓存留在调用方编排层、不进缝。
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -63,7 +64,8 @@ async def assemble_backend(
             )
     spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
-    return spec.build_backend(config, model_id)
+    # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。
+    return await asyncio.to_thread(spec.build_backend, config, model_id)
 
 
 @dataclass(frozen=True)

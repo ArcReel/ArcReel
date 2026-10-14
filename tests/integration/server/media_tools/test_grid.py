@@ -969,12 +969,16 @@ async def test_generate_grid_judges_a_composite_finished_during_the_batch_agains
     async def fake_enqueue(*, resource_id: str, **_kwargs: Any) -> dict[str, Any]:
         return {"task_id": resource_id}
 
-    async def worker_finishes(task_id: str, **_kwargs: Any) -> dict[str, Any]:
+    def _complete_grid(task_id: str) -> None:
         grid = gm.get(task_id)
         assert grid is not None
         grid.status = "completed"
         grid.grid_image_path = f"grids/{grid.id}.png"
         gm.save(grid)
+
+    async def worker_finishes(task_id: str, **_kwargs: Any) -> dict[str, Any]:
+        # 生成 worker 在别处落盘，不占工具所在的事件循环。
+        await asyncio.to_thread(_complete_grid, task_id)
         return {"status": "succeeded"}
 
     monkeypatch.setattr("server.media_tools.grid.active_artifact_currency_resolver", lambda *_args: _SnapshotResolver())

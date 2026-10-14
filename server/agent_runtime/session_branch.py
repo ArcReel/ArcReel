@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -79,7 +80,7 @@ class SessionBranchService:
         if meta is None:
             raise SessionBranchError(f"session {session_id} not found")
 
-        project_cwd = self._resolve_project_cwd(meta.project_name)
+        project_cwd = await asyncio.to_thread(self._resolve_project_cwd, meta.project_name)
         if project_cwd is None:
             raise SessionBranchError(f"project {meta.project_name} of session {session_id} is unavailable")
 
@@ -142,7 +143,9 @@ class SessionBranchService:
         if store is None:
             return
         meta = await self._meta_store.get(new_session_id)
-        project_cwd = self._resolve_project_cwd(meta.project_name) if meta is not None else None
+        project_cwd = (
+            await asyncio.to_thread(self._resolve_project_cwd, meta.project_name) if meta is not None else None
+        )
         project_key = make_project_key(project_cwd) if project_cwd is not None else None
         await self._discard(store, project_key, origin_session_id, new_session_id)
 

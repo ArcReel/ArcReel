@@ -20,7 +20,7 @@ from lib.artifacts.artifact_currency import active_artifact_currency_resolver, r
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
-from lib.bgm.library import resolve_bgm_sources
+from lib.bgm.library import BgmSource, resolve_bgm_sources
 from lib.edit_timeline import (
     EditTimelineError,
     EditTimelineReadout,
@@ -35,7 +35,7 @@ from lib.edit_timeline.readout import bgm_missing_issues
 from lib.edit_timeline.store import EditTimelineStore
 from lib.episode.episode_ids import episode_file_label
 from lib.i18n import _ as translate_default
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import safe_join
 from lib.infra.thumbnail import extract_video_frame_before
 from lib.jianying_draft.archive import (
@@ -116,10 +116,11 @@ class JianyingDraftJob:
     async def render(self, output: Path, workspace: Path) -> None:
         """把剪映草稿产物写到 ``output``；定格静帧、草稿目录与素材暂存都放在 ``workspace`` 下。"""
         hold_frames: dict[str, Path] = {}
-        for clip in self.placement.clips:
-            if clip.hold_us <= 0:
-                continue
-            video = safe_join(self.project_dir, clip.video_path, require_file=True)
+        held_clips = [clip for clip in self.placement.clips if clip.hold_us > 0]
+        videos = await asyncio.to_thread(
+            lambda: [safe_join(self.project_dir, clip.video_path, require_file=True) for clip in held_clips]
+        )
+        for clip, video in zip(held_clips, videos, strict=True):
             frame = await extract_video_frame_before(
                 video, workspace / f"{clip.clip_id}.png", microseconds_to_seconds(clip.source_out_us)
             )
@@ -246,15 +247,18 @@ class TimelineJianyingDraftService:
                 unit_id=exc.unit_id,
             ) from exc
         aspect_ratio = resolve_video_aspect_ratio(checked.project, resource_type)
-        adapter = ProjectArtifactManifestAdapter(project_dir)
         referenced_bgm = bgm_ids(target.content.bgm)
-        bgm_sources = await asyncio.to_thread(
-            resolve_bgm_sources,
-            project_dir,
-            checked.project,
-            referenced_bgm,
-            lambda path: read_artifact_content_digest(adapter, path),
-        )
+
+        def _resolve_bgm() -> dict[str, BgmSource]:
+            adapter = ProjectArtifactManifestAdapter(project_dir)
+            return resolve_bgm_sources(
+                project_dir,
+                checked.project,
+                referenced_bgm,
+                lambda path: read_artifact_content_digest(adapter, path),
+            )
+
+        bgm_sources = await asyncio.to_thread(_resolve_bgm)
         if missing_bgm := bgm_missing_issues(target.content, bgm_sources):
             raise JianyingDraftError(
                 "jianying_draft_blocked",
@@ -377,11 +381,13 @@ class TimelineJianyingDraftService:
             narration=narration,
             translate=translate,
         )
-        temp_dir = Path(tempfile.mkdtemp(prefix="arcreel_jy_download_"))
-        output = temp_dir / f"{name}.zip"
-        try:
-            await run_sync_transaction(
-                package_jianying_draft,
+        temp_dirs: list[Path] = []
+
+        def _package() -> Path:
+            temp_dir = Path(tempfile.mkdtemp(prefix="arcreel_jy_download_"))
+            temp_dirs.append(temp_dir)
+            output = temp_dir / f"{name}.zip"
+            package_jianying_draft(
                 project_dir / status.artifact_path,
                 project_dir=project_dir,
                 draft_root=draft_root,
@@ -389,11 +395,15 @@ class TimelineJianyingDraftService:
                 jianying_version=jianying_version,
                 output=output,
             )
-        except JianyingDraftArchiveError as exc:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            raise JianyingDraftError("jianying_draft_invalid", str(exc), timeline_id=timeline_id) from exc
-        except BaseException:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            return output
+
+        try:
+            output = await run_sync_transaction(_package)
+        except BaseException as exc:
+            for temp_dir in temp_dirs:
+                await run_noninterruptible_sync(shutil.rmtree, temp_dir, ignore_errors=True)
+            if isinstance(exc, JianyingDraftArchiveError):
+                raise JianyingDraftError("jianying_draft_invalid", str(exc), timeline_id=timeline_id) from exc
             raise
         return output, name
 

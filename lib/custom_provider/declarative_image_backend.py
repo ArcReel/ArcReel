@@ -168,7 +168,8 @@ class DeclarativeImageBackend:
         references = request.reference_images
         if self.max_reference_images:
             references = references[: self.max_reference_images]
-        context = self._engine.request_context(
+        context = await asyncio.to_thread(
+            self._engine.request_context,
             {
                 "prompt": request.prompt,
                 "aspect_ratio": request.aspect_ratio,

@@ -90,7 +90,7 @@ def _unit(
     return unit
 
 
-def _script(content_mode: str, units: list[dict], *, episode: int = 1) -> dict:
+def _script(content_mode: str, units: object, *, episode: int = 1) -> dict:
     return {
         "episode": episode,
         "title": f"第 {episode} 集",
@@ -233,16 +233,53 @@ def test_legacy_shot_durations_land_on_the_unit(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "broken_units",
+    ("broken_unit", "expected"),
     [
-        pytest.param([{"unit_id": "E2U1", "duration_seconds": 8, "shots": "她推开门"}], id="shots-not-a-list"),
         pytest.param(
-            [{"unit_id": "E2U1", "duration_seconds": 8, "shots": [{"text": 42}]}],
-            id="shot-text-not-a-string",
+            {"unit_id": "E2U1", "duration_seconds": 8, "shots": "她推开门"},
+            {"unit_id": "E2U1", "duration_seconds": 8, "shots": "她推开门", "needs_replan": True},
+            id="shots-not-a-list-kept-as-is",
+        ),
+        pytest.param(
+            {"unit_id": "E2U1", "duration_seconds": 8, "shots": [{"text": ""}]},
+            {"unit_id": "E2U1", "duration_seconds": 0, "text": "", "needs_replan": True},
+            id="blank-text-becomes-a-replan-shell",
+        ),
+        pytest.param(
+            {"unit_id": "E2U1", "duration_seconds": 8, "shots": [{"text": "门开了"}], "legacy_field": 1},
+            {"unit_id": "E2U1", "duration_seconds": 8, "text": "门开了", "legacy_field": 1, "needs_replan": True},
+            id="unknown-field-kept",
         ),
     ],
 )
-def test_a_broken_script_leaves_the_project_dir_byte_identical(tmp_path: Path, broken_units: list[dict]) -> None:
+def test_a_unit_that_cannot_be_converted_is_marked_for_replanning_and_the_rest_migrates(
+    tmp_path: Path, broken_unit: dict, expected: dict
+) -> None:
+    """不符合当前单元模型的单元不拒绝整个项目：标为待重新规划，交给运行期的重新规划（ADR 0098）。"""
+    project_dir = _project(tmp_path, episodes=2)
+    _write_json(
+        project_dir / "scripts/episode_1.json",
+        _script("narration", [_unit("E1U1", texts=["她推开门"])]),
+    )
+    _write_json(project_dir / "scripts/episode_2.json", _script("narration", [broken_unit], episode=2))
+
+    migrate_v8_to_v9(project_dir)
+
+    assert _read_json(project_dir / "scripts/episode_2.json")["video_units"] == [expected]
+    assert _read_json(project_dir / "scripts/episode_1.json")["video_units"][0]["text"] == "她推开门"
+    assert _read_json(project_dir / "project.json")["schema_version"] == 9
+
+
+@pytest.mark.parametrize(
+    "broken_units",
+    [
+        pytest.param(["她推开门"], id="unit-not-an-object"),
+        pytest.param({"E2U1": {}}, id="units-not-a-list"),
+    ],
+)
+def test_a_script_that_cannot_be_read_leaves_the_project_dir_byte_identical(
+    tmp_path: Path, broken_units: object
+) -> None:
     project_dir = _project(tmp_path, episodes=2)
     _write_json(
         project_dir / "scripts/episode_1.json",
@@ -252,18 +289,46 @@ def test_a_broken_script_leaves_the_project_dir_byte_identical(tmp_path: Path, b
     _write_json(project_dir / "scripts/episode_2.json", _script("narration", broken_units, episode=2))
     before = _snapshot(project_dir)
 
-    with pytest.raises(ProjectMigrationError, match=r"String should have at least 1 character"):
+    with pytest.raises(ProjectMigrationError) as refused:
         migrate_v8_to_v9(project_dir)
 
+    assert refused.value.episode == 2
     assert _snapshot(project_dir) == before
     assert not list(project_dir.rglob("*.bak.v8-*"))
+
+
+@pytest.mark.parametrize(
+    "draft_bytes",
+    [
+        pytest.param(b"{not json", id="invalid-json"),
+        pytest.param(
+            json.dumps({"units": [{"unit_id": "E1U1", "duration_seconds": 8, "shots": []}]}).encode(),
+            id="unit-fails-validation",
+        ),
+    ],
+)
+def test_a_broken_script_plan_draft_is_kept_as_is_and_the_rest_migrates(tmp_path: Path, draft_bytes: bytes) -> None:
+    project_dir = _project(tmp_path)
+    _write_json(
+        project_dir / "scripts/episode_1.json",
+        _script("narration", [_unit("E1U1", texts=["她推开门"])]),
+    )
+    draft = _draft_path(project_dir)
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_bytes(draft_bytes)
+
+    migrate_v8_to_v9(project_dir)
+
+    assert draft.read_bytes() == draft_bytes
+    assert _read_json(project_dir / "scripts/episode_1.json")["video_units"][0]["text"] == "她推开门"
+    assert _read_json(project_dir / "project.json")["schema_version"] == 9
 
 
 def test_a_broken_script_records_a_repair_verdict_through_the_runner(tmp_path: Path) -> None:
     project_dir = _project(tmp_path)
     _write_json(
         project_dir / "scripts/episode_1.json",
-        _script("narration", [{"unit_id": "E1U1", "duration_seconds": 8, "shots": "她推开门"}]),
+        _script("narration", ["她推开门"]),
     )
     business_files = [project_dir / "project.json", project_dir / "scripts/episode_1.json"]
     before = [(path.read_bytes(), path.stat().st_mtime_ns) for path in business_files]

@@ -17,6 +17,7 @@ plan() 从账本推导的规划起点（按源文位置排在最后的切出集�
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import statistics
@@ -521,7 +522,7 @@ class EpisodePlanner:
         """异步工厂：按项目配置创建文本后端（与剧本生成同一条 SCRIPT 任务配置链）。"""
         project_name = Path(project_path).name
         generator = await TextGenerator.create(TextTaskType.SCRIPT, project_name, purpose=CallPurpose.EPISODE_PLANNING)
-        return cls(project_path, generator)
+        return await asyncio.to_thread(cls, project_path, generator)
 
     # ---------------------------------------------------------------- plan
 
@@ -557,14 +558,18 @@ class EpisodePlanner:
         已消费集确认。
         """
         planning_instructions = (instructions or "").strip() or None
-        project = self.pm.load_project(self.project_name)
-        self._check_source_ranges(project)
-        pre_call_sources = discover_sources(self.project_path, project)
-        self._check_source_fingerprints(project, sources=pre_call_sources)
+
+        def snapshot() -> tuple[dict, list[SourceDoc], dict[str, str]]:
+            project = self.pm.load_project(self.project_name)
+            self._check_source_ranges(project)
+            sources = discover_sources(self.project_path, project)
+            self._check_source_fingerprints(project, sources=sources)
+            return project, sources, compute_source_fingerprints(sources)
+
         # 提交时复核的基线只留指纹摘要，不为暂不参与本批规划的源文件常驻其全文：
         # discover_sources 已读入整本源文全部文件的原文用于计算这批指纹，本函数下方
         # 显式释放该列表，避免大型多源项目在跨模型调用的等待期间叠加持有整套原文
-        used_fingerprints = compute_source_fingerprints(pre_call_sources)
+        project, pre_call_sources, used_fingerprints = await asyncio.to_thread(snapshot)
         source_order = [doc.rel_path for doc in pre_call_sources]
 
         start_ref = (
@@ -590,7 +595,7 @@ class EpisodePlanner:
                     cursor={"source_file": source_rel, "offset": start},
                     source_exhausted=True,
                     total_planned=_count_planned_episodes(project),
-                    ledger_stats=self._compute_ledger_stats(project),
+                    ledger_stats=await asyncio.to_thread(self._compute_ledger_stats, project),
                 )
             source_rel, start = next_rel, 0
             text = next(doc.text for doc in pre_call_sources if doc.rel_path == source_rel)
@@ -712,12 +717,16 @@ class EpisodePlanner:
                 and (gap is not None or _next_source_rel(source_order, source_rel) is None)
             )
 
-        aliases = discover_episode_file_aliases(self.project_path)
-        formal_paths = {episode_source_path(self.project_path, num) for num in protected_ids}
-        formal_paths.update(path for num in protected_ids for path in aliases.get(num, []))
-        formal_paths.add(self.project_path / "source" / "_remaining.txt")
-        formal_paths.update(source_snapshot_path(self.project_path, rel) for rel in whole_source_files(project))
-        final_project = await self._update_project(_commit, formal_paths=tuple(sorted(formal_paths)))
+        def protected_paths() -> tuple[Path, ...]:
+            aliases = discover_episode_file_aliases(self.project_path)
+            formal_paths = {episode_source_path(self.project_path, num) for num in protected_ids}
+            formal_paths.update(path for num in protected_ids for path in aliases.get(num, []))
+            formal_paths.add(self.project_path / "source" / "_remaining.txt")
+            formal_paths.update(source_snapshot_path(self.project_path, rel) for rel in whole_source_files(project))
+            return tuple(sorted(formal_paths))
+
+        formal_paths = await asyncio.to_thread(protected_paths)
+        final_project = await self._update_project(_commit, formal_paths=formal_paths)
         exhausted = bool(committed["exhausted"])
         return PlanResult(
             episodes=summaries,
@@ -727,7 +736,7 @@ class EpisodePlanner:
             total_planned=_count_planned_episodes(final_project),
             # 全局核对材料只在末批即耗尽时附上；常规批次只报「累计已规划 N 集」，
             # 避免主 Agent 上下文被逐批膨胀（工具层渲染 total_planned 的那一行）
-            ledger_stats=self._compute_ledger_stats(final_project) if exhausted else None,
+            ledger_stats=await asyncio.to_thread(self._compute_ledger_stats, final_project) if exhausted else None,
         )
 
     # ------------------------------------------------------------ candidate
@@ -746,11 +755,15 @@ class EpisodePlanner:
         整本源文开头起。``on_more_to_plan`` 与 :meth:`plan` 同义；候选已覆盖到整本源文结尾时标记候选完成。
         """
         planning_instructions = (instructions or "").strip() or None
-        project = self.pm.load_project(self.project_name)
-        candidate = _require_candidate(project, candidate_id)
-        sources = discover_sources(self.project_path, project)
-        _check_candidate_sources(candidate, sources)
-        fingerprints = compute_source_fingerprints(sources)
+
+        def snapshot() -> tuple[dict, dict[str, Any], list[SourceDoc], dict[str, str]]:
+            project = self.pm.load_project(self.project_name)
+            candidate = _require_candidate(project, candidate_id)
+            sources = discover_sources(self.project_path, project)
+            _check_candidate_sources(candidate, sources)
+            return project, candidate, sources, compute_source_fingerprints(sources)
+
+        project, candidate, sources, fingerprints = await asyncio.to_thread(snapshot)
         cursor = _candidate_cursor(candidate)
         source_order = [doc.rel_path for doc in sources]
         source_rel, start = cursor

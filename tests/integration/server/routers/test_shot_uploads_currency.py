@@ -1,5 +1,6 @@
 """上传的分镜图与视频即成品：清单按上传字节登记，时效不随提示词与引用资产变化。"""
 
+import asyncio
 from io import BytesIO
 from pathlib import Path
 from typing import Literal
@@ -61,9 +62,14 @@ def _segment(image_prompt: object, characters: list[str]) -> dict:
     }
 
 
-async def _fake_thumbnail(_video_path: Path, thumbnail_path: Path):
+def _write_thumbnail(thumbnail_path: Path, content: bytes) -> None:
     thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
-    thumbnail_path.write_bytes(b"jpg")  # noqa: ASYNC240 -- 测试内本地小文件写入，不在生产事件循环上
+    thumbnail_path.write_bytes(content)
+
+
+async def _fake_thumbnail(_video_path: Path, thumbnail_path: Path):
+    # 生产的抽帧由 ffmpeg 子进程落盘，不占事件循环；替身同样在工作线程里写。
+    await asyncio.to_thread(_write_thumbnail, thumbnail_path, b"jpg")
     return thumbnail_path
 
 

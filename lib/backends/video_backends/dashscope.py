@@ -15,6 +15,7 @@ schema 的确权程度按型号分两档：happyhorse 与 wan2.7 依据 docs/api
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections.abc import Iterable
@@ -490,7 +491,8 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         return self._base_url
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        payload = self._build_payload(request)
+        # 组装 payload 要读首帧 / 参考图 / 音频并编码，放线程里跑，避免阻塞事件循环
+        payload = await asyncio.to_thread(self._build_payload, request)
         logger.info(
             "调用 %s 视频 API model=%s body=%s",
             self.name,

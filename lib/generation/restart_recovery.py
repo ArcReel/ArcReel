@@ -17,6 +17,7 @@ from lib.config.service import read_video_poll_timeout_seconds
 from lib.generation.render_lane import RENDER_MEDIA_TYPE
 from lib.generation.task_failure import encode_failure
 from lib.generation.video_resume import VideoResumeRunner, cleanup_video_staging
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import get_project_manager
 from lib.script.reference_video.execution_checkpoint import VideoResumeState, classify_video_resume_state
 
@@ -36,6 +37,12 @@ logger = logging.getLogger(__name__)
 # （Grok 同步型无 job_id；Vidu 的 generate 内联 poll，没有独立 resume）。
 # 新增不支持 resume 的 backend 时同步在这里登记。
 NON_RESUMABLE_VIDEO_PROVIDERS = frozenset({PROVIDER_GROK, PROVIDER_VIDU})
+
+
+def _cleanup_orphan_render_staging(project_name: str) -> None:
+    """在工作线程里定位项目目录并清理中断渲染留下的临时文件。"""
+
+    cleanup_interrupted_render_staging(get_project_manager().get_project_path(project_name))
 
 
 class InterruptedCallSettler(Protocol):
@@ -195,8 +202,7 @@ class RestartRecovery:
                 logger.warning("孤儿 render running → [restart_lost]: %s", task_id)
                 if not self._slots.occupied_providers(RENDER_MEDIA_TYPE):
                     try:
-                        project_dir = get_project_manager().get_project_path(task["project_name"])
-                        await asyncio.to_thread(cleanup_interrupted_render_staging, project_dir)
+                        await run_sync_transaction(_cleanup_orphan_render_staging, task["project_name"])
                     except Exception:
                         logger.warning("清理孤儿 render 临时文件失败: %s", task_id, exc_info=True)
                 await self._queue.mark_task_failed(task_id, encode_failure("restart_lost_render"))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from openai import AsyncOpenAI, BadRequestError
@@ -88,7 +89,8 @@ class OpenAITextBackend:
         失败会连带重放已成功的原生调用（重试叠乘），且降级异常消息含模型侧动态文本，
         可能误中重试判定的字符串模式。
         """
-        messages = _build_messages(request)
+        # 带图请求要读本地图片编码 data URI，放线程里构建，避免阻塞事件循环
+        messages = await asyncio.to_thread(_build_messages, request)
         if request.response_schema and TextCapability.STRUCTURED_OUTPUT not in self._capabilities:
             logger.info("%s/%s 未声明原生结构化输出，直接走 Instructor", self._provider_name, self._model)
             return await _instructor_fallback(

@@ -158,9 +158,12 @@ async def load_episode_sources(
     projects: ProjectManager, project_name: str, script: EpisodeScriptUnits, unit_ids: set[str]
 ) -> EpisodeSources:
     """读取 ``unit_ids`` 中仍在脚本里的视频单元的 current 视频与旁白配音，项目的旁白交付方式，以及项目里的 BGM。"""
-    project_path = projects.get_project_path(project_name)
-    project = await asyncio.to_thread(projects.load_project, project_name)
-    versions = VersionManager(project_path)
+
+    def snapshot() -> tuple[Path, dict[str, Any], VersionManager]:
+        project_path = projects.get_project_path(project_name)
+        return project_path, projects.load_project(project_name), VersionManager(project_path)
+
+    project_path, project, versions = await asyncio.to_thread(snapshot)
     wanted = [unit.unit_id for unit in script.units if unit.unit_id in unit_ids]
     limiter = asyncio.Semaphore(_PROBE_CONCURRENCY)
 

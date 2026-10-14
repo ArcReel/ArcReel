@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, replace
@@ -36,6 +37,7 @@ from lib.generation.generation_result import (
     GenerationCandidate,
     GenerationProblemCode,
     GenerationResultBuilder,
+    GenerationSelection,
     GenerationSelectionMode,
     GenerationTargetState,
     artifact_is_reusable,
@@ -539,52 +541,59 @@ async def _generate_reference_units(
     精确相等时同样属于未通过，用户同意后调用方带对应档位重新调用完成入队。
 
     """
-    project_dir = call.project_path
-    output_dir = project_dir / "reference_videos"
-    output_dir.mkdir(parents=True, exist_ok=True)
 
-    already_done: list[str] = []
-    manifest_blocked: list[str] = []
-    refused: list[UnitAdmissionTicket] = list(extra_tickets or [])
-    for unit in units:
-        if not isinstance(unit, dict):
-            continue
-        unit_id = str(unit.get("unit_id") or "")
-        if not unit_id:
-            continue
-        candidate = output_dir / f"{unit_id}.mp4"
-        reusable = False
-        if candidate.exists() and not video_unit_replan_problems(unit):
-            try:
-                reusable = reuse_existing(unit)
-            except ArtifactManifestError:
-                # 复用判定（点名强制路线传入的 ``reuse_existing`` 恒为 False，不会走到
-                # ``artifact_is_usable``；只有整集路线的复用判定会查 Manifest）对
-                # BLOCKED 状态 fail-loud：一张已存在的成片若比对读不出来，不能让它把
-                # 整批生成打成 tool_error，而是逐 unit 记为受阻，交回去修复侧车。
-                refused.append(
-                    refused_ticket(
-                        unit_id,
-                        code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
-                        detail=f"unit {unit_id} 的产物状态不可读，跳过自动重生",
-                        action=GenerationAction.REPAIR_ARTIFACT_STATE,
-                    )
-                )
-                manifest_blocked.append(unit_id)
+    def scan_existing() -> tuple[Path, list[UnitAdmissionTicket], list[TaskSpec], list[UnitAdmissionTicket]]:
+        """读项目目录与产物时效，记下已有可用成片的复用，并构造本批 TaskSpec。"""
+
+        project_dir = call.project_path
+        output_dir = project_dir / "reference_videos"
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        already_done: list[str] = []
+        manifest_blocked: list[str] = []
+        refused: list[UnitAdmissionTicket] = list(extra_tickets or [])
+        for unit in units:
+            if not isinstance(unit, dict):
                 continue
-        if reusable:
-            already_done.append(unit_id)
-            state = _state_for(states, unit_id)
-            builder.skip_unit(
-                unit_id,
-                artifact_key=state.artifact_key,
-                artifact_path=state.artifact_path,
-                artifact_status=state.status,
-            )
+            unit_id = str(unit.get("unit_id") or "")
+            if not unit_id:
+                continue
+            candidate = output_dir / f"{unit_id}.mp4"
+            reusable = False
+            if candidate.exists() and not video_unit_replan_problems(unit):
+                try:
+                    reusable = reuse_existing(unit)
+                except ArtifactManifestError:
+                    # 复用判定（点名强制路线传入的 ``reuse_existing`` 恒为 False，不会走到
+                    # ``artifact_is_usable``；只有整集路线的复用判定会查 Manifest）对
+                    # BLOCKED 状态 fail-loud：一张已存在的成片若比对读不出来，不能让它把
+                    # 整批生成打成 tool_error，而是逐 unit 记为受阻，交回去修复侧车。
+                    refused.append(
+                        refused_ticket(
+                            unit_id,
+                            code=GenerationProblemCode.ARTIFACT_STATE_UNAVAILABLE,
+                            detail=f"unit {unit_id} 的产物状态不可读，跳过自动重生",
+                            action=GenerationAction.REPAIR_ARTIFACT_STATE,
+                        )
+                    )
+                    manifest_blocked.append(unit_id)
+                    continue
+            if reusable:
+                already_done.append(unit_id)
+                state = _state_for(states, unit_id)
+                builder.skip_unit(
+                    unit_id,
+                    artifact_key=state.artifact_key,
+                    artifact_path=state.artifact_path,
+                    artifact_status=state.status,
+                )
 
-    # 可入队性先判：能否构造 TaskSpec 是本批目标集合的边界，不可入队的 unit 带着自己的
-    # 问题码进入准入，既不被解析、也不被静默丢弃。
-    specs, spec_refused = build_specs(units, [*already_done, *manifest_blocked])
+        # 可入队性先判：能否构造 TaskSpec 是本批目标集合的边界，不可入队的 unit 带着自己的
+        # 问题码进入准入，既不被解析、也不被静默丢弃。
+        specs, spec_refused = build_specs(units, [*already_done, *manifest_blocked])
+        return project_dir, refused, specs, spec_refused
+
+    project_dir, refused, specs, spec_refused = await asyncio.to_thread(scan_existing)
     buildable = {spec.resource_id for spec in specs}
     targets = [unit for unit in units if isinstance(unit, dict) and str(unit.get("unit_id") or "") in buildable]
     admission = await admit_reference_video_batch(
@@ -628,7 +637,8 @@ async def _generate_reference_units(
     )
     if submitted.successes is None or submitted.failures is None:
         return ReferenceGenerationComplete(projections=projections, batch=submitted.batch)
-    record_batch_outcomes(
+    await asyncio.to_thread(
+        record_batch_outcomes,
         builder,
         successes=submitted.successes,
         failures=submitted.failures,
@@ -671,8 +681,11 @@ async def _run_reference_batch(
     「一律不复用」共用同一条缝。
     """
 
-    currency = active_artifact_currency_resolver(call.project_path, project)
-    states = video_target_states(units, "unit_id", episode=episode, resolver=currency)
+    def load_states() -> tuple[ArtifactCurrencyResolver, dict[str, GenerationTargetState]]:
+        resolver = active_artifact_currency_resolver(call.project_path, project)
+        return resolver, video_target_states(units, "unit_id", episode=episode, resolver=resolver)
+
+    currency, states = await asyncio.to_thread(load_states)
     builder = GenerationResultBuilder(operation, selection)
     result = await _generate_reference_units(
         call=call,
@@ -723,7 +736,7 @@ async def _run_reference_episode(
     when ``_resolve_reference_route`` reports the episode branch; this captures
     the shared tail (resolve episode → generate units → header + log).
     """
-    project = call.projects.load_project(call.project_name)
+    project = await asyncio.to_thread(call.projects.load_project, call.project_name)
     episode = _reference_episode(project, script, script_filename)
     units = script.get("video_units")
     if "video_units" in script and not isinstance(units, list):
@@ -802,8 +815,14 @@ async def _run_reference_units(
     force: bool = True,
 ) -> ToolOutcome[Any]:
     """生成点名的参考生视频 unit；统一入口默认复用已有可用成片。"""
-    project = call.projects.load_project(call.project_name)
-    script = call.projects.load_script(call.project_name, script_filename)
+
+    def load_inputs() -> tuple[dict[str, Any], dict[str, Any]]:
+        return (
+            call.projects.load_project(call.project_name),
+            call.projects.load_script(call.project_name, script_filename),
+        )
+
+    project, script = await asyncio.to_thread(load_inputs)
     episode = _reference_episode(project, script, script_filename)
 
     selected, unmatched, duplicated = _select_reference_units(script, unit_ids)
@@ -971,7 +990,9 @@ class _StoryboardBatch:
         """按本次请求的目标条目构造分镜图生视频的 TaskSpec。"""
 
         voice_characters = await resolve_voice_context(self.sb.project, self.sb.content_mode)
-        return build_storyboard_video_specs(
+        # 按文件内容判定分镜参考图与首尾帧的时效，是同步文件读写与哈希
+        return await asyncio.to_thread(
+            build_storyboard_video_specs,
             items=items,
             id_field=self.screening.id_field,
             content_mode=self.sb.content_mode,
@@ -1051,7 +1072,7 @@ class _StoryboardBatch:
         )
         if submitted.successes is None or submitted.failures is None:
             return generation_batch_submission_outcome(submitted.batch)
-        self._record(submitted.successes, submitted.failures)
+        await asyncio.to_thread(self._record, submitted.successes, submitted.failures)
         return generation_result_outcome(self.builder.build(), self.log, batch_id=submitted.batch.batch_id)
 
 
@@ -1084,13 +1105,16 @@ async def _generate_episode(call: _VideoCall, request: _VideoRequestContext, log
         )
     screening = _screen_script_targets(request.script, requested_ids=None)
     items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
-    sb = _storyboard_context(call, request)
+    sb = await asyncio.to_thread(_storyboard_context, call, request)
     episode = sb.episode
     if not items and not screen_refused:
         raise ValueError(f"{describe_episode_for_agent(sb.project, episode)} 的剧本为空：{script_filename}")
 
-    currency = active_artifact_currency_resolver(project_dir, sb.project)
-    states = video_target_states(items, id_field, episode=episode, resolver=currency)
+    def load_states() -> tuple[ArtifactCurrencyResolver, dict[str, GenerationTargetState]]:
+        resolver = active_artifact_currency_resolver(project_dir, sb.project)
+        return resolver, video_target_states(items, id_field, episode=episode, resolver=resolver)
+
+    currency, states = await asyncio.to_thread(load_states)
     # 整集生成只补缺失，从不强制重生：仍可用的旧分镜（含 stale 与上传的视频）原样保留。
     already_done = _missing_only_reusable_ids(states)
     builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.MISSING_ONLY)
@@ -1157,14 +1181,19 @@ async def _generate_all(call: _VideoCall, request: _VideoRequestContext, log: li
         )
     screening = _screen_script_targets(request.script, requested_ids=None)
     items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
-    sb = _storyboard_context(call, request)
-    currency = active_artifact_currency_resolver(project_dir, sb.project)
-    states = video_target_states(items, id_field, episode=sb.episode, resolver=currency)
-    selection = select_generation_targets(
-        candidates=[state.candidate for state in states.values()],
-        requested_ids=None,
-        resolver=currency,
-    )
+    sb = await asyncio.to_thread(_storyboard_context, call, request)
+
+    def select_targets() -> tuple[ArtifactCurrencyResolver, dict[str, GenerationTargetState], GenerationSelection]:
+        resolver = active_artifact_currency_resolver(project_dir, sb.project)
+        states = video_target_states(items, id_field, episode=sb.episode, resolver=resolver)
+        selection = select_generation_targets(
+            candidates=[state.candidate for state in states.values()],
+            requested_ids=None,
+            resolver=resolver,
+        )
+        return resolver, states, selection
+
+    currency, states, selection = await asyncio.to_thread(select_targets)
     # 产物状态不可读的目标由准入报告（折成准入票），结果契约里不重复记录：
     # 同一个 unit 记两次会让结果构造器 fail loud。
     unavailable_tickets = artifact_state_tickets(selection.unavailable)
@@ -1247,7 +1276,7 @@ async def _generate_selected(
 
     screening = _screen_script_targets(request.script, requested_ids=set(scene_ids))
     items, id_field, screen_refused = screening.items, screening.id_field, screening.refused
-    sb = _storyboard_context(call, request)
+    sb = await asyncio.to_thread(_storyboard_context, call, request)
     episode = sb.episode
 
     items_by_id: dict[str, dict[str, Any]] = {}
@@ -1290,9 +1319,12 @@ async def _generate_selected(
             return _preview_outcome(None, builder, log)
         return generation_result_outcome(builder.build(), log)
 
-    currency = active_artifact_currency_resolver(project_dir, sb.project)
+    def load_states() -> tuple[ArtifactCurrencyResolver, dict[str, GenerationTargetState]]:
+        resolver = active_artifact_currency_resolver(project_dir, sb.project)
+        return resolver, video_target_states(selected, id_field, episode=episode, resolver=resolver)
+
+    currency, states = await asyncio.to_thread(load_states)
     already_done: list[str] = []
-    states = video_target_states(selected, id_field, episode=episode, resolver=currency)
     if not force:
         already_done = list(dict.fromkeys(state.unit_id for state in states.values() if artifact_is_reusable(state)))
     for done_id in already_done:
@@ -1332,9 +1364,9 @@ async def generate_videos(
     target = args.target
     log: list[str] = []
     try:
-        context = _video_request_context(call, args)
+        context = await asyncio.to_thread(_video_request_context, call, args)
         if isinstance(target, EpisodeTarget):
-            _check_target_episode(call, context, target.episode_id)
+            await asyncio.to_thread(_check_target_episode, call, context, target.episode_id)
             return await _generate_episode(call, context, log)
         if isinstance(target, AllTarget):
             return await _generate_all(call, context, log)

@@ -33,6 +33,7 @@ from lib.i18n import _
 from lib.infra.validation_messages import default_translate
 from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
 from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7_to_v8
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -500,6 +501,21 @@ class TestProjectArchiveService:
         assert (pm.get_project_path("demo") / "drafts" / "episode_2").is_dir()
         imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
         assert imported_manifest == startup_manifest
+
+    def test_a_healthy_project_round_trips_without_asking_for_confirmation(self, tmp_path):
+        """当前代码导出的健康项目再导入不弹确认、不留报告：视频没有版本记录、宫格与草稿都正常是常态，不算「未能带入」。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        assert pm.load_project("demo")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
+        assert not (project_dir / "versions" / "versions.json").exists()
+        service = ProjectArchiveService(pm)
+
+        archive_path, _ = service.export_project("demo")
+        shutil.rmtree(project_dir)
+        result = service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+        assert result.conflict_resolution == "none"
+        assert load_migration_report(pm.get_project_path(result.project_name)) is None
 
     def test_official_round_trip_accepts_project_without_style(self, tmp_path):
         """未选风格的项目照常导出并导入，导出诊断与导入校验都不把空风格当缺陷。"""
@@ -1251,7 +1267,7 @@ class TestProjectArchiveService:
 
         assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
 
-    def test_import_reports_v7_migration_activation_failure_as_archive_validation(self, tmp_path):
+    def test_import_reports_migration_failure_with_its_reason(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         project = pm.load_project("demo")
@@ -1265,7 +1281,31 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="broken-v7.zip")
 
-        assert any(item.code == "artifact_activation_failed" for item in exc_info.value.diagnostics.blocking)
+        assert exc_info.value.status_code == 400
+        [failure] = [item for item in exc_info.value.diagnostics.blocking if item.code == "project_migration_failed"]
+        assert failure.message.params["reason"]
+        assert failure.location is not None
+        assert "scripts/episode_1.json" in failure.location
+        assert pm.list_projects() == []
+
+    def test_import_reports_migration_failure_outside_activation_with_its_reason(self, tmp_path):
+        """链上任一步出错都带原因拒绝导入，不再是没有原因的服务端错误。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        project = pm.load_project("demo")
+        project["schema_version"] = 9
+        _write_json(project_dir / "project.json", project)
+        (project_dir / "scripts" / "episode_1.json").write_text("{", encoding="utf-8")
+        archive_path = tmp_path / "broken-v9.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            ProjectArchiveService(pm).import_project_archive(archive_path, uploaded_filename="broken-v9.zip")
+
+        assert exc_info.value.status_code == 400
+        rendered = exc_info.value.render_errors()
+        assert any("无法升级到当前版本" in error for error in rendered)
 
     def test_import_manual_zip_without_manifest(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -1910,6 +1950,7 @@ class TestProjectArchiveService:
 
         result = service.import_project_archive(
             archive_path,
+            confirm_report=True,
             uploaded_filename="legacy.zip",
         )
 
@@ -1985,7 +2026,7 @@ class TestProjectArchiveService:
 
         assert exported_script["segments"][0]["generated_assets"]["narration_audio"] == "audio/segment_E1S01.wav"
 
-    def test_import_blocks_missing_scene_definition(self, tmp_path):
+    def test_import_adds_placeholder_for_missing_scene_after_confirmation(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -2021,8 +2062,71 @@ class TestProjectArchiveService:
         with pytest.raises(ProjectArchiveValidationError) as exc_info:
             service.import_project_archive(archive_path, uploaded_filename="missing-scene.zip")
 
-        assert any("不存在于 project.json 的场景" in error for error in exc_info.value.render_errors())
-        assert exc_info.value.diagnostics_payload()["blocking"]
+        # 报告非空：导入前请用户确认，项目还没有出现在项目列表里。
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.extra["confirmation_required"] is True
+        adjusted = exc_info.value.extra["migration_report"]["adjusted"]
+        assert ("placeholder_asset_added", {"asset_type": "scene", "name": "Missing"}) in [
+            (item["code"], item["params"]) for item in adjusted
+        ]
+        assert pm.list_projects() == ["demo"]
+
+        result = service.import_project_archive(
+            archive_path, uploaded_filename="missing-scene.zip", confirm_report=True
+        )
+
+        assert result.project["scenes"]["Missing"]["description"] == ""
+        report = load_migration_report(pm.get_project_path(result.project_name))
+        assert report is not None
+        assert report.acknowledged_at is not None
+
+    def test_a_current_schema_archive_with_an_unreadable_record_asks_for_confirmation(self, tmp_path):
+        """导入激活没能登记的条目也进报告，不分归档的 schema 版本：确认前项目不出现，确认后照常导入。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        service = ProjectArchiveService(pm)
+        (project_dir / "grids").mkdir(exist_ok=True)
+        (project_dir / "grids" / "grid_0123456789ab.json").write_text("{broken", encoding="utf-8")
+        archive_path = tmp_path / "unreadable-grid.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        with pytest.raises(ProjectArchiveValidationError) as exc_info:
+            service.import_project_archive(archive_path, uploaded_filename="unreadable-grid.zip")
+
+        assert exc_info.value.status_code == 409
+        skipped = exc_info.value.extra["migration_report"]["skipped"]
+        assert ("episode-grid", "grids/grid_0123456789ab.json") in [
+            (item["kind"], item["artifact_path"]) for item in skipped
+        ]
+        assert pm.list_projects() == []
+
+        result = service.import_project_archive(
+            archive_path, uploaded_filename="unreadable-grid.zip", confirm_report=True
+        )
+
+        imported_dir = pm.get_project_path(result.project_name)
+        assert (imported_dir / "grids" / "grid_0123456789ab.json").read_text(encoding="utf-8") == "{broken"
+        report = load_migration_report(imported_dir)
+        assert report is not None
+        assert "grids/grid_0123456789ab.json" in [item.artifact_path for item in report.skipped]
+
+    def test_media_of_a_unit_that_needs_replanning_does_not_ask_for_confirmation(self, tmp_path):
+        """需要重新规划的条目在界面上另有标记：它没登记的媒体不进报告，报告为空时直接导入。"""
+        pm = ProjectManager(tmp_path / "projects")
+        project_dir = _create_project(pm)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["segments"][0]["needs_replan"] = True
+        _write_json(script_path, script)
+        service = ProjectArchiveService(pm)
+        archive_path = tmp_path / "replan.zip"
+        _make_manual_zip(project_dir, archive_path)
+        shutil.rmtree(project_dir)
+
+        result = service.import_project_archive(archive_path, uploaded_filename="replan.zip")
+
+        assert load_migration_report(pm.get_project_path(result.project_name)) is None
 
     def test_import_resolves_nfd_script_refs_against_nfc_registered_assets(self, tmp_path):
         """剧本与 project.json 可以各自是 NFC/NFD：修复期的成员判定按坐标系解析，
@@ -2083,7 +2187,7 @@ class TestProjectArchiveService:
         assert prop_nfc in imported["props"]
         assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
-    def test_import_blocks_missing_prop_definition(self, tmp_path):
+    def test_import_adds_placeholder_for_missing_prop(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         service = ProjectArchiveService(pm)
@@ -2116,11 +2220,16 @@ class TestProjectArchiveService:
         archive_path = tmp_path / "missing-prop.zip"
         _make_manual_zip(project_dir, archive_path)
 
-        with pytest.raises(ProjectArchiveValidationError) as exc_info:
-            service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip")
+        result = service.import_project_archive(archive_path, uploaded_filename="missing-prop.zip", confirm_report=True)
 
-        assert any("不存在于 project.json 的道具" in error for error in exc_info.value.render_errors())
-        assert exc_info.value.diagnostics_payload()["blocking"]
+        assert "Missing" in result.project["props"]
+        # 占位进了导入前确认过的报告，导入成功后的诊断不再重复列出。
+        report = load_migration_report(pm.get_project_path(result.project_name))
+        assert report is not None
+        assert ("placeholder_asset_added", {"asset_type": "prop", "name": "Missing"}) in [
+            (item.code, item.params) for item in report.adjusted
+        ]
+        assert not any(item["code"] == "placeholder_prop_added" for item in result.diagnostics["auto_fixed"])
 
     def test_export_dirty_project_emits_diagnostics_and_repairs_snapshot(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
@@ -2359,6 +2468,7 @@ class TestArchiveDiagnosticsLocalization:
 
         result = service.import_project_archive(
             archive_path,
+            confirm_report=True,
             uploaded_filename="legacy.zip",
             translate=self._en,
         )

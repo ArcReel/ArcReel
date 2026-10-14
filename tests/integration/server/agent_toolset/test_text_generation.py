@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
 from pathlib import Path
@@ -1021,10 +1022,11 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
 
     class _Generator:
         async def generate(self, _request, project_name=None):
-            source_path.write_text("等待供应商期间改过的原文", encoding="utf-8")
+            # 等待供应商期间的改写来自别的写方，不在被测调用的事件循环上。
+            await asyncio.to_thread(source_path.write_text, "等待供应商期间改过的原文", encoding="utf-8")
             latest = {**project, "source_language": "English"}
             fake_ctx.pm.project_payload = latest
-            project_file.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+            await asyncio.to_thread(project_file.write_text, json.dumps(latest, ensure_ascii=False), encoding="utf-8")
             return type(
                 "_Result",
                 (),
@@ -1100,7 +1102,9 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
         async def generate(self, _request, project_name=None):
             activated = {**project, "schema_version": 8}
             fake_ctx.pm.project_payload = activated
-            project_file.write_text(json.dumps(activated, ensure_ascii=False), encoding="utf-8")
+            await asyncio.to_thread(
+                project_file.write_text, json.dumps(activated, ensure_ascii=False), encoding="utf-8"
+            )
             return type(
                 "_Result",
                 (),

@@ -33,6 +33,7 @@ import {
   type GuideButton,
   type ProjectNextGuide,
 } from "./project-guide";
+import { MigrationReportNotice } from "./MigrationReportNotice";
 
 /** 任务状态连续跳变时合并成一次重新求解的窗口（毫秒），与集页面板同一取值。 */
 const STATUS_REFRESH_DEBOUNCE_MS = 250;
@@ -358,7 +359,8 @@ function MigrationBar({ projectName, reason }: { projectName: string; reason: st
 
 /**
  * 顶栏中间的状态条：左段是集进度（点开是逐集清单），右段是项目层的下一步（点开是说明与按钮）。
- * 数据升级失败时整条换成迁移形态。只投影后端给出的项目摘要与制作状态，不自行推断下一步。
+ * 数据升级失败时整条换成迁移形态；升级有报告且尚未确认过时，旁边多一枚可关闭的升级提示。
+ * 只投影后端给出的项目摘要与制作状态，不自行推断下一步。
  */
 export function ProjectStatusBar({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
@@ -405,7 +407,8 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
   // 每集都完成且源文没有剩余：右段只陈述「全部完成」，不带动作。广告的左段已写「短片已完成」。
   const allComplete = guide === null && !isAd && workflowStatus?.content?.project_complete === true;
 
-  return (
+  const migrationReport = workflowStatus?.migration_report ?? null;
+  const bar = (
     <div className={SHELL_FLAT}>
       <Popover open={open === "episodes"} onOpenChange={openChange("episodes")}>
         <PopoverTrigger
@@ -454,6 +457,13 @@ export function ProjectStatusBar({ projectName }: { projectName: string }) {
           <span className="px-3 text-xs text-muted-foreground">{t("guide_next_in_panel")}</span>
         </>
       )}
+    </div>
+  );
+  if (!migrationReport) return bar;
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      {bar}
+      <MigrationReportNotice projectName={projectName} report={migrationReport} episodes={episodes} />
     </div>
   );
 }

@@ -81,8 +81,9 @@ class _FfmpegProc:
         self._payload = payload
 
     async def wait(self) -> None:
+        # 真实输出由子进程写，替身放进工作线程，不占事件循环。
         if self._payload is not None:
-            self._target.write_bytes(self._payload)
+            await asyncio.to_thread(self._target.write_bytes, self._payload)
 
 
 async def test_returns_none_when_bundled_ffmpeg_unavailable(tmp_path: Path, ffmpeg_unavailable: MagicMock):
@@ -219,8 +220,8 @@ async def test_last_frame_retries_decoded_count_when_fast_extract_writes_nothing
 _ZERO_DEADLINES = thumbnail_module.FrameExtractionDeadlines(probe=0, extract=0, count_frames=0, grace=0)
 
 
-def _write_partial(target: str) -> None:
-    Path(target).write_bytes(b"partial")
+async def _write_partial(target: str) -> None:
+    await asyncio.to_thread(Path(target).write_bytes, b"partial")
 
 
 async def test_thumbnail_deadline_kills_ffmpeg_and_removes_partial_output(tmp_path: Path, bundled_ffmpeg: str):
@@ -234,7 +235,7 @@ async def test_thumbnail_deadline_kills_ffmpeg_and_removes_partial_output(tmp_pa
 
     async def _spawn(*args, **_kwargs):
         call_log.append(args)
-        _write_partial(args[-1])
+        await _write_partial(args[-1])
         proc = HangingProcess(honors_terminate=False)
         procs.append(proc)
         return proc
@@ -260,7 +261,7 @@ async def test_last_frame_deadline_kills_ffmpeg_and_removes_temp_output(tmp_path
             return _OutputProc(_framecrc(30), _INPUT_INFO)
         if _is_decode_count(args):
             return _OutputProc(b"frame=30\nprogress=end\n")
-        _write_partial(args[-1])
+        await _write_partial(args[-1])
         proc = HangingProcess(honors_terminate=False)
         ffmpeg_procs.append(proc)
         return proc

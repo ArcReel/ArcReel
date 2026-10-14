@@ -6,7 +6,9 @@ import { ArchiveDiagnosticsDialog } from "@/components/shared/ArchiveDiagnostics
 import { useAppStore } from "@/stores/app-store";
 import { getProjectDisplayName } from "@/utils/project-display";
 import type { ImportConflictPolicy, ImportFailureDiagnostics } from "@/types";
+import type { WorkflowMigrationReport } from "@/types/workflow";
 import { ImportConflictDialog } from "./ImportConflictDialog";
+import { ImportReportConfirmDialog, type PendingImportReport } from "./ImportReportConfirmDialog";
 
 type ImportDiagnosticsState =
   | { source: "success"; diagnostics: ImportFailureDiagnostics; navigateTo: string }
@@ -15,15 +17,25 @@ type ImportDiagnosticsState =
 type ImportError = Error & {
   status?: number;
   conflict_project_name?: string;
+  confirmation_required?: boolean;
+  migration_report?: WorkflowMigrationReport;
+  migration_report_episodes?: { episode: number; title: string }[];
   diagnostics?: ImportFailureDiagnostics;
 };
+
+/** 一次导入请求的参数：用户确认过升级报告后，之后的请求（含编号冲突的处理）都带上确认。 */
+interface ImportAttempt {
+  file: File;
+  policy: ImportConflictPolicy;
+  confirmReport: boolean;
+}
 
 function hasDiagnostics(diagnostics: ImportFailureDiagnostics | undefined): diagnostics is ImportFailureDiagnostics {
   return !!diagnostics && diagnostics.blocking.length + diagnostics.auto_fixable.length + diagnostics.warnings.length > 0;
 }
 
 /**
- * 导入项目 ZIP：选择文件、处理项目编号冲突、展示导入诊断，导入成功后进入项目。
+ * 导入项目 ZIP：选择文件、导入包升级有报告时请用户确认、处理项目编号冲突、展示导入诊断，导入成功后进入项目。
  * `element` 包含隐藏的文件输入与各个对话框，渲染在页面里一次即可。
  */
 export function useProjectImport({ onImported }: { onImported: () => void }): {
@@ -35,14 +47,19 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
-  const [conflict, setConflict] = useState<{ file: File; projectName: string } | null>(null);
+  const [conflict, setConflict] = useState<{ attempt: ImportAttempt; projectName: string } | null>(null);
+  const [reportConfirm, setReportConfirm] = useState<{ attempt: ImportAttempt; pending: PendingImportReport } | null>(
+    null,
+  );
   const [diagnostics, setDiagnostics] = useState<ImportDiagnosticsState | null>(null);
 
-  const importFile = async (file: File, policy: ImportConflictPolicy = "prompt") => {
+  const importFile = async (attempt: ImportAttempt) => {
+    const { file, policy, confirmReport } = attempt;
     setImporting(true);
     try {
-      const result = await API.importProject(file, policy);
+      const result = await API.importProject(file, policy, { confirmReport });
       setConflict(null);
+      setReportConfirm(null);
       onImported();
 
       const navigateTo = `/app/projects/${result.project_name}`;
@@ -67,8 +84,16 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
       });
     } catch (err) {
       const error = err as ImportError;
+      if (error.status === 409 && error.confirmation_required && error.migration_report && !confirmReport) {
+        setReportConfirm({
+          attempt,
+          pending: { report: error.migration_report, episodes: error.migration_report_episodes ?? [] },
+        });
+        return;
+      }
+      setReportConfirm(null);
       if (error.status === 409 && error.conflict_project_name && policy === "prompt") {
-        setConflict({ file, projectName: error.conflict_project_name });
+        setConflict({ attempt, projectName: error.conflict_project_name });
         return;
       }
       setConflict(null);
@@ -86,7 +111,7 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
   const handleFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = "";
-    if (file) void importFile(file);
+    if (file) void importFile({ file, policy: "prompt", confirmReport: false });
   };
 
   const element = (
@@ -99,11 +124,19 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
         onChange={handleFile}
         className="hidden"
       />
+      <ImportReportConfirmDialog
+        pending={reportConfirm?.pending ?? null}
+        importing={importing}
+        onConfirm={() => {
+          if (reportConfirm) void importFile({ ...reportConfirm.attempt, confirmReport: true });
+        }}
+        onCancel={() => setReportConfirm(null)}
+      />
       <ImportConflictDialog
         projectName={conflict?.projectName ?? null}
         importing={importing}
         onResolve={(policy) => {
-          if (conflict) void importFile(conflict.file, policy);
+          if (conflict) void importFile({ ...conflict.attempt, policy });
         }}
         onCancel={() => setConflict(null)}
       />

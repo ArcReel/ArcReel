@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 import portalocker
@@ -103,3 +104,41 @@ async def test_admission_guard_closes_its_file_when_unlock_fails(tmp_path, monke
 
     assert captured_handle is not None
     assert captured_handle.closed
+
+
+async def test_admission_guard_closes_its_file_when_cancelled_while_opening(tmp_path, monkeypatch):
+    opened = []
+    handle_ready = threading.Event()
+    release = threading.Event()
+    original_open = Path.open
+
+    def _gated_open(self: Path, *args, **kwargs):
+        handle = original_open(self, *args, **kwargs)
+        if self.suffix == ".lock":
+            opened.append(handle)
+            handle_ready.set()
+            release.wait(5)
+        return handle
+
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(Path, "open", _gated_open)
+
+    async def _enter() -> None:
+        async with generation_admission.generation_admission_lock(
+            project_name="demo",
+            script_file="episode_01.json",
+            resource_id="E1S01",
+        ):
+            pass
+
+    task = asyncio.create_task(_enter())
+    try:
+        assert await asyncio.to_thread(handle_ready.wait, 5)
+        task.cancel()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert len(opened) == 1
+    assert opened[0].closed

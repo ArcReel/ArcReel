@@ -31,11 +31,11 @@ from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescript
 from lib.artifacts.generation_input import (
     DerivativeSheetInput,
     FrozenGenerationInput,
-    InputRefused,
     derivative_sheet_input,
     project_input_observation,
 )
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation.generation_queue import ensure_dispatch_provider
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
     DerivativeSheetTarget,
@@ -51,6 +51,7 @@ from server.services.tasks.formal_image_commit import (
     FormalImageCommitOutcome,
     FormalImagePlan,
     StagedImageCommit,
+    frozen_generation_input,
     run_formal_image_task,
     staged_formal_image_callback,
 )
@@ -193,8 +194,8 @@ def _load(project_name: str, owner_name: str, derivative_name: str) -> _Derivati
         observation=project_input_observation(project_path),
     )
     # 缺变化描述或本体资产图不可用时在解析供应商通道与付费之前失败，一次报出全部缺口。
-    if isinstance(generation_input, InputRefused):
-        raise input_refusal_error(generation_input)
+    if (refusal := generation_input.refusal) is not None:
+        raise input_refusal_error(refusal)
     return _DerivativeSheetInputs(
         project=project,
         project_path=project_path,
@@ -210,6 +211,7 @@ async def execute_character_derivative_task(
     *,
     user_id: str = DEFAULT_USER_ID,
     task_id: str | None = None,
+    claimed_provider_id: str | None = None,
 ) -> dict[str, Any]:
     """执行一次衍生资产图生成：本体图 → i2i → 新版本覆盖 current → 写回衍生条目。
 
@@ -227,7 +229,8 @@ async def execute_character_derivative_task(
         user_id=user_id,
         image=ImageLaneRequest(generation_type="i2i"),
     )
-    currency_resolver = active_artifact_currency_resolver(project_path, project)
+    ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
+    currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)
 
     def _bind_claims(
         claims: Sequence[ArtifactInputClaim], content_digests: Mapping[str, str]
@@ -246,7 +249,7 @@ async def execute_character_derivative_task(
         )
 
     pm = get_project_manager()
-    with await asyncio.to_thread(_freeze) as frozen:
+    async with frozen_generation_input(_freeze) as frozen:
 
         def _build_commit(generator: Any, outcome_box: list[FormalImageCommitOutcome]) -> StagedImageCommit:
             return derivative_sheet_commit_callback(

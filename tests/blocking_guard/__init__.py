@@ -10,25 +10,28 @@
 **记录而不抛错。** blockbuster 默认在拦截点抛 ``BlockingError``，业务代码的宽泛异常捕获会把
 它吞掉（推算失败回退默认值、执行器把异常记成任务失败），违规就此隐身。这里把每个拦截点的
 放行谓词换成「判定、记录、放行」：调用照常执行，违规记进当前用例，用例每个阶段出报告时
-把白名单外的违规改判为失败。
+把豁免清单外的违规改判为失败，没有别的豁免途径。
 
 **归属。** 从阻塞点沿调用栈向外找，第一个 lib/server 的 async 函数就是违规条目（文件 +
-限定名）；先遇到 ``tests/`` 的帧说明阻塞由测试自身驱动（同步辅助、替身、内联的
-``to_thread``），不计。整条栈没有 async 帧时（事件循环直接回调的同步函数）取最外层的
-lib/server 帧。
+限定名），途中经过 ``tests/`` 的帧也一样：lib/server 的 async 函数调用的替身在 ``tests/`` 下
+读写磁盘，换成生产依赖后同一位置同样阻塞事件循环。替身自身做了生产实现不会做的 I/O 时，
+把替身改成内存实现。整条栈没有 lib/server 的 async 帧时，经过 ``tests/`` 帧说明阻塞由
+测试自身驱动（测试直接调同步 lib 代码），不计；否则是事件循环直接回调的同步函数，取最外层的
+lib/server 帧。测试内联的 ``to_thread`` 在工作线程上执行，本就不受检。
 
 **始终放行**：日志落盘、traceback 取源码行、``realpath`` 解析符号链接、函数内的延迟 import、
-asyncpg 建连时解析连接参数，以及模块级的无上限缓存（``functools.cache``）或无参缓存加载器的
-函数体。后两类每个进程只执行一次，首次调用落在哪个用例取决于调度顺序；有容量上限、按参数缓存
-的函数会被淘汰后重读，不放行。
+asyncpg 建连时解析连接参数、coverage 记录覆盖数据时等待自身的数据锁，以及模块级的无上限缓存
+（``functools.cache``）或无参缓存加载器的函数体。后两类每个进程只执行一次，首次调用落在哪个用例
+取决于调度顺序；有容量上限、按参数缓存的函数会被淘汰后重读，不放行。
 
-两份清单：
+永久豁免清单 ``exemptions.toml`` 只收应用启动与关停路径上的一次性阻塞，每条写明理由。
+完整运行（未做任何选择或筛选）结束时，豁免清单里本次未触发的条目让会话以失败收场；带
+``--blocking-guard-expect-all-exemptions`` 时筛选过的运行也一样（CI 只有 unit job 带它）：
+启动与关停路径改了就同步删掉对应条目。
 
-- ``allowlist.txt``：临时白名单，治理期间登记现有违规，修好一处删一处，目标是清空。
-  由写出模式整体再生成，必须在 Linux 上生成，命令见文件头与 ``docs/agents/testing.md``。
-- ``exemptions.toml``：永久豁免，只收应用启动与关停路径上的一次性阻塞，每条写明理由。
-
-完整运行（未做任何选择或筛选）结束时，白名单与豁免清单里本次未触发的条目以警告列出。
+**已知局限。** 无上限缓存的放行分不清键集合固定与键随输入增长：后者每个新键都阻塞一次，
+靠审查按「事件循环线程只做调度」识别。护栏只覆盖用例跑到的路径：没有用例的路由，或用例把
+文件系统整体换成替身的路由，阻塞照样漏网；给这类路由补用例时让替身保留真实 I/O 的那一步。
 """
 
 from __future__ import annotations
@@ -49,31 +52,10 @@ from typing import Any
 import pytest
 from blockbuster import BlockBuster, BlockBusterFunction
 
-WRITE_ENV = "ARCREEL_BLOCKING_ALLOWLIST_WRITE"
-ALLOWLIST_RELPATH = "tests/blocking_guard/allowlist.txt"
 EXEMPTIONS_RELPATH = "tests/blocking_guard/exemptions.toml"
+EXPECT_ALL_EXEMPTIONS_OPTION = "--blocking-guard-expect-all-exemptions"
 SCANNED_DIRS = ("lib", "server")
 TESTS_DIR = "tests"
-
-REGENERATE_COMMAND = """\
-docker run --rm -v "$PWD":/repo -w /repo \\
-  -e UV_PROJECT_ENVIRONMENT=/opt/venv -e UV_LINK_MODE=copy -e PYTHONPYCACHEPREFIX=/tmp/pycache \\
-  -e ARCREEL_BLOCKING_ALLOWLIST_WRITE=1 -v arcreel-linux-uv-cache:/root/.cache/uv \\
-  python:3.12-slim sh -c 'apt-get update -qq && apt-get install -y -qq git media-types mediainfo bubblewrap socat >/dev/null \\
-    && pip install -q uv && uv sync -q --frozen \\
-    && uv run python -m pytest tests -n 4 --dist loadfile -q -p no:cacheprovider'"""
-
-ALLOWLIST_HEADER = f"""\
-# 事件循环阻塞的临时白名单。每行一个条目：<文件>::<最近的 lib/server async 函数>，
-# 行尾注释是该函数里被拦截的调用，仅供参考，匹配只看条目本身。
-#
-# 修好一处就删掉对应条目，目标是清空本文件。不要手工追加条目：新违规要么修掉，
-# 要么（仅限启动与关停路径的一次性阻塞）写进同目录的 exemptions.toml 并注明理由。
-#
-# 本文件由写出模式整体再生成，必须在 Linux 上生成（macOS 的文件复制走另一套系统调用，
-# 生成结果会与 CI 对不上）。在仓库根目录运行：
-#
-{"".join(f"#   {line}\n" for line in REGENERATE_COMMAND.splitlines())}"""
 
 _ASYNC_CODE_FLAGS = inspect.CO_COROUTINE | inspect.CO_ITERABLE_COROUTINE | inspect.CO_ASYNC_GENERATOR
 _GUARD_DIR = str(Path(__file__).resolve().parent) + os.sep
@@ -85,7 +67,11 @@ _LOGGING_DIR = str(Path(logging.__file__).resolve().parent) + os.sep
 # 在 /var -> /private/var 之下，Linux 不是，不放行会让同一段代码只在 macOS 上违规。
 # asyncpg 解析连接参数时在事件循环上探测 ~/.pgpass 与 ~/.postgresql 下的证书文件，每条新连接
 # 一次。违规会记到恰好让连接池新建连接的调用方头上，随运行顺序变化，也只在 PostgreSQL 下出现，
-# 在 SQLite 上生成的白名单收录不到。
+# 只在 PostgreSQL 下出现的违规在 SQLite 的运行里看不到。
+# coverage 的 tracer 每进入或恢复一个被测帧，都经 lock_data 阻塞地获取自身的数据锁（concurrency 含
+# thread 时才有这把锁），工作线程上的 tracer 恰好持锁时事件循环线程就等它。违规会随线程交错落在任意
+# 被测协程头上，常见的是生成队列 worker 主循环在 await 处恢复的那一刻；这把锁只在开 coverage 的运行里
+# 存在，生产路径上没有。
 _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("posixpath.py", frozenset({"realpath", "_joinrealpath"})),
     ("<frozen posixpath>", frozenset({"realpath", "_joinrealpath"})),
@@ -93,6 +79,7 @@ _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("<frozen importlib._bootstrap>", None),
     ("<frozen importlib._bootstrap_external>", None),
     ("asyncpg/connect_utils.py", frozenset({"_parse_connect_arguments"})),
+    ("coverage/collector.py", frozenset({"lock_data"})),
 )
 
 _STACK_PREVIEW_FRAMES = 6
@@ -109,23 +96,15 @@ class Violation:
 
 
 @dataclass(slots=True)
-class _Lists:
-    allowlist: frozenset[str]
-    exemptions: dict[str, str]
-
-
-@dataclass(slots=True)
 class BlockingGuard:
-    """会话级状态：拦截点、待结算的违规与各清单的触发情况。"""
+    """会话级状态：拦截点、待结算的违规与豁免清单的触发情况。"""
 
     root: Path
-    write_mode: bool
-    lists: _Lists
+    exemptions: dict[str, str]
     scanned_prefixes: tuple[str, ...] = ()
     tests_prefix: str = ""
     pending: list[Violation] = field(default_factory=list)
     triggered: set[str] = field(default_factory=set)
-    observed: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
     deselected: int = 0
     _blockbuster: BlockBuster | None = None
     _extra_functions: list[BlockBusterFunction] = field(default_factory=list)
@@ -182,30 +161,41 @@ class BlockingGuard:
 
         key: str | None = None
         outermost_scanned: FrameType | None = None
+        driven_by_tests = False
         for candidate in frames:
             filename = candidate.f_code.co_filename
             module = candidate.f_globals.get("__name__", "")
             if filename.startswith(_GUARD_DIR) or module.startswith(_GUARD_MODULE):
                 continue
-            # 模块名兜底：pytest 断言重写的缓存不修正 co_filename，跨机器复用缓存时路径对不上。
-            if filename.startswith(self.tests_prefix) or module.startswith(f"{TESTS_DIR}."):
-                return
+            if self._is_tests_frame(candidate):
+                # 替身、测试辅助函数的帧不终止查找：外层若有 lib/server 的 async 函数，
+                # 换成生产依赖后同一位置同样阻塞事件循环，照样记到它名下。
+                driven_by_tests = True
+                continue
             if filename.startswith(self.scanned_prefixes):
                 if candidate.f_code.co_flags & _ASYNC_CODE_FLAGS:
                     key = self._key(candidate)
                     break
                 outermost_scanned = candidate
         if key is None:
-            if outermost_scanned is None:
+            # 没有 lib/server 的 async 函数包住阻塞点：经过 tests/ 帧说明由测试自身驱动
+            # （测试直接调同步 lib 代码），不计；否则是事件循环直接回调的同步函数，取最外层。
+            if outermost_scanned is None or driven_by_tests:
                 return
             key = self._key(outermost_scanned)
 
         stack = tuple(
             f"{self._relpath(f.f_code.co_filename)}:{f.f_lineno} in {f.f_code.co_qualname}"
             for f in frames
-            if f.f_code.co_filename.startswith(self.scanned_prefixes)
+            if f.f_code.co_filename.startswith(self.scanned_prefixes) or self._is_tests_frame(f)
         )[:_STACK_PREVIEW_FRAMES]
         self.pending.append(Violation(key, call, threading.current_thread().name, stack))
+
+    def _is_tests_frame(self, frame: FrameType) -> bool:
+        # 模块名兜底：pytest 断言重写的缓存不修正 co_filename，跨机器复用缓存时路径对不上。
+        return frame.f_code.co_filename.startswith(self.tests_prefix) or frame.f_globals.get("__name__", "").startswith(
+            f"{TESTS_DIR}."
+        )
 
     def _relpath(self, filename: str) -> str:
         return filename.removeprefix(str(self.root) + os.sep).replace(os.sep, "/")
@@ -216,17 +206,13 @@ class BlockingGuard:
     # ------------------------------------------------------------------ 结算
 
     def settle(self) -> list[Violation]:
-        """取走待结算的违规，登记触发情况，返回白名单与豁免之外的部分。"""
+        """取走待结算的违规，登记豁免的触发情况，返回豁免之外的部分。"""
         drained, self.pending[:] = list(self.pending), []
         unexpected = []
         for violation in drained:
-            if violation.key in self.lists.exemptions:
+            if violation.key in self.exemptions:
                 self.triggered.add(violation.key)
-                continue
-            self.observed[violation.key].add(violation.call)
-            if violation.key in self.lists.allowlist:
-                self.triggered.add(violation.key)
-            elif not self.write_mode:
+            else:
                 unexpected.append(violation)
         return unexpected
 
@@ -235,7 +221,7 @@ def _runs_once_per_process(frame: FrameType) -> bool:
     """帧是否是模块级、每个进程按参数只执行一次的缓存加载器的函数体。
 
     这类加载器（随包分发的 schema、规则表）与函数内的延迟 import 同类，首次调用落在哪个用例
-    取决于 xdist 的调度，不放行会让白名单随运行顺序变化。只认无上限的 ``functools.cache``
+    取决于 xdist 的调度，不放行会让违规随运行顺序出现或消失。只认无上限的 ``functools.cache``
     （``lru_cache(maxsize=None)``）和无参函数：有容量上限、按参数缓存的函数会淘汰后重读，
     每次重读都是一次真实的阻塞。
     """
@@ -341,15 +327,7 @@ def _lock_rules(restore: list[Callable[[], None]]) -> list[BlockBusterFunction]:
 # ---------------------------------------------------------------------- 清单
 
 
-def load_lists(root: Path, *, regenerating: bool = False) -> _Lists:
-    allowlist_path = root / ALLOWLIST_RELPATH
-    entries: set[str] = set()
-    if allowlist_path.exists():
-        for raw in allowlist_path.read_text(encoding="utf-8").splitlines():
-            entry = raw.split("#", 1)[0].strip()
-            if entry:
-                entries.add(entry)
-
+def load_exemptions(root: Path) -> dict[str, str]:
     exemptions: dict[str, str] = {}
     exemptions_path = root / EXEMPTIONS_RELPATH
     if exemptions_path.exists():
@@ -360,34 +338,22 @@ def load_lists(root: Path, *, regenerating: bool = False) -> _Lists:
             if not key or not reason:
                 raise pytest.UsageError(f"{EXEMPTIONS_RELPATH}: 每条豁免都要有 key 与 reason：{item!r}")
             exemptions[key] = reason
-    # 写出模式会整体重写白名单，条目刚从白名单挪进豁免清单时允许暂时重叠。
-    overlap = entries & exemptions.keys()
-    if overlap and not regenerating:
-        raise pytest.UsageError(f"{ALLOWLIST_RELPATH} 与 {EXEMPTIONS_RELPATH} 重复登记：{sorted(overlap)}")
-    return _Lists(frozenset(entries), exemptions)
-
-
-def render_allowlist(observed: dict[str, set[str]]) -> str:
-    lines = [f"{key}  # {', '.join(sorted(calls))}" for key, calls in sorted(observed.items())]
-    return ALLOWLIST_HEADER + "\n" + "".join(f"{line}\n" for line in lines)
+    return exemptions
 
 
 # ---------------------------------------------------------------------- pytest 钩子
 
 _GUARD_KEY = pytest.StashKey[BlockingGuard]()
-_WORKER_WRITE_KEY = "blocking_guard_write"
 _SESSION_KEY = pytest.StashKey["_SessionTotals"]()
 
 
 @dataclass(slots=True)
 class _SessionTotals:
-    write_mode: bool = False
     triggered: set[str] = field(default_factory=set)
-    observed: dict[str, set[str]] = field(default_factory=lambda: defaultdict(set))
     deselected: int = 0
     full_run: bool = False
-    notes: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+    expect_all: bool = False
+    errors: list[str] = field(default_factory=list)
 
 
 def _is_xdist_worker(config: pytest.Config) -> bool:
@@ -396,6 +362,11 @@ def _is_xdist_worker(config: pytest.Config) -> bool:
 
 def _is_xdist_controller(config: pytest.Config) -> bool:
     return not _is_xdist_worker(config) and bool(getattr(config.option, "dist", "no") != "no")
+
+
+def _executes_tests(config: pytest.Config) -> bool:
+    # --collect-only/--setup-only/--setup-plan 不执行用例，记录不到任何违规。
+    return not any(getattr(config.option, name, None) for name in ("collectonly", "setuponly", "setupplan"))
 
 
 def _selects_whole_suite(config: pytest.Config) -> bool:
@@ -409,39 +380,31 @@ def _selects_whole_suite(config: pytest.Config) -> bool:
         resolved = (path if path.is_absolute() else config.invocation_params.dir / path).resolve()
         if resolved not in targets:
             return False
-    # --ignore/--ignore-glob 在收集期跳过路径，既不改 config.args，也不经过 pytest_deselected；
-    # --collect-only/--setup-only/--setup-plan 不执行用例，记录不到任何违规。
-    filters = (
-        *("keyword", "markexpr", "lf", "stepwise", "testmon", "deselect", "ignore", "ignore_glob"),
-        *("collectonly", "setuponly", "setupplan"),
-    )
+    # --ignore/--ignore-glob 在收集期跳过路径，既不改 config.args，也不经过 pytest_deselected。
+    filters = ("keyword", "markexpr", "lf", "stepwise", "testmon", "deselect", "ignore", "ignore_glob")
     return not any(getattr(config.option, name, None) for name in filters)
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        EXPECT_ALL_EXEMPTIONS_OPTION,
+        action="store_true",
+        default=False,
+        help="本次运行应触发永久豁免清单的每一条：不论路径或关键字筛选，结束时未触发的豁免都让会话失败。",
+    )
+
+
 def pytest_configure(config: pytest.Config) -> None:
-    # 写出模式只属于本次会话：读完即从环境里摘掉，免得用例另起的 pytest 子进程继承它；
-    # xdist worker 改由 controller 经 workerinput 传入。
-    write_mode = os.environ.pop(WRITE_ENV, None) == "1"
-    if _is_xdist_worker(config):
-        write_mode = bool(config.workerinput.get(_WORKER_WRITE_KEY))
-    totals = _SessionTotals(write_mode=write_mode, full_run=_selects_whole_suite(config))
-    config.stash[_SESSION_KEY] = totals
-    if write_mode and not totals.full_run:
-        raise pytest.UsageError(
-            f"{WRITE_ENV}=1 只能用于完整运行（不带路径、-k、-m 等筛选）：部分运行会让白名单丢条目。"
-        )
+    executes = _executes_tests(config)
+    config.stash[_SESSION_KEY] = _SessionTotals(
+        full_run=executes and _selects_whole_suite(config),
+        expect_all=executes and bool(config.getoption(EXPECT_ALL_EXEMPTIONS_OPTION)),
+    )
     if _is_xdist_controller(config):
         return
-    guard = BlockingGuard(
-        root=config.rootpath, write_mode=write_mode, lists=load_lists(config.rootpath, regenerating=write_mode)
-    )
+    guard = BlockingGuard(root=config.rootpath, exemptions=load_exemptions(config.rootpath))
     guard.activate()
     config.stash[_GUARD_KEY] = guard
-
-
-@pytest.hookimpl(optionalhook=True)
-def pytest_configure_node(node: Any) -> None:
-    node.workerinput[_WORKER_WRITE_KEY] = node.config.stash[_SESSION_KEY].write_mode
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
@@ -480,7 +443,7 @@ def _describe(violations: list[Violation]) -> str:
     grouped: dict[str, list[Violation]] = defaultdict(list)
     for violation in violations:
         grouped[violation.key].append(violation)
-    lines = ["事件循环线程上发生了阻塞调用（不在临时白名单与永久豁免内）："]
+    lines = ["事件循环线程上发生了阻塞调用（不在永久豁免清单内）："]
     for key, items in grouped.items():
         calls = ", ".join(sorted({v.call for v in items}))
         lines.append(f"  {key}  ← {calls}  [线程 {items[0].thread}]")
@@ -499,15 +462,9 @@ def pytest_sessionfinish(session: pytest.Session) -> None:
     if guard is not None:
         guard.settle()
         totals.triggered |= guard.triggered
-        for key, calls in guard.observed.items():
-            totals.observed[key] |= calls
         totals.deselected += guard.deselected
     if _is_xdist_worker(config):
-        config.workeroutput["blocking_guard"] = {
-            "triggered": sorted(totals.triggered),
-            "observed": {key: sorted(calls) for key, calls in totals.observed.items()},
-            "deselected": totals.deselected,
-        }
+        config.workeroutput["blocking_guard"] = {"triggered": sorted(totals.triggered), "deselected": totals.deselected}
         return
     _finish(config, session, totals)
 
@@ -519,46 +476,30 @@ def pytest_testnodedown(node: Any, error: object) -> None:
         return
     totals = node.config.stash[_SESSION_KEY]
     totals.triggered |= set(payload["triggered"])
-    for key, calls in payload["observed"].items():
-        totals.observed[key] |= set(calls)
     totals.deselected += payload["deselected"]
 
 
 def _finish(config: pytest.Config, session: pytest.Session, totals: _SessionTotals) -> None:
+    # 显式选项声明「这批用例应触发每一条豁免」，筛选掉的用例不影响判定。
     complete = (
-        totals.full_run
-        and totals.deselected == 0
+        (totals.expect_all or (totals.full_run and totals.deselected == 0))
         and not session.shouldstop
         and not session.shouldfail
         and session.exitstatus not in (pytest.ExitCode.INTERRUPTED, pytest.ExitCode.USAGE_ERROR)
     )
-    lists = load_lists(config.rootpath, regenerating=totals.write_mode)
-    if totals.write_mode:
-        if not complete:
-            totals.warnings.append("本次运行不完整（有筛选、中途停止或被中断），未写出白名单。")
-            return
-        observed = {k: v for k, v in totals.observed.items() if k not in lists.exemptions}
-        (config.rootpath / ALLOWLIST_RELPATH).write_text(render_allowlist(observed), encoding="utf-8")
-        totals.notes.append(f"已写出 {ALLOWLIST_RELPATH}：{len(observed)} 个条目。")
-        stale_exemptions = sorted(set(lists.exemptions) - totals.triggered)
-        totals.warnings.extend(f"永久豁免未触发：{key}" for key in stale_exemptions)
-        return
     if not complete:
         return
-    stale = sorted(lists.allowlist - totals.triggered)
-    stale_exemptions = sorted(set(lists.exemptions) - totals.triggered)
-    totals.warnings.extend(f"临时白名单未触发：{key}" for key in stale)
-    totals.warnings.extend(f"永久豁免未触发：{key}" for key in stale_exemptions)
+    stale = sorted(set(load_exemptions(config.rootpath)) - totals.triggered)
     if stale:
-        totals.notes.append("未触发的白名单条目可以删除；macOS 上的文件复制走另一套系统调用，以 Linux 上的结果为准。")
+        totals.errors.extend(f"永久豁免未触发，请从 {EXEMPTIONS_RELPATH} 删除：{key}" for key in stale)
+        if session.exitstatus == pytest.ExitCode.OK:
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
 
 
 def pytest_terminal_summary(terminalreporter: Any, config: pytest.Config) -> None:
     totals = config.stash.get(_SESSION_KEY, None)
-    if totals is None or not (totals.warnings or totals.notes):
+    if totals is None or not totals.errors:
         return
-    terminalreporter.write_sep("=", "blocking guard", yellow=bool(totals.warnings))
-    for line in totals.warnings:
-        terminalreporter.write_line(line, yellow=True)
-    for line in totals.notes:
-        terminalreporter.write_line(line)
+    terminalreporter.write_sep("=", "blocking guard", red=True)
+    for line in totals.errors:
+        terminalreporter.write_line(line, red=True)

@@ -50,7 +50,7 @@ from lib.generation.media_generator import MediaGenerator
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeConfigResolver
+from tests.fakes import FakeConfigResolver, write_backend_output
 
 # ---------------------------------------------------------------------------
 # 冻结时钟：写入侧（usage_repo.utc_now）是 aware datetime，SQLite 回读为 naive。
@@ -215,8 +215,7 @@ class _FakeImageBackend:
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         if self._error is not None:
             raise self._error
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(_PNG_BYTES)
+        await write_backend_output(request.output_path, _PNG_BYTES)
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=self._provider,
@@ -254,8 +253,7 @@ class _FakeAudioBackend:
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         if self._error is not None:
             raise self._error
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(b"fake-wav")
+        await write_backend_output(request.output_path, b"fake-wav")
         return AudioSynthesisResult(
             provider=self._provider,
             model=self._model,
@@ -294,9 +292,8 @@ class _FakeVideoBackend:
     def video_capabilities(self) -> VideoCapabilities:
         return VideoCapabilities()
 
-    def _build_result(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        request.output_path.parent.mkdir(parents=True, exist_ok=True)
-        request.output_path.write_bytes(b"fake-mp4")
+    async def _build_result(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        await write_backend_output(request.output_path, b"fake-mp4")
         fields = {
             "duration_seconds": request.duration_seconds,
             "video_uri": "fake-video-uri",
@@ -314,12 +311,12 @@ class _FakeVideoBackend:
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         if self._error is not None:
             raise self._error
-        return self._build_result(request)
+        return await self._build_result(request)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         if self._resume_error is not None:
             raise self._resume_error
-        return self._build_result(request)
+        return await self._build_result(request)
 
 
 class _FakeTextBackend:

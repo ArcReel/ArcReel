@@ -1,10 +1,12 @@
-"""v17→v18 迁移：剪辑时间线修订删去 Agent 轮次字段。
+"""v17→v18 迁移：剪辑时间线修订删去 Agent 轮次字段；补录原先因生成缺口被跳过的产物。
 
 消息排队后一轮里可能先后进入多条用户消息，修订记录的 ``agent_turn`` 不再有清晰含义，也没有
 任何地方展示它；修订模型不接受多余字段，已落盘修订里的这个字段在此删去，其余内容原样保留。
-
 剪辑时间线不进产物清单，删字段不改变任何登记。改写前逐个文件备份；不经过剪辑时间线存储的写入
 出口，不推进项目的最近活动时间。``project.json`` 的备份由 runner 负责。
+
+v18 起生成缺口只拦生成、依据照常投影（``docs/adr/0098``）。同一步按改前改后两次规划补录此前
+因缺口没登记的产物，已登记条目不动，见 :mod:`lib.project.project_migrations.input_gap_backfill`。
 """
 
 from __future__ import annotations
@@ -16,7 +18,9 @@ from typing import Any
 
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.infra.json_io import atomic_write_json
+from lib.project.project_migration_report import ArtifactBackfillOutcome
 from lib.project.project_migrations.backups import ensure_versioned_backup
+from lib.project.project_migrations.input_gap_backfill import backfill_input_gap_artifacts
 from lib.project.project_schema import parse_project_schema_version
 
 TARGET_SCHEMA_VERSION = 18
@@ -74,19 +78,20 @@ def migrate_timeline_dict(document: Mapping[str, Any]) -> dict[str, Any]:
     return migrated
 
 
-def migrate_v17_to_v18(project_dir: Path) -> None:
+def migrate_v17_to_v18(project_dir: Path) -> ArtifactBackfillOutcome | None:
     """v17→v18 文件级迁移。逐个文件原子写，最后提升 schema；中途崩溃可重试。"""
 
     project_dir = Path(project_dir)
     project_file = project_dir / "project.json"
     if not project_file.is_file():
-        return
+        return None
     with project_metadata_lock(project_dir):
         project = json.loads(project_file.read_bytes())
         if not isinstance(project, dict):
             raise ValueError("project.json 必须是对象")
         if parse_project_schema_version(project) >= TARGET_SCHEMA_VERSION:
-            return
+            return None
+        outcome = backfill_input_gap_artifacts(project_dir, project)
         for path in timeline_files(project_dir):
             try:
                 document = json.loads(path.read_bytes())
@@ -100,6 +105,7 @@ def migrate_v17_to_v18(project_dir: Path) -> None:
                 ensure_versioned_backup(path, _FROM_VERSION)
                 atomic_write_json(path, migrated)
         atomic_write_json(project_file, {**project, "schema_version": TARGET_SCHEMA_VERSION})
+    return outcome
 
 
 __all__ = [

@@ -174,9 +174,6 @@ MESSAGES = {
         "{items_key}[{index}]: đã xóa trường ngừng dùng {field} (hãy dùng scenes/props)"
     ),
     "arch_missing_field_filled": "{items_key}[{index}]: đã bổ sung trường còn thiếu {field}",
-    "arch_missing_asset_definition": (
-        "{items_key}[{index}]: {field} tham chiếu {asset_type} không có trong project.json: {names}"
-    ),
     "arch_unit_unresolved_mentions": (
         "video_units[{index}]: nội dung tham chiếu tên tài sản không có trong project.json: {names}; "
         "chúng sẽ không tạo ảnh tham chiếu"
@@ -187,6 +184,7 @@ MESSAGES = {
         "{label}[{index}]: generated_assets sai hình dạng ({actual}), đã đặt lại về cấu trúc mặc định"
     ),
     "arch_placeholder_character_added": "Đã tự động bổ sung định nghĩa nhân vật còn thiếu: {name}",
+    "arch_placeholder_asset_added": "Đã tự động bổ sung định nghĩa {asset_type} còn thiếu: {name}",
     "arch_canonical_path_normalized": "{location}: đã chuẩn hóa thành {path}",
     "arch_current_asset_materialized": "{location}: đã khôi phục tệp hiện hành {target} từ {source}",
     "arch_current_asset_restored_from_version": "{location}: đã khôi phục tệp hiện hành {target} từ {source}",
@@ -194,7 +192,9 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "Chính sách xử lý xung đột không hợp lệ",
     "arch_conflict_policy_unsupported": "conflict_policy chỉ hỗ trợ prompt, rename hoặc overwrite; nhận được: {value}",
     "arch_import_validation_failed": "Kiểm tra gói nhập thất bại",
-    "arch_artifact_activation_failed": "Trạng thái sản phẩm của dự án nhập không nhất quán",
+    "arch_artifact_activation_failed": "Trạng thái sản phẩm của dự án nhập không nhất quán: {reason}",
+    "arch_project_migration_failed": "Không thể nâng cấp dữ liệu dự án trong gói lên phiên bản hiện tại: {reason}",
+    "arch_import_confirmation_required": "Khi nâng cấp gói, một số nội dung đã được điều chỉnh. Hãy xác nhận trước khi nhập",
     "arch_not_a_zip": "Tệp tải lên không phải gói ZIP hợp lệ",
     "arch_zip_encrypted_entry": "ZIP chứa mục đã mã hóa nên không thể nhập: {name}",
     "arch_zip_absolute_path_entry": "ZIP chứa mục có đường dẫn tuyệt đối: {name}",

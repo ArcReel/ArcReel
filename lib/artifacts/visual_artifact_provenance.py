@@ -13,6 +13,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from lib.artifacts.artifact_manifest import ArtifactBasis
+from lib.artifacts.input_gap import InputGap, add_absent_inputs
 from lib.infra.content_digest import sha256_file
 from lib.project.asset_types import ASSET_TYPES, normalize_asset_name
 from lib.project.project_schema import parse_project_schema_version
@@ -121,14 +122,20 @@ def build_asset_sheet_visual_basis(
     style_description: str,
     aspect_ratio: str,
     references: Sequence[VisualReference] = (),
+    absent: Sequence[InputGap] = (),
 ) -> ArtifactBasis:
-    """Describe one character, scene, prop, or product design sheet."""
+    """Describe one character, scene, prop, or product design sheet.
+
+    ``absent`` records the generation-input gaps (``docs/adr/0098``). An empty
+    description is accepted only together with recorded gaps.
+    """
 
     if asset_type not in ASSET_TYPES:
         raise ValueError(f"unsupported asset type: {asset_type!r}")
     canonical_id = normalize_asset_name(_require_non_empty("asset_id", asset_id))
     normalized_description = _require_string("description", description).strip()
-    _require_non_empty("description", normalized_description)
+    if not absent:
+        _require_non_empty("description", normalized_description)
     _require_string("style", style)
     _require_string("style_description", style_description)
     canvas_ratio = _require_non_empty("aspect_ratio", aspect_ratio)
@@ -146,6 +153,7 @@ def build_asset_sheet_visual_basis(
             "name": style,
             "description": style_description,
         }
+    add_absent_inputs(inputs, absent)
     return ArtifactBasis.build(
         "artifact-visual/asset-sheet",
         kind_version=1,
@@ -211,15 +219,24 @@ def build_storyboard_image_visual_basis(
     aspect_ratio: str,
     style_description: str = "",
     references: Sequence[VisualReference] = (),
+    absent: Sequence[InputGap] = (),
 ) -> ArtifactBasis:
-    """Describe one ordinary storyboard image and its actual ordered image inputs."""
+    """Describe one ordinary storyboard image and its actual ordered image inputs.
+
+    ``absent`` records the generation-input gaps (``docs/adr/0098``). A pending
+    ``image_prompt`` (``None``) is accepted only together with recorded gaps.
+    """
 
     identity = _require_non_empty("resource_id", resource_id)
     _require_string("style", style)
     _require_string("style_description", style_description)
+    prompt: object
     if image_prompt is None:
-        raise ValueError("image_prompt is pending; a storyboard image has no visual basis yet")
-    prompt, style_input = project_storyboard_image_prompt(image_prompt, style)
+        if not absent:
+            raise ValueError("image_prompt is pending; a storyboard image has no visual basis yet")
+        prompt, style_input = None, style
+    else:
+        prompt, style_input = project_storyboard_image_prompt(image_prompt, style)
     inputs: dict[str, object] = {
         "resource_id": identity,
         "image_prompt": prompt,
@@ -229,6 +246,7 @@ def build_storyboard_image_visual_basis(
     if style_input or not isinstance(prompt, str):
         inputs["style"] = style_input
     _add_style_description(inputs, style_description)
+    add_absent_inputs(inputs, absent)
     return ArtifactBasis.build(
         "artifact-visual/storyboard-image",
         kind_version=1,
@@ -246,8 +264,12 @@ def build_grid_composite_visual_basis(
     grid_aspect_ratio: str,
     style_description: str = "",
     references: Sequence[VisualReference] = (),
+    absent: Sequence[InputGap] = (),
 ) -> ArtifactBasis:
-    """Describe one grid composite without hashing its rendered provider prompt."""
+    """Describe one grid composite without hashing its rendered provider prompt.
+
+    ``absent`` records reference images that are no longer available (``docs/adr/0098``).
+    """
 
     member_tuple = _validate_grid_members(members, rows=rows, columns=columns)
     _require_string("style", style)
@@ -263,6 +285,7 @@ def build_grid_composite_visual_basis(
         "references": _reference_evidence(references),
     }
     _add_style_description(inputs, style_description)
+    add_absent_inputs(inputs, absent)
     return ArtifactBasis.build(
         "artifact-visual/grid-composite",
         kind_version=1,
@@ -283,6 +306,7 @@ def build_grid_member_storyboard_visual_basis(
     style_description: str = "",
     references: Sequence[VisualReference] = (),
     source_composite_digest: str | None = None,
+    absent: Sequence[InputGap] = (),
 ) -> ArtifactBasis:
     """Describe one split cell while preserving grid dependency locality.
 
@@ -309,6 +333,7 @@ def build_grid_member_storyboard_visual_basis(
         "source_composite": _composite_evidence(composite_image, source_composite_digest),
     }
     _add_style_description(inputs, style_description)
+    add_absent_inputs(inputs, absent)
     return ArtifactBasis.build(
         "artifact-visual/grid-member",
         kind_version=1,
@@ -364,24 +389,32 @@ def build_storyboard_video_artifact_visual_basis(
     *,
     resource_id: str,
     visual_prompt: object,
-    storyboard_image: Path,
+    storyboard_image: Path | None,
     end_frame_image: Path | None,
     aspect_ratio: str,
+    absent: Sequence[InputGap] = (),
 ) -> ArtifactBasis:
     """Describe the visual component of one storyboard-driven video.
 
     Sound design, dialogue, voice profiles, duration, and execution options are
     intentionally absent. They either belong to later video components or are not
     Artifact Manifest currency at all.
+
+    ``absent`` records the generation-input gaps (``docs/adr/0098``). A pending
+    ``visual_prompt`` and a missing storyboard image are accepted only together
+    with recorded gaps.
     """
 
+    projected_prompt: object
     if visual_prompt is None:
-        raise ValueError("visual_prompt is pending; a storyboard video has no visual basis yet")
-    if isinstance(visual_prompt, str):
+        if not absent:
+            raise ValueError("visual_prompt is pending; a storyboard video has no visual basis yet")
+        projected_prompt = None
+    elif isinstance(visual_prompt, str):
         visual_text = visual_prompt.strip()
         if not visual_text:
             raise ValueError("visual_prompt must not be empty")
-        projected_prompt: object = visual_text
+        projected_prompt = visual_text
     elif isinstance(visual_prompt, Mapping):
         action = str(visual_prompt.get("action") or "").strip()
         if not action:
@@ -392,18 +425,24 @@ def build_storyboard_video_artifact_visual_basis(
         }
     else:
         raise ValueError("visual_prompt must be a string or structured object")
-    frame_evidence: list[dict[str, object]] = [{"role": "storyboard", "sha256": visual_file_digest(storyboard_image)}]
+    if storyboard_image is None and not absent:
+        raise ValueError("a storyboard video basis without its storyboard image must record the gap")
+    frame_evidence: list[dict[str, object]] = []
+    if storyboard_image is not None:
+        frame_evidence.append({"role": "storyboard", "sha256": visual_file_digest(storyboard_image)})
     if end_frame_image is not None:
         frame_evidence.append({"role": "end_frame", "sha256": visual_file_digest(end_frame_image)})
+    inputs: dict[str, object] = {
+        "resource_id": _require_non_empty("resource_id", resource_id),
+        "visual_prompt": projected_prompt,
+        "canvas": {"aspect_ratio": _require_non_empty("aspect_ratio", aspect_ratio)},
+        "frames": frame_evidence,
+    }
+    add_absent_inputs(inputs, absent)
     return ArtifactBasis.build(
         "artifact-visual/video-storyboard",
         kind_version=1,
-        inputs={
-            "resource_id": _require_non_empty("resource_id", resource_id),
-            "visual_prompt": projected_prompt,
-            "canvas": {"aspect_ratio": _require_non_empty("aspect_ratio", aspect_ratio)},
-            "frames": frame_evidence,
-        },
+        inputs=inputs,
     )
 
 
@@ -414,13 +453,16 @@ def build_reference_video_artifact_visual_basis(
     style: str | None,
     aspect_ratio: str,
     style_description: str = "",
+    absent: Sequence[InputGap] = (),
 ) -> ArtifactBasis:
     """Describe one canonical ``video_unit`` and the images actually sent for it.
 
     Only ``unit_id`` and the visual lines of ``text`` are projected; speech-only lines
     never enter the basis, so rewording a line of dialogue does not make a rendered video
     stale. ``request_assets`` must be the already-clamped request projection, so
-    unavailable or provider-truncated declarations cannot make the formal video stale.
+    provider-truncated declarations cannot make the formal video stale. Declared
+    references without an available image are generation-input gaps and are
+    recorded in ``absent`` (``docs/adr/0098``).
     """
 
     unit_id = _require_non_empty("unit.unit_id", unit.get("unit_id"))
@@ -446,6 +488,7 @@ def build_reference_video_artifact_visual_basis(
         "request_references": _reference_evidence(references),
     }
     _add_style_description(inputs, style_description)
+    add_absent_inputs(inputs, absent)
     return ArtifactBasis.build(
         "artifact-visual/video-reference",
         kind_version=1,

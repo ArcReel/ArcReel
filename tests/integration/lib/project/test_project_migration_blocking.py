@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -57,21 +56,20 @@ from server.tool_runtime import (
 )
 from tests.integration.lib.project.project_migrations.test_project_migration_v7_v8 import _project
 
+_ORIGINAL_SCRIPTS: dict[Path, bytes] = {}
+
 
 def _break_episode_script(project_dir: Path) -> None:
-    """Drop the identity off one item — a violation the activation preflight names."""
+    """Truncate the script into invalid JSON — a script that cannot be read still rejects the project."""
 
     script_path = project_dir / "scripts" / "episode_1.json"
-    script = json.loads(script_path.read_text(encoding="utf-8"))
-    del script["segments"][0]["segment_id"]
-    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    _ORIGINAL_SCRIPTS[script_path] = script_path.read_bytes()
+    script_path.write_text('{"episode": 1, "segments": [', encoding="utf-8")
 
 
 def _repair_episode_script(project_dir: Path) -> None:
     script_path = project_dir / "scripts" / "episode_1.json"
-    script = json.loads(script_path.read_text(encoding="utf-8"))
-    script["segments"][0]["segment_id"] = "E1S01"
-    script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    script_path.write_bytes(_ORIGINAL_SCRIPTS.pop(script_path))
 
 
 def test_failed_migration_records_the_offending_episode_and_file(tmp_path: Path) -> None:
@@ -85,7 +83,7 @@ def test_failed_migration_records_the_offending_episode_and_file(tmp_path: Path)
     assert failure.schema_version == ARTIFACT_MANIFEST_SCHEMA_VERSION - 1
     assert failure.reason
     assert [(d.episode, d.file) for d in failure.details] == [(1, "scripts/episode_1.json")]
-    assert "identity" in failure.details[0].violation
+    assert "not valid UTF-8 JSON" in failure.details[0].violation
     assert (project_dir / MIGRATION_FAILURE_FILENAME).exists()
 
 
@@ -229,7 +227,7 @@ def test_web_retry_reports_the_reason_then_unblocks_once_repaired(tmp_path: Path
     assert refused.status_code == 422
     diagnostic = refused.json()["diagnostic"]
     # 失败原文经 Web 呈现边界改写集指称，其余原样。
-    assert "item 0 has no identity" in diagnostic["reason"]
+    assert "not valid UTF-8 JSON" in diagnostic["reason"]
     assert diagnostic["details"][0]["file"] == "scripts/episode_1.json"
 
     _repair_episode_script(project_dir)

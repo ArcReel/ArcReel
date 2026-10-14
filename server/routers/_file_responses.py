@@ -8,6 +8,7 @@ Starlette 的 ``FileResponse`` 会发 ETag / Last-Modified 并处理 Range，但
 
 from __future__ import annotations
 
+import mimetypes
 import os
 from collections.abc import Mapping
 
@@ -26,6 +27,14 @@ REVALIDATE_CACHE_CONTROL = "no-cache"
 _CONDITIONAL_CHECKER = StaticFiles(directory=None, check_dir=False)
 
 
+def guess_media_type(path: str | os.PathLike[str]) -> str:
+    """按扩展名推断响应的 media type，与 ``FileResponse`` 的默认推断同口径。
+
+    进程内首次调用会加载系统 mime 表（读文件），调用方放进工作线程。
+    """
+    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+
 def cached_file_response(
     path: str | os.PathLike[str],
     stat_result: os.stat_result,
@@ -33,16 +42,19 @@ def cached_file_response(
     *,
     immutable: bool,
     headers: Mapping[str, str] | None = None,
+    media_type: str | None = None,
 ) -> Response:
     """按缓存策略构造文件响应；请求带的校验器与当前文件一致时返回 304。
 
-    ``stat_result`` 由调用方在校验路径时一并取得（通常在工作线程里），本函数不做 I/O。
+    ``stat_result`` 与 ``media_type`` 由调用方在校验路径时一并取得（通常在工作线程里，
+    后者用 ``guess_media_type``），本函数不做 I/O；不传 ``media_type`` 时由 ``FileResponse``
+    在当前线程推断。
     Range / If-Range 仍由 ``FileResponse`` 自身处理；If-None-Match 命中时先于 Range
     返回 304（RFC 9110 §13.2.2 的求值顺序）。
     """
     merged = dict(headers or {})
     merged["Cache-Control"] = IMMUTABLE_CACHE_CONTROL if immutable else REVALIDATE_CACHE_CONTROL
-    response = FileResponse(path, headers=merged, stat_result=stat_result)
+    response = FileResponse(path, headers=merged, media_type=media_type, stat_result=stat_result)
     if request.method in ("GET", "HEAD") and _CONDITIONAL_CHECKER.is_not_modified(response.headers, request.headers):
         return NotModifiedResponse(response.headers)
     return response

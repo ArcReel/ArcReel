@@ -11,12 +11,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
+from lib.artifacts.input_gap import InputGap
 from lib.artifacts.visual_artifact_provenance import VisualReference, build_asset_sheet_visual_basis
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.project.asset_types import (
@@ -263,14 +264,20 @@ def build_derivative_sheet_basis(
     derivative_name: str,
     description: str,
     aspect_ratio: str,
-    source: VisualReference,
+    source: VisualReference | None,
+    absent: Sequence[InputGap] = (),
 ) -> ArtifactBasis:
     """衍生资产图的规范依据：变化描述 + 本体资产图内容，不含项目画风。
 
     画风由本体资产图自身承载——衍生只是对它的一次编辑，编辑指令里不再注入项目 style
     （与图片编辑同口径）。规划侧与执行侧都经此构造，因此本体资产图一旦重生成、或变化
     描述被改写，衍生的登记依据即与规范状态不符，判为过期。
+
+    ``absent`` 记生成输入的缺口（``docs/adr/0098``）：本体资产图不可用时没有 ``source``，
+    变化描述可以为空，两者都只在记有缺口时接受。
     """
+    if source is None and not absent:
+        raise ValueError("a derivative sheet basis without its owner sheet must record the gap")
     return build_asset_sheet_visual_basis(
         asset_type=DERIVATIVE_ASSET_TYPE,
         asset_id=derivative_artifact_id(owner_name, derivative_name),
@@ -278,5 +285,6 @@ def build_derivative_sheet_basis(
         style="",
         style_description="",
         aspect_ratio=aspect_ratio,
-        references=(source,),
+        references=(source,) if source is not None else (),
+        absent=absent,
     )

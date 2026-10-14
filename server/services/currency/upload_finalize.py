@@ -16,7 +16,7 @@ from typing import BinaryIO, Literal
 from lib.artifacts.artifact_activation import register_current_resource_artifact
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
-from lib.infra.async_thread import run_noninterruptible_sync
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.mp4_faststart import ensure_faststart
 from lib.infra.thumbnail import extract_video_thumbnail
 from lib.project.asset_types import ASSET_SPECS
@@ -103,12 +103,16 @@ async def save_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: 
     且避免半截文件被 canonical 路径的读取方看到。超限抛 UploadTooLargeError。
     改名前尽力做 faststart（moov 挪到 mdat 之前），失败时保留上传的原样字节。
     """
-    target.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = _upload_tmp_path(target)
+
+    def _write_tmp() -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _copy_limited(src, tmp_path, max_bytes)
+
     try:
-        await asyncio.to_thread(_copy_limited, src, tmp_path, max_bytes)
+        await run_sync_transaction(_write_tmp)
         await ensure_faststart(tmp_path)
-        await asyncio.to_thread(tmp_path.replace, target)
+        await run_sync_transaction(tmp_path.replace, target)
     except BaseException:
         await asyncio.to_thread(tmp_path.unlink, missing_ok=True)
         raise
@@ -221,21 +225,21 @@ async def commit_manual_storyboard_upload(
     if original_filename:
         metadata["original_filename"] = original_filename
     outcomes = []
-    commit = storyboard_formal_image_callback(
-        project_name=project_name,
-        script_file=script_file,
-        resource_id=shot_id,
-        artifact_path=asset_path,
-        prompt="",
-        versions=versions,
-        task_id=None,
-        basis=None,
-        outcome_box=outcomes,
-        project_manager=get_project_manager(),
-        selected_upload=True,
-    )
 
     def _commit() -> int:
+        commit = storyboard_formal_image_callback(
+            project_name=project_name,
+            script_file=script_file,
+            resource_id=shot_id,
+            artifact_path=asset_path,
+            prompt="",
+            versions=versions,
+            task_id=None,
+            basis=None,
+            outcome_box=outcomes,
+            project_manager=get_project_manager(),
+            selected_upload=True,
+        )
         version = commit(staged_image, current_image, metadata)
         if len(outcomes) != 1 or outcomes[0].version != version:
             raise RuntimeError("manual storyboard upload skipped formal image activation")
@@ -274,9 +278,9 @@ async def commit_manual_video_upload(
     staged_thumbnail = _upload_tmp_path(thumbnail_file)
     try:
         extracted = await extract_video_thumbnail(staged_video, staged_thumbnail)
-        selected_thumbnail = thumbnail_rel if extracted is not None and staged_thumbnail.is_file() else None
 
         def _commit() -> int:
+            selected_thumbnail = thumbnail_rel if extracted is not None and staged_thumbnail.is_file() else None
             committed_version: list[int] = []
 
             def _activate(_script_path: Path) -> None:

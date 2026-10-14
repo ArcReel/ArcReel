@@ -464,8 +464,7 @@ def test_migration_blocked_project_is_listed_as_needing_repair(tmp_path: Path) -
     projects_root.mkdir()
     project_dir, *_ = _project(tmp_path)
     script_path = project_dir / "scripts" / "episode_1.json"
-    script = script_path.read_text(encoding="utf-8").replace('"segment_id"', '"dropped_id"', 1)
-    script_path.write_text(script, encoding="utf-8")
+    script_path.write_text("{not json", encoding="utf-8")
     failure = migrate_project_with_verdict(project_dir)
     assert failure is not None
 

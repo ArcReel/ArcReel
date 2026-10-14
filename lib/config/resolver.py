@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -656,6 +657,14 @@ def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str,
         raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
 
 
+async def _load_project_snapshot(project_name: str | None) -> dict | None:
+    """读取项目快照；读 project.json 是文件 I/O，放进工作线程，不占事件循环线程。"""
+
+    if not project_name:
+        return None
+    return await asyncio.to_thread(lambda: get_project_manager().load_project(project_name))
+
+
 class ConfigResolver:
     """运行时配置解析器。
 
@@ -999,7 +1008,7 @@ class ConfigResolver:
         svc: ConfigService,
         project_name: str | None,
     ) -> bool:
-        project = get_project_manager().load_project(project_name) if project_name else None
+        project = await _load_project_snapshot(project_name)
         return await self._resolve_video_generate_audio_from_project(svc, project)
 
     async def _resolve_video_generate_audio_from_project(
@@ -1034,7 +1043,7 @@ class ConfigResolver:
 
         走四级骨架的不定桶键位（``_VIDEO_DEFAULT_LAYERED_KEYS``），桶层缺席由骨架跳过。
         """
-        project = get_project_manager().load_project(project_name) if project_name else None
+        project = await _load_project_snapshot(project_name)
         return await self._resolve_layered_backend(svc, session, project, _VIDEO_DEFAULT_LAYERED_KEYS)
 
     async def _resolve_layered_backend(
@@ -1594,7 +1603,8 @@ class ConfigResolver:
         cred_repo = CredentialRepository(session)
         active = await cred_repo.get_active(provider_id)
         if active:
-            active.overlay_config(config)
+            # 凭证叠加会探测 Vertex 凭证文件是否存在，放进工作线程。
+            await asyncio.to_thread(active.overlay_config, config)
         return config
 
     async def _resolve_reference_payload_limits(
@@ -1620,9 +1630,13 @@ class ConfigResolver:
         configs = await svc.get_all_provider_configs()
         cred_repo = CredentialRepository(session)
         active_creds = await cred_repo.get_active_credentials_bulk()
-        for provider_id, cred in active_creds.items():
-            cfg = configs.setdefault(provider_id, {})
-            cred.overlay_config(cfg)
+
+        def overlay_all() -> None:
+            for provider_id, cred in active_creds.items():
+                cred.overlay_config(configs.setdefault(provider_id, {}))
+
+        # 凭证叠加会探测 Vertex 凭证文件是否存在，整批放进工作线程。
+        await asyncio.to_thread(overlay_all)
         return configs
 
     async def default_text_backend(self) -> tuple[str, str]:
@@ -1650,7 +1664,7 @@ class ConfigResolver:
         task_type: TextTaskType,
         project_name: str | None,
     ) -> tuple[str, str]:
-        project = get_project_manager().load_project(project_name) if project_name else None
+        project = await _load_project_snapshot(project_name)
         keys = _TEXT_LAYERED_KEYS[TEXT_TASK_TIERS[task_type]]
         resolved = await self._resolve_layered_backend(svc, session, project, keys)
         if task_type in VISION_REQUIRED_TASKS:

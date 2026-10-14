@@ -411,7 +411,7 @@ def test_killed_after_version_records_are_written_resumes_on_rerun(tmp_path: Pat
         assert _status(project_dir, key) == "current"
 
 
-def test_grid_whose_version_record_disagrees_with_the_manifest_is_left_stale_and_reported(tmp_path: Path) -> None:
+def test_grid_whose_version_record_disagrees_with_the_manifest_is_left_stale_out_of_the_report(tmp_path: Path) -> None:
     project_dir = write_undescribed_style_bases_project(tmp_path / "projects", "grid", route="grid")
     _add_grid_version_record(project_dir, style_description="与清单登记不同时期的描述")
     before = _entries(project_dir)
@@ -422,14 +422,12 @@ def test_grid_whose_version_record_disagrees_with_the_manifest_is_left_stale_and
     assert _status(project_dir, _GRID) == "stale"
     for key in _GRID_MEMBERS:
         assert _status(project_dir, key) == "current"
+    # 依据算不出不等于读不出：报告只给用户看读不出的文件（ADR 0098）。
     report = load_migration_report(project_dir)
-    assert report is not None
-    assert [(item.kind, item.resource_id) for item in report.skipped if "style description" in item.reason] == [
-        ("episode-grid", "grid_123456789abc")
-    ]
+    assert report is None or not [item for item in report.skipped if item.kind == "episode-grid"]
 
 
-def test_described_project_reports_artifacts_the_planner_cannot_project(tmp_path: Path) -> None:
+def test_artifacts_the_planner_cannot_project_stay_out_of_the_report(tmp_path: Path) -> None:
     project_dir = write_undescribed_style_bases_project(tmp_path / "projects", "reference", route="reference_video")
     versions = _read_versions(project_dir)
     for key in _REFERENCE_VIDEOS:
@@ -438,8 +436,8 @@ def test_described_project_reports_artifacts_the_planner_cannot_project(tmp_path
 
     migrate_project_dir(project_dir)
 
+    # 依据算不出的视频读时报 missing，不进「未能带入」（ADR 0098）。
     report = load_migration_report(project_dir)
-    assert report is not None
-    assert {(item.kind, item.resource_id) for item in report.skipped} >= {
+    assert report is None or not {(item.kind, item.resource_id) for item in report.skipped} & {
         ("episode-video", str(key.components[-1])) for key in _REFERENCE_VIDEOS
     }
