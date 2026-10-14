@@ -32,6 +32,7 @@ from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
     asset_name_comparison_key,
+    asset_name_namespace_key,
     build_asset_entry,
     ensure_project_asset_name_available,
     record_asset_aliases,
@@ -245,6 +246,19 @@ def _registered_names(project: Mapping[str, Any]) -> tuple[dict[str, dict[str, s
     return registered, owners
 
 
+def _namespace_names(project: Mapping[str, Any]) -> dict[str, tuple[str, str]]:
+    """``判重键→(类型, 登记名)``：新登记的名字与已有资产只差大小写也算重名，与
+    :func:`ensure_project_asset_name_available` 同口径。"""
+    names: dict[str, tuple[str, str]] = {}
+    for asset_type, spec in ASSET_SPECS.items():
+        bucket = project.get(spec.bucket_key)
+        if not isinstance(bucket, Mapping):
+            continue
+        for name in bucket:
+            names.setdefault(asset_name_namespace_key(str(name)), (asset_type, str(name)))
+    return names
+
+
 def _derivative_names(project: Mapping[str, Any], base: str) -> dict[str, str]:
     characters = project.get(ASSET_SPECS["character"].bucket_key)
     key = resolve_asset_key(characters, base) if isinstance(characters, dict) else None
@@ -260,6 +274,9 @@ class _Resolver:
         self.project = project
         parsed, self.problems = _parse_items(raw_items)
         self.registered, self.owners = _registered_names(project)
+        self.namespace = _namespace_names(project)
+        #: 判重键 → 本次已登记的 (类型, 登记名)；两项新增的登记名只差大小写时后一项落不了地。
+        self.claimed: dict[str, tuple[str, str]] = {}
         #: (类型, 称呼判等键) → (下标, 新增项)；同类同名只留第一项。
         self.items: dict[tuple[str, str], tuple[int, PlanNewAsset]] = {}
         item_types: dict[str, str] = {}
@@ -366,9 +383,18 @@ class _Resolver:
         if registered is not None:
             self._auto_merge(asset_type, item, registered)
             return registered
-        owner = self.owners.get(final_key)
-        if owner is not None:
-            self._problem("new_asset_name_taken", index, f"登记名「{final}」已是{_label(owner)}的名字")
+        namespace_key = asset_name_namespace_key(final)
+        taken = self.namespace.get(namespace_key)
+        if taken is not None:
+            owner, existing = taken
+            self._problem("new_asset_name_taken", index, f"登记名「{final}」与已有{_label(owner)}「{existing}」重名")
+            return None
+        claimed = self.claimed.setdefault(namespace_key, (asset_type, final))
+        if claimed != (asset_type, final):
+            owner, existing = claimed
+            self._problem(
+                "new_asset_name_taken", index, f"登记名「{final}」与本集新增的{_label(owner)}「{existing}」重名"
+            )
             return None
         registrations = self.registrations[asset_type]
         registration = registrations.get(final)

@@ -2620,7 +2620,7 @@ class ProjectManager:
         lost-update 竞态。
 
         Raises:
-            ProjectAssetNameConflictError: 规范化后的名称已被其它资产类型占用。
+            ProjectAssetNameConflictError: 名称已被其它资产类型占用，或与已有资产只差大小写。
         """
         name = validate_asset_name(name)
         spec = ASSET_SPECS[asset_type]
@@ -2649,7 +2649,7 @@ class ProjectManager:
         的 lost-update 竞态。任一名称与其它资产类型冲突时整批不落盘。
 
         Raises:
-            ProjectAssetNameConflictError: 任一规范化后的名称已被其它资产类型占用。
+            ProjectAssetNameConflictError: 任一名称已被其它资产类型占用，或与已有资产只差大小写。
         """
         spec = ASSET_SPECS[asset_type]
         # 与 upsert_assets 同口径：规范化（strip + NFC）后等价的 key（{"李白", "  李白  "}
@@ -2792,7 +2792,7 @@ class ProjectManager:
             for name, attrs in cleaned.items():
                 # 存量 entry 的 key 可能是 NFD：解析真实 key 就地更新，而非按 NFC 名新建第二条
                 match = find_project_asset_name(project, name)
-                if match is not None and match.asset_type != asset_type:
+                if match is not None and not match.is_entry(asset_type, name):
                     raise ProjectAssetNameConflictError(name, match, asset_type)
                 key = match.name if match is not None else name
                 existing = isinstance(bucket.get(key), dict)
@@ -3682,7 +3682,7 @@ class ProjectManager:
             bucket = project["characters"]
             # 覆盖写也要落在存量真实 key 上（可能是 NFD），否则会残留视觉同名的旧条目
             match = find_project_asset_name(project, name)
-            if match is not None and match.asset_type != "character":
+            if match is not None and not match.is_entry("character", name):
                 raise ProjectAssetNameConflictError(name, match, "character")
             key = match.name if match is not None else name
             entry = self._build_asset_entry(

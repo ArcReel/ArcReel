@@ -409,6 +409,20 @@ def test_admitted_video_speech_keeps_the_digest_from_before_gaps_were_recorded()
         build_blocked_video_speech_basis(preparation)
 
 
+def test_video_speech_keeps_the_speaker_case_and_digest_from_before_case_insensitive_naming() -> None:
+    """资产名判重不区分大小写，发声依据里的说话人仍保留原样大小写，摘要与改动前的固定样本相同。"""
+    preparation = admit_script_unit(
+        "scenes",
+        {"scene_id": "E1S1", "utterances": [{"kind": "dialogue", "speaker": "Alice", "text": "Hello"}]},
+    ).preparation
+    voice = CharacterVoiceEvidence(speaker=" Alice ", voice_style="Calm")
+
+    assert voice.speaker == "Alice"
+    assert build_video_speech_basis(preparation, voices=(voice,)).digest == (
+        "sha256-v1:7d15b468b040a2f4250b8690803b6808f9622204146b7cb50a0125dc27b64609"
+    )
+
+
 def test_blocked_speech_bases_record_ownership_and_the_admission_problem() -> None:
     """混合发声单位照常投影视频发声与字幕依据：逐条记归属，准入问题记为缺席；改文本让依据变化。"""
     video = _media("test/video", "v1", content="a", duration=8.0)

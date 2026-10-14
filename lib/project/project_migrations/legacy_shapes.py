@@ -14,8 +14,8 @@ v6→v7 的剧本改写、产物目标态规划（v7→v8 起的各步与归档�
   的登记、版本记录里的 ``execution_script_file`` 与宫格记录里的 ``script_file`` 随之改写，已登记
   的产物不因改绑丢失归属。
 - **剧本顶层的集号缺失或与绑定不符**（旧版同步与保存都接受缺集号的剧本）：以账本绑定为准写回。
-- **同一资产表里名字归一后相同**（去两端空白、Unicode NFC），或名字归一后为空：留第一条，其余从
-  资产表去掉；资产图文件不动，改前的 ``project.json`` 留作保留副本。
+- **同一资产表里名字归一后相同**（去两端空白、Unicode NFC、不区分大小写），或名字归一后为空：
+  留第一条，其余从资产表去掉；资产图文件不动，改前的 ``project.json`` 留作保留副本。
 - **剧本条目缺 id 或 id 重复**：缺的补新 id，重复的从第二条起换新 id（取号规则同新增条目）；换号
   条目上指向原 id 规范媒体路径的产物引用清空——那些文件属于保留原 id 的条目；只描述这些媒体的
   生成状态一并清空，换号条目读作尚未生成。
@@ -40,7 +40,7 @@ from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, Proj
 from lib.episode.episode_paths import episode_drafts_dir, episode_script_relpath
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
-from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key
+from lib.project.asset_types import ASSET_SPECS, asset_name_namespace_key
 from lib.project.project_migration_report import MigrationAdjustment
 from lib.project.project_migrations.backups import ensure_versioned_backup, set_aside_as_kept_copy
 from lib.project.project_migrations.v9_to_v10_script_plan_naming import DRAFT_FILE_RENAMES
@@ -432,7 +432,7 @@ def _drop_duplicate_assets(work: _Work) -> None:
         for name in list(bucket):
             if not isinstance(name, str):
                 continue
-            key = asset_name_comparison_key(name)
+            key = asset_name_namespace_key(name)
             if key and key not in seen:
                 seen[key] = name
                 continue

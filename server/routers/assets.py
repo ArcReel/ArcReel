@@ -37,7 +37,8 @@ from lib.project.asset_types import (
     GLOBAL_LIBRARY_ASSET_TYPES,
     SHEET_KEY,
     ProjectAssetNameConflictError,
-    asset_name_comparison_key,
+    ProjectAssetNameMatch,
+    asset_name_namespace_key,
     ensure_project_asset_name_available,
     find_project_asset_name,
     localize_asset_type,
@@ -620,14 +621,17 @@ async def apply_to_project(
         return target_dir, {path for path in stored if (project_manager.data_root / path).is_file()}
 
     project_dir, present_files = await asyncio.to_thread(_probe_planning_inputs)
-    # 四类资产共用一份名称占用表；owner 用于区分同类 overwrite 与不可覆盖的跨类型冲突。
-    occupied: dict[str, tuple[str, str]] = {}
+    # 四类资产共用一份名称占用表（按判重键，只差大小写即占用）；owner 用于区分可 overwrite 的同一条目
+    # 与不可覆盖的冲突（跨类型，或同类型里只差大小写的另一个资产）。
+    occupied: dict[str, ProjectAssetNameMatch] = {}
     for asset_type, bucket_key in BUCKET_KEY.items():
         bucket = project.get(bucket_key)
         if isinstance(bucket, dict):
             for raw_name in bucket:
                 if isinstance(raw_name, str):
-                    occupied[asset_name_comparison_key(raw_name)] = (asset_type, raw_name)
+                    occupied[asset_name_namespace_key(raw_name)] = ProjectAssetNameMatch(
+                        asset_type, bucket_key, raw_name
+                    )
     plans: list[dict] = []
     for asset_id in asset_ids:
         a = assets_by_id.get(asset_id)
@@ -642,22 +646,22 @@ async def apply_to_project(
             failed.append({"id": a.id, "reason": "invalid_name"})
             continue
 
-        existing = occupied.get(asset_name_comparison_key(desired_name))
+        existing = occupied.get(asset_name_namespace_key(desired_name))
         if existing is not None:
-            same_type = existing[0] == a.type
+            same_entry = existing.is_entry(a.type, desired_name)
             if req.conflict_policy == "skip":
                 skipped.append({"id": a.id, "name": a.name})
                 continue
             if req.conflict_policy == "rename":
                 base_name = desired_name
                 i = 2
-                while asset_name_comparison_key(f"{base_name} ({i})") in occupied:
+                while asset_name_namespace_key(f"{base_name} ({i})") in occupied:
                     i += 1
                 desired_name = f"{base_name} ({i})"
-            elif not same_type:
+            elif not same_entry:
                 failed.append({"id": a.id, "reason": "project_name_conflict"})
                 continue
-            # overwrite 只能覆盖同类型条目。
+            # overwrite 只能覆盖同类型的同名条目。
 
         # 规划图片拷贝
         target_sheet: str | None = None
@@ -731,7 +735,7 @@ async def apply_to_project(
                     {"name": derivative.name, "description": derivative.description, "copy_src": derivative_src}
                 )
 
-        occupied[asset_name_comparison_key(desired_name)] = (a.type, desired_name)
+        occupied[asset_name_namespace_key(desired_name)] = ProjectAssetNameMatch(a.type, bucket_key, desired_name)
         plans.append(
             {
                 "asset": a,
@@ -774,7 +778,7 @@ async def apply_to_project(
                         index += 1
                     name_ = f"{base_name} ({index})"
                     existing = None
-                elif existing.asset_type != a_.type:
+                elif not existing.is_entry(a_.type, name_):
                     raise ProjectAssetNameConflictError(name_, existing, a_.type)
 
             plan["desired_name"] = name_

@@ -40,12 +40,29 @@ def test_every_asset_type_pair_shares_one_namespace(demo_pm: ProjectManager, fir
     assert demo_pm.load_project("demo").get(table[second], {}) == {}
 
 
-def test_namespace_uses_strip_nfc_and_is_case_sensitive(demo_pm: ProjectManager) -> None:
+def test_namespace_uses_strip_nfc_and_ignores_case(demo_pm: ProjectManager) -> None:
     nfd = unicodedata.normalize("NFD", "café")
     demo_pm.add_character("demo", " café ", "first")
     with pytest.raises(ProjectAssetNameConflictError):
         demo_pm.add_project_scene("demo", nfd, "second")
-    assert demo_pm.add_project_scene("demo", "CAFÉ", "case differs") is True
+    with pytest.raises(ProjectAssetNameConflictError):
+        demo_pm.add_project_scene("demo", "CAFÉ", "case differs")
+    assert demo_pm.load_project("demo")["scenes"] == {}
+
+
+def test_a_name_differing_only_in_case_from_an_asset_of_the_same_type_is_rejected(demo_pm: ProjectManager) -> None:
+    demo_pm.add_character("demo", "Alice", "first")
+
+    with pytest.raises(ProjectAssetNameConflictError, match="Alice"):
+        demo_pm.add_character("demo", "alice", "second")
+    with pytest.raises(ProjectAssetNameConflictError, match="Alice"):
+        demo_pm.add_characters_batch("demo", {"ALICE": {"description": "batch"}})
+    with pytest.raises(ProjectAssetNameConflictError, match="Alice"):
+        demo_pm.upsert_assets("demo", "characters", {"alice": {"description": "upsert"}})
+
+    characters = demo_pm.load_project("demo")["characters"]
+    assert list(characters) == ["Alice"]
+    assert characters["Alice"]["description"] == "first"
 
 
 def test_batch_conflict_is_atomic(demo_pm: ProjectManager) -> None:
@@ -65,6 +82,44 @@ def test_cross_type_rename_conflict_is_rejected(demo_pm: ProjectManager) -> None
         demo_pm.rename_asset("demo", "scenes", "Scene", "Character")
     project = demo_pm.load_project("demo")
     assert list(project["scenes"]) == ["Scene"]
+
+
+def test_renaming_to_a_name_differing_only_in_case_from_another_asset_is_rejected(demo_pm: ProjectManager) -> None:
+    demo_pm.add_character("demo", "Alice", "first")
+    demo_pm.add_character("demo", "Bob", "second")
+    demo_pm.add_project_scene("demo", "Harbor", "scene")
+
+    with pytest.raises(ProjectAssetNameConflictError, match="Alice"):
+        demo_pm.rename_asset("demo", "characters", "Bob", "alice")
+    with pytest.raises(ProjectAssetNameConflictError, match="Alice"):
+        demo_pm.rename_asset("demo", "scenes", "Harbor", "ALICE")
+
+    project = demo_pm.load_project("demo")
+    assert list(project["characters"]) == ["Alice", "Bob"]
+    assert list(project["scenes"]) == ["Harbor"]
+
+
+def test_overwriting_a_character_by_a_name_differing_only_in_case_is_rejected(demo_pm: ProjectManager) -> None:
+    demo_pm.add_project_character("demo", "Alice", "first")
+
+    with pytest.raises(ProjectAssetNameConflictError, match="Alice"):
+        demo_pm.add_project_character("demo", "alice", "second")
+
+    characters = demo_pm.load_project("demo")["characters"]
+    assert list(characters) == ["Alice"]
+    assert characters["Alice"]["description"] == "first"
+
+
+def test_a_project_that_already_holds_names_differing_only_in_case_stays_writable(demo_pm: ProjectManager) -> None:
+    project = demo_pm.load_project("demo")
+    project["characters"] = {"Alice": {"description": "character"}}
+    project["scenes"] = {"alice": {"description": "scene"}}
+    project_file = demo_pm.get_project_path("demo") / "project.json"
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    assert demo_pm.add_project_scene("demo", "Harbor", "another scene") is True
+
+    assert list(demo_pm.load_project("demo")["scenes"]) == ["alice", "Harbor"]
 
 
 def test_validator_reports_cross_type_and_equivalent_duplicates(demo_pm: ProjectManager) -> None:

@@ -1061,6 +1061,25 @@ def add_colliding_asset_name(project_dir: Path, bucket: str, name: str) -> str:
     return colliding
 
 
+def add_asset_names_differing_only_in_case(project_dir: Path, bucket: str, sheet_field: str, name: str) -> str:
+    """资产名判重改为不区分大小写前，同一资产表可登记出只差大小写的两条资产。
+
+    在 ``bucket`` 末尾加 ``name`` 与它的全大写变体，各带一张资产图（不区分大小写的文件系统上两张图
+    落到同一个文件），返回变体名。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    variant = name.upper()
+    for asset_name, content in ((name, b"original"), (variant, b"variant")):
+        sheet = f"{bucket}/{asset_name}.png"
+        project[bucket][asset_name] = {"description": f"{asset_name} 的描述", sheet_field: sheet}
+        (project_dir / sheet).parent.mkdir(parents=True, exist_ok=True)
+        (project_dir / sheet).write_bytes(content)
+    _write_json(project_path, project)
+    return variant
+
+
 def break_script_item_ids(project_dir: Path, episode: int) -> None:
     """降级保存的剧本可以有重复或缺失的条目 id。
 

@@ -169,6 +169,10 @@ class ProjectAssetNameMatch:
     bucket_key: str
     name: str
 
+    def is_entry(self, asset_type: str, name: str) -> bool:
+        """命中的是否就是 *asset_type* 表里的 *name* 本身（判等键相同），而非与它只差大小写的另一个资产。"""
+        return self.asset_type == asset_type and asset_name_comparison_key(self.name) == asset_name_comparison_key(name)
+
 
 class ProjectAssetNameConflictError(ValueError):
     """项目内的资产名与另一资产冲突。"""
@@ -184,7 +188,7 @@ class ProjectAssetNameConflictError(ValueError):
         )
         super().__init__(
             f"{requested}名称 {name!r} 与项目内已有{ASSET_SPECS[existing.asset_type].label_zh} "
-            f"{existing.name!r} 冲突（按 strip + Unicode NFC、大小写敏感判定）"
+            f"{existing.name!r} 冲突（按 strip + Unicode NFC、不区分大小写判定）"
         )
 
 
@@ -223,11 +227,23 @@ def normalize_asset_name(name: str) -> str:
 
 
 def asset_name_comparison_key(name: str) -> str:
-    """项目级资产名判等键：去除两端空白后收敛到 Unicode NFC。
+    """项目级资产名判等键：去除两端空白后收敛到 Unicode NFC，不做 case-fold。
 
-    这一坐标系仅用于名称空间判等，不做 case-fold；项目资产名大小写敏感。
+    判定两个名字是不是同一个资产、同一处引用，也是产物清单身份与生成依据里资产名的形态；
+    改动它的返回值会让存量产物的清单键与依据摘要整体变化。判断新名字能否登记用
+    :func:`asset_name_namespace_key`。
     """
     return normalize_asset_name(name.strip())
+
+
+def asset_name_namespace_key(name: str) -> str:
+    """项目共享名称空间的判重键：判等键再 case-fold，只差大小写的名字视为重名。
+
+    资产名直接用作资产图文件名（``characters/{name}.png``）；macOS、Windows 默认的文件系统
+    不区分大小写，``Alice`` 与 ``alice`` 落到同一个文件，产物清单的路径唯一性校验也按
+    NFC + case-fold 比对。只用于新增、改名与旧形态规整的判重；资产名本身保留用户写下的大小写。
+    """
+    return asset_name_comparison_key(name).casefold()
 
 
 def build_asset_entry(asset_type: str, description: str, source: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -282,14 +298,15 @@ def find_project_asset_name(
     exclude_asset_type: str | None = None,
     exclude_name: str | None = None,
 ) -> ProjectAssetNameMatch | None:
-    """在 ``ASSET_SPECS`` 驱动的四类项目资产中查找等价名称。
+    """在 ``ASSET_SPECS`` 驱动的四类项目资产中查找与 *name* 重名的条目（按 :func:`asset_name_namespace_key`）。
 
-    ``exclude_*`` 只排除一个确切落盘条目，供 rename 检查目标名时忽略自身。
+    命中的可能是同名条目本身，也可能是只差大小写的另一个资产；用 :meth:`ProjectAssetNameMatch.is_entry`
+    区分。``exclude_*`` 只排除一个确切落盘条目，供 rename 检查目标名时忽略自身。
     畸形 bucket 按空处理，其结构错误由 DataValidator 另行报告。
     """
     if not isinstance(project, dict):
         return None
-    target = asset_name_comparison_key(name)
+    target = asset_name_namespace_key(name)
     for spec in sorted(ASSET_SPECS.values(), key=lambda item: item.namespace_priority):
         asset_type = spec.asset_type
         bucket = project.get(spec.bucket_key)
@@ -300,7 +317,7 @@ def find_project_asset_name(
                 continue
             if asset_type == exclude_asset_type and raw_name == exclude_name:
                 continue
-            if asset_name_comparison_key(raw_name) == target:
+            if asset_name_namespace_key(raw_name) == target:
                 return ProjectAssetNameMatch(asset_type=asset_type, bucket_key=spec.bucket_key, name=raw_name)
     return None
 
@@ -325,7 +342,12 @@ def ensure_project_asset_name_available(
 
 
 def project_asset_name_conflicts(project: object) -> list[tuple[ProjectAssetNameMatch, ProjectAssetNameMatch]]:
-    """返回项目共享名称空间里的所有重名对，顺序稳定可复现。"""
+    """返回项目共享名称空间里的所有重名对，顺序稳定可复现。
+
+    这是写盘前的整项目守卫，按判等键（区分大小写）比对：只差大小写的资产在判重改为不区分大小写
+    之前可以登记出来，已在当前 schema 的这类项目不做迁移，按 case-fold 比对会让它们的任何写入都被拒。
+    新登记的名字由 :func:`ensure_project_asset_name_available` 按 case-fold 拦下。
+    """
     if not isinstance(project, dict):
         return []
     first_by_key: dict[str, ProjectAssetNameMatch] = {}

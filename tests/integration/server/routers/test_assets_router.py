@@ -788,6 +788,41 @@ class TestApplyToProject:
         assert response.json()["failed"] == [{"id": created.json()["asset"]["id"], "reason": "project_name_conflict"}]
         assert pm.load_project("target")["scenes"] == {}
 
+    @pytest.mark.parametrize(
+        ("policy", "expected"),
+        [
+            ("overwrite", {"failed": [{"reason": "project_name_conflict"}], "scenes": ["Harbor"]}),
+            ("skip", {"skipped": [{"name": "harbor"}], "scenes": ["Harbor"]}),
+            ("rename", {"succeeded": [{"name": "harbor (2)"}], "scenes": ["Harbor", "harbor (2)"]}),
+        ],
+    )
+    def test_a_name_differing_only_in_case_from_a_project_asset_is_taken(self, assets_env, policy, expected):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_scene("target", "Harbor", "project scene")
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "harbor"})
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": policy,
+            },
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        for outcome in ("succeeded", "skipped", "failed"):
+            assert [
+                {field: value for field, value in item.items() if field != "id"} for item in body[outcome]
+            ] == expected.get(outcome, [])
+        scenes = pm.load_project("target")["scenes"]
+        assert list(scenes) == expected["scenes"]
+        assert scenes["Harbor"]["description"] == "project scene"
+
     def test_rename_policy_uses_project_wide_occupancy(self, assets_env):
         client = assets_env["client"]
         pm = assets_env["pm"]

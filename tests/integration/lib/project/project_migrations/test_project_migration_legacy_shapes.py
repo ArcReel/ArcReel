@@ -28,6 +28,7 @@ from lib.project.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relativ
 from lib.workflow.workflow_state import WorkflowStateService
 from tests.integration.lib.project.project_migrations.test_project_migration_v7_v8 import _project
 from tests.legacy_project_shapes import (
+    add_asset_names_differing_only_in_case,
     add_colliding_asset_name,
     add_duplicate_ledger_entry,
     bind_episode_script_to_filename,
@@ -136,6 +137,25 @@ def test_asset_names_that_collide_after_normalization_keep_the_first(tmp_path: P
     assert report is not None
     assert report.adjusted[0].backup is not None
     assert colliding in _read_json(project_dir / report.adjusted[0].backup)["characters"]
+
+
+def test_asset_names_that_differ_only_in_case_keep_the_first(tmp_path: Path) -> None:
+    project_dir, *_ = _project(tmp_path)
+    variant = add_asset_names_differing_only_in_case(project_dir, "props", "prop_sheet", "Umbrella")
+
+    _migrate(project_dir)
+
+    assert list(_read_json(project_dir / "project.json")["props"]) == ["伞", "Umbrella"]
+    assert _adjusted(project_dir) == [
+        ("duplicate_asset_removed", None, {"asset_type": "prop", "name": variant, "kept": "Umbrella"})
+    ]
+    report = load_migration_report(project_dir)
+    assert report is not None
+    assert report.adjusted[0].backup is not None
+    assert variant in _read_json(project_dir / report.adjusted[0].backup)["props"]
+    entries = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+    assert ArtifactKey.asset_sheet("prop", "Umbrella") in entries
+    assert ArtifactKey.asset_sheet("prop", variant) not in entries
 
 
 def test_missing_and_duplicate_item_ids_are_reassigned_and_the_original_media_stays_with_the_first(
