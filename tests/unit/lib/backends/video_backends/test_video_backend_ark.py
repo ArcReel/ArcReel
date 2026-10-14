@@ -25,6 +25,9 @@ from tests.fakes import (
 )
 from tests.http_capture import capture_http, only_request
 
+# 方舟兼容中转站仍可能提供 Seedance 1.5 Pro；backend 对它的请求构造照常覆盖。
+_SEEDANCE_1_5_PRO = "doubao-seedance-1-5-pro-251215"
+
 
 @pytest.fixture
 def mock_ark_client():
@@ -39,6 +42,7 @@ def ark_backend(mock_ark_client):
     with patch("lib.backends.video_backends.ark.create_ark_client", return_value=mock_ark_client):
         b = ArkVideoBackend(
             api_key="test-ark-key",
+            model=_SEEDANCE_1_5_PRO,
         )
     b._client = mock_ark_client
     return b
@@ -335,7 +339,7 @@ class TestArkGenerate:
 
     def test_missing_api_key_raises(self):
         with patch.dict(os.environ, {}, clear=True), pytest.raises(ValueError, match="Ark API Key"):
-            ArkVideoBackend(api_key=None)
+            ArkVideoBackend(api_key=None, model=_SEEDANCE_1_5_PRO)
 
 
 class TestArkRetryBehavior:
@@ -659,12 +663,14 @@ class TestArkServiceTierParam:
 class TestArkVideoBackendBaseUrl:
     def test_custom_base_url_passed_through(self):
         with captured_ark_clients("lib.backends.video_backends.ark") as created:
-            ArkVideoBackend(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/plan/v3")
+            ArkVideoBackend(
+                api_key="k", model=_SEEDANCE_1_5_PRO, base_url="https://ark.cn-beijing.volces.com/api/plan/v3"
+            )
         assert created == [{"api_key": "k", "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"}]
 
     def test_default_base_url_is_none(self):
         with captured_ark_clients("lib.backends.video_backends.ark") as created:
-            ArkVideoBackend(api_key="k")
+            ArkVideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO)
         assert created == [{"api_key": "k", "base_url": None}]
 
 
@@ -676,7 +682,7 @@ _ARK_VIDEO_URL = "https://cdn.example.com/relay.mp4"
 def _ark_task_json(task_id: str) -> dict:
     return {
         "id": task_id,
-        "model": ArkVideoBackend.DEFAULT_MODEL,
+        "model": _SEEDANCE_1_5_PRO,
         "status": "succeeded",
         "content": {"video_url": _ARK_VIDEO_URL},
         "usage": {"completion_tokens": 10, "total_tokens": 10},
@@ -699,7 +705,7 @@ class TestArkSubmittedBaseUrlReplay:
             )
             router.get(_ARK_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"mp4"))
 
-            await ArkVideoBackend(api_key="k", base_url=f"{_RELAY_A}/").generate(
+            await ArkVideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO, base_url=f"{_RELAY_A}/").generate(
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", task_id="db-task-a")
             )
 
@@ -716,7 +722,7 @@ class TestArkSubmittedBaseUrlReplay:
             )
             router.get(_ARK_VIDEO_URL).mock(return_value=httpx.Response(200, content=b"resumed"))
 
-            result = await ArkVideoBackend(api_key="k", base_url=_RELAY_B).resume_video(
+            result = await ArkVideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO, base_url=_RELAY_B).resume_video(
                 "cgt-a",
                 VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", submitted_base_url=_RELAY_A),
             )

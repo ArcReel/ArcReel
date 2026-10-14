@@ -100,8 +100,6 @@ def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]
 class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     """Ark (火山方舟) 视频生成后端。"""
 
-    DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"
-
     def __init__(
         self,
         *,
@@ -114,7 +112,9 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         self._api_key = api_key
         # 本实例请求实际发往的域名，与 create_ark_client 同一套归一化；提交时随 job_id 一并落库。
         self._base_url = ark_base_url(base_url)
-        self._model = model or self.DEFAULT_MODEL
+        if not model:
+            raise ValueError("ArkVideoBackend 需要指定模型")
+        self._model = model
         # service_tier 参数仅 seedance-1.x 等老模型支持；2.0 上游在 r2v 下会 400 拒绝该参数，
         # 必须不下传。2.5 按同代口径一并剔除，该口径系从 2.0 的拒绝行为推断，收窄判定
         # 只影响 2.5 一支。判定见 _is_seedance_2 / _is_seedance_2_5：用
@@ -264,7 +264,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                     _SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS if on_verified_allowlist else None
                 ),
             )
-        # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 可正常下发 role="last_frame"（见
+        # 非 2.0 系列：1.5 pro 可正常下发 role="last_frame"（见
         # test_first_last_frame_role_fields）。白名单覆盖能力表已验证支持首尾帧的三个型号，
         # 未命中白名单的一律 last_frame=False（含上游或自定义供应商的未知型号）。
         model_lower = model.lower()

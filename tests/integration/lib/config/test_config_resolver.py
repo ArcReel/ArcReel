@@ -438,25 +438,25 @@ class TestVideoCapabilitiesBucketing:
             db_factory,
             {
                 "video_backend": "grok/grok-imagine-video",
-                "video_provider_r2v": "minimax/S2V-01",
+                "video_provider_r2v": "dashscope/happyhorse-1.1-r2v",
                 "generation_mode": "reference_video",
             },
         )
-        assert (caps["provider_id"], caps["model"]) == ("minimax", "S2V-01")
+        assert (caps["provider_id"], caps["model"]) == ("dashscope", "happyhorse-1.1-r2v")
 
     async def test_same_config_follows_generation_mode(self, db_factory):
         """同一份配置下切 generation_mode，能力查询随桶换到另一个模型。"""
         project = {
             "video_provider_i2v": "kling/kling-v3",
-            "video_provider_r2v": "minimax/S2V-01",
+            "video_provider_r2v": "dashscope/happyhorse-1.1-r2v",
         }
         i2v_caps = await _video_caps(db_factory, {**project, "generation_mode": "storyboard"})
         r2v_caps = await _video_caps(db_factory, {**project, "generation_mode": "reference_video"})
         assert i2v_caps["model"] == "kling-v3"
-        assert r2v_caps["model"] == "S2V-01"
+        assert r2v_caps["model"] == "happyhorse-1.1-r2v"
         # 能力字典本身随之变：i2v 桶的型号不接受参考图
         assert i2v_caps["max_reference_images"] == 0
-        assert r2v_caps["max_reference_images"] == 1
+        assert r2v_caps["max_reference_images"] == 9
 
     async def test_reference_video_project_errors_when_model_lacks_reference_support(self, db_factory):
         """参考生视频项目解析到无参考图能力的模型时报结构化错误，不静默换模型。"""
@@ -468,7 +468,9 @@ class TestVideoCapabilitiesBucketing:
     async def test_storyboard_project_errors_when_model_lacks_first_frame(self, db_factory):
         """图生视频项目解析到无首帧能力的模型时同样报错（桶换成 i2v）。"""
         with pytest.raises(VideoBucketCapabilityError) as excinfo:
-            await _video_caps(db_factory, {"video_backend": "minimax/S2V-01", "generation_mode": "storyboard"})
+            await _video_caps(
+                db_factory, {"video_backend": "dashscope/happyhorse-1.1-r2v", "generation_mode": "storyboard"}
+            )
         assert excinfo.value.code == "video_capability_missing_i2v"
 
     async def test_reference_project_reads_the_r2v_bucket_model(self, db_factory):
@@ -528,26 +530,6 @@ class TestVideoCapabilities:
         assert caps["max_duration"] == 15
         assert caps["default_duration"] == 9
         assert caps["max_reference_images"] == 7
-
-    async def test_max_reference_images_reads_backend_caps_for_openai_sora(self, db_factory):
-        """openai sora 的 max_reference_images 来自 backend 声明（=1），不依赖 provider 级 fallback。"""
-        resolver = ConfigResolver(db_factory)
-        with patch("lib.config.resolver.get_project_manager"):
-            caps = await resolver.video_capabilities_for_project({"video_backend": "openai/sora-2"})
-        assert caps["max_reference_images"] == 1
-
-    async def test_max_reference_images_reads_backend_caps_for_minimax_s2v(self, db_factory):
-        """minimax S2V-01 的 max_reference_images 来自 backend 声明（=1）；
-
-        编排层据此只取 1 张参考图，不会向只吃单脸的 S2V-01 拼多张。S2V-01 不支持首帧，
-        项目须是参考生视频才落进它所属的 r2v 桶。
-        """
-        resolver = ConfigResolver(db_factory)
-        with patch("lib.config.resolver.get_project_manager"):
-            caps = await resolver.video_capabilities_for_project(
-                {"video_backend": "minimax/S2V-01", "generation_mode": "reference_video"}
-            )
-        assert caps["max_reference_images"] == 1
 
     async def test_max_reference_images_reads_backend_caps_for_ark_seedance(self, db_factory):
         """ark seedance 的 max_reference_images 来自 backend 声明（=9）。"""
@@ -751,11 +733,6 @@ class TestVoiceConsistency:
     async def test_grok_imagine_soft(self, db_factory):
         """Grok Imagine：音轨可开关、无参考音频通道 → soft。"""
         caps = await _video_caps(db_factory, {"video_backend": "grok/grok-imagine-video"})
-        assert caps["voice_consistency"] == "soft"
-
-    async def test_sora_2_soft_after_token_correction(self, db_factory):
-        """Sora 2 目录补 generate_audio 后派生 soft（不再因缺 token 误判 none）。"""
-        caps = await _video_caps(db_factory, {"video_backend": "openai/sora-2"})
         assert caps["voice_consistency"] == "soft"
 
     async def test_kling_v3_audio_models_are_soft(self, db_factory):
@@ -1189,12 +1166,12 @@ class TestResolveVideoBackendBuckets:
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(
             settings={
-                "default_video_backend_r2v": "minimax/S2V-01",
+                "default_video_backend_r2v": "dashscope/happyhorse-1.1-r2v",
                 "default_video_backend": "grok/grok-imagine-video",
             }
         )
         resolved = await resolver._resolve_video_provider_model(fake_svc, None, None, None, "r2v")
-        assert (resolved.provider_id, resolved.model_id) == ("minimax", "S2V-01")
+        assert (resolved.provider_id, resolved.model_id) == ("dashscope", "happyhorse-1.1-r2v")
 
     async def test_empty_global_bucket_falls_back_to_global_default(self):
         """视频空桶语义（docs/adr/0054）：桶键存在但为空 → 回退全局默认层，不直达自动推断。"""
@@ -1248,14 +1225,12 @@ class TestResolveVideoBackendBuckets:
 
     async def test_bucket_reference_to_non_video_model_raises_unavailable(self):
         """所引模型不是视频模型同属悬空引用：backend caps 函数对同 provider 的图片模型也返回
-        静态能力（``gemini-aistudio/gemini-3.1-flash-image-preview`` 会拿到 first_frame=True），
+        静态能力（``gemini-aistudio/gemini-3.1-flash-image`` 会拿到 first_frame=True），
         只判成员资格会放行，落到执行层才炸。"""
         from lib.config.resolver import VideoBucketCapabilityError
 
         resolver = ConfigResolver.__new__(ConfigResolver)
-        fake_svc = _FakeConfigService(
-            settings={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image-preview"}
-        )
+        fake_svc = _FakeConfigService(settings={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image"})
         with pytest.raises(VideoBucketCapabilityError) as exc_info:
             await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
         assert exc_info.value.code == "video_capability_reference_unavailable"
@@ -1610,11 +1585,11 @@ class TestProjectGenerationModeCaps:
         storyboard_project = {
             "generation_mode": "storyboard",
             "video_provider_i2v": "kling/kling-v3",
-            "video_provider_r2v": "minimax/S2V-01",
+            "video_provider_r2v": "dashscope/happyhorse-1.1-r2v",
         }
         reference_project = {**storyboard_project, "generation_mode": "reference_video"}
         assert (await _video_caps(db_factory, storyboard_project))["model"] == "kling-v3"
-        assert (await _video_caps(db_factory, reference_project))["model"] == "S2V-01"
+        assert (await _video_caps(db_factory, reference_project))["model"] == "happyhorse-1.1-r2v"
 
     async def test_voice_consistency_follows_project_route(self, db_factory):
         """参考生视频（且项目选了参考音频绑定）按 native 解析，分镜图生视频降格 soft。"""
@@ -1634,10 +1609,10 @@ class TestProjectGenerationModeCaps:
     async def test_generation_mode_follows_project_route(self, db_factory):
         """caps 的 generation_mode 与能力位跟随项目路线：参考生视频读 r2v 桶模型。"""
         caps = await _video_caps(
-            db_factory, {"generation_mode": "reference_video", "video_provider_r2v": "minimax/S2V-01"}
+            db_factory, {"generation_mode": "reference_video", "video_provider_r2v": "dashscope/happyhorse-1.1-r2v"}
         )
         assert caps["generation_mode"] == "reference_video"
-        assert caps["max_reference_images"] == 1
+        assert caps["max_reference_images"] == 9
 
 
 class TestPayloadPinnedVideoModel:

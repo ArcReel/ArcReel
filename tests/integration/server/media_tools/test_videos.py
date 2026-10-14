@@ -866,8 +866,8 @@ async def test_generate_videos_reference_request_is_independent_of_project_narra
     set_video_request_facts(
         make_video_request_facts(
             route="reference_video",
-            provider_id="openai",
-            model_id="sora-2",
+            provider_id="grok",
+            model_id="grok-imagine-video",
             resolution="720p",
             supported_durations=(4, 8, 12),
             allowed_durations=(4, 8, 12),
@@ -899,10 +899,10 @@ async def test_generate_videos_reference_request_is_independent_of_project_narra
     [unit] = admission["units"]
     assert unit["request_duration_seconds"] == 8
     assert unit["request_cost"] == {
-        "amount": pytest.approx(0.8),
+        "amount": pytest.approx(0.56),
         "currency": "USD",
-        "provider_id": "openai",
-        "model_id": "sora-2",
+        "provider_id": "grok",
+        "model_id": "grok-imagine-video",
         "request_duration_seconds": 8,
     }
     assert specs == [("E1U1", specs[0][1])]
@@ -1789,8 +1789,8 @@ async def test_generate_videos_preview_quotes_the_reference_tier_without_enqueui
     set_video_request_facts(
         make_video_request_facts(
             route="reference_video",
-            provider_id="openai",
-            model_id="sora-2",
+            provider_id="grok",
+            model_id="grok-imagine-video",
             resolution="720p",
             supported_durations=(4, 8, 12),
             allowed_durations=(4, 8, 12),
@@ -1809,7 +1809,7 @@ async def test_generate_videos_preview_quotes_the_reference_tier_without_enqueui
     assert (unit["script_duration_seconds"], unit["request_duration_seconds"], unit["tier_changed"]) == (5, 8, True)
     assert quote["submittable"] is True
     assert quote["confirmed_request_durations"] == {"E1U1": 8}
-    assert quote["estimated_total"] == {"USD": pytest.approx(0.8)}
+    assert quote["estimated_total"] == {"USD": pytest.approx(0.56)}
 
     unconfirmed = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
     [admission_unit] = unconfirmed.value["batch_admission"]["units"]
@@ -1845,7 +1845,7 @@ async def test_generate_videos_preview_reports_blockers_per_unit(
     )
     set_video_request_facts(
         make_video_request_facts(
-            route="reference_video", provider_id="openai", model_id="sora-2", allowed_durations=(4, 8, 12)
+            route="reference_video", provider_id="grok", model_id="grok-imagine-video", allowed_durations=(4, 8, 12)
         )
     )
     enqueued: list[Any] = []
@@ -1897,7 +1897,7 @@ async def test_generate_videos_preview_quotes_storyboard_units_at_their_planned_
     from server.services.admission.cost_estimation import quote_video_request_from_price
 
     facts = make_video_request_facts(
-        provider_id="openai", model_id="sora-2", resolution="720p", audio_switch_controllable=True
+        provider_id="grok", model_id="grok-imagine-video", resolution="720p", audio_switch_controllable=True
     )
     set_admission_video_request_facts(facts)
     enqueued: list[Any] = []

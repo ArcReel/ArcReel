@@ -19,7 +19,7 @@ class CostCalculator:
     """费用计算器：按定价声明的 ``kind`` 派发，不含 provider 分支。"""
 
     # 外部依赖常量（lib.backends.gemini_shared / lib.backends.video_backends.gemini 直接读取）。
-    DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
+    DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
     DEFAULT_VIDEO_MODEL = "veo-3.1-lite-generate-preview"
 
     # Ark 生成视频的 token/s 近似常量（用于参考生视频成本估算，实际 token 由生成回调覆盖）。

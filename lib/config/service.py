@@ -15,7 +15,7 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.infra.schema_guards import is_int
 
 _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
-_DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
+_DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image"
 _DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
 _DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
 # 旁白默认音色（DashScope 预设）；全局 setting 未配置时的兜底。全局音色与语速只作为新建 TTS 项目

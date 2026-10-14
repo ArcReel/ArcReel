@@ -184,7 +184,7 @@ class TestCostEstimationService:
         ("provider", "model", "selected_resolution", "duration", "usage_tokens"),
         [
             ("gemini-aistudio", "veo-3.1-generate-preview", "1080p", 8, None),
-            ("openai", "sora-2-pro", "1080p", 8, None),
+            ("grok", "grok-imagine-video-1.5", "1080p", 8, None),
             ("dashscope", "happyhorse-1.1-i2v", "1080p", 8, None),
             ("grok", "grok-imagine-video", "720p", 8, None),
             ("minimax", "MiniMax-H3", "2k", 6, None),
@@ -192,7 +192,7 @@ class TestCostEstimationService:
             ("kling", "kling-v3", "4k", 8, None),
             ("vidu", "viduq3-turbo", "1080p", 8, None),
             # token 计价仅在实际 usage 等于预估 token 数时金额相等。
-            ("ark", "doubao-seedance-1-5-pro-251215", "1080p", 8, 480_000),
+            ("ark", "doubao-seedance-2-0-260128", "1080p", 8, 480_000),
         ],
     )
     async def test_video_estimate_uses_request_resolution_and_settlement_pricing(
@@ -363,7 +363,7 @@ class TestCostEstimationService:
         quote = await quote_video_request(
             VideoRequestCostFacts(
                 request_facts=make_video_request_facts(
-                    provider_id="openai", model_id="sora-2", resolution="720p", generate_audio=True
+                    provider_id="grok", model_id="grok-imagine-video", resolution="720p", generate_audio=True
                 ),
                 duration_seconds=8,
             ),
@@ -372,10 +372,10 @@ class TestCostEstimationService:
 
         assert quote is not None
         assert quote.to_payload() == {
-            "amount": pytest.approx(0.8),
+            "amount": pytest.approx(0.56),
             "currency": "USD",
-            "provider_id": "openai",
-            "model_id": "sora-2",
+            "provider_id": "grok",
+            "model_id": "grok-imagine-video",
             "request_duration_seconds": 8,
         }
 
@@ -1423,8 +1423,8 @@ class TestCostEstimationService:
         """旁白交付方式不影响视频请求：同一 unit 在 use_tts 与 post_production 项目下取档与报价相同。"""
         request_facts = fake_reference_request_facts(
             durations=(4, 8, 12),
-            provider_id="openai",
-            model_id="sora-2",
+            provider_id="grok",
+            model_id="grok-imagine-video",
             max_reference_images=4,
             resolution="720p",
         )
@@ -1440,7 +1440,7 @@ class TestCostEstimationService:
                 "title": "Narration",
                 "content_mode": "narration",
                 "generation_mode": "reference_video",
-                "video_provider_i2v": "openai/sora-2",
+                "video_provider_i2v": "grok/grok-imagine-video",
                 "narration_delivery": narration_delivery,
                 "audio_backend": "dashscope/qwen3-tts-flash",
                 "episodes": [{"episode": 1, "title": "", "script_file": "ep1.json"}],
@@ -1454,7 +1454,7 @@ class TestCostEstimationService:
         assert use_tts["request_projection"] == post_production["request_projection"]
         assert use_tts["request_projection"]["request_duration"] == 8
         assert "request_cost" not in use_tts["request_projection"]
-        assert use_tts["estimate"]["video"] == post_production["estimate"]["video"] == {"USD": pytest.approx(0.8)}
+        assert use_tts["estimate"]["video"] == post_production["estimate"]["video"] == {"USD": pytest.approx(0.56)}
 
     async def test_reference_video_estimate_blocks_when_duration_metadata_is_empty(self, db_factory, monkeypatch):
         request_facts = fake_reference_request_facts(

@@ -36,7 +36,7 @@ class ProviderSpec:
     provider_id: str  # registry / config provider id，如 "ark"
     media_type: str  # "image" | "video" | "audio" | "text"
     registry_backend: str  # 映射到哪个 media backend registry 名（合并两份 PROVIDER_ID_TO_BACKEND）
-    # model_id 可为 None：缺省时由 backend 内部回落各自 DEFAULT_MODEL（与 effective_model 上游一致）
+    # model_id 为 None 只在模型目录没有给该供应商该媒体类型指定默认模型时出现，由 backend 自行处理
     build_backend: Callable[[LoadedConfig, str | None], Any]
 
 

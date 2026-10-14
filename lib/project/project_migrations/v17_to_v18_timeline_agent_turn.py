@@ -7,6 +7,10 @@
 
 v18 起生成缺口只拦生成、依据照常投影（``docs/adr/0098``）。同一步按改前改后两次规划补录此前
 因缺口没登记的产物，已登记条目不动，见 :mod:`lib.project.project_migrations.input_gap_backfill`。
+
+同一步把 ``project.json`` 各模型字段里已改名的模型改写为后继模型（映射见
+``lib.config.retired_model_ids``）；已下架而没有后继的引用原样保留，运行时报错由用户重选。产物依据
+不含模型字段，改写不改变任何已登记产物的时效。
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.config.retired_model_ids import PROJECT_MODEL_SETTING_KEYS, migrate_retired_model_reference
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_migration_report import ArtifactBackfillOutcome
 from lib.project.project_migrations.backups import ensure_versioned_backup
@@ -78,6 +83,17 @@ def migrate_timeline_dict(document: Mapping[str, Any]) -> dict[str, Any]:
     return migrated
 
 
+def migrate_project_model_references(project: Mapping[str, Any]) -> dict[str, Any]:
+    """纯函数：把 ``project.json`` 模型字段里精确的退役模型引用改写为后继模型。幂等；非字符串脏值原样保留。"""
+
+    migrated = dict(project)
+    for key in PROJECT_MODEL_SETTING_KEYS:
+        value = migrated.get(key)
+        if isinstance(value, str):
+            migrated[key] = migrate_retired_model_reference(value)
+    return migrated
+
+
 def migrate_v17_to_v18(project_dir: Path) -> ArtifactBackfillOutcome | None:
     """v17→v18 文件级迁移。逐个文件原子写，最后提升 schema；中途崩溃可重试。"""
 
@@ -104,12 +120,15 @@ def migrate_v17_to_v18(project_dir: Path) -> ArtifactBackfillOutcome | None:
             if migrated != document:
                 ensure_versioned_backup(path, _FROM_VERSION)
                 atomic_write_json(path, migrated)
-        atomic_write_json(project_file, {**project, "schema_version": TARGET_SCHEMA_VERSION})
+        atomic_write_json(
+            project_file, {**migrate_project_model_references(project), "schema_version": TARGET_SCHEMA_VERSION}
+        )
     return outcome
 
 
 __all__ = [
     "TARGET_SCHEMA_VERSION",
+    "migrate_project_model_references",
     "migrate_timeline_dict",
     "migrate_v17_to_v18",
     "timeline_backup_sources",

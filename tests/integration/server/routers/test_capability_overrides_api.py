@@ -813,10 +813,10 @@ class TestResolverReturnsEffectiveCapabilities:
         factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
         resolver = ConfigResolver(factory, _bound_session=db_session)
         caps = await resolver._resolve_video_caps_for_model(
-            ConfigService(db_session), db_session, "openai", "sora-2", None
+            ConfigService(db_session), db_session, "grok", "grok-imagine-video", None
         )
 
-        backend_caps = builtin_video_capabilities_for_model("openai", "sora-2")
+        backend_caps = builtin_video_capabilities_for_model("grok", "grok-imagine-video")
         assert caps["source"] == "registry"
         assert caps["first_frame"] is backend_caps.first_frame
         assert caps["last_frame"] is backend_caps.last_frame

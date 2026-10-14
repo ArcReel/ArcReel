@@ -9,10 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.catalog import query as catalog
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
-from lib.config.retired_model_ids import (
-    TEXT_BACKEND_SETTING_KEYS,
-    migrate_retired_text_model_reference,
-)
+from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS, migrate_retired_model_reference
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.infra.data_root_layout import DataRootLayout
 
@@ -101,7 +98,7 @@ async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
 
     # 3. Combined backend fields
     image_backend = overrides.get("image_backend", "aistudio")
-    image_model = overrides.get("image_model", "gemini-3.1-flash-image-preview")
+    image_model = overrides.get("image_model", "gemini-3.1-flash-image")
     await setting_repo.set("default_image_backend", f"gemini-{image_backend}/{image_model}")
 
     video_backend = overrides.get("video_backend", "aistudio")
@@ -160,8 +157,7 @@ async def migrate_text_tier_settings(session: AsyncSession) -> None:
 
     第一步映射旧任务级键：script → complex；overview / style → simple，两者都有值时取
     style 的值（style 任务需要 vision，反向会让风格分析换到可能不支持图像输入的模型）。
-    迁移后删除旧键即幂等标记；档位键已有值时不覆盖（用户后配的新值优先）。第二步把已退役的
-    精确文本模型引用替换为现行 registry 键，覆盖默认层与两个档位层。
+    迁移后删除旧键即幂等标记；档位键已有值时不覆盖（用户后配的新值优先）。
     """
     repo = SystemSettingRepository(session)
     script = await repo.get("text_backend_script")
@@ -178,13 +174,20 @@ async def migrate_text_tier_settings(session: AsyncSession) -> None:
             await repo.delete(key)
         await session.commit()
 
-    migrated_retired_model = False
-    for key in TEXT_BACKEND_SETTING_KEYS:
+
+async def migrate_retired_model_settings(session: AsyncSession) -> None:
+    """全局 system_settings 的退役模型启动迁移：所有模型设置项里已改名的模型改写为后继模型。
+
+    只改写退役模型映射里精确命中的值，幂等；已下架而没有后继的模型原样保留，运行时报错由用户重选。
+    """
+    repo = SystemSettingRepository(session)
+    migrated_any = False
+    for key in GLOBAL_MODEL_SETTING_KEYS:
         value = await repo.get(key)
-        migrated = migrate_retired_text_model_reference(value)
+        migrated = migrate_retired_model_reference(value)
         if migrated != value:
             await repo.set(key, migrated)
-            migrated_retired_model = True
-    if migrated_retired_model:
-        logger.info("Migrating retired text model references...")
+            migrated_any = True
+    if migrated_any:
+        logger.info("Migrated retired model references in global settings")
         await session.commit()

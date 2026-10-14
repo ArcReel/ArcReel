@@ -293,16 +293,6 @@ def _openai_image_pricing(
     )
 
 
-# Sora 视频费率（美元/秒），按分辨率。
-def _sora_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
-    return PerSecondMatrix(
-        rates={model_id: {(res, None): rate for res, rate in rates.items()}},
-        default_model=model_id,
-        dimensions="resolution_only",
-        currency="USD",
-    )
-
-
 # DashScope（阿里百炼）文本费率（元/百万 token），标准在线推理价。
 def _dashscope_text_pricing(model_id: str, input_rate: float, output_rate: float) -> PerToken:
     return PerToken(
@@ -481,21 +471,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 max_output_tokens=65536,
             ),
             # --- image ---
-            "gemini-3-pro-image-preview": ModelInfo(
+            "gemini-3-pro-image": ModelInfo(
                 display_name="Gemini 3 Pro Image",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 resolutions=["1K", "2K", "4K"],
-                pricing=_gemini_image_pricing("gemini-3-pro-image-preview", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
+                pricing=_gemini_image_pricing("gemini-3-pro-image", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
             ),
-            "gemini-3.1-flash-image-preview": ModelInfo(
+            "gemini-3.1-flash-image": ModelInfo(
                 display_name="Gemini 3.1 Flash Image",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
                 resolutions=["1K", "2K", "4K"],
                 pricing=_gemini_image_pricing(
-                    "gemini-3.1-flash-image-preview",
+                    "gemini-3.1-flash-image",
                     {"512PX": 0.045, "1K": 0.067, "2K": 0.101, "4K": 0.151},
                 ),
             ),
@@ -578,21 +568,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 max_output_tokens=65536,
             ),
             # --- image ---
-            "gemini-3-pro-image-preview": ModelInfo(
+            "gemini-3-pro-image": ModelInfo(
                 display_name="Gemini 3 Pro Image",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 resolutions=["1K", "2K", "4K"],
-                pricing=_gemini_image_pricing("gemini-3-pro-image-preview", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
+                pricing=_gemini_image_pricing("gemini-3-pro-image", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
             ),
-            "gemini-3.1-flash-image-preview": ModelInfo(
+            "gemini-3.1-flash-image": ModelInfo(
                 display_name="Gemini 3.1 Flash Image",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
                 resolutions=["1K", "2K", "4K"],
                 pricing=_gemini_image_pricing(
-                    "gemini-3.1-flash-image-preview",
+                    "gemini-3.1-flash-image",
                     {"512PX": 0.045, "1K": 0.067, "2K": 0.101, "4K": 0.151},
                 ),
             ),
@@ -658,13 +648,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_ark_text_pricing("doubao-seed-2-0-mini-260215", 0.20, 2.00),
                 max_output_tokens=131072,
             ),
-            "doubao-seed-1-8-251228": ModelInfo(
-                display_name="豆包 Seed 1.8",
-                media_type="text",
-                capabilities=["text_generation", "structured_output", "vision"],
-                pricing=_ark_text_pricing("doubao-seed-1-8-251228", 0.80, 2.00),
-                max_output_tokens=32768,
-            ),
             # --- image ---
             "doubao-seedream-5-0-lite-260128": ModelInfo(
                 display_name="Seedream 5.0 Lite",
@@ -673,8 +656,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 pricing=_ark_image_pricing("doubao-seedream-5-0-lite-260128", 0.22),
             ),
+            # 与 doubao-seedream-5-0-lite-260128 是同一模型的两个 ID（方舟模型列表写作「同时支持」）。
             "doubao-seedream-5-0-260128": ModelInfo(
-                display_name="Seedream 5.0",
+                display_name="Seedream 5.0 Lite",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 pricing=_ark_image_pricing("doubao-seedream-5-0-260128", 0.22),
@@ -692,22 +676,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_ark_image_pricing("doubao-seedream-4-0-250828", 0.20),
             ),
             # --- video ---
-            "doubao-seedance-1-5-pro-251215": ModelInfo(
-                display_name="Seedance 1.5 Pro",
-                media_type="video",
-                capabilities=[],
-                supported_durations=list(range(4, 13)),
-                resolutions=["480p", "720p", "1080p"],
-                pricing=_ark_video_pricing(
-                    "doubao-seedance-1-5-pro-251215",
-                    {
-                        ("default", True): 16.00,
-                        ("default", False): 8.00,
-                        ("flex", True): 8.00,
-                        ("flex", False): 4.00,
-                    },
-                ),
-            ),
             "doubao-seedance-2-0-260128": ModelInfo(
                 display_name="Seedance 2.0",
                 media_type="video",
@@ -832,13 +800,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
             ),
             # --- video ---
-            "doubao-seedance-1.5-pro": ModelInfo(
-                display_name="Seedance 1.5 Pro",
-                media_type="video",
-                capabilities=[],
-                supported_durations=list(range(4, 13)),
-                resolutions=["480p", "720p", "1080p"],
-            ),
             "doubao-seedance-2.0": ModelInfo(
                 display_name="Seedance 2.0",
                 media_type="video",
@@ -902,13 +863,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 max_output_tokens=131072,
             ),
             # --- image ---
-            "grok-imagine-image-pro": ModelInfo(
-                display_name="Grok Imagine Image Pro",
-                media_type="image",
-                capabilities=["text_to_image", "image_to_image"],
-                resolutions=["1K", "2K"],
-                pricing=_grok_image_pricing("grok-imagine-image-pro", 0.07),
-            ),
             "grok-imagine-image": ModelInfo(
                 display_name="Grok Imagine Image",
                 media_type="image",
@@ -962,9 +916,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "openai": ProviderMeta(
         display_name="OpenAI",
-        description="OpenAI 官方平台，支持 GPT-5.5 / GPT-5.4 文本、GPT Image 2 图片和 Sora 视频生成。",
+        description="OpenAI 官方平台，支持 GPT-5.5 / GPT-5.4 文本与 GPT Image 2 图片生成。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        optional_keys=["base_url", "image_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -1048,24 +1002,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                         ("high", "1792x1024"): 0.317,
                     },
                 ),
-            ),
-            # --- video ---
-            "sora-2": ModelInfo(
-                display_name="Sora 2",
-                media_type="video",
-                capabilities=[],
-                default=True,
-                supported_durations=[4, 8, 12],
-                resolutions=["720p"],
-                pricing=_sora_video_pricing("sora-2", {"720p": 0.10}),
-            ),
-            "sora-2-pro": ModelInfo(
-                display_name="Sora 2 Pro",
-                media_type="video",
-                capabilities=[],
-                supported_durations=[4, 8, 12],
-                resolutions=["720p", "1080p"],
-                pricing=_sora_video_pricing("sora-2-pro", {"720p": 0.30, "1024p": 0.50, "1080p": 0.70}),
             ),
         },
     ),
@@ -1416,19 +1352,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                     "MiniMax-Hailuo-2.3-Fast",
                     {("768p", 6): 1.35, ("768p", 10): 2.25, ("1080p", 6): 2.31},
                 ),
-            ),
-            # S2V-01：单张人脸驱动整段视频角色一致性（subject_reference 单脸 R2V）。固定输出
-            # 720P/6s，请求不接受 resolution/duration（声明式端点走专门的 subject_reference
-            # 路径，忽略这两项）；supported_durations=[6] 仅供编排层时长守卫与档价口径。
-            # 定价单档约 ¥3（资源包 1.5 积分近似，半核实）；键到 minimax 缺省档 768P/6s 求精确命中，
-            # 任意分辨率漂移由 per_video_bucket 最近档回落到唯一档。
-            "S2V-01": ModelInfo(
-                display_name="MiniMax S2V-01",
-                media_type="video",
-                capabilities=[],
-                supported_durations=[6],
-                resolutions=["768p"],
-                pricing=_minimax_video_pricing("S2V-01", {("768p", 6): 3.0}),
             ),
             # --- audio ---
             # 同步 t2a_v2 语音合成，按字符计费（元/万字符）。定价出处见 docs/api-docs/endpoints/minimax-tts.md。

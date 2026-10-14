@@ -250,16 +250,15 @@ class TestProviderRegistry:
     def test_ark_video_models_include_seedance_2(self):
         meta = PROVIDER_REGISTRY["ark"]
         video_models = {mid: m for mid, m in meta.models.items() if m.media_type == "video"}
-        assert len(video_models) == 5
+        assert len(video_models) == 4
         assert "doubao-seedance-2-0-260128" in video_models
         assert "doubao-seedance-2-0-fast-260128" in video_models
         assert "doubao-seedance-2-0-mini-260615" in video_models
         # fast 与 mini 都只支持 480p/720p，不含 1080p/4k
         assert video_models["doubao-seedance-2-0-fast-260128"].resolutions == ["480p", "720p"]
         assert video_models["doubao-seedance-2-0-mini-260615"].resolutions == ["480p", "720p"]
-        # mini 接管默认视频模型，1.5 Pro 不再默认
+        # mini 是默认视频模型
         assert video_models["doubao-seedance-2-0-mini-260615"].default is True
-        assert video_models["doubao-seedance-1-5-pro-251215"].default is False
         assert video_models["doubao-seedance-2-0-260128"].default is False
 
     def test_ark_video_models_include_seedance_2_5(self):

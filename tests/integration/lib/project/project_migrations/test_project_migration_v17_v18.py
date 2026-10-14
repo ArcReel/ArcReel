@@ -16,7 +16,9 @@ from lib.artifacts.artifact_currency import (
 )
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.artifacts.artifact_planner import plan_artifact_target_state_by_gap_rule
+from lib.config.resolver import ConfigResolver
 from lib.edit_timeline import EditTimelineService
+from lib.infra.app_data_dir import app_data_dir
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report, skipped_artifact_identity
 from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
@@ -27,6 +29,7 @@ from tests.legacy_project_shapes import (
     write_legacy_drama_storyboard_project,
     write_legacy_presentation_project,
     write_legacy_reference_video_project,
+    write_legacy_retired_model_references_project,
     write_legacy_storyboard_project,
     write_legacy_timeline_agent_turn_project,
     write_legacy_unregistrable_asset_sheet_project,
@@ -36,6 +39,29 @@ from tests.legacy_project_shapes import (
 
 def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+async def test_schema_17_renamed_model_references_resolve_to_successors(db_factory) -> None:
+    project_dir = write_legacy_retired_model_references_project(app_data_dir() / "projects")
+    legacy = _read_json(project_dir / "project.json")
+    assert legacy["schema_version"] == 17
+
+    assert migrate_project_dir(project_dir) is True
+
+    assert _read_json(project_dir / "project.json") == {
+        **legacy,
+        "default_image_backend": "gemini-aistudio/gemini-3.1-flash-image",
+        "image_provider_i2i": "gemini-vertex/gemini-3-pro-image",
+        # 已下架而没有后继的模型原样保留，运行时报错由用户重新选择
+        "video_backend": "openai/sora-2",
+        "schema_version": CURRENT_SCHEMA_VERSION,
+    }
+    migrated = _read_json(project_dir / "project.json")
+    resolver = ConfigResolver(db_factory)
+    t2i = await resolver.resolve_image_backend(migrated, None, generation_type="t2i")
+    i2i = await resolver.resolve_image_backend(migrated, None, generation_type="i2i")
+    assert (t2i.provider_id, t2i.model_id) == ("gemini-aistudio", "gemini-3.1-flash-image")
+    assert (i2i.provider_id, i2i.model_id) == ("gemini-vertex", "gemini-3-pro-image")
 
 
 async def test_schema_17_timeline_with_agent_turn_reads_after_migration(tmp_path: Path) -> None:

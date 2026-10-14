@@ -205,10 +205,10 @@ async def test_reference_split_planning_reports_unavailable_i2v_instead_of_r2v_f
     from lib.config.resolver import ConfigResolver
     from server.text_generation import _fetch_reference_split_caps
 
-    project = {"generation_mode": "reference_video", "video_provider_r2v": "minimax/S2V-01"}
+    project = {"generation_mode": "reference_video", "video_provider_r2v": "dashscope/happyhorse-1.1-r2v"}
     caps = await _fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
 
-    assert caps.reference_durations == [6]
+    assert caps.reference_durations == list(range(3, 16))
     assert caps.text_durations == []
     assert caps.text_problem is not None
     assert caps.text_problem.code == "reference_capability_unavailable"

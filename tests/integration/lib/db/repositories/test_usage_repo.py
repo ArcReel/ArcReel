@@ -485,7 +485,7 @@ class TestMultiProviderUsage:
         call_id = await repo.start_call(
             project_name="demo",
             call_type="video",
-            model="doubao-seedance-1-5-pro-251215",
+            model="doubao-seedance-2-0-260128",
             prompt="test",
             resolution="1080p",
             duration_seconds=5,
@@ -504,7 +504,8 @@ class TestMultiProviderUsage:
         assert item.provider == "ark"
         assert item.currency == "CNY"
         assert item.usage_tokens == 246840
-        assert item.cost_amount == pytest.approx(3.9494, rel=1e-3)
+        # 46.00 CNY/百万 token
+        assert item.cost_amount == pytest.approx(246840 * 46.0 / 1_000_000, rel=1e-3)
 
     async def test_gemini_call_defaults_to_usd(self, async_session):
         repo = UsageRepository(async_session)

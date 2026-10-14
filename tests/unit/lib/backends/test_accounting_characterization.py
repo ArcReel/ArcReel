@@ -406,7 +406,7 @@ class TestImageChannel:
             acct,
             image_backend=_FakeImageBackend(
                 provider="gemini",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 result_fields={"usage_tokens": 8},
             ),
         )
@@ -420,7 +420,7 @@ class TestImageChannel:
             _expected_row(
                 purpose="generation_task",
                 call_type="image",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 prompt="图" * 700,
                 task_id="T-1",
                 resolution="2K",
@@ -477,7 +477,7 @@ class TestImageChannel:
             acct,
             image_backend=_FakeImageBackend(
                 provider="gemini",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 error=ValueError("x" * 600),
             ),
         )
@@ -490,7 +490,7 @@ class TestImageChannel:
             _expected_row(
                 purpose="generation_task",
                 call_type="image",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 prompt="p",
                 aspect_ratio="9:16",
                 status="failed",
@@ -504,7 +504,7 @@ class TestImageChannel:
             acct,
             image_backend=_FakeImageBackend(
                 provider="gemini",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 error=asyncio.CancelledError(),
             ),
         )
@@ -518,7 +518,7 @@ class TestImageChannel:
             _expected_row(
                 purpose="generation_task",
                 call_type="image",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 prompt="p",
                 aspect_ratio="9:16",
                 status="cancelled",
@@ -675,20 +675,20 @@ class TestVideoChannel:
             acct,
             video_backend=_FakeVideoBackend(
                 provider="ark",
-                model="doubao-seedance-1-5-pro-251215",
+                model="doubao-seedance-2-0-260128",
                 result_fields={"usage_tokens": 1_000_000},
             ),
         )
 
         await _generate_video(gen)
 
-        # (default, 有声) 16.00 CNY/百万 token × 1M token
+        # 46.00 CNY/百万 token × 1M token
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_video_row(
-                model="doubao-seedance-1-5-pro-251215",
+                model="doubao-seedance-2-0-260128",
                 provider="ark",
-                cost_amount=pytest.approx(16.0),
+                cost_amount=pytest.approx(46.0),
                 currency="CNY",
                 usage_tokens=1_000_000,
             ),
@@ -889,7 +889,7 @@ class TestIdentityInvariant:
         gen = _media_generator(
             tmp_path,
             acct,
-            image_backend=_FakeImageBackend(provider="gemini", model="gemini-3-pro-image-preview"),
+            image_backend=_FakeImageBackend(provider="gemini", model="gemini-3-pro-image"),
             image_provider_id="gemini-aistudio",
         )
 

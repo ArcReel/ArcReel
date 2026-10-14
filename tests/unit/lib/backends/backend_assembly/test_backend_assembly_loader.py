@@ -13,6 +13,7 @@ import pytest
 from lib.backends.backend_assembly import assemble_backend
 from lib.backends.backend_assembly.assembler import OutputLimitFacts, _load_builtin_config, output_limit_facts
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from tests.fakes import captured_backend_construction, captured_openai_clients, patched_instructor_from_openai
@@ -49,7 +50,9 @@ class TestAssembleBuiltinEndToEnd:
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
-            await assemble_backend(provider_id="ark", media_type="image", model_id="doubao-x", resolver=resolver)
+            await assemble_backend(
+                provider_id="ark", media_type="image", model_id="doubao-seedream-5-0-lite-260128", resolver=resolver
+            )
         # 用户未配 base_url → 回落 registry default；凭证 overlay 经装载真进构造参数
         assert built == [
             {
@@ -57,11 +60,30 @@ class TestAssembleBuiltinEndToEnd:
                 "backend": "ark",
                 "kwargs": {
                     "api_key": "ark-secret",
-                    "model": "doubao-x",
+                    "model": "doubao-seedream-5-0-lite-260128",
                     "base_url": "https://ark.cn-beijing.volces.com/api/v3",
                 },
             }
         ]
+
+    async def test_model_outside_provider_listing_is_rejected_without_fallback(self, db_factory):
+        """已下架的模型不在供应商清单中：报错由用户重新选择，不构造 backend、不回落到别的模型。"""
+        await _seed_provider_config(db_factory, "openai", api_key="sk")
+        resolver = ConfigResolver(db_factory)
+        with captured_backend_construction() as built, pytest.raises(ModelNotInCatalogError) as excinfo:
+            await assemble_backend(provider_id="openai", media_type="video", model_id="sora-2", resolver=resolver)
+        assert built == []
+        assert (excinfo.value.code, excinfo.value.params) == (
+            "model_not_in_provider_catalog",
+            {"provider": "openai", "model": "sora-2"},
+        )
+
+    async def test_missing_model_takes_the_catalog_default(self, db_factory):
+        await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
+        resolver = ConfigResolver(db_factory)
+        with captured_backend_construction() as built:
+            await assemble_backend(provider_id="ark", media_type="video", model_id=None, resolver=resolver)
+        assert built[0]["kwargs"]["model"] == "doubao-seedance-2-0-mini-260615"
 
     async def test_unknown_provider_media_fails_loud(self, db_factory):
         resolver = ConfigResolver(db_factory)
@@ -77,7 +99,7 @@ class TestAssembleBuiltinEndToEnd:
             await assemble_backend(
                 provider_id="gemini-aistudio",
                 media_type="image",
-                model_id="gemini-3.1-flash-image-preview",
+                model_id="gemini-3.1-flash-image",
                 resolver=resolver,
                 rate_limiter=sentinel,
             )
@@ -90,7 +112,7 @@ class TestAssembleBuiltinEndToEnd:
                     "api_key": "g-secret",
                     "base_url": "https://g.relay.test",
                     "rate_limiter": sentinel,
-                    "image_model": "gemini-3.1-flash-image-preview",
+                    "image_model": "gemini-3.1-flash-image",
                 },
             }
         ]
@@ -100,13 +122,15 @@ class TestAssembleBuiltinEndToEnd:
         await _seed_provider_config(db_factory, "ark", api_key="ark-secret")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
-            await assemble_backend(provider_id="ark", media_type="text", model_id="doubao-x", resolver=resolver)
+            await assemble_backend(
+                provider_id="ark", media_type="text", model_id="doubao-seed-2-0-lite-260215", resolver=resolver
+            )
         assert built == [
             {
                 "media": "text",
                 "backend": "ark",
                 "kwargs": {
-                    "model": "doubao-x",
+                    "model": "doubao-seed-2-0-lite-260215",
                     "api_key": "ark-secret",
                     "base_url": "https://ark.cn-beijing.volces.com/api/v3",
                 },
@@ -118,13 +142,13 @@ class TestAssembleBuiltinEndToEnd:
         await _seed_provider_config(db_factory, "dashscope", api_key="ds-secret")
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
-            await assemble_backend(provider_id="dashscope", media_type="text", model_id="qwen-max", resolver=resolver)
+            await assemble_backend(provider_id="dashscope", media_type="text", model_id="qwen-plus", resolver=resolver)
         assert built == [
             {
                 "media": "text",
                 "backend": "openai",
                 "kwargs": {
-                    "model": "qwen-max",
+                    "model": "qwen-plus",
                     "api_key": "ds-secret",
                     "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
                     "provider_name": "dashscope",

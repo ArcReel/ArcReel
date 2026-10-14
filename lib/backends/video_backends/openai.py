@@ -34,7 +34,6 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "sora-2"
 
 # sora 合法 size 按 model 能力 + 分辨率档分级（OpenAI 官方 changelog / 模型页）：
 # - sora-2（base）：仅 720p —— 9:16 720x1280 / 16:9 1280x720。
@@ -136,7 +135,9 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
 
     def __init__(self, *, api_key: str | None = None, model: str | None = None, base_url: str | None = None):
         self._client = create_openai_client(api_key=api_key, base_url=base_url)
-        self._model = model or DEFAULT_MODEL
+        if not model:
+            raise ValueError("OpenAIVideoBackend 需要指定模型")
+        self._model = model
 
     @property
     def name(self) -> str:

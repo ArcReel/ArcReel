@@ -23,9 +23,9 @@ from tests.catalog_support import install_catalog, with_entry_changes
 
 class TestRegistryHit:
     def test_gemini_image_flash(self):
-        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-flash-image-preview", "image")
+        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-flash-image", "image")
         assert isinstance(pricing, PerImageByResolution)
-        assert pricing.rates["gemini-3.1-flash-image-preview"]["1K"] == 0.067
+        assert pricing.rates["gemini-3.1-flash-image"]["1K"] == 0.067
 
     def test_vertex_video_001(self):
         pricing = lookup_pricing("gemini-vertex", "veo-3.1-fast-generate-001", "video")
@@ -164,7 +164,7 @@ class TestUnknownProviderFallsBackToGemini:
     def test_image(self):
         pricing = lookup_pricing("unknown", None, "image")
         assert isinstance(pricing, PerImageByResolution)
-        assert "gemini-3.1-flash-image-preview" in pricing.rates
+        assert "gemini-3.1-flash-image" in pricing.rates
 
     def test_video(self):
         pricing = lookup_pricing("unknown", None, "video")
@@ -269,7 +269,7 @@ class TestCrossModalModelMismatch:
 
     def test_gemini_image_model_on_video_call_falls_back_to_video_default(self):
         # 非 OWN_TABLE 的 gemini 家族同理 → 回落 Gemini 视频通用默认（lite）。
-        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-flash-image-preview", "video")
+        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-flash-image", "video")
         assert isinstance(pricing, PerSecondMatrix)
         assert "veo-3.1-lite-generate-preview" in pricing.rates
 

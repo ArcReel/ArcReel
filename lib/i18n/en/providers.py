@@ -21,7 +21,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_ark": "ByteDance Volcengine Ark AI platform supporting Seedance video generation and Seedream image generation, with audio and seed control.",
     "provider_desc_ark-agent-plan": "Volcengine Ark Agent Plan aggregates Doubao and other major models for text, image and video generation.",
     "provider_desc_grok": "xAI Grok models supporting video and image generation.",
-    "provider_desc_openai": "OpenAI platform supporting GPT-5.4 text, GPT Image and Sora video generation.",
+    "provider_desc_openai": "OpenAI platform supporting GPT-5.4 text and GPT Image generation.",
     "provider_desc_vidu": "Shengshu Vidu video platform supporting text-to-video, image-to-video, first-last frame, reference-to-video and reference-to-image. Image and video only.",
     "provider_desc_dashscope": "Alibaba Cloud Model Studio (DashScope) full-modality platform supporting Qwen text, Qwen-Image / Wan images, and HappyHorse / Wan video (including reference-to-video).",
     "provider_desc_minimax": "MiniMax (Hailuo) multimodal platform with text, image, video and speech generation. Connects to the domestic site by default; set base_url to the international site for overseas access.",

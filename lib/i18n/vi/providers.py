@@ -21,7 +21,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_ark": "Nền tảng AI Volcengine Ark của ByteDance hỗ trợ tạo video Seedance và tạo ảnh Seedream, kèm âm thanh và điều khiển seed.",
     "provider_desc_ark-agent-plan": "Gói Volcengine Ark Agent Plan tổng hợp Doubao và nhiều mô hình lớn chủ lưu, bao gồm văn bản, ảnh và video.",
     "provider_desc_grok": "Các mô hình Grok của xAI hỗ trợ tạo video và tạo ảnh.",
-    "provider_desc_openai": "Nền tảng OpenAI hỗ trợ văn bản GPT-5.4, GPT Image và tạo video Sora.",
+    "provider_desc_openai": "Nền tảng OpenAI hỗ trợ văn bản GPT-5.4 và tạo ảnh GPT Image.",
     "provider_desc_vidu": "Nền tảng Vidu của Shengshu hỗ trợ tạo video từ văn bản, từ ảnh, khung đầu–cuối, video tham chiếu và ảnh tham chiếu. Chỉ hỗ trợ ảnh và video.",
     "provider_desc_dashscope": "Nền tảng đa phương thức Alibaba Cloud Model Studio (DashScope) hỗ trợ văn bản Qwen, ảnh Qwen-Image / Wan và video HappyHorse / Wan (bao gồm video tham chiếu).",
     "provider_desc_minimax": "Nền tảng đa phương thức MiniMax (Hailuo) hỗ trợ tạo văn bản, ảnh, video và giọng nói. Mặc định kết nối site nội địa; đặt base_url sang site quốc tế khi dùng ở nước ngoài.",

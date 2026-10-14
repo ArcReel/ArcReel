@@ -4,5 +4,6 @@
 
 - 总入口：[火山方舟文档](https://www.volcengine.com/docs/82379/?lang=zh)
 - 接口与能力：[对话 Chat API](https://api.volcengine.com/api-docs/view?action=ChatCompletions&serviceCode=ark&version=2024-01-01)、[图片生成 API](https://www.volcengine.com/docs/82379/1666946?lang=zh)、[模型列表](https://www.volcengine.com/docs/82379/1330310?lang=zh)、[创建视频生成任务](https://www.volcengine.com/docs/82379/1520757?lang=zh)
-- 计费：[火山方舟定价](https://www.volcengine.com/pricing?product=ark_bd&tab=1)
+- 计费：[火山方舟定价](https://www.volcengine.com/pricing?product=ark_bd&tab=1)、[模型价格](https://www.volcengine.com/docs/82379/1544106)；出厂快照价目表见 `lib/catalog/snapshot/catalog.json`
+- 下线：[模型下线公告](https://docs.volcengine.com/docs/ark/model-deprecation-notice?lang=zh)
 - 代码：`lib/config/registry.py::PROVIDER_REGISTRY["ark"]`、`lib/backends/text_backends/ark.py::ArkTextBackend`、`lib/backends/image_backends/ark.py::ArkImageBackend`、`lib/backends/video_backends/ark.py::ArkVideoBackend`

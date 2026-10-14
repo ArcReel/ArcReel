@@ -180,7 +180,7 @@ class TestGetSystemConfig:
         assert "video_backends" in options
         assert "image_backends" in options
         assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
-        assert "gemini-aistudio/gemini-3.1-flash-image-preview" in options["image_backends"]
+        assert "gemini-aistudio/gemini-3.1-flash-image" in options["image_backends"]
 
     def test_options_exclude_unconfigured_providers(self):
         mock_svc = _make_mock_svc(ready_providers=[])
@@ -210,7 +210,7 @@ class TestGetSystemConfig:
             res = client.get("/api/v1/system/config")
         options = res.json()["options"]
         assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
-        assert "ark/doubao-seedance-1-5-pro-251215" in options["video_backends"]
+        assert "ark/doubao-seedance-2-0-260128" in options["video_backends"]
 
     def test_anthropic_key_masked(self):
         mock_svc = _make_mock_svc(settings={"anthropic_api_key": "sk-ant-test-secret-123456"})
@@ -336,11 +336,11 @@ class TestPatchSystemConfig:
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
-                json={"default_video_backend": "ark/doubao-seedance-1-5-pro-251215"},
+                json={"default_video_backend": "ark/doubao-seedance-2-0-260128"},
             )
         assert res.status_code == 200
         settings = res.json()["settings"]
-        assert settings["default_video_backend"] == "ark/doubao-seedance-1-5-pro-251215"
+        assert settings["default_video_backend"] == "ark/doubao-seedance-2-0-260128"
 
     def test_patch_sets_video_bucket_backends(self):
         mock_svc = _make_mock_svc()
@@ -349,17 +349,17 @@ class TestPatchSystemConfig:
                 "/api/v1/system/config",
                 json={
                     "default_video_backend_i2v": "minimax/MiniMax-Hailuo-2.3",
-                    "default_video_backend_r2v": "minimax/S2V-01",
+                    "default_video_backend_r2v": "ark/doubao-seedance-2-0-260128",
                 },
             )
         assert res.status_code == 200
         settings = res.json()["settings"]
         assert settings["default_video_backend_i2v"] == "minimax/MiniMax-Hailuo-2.3"
-        assert settings["default_video_backend_r2v"] == "minimax/S2V-01"
+        assert settings["default_video_backend_r2v"] == "ark/doubao-seedance-2-0-260128"
 
     def test_patch_clears_video_bucket_backend(self):
         """空串 = 清空桶键；解析层按空桶回退默认层处理（docs/adr/0054）。"""
-        mock_svc = _make_mock_svc(settings={"default_video_backend_r2v": "minimax/S2V-01"})
+        mock_svc = _make_mock_svc(settings={"default_video_backend_r2v": "ark/doubao-seedance-2-0-260128"})
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
@@ -373,7 +373,7 @@ class TestPatchSystemConfig:
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
-                json={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image-preview"},
+                json={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image"},
             )
         assert res.status_code == 400
 

@@ -64,7 +64,7 @@ class RateLimiter:
     def __init__(self, limits_dict: dict[str, int] | None = None, *, request_gap: float = 3.1):
         """
         Args:
-            limits_dict: {model_name: rpm} 字典。例如 {"gemini-3-pro-image-preview": 20}
+            limits_dict: {model_name: rpm} 字典。例如 {"gemini-3-pro-image": 20}
             request_gap: 最小请求间隔（秒），默认 3.1
         """
         self.limits = limits_dict or {}

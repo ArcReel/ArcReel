@@ -181,14 +181,14 @@ class TestRealResolverResponse:
         assert constraints["allowed"] == [8]
         assert constraints["excluded"] == {"4": "reference", "6": "reference"}
 
-    @pytest.mark.parametrize("candidate", ["openai/sora-2", "openai"])
+    @pytest.mark.parametrize("candidate", ["grok/grok-imagine-video", "grok"])
     def test_candidate_identity_and_project_preferences(self, client, candidate):
         with client:
             response = client.get("/api/v1/projects/ready/video-capabilities", params={"video_backend": candidate})
         assert response.status_code == 200
         body = response.json()
-        assert body["provider_id"] == "openai"
-        assert body["model"] == "sora-2"
+        assert body["provider_id"] == "grok"
+        assert body["model"] == "grok-imagine-video"
         assert body["generation_mode"] == "storyboard"
         assert body["content_mode"] == "narration"
 
@@ -243,7 +243,7 @@ class TestDurationConstraintsMatchRequestFacts:
         project = {
             **pm.project_data["ready"],
             "generation_mode": generation_mode,
-            bucket_key: "openai/sora-2" if candidate else self.VEO,
+            bucket_key: "grok/grok-imagine-video" if candidate else self.VEO,
         }
         if saved is not None:
             project["model_settings"] = {self.VEO: {"resolution": saved}}
@@ -304,7 +304,7 @@ class TestDurationConstraintsMatchRequestFacts:
             {
                 "generation_mode": "reference_video",
                 "video_provider_r2v": self.VEO,
-                "video_provider_i2v": "openai/sora-2" if candidate else self.VEO,
+                "video_provider_i2v": "grok/grok-imagine-video" if candidate else self.VEO,
                 "model_settings": {self.VEO: {"resolution": "1080p"}},
             }
         )

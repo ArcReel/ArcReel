@@ -639,6 +639,7 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} does not support image-to-video generation; assign a model that supports it for image-to-video in Settings, or change the default video model",
     "video_capability_missing_r2v": "{provider}/{model} does not support reference-to-video generation; assign a model that supports it for reference-to-video in Settings, or change the default video model",
     "video_capability_reference_unavailable": "The configured video model {provider}/{model} is no longer available (model deleted, capabilities changed, or provider removed); re-select a video model in Settings",
+    "model_not_in_provider_catalog": "{provider}/{model}: this model is not in the provider's model list; re-select a model in Settings",
     "video_resolution_not_supported": "Model {model} does not support {resolution} resolution (only {supported}); choose a supported resolution",
     "video_aspect_ratio_not_supported": "Model {model} does not support aspect ratio {aspect_ratio} (only {supported}); choose a supported aspect ratio",
     "video_resolution_duration_unsupported": "Model {model} does not support {duration}s at {resolution} resolution (only {supported}); adjust the resolution or duration",

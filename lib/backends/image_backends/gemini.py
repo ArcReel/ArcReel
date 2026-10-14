@@ -30,12 +30,15 @@ from lib.infra.logging_utils import format_kwargs_for_log
 logger = logging.getLogger(__name__)
 
 # 默认图片模型
-DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
+DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
 
 # Gemini 3 图像模型单请求最多混合 14 张参考图。
 # 参考：https://ai.google.dev/gemini-api/docs/image-generation
 _MAX_REFERENCE_IMAGES = 14
-_MODELS_WITH_14_REFERENCES = frozenset({"gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"})
+# 自定义供应商（中转站）仍可能沿用带 -preview 的旧名，一并认。
+_MODELS_WITH_14_REFERENCES = frozenset(
+    {"gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-3-pro-image-preview", "gemini-3.1-flash-image-preview"}
+)
 
 
 class GeminiImageBackend:

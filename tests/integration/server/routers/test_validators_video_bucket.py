@@ -37,7 +37,9 @@ class TestRequireVideoBucketCapability:
         monkeypatch.setattr("lib.db.async_session_factory", db_factory)
 
         # 预检放行即静默返回 None
-        assert await require_video_bucket_capability({"video_provider_r2v": "minimax/S2V-01"}, "r2v") is None
+        assert (
+            await require_video_bucket_capability({"video_provider_r2v": "dashscope/happyhorse-1.1-r2v"}, "r2v") is None
+        )
 
     async def test_no_provider_configured_passes_through(self, db_factory, monkeypatch):
         """未配置任何供应商（自动推断失败）→ 放行入队，由 worker 在任务面板暴露。"""

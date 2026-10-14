@@ -183,14 +183,14 @@ class TestRealResolverResponse:
         assert body["generation_mode"] is None
         assert body["duration_constraints"]["resolution"] is None
 
-    @pytest.mark.parametrize("candidate", ["openai/sora-2", "openai"])
+    @pytest.mark.parametrize("candidate", ["grok/grok-imagine-video", "grok"])
     def test_candidate_identity_and_default_constraints(self, real_resolver_client, candidate):
         with real_resolver_client as client:
             response = client.get("/api/v1/providers/video-capabilities", params={"video_backend": candidate})
         assert response.status_code == 200
         body = response.json()
-        assert body["provider_id"] == "openai"
-        assert body["model"] == "sora-2"
+        assert body["provider_id"] == "grok"
+        assert body["model"] == "grok-imagine-video"
         constraints = body["duration_constraints"]
         assert constraints["resolution"] is None
         assert constraints["uses_reference_images"] is False

@@ -307,9 +307,9 @@ class TestCatalogDisplayNames:
     def test_builtin_model_name_is_the_catalog_display_name(self, make_client):
         with make_client(["openai"]) as client:
             names = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()["model_names"]
-        model = catalog.get_model("openai", "sora-2")
+        model = catalog.get_model("openai", "gpt-image-2")
         assert model is not None
-        assert names["openai/sora-2"] == model.display_name
+        assert names["openai/gpt-image-2"] == model.display_name
 
     async def test_custom_model_name_is_the_user_authored_one(self, make_client, session_factory_and_engine):
         factory, _engine = session_factory_and_engine
@@ -355,13 +355,12 @@ class TestBucketJudgement:
         [
             ("vidu", "viduq3"),  # 只在 /reference2video 白名单内，提交首帧会在构造请求时报错
             ("dashscope", "happyhorse-1.0-r2v"),
-            ("minimax", "S2V-01"),  # 单脸 subject_reference 驱动，不接受 first_frame_image
         ],
     )
     def test_builtin_video_i2v_reads_backend_declaration(self, provider_id: str, model_id: str):
         """i2v 归属只看 backend 的 first_frame，registry ModelInfo 不参与。
 
-        这三个 model 的 backend first_frame=False 与请求构造同源，执行期不接首帧——放进 i2v 桶
+        这两个 model 的 backend first_frame=False 与请求构造同源，执行期不接首帧——放进 i2v 桶
         就等于让用户配出必败的组合。
         """
         model_info = PROVIDER_REGISTRY[provider_id].models[model_id]

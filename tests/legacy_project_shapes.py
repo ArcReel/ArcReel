@@ -196,6 +196,24 @@ def write_legacy_retired_flash_lite_project(root: Path, *, provider_id: str) -> 
     return project_dir
 
 
+def write_legacy_retired_model_references_project(root: Path) -> Path:
+    """schema 17 项目的图片字段引用已改名的 Gemini 图片 preview ID，视频字段引用已下架而没有后继的模型。"""
+
+    project_dir = write_legacy_storyboard_project(root, name="legacy-retired-model-references")
+    advance_project_schema(project_dir, to_version=17)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project.update(
+        {
+            "default_image_backend": "gemini-aistudio/gemini-3.1-flash-image-preview",
+            "image_provider_i2i": "gemini-vertex/gemini-3-pro-image-preview",
+            "video_backend": "openai/sora-2",
+        }
+    )
+    _write_json(project_path, project)
+    return project_dir
+
+
 def write_legacy_timeline_agent_turn_project(root: Path) -> Path:
     """schema 17 项目的剪辑时间线修订仍带 Agent 轮次字段（新建与编辑各一个修订）。"""
 
@@ -1437,6 +1455,7 @@ __all__ = [
     "write_legacy_presentation_project",
     "write_legacy_reference_video_project",
     "write_legacy_retired_flash_lite_project",
+    "write_legacy_retired_model_references_project",
     "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",
     "write_legacy_style_project",

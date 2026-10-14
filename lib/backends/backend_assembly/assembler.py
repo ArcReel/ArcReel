@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import get_provider_spec
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider import is_custom_provider
 
@@ -64,9 +65,21 @@ async def assemble_backend(
                 generation_type=generation_type,
             )
     spec = get_provider_spec(provider_id, media_type)  # 未登记 → ValueError（fail-loud）
+    # 默认模型只来自模型目录：调用方没给 model 时取该供应商在这个媒体类型下的默认模型。
+    if model_id is None:
+        model_id = catalog.default_model(provider_id, media_type)
+    if model_id is not None:
+        _ensure_listed(provider_id, model_id, media_type)
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
     # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。
     return await asyncio.to_thread(spec.build_backend, config, model_id)
+
+
+def _ensure_listed(provider_id: str, model_id: str, media_type: str) -> None:
+    """内置供应商的模型必须在该供应商该媒体类型的模型清单中；不在时报错，由用户重新选择，不回落到别的模型。"""
+    info = catalog.get_model(provider_id, model_id)
+    if info is None or info.media_type != media_type:
+        raise ModelNotInCatalogError(provider_id=provider_id, model_id=model_id, media_type=media_type)
 
 
 @dataclass(frozen=True)

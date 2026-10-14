@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-14T14:35:18Z",
+  "dataset_version": "2026-10-14T15:03:38Z",
   "entries": [
     {
       "maker": "google",
@@ -111,9 +111,12 @@
     },
     {
       "maker": "google",
-      "name": "gemini-3-pro-image-preview",
+      "name": "gemini-3-pro-image",
       "media_type": "image",
       "display_name": "Gemini 3 Pro Image",
+      "aliases": [
+        "gemini-3-pro-image-preview"
+      ],
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -160,9 +163,12 @@
     },
     {
       "maker": "google",
-      "name": "gemini-3.1-flash-image-preview",
+      "name": "gemini-3.1-flash-image",
       "media_type": "image",
       "display_name": "Gemini 3.1 Flash Image",
+      "aliases": [
+        "gemini-3.1-flash-image-preview"
+      ],
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -768,6 +774,7 @@
       "aliases": [
         "doubao-seed-1-8-251228"
       ],
+      "discontinued": true,
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -801,38 +808,11 @@
     },
     {
       "maker": "bytedance",
-      "name": "doubao-seedream-5.0-lite",
+      "name": "doubao-seedream-5-0-lite",
       "media_type": "image",
       "display_name": "Seedream 5.0 Lite",
       "aliases": [
-        "doubao-seedream-5-0-lite-260128"
-      ],
-      "facts": {
-        "text_to_image": true,
-        "image_to_image": true
-      },
-      "price": {
-        "currency": "CNY",
-        "meters": [
-          {
-            "meter": "output_images",
-            "dims": [],
-            "rows": [
-              {
-                "when": {},
-                "price": 0.22
-              }
-            ]
-          }
-        ]
-      }
-    },
-    {
-      "maker": "bytedance",
-      "name": "doubao-seedream-5.0",
-      "media_type": "image",
-      "display_name": "Seedream 5.0",
-      "aliases": [
+        "doubao-seedream-5-0-lite-260128",
         "doubao-seedream-5-0-260128"
       ],
       "facts": {
@@ -857,7 +837,7 @@
     },
     {
       "maker": "bytedance",
-      "name": "doubao-seedream-4.5",
+      "name": "doubao-seedream-4-5",
       "media_type": "image",
       "display_name": "Seedream 4.5",
       "aliases": [
@@ -885,7 +865,7 @@
     },
     {
       "maker": "bytedance",
-      "name": "doubao-seedream-4.0",
+      "name": "doubao-seedream-4-0",
       "media_type": "image",
       "display_name": "Seedream 4.0",
       "aliases": [
@@ -919,6 +899,7 @@
       "aliases": [
         "doubao-seedance-1-5-pro-251215"
       ],
+      "discontinued": true,
       "facts": {
         "durations": [
           4,
@@ -1019,28 +1000,70 @@
           {
             "meter": "video_tokens",
             "dims": [
-              "service_tier",
-              "audio"
+              "resolution",
+              "input_video"
             ],
             "rows": [
               {
                 "when": {
-                  "service_tier": "standard",
-                  "audio": true
+                  "resolution": "480p",
+                  "input_video": false
                 },
                 "price": 46.0
               },
               {
                 "when": {
-                  "service_tier": "standard",
-                  "audio": false
+                  "resolution": "480p",
+                  "input_video": true
+                },
+                "price": 28.0
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "input_video": false
                 },
                 "price": 46.0
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "input_video": true
+                },
+                "price": 28.0
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "input_video": false
+                },
+                "price": 51.0
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "input_video": true
+                },
+                "price": 31.0
+              },
+              {
+                "when": {
+                  "resolution": "4k",
+                  "input_video": false
+                },
+                "price": 26.0
+              },
+              {
+                "when": {
+                  "resolution": "4k",
+                  "input_video": true
+                },
+                "price": 16.0
               }
             ],
             "defaults": {
-              "service_tier": "standard",
-              "audio": true
+              "resolution": "720p",
+              "input_video": false
             }
           }
         ]
@@ -1080,28 +1103,42 @@
           {
             "meter": "video_tokens",
             "dims": [
-              "service_tier",
-              "audio"
+              "resolution",
+              "input_video"
             ],
             "rows": [
               {
                 "when": {
-                  "service_tier": "standard",
-                  "audio": true
+                  "resolution": "480p",
+                  "input_video": false
                 },
                 "price": 37.0
               },
               {
                 "when": {
-                  "service_tier": "standard",
-                  "audio": false
+                  "resolution": "480p",
+                  "input_video": true
+                },
+                "price": 22.0
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "input_video": false
                 },
                 "price": 37.0
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "input_video": true
+                },
+                "price": 22.0
               }
             ],
             "defaults": {
-              "service_tier": "standard",
-              "audio": true
+              "resolution": "720p",
+              "input_video": false
             }
           }
         ]
@@ -1141,28 +1178,42 @@
           {
             "meter": "video_tokens",
             "dims": [
-              "service_tier",
-              "audio"
+              "resolution",
+              "input_video"
             ],
             "rows": [
               {
                 "when": {
-                  "service_tier": "standard",
-                  "audio": true
+                  "resolution": "480p",
+                  "input_video": false
                 },
                 "price": 23.0
               },
               {
                 "when": {
-                  "service_tier": "standard",
-                  "audio": false
+                  "resolution": "480p",
+                  "input_video": true
+                },
+                "price": 14.0
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "input_video": false
                 },
                 "price": 23.0
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "input_video": true
+                },
+                "price": 14.0
               }
             ],
             "defaults": {
-              "service_tier": "standard",
-              "audio": true
+              "resolution": "720p",
+              "input_video": false
             }
           }
         ]
@@ -1217,28 +1268,56 @@
           {
             "meter": "video_tokens",
             "dims": [
-              "service_tier",
-              "audio"
+              "resolution",
+              "input_video"
             ],
             "rows": [
               {
                 "when": {
-                  "service_tier": "standard",
-                  "audio": true
+                  "resolution": "480p",
+                  "input_video": false
                 },
                 "price": 70.0
               },
               {
                 "when": {
-                  "service_tier": "standard",
-                  "audio": false
+                  "resolution": "480p",
+                  "input_video": true
+                },
+                "price": 42.0
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "input_video": false
                 },
                 "price": 70.0
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "input_video": true
+                },
+                "price": 42.0
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "input_video": false
+                },
+                "price": 77.0
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "input_video": true
+                },
+                "price": 46.0
               }
             ],
             "defaults": {
-              "service_tier": "standard",
-              "audio": true
+              "resolution": "720p",
+              "input_video": false
             }
           }
         ]
@@ -1473,6 +1552,7 @@
       "name": "grok-imagine-image-pro",
       "media_type": "image",
       "display_name": "Grok Imagine Image Pro",
+      "discontinued": true,
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -1726,23 +1806,144 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
                 "price": 5.0
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 10.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 272000
+                },
+                "price": 5.0
+              },
+              {
+                "when": {
+                  "service_tier": "fast",
+                  "context_tier": 0
+                },
+                "price": 12.5
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
+                "price": 0.5
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 1.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 0.25
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 272000
+                },
+                "price": 0.5
+              },
+              {
+                "when": {
+                  "service_tier": "fast",
+                  "context_tier": 0
+                },
+                "price": 1.25
+              }
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
                 "price": 30.0
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 45.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 15.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 272000
+                },
+                "price": 22.5
+              },
+              {
+                "when": {
+                  "service_tier": "fast",
+                  "context_tier": 0
+                },
+                "price": 75.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           }
         ]
       }
@@ -1762,23 +1963,144 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
                 "price": 2.5
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 5.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 272000
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "service_tier": "fast",
+                  "context_tier": 0
+                },
+                "price": 5.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
+                "price": 0.25
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 0.5
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 0.13
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 272000
+                },
+                "price": 0.25
+              },
+              {
+                "when": {
+                  "service_tier": "fast",
+                  "context_tier": 0
+                },
+                "price": 0.5
+              }
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
                 "price": 15.0
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 22.5
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 7.5
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 272000
+                },
+                "price": 11.25
+              },
+              {
+                "when": {
+                  "service_tier": "fast",
+                  "context_tier": 0
+                },
+                "price": 30.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           }
         ]
       }
@@ -1798,23 +2120,90 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard"
+                },
                 "price": 0.75
+              },
+              {
+                "when": {
+                  "service_tier": "flex"
+                },
+                "price": 0.375
+              },
+              {
+                "when": {
+                  "service_tier": "fast"
+                },
+                "price": 1.5
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "service_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "service_tier": "standard"
+                },
+                "price": 0.075
+              },
+              {
+                "when": {
+                  "service_tier": "flex"
+                },
+                "price": 0.0375
+              },
+              {
+                "when": {
+                  "service_tier": "fast"
+                },
+                "price": 0.15
+              }
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard"
+                },
                 "price": 4.5
+              },
+              {
+                "when": {
+                  "service_tier": "flex"
+                },
+                "price": 2.25
+              },
+              {
+                "when": {
+                  "service_tier": "fast"
+                },
+                "price": 9.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           }
         ]
       }
@@ -1834,23 +2223,72 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard"
+                },
                 "price": 0.2
+              },
+              {
+                "when": {
+                  "service_tier": "flex"
+                },
+                "price": 0.1
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "service_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "service_tier": "standard"
+                },
+                "price": 0.02
+              },
+              {
+                "when": {
+                  "service_tier": "flex"
+                },
+                "price": 0.01
+              }
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard"
+                },
                 "price": 1.25
+              },
+              {
+                "when": {
+                  "service_tier": "flex"
+                },
+                "price": 0.625
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           }
         ]
       }
@@ -1883,6 +2321,16 @@
             ]
           },
           {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.25
+              }
+            ]
+          },
+          {
             "meter": "output_tokens",
             "dims": [],
             "rows": [
@@ -1899,6 +2347,16 @@
               {
                 "when": {},
                 "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "image_cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
               }
             ]
           },
@@ -1920,6 +2378,7 @@
       "name": "sora-2",
       "media_type": "video",
       "display_name": "Sora 2",
+      "discontinued": true,
       "facts": {
         "durations": [
           4,
@@ -1958,6 +2417,7 @@
       "name": "sora-2-pro",
       "media_type": "video",
       "display_name": "Sora 2 Pro",
+      "discontinued": true,
       "facts": {
         "durations": [
           4,
@@ -2017,6 +2477,40 @@
           "2K",
           "4K"
         ]
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 0.1875
+              },
+              {
+                "when": {
+                  "resolution": "2K"
+                },
+                "price": 0.25
+              },
+              {
+                "when": {
+                  "resolution": "4K"
+                },
+                "price": 0.3125
+              }
+            ],
+            "defaults": {
+              "resolution": "1080p"
+            }
+          }
+        ]
       }
     },
     {
@@ -2028,6 +2522,28 @@
         "image_to_image": true,
         "resolutions": [
           "1080p"
+        ]
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 0.625
+              }
+            ],
+            "defaults": {
+              "resolution": "1080p"
+            }
+          }
         ]
       }
     },
@@ -2078,6 +2594,40 @@
             16
           ]
         }
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "540p"
+                },
+                "price": 0.21875
+              },
+              {
+                "when": {
+                  "resolution": "720p"
+                },
+                "price": 0.375
+              },
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 0.40625
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
+            }
+          }
+        ]
       }
     },
     {
@@ -2108,6 +2658,40 @@
           "540p",
           "720p",
           "1080p"
+        ]
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "540p"
+                },
+                "price": 0.28125
+              },
+              {
+                "when": {
+                  "resolution": "720p"
+                },
+                "price": 0.625
+              },
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 0.75
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
+            }
+          }
         ]
       }
     },
@@ -2156,6 +2740,40 @@
             16
           ]
         }
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "output_seconds",
+            "dims": [
+              "resolution"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "540p"
+                },
+                "price": 0.21875
+              },
+              {
+                "when": {
+                  "resolution": "720p"
+                },
+                "price": 0.375
+              },
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 0.46875
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
+            }
+          }
+        ]
       }
     },
     {
@@ -2186,6 +2804,51 @@
             4
           ]
         }
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "requests",
+            "dims": [
+              "resolution",
+              "duration"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "resolution": "360p",
+                  "duration": 4
+                },
+                "price": 0.625
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 4
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "duration": 4
+                },
+                "price": 3.125
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 8
+                },
+                "price": 3.125
+              }
+            ],
+            "defaults": {
+              "resolution": "720p"
+            }
+          }
+        ]
       }
     },
     {
@@ -3198,7 +3861,8 @@
                 "when": {},
                 "price": 0.8
               }
-            ]
+            ],
+            "cjk_double": true
           }
         ]
       }
@@ -3451,6 +4115,7 @@
       "name": "S2V-01",
       "media_type": "video",
       "display_name": "MiniMax S2V-01",
+      "discontinued": true,
       "facts": {
         "durations": [
           6
@@ -3506,79 +4171,24 @@
           {
             "meter": "output_seconds",
             "dims": [
-              "resolution",
-              "quality",
-              "audio"
+              "resolution"
             ],
             "rows": [
               {
                 "when": {
-                  "resolution": "720p",
-                  "quality": "std",
-                  "audio": false
+                  "resolution": "720p"
                 },
-                "price": 0.6
+                "price": 0.3
               },
               {
                 "when": {
-                  "resolution": "720p",
-                  "quality": "std",
-                  "audio": true
+                  "resolution": "1080p"
                 },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": false
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": true
-                },
-                "price": 1.0
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "std",
-                  "audio": false
-                },
-                "price": 0.6
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "std",
-                  "audio": true
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "pro",
-                  "audio": false
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "pro",
-                  "audio": true
-                },
-                "price": 1.0
+                "price": 0.5
               }
             ],
             "defaults": {
-              "quality": "std",
-              "audio": true
+              "resolution": "720p"
             }
           }
         ]
@@ -3696,14 +4306,12 @@
             "meter": "output_seconds",
             "dims": [
               "resolution",
-              "quality",
               "audio"
             ],
             "rows": [
               {
                 "when": {
                   "resolution": "720p",
-                  "quality": "std",
                   "audio": false
                 },
                 "price": 0.6
@@ -3711,47 +4319,13 @@
               {
                 "when": {
                   "resolution": "720p",
-                  "quality": "std",
                   "audio": true
                 },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": false
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": true
-                },
-                "price": 1.0
+                "price": 0.9
               },
               {
                 "when": {
                   "resolution": "1080p",
-                  "quality": "std",
-                  "audio": false
-                },
-                "price": 0.6
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "std",
-                  "audio": true
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "pro",
                   "audio": false
                 },
                 "price": 0.8
@@ -3759,10 +4333,9 @@
               {
                 "when": {
                   "resolution": "1080p",
-                  "quality": "pro",
                   "audio": true
                 },
-                "price": 1.0
+                "price": 1.2
               },
               {
                 "when": {
@@ -3772,8 +4345,8 @@
               }
             ],
             "defaults": {
-              "quality": "std",
-              "audio": true
+              "resolution": "720p",
+              "audio": false
             }
           }
         ]
@@ -3813,73 +4386,57 @@
             "meter": "output_seconds",
             "dims": [
               "resolution",
-              "quality",
-              "audio"
+              "audio",
+              "input_video"
             ],
             "rows": [
               {
                 "when": {
                   "resolution": "720p",
-                  "quality": "std",
-                  "audio": false
+                  "audio": false,
+                  "input_video": false
                 },
                 "price": 0.6
               },
               {
                 "when": {
                   "resolution": "720p",
-                  "quality": "std",
-                  "audio": true
+                  "audio": true,
+                  "input_video": false
                 },
                 "price": 0.8
               },
               {
                 "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": false
+                  "resolution": "1080p",
+                  "audio": false,
+                  "input_video": false
                 },
                 "price": 0.8
               },
               {
                 "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": true
+                  "resolution": "1080p",
+                  "audio": true,
+                  "input_video": false
                 },
                 "price": 1.0
               },
               {
                 "when": {
-                  "resolution": "1080p",
-                  "quality": "std",
-                  "audio": false
+                  "resolution": "720p",
+                  "audio": false,
+                  "input_video": true
                 },
-                "price": 0.6
+                "price": 0.9
               },
               {
                 "when": {
                   "resolution": "1080p",
-                  "quality": "std",
-                  "audio": true
+                  "audio": false,
+                  "input_video": true
                 },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "pro",
-                  "audio": false
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "pro",
-                  "audio": true
-                },
-                "price": 1.0
+                "price": 1.2
               },
               {
                 "when": {
@@ -3889,8 +4446,9 @@
               }
             ],
             "defaults": {
-              "quality": "std",
-              "audio": true
+              "resolution": "720p",
+              "audio": false,
+              "input_video": false
             }
           }
         ]
@@ -3918,78 +4476,34 @@
             "meter": "output_seconds",
             "dims": [
               "resolution",
-              "quality",
               "audio"
             ],
             "rows": [
               {
                 "when": {
                   "resolution": "720p",
-                  "quality": "std",
                   "audio": false
                 },
-                "price": 0.6
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "std",
-                  "audio": true
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": false
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": true
-                },
-                "price": 1.0
+                "price": 0.3
               },
               {
                 "when": {
                   "resolution": "1080p",
-                  "quality": "std",
                   "audio": false
                 },
-                "price": 0.6
+                "price": 0.5
               },
               {
                 "when": {
                   "resolution": "1080p",
-                  "quality": "std",
-                  "audio": true
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "pro",
-                  "audio": false
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "pro",
                   "audio": true
                 },
                 "price": 1.0
               }
             ],
             "defaults": {
-              "quality": "std",
-              "audio": true
+              "resolution": "720p",
+              "audio": false
             }
           }
         ]
@@ -4017,78 +4531,41 @@
             "meter": "output_seconds",
             "dims": [
               "resolution",
-              "quality",
-              "audio"
+              "input_video"
             ],
             "rows": [
               {
                 "when": {
                   "resolution": "720p",
-                  "quality": "std",
-                  "audio": false
-                },
-                "price": 0.6
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "std",
-                  "audio": true
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": false
-                },
-                "price": 0.8
-              },
-              {
-                "when": {
-                  "resolution": "720p",
-                  "quality": "pro",
-                  "audio": true
-                },
-                "price": 1.0
-              },
-              {
-                "when": {
-                  "resolution": "1080p",
-                  "quality": "std",
-                  "audio": false
+                  "input_video": false
                 },
                 "price": 0.6
               },
               {
                 "when": {
                   "resolution": "1080p",
-                  "quality": "std",
-                  "audio": true
+                  "input_video": false
                 },
                 "price": 0.8
               },
               {
                 "when": {
-                  "resolution": "1080p",
-                  "quality": "pro",
-                  "audio": false
+                  "resolution": "720p",
+                  "input_video": true
                 },
-                "price": 0.8
+                "price": 0.9
               },
               {
                 "when": {
                   "resolution": "1080p",
-                  "quality": "pro",
-                  "audio": true
+                  "input_video": true
                 },
-                "price": 1.0
+                "price": 1.2
               }
             ],
             "defaults": {
-              "quality": "std",
-              "audio": true
+              "resolution": "720p",
+              "input_video": false
             }
           }
         ]
@@ -4113,6 +4590,16 @@
               {
                 "when": {},
                 "price": 0.05
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.005
               }
             ]
           },
@@ -4152,6 +4639,16 @@
             ]
           },
           {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.005
+              }
+            ]
+          },
+          {
             "meter": "output_tokens",
             "dims": [],
             "rows": [
@@ -4183,6 +4680,16 @@
               {
                 "when": {},
                 "price": 0.45
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.045
               }
             ]
           },
@@ -4514,12 +5021,12 @@
           "entry": "google/gemini-3.1-flash-lite"
         },
         {
-          "api_model_name": "gemini-3-pro-image-preview",
-          "entry": "google/gemini-3-pro-image-preview"
+          "api_model_name": "gemini-3-pro-image",
+          "entry": "google/gemini-3-pro-image"
         },
         {
-          "api_model_name": "gemini-3.1-flash-image-preview",
-          "entry": "google/gemini-3.1-flash-image-preview"
+          "api_model_name": "gemini-3.1-flash-image",
+          "entry": "google/gemini-3.1-flash-image"
         },
         {
           "api_model_name": "veo-3.1-generate-preview",
@@ -4536,7 +5043,7 @@
       ],
       "defaults": {
         "text": "gemini-3-flash-preview",
-        "image": "gemini-3.1-flash-image-preview",
+        "image": "gemini-3.1-flash-image",
         "video": "veo-3.1-lite-generate-preview"
       }
     },
@@ -4555,12 +5062,12 @@
           "entry": "google/gemini-3.1-flash-lite"
         },
         {
-          "api_model_name": "gemini-3-pro-image-preview",
-          "entry": "google/gemini-3-pro-image-preview"
+          "api_model_name": "gemini-3-pro-image",
+          "entry": "google/gemini-3-pro-image"
         },
         {
-          "api_model_name": "gemini-3.1-flash-image-preview",
-          "entry": "google/gemini-3.1-flash-image-preview"
+          "api_model_name": "gemini-3.1-flash-image",
+          "entry": "google/gemini-3.1-flash-image"
         },
         {
           "api_model_name": "veo-3.1-generate-001",
@@ -4573,7 +5080,7 @@
       ],
       "defaults": {
         "text": "gemini-3-flash-preview",
-        "image": "gemini-3.1-flash-image-preview",
+        "image": "gemini-3.1-flash-image",
         "video": "veo-3.1-fast-generate-001"
       }
     },
@@ -4592,28 +5099,20 @@
           "entry": "bytedance/doubao-seed-2.0-mini"
         },
         {
-          "api_model_name": "doubao-seed-1-8-251228",
-          "entry": "bytedance/doubao-seed-1.8"
-        },
-        {
           "api_model_name": "doubao-seedream-5-0-lite-260128",
-          "entry": "bytedance/doubao-seedream-5.0-lite"
+          "entry": "bytedance/doubao-seedream-5-0-lite"
         },
         {
           "api_model_name": "doubao-seedream-5-0-260128",
-          "entry": "bytedance/doubao-seedream-5.0"
+          "entry": "bytedance/doubao-seedream-5-0-lite"
         },
         {
           "api_model_name": "doubao-seedream-4-5-251128",
-          "entry": "bytedance/doubao-seedream-4.5"
+          "entry": "bytedance/doubao-seedream-4-5"
         },
         {
           "api_model_name": "doubao-seedream-4-0-250828",
-          "entry": "bytedance/doubao-seedream-4.0"
-        },
-        {
-          "api_model_name": "doubao-seedance-1-5-pro-251215",
-          "entry": "bytedance/doubao-seedance-1.5-pro"
+          "entry": "bytedance/doubao-seedream-4-0"
         },
         {
           "api_model_name": "doubao-seedance-2-0-260128",
@@ -4678,11 +5177,7 @@
         },
         {
           "api_model_name": "doubao-seedream-5.0-lite",
-          "entry": "bytedance/doubao-seedream-5.0-lite"
-        },
-        {
-          "api_model_name": "doubao-seedance-1.5-pro",
-          "entry": "bytedance/doubao-seedance-1.5-pro"
+          "entry": "bytedance/doubao-seedream-5-0-lite"
         },
         {
           "api_model_name": "doubao-seedance-2.0",
@@ -4720,10 +5215,6 @@
         {
           "api_model_name": "grok-4-1-fast-non-reasoning",
           "entry": "xai/grok-4-1-fast-non-reasoning"
-        },
-        {
-          "api_model_name": "grok-imagine-image-pro",
-          "entry": "xai/grok-imagine-image-pro"
         },
         {
           "api_model_name": "grok-imagine-image",
@@ -4769,20 +5260,11 @@
         {
           "api_model_name": "gpt-image-2",
           "entry": "openai/gpt-image-2"
-        },
-        {
-          "api_model_name": "sora-2",
-          "entry": "openai/sora-2"
-        },
-        {
-          "api_model_name": "sora-2-pro",
-          "entry": "openai/sora-2-pro"
         }
       ],
       "defaults": {
         "text": "gpt-5.4-mini",
-        "image": "gpt-image-2",
-        "video": "sora-2"
+        "image": "gpt-image-2"
       }
     },
     "vidu": {
@@ -4944,10 +5426,6 @@
         {
           "api_model_name": "MiniMax-Hailuo-2.3-Fast",
           "entry": "minimax/MiniMax-Hailuo-2.3-Fast"
-        },
-        {
-          "api_model_name": "S2V-01",
-          "entry": "minimax/S2V-01"
         }
       ],
       "defaults": {
