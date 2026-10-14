@@ -15,7 +15,9 @@
 #   What counts as a round is defined once, in SKILL.md「推进循环」.
 #
 # OUTPUT
-#   mark: {round, head, marked_at, implemented, pushback, note, rounds} for the new entry.
+#   mark: {round, head, marked_at, implemented, pushback, note, rounds} for the new entry,
+#         plus `hint` from SKILL.md's default evaluation point (round 3) on: a pointer back to
+#         the convergence rules, surfaced when long loops have diluted them.
 #   show: the whole ledger ({pr, rounds: []} when nothing is marked yet).
 #   Errors are loud: non-zero exit + `ROUND_ERROR:` on stderr.
 
@@ -115,7 +117,8 @@ case "$CMD" in
     ' > "$TMP_FILE"
     mv "$TMP_FILE" "$LEDGER_FILE"
     trap - EXIT
-    jq -c '.rounds | (last + {rounds: length})' "$LEDGER_FILE"
+    HINT='本批意见是常规可达的缺陷，还是在往复？同一处再补丁就回到根因（SKILL「收敛」）；不可达的按 docs/standards/general.md「防御只针对常规可达的场景」驳回。'
+    jq -c --arg hint "$HINT" '.rounds | (last + {rounds: length} + (if length >= 3 then {hint: $hint} else {} end))' "$LEDGER_FILE"
     ;;
 
   *)
