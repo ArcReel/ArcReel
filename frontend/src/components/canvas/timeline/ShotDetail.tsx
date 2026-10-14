@@ -509,6 +509,10 @@ export function ShotDetail({
   });
   const { value: fields, setValue, dirty } = unit;
   const saving = unit.status === "saving";
+  // 结构化 → 文本切换在途：返回后整体替换该侧提示词，期间该侧的编辑会被覆盖。
+  // 与保存中一样占用编辑单元：结构化编辑入口与各保存入口一并禁用。
+  const [formSwitching, setFormSwitching] = useState<PromptSide | null>(null);
+  const editBusy = saving || formSwitching !== null;
   // PATCH 已落盘但刷新失败时 savedValue 领先于剧本；直到新 source 到达才允许再生成或预览。
   const refreshPending = !shotFieldsEqual(source, unit.savedValue);
   const saveForPreview = unit.save;
@@ -520,13 +524,13 @@ export function ShotDetail({
     editRef.current = {
       dirty,
       save: () => {
-        if (!saving) void saveUnit();
+        if (!editBusy) void saveUnit();
       },
     };
     return () => {
       editRef.current = null;
     };
-  }, [editRef, dirty, saveUnit, saving]);
+  }, [editRef, dirty, saveUnit, editBusy]);
 
   const setField = <K extends keyof ShotFields>(key: K, next: ShotFields[K]) =>
     setValue((prev) => ({ ...prev, [key]: next }));
@@ -584,7 +588,6 @@ export function ShotDetail({
 
   // 提示词形态切换。结构化 → 文本以后端渲染结果为初值（前端不复刻渲染逻辑）；
   // 文本 → 结构化不做解析，须显式确认丢弃文本。
-  const [formSwitching, setFormSwitching] = useState<PromptSide | null>(null);
   const [pendingStructSwitch, setPendingStructSwitch] = useState<PromptSide | null>(null);
   const [formSwitchError, setFormSwitchError] = useState<{ side: PromptSide; message: string } | null>(null);
   const formHintId = useId();
@@ -671,7 +674,7 @@ export function ShotDetail({
         }
         beforeOpen={preparePreview}
         saveFirst={dirty}
-        disabled={saving || refreshPending}
+        disabled={editBusy || refreshPending}
       />
     );
   };
@@ -754,7 +757,7 @@ export function ShotDetail({
         sceneNames={fields.scenes}
         propNames={fields.props}
         onSave={handleRefsApply}
-        disabled={saving || readOnly}
+        disabled={editBusy || readOnly}
       />
     </ShotGroup>
   );
@@ -791,7 +794,7 @@ export function ShotDetail({
         }
       >
         {imgValue ? (
-          <ImagePromptEditor prompt={imgValue} onUpdate={handleImgUpdate} readOnly={readOnly} />
+          <ImagePromptEditor prompt={imgValue} onUpdate={handleImgUpdate} readOnly={readOnly || formSwitching === "image"} />
         ) : (
           <Textarea
             aria-label={t("detail_image_prompt_title")}
@@ -821,7 +824,7 @@ export function ShotDetail({
         }
       >
         {vidValue ? (
-          <VideoPromptEditor prompt={vidValue} onUpdate={handleVidUpdate} readOnly={readOnly} />
+          <VideoPromptEditor prompt={vidValue} onUpdate={handleVidUpdate} readOnly={readOnly || formSwitching === "video"} />
         ) : (
           <Textarea
             aria-label={t("detail_video_prompt_title")}
@@ -855,7 +858,7 @@ export function ShotDetail({
           <UtteranceListEditor
             utterances={fields.utterances ?? EMPTY_UTTERANCES}
             onChange={(utterances) => setField("utterances", utterances)}
-            disabled={saving || readOnly}
+            disabled={editBusy || readOnly}
             speakerCandidates={speakerNames}
           />
         </ShotSection>
@@ -865,7 +868,7 @@ export function ShotDetail({
             title={t("detail_section_dialogue")}
             actions={
               legacyDialogue.length > 0 && !readOnly ? (
-                <Button variant="outline" size="xs" disabled={saving} onClick={() => handleDialogueChange([])}>
+                <Button variant="outline" size="xs" disabled={editBusy} onClick={() => handleDialogueChange([])}>
                   {t("detail_legacy_dialogue_clear")}
                 </Button>
               ) : undefined
@@ -891,7 +894,11 @@ export function ShotDetail({
       ) : (
         <ShotSection title={t("detail_section_dialogue")}>
           {vidValue ? (
-            <DialogueListEditor dialogue={vidValue.dialogue ?? []} onChange={handleDialogueChange} readOnly={readOnly} />
+            <DialogueListEditor
+              dialogue={vidValue.dialogue ?? []}
+              onChange={handleDialogueChange}
+              readOnly={readOnly || formSwitching === "video"}
+            />
           ) : (
             <p className="rounded-lg border border-dashed border-border py-3 text-center text-xs text-muted-foreground">
               {t("detail_dialogue_empty")}
@@ -967,7 +974,7 @@ export function ShotDetail({
       uploading={uploadingKind === "storyboard"}
       uploadDisabled={uploadingKind !== null}
       editScriptFile={readOnly ? undefined : scriptFile}
-      generateDisabled={saving || refreshPending}
+      generateDisabled={editBusy || refreshPending}
       generateDisabledHint={savingHint}
     />
   );
@@ -998,7 +1005,7 @@ export function ShotDetail({
         posterPath={assets?.video_thumbnail ?? null}
         aspectRatio={aspectRatio}
         generating={generatingVideo}
-        generateDisabled={!hasStoryboard || saving || refreshPending}
+        generateDisabled={!hasStoryboard || editBusy || refreshPending}
         generateDisabledHint={hasStoryboard ? savingHint : undefined}
         estimatedCost={vidEstimate ?? undefined}
         onGenerate={onGenerateVideo ? () => void unit.saveAndGenerate(() => onGenerateVideo(segmentId)) : undefined}
@@ -1023,7 +1030,7 @@ export function ShotDetail({
         novelText={narrationText}
         assetPath={assets?.narration_audio ?? null}
         generating={generatingNarration}
-        generateDisabled={!hasNarrationText || saving || refreshPending}
+        generateDisabled={!hasNarrationText || editBusy || refreshPending}
         generateDisabledHint={!hasNarrationText ? t("no_original_text") : savingHint}
         generateLabel={generateLabel}
         estimatedCost={narrationEstimate ?? undefined}
@@ -1110,7 +1117,7 @@ export function ShotDetail({
     <>
       <ShotDetailLayout
         header={header}
-        footer={<UnsavedChangesBar unit={unit} className="mx-5 my-3 shrink-0" />}
+        footer={<UnsavedChangesBar unit={unit} busy={formSwitching !== null} className="mx-5 my-3 shrink-0" />}
         main={
           <>
             {refsGroup}

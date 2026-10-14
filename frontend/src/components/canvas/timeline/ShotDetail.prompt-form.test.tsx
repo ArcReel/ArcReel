@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import { API } from "@/api";
 import type { ItemPromptPreview, NarrationSegment } from "@/types";
+import { createDeferred } from "@/test/deferred";
 import { makeNarrationSegment } from "@/test/factories";
 
 const RENDERED_IMAGE_PROMPT = "Style: Anime\n\nScene: 雨夜街道";
@@ -109,6 +110,62 @@ describe("ShotDetail 提示词形态切换", () => {
     for (const button of screen.getAllByRole("button", { name: "文本" })) {
       expect(button).toBeDisabled();
     }
+  });
+});
+
+describe("ShotDetail 结构化 → 文本切换在途", () => {
+  it("请求未返回时该侧结构化编辑、引用与保存不可用，返回后恢复", async () => {
+    const pending = createDeferred<ItemPromptPreview>();
+    vi.spyOn(API, "previewScriptItemPrompts").mockReturnValue(pending.promise);
+    renderDetail(makeSegment());
+
+    fireEvent.click(screen.getAllByRole("button", { name: "文本" })[0]);
+
+    // 返回后整体替换该侧草稿：在途期间的编辑会被静默覆盖
+    expect(screen.getByDisplayValue("雨夜街道")).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: /添加引用/ })).toBeDisabled();
+    fireEvent.change(screen.getByDisplayValue("旁白正文"), { target: { value: "改过的旁白" } });
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+
+    pending.resolve(preview());
+
+    expect(await screen.findByDisplayValue(/Scene: 雨夜街道/)).not.toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: /添加引用/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+  });
+
+  it.each([
+    [
+      "渲染不出文本",
+      (d: ReturnType<typeof createDeferred<ItemPromptPreview>>) =>
+        d.resolve({ ...preview(), video: { text: null, unavailable: "该分镜没有视频提示词", is_text_form: false, warnings: [] } }),
+      "该分镜没有视频提示词",
+    ],
+    ["请求报错", (d: ReturnType<typeof createDeferred<ItemPromptPreview>>) => d.reject(new Error("网络中断")), "网络中断"],
+  ])("切换失败（%s）时结构化编辑入口恢复可用", async (_label, settle, message) => {
+    const pending = createDeferred<ItemPromptPreview>();
+    vi.spyOn(API, "previewScriptItemPrompts").mockReturnValue(pending.promise);
+    renderDetail(
+      makeSegment({
+        video_prompt: {
+          action: "撑伞走过",
+          camera_motion: "Static",
+          ambiance_audio: "雨声",
+          dialogue: [{ speaker: "阿离", line: "你终于回来了。" }],
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "文本" })[1]);
+    expect(screen.getByDisplayValue("撑伞走过")).toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "清除台词" })).toBeDisabled();
+
+    settle(pending);
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.getByDisplayValue("撑伞走过")).not.toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "清除台词" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /添加引用/ })).toBeEnabled();
   });
 });
 
