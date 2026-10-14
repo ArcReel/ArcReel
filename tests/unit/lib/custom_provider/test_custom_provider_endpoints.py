@@ -44,7 +44,9 @@ class TestRegistry:
             "minimax-h3",
             "kling-image",
             "kling-video",
+            "gemini-video",
             "openai-tts",
+            "dashscope-tts",
         }
 
     def test_each_spec_has_required_fields(self):
@@ -118,6 +120,7 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-video",
+            "gemini-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
@@ -141,6 +144,7 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-video",
+            "gemini-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
@@ -247,7 +251,7 @@ class TestRegistry:
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         audio_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "audio"}
-        assert audio_keys == {"openai-tts"}
+        assert audio_keys == {"openai-tts", "dashscope-tts"}
         assert text_keys == {"openai-chat", "openai-responses", "gemini-generate", "anthropic-messages"}
         assert image_keys == {
             "openai-images",
@@ -273,6 +277,7 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-video",
+            "gemini-video",
         }
 
 
@@ -316,6 +321,29 @@ class TestHelpers:
         assert declarative_requires_base_url(definition) is required
 
 
+# 按 Spec #3189 调整的 infer_endpoint 规则表（表驱动）。后续票据往同一张表追加行，按票据分段：
+# 行格式 (model_id, discovery_format, 期望 endpoint)，每段上方写明规则出处。
+INFER_RULE_CASES = [
+    # ── #3199：删除 imagen 专属规则，imagen 随通用图像家族按 discovery_format 推断 ──
+    ("imagen-4", "openai", "openai-images"),
+    ("imagen-4", "google", "gemini-image"),
+    ("gemini-imagen-3", "openai", "gemini-image"),  # 靠 gemini + image 语义，与 imagen 规则无关
+    # ── #3199：qwen-tts / qwen3-tts 系列 → dashscope-tts，不分 discovery_format ──
+    ("qwen-tts", "openai", "dashscope-tts"),
+    ("qwen3-tts-flash", "openai", "dashscope-tts"),
+    ("Qwen3-TTS-Flash", "google", "dashscope-tts"),
+    ("proxy/qwen3-tts-instruct-flash", "openai", "dashscope-tts"),
+    ("tts-1", "openai", "openai-tts"),  # 其余 TTS 仍为 openai-tts
+    ("cosyvoice-v2", "openai", "openai-tts"),
+    # ── #3199：Veo 仅 google 发现协议推断为 gemini-video，其余仍为 openai-video ──
+    ("veo-3", "google", "gemini-video"),
+    ("veo-3.1-generate-preview", "google", "gemini-video"),
+    ("veo-3", "openai", "openai-video"),
+    ("sora-2", "google", "openai-video"),
+    # ── #3202、#3203 的规则在此追加 ──
+]
+
+
 class TestInferEndpoint:
     @pytest.mark.parametrize(
         ("model_id", "discovery_format", "expected"),
@@ -323,9 +351,6 @@ class TestInferEndpoint:
             # ── content-first 纠偏（中转站普遍 discovery_format="openai" 却夹带原生 id）──
             ("gemini-2.5-flash", "openai", "gemini-generate"),  # 不再被错推到 openai-chat
             ("gemini-2.5-flash", "google", "gemini-generate"),
-            ("imagen-4", "openai", "gemini-image"),  # imagen 一律 gemini-image
-            ("imagen-4", "google", "gemini-image"),
-            ("gemini-imagen-3", "openai", "gemini-image"),  # imagen 优先于 gemini 文本
             # gemini 原生图像模型也按内容纠偏到 gemini-image（不被错推到 openai-images）
             ("gemini-2.5-flash-image", "openai", "gemini-image"),
             ("gemini-2.5-flash-image", "google", "gemini-image"),
@@ -406,7 +431,6 @@ class TestInferEndpoint:
             ("sora-2", "openai", "openai-video"),
             ("SORA-2", "openai", "openai-video"),
             ("veo-3", "openai", "openai-video"),
-            ("veo-3", "google", "openai-video"),  # 非 seedance/viduq3/minimax 视频 → openai-video
             # ── MiniMax 原生 token 二级路由 ──
             ("MiniMax-Hailuo-2.3", "openai", "minimax-hailuo-v1"),
             ("MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
@@ -495,6 +519,10 @@ class TestInferEndpoint:
         ],
     )
     def test_infer(self, model_id, discovery_format, expected):
+        assert infer_endpoint(model_id, discovery_format) == expected
+
+    @pytest.mark.parametrize(("model_id", "discovery_format", "expected"), INFER_RULE_CASES)
+    def test_infer_rule_table(self, model_id, discovery_format, expected):
         assert infer_endpoint(model_id, discovery_format) == expected
 
     @pytest.mark.parametrize(

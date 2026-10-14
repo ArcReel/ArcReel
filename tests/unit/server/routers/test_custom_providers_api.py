@@ -212,7 +212,9 @@ class TestEndpointCatalog:
             "minimax-h3",
             "kling-image",
             "kling-video",
+            "gemini-video",
             "openai-tts",
+            "dashscope-tts",
         }
 
     def test_descriptor_shape(self, custom_providers_client: TestClient):

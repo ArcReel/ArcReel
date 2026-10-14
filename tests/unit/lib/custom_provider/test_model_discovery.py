@@ -302,7 +302,7 @@ class TestDiscoverModelsGoogle:
         by_id = {m["model_id"]: m for m in result}
         assert by_id["gemini-3-flash"]["endpoint"] == "gemini-generate"
         assert by_id["gemini-3-flash-image-preview"]["endpoint"] == "gemini-image"
-        assert by_id["veo-3"]["endpoint"] == "openai-video"
+        assert by_id["veo-3"]["endpoint"] == "gemini-video"  # google 发现协议下的 Veo 走原生端点
 
     @patch("lib.custom_provider.discovery.genai")
     async def test_default_marking_google(self, mock_genai):

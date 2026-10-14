@@ -1402,7 +1402,9 @@ export default {
   'endpoint_minimax_image_display': 'MiniMax (Image)',
   'endpoint_kling_image_display': 'Kling (Image)',
   'endpoint_kling_video_display': 'Kling (Video)',
+  'endpoint_gemini_video_display': 'Google Gemini Video (Veo)',
   'endpoint_openai_tts_display': 'OpenAI Speech (TTS)',
+  'endpoint_dashscope_tts_display': 'Alibaba Model Studio (TTS)',
   'endpoint_catalog_loading': 'Loading endpoint catalog…',
   // Image Capability
   'image_capability_t2i': 'T2I',

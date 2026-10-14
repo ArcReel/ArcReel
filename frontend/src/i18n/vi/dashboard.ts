@@ -1392,7 +1392,9 @@ export default {
   'endpoint_minimax_image_display': 'MiniMax (Ảnh)',
   'endpoint_kling_image_display': 'Kling (Ảnh)',
   'endpoint_kling_video_display': 'Kling (Video)',
+  'endpoint_gemini_video_display': 'Video Google Gemini (Veo)',
   'endpoint_openai_tts_display': 'OpenAI Giọng nói (TTS)',
+  'endpoint_dashscope_tts_display': 'Alibaba Model Studio (Giọng nói TTS)',
   'endpoint_catalog_loading': 'Đang tải danh mục endpoint…',
   // Image Capability
   'image_capability_t2i': 'T2I',

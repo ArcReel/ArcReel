@@ -1401,7 +1401,9 @@ export default {
   'endpoint_minimax_image_display': 'MiniMax（图片）',
   'endpoint_kling_image_display': '可灵 Kling（图片）',
   'endpoint_kling_video_display': '可灵 Kling（视频）',
+  'endpoint_gemini_video_display': 'Gemini 视频 (Veo)',
   'endpoint_openai_tts_display': 'OpenAI 语音合成 (TTS)',
+  'endpoint_dashscope_tts_display': '阿里百炼（语音合成）',
   'endpoint_catalog_loading': '加载端点目录…',
   // Image Capability
   'image_capability_t2i': '文生图',

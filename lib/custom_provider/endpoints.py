@@ -21,6 +21,7 @@ from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SH
 from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 from arcreel_market_core.endpoint_definition.media_type import definition_media_type
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
+from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
@@ -35,6 +36,7 @@ from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
 from lib.backends.video_backends.ark import ArkVideoBackend
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
+from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.backends.video_backends.kling import KlingVideoBackend
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend
@@ -307,9 +309,24 @@ def _build_openai_tts(provider, model_id: str) -> CustomAudioBackend:
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_dashscope_tts(provider, model_id: str) -> CustomAudioBackend:
+    # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
+    delegate = DashScopeAudioBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_gemini_video(provider, model_id: str) -> CustomVideoBackend:
+    # 自定义供应商只走 AI Studio 模式（Vertex 凭证不经 base_url）；SDK 自己拼 api_version
+    base_url = ensure_google_base_url(provider.base_url) or None
+    delegate = GeminiVideoBackend(
+        backend_type="aistudio", api_key=provider.api_key, base_url=base_url, video_model=model_id
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -518,6 +535,28 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/audio/speech",
         build_backend=_build_openai_tts,
+    ),
+    "dashscope-tts": EndpointSpec(
+        key="dashscope-tts",
+        media_type="audio",
+        family="dashscope",
+        display_name_key="endpoint_dashscope_tts_display",
+        request_method="POST",
+        request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
+        build_backend=_build_dashscope_tts,
+    ),
+    "gemini-video": EndpointSpec(
+        key="gemini-video",
+        media_type="video",
+        family="google",
+        display_name_key="endpoint_gemini_video_display",
+        request_method="POST",
+        request_path_template="/v1beta/models/{model}:predictLongRunning",
+        build_backend=_build_gemini_video,
+        # 参考图上限、音轨形态按 model 读 backend 纯 caps 函数（不构造 client）
+        video_caps_for_model=GeminiVideoBackend.video_capabilities_for_model,
+        # generate() 把 end_image 下传为 config.last_frame
+        end_image_capable=True,
     ),
     "dashscope-async-video": EndpointSpec(
         key="dashscope-async-video",
@@ -923,6 +962,8 @@ _VIDEO_PATTERN = re.compile(
 # TTS 模型 id 识别（tts-1 / gpt-4o-mini-tts / speech-1.5 / cosyvoice 等）。
 # 刻意不含裸 "audio"：gpt-4o-audio-preview 等 chat 音频模态模型会被误归 TTS。
 _AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
+# 通义 TTS 家族（qwen-tts / qwen3-tts-flash 等）走百炼原生同步端点，不是 /v1/audio/speech
+_QWEN_TTS_PATTERN = re.compile(r"qwen3?-tts", re.IGNORECASE)
 # 裸 "speech" 会撞上 ASR（语音转文字）家族 id，按内容排除，避免把识别模型默认归到 TTS 端点
 _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
 
@@ -939,7 +980,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """根据模型 id 与 discovery_format 推默认 endpoint（content-first）。
 
     model id 内容优先于 discovery_format：中转站普遍 discovery_format="openai"，但模型
-    列表常夹带 gemini-*/imagen-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
+    列表常夹带 gemini-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
     openai-chat/openai-images，每次都要手动改回。
 
     1) 阿里百炼视频 → happyhorse / wan2.7 / wan3 家族（含 wan-2.7-xxx / wan-3-xxx 连字符形态、
@@ -951,24 +992,25 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        的处理原则），按 classify_wan_model 的 is_image_to_video 精确挑出这一种形态，不对图像变体
        的命名形态（结尾 token 等）做任何假设。原生路由只认 2.7（含点号形态 "wan2.x"，见下方
        classify_wan_model 的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v 等）
-       落到下方 5) 的通用视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现
+       落到下方 4) 的通用视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现
        请求构造，同样排除出原生路由（见 classify_wan_model 的 is_videoedit 处的说明）。
     2) MiniMax 原生 token → 海螺（Fast 与非 Fast 各一键）/ S2V / H3 分别走各自声明式端点，
        image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
        输入受限的 Fast / S2V 只认精确型号名（剥离中转命名空间前缀后比较），非精确海螺别名落
-       通用海螺键，其余 s2v 形态落 5) 的通用视频端点。
+       通用海螺键，其余 s2v 形态落 4) 的通用视频端点。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
        语义但本质是视频）；其余含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
        _VIDEO_PATTERN，须先于通用 is_video 拦截，否则视频会落到 openai-video；v3-omni 图像/视频同名
        默认归视频、图像手动选。
-    3) imagen → "gemini-image"（图像，不论 discovery_format）
-    4) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
-    5) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
-    6) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
-    7) TTS 家族（tts/speech/cosyvoice）→ "openai-tts"（audio 仅 OpenAI 兼容一条端点，
-       不分 discovery_format；precedence 在 text 默认之前）
-    8) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
+    3) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
+    4) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、Veo 且 discovery_format=google→
+       "gemini-video"、否则 "openai-video"
+    5) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"（imagen 随图像家族
+       推断，不再单独拦截）
+    6) TTS 家族（tts/speech/cosyvoice）→ qwen-tts / qwen3-tts 走 "dashscope-tts"，其余 "openai-tts"
+       （不分 discovery_format；precedence 在 text 默认之前）
+    7) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
     """
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
@@ -1011,7 +1053,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     )
     wan_image_variant = contains_wan_token and is_image and not wan_video_continuation
     # 未实现请求构造的模态（wan2.7-videoedit / wan2.7-s2v / wan2.7-v2v 等）即便命中家族正则也不
-    # 走原生端点（见 classify_wan_model 的 has_known_modality 处的说明），落到下方 5) 的通用视频
+    # 走原生端点（见 classify_wan_model 的 has_known_modality 处的说明），落到下方 4) 的通用视频
     # 端点，避免本后端收到无法正确构造的请求。
     wan_unsupported_modality = is_wan_family and not classification.has_known_modality
 
@@ -1032,7 +1074,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 多层命名空间（"openrouter/minimax/MiniMax-Hailuo-2.3-Fast"）一并剥掉：命名空间只是
     # 转售包装，承担判定的是末段必须逐字等于官方型号 id。非精确的海螺别名落通用海螺键
     # （无输入要求），其余 s2v 形态（如
-    # "wan2.7-s2v"）不再被误吞成 MiniMax S2V 协议，落下方 5) 的通用视频端点。
+    # "wan2.7-s2v"）不再被误吞成 MiniMax S2V 协议，落下方 4) 的通用视频端点。
     canonical = re.split(r"[/:]", lowered)[-1]
     if "hailuo" in lowered:
         # Fast 只接受图生视频，端点级能力据此分居两键（见 backend_assembly.specs
@@ -1060,8 +1102,6 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 图像家族推断。复用上面的 wan_image_variant（排除 image-to-video 续接别名后的图像判定）。
     is_video = bool(_VIDEO_PATTERN.search(model_id)) and not wan_image_variant
 
-    if "imagen" in lowered:
-        return "gemini-image"
     if "gemini" in lowered and not is_video:
         return "gemini-image" if is_image else "gemini-generate"
     if is_video:
@@ -1069,9 +1109,12 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
             return "ark-seedance"
         if "viduq3" in lowered:
             return "vidu-video"
+        # Veo 的 OpenAI 兼容层沿用 /v1/videos，只有 google 发现协议才是原生 predictLongRunning
+        if "veo" in lowered and discovery_format == "google":
+            return "gemini-video"
         return "openai-video"
     if is_image:
         return "gemini-image" if discovery_format == "google" else "openai-images"
     if _AUDIO_PATTERN.search(model_id) and not _ASR_PATTERN.search(model_id):
-        return "openai-tts"
+        return "dashscope-tts" if _QWEN_TTS_PATTERN.search(model_id) else "openai-tts"
     return "gemini-generate" if discovery_format == "google" else "openai-chat"
