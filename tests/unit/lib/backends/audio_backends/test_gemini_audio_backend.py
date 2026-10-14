@@ -74,6 +74,14 @@ async def test_wav_response_is_written_as_is(backend, tmp_path):
     assert result.output_path.read_bytes() == wav_bytes
 
 
+async def test_compressed_audio_is_rejected_instead_of_wrapped_as_pcm(backend, tmp_path):
+    with capture_http() as router:
+        router.post(_URL).mock(return_value=_audio_response(b"ID3" + b"\x00" * 60, "audio/mpeg"))
+        with pytest.raises(RuntimeError, match="audio/mpeg"):
+            await backend.synthesize(_request(tmp_path))
+    assert not (tmp_path / "out.wav").exists()
+
+
 async def test_no_audio_fails_without_writing(backend, tmp_path):
     empty = httpx.Response(200, json={"candidates": [{"content": {"role": "model", "parts": [{"text": "no"}]}}]})
     with capture_http() as router:

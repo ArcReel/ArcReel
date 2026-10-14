@@ -16,7 +16,7 @@ MESSAGES: dict[str, str] = {
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "Nhà cung cấp đã bị xóa",
     # Provider descriptions
-    "provider_desc_gemini-aistudio": "Google AI Studio cung cấp các mô hình Gemini hỗ trợ tạo ảnh và video, phù hợp cho việc dựng prototype nhanh và dự án cá nhân.",
+    "provider_desc_gemini-aistudio": "Google AI Studio cung cấp các mô hình Gemini hỗ trợ tạo ảnh, video và giọng nói, phù hợp cho việc dựng prototype nhanh và dự án cá nhân.",
     "provider_desc_gemini-vertex": "Nền tảng doanh nghiệp Vertex AI của Google Cloud hỗ trợ các mô hình Gemini và Imagen với hạn mức cao hơn cùng khả năng tạo âm thanh.",
     "provider_desc_ark": "Nền tảng AI Volcengine Ark của ByteDance hỗ trợ tạo video Seedance và tạo ảnh Seedream, kèm âm thanh và điều khiển seed.",
     "provider_desc_ark-agent-plan": "Gói Volcengine Ark Agent Plan tổng hợp Doubao và nhiều mô hình lớn chủ lưu, bao gồm văn bản, ảnh và video.",

@@ -152,8 +152,7 @@ def _gemini_text_pricing(model_id: str, input_rate: float, output_rate: float) -
 
 
 # Gemini TTS 费率（美元/百万 token）：input 为文本输入，output 为音频输出。
-# shortcut: 音频结算目前只上报字符数，按本表算出 0，#3215 落地后改报 token 才生效。
-# 两侧定价页的 3.8 TTS 价格 2027-01-01 起翻倍，届时需同步。
+# 音频结算只上报字符数，本表按 token 计价，因此算出的费用为 0。
 def _gemini_tts_models() -> dict[str, ModelInfo]:
     """AI Studio 与 Vertex 同名同价的 TTS 模型（Vertex 只在 global 提供）。"""
     return {
@@ -335,7 +334,7 @@ def _minimax_text_pricing(model_id: str, input_rate: float, output_rate: float) 
 
 
 # MiniMax 语音合成费率（元/万字符）。
-# shortcut: 官方按中文 1 字计 2 字符计费，PerCharacter 按 len(text) 计，中文估价偏低一半；用量契约 #3215 落地后改用上报的计费字符数。
+# 官方按中文 1 字计 2 字符计费；PerCharacter 按 len(text) 计，中文估价约为实际费用的一半。
 def _minimax_audio_pricing(model_id: str, per_10k_chars: float) -> PerCharacter:
     return PerCharacter(rates={model_id: per_10k_chars}, default_model=model_id, currency="CNY")
 

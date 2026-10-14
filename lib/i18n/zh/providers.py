@@ -16,7 +16,7 @@ MESSAGES: dict[str, str] = {
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "已删除的供应商",
     # Provider descriptions
-    "provider_desc_gemini-aistudio": "Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
+    "provider_desc_gemini-aistudio": "Google AI Studio 提供 Gemini 系列模型，支持图片、视频和语音生成，适合快速原型和个人项目。",
     "provider_desc_gemini-vertex": "Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
     "provider_desc_ark": "字节跳动火山方舟 AI 平台，支持 Seedance 视频生成和 Seedream 图片生成，具备音频生成和种子控制能力。",
     "provider_desc_ark-agent-plan": "火山方舟 Agent Plan 套餐，聚合豆包及多家主流大模型，覆盖文本、图片与视频生成。",

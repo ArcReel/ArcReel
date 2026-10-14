@@ -323,36 +323,34 @@ class TestHelpers:
         assert declarative_requires_base_url(definition) is required
 
 
-# 按 Spec #3189 调整的 infer_endpoint 规则表（表驱动）。后续票据往同一张表追加行，按票据分段：
-# 行格式 (model_id, discovery_format, 期望 endpoint)，每段上方写明规则出处。
+# infer_endpoint 按模型家族分组的规则表，行格式 (model_id, discovery_format, 期望 endpoint)。
 INFER_RULE_CASES = [
-    # ── #3199：删除 imagen 专属规则，imagen 随通用图像家族按 discovery_format 推断 ──
+    # ── imagen 无专属规则，随通用图像家族按 discovery_format 推断 ──
     ("imagen-4", "openai", "openai-images"),
     ("imagen-4", "google", "gemini-image"),
     ("gemini-imagen-3", "openai", "gemini-image"),  # 靠 gemini + image 语义，与 imagen 规则无关
-    # ── #3199：qwen-tts / qwen3-tts 系列 → dashscope-tts，不分 discovery_format ──
+    # ── qwen-tts / qwen3-tts 系列 → dashscope-tts，不分 discovery_format ──
     ("qwen-tts", "openai", "dashscope-tts"),
     ("qwen3-tts-flash", "openai", "dashscope-tts"),
     ("Qwen3-TTS-Flash", "google", "dashscope-tts"),
     ("proxy/qwen3-tts-instruct-flash", "openai", "dashscope-tts"),
     ("tts-1", "openai", "openai-tts"),  # 其余 TTS 仍为 openai-tts
     ("cosyvoice-v2", "openai", "openai-tts"),
-    # ── #3199：Veo 仅 google 发现协议推断为 gemini-video，其余仍为 openai-video ──
+    # ── Veo 仅 google 发现协议推断为 gemini-video，其余仍为 openai-video ──
     ("veo-3", "google", "gemini-video"),
     ("veo-3.1-generate-preview", "google", "gemini-video"),
     ("veo-3", "openai", "openai-video"),
     ("sora-2", "google", "openai-video"),
-    # ── #3202：MiniMax 的 speech-<版本>-hd|turbo → minimax-tts，不分 discovery_format ──
+    # ── MiniMax 的 speech-<版本>-hd|turbo → minimax-tts，不分 discovery_format ──
     ("speech-2.8-hd", "openai", "minimax-tts"),
     ("speech-02-turbo", "google", "minimax-tts"),
     ("minimax/Speech-2.6-HD", "openai", "minimax-tts"),
     ("speech-1.5", "openai", "openai-tts"),  # 无档位后缀（Fish Audio 风格）仍为 openai-tts
-    # ── #3203：Gemini TTS → gemini-tts，不分 discovery_format ──
+    # ── Gemini TTS → gemini-tts，不分 discovery_format ──
     ("gemini-3.8-flash-tts", "google", "gemini-tts"),
     ("gemini-2.5-flash-preview-tts", "openai", "gemini-tts"),
     ("models/gemini-3.8-flash-lite-tts", "google", "gemini-tts"),
     ("gemini-3-flash-preview", "google", "gemini-generate"),  # 非 TTS 的 gemini 文本不受影响
-    # ── #3202、#3203 的规则在此追加 ──
 ]
 
 

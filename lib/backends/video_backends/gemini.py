@@ -47,6 +47,8 @@ logger = logging.getLogger(__name__)
 #: 成片下载单次网络读写的 I/O 超时，与 ``download_video`` 的缺省一致：连接或读取停滞超过它即抛错，交给重试预算。
 _DOWNLOAD_IO_TIMEOUT_SECONDS = 120.0
 _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+#: 未配置 base_url 时 google-genai 发往的 AI Studio 域名（SDK 缺省值），续跑回放据此比对提交域名。
+_AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
 # 约束的单一真相源是 registry 的 ModelInfo（reference_image_durations /
 # duration_resolution_constraints），下面两个常量只在 registry 查不到该型号时兜底——中转站、
@@ -88,6 +90,8 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         self._backend_type = backend_type.strip().lower()
         self._credentials = None
         self._project_id = None
+        self._api_key: str | None = None
+        self._base_url: str | None = None
 
         from lib.billing.cost_calculator import cost_calculator
 
@@ -117,12 +121,10 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
                 credentials=self._credentials,
             )
         else:
-            api_key = resolve_gemini_api_key(api_key)
-            effective_base_url = normalize_base_url(base_url)
-            http_options: _types.HttpOptionsDict | None = (
-                {"base_url": effective_base_url} if effective_base_url else None
-            )
-            self._client = _genai.Client(api_key=api_key, http_options=http_options)
+            self._api_key = resolve_gemini_api_key(api_key)
+            self._base_url = normalize_base_url(base_url)
+            http_options: _types.HttpOptionsDict | None = {"base_url": self._base_url} if self._base_url else None
+            self._client = _genai.Client(api_key=self._api_key, http_options=http_options)
 
     @property
     def name(self) -> str:
@@ -155,6 +157,13 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._video_model)
 
+    @property
+    def _request_base_url(self) -> str | None:
+        """AI Studio 请求实际发往的域名（未配置即 SDK 缺省域名）；Vertex 域名不随用户配置变化，为 None。"""
+        if self._backend_type == "vertex":
+            return None
+        return self._base_url or _AISTUDIO_DEFAULT_BASE_URL
+
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
         # 能力校验放在重试装饰器之外：约束违规必然复现，重试只是重复失败
@@ -166,7 +175,8 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             # 一旦进程中断，孤儿处理会走 [restart_lost] 回退到重新提交路径——这正是要避免的
             # 重复扣费场景。直接抛错让 worker finally 标 failed，比静默继续 poll 安全。
             raise RuntimeError("Gemini 提交成功但未返回 operation.name，无法持久化 provider_job_id")
-        await self._persist_provider_job_id(request, op_name, provider=PROVIDER_GEMINI)
+        # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧 operation
+        await self._persist_provider_job_id(request, op_name, provider=PROVIDER_GEMINI, endpoint=self._request_base_url)
         done_operation = await self._poll_until_done(operation, request)
         return await self._collect_video(done_operation, request)
 
@@ -181,7 +191,24 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         ``operations.get`` 与 mid-poll 的查询都会收到 NOT_FOUND，归类为 ResumeExpiredError
         让 worker finally 走 ``[resume_expired]``。operation 完成之后的取件失败（产物 URL 404 等）
         说明远端任务已成功、只是成片没取到，按取件失败原样上抛，不归过期。
+
+        operation 只在提交它的域名上可查：AI Studio 续跑且提交域名与当下配置不同时，按同一份凭据
+        另建绑定提交域名的实例接续（轮询与取件都走它），用完关闭其连接池。
         """
+        submitted = normalize_base_url(request.submitted_base_url)
+        if submitted and self._backend_type != "vertex" and submitted != self._request_base_url:
+            replay = GeminiVideoBackend(
+                backend_type=self._backend_type,
+                api_key=self._api_key,
+                rate_limiter=self._rate_limiter,
+                video_model=self._video_model,
+                base_url=submitted,
+            )
+            try:
+                return await replay.resume_video(job_id, request)
+            finally:
+                await replay._client.aio.aclose()
+                replay._client.close()
         op = self._types.GenerateVideosOperation.model_validate({"name": job_id, "done": False})
         try:
             refreshed = await self._client.aio.operations.get(op)

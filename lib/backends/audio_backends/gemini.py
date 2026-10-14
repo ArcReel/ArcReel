@@ -87,6 +87,9 @@ def _write_audio(data: bytes, mime_type: str | None, output_path: Path) -> None:
     if data[:4] == b"RIFF":
         output_path.write_bytes(data)
         return
+    # 只有裸 PCM 才能封装成 WAV；中转站回了 mp3 等压缩格式时，硬封装只会得到一段噪声
+    if mime_type and not mime_type.lower().startswith(("audio/l16", "audio/pcm")):
+        raise RuntimeError(f"Gemini 语音合成返回了不支持的音频格式: {mime_type}")
     rate, channels = _pcm_params(mime_type)
     with wave.open(str(output_path), "wb") as wav:
         wav.setnchannels(channels)

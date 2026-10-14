@@ -51,13 +51,13 @@ Providers' specific models, parameters, regional availability, and pricing chang
 
 | Provider | Text | Image | Video | TTS | Typical Uses |
 |---|:---:|:---:|:---:|:---:|---|
-| Gemini | ✅ | ✅ | ✅ | — | Multimodal text, reference images, and video generation |
+| Gemini | ✅ | ✅ | ✅ | ✅ | Multimodal text, reference images, video generation, and TTS |
 | Volcengine Ark | ✅ | ✅ | ✅ | — | Text, image, and video generation in mainland China network environments |
 | Grok | ✅ | ✅ | ✅ | — | Text, image, and video generation |
 | OpenAI | ✅ | ✅ | ✅ | — | Text, image, and video generation |
 | Vidu | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
 | DashScope | ✅ | ✅ | ✅ | ✅ | Text, image, video, and voice-over TTS |
-| MiniMax | ✅ | ✅ | ✅ | — | Text, image, and video generation |
+| MiniMax | ✅ | ✅ | ✅ | ✅ | Text, image, video generation, and TTS |
 | Kling | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
 | Agnes | ✅ | ✅ | ✅ | — | Text, image, and video generation |
 | Custom Providers | Interface-dependent | Interface-dependent | Interface-dependent | Interface-dependent | Private gateways, local models, or third-party compatible services |
@@ -292,7 +292,7 @@ High-reasoning models are not necessarily suitable for every task. Complex conte
 
 ## 9. TTS Configuration {#tts-providers}
 
-ArcReel's voice-over capability can use DashScope Qwen TTS or a compatible TTS interface.
+ArcReel's voice-over capability can use DashScope Qwen TTS, MiniMax Speech, Gemini TTS (AI Studio, Vertex), or a compatible TTS interface.
 
 After configuration, first validate:
 

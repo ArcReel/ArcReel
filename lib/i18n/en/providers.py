@@ -16,7 +16,7 @@ MESSAGES: dict[str, str] = {
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "Deleted provider",
     # Provider descriptions
-    "provider_desc_gemini-aistudio": "Google AI Studio provides Gemini models with image and video generation, ideal for rapid prototyping and personal projects.",
+    "provider_desc_gemini-aistudio": "Google AI Studio provides Gemini models with image, video, and speech generation, ideal for rapid prototyping and personal projects.",
     "provider_desc_gemini-vertex": "Google Cloud Vertex AI enterprise platform supporting Gemini and Imagen models with higher quotas and audio generation.",
     "provider_desc_ark": "ByteDance Volcengine Ark AI platform supporting Seedance video generation and Seedream image generation, with audio and seed control.",
     "provider_desc_ark-agent-plan": "Volcengine Ark Agent Plan aggregates Doubao and other major models for text, image and video generation.",

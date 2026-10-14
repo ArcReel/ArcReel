@@ -21,7 +21,7 @@ from lib.backends.audio_backends.base import (
 from lib.backends.backend_runtime import should_retry_submit, submit_post
 from lib.backends.minimax_shared import minimax_headers, minimax_text_base_url, resolve_minimax_api_key
 from lib.backends.providers import PROVIDER_MINIMAX
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,8 @@ class MiniMaxAudioBackend:
         # language_type 是 DashScope 特有字段，t2a_v2 按文本自动识别语种，不发送。
         # 计费调用与写盘分离：重试只包 API 调用，写盘失败绝不回头重跑会再次计费的合成请求。
         audio = await self._request_speech(request)
-        await run_sync_transaction(request.output_path.write_bytes, audio)
+        # 供应商已计费返回，写盘不可被取消打断，结果照常成为产物
+        await run_noninterruptible_sync(request.output_path.write_bytes, audio)
         logger.info("MiniMax 语音合成完成: %s", request.output_path)
         return AudioSynthesisResult(
             provider=self._provider_name,
@@ -154,4 +155,5 @@ class MiniMaxAudioBackend:
                 provider=self._provider_name,
                 include_provider_reason=False,
             )
-        return _decode_audio(resp.json())
+        # 供应商已计费返回：整段 hex 的解析与解码放进线程且不可被取消打断
+        return await run_noninterruptible_sync(lambda: _decode_audio(resp.json()))
