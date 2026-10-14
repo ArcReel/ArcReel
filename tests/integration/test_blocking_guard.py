@@ -10,6 +10,8 @@
 - lib/server 的 async 函数经 ``tests/`` 下的替身触发的阻塞记到该 async 函数名下；测试直接调用同步
   lib 代码、测试内联 ``to_thread`` 的阻塞不计。
 - asyncpg 建连时解析连接参数的文件探测、coverage 等待自身数据锁，都不记到调用方头上。
+- 报错的栈预览除 lib/server/tests 帧外，按真实调用顺序保留拦截点到第一个仓库帧之间最内层的几条
+  非仓库帧（标准库、``site-packages`` 下的第三方代码），路径取相对形式；超出上限的注明省略条数。
 - 在事件循环线程上阻塞地获取项目文件锁、版本管理锁记为违规，非阻塞的尝试加锁不算。
 - 永久豁免清单里的条目放行，没有别的豁免途径；完整运行时未触发的豁免条目让会话失败，部分运行
   （含 ``--ignore`` 跳过路径、``--collect-only`` 等不执行用例的模式）不报。
@@ -35,10 +37,12 @@ _PROBE_RELPATH = Path("tests/test_probe.py")
 _SAMPLES = """
 import asyncio
 import contextlib
+import threading
 from functools import cache, lru_cache
 from pathlib import Path
 
 import asyncpg
+import blocking_vendor
 import portalocker
 
 from lib.artifacts.formal_write import project_metadata_lock
@@ -116,6 +120,28 @@ async def connect_unreachable_postgres() -> None:
 
 async def measured_noop() -> None:
     return None
+
+
+async def wait_on_event(event: threading.Event) -> bool:
+    return event.wait(0.01)
+
+
+async def acquire_via_vendor(lock: threading.Lock, depth: int) -> None:
+    blocking_vendor.acquire_nested(lock, depth)
+"""
+
+# 放在 site-packages 风格目录下的第三方样本：拿锁的是它，业务代码只是调用方。
+_VENDOR_RELPATH = Path("vendor/site-packages/blocking_vendor.py")
+_VENDOR = """
+def acquire_nested(lock, depth):
+    if depth:
+        return acquire_nested(lock, depth - 1)
+    return acquire_now(lock)
+
+
+def acquire_now(lock):
+    lock.acquire()
+    lock.release()
 """
 
 _APP = """
@@ -133,6 +159,9 @@ async def read(path: str) -> dict:
 
 _PROBE = """
 import asyncio
+
+import sys
+import threading
 
 from fastapi.testclient import TestClient
 
@@ -225,10 +254,39 @@ async def test_postgres_connect():
     await samples.connect_unreachable_postgres()
 
 
-async def test_coverage_data_lock():
-    import sys
-    import threading
+def _lock_released_once_waiting_in(function_name):
+    # 返回一把已持有的锁：事件循环线程停进 function_name 后另一个线程才放锁，护栏必然看到竞争。
+    loop_thread = threading.get_ident()
+    lock = threading.Lock()
+    lock.acquire()
 
+    def release_once_waiting():
+        while True:
+            frame = sys._current_frames().get(loop_thread)
+            while frame is not None and frame.f_code.co_name != function_name:
+                frame = frame.f_back
+            if frame is not None:
+                break
+            threading.Event().wait(0.001)
+        lock.release()
+
+    threading.Thread(target=release_once_waiting, daemon=True).start()
+    return lock
+
+
+async def test_lock_in_stdlib_internals():
+    assert not await samples.wait_on_event(threading.Event())
+
+
+async def test_lock_in_third_party_code():
+    await samples.acquire_via_vendor(_lock_released_once_waiting_in("acquire_now"), 0)
+
+
+async def test_lock_deep_in_third_party_code():
+    await samples.acquire_via_vendor(_lock_released_once_waiting_in("acquire_now"), 8)
+
+
+async def test_coverage_data_lock():
     import coverage
 
     # 另一个线程持有 coverage 的数据锁时，事件循环线程进入被测协程，tracer 在 lock_data 里等这把锁；
@@ -269,10 +327,12 @@ def _make_session_dir(root: Path, exemptions: dict[str, str]) -> Path:
     (root / "server").mkdir()
     (root / "lib" / "blocking_samples.py").write_text(textwrap.dedent(_SAMPLES), encoding="utf-8")
     (root / "server" / "blocking_app.py").write_text(textwrap.dedent(_APP), encoding="utf-8")
+    (root / _VENDOR_RELPATH).parent.mkdir(parents=True)
+    (root / _VENDOR_RELPATH).write_text(textwrap.dedent(_VENDOR), encoding="utf-8")
     (root / "tests").mkdir()
     (root / _PROBE_RELPATH).write_text(textwrap.dedent(_PROBE), encoding="utf-8")
     (root / "pyproject.toml").write_text(
-        '[tool.pytest.ini_options]\nasyncio_mode = "auto"\npythonpath = ["lib", "server"]\n',
+        '[tool.pytest.ini_options]\nasyncio_mode = "auto"\npythonpath = ["lib", "server", "vendor/site-packages"]\n',
         encoding="utf-8",
     )
     exemptions_file = root / _EXEMPTIONS
@@ -376,6 +436,63 @@ def test_bounded_per_argument_cache_is_still_checked(probe_run):
 def test_app_code_behind_sync_testclient_is_checked(probe_run):
     assert _outcomes(probe_run.stdout)["test_sync_testclient_route"] == "FAILED", probe_run.stdout
     assert "server/blocking_app.py::read" in _failure_section(probe_run.stdout, "test_sync_testclient_route")
+
+
+def _preview_lines(section: str, *patterns: str) -> list[int]:
+    """各模式在栈预览里命中的行号，按模式顺序；未命中时断言失败。"""
+    lines = section.splitlines()
+    positions = []
+    for pattern in patterns:
+        hits = [i for i, line in enumerate(lines) if re.fullmatch(rf"\s+{pattern}", line)]
+        assert hits, f"{pattern!r} 不在栈预览中：\n{section}"
+        positions.append(hits[0])
+    return positions
+
+
+def test_preview_keeps_stdlib_frames_between_the_blocking_call_and_business_code(probe_run):
+    # 业务代码本身不拿锁，锁在 threading 内部等待：预览要能看到是谁拿的，路径取标准库目录之后的相对形式。
+    assert _outcomes(probe_run.stdout)["test_lock_in_stdlib_internals"] == "FAILED", probe_run.stdout
+    section = _failure_section(probe_run.stdout, "test_lock_in_stdlib_internals")
+    assert "lib/blocking_samples.py::wait_on_event  ← lock.acquire" in section
+    positions = _preview_lines(
+        section,
+        r"threading\.py:\d+ in Condition\.wait",
+        r"threading\.py:\d+ in Event\.wait",
+        r"lib/blocking_samples\.py:\d+ in wait_on_event",
+        r"tests/test_probe\.py:\d+ in test_lock_in_stdlib_internals",
+    )
+    assert positions == sorted(positions), section
+    assert "blockbuster" not in section
+
+
+def test_preview_keeps_third_party_frames_in_call_order(probe_run):
+    assert _outcomes(probe_run.stdout)["test_lock_in_third_party_code"] == "FAILED", probe_run.stdout
+    section = _failure_section(probe_run.stdout, "test_lock_in_third_party_code")
+    assert "lib/blocking_samples.py::acquire_via_vendor  ← lock.acquire" in section
+    positions = _preview_lines(
+        section,
+        r"blocking_vendor\.py:\d+ in acquire_now",
+        r"blocking_vendor\.py:\d+ in acquire_nested",
+        r"lib/blocking_samples\.py:\d+ in acquire_via_vendor",
+        r"tests/test_probe\.py:\d+ in test_lock_in_third_party_code",
+    )
+    assert positions == sorted(positions), section
+    assert "site-packages" not in section
+
+
+def test_preview_caps_third_party_frames_without_dropping_business_frames(probe_run):
+    # 第三方调用链很深时只留最内层几条并注明省略，lib/server/tests 帧照常保留，看得出调用方。
+    assert _outcomes(probe_run.stdout)["test_lock_deep_in_third_party_code"] == "FAILED", probe_run.stdout
+    section = _failure_section(probe_run.stdout, "test_lock_deep_in_third_party_code")
+    positions = _preview_lines(
+        section,
+        r"blocking_vendor\.py:\d+ in acquire_now",
+        r"…（省略 \d+ 个非仓库帧）",
+        r"lib/blocking_samples\.py:\d+ in acquire_via_vendor",
+        r"tests/test_probe\.py:\d+ in test_lock_deep_in_third_party_code",
+    )
+    assert positions == sorted(positions), section
+    assert section.count("in acquire_nested") < 9, section
 
 
 @pytest.mark.parametrize(

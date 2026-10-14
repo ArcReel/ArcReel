@@ -24,6 +24,9 @@ asyncpg 建连时解析连接参数、coverage 记录覆盖数据时等待自身
 （``functools.cache``）或无参缓存加载器的函数体。后两类每个进程只执行一次，首次调用落在哪个用例
 取决于调度顺序；有容量上限、按参数缓存的函数会被淘汰后重读，不放行。
 
+**栈预览。** 报错列出 lib/server/tests 帧，另按真实调用顺序保留拦截点到第一个仓库帧之间最内层的
+几条非仓库帧（标准库、第三方包），阻塞由业务代码 await 处被调起的非仓库代码触发时，靠它们分辨是谁。
+
 永久豁免清单 ``exemptions.toml`` 只收应用启动与关停路径上的一次性阻塞，每条写明理由。
 完整运行（未做任何选择或筛选）结束时，豁免清单里本次未触发的条目让会话以失败收场；带
 ``--blocking-guard-expect-all-exemptions`` 时筛选过的运行也一样（CI 只有 unit job 带它）：
@@ -40,6 +43,7 @@ import inspect
 import logging
 import os
 import sys
+import sysconfig
 import threading
 import tomllib
 from collections import defaultdict
@@ -49,6 +53,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
+import blockbuster
 import pytest
 from blockbuster import BlockBuster, BlockBusterFunction
 
@@ -61,6 +66,19 @@ _ASYNC_CODE_FLAGS = inspect.CO_COROUTINE | inspect.CO_ITERABLE_COROUTINE | inspe
 _GUARD_DIR = str(Path(__file__).resolve().parent) + os.sep
 _GUARD_MODULE = __name__
 _LOGGING_DIR = str(Path(logging.__file__).resolve().parent) + os.sep
+_BLOCKBUSTER_DIR = str(Path(blockbuster.__file__).resolve().parent) + os.sep
+# 非仓库帧在预览里去掉这些前缀，只留包内或标准库内的相对路径。
+_STDLIB_DIRS = tuple(
+    sorted(
+        {
+            str(path) + os.sep
+            for name in ("stdlib", "platstdlib")
+            for path in (Path(sysconfig.get_paths()[name]), Path(sysconfig.get_paths()[name]).resolve())
+        },
+        key=len,
+        reverse=True,
+    )
+)
 
 # 与业务阻塞无关、在任何栈上都放行的帧：日志落盘、traceback 取源码行、函数内延迟 import。
 # realpath 逐段 lstat（不在拦截点内），只有路径经过符号链接时才 readlink：macOS 的临时目录
@@ -71,7 +89,8 @@ _LOGGING_DIR = str(Path(logging.__file__).resolve().parent) + os.sep
 # coverage 的 tracer 每进入或恢复一个被测帧，都经 lock_data 阻塞地获取自身的数据锁（concurrency 含
 # thread 时才有这把锁），工作线程上的 tracer 恰好持锁时事件循环线程就等它。违规会随线程交错落在任意
 # 被测协程头上，常见的是生成队列 worker 主循环在 await 处恢复的那一刻；这把锁只在开 coverage 的运行里
-# 存在，生产路径上没有。
+# 存在，生产路径上没有。只放行经 lock_data 的这一条：CI 上出现过栈里没有 lock_data、只停在协程 await
+# 行的 lock.acquire，拿锁的非仓库帧现在会出现在栈预览里，据此再定是否另加放行。
 _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("posixpath.py", frozenset({"realpath", "_joinrealpath"})),
     ("<frozen posixpath>", frozenset({"realpath", "_joinrealpath"})),
@@ -82,7 +101,10 @@ _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("coverage/collector.py", frozenset({"lock_data"})),
 )
 
+# 栈预览的两份预算互不挤占：仓库帧（lib/server/tests）至多这么多条，看得出调用方；拦截点到第一个
+# 仓库帧之间的非仓库帧另取最内层的几条，看得出阻塞的到底是谁，超出的注明省略条数。
 _STACK_PREVIEW_FRAMES = 6
+_NON_REPO_PREVIEW_FRAMES = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,12 +206,40 @@ class BlockingGuard:
                 return
             key = self._key(outermost_scanned)
 
-        stack = tuple(
-            f"{self._relpath(f.f_code.co_filename)}:{f.f_lineno} in {f.f_code.co_qualname}"
-            for f in frames
-            if f.f_code.co_filename.startswith(self.scanned_prefixes) or self._is_tests_frame(f)
-        )[:_STACK_PREVIEW_FRAMES]
-        self.pending.append(Violation(key, call, threading.current_thread().name, stack))
+        self.pending.append(Violation(key, call, threading.current_thread().name, self._stack_preview(frames)))
+
+    def _stack_preview(self, frames: list[FrameType]) -> tuple[str, ...]:
+        """由内向外的栈预览：拦截点到第一个仓库帧之间最内层的非仓库帧，接着是仓库帧。"""
+        non_repo: list[FrameType] = []
+        repo: list[FrameType] = []
+        for frame in frames:
+            filename = frame.f_code.co_filename
+            if filename.startswith((_GUARD_DIR, _BLOCKBUSTER_DIR)) or frame.f_globals.get("__name__", "").startswith(
+                _GUARD_MODULE
+            ):
+                continue
+            if filename.startswith(self.scanned_prefixes) or self._is_tests_frame(frame):
+                repo.append(frame)
+            elif not repo:
+                non_repo.append(frame)
+        lines = [self._describe_frame(f) for f in non_repo[:_NON_REPO_PREVIEW_FRAMES]]
+        if len(non_repo) > _NON_REPO_PREVIEW_FRAMES:
+            lines.append(f"…（省略 {len(non_repo) - _NON_REPO_PREVIEW_FRAMES} 个非仓库帧）")
+        lines.extend(self._describe_frame(f) for f in repo[:_STACK_PREVIEW_FRAMES])
+        return tuple(lines)
+
+    def _describe_frame(self, frame: FrameType) -> str:
+        return f"{self._display_path(frame.f_code.co_filename)}:{frame.f_lineno} in {frame.f_code.co_qualname}"
+
+    def _display_path(self, filename: str) -> str:
+        normalized = filename.replace(os.sep, "/")
+        _, marker, inside = normalized.rpartition("/site-packages/")
+        if marker:
+            return inside
+        for stdlib_dir in _STDLIB_DIRS:
+            if filename.startswith(stdlib_dir):
+                return filename.removeprefix(stdlib_dir).replace(os.sep, "/")
+        return self._relpath(filename)
 
     def _is_tests_frame(self, frame: FrameType) -> bool:
         # 模块名兜底：pytest 断言重写的缓存不修正 co_filename，跨机器复用缓存时路径对不上。
