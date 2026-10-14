@@ -25,11 +25,13 @@ from arcreel_catalog_core import (
     BuiltinProviderModel,
     CatalogData,
     CatalogEntry,
+    EntryKey,
     ImageFacts,
     TextFacts,
     VideoFacts,
     load_catalog,
 )
+from lib.catalog.entry_matching import match_entry
 from lib.config import registry
 
 if TYPE_CHECKING:
@@ -186,6 +188,19 @@ def provider_media_types(provider_id: str) -> list[str]:
 def provider_capabilities(provider_id: str) -> list[str]:
     """供应商全部模型的能力并集，升序。"""
     return sorted({cap for model in _provider_models(provider_id).values() for cap in model.capabilities})
+
+
+def find_entry(
+    model_name: str, *, media_type: str | None = None, binding: EntryKey | None = None
+) -> CatalogEntry | None:
+    """模型名对应的模型条目（docs/adr/0105）：先看条目绑定，再按名字在当前目录里现查。
+
+    供自定义供应商的模型、Agent 凭证的档位这类只有模型名的场景使用；内置供应商的模型直接引用条目，不走这里。
+    ``media_type`` 取供应商模型调用端点的媒体类型，还没有调用端点时取按名字推断的媒体类型；``binding`` 是用户
+    为这个模型指定的条目（尚无存储时传 ``None``）。对应不上、或两栖模型没给 ``media_type`` 时返回 ``None``。
+    对应关系不缓存，目录变化（官方同步带来新条目或模型别名）后下次调用即得到新结果。规则见 :func:`match_entry`。
+    """
+    return match_entry(factory_snapshot().entries, model_name, media_type=media_type, binding=binding)
 
 
 def model_pricing(provider_id: str, model_id: str) -> Pricing | None:
