@@ -1554,8 +1554,8 @@ def test_to_db_dict_reads_the_media_type_from_the_resolved_spec():
 
     model = ModelInput(model_id="m1", display_name="m1", endpoint="ce-7", supported_durations=[])
 
-    # video：空列表下游视为非法，归一为缺省再由 preset 兜底
-    assert model.to_db_dict(_custom_endpoint_spec("ce-7", "video"))["supported_durations"] != "[]"
+    # video：空列表下游视为非法，归一为缺省（运行时取条目或名字预设）
+    assert model.to_db_dict(_custom_endpoint_spec("ce-7", "video"))["supported_durations"] is None
     # 非 video：不归一，原样落库
     assert model.to_db_dict(_custom_endpoint_spec("ce-7", "image"))["supported_durations"] == "[]"
 
@@ -1894,9 +1894,9 @@ class TestProviderSecretReadback:
 
 
 class TestSupportedDurationsAutoFill:
-    """video endpoint 模型创建时若未传 supported_durations，应由预设表自动填充。"""
+    """video endpoint 模型创建时未传 supported_durations：保存时不预填名字预设（docs/adr/0105），运行时再回落。"""
 
-    def test_create_video_model_without_durations_autofills(self, custom_providers_client: TestClient):
+    def test_create_video_model_without_durations_is_not_prefilled(self, custom_providers_client: TestClient):
         resp = custom_providers_client.post(
             "/api/v1/custom-providers",
             json={
@@ -1922,7 +1922,7 @@ class TestSupportedDurationsAutoFill:
         resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
         assert resp.status_code == 200
         model = resp.json()["models"][0]
-        assert model["supported_durations"] == [4, 8, 12]
+        assert model["supported_durations"] is None
 
     def test_create_video_model_user_provided_durations_kept(self, custom_providers_client: TestClient):
         resp = custom_providers_client.post(

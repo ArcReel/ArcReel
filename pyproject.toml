@@ -156,6 +156,7 @@ ignore_imports = [
     "lib.config.resolver -> lib.custom_provider.capabilities",
     "lib.config.resolver -> lib.custom_provider.default_models",
     "lib.config.resolver -> lib.custom_provider.endpoint_resolution",
+    "lib.config.resolver -> lib.custom_provider.model_facts",
     # lib.config.resolver 直接向上引用 backend 层
     "lib.config.resolver -> lib.backends.text_backends.base",
     # 中间模块把 backend 层拉回 config 之下的可达范围

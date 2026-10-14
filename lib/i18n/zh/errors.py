@@ -388,7 +388,12 @@ MESSAGES = {
     "capability_overrides_not_supported_for_comfyui": (
         "模型 {model_id} 挂的是 ComfyUI 端点，能力只从节点绑定推导，不支持能力覆盖"
     ),
-    "capability_overrides_video_only": "模型 {model_id} 的 endpoint {endpoint} 不是视频类，不支持能力覆盖",
+    "capability_override_not_applicable": (
+        "模型 {model_id} 的 endpoint {endpoint} 是 {media_type} 类，能力项 {capability} 不适用"
+    ),
+    "capability_override_image_unsupported": (
+        "模型 {model_id} 的 endpoint {endpoint} 没有实现 {capability}，无法把它覆盖为开启"
+    ),
     "capability_override_invalid_value": "模型 {model_id} 的能力项 {capability} 取值类型不正确，应为 {expected}",
     "capability_override_last_frame_unsupported": "模型 {model_id} 的 endpoint {endpoint} 不支持尾帧生成，无法覆盖 last_frame 为开启",
     "capability_override_reference_audio_unsupported": (

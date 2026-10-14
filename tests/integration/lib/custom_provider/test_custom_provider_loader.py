@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from lib.backends.image_backends.base import ImageCapability
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.backends import CustomImageBackend
 from lib.custom_provider.capabilities import system_video_capabilities
@@ -226,3 +227,51 @@ class TestCustomModelMaxOutputTokens:
         missing = await custom_model_max_output_tokens(session=async_session, provider_id=pid, model_id="gone")
 
         assert (registered, bare, missing) == (8192, None, None)
+
+    async def test_override_beats_the_column_and_entry_fills_the_gap(self, async_session):
+        """能力覆盖 > 行上旧列 > 对应条目：名字对上条目且两者都没有时取条目的值。"""
+        pid = await _seed(
+            async_session,
+            models=[
+                {
+                    "model_id": "overridden-llm",
+                    "endpoint": "openai-chat",
+                    "is_enabled": True,
+                    "max_output_tokens": 8192,
+                    "capability_overrides": {"max_output_tokens": 2048},
+                },
+                {"model_id": "vendor/gemini-3-flash-preview", "endpoint": "openai-chat", "is_enabled": True},
+            ],
+        )
+
+        overridden = await custom_model_max_output_tokens(
+            session=async_session, provider_id=pid, model_id="overridden-llm"
+        )
+        from_entry = await custom_model_max_output_tokens(
+            session=async_session, provider_id=pid, model_id="vendor/gemini-3-flash-preview"
+        )
+
+        assert (overridden, from_entry) == (2048, 65536)
+
+
+class TestCustomImageModelCapabilities:
+    async def test_factory_injects_model_side_from_overrides(self, async_session):
+        """图片后端带上模型事实一侧：能力覆盖关掉文生图后，执行层的生效能力只剩图生图。"""
+        pid = await _seed(
+            async_session,
+            models=[
+                {
+                    "model_id": "relay-image",
+                    "endpoint": "openai-images",
+                    "is_enabled": True,
+                    "capability_overrides": {"text_to_image": False},
+                }
+            ],
+        )
+
+        backend = await load_custom_backend(
+            session=async_session, provider_id=pid, model_id="relay-image", media_type="image"
+        )
+
+        assert isinstance(backend, CustomImageBackend)
+        assert backend.effective_capabilities == {ImageCapability.IMAGE_TO_IMAGE}

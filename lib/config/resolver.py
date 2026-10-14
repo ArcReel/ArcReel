@@ -22,6 +22,7 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from arcreel_catalog_core import DurationConstraints
 from lib.backends.backend_assembly.specs import (
     builtin_effective_generate_audio_for_model,
     builtin_video_capabilities_for_model,
@@ -525,23 +526,69 @@ def constrain_durations(
     resolution: str | None = None,
     uses_reference_images: bool = False,
 ) -> list[int]:
-    """按型号声明的「分辨率↔时长」「参考图↔时长」约束收窄候选。
+    """按内置型号在目录上声明的「分辨率↔时长」「参考图↔时长」约束收窄候选。
 
-    两条约束各自独立触发、可同时生效，取交集。无声明、型号不在注册表（自定义供应商不表达
-    这类约束）时返回原候选。交集为空时返回空集，由消费方按阶段处理。
+    型号不在目录中时返回原候选。自定义供应商的约束经 :meth:`ConfigResolver.video_duration_constraints`
+    取得后交给 :func:`apply_duration_constraints`。
     """
-    if not durations:
-        return durations
+    return apply_duration_constraints(
+        durations,
+        builtin_duration_constraints(provider_id, model_id),
+        resolution=resolution,
+        uses_reference_images=uses_reference_images,
+    )
+
+
+def builtin_duration_constraints(provider_id: str | None, model_id: str | None) -> DurationConstraints | None:
+    """内置型号在目录上声明的时长联动约束；型号不在目录中时为 None。"""
     model_info = catalog.get_model(provider_id, model_id) if provider_id and model_id else None
     if model_info is None:
+        return None
+    return DurationConstraints(
+        by_resolution={res: tuple(allowed) for res, allowed in model_info.duration_resolution_constraints.items()},
+        with_reference_images=tuple(model_info.reference_image_durations),
+    )
+
+
+def apply_duration_constraints(
+    durations: list[int],
+    constraints: DurationConstraints | None,
+    *,
+    resolution: str | None = None,
+    uses_reference_images: bool = False,
+) -> list[int]:
+    """按时长联动约束收窄候选。
+
+    两条约束各自独立触发、可同时生效，取交集。没有约束时返回原候选。交集为空时返回空集，由消费方按
+    阶段处理。分辨率键按小写比较。
+    """
+    if not durations or constraints is None:
         return durations
     allowed = list(durations)
-    if uses_reference_images and model_info.reference_image_durations:
-        allowed = [d for d in allowed if d in model_info.reference_image_durations]
-    by_resolution = model_info.duration_resolution_constraints.get(resolution.strip().lower()) if resolution else None
+    if uses_reference_images and constraints.with_reference_images:
+        allowed = [d for d in allowed if d in constraints.with_reference_images]
+    by_resolution = constraints.by_resolution.get(resolution.strip().lower()) if resolution else None
     if by_resolution:
         allowed = [d for d in allowed if d in by_resolution]
     return allowed
+
+
+def _parse_custom_durations(raw: str | None, *, provider_id: str, model_id: str) -> list[int]:
+    """自定义模型行上旧的可选时长列（JSON 字符串）；空值为空列表，不合法时报 ``invalid``。"""
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, list) or any(type(d) is not int or d <= 0 for d in parsed):
+            raise ValueError("supported_durations must be a list of positive integers")
+    except (TypeError, ValueError) as exc:
+        raise VideoSupportedDurationsError(
+            "invalid",
+            provider_id=provider_id,
+            model_id=model_id,
+            message=f"invalid supported_durations JSON on custom model {provider_id}/{model_id}",
+        ) from exc
+    return parsed
 
 
 #: 时长被联动约束剔除的成因：``resolution`` = 当前分辨率下不可用，``reference`` = 参考图路径下不可用。
@@ -657,10 +704,9 @@ def _video_bucket_reference_unavailable(
 
 
 def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str, model_id: str) -> None:
-    """校验解析出的模型支持图像输入；不满足直接报错，不静默换模型。
+    """校验解析出的内置模型支持图像输入；不满足直接报错，不静默换模型。
 
-    仅对模型目录中登记的内置模型判定；目录之外（自定义供应商等）无逐模型
-    能力事实，放行交由供应商 API 把关，不做猜测。"""
+    只按模型目录判定，不在目录中的模型放行；自定义供应商的模型见 ``ConfigResolver._ensure_text_model_vision_capable``。"""
     model_info = catalog.get_model(provider_id, model_id)
     if model_info is not None and "vision" not in model_info.capabilities:
         raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
@@ -918,6 +964,33 @@ class ConfigResolver:
             return await self._resolve_video_capabilities_from_project(
                 svc, session, project, generation_type=generation_type
             )
+
+    async def video_duration_constraints(self, provider_id: str, model_id: str) -> DurationConstraints | None:
+        """视频模型的时长联动约束（模型事实）；没有约束时为 None。
+
+        内置模型取目录；自定义供应商的模型取能力覆盖 > 对应条目，对应不上条目时不加约束。ComfyUI 端点的
+        时长只从节点绑定推导，没有联动约束。模型行或端点解析不出时为 None：引用失效由能力解析报错，
+        这里不重复。
+        """
+        if not is_custom_provider(provider_id):
+            return builtin_duration_constraints(provider_id, model_id)
+        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+        from lib.custom_provider.model_facts import video_model_facts
+        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+
+        async with self._open_session() as (session, _svc):
+            try:
+                model = await CustomProviderRepository(session).get_model_by_ids(
+                    parse_provider_id(provider_id), model_id
+                )
+                if model is None:
+                    return None
+                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
+            except ValueError:
+                return None
+            if endpoint_spec.endpoint_durations is not None:
+                return None
+            return video_model_facts(model_id, model.capability_overrides).duration_constraints
 
     async def video_capabilities_for_model(
         self,
@@ -1413,7 +1486,11 @@ class ConfigResolver:
             # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
             # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；注册表分支不用它，
             # 也就不必为此拉起整个装配层。
-            from lib.custom_provider.capabilities import synthesize_video_capabilities
+            from lib.custom_provider.capabilities import (
+                AUDIO_TRACK_OVERRIDE_KEYS,
+                synthesize_video_capabilities_with_overrides,
+            )
+            from lib.custom_provider.model_facts import video_model_facts
 
             source = "custom"
             try:
@@ -1434,7 +1511,7 @@ class ConfigResolver:
                 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 
                 endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
-                caps = synthesize_video_capabilities(
+                caps, applied_overrides = synthesize_video_capabilities_with_overrides(
                     endpoint=model.endpoint,
                     model_id=model_id,
                     overrides=model.capability_overrides,
@@ -1452,12 +1529,15 @@ class ConfigResolver:
             # 自定义供应商按声明单价计费（`CustomProviderPrice` 无音频维度），计价参数不因
             # 默认执行档收窄，故沿用项目请求值。
             default_tier_generates_audio = True
-            # 自定义供应商的音轨形态不参与派生（docs/adr/0054）：设置界面拿不到自定义模型的
-            # 逐模型音轨目录（它们不在 /providers 里），服务端单方面派生会让界面与入队预检各
-            # 说一套；且 endpoint 背后的上游 model 由用户填写、无从核实，误判恒有声会把合法配置
-            # 挡在入队之外。与上一行 default_tier_generates_audio 同口径：无信号时假定有声、
+            # 自定义供应商的音轨形态只认用户的能力覆盖（docs/adr/0104）：调用通道按模型名声明的
+            # 音轨形态不参与派生——endpoint 背后的上游 model 由用户填写、无从核实，误判恒无声会把合法
+            # 配置挡在入队之外。与上一行 default_tier_generates_audio 同口径：没有覆盖时假定有声、
             # 开关保持可控，不凭空判定为真无声模型。
-            has_audio = True
+            has_audio = (
+                caps.audio_track_for_route(generation_type) != "always_off"
+                if AUDIO_TRACK_OVERRIDE_KEYS & applied_overrides.keys()
+                else True
+            )
             # ComfyUI 端点的时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：``frames`` 未绑定
             # 或读不到帧率来源时，该模型行的档位就是空集，提交时不下发时长、让 workflow 出它自己
             # 那一档。这是该协议的合法状态，不适用下面那条「空集即 fail loud」——ADR 0018 守的是
@@ -1468,25 +1548,21 @@ class ConfigResolver:
             # 独立改动，两边因此会分叉；分叉时以端点为准，能力接口、剧本规划与端点目录才是同一个
             # 答案。
             raw_durations = None if endpoint_spec.duration_tier_empty else model.supported_durations
-            supported_durations: list[int] = []
-            if raw_durations:
-                try:
-                    parsed = json.loads(raw_durations)
-                    if not isinstance(parsed, list) or any(type(d) is not int or d <= 0 for d in parsed):
-                        raise ValueError("supported_durations must be a list of positive integers")
-                    supported_durations = parsed
-                except (TypeError, ValueError) as exc:
-                    raise VideoSupportedDurationsError(
-                        "invalid",
-                        provider_id=provider_id,
-                        model_id=model_id,
-                        message=f"invalid supported_durations JSON on custom model {provider_id}/{model_id}",
-                    ) from exc
-            if not supported_durations and endpoint_spec.endpoint_durations:
-                # 同一条规则的另一侧：行上是空集而端点给得出档位时，按端点的来。空集只在端点也
-                # 驱动不了这一维时才成立——留着它，时长控件会禁着、剧本规划会借固定篇幅，而请求
-                # 构造已经在往图里写帧数。
-                supported_durations = list(endpoint_spec.endpoint_durations)
+            supported_durations = _parse_custom_durations(raw_durations, provider_id=provider_id, model_id=model_id)
+            if endpoint_spec.endpoint_durations is not None:
+                # ComfyUI 端点：时长只从节点绑定推导（docs/adr/0082），不看条目、不接受能力覆盖、不按名字
+                # 回落。行上是空集而端点给得出档位时按端点的来——空集只在端点也驱动不了这一维时才成立，
+                # 留着它，时长控件会禁着、剧本规划会借固定篇幅，而请求构造已经在往图里写帧数。
+                if not supported_durations and endpoint_spec.endpoint_durations:
+                    supported_durations = list(endpoint_spec.endpoint_durations)
+            else:
+                # 其余端点：能力覆盖 > 行上旧的可选时长列 > 对应条目 > 按名字推断的预设（对应不上条目时），
+                # 回落结果只在这里现算，不写回任何字段（docs/adr/0105）。
+                supported_durations = list(
+                    video_model_facts(
+                        model_id, model.capability_overrides, legacy_durations=supported_durations or None
+                    ).durations
+                )
         else:
             source = "registry"
             durations_optional = False
@@ -1679,8 +1755,29 @@ class ConfigResolver:
         keys = _TEXT_LAYERED_KEYS[TEXT_TASK_TIERS[task_type]]
         resolved = await self._resolve_layered_backend(svc, session, project, keys)
         if task_type in VISION_REQUIRED_TASKS:
-            _ensure_text_model_vision_capable(task_type, *resolved)
+            await self._ensure_text_model_vision_capable(session, task_type, *resolved)
         return resolved
+
+    async def _ensure_text_model_vision_capable(
+        self, session: AsyncSession, task_type: TextTaskType, provider_id: str, model_id: str
+    ) -> None:
+        """校验解析出的模型支持图像输入；不满足直接报错，不静默换模型。
+
+        内置模型按目录判定；自定义供应商的模型按能力覆盖 > 对应条目判定，对应不上条目且没有覆盖时
+        不加约束，交由供应商 API 把关，不做猜测。
+        """
+        if not is_custom_provider(provider_id):
+            _ensure_text_model_vision_capable(task_type, provider_id, model_id)
+            return
+        from lib.custom_provider.model_facts import text_model_facts
+
+        try:
+            db_pid = parse_provider_id(provider_id)
+        except ValueError:
+            return
+        model = await CustomProviderRepository(session).get_model_by_ids(db_pid, model_id)
+        if model is not None and text_model_facts(model_id, model.capability_overrides).image_input is False:
+            raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
 
     async def _auto_resolve_backend(
         self,

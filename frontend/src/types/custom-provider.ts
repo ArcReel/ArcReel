@@ -121,9 +121,35 @@ export interface VideoCapabilityFlags {
   max_reference_audio_count: number;
 }
 
-/** 稀疏覆盖字典：键缺席 = 跟随系统判定。
- *  当前后端开放 last_frame / reference_audio_mode / max_reference_audio_count。 */
-export type CapabilityOverrides = Partial<VideoCapabilityFlags>;
+/** 成片音轨形态：可控 / 恒有声 / 恒无声。 */
+export type VideoAudioMode = "controllable" | "always_on" | "always_off";
+
+/** 能力覆盖中视频的通道事实维度（输入模式、参考上限、提示词长度上限、音轨形态）。 */
+export interface VideoChannelFactOverrides extends VideoCapabilityFlags {
+  text_to_video: boolean;
+  max_reference_audio_total_seconds: number | null;
+  max_prompt_chars: number | null;
+  audio_track: VideoAudioMode;
+  reference_route_audio_track: VideoAudioMode | null;
+}
+
+/** 能力覆盖中的模型事实维度，按媒体类型开放：文本、图片、视频各自一组。 */
+export interface ModelFactOverrides {
+  image_input: boolean;
+  structured_output: boolean;
+  max_output_tokens: number;
+  text_to_image: boolean;
+  image_to_image: boolean;
+  durations: number[];
+  resolutions: string[];
+  duration_constraints: {
+    by_resolution?: Record<string, number[]>;
+    with_reference_images?: number[];
+  };
+}
+
+/** 稀疏覆盖字典：键缺席 = 该维度跟随条目与调用通道声明，出现即整维替换。 */
+export type CapabilityOverrides = Partial<VideoChannelFactOverrides & ModelFactOverrides>;
 
 /** 模型发现的返回。``not_applicable`` 为真时 ``models`` 恒空，``reason`` 是可直接展示的说明：
  *  该协议本就没有这一步，不是一次「什么都没发现」的失败。 */

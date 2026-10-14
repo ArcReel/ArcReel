@@ -207,13 +207,11 @@ async def test_database_query_failure_returns_unavailable_facts(resolver, db_fac
 @pytest.mark.parametrize(
     ("route", "supported_durations", "code"),
     [
-        pytest.param("storyboard", "[]", "video_supported_durations_missing", id="storyboard-missing"),
         pytest.param("storyboard", "not-json", "video_supported_durations_invalid", id="storyboard-unparseable"),
         pytest.param("storyboard", "{}", "video_supported_durations_invalid", id="storyboard-not-array"),
         pytest.param("storyboard", '["5"]', "video_supported_durations_invalid", id="storyboard-string-tier"),
         pytest.param("storyboard", "[4.5]", "video_supported_durations_invalid", id="storyboard-fractional-tier"),
         pytest.param("storyboard", "[0, 5]", "video_supported_durations_invalid", id="storyboard-non-positive"),
-        pytest.param("reference_video", "[]", "reference_supported_durations_missing", id="reference-missing"),
         pytest.param("reference_video", "[0, 5]", "reference_supported_durations_invalid", id="reference-invalid"),
     ],
 )
@@ -227,6 +225,55 @@ async def test_tier_declaration_failures_use_the_route_code_family(
     facts = await _read(resolver, {"video_provider_i2v": f"{provider_id}/m"}, route=route)
 
     assert facts == VideoRequestFactsFailure(code, (("provider", provider_id), ("model", "m")))
+
+
+async def test_custom_model_without_durations_falls_back_to_name_preset(resolver, db_factory):
+    """对应不上条目、行上也没有可选时长：运行时取按名字推断的预设，一个族都匹配不上时为 [4, 8]。"""
+    provider_id = await _seed_custom_video_models(
+        db_factory, {"model_id": "m", "supported_durations": "[]", "is_default": True}
+    )
+
+    facts = await _read(resolver, {"video_provider_i2v": f"{provider_id}/m"})
+
+    assert isinstance(facts, VideoRequestFacts)
+    assert facts.supported_durations == (4, 8)
+
+
+async def test_custom_model_matched_to_entry_takes_entry_durations_and_constraints(resolver, db_factory):
+    """名字对上条目的自定义模型：可选时长与时长联动约束取条目（Veo 在 1080p 下只剩 8 秒）。"""
+    provider_id = await _seed_custom_video_models(
+        db_factory, {"model_id": "vendor/Veo-3.1-Generate-001", "resolution": "1080p", "is_default": True}
+    )
+
+    facts = await _read(resolver, {"video_provider_i2v": f"{provider_id}/vendor/Veo-3.1-Generate-001"})
+
+    assert isinstance(facts, VideoRequestFacts)
+    assert facts.supported_durations == (4, 6, 8)
+    assert facts.allowed_durations == (8,)
+    assert facts.excluded_durations == ((4, "resolution"), (6, "resolution"))
+
+
+async def test_custom_model_constraint_override_replaces_entry_constraints(resolver, db_factory):
+    """能力覆盖整维替换时长联动约束：分辨率键按小写比较，参考图约束随这一维一起被替换掉。"""
+    provider_id = await _seed_custom_video_models(
+        db_factory,
+        {
+            "model_id": "vendor/Veo-3.1-Generate-001",
+            "resolution": "1080p",
+            "is_default": True,
+            "capability_overrides": {
+                "duration_constraints": {"by_resolution": {"1080P": [6, 8]}},
+                "max_reference_images": 3,
+            },
+        },
+    )
+
+    facts = await _read(
+        resolver, {"video_provider_r2v": f"{provider_id}/vendor/Veo-3.1-Generate-001"}, generation_type="r2v"
+    )
+
+    assert isinstance(facts, VideoRequestFacts)
+    assert facts.allowed_durations == (6, 8)
 
 
 async def test_constraints_narrowing_to_nothing_fail_instead_of_falling_back(resolver, monkeypatch):

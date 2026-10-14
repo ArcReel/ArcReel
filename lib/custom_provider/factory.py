@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from lib.backends.image_capabilities import custom_image_model_capabilities
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
@@ -30,7 +31,8 @@ def create_custom_backend(
     """按 endpoint 查 ENDPOINT_REGISTRY 并构造 Backend。
 
     视频后端额外注入生效能力（endpoint spec 系统判定 ⊕ 模型级用户覆盖），执行层据此门控，
-    不再直接读被包装 backend 的声明。
+    不再直接读被包装 backend 的声明。图片后端注入模型事实一侧的文生图 / 图生图（条目 ⊕ 能力覆盖，
+    ComfyUI 端点不加约束），执行层取它与通道声明的交集。
 
     Args:
         provider: 自定义供应商 ORM 对象（需 base_url / api_key / provider_id 属性）
@@ -55,4 +57,8 @@ def create_custom_backend(
         # 一并记住 endpoint 与路径覆盖：两者都是 backend 构造的真正输入粒度，已提交任务的续跑
         # 据此比对协议是否已被换掉（docs/adr/0054、docs/adr/0101）。
         return backend.with_endpoint(endpoint, path_overrides=paths).with_video_capabilities(merged, overrides=applied)
+    if isinstance(backend, CustomImageBackend):
+        return backend.with_model_capabilities(
+            custom_image_model_capabilities(model_id, overrides=capability_overrides, endpoint_kind=spec.kind)
+        )
     return backend

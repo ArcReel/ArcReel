@@ -411,8 +411,11 @@ MESSAGES = {
         "Model {model_id} uses a ComfyUI endpoint, whose capabilities are derived from node bindings alone; "
         "capability overrides are not supported"
     ),
-    "capability_overrides_video_only": (
-        "Endpoint {endpoint} of model {model_id} is not a video endpoint; capability overrides are not supported"
+    "capability_override_not_applicable": (
+        "Endpoint {endpoint} of model {model_id} is a {media_type} endpoint; capability {capability} does not apply"
+    ),
+    "capability_override_image_unsupported": (
+        "Endpoint {endpoint} of model {model_id} does not implement {capability}; it cannot be overridden to true"
     ),
     "capability_override_invalid_value": (
         "Capability {capability} of model {model_id} has an invalid value type; expected {expected}"

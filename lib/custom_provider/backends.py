@@ -55,12 +55,34 @@ class CustomTextBackend:
 
 
 class CustomImageBackend:
-    """自定义供应商图片生成后端包装类。"""
+    """自定义供应商图片生成后端包装类。
 
-    def __init__(self, *, provider_id: str, delegate: ImageBackend, model: str) -> None:
+    ``capabilities`` 是调用通道声明（被包装 backend 实现了什么）。``model_capabilities`` 是模型事实一侧
+    允许的部分（能力覆盖整维替换条目的值，``None`` 即不加约束），由工厂按模型行注入；执行层的能力校验
+    取两者的交集（:attr:`effective_capabilities`），与任务类型桶的候选同一个结果。
+    """
+
+    def __init__(
+        self,
+        *,
+        provider_id: str,
+        delegate: ImageBackend,
+        model: str,
+        model_capabilities: frozenset[ImageCapability] | None = None,
+    ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
         self._model = model
+        self._model_capabilities = model_capabilities
+
+    def with_model_capabilities(self, model_capabilities: frozenset[ImageCapability] | None) -> CustomImageBackend:
+        """返回注入了模型事实一侧能力的新实例（工厂按模型行的条目与能力覆盖算出）。"""
+        return CustomImageBackend(
+            provider_id=self._provider_id,
+            delegate=self._delegate,
+            model=self._model,
+            model_capabilities=model_capabilities,
+        )
 
     @property
     def name(self) -> str:
@@ -73,6 +95,16 @@ class CustomImageBackend:
     @property
     def capabilities(self) -> set[ImageCapability]:
         return self._delegate.capabilities
+
+    @property
+    def model_capabilities(self) -> frozenset[ImageCapability] | None:
+        return self._model_capabilities
+
+    @property
+    def effective_capabilities(self) -> frozenset[ImageCapability]:
+        """调用通道实现了、且模型事实一侧允许的文生图 / 图生图。"""
+        implemented = frozenset(self.capabilities)
+        return implemented if self._model_capabilities is None else implemented & self._model_capabilities
 
     @property
     def max_reference_images(self) -> int:

@@ -1,10 +1,14 @@
-"""自定义供应商 model_id → supported_durations 启发式预设表。
+"""按模型名推断可选时长的预设表。
 
 数据来源：lmarena 视频模型排行榜 Top 20（2026-05 快照）+ 常见聚合命名。
-匹配按 PRESETS 顺序，命中即返回；未匹配 → DEFAULT_FALLBACK。
+匹配按 PRESETS 顺序，命中即返回；一个族都匹配不上 → DEFAULT_FALLBACK（``[4, 8]``）。
+
+预设只有两处用途（docs/adr/0104、0105）：新建模型条目时预填可选时长，以及对应不上条目的供应商模型
+在运行时回落（:mod:`lib.custom_provider.model_facts`）。回落结果不写入任何字段——保存供应商模型时
+不预填，否则推断值会冒充用户设过的能力覆盖。
 
 歧义说明：同名 model_id（如 sora-2-pro）在 OpenAI 第一方与第三方聚合站点的实际允许
-秒数可能不同。预设只是启发，给用户起点；用户必须在创建/编辑模型时 review 输入框值。
+秒数可能不同。预设只是启发；渠道限制由用户写进能力覆盖。
 """
 
 from __future__ import annotations

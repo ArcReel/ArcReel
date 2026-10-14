@@ -410,8 +410,11 @@ MESSAGES = {
     "capability_overrides_not_supported_for_comfyui": (
         "Mô hình {model_id} dùng endpoint ComfyUI, năng lực chỉ suy ra từ liên kết node; không hỗ trợ ghi đè năng lực"
     ),
-    "capability_overrides_video_only": (
-        "Endpoint {endpoint} của mô hình {model_id} không phải loại video; không hỗ trợ ghi đè năng lực"
+    "capability_override_not_applicable": (
+        "Endpoint {endpoint} của mô hình {model_id} thuộc loại {media_type}; năng lực {capability} không áp dụng"
+    ),
+    "capability_override_image_unsupported": (
+        "Endpoint {endpoint} của mô hình {model_id} không triển khai {capability}; không thể ghi đè thành true"
     ),
     "capability_override_invalid_value": (
         "Năng lực {capability} của mô hình {model_id} có kiểu giá trị không hợp lệ; cần {expected}"

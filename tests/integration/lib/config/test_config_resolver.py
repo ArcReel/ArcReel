@@ -2,6 +2,7 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import select
 
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
@@ -829,6 +830,73 @@ class TestVoiceConsistency:
         assert caps["voice_consistency"] == "native"
 
 
+class TestUnmatchedCustomVideoModelOverrides:
+    """对应不上条目的视频供应商模型带一维能力覆盖：覆盖的维度整体替换，未覆盖的维度按回落值（docs/adr/0104、0105）。
+
+    ark-seedance 端点按名字族认定通道事实；名字认不得时回落为文生视频 + 首帧、无尾帧、参考上限 0。可选时长
+    在对应不上条目时取按名字推断的预设，一个族都匹配不上时为 [4, 8]。回落结果不写回模型行。
+    """
+
+    @staticmethod
+    async def _seed(db_factory, model_id: str, overrides: dict) -> str:
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Relay", discovery_format="openai", base_url="https://relay.test", api_key="k"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id=model_id,
+                    display_name=model_id,
+                    endpoint="ark-seedance",
+                    capability_overrides=overrides,
+                )
+            )
+            await session.commit()
+            return f"custom-{provider.id}/{model_id}"
+
+    async def test_overridden_durations_replace_the_fallback_and_channel_facts_fall_back(self, db_factory):
+        backend = await self._seed(db_factory, "relay-video-x1", {"durations": [5, 10]})
+
+        caps = await _video_caps(db_factory, {"video_backend": backend})
+
+        assert caps["supported_durations"] == [5, 10]
+        assert (caps["text_to_video"], caps["first_frame"], caps["last_frame"]) == (True, True, False)
+        assert caps["max_reference_images"] == 0
+
+    @pytest.mark.parametrize(
+        ("model_id", "durations"),
+        [("relay-video-x1", [4, 8]), ("relay-kling-v2-turbo", [5, 10])],
+        ids=["no-family", "name-preset"],
+    )
+    async def test_overridden_channel_fact_replaces_and_durations_fall_back(self, db_factory, model_id, durations):
+        backend = await self._seed(db_factory, model_id, {"max_reference_images": 3})
+
+        caps = await _video_caps(db_factory, {"video_backend": backend})
+
+        assert caps["max_reference_images"] == 3
+        assert (caps["text_to_video"], caps["first_frame"], caps["last_frame"]) == (True, True, False)
+        assert caps["supported_durations"] == durations
+
+        from lib.db.models.custom_provider import CustomProviderModel
+
+        async with db_factory() as session:
+            row = (await session.execute(select(CustomProviderModel))).scalar_one()
+        assert row.supported_durations is None
+        assert row.capability_overrides == {"max_reference_images": 3}
+
+    async def test_audio_track_override_turns_voice_consistency_off(self, db_factory):
+        backend = await self._seed(db_factory, "relay-video-x1", {"audio_track": "always_off"})
+
+        caps = await _video_caps(db_factory, {"video_backend": backend})
+
+        assert caps["voice_consistency"] == "none"
+
+
 class TestVideoPricingGenerateAudio:
     """video_pricing_generate_audio：能力接口解析不出时的计价降级口径。"""
 
@@ -1566,6 +1634,49 @@ class TestStyleAnalysisVisionGuard:
         fake_svc = _FakeConfigService(settings={"text_backend_simple": "custom-abc/some-model"})
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)
         assert result == ("custom-abc", "some-model")
+
+    async def test_custom_model_follows_image_input_override(self, db_factory):
+        """自定义供应商的文本模型：能力覆盖关掉图片输入时报错；对应不上条目且没有覆盖时放行。"""
+        from lib.backends.text_backends.base import TextTaskType
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        async with db_factory() as session:
+            provider = CustomProvider(display_name="R", discovery_format="openai", base_url="https://r", api_key="k")
+            session.add(provider)
+            await session.flush()
+            session.add_all(
+                [
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="blind-llm",
+                        display_name="blind",
+                        endpoint="openai-chat",
+                        capability_overrides={"image_input": False},
+                    ),
+                    CustomProviderModel(
+                        provider_id=provider.id, model_id="relay-llm", display_name="relay", endpoint="openai-chat"
+                    ),
+                ]
+            )
+            await session.commit()
+            pid = f"custom-{provider.id}"
+
+        resolver = ConfigResolver(db_factory)
+        async with db_factory() as session:
+            with pytest.raises(ValueError, match="vision"):
+                await resolver._resolve_text_backend(
+                    _FakeConfigService(settings={"text_backend_simple": f"{pid}/blind-llm"}),
+                    session,
+                    TextTaskType.STYLE_ANALYSIS,
+                    None,
+                )
+            result = await resolver._resolve_text_backend(
+                _FakeConfigService(settings={"text_backend_simple": f"{pid}/relay-llm"}),
+                session,
+                TextTaskType.STYLE_ANALYSIS,
+                None,
+            )
+        assert result == (pid, "relay-llm")
 
     @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
     async def test_complex_tier_task_not_vision_checked(self, provider_id):

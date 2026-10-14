@@ -254,7 +254,7 @@ class TestModelListExposesCapabilities:
     async def test_unallowlisted_key_dropped_from_response(
         self, capability_client: TestClient, custom_providers_app_session_factory
     ):
-        """DB 遗留的白名单外键（如 first_frame，语义合法但未开放给用户覆盖）不该在回显中
+        """DB 遗留的白名单外键（如 reference_audio_per_image，语义合法但未开放给用户覆盖）不该在回显中
         原样带出：否则界面呈现"覆盖已生效"，而写入侧一保存这条键就会被剔除——GET 与 PUT
         的键集合必须一致，调用方不该额外知道"回显可能含脏键但写回会被剔除"这条隐藏知识。"""
         pid = await _seed_provider_with_raw_models(
@@ -266,7 +266,7 @@ class TestModelListExposesCapabilities:
                     "endpoint": VIDEO_ENDPOINT,
                     "is_enabled": True,
                     "is_default": True,
-                    "capability_overrides": {"first_frame": False},
+                    "capability_overrides": {"reference_audio_per_image": True},
                 }
             ],
         )
@@ -278,7 +278,7 @@ class TestModelListExposesCapabilities:
         self, capability_client: TestClient, custom_providers_app_session_factory
     ):
         """混合了白名单内外键的存量行：白名单内键（last_frame）回显不变，白名单外键
-        （first_frame）被剔除，回显集合与写入落库集合一致。"""
+        （reference_audio_per_image）被剔除，回显集合与写入落库集合一致。"""
         pid = await _seed_provider_with_raw_models(
             custom_providers_app_session_factory,
             [
@@ -288,7 +288,7 @@ class TestModelListExposesCapabilities:
                     "endpoint": LAST_FRAME_ENDPOINT,
                     "is_enabled": True,
                     "is_default": True,
-                    "capability_overrides": {"last_frame": True, "first_frame": False},
+                    "capability_overrides": {"last_frame": True, "reference_audio_per_image": True},
                 }
             ],
         )
@@ -311,8 +311,10 @@ class TestSaveDropsUnlistedOverrides:
         assert models[0]["capability_overrides"] is None
 
     def test_known_but_unallowlisted_key_stripped_on_create(self, capability_client: TestClient):
-        """first_frame 是合法 VideoCapabilities 字段，但首批未开放覆盖。"""
-        pid = _create_provider(capability_client, [_video_model(capability_overrides={"first_frame": False})])
+        """reference_audio_per_image 是合法 VideoCapabilities 字段，但它是请求构造的形态，不开放覆盖。"""
+        pid = _create_provider(
+            capability_client, [_video_model(capability_overrides={"reference_audio_per_image": True})]
+        )
 
         models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] is None
@@ -330,7 +332,7 @@ class TestSaveDropsUnlistedOverrides:
                     "endpoint": LAST_FRAME_ENDPOINT,
                     "is_enabled": True,
                     "is_default": True,
-                    "capability_overrides": {"first_frame": False},
+                    "capability_overrides": {"reference_audio_per_image": True},
                 }
             ],
         )
@@ -345,7 +347,7 @@ class TestSaveDropsUnlistedOverrides:
                         endpoint=LAST_FRAME_ENDPOINT,
                         model_id=LAST_FRAME_MODEL,
                         # 表单把 GET 回显的遗留键原样带回，同时把 last_frame 切成「强制开」
-                        capability_overrides={"first_frame": False, "last_frame": True},
+                        capability_overrides={"reference_audio_per_image": True, "last_frame": True},
                     )
                 ],
             },
@@ -369,7 +371,7 @@ class TestSaveDropsUnlistedOverrides:
                     "endpoint": VIDEO_ENDPOINT,
                     "is_enabled": True,
                     "is_default": True,
-                    "capability_overrides": {"first_frame": False},
+                    "capability_overrides": {"reference_audio_per_image": True},
                 }
             ],
         )
@@ -379,7 +381,7 @@ class TestSaveDropsUnlistedOverrides:
             json={
                 "display_name": "Relay Renamed",
                 "base_url": "https://relay.test/v1",
-                "models": [_video_model(capability_overrides={"first_frame": False})],
+                "models": [_video_model(capability_overrides={"reference_audio_per_image": True})],
             },
         )
         assert resp.status_code == 200, resp.text
@@ -515,6 +517,84 @@ class TestSaveValidatesOpenOverrides:
 
         models = capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]
         assert models[0]["capability_overrides"] == {"last_frame": True}
+
+
+class TestModelFactOverrides:
+    """模型事实维度（docs/adr/0104）：按端点媒体类型开放，值整维替换，回显与写入键集合一致。"""
+
+    def test_dimensions_of_each_media_type_round_trip(self, capability_client: TestClient):
+        video = {
+            "durations": [5, 10],
+            "resolutions": ["720p", "1080p"],
+            "duration_constraints": {"by_resolution": {"1080p": [5]}},
+            "max_reference_images": 2,
+            "audio_track": "always_off",
+        }
+        text = {"image_input": False, "structured_output": True, "max_output_tokens": 4096}
+        image = {"text_to_image": False}
+        pid = _create_provider(
+            capability_client,
+            [
+                _video_model(capability_overrides=video),
+                {
+                    "model_id": "relay-llm",
+                    "display_name": "LLM",
+                    "endpoint": "openai-chat",
+                    "is_enabled": True,
+                    "capability_overrides": text,
+                },
+                {
+                    "model_id": "relay-image",
+                    "display_name": "Image",
+                    "endpoint": "openai-images",
+                    "is_enabled": True,
+                    "capability_overrides": image,
+                },
+            ],
+        )
+
+        models = {m["model_id"]: m for m in capability_client.get(f"/api/v1/custom-providers/{pid}").json()["models"]}
+        assert models[VIDEO_MODEL]["capability_overrides"] == video
+        assert models["relay-llm"]["capability_overrides"] == text
+        assert models["relay-image"]["capability_overrides"] == image
+
+    @pytest.mark.parametrize(
+        ("model", "capability"),
+        [
+            ({"endpoint": "openai-chat", "capability_overrides": {"last_frame": False}}, "last_frame"),
+            ({"endpoint": "openai-chat", "capability_overrides": {"durations": [5]}}, "durations"),
+            ({"endpoint": "openai-images", "capability_overrides": {"image_input": True}}, "image_input"),
+            ({"endpoint": "openai-video", "capability_overrides": {"text_to_image": True}}, "text_to_image"),
+        ],
+    )
+    def test_dimension_of_another_media_type_rejected(self, capability_client: TestClient, model, capability):
+        resp = _post_provider(capability_client, [{"model_id": "m", "display_name": "M", "is_enabled": True, **model}])
+        assert resp.status_code == 422
+        assert capability in resp.json()["detail"]
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"durations": []},
+            {"durations": [0, 5]},
+            {"resolutions": "720p"},
+            {"duration_constraints": {"by_resolution": {"1080p": []}}},
+        ],
+    )
+    def test_malformed_video_fact_rejected(self, capability_client: TestClient, overrides):
+        resp = _post_provider(capability_client, [_video_model(capability_overrides=overrides)])
+        assert resp.status_code == 422
+
+    def test_image_capability_the_endpoint_does_not_implement_rejected(self, capability_client: TestClient):
+        """openai-images-generations 只实现文生图：图生图覆盖为开启也打不开，写入侧拒绝。"""
+        model = {"model_id": "m", "display_name": "M", "endpoint": "openai-images-generations", "is_enabled": True}
+        resp = _post_provider(capability_client, [{**model, "capability_overrides": {"image_to_image": True}}])
+        assert resp.status_code == 422
+        assert "image_to_image" in resp.json()["detail"]
+
+        # 关掉通道实现了的那一维不需要背书
+        resp = _post_provider(capability_client, [{**model, "capability_overrides": {"text_to_image": False}}])
+        assert resp.status_code == 201
 
 
 class TestFullUpdateOverrideSemantics:

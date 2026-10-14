@@ -679,14 +679,19 @@ class MediaGenerator:
         # （lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，这里按实际请求形态把关。
         from lib.backends.image_capabilities import effective_image_capabilities
         from lib.custom_provider import is_custom_provider
+        from lib.custom_provider.backends import CustomImageBackend
 
         # 成对不变量保证 backend 非 None 时 provider_id 亦非 None。
         provider_id = cast(str, self._image_provider_id)
-        available = effective_image_capabilities(
-            self._image_backend.capabilities,
-            model_id=self._image_backend.model,
-            builtin_provider=None if is_custom_provider(provider_id) else provider_id,
-        )
+        if isinstance(self._image_backend, CustomImageBackend):
+            # 自定义供应商：工厂已按模型行注入模型事实一侧（条目 ⊕ 能力覆盖，ComfyUI 端点不加约束）。
+            available = self._image_backend.effective_capabilities
+        else:
+            available = effective_image_capabilities(
+                self._image_backend.capabilities,
+                model_id=self._image_backend.model,
+                builtin_provider=None if is_custom_provider(provider_id) else provider_id,
+            )
         needed = ImageCapability.IMAGE_TO_IMAGE if ref_images else ImageCapability.TEXT_TO_IMAGE
         if needed not in available:
             raise ImageCapabilityError(

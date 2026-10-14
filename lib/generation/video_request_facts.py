@@ -28,8 +28,8 @@ from lib.config.resolver import (
     VideoGenerationType,
     VideoSupportedDurationsError,
     VoiceConsistency,
+    apply_duration_constraints,
     builtin_video_audio_track,
-    constrain_durations,
 )
 
 #: 视频路线：分镜（首帧驱动）与参考生视频。问题码按路线分族，已记录的码不改名。
@@ -332,11 +332,14 @@ async def evaluate_video_request_facts(
 
     # 参考图约束随桶生效：单元按可用参考图定桶，落 r2v 即带参考图、落 i2v 即不带。
     uses_reference_images = generation_type == "r2v"
+    try:
+        constraints = await resolver.video_duration_constraints(provider_id, model_id)
+    except SQLAlchemyError:
+        return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
     allowed = tuple(
-        constrain_durations(
-            provider_id,
-            model_id,
+        apply_duration_constraints(
             list(supported),
+            constraints,
             resolution=resolution,
             uses_reference_images=uses_reference_images,
         )
@@ -348,7 +351,7 @@ async def evaluate_video_request_facts(
         )
     # 两条约束都排除同一秒数时报参考图：改分辨率救不回它。
     reference_allowed = (
-        constrain_durations(provider_id, model_id, list(supported), uses_reference_images=True)
+        apply_duration_constraints(list(supported), constraints, uses_reference_images=True)
         if uses_reference_images
         else list(supported)
     )

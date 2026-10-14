@@ -26,7 +26,9 @@ from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
+    AUDIO_TRACK_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
+    CHANNEL_FACT_OVERRIDE_KEYS,
     capability_type_name,
     capability_value_matches,
     filter_valid_overrides,
@@ -42,6 +44,13 @@ from lib.custom_provider.endpoints import (
     endpoint_spec_to_dict,
     get_endpoint_spec,
     static_media_type,
+)
+from lib.custom_provider.model_facts import (
+    ALL_MODEL_FACT_OVERRIDE_KEYS,
+    MODEL_FACT_OVERRIDE_KEYS,
+    model_fact_overrides,
+    model_fact_type_name,
+    model_fact_value_matches,
 )
 from lib.custom_provider.path_overrides import BaseUrlRule, effective_path_overrides, path_problem
 from lib.db import get_async_session
@@ -71,27 +80,21 @@ DiscoveryFormatLiteral = Literal["openai", "google", "comfyui"]
 # 并发上限定型字段：可空正整数（≥1）；None = 未设置 → 容量装载回退全局默认。
 MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
-# 开放给用户覆盖的能力维度。DB 列与合成函数对 VideoCapabilities 全字段通用，写入侧在此收窄：
-# 未列入的维度即便是合法字段名也不落库，扩容只需往这里加键名，无需 DB 迁移或改合成语义。
-#
-# 音轨形态（audio_track / reference_route_audio_track）刻意不开放（``docs/adr/0054``）：自定义
-# 供应商的音轨按「无信号不收紧」处理，设置界面拿不到自定义模型的逐模型音轨目录，用户设的这一位
-# 没有执行侧对应物——协议 backend 要么下发音轨开关要么不下发，声明改不了它——开放覆盖只会请回
-# 一份「界面宣称、执行期反悔」的手写声明。
-CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame", "reference_audio_mode", "max_reference_audio_count"})
+# 开放给用户覆盖的能力维度（docs/adr/0104）：模型事实（文本的图片输入、结构化输出、最大输出 token；图片的
+# 文生图、图生图；视频的可选时长、分辨率与时长联动约束）与视频的通道事实（输入模式、参考上限、提示词长度
+# 上限、音轨形态）。每个维度整体替换、优先级最高。未列入的键即便是合法字段名也不落库。
+CAPABILITY_OVERRIDE_ALLOWLIST = CHANNEL_FACT_OVERRIDE_KEYS | ALL_MODEL_FACT_OVERRIDE_KEYS
 
-#: 音轨形态两维：既不开放覆盖，也不回显系统判定（理由同上）。
-_AUDIO_TRACK_FIELDS = frozenset({"audio_track", "reference_route_audio_track"})
+#: 音轨形态两维的系统判定不回显：自定义供应商的音轨在没有覆盖时按「无信号不收紧」处理、不参与派生
+#: （见 ``lib.config.resolver``），把调用通道的静态声明摆到设置页会让用户以为它对自定义模型生效。
+_AUDIO_TRACK_FIELDS = AUDIO_TRACK_OVERRIDE_KEYS
 
-# 两份键集合都必须是 VideoCapabilities 字段名的子集：值类型校验直接按字段名取期望类型，键名写错
-# 要在导入期炸掉，而不是等到一次真实写入才 KeyError 成 500；音轨两维的键名写错则会静默停止过滤，
-# 把 backend 侧声明摆回自定义供应商的设置页——那正是本口径要避免的分裂。
-for _name, _keys in (
-    ("能力覆盖白名单", CAPABILITY_OVERRIDE_ALLOWLIST),
-    ("音轨形态字段", _AUDIO_TRACK_FIELDS),
-):
-    if not _keys <= CAPABILITY_OVERRIDE_FIELDS.keys():
-        raise RuntimeError(f"{_name}含非 VideoCapabilities 字段: {sorted(_keys - set(CAPABILITY_OVERRIDE_FIELDS))}")
+
+#: 图片模型事实覆盖键 → 端点声明里对应的能力。
+_IMAGE_CAPABILITY_BY_OVERRIDE_KEY: dict[str, ImageCapability] = {
+    "text_to_image": ImageCapability.TEXT_TO_IMAGE,
+    "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
+}
 
 
 def _narrow_to_allowlist(overrides: dict[str, object]) -> dict[str, object]:
@@ -197,19 +200,18 @@ class ModelInput(BaseModel):
     def to_db_dict(self, endpoint_spec: EndpointSpec) -> dict:
         """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
 
-        视频类 endpoint：supported_durations 缺省（None）或显式传 []（空列表，下游视为非法）时，
-        统一归一为缺省并由 duration_presets 启发式填补。
-        非视频类 endpoint 保持 None。
+        视频类 endpoint：supported_durations 缺省（None）或显式传 []（空列表）时存为缺省。缺省的可选时长
+        在运行时取对应条目，对应不上条目时取按名字推断的时长预设（``docs/adr/0105``），保存时不预填：
+        预设只用于新建模型条目时预填与运行时回落，写进模型行会让它冒充用户设过的值。
 
-        ComfyUI 端点不走那套启发式，也不把空集当缺省：时长这一维由节点绑定决定（``docs/adr/0082``）。
-        ``frames`` 未绑定或读不到帧率来源时这份 workflow 的时长根本不由 ArcReel 驱动，服务端把该
-        模型行的档位钉死为空集——用户在界面上改不动它，改了也无处生效；两者齐备时默认只含 workflow
-        的原生时长，用户可在模型行里增删。模型名在这条通道上与 workflow 能出多长毫无关系。
+        ComfyUI 端点不当空集为缺省：时长这一维由节点绑定决定（``docs/adr/0082``）。``frames`` 未绑定或
+        读不到帧率来源时这份 workflow 的时长根本不由 ArcReel 驱动，服务端把该模型行的档位钉死为空集——
+        用户在界面上改不动它，改了也无处生效；两者齐备时默认只含 workflow 的原生时长，用户可在模型行里
+        增删。模型名在这条通道上与 workflow 能出多长毫无关系。
 
         媒体类型读调用方已解析好的 spec：``ce-`` 端点的媒体类型写在它那份定义里，键前缀推不出来。
         """
         from lib.custom_provider.comfyui.capabilities import default_supported_durations
-        from lib.custom_provider.duration_presets import infer_supported_durations
 
         d = self.model_dump()
         durations = self.supported_durations
@@ -219,13 +221,9 @@ class ModelInput(BaseModel):
             # 默认集为空 = 这份 workflow 的时长不由 ArcReel 驱动，用户传什么都钉回空集。
             default = default_supported_durations(definition)
             durations = (durations or default) if default else default
-        else:
-            # video endpoint：把 [] 当作缺省（下游/前端都不接受空列表），交给 preset 兜底
-            if is_video and durations is not None and len(durations) == 0:
-                durations = None
-            if durations is None and is_video:
-                # endpoint 经 EndpointType 校验，值必在 ENDPOINT_REGISTRY 内，无需 ValueError 兜底
-                durations = infer_supported_durations(self.model_id)
+        elif is_video and not durations:
+            # 空列表与缺省同义：可选时长交给运行时（条目或名字预设），不落一个下游视为非法的空集。
+            durations = None
         d["supported_durations"] = json.dumps(durations) if durations is not None else None
         if endpoint_spec.media_type != "text":
             d["max_output_tokens"] = None
@@ -397,9 +395,7 @@ def _system_capabilities_for(
     判定失败（endpoint 已下线、注册表声明异常）时降级为 None 而非 500：列表端点要能把
     其余模型正常呈现出来，单行判定不出来只是设置页少一段"判定值"提示。
 
-    音轨形态两维不回显：自定义供应商的音轨按「无信号不收紧」处理、不参与派生（见
-    ``CAPABILITY_OVERRIDE_ALLOWLIST`` 的说明），把 backend 侧的静态声明摆到设置页会让用户
-    以为它对自定义模型生效——那正是本口径要避免的分裂。
+    音轨形态两维不回显（见 ``_AUDIO_TRACK_FIELDS`` 的说明）。
     """
     try:
         media_type = endpoint_spec.media_type if endpoint_spec is not None else static_media_type(endpoint)
@@ -431,21 +427,39 @@ def _effective_overrides_for_response(
     音频两维另经 :func:`strip_incoherent_audio_overrides`：单维合法而合起来无意义的组合
     （direct ⊕ 上限 0）过得了 :func:`filter_valid_overrides`，执行层却会把它降到 ``none``，
     回显原值同样落进本函数要消灭的"界面显示已生效、执行其实忽略"。
+
+    模型事实维度只回显该端点媒体类型的、值合法的那些；图片的文生图 / 图生图覆盖为开启而端点没实现时
+    同样隐去（写入侧拒绝同一组合）。ComfyUI 端点不接受覆盖，一律不回显。
     """
-    filtered = _narrow_to_allowlist(
-        filter_valid_overrides(
+    if endpoint_spec is None:
+        try:
+            endpoint_spec = get_endpoint_spec(endpoint)
+        except ValueError:
+            return None
+    if endpoint_spec.kind == COMFYUI_KIND:
+        return None
+    media_type = endpoint_spec.media_type
+    filtered: dict[str, object] = {}
+    if media_type == "video":
+        filtered = strip_incoherent_audio_overrides(
+            _narrow_to_allowlist(
+                filter_valid_overrides(
+                    endpoint=endpoint,
+                    model_id=model_id,
+                    overrides=overrides,
+                    endpoint_spec=endpoint_spec,
+                )
+            ),
             endpoint=endpoint,
             model_id=model_id,
-            overrides=overrides,
             endpoint_spec=endpoint_spec,
         )
-    )
-    filtered = strip_incoherent_audio_overrides(
-        filtered,
-        endpoint=endpoint,
-        model_id=model_id,
-        endpoint_spec=endpoint_spec,
-    )
+    implemented = endpoint_spec.image_capabilities
+    for key, value in model_fact_overrides(overrides, media_type, model_id=model_id).items():
+        image_capability = _IMAGE_CAPABILITY_BY_OVERRIDE_KEY.get(key)
+        if image_capability is not None and value is True and image_capability not in (implemented or frozenset()):
+            continue
+        filtered[key] = value
     return filtered or None
 
 
@@ -613,31 +627,66 @@ def _check_capability_overrides(
 ) -> None:
     """写入侧校验：合成函数对脏值只降级不抛，合法性把关全在这里。
 
-    None 与空字典都表示"全部跟随系统判定"，一律放行。键集合已由 ``ModelInput`` 收窄到开放
-    白名单内，此处校验其余维度：非空覆盖要求 endpoint 为 video 类，值类型与该能力字段一致。
+    None 与空字典都表示"全部跟随条目与通道声明"，一律放行。键集合已由 ``ModelInput`` 收窄到开放
+    白名单内，此处按端点校验其余约束：ComfyUI 端点不接受覆盖；每个键须是该端点媒体类型的维度（通道
+    事实只有视频有）；值的形状与该维度一致；覆盖为开启的能力须是端点真的实现了的。
     """
     if not overrides:
         return
     resolved_spec = spec or get_endpoint_spec(endpoint)
-    if resolved_spec.media_type != "video":
+    if resolved_spec.kind == COMFYUI_KIND:
+        # ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），覆盖值在执行层没有对应物。
         raise HTTPException(
             status_code=422,
-            detail=_t("capability_overrides_video_only", model_id=model_id, endpoint=endpoint),
+            detail=_t("capability_overrides_not_supported_for_comfyui", model_id=model_id),
         )
+    media_type = resolved_spec.media_type
+    applicable = MODEL_FACT_OVERRIDE_KEYS.get(media_type, frozenset()) | (
+        CHANNEL_FACT_OVERRIDE_KEYS if media_type == "video" else frozenset()
+    )
     for key, value in overrides.items():
-        expected = CAPABILITY_OVERRIDE_FIELDS[key]
-        # 值类型判定复用合成层的同一函数：两边各写一份会漂移，届时写入侧放行的值被合成
+        if key not in applicable:
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_not_applicable",
+                    model_id=model_id,
+                    endpoint=endpoint,
+                    media_type=media_type,
+                    capability=key,
+                ),
+            )
+        # 值类型判定复用读取侧的同一函数：两边各写一份会漂移，届时写入侧放行的值被合成
         # 静默忽略，正是本能力覆盖链路要消灭的「界面允许、执行反悔」。
-        if not capability_value_matches(value, expected):
+        if key in CHANNEL_FACT_OVERRIDE_KEYS:
+            expected = CAPABILITY_OVERRIDE_FIELDS[key]
+            valid, expected_name = capability_value_matches(value, expected), capability_type_name(expected)
+        else:
+            valid, expected_name = model_fact_value_matches(key, value), model_fact_type_name(key)
+        if not valid:
             raise HTTPException(
                 status_code=422,
                 detail=_t(
                     "capability_override_invalid_value",
                     model_id=model_id,
                     capability=key,
-                    expected=capability_type_name(expected),
+                    expected=expected_name,
                 ),
             )
+        # 图片的文生图 / 图生图覆盖替换的是模型事实一侧，生效能力仍要与通道声明取交集：端点没实现的
+        # 能力覆盖为开启也打不开，拒在这里而不是让界面显示已开启。
+        if key in _IMAGE_CAPABILITY_BY_OVERRIDE_KEY and value is True:
+            implemented = resolved_spec.image_capabilities or frozenset()
+            if _IMAGE_CAPABILITY_BY_OVERRIDE_KEY[key] not in implemented:
+                raise HTTPException(
+                    status_code=422,
+                    detail=_t(
+                        "capability_override_image_unsupported",
+                        model_id=model_id,
+                        endpoint=endpoint,
+                        capability=key,
+                    ),
+                )
         # last_frame 覆盖为 True 时，endpoint 的 delegate.generate() 必须真的会读取
         # end_image 下传尾帧约束——否则覆盖只是让合成层宣称支持，执行层仍静默生成无约束视频。
         if key == "last_frame" and value is True and not resolved_spec.end_image_capable:
