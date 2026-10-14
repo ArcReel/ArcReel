@@ -54,18 +54,22 @@ def _utc_now_iso() -> str:
 
 
 def _draft_paths(project_path: Path) -> list[tuple[str, Path]]:
-    """可能在场的草稿文件（状态键 → 路径）；各集各来源都列出，文件是否存在由调用方判定。"""
+    """可能在场的草稿文件（状态键 → 路径）；各集各来源都列出，文件是否存在由调用方判定。
+
+    只处理 ``drafts/`` 下名为 ``episode_<数字>`` 的目录；路径沿用磁盘真实目录名（``episode_007`` 不规范化成
+    ``episode_7``），状态键里的集号才取整数值。
+    """
     drafts_root = project_path / "drafts"
     paths: list[tuple[str, Path]] = []
     if not drafts_root.is_dir():
         return paths
     for episode_dir in sorted(drafts_root.glob("episode_*")):
         suffix = episode_dir.name.removeprefix("episode_")
-        if not suffix.isdigit():
+        if not suffix.isdigit() or not episode_dir.is_dir():
             continue
         episode = int(suffix)
         paths.extend(
-            (draft_state_key(episode, kind), quarantine_path(project_path, episode, kind))
+            (draft_state_key(episode, kind), episode_dir / quarantine_path(project_path, episode, kind).name)
             for kind in DOC_TYPE_TO_QUARANTINE_KIND.values()
         )
     return paths
