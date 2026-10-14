@@ -69,6 +69,8 @@ dev = [
     "deptry>=0.24.0",
     "pytest-testmon>=2.2.0",
     "blockbuster>=1.5.29",
+    # 目录数据校验器子包：应用代码尚未导入它，经 dev 组装进开发环境，供子包测试、类型检查与分层契约使用。
+    "arcreel-catalog-core",
 ]
 # 变异测试工具，不进 dev：只在按批次跑 mutmut 时 `uv sync --group mutation` 装入。
 # 独立成组是为了让版本 pin 进 uv.lock、被 dependabot 看到；流程见 docs/testing/mutmut-runbook.md。
@@ -77,10 +79,11 @@ mutation = [
 ]
 
 [tool.uv.workspace]
-members = ["packages/arcreel-market-core"]
+members = ["packages/arcreel-market-core", "packages/arcreel-catalog-core"]
 
 [tool.uv.sources]
 arcreel-market-core = { workspace = true }
+arcreel-catalog-core = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
@@ -111,7 +114,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["lib", "server", "arcreel_market_core"]
+source = ["lib", "server", "arcreel_market_core", "arcreel_catalog_core"]
 concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
@@ -126,7 +129,7 @@ exclude_lines = [
 # server 进入分析范围，「核心库不依赖服务端」才看得见跨包的边；arcreel_market_core 进入分析范围，
 # 「子包不依赖主仓」才看得见它指向 lib / server 的边。外部包只作叶子节点计入，供「核心库不依赖
 # HTTP 框架」点名 fastapi / starlette。
-root_packages = ["lib", "server", "arcreel_market_core"]
+root_packages = ["lib", "server", "arcreel_market_core", "arcreel_catalog_core"]
 include_external_packages = true
 
 # lib.config < lib.backends.*_backends < lib.custom_provider < lib.market：config 是配置解析的基础层，backends
@@ -205,6 +208,14 @@ name = "arcreel_market_core 不依赖主仓"
 type = "forbidden"
 source_modules = ["arcreel_market_core"]
 forbidden_modules = ["lib", "server"]
+
+# arcreel_catalog_core 同为最底层：目录数据的格式与校验器被目录数据仓库的 CI 单独安装，
+# 只依赖标准库，主仓依赖子包，反向一律不许。
+[[tool.importlinter.contracts]]
+name = "arcreel_catalog_core 不依赖主仓"
+type = "forbidden"
+source_modules = ["arcreel_catalog_core"]
+forbidden_modules = ["lib", "server", "arcreel_market_core"]
 
 # 路线中立层不得依赖某一条具体路线的子包。违约条目类型（draft_violation）、草稿信封
 # （draft_quarantine）、正式 script_plan 的路径与写禁表（episode_paths）、已登记引用名的
@@ -316,8 +327,8 @@ DEP004 = [
 
 [tool.ruff]
 line-length = 120
-# 子包是 src 布局：列进 src 让 isort 把 arcreel_market_core 识别为第一方。
-src = [".", "packages/arcreel-market-core/src"]
+# 子包是 src 布局：列进 src 让 isort 把 arcreel_market_core、arcreel_catalog_core 识别为第一方。
+src = [".", "packages/arcreel-market-core/src", "packages/arcreel-catalog-core/src"]
 # .agents/skills 是按 skills-lock.json 安装的外部 skill，随上游更新，不套本仓规则。
 exclude = [".worktrees", ".claude/worktrees", ".agents/skills"]
 
@@ -341,7 +352,7 @@ extend-immutable-calls = [
 ]
 
 [tool.basedpyright]
-include = ["lib", "server", "alembic", "tests", "scripts", "packages/arcreel-market-core/src", "packages/arcreel-market-core/tests"]
+include = ["lib", "server", "alembic", "tests", "scripts", "packages/arcreel-market-core/src", "packages/arcreel-market-core/tests", "packages/arcreel-catalog-core/src", "packages/arcreel-catalog-core/tests"]
 exclude = [
     "**/__pycache__",
     ".venv",
@@ -414,6 +425,21 @@ reportOptionalCall = "none"
 [[tool.basedpyright.executionEnvironments]]
 root = "packages/arcreel-market-core/tests"
 extraPaths = ["packages/arcreel-market-core/tests"]
+reportPrivateUsage = "none"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownVariableType = "none"
+reportArgumentType = "none"
+reportAttributeAccessIssue = "none"
+reportOptionalSubscript = "none"
+reportOptionalMemberAccess = "none"
+reportOptionalIterable = "none"
+reportOperatorIssue = "none"
+reportOptionalCall = "none"
+
+[[tool.basedpyright.executionEnvironments]]
+root = "packages/arcreel-catalog-core/tests"
+extraPaths = ["packages/arcreel-catalog-core/tests"]
 reportPrivateUsage = "none"
 reportUnknownMemberType = "none"
 reportUnknownArgumentType = "none"

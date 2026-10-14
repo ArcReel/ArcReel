@@ -13,6 +13,7 @@ resolution-markers = [
 [manifest]
 members = [
     "arcreel",
+    "arcreel-catalog-core",
     "arcreel-market-core",
 ]
 
@@ -261,6 +262,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "arcreel-catalog-core" },
     { name = "basedpyright" },
     { name = "blockbuster" },
     { name = "deptry" },
@@ -327,6 +329,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "arcreel-catalog-core", editable = "packages/arcreel-catalog-core" },
     { name = "basedpyright", specifier = ">=1.39.4" },
     { name = "blockbuster", specifier = ">=1.5.29" },
     { name = "deptry", specifier = ">=0.24.0" },
@@ -343,6 +346,21 @@ dev = [
     { name = "ruff", specifier = ">=0.16.0" },
 ]
 mutation = [{ name = "mutmut", specifier = "==3.7.0" }]
+
+[[package]]
+name = "arcreel-catalog-core"
+version = "0.1.0"
+source = { editable = "packages/arcreel-catalog-core" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.2" }]
 
 [[package]]
 name = "arcreel-market-core"
