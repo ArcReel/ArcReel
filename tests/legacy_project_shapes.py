@@ -197,7 +197,10 @@ def write_legacy_retired_flash_lite_project(root: Path, *, provider_id: str) -> 
 
 
 def write_legacy_retired_model_references_project(root: Path) -> Path:
-    """schema 17 项目的图片字段引用已改名的 Gemini 图片 preview ID，视频字段引用已下架而没有后继的模型。"""
+    """schema 17 项目的图片字段引用已改名的 Gemini 图片 preview ID，视频字段引用已下架而没有后继的模型。
+
+    ``model_settings`` 按旧 ID 存了分辨率；其中一个后继 ID 下另有设置。
+    """
 
     project_dir = write_legacy_storyboard_project(root, name="legacy-retired-model-references")
     advance_project_schema(project_dir, to_version=17)
@@ -208,6 +211,11 @@ def write_legacy_retired_model_references_project(root: Path) -> Path:
             "default_image_backend": "gemini-aistudio/gemini-3.1-flash-image-preview",
             "image_provider_i2i": "gemini-vertex/gemini-3-pro-image-preview",
             "video_backend": "openai/sora-2",
+            "model_settings": {
+                "gemini-aistudio/gemini-3.1-flash-image-preview": {"resolution": "4K"},
+                "gemini-vertex/gemini-3-pro-image-preview": {"resolution": "2K"},
+                "gemini-vertex/gemini-3-pro-image": {"resolution": "1K"},
+            },
         }
     )
     _write_json(project_path, project)

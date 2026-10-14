@@ -144,3 +144,13 @@ def test_model_pricing_reads_registry_pricing(monkeypatch):
     assert catalog.model_pricing("acme", "chat") is None
     assert catalog.model_pricing("acme", "missing") is None
     assert catalog.model_pricing("unknown-provider", "img-new") is None
+
+
+def test_reset_for_tests_reloads_snapshot_and_index():
+    before = catalog.factory_snapshot()
+    model = catalog.get_model("gemini-aistudio", "gemini-3-pro-image")
+
+    catalog.reset_for_tests()
+
+    assert catalog.factory_snapshot() is not before
+    assert catalog.get_model("gemini-aistudio", "gemini-3-pro-image") == model

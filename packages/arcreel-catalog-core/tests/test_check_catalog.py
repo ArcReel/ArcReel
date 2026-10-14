@@ -113,6 +113,16 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
             id="联动约束引用条目没有的分辨率",
         ),
         pytest.param(
+            _mutate("entries[2].price.meters[0].rows[0].when.resolution", "2k"),
+            ("entries[2].price.meters[0].rows[0].when.resolution", "resolution_case_mismatch"),
+            id="价目表行的分辨率与条目声明的分辨率只差大小写",
+        ),
+        pytest.param(
+            _mutate("entries[1].price.meters[0].defaults.resolution", "1080P"),
+            ("entries[1].price.meters[0].defaults.resolution", "resolution_case_mismatch"),
+            id="价目表缺省分辨率与条目声明的分辨率只差大小写",
+        ),
+        pytest.param(
             _mutate("builtin_providers.kling.models[0].media_type", None),
             ("builtin_providers.kling.models[0].entry", "ambiguous_entry"),
             id="引用两栖模型未写媒体类型",
@@ -128,6 +138,11 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
             _mutate("builtin_providers.kling.defaults.audio", "kling-v3-omni"),
             ("builtin_providers.kling.defaults.audio", "unknown_default_model"),
             id="默认模型不在该供应商该媒体类型的清单中",
+        ),
+        pytest.param(
+            _mutate("builtin_providers.kling.defaults.vidoe", "kling-v3-omni"),
+            ("builtin_providers.kling.defaults.vidoe", "unknown_media_type"),
+            id="默认模型的媒体类型键拼错",
         ),
         pytest.param(
             _mutate("entries[0].discontinued", True),
@@ -146,3 +161,20 @@ def test_build_side_rejects(mutation: Callable[[dict[str, Any]], None], expected
     mutation(data)
 
     assert _codes(data) == [expected]
+
+
+def test_price_rows_for_resolutions_beyond_entry_facts_are_allowed():
+    """条目声明之外的档位照常定价：存量设置或 Agent 入参仍可能带着它们进入计费。"""
+    data = catalog()
+    data["entries"][2]["price"]["meters"][0]["rows"].append({"when": {"resolution": "4K"}, "price": 0.4})
+    data["entries"][1]["price"]["meters"][0]["rows"].append({"when": {"resolution": "4k"}, "price": 2.0})
+
+    assert check_catalog(data) == []
+
+
+def test_price_resolution_case_is_unchecked_when_entry_declares_no_resolutions():
+    data = catalog()
+    del data["entries"][2]["facts"]["resolutions"]
+    data["entries"][2]["price"]["meters"][0]["rows"][0]["when"]["resolution"] = "2k"
+
+    assert check_catalog(data) == []

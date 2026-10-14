@@ -5,8 +5,9 @@
 供应商一级的代码事实（凭证形态、调用通道、默认地址、并发默认）。
 
 模型清单、条目事实与默认模型取自随代码打包的出厂快照（``lib/catalog/snapshot/``），加载时过
-``arcreel_catalog_core`` 的实例侧校验。价格暂时仍取自注册表的 ``ModelInfo.pricing``，见 :func:`model_pricing`。
-返回值是目录自己的值对象 :class:`CatalogModel`，调用方不接触目录数据的原始类型。
+``arcreel_catalog_core`` 的实例侧校验。价格取自注册表的 ``ModelInfo.pricing``，见 :func:`model_pricing`。
+供应商模型一级的查询返回目录自己的值对象（:class:`CatalogModel`、:class:`CatalogSearchHit`）；按名字对应条目的
+:func:`find_entry` 返回 ``arcreel_catalog_core`` 的 ``CatalogEntry``，调用方要的正是条目本身的键、事实与价目表。
 """
 
 from __future__ import annotations
@@ -163,6 +164,12 @@ def _provider_models(provider_id: str) -> dict[str, CatalogModel]:
     return _index_cache[0][1].get(provider_id, {})
 
 
+def reset_for_tests() -> None:
+    """清空出厂快照与索引的进程级缓存，下次查询重新读取快照；只清缓存，不改生产行为。"""
+    factory_snapshot.cache_clear()
+    _index_cache.clear()
+
+
 def get_model(provider_id: str, model_id: str) -> CatalogModel | None:
     """按供应商与模型键取目录信息；供应商或模型不在目录中时返回 ``None``。"""
     return _provider_models(provider_id).get(model_id)
@@ -207,7 +214,7 @@ def find_entry(
 def model_pricing(provider_id: str, model_id: str) -> Pricing | None:
     """模型的定价声明；模型不在注册表中或没有定价时返回 ``None``。
 
-    价格仍读注册表的 ``ModelInfo.pricing``，计费改按出厂快照的价目表计价前，快照里的价目表还没有消费方。
+    价格读注册表的 ``ModelInfo.pricing``；出厂快照里的价目表目前没有消费方。
     """
     meta = registry.PROVIDER_REGISTRY.get(provider_id)
     info = meta.models.get(model_id) if meta is not None else None

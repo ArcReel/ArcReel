@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-14T15:03:38Z",
+  "dataset_version": "2026-10-15T10:00:00Z",
   "entries": [
     {
       "maker": "google",
@@ -2289,6 +2289,114 @@
             "defaults": {
               "service_tier": "standard"
             }
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
+      "name": "gpt-5.5-pro",
+      "media_type": "text",
+      "display_name": "GPT-5.5 Pro",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 128000
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 30.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 180.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
+      "name": "gpt-5.3-codex",
+      "media_type": "text",
+      "display_name": "GPT-5.3-Codex",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 128000
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.75
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 14.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
+      "name": "o3-pro",
+      "media_type": "text",
+      "display_name": "o3-pro",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 100000
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 20.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 80.0
+              }
+            ]
           }
         ]
       }
@@ -4943,7 +5051,7 @@
               },
               {
                 "when": {
-                  "resolution": "2k"
+                  "resolution": "2K"
                 },
                 "price": 0.055
               }
@@ -5003,6 +5111,116 @@
           }
         ]
       }
+    },
+    {
+      "maker": "google",
+      "name": "gemini-3.8-flash-tts",
+      "media_type": "audio",
+      "display_name": "Gemini 3.8 Flash TTS",
+      "facts": {},
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "audio_output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 9.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "google",
+      "name": "gemini-3.8-flash-lite-tts",
+      "media_type": "audio",
+      "display_name": "Gemini 3.8 Flash-Lite TTS",
+      "facts": {},
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "audio_output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "minimax",
+      "name": "speech-2.8-hd",
+      "media_type": "audio",
+      "display_name": "MiniMax Speech 2.8 HD",
+      "facts": {},
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "characters",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.5
+              }
+            ],
+            "cjk_double": true
+          }
+        ]
+      }
+    },
+    {
+      "maker": "minimax",
+      "name": "speech-2.8-turbo",
+      "media_type": "audio",
+      "display_name": "MiniMax Speech 2.8 Turbo",
+      "facts": {},
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "characters",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ],
+            "cjk_double": true
+          }
+        ]
+      }
     }
   ],
   "builtin_providers": {
@@ -5039,12 +5257,21 @@
         {
           "api_model_name": "veo-3.1-lite-generate-preview",
           "entry": "google/veo-3.1-lite-generate-preview"
+        },
+        {
+          "api_model_name": "gemini-3.8-flash-tts",
+          "entry": "google/gemini-3.8-flash-tts"
+        },
+        {
+          "api_model_name": "gemini-3.8-flash-lite-tts",
+          "entry": "google/gemini-3.8-flash-lite-tts"
         }
       ],
       "defaults": {
         "text": "gemini-3-flash-preview",
         "image": "gemini-3.1-flash-image",
-        "video": "veo-3.1-lite-generate-preview"
+        "video": "veo-3.1-lite-generate-preview",
+        "audio": "gemini-3.8-flash-tts"
       }
     },
     "gemini-vertex": {
@@ -5076,12 +5303,21 @@
         {
           "api_model_name": "veo-3.1-fast-generate-001",
           "entry": "google/veo-3.1-fast-generate-001"
+        },
+        {
+          "api_model_name": "gemini-3.8-flash-tts",
+          "entry": "google/gemini-3.8-flash-tts"
+        },
+        {
+          "api_model_name": "gemini-3.8-flash-lite-tts",
+          "entry": "google/gemini-3.8-flash-lite-tts"
         }
       ],
       "defaults": {
         "text": "gemini-3-flash-preview",
         "image": "gemini-3.1-flash-image",
-        "video": "veo-3.1-fast-generate-001"
+        "video": "veo-3.1-fast-generate-001",
+        "audio": "gemini-3.8-flash-tts"
       }
     },
     "ark": {
@@ -5258,6 +5494,18 @@
           "entry": "openai/gpt-5.4-nano"
         },
         {
+          "api_model_name": "gpt-5.5-pro",
+          "entry": "openai/gpt-5.5-pro"
+        },
+        {
+          "api_model_name": "gpt-5.3-codex",
+          "entry": "openai/gpt-5.3-codex"
+        },
+        {
+          "api_model_name": "o3-pro",
+          "entry": "openai/o3-pro"
+        },
+        {
           "api_model_name": "gpt-image-2",
           "entry": "openai/gpt-image-2"
         }
@@ -5426,12 +5674,21 @@
         {
           "api_model_name": "MiniMax-Hailuo-2.3-Fast",
           "entry": "minimax/MiniMax-Hailuo-2.3-Fast"
+        },
+        {
+          "api_model_name": "speech-2.8-hd",
+          "entry": "minimax/speech-2.8-hd"
+        },
+        {
+          "api_model_name": "speech-2.8-turbo",
+          "entry": "minimax/speech-2.8-turbo"
         }
       ],
       "defaults": {
         "text": "MiniMax-M3",
         "image": "image-01",
-        "video": "MiniMax-H3"
+        "video": "MiniMax-H3",
+        "audio": "speech-2.8-hd"
       }
     },
     "kling": {

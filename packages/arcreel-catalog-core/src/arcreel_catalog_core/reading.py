@@ -251,6 +251,7 @@ class CatalogReader:
         price = None
         if data.get("price") is not None:
             price = self.price_table(data["price"], known_media_type, _at(path, "price"))
+            self.check_price_resolutions(price, facts, _at(path, "price"))
         return CatalogEntry(
             maker=maker,
             name=name,
@@ -377,6 +378,32 @@ class CatalogReader:
         self.check_dimension_values(when, dims, _at(path, "when"))
         return PriceRow(when=when, price=self.number(data.get("price"), _at(path, "price")))
 
+    def check_price_resolutions(self, price: PriceTable, facts: ModelFacts, path: str) -> None:
+        """价目表的分辨率取值与条目声明的某个分辨率只差大小写时报错：那是错写，按原样永远命中不了请求。
+
+        条目声明之外的其他档位放行：提交环节没有统一按条目声明拦截分辨率，存量设置或 Agent 入参仍可能
+        带着这些档位进入计费，价目表要能给它们定价。条目没有声明分辨率时不查。
+        """
+        resolutions = facts.resolutions if isinstance(facts, ImageFacts | VideoFacts) else ()
+        by_casefold = {resolution.casefold(): resolution for resolution in resolutions}
+        for meter_index, meter in enumerate(price.meters):
+            if "resolution" not in meter.dims:
+                continue  # 未声明的维度已报 dimension_not_declared
+            meter_path = _at(path, f"meters[{meter_index}]")
+            selections = [(_at(meter_path, f"rows[{i}].when"), row.when) for i, row in enumerate(meter.rows)]
+            selections.append((_at(meter_path, "defaults"), meter.defaults))
+            for selection_path, selection in selections:
+                value = selection.get("resolution")
+                if not isinstance(value, str) or value in resolutions:
+                    continue
+                declared = by_casefold.get(value.casefold())
+                if declared is not None:
+                    self.flag(
+                        _at(selection_path, "resolution"),
+                        "resolution_case_mismatch",
+                        f"分辨率与条目声明的「{declared}」只差大小写",
+                    )
+
     def check_dimension_values(self, values: Mapping[str, object], dims: tuple[str, ...], path: str) -> None:
         for dim, value in values.items():
             if dim not in dims:
@@ -456,6 +483,9 @@ class CatalogReader:
                 listed.setdefault(slot, entry)
             for media_type, api_model_name in listing.defaults.items():
                 default_path = _at(path, f"defaults.{media_type}")
+                if media_type not in MEDIA_TYPES:
+                    self.flag(default_path, "unknown_media_type", "不认识的媒体类型")
+                    continue
                 default_entry = listed.get((api_model_name, media_type))
                 if default_entry is None:
                     if api_model_name in unresolved:

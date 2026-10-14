@@ -84,13 +84,27 @@ def migrate_timeline_dict(document: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def migrate_project_model_references(project: Mapping[str, Any]) -> dict[str, Any]:
-    """纯函数：把 ``project.json`` 模型字段里精确的退役模型引用改写为后继模型。幂等；非字符串脏值原样保留。"""
+    """纯函数：把 ``project.json`` 模型字段里精确的退役模型引用改写为后继模型。幂等；非字符串脏值原样保留。
+
+    ``model_settings`` 以 ``provider/model`` 为键（如图片模型的分辨率），退役模型的那一项随之换到后继模型的键下，
+    否则改名后按后继模型查不到、静默回到缺省分辨率。后继模型的键已有设置时以它为准，旧键原样留下。
+    """
 
     migrated = dict(project)
     for key in PROJECT_MODEL_SETTING_KEYS:
         value = migrated.get(key)
         if isinstance(value, str):
             migrated[key] = migrate_retired_model_reference(value)
+    model_settings = migrated.get("model_settings")
+    if isinstance(model_settings, dict):
+        renamed: dict[str, Any] = {}
+        for key, entry in model_settings.items():
+            successor = migrate_retired_model_reference(key) if isinstance(key, str) else key
+            if successor != key and successor not in model_settings:
+                renamed[successor] = entry
+            else:
+                renamed[key] = entry
+        migrated["model_settings"] = renamed
     return migrated
 
 

@@ -1131,6 +1131,22 @@ class TestResolveVideoBackend:
         assert resolved.provider_id == "ark"
         assert resolved.model_id == "doubao-seedance-2-0-mini-260615"  # registry 中 ark 的默认 video model
 
+    async def test_project_bare_provider_without_video_models_is_rejected(self):
+        """裸 provider 在模型目录里没有视频模型（openai 已移出 Sora）→ 报「不在模型清单中」，不回退到全局默认的另一供应商。"""
+        from lib.catalog.errors import ModelNotInCatalogError
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={"default_video_backend": "grok/grok-imagine-video"})
+        project = {"video_backend": "openai"}
+        with pytest.raises(ModelNotInCatalogError) as exc_info:
+            await resolver._resolve_video_provider_model(fake_svc, None, project, {})
+        assert (exc_info.value.provider_id, exc_info.value.media_type) == ("openai", "video")
+        # 没有模型名可报：文案说该供应商给不出这一类生成，不渲染出 "openai/" 这样的残缺引用
+        assert (exc_info.value.code, exc_info.value.params) == (
+            "provider_unsupported_media",
+            {"provider_id": "openai", "media_type": "video"},
+        )
+
     async def test_payload_without_pinned_bucket_key_falls_through_to_project(self):
         """payload 层只认锁定的任务类型桶键：非桶键的 provider 字段不参与解析，一律回退配置层。"""
         resolver = ConfigResolver.__new__(ConfigResolver)

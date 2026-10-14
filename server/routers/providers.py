@@ -23,6 +23,7 @@ from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_m
 from lib.backends.gemini_shared import VERTEX_SCOPES
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import (
@@ -463,6 +464,9 @@ async def get_model_video_capabilities(
     except VideoRequestFactsError as exc:
         # 视频请求事实的问题码即 errors 目录 key（ValueError 子类，须先于其捕获）
         raise UnprocessableError(exc.code, **exc.params) from exc
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
     except ValueError as exc:
         # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
         logger.warning("视频模型 '%s' 能力解析失败: %s", video_backend, exc)

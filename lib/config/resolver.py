@@ -28,6 +28,7 @@ from lib.backends.backend_assembly.specs import (
 )
 from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import (
     _DEFAULT_AUDIO_BACKEND,
@@ -117,7 +118,8 @@ def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | N
     - 其余 → None（交由全局默认解析）
 
     裸供应商经写边界（``validate_backend_value`` 只放行 registry key）保证是规范 id，这里
-    pin 住该供应商并补全其默认 model，避免静默回退到全局默认的**另一**供应商。"""
+    pin 住该供应商并补全其默认 model，避免静默回退到全局默认的**另一**供应商。补不出默认 model
+    的裸内置供应商同样不回退，由解析骨架报错（``_reject_bare_builtin_without_default``）。"""
     pair = _split_pair(raw)
     if pair is not None:
         return pair
@@ -129,6 +131,19 @@ def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | N
             if model is not None:
                 return provider, model
     return None
+
+
+def _reject_bare_builtin_without_default(raw: object, media_type: str) -> None:
+    """项目层的裸内置供应商在该媒体类型下没有默认模型（如 openai 已无视频模型）时报错。
+
+    只在 ``_parse_project_provider`` 返回 None 之后调用：此时裸值若是内置供应商，说明它在模型目录里
+    没有这一媒体类型的模型。报「不在模型清单中」让用户重新选择，不回退到另一供应商去生成和计费。
+    """
+    if not isinstance(raw, str):
+        return
+    provider = raw.strip().rstrip("/").strip()
+    if provider in PROVIDER_REGISTRY:
+        raise ModelNotInCatalogError(provider_id=provider, model_id="", media_type=media_type)
 
 
 def _trusted_payload_provider(provider_id: object) -> str | None:
@@ -1059,9 +1074,11 @@ class ConfigResolver:
             for project_key in (keys.project_bucket_key, keys.project_default_key):
                 if project_key is None:
                     continue
-                parsed = _parse_project_provider(project.get(project_key), keys.media_type)
+                raw = project.get(project_key)
+                parsed = _parse_project_provider(raw, keys.media_type)
                 if parsed is not None:
                     return parsed
+                _reject_bare_builtin_without_default(raw, keys.media_type)
         settings = await svc.get_all_settings()
         if keys.global_bucket_key is not None:
             raw = settings.get(keys.global_bucket_key, "")

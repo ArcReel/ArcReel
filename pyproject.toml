@@ -439,17 +439,6 @@ reportOptionalCall = "none"
 [[tool.basedpyright.executionEnvironments]]
 root = "packages/arcreel-catalog-core/tests"
 extraPaths = ["packages/arcreel-catalog-core/tests"]
-reportPrivateUsage = "none"
-reportUnknownMemberType = "none"
-reportUnknownArgumentType = "none"
-reportUnknownVariableType = "none"
-reportArgumentType = "none"
-reportAttributeAccessIssue = "none"
-reportOptionalSubscript = "none"
-reportOptionalMemberAccess = "none"
-reportOptionalIterable = "none"
-reportOperatorIssue = "none"
-reportOptionalCall = "none"
 
 [[tool.basedpyright.executionEnvironments]]
 root = "alembic"

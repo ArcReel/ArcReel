@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.generation.generation_queue import ActiveTaskRequestConflict
 from lib.generation.generation_queue_client import TaskSpecValidationError
 from lib.i18n import _
@@ -46,6 +47,14 @@ def _make_client() -> TestClient:
     @app.get("/active-video-request-conflict")
     async def _active_video_request_conflict():
         raise ActiveTaskRequestConflict(resource_id="E1S01", existing_task_id="task-existing")
+
+    @app.get("/model-not-in-catalog")
+    async def _model_not_in_catalog():
+        raise ModelNotInCatalogError(provider_id="ark", model_id="doubao-seed-1-8-251228", media_type="text")
+
+    @app.get("/provider-without-catalog-model")
+    async def _provider_without_catalog_model():
+        raise ModelNotInCatalogError(provider_id="openai", model_id="", media_type="video")
 
     @app.get("/script-edit-error")
     async def _script_edit_error():
@@ -155,6 +164,22 @@ class TestLibExceptionHandlers:
         # detail 是翻译后的成品文案，不是裸 code
         assert resp.json()["detail"] != "prompt_text_empty"
 
+    def test_model_not_in_catalog_400_asks_to_reselect(self):
+        client = _make_client()
+        resp = client.get("/model-not-in-catalog", headers={"Accept-Language": "en"})
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "doubao-seed-1-8-251228" in detail
+        assert "re-select a model" in detail
+
+    def test_provider_without_catalog_model_names_the_media_type(self):
+        client = _make_client()
+        resp = client.get("/provider-without-catalog-model", headers={"Accept-Language": "en"})
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert "does not support video generation" in detail
+        assert "/:" not in detail
+
     def test_script_edit_error_400(self):
         client = _make_client()
         resp = client.get("/script-edit-error")
@@ -199,7 +224,14 @@ class TestRealAppRegistration:
     def test_server_app_registers_all_handlers(self):
         from server.app import app as real_app
 
-        for exc_type in (ApiError, TaskSpecValidationError, ScriptEditError, FileNotFoundError, Exception):
+        for exc_type in (
+            ApiError,
+            TaskSpecValidationError,
+            ModelNotInCatalogError,
+            ScriptEditError,
+            FileNotFoundError,
+            Exception,
+        ):
             assert exc_type in real_app.exception_handlers, f"{exc_type} 未注册 app 级 handler"
 
 

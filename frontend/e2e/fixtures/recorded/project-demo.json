@@ -4,7 +4,7 @@
   "status": 200,
   "body": {
     "project": {
-      "schema_version": 17,
+      "schema_version": 18,
       "title": "演示项目",
       "content_mode": "narration",
       "aspect_ratio": "9:16",

@@ -27,8 +27,7 @@ ArcReel 模型目录数据的格式定义与校验器。ArcReel 应用加载出�
   "aliases": ["gemini-3.1-pro-latest"],
   "discontinued": false,
   "context_length": 1048576,
-  "facts": {"image_input": true, "structured_output": true, "max_output_tokens": 65536},
-  "price": {"currency": "USD", "meters": []}
+  "facts": {"image_input": true, "structured_output": true, "max_output_tokens": 65536}
 }
 ```
 

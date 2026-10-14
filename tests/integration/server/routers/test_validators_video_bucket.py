@@ -1,6 +1,7 @@
 """视频生成入口预检 ``require_video_bucket_capability`` 的行为：
 
 - 解析结果缺桶所需能力 / 悬空引用 → ``BadRequestError``（携带 errors 目录 key 与参数）；
+- 引用的模型不在供应商清单中 → 原样抛 ``ModelNotInCatalogError``，由 app 级 handler 返回 400；
 - 其余解析失败（未配置任何供应商）→ 放行，不把非能力类失败升级为提交期拒绝。
 """
 
@@ -9,6 +10,7 @@ from __future__ import annotations
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.service import ConfigService
 from lib.infra.api_errors import BadRequestError
 from server.routers._validators import require_video_bucket_capability
@@ -46,3 +48,12 @@ class TestRequireVideoBucketCapability:
         monkeypatch.setattr("lib.db.async_session_factory", db_factory)
 
         assert await require_video_bucket_capability({}, "i2v") is None
+
+    async def test_bare_builtin_provider_without_video_model_is_rejected(self, db_factory, monkeypatch):
+        """项目层裸写的内置供应商在目录里没有视频默认模型：提交期就报重新选择模型，不放行入队。"""
+        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+
+        with pytest.raises(ModelNotInCatalogError) as exc_info:
+            await require_video_bucket_capability({"video_backend": "openai"}, "i2v")
+
+        assert (exc_info.value.provider_id, exc_info.value.media_type) == ("openai", "video")

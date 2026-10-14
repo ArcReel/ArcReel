@@ -54,7 +54,7 @@ Providers' specific models, parameters, regional availability, and pricing chang
 | Gemini | ✅ | ✅ | ✅ | ✅ | Multimodal text, reference images, video generation, and TTS |
 | Volcengine Ark | ✅ | ✅ | ✅ | — | Text, image, and video generation in mainland China network environments |
 | Grok | ✅ | ✅ | ✅ | — | Text, image, and video generation |
-| OpenAI | ✅ | ✅ | ✅ | — | Text, image, and video generation |
+| OpenAI | ✅ | ✅ | — | — | Text and image generation |
 | Vidu | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
 | DashScope | ✅ | ✅ | ✅ | ✅ | Text, image, video, and voice-over TTS |
 | MiniMax | ✅ | ✅ | ✅ | ✅ | Text, image, video generation, and TTS |
@@ -62,7 +62,7 @@ Providers' specific models, parameters, regional availability, and pricing chang
 | Agnes | ✅ | ✅ | ✅ | — | Text, image, and video generation |
 | Custom Providers | Interface-dependent | Interface-dependent | Interface-dependent | Interface-dependent | Private gateways, local models, or third-party compatible services |
 
-The built-in OpenAI provider offers text, image, and video capabilities. OpenAI-compatible TTS is connected through a Custom Provider's TTS call endpoint.
+The built-in OpenAI provider offers text and image capabilities. OpenAI-compatible video and TTS are connected through a Custom Provider's call endpoints.
 
 ## 3. Configuration Layers {#configuration-layers}
 

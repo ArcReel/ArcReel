@@ -39,8 +39,8 @@ ModelCapability = Literal[
 class ModelInfo:
     """注册表中一个模型的登记。
 
-    目录查询（``lib.catalog.query``）的模型清单、能力、显示名与默认模型改读出厂快照
-    ``lib/catalog/snapshot/``，这里除 ``pricing`` 外的字段已不被生产代码读取，只与快照逐项核对
+    目录查询（``lib.catalog.query``）的模型清单、能力、显示名与默认模型读出厂快照
+    ``lib/catalog/snapshot/``，这里除 ``pricing`` 外的字段不被生产代码读取，只与快照逐项核对
     （``tests/unit/lib/catalog/test_factory_snapshot.py``）：增删改模型时两处同步修改，改完快照用
     ``python -m arcreel_catalog_core write-manifest lib/catalog/snapshot`` 重写清单文件。``pricing`` 仍是计费的数据来源。
     """

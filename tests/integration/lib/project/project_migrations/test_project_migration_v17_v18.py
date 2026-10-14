@@ -54,6 +54,12 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
         "image_provider_i2i": "gemini-vertex/gemini-3-pro-image",
         # 已下架而没有后继的模型原样保留，运行时报错由用户重新选择
         "video_backend": "openai/sora-2",
+        # 按旧 ID 存的分辨率跟到后继 ID 下；后继 ID 已有设置时以它为准，旧键原样留下
+        "model_settings": {
+            "gemini-aistudio/gemini-3.1-flash-image": {"resolution": "4K"},
+            "gemini-vertex/gemini-3-pro-image-preview": {"resolution": "2K"},
+            "gemini-vertex/gemini-3-pro-image": {"resolution": "1K"},
+        },
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
     migrated = _read_json(project_dir / "project.json")
@@ -62,6 +68,8 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
     i2i = await resolver.resolve_image_backend(migrated, None, generation_type="i2i")
     assert (t2i.provider_id, t2i.model_id) == ("gemini-aistudio", "gemini-3.1-flash-image")
     assert (i2i.provider_id, i2i.model_id) == ("gemini-vertex", "gemini-3-pro-image")
+    assert await resolver.resolve_resolution(migrated, t2i.provider_id, t2i.model_id) == "4K"
+    assert await resolver.resolve_resolution(migrated, i2i.provider_id, i2i.model_id) == "1K"
 
 
 async def test_schema_17_timeline_with_agent_turn_reads_after_migration(tmp_path: Path) -> None:

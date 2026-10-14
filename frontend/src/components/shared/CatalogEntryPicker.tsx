@@ -87,7 +87,8 @@ function PickerBody({
     return () => controller.abort();
   }, [debouncedQuery, filter, attempt, requestKey]);
 
-  const settled = result !== null && result.key === requestKey;
+  // 结果对应当前输入才算就绪：防抖未到期或请求未返回时，列表里仍是上一次的结果
+  const settled = result !== null && result.key === requestKey && debouncedQuery === query.trim();
   const makerLabel = (maker: string) => t(`dashboard:catalog_maker_${maker}`, { defaultValue: maker });
 
   return (
@@ -129,7 +130,8 @@ function PickerBody({
           </Button>
         </div>
       ) : (
-        <CommandList label={t("dashboard:catalog_picker_list")} className="max-h-[50dvh]">
+        // 结果就绪前，上一次的结果仍显示但不可选，避免选中与当前搜索词或筛选不符的条目
+        <CommandList label={t("dashboard:catalog_picker_list")} className="max-h-[50dvh]" aria-busy={!settled}>
           {result?.status === "ready" && (
             <>
               {settled && <CommandEmpty>{t("dashboard:catalog_picker_empty")}</CommandEmpty>}
@@ -138,6 +140,7 @@ function PickerBody({
                   <CommandItem
                     key={`${entry.maker}/${entry.name}/${entry.media_type}`}
                     value={`${entry.maker}/${entry.name}/${entry.media_type}`}
+                    disabled={!settled}
                     onSelect={() => onSelect(entry)}
                   >
                     <span className="flex min-w-0 flex-1 flex-col gap-0.5">

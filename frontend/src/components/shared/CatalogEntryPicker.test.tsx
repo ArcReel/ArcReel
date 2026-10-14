@@ -98,6 +98,32 @@ describe("CatalogEntryPicker", () => {
     expect(onSelect).toHaveBeenCalledWith(CATALOG[3]);
   });
 
+  it("keeps the previous results unselectable until the new search returns", async () => {
+    const user = userEvent.setup();
+    const { onSelect } = renderPicker({ mediaType: "image" });
+    const stale = await screen.findByRole("option", { name: /GPT Image 2/ });
+    search.mockImplementationOnce(() => new Promise(() => {}));
+
+    await user.click(screen.getByRole("button", { name: "视频" }));
+
+    await waitFor(() => expect(stale).toHaveAttribute("aria-disabled", "true"));
+    await user.click(stale);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("keeps the previous results unselectable while the typed query is still debouncing", async () => {
+    const user = userEvent.setup();
+    renderPicker({ mediaType: "text" });
+    const stale = await screen.findByRole("option", { name: /GPT-5.5/ });
+
+    await user.type(screen.getByPlaceholderText("搜索模型名称"), "4o");
+
+    expect(stale).toHaveAttribute("aria-disabled", "true");
+    await waitFor(() =>
+      expect(screen.getByRole("option", { name: /GPT-4o/ })).not.toHaveAttribute("aria-disabled", "true"),
+    );
+  });
+
   it("explains a failed search and retries on request", async () => {
     const user = userEvent.setup();
     search.mockRejectedValueOnce(new Error("boom"));

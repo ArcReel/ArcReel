@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.base import Base
@@ -651,3 +652,18 @@ class TestTtsModelCapabilities:
         with TestClient(app) as client:
             resp = client.get("/api/v1/system/tts-model-capabilities", params={"backend": "dashscope"})
         assert resp.status_code == 422
+
+    def test_model_not_in_catalog_asks_to_reselect(self, monkeypatch):
+        """所选语音模型已不在供应商清单中：返回要求重新选择模型的 400，不说成「语音模型无效」。"""
+        error = ModelNotInCatalogError(provider_id="minimax", model_id="speech-retired", media_type="audio")
+        monkeypatch.setattr(system_config_router, "audio_backend_capabilities", AsyncMock(side_effect=error))
+        app = _make_app_with_mock(_make_mock_svc())
+        register_error_handlers(app)
+        with TestClient(app) as client:
+            resp = client.get(
+                "/api/v1/system/tts-model-capabilities",
+                params={"backend": "minimax/speech-retired"},
+                headers={"Accept-Language": "en"},
+            )
+        assert resp.status_code == 400
+        assert "re-select a model" in resp.json()["detail"]

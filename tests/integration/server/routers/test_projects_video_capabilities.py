@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
@@ -63,6 +64,17 @@ class TestGetVideoCapabilities:
             # 异常原文只进日志，不进用户可见响应（en/vi 界面不能混入未译英文原文）
             assert "model not found" not in detail
             assert detail == zh_errors.MESSAGES["video_capabilities_unresolved"].format(name="ready")
+
+    def test_provider_without_catalog_model_returns_unsupported_media_400(self, tmp_path, monkeypatch):
+        """项目裸写的内置供应商没有视频模型：返回「该供应商不支持这类生成」的 400，不被通用 422 吞掉。"""
+        self._patch_resolver(
+            monkeypatch, side_effect=ModelNotInCatalogError(provider_id="openai", model_id="", media_type="video")
+        )
+        client = build_projects_client(monkeypatch, _FakePM(tmp_path))
+        with client:
+            resp = client.get("/api/v1/projects/ready/video-capabilities", headers={"Accept-Language": "en"})
+        assert resp.status_code == 400
+        assert "does not support video generation" in resp.json()["detail"]
 
     def test_capability_bucket_error_returns_localized_400(self, tmp_path, monkeypatch):
         """任务类型桶解析闸的报错转成结构化 400，带上修复指引，不被通用 422 文案吞掉。"""

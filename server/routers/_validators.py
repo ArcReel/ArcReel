@@ -6,6 +6,7 @@ from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoGenerationType
 from lib.infra.api_errors import BadRequestError
@@ -48,8 +49,9 @@ async def require_video_bucket_capability(project: dict, generation_type: VideoG
 
     解析出的模型缺该桶所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
     ``BadRequestError``（app 级 handler 本地化为 400），让用户在提交入口即看到修复指引，而不是
-    任务面板里的异步失败。worker 执行时仍经同一解析闸独立校验，预检失效不放行执行。其余解析
-    失败（如未配置任何供应商）沿用既有行为，留给 worker 在任务面板暴露。
+    任务面板里的异步失败。引用的模型不在供应商清单中（``ModelNotInCatalogError``）同属此类，原样
+    抛出，由它的 app 级 handler 返回要求重新选择模型的 400。worker 执行时仍经同一解析闸独立校验，
+    预检失效不放行执行。其余解析失败（如未配置任何供应商）沿用既有行为，留给 worker 在任务面板暴露。
     """
     from lib.db import async_session_factory
 
@@ -59,6 +61,8 @@ async def require_video_bucket_capability(project: dict, generation_type: VideoG
         )
     except VideoBucketCapabilityError as exc:
         raise BadRequestError(exc.code, **exc.params) from exc
+    except ModelNotInCatalogError:
+        raise
     except ValueError:
         # 未配置任何供应商等其余解析失败：放行入队，由 worker 在任务面板暴露（与图片 / 视频
         # 生成入口的既有行为一致，不把非能力类失败升级为提交期拒绝）

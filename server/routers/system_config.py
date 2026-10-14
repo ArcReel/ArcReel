@@ -34,6 +34,7 @@ from lib.backends.generation_type_buckets import (
 )
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
@@ -479,6 +480,9 @@ async def get_tts_model_capabilities(backend: str) -> TtsModelCapabilitiesRespon
         raise UnprocessableError("narration_tts_model_required")
     try:
         capabilities = await audio_backend_capabilities(*pair)
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
     except ValueError as exc:
         raise UnprocessableError("narration_tts_model_invalid") from exc
     return TtsModelCapabilitiesResponse(supports_speed=AudioCapability.SPEECH_SPEED in capabilities)
