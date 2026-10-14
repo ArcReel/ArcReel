@@ -301,12 +301,15 @@ def find_project_asset_name(
     """在 ``ASSET_SPECS`` 驱动的四类项目资产中查找与 *name* 重名的条目（按 :func:`asset_name_namespace_key`）。
 
     命中的可能是同名条目本身，也可能是只差大小写的另一个资产；用 :meth:`ProjectAssetNameMatch.is_entry`
-    区分。``exclude_*`` 只排除一个确切落盘条目，供 rename 检查目标名时忽略自身。
+    区分。判等键相同的条目优先于只差大小写的条目：旧版登记出的只差大小写的资产仍各自可被就地更新。
+    ``exclude_*`` 只排除一个确切落盘条目，供 rename 检查目标名时忽略自身。
     畸形 bucket 按空处理，其结构错误由 DataValidator 另行报告。
     """
     if not isinstance(project, dict):
         return None
     target = asset_name_namespace_key(name)
+    identity = asset_name_comparison_key(name)
+    case_variant: ProjectAssetNameMatch | None = None
     for spec in sorted(ASSET_SPECS.values(), key=lambda item: item.namespace_priority):
         asset_type = spec.asset_type
         bucket = project.get(spec.bucket_key)
@@ -317,9 +320,14 @@ def find_project_asset_name(
                 continue
             if asset_type == exclude_asset_type and raw_name == exclude_name:
                 continue
-            if asset_name_namespace_key(raw_name) == target:
-                return ProjectAssetNameMatch(asset_type=asset_type, bucket_key=spec.bucket_key, name=raw_name)
-    return None
+            if asset_name_namespace_key(raw_name) != target:
+                continue
+            match = ProjectAssetNameMatch(asset_type=asset_type, bucket_key=spec.bucket_key, name=raw_name)
+            if asset_name_comparison_key(raw_name) == identity:
+                return match
+            if case_variant is None:
+                case_variant = match
+    return case_variant
 
 
 def ensure_project_asset_name_available(
@@ -344,8 +352,8 @@ def ensure_project_asset_name_available(
 def project_asset_name_conflicts(project: object) -> list[tuple[ProjectAssetNameMatch, ProjectAssetNameMatch]]:
     """返回项目共享名称空间里的所有重名对，顺序稳定可复现。
 
-    这是写盘前的整项目守卫，按判等键（区分大小写）比对：只差大小写的资产在判重改为不区分大小写
-    之前可以登记出来，已在当前 schema 的这类项目不做迁移，按 case-fold 比对会让它们的任何写入都被拒。
+    这是写盘前的整项目守卫，按判等键（区分大小写）比对：旧版可以登记出只差大小写的资产，已在当前
+    schema 的这类项目不做迁移，按 case-fold 比对会让它们的任何写入都被拒。
     新登记的名字由 :func:`ensure_project_asset_name_available` 按 case-fold 拦下。
     """
     if not isinstance(project, dict):

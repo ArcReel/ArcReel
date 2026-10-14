@@ -17,7 +17,7 @@ from tests.auth_deps import AUTH_DEPENDENCIES
 
 
 @pytest.fixture
-def demo_pm(tmp_path: Path) -> ProjectManager:
+def alice_pm(tmp_path: Path) -> ProjectManager:
     manager = ProjectManager(str(tmp_path))
     manager.create_project("demo")
     manager.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -39,9 +39,9 @@ def _descriptions(pm: ProjectManager) -> dict[str, str]:
     return {name: entry["description"] for name, entry in table.items()}
 
 
-def test_adding_a_derivative_differing_only_in_case_is_rejected(demo_pm: ProjectManager, monkeypatch) -> None:
-    _set_derivatives(demo_pm, {"Coat": "大衣"})
-    monkeypatch.setattr(characters, "get_project_manager", lambda: demo_pm)
+def test_adding_a_derivative_differing_only_in_case_is_rejected(alice_pm: ProjectManager, monkeypatch) -> None:
+    _set_derivatives(alice_pm, {"Coat": "大衣"})
+    monkeypatch.setattr(characters, "get_project_manager", lambda: alice_pm)
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -54,39 +54,39 @@ def test_adding_a_derivative_differing_only_in_case_is_rejected(demo_pm: Project
 
     assert response.status_code == 422, response.text
     assert "Coat" in response.json()["detail"]
-    assert _descriptions(demo_pm) == {"Coat": "大衣"}
+    assert _descriptions(alice_pm) == {"Coat": "大衣"}
 
 
-def test_renaming_a_derivative_to_a_sibling_name_differing_only_in_case_is_rejected(demo_pm: ProjectManager) -> None:
-    _set_derivatives(demo_pm, {"Coat": "大衣", "Dress": "长裙"})
+def test_renaming_a_derivative_to_a_sibling_name_differing_only_in_case_is_rejected(alice_pm: ProjectManager) -> None:
+    _set_derivatives(alice_pm, {"Coat": "大衣", "Dress": "长裙"})
 
     with pytest.raises(AssetRenameConflictError):
-        demo_pm.rename_asset_derivative("character", "demo", "Alice", "Dress", "COAT")
+        alice_pm.rename_asset_derivative("character", "demo", "Alice", "Dress", "COAT")
 
-    assert _descriptions(demo_pm) == {"Coat": "大衣", "Dress": "长裙"}
-
-
-def test_a_derivative_can_change_only_the_case_of_its_own_name(demo_pm: ProjectManager) -> None:
-    _set_derivatives(demo_pm, {"Coat": "大衣"})
-
-    demo_pm.rename_asset_derivative("character", "demo", "Alice", "Coat", "coat")
-
-    assert _descriptions(demo_pm) == {"coat": "大衣"}
+    assert _descriptions(alice_pm) == {"Coat": "大衣", "Dress": "长裙"}
 
 
-def test_upserting_a_new_derivative_differing_only_in_case_is_rejected(demo_pm: ProjectManager) -> None:
-    _set_derivatives(demo_pm, {"Coat": "大衣"})
+def test_a_derivative_can_change_only_the_case_of_its_own_name(alice_pm: ProjectManager) -> None:
+    _set_derivatives(alice_pm, {"Coat": "大衣"})
+
+    alice_pm.rename_asset_derivative("character", "demo", "Alice", "Coat", "coat")
+
+    assert _descriptions(alice_pm) == {"coat": "大衣"}
+
+
+def test_upserting_a_new_derivative_differing_only_in_case_is_rejected(alice_pm: ProjectManager) -> None:
+    _set_derivatives(alice_pm, {"Coat": "大衣"})
 
     with pytest.raises(ValueError, match="Coat"):
-        demo_pm.upsert_assets("demo", "characters", {"Alice": {"derivatives": {"coat": {"description": "另一件"}}}})
+        alice_pm.upsert_assets("demo", "characters", {"Alice": {"derivatives": {"coat": {"description": "另一件"}}}})
 
-    assert _descriptions(demo_pm) == {"Coat": "大衣"}
+    assert _descriptions(alice_pm) == {"Coat": "大衣"}
 
 
-def test_derivatives_already_differing_only_in_case_each_stay_updatable(demo_pm: ProjectManager) -> None:
-    _set_derivatives(demo_pm, {"Coat": "大衣", "coat": "旧版登记的另一件"})
+def test_derivatives_already_differing_only_in_case_each_stay_updatable(alice_pm: ProjectManager) -> None:
+    _set_derivatives(alice_pm, {"Coat": "大衣", "coat": "旧版登记的另一件"})
 
-    demo_pm.upsert_assets("demo", "characters", {"Alice": {"derivatives": {"coat": {"description": "改过"}}}})
-    demo_pm.upsert_assets("demo", "characters", {"Alice": {"derivatives": {"Coat": {"description": "也改过"}}}})
+    alice_pm.upsert_assets("demo", "characters", {"Alice": {"derivatives": {"coat": {"description": "改过"}}}})
+    alice_pm.upsert_assets("demo", "characters", {"Alice": {"derivatives": {"Coat": {"description": "也改过"}}}})
 
-    assert _descriptions(demo_pm) == {"Coat": "也改过", "coat": "改过"}
+    assert _descriptions(alice_pm) == {"Coat": "也改过", "coat": "改过"}

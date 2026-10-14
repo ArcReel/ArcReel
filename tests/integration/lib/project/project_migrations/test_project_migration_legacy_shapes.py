@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +50,7 @@ from tests.legacy_project_shapes import (
     share_episode_script,
     write_legacy_ad_reference_video_project,
     write_legacy_reference_video_project,
+    write_legacy_script_plan_project,
     write_legacy_storyboard_project,
     write_non_utf8_episode_source,
     write_unreadable_grid_record,
@@ -257,6 +259,53 @@ def test_dialogue_speakers_and_unit_text_mentions_follow_the_kept_name(tmp_path:
     ]
 
 
+def test_references_rewritten_before_a_failed_write_stay_in_the_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir = tmp_path / "demo"
+    project_dir.mkdir()
+    (project_dir / "project.json").write_text(
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION - 1,
+                "characters": {"Alice": {"description": "保留"}, "ALICE": {"description": "变体"}},
+                "episodes": [
+                    {"episode": episode, "script_file": f"scripts/episode_{episode}.json"} for episode in (1, 2)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (project_dir / "scripts").mkdir()
+    for episode in (1, 2):
+        (project_dir / "scripts" / f"episode_{episode}.json").write_text(
+            json.dumps(
+                {"episode": episode, "segments": [{"segment_id": f"E{episode}S01", "characters_in_segment": ["ALICE"]}]}
+            ),
+            encoding="utf-8",
+        )
+    record: list = []
+    write = legacy_shapes.atomic_write_json
+
+    def fail_on_second_episode(path: Path, payload: Any) -> None:
+        if path.name == "episode_2.json":
+            raise OSError("disk full")
+        write(path, payload)
+
+    # 第 1 集已改写落盘、第 2 集写盘失败：重跑发现不了第 1 集的改写，报告要靠失败时的记录带到重试。
+    with monkeypatch.context() as patch:
+        patch.setattr(legacy_shapes, "atomic_write_json", fail_on_second_episode)
+        with pytest.raises(OSError, match="disk full"):
+            normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=record)
+    normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=record)
+
+    assert sorted((item.code, item.episode or 0) for item in record) == [
+        ("duplicate_asset_references_rewritten", 1),
+        ("duplicate_asset_references_rewritten", 2),
+        ("duplicate_asset_removed", 0),
+    ]
+
+
 def _add_character_derivatives(project_dir: Path, owner: str, derivatives: dict[str, dict[str, str]]) -> None:
     project = _read_json(project_dir / "project.json")
     project["characters"][owner]["derivatives"] = derivatives
@@ -268,24 +317,26 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
     _complete_first_segment(project_dir)
     advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION - 1)
     variant = add_asset_names_differing_only_in_case(project_dir, "characters", "character_sheet", "Alice")
-    hat_sheet = "characters/derivatives/ALICE/Hat.png"
+    hat_sheet, coat_sheet = "characters/derivatives/ALICE/Hat.png", "characters/derivatives/ALICE/Coat.png"
     (project_dir / hat_sheet).parent.mkdir(parents=True)
     (project_dir / hat_sheet).write_bytes(b"hat")
+    (project_dir / coat_sheet).write_bytes(b"coat")
     _add_character_derivatives(project_dir, "Alice", {"coat": {"description": "保留方的外套", "character_sheet": ""}})
     _add_character_derivatives(
         project_dir,
         variant,
         {
-            "Coat": {"description": "变体的外套", "character_sheet": ""},
+            "Coat": {"description": "变体的外套", "character_sheet": coat_sheet},
             "Hat": {"description": "帽子", "character_sheet": hat_sheet},
         },
     )
-    hat_key = derivative_artifact_key(variant, "Hat")
-    ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).register(
-        hat_key,
-        artifact_path=hat_sheet,
-        basis=ArtifactBasis.build("test/derivative-sheet", kind_version=1, inputs={}),
-    )
+    hat_key, coat_key = derivative_artifact_key(variant, "Hat"), derivative_artifact_key(variant, "Coat")
+    for key, sheet in ((hat_key, hat_sheet), (coat_key, coat_sheet)):
+        ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).register(
+            key,
+            artifact_path=sheet,
+            basis=ArtifactBasis.build("test/derivative-sheet", kind_version=1, inputs={"sheet": sheet}),
+        )
     hat_claim = ProjectArtifactManifestAdapter(project_dir).get_entry(hat_key)
     versions_path = project_dir / "versions" / "versions.json"
     versions = _read_json(versions_path) if versions_path.is_file() else {}
@@ -300,7 +351,9 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
             }
         ],
     }
-    versions.setdefault(CHARACTER_DERIVATIVE_RESOURCE_TYPE, {})[f"{variant}/Hat"] = hat_history
+    versions.setdefault(CHARACTER_DERIVATIVE_RESOURCE_TYPE, {}).update(
+        {f"{variant}/Hat": hat_history, f"{variant}/Coat": hat_history}
+    )
     versions_path.parent.mkdir(parents=True, exist_ok=True)
     versions_path.write_text(json.dumps(versions, ensure_ascii=False), encoding="utf-8")
     refer_to_asset_in_episode(project_dir, 1, "characters_in_segment", f"{variant}/Coat")
@@ -308,19 +361,26 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
 
     _migrate(project_dir)
 
+    # 迁走的衍生图搬到保留名下，之后改名衍生或本体时按规范路径搬图，条目里的路径对得上。
+    kept_hat_sheet = "characters/derivatives/Alice/Hat.png"
     kept = _read_json(project_dir / "project.json")["characters"]["Alice"]
     assert kept["derivatives"] == {
         "coat": {"description": "保留方的外套", "character_sheet": ""},
-        "Hat": {"description": "帽子", "character_sheet": hat_sheet},
+        "Hat": {"description": "帽子", "character_sheet": kept_hat_sheet},
     }
+    assert (project_dir / kept_hat_sheet).read_bytes() == b"hat"
     [segment] = _read_json(project_dir / "scripts" / "episode_1.json")["segments"]
     assert segment["characters_in_segment"] == ["Alice/coat", "Alice/Hat"]
     assert segment["image_prompt"].startswith("@[Alice/Hat]@[Alice/coat]")
     entries = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
     assert hat_key not in entries
-    assert entries[derivative_artifact_key("Alice", "Hat")] == hat_claim
+    assert hat_claim is not None
+    assert entries[derivative_artifact_key("Alice", "Hat")] == replace(hat_claim, artifact_path=kept_hat_sheet)
+    # 并入已有衍生的那条撤掉登记与历史：留着会按不区分大小写的路径占住保留方衍生的登记位。
+    assert coat_key not in entries
     derivative_history = _read_json(versions_path)[CHARACTER_DERIVATIVE_RESOURCE_TYPE]
     assert f"{variant}/Hat" not in derivative_history
+    assert f"{variant}/Coat" not in derivative_history
     assert derivative_history["Alice/Hat"] == hat_history
     merged = [
         params for code, _episode, params in _adjusted(project_dir) if code == "duplicate_asset_derivative_merged"
@@ -330,6 +390,23 @@ def test_derivatives_of_a_dropped_case_variant_join_the_kept_name(tmp_path: Path
         {"name": variant, "kept": "Alice", "derivative": "Hat", "into": "Hat"},
     ]
     assert "invalid_script_structure" not in _issue_codes(tmp_path)
+
+
+def test_a_moved_derivative_without_its_sheet_on_disk_still_points_under_the_kept_name(tmp_path: Path) -> None:
+    project_dir = tmp_path / "demo"
+    project_dir.mkdir()
+    hat = {"description": "帽子", "character_sheet": "characters/derivatives/ALICE/Hat.png"}
+    characters = {"Alice": {"description": "保留"}, "ALICE": {"description": "变体", "derivatives": {"Hat": hat}}}
+    (project_dir / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION - 1, "characters": characters, "episodes": []}),
+        encoding="utf-8",
+    )
+
+    normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=[])
+
+    # 与改名衍生一致：路径跟着本体走，不看图在不在盘上。
+    [kept] = _read_json(project_dir / "project.json")["characters"].values()
+    assert kept["derivatives"]["Hat"]["character_sheet"] == "characters/derivatives/Alice/Hat.png"
 
 
 def test_derivatives_of_several_case_variants_fold_into_each_other(tmp_path: Path) -> None:
@@ -360,6 +437,19 @@ def _variant_project(root: Path) -> Path:
     return project_dir
 
 
+def _fail_committing_without_variant(patch: pytest.MonkeyPatch) -> None:
+    """让去掉变体 ``ALICE`` 的那次 ``project.json`` 写盘失败：引用已改写落盘，资产表还没提交。"""
+
+    write = legacy_shapes.atomic_write_json
+
+    def fail_without_variant(path: Path, payload: Any) -> None:
+        if path.name == "project.json" and "ALICE" not in payload.get("characters", {}):
+            raise OSError("disk full")
+        write(path, payload)
+
+    patch.setattr(legacy_shapes, "atomic_write_json", fail_without_variant)
+
+
 def _migrated_state(project_dir: Path) -> tuple[Any, ...]:
     report = load_migration_report(project_dir)
     assert report is not None
@@ -379,12 +469,9 @@ def test_a_normalization_that_fails_after_rewriting_references_converges_on_retr
     _migrate(once)
     retried = _variant_project(tmp_path / "retried")
 
-    def fail(_work: object) -> None:
-        raise OSError("disk full")
-
     # 引用已改写落盘、资产表还没提交时失败：重跑仍能发现变体，结果与一次跑完一致。
     with monkeypatch.context() as patch:
-        patch.setattr(legacy_shapes, "_repair_item_ids", fail)
+        _fail_committing_without_variant(patch)
         assert migrate_project_with_verdict(retried) is not None
     assert "ALICE" in _read_json(retried / "project.json")["characters"]
     _migrate(retried)
@@ -409,12 +496,8 @@ def test_a_confirmed_script_plan_stays_confirmed_after_its_references_are_rewrit
     (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
 
     if fails_once:
-
-        def fail(_work: object) -> None:
-            raise OSError("disk full")
-
         with monkeypatch.context() as patch:
-            patch.setattr(legacy_shapes, "_repair_item_ids", fail)
+            _fail_committing_without_variant(patch)
             assert migrate_project_with_verdict(project_dir) is not None
     _migrate(project_dir)
 
@@ -424,6 +507,29 @@ def test_a_confirmed_script_plan_stays_confirmed_after_its_references_are_rewrit
         "fingerprint": content_fingerprint(plan_path),
         "confirmed_at": "2026-03-02T14:56:52Z",
     }
+
+
+def test_a_confirmed_script_plan_under_pre_v10_names_stays_confirmed_after_its_references_are_rewritten(
+    tmp_path: Path,
+) -> None:
+    project_dir = write_legacy_script_plan_project(tmp_path, variant="narration", schema_version=9)
+    project = _read_json(project_dir / "project.json")
+    project["characters"] = {"Alice": {"description": "保留"}, "ALICE": {"description": "变体"}}
+    # 第 2 集只有已确认的脚本规划，正式脚本要由 v14→v15 按这份确认转出。
+    legacy_plan = project_dir / "drafts" / "episode_2" / "step1_segments.json"
+    plan = _read_json(legacy_plan)
+    plan["segments"][0]["characters_in_segment"] = ["ALICE"]
+    legacy_plan.write_text(json.dumps(plan, ensure_ascii=False), encoding="utf-8")
+    project["episodes"][1]["step1_review"]["fingerprint"] = content_fingerprint(legacy_plan)
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    plan_path = project_dir / "drafts" / "episode_2" / "script_plan_segments.json"
+    assert _read_json(plan_path)["segments"][0]["characters_in_segment"] == ["Alice"]
+    entry = _read_json(project_dir / "project.json")["episodes"][1]
+    assert entry["script_plan_review"]["fingerprint"] == content_fingerprint(plan_path)
+    assert (project_dir / "scripts" / "episode_2.json").is_file()
 
 
 def test_missing_and_duplicate_item_ids_are_reassigned_and_the_original_media_stays_with_the_first(

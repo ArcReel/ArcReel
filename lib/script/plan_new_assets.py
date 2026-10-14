@@ -201,8 +201,11 @@ class NewAssetResolution:
             if not isinstance(entry, dict):
                 raise ValueError(f"衍生「{derivative}」的本体角色「{base}」不存在")
             table = ensure_derivative_table(entry)
-            if resolve_asset_key(table, derivative) is None:
+            existing = find_derivative_name(table, derivative)
+            if existing is None:
                 table[derivative] = {"description": description, ASSET_SPECS["character"].sheet_field: ""}
+            elif asset_name_comparison_key(existing) != asset_name_comparison_key(derivative):
+                raise ValueError(f"衍生名「{derivative}」与「{base}」已有的衍生「{existing}」重名")
 
 
 def _remap_mention(outcome: _Outcome | None, speaker: bool) -> str | None:
@@ -431,7 +434,9 @@ class _Resolver:
             return
         derivative = validate_asset_name(item.asset_name or item.name)
         existing = find_derivative_name(_derivatives_of(self.project, base), derivative)
+        owner = "已有的"
         if existing is None:
+            owner = "本集新增的"
             claimed = self.claimed_derivatives.setdefault(base, {})
             existing = find_derivative_name(claimed, derivative)
             if existing is None:
@@ -439,7 +444,7 @@ class _Resolver:
                 self.derivatives.append((base, derivative, item.description))
         if existing is not None and asset_name_comparison_key(existing) != asset_name_comparison_key(derivative):
             self._problem(
-                "new_asset_name_taken", index, f"衍生名「{derivative}」与「{base}」已有的衍生「{existing}」重名"
+                "new_asset_name_taken", index, f"衍生名「{derivative}」与「{base}」{owner}衍生「{existing}」重名"
             )
             return
         self.outcomes[("character", key)] = _Outcome("derivative", base, existing or derivative)

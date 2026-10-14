@@ -122,6 +122,25 @@ def test_a_project_that_already_holds_names_differing_only_in_case_stays_writabl
     assert list(demo_pm.load_project("demo")["scenes"]) == ["alice", "Harbor"]
 
 
+def test_assets_already_differing_only_in_case_each_stay_updatable(demo_pm: ProjectManager) -> None:
+    project = demo_pm.load_project("demo")
+    project["characters"] = {"Alice": {"description": "first"}, "alice": {"description": "second"}}
+    project["scenes"] = {"ALICE": {"description": "scene"}}
+    project_file = demo_pm.get_project_path("demo") / "project.json"
+    project_file.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    demo_pm.upsert_assets("demo", "characters", {"alice": {"description": "second, upserted"}})
+    demo_pm.upsert_assets("demo", "scenes", {"ALICE": {"description": "scene, upserted"}})
+    demo_pm.add_project_character("demo", "Alice", "first, overwritten")
+
+    project = demo_pm.load_project("demo")
+    assert {name: entry["description"] for name, entry in project["characters"].items()} == {
+        "Alice": "first, overwritten",
+        "alice": "second, upserted",
+    }
+    assert project["scenes"]["ALICE"]["description"] == "scene, upserted"
+
+
 def test_validator_reports_cross_type_and_equivalent_duplicates(demo_pm: ProjectManager) -> None:
     project = demo_pm.load_project("demo")
     nfd = unicodedata.normalize("NFD", "café")

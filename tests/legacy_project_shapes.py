@@ -1062,7 +1062,7 @@ def add_colliding_asset_name(project_dir: Path, bucket: str, name: str) -> str:
 
 
 def add_asset_names_differing_only_in_case(project_dir: Path, bucket: str, sheet_field: str, name: str) -> str:
-    """资产名判重改为不区分大小写前，同一资产表可登记出只差大小写的两条资产。
+    """旧版在同一资产表可登记出只差大小写的两条资产。
 
     在 ``bucket`` 末尾加 ``name`` 与它的全大写变体，各带一张资产图（不区分大小写的文件系统上两张图
     落到同一个文件），返回变体名。

@@ -409,8 +409,8 @@ def test_admitted_video_speech_keeps_the_digest_from_before_gaps_were_recorded()
         build_blocked_video_speech_basis(preparation)
 
 
-def test_video_speech_keeps_the_speaker_case_and_digest_from_before_case_insensitive_naming() -> None:
-    """资产名判重不区分大小写，发声依据里的说话人仍保留原样大小写，摘要与改动前的固定样本相同。"""
+def test_video_speech_basis_keeps_the_speaker_as_written() -> None:
+    """资产名判重不区分大小写，发声依据里的说话人仍保留原样大小写；定值锁住摘要。"""
     preparation = admit_script_unit(
         "scenes",
         {"scene_id": "E1S1", "utterances": [{"kind": "dialogue", "speaker": "Alice", "text": "Hello"}]},

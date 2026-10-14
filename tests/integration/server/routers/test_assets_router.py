@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
@@ -822,6 +824,34 @@ class TestApplyToProject:
         scenes = pm.load_project("target")["scenes"]
         assert list(scenes) == expected["scenes"]
         assert scenes["Harbor"]["description"] == "project scene"
+
+    def test_overwrite_reaches_an_asset_already_differing_only_in_case_from_another(self, assets_env):
+        client = assets_env["client"]
+        pm = assets_env["pm"]
+        pm.create_project("target")
+        pm.create_project_metadata("target", "Target")
+        pm.add_project_scene("target", "harbor", "project scene")
+        project = pm.load_project("target")
+        project["characters"] = {"Harbor": {"description": "character", "character_sheet": ""}}
+        (pm.get_project_path("target") / "project.json").write_text(
+            json.dumps(project, ensure_ascii=False), encoding="utf-8"
+        )
+        created = client.post("/api/v1/assets", data={"type": "scene", "name": "harbor", "description": "library"})
+
+        response = client.post(
+            "/api/v1/assets/apply-to-project",
+            json={
+                "asset_ids": [created.json()["asset"]["id"]],
+                "target_project": "target",
+                "conflict_policy": "overwrite",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["failed"] == []
+        project = pm.load_project("target")
+        assert project["scenes"]["harbor"]["description"] == "library"
+        assert list(project["characters"]) == ["Harbor"]
 
     def test_rename_policy_uses_project_wide_occupancy(self, assets_env):
         client = assets_env["client"]

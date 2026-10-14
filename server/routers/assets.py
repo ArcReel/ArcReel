@@ -38,9 +38,6 @@ from lib.project.asset_types import (
     GLOBAL_LIBRARY_ASSET_TYPES,
     SHEET_KEY,
     ProjectAssetNameConflictError,
-    ProjectAssetNameMatch,
-    asset_name_namespace_key,
-    ensure_project_asset_name_available,
     find_project_asset_name,
     localize_asset_type,
     resolve_asset_key,
@@ -622,17 +619,14 @@ async def apply_to_project(
         return target_dir, {path for path in stored if (project_manager.data_root / path).is_file()}
 
     project_dir, present_files = await asyncio.to_thread(_probe_planning_inputs)
-    # 四类资产共用一份名称占用表（按判重键，只差大小写即占用）；owner 用于区分可 overwrite 的同一条目
-    # 与不可覆盖的冲突（跨类型，或同类型里只差大小写的另一个资产）。
-    occupied: dict[str, ProjectAssetNameMatch] = {}
-    for asset_type, bucket_key in BUCKET_KEY.items():
-        bucket = project.get(bucket_key)
+    # 四类资产的名称占用表，形同 project 的资产表，判重与锁内应用同用 find_project_asset_name：
+    # 只差大小写即占用；命中可 overwrite 的同一条目，还是不可覆盖的冲突（跨类型，或同类型里只差
+    # 大小写的另一个资产），由 is_entry 区分。
+    occupied: dict[str, dict[str, None]] = {}
+    for spec in ASSET_SPECS.values():
+        bucket = project.get(spec.bucket_key)
         if isinstance(bucket, dict):
-            for raw_name in bucket:
-                if isinstance(raw_name, str):
-                    occupied[asset_name_namespace_key(raw_name)] = ProjectAssetNameMatch(
-                        asset_type, bucket_key, raw_name
-                    )
+            occupied[spec.bucket_key] = dict.fromkeys(name for name in bucket if isinstance(name, str))
     plans: list[dict] = []
     for asset_id in asset_ids:
         a = assets_by_id.get(asset_id)
@@ -647,7 +641,7 @@ async def apply_to_project(
             failed.append({"id": a.id, "reason": "invalid_name"})
             continue
 
-        existing = occupied.get(asset_name_namespace_key(desired_name))
+        existing = find_project_asset_name(occupied, desired_name)
         if existing is not None:
             same_entry = existing.is_entry(a.type, desired_name)
             if req.conflict_policy == "skip":
@@ -656,7 +650,7 @@ async def apply_to_project(
             if req.conflict_policy == "rename":
                 base_name = desired_name
                 i = 2
-                while asset_name_namespace_key(f"{base_name} ({i})") in occupied:
+                while find_project_asset_name(occupied, f"{base_name} ({i})") is not None:
                     i += 1
                 desired_name = f"{base_name} ({i})"
             elif not same_entry:
@@ -736,7 +730,7 @@ async def apply_to_project(
                     {"name": derivative.name, "description": derivative.description, "copy_src": derivative_src}
                 )
 
-        occupied[asset_name_namespace_key(desired_name)] = ProjectAssetNameMatch(a.type, bucket_key, desired_name)
+        occupied.setdefault(bucket_key, {})[desired_name] = None
         plans.append(
             {
                 "asset": a,
@@ -798,13 +792,6 @@ async def apply_to_project(
 
             ts = plan["target_sheet"]
             ta = plan["target_audio"]
-            ensure_project_asset_name_available(
-                data,
-                name_,
-                requested_asset_type=a_.type,
-                exclude_asset_type=a_.type,
-                exclude_name=existing.name if existing is not None and existing.asset_type == a_.type else None,
-            )
             payload: dict = {"description": a_.description or ""}
             if a_.type == "character":
                 payload["voice_style"] = a_.voice_style or ""

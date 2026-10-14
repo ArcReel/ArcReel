@@ -1,4 +1,4 @@
-"""资产名与衍生名判重不区分大小写，但产物身份与依据仍用名字原样的大小写：存量登记不因判重口径改变而失配或过期。"""
+"""资产名与衍生名判重不区分大小写，产物身份与依据仍用名字原样的大小写：判重口径不进入清单键与依据摘要。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 
 
-def test_an_asset_sheet_keeps_the_key_and_basis_digest_registered_before_case_insensitive_naming(
+def test_an_asset_sheet_key_and_basis_digest_use_the_name_as_written(
     tmp_path: Path,
 ) -> None:
     project_dir = tmp_path / "demo"
@@ -31,7 +31,7 @@ def test_an_asset_sheet_keeps_the_key_and_basis_digest_registered_before_case_in
 
     plan = plan_artifact_target_state(project_dir)
 
-    # 定值取自判重改为不区分大小写之前的代码
+    # 定值锁住清单键与依据摘要：名字按原样大小写参与，改动它们会让存量登记失配或过期
     assert dict(plan.entries) == {
         ArtifactKey.asset_sheet("character", "Alice"): ArtifactManifestEntry(
             artifact_path="characters/Alice.png",
@@ -43,7 +43,7 @@ def test_an_asset_sheet_keeps_the_key_and_basis_digest_registered_before_case_in
     )
 
 
-def test_a_derivative_sheet_keeps_the_key_and_basis_digest_registered_before_case_insensitive_naming(
+def test_a_derivative_sheet_key_and_basis_digest_use_the_name_as_written(
     tmp_path: Path,
 ) -> None:
     project_dir = tmp_path / "demo"
@@ -76,7 +76,7 @@ def test_a_derivative_sheet_keeps_the_key_and_basis_digest_registered_before_cas
 
     plan = plan_artifact_target_state(project_dir)
 
-    # 定值取自衍生名判重改为不区分大小写之前的代码
+    # 定值锁住衍生图的清单键与依据摘要：本体名与衍生名都按原样大小写参与
     key = ArtifactKey.asset_sheet("character", "Alice/Coat")
     assert plan.entries[key] == ArtifactManifestEntry(
         artifact_path="characters/derivatives/Alice/Coat.png",

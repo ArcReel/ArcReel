@@ -16,7 +16,8 @@ v6→v7 的剧本改写、产物目标态规划（v7→v8 起的各步与归档�
 - **剧本顶层的集号缺失或与绑定不符**（旧版同步与保存都接受缺集号的剧本）：以账本绑定为准写回。
 - **同一资产表里名字归一后相同**（去两端空白、Unicode NFC、不区分大小写），或名字归一后为空：
   留第一条，其余从资产表去掉；资产图文件不动，改前的 ``project.json`` 留作保留副本。去掉的条目
-  名下的衍生按资产合并的规则并进保留条目，各集剧本与草稿里指向只差大小写那条的引用改写为保留名。
+  名下的衍生按资产合并的规则并进保留条目（迁走的衍生图搬到保留名下），各集剧本与草稿里指向只差
+  大小写那条的引用改写为保留名。
 - **剧本条目缺 id 或 id 重复**：缺的补新 id，重复的从第二条起换新 id（取号规则同新增条目）；换号
   条目上指向原 id 规范媒体路径的产物引用清空——那些文件属于保留原 id 的条目；只描述这些媒体的
   生成状态一并清空，换号条目读作尚未生成。
@@ -29,21 +30,30 @@ v6→v7 的剧本改写、产物目标态规划（v7→v8 起的各步与归档�
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
-from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ProjectArtifactManifestAdapter
+from lib.artifacts.artifact_manifest import (
+    MANIFEST_FILENAME,
+    ArtifactKey,
+    ProjectArtifactManifestAdapter,
+    normalize_artifact_path,
+)
 from lib.episode.episode_paths import episode_drafts_dir, episode_script_relpath
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
     derivative_artifact_id,
+    derivative_artifact_key,
+    derivative_sheet_relative_path,
     derivative_table,
     ensure_derivative_table,
 )
@@ -53,6 +63,7 @@ from lib.project.asset_types import (
     DERIVATIVES_FIELD,
     asset_name_comparison_key,
     asset_name_namespace_key,
+    normalize_asset_name,
     resolve_asset_key,
 )
 from lib.project.project_migration_report import MigrationAdjustment
@@ -68,6 +79,10 @@ logger = logging.getLogger(__name__)
 NORMALIZE_FROM_SCHEMA_VERSION = 6
 _CANONICAL_BINDING_SCHEMA_VERSION = 15
 _DRAFT_RENAME_SCHEMA_VERSION = 10
+#: v9→v10 改名之前的落盘名：脚本规划草稿的新名 → 旧名，以及集条目上的确认记录字段。
+_LEGACY_DRAFT_NAMES = {new: old for old, new in DRAFT_FILE_RENAMES.items()}
+_LEGACY_REVIEW_FIELD = "step1_review"
+_DERIVATIVE_SHEET_FIELD = ASSET_SPECS[DERIVATIVE_ASSET_TYPE].sheet_field
 
 #: 条目产物字段 → 资源类型；参考生视频单元的视频在 ``reference_videos`` 下。
 _MEDIA_FIELDS: tuple[tuple[str, str, str], ...] = (
@@ -490,7 +505,7 @@ def _drop_duplicate_assets(work: _Work) -> None:
     if not drops:
         return
     _rewrite_dropped_asset_references(work, drops)
-    _carry_moved_derivative_records(work, drops)
+    _carry_merged_derivative_records(work, drops)
     for drop in drops:
         bucket = work.project[ASSET_SPECS[drop.asset_type].bucket_key]
         source_entry = bucket.pop(drop.name)
@@ -517,7 +532,8 @@ def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> N
     """把各集剧本与草稿里指向被去掉资产的引用改写为保留名，规则同资产合并（并为本体）。
 
     改写的是已确认的正式脚本规划时，确认指纹随之平移，且先于草稿落盘提交：草稿已改写、确认还没
-    平移时失败，重跑就再也认不出那份确认了。
+    平移时失败，重跑就再也认不出那份确认了。v10 之前的项目按当时的草稿名与确认记录字段认这份规划，
+    确认不平移的话，v14→v15 也不会把只有确认规划的集转出正式脚本。
     """
 
     renaming = [drop for drop in drops if drop.renames_references]
@@ -530,8 +546,7 @@ def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> N
         script_plan_path,
     )
 
-    changed: list[tuple[int, Path, dict[str, Any], str | None]] = []
-    rewritten: dict[int, set[int]] = {}
+    changed: list[tuple[int, Path, dict[str, Any], str | None, list[int]]] = []
     scanned: set[Path] = set()
     for episode, entry in _episode_entries(work.project):
         paths = [_bound_path(work.project_dir, entry.get("script_file"))]
@@ -560,71 +575,142 @@ def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> N
             if not hits:
                 continue
             is_plan = path.parent == drafts_dir
-            changed.append((episode, path, payload, before if is_plan else None))
-            for index in hits:
-                rewritten.setdefault(index, set()).add(episode)
+            changed.append((episode, path, payload, before if is_plan else None, hits))
 
+    legacy_names = work.schema_version < _DRAFT_RENAME_SCHEMA_VERSION
     carried = False
-    for episode, path, payload, before in changed:
-        if before is not None and script_plan_path(work.project_dir, work.project, episode) == path:
-            carried |= carry_confirmation_through_migration(
-                work.project, episode, before, content_fingerprint_of_data(payload)
-            )
+    for episode, path, payload, before, _hits in changed:
+        plan_path = script_plan_path(work.project_dir, work.project, episode) if before is not None else None
+        if plan_path is not None and legacy_names:
+            plan_path = plan_path.with_name(_LEGACY_DRAFT_NAMES.get(plan_path.name, plan_path.name))
+        if before is None or plan_path != path:
+            continue
+        after = content_fingerprint_of_data(payload)
+        if not legacy_names:
+            carried |= carry_confirmation_through_migration(work.project, episode, before, after)
+            continue
+        entry = next(entry for number, entry in _episode_entries(work.project) if number == episode)
+        review = entry.get(_LEGACY_REVIEW_FIELD)
+        if isinstance(review, dict) and review.get("fingerprint") == before:
+            review["fingerprint"] = after
+            carried = True
     if carried:
         work.project_changed = True
         _commit_project(work, keep_copy=True)
-    for _episode, path, payload, _before in changed:
+    # 每写完一个文件就记下它的改写：中途失败时已改写的那几集重跑发现不了，要靠这份记录带到重试。
+    recorded: set[tuple[int, int]] = set()
+    for episode, path, payload, _before, hits in changed:
         ensure_versioned_backup(path, work.schema_version)
         atomic_write_json(path, payload)
-    for index, drop in enumerate(renaming):
-        for episode in sorted(rewritten.get(index, ())):
+        for index in hits:
+            if (index, episode) in recorded:
+                continue
+            recorded.add((index, episode))
             work.adjusted.append(
-                MigrationAdjustment(code="duplicate_asset_references_rewritten", episode=episode, params=drop.params())
+                MigrationAdjustment(
+                    code="duplicate_asset_references_rewritten", episode=episode, params=renaming[index].params()
+                )
             )
 
 
-def _carry_moved_derivative_records(work: _Work, drops: list[_AssetDrop]) -> None:
-    """迁到保留名下的衍生带上自己的清单登记与版本历史，与资产合并迁衍生同一口径。
+def _carry_merged_derivative_records(work: _Work, drops: list[_AssetDrop]) -> None:
+    """并进保留条目的衍生带上自己的图、清单登记与版本历史，与资产合并处理衍生同一口径。
 
-    资产图文件不动、条目里的路径照旧：登记只换键，依据摘要原样保留。新键下已有登记或历史时不动，
-    重跑时旧键已不在，同样不动。
+    - 迁走的衍生：图从被去掉条目的规范路径搬到保留名下，条目里的路径随之改写；清单登记换键并改路径，
+      依据摘要原样保留；版本历史换键。图不搬的话，之后改名衍生或本体时按规范路径搬图，条目里的路径
+      却对不上，引用就指空了。
+    - 并入已有衍生的：撤掉清单登记与版本历史。留着的登记按不区分大小写的路径占住保留方那个衍生的
+      登记位。它们的图与版本快照文件留在盘上。
+
+    新键下已有登记或历史时不动；重跑时旧键已不在、图已在新路径，同样收敛。
     """
 
-    moved = [
-        (derivative_artifact_id(drop.name, name), derivative_artifact_id(drop.kept, name))
-        for drop in drops
-        for name in drop.derivatives.moved
-    ]
-    if not moved:
+    # （被去掉条目名, 保留名, 衍生名, 清单要改的路径）与（被去掉条目名, 衍生名）。
+    moved: list[tuple[str, str, str, dict[str, str]]] = []
+    retired: list[tuple[str, str]] = []
+    for drop in drops:
+        source_table = derivative_table(work.project[ASSET_SPECS[drop.asset_type].bucket_key][drop.name])
+        for name in drop.derivatives.moved:
+            path_rewrites = _relocate_derivative_sheet(work, source_table[name], drop.name, drop.kept, name)
+            moved.append((drop.name, drop.kept, name, path_rewrites))
+        retired.extend((drop.name, name) for name in drop.derivatives.folded)
+    if not moved and not retired:
         return
     if (work.project_dir / MANIFEST_FILENAME).is_file():
         adapter = ProjectArtifactManifestAdapter(work.project_dir)
-        for old_id, new_id in moved:
-            old_key = ArtifactKey.asset_sheet(DERIVATIVE_ASSET_TYPE, old_id)
-            new_key = ArtifactKey.asset_sheet(DERIVATIVE_ASSET_TYPE, new_id)
+        for owner, kept, name, path_rewrites in moved:
+            old_key, new_key = derivative_artifact_key(owner, name), derivative_artifact_key(kept, name)
             stored = adapter.get_entry(old_key)
             if stored is None or adapter.get_entry(new_key) is not None:
                 continue
             ensure_versioned_backup(work.project_dir / MANIFEST_FILENAME, work.schema_version)
+            claim = replace(stored, artifact_path=path_rewrites.get(stored.artifact_path, stored.artifact_path))
             if not adapter.replace_entries_if_matches_atomically(
-                expected={old_key: stored, new_key: None}, replacements={old_key: None, new_key: stored}
+                expected={old_key: stored, new_key: None}, replacements={old_key: None, new_key: claim}
             ):
                 raise RuntimeError("artifact manifest changed while moving a derivative claim")
+        for owner, name in retired:
+            old_key = derivative_artifact_key(owner, name)
+            stored = adapter.get_entry(old_key)
+            if stored is None:
+                continue
+            ensure_versioned_backup(work.project_dir / MANIFEST_FILENAME, work.schema_version)
+            if not adapter.replace_entries_if_matches_atomically(
+                expected={old_key: stored}, replacements={old_key: None}
+            ):
+                raise RuntimeError("artifact manifest changed while retiring a derivative claim")
     versions_path = work.project_dir / "versions" / "versions.json"
     versions = _load_object(versions_path) if versions_path.is_file() else None
     history = versions.get(CHARACTER_DERIVATIVE_RESOURCE_TYPE) if versions is not None else None
     if not isinstance(history, dict):
         return
     changed = False
-    for old_id, new_id in moved:
-        old_key = resolve_asset_key(history, old_id)
+    for owner, kept, name, _path_rewrites in moved:
+        old_key = resolve_asset_key(history, derivative_artifact_id(owner, name))
+        new_id = derivative_artifact_id(kept, name)
         if old_key is None or resolve_asset_key(history, new_id) is not None:
             continue
         history[new_id] = history.pop(old_key)
         changed = True
+    for owner, name in retired:
+        old_key = resolve_asset_key(history, derivative_artifact_id(owner, name))
+        if old_key is not None:
+            del history[old_key]
+            changed = True
     if changed:
         ensure_versioned_backup(versions_path, work.schema_version)
         atomic_write_json(versions_path, versions)
+
+
+def _relocate_derivative_sheet(work: _Work, derivative: object, owner: str, kept: str, name: str) -> dict[str, str]:
+    """把迁走衍生的图从 ``owner`` 名下的规范路径搬到 ``kept`` 名下，改写条目里的路径；返回清单要改的路径。
+
+    只动指在旧规范路径上的图。不区分大小写的文件系统上新旧路径可能是同一个文件，只改写路径；
+    盘上没有这张图时同样只改写路径，与改名衍生一致；新路径已被别的文件占着时不搬，路径照旧。
+    """
+
+    if not isinstance(derivative, dict):
+        return {}
+    old_rel = derivative_sheet_relative_path(owner, name)
+    new_rel = derivative_sheet_relative_path(kept, name)
+    value = derivative.get(_DERIVATIVE_SHEET_FIELD)
+    if (
+        old_rel == new_rel
+        or not isinstance(value, str)
+        or normalize_asset_name(value.replace("\\", "/")) != normalize_asset_name(old_rel)
+    ):
+        return {}
+    source, target = work.project_dir / old_rel, work.project_dir / new_rel
+    if source.is_file() and not (target.exists() and target.samefile(source)):
+        if target.exists():
+            return {}
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(source, target)
+        # 只是收纳目录：非空或删不掉都不影响任何登记。
+        with contextlib.suppress(OSError):
+            source.parent.rmdir()
+    derivative[_DERIVATIVE_SHEET_FIELD] = new_rel
+    return {normalize_artifact_path(value): normalize_artifact_path(new_rel)}
 
 
 #: 条目 id 的集号前缀（与 ``script_editor`` 的条目 id 形态一致，含 ``_N`` 拆分后缀）。
@@ -796,8 +882,8 @@ def normalize_legacy_shapes(project_dir: Path, *, schema_version: int, record: l
     try:
         _drop_duplicate_episodes(work)
         _split_shared_bindings(work)
-        # 资产去重只改 project.json；先于改绑做完，改绑第一次提交 project.json 时留下的保留副本
-        # 就能覆盖全部 project.json 规整项。
+        # 资产去重先于改绑：第一次提交 project.json 时，它的规整项已在待提交之列，留下的就是保留副本，
+        # 能覆盖全部 project.json 规整项。它平移确认指纹时自己先行提交，同样留保留副本。
         _drop_duplicate_assets(work)
         _canonicalize_bindings(work)
         _correct_script_episodes(work)

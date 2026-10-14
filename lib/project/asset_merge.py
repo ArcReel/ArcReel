@@ -134,9 +134,6 @@ class DerivativeMergePlan:
         return self.derivative_names.get(derivative, derivative)
 
 
-_NO_DERIVATIVES = DerivativeMergePlan()
-
-
 def merged_reference(
     name: str,
     source: str,
@@ -144,7 +141,7 @@ def merged_reference(
     *,
     as_derivative: bool,
     speaker: bool,
-    derivatives: DerivativeMergePlan = _NO_DERIVATIVES,
+    derivatives: DerivativeMergePlan,
 ) -> str | None:
     """把一个引用名按一次合并改写；与被并方无关时返回 ``None``。
 
@@ -171,7 +168,7 @@ def merge_payload_references(
     target: str,
     *,
     as_derivative: bool = False,
-    derivatives: DerivativeMergePlan = _NO_DERIVATIVES,
+    derivatives: DerivativeMergePlan,
 ) -> ReferenceChanges:
     """就地把剧本 / 草稿载荷里指向被并方的引用改指保留方，返回各落点的改写数。
 
