@@ -32,6 +32,8 @@ class TestRegistry:
             "v2-video-generations",
             "ark-seedance",
             "vidu-video",
+            "openrouter-video",
+            "xai-video",
             "dashscope-image",
             "dashscope-async-video",
             "minimax-image",
@@ -48,7 +50,19 @@ class TestRegistry:
         for key, spec in ENDPOINT_REGISTRY.items():
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video", "audio"}
-            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax", "kling"}
+            assert spec.family in {
+                "openai",
+                "google",
+                "newapi",
+                "v2",
+                "ark",
+                "vidu",
+                "dashscope",
+                "minimax",
+                "kling",
+                "openrouter",
+                "xai",
+            }
             # 注册表里的都是内置端点，来源恒为 builtin；用户端点不进注册表，由 ce- 键现构造。
             assert spec.source == "builtin"
             # 显示名两种来源恰有其一：Python 内置走 i18n key，声明式端点走定义里的 meta.name。
@@ -249,6 +263,8 @@ class TestRegistry:
             "v2-video-generations",
             "ark-seedance",
             "vidu-video",
+            "openrouter-video",
+            "xai-video",
             "dashscope-async-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",

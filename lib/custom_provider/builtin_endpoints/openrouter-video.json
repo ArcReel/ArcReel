@@ -1,0 +1,63 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "OpenRouter Video",
+    "author": "ArcReel",
+    "version": "1.0.0",
+    "hints": {"base_url": "https://openrouter.ai", "suggested_models": [{"id": "google/veo-3.1"}]}
+  },
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {
+    "first_frame": {"source": "start_image", "encoding": "data_uri"},
+    "last_frame": {"source": "end_image", "encoding": "data_uri"},
+    "refs": {"source": "reference_images", "encoding": "data_uri"}
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/api/v1/videos",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "duration": "{{ duration }}",
+      "aspect_ratio": "{{ aspect_ratio }}",
+      "resolution": "{{ resolution }}",
+      "generate_audio": "{{ generate_audio }}",
+      "seed": "{{ seed }}",
+      "frame_images": [
+        {
+          "$when": "first_frame",
+          "type": "image_url",
+          "image_url": {"url": "{{ inputs.first_frame }}"},
+          "frame_type": "first_frame"
+        },
+        {
+          "$when": "last_frame",
+          "type": "image_url",
+          "image_url": {"url": "{{ inputs.last_frame }}"},
+          "frame_type": "last_frame"
+        }
+      ],
+      "input_references": [
+        {
+          "$each": {
+            "in": "inputs.refs",
+            "as": "ref",
+            "item": {"type": "image_url", "image_url": {"url": "{{ ref }}"}}
+          }
+        }
+      ]
+    },
+    "extract": {"task_id": ["$.id"], "error": ["$.error.message", "$.error"]}
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/api/v1/videos/{{ task_id }}",
+    "extract": {
+      "status": ["$.status"],
+      "video_url": ["$.unsigned_urls[0]"],
+      "error": ["$.error.message", "$.error"]
+    }
+  },
+  "capabilities": {"first_frame": true, "last_frame": true, "max_reference_images": 4}
+}

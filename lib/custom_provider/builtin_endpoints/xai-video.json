@@ -1,0 +1,44 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "xAI Video",
+    "author": "ArcReel",
+    "version": "1.0.0",
+    "hints": {"base_url": "https://api.x.ai/v1", "suggested_models": [{"id": "grok-imagine-video-1.5"}]}
+  },
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {
+    "first_frame": {"source": "start_image", "encoding": "data_uri"},
+    "refs": {"source": "reference_images", "encoding": "data_uri"}
+  },
+  "submit": {
+    "method": "POST",
+    "url": "{{ base_url }}/v1/videos/generations",
+    "body": {
+      "model": "{{ model }}",
+      "prompt": "{{ prompt }}",
+      "duration": "{{ duration }}",
+      "aspect_ratio": "{{ aspect_ratio }}",
+      "resolution": "{{ resolution }}",
+      "generate_audio": "{{ generate_audio }}",
+      "image": {"$when": "first_frame", "url": "{{ inputs.first_frame }}"},
+      "reference_images": [
+        {"$each": {"in": "inputs.refs", "as": "ref", "item": {"url": "{{ ref }}"}}}
+      ]
+    },
+    "extract": {"task_id": ["$.request_id"], "error": ["$.error.message", "$.error", "$.message"]}
+  },
+  "poll": {
+    "method": "GET",
+    "url": "{{ base_url }}/v1/videos/{{ task_id }}",
+    "extract": {
+      "status": ["$.status"],
+      "video_url": ["$.video.url"],
+      "error": ["$.error.message", "$.error"],
+      "usage": {"duration_seconds": {"paths": ["$.video.duration"], "accept": "scalar"}}
+    }
+  },
+  "status_map": {"done": "succeeded", "expired": "failed"},
+  "capabilities": {"first_frame": true, "max_reference_images": 7}
+}

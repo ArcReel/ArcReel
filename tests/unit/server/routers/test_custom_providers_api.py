@@ -200,6 +200,8 @@ class TestEndpointCatalog:
             "v2-video-generations",
             "ark-seedance",
             "vidu-video",
+            "openrouter-video",
+            "xai-video",
             "dashscope-image",
             "dashscope-async-video",
             "minimax-image",
