@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ValidationError
+from pydantic.json_schema import GenerateJsonSchema, JsonSchemaMode, JsonSchemaValue
 
 from lib.infra.retry import NonRetryableError
 
@@ -293,14 +295,50 @@ def merge_billed_tokens(kept: int | None, discarded: int | None) -> int | None:
     return (kept or 0) + (discarded or 0)
 
 
-def resolve_schema(schema: dict | type[BaseModel]) -> dict:
-    """将 response_schema 转为无 $ref 的纯 JSON Schema dict。
+class _ModelFacingJsonSchema(GenerateJsonSchema):
+    """只生成给模型看的 schema：类 docstring 不进 ``description``。
 
-    - BaseModel 子类: 调用 model_json_schema() 后内联 $ref
+    类 docstring 是写给维护者的实现说明（ADR 编号、迁移口径等），Pydantic 默认把它渲染成模型、枚举等定义上的
+    ``description`` 随结构化输出请求发出；字段上显式写的 ``description`` 才是给模型的说明，原样保留。
+
+    枚举与 RootModel 的 docstring 说明由 Pydantic 在各类型方法返回之后才写入，故不在 ``model_schema`` 等方法里拦，
+    而是生成途中记下遇到的类 docstring，生成完成后从顶层与各 ``$defs`` 定义上剥除同文的说明；经
+    ``json_schema_extra`` 等显式给出的不同说明保留。
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._class_docstrings: set[str] = set()
+
+    def generate_inner(self, schema: Any) -> JsonSchemaValue:
+        cls = schema.get("cls")
+        if isinstance(cls, type) and cls.__doc__:
+            self._class_docstrings.add(inspect.cleandoc(cls.__doc__))
+        return super().generate_inner(schema)
+
+    def handle_ref_overrides(self, json_schema: JsonSchemaValue) -> JsonSchemaValue:
+        # Pydantic 会去掉与被引用定义同文的字段 description；定义上的 docstring 说明随后被剥除，字段说明须留下。
+        reduced = super().handle_ref_overrides(json_schema)
+        if "description" in json_schema and "description" not in reduced:
+            reduced = {**reduced, "description": json_schema["description"]}
+        return reduced
+
+    def generate(self, schema: Any, mode: JsonSchemaMode = "validation") -> JsonSchemaValue:
+        json_schema = super().generate(schema, mode)
+        for node in (json_schema, *json_schema.get("$defs", {}).values()):
+            if node.get("description") in self._class_docstrings:
+                del node["description"]
+        return json_schema
+
+
+def resolve_schema(schema: dict | type[BaseModel]) -> dict:
+    """将 response_schema 转为发给模型的、无 $ref 的纯 JSON Schema dict。
+
+    - BaseModel 子类: 生成不含类 docstring 说明的 schema（见 :class:`_ModelFacingJsonSchema`）后内联 $ref
     - dict: 直接内联 $ref（如果有）
     """
     if isinstance(schema, type):
-        schema_dict: dict = schema.model_json_schema()
+        schema_dict: dict = schema.model_json_schema(schema_generator=_ModelFacingJsonSchema)
     else:
         schema_dict = schema
 
