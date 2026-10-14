@@ -34,7 +34,8 @@ def start_loop_stall_probe() -> asyncio.Task[None] | None:
 
     转储写进进程的原始 stderr（``sys.__stderr__``）的文件描述符，它在进程存续期间一直打开。
     ``sys.stderr`` 可能被临时替换（测试捕获、宿主重定向），替换对象的描述符随时会关闭并被复用，
-    延时转储会写进不相干的文件。原始 stderr 没有可用的文件描述符（无控制台的宿主）时不启动探针，
+    延时转储会写进不相干的文件：改用原始 stderr 之前 CI 的 unit job 挂起过一次，疑似由此引起，
+    根因未确认，改后未再现。原始 stderr 没有可用的文件描述符（无控制台的宿主）时不启动探针，
     返回 None。
     """
     stderr_fd = _process_stderr_fd()
