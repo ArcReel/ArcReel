@@ -23,6 +23,63 @@ function detailElement(segment: NarrationSegment, props: Partial<Parameters<type
   );
 }
 
+const legacyDialogueSegment = (dialogue: { speaker: string; line: string }[]) =>
+  makeNarrationSegment({
+    video_prompt: { action: "撑伞走过", camera_motion: "Static", ambiance_audio: "雨声", dialogue },
+  });
+
+describe("ShotDetail 旁白片段的台词", () => {
+  it("没有存量台词时不出现台词编辑入口", () => {
+    render(detailElement(legacyDialogueSegment([]), { onUpdatePrompt: vi.fn() }));
+
+    expect(screen.queryByText("对话")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "添加对话" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "清除台词" })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("角色")).not.toBeInTheDocument();
+  });
+
+  it("存量台词只读列出，没有可编辑的输入框和添加入口", () => {
+    render(detailElement(legacyDialogueSegment([{ speaker: "阿离", line: "你终于回来了。" }]), { onUpdatePrompt: vi.fn() }));
+
+    expect(screen.getByText("阿离")).toBeInTheDocument();
+    expect(screen.getByText("你终于回来了。")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("你终于回来了。")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "添加对话" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "清除台词" })).toBeEnabled();
+  });
+
+  it("清除台词并保存后，dialogue 提交为空，其余提示词字段保留", () => {
+    const onUpdatePrompt = vi.fn();
+    render(detailElement(legacyDialogueSegment([{ speaker: "阿离", line: "你终于回来了。" }]), { onUpdatePrompt }));
+
+    fireEvent.click(screen.getByRole("button", { name: "清除台词" }));
+    expect(screen.queryByText("你终于回来了。")).not.toBeInTheDocument();
+    expect(screen.getByText("台词已清除，保存后生效")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(onUpdatePrompt).toHaveBeenCalledWith("E1S01", {
+      video_prompt: { action: "撑伞走过", camera_motion: "Static", ambiance_audio: "雨声", dialogue: [] },
+    });
+  });
+
+  it("清除台词后放弃修改，台词恢复显示", () => {
+    render(detailElement(legacyDialogueSegment([{ speaker: "阿离", line: "你终于回来了。" }]), { onUpdatePrompt: vi.fn() }));
+
+    fireEvent.click(screen.getByRole("button", { name: "清除台词" }));
+    fireEvent.click(screen.getByRole("button", { name: "放弃修改" }));
+
+    expect(screen.getByText("你终于回来了。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "清除台词" })).toBeInTheDocument();
+  });
+
+  it("只读模式（缺 onUpdatePrompt）：台词可读，不提供清除", () => {
+    render(detailElement(legacyDialogueSegment([{ speaker: "阿离", line: "你终于回来了。" }])));
+
+    expect(screen.getByText("你终于回来了。")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "清除台词" })).not.toBeInTheDocument();
+  });
+});
+
 describe("ShotDetail 旁白正文", () => {
   it("编辑旁白正文后保存，只提交 { novel_text }", () => {
     const onUpdatePrompt = vi.fn();

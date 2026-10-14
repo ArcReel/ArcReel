@@ -839,7 +839,13 @@ export function ShotDetail({
     </ShotGroup>
   );
 
-  // 台词：narration / ad 编辑扁平 video_prompt.dialogue；drama 编辑分镜级 utterances（台词 + 画外音）。
+  // 台词：ad 编辑扁平 video_prompt.dialogue；drama 编辑分镜级 utterances（台词 + 画外音）。
+  // narration 不再提供台词编辑（旁白正文即画外音，再写台词会被判为混合发声）；存量台词只读列出，可清除。
+  const savedLegacyDialogue = isNarration && isStructuredVideoPrompt(unit.savedValue.video_prompt)
+    ? unit.savedValue.video_prompt.dialogue ?? []
+    : [];
+  const legacyDialogue = isNarration ? vidValue?.dialogue ?? [] : [];
+  const legacyDialogueCleared = savedLegacyDialogue.length > 0 && legacyDialogue.length === 0;
   const speechGroup = (
     <ShotGroup>
       {isDrama ? (
@@ -851,6 +857,35 @@ export function ShotDetail({
             speakerCandidates={speakerNames}
           />
         </ShotSection>
+      ) : isNarration ? (
+        (legacyDialogue.length > 0 || legacyDialogueCleared) && (
+          <ShotSection
+            title={t("detail_section_dialogue")}
+            actions={
+              legacyDialogue.length > 0 && !readOnly ? (
+                <Button variant="ghost" size="xs" disabled={saving} onClick={() => handleDialogueChange([])}>
+                  {t("detail_legacy_dialogue_clear")}
+                </Button>
+              ) : undefined
+            }
+          >
+            {legacyDialogue.length > 0 ? (
+              <>
+                <p className="mb-2 text-xs text-muted-foreground">{t("detail_legacy_dialogue_hint")}</p>
+                <ul className="flex flex-col gap-1.5">
+                  {legacyDialogue.map((d, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm">
+                      <span className="w-20 shrink-0 truncate text-muted-foreground">{d.speaker}</span>
+                      <span className="min-w-0 flex-1 whitespace-pre-wrap">{d.line}</span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">{t("detail_legacy_dialogue_cleared")}</p>
+            )}
+          </ShotSection>
+        )
       ) : (
         <ShotSection title={t("detail_section_dialogue")}>
           {vidValue ? (
