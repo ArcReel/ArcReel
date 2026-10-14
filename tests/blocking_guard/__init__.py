@@ -20,9 +20,9 @@
 lib/server 帧。测试内联的 ``to_thread`` 在工作线程上执行，本就不受检。
 
 **始终放行**：日志落盘、traceback 取源码行、``realpath`` 解析符号链接、函数内的延迟 import、
-asyncpg 建连时解析连接参数，以及模块级的无上限缓存（``functools.cache``）或无参缓存加载器的
-函数体。后两类每个进程只执行一次，首次调用落在哪个用例取决于调度顺序；有容量上限、按参数缓存
-的函数会被淘汰后重读，不放行。
+asyncpg 建连时解析连接参数、coverage 记录覆盖数据时等待自身的数据锁，以及模块级的无上限缓存
+（``functools.cache``）或无参缓存加载器的函数体。后两类每个进程只执行一次，首次调用落在哪个用例
+取决于调度顺序；有容量上限、按参数缓存的函数会被淘汰后重读，不放行。
 
 永久豁免清单 ``exemptions.toml`` 只收应用启动与关停路径上的一次性阻塞，每条写明理由。
 完整运行（未做任何选择或筛选）结束时，豁免清单里本次未触发的条目让会话以失败收场；带
@@ -68,6 +68,10 @@ _LOGGING_DIR = str(Path(logging.__file__).resolve().parent) + os.sep
 # asyncpg 解析连接参数时在事件循环上探测 ~/.pgpass 与 ~/.postgresql 下的证书文件，每条新连接
 # 一次。违规会记到恰好让连接池新建连接的调用方头上，随运行顺序变化，也只在 PostgreSQL 下出现，
 # 只在 PostgreSQL 下出现的违规在 SQLite 的运行里看不到。
+# coverage 的 tracer 每进入或恢复一个被测帧，都经 lock_data 阻塞地获取自身的数据锁（concurrency 含
+# thread 时才有这把锁），工作线程上的 tracer 恰好持锁时事件循环线程就等它。违规会随线程交错落在任意
+# 被测协程头上，常见的是生成队列 worker 主循环在 await 处恢复的那一刻；这把锁只在开 coverage 的运行里
+# 存在，生产路径上没有。
 _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("posixpath.py", frozenset({"realpath", "_joinrealpath"})),
     ("<frozen posixpath>", frozenset({"realpath", "_joinrealpath"})),
@@ -75,6 +79,7 @@ _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("<frozen importlib._bootstrap>", None),
     ("<frozen importlib._bootstrap_external>", None),
     ("asyncpg/connect_utils.py", frozenset({"_parse_connect_arguments"})),
+    ("coverage/collector.py", frozenset({"lock_data"})),
 )
 
 _STACK_PREVIEW_FRAMES = 6

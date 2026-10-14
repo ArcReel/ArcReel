@@ -9,7 +9,7 @@
 - 同步用例经 ``TestClient`` 进入的应用代码同样受检。
 - lib/server 的 async 函数经 ``tests/`` 下的替身触发的阻塞记到该 async 函数名下；测试直接调用同步
   lib 代码、测试内联 ``to_thread`` 的阻塞不计。
-- asyncpg 建连时解析连接参数的文件探测不记到调用方头上。
+- asyncpg 建连时解析连接参数的文件探测、coverage 等待自身数据锁，都不记到调用方头上。
 - 在事件循环线程上阻塞地获取项目文件锁、版本管理锁记为违规，非阻塞的尝试加锁不算。
 - 永久豁免清单里的条目放行，没有别的豁免途径；完整运行时未触发的豁免条目让会话失败，部分运行
   （含 ``--ignore`` 跳过路径、``--collect-only`` 等不执行用例的模式）不报。
@@ -112,6 +112,10 @@ async def read_versions(project_dir: Path) -> dict:
 async def connect_unreachable_postgres() -> None:
     with contextlib.suppress(OSError):
         await asyncpg.connect("postgresql://arcreel@127.0.0.1:1/arcreel", timeout=5)
+
+
+async def measured_noop() -> None:
+    return None
 """
 
 _APP = """
@@ -219,6 +223,44 @@ async def test_version_lock(tmp_path):
 
 async def test_postgres_connect():
     await samples.connect_unreachable_postgres()
+
+
+async def test_coverage_data_lock():
+    import sys
+    import threading
+
+    import coverage
+
+    # 另一个线程持有 coverage 的数据锁时，事件循环线程进入被测协程，tracer 在 lock_data 里等这把锁；
+    # 释放线程看到它停在 lock_data 里才放锁。
+    loop_thread = threading.get_ident()
+    waited = threading.Event()
+    done = threading.Event()
+
+    def release_once_waiting(data_lock):
+        while not done.is_set():
+            frame = sys._current_frames().get(loop_thread)
+            while frame is not None and frame.f_code.co_name != "lock_data":
+                frame = frame.f_back
+            if frame is not None:
+                waited.set()
+                break
+            done.wait(0.001)
+        data_lock.release()
+
+    cov = coverage.Coverage(data_file=None, concurrency=["thread"], include=["*/blocking_samples.py"])
+    cov.start()
+    try:
+        data_lock = cov._collector.data_lock
+        data_lock.acquire()
+        releaser = threading.Thread(target=release_once_waiting, args=(data_lock,))
+        releaser.start()
+        await samples.measured_noop()
+        done.set()
+        releaser.join()
+    finally:
+        cov.stop()
+    assert waited.is_set()
 """
 
 
@@ -316,6 +358,12 @@ def test_postgres_driver_connection_setup_is_not_charged_to_the_caller(probe_run
     # asyncpg 建连时在事件循环上探测 ~/.pgpass 与 ~/.postgresql 下的证书文件，每条新连接一次，
     # 归属落在恰好让连接池新建连接的那个调用方上，随运行顺序变化。
     assert _outcomes(probe_run.stdout)["test_postgres_connect"] == "PASSED", probe_run.stdout
+
+
+def test_coverage_waiting_for_its_own_data_lock_is_not_charged_to_the_measured_code(probe_run):
+    # coverage 的 tracer 每进入或恢复一个被测帧都阻塞地取自身数据锁，工作线程的 tracer 恰好持锁时
+    # 主线程就等它。这把锁只在开 coverage 的运行里存在，违规会随线程交错落在任意被测协程头上。
+    assert _outcomes(probe_run.stdout)["test_coverage_data_lock"] == "PASSED", probe_run.stdout
 
 
 def test_bounded_per_argument_cache_is_still_checked(probe_run):
