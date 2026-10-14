@@ -51,15 +51,15 @@ async def get_cost_estimate(
                 except FileNotFoundError:
                     logger.debug("剧本文件不存在，跳过: %s/%s", project_name, script_file)
 
-        return project_data, scripts
+        return project_data, scripts, pm.get_project_path(project_name)
 
-    project_data, scripts = await asyncio.to_thread(_sync)
+    project_data, scripts, project_path = await asyncio.to_thread(_sync)
 
     resolver = ConfigResolver(async_session_factory)
     service = CostEstimationService(
         resolver,
         async_session_factory,
-        project_path=get_project_manager().get_project_path(project_name),
+        project_path=project_path,
     )
 
     if reference_unit_id and not any(find_reference_unit(script, reference_unit_id) for script in scripts.values()):

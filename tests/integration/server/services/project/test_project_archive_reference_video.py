@@ -15,6 +15,7 @@ import pytest
 
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_report import load_migration_report
 from lib.project.resource_paths import resource_relative_path
 from server.services.project.project_archive import ProjectArchiveService
 
@@ -409,11 +410,17 @@ class TestProjectArchiveReferenceVideo:
         _make_manual_zip(project_dir, archive_path)
         shutil.rmtree(project_dir)
 
-        result = service.import_project_archive(archive_path, uploaded_filename="missing-char.zip")
+        result = service.import_project_archive(archive_path, confirm_report=True, uploaded_filename="missing-char.zip")
 
         imported_project = pm.load_project(result.project_name)
         assert imported_project["characters"]["幽灵"]["description"] == ""
-        assert any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
+        # 占位进了导入前确认过的报告，导入成功后的诊断不再重复列出。
+        report = load_migration_report(pm.get_project_path(result.project_name))
+        assert report is not None
+        assert [(item.code, item.params) for item in report.adjusted] == [
+            ("placeholder_asset_added", {"asset_type": "character", "name": "幽灵"})
+        ]
+        assert not any(item["code"] == "placeholder_character_added" for item in result.diagnostics["auto_fixed"])
 
     def test_import_warns_without_blocking_on_unresolved_mention(self, tmp_path):
         # 正文里的 @[名称] 是执行期才解析的派生来源：未登记只意味着这一处不出参考图，

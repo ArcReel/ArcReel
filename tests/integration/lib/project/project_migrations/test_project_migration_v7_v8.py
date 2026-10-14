@@ -447,7 +447,7 @@ def test_schema8_archive_activation_reconstructs_only_self_proving_presentation_
     # snapshot, but deliberately filter the hidden Manifest sidecar.
     (project_dir / MANIFEST_FILENAME).unlink()
 
-    assert ensure_imported_artifact_target_state(project_dir) is True
+    assert ensure_imported_artifact_target_state(project_dir) == ()
     adapter = ProjectArtifactManifestAdapter(project_dir)
     assert adapter.get_entry(subtitle_key) == subtitle_entry
     assert adapter.get_entry(presentation_key) == presentation_entry
@@ -466,7 +466,7 @@ def test_schema8_archive_activation_rejects_tampered_presentation_evidence(tmp_p
     _write_json(presentation_file, tampered)
     (project_dir / MANIFEST_FILENAME).unlink()
 
-    assert ensure_imported_artifact_target_state(project_dir) is True
+    assert ensure_imported_artifact_target_state(project_dir) == ()
     adapter = ProjectArtifactManifestAdapter(project_dir)
     assert adapter.get_entry(subtitle_key) is None
     assert adapter.get_entry(presentation_key) is None

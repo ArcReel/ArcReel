@@ -24,6 +24,7 @@ from lib.backends.image_backends.base import (
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 
 logger = logging.getLogger(__name__)
@@ -150,7 +151,7 @@ class GeminiImageBackend:
         )
 
         # 5. 解析响应并保存
-        self._process_image_response(response, request.output_path)
+        await run_sync_transaction(self._process_image_response, response, request.output_path)
 
         return ImageGenerationResult(
             image_path=request.output_path,

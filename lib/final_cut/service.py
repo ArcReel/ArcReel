@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -160,6 +161,10 @@ class FinalCutService:
             raise EditTimelineError("project_not_found", f"项目「{project_name}」不存在", project=project_name)
         return self._projects.get_project_path(project_name)
 
+    def _load_project(self, project_name: str) -> dict[str, Any]:
+        self._project_dir(project_name)
+        return self._projects.load_project(project_name)
+
     async def _checked(
         self,
         project_name: str,
@@ -168,8 +173,7 @@ class FinalCutService:
         narration: DraftNarration | None,
         subtitles: SubtitleMode | None,
     ) -> _Checked:
-        self._project_dir(project_name)
-        project = await asyncio.to_thread(self._projects.load_project, project_name)
+        project = await asyncio.to_thread(self._load_project, project_name)
         variant = resolve_final_cut_variant(project, narration=narration, subtitles=subtitles)
         if variant.with_narration and project_narration_delivery(project) != USE_TTS:
             raise FinalCutError(
@@ -385,23 +389,26 @@ class FinalCutService:
         if materials is not None:
             inputs = replace(inputs, units=materials.bases)
         basis = final_cut_basis(inputs)
-        project_dir = self._project_dir(project_name)
+        project_dir = await asyncio.to_thread(self._project_dir, project_name)
         media = await self._render_media(inputs)
         plan = plan_render(render_clips([item.clip for item in inputs.clips], media), inputs.profile)
         if not plan.segments:
             raise FinalCutError("final_cut_empty", "剪辑时间线没有可渲染的剪辑片段", timeline_id=inputs.timeline_id)
-        narrations: tuple[NarrationInput, ...] = ()
+        placement = self._placement(checked, materials, media) if materials is not None else None
         burned: tuple[BurnedSubtitle, ...] | None = None
-        if materials is not None:
-            placement = self._placement(checked, materials, media)
-            if variant.with_narration:
+        if placement is not None and variant.burns_subtitles:
+            burned = tuple(
+                BurnedSubtitle(start_us=item.start_us, end_us=item.end_us, text=item.text)
+                for item in placement.subtitles
+            )
+
+        def audio_inputs() -> tuple[tuple[NarrationInput, ...], tuple[BgmInput, ...]]:
+            narrations: tuple[NarrationInput, ...] = ()
+            if placement is not None and variant.with_narration:
                 narrations = self._narrations(project_dir, placement)
-            if variant.burns_subtitles:
-                burned = tuple(
-                    BurnedSubtitle(start_us=item.start_us, end_us=item.end_us, text=item.text)
-                    for item in placement.subtitles
-                )
-        bgm = self._bgm(project_dir, inputs, plan.total_frames * 1_000_000 // plan.profile.fps)
+            return narrations, self._bgm(project_dir, inputs, plan.total_frames * 1_000_000 // plan.profile.fps)
+
+        narrations, bgm = await asyncio.to_thread(audio_inputs)
         ffmpeg = ffmpeg_executable()
 
         async def render_step(output: Path, workspace: Path) -> None:

@@ -7,6 +7,7 @@ Vidu 图片 API 仅有一个端点 ``/reference2image``：
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -119,7 +120,7 @@ class ViduImageBackend:
             "prompt": prompt,
         }
         if refs:
-            body["images"] = [image_to_data_uri(Path(ref.path)) for ref in refs]
+            body["images"] = await asyncio.to_thread(lambda: [image_to_data_uri(Path(ref.path)) for ref in refs])
 
         # aspect_ratio 白名单兜底
         if request.aspect_ratio:

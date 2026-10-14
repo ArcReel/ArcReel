@@ -129,6 +129,16 @@ class DispatchProviderChanged(RuntimeError):
         super().__init__(f"dispatch provider changed: {claimed_provider_id} -> {actual_provider_id}")
 
 
+def ensure_dispatch_provider(claimed_provider_id: str | None, actual_provider_id: str) -> None:
+    """执行入口核对：按项目现状解析出的 provider 与认领时占用的槽不一致时抛 :class:`DispatchProviderChanged`。
+
+    调用方必须在任何供应商调用之前核对。``claimed_provider_id`` 为 None 表示调用方不经 worker
+    认领（直接调用），不核对。
+    """
+    if claimed_provider_id is not None and actual_provider_id != claimed_provider_id:
+        raise DispatchProviderChanged(claimed_provider_id=claimed_provider_id, actual_provider_id=actual_provider_id)
+
+
 def reference_video_enqueue_payload(
     payload: dict[str, Any] | None,
     *,
@@ -538,7 +548,10 @@ class GenerationQueue:
             batch = await repo.get_batch(project_name=project_name, batch_id=batch_id, user_id=user_id)
         if batch is None:
             raise GenerationBatchNotFound(f"batch '{batch_id}' does not belong to project '{project_name}'")
-        return build_generation_batch_read_model(batch, batch["memberships"], batch["queue_depth"], resolver)
+        # 读模型按产物清单与内容摘要判定成员产物时效，读盘、等清单锁都放进工作线程。
+        return await asyncio.to_thread(
+            build_generation_batch_read_model, batch, batch["memberships"], batch["queue_depth"], resolver
+        )
 
     async def delete_fresh_generation_batch(
         self,

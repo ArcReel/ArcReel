@@ -136,7 +136,12 @@ def _create_rollback_backup(current_file: Path) -> Path:
 
 
 class VersionManager:
-    """版本管理器"""
+    """版本管理器
+
+    读写版本记录、提交版本与复制文件都是同步磁盘操作，并持有按 versions.json 共享的线程锁；
+    异步调用方只在工作线程里调用这些方法，不在事件循环线程上等锁。构造本身不碰文件系统，
+    可以在事件循环上进行。
+    """
 
     # 支持的资源类型与扩展名均派生自单一真相源 lib.project.resource_paths，避免副本漂移。
     RESOURCE_TYPES = _RESOURCE_TYPES
@@ -152,7 +157,18 @@ class VersionManager:
         self.project_path = Path(project_path)
         self.versions_dir = self.project_path / "versions"
         self.versions_file = self.versions_dir / "versions.json"
-        self._lock = _get_versions_file_lock(self.versions_file)
+        self._versions_lock: threading.RLock | None = None
+
+    @property
+    def _lock(self) -> threading.RLock:
+        """按 versions.json 的规范路径共享的线程锁。
+
+        解析规范路径要 stat，推迟到首次加锁时进行：加锁本就发生在工作线程里，构造因此不阻塞。
+        """
+        lock = self._versions_lock
+        if lock is None:
+            lock = self._versions_lock = _get_versions_file_lock(self.versions_file)
+        return lock
 
     def _ensure_dirs(self) -> None:
         """确保版本目录结构存在。

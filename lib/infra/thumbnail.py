@@ -1,10 +1,12 @@
 """视频帧提取（首帧缩略图 / 尾帧）"""
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
 
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable, local_file_input
 from lib.infra.media_probe import MediaProbeError, probe_media
 from lib.infra.subprocess_deadline import (
@@ -64,7 +66,7 @@ async def extract_video_thumbnail(
         字段」的现有分支；前端 ``<video poster>`` 在 poster 为空时浏览器会
         原生从视频流取首帧渲染，无需 server-side placeholder。
     """
-    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 run_with_deadline 子进程
+    if not await asyncio.to_thread(video_path.exists):
         return None
 
     try:
@@ -73,7 +75,7 @@ async def extract_video_thumbnail(
         logger.info("随包 ffmpeg 不可用，跳过缩略图提取（前端将原生取首帧）：%s", exc)
         return None
 
-    thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(thumbnail_path.parent.mkdir, parents=True, exist_ok=True)
 
     try:
         written = await _run_ffmpeg_to_output(
@@ -181,8 +183,13 @@ async def _run_ffmpeg_to_output(
         spawn=spawn,
     )
 
+    return await run_sync_transaction(_promote_temp_output, result.returncode == 0, temp_path, output_path)
+
+
+def _promote_temp_output(succeeded: bool, temp_path: Path, output_path: Path) -> bool:
+    """ffmpeg 成功且临时文件非空时原子替换 ``output_path``；无论结果都清掉临时文件。"""
     try:
-        if result.returncode != 0 or not temp_path.exists() or temp_path.stat().st_size < 1:
+        if not succeeded or not temp_path.exists() or temp_path.stat().st_size < 1:
             return False
         temp_path.replace(output_path)
         return True
@@ -239,7 +246,7 @@ async def extract_video_last_frame(
     Returns:
         输出路径（成功）或 None（失败 / 随包 ffmpeg 不可用）
     """
-    if not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 run_with_deadline 子进程
+    if not await asyncio.to_thread(video_path.exists):
         return None
 
     try:
@@ -248,7 +255,7 @@ async def extract_video_last_frame(
         logger.info("随包 ffmpeg 不可用，跳过尾帧提取：%s", exc)
         return None
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
 
     # 1. 先走快路径（只解复用数包），失败再回退到全量解码
     total_frames = await _probe_frame_count(ffmpeg, video_path, count_frames=False, deadlines=deadlines, spawn=spawn)
@@ -292,7 +299,7 @@ async def extract_video_frame_before(
     Returns:
         输出路径（成功）或 None（失败 / 随包 ffmpeg 不可用）
     """
-    if end_seconds <= 0 or not video_path.exists():  # noqa: ASYNC240 -- 输入视频存在性检查，本地元数据；抽帧本身走 run_with_deadline 子进程
+    if end_seconds <= 0 or not await asyncio.to_thread(video_path.exists):
         return None
 
     try:
@@ -301,7 +308,7 @@ async def extract_video_frame_before(
         logger.info("随包 ffmpeg 不可用，跳过出点帧提取：%s", exc)
         return None
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
     seek = max(0.0, end_seconds - 1.0)
     try:
         written = await _run_ffmpeg_to_output(

@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0104
 ---
 
 # 供应商能力声明收敛到模型级，provider 能力为派生只读视图

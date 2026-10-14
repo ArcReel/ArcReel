@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -107,10 +108,12 @@ async def evaluate_reference_unit_capabilities(
     """
 
     pending = list(units)
+    # 水合要读产物清单、对设计图算摘要，整批放进工作线程。
+    hydrations = await asyncio.to_thread(
+        hydrate_reference_units, project, project_path, pending, availability=availability
+    )
     results: list[ReferenceUnitCapability] = []
-    for unit, hydration in zip(
-        pending, hydrate_reference_units(project, project_path, pending, availability=availability), strict=True
-    ):
+    for unit, hydration in zip(pending, hydrations, strict=True):
         results.append(
             ReferenceUnitCapability(
                 unit_id=str(unit.get("unit_id") or ""),

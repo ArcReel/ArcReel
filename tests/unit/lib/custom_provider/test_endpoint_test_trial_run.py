@@ -83,17 +83,27 @@ def _mock_pending_run(router) -> asyncio.Event:
 
     pending 记账行在发这一枪之前就落了库（``run.api_call_id`` 同点赋值），所以等这次握手
     等到的正是「取消要翻的那一行已经存在」，不必去猜事件循环要让步多少次。
+
+    首次轮询回 processing，之后的轮询停在请求上直到 run 被取消。``bounded_poll_clock`` 把轮询
+    间隔换成不让出的空等、并替换全局 ``time.monotonic``：一直回 processing 的话，这条 run 会在
+    用例的其他让出点上反复轮询，连同事件循环的读表一起耗掉超时预算，提前以超时失败。
     """
     submitted = asyncio.Event()
+    parked = asyncio.Event()
+    fetches: list[httpx.Request] = []
 
     def _create(_request: httpx.Request) -> httpx.Response:
         submitted.set()
         return httpx.Response(200, json={"task_id": "job-42"})
 
+    async def _fetch(request: httpx.Request) -> httpx.Response:
+        if fetches:
+            await parked.wait()
+        fetches.append(request)
+        return httpx.Response(200, json={"status": "processing"})
+
     router.post("https://relay.test/v1/video/create").mock(side_effect=_create)
-    router.get("https://relay.test/v1/video/fetch/job-42").mock(
-        return_value=httpx.Response(200, json={"status": "processing"})
-    )
+    router.get("https://relay.test/v1/video/fetch/job-42").mock(side_effect=_fetch)
     return submitted
 
 
@@ -569,8 +579,17 @@ class TestConcurrencyAndCancel:
             retried = await trial_runs.start(_target(), PARAMETERS)
             await _await_terminal(trial_runs, retried.id)
 
-    async def test_shutdown_keeps_draining_after_a_failed_settlement(self, trial_runs: TrialRunManager, monkeypatch):
+    async def test_shutdown_keeps_draining_after_a_failed_settlement(
+        self, tmp_path: Path, file_db_factory: async_sessionmaker, monkeypatch
+    ):
         """一条 run 结算失败不能中断关停：后面的 run 一条都不会停，关库等后续步骤也一起跳过。"""
+        # 两条 run 并发记账：内存库只有一条共享连接，一边的提交或回滚会带走另一边未提交的写入，
+        # 这里用各自独立连接的文件库。
+        trial_runs = TrialRunManager(
+            root=tmp_path / "trial_runs",
+            ledger=Ledger(session_factory=file_db_factory),
+            read_poll_timeout=_fixed_timeout,
+        )
         settled: list[int] = []
         original = trial_runs._ledger.resume_cancelled
 

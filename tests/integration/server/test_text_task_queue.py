@@ -737,7 +737,8 @@ async def test_cancel_during_started_episode_script_commit_leaves_member_running
 
         @classmethod
         async def create(cls, *_args, **_kwargs):
-            return cls()
+            # 与生产的工厂一样在工作线程里构造：构造时读项目文件。
+            return await asyncio.to_thread(cls)
 
         async def generate(self, *_args, **_kwargs):
             def commit():
@@ -829,9 +830,13 @@ async def test_cancel_during_started_episode_plan_commit_leaves_member_running_t
             return result
 
     async def create_planner(_cls, path):
-        planner = EpisodePlanner(path, generator=Generator())
-        planner.pm = BlockingProjectManager(projects.data_root)
-        return planner
+        # 与 EpisodePlanner.create 一样在工作线程里构造：构造 ProjectManager 会建目录。
+        def _build() -> EpisodePlanner:
+            planner = EpisodePlanner(path, generator=Generator())
+            planner.pm = BlockingProjectManager(projects.data_root)
+            return planner
+
+        return await asyncio.to_thread(_build)
 
     monkeypatch.setattr(EpisodePlanner, "create", classmethod(create_planner))
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)

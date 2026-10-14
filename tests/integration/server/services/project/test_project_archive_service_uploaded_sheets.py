@@ -18,9 +18,9 @@ from server.services.currency.upload_finalize import install_manual_asset_sheet_
 from server.services.project.project_archive import ARCHIVE_MANIFEST_NAME, ProjectArchiveService
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 
-#: Alice 描述为空时上传；Bob 上传后改了描述；Carol 与 Dave 的资产图没有上传版本记录，Dave 描述为空；
-#: Eve 描述为空且没有资产图。
-_EXPECTED = {"Alice": "current", "Bob": "current", "Carol": "current", "Dave": "missing", "Eve": "missing"}
+#: Alice 描述为空时上传；Bob 上传后改了描述；Carol 与 Dave 的资产图没有上传版本记录，Dave 描述为空——
+#: 生成缺口只拦生成（ADR 0098），Dave 照常补录；Eve 描述为空且没有资产图。
+_EXPECTED = {"Alice": "current", "Bob": "current", "Carol": "current", "Dave": "current", "Eve": "missing"}
 
 _ADD_ASSET = {
     "character": ProjectManager.add_character,
@@ -127,7 +127,34 @@ def test_archive_import_reaches_the_backfill_conclusion(tmp_path, scope, envelop
         project["style_description"] = "胶片颗粒"
 
     pm.update_project("demo", _edit)
-    assert _statuses(imported_dir, _EXPECTED) == {**_EXPECTED, "Carol": "stale"}
+    # Dave 按生成输入补录，依据含项目画风，画风描述一改即过期。
+    assert _statuses(imported_dir, _EXPECTED) == {**_EXPECTED, "Carol": "stale", "Dave": "stale"}
+
+
+def test_envelope_without_a_claim_for_a_gapped_sheet_backfills_it_and_keeps_the_other_claims(tmp_path):
+    """较早导出的归档没有为空描述的 Dave 留 claim：导入按生成缺口补录口径登记它，其余 claim 原样恢复。"""
+    pm = ProjectManager(tmp_path / "projects")
+    project_dir = _backfilled_project(pm)
+    archive_path, _ = ProjectArchiveService(pm).export_project("demo", scope="full")
+    dave = ArtifactKey.asset_sheet("character", "Dave").encode()
+    older = tmp_path / "older.zip"
+    with zipfile.ZipFile(archive_path) as source, zipfile.ZipFile(older, "w") as target:
+        for member in source.infolist():
+            content = source.read(member)
+            if member.filename == f"demo/{ARCHIVE_MANIFEST_NAME}":
+                envelope = json.loads(content)
+                envelope["artifact_manifest"]["entries"].pop(dave)
+                content = json.dumps(envelope, ensure_ascii=False).encode("utf-8")
+            target.writestr(member, content)
+    source_entries = json.loads((project_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))["entries"]
+    shutil.rmtree(project_dir)
+
+    ProjectArchiveService(pm).import_project_archive(older, uploaded_filename="demo.zip")
+
+    imported_dir = pm.get_project_path("demo")
+    imported_entries = json.loads((imported_dir / MANIFEST_FILENAME).read_text(encoding="utf-8"))["entries"]
+    assert imported_entries == source_entries
+    assert _statuses(imported_dir, _EXPECTED) == _EXPECTED
 
 
 @pytest.mark.parametrize("asset_type", sorted(ASSET_SPECS))

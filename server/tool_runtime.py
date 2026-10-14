@@ -406,6 +406,14 @@ async def submit_media_generation(
         raise
 
 
+def _batch_currency_resolver(projects: ProjectManager, project_name: str) -> ArtifactCurrencyResolver | None:
+    try:
+        project = projects.load_project(project_name)
+        return active_artifact_currency_resolver(projects.get_project_path(project_name), project)
+    except ProjectMigrationError:
+        return None
+
+
 async def get_generation_batch(
     request: ToolRequest[GenerationBatchToolRequest],
     scope: ProjectScope,
@@ -413,15 +421,7 @@ async def get_generation_batch(
     services: Services,
 ) -> ToolOutcome[Any]:
     try:
-        resolver: ArtifactCurrencyResolver | None = None
-        try:
-            project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
-            resolver = active_artifact_currency_resolver(
-                services.projects.get_project_path(scope.project_name),
-                project,
-            )
-        except ProjectMigrationError:
-            pass
+        resolver = await asyncio.to_thread(_batch_currency_resolver, services.projects, scope.project_name)
         result = await services.queue.get_generation_batch(
             project_name=scope.project_name,
             batch_id=request.value.batch_id,
@@ -918,8 +918,7 @@ async def generate_episode_script(
         )
     try:
         await asyncio.to_thread(
-            functools.partial(
-                prompt_authoring_preflight,
+            lambda: prompt_authoring_preflight(
                 services.projects.get_project_path(scope.project_name),
                 text_request.episode,
                 entry_ids=text_request.entry_ids,
@@ -962,11 +961,12 @@ async def generate_script_plan(
         if content_mode not in {"narration", "drama", "ad"}:
             raise TextGenerationError(f"不支持的创作类型: {content_mode}")
         await asyncio.to_thread(
-            script_plan_preflight,
-            services.projects.get_project_path(scope.project_name),
-            project,
-            text_request.episode,
-            text_request.source,
+            lambda: script_plan_preflight(
+                services.projects.get_project_path(scope.project_name),
+                project,
+                text_request.episode,
+                text_request.source,
+            )
         )
         if is_reference_video_project(project):
             handler, task_type = generate_reference_script_plan, _TEXT_REFERENCE_SCRIPT_PLAN
@@ -1343,11 +1343,8 @@ async def list_source_files(
     services: Services,
 ) -> ToolOutcome[SourceFilesContent]:
     try:
-        project_dir = services.projects.get_project_path(scope.project_name)
         files = await asyncio.to_thread(
-            _business_file_entries,
-            project_dir,
-            source_only=True,
+            lambda: _business_file_entries(services.projects.get_project_path(scope.project_name), source_only=True)
         )
         revision = prefixed_canonical_json_digest([entry.model_dump() for entry in files])
         return ToolOutcome(value=SourceFilesContent(revision=revision, files=files))
@@ -1363,7 +1360,7 @@ async def get_source_text(
 ) -> ToolOutcome[SourceTextContent]:
     path = request.value.path
     try:
-        project_dir = services.projects.get_project_path(scope.project_name)
+        project_dir = await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
         if not path.startswith("source/"):
             raise ValueError("path 必须指向 source/ 下的文本文件")
         content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, path)
@@ -1421,8 +1418,7 @@ async def list_project_files(
 ) -> ToolOutcome[ProjectFilesContent]:
     try:
         files = await asyncio.to_thread(
-            _business_file_entries,
-            services.projects.get_project_path(scope.project_name),
+            lambda: _business_file_entries(services.projects.get_project_path(scope.project_name))
         )
         revision = prefixed_canonical_json_digest([entry.model_dump() for entry in files])
         return ToolOutcome(value=ProjectFilesContent(revision=revision, files=files))
@@ -1438,8 +1434,9 @@ async def read_project_file(
 ) -> ToolOutcome[ProjectFileContent]:
     path = request.value.path
     try:
-        project_dir = services.projects.get_project_path(scope.project_name)
-        content, revision, etag, _size = await asyncio.to_thread(_decode_business_file, project_dir, path)
+        content, revision, etag, _size = await asyncio.to_thread(
+            lambda: _decode_business_file(services.projects.get_project_path(scope.project_name), path)
+        )
         return ToolOutcome(value=ProjectFileContent(revision=revision, etag=etag, path=path, content=content))
     except Exception as exc:
         return ToolOutcome(problem=_file_problem("read_project_file", exc))
@@ -2044,7 +2041,7 @@ async def edit_source_text(
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     value = request.value
-    project_dir = services.projects.get_project_path(scope.project_name)
+    project_dir = await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
 
     def _new_text(path: Path) -> str:
         if value.text is not None:
@@ -2806,7 +2803,9 @@ async def _execute_plan_episodes(
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     try:
-        planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
+        planner = await planner_cls.create(
+            await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
+        )
         if chain is None:
             result = await planner.plan(instructions=request.value.instructions, gap=gap)
         else:
@@ -2830,7 +2829,7 @@ async def _execute_plan_episodes(
     finally:
         if chain is not None:
             _STOPPED_PLANNING_WINDOWS.discard(str(chain.task["task_id"]))
-    project = services.projects.load_project(scope.project_name)
+    project = await asyncio.to_thread(services.projects.load_project, scope.project_name)
     value = PlanEpisodesResult(
         message=_format_plan(result, project, gap=gap is not None),
         episodes=[
@@ -2979,10 +2978,10 @@ async def start_episode_replan(
     """
     if problem := await _plan_episodes_gate(scope, services):
         return ToolOutcome(problem=problem)
-    project_path = services.projects.get_project_path(scope.project_name)
+    project_path = await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
     try:
         replan = await asyncio.to_thread(
-            replan_scope, project_path, services.projects.load_project(scope.project_name), episode
+            lambda: replan_scope(project_path, services.projects.load_project(scope.project_name), episode)
         )
     except ReplanError as exc:
         return ToolOutcome(problem=_replan_refused(exc))
@@ -3029,7 +3028,7 @@ async def continue_episode_replan(
                 params={"task_id": active[0]["task_id"], "status": active[0]["status"]},
             )
         )
-    project_path = services.projects.get_project_path(scope.project_name)
+    project_path = await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
     try:
         instructions = await _run_sync_transaction(resume_replan_candidate, project_path, candidate_id)
     except ReplanError as exc:
@@ -3077,8 +3076,11 @@ async def _execute_replan_window(
     )
     if outcome.problem is not None:
         reason = "no_cut_point" if outcome.problem.code == "episode_planning_no_cut_point" else "failed"
-        project_path = services.projects.get_project_path(scope.project_name)
-        await _run_sync_transaction(record_replan_interruption, project_path, candidate_id, reason)
+        await _run_sync_transaction(
+            lambda: record_replan_interruption(
+                services.projects.get_project_path(scope.project_name), candidate_id, reason
+            )
+        )
     return outcome
 
 
@@ -3093,7 +3095,9 @@ async def _draft_replan_window(
 ) -> ToolOutcome[Any]:
     planning_instructions = instructions if isinstance(instructions, str) else None
     try:
-        planner = await planner_cls.create(services.projects.get_project_path(scope.project_name))
+        planner = await planner_cls.create(
+            await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
+        )
         result: CandidatePlanResult = await planner.plan_candidate(
             candidate_id, planning_instructions, on_more_to_plan=chain.queue_next_window
         )
@@ -3195,7 +3199,7 @@ async def execute_queued_text_task(
         scope, services = registered
     else:
         scope = ProjectScope(project_name=str(task["project_name"]), data_root=DataRootLayout.current().root)
-        services = services or Services.defaults(ProjectManager(scope.data_root))
+        services = services or Services.defaults(await asyncio.to_thread(ProjectManager, scope.data_root))
     task_type = task["task_type"]
     if task_type == TEXT_DRAFT_REPAIR_TASK_TYPE:
         outcome = await _execute_draft_repair(RepairDraftRequest.model_validate(payload), scope, services)
@@ -3262,13 +3266,14 @@ async def reset_episode_planning(
     if problem := await migration_gate(scope, services):
         return ToolOutcome(problem=problem)
     value = request.value
-    project_before = services.projects.load_project(scope.project_name)
+    project_before = await asyncio.to_thread(services.projects.load_project, scope.project_name)
     try:
         result = await _run_sync_transaction(
-            resetter,
-            services.projects.get_project_path(scope.project_name),
-            episode_id=value.episode_id,
-            confirm_consumed=value.confirm_consumed,
+            lambda: resetter(
+                services.projects.get_project_path(scope.project_name),
+                episode_id=value.episode_id,
+                confirm_consumed=value.confirm_consumed,
+            )
         )
     except (EpisodeResetError, FileNotFoundError) as exc:
         return ToolOutcome(problem=ToolProblem("episode_reset_failed", f"❌ 分集规划重置失败：{exc}"))
@@ -3713,7 +3718,7 @@ async def retry_project_migration(
     _caller: CallerContext,
     services: Services,
 ) -> ToolOutcome[RetryProjectMigrationResult]:
-    project_dir = services.projects.get_project_path(scope.project_name)
+    project_dir = await asyncio.to_thread(services.projects.get_project_path, scope.project_name)
     try:
         failure = await _run_sync_transaction(
             migrate_project_with_verdict,
@@ -3731,7 +3736,7 @@ async def retry_project_migration(
         )
     except Exception as exc:
         try:
-            residual = load_migration_failure(project_dir)
+            residual = await asyncio.to_thread(load_migration_failure, project_dir)
         except (FileNotFoundError, ValueError, OSError):
             residual = None
         return ToolOutcome(

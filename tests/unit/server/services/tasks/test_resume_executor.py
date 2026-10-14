@@ -26,6 +26,7 @@ from lib.script.reference_video.execution_checkpoint import (
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
 )
+from tests.fakes import write_backend_output
 
 
 class _FakeProjectManager:
@@ -57,8 +58,8 @@ class _FakeGenerator:
         if self.raises is not None:
             raise self.raises
         output_path = kwargs.get("output_path") or Path(tempfile.gettempdir()) / "video.mp4"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_bytes(b"paid-resume-video")
+        # 生产后端在工作线程里落盘产物，替身同样不占事件循环
+        await write_backend_output(output_path, b"paid-resume-video")
         prepare = kwargs.get("before_formal_commit")
         if prepare is not None:
             metadata = {key: value for key, value in kwargs.items() if key.startswith(("execution_", "artifact_"))}

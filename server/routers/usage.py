@@ -342,7 +342,7 @@ async def get_usage_summary(
     """
     # 解析不了的时区名直接 422，不静默回落 UTC——切天口径错了整张趋势图都会错位。
     try:
-        zone = ZoneInfo(tz)
+        zone = await asyncio.to_thread(ZoneInfo, tz)
     except (KeyError, ValueError, OSError) as exc:
         raise UnprocessableError("usage_timezone_invalid") from exc
     since_utc = _utc_instant(since)

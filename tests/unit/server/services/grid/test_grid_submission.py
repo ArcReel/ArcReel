@@ -256,7 +256,8 @@ async def test_a_grid_finishing_while_its_task_is_probed_is_kept_not_paid_for_ag
     generating = _record(project_path, GROUP_1, status="generating")
 
     async def worker_finishes_first(_grid_ids: list[str]) -> list[str]:
-        _complete(project_path, generating)
+        # worker 在另一个线程里落盘出图
+        await asyncio.to_thread(_complete, project_path, generating)
         return []
 
     plan = await _plan(project_path, section, active_grid_tasks=worker_finishes_first)

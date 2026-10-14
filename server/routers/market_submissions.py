@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from typing import Annotated, Literal
 
@@ -154,7 +155,7 @@ async def check(
 ) -> CheckSubmissionResponse:
     """本地市场校验与疑似字面凭证检查；诊断均阻断分享，不出站。"""
     _, files = await _files_of(session, body)
-    diagnostics = _diagnostics_payload(check_submission(body.slug, files), _t)
+    diagnostics = _diagnostics_payload(await asyncio.to_thread(check_submission, body.slug, files), _t)
     return CheckSubmissionResponse(diagnostics=[SubmissionDiagnosticResponse(**item) for item in diagnostics])
 
 
@@ -167,7 +168,7 @@ async def create_submission(
 ) -> MarketSubmissionResponse:
     """本地预检通过后经官方服务创建提交；官方服务的错误码与状态码原样落到本地响应。"""
     endpoint, files = await _files_of(session, body)
-    if diagnostics := check_submission(body.slug, files):
+    if diagnostics := await asyncio.to_thread(check_submission, body.slug, files):
         raise UnprocessableError("market_submission_invalid").with_diagnostic(
             {"diagnostics": _diagnostics_payload(diagnostics, _t)}
         )

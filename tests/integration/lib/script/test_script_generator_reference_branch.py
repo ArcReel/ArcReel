@@ -1239,7 +1239,8 @@ async def test_prompt_authoring_preserves_output_when_formal_script_changes_duri
     generator.model = "mock"
 
     async def generate(_request, **_kwargs):
-        formal.write_text(_json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
+        # 并发写方不在生成所在的事件循环上，改写放进工作线程。
+        await asyncio.to_thread(formal.write_text, _json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
         return MagicMock(text=_prompt_authoring_response(PROMPT_AUTHORING_UNIT_TEXT, title="本次生成标题"))
 
     generator.generate = AsyncMock(side_effect=generate)
@@ -1265,7 +1266,8 @@ async def test_prompt_authoring_violation_keeps_generation_start_formal_baseline
     generator.model = "mock"
 
     async def generate(_request, **_kwargs):
-        formal.write_text(_json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
+        # 并发写方不在生成所在的事件循环上，改写放进工作线程。
+        await asyncio.to_thread(formal.write_text, _json.dumps(concurrent, ensure_ascii=False), encoding="utf-8")
         return MagicMock(text=_prompt_authoring_response(BAD_PROMPT_AUTHORING_UNIT_TEXT, title="本次违约输出"))
 
     generator.generate = AsyncMock(side_effect=generate)

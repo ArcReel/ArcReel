@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
@@ -155,6 +156,37 @@ class TestProjectArchiveRoutes:
         assert response.status_code == 409
         assert response.json()["detail"] == "检测到项目编号冲突"
         assert response.json()["conflict_project_name"] == "demo"
+
+    def test_import_route_asks_for_confirmation_before_the_project_appears(self, tmp_path, monkeypatch):
+        pm = ProjectManager(tmp_path / "projects")
+        _create_demo_project(pm)
+        project_dir = pm.get_project_path("demo")
+        script_path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["segments"][0]["scenes"] = ["雨巷"]
+        _write_json(script_path, script)
+        archive_path = tmp_path / "manual.zip"
+        with zipfile.ZipFile(archive_path, "w") as archive:
+            for path in sorted(project_dir.rglob("*")):
+                if path.is_file() and not path.name.startswith("."):
+                    archive.write(path, f"demo/{path.relative_to(project_dir).as_posix()}")
+        shutil.rmtree(project_dir)
+        client = _client(monkeypatch, pm)
+        upload = {"file": ("manual.zip", archive_path.read_bytes(), "application/zip")}
+
+        with client:
+            asked = client.post("/api/v1/projects/import", files=upload)
+            assert pm.list_projects() == []
+            confirmed = client.post("/api/v1/projects/import", data={"confirm_report": "true"}, files=upload)
+
+        assert asked.status_code == 409
+        payload = asked.json()
+        assert payload["confirmation_required"] is True
+        assert {"asset_type": "scene", "name": "雨巷"} in [
+            item["params"] for item in payload["migration_report"]["adjusted"]
+        ]
+        assert confirmed.status_code == 200
+        assert "雨巷" in confirmed.json()["project"]["scenes"]
 
     def test_export_token_endpoint(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")

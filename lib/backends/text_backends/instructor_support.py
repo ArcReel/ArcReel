@@ -29,6 +29,7 @@ from lib.backends.text_backends.base import (
     TokenParam,
     check_truncation,
     merge_billed_tokens,
+    model_facing_response_model,
     strip_leading_think_block,
     truncate_for_log,
 )
@@ -285,7 +286,7 @@ def generate_structured_via_instructor(
         result, completion = patched.chat.completions.create_with_completion(
             model=model,
             messages=messages,  # type: ignore[arg-type]  # messages 是 OpenAI 与 Ark 通道共用的普通 dict，instructor 只声明 openai 的消息 TypedDict
-            response_model=response_model,
+            response_model=model_facing_response_model(response_model),
             max_retries=max_retries,
             **extra,
         )
@@ -329,7 +330,7 @@ async def generate_structured_via_instructor_async(
         result, completion = await patched.chat.completions.create_with_completion(
             model=model,
             messages=messages,  # type: ignore[arg-type]  # messages 是 OpenAI 与 Ark 通道共用的普通 dict，instructor 只声明 openai 的消息 TypedDict
-            response_model=response_model,
+            response_model=model_facing_response_model(response_model),
             max_retries=max_retries,
             **extra,
         )

@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Literal
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactBasisDescriptor
+from lib.artifacts.input_gap import InputGap, add_absent_inputs
 from lib.infra.content_digest import PREFIXED_DIGEST_RE, prefixed_sha256_file
 from lib.infra.schema_guards import is_finite_number, is_str
 from lib.project.asset_types import asset_name_comparison_key, normalize_asset_bucket
@@ -234,6 +235,70 @@ def build_video_speech_basis(
     )
 
 
+def speech_preparation_gaps(preparation: SpeechPreparation) -> tuple[InputGap, ...]:
+    """发声准入的问题按缺口记：问题码指向单位，逐项去重。"""
+
+    return tuple(
+        dict.fromkeys(InputGap(problem.code.value, name=problem.unit_id or None) for problem in preparation.problems)
+    )
+
+
+def build_blocked_video_speech_basis(preparation: SpeechPreparation) -> ArtifactBasis:
+    """发声准入不通过的单位的视频发声依据（``docs/adr/0098``）。
+
+    没有唯一发声归属（``mode`` 为空），逐条记发声归属、说话人与文本，准入问题记为缺席。
+    混合发声单位因此照常投影依据；改好单位后归属定下来，依据随之变化。
+    """
+
+    gaps = speech_preparation_gaps(preparation)
+    if not gaps:
+        raise ValueError("an admitted speech preparation has no blocked speech basis")
+    inputs: dict[str, object] = {"mode": None, "utterances": _ownership_inputs(preparation)}
+    add_absent_inputs(inputs, gaps)
+    return ArtifactBasis.build("artifact-speech/video", kind_version=1, inputs=inputs)
+
+
+def build_blocked_subtitle_basis(
+    preparation: SpeechPreparation,
+    *,
+    variant: RenditionVariant,
+    video: SelectedMediaEvidence,
+    narration_audio: SelectedMediaEvidence | None = None,
+    timing_policy: Mapping[str, object] = _DEFAULT_SUBTITLE_TIMING_POLICY,
+) -> ArtifactBasis:
+    """发声准入不通过的单位的机械字幕依据（``docs/adr/0098``）：不切句、不定时间轴。
+
+    与 :func:`build_blocked_video_speech_basis` 同一口径记发声归属，准入问题记为缺席；带旁白版本
+    有旁白配音时以它为外边界，否则以视频为外边界。
+    """
+
+    gaps = speech_preparation_gaps(preparation)
+    if not gaps:
+        raise ValueError("an admitted speech preparation has no blocked subtitle basis")
+    normalized_variant = _variant(variant)
+    boundary = narration_audio if normalized_variant == USE_TTS and narration_audio is not None else video
+    inputs: dict[str, object] = {
+        "variant": normalized_variant,
+        "mode": None,
+        "utterances": _ownership_inputs(preparation),
+        "boundary_media": boundary.basis_input(),
+        "timing_policy": dict(timing_policy),
+    }
+    add_absent_inputs(inputs, gaps)
+    return ArtifactBasis.build("artifact-speech/mechanical-subtitle", kind_version=1, inputs=inputs)
+
+
+def _ownership_inputs(preparation: SpeechPreparation) -> list[dict[str, object]]:
+    return [
+        {
+            "owner": utterance.owner.value,
+            "speaker": asset_name_comparison_key(utterance.speaker) if utterance.speaker else None,
+            "text": _canonical_text(utterance.text),
+        }
+        for utterance in preparation.utterances
+    ]
+
+
 def build_video_duration_basis(request_duration_seconds: int) -> ArtifactBasis:
     """Describe the paid video request tier, not an observed TTS duration."""
 
@@ -404,6 +469,8 @@ __all__ = [
     "RenditionVariant",
     "SelectedMediaEvidence",
     "SubtitleUtteranceEvidence",
+    "build_blocked_subtitle_basis",
+    "build_blocked_video_speech_basis",
     "build_legacy_transition_presentation_basis",
     "build_mechanical_subtitle_basis",
     "build_presentation_basis",
@@ -412,4 +479,5 @@ __all__ = [
     "media_content_digest",
     "project_character_voice_evidence",
     "project_subtitle_utterances",
+    "speech_preparation_gaps",
 ]

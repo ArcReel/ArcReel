@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import bisect
 import logging
 import re
@@ -18,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.ffmpeg import ffmpeg_executable, local_file_input
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.infra.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
@@ -215,19 +217,23 @@ async def signals_for(video_path: Path, frame_times: Sequence[float], *, cache_f
 
     缓存写入失败只影响下次重算，不影响本次结果。
     """
-    fingerprint = _fingerprint(video_path)
-    cached = load_json_or_none(cache_file)
+    fingerprint, cached = await asyncio.to_thread(lambda: (_fingerprint(video_path), load_json_or_none(cache_file)))
     if isinstance(cached, dict) and cached.get("schema") == SIGNALS_SCHEMA and cached.get("video") == fingerprint:
         signals = VideoSignals.from_json(cached.get("signals"))
         if signals is not None:
             return signals, True
     signals = await detect_signals(video_path, frame_times)
+    await run_sync_transaction(_write_signals_cache, cache_file, fingerprint, signals)
+    return signals, False
+
+
+def _write_signals_cache(cache_file: Path, fingerprint: list[int], signals: VideoSignals) -> None:
+    """写入信号缓存；失败只记日志，下次重算即可。"""
     try:
         cache_file.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(cache_file, {"schema": SIGNALS_SCHEMA, "video": fingerprint, "signals": signals.to_json()})
     except OSError:
         logger.warning("视频信号缓存写入失败：%s", cache_file, exc_info=True)
-    return signals, False
 
 
 def frame_index_at(frame_times: Sequence[float], time_seconds: float) -> int:

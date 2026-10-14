@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import mimetypes
@@ -69,6 +70,7 @@ from lib.generation.generation_result import problem_from_task_failure
 from lib.generation.task_failure import encode_failure, parse_failure, render_failure
 from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
+from lib.infra.async_thread import run_sync_transaction
 from server.i18n import DisplayNamesCatalog, Translator
 
 logger = logging.getLogger(__name__)
@@ -446,21 +448,23 @@ async def start_trial_run(
         raise BadRequestError("endpoint_test_definition_or_model_ref_required")
 
     preview_payload = _preview_payload(definition, parameters, credentials, assets, _t)
-    staging = Path(tempfile.mkdtemp(prefix="arcreel-trial-run-"))
+    # 临时目录在线程里建好就登记进来：取消落在落素材那一程时返回值会丢，靠它回收。
+    staged: list[Path] = []
     try:
+        persisted = await run_sync_transaction(_stage_assets, assets, staged)
         run = await manager.start(
             target,
             parameters,
-            assets=_persist_assets(assets, staging),
-            staging=staging,
+            assets=persisted,
+            staging=staged[0],
             request_preview=preview_payload,
         )
     except TrialRunBusyError as exc:
-        shutil.rmtree(staging, ignore_errors=True)
+        await run_sync_transaction(_remove_staging, staged)
         raise ConflictError("trial_run_already_running") from exc
-    except Exception:
+    except BaseException:
         # manager 接手前失败（落素材、建结果目录）时临时目录还没有主人，留在盘上没人会回来删。
-        shutil.rmtree(staging, ignore_errors=True)
+        await run_sync_transaction(_remove_staging, staged)
         raise
     return _run_response(run, _t, names)
 
@@ -473,7 +477,7 @@ async def get_trial_run(
     manager: TrialRunManager = Depends(get_trial_run_manager),
 ) -> TrialRunResponse:
     """读一次测试连接。运行中读内存、终态读盘；取消或被重启打断的 run 不留结果。"""
-    run = manager.get(run_id)
+    run = await asyncio.to_thread(manager.get, run_id)
     if run is None:
         raise NotFoundError("trial_run_not_found")
     return _run_response(run, _t, names)
@@ -501,10 +505,11 @@ async def get_trial_run_artifact(
     ``artifact.png``），而 ComfyUI 那一侧导出的容器可以是同族里的另一个，按名字声明会让浏览器
     按一个错误的类型解。
     """
-    path = manager.artifact_path(run_id)
-    if path is None:
+    located = await asyncio.to_thread(_locate_artifact, manager, run_id)
+    if located is None:
         raise NotFoundError("trial_run_artifact_not_found")
-    return FileResponse(path, media_type=artifact_media_type(path))
+    path, media_type = located
+    return FileResponse(path, media_type=media_type)
 
 
 # ---------------------------------------------------------------------------
@@ -643,6 +648,22 @@ def _preview_payload(
         "headers": preview.submit.headers,
         "body": preview.submit.body,
     }
+
+
+def _locate_artifact(manager: TrialRunManager, run_id: str) -> tuple[Path, str] | None:
+    path = manager.artifact_path(run_id)
+    return None if path is None else (path, artifact_media_type(path))
+
+
+def _stage_assets(assets: EndpointTestAssets, staged: list[Path]) -> dict[str, Path | list[Path] | None]:
+    staging = Path(tempfile.mkdtemp(prefix="arcreel-trial-run-"))
+    staged.append(staging)
+    return _persist_assets(assets, staging)
+
+
+def _remove_staging(staged: list[Path]) -> None:
+    for staging in staged:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def _persist_assets(assets: EndpointTestAssets, staging: Path) -> dict[str, Path | list[Path] | None]:

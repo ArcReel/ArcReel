@@ -28,12 +28,14 @@ from lib.generation.generation_queue_client import (
 from lib.generation.generation_result import (
     GenerationAction,
     GenerationProblemCode,
+    GenerationSelection,
     GenerationSelectionMode,
     normalize_requested_ids,
 )
 from lib.i18n import render_message
 from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import ApiError, BadRequestError, NotFoundError
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager, is_reference_video_project
@@ -48,6 +50,7 @@ from lib.script.reference_video.request_projection import (
 from lib.script.reference_video.script_preview import build_script_preview
 from lib.script.reference_video.unit_capabilities import hydrate_reference_units
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
+from lib.script.script_batch_edit import ScriptBatchEditResult
 from lib.script.script_editor import ScriptEditError, new_item_id
 from lib.speech.speech_composition import admit_script_unit, refresh_video_unit_replan_state
 from server.auth import CurrentUser
@@ -155,6 +158,45 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
     return project, script, script_file
 
 
+async def _read_episode_script(project_name: str, episode: int, _t: Translator) -> tuple[dict, dict, str]:
+    """``_load_episode_script`` 的异步入口：读盘、解析与等锁都放进工作线程。
+
+    读剧本可能顺带在剧本锁内落盘存量迁移，所以按写正式文件走 ``run_sync_transaction``。
+    """
+    return await run_sync_transaction(_load_episode_script, project_name, episode, _t)
+
+
+async def _project_path(project_name: str) -> Path:
+    return await asyncio.to_thread(get_project_manager().get_project_path, project_name)
+
+
+async def _read_script(project_name: str, script_file: str) -> dict:
+    """编辑提交后回读剧本；与 ``_read_episode_script`` 同理可能落盘迁移。"""
+    return await run_sync_transaction(get_project_manager().load_script, project_name, script_file)
+
+
+async def _commit_episode_edit(
+    project_name: str,
+    episode: int,
+    script_file: str,
+    current: dict,
+    operations: list[dict[str, Any]],
+) -> ScriptBatchEditResult:
+    """在工作线程里执行一次剧本编辑：等项目文件锁、写回剧本都不占事件循环。
+
+    编辑一旦开始就跑完再传播取消，调用方拿到的结论与落盘结果一致。
+    """
+    return await run_sync_transaction(
+        execute_current_episode_edit,
+        get_project_manager(),
+        project_name,
+        episode,
+        script_file,
+        current,
+        operations,
+    )
+
+
 def _problem_payload(
     projection: ReferenceUnitRequestProjection, _t: Translator, names: DisplayNames
 ) -> list[dict[str, Any]]:
@@ -233,7 +275,7 @@ async def _unit_capabilities(
     """逐单元按可用参考图定桶的服务端结论，随单元一起回给画布。"""
     return await reference_unit_capabilities(
         project,
-        get_project_manager().get_project_path(project_name),
+        await _project_path(project_name),
         units,
         request_facts=request_facts or reference_request_facts_lookup(project),
     )
@@ -247,7 +289,7 @@ async def _unit_capability(
 
 @router.get("/episodes/{episode}/units")
 async def list_units(project_name: str, episode: int, _t: Translator) -> dict[str, Any]:
-    project, script, _sf = _load_episode_script(project_name, episode, _t)
+    project, script, _sf = await _read_episode_script(project_name, episode, _t)
     units = script.get("video_units") or []
     return {"units": units, "unit_capabilities": await _unit_capabilities(project_name, project, units)}
 
@@ -259,15 +301,15 @@ async def add_unit(
     req: AddUnitRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    project, current, script_file = _load_episode_script(project_name, episode, _t)
+    project, current, script_file = await _read_episode_script(project_name, episode, _t)
     request_facts = reference_request_facts_lookup(project)
 
     # 时长是 unit 级单一真相：请求未给出时取这条 unit 所落桶的默认档位（异步 IO 不进项目锁临界区）。
     # 桶按可用参考图判定，与响应里的逐单元结论及执行期投影同一判据。
     duration_seconds = req.duration_seconds
     if duration_seconds is None:
-        (hydration,) = hydrate_reference_units(
-            project, get_project_manager().get_project_path(project_name), [{"text": req.prompt}]
+        (hydration,) = await asyncio.to_thread(
+            hydrate_reference_units, project, await _project_path(project_name), [{"text": req.prompt}]
         )
         duration_seconds = default_unit_duration(await request_facts(hydration.hydrated_generation_type), project)
 
@@ -280,8 +322,7 @@ async def add_unit(
         duration_seconds=int(duration_seconds),
         note=req.note,
     )
-    result = execute_current_episode_edit(
-        get_project_manager(),
+    result = await _commit_episode_edit(
         project_name,
         episode,
         script_file,
@@ -295,7 +336,7 @@ async def add_unit(
         ],
     )
     require_script_edit_result(result)
-    saved = get_project_manager().load_script(project_name, result.script)
+    saved = await _read_script(project_name, result.script)
     inserted = _find_unit(saved, unit["unit_id"], _t)
     return {
         "unit": inserted,
@@ -335,7 +376,7 @@ async def patch_unit(
     req: PatchUnitRequest,
     _t: Translator,
 ) -> dict[str, Any]:
-    project, current, script_file = _load_episode_script(project_name, episode, _t)
+    project, current, script_file = await _read_episode_script(project_name, episode, _t)
     _find_unit(current, unit_id, _t)
     fields: dict[str, Any] = {}
     if req.prompt is not None:
@@ -347,8 +388,7 @@ async def patch_unit(
     if not fields:
         unit = _find_unit(current, unit_id, _t)
         return {"unit": unit, "unit_capability": await _unit_capability(project_name, project, unit)}
-    result = execute_current_episode_edit(
-        get_project_manager(),
+    result = await _commit_episode_edit(
         project_name,
         episode,
         script_file,
@@ -356,7 +396,7 @@ async def patch_unit(
         [{"op": "update", "id": unit_id, "fields": fields}],
     )
     require_script_edit_result(result, operation_not_found=True)
-    saved = get_project_manager().load_script(project_name, result.script)
+    saved = await _read_script(project_name, result.script)
     unit = _find_unit(saved, unit_id, _t)
     return {
         "unit": unit,
@@ -372,10 +412,9 @@ async def delete_unit(
     unit_id: str,
     _t: Translator,
 ) -> Response:
-    _project, current, script_file = _load_episode_script(project_name, episode, _t)
+    _project, current, script_file = await _read_episode_script(project_name, episode, _t)
     _find_unit(current, unit_id, _t)
-    result = execute_current_episode_edit(
-        get_project_manager(),
+    result = await _commit_episode_edit(
         project_name,
         episode,
         script_file,
@@ -402,12 +441,11 @@ async def move_unit(
     _t: Translator,
 ) -> dict[str, Any]:
     """把单元移到 ``after_unit_id`` 之后，按当前剧本 revision 执行 ``move_after``；单元连同产物一起移动。"""
-    _project, current, script_file = _load_episode_script(project_name, episode, _t)
+    _project, current, script_file = await _read_episode_script(project_name, episode, _t)
     _find_unit(current, unit_id, _t)
     if req.after_unit_id is not None:
         _find_unit(current, req.after_unit_id, _t)
-    result = execute_current_episode_edit(
-        get_project_manager(),
+    result = await _commit_episode_edit(
         project_name,
         episode,
         script_file,
@@ -415,7 +453,7 @@ async def move_unit(
         [{"op": "move_after", "id": unit_id, "after_id": req.after_unit_id}],
     )
     require_script_edit_result(result)
-    moved = get_project_manager().load_script(project_name, result.script)["video_units"]
+    moved = (await _read_script(project_name, result.script))["video_units"]
     return {"units": moved, "edit_result": result.model_dump(mode="json")}
 
 
@@ -434,7 +472,7 @@ async def precheck_unit_duration(
     无法解析时返回结构化 blocker，不制造无约束申请。
     """
     reject_retired_query_params(request, "narration_delivery")
-    project, script, _script_file = _load_episode_script(project_name, episode, _t)
+    project, script, _script_file = await _read_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)
     _require_unit_ready(unit)
     projection = await project_reference_unit_request(
@@ -442,7 +480,7 @@ async def precheck_unit_duration(
         project=project,
         script=script,
         unit=unit,
-        project_path=get_project_manager().get_project_path(project_name),
+        project_path=await _project_path(project_name),
     )
     _raise_projection_blocker(projection, _t, names, allow_duration_confirmation=True)
     slot = projection.request_duration
@@ -482,9 +520,9 @@ async def preview_unit_prompt(
     names: DisplayNamesCatalog,
 ) -> dict[str, Any]:
     """按草稿正文投影并渲染，不保存、不入队。"""
-    project, script, _sf = _load_episode_script(project_name, episode, _t)
+    project, script, _sf = await _read_episode_script(project_name, episode, _t)
     unit = {**_find_unit(script, unit_id, _t), "text": req.prompt}
-    project_path = get_project_manager().get_project_path(project_name)
+    project_path = await _project_path(project_name)
     projection = await project_reference_unit_request(
         project=project,
         script=script,
@@ -516,7 +554,7 @@ async def preview_script(
     warning 依赖该集视频后端的能力（``voice_consistency`` 与参考音频段数上限）与本集的无声
     开关，与执行层同一份解析出口；能力解析失败时按 ``soft`` 降级，只是少发这几条提示。
     """
-    project, _script, _sf = _load_episode_script(project_name, episode, _t)
+    project, _script, _sf = await _read_episode_script(project_name, episode, _t)
     caps = await project_video_caps(project, degraded_to="解析预览不发声音相关提示")
     preview = build_script_preview(
         req.prompt,
@@ -548,7 +586,7 @@ async def generate_unit(
     names: DisplayNamesCatalog,
     req: GenerateUnitRequest | None = None,
 ) -> dict[str, Any]:
-    project, script, script_file = _load_episode_script(project_name, episode, _t)
+    project, script, script_file = await _read_episode_script(project_name, episode, _t)
     unit = _find_unit(script, unit_id, _t)  # raises 404 if missing
     _require_unit_ready(unit)
     guard_prompt = str(unit.get("text") or "")
@@ -558,7 +596,7 @@ async def generate_unit(
         project=project,
         script=script,
         unit=unit,
-        project_path=get_project_manager().get_project_path(project_name),
+        project_path=await _project_path(project_name),
         options=request_options,
     )
     _raise_projection_blocker(projection, _t, names, allow_duration_confirmation=False)
@@ -613,7 +651,7 @@ async def generate_units_batch(
     targets that never reached the queue.
     """
 
-    project, script, script_file = _load_episode_script(project_name, episode, _t)
+    project, script, script_file = await _read_episode_script(project_name, episode, _t)
     body = req
     try:
         requested_ids = normalize_requested_ids(body.unit_ids, field="unit_ids")
@@ -626,15 +664,23 @@ async def generate_units_batch(
     # 集合里属于这次请求：悄悄略过就等于让同批健康的 unit 独自入队计费。
     units, malformed = screen_script_entries(script.get("video_units", []), requested_ids=requested_ids)
 
-    project_path = get_project_manager().get_project_path(project_name)
-    artifact_episode = resolve_artifact_episode(project=project, script=script, script_filename=script_file) or episode
-    targets, selection, _states = resolve_reference_batch_targets(
-        units=units,
-        requested_ids=requested_ids,
-        project=project,
-        project_path=project_path,
-        episode=artifact_episode,
-    )
+    project_path = await _project_path(project_name)
+
+    def _resolve_targets() -> tuple[list[dict[str, Any]], GenerationSelection]:
+        # 读产物清单（含等清单锁）与内容摘要，只读，放进工作线程。
+        artifact_episode = (
+            resolve_artifact_episode(project=project, script=script, script_filename=script_file) or episode
+        )
+        targets, selection, _states = resolve_reference_batch_targets(
+            units=units,
+            requested_ids=requested_ids,
+            project=project,
+            project_path=project_path,
+            episode=artifact_episode,
+        )
+        return targets, selection
+
+    targets, selection = await asyncio.to_thread(_resolve_targets)
     unmatched = [
         refused_ticket(
             unit_id,

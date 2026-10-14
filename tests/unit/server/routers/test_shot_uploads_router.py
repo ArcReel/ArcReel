@@ -22,6 +22,12 @@ from server.services.tasks import formal_image_commit, generation_tasks, referen
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
+def _write_thumbnail(thumbnail_path: Path, content: bytes) -> None:
+    """抽帧替身的落盘：生产的抽帧由 ffmpeg 子进程写文件，不占事件循环，替身经 to_thread 调用。"""
+    thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
+    thumbnail_path.write_bytes(content)
+
+
 def _img_bytes(fmt="JPEG", size=(8, 8)):
     image = Image.new("RGB", size, (255, 0, 0))
     buf = BytesIO()
@@ -319,8 +325,7 @@ class TestShotVideoUpload:
         before_version_copies: dict[str, bytes] = {}
 
         async def _new_thumbnail(_video_path: Path, thumbnail_path: Path):
-            thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
-            thumbnail_path.write_bytes(b"new-thumbnail")  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
+            await asyncio.to_thread(_write_thumbnail, thumbnail_path, b"new-thumbnail")
             return thumbnail_path
 
         monkeypatch.setattr(upload_finalize, "extract_video_thumbnail", _new_thumbnail)
@@ -346,8 +351,7 @@ class TestShotVideoUpload:
         pm.update_scene_asset("demo", "episode_1.json", "E1S01", "video_uri", "https://stale-provider-uri")
 
         async def _fake_thumbnail(video_path: Path, thumbnail_path: Path):
-            thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
-            thumbnail_path.write_bytes(b"jpg")  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
+            await asyncio.to_thread(_write_thumbnail, thumbnail_path, b"jpg")
             return thumbnail_path
 
         monkeypatch.setattr(upload_finalize, "extract_video_thumbnail", _fake_thumbnail)
@@ -474,8 +478,7 @@ def _ref_client(monkeypatch, tmp_path):
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
 
     async def _fake_thumbnail(video_path: Path, thumbnail_path: Path):
-        thumbnail_path.parent.mkdir(parents=True, exist_ok=True)
-        thumbnail_path.write_bytes(b"jpg")  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
+        await asyncio.to_thread(_write_thumbnail, thumbnail_path, b"jpg")
         return thumbnail_path
 
     monkeypatch.setattr(upload_finalize, "extract_video_thumbnail", _fake_thumbnail)

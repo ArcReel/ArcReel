@@ -10,7 +10,7 @@ import zipfile
 from pathlib import Path
 from typing import Protocol
 
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.project_manager import ProjectManager
 from lib.speech.speech_artifact_provenance import RenditionVariant
@@ -66,15 +66,22 @@ class PresentationBundleService:
             audio_version=audio_version,
         )
         project_path = await asyncio.to_thread(self._project_manager.get_project_path, project_name)
-        temp_dir = Path(tempfile.mkdtemp(prefix="arcreel_presentation_"))
-        bundle_path = temp_dir / "presentation.zip"
+        temp_dirs: list[Path] = []
+
+        def _export() -> Path:
+            temp_dir = Path(tempfile.mkdtemp(prefix="arcreel_presentation_"))
+            temp_dirs.append(temp_dir)
+            bundle_path = temp_dir / "presentation.zip"
+            self._write_bundle(project_path=project_path, result=result, output=bundle_path)
+            return bundle_path
+
         try:
             # 取消时先等打包线程收尾，再删掉临时目录，不留下写到一半或无人认领的压缩包。
-            await run_sync_transaction(self._write_bundle, project_path=project_path, result=result, output=bundle_path)
+            return await run_sync_transaction(_export)
         except BaseException:
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            for temp_dir in temp_dirs:
+                await run_noninterruptible_sync(shutil.rmtree, temp_dir, ignore_errors=True)
             raise
-        return bundle_path
 
     @staticmethod
     def _write_bundle(*, project_path: Path, result: MaterializedPresentation, output: Path) -> None:

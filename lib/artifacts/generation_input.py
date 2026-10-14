@@ -3,12 +3,14 @@
 执行器、目标态规划器与最终提示词预览从同一份生成输入取参考图装配与缺口判定（见
 ``GLOSSARY.md``「生成输入」与 ``docs/adr/0073``「执行期沿用同一口径」）：
 
-- 入口函数返回成立的生成输入，或 :class:`InputRefused`——拒绝是值，规划器与预览在它上面
-  分支，执行器在服务端经唯一的翻译函数转成错误码。
+- 入口函数总是返回生成输入：已有的输入值加上全部缺口（``docs/adr/0098``）。缺口只拦生成——
+  执行器与预览取 :attr:`ImageGenerationInput.refusal`，有缺口时它是 :class:`InputRefused`，执行器
+  在服务端经唯一的翻译函数转成错误码；规划器照常取期望依据，缺的项在依据里记为缺席。
 - 入口函数按生成环节分：分镜图 :func:`storyboard_image_input`、资产图 :func:`asset_sheet_input`、
   衍生资产图 :func:`derivative_sheet_input`，成立的生成输入同形，各带类型化的 semantics。
 - 期望依据只经 ``expected_basis()`` 取得，登记依据只经 ``freeze()`` 取得，两者走同一个私有
-  构造器 :func:`_visual_basis`，一致由构造保证（``docs/adr/0062``）。
+  构造器 :func:`_visual_basis`，一致由构造保证（``docs/adr/0062``）。``freeze()`` 只接受没有
+  缺口的生成输入，输入完整时期望依据与今天逐字节相同。
 - 参考图集按装配序完整记录、不裁剪；供应商上限只影响实发与「图N」编号，不影响依据。
 
 本模块只经 :class:`InputObservation` 这一个 seam 读项目现状：不 import 服务端，也不调用
@@ -32,6 +34,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.image_reference_snapshot import FrozenImageReferences, freeze_image_references
+from lib.artifacts.input_gap import InputGap
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.artifacts.visual_artifact_provenance import (
     VisualReference,
@@ -136,18 +139,6 @@ def project_input_observation(project_dir: Path) -> ManifestInputObservation:
 
     resolved = Path(project_dir).resolve(strict=True)
     return ManifestInputObservation(resolved, ProjectArtifactManifestAdapter(resolved))
-
-
-@dataclass(frozen=True, slots=True)
-class InputGap:
-    """生成输入不成立的一处缺口。
-
-    ``name`` 是缺口指向的对象：引用缺口是剧本里写的引用名，语义缺口是目标自身的资源 id。
-    """
-
-    code: str
-    asset_type: str | None = None
-    name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,23 +254,44 @@ class FrozenGenerationInput:
         self.references.cleanup()
 
 
+def _refusal(gaps: tuple[InputGap, ...]) -> InputRefused | None:
+    return InputRefused(reasons=gaps) if gaps else None
+
+
 @dataclass(frozen=True)
 class ImageGenerationInput[S: GenerationSemantics]:
-    """成立的生成输入：语义、画布比例与按装配序排列的完整参考图集。"""
+    """生成输入：语义、画布比例、按装配序排列的完整参考图集，以及全部缺口。
+
+    有缺口时语义里缺的值留空、参考图集不含缺的那几张；它只能投影期望依据，不能渲染与冻结。
+    """
 
     semantics: S
     canvas_ratio: str
     #: 完整装配序，不裁剪。
     references: tuple[AssembledReference, ...]
+    #: 语义缺口在前，引用缺口按装配序，逐项去重。
+    gaps: tuple[InputGap, ...] = ()
+
+    @property
+    def refusal(self) -> InputRefused | None:
+        """生成被拒的全部缺口；输入成立时为 ``None``。"""
+
+        return _refusal(self.gaps)
 
     def expected_basis(self) -> ArtifactBasis:
-        """按项目现状投影的期望依据，供目标态规划器判定时效。"""
+        """按项目现状投影的期望依据，供目标态规划器判定时效；缺的项记为缺席。"""
 
-        return _visual_basis(self.semantics, self.canvas_ratio, [reference.visual for reference in self.references])
+        return _visual_basis(
+            self.semantics,
+            self.canvas_ratio,
+            [reference.visual for reference in self.references],
+            absent=self.gaps,
+        )
 
     def render(self, *, max_reference_images: int, model: str) -> RenderedInput:
         """按供应商上限裁剪后渲染提示词，不冻结参考图；预览用，编号与 :meth:`freeze` 一致。"""
 
+        self._require_complete()
         visuals = [reference.visual for reference in self.references]
         return _render_clamped(self.semantics, visuals, max_reference_images=max_reference_images, model=model)
 
@@ -289,6 +301,7 @@ class ImageGenerationInput[S: GenerationSemantics]:
         依据与 claim 按完整冻结集，供应商只收前 N 张；裁剪发生时结果带一条 warning。
         """
 
+        self._require_complete()
         return _freeze(
             self.semantics,
             self.canvas_ratio,
@@ -297,6 +310,10 @@ class ImageGenerationInput[S: GenerationSemantics]:
             model=model,
             bind_claims=bind_claims,
         )
+
+    def _require_complete(self) -> None:
+        if self.gaps:
+            raise ValueError("generation input has gaps; it can only project an expected basis")
 
 
 class StoryboardImageInput(ImageGenerationInput[StoryboardImageSemantics]):
@@ -318,14 +335,14 @@ def storyboard_image_input(
     episode: int,
     resource_id: str,
     observation: InputObservation,
-) -> StoryboardImageInput | InputRefused:
+) -> StoryboardImageInput:
     """按项目现状为一张分镜图备齐生成输入。
 
     装配序：商品（每件先资产图、再原图；没有资产图的商品只用原图）→ 角色、场景、道具资产图
     （按字段序）→ 上一分镜图（序号大于 0 且不是 ``segment_break`` 时），整条按路径去重、保留
     首次出现。
 
-    拒绝：引用未登记；角色、场景、道具没有资产图或资产图不可用；商品声明了资产图但不可用；
+    缺口：引用未登记；角色、场景、道具没有资产图或资产图不可用；商品声明了资产图但不可用；
     声明了原图但读不到；提示词待生成。略去：上一分镜图不可用。商品既没有资产图也没有原图时
     只用文字，不算缺口。
 
@@ -359,8 +376,6 @@ def storyboard_image_input(
     if index > 0 and not item.get("segment_break"):
         assembly.add_previous_storyboard(items[index - 1], id_field=id_field, episode=episode)
 
-    if assembly.gaps:
-        return InputRefused(reasons=tuple(assembly.gaps))
     return StoryboardImageInput(
         semantics=StoryboardImageSemantics(
             resource_id=resource_id,
@@ -370,15 +385,24 @@ def storyboard_image_input(
         ),
         canvas_ratio=canvas_ratio,
         references=tuple(assembly.references),
+        gaps=tuple(assembly.gaps),
     )
 
 
 @dataclass(frozen=True, slots=True)
 class GridReferences:
-    """一张宫格成立的参考图集。宫格的合成依据由宫格执行器按冻结后的参考图构造。"""
+    """一张宫格的参考图集与缺口。宫格的合成依据由宫格执行器按冻结后的参考图构造。"""
 
     #: 完整装配序，不裁剪。
     references: tuple[AssembledReference, ...]
+    #: 引用缺口按装配序，逐项去重。
+    gaps: tuple[InputGap, ...] = ()
+
+    @property
+    def refusal(self) -> InputRefused | None:
+        """生成被拒的全部缺口；参考图集成立时为 ``None``。"""
+
+        return _refusal(self.gaps)
 
 
 def grid_references(
@@ -387,13 +411,13 @@ def grid_references(
     *,
     member_ids: Sequence[str],
     observation: InputObservation,
-) -> GridReferences | InputRefused:
+) -> GridReferences:
     """按项目现状为一张宫格备齐参考图集。
 
     装配序：按 ``member_ids`` 的顺序，逐个成员分镜取角色、场景、道具资产图（按字段序），
     取并集并按路径去重、保留首次出现；不含商品与上一分镜图。
 
-    拒绝：引用未登记；角色、场景、道具没有资产图或资产图不可用。
+    缺口：引用未登记；角色、场景、道具没有资产图或资产图不可用。
 
     成员不存在或字段结构损坏抛 ``ValueError``。
     """
@@ -410,9 +434,7 @@ def grid_references(
             for name in _reference_names(item, field):
                 assembly.add_sheet(catalog, asset_type, name)
 
-    if assembly.gaps:
-        return InputRefused(reasons=tuple(assembly.gaps))
-    return GridReferences(references=tuple(assembly.references))
+    return GridReferences(references=tuple(assembly.references), gaps=tuple(assembly.gaps))
 
 
 def asset_sheet_input(
@@ -421,13 +443,13 @@ def asset_sheet_input(
     asset_type: str,
     name: str,
     observation: InputObservation,
-) -> AssetSheetInput | InputRefused:
+) -> AssetSheetInput:
     """按项目现状为一张资产图备齐生成输入。
 
     描述只取项目里存储的条目。参考图是作者上传的原图：角色 0 到 1 张，商品全部，场景和道具
     没有；原图不是登记产物，没有 claim。
 
-    拒绝：描述为空；声明了原图但读不到。
+    缺口：描述为空；声明了原图但读不到。
 
     资产不存在或字段结构损坏抛 ``ValueError``。
     """
@@ -446,8 +468,6 @@ def asset_sheet_input(
     for original in _asset_originals(asset, spec):
         assembly.add_original(asset_type, asset_name, original)
 
-    if assembly.gaps:
-        return InputRefused(reasons=tuple(assembly.gaps))
     return AssetSheetInput(
         semantics=AssetSheetSemantics(
             asset_type=asset_type,
@@ -458,6 +478,7 @@ def asset_sheet_input(
         ),
         canvas_ratio=ASSET_SHEET_CANVAS_RATIO,
         references=tuple(assembly.references),
+        gaps=tuple(assembly.gaps),
     )
 
 
@@ -467,12 +488,12 @@ def derivative_sheet_input(
     owner: str,
     derivative: str,
     observation: InputObservation,
-) -> DerivativeSheetInput | InputRefused:
+) -> DerivativeSheetInput:
     """按项目现状为一张衍生资产图备齐生成输入。
 
     本体资产图是唯一参考图（见 ``docs/adr/0072``），可用性与分镜图引用的资产图同一判定。
 
-    拒绝：衍生缺外观变化描述；本体资产图未声明或不可用。
+    缺口：衍生缺外观变化描述；本体资产图未声明或不可用。
 
     本体或衍生不存在、字段结构损坏抛 ``ValueError``。
     """
@@ -489,12 +510,11 @@ def derivative_sheet_input(
         assembly.gap(InputGap(DERIVATIVE_DESCRIPTION_REQUIRED_CODE, DERIVATIVE_ASSET_TYPE, derivative_name))
     assembly.add_owner_sheet(spec, owner_name, owner_asset)
 
-    if assembly.gaps:
-        return InputRefused(reasons=tuple(assembly.gaps))
     return DerivativeSheetInput(
         semantics=DerivativeSheetSemantics(owner=owner_name, derivative=derivative_name, description=description),
         canvas_ratio=ASSET_SHEET_CANVAS_RATIO,
         references=tuple(assembly.references),
+        gaps=tuple(assembly.gaps),
     )
 
 
@@ -737,8 +757,13 @@ def _visual_basis(
     semantics: GenerationSemantics,
     canvas_ratio: str,
     references: Sequence[VisualReference],
+    *,
+    absent: Sequence[InputGap] = (),
 ) -> ArtifactBasis:
-    """期望依据与登记依据共用的构造器，按语义类型分派到对应的视觉依据构造器。"""
+    """期望依据与登记依据共用的构造器，按语义类型分派到对应的视觉依据构造器。
+
+    ``absent`` 只来自期望依据：登记依据出自冻结，冻结只接受没有缺口的生成输入。
+    """
 
     match semantics:
         case StoryboardImageSemantics():
@@ -749,6 +774,7 @@ def _visual_basis(
                 style_description=semantics.style_description,
                 aspect_ratio=canvas_ratio,
                 references=references,
+                absent=absent,
             )
         case AssetSheetSemantics():
             return build_asset_sheet_visual_basis(
@@ -759,15 +785,20 @@ def _visual_basis(
                 style_description=semantics.style_description,
                 aspect_ratio=canvas_ratio,
                 references=references,
+                absent=absent,
             )
         case DerivativeSheetSemantics():
-            [source] = references
+            # 本体资产图不可用时没有来源，缺口记在 absent 里。
+            [*sources] = references
+            if len(sources) > 1:
+                raise ValueError("a derivative sheet has at most one source image")
             return build_derivative_sheet_basis(
                 owner_name=semantics.owner,
                 derivative_name=semantics.derivative,
                 description=semantics.description,
                 aspect_ratio=canvas_ratio,
-                source=source,
+                source=sources[0] if sources else None,
+                absent=absent,
             )
 
 

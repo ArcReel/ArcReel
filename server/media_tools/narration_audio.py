@@ -8,6 +8,7 @@ missing-only 选择只服务于用户显式要求生成旁白配音的这个入�
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,6 +27,7 @@ from lib.generation.generation_result import (
     GenerationProblem,
     GenerationProblemCode,
     GenerationResultBuilder,
+    GenerationSelection,
     normalize_requested_ids,
     record_batch_outcomes,
     select_generation_targets,
@@ -144,9 +146,13 @@ async def generate_narration_audio(
         script_filename = request.value.script
         segment_ids = normalize_requested_ids(request.value.segment_ids, field="segment_ids")
 
-        script = services.projects.load_script(scope.project_name, script_filename)
+        def load_inputs() -> tuple[dict[str, Any], dict[str, Any]]:
+            return (
+                services.projects.load_script(scope.project_name, script_filename),
+                services.projects.load_project(scope.project_name),
+            )
 
-        project = services.projects.load_project(scope.project_name)
+        script, project = await asyncio.to_thread(load_inputs)
         try:
             require_project_tts_generation(project)
         except NarrationConfigError as exc:
@@ -156,7 +162,6 @@ async def generate_narration_audio(
         items, id_field, kind = resolve_items(script)
         if not items:
             raise ValueError("剧本没有可配音的单元")
-        resolver = active_artifact_currency_resolver(services.projects.get_project_path(scope.project_name), project)
         episode = (
             resolve_artifact_episode(
                 project=project,
@@ -166,19 +171,27 @@ async def generate_narration_audio(
             or 1
         )
 
-        candidates, admission_problems = _candidates(
-            items,
-            id_field,
-            kind,
-            episode=episode,
-            resolver=resolver,
-            explicit=segment_ids is not None,
-        )
-        selection = select_generation_targets(
-            candidates=candidates,
-            requested_ids=segment_ids,
-            resolver=resolver,
-        )
+        def select_targets() -> tuple[ArtifactCurrencyResolver, GenerationSelection, dict[str, GenerationProblem]]:
+            # 建产物时效判定器、按文件内容判定时效都是同步文件读写与哈希
+            resolver = active_artifact_currency_resolver(
+                services.projects.get_project_path(scope.project_name), project
+            )
+            candidates, admission_problems = _candidates(
+                items,
+                id_field,
+                kind,
+                episode=episode,
+                resolver=resolver,
+                explicit=segment_ids is not None,
+            )
+            selection = select_generation_targets(
+                candidates=candidates,
+                requested_ids=segment_ids,
+                resolver=resolver,
+            )
+            return resolver, selection, admission_problems
+
+        resolver, selection, admission_problems = await asyncio.to_thread(select_targets)
         builder = GenerationResultBuilder.from_selection(_OPERATION, selection)
 
         targets = []
@@ -222,7 +235,8 @@ async def generate_narration_audio(
         if submitted.successes is None or submitted.failures is None:
             return generation_batch_submission_outcome(submitted.batch)
         if specs:
-            record_batch_outcomes(
+            await asyncio.to_thread(
+                record_batch_outcomes,
                 builder,
                 successes=submitted.successes,
                 failures=submitted.failures,

@@ -93,6 +93,10 @@ class DraftContext:
     def project_path(self) -> Path:
         return self.pm.get_project_path(self.project_name)
 
+    async def aproject_path(self) -> Path:
+        """``project_path`` 的异步入口：定位项目目录会 stat，卸到线程。"""
+        return await asyncio.to_thread(self.pm.get_project_path, self.project_name)
+
 
 DraftDocType = Literal[
     "drama_script_plan", "narration_script_plan", "reference_script_plan", "reference_prompt_authoring"
@@ -286,7 +290,8 @@ async def revalidate_reference_script_plan_draft(
         )
 
     source_language = project.get("source_language")
-    violations = _collect_reference_flat_violations(
+    violations = await asyncio.to_thread(
+        _collect_reference_flat_violations,
         flat_units,
         project,
         project_path=project_path,
@@ -419,7 +424,7 @@ async def _promote_reference_script_plan(
     晋升成功前无人向 Agent 交代降级提示——修草稿这条主回路走完时它才第一次拿到，故成功路径不能
     只返回一个「已晋升」的布尔。
     """
-    project_path = ctx.project_path
+    project_path = await ctx.aproject_path()
     project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
         revalidation = await revalidate_reference_script_plan_draft(
@@ -705,7 +710,7 @@ async def _promote_drama_script_plan(
 
     返回晋升回执文本：与产出回执同一出口（``_drama_script_plan_result_text``）。
     """
-    project_path = ctx.project_path
+    project_path = await ctx.aproject_path()
     project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
         revalidation = await revalidate_drama_script_plan_draft(
@@ -781,7 +786,7 @@ async def _open_drama_script_plan_for_edit(
     锁的临界区内完成——拆开在锁外各做一次的话，同一集的两个并发取回请求会都先看到「无草稿」、
     再各自写入，后写者悄悄覆盖前者的内容与 meta。
     """
-    project_path = ctx.project_path
+    project_path = await ctx.aproject_path()
     # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升取产物依据，若此刻是个
     # 缺失 / 改名 / 写错的路径，晋升会反复报错，而草稿已在场又挡住重新取回改正 source——Agent
     # 会卡在一个自己改不动的死角。校验失败时不落盘，无效参数不留持久副作用。
@@ -907,7 +912,7 @@ async def _promote_narration_script_plan(
 
     返回晋升回执文本：与拆分回执同一出口（``_narration_script_plan_result_text``）。
     """
-    project_path = ctx.project_path
+    project_path = await ctx.aproject_path()
     project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
     try:
         revalidation = await revalidate_narration_script_plan_draft(
@@ -981,7 +986,7 @@ async def _open_narration_script_plan_for_edit(
     的临界区内完成——拆开在锁外各做一次的话，同一集的两个并发取回请求会都先看到「无草稿」、再
     各自写入，后写者悄悄覆盖前者的内容与 meta。
     """
-    project_path = ctx.project_path
+    project_path = await ctx.aproject_path()
     # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升重判原文覆盖，若此刻是个
     # 缺失 / 改名 / 写错的路径，晋升会反复报错，而草稿已在场又挡住重新取回改正 source——agent
     # 会卡在一个自己改不动的死角。校验失败时不落盘，无效参数不留持久副作用。
@@ -1082,7 +1087,7 @@ async def _open_reference_script_plan_for_edit(
     source: str | None,
 ) -> None:
     """把本集正式参考生视频 script_plan 取回为草稿（正式文件保持原样），返回给 Agent 的编辑指引。"""
-    project_path = ctx.project_path
+    project_path = await ctx.aproject_path()
     # source 在写草稿前校验：草稿一旦落盘就把它记进 meta.source 供晋升重判用，若此刻
     # 是个缺失/改名/写错的路径，晋升会在 load_novel_source 上反复报错，而草稿已在场
     # 又挡住重新取回改正 source——Agent 会卡在一个自己改不动的死角。校验失败时不落盘，
@@ -1205,6 +1210,11 @@ class DraftWorkflow:
         draft = read_quarantine(self.ctx.project_path, episode, kind)
         return draft, draft_revision(draft) if draft is not None else None
 
+    def _quarantine_lock_target(self, episode: int, kind: str) -> tuple[Path, Path, ProjectManager]:
+        """项目目录、草稿路径与持锁用的 ProjectManager：定位目录与构造都会触盘，供一次卸到线程。"""
+        project_path = self.ctx.project_path
+        return project_path, quarantine_path(project_path, episode, kind), ProjectManager(self.ctx.data_root)
+
     def _formal_path(self, episode: int, kind: str) -> Path:
         if kind == QUARANTINE_KIND_PROMPT_AUTHORING:
             return self.ctx.project_path / "scripts" / episode_script_filename(episode)
@@ -1245,10 +1255,10 @@ class DraftWorkflow:
         source: str | None = None,
     ) -> dict[str, Any]:
         resolved = await self._kind(episode, doc_type)
-        path = quarantine_path(self.ctx.project_path, episode, resolved)
+        _, path, locks = await asyncio.to_thread(self._quarantine_lock_target, episode, resolved)
 
         try:
-            async with ProjectManager(self.ctx.data_root).async_file_lock(path):
+            async with locks.async_file_lock(path):
                 existing = await asyncio.to_thread(self._read_if_present, episode, resolved)
                 if existing is not None:
                     return existing
@@ -1334,8 +1344,8 @@ class DraftWorkflow:
         before_commit: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         resolved = await self._kind(episode, doc_type)
-        path = quarantine_path(self.ctx.project_path, episode, resolved)
-        async with ProjectManager(self.ctx.data_root).async_file_lock(path):
+        _, path, locks = await asyncio.to_thread(self._quarantine_lock_target, episode, resolved)
+        async with locks.async_file_lock(path):
             return await run_sync_transaction(
                 self._patch_locked,
                 episode,
@@ -1359,7 +1369,7 @@ class DraftWorkflow:
         before_lock: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
         resolved = await self._kind(episode, doc_type)
-        path = quarantine_path(self.ctx.project_path, episode, resolved)
+        project_path, path, locks = await asyncio.to_thread(self._quarantine_lock_target, episode, resolved)
         result_path: Path | None = None
         # 晋升回执：script_plan 三个变体各由自己的晋升器产出，统计段与产出侧回执同一出口
         # （参考生视频那条另接软违约段），本函数不重拼。提示词编写没有对位的产出侧回执——它落的
@@ -1367,7 +1377,7 @@ class DraftWorkflow:
         message: str
         if before_lock is not None:
             before_lock()
-        async with ProjectManager(self.ctx.data_root).async_file_lock(path):
+        async with locks.async_file_lock(path):
             draft, actual_revision = await asyncio.to_thread(
                 self._draft_snapshot,
                 episode,
@@ -1394,7 +1404,7 @@ class DraftWorkflow:
                 else:
                     # 提示词编写只读正式剧本：脚本规划重跑后尚未确认不阻塞晋升，与编写入口同口径。
                     generator = await ScriptGenerator.create(
-                        self.ctx.project_path,
+                        project_path,
                         config_resolver=self.ctx.config_resolver,
                     )
                     promote_kwargs = (
@@ -1443,7 +1453,7 @@ class DraftWorkflow:
         抛出，此时正文已写入草稿，不会丢失。
         """
         resolved = await self._kind(episode, doc_type)
-        current = await asyncio.to_thread(read_quarantine, self.ctx.project_path, episode, resolved)
+        current = await asyncio.to_thread(lambda: read_quarantine(self.ctx.project_path, episode, resolved))
         if current is not None and draft_owner(current) == DRAFT_OWNER_AGENT:
             raise DraftWorkflowError(
                 "draft_agent_owned", f"集（id={episode}）{doc_type} draft is being edited by the agent"
@@ -1465,8 +1475,8 @@ class DraftWorkflow:
         base_revision: str,
     ) -> dict[str, Any]:
         resolved = await self._kind(episode, doc_type, allow_stale_discard=True)
-        path = quarantine_path(self.ctx.project_path, episode, resolved)
-        async with ProjectManager(self.ctx.data_root).async_file_lock(path):
+        project_path, path, locks = await asyncio.to_thread(self._quarantine_lock_target, episode, resolved)
+        async with locks.async_file_lock(path):
             draft, actual_revision = await asyncio.to_thread(
                 self._draft_snapshot,
                 episode,
@@ -1477,7 +1487,7 @@ class DraftWorkflow:
                     "revision_conflict",
                     f"draft revision changed: expected {base_revision}, actual {actual_revision}",
                 )
-            discarded = clear_quarantine(self.ctx.project_path, episode, resolved)
+            discarded = await run_sync_transaction(clear_quarantine, project_path, episode, resolved)
         return {"episode": episode, "doc_type": doc_type, "discarded": discarded}
 
 

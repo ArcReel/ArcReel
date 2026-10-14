@@ -79,13 +79,16 @@ class BgmLibraryService:
 
     async def list(self, project_name: str) -> tuple[BgmTrack, ...]:
         """项目里已上传的 BGM，按上传先后排列。"""
-        self._project_dir(project_name)
-        project = await asyncio.to_thread(self._projects.load_project, project_name)
+        project = await asyncio.to_thread(self._load_project, project_name)
         return tuple(read_bgm_library(project).values())
+
+    def _load_project(self, project_name: str) -> dict[str, Any]:
+        self._project_dir(project_name)
+        return self._projects.load_project(project_name)
 
     async def upload(self, project_name: str, *, filename: str, content: bytes) -> BgmTrack:
         """登记一首 BGM：校验格式与大小，探测时长，实测积分响度并折算增益，原子落盘并按字节登记。"""
-        project_dir = self._project_dir(project_name)
+        project_dir = await asyncio.to_thread(self._project_dir, project_name)
         extension = Path(filename).suffix.lower()
         if extension not in BGM_EXTENSIONS:
             raise BgmError(

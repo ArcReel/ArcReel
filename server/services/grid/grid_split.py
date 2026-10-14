@@ -85,15 +85,19 @@ async def apply_grid_split(
     from server.services.tasks.generation_tasks import emit_generation_success_batch
 
     pm = get_project_manager()
-    project_path = await asyncio.to_thread(pm.get_project_path, project_name)
-
-    grid_manager = GridManager(project_path)
-    grid_image_file = grid_manager.image_path(grid.id)
     grid_image_path = grid.grid_image_path
-    if not grid_image_path or not grid_image_file.exists():
+    if not grid_image_path:
         raise GridImageNotReadyError(f"grid {grid.id} has no grid image to split")
 
-    versions = VersionManager(project_path)
+    def _prepare() -> tuple[Path, GridManager, Path, VersionManager]:
+        project_path = pm.get_project_path(project_name)
+        grid_manager = GridManager(project_path)
+        grid_image_file = grid_manager.image_path(grid.id)
+        if not grid_image_file.exists():
+            raise GridImageNotReadyError(f"grid {grid.id} has no grid image to split")
+        return project_path, grid_manager, grid_image_file, VersionManager(project_path)
+
+    project_path, grid_manager, grid_image_file, versions = await asyncio.to_thread(_prepare)
     script_file = grid.script_file
 
     def _registered_grid_source() -> tuple[ArtifactKey, ArtifactManifestEntry, ArtifactStatus]:

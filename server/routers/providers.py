@@ -39,6 +39,7 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
 from lib.i18n import render_message, translate_or
 from lib.infra.api_errors import BadRequestError, UnprocessableError
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import DataRootLayout
 from server.dependencies import get_config_service
 from server.i18n import Locale, Translator, load_display_names_or_builtin
@@ -698,6 +699,26 @@ async def activate_credential(
     return Response(status_code=204)
 
 
+def _write_vertex_credential_file(dest: Path, contents: bytes) -> None:
+    """经临时文件原子落盘凭证，并在 POSIX 上收紧为仅属主可读写。"""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = dest.with_suffix(".tmp")
+    tmp_path.write_bytes(contents)
+    # chmod 0o600 在 Windows 上只控制只读位，无法限制其他用户访问；
+    # Windows 上凭证保护交给文件系统 ACL（用户级 %LOCALAPPDATA%）。
+    if os.name == "posix":
+        try:
+            os.chmod(tmp_path, 0o600)
+        except OSError:
+            logger.warning("无法设置临时凭证文件权限: %s", tmp_path, exc_info=True)
+    os.replace(tmp_path, dest)
+    if os.name == "posix":
+        try:
+            os.chmod(dest, 0o600)
+        except OSError:
+            logger.warning("无法设置凭证文件权限: %s", dest, exc_info=True)
+
+
 @router.post("/gemini-vertex/credentials/upload", status_code=201, response_model=CredentialResponse)
 async def upload_vertex_credential(
     request: Request,
@@ -727,28 +748,14 @@ async def upload_vertex_credential(
     cred = await repo.create(provider="gemini-vertex", name=name)
 
     dest = DataRootLayout.current().vertex_credential_path(cred.id)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = dest.with_suffix(".tmp")
-    tmp_path.write_bytes(contents)
-    # chmod 0o600 在 Windows 上只控制只读位，无法限制其他用户访问；
-    # Windows 上凭证保护交给文件系统 ACL（用户级 %LOCALAPPDATA%）。
-    if os.name == "posix":
-        try:
-            os.chmod(tmp_path, 0o600)
-        except OSError:
-            logger.warning("无法设置临时凭证文件权限: %s", tmp_path, exc_info=True)
-    os.replace(tmp_path, dest)
-    if os.name == "posix":
-        try:
-            os.chmod(dest, 0o600)
-        except OSError:
-            logger.warning("无法设置凭证文件权限: %s", dest, exc_info=True)
+    await run_sync_transaction(_write_vertex_credential_file, dest, contents)
 
     await session.commit()
     await _invalidate_caches(request)
 
     await session.refresh(cred)
-    return _cred_to_response(cred)
+    # 序列化要探测凭证文件位置（stat），放进线程
+    return await asyncio.to_thread(_cred_to_response, cred)
 
 
 # ---------------------------------------------------------------------------

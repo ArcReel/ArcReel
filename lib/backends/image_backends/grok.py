@@ -51,6 +51,11 @@ def _validate_aspect_ratio(aspect_ratio: str) -> str:
     return aspect_ratio
 
 
+def _encode_existing_refs(ref_paths: list[str]) -> list[str]:
+    """跳过不存在的参考图，其余编码为 base64 data URI。"""
+    return [image_to_base64_data_uri(path) for ref in ref_paths if (path := Path(ref)).exists()]
+
+
 class GrokImageBackend:
     """xAI Grok (Aurora) 图片生成后端，支持 T2I 和 I2I。"""
 
@@ -100,14 +105,8 @@ class GrokImageBackend:
             if len(refs) > _MAX_REFERENCE_IMAGES:
                 logger.warning("Grok 参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
                 refs = refs[:_MAX_REFERENCE_IMAGES]
-            # exists() 只读本地文件元数据，不阻塞；读整张图做 base64 编码才是阻塞 I/O，
-            # 逐张卸载到线程后并发等待，避免堵住事件循环
-            existing_paths = [ref_path for ref in refs if (ref_path := Path(ref.path)).exists()]
-            data_uris = list(
-                await asyncio.gather(
-                    *[asyncio.to_thread(image_to_base64_data_uri, ref_path) for ref_path in existing_paths]
-                )
-            )
+            # 存在性检查与读图编码都是阻塞 I/O，整体卸载到线程，避免堵住事件循环
+            data_uris = await asyncio.to_thread(_encode_existing_refs, [ref.path for ref in refs])
             if data_uris:
                 generate_kwargs["image_urls"] = data_uris
                 logger.info("Grok I2I 模式: %d 张参考图", len(data_uris))

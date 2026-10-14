@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from collections import Counter
@@ -803,7 +804,8 @@ class CostEstimationService:
         if self._project_path is None:
             availability = _AssumeResolvedAssetsAvailable()
         else:
-            availability = CurrentReferenceAssets(self._project_path, project)
+            # 构造时读产物清单（含等清单锁），只读，放进工作线程。
+            availability = await asyncio.to_thread(CurrentReferenceAssets, self._project_path, project)
         projector = ReferenceUnitRequestProjector(request_facts_lookup, availability)
 
         for unit in units:
@@ -839,7 +841,9 @@ class CostEstimationService:
                             for reference in unit_reference_declarations(project, unit)
                         ]
                     else:
-                        resolved_assets = resolve_reference_assets(project, self._project_path, unit)
+                        resolved_assets = await asyncio.to_thread(
+                            resolve_reference_assets, project, self._project_path, unit
+                        )
                     projection = await projector.project_current(
                         project=project,
                         script=script,

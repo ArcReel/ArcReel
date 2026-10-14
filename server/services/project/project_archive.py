@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, NoReturn
 
 from arcreel_market_core.validation_messages import MessageRef, ValidationMessage
 from lib.artifacts.artifact_activation import (
@@ -39,10 +39,17 @@ from lib.infra.content_digest import digest_stream, sha256_file
 from lib.infra.json_io import load_json
 from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.infra.validation_messages import ValidationResult, default_translate
-from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, normalize_asset_name
+from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, build_asset_entry, normalize_asset_name
 from lib.project.data_validator import DataValidator
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_manager import ProjectManager
+from lib.project.project_migration_failure import ProjectMigrationError, migration_failure_details
+from lib.project.project_migration_report import (
+    MigrationAdjustment,
+    acknowledge_migration_report,
+    extend_migration_report,
+    visible_migration_report,
+)
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_migrations.v1_to_v2_normalize_providers import (
     migrate_project_dict as normalize_legacy_providers,
@@ -120,6 +127,32 @@ def _resolve_existing_asset(name: str, candidates: set[str]) -> str:
         if normalize_asset_name(candidate) == canonical:
             return candidate
     return name
+
+
+def _failure_location(exc: BaseException) -> str | None:
+    """迁移拒绝点名的文件与集，作为诊断的定位。"""
+    if not isinstance(exc, ProjectMigrationError) or exc.file is None:
+        return None
+    return exc.file if exc.episode is None else f"{exc.file} (episode {exc.episode})"
+
+
+def _take_placeholder_adjustments(diagnostics: ArchiveDiagnostics) -> list[MigrationAdjustment]:
+    """把修复期补的资产占位从诊断里取出，作为迁移报告的「已调整」。"""
+    adjustments: list[MigrationAdjustment] = []
+    kept: list[ArchiveDiagnostic] = []
+    for item in diagnostics.auto_fixed:
+        asset_type = item.code.removeprefix("placeholder_").removesuffix("_added")
+        if asset_type not in ASSET_SPECS or item.code != f"placeholder_{asset_type}_added":
+            kept.append(item)
+            continue
+        adjustments.append(
+            MigrationAdjustment(
+                code="placeholder_asset_added",
+                params={"asset_type": asset_type, "name": str(item.message.params.get("name", ""))},
+            )
+        )
+    diagnostics.auto_fixed = kept
+    return adjustments
 
 
 @dataclass(frozen=True)
@@ -364,14 +397,47 @@ class ProjectArchiveService:
     def _raise_artifact_activation_validation_error(
         diagnostics: ArchiveDiagnostics,
         cause: Exception,
-    ) -> None:
+    ) -> NoReturn:
         diagnostics.add(
             "blocking",
             "artifact_activation_failed",
-            ValidationMessage("arch_artifact_activation_failed"),
+            ValidationMessage("arch_artifact_activation_failed", {"reason": str(cause)}),
+            location=_failure_location(cause),
         )
         raise ProjectArchiveValidationError(
             ValidationMessage("arch_import_validation_failed"),
+            errors=diagnostics.blocking_messages(),
+            warnings=diagnostics.warning_messages(),
+            diagnostics=diagnostics,
+        ) from cause
+
+    def _ledger_titles(self, project_dir: Path) -> list[dict[str, Any]]:
+        project = self._load_json_file(project_dir / self.project_manager.PROJECT_FILE) or {}
+        episodes = project.get("episodes")
+        return [
+            {"episode": entry["episode"], "title": entry.get("title") if isinstance(entry.get("title"), str) else ""}
+            for entry in (episodes if isinstance(episodes, list) else [])
+            if isinstance(entry, dict) and parse_positive_episode_num(entry.get("episode")) is not None
+        ]
+
+    @staticmethod
+    def _raise_migration_validation_error(diagnostics: ArchiveDiagnostics, cause: Exception) -> NoReturn:
+        """导入包的数据升级没能走完：带着原因拒绝导入，staging 随临时目录丢弃。
+
+        数据本身被拒（读不出、结构违约）按校验失败返回；升级本身没能做完（磁盘、写入、程序缺陷）
+        同样带原因，但按服务端错误返回。
+        """
+        detail = migration_failure_details(cause)[0]
+        diagnostics.add(
+            "blocking",
+            "project_migration_failed",
+            ValidationMessage("arch_project_migration_failed", {"reason": detail.violation}),
+            location=_failure_location(cause),
+        )
+        data_rejected = isinstance(cause, _ARTIFACT_ACTIVATION_ERRORS) and not isinstance(cause, OSError)
+        raise ProjectArchiveValidationError(
+            ValidationMessage("arch_import_validation_failed"),
+            status_code=400 if data_rejected else 500,
             errors=diagnostics.blocking_messages(),
             warnings=diagnostics.warning_messages(),
             diagnostics=diagnostics,
@@ -383,8 +449,10 @@ class ProjectArchiveService:
         *,
         uploaded_filename: str | None = None,
         conflict_policy: str = "prompt",
+        confirm_report: bool = False,
         translate: Callable[..., str] | None = None,
     ) -> ProjectImportResult:
+        """导入归档。迁移报告非空且 ``confirm_report`` 为假时以 409 返回报告、不留下任何项目数据。"""
         if conflict_policy not in {"prompt", "rename", "overwrite"}:
             raise ProjectArchiveValidationError(
                 ValidationMessage("arch_invalid_conflict_policy"),
@@ -428,11 +496,8 @@ class ProjectArchiveService:
                         )
                     try:
                         migrate_project_dir(staging_dir)
-                    except _ARTIFACT_ACTIVATION_ERRORS as exc:
-                        stalled_project = self._load_json_file(staging_dir / self.project_manager.PROJECT_FILE)
-                        if stalled_project is not None and stalled_project.get("schema_version") == 7:
-                            self._raise_artifact_activation_validation_error(diagnostics, exc)
-                        raise
+                    except Exception as exc:
+                        self._raise_migration_validation_error(diagnostics, exc)
                     # 提及自愈跑在迁移之后：存量归档的正文是迁移折出来的，早跑读不到正文。
                     self._repair_unit_mentions_tree(staging_dir, diagnostics)
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
@@ -452,12 +517,38 @@ class ProjectArchiveService:
                             if isinstance(manifest, dict) and "artifact_manifest" in manifest
                             else None
                         )
-                        ensure_imported_artifact_target_state(
+                        import_skipped = ensure_imported_artifact_target_state(
                             staging_dir,
                             preserved_manifest=preserved_manifest,
                         )
                     except _ARTIFACT_ACTIVATION_ERRORS as exc:
                         self._raise_artifact_activation_validation_error(diagnostics, exc)
+
+                    # 修复期补的占位、导入激活没能登记的产物与迁移链的结果一起进报告，不分归档的
+                    # schema 版本：导入前请用户确认一次（ADR 0098）。占位从诊断移进报告，导入成功
+                    # 后的诊断不再重复列出。
+                    extend_migration_report(
+                        staging_dir,
+                        adjusted=_take_placeholder_adjustments(diagnostics),
+                        skipped=import_skipped,
+                    )
+                    report = visible_migration_report(staging_dir)
+                    if report is not None:
+                        if not confirm_report:
+                            raise ProjectArchiveValidationError(
+                                ValidationMessage("arch_import_confirmation_required"),
+                                status_code=409,
+                                warnings=diagnostics.warning_messages(),
+                                diagnostics=diagnostics,
+                                extra={
+                                    "confirmation_required": True,
+                                    "migration_report": report.model_dump(mode="json"),
+                                    # 报告按集 ID 指称；确认窗据此显示集名。
+                                    "episodes": self._ledger_titles(staging_dir),
+                                },
+                            )
+                        # 用户已在导入前确认过报告，项目页不再提示同一份。
+                        acknowledge_migration_report(staging_dir)
 
                     project = self._load_project_file(staging_dir / self.project_manager.PROJECT_FILE)
                     target_name = self._resolve_target_project_name(
@@ -1188,25 +1279,11 @@ class ProjectArchiveService:
                 refs = item.get(asset_field)
                 if not isinstance(refs, list):
                     continue
-                missing = sorted(
-                    {name for name in refs if isinstance(name, str) and _resolve_existing_asset(name, pool) not in pool}
-                )
-                if missing:
-                    diagnostics.add(
-                        "blocking",
-                        f"missing_{asset_type}_definition",
-                        ValidationMessage(
-                            "arch_missing_asset_definition",
-                            {
-                                "items_key": items_key,
-                                "index": index,
-                                "field": asset_field,
-                                "asset_type": MessageRef(f"asset_type_{asset_type}"),
-                                "names": ", ".join(missing),
-                            },
-                        ),
-                        location=f"{location_prefix}.{asset_field}",
-                    )
+                for name in refs:
+                    if isinstance(name, str) and self._add_placeholder_asset(
+                        project_payload, pool, asset_type, name, diagnostics
+                    ):
+                        project_changed = True
 
             if isinstance(assets, dict) and resource_id:
                 for field_name, resource_type in (
@@ -1309,6 +1386,34 @@ class ProjectArchiveService:
             "placeholder_character_added",
             ValidationMessage("arch_placeholder_character_added", {"name": character_name}),
             location=f"characters[{character_name}]",
+        )
+        return True
+
+    @staticmethod
+    def _add_placeholder_asset(
+        project_payload: dict[str, Any],
+        pool: set[str],
+        asset_type: str,
+        name: str,
+        diagnostics: ArchiveDiagnostics,
+    ) -> bool:
+        """剧本引用了未定义的场景或道具：补一条不带描述的占位定义，返回是否改动 project_payload。"""
+        if _resolve_existing_asset(name, pool) in pool:
+            return False
+        bucket_key = ASSET_SPECS[asset_type].bucket_key
+        project_payload.setdefault(bucket_key, {})
+        if not isinstance(project_payload.get(bucket_key), dict):
+            return False
+        project_payload[bucket_key][name] = build_asset_entry(asset_type, "")
+        pool.add(name)
+        diagnostics.add(
+            "auto_fixed",
+            f"placeholder_{asset_type}_added",
+            ValidationMessage(
+                "arch_placeholder_asset_added",
+                {"asset_type": MessageRef(f"asset_type_{asset_type}"), "name": name},
+            ),
+            location=f"{bucket_key}[{name}]",
         )
         return True
 

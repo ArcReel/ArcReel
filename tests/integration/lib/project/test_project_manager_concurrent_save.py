@@ -12,6 +12,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 import portalocker
 import pytest
@@ -180,6 +181,42 @@ class TestSaveScriptConcurrency:
 
         async with pm.async_file_lock(path):
             pass
+
+    async def test_async_file_lock_closes_handle_when_cancelled_while_opening(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        pm = ProjectManager(tmp_path)
+        path = tmp_path / "draft.json"
+        opened: list[Any] = []
+        handle_ready = threading.Event()
+        release = threading.Event()
+        original_open = Path.open
+
+        def gated_open(self: Path, *args, **kwargs):
+            handle = original_open(self, *args, **kwargs)
+            if self.name == ".draft.json.lock":
+                opened.append(handle)
+                handle_ready.set()
+                release.wait(5)
+            return handle
+
+        monkeypatch.setattr(Path, "open", gated_open)
+
+        async def enter() -> None:
+            async with pm.async_file_lock(path):
+                pass
+
+        task = asyncio.create_task(enter())
+        try:
+            assert await asyncio.to_thread(handle_ready.wait, 5)
+            task.cancel()
+        finally:
+            release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert len(opened) == 1
+        assert opened[0].closed
 
     async def test_async_file_lock_propagates_non_contention_errors(self, tmp_path: Path, monkeypatch) -> None:
         pm = ProjectManager(tmp_path)

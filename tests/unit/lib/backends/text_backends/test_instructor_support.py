@@ -1,5 +1,6 @@
 """instructor_support 模块测试。"""
 
+import json
 from collections.abc import Generator
 from contextlib import contextmanager
 from types import SimpleNamespace
@@ -23,6 +24,11 @@ from lib.backends.text_backends.instructor_support import (
     instructor_fallback_sync,
 )
 from tests.fakes import instructor_api_call_exhausted
+from tests.http_capture import capture_http, only_request, request_json
+from tests.unit.lib.backends.text_backends.response_schema_support import (
+    leaked_class_docstrings,
+    response_schema_params,
+)
 
 
 class SampleModel(BaseModel):
@@ -212,11 +218,12 @@ class TestGenerateStructuredViaInstructor:
             )
 
         assert patched_with == [{"client": mock_client, "mode": Mode.MD_JSON}]
+        # response_model 换成不带类 docstring 的子类（见 TestModelFacingSchemaOnWire），字段与校验不变
+        assert issubclass(calls[0].pop("response_model"), SampleModel)
         assert calls == [
             {
                 "model": "test-model",
                 "messages": [{"role": "user", "content": "test"}],
-                "response_model": SampleModel,
                 "max_retries": 3,
             }
         ]
@@ -430,11 +437,11 @@ class TestInstructorFallbackSync:
                 token_param="max_completion_tokens",
             )
 
+        assert issubclass(calls[0].pop("response_model"), SampleModel)
         assert calls == [
             {
                 "model": "test-model",
                 "messages": [{"role": "user", "content": "test"}],
-                "response_model": SampleModel,
                 "max_retries": 2,
                 "max_completion_tokens": 500,
             }
@@ -1104,6 +1111,64 @@ class TestStructuredModeChainThroughInstructor:
         assert result.output_tokens == 22
 
 
+class TestModelFacingSchemaOnWire:
+    """经真实 Instructor 与 OpenAI SDK 发出的请求体里不带类 docstring：TOOLS 档的工具说明与参数、MD_JSON 档注入的
+    schema 都一样。
+
+    respx 在 transport 层截获首个请求后回 400 让调用结束，只看序列化后的请求体。
+    """
+
+    _ENDPOINT = "https://proxy.invalid/v1/chat/completions"
+    _REJECT = httpx.Response(400, json={"error": {"message": "stop", "type": "invalid_request_error"}})
+
+    @staticmethod
+    def _wire_json(request: httpx.Request, mode: Mode) -> str:
+        body = request_json(request)
+        if mode is Mode.TOOLS:
+            return json.dumps(body["tools"], ensure_ascii=False)
+        system_content = body["messages"][0]["content"]
+        assert '"properties"' in system_content  # schema 确已注入，下面的断言才有意义
+        return system_content
+
+    @pytest.mark.parametrize("mode", [Mode.TOOLS, Mode.MD_JSON])
+    @pytest.mark.parametrize("model", response_schema_params())
+    def test_sync_request_has_no_class_docstrings(self, model: type[BaseModel], mode: Mode):
+        from openai import OpenAI
+
+        client = OpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1", max_retries=0)
+        with capture_http() as router:
+            route = router.post(self._ENDPOINT).mock(return_value=self._REJECT)
+            with pytest.raises(InstructorRetryException):
+                generate_structured_via_instructor(
+                    client=client,
+                    model="test-model",
+                    messages=[{"role": "user", "content": "test"}],
+                    response_model=model,
+                    mode=mode,
+                )
+
+        assert leaked_class_docstrings(model, self._wire_json(only_request(route), mode)) == []
+
+    @pytest.mark.parametrize("mode", [Mode.TOOLS, Mode.MD_JSON])
+    @pytest.mark.parametrize("model", response_schema_params())
+    async def test_async_request_has_no_class_docstrings(self, model: type[BaseModel], mode: Mode):
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(api_key="sk-test", base_url="https://proxy.invalid/v1", max_retries=0)
+        with capture_http() as router:
+            route = router.post(self._ENDPOINT).mock(return_value=self._REJECT)
+            with pytest.raises(InstructorRetryException):
+                await generate_structured_via_instructor_async(
+                    client=client,
+                    model="test-model",
+                    messages=[{"role": "user", "content": "test"}],
+                    response_model=model,
+                    mode=mode,
+                )
+
+        assert leaked_class_docstrings(model, self._wire_json(only_request(route), mode)) == []
+
+
 class TestInstructorFallbackAsync:
     """instructor_fallback_async 高层函数测试。"""
 
@@ -1175,11 +1240,11 @@ class TestInstructorFallbackAsync:
                 token_param="max_completion_tokens",
             )
 
+        assert issubclass(calls[0].pop("response_model"), SampleModel)
         assert calls == [
             {
                 "model": "async-model",
                 "messages": [{"role": "user", "content": "test"}],
-                "response_model": SampleModel,
                 "max_retries": 2,
                 "max_completion_tokens": 600,
             }

@@ -125,7 +125,8 @@ def _use_generator(
     monkeypatch: pytest.MonkeyPatch, generator: _Generator, *, window_chars: int = _WINDOW_CHARS
 ) -> None:
     async def create(_cls, path):
-        return EpisodePlanner(path, generator=generator, window_chars=window_chars)
+        # 与 EpisodePlanner.create 一样在工作线程里构造：构造 ProjectManager 会建目录。
+        return await asyncio.to_thread(EpisodePlanner, path, generator=generator, window_chars=window_chars)
 
     monkeypatch.setattr(EpisodePlanner, "create", classmethod(create))
 

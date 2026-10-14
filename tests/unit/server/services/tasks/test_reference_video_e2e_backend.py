@@ -23,7 +23,7 @@ from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_video_request_facts
-from tests.fakes import fake_reference_request_projector
+from tests.fakes import fake_reference_request_projector, write_backend_output
 
 _TINY_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
@@ -153,8 +153,7 @@ async def test_end_to_end_generate_unit_to_executor(
 
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / f"{uid}.mp4"
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_bytes(b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()

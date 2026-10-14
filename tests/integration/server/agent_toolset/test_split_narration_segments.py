@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import unicodedata
 from typing import Any
@@ -133,10 +134,11 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
 
     class _Generator:
         async def generate(self, _request, project_name=None):
-            episode_source.write_text("等待供应商期间改过的原文。", encoding="utf-8")
+            # 等待供应商期间的改写来自别的写方，不在被测调用的事件循环上。
+            await asyncio.to_thread(episode_source.write_text, "等待供应商期间改过的原文。", encoding="utf-8")
             latest = {**project, "source_language": "English"}
             fake_ctx.pm.project_payload = latest
-            project_file.write_text(json.dumps(latest, ensure_ascii=False), encoding="utf-8")
+            await asyncio.to_thread(project_file.write_text, json.dumps(latest, ensure_ascii=False), encoding="utf-8")
             return type(
                 "_Result",
                 (),

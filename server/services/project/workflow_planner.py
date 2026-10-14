@@ -130,8 +130,7 @@ class WorkflowPlanner:
         it was built from, just without the per-location detail.
         """
 
-        project_path = self._pm.get_project_path(project_name)
-        failure = await asyncio.to_thread(load_migration_failure, project_path)
+        failure = await asyncio.to_thread(lambda: load_migration_failure(self._pm.get_project_path(project_name)))
         if failure is None:
             failure = MigrationFailureRecord(schema_version=-1, failed_at="", reason=blocker.reason)
         return migration_problem(failure)
@@ -240,10 +239,8 @@ class WorkflowPlanner:
             if status.project.generation_mode == "storyboard":
                 if status.project.grid_storyboard:
                     grids_dir = facts.project_path / "grids"
-                    grids = (
-                        await asyncio.to_thread(GridManager(facts.project_path).list_all)
-                        if await asyncio.to_thread(grids_dir.is_dir)
-                        else []
+                    grids = await asyncio.to_thread(
+                        lambda: GridManager(facts.project_path).list_all() if grids_dir.is_dir() else []
                     )
                     unit_id_set = set(unit_ids)
                     grid_ids = [

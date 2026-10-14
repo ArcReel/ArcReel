@@ -174,9 +174,6 @@ MESSAGES = {
         "{items_key}[{index}]: deprecated field {field} was removed (use scenes/props instead)"
     ),
     "arch_missing_field_filled": "{items_key}[{index}]: filled in the missing field {field}",
-    "arch_missing_asset_definition": (
-        "{items_key}[{index}]: {field} references {asset_type} entries missing from project.json: {names}"
-    ),
     "arch_unit_unresolved_mentions": (
         "video_units[{index}]: the body mentions asset names missing from project.json: {names}; "
         "they will not produce reference images"
@@ -187,6 +184,7 @@ MESSAGES = {
         "{label}[{index}]: generated_assets is malformed ({actual}) and was reset to the default structure"
     ),
     "arch_placeholder_character_added": "Automatically added the missing character definition: {name}",
+    "arch_placeholder_asset_added": "Automatically added the missing {asset_type} definition: {name}",
     "arch_canonical_path_normalized": "{location}: normalized to {path}",
     "arch_current_asset_materialized": "{location}: restored the current file {target} from {source}",
     "arch_current_asset_restored_from_version": "{location}: restored the current file {target} from {source}",
@@ -194,7 +192,9 @@ MESSAGES = {
     "arch_invalid_conflict_policy": "Invalid conflict policy",
     "arch_conflict_policy_unsupported": "conflict_policy only supports prompt, rename or overwrite; got: {value}",
     "arch_import_validation_failed": "Import package validation failed",
-    "arch_artifact_activation_failed": "The imported project's artifact state is inconsistent",
+    "arch_artifact_activation_failed": "The imported project's artifact state is inconsistent: {reason}",
+    "arch_project_migration_failed": "The project data in the archive cannot be upgraded to the current version: {reason}",
+    "arch_import_confirmation_required": "Upgrading the archive changed some content. Confirm before importing",
     "arch_not_a_zip": "The uploaded file is not a valid ZIP archive",
     "arch_zip_encrypted_entry": "The ZIP contains an encrypted entry and cannot be imported: {name}",
     "arch_zip_absolute_path_entry": "The ZIP contains an absolute-path entry: {name}",

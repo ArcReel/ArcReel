@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -166,6 +168,22 @@ def _write_project(
 
 def _load_project(project_dir: Path) -> dict:
     return json.loads((project_dir / "project.json").read_text(encoding="utf-8"))
+
+
+async def _rewrite_project_elsewhere(project_dir: Path, mutate: Callable[[dict], None]) -> str:
+    """模拟模型调用期间另一个写方改写 project.json，返回改写后的全文。
+
+    另一个写方不在被测调用的事件循环上，改写放进工作线程。
+    """
+
+    def _rewrite() -> str:
+        project = _load_project(project_dir)
+        mutate(project)
+        text = json.dumps(project, ensure_ascii=False)
+        (project_dir / "project.json").write_text(text, encoding="utf-8")
+        return text
+
+    return await asyncio.to_thread(_rewrite)
 
 
 def _plan_response(episodes: list[dict]) -> str:
@@ -872,10 +890,10 @@ class TestPlan:
         class _ConcurrentCommitGenerator(_FakeTextGenerator):
             async def generate(self, request, project_name=None):
                 # 模拟另一次 plan() 调用在本次锁外快照之后、锁内复核之前抢先提交了第 1 集
-                project = _load_project(project_dir)
-                project["episodes"] = [_entry(1, 0, _end_of(ANCHOR_EP1))]
-                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-                after_concurrent_commit.append((project_dir / "project.json").read_text(encoding="utf-8"))
+                def _commit_concurrently(project: dict) -> None:
+                    project["episodes"] = [_entry(1, 0, _end_of(ANCHOR_EP1))]
+
+                after_concurrent_commit.append(await _rewrite_project_elsewhere(project_dir, _commit_concurrently))
                 return await super().generate(request, project_name)
 
         fake = _ConcurrentCommitGenerator(
@@ -896,10 +914,10 @@ class TestPlan:
 
         class _ConcurrentAllocationGenerator(_FakeTextGenerator):
             async def generate(self, request, project_name=None):
-                project = _load_project(project_dir)
-                project["episode_id_high_water"] = 5
-                (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-                after_concurrent_write.append((project_dir / "project.json").read_text(encoding="utf-8"))
+                def _allocate_concurrently(project: dict) -> None:
+                    project["episode_id_high_water"] = 5
+
+                after_concurrent_write.append(await _rewrite_project_elsewhere(project_dir, _allocate_concurrently))
                 return await super().generate(request, project_name)
 
         fake = _ConcurrentAllocationGenerator(
@@ -1299,16 +1317,18 @@ class TestPlan:
 
         async def _generate_then_pollute(*args, **kwargs):
             result = await original_generate(*args, **kwargs)
-            project = _load_project(project_dir)
-            project["episodes"] = [
-                {
-                    "episode": 7,
-                    "title": "旧流程切出集",
-                    "script_file": "scripts/episode_7.json",
-                    "source_origin": "whole_source",
-                }
-            ]
-            (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+            def _pollute(project: dict) -> None:
+                project["episodes"] = [
+                    {
+                        "episode": 7,
+                        "title": "旧流程切出集",
+                        "script_file": "scripts/episode_7.json",
+                        "source_origin": "whole_source",
+                    }
+                ]
+
+            await _rewrite_project_elsewhere(project_dir, _pollute)
             return result
 
         fake.generate = _generate_then_pollute
@@ -1706,7 +1726,7 @@ class TestSourceFingerprintGate:
 
         class _MutatingGenerator(_FakeTextGenerator):
             async def generate(self, request, project_name=None):
-                source_path.write_text("规划期间被换掉的全新原文内容。", encoding="utf-8")
+                await asyncio.to_thread(source_path.write_text, "规划期间被换掉的全新原文内容。", encoding="utf-8")
                 return await super().generate(request, project_name)
 
         fake = _MutatingGenerator([_plan_response([{"title": "t1", "hook": "h1", "end_anchor": ANCHOR_EP2}])])
@@ -1732,7 +1752,7 @@ class TestSourceFingerprintGate:
 
         class _MutatingGenerator(_FakeTextGenerator):
             async def generate(self, request, project_name=None):
-                novel_path.write_text("已锚定的第1集原文被换掉。", encoding="utf-8")
+                await asyncio.to_thread(novel_path.write_text, "已锚定的第1集原文被换掉。", encoding="utf-8")
                 return await super().generate(request, project_name)
 
         fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])
@@ -1795,7 +1815,7 @@ class TestSourceFingerprintGate:
 
         class _MutatingGenerator(_FakeTextGenerator):
             async def generate(self, request, project_name=None):
-                novel2_path.write_text("新源文件在模型调用期间被换掉。", encoding="utf-8")
+                await asyncio.to_thread(novel2_path.write_text, "新源文件在模型调用期间被换掉。", encoding="utf-8")
                 return await super().generate(request, project_name)
 
         fake = _MutatingGenerator([_plan_response([{"title": "t3", "hook": "h3", "end_anchor": ANCHOR2_MID}])])

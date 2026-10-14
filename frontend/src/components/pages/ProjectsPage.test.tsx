@@ -9,6 +9,27 @@ import { useConfigStatusStore } from "@/stores/config-status-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import type { ImportFailureDiagnostics, ProjectSummary } from "@/types";
+import type { WorkflowMigrationReport } from "@/types/workflow";
+
+const UPGRADE_REPORT: WorkflowMigrationReport = {
+  schema_version: 2,
+  migrated_at: "2026-10-13T00:00:00Z",
+  from_schema_version: 14,
+  to_schema_version: 18,
+  complete: true,
+  registered: {},
+  adjusted: [
+    {
+      code: "script_binding_canonicalized",
+      episode: 3,
+      file: "scripts/episode_3.json",
+      backup: null,
+      params: { from: "scripts/custom.json", to: "scripts/episode_3.json" },
+    },
+  ],
+  skipped: [],
+  acknowledged_at: null,
+};
 
 vi.mock("@/components/pages/CreateProjectModal", () => ({
   CreateProjectModal: () => <div data-testid="create-project-modal">Create Project Modal</div>,
@@ -66,7 +87,17 @@ function importResult(projectName: string, diagnostics: { auto_fixed: never[] | 
   } as Awaited<ReturnType<typeof API.importProject>>;
 }
 
-function importError(message: string, extra: { status?: number; conflict_project_name?: string; diagnostics?: ImportFailureDiagnostics } = {}) {
+function importError(
+  message: string,
+  extra: {
+    status?: number;
+    conflict_project_name?: string;
+    confirmation_required?: boolean;
+    migration_report?: WorkflowMigrationReport;
+    migration_report_episodes?: { episode: number; title: string }[];
+    diagnostics?: ImportFailureDiagnostics;
+  } = {},
+) {
   return Object.assign(new Error(message), extra);
 }
 
@@ -401,7 +432,7 @@ describe("ProjectsPage", () => {
     const file = chooseZip(container);
 
     await waitFor(() => expect(location.history?.at(-1)).toBe("/app/projects/imported-demo"));
-    expect(API.importProject).toHaveBeenCalledWith(file, "prompt");
+    expect(API.importProject).toHaveBeenCalledWith(file, "prompt", { confirmReport: false });
     expect(useAppStore.getState().toast).toBeNull();
   });
 
@@ -475,7 +506,83 @@ describe("ProjectsPage", () => {
     expect(dialog).toHaveTextContent("项目 ID「demo」已被现有项目占用");
     fireEvent.click(within(dialog).getByRole("button", { name: "自动重命名导入" }));
 
-    await waitFor(() => expect(API.importProject).toHaveBeenNthCalledWith(2, file, "rename"));
+    await waitFor(() => expect(API.importProject).toHaveBeenNthCalledWith(2, file, "rename", { confirmReport: false }));
     await waitFor(() => expect(location.history?.at(-1)).toBe("/app/projects/demo-renamed"));
+  });
+  it("asks to confirm the upgrade report before the imported project appears", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+    vi.spyOn(API, "importProject")
+      .mockRejectedValueOnce(
+        importError("导入包升级时调整了部分内容，请确认后再导入", {
+          status: 409,
+          confirmation_required: true,
+          migration_report: UPGRADE_REPORT,
+          migration_report_episodes: [{ episode: 3, title: "雨夜" }],
+        }),
+      )
+      .mockResolvedValueOnce(importResult("demo", { auto_fixed: [], warnings: [] }));
+
+    const { container, location } = renderPage();
+    await screen.findByText("还没有项目");
+    const file = chooseZip(container);
+
+    const dialog = await screen.findByRole("alertdialog", { name: "导入前请确认" });
+    expect(within(dialog).getByText("雨夜的剧本从 scripts/custom.json 移到 scripts/episode_3.json。")).toBeInTheDocument();
+    expect(API.listProjects).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认导入" }));
+
+    await waitFor(() => expect(API.importProject).toHaveBeenNthCalledWith(2, file, "prompt", { confirmReport: true }));
+    await waitFor(() => expect(location.history?.at(-1)).toBe("/app/projects/demo"));
+  });
+
+  it("imports nothing when the upgrade report is cancelled", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+    vi.spyOn(API, "importProject").mockRejectedValueOnce(
+      importError("导入包升级时调整了部分内容，请确认后再导入", {
+        status: 409,
+        confirmation_required: true,
+        migration_report: UPGRADE_REPORT,
+      }),
+    );
+
+    const { container, location } = renderPage();
+    await screen.findByText("还没有项目");
+    chooseZip(container);
+
+    const dialog = await screen.findByRole("alertdialog", { name: "导入前请确认" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(API.importProject).toHaveBeenCalledTimes(1);
+    expect(location.history?.at(-1)).toBe("/app/projects");
+  });
+
+  it("keeps the confirmation when the confirmed import then hits a duplicate project ID", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [summary("demo", { title: "Demo" })] });
+    vi.spyOn(API, "importProject")
+      .mockRejectedValueOnce(
+        importError("导入包升级时调整了部分内容，请确认后再导入", {
+          status: 409,
+          confirmation_required: true,
+          migration_report: UPGRADE_REPORT,
+        }),
+      )
+      .mockRejectedValueOnce(importError("检测到项目编号冲突", { status: 409, conflict_project_name: "demo" }))
+      .mockResolvedValueOnce(importResult("demo-renamed", { auto_fixed: [], warnings: [] }));
+
+    const { container } = renderPage();
+    await projectList();
+    const file = chooseZip(container);
+
+    fireEvent.click(
+      within(await screen.findByRole("alertdialog", { name: "导入前请确认" })).getByRole("button", { name: "确认导入" }),
+    );
+    fireEvent.click(
+      within(await screen.findByRole("alertdialog", { name: "项目 ID 已存在" })).getByRole("button", {
+        name: "自动重命名导入",
+      }),
+    );
+
+    await waitFor(() => expect(API.importProject).toHaveBeenNthCalledWith(3, file, "rename", { confirmReport: true }));
   });
 });

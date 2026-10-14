@@ -60,7 +60,9 @@ from lib.artifacts.artifact_planner import (
     SharedVersionMetadata,
     TargetStatePlanner,
     episode_scope_for_key,
+    gap_backfill_entries,
     plan_artifact_target_state,
+    plan_artifact_target_state_by_gap_rule,
 )
 from lib.artifacts.artifact_registration import (
     artifact_key_for_resource,
@@ -80,6 +82,7 @@ from lib.artifacts.visual_artifact_provenance import (
 )
 from lib.infra.content_digest import TextModeDigest
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
+from lib.project.project_migration_report import MigrationSkippedArtifact, skipped_artifact_identity
 from lib.project.project_schema import project_schema_is_current
 
 _EPISODE_RESOURCE_KINDS = frozenset(
@@ -159,7 +162,7 @@ def ensure_imported_artifact_target_state(
     project_dir: Path,
     *,
     preserved_manifest: ArtifactManifestArchiveSnapshot | None = None,
-) -> bool:
+) -> tuple[MigrationSkippedArtifact, ...]:
     """Eagerly materialize the v8 sidecar at the archive staging boundary.
 
     Official exports carry the complete source Manifest in their visible archive
@@ -170,7 +173,14 @@ def ensure_imported_artifact_target_state(
     the frozen claim; a digest that only matches the text-mode view (CRLF folded,
     cut at ``0x1A``) cannot prove the whole artifact, so that key is re-registered
     from the current self-proving projection instead; any other digest rejects the
-    import.  Legacy archives without the envelope retain the self-proving path.
+    import.  Formal artifacts the envelope carries no claim for because generation-input
+    gaps once blocked their projection are backfilled from the self-proving projection
+    (``docs/adr/0098``, the same rule as the v17→v18 backfill); other unclaimed
+    artifacts stay unregistered.  Legacy archives without the envelope retain the
+    self-proving path.
+
+    返回规划器看见、但最终没有登记的产物及原因：导入不分 schema 版本都把它们列进迁移报告的
+    「未能带入」（ADR 0098）。
     """
 
     raw = (project_dir / "project.json").read_bytes()
@@ -187,6 +197,8 @@ def ensure_imported_artifact_target_state(
             raise ValueError("archive Artifact Manifest content evidence does not cover every formal claim")
         with project_metadata_lock(project_dir):
             plan = _plan_preserved_artifact_target_state(project_dir)
+            gaps_refused = plan_artifact_target_state_by_gap_rule(project_dir, project, record_gaps=False)
+            gaps_recorded = plan_artifact_target_state_by_gap_rule(project_dir, project, record_gaps=True)
             rebased = _rebase_preserved_artifact_entries(plan, preserved_entries)
             invalid = [key.encode() for key, archived in preserved_entries.items() if rebased[key] != archived]
             if invalid:
@@ -211,9 +223,15 @@ def ensure_imported_artifact_target_state(
                 raise ValueError(
                     f"archive Artifact Manifest formal artifact content does not match its claims: {sorted(replaced)}"
                 )
-            assert_artifact_target_state_plan_unchanged(project_dir, plan)
-            return adapter.replace_entries_atomically(restored)
-    return activate_artifact_target_state(project_dir, bump_schema=False)
+            restored.update(gap_backfill_entries(preserved_entries, gaps_refused.entries, gaps_recorded.entries))
+            for checked in (plan, gaps_refused, gaps_recorded):
+                assert_artifact_target_state_plan_unchanged(project_dir, checked, expected_project_bytes=raw)
+            adapter.replace_entries_atomically(restored)
+            registered = {skipped_artifact_identity(key) for key in restored}
+            return tuple(item for item in plan.skipped if item.identity not in registered)
+    plan = plan_artifact_target_state(project_dir)
+    activate_artifact_target_state(project_dir, bump_schema=False, plan=plan)
+    return plan.skipped
 
 
 def snapshot_preserved_artifact_manifest(

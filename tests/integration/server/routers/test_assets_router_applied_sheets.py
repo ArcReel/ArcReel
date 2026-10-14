@@ -26,7 +26,7 @@ from tests.integration.server.asset_library_support import (
     store_character_with_derivatives,
 )
 from tests.integration.server.derivative_sheet_support import run_derivative_generation, solid_png_bytes
-from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
+from tests.integration.server.services.tasks.generation_tasks_support import SheetGenerator, fake_resolve_ctx
 
 _KEY = ArtifactKey.asset_sheet("character", "Alice")
 
@@ -156,26 +156,11 @@ def test_round_trip_derivative_sheets_stay_current_when_descriptions_and_style_c
     assert character_sheet_statuses(pm, "demo", "王") == _ALL_CURRENT
 
 
-class _SheetGenerator:
-    """按生产口径经正式图活化回调提交一张生成的资产图。"""
-
-    def __init__(self, project_dir: Path, content: bytes) -> None:
-        self.versions = VersionManager(project_dir)
-        self._project_dir = project_dir
-        self._content = content
-
-    async def generate_image_async(self, *, resource_type, resource_id, commit_formal_output, **_kwargs):
-        current = self._project_dir / resource_type / f"{resource_id}.png"
-        staged = self._project_dir / resource_type / f".{resource_id}.staged.png"
-        staged.write_bytes(self._content)
-        return current, commit_formal_output(staged, current, {})
-
-
 async def test_regenerating_the_owner_sheet_returns_it_to_its_generation_basis(library, monkeypatch):
     client, pm = library
     _apply(client, store_character_with_derivatives(client, pm, owner_description="白衣少年"))
     project_dir = pm.get_project_path("demo")
-    resolve_ctx = fake_resolve_ctx(_SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
+    resolve_ctx = fake_resolve_ctx(SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
     monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generation_tasks, "resolve_generation_context", resolve_ctx)
     monkeypatch.setattr(formal_image_commit, "resolve_generation_context", resolve_ctx)

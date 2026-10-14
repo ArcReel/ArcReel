@@ -228,9 +228,14 @@ def draft_payload(draft: QuarantinedDraft) -> dict[str, Any]:
     }
 
 
+def quarantine_filename(kind: str) -> str:
+    """该阶段草稿在集目录下的文件名。"""
+    return _QUARANTINE_FILENAMES[kind]
+
+
 def quarantine_path(project_path: Path, episode: int, kind: str) -> Path:
     """该集该阶段的草稿路径（与正式 script_plan 同目录）。"""
-    return episode_drafts_dir(project_path, episode) / _QUARANTINE_FILENAMES[kind]
+    return episode_drafts_dir(project_path, episode) / quarantine_filename(kind)
 
 
 def violation_entries(violations: list[DraftViolation]) -> list[dict[str, Any]]:
@@ -413,6 +418,7 @@ __all__ = [
     "quarantine_and_report",
     "quarantine_envelope",
     "quarantine_exists",
+    "quarantine_filename",
     "quarantine_path",
     "read_quarantine",
     "render_report",

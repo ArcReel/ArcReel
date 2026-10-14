@@ -16,6 +16,10 @@ from lib.backends.text_backends.base import (
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http, request_json
+from tests.unit.lib.backends.text_backends.response_schema_support import (
+    response_schema_models,
+    response_schema_params,
+)
 
 
 @pytest.fixture
@@ -450,38 +454,6 @@ def _keys_anywhere(node: object, names: set[str]) -> list[str]:
     return found
 
 
-def _strict_response_schema_models() -> list[type[BaseModel]]:
-    """以严格模型（extra="forbid"）作 response_schema 的调用：分集规划、分镜拆分、提示词编写、剧本生成。"""
-    from lib.episode.episode_planner import DramaPlanDraft, NarrationPlanDraft
-    from lib.script.script_models import (
-        AdReferenceFlatScript,
-        NarrationScriptPlanDraft,
-        ReferencePromptAuthoringFlatScript,
-        build_drama_normalized_script_model,
-        build_episode_script_model,
-        build_reference_units_script_plan_model,
-        with_new_assets_field,
-    )
-
-    models: list[type[BaseModel]] = [
-        NarrationPlanDraft,
-        DramaPlanDraft,
-        NarrationScriptPlanDraft,
-        AdReferenceFlatScript,
-        ReferencePromptAuthoringFlatScript,
-    ]
-    for durations in ([4, 6, 8], [8]):
-        models += [
-            build_drama_normalized_script_model(durations),
-            build_reference_units_script_plan_model(durations),
-            with_new_assets_field(build_reference_units_script_plan_model(durations)),
-        ]
-        for mode in ("narration", "drama", "ad"):
-            episode_model = build_episode_script_model(mode, durations)
-            models += [episode_model, with_new_assets_field(episode_model)]
-    return models
-
-
 class TestAdditionalPropertiesStripped:
     """Gemini Developer API 的 responseSchema 不认识 additionalProperties，下发即 400 INVALID_ARGUMENT。"""
 
@@ -490,15 +462,14 @@ class TestAdditionalPropertiesStripped:
         mock_genai.Client.return_value = MagicMock()
         return GeminiTextBackend(api_key="k")
 
-    def test_every_strict_schema_model_has_no_additional_properties(self, backend):
-        models = _strict_response_schema_models()
-        # 前提自检：这些模型的原始 schema 确实带 additionalProperties，否则下面的断言形同虚设
-        assert any(_keys_anywhere(m.model_json_schema(), {"additionalProperties"}) for m in models)
-        for model in models:
-            config = backend._build_config(model, None)
-            assert _keys_anywhere(config["response_schema"], {"additionalProperties", "additional_properties"}) == [], (
-                model.__name__
-            )
+    def test_response_schema_models_carry_additional_properties_before_conversion(self):
+        """前提自检：原始 schema 确实带 additionalProperties，否则下面的参数化断言形同虚设。"""
+        assert any(_keys_anywhere(m.model_json_schema(), {"additionalProperties"}) for m in response_schema_models())
+
+    @pytest.mark.parametrize("model", response_schema_params())
+    def test_every_response_schema_model_has_no_additional_properties(self, backend, model):
+        config = backend._build_config(model, None)
+        assert _keys_anywhere(config["response_schema"], {"additionalProperties", "additional_properties"}) == []
 
     def test_strips_at_every_nesting_level_including_array_items_and_union_members(self, backend):
         schema = {
@@ -564,7 +535,7 @@ class TestAdditionalPropertiesStripped:
             route = router.post(url__regex=r":generateContent$").mock(return_value=httpx.Response(200, json=reply))
             async with httpx.AsyncClient() as http_client:
                 backend._client = real_genai.Client(api_key="k", http_options={"httpx_async_client": http_client})
-                for model in _strict_response_schema_models():
+                for model in response_schema_models():
                     route.calls.reset()
                     # 回包只是空对象，过不了各模型的校验，会走降级链；本用例只看首个原生结构化请求
                     with pytest.raises(StructuredOutputExhaustedError):

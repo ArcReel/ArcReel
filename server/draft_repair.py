@@ -171,9 +171,14 @@ class DraftRepair:
         返回草稿来源与草稿；不成立时抛 ``DraftWorkflowError``。只读，不调用模型。
         """
         kind = await self.workflow.resolve_kind(episode, doc_type)
-        draft = await asyncio.to_thread(read_quarantine, self.ctx.project_path, episode, kind)
+
+        def _read_draft() -> tuple[QuarantinedDraft | None, bool]:
+            project_path = self.ctx.project_path
+            draft = read_quarantine(project_path, episode, kind)
+            return draft, draft is None and quarantine_exists(project_path, episode, kind)
+
+        draft, unreadable = await asyncio.to_thread(_read_draft)
         if draft is None:
-            unreadable = await asyncio.to_thread(quarantine_exists, self.ctx.project_path, episode, kind)
             detail = "is not a valid JSON envelope" if unreadable else "does not exist"
             raise DraftWorkflowError("draft_not_found", f"集（id={episode}）{doc_type} draft {detail}")
         if draft_owner(draft) == DRAFT_OWNER_AGENT:
@@ -239,7 +244,7 @@ class DraftRepair:
         project = await asyncio.to_thread(self.ctx.pm.load_project, self.ctx.project_name)
         try:
             revalidation = await revalidate_script_plan_draft(
-                self.ctx.project_path, project, episode, draft, config_resolver=self.ctx.config_resolver
+                await self.ctx.aproject_path(), project, episode, draft, config_resolver=self.ctx.config_resolver
             )
         except VideoRequestFactsError as exc:
             raise DraftWorkflowError.video_facts(exc.failure) from exc
@@ -253,7 +258,7 @@ class DraftRepair:
             return None
         try:
             return await asyncio.to_thread(
-                load_novel_source, self.ctx.project_path, draft.meta.get("source"), episode=episode
+                lambda: load_novel_source(self.ctx.project_path, draft.meta.get("source"), episode=episode)
             )
         except ValueError as exc:
             logger.info("AI 修复不附带源文 episode=%s：%s", episode, exc)

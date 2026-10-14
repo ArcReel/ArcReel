@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -10,7 +11,10 @@ from lib.infra.retry import (
     BASE_RETRYABLE_ERRORS,
     RETRYABLE_STATUS_PATTERNS,
     NonRetryableError,
+    SystemClock,
     _should_retry,
+    bind_clock,
+    resolve_clock,
     retry_async,
     with_retry_async,
 )
@@ -349,3 +353,53 @@ class TestRetryAsync:
 
         assert result == "ok"
         assert clock.sleeps == [5.25]
+
+
+class TestBoundClock:
+    async def test_retry_without_explicit_clock_waits_on_bound_clock(self):
+        operation = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
+        clock = _FakeClock()
+
+        with bind_clock(clock):
+            result = await retry_async(operation, backoff_seconds=(5,), jitter=_no_jitter)
+
+        assert result == "ok"
+        assert clock.sleeps == [5.0]
+
+    async def test_explicit_clock_wins_over_bound_clock(self):
+        bound, explicit = _FakeClock(), _FakeClock()
+
+        with bind_clock(bound):
+            resolved = resolve_clock(explicit)
+
+        assert resolved is explicit
+
+    async def test_binding_reaches_tasks_spawned_inside_and_is_restored_on_exit(self):
+        clock = _FakeClock()
+
+        async def current() -> object:
+            return resolve_clock(None)
+
+        with bind_clock(clock):
+            spawned = await asyncio.create_task(current())
+
+        assert spawned is clock
+        assert isinstance(resolve_clock(None), SystemClock)
+
+    async def test_binding_does_not_leak_into_concurrent_sibling_context(self):
+        clock = _FakeClock()
+        entered = asyncio.Event()
+        release = asyncio.Event()
+
+        async def bound_holder() -> None:
+            with bind_clock(clock):
+                entered.set()
+                await release.wait()
+
+        holder = asyncio.create_task(bound_holder())
+        await entered.wait()
+        sibling_view = resolve_clock(None)
+        release.set()
+        await holder
+
+        assert isinstance(sibling_view, SystemClock)

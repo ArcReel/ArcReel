@@ -79,9 +79,9 @@ class EpisodeDraftService:
     async def list_drafts(self, project_name: str, episode: int) -> list[dict[str, Any]]:
         """本集在场的草稿摘要（``doc_type`` / ``editable_by`` / ``violation_count``），不做读时重算。"""
         project = await asyncio.to_thread(self.pm.load_project, project_name)
-        project_path = self.pm.get_project_path(project_name)
 
         def _summaries() -> list[dict[str, Any]]:
+            project_path = self.pm.get_project_path(project_name)
             summaries: list[dict[str, Any]] = []
             for kind in self._applicable_kinds(project):
                 if not quarantine_exists(project_path, episode, kind):
@@ -135,9 +135,12 @@ class EpisodeDraftService:
     async def _prompt_authoring_view(
         self, project_name: str, project: dict[str, Any], episode: int
     ) -> dict[str, Any] | None:
-        project_path = self.pm.get_project_path(project_name)
-        formal_path = project_path / "scripts" / episode_script_filename(episode)
-        exists, draft, formal = await asyncio.to_thread(self._read_prompt_authoring, project_path, formal_path, episode)
+        def _read() -> tuple[bool, QuarantinedDraft | None, dict[str, Any] | None]:
+            project_path = self.pm.get_project_path(project_name)
+            formal_path = project_path / "scripts" / episode_script_filename(episode)
+            return self._read_prompt_authoring(project_path, formal_path, episode)
+
+        exists, draft, formal = await asyncio.to_thread(_read)
         if not exists:
             return None
         view: dict[str, Any] = {

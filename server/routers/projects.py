@@ -57,7 +57,7 @@ from lib.episode.source_kinds import SourceKind
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
 from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
-from lib.infra.async_thread import EventLoopBridge, run_sync_transaction
+from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_sync, run_sync_transaction
 from lib.infra.json_io import domain_error_on_value_error
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
@@ -401,32 +401,39 @@ async def import_project_archive(
     archive_service: ArchiveServiceDep,
     file: UploadFile = File(...),
     conflict_policy: str = Form("prompt"),
+    confirm_report: bool = Form(False),
 ):
-    """从 ZIP 导入项目。"""
-    upload_path: str | None = None
-    try:
-        fd, upload_path = tempfile.mkstemp(prefix="arcreel-upload-", suffix=".zip")
-        os.close(fd)
+    """从 ZIP 导入项目。
 
-        # 使用底层 SpooledTemporaryFile 的同步句柄，整循环 offload 到线程，
+    导入包升级时有调整或没能带入的内容时，未带 ``confirm_report`` 的请求以 409 返回
+    ``confirmation_required`` 与 ``migration_report``，不留下任何项目数据；用户确认后带上它重新提交。
+    """
+    # 临时文件一建好就登记路径，取消或失败时 finally 仍能清理
+    upload_paths: list[str] = []
+    try:
+        # 使用底层 SpooledTemporaryFile 的同步句柄，建临时文件与整个写循环 offload 到线程，
         # 避免 async 读取 + 同步写入的混合模式阻塞事件循环
         raw_file = file.file
 
-        def _write_upload():
-            with open(upload_path, "wb") as target:
+        def _write_upload() -> str:
+            fd, path = tempfile.mkstemp(prefix="arcreel-upload-", suffix=".zip")
+            upload_paths.append(path)
+            with os.fdopen(fd, "wb") as target:
                 while True:
                     chunk = raw_file.read(1024 * 1024)
                     if not chunk:
                         break
                     target.write(chunk)
+            return path
 
-        await asyncio.to_thread(_write_upload)
+        upload_path = await run_sync_transaction(_write_upload)
 
         def _sync():
             return archive_service.import_project_archive(
                 Path(upload_path),
                 uploaded_filename=file.filename,
                 conflict_policy=conflict_policy,
+                confirm_report=confirm_report,
                 translate=_t,
             )
 
@@ -458,8 +465,8 @@ async def import_project_archive(
         )
     finally:
         await file.close()
-        if upload_path:
-            _cleanup_temp_file(upload_path)
+        for path in upload_paths:
+            await run_noninterruptible_sync(_cleanup_temp_file, path)
 
 
 @router.post("/projects/{name}/export/token")
@@ -773,7 +780,7 @@ async def get_video_capabilities(
     resolver = ConfigResolver(async_session_factory)
     resolution_override = None if resolution is None else ResolutionOverride(resolution or None)
     try:
-        project = get_project_manager().load_project(name)
+        project = await asyncio.to_thread(get_project_manager().load_project, name)
         generation_type = (
             ("r2v" if uses_reference_images else "i2v")
             if uses_reference_images is not None
@@ -1197,7 +1204,7 @@ async def edit_script_batch(
     try:
         manager = get_project_manager()
         try:
-            manager.get_project_path(name)
+            await asyncio.to_thread(manager.get_project_path, name)
         except ValueError as exc:
             raise BadRequestError("invalid_project_name", name=name) from exc
         except FileNotFoundError as exc:
@@ -1207,7 +1214,7 @@ async def edit_script_batch(
             result = await asyncio.to_thread(make_script_batch_editor(manager).execute, name, command)
         return JSONResponse(status_code=script_batch_status(result), content=result.model_dump(mode="json"))
     except FileNotFoundError as exc:
-        if manager is None or not manager.project_exists(name):
+        if manager is None or not await asyncio.to_thread(manager.project_exists, name):
             raise NotFoundError("project_not_found", name=name) from exc
         target = command.script or str(command.episode)
         raise NotFoundError("script_not_found", name=target) from exc
@@ -1969,7 +1976,7 @@ async def set_project_source(
 async def generate_overview(name: str, _t: Translator):
     """使用 AI 生成项目概述"""
     try:
-        get_project_manager().get_project_path(name)
+        await asyncio.to_thread(get_project_manager().get_project_path, name)
     except ValueError as e:
         # 非法项目名（路径穿越等）先于生成流程拦截，避免落入下面 generate_overview()
         # 内部供应商解析链路的 except ValueError，被误判为「未配置供应商」

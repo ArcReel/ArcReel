@@ -68,7 +68,8 @@ if TYPE_CHECKING:
 class TaskExecutor(Protocol):
     """任务执行器：按任务类型执行一个已认领的任务，返回任务结果。
 
-    ``claimed_provider_id`` 是认领时路由到的容量桶；视频任务据此在执行入口校验 provider 漂移。
+    ``claimed_provider_id`` 是认领时路由到的容量桶；图片、音频、视频任务据此在执行入口核对 provider，
+    不一致时在调用供应商之前抛 ``DispatchProviderChanged``。
     """
 
     def __call__(self, task: dict[str, Any], *, claimed_provider_id: str) -> Awaitable[dict[str, Any]]: ...
@@ -387,8 +388,8 @@ class SlotTable:
 async def _extract_provider(task: dict[str, Any]) -> str:
     """Extract a provider_id from a claimed task, used **only** for rate-limit slot routing.
 
-    视频任务只在排队记录缺失（或记录的 provider 已不支持视频）时调用一次，结果写回记录；
-    图片、音频等其它 lane 每次认领都调用。
+    图片、音频、视频任务只在排队记录缺失（或记录的 provider 已不支持该媒体类型）时调用一次，
+    结果写回记录；文本与渲染通道的 provider 固定，每次认领都调用。
 
     这是解析链的薄投影：按 media lane（``media_type``）派发到 ``resolve_video_backend`` /
     ``resolve_image_backend``，取 ``.provider_id``。image 任务按 ``generation_type="t2i"`` 取一个
@@ -398,7 +399,7 @@ async def _extract_provider(task: dict[str, Any]) -> str:
     ``video_bucket_for_queued_task`` 与入队派生共用；reference_video 则重读最新
     project/script/unit，以实际可用资产调用公共 request projection。
     这份 provider 投影只服务槽位归属与限流路由，不是执行身份；executor 在开始时按最新状态
-    物化请求，视频与认领槽位不一致时回队。
+    物化请求，与认领槽位不一致时回队。
     解析失败（未配置供应商）时回退到 DEFAULT_PROVIDER 仅供限流，不阻断认领。
     """
     project_name = task.get("project_name")
@@ -462,7 +463,7 @@ class GenerationWorker:
         settle_interrupted_calls: InterruptedCallSettler | None = None,
     ):
         self.queue = queue or get_generation_queue()
-        # 认领期与执行期共用的 provider 投影：限流按它的结果路由到对应容量桶。
+        # 按项目现状推算 provider：只用于没有记录的存量任务、provider 固定的文本与渲染通道，以及重启自愈。
         self._provider_projection = provider_projection
         self._executor = executor
         self._lanes = lanes
@@ -646,10 +647,10 @@ class GenerationWorker:
         """Claim tasks from queue and route to per-provider slots.
 
         池满过滤在 SQL 层按 ``pool_full_providers`` 黑名单完成，池满任务始终保持 ``queued``。
-        视频任务的槽位归属只看排队时记录的 provider，认领时不按项目现状推算，视频池满时
-        一个认领周期的开销因此与排队任务数无关。排队期间项目改了供应商，由执行入口核对出
-        漂移、改写记录并原位回队，新供应商在下一次认领时才占槽。没有记录的存量视频任务
-        在认领时推算一次并写回。其它媒体类型认领后仍按现状推算 provider 再校验容量。
+        槽位归属只看排队时记录的 provider，认领时不按项目现状推算，池满时一个认领周期的开销
+        因此与排队任务数无关。排队期间项目改了供应商，由执行入口核对出漂移、改写记录并原位
+        回队，新供应商在下一次认领时才占槽。没有记录的存量任务在认领时推算一次并写回。
+        文本与渲染通道的 provider 固定，照常推算。
         """
         claimed_any = False
 
@@ -661,10 +662,7 @@ class GenerationWorker:
                 if not task:
                     break
 
-                if media_type == "video":
-                    provider_id, recorded = await self._video_slot_provider(task)
-                else:
-                    provider_id, recorded = await self._provider_projection(task), False
+                provider_id, recorded = await self._slot_provider(task, media_type)
                 cap = self._capacity.get(provider_id, media_type)
 
                 if cap <= 0:
@@ -687,8 +685,8 @@ class GenerationWorker:
                     continue
 
                 if not self._slots.has_room(provider_id, media_type, cap):
-                    # 认领后推算出的 provider 躲过了 SQL 过滤（NULL 存量任务，或非视频任务的
-                    # 记录与现状不一致）且池满 → 回队等下个 cycle（FIFO 顺序由 queued_at 维持）。
+                    # 认领后推算出的 provider 躲过了 SQL 过滤（NULL 存量任务等）且池满
+                    # → 回队等下个 cycle（FIFO 顺序由 queued_at 维持）。
                     # 绝不能 mark_failed：NULL 不等于"无效任务"，这条路径必须保持可重试。
                     logger.info(
                         "供应商 %s 的 %s 池满，task %s 回队等待下一 cycle",
@@ -701,23 +699,19 @@ class GenerationWorker:
                     if not recorded:
                         recorded = await self._record_provider(task["task_id"], provider_id)
                     await self._requeue_single_task(task["task_id"])
-                    if media_type == "video" and recorded:
+                    if recorded:
                         # 记录已指向池满 provider，下一轮 SQL 排除它，继续找其它 provider 的可运行任务。
                         continue
                     break
 
                 # Dispatch：登记占用（INFLIGHT），bucket 由 register 自动创建
                 claimed_any = True
-                if task.get("task_type") in ("video", "reference_video"):
-                    process_task = self._process_task(task, claimed_provider_id=provider_id)
-                else:
-                    process_task = self._process_task(task)
                 self._slots.register(
                     provider_id,
                     media_type,
                     task["task_id"],
                     asyncio.create_task(
-                        process_task,
+                        self._process_task(task, claimed_provider_id=provider_id),
                         name=f"generation-{media_type}-{task['task_id']}",
                     ),
                 )
@@ -726,14 +720,17 @@ class GenerationWorker:
 
         return claimed_any
 
-    async def _video_slot_provider(self, task: dict[str, Any]) -> tuple[str, bool]:
-        """视频任务的槽位归属：返回 ``(provider_id, 任务行是否已记录该 provider)``。
+    async def _slot_provider(self, task: dict[str, Any], media_type: str) -> tuple[str, bool]:
+        """任务的槽位归属：返回 ``(provider_id, 任务行是否已记录该 provider)``。
 
-        有记录且该 provider 支持视频时直接用记录。没有记录的存量任务，或记录的 provider
-        已不支持视频时，按项目现状推算一次并写回，之后的认领不再推算。
+        有记录且该 provider 支持此媒体类型时直接用记录。没有记录的存量任务，或记录的 provider
+        已不支持此媒体类型时，按项目现状推算一次并写回，之后的认领不再推算。文本与渲染通道的
+        provider 固定，照常推算，不写回。
         """
+        if media_type in ("text", RENDER_MEDIA_TYPE):
+            return await self._provider_projection(task), False
         recorded = task.get("provider_id")
-        if isinstance(recorded, str) and recorded and self._capacity.get(recorded, "video") > 0:
+        if isinstance(recorded, str) and recorded and self._capacity.get(recorded, media_type) > 0:
             return recorded, True
         provider_id = await self._provider_projection(task)
         return provider_id, await self._record_provider(task["task_id"], provider_id)
@@ -788,8 +785,8 @@ class GenerationWorker:
             # 不 await 就没有挂起点，自然不会误吞针对 _run_loop 自身的取消信号。
             if finished_task.cancelled():
                 # 子任务被进程级原因打断。正常路径 _process_task 已落终态并 re-raise；
-                # 但打断可能落在 _process_task 进入 try 之前（协程尚未开始执行，或仍停在
-                # 入口的 provider 投影 await），那一刻子任务来不及落终态。drain 端兜底——
+                # 但打断可能落在 _process_task 进入 try 之前（协程尚未开始执行），那一刻
+                # 子任务来不及落终态。drain 端兜底——
                 # SQL 守卫只放行 queued / running，已落终态则 0 rows 无副作用，避免任务
                 # 永久停在 running 被重启自愈反复拉起。
                 try:
@@ -812,7 +809,7 @@ class GenerationWorker:
         await asyncio.gather(*active_tasks, return_exceptions=True)
         self._slots.clear()
 
-    async def _process_task(self, task: dict[str, Any], *, claimed_provider_id: str | None = None) -> None:
+    async def _process_task(self, task: dict[str, Any], *, claimed_provider_id: str) -> None:
         """Run a generation task to a terminal state.
 
         执行中的任务不可取消，执行结果照常落终态。协程只会被进程级原因（事件循环拆除、
@@ -828,11 +825,11 @@ class GenerationWorker:
             await self._run_claimed_task(task, claim, claimed_provider_id=claimed_provider_id)
 
     async def _run_claimed_task(
-        self, task: dict[str, Any], claim: TaskProjectClaim, *, claimed_provider_id: str | None
+        self, task: dict[str, Any], claim: TaskProjectClaim, *, claimed_provider_id: str
     ) -> None:
         task_id = task["task_id"]
         task_type = task.get("task_type", "unknown")
-        provider_id = claimed_provider_id or await self._provider_projection(task)
+        provider_id = claimed_provider_id
         logger.info("开始处理任务 %s (type=%s, provider=%s)", task_id, task_type, provider_id)
 
         try:
@@ -848,7 +845,7 @@ class GenerationWorker:
             if claim.revoked:
                 await fail_task_of_deleted_project(self.queue, task)
                 return
-            # 视频任务在执行入口重新读取当前状态；若 provider 已从认领时的槽漂移，
+            # 执行入口按项目现状解析 provider；若已从认领时的槽漂移，
             # 不得占着旧槽提交到新 provider。刷新 advisory 列并回队，让下一 cycle 在新槽
             # 完成容量校验后再执行。此处尚未调用 provider，不会造成重复扣费。
             try:

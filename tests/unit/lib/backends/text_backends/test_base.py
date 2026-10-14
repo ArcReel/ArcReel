@@ -15,7 +15,13 @@ from lib.backends.text_backends.base import (
     TextGenerationResult,
     TextTaskTier,
     TextTaskType,
+    model_facing_response_model,
     resolve_schema,
+)
+from tests.unit.lib.backends.text_backends.response_schema_support import (
+    class_docstring_texts,
+    response_schema_models,
+    response_schema_params,
 )
 
 
@@ -102,6 +108,30 @@ class TestTextGenerationResult:
         assert result.output_tokens == 50
 
 
+def _field_descriptions(raw: dict) -> set[str]:
+    """Pydantic 默认 schema 中字段级的 ``description``。"""
+    nodes = [raw, *raw.get("$defs", {}).values()]
+    return {
+        prop["description"]
+        for node in nodes
+        for prop in node.get("properties", {}).values()
+        if isinstance(prop, dict) and "description" in prop
+    }
+
+
+def _description_values(node: object) -> list[str]:
+    found: list[str] = []
+    if isinstance(node, dict):
+        for k, v in node.items():
+            if k == "description" and isinstance(v, str):
+                found.append(v)
+            found.extend(_description_values(v))
+    elif isinstance(node, list):
+        for item in node:
+            found.extend(_description_values(item))
+    return found
+
+
 class TestResolveSchema:
     def test_dict_without_refs_unchanged(self):
         schema = {"type": "object", "properties": {"name": {"type": "string"}}}
@@ -158,6 +188,90 @@ class TestResolveSchema:
         result = resolve_schema(schema)
         assert result["properties"]["child"]["description"] == "A child"
         assert result["properties"]["child"]["type"] == "object"
+
+    def test_pydantic_class_drops_class_docstrings_keeps_field_descriptions(self):
+        from enum import Enum
+
+        from pydantic import ConfigDict, Field
+
+        class Tone(Enum):
+            """枚举实现说明"""
+
+            CALM = "calm"
+
+        class Inner(BaseModel):
+            """构图信息"""
+
+            x: int = Field(description="横坐标")
+
+        class Explicit(BaseModel):
+            """实现说明"""
+
+            model_config = ConfigDict(json_schema_extra={"description": "显式给模型的说明"})
+
+        class Outer(BaseModel):
+            """顶层实现说明：ADR 编号、迁移口径"""
+
+            # 字段说明与被引用模型的 docstring 同文：Pydantic 默认只留在定义上，剥除定义说明后仍须保留在字段上
+            inner: Inner = Field(description="构图信息")
+            bare: Inner
+            tone: Tone
+            explicit: Explicit
+
+        result = resolve_schema(Outer)
+        assert "description" not in result
+        props = result["properties"]
+        assert props["inner"]["description"] == "构图信息"
+        assert props["inner"]["properties"]["x"]["description"] == "横坐标"
+        assert "description" not in props["bare"]
+        assert "description" not in props["tone"]
+        assert props["explicit"]["description"] == "显式给模型的说明"
+
+    def test_response_schema_models_carry_docstrings_and_field_descriptions_by_default(self):
+        """前提自检：默认 schema 确实带类 docstring 说明与字段说明，否则下面的参数化断言形同虚设。"""
+        models = response_schema_models()
+        assert any(class_docstring_texts(model) for model in models)
+        assert any(_field_descriptions(model.model_json_schema()) for model in models)
+
+    @pytest.mark.parametrize("model", response_schema_params())
+    def test_response_schema_models_drop_class_docstrings_keep_field_descriptions(self, model: type[BaseModel]):
+        """类 docstring 是写给维护者的实现说明，字段 description 才是给模型的说明。"""
+        raw = model.model_json_schema()
+        field_descriptions = _field_descriptions(raw)
+        resolved = resolve_schema(model)
+        descriptions = _description_values(resolved)
+
+        # 顶层与内联后的嵌套模型都不带类 docstring 说明
+        assert "description" not in resolved
+        assert class_docstring_texts(model).isdisjoint(descriptions)
+        assert field_descriptions <= set(descriptions)
+
+
+class TestModelFacingResponseModel:
+    def test_schema_drops_class_docstrings_validation_and_dump_unchanged(self):
+        from pydantic import Field
+
+        class Inner(BaseModel):
+            """嵌套实现说明"""
+
+            x: int = Field(description="横坐标")
+
+        class Outer(BaseModel):
+            """顶层实现说明"""
+
+            inner: Inner
+
+        facing = model_facing_response_model(Outer)
+        schema = facing.model_json_schema()
+
+        assert facing.__name__ == "Outer"
+        assert facing.__doc__ is None
+        assert "description" not in schema
+        assert "description" not in schema["$defs"]["Inner"]
+        assert schema["$defs"]["Inner"]["properties"]["x"]["description"] == "横坐标"
+        parsed = facing.model_validate_json('{"inner": {"x": 1}}')
+        assert isinstance(parsed, Outer)
+        assert parsed.model_dump_json() == Outer(inner=Inner(x=1)).model_dump_json()
 
 
 class TestTextBackendProtocol:

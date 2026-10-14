@@ -18,7 +18,7 @@ from server.media_tools import videos as enqueue_videos_mod
 from server.media_tools.context import generation_is_error
 from server.tool_runtime import ToolOutcome
 from tests.factories import make_video_request_facts
-from tests.fakes import fake_reference_request_facts
+from tests.fakes import fake_reference_request_facts, write_backend_output
 from tests.integration.server.agent_tool_support import (
     _CLAIMED_BASIS_DIGEST,
     ToolHarness,
@@ -1536,9 +1536,8 @@ def _successful_reference_batch(ctx: ToolHarness, enqueued: list[Any]):
         successes: list[BatchTaskResult] = []
         for spec in specs:
             enqueued.append(spec)
-            output = ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4"
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_bytes(b"\x00")
+            # 产物由生成 worker 在别处落盘，不占工具所在的事件循环。
+            await write_backend_output(ctx.project_path / "reference_videos" / f"{spec.resource_id}.mp4", b"\x00")
             result = BatchTaskResult(
                 resource_id=spec.resource_id,
                 task_id="t1",
