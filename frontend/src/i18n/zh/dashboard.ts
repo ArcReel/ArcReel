@@ -1389,6 +1389,7 @@ export default {
   'endpoint_openai_images_display': 'OpenAI 图片',
   'endpoint_openai_images_generations_display': 'OpenAI 图片（仅文生图）',
   'endpoint_openai_images_edits_display': 'OpenAI 图片（仅图生图）',
+  'endpoint_openai_chat_image_display': 'OpenAI Chat 出图',
   'endpoint_gemini_image_display': 'Gemini 图片',
   'endpoint_openai_video_display': 'OpenAI 视频 (Sora)',
   'endpoint_ark_seedance_display': '火山方舟 (Seedance)',

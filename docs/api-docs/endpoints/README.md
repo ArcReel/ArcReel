@@ -16,6 +16,7 @@
 - [minimax-s2v-01](minimax-s2v-01.md)
 - [newapi-video](newapi-video.md)
 - [openai-chat](openai-chat.md)
+- [openai-chat-image](openai-chat-image.md)
 - [openai-images](openai-images.md)
 - [openai-images-edits](openai-images-edits.md)
 - [openai-images-generations](openai-images-generations.md)

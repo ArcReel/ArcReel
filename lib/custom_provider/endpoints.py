@@ -28,6 +28,7 @@ from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
+from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.video_backends.ark import ArkVideoBackend
@@ -256,6 +257,17 @@ def _build_openai_images_edits(provider, model_id: str) -> CustomImageBackend:
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_openai_chat_image(provider, model_id: str) -> CustomImageBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    delegate = OpenAIChatImageBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        provider_name=provider.provider_id,
+    )
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 def _build_gemini_image(provider, model_id: str) -> CustomImageBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiImageBackend(api_key=provider.api_key, base_url=base_url, image_model=model_id)
@@ -393,6 +405,17 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/edits",
         image_capabilities=frozenset({ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images_edits,
+    ),
+    "openai-chat-image": EndpointSpec(
+        key="openai-chat-image",
+        media_type="image",
+        family="openai",
+        display_name_key="endpoint_openai_chat_image_display",
+        request_method="POST",
+        # 与文本的 openai-chat 同一个 API，按媒体类型分键；不参与 infer_endpoint 自动推断
+        request_path_template="/v1/chat/completions",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_openai_chat_image,
     ),
     "gemini-image": EndpointSpec(
         key="gemini-image",

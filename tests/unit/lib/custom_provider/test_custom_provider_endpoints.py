@@ -24,6 +24,7 @@ class TestRegistry:
             "openai-images",
             "openai-images-generations",
             "openai-images-edits",
+            "openai-chat-image",
             "gemini-image",
             "openai-video",
             "newapi-video",
@@ -235,6 +236,7 @@ class TestRegistry:
             "openai-images",
             "openai-images-generations",
             "openai-images-edits",
+            "openai-chat-image",
             "gemini-image",
             "dashscope-image",
             "minimax-image",
@@ -490,6 +492,15 @@ class TestInferEndpoint:
         """v2-video-generations 命名碎片化无法可靠识别，永不自动推断，留用户手选。"""
         assert infer_endpoint(model_id, discovery_format) != "v2-video-generations"
 
+    @pytest.mark.parametrize(
+        "model_id",
+        ["gemini-2.5-flash-image", "google/gemini-3-pro-image-preview", "gpt-5-image", "gpt-4o"],
+    )
+    @pytest.mark.parametrize("discovery_format", ["openai", "google"])
+    def test_chat_image_never_auto_inferred(self, model_id, discovery_format):
+        """出图模型名与 openai-chat / openai-images 的模型名无从区分，不自动推断，由用户在获取或编辑模型时选择。"""
+        assert infer_endpoint(model_id, discovery_format) != "openai-chat-image"
+
 
 def test_image_endpoint_registry_entries():
     from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
@@ -499,6 +510,7 @@ def test_image_endpoint_registry_entries():
         "openai-images",
         "openai-images-generations",
         "openai-images-edits",
+        "openai-chat-image",
         "gemini-image",
         "dashscope-image",
         "minimax-image",

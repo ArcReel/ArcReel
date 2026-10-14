@@ -370,6 +370,12 @@ class TestBucketJudgement:
     def test_text_endpoint_yields_no_buckets(self):
         assert custom_model_buckets(endpoint="openai-chat", model_id="gpt-4o") == frozenset()
 
+    def test_chat_image_endpoint_declares_both_image_buckets(self):
+        """openai-chat-image 与 openai-chat 打同一个 API，但按图片端点入桶：文生图、图生图都可选。"""
+        assert custom_model_buckets(endpoint="openai-chat-image", model_id="gemini-3-pro-image") == frozenset(
+            {"t2i", "i2i"}
+        )
+
     def test_a_comfyui_model_row_takes_its_buckets_from_the_node_bindings(self):
         """ComfyUI 模型行的桶归属只看绑定表：首帧格子进 i2v，参考图格子进 r2v。"""
         from lib.custom_provider.endpoints import comfyui_endpoint_spec
