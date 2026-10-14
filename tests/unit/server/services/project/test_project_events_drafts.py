@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from lib.project.project_manager import ProjectManager
-from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, quarantine_path
+from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, quarantine_filename
 from server.services.project.project_events import project_input_stamp, read_project_state
 
-_DRAFT_FILENAME = quarantine_path(Path("."), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN).name
+_DRAFT_FILENAME = quarantine_filename(QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
 
 
 def _make_pm(tmp_path) -> ProjectManager:

@@ -25,7 +25,7 @@ from lib.project.project_change_hints import (
     register_project_change_listener,
 )
 from lib.project.project_manager import ProjectManager
-from lib.script.draft_quarantine import DOC_TYPE_TO_QUARANTINE_KIND, quarantine_path
+from lib.script.draft_quarantine import DOC_TYPE_TO_QUARANTINE_KIND, quarantine_filename
 from server.services.project.project_state_projection import (
     ProjectSnapshot,
     ProjectState,
@@ -69,7 +69,7 @@ def _draft_paths(project_path: Path) -> list[tuple[str, Path]]:
             continue
         episode = int(suffix)
         paths.extend(
-            (draft_state_key(episode, kind), episode_dir / quarantine_path(project_path, episode, kind).name)
+            (draft_state_key(episode, kind), episode_dir / quarantine_filename(kind))
             for kind in DOC_TYPE_TO_QUARANTINE_KIND.values()
         )
     return paths
