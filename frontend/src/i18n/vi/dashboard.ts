@@ -1248,6 +1248,7 @@ export default {
   'cp_request_poll': 'Kiểm tra tiến độ',
   'cp_request_result': 'Lấy kết quả',
   'cp_request_generate': 'Tạo',
+  'cp_request_edit': 'Chỉnh sửa',
   'cp_request_submit_text2video': 'Gửi tác vụ (văn bản thành video)',
   'cp_request_submit_img2video': 'Gửi tác vụ (ảnh thành video)',
   'cp_request_submit_start_end2video': 'Gửi tác vụ (khung đầu và cuối)',

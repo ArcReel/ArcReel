@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import ExitStack
 from pathlib import Path
 from typing import ClassVar, Literal
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
+from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -145,49 +145,42 @@ class OpenAIImageBackend:
             logger.warning("参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
             refs = refs[:_MAX_REFERENCE_IMAGES]
 
-        def _open_refs() -> tuple[ExitStack, list]:
-            """在 ExitStack 内打开所有参考图，保证部分 open 失败时已打开句柄被释放。"""
-            stack = ExitStack()
-            try:
-                files = []
-                for ref in refs:
-                    ref_path = Path(ref.path)
-                    try:
-                        files.append(stack.enter_context(open(ref_path, "rb")))  # noqa: SIM115 -- 句柄由 ExitStack 托管，再经 pop_all() 移交调用方
-                    except FileNotFoundError:
-                        logger.warning("参考图不存在，跳过: %s", ref_path)
-                # 把已打开的句柄所有权移交给调用者
-                return stack.pop_all(), files
-            except BaseException:
-                stack.close()
-                raise
+        def _read_refs() -> list[tuple[str, bytes, str]]:
+            """在线程里读出参考图：交给 SDK 的若是文件句柄，multipart 会在事件循环上读文件。"""
+            files = []
+            for ref in refs:
+                ref_path = Path(ref.path)
+                try:
+                    data = ref_path.read_bytes()
+                except FileNotFoundError:
+                    logger.warning("参考图不存在，跳过: %s", ref_path)
+                    continue
+                files.append((ref_path.name, data, IMAGE_MIME_TYPES.get(ref_path.suffix.lower(), "image/png")))
+            return files
 
-        stack, image_files = await asyncio.to_thread(_open_refs)
-        try:
-            if not image_files:
-                # 旧版会回退到 T2I；新语义下若所有 ref 图都打不开，抛错而非降级
-                # （等价于用户提交了 i2i 请求但没有有效素材，应该是错误而非默默 fallback）
-                raise ImageCapabilityError(
-                    "image_endpoint_mismatch_no_i2i",
-                    model=self._model,
-                    detail="all reference images failed to open",
-                )
-            # I2I 与 T2I 对称下传 size/quality——否则 images.edit 不带 size，比例由上游默认决定，
-            # 项目 aspect_ratio 静默失效（用户实测正是 I2I 路径出图比例错）。
-            edit_kwargs: dict = {
-                "model": self._model,
-                "image": image_files,
-                "prompt": request.prompt,
-            }
-            edit_kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
-            logger.info(
-                "调用 %s 图片 SDK (I2I) kwargs=%s",
-                self.name,
-                format_kwargs_for_log({**edit_kwargs, "image": f"<{len(image_files)} files>"}),
+        image_files = await asyncio.to_thread(_read_refs)
+        if not image_files:
+            # 旧版会回退到 T2I；新语义下若所有 ref 图都打不开，抛错而非降级
+            # （等价于用户提交了 i2i 请求但没有有效素材，应该是错误而非默默 fallback）
+            raise ImageCapabilityError(
+                "image_endpoint_mismatch_no_i2i",
+                model=self._model,
+                detail="all reference images failed to open",
             )
-            response = await self._client.images.edit(**edit_kwargs)
-        finally:
-            stack.close()
+        # I2I 与 T2I 对称下传 size/quality——否则 images.edit 不带 size，比例由上游默认决定，
+        # 项目 aspect_ratio 静默失效（用户实测正是 I2I 路径出图比例错）。
+        edit_kwargs: dict = {
+            "model": self._model,
+            "image": image_files,
+            "prompt": request.prompt,
+        }
+        edit_kwargs.update(_resolve_openai_params(request.image_size, request.aspect_ratio))
+        logger.info(
+            "调用 %s 图片 SDK (I2I) kwargs=%s",
+            self.name,
+            format_kwargs_for_log({**edit_kwargs, "image": f"<{len(image_files)} files>"}),
+        )
+        response = await self._client.images.edit(**edit_kwargs)
         return await self._save_and_return(response, request)
 
     async def _save_and_return(self, response, request: ImageGenerationRequest) -> ImageGenerationResult:

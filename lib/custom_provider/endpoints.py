@@ -256,19 +256,31 @@ class EndpointSpec:
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
 
 
-def _build_openai_chat(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
-) -> CustomTextBackend:
+def _build_openai_chat(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomTextBackend:
     base_url = ensure_openai_base_url(provider.base_url)
-    delegate = OpenAITextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = OpenAITextBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _OPENAI_CHAT_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_openai_responses(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomTextBackend:
     base_url = ensure_openai_base_url(provider.base_url)
-    delegate = OpenAIResponsesTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = OpenAIResponsesTextBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _OPENAI_RESPONSES_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -286,24 +298,38 @@ def _build_gemini_generate(
 
 
 def _build_anthropic_messages(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomTextBackend:
     # SDK 自己在 base_url 后拼 /v1/messages，这里只剥掉用户整条复制进来的端点后缀，不补也不剥 /vN
     base_url = normalize_anthropic_base_url(provider.base_url or "") or None
-    delegate = AnthropicTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = AnthropicTextBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _ANTHROPIC_MESSAGES_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_openai_images(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
-    delegate = OpenAIImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = OpenAIImageBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            (_OPENAI_IMAGES_GENERATE, _OPENAI_IMAGES_EDIT), path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_openai_images_generations(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIImageBackend(
@@ -311,12 +337,15 @@ def _build_openai_images_generations(
         base_url=base_url,
         model=model_id,
         mode="generations_only",
+        transport_layer=path_override_layer(
+            (_OPENAI_IMAGES_GENERATE,), path_overrides, provider.base_url, base_url, model_id
+        ),
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_openai_images_edits(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIImageBackend(
@@ -324,12 +353,15 @@ def _build_openai_images_edits(
         base_url=base_url,
         model=model_id,
         mode="edits_only",
+        transport_layer=path_override_layer(
+            (_OPENAI_IMAGES_EDIT,), path_overrides, provider.base_url, base_url, model_id
+        ),
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_openai_chat_image(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIChatImageBackend(
@@ -337,6 +369,9 @@ def _build_openai_chat_image(
         base_url=base_url,
         model=model_id,
         provider_name=provider.provider_id,
+        transport_layer=path_override_layer(
+            _OPENAI_CHAT_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
@@ -354,9 +389,7 @@ def _build_gemini_image(
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_tts(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
-) -> CustomAudioBackend:
+def _build_openai_tts(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomAudioBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     # provider_name 让 delegate 日志与 AudioSynthesisResult.provider 归因到真实 provider，
     # 与包装层 .name 的记账身份一致，而非内置 openai。
@@ -365,6 +398,9 @@ def _build_openai_tts(
         base_url=base_url,
         model=model_id,
         provider_name=provider.provider_id,
+        transport_layer=path_override_layer(
+            _OPENAI_TTS_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
     )
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
@@ -419,10 +455,17 @@ def _build_gemini_tts(provider, model_id: str, path_overrides: PathOverrides = N
 
 
 def _build_openai_video(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomVideoBackend:
     base_url = ensure_openai_base_url(provider.base_url)
-    delegate = OpenAIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = OpenAIVideoBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _OPENAI_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -514,6 +557,25 @@ def _google_path_layer(
     return path_override_layer(
         requests, path_overrides, base_url, ensure_google_base_url(base_url), model_id, placeholder="[^:]+"
     )
+
+
+# OpenAI SDK 一侧：默认路径相对 ensure_openai_base_url 补过 /v1 的 base_url
+_OPENAI_CHAT_REQUESTS = _python_requests("append_v1", ("generate", "cp_request_generate", "/chat/completions"))
+_OPENAI_RESPONSES_REQUESTS = _python_requests("append_v1", ("generate", "cp_request_generate", "/responses"))
+_OPENAI_IMAGES_GENERATE, _OPENAI_IMAGES_EDIT = _python_requests(
+    "append_v1",
+    ("generate", "cp_request_generate", "/images/generations"),
+    ("edit", "cp_request_edit", "/images/edits"),
+)
+_OPENAI_TTS_REQUESTS = _python_requests("append_v1", ("generate", "cp_request_generate", "/audio/speech"))
+_OPENAI_VIDEO_REQUESTS = _python_requests(
+    "append_v1",
+    ("submit", "cp_request_submit", "/videos"),
+    ("poll", "cp_request_poll", "/videos/{{ task_id }}"),
+    ("download", "cp_request_download", "/videos/{{ task_id }}/content"),
+)
+# anthropic SDK 自己在 base_url 后拼 /v1/messages，base_url 只去尾斜杠（和整条复制进来的 /v1/messages）
+_ANTHROPIC_MESSAGES_REQUESTS = _python_requests("as_is", ("generate", "cp_request_generate", ANTHROPIC_MESSAGES_PATH))
 
 
 def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
@@ -645,6 +707,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/chat/completions",
         build_backend=_build_openai_chat,
+        requests=_OPENAI_CHAT_REQUESTS,
     ),
     "openai-responses": EndpointSpec(
         key="openai-responses",
@@ -654,6 +717,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/responses",
         build_backend=_build_openai_responses,
+        requests=_OPENAI_RESPONSES_REQUESTS,
     ),
     "gemini-generate": EndpointSpec(
         key="gemini-generate",
@@ -673,6 +737,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template=ANTHROPIC_MESSAGES_PATH,
         build_backend=_build_anthropic_messages,
+        requests=_ANTHROPIC_MESSAGES_REQUESTS,
     ),
     "openai-images": EndpointSpec(
         key="openai-images",
@@ -684,6 +749,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/{generations,edits}",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images,
+        requests=(_OPENAI_IMAGES_GENERATE, _OPENAI_IMAGES_EDIT),
     ),
     "openai-images-generations": EndpointSpec(
         key="openai-images-generations",
@@ -694,6 +760,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/generations",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE}),
         build_backend=_build_openai_images_generations,
+        requests=(_OPENAI_IMAGES_GENERATE,),
     ),
     "openai-images-edits": EndpointSpec(
         key="openai-images-edits",
@@ -704,6 +771,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/edits",
         image_capabilities=frozenset({ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images_edits,
+        requests=(_OPENAI_IMAGES_EDIT,),
     ),
     "openai-chat-image": EndpointSpec(
         key="openai-chat-image",
@@ -715,6 +783,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/chat/completions",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_chat_image,
+        requests=_OPENAI_CHAT_REQUESTS,
     ),
     "gemini-image": EndpointSpec(
         key="gemini-image",
@@ -735,6 +804,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/videos",
         build_backend=_build_openai_video,
+        requests=_OPENAI_VIDEO_REQUESTS,
         # OpenAI Sora input_reference 为单张首帧图。
         video_max_reference_images=1,
     ),
@@ -783,6 +853,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/audio/speech",
         build_backend=_build_openai_tts,
+        requests=_OPENAI_TTS_REQUESTS,
     ),
     "dashscope-tts": EndpointSpec(
         key="dashscope-tts",

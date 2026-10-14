@@ -109,7 +109,15 @@ class TestRegistry:
             "duration_frame_rate_missing": False,
             "duration_tier_empty": False,
             "native_resolution": None,
-            "requests": (),
+            "requests": (
+                {
+                    "name": "generate",
+                    "display_name_key": "cp_request_generate",
+                    "default_path": "/chat/completions",
+                    "placeholders": ("model",),
+                    "base_url_rule": "append_v1",
+                },
+            ),
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
@@ -371,9 +379,6 @@ class TestDeclarativeRequests:
         definition["poll"] = {**definition["poll"], "url": "https://status.test/videos/{{ task_id }}"}
 
         assert [r.name for r in declarative_requests(definition)] == ["submit"]
-
-    def test_python_endpoint_without_declarations_exposes_no_requests(self):
-        assert get_endpoint_spec("openai-chat").requests == ()
 
 
 class TestInferEndpoint:

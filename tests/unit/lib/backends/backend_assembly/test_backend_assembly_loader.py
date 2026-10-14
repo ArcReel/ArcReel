@@ -280,7 +280,9 @@ class TestAssembleCustomEndToEnd:
         resolver = ConfigResolver(db_factory)
         result = await assemble_backend(provider_id=pid, media_type="image", model_id="dall-e-3", resolver=resolver)
         assert isinstance(result, CustomImageBackend)
-        mock_cls.assert_called_once_with(api_key="sk-relay", base_url="https://relay.test/v1", model="dall-e-3")
+        mock_cls.assert_called_once_with(
+            api_key="sk-relay", base_url="https://relay.test/v1", model="dall-e-3", transport_layer=None
+        )
 
     @patch("lib.custom_provider.endpoints.OpenAITextBackend")
     async def test_custom_text_provider_delegates_to_loader(self, mock_cls, db_factory):

@@ -1258,6 +1258,7 @@ export default {
   'cp_request_poll': 'Check progress',
   'cp_request_result': 'Fetch result',
   'cp_request_generate': 'Generate',
+  'cp_request_edit': 'Edit',
   'cp_request_submit_text2video': 'Submit task (text to video)',
   'cp_request_submit_img2video': 'Submit task (image to video)',
   'cp_request_submit_start_end2video': 'Submit task (start and end frames)',

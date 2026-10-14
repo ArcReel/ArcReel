@@ -1257,6 +1257,7 @@ export default {
   'cp_request_poll': '查询进度',
   'cp_request_result': '获取结果',
   'cp_request_generate': '生成',
+  'cp_request_edit': '编辑',
   'cp_request_submit_text2video': '提交任务（文生视频）',
   'cp_request_submit_img2video': '提交任务（图生视频）',
   'cp_request_submit_start_end2video': '提交任务（首尾帧生视频）',

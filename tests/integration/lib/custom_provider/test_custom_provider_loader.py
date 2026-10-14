@@ -43,7 +43,9 @@ class TestLoadCustomBackend:
         result = await load_custom_backend(session=db_session, provider_id=pid, model_id="dall-e-3", media_type="image")
         assert isinstance(result, CustomImageBackend)
         assert result.model == "dall-e-3"
-        mock_cls.assert_called_once_with(api_key="sk-relay", base_url="https://relay.test/v1", model="dall-e-3")
+        mock_cls.assert_called_once_with(
+            api_key="sk-relay", base_url="https://relay.test/v1", model="dall-e-3", transport_layer=None
+        )
 
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     async def test_falls_back_to_default_when_model_disabled(self, mock_cls, db_session):
