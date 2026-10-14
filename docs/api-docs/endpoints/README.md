@@ -10,6 +10,7 @@
 - [gemini-generate](gemini-generate.md)
 - [gemini-image](gemini-image.md)
 - [gemini-video](gemini-video.md)
+- [gemini-tts](gemini-tts.md)
 - [kling-image](kling-image.md)
 - [kling-video](kling-video.md)
 - [minimax-h3](minimax-h3.md)

@@ -22,8 +22,10 @@ __all__ = [
 
 # Backend auto-registration
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
-from lib.backends.providers import PROVIDER_DASHSCOPE, PROVIDER_MINIMAX
+from lib.backends.providers import PROVIDER_DASHSCOPE, PROVIDER_GEMINI, PROVIDER_MINIMAX
 
 register_backend(PROVIDER_DASHSCOPE, DashScopeAudioBackend)
 register_backend(PROVIDER_MINIMAX, MiniMaxAudioBackend)
+register_backend(PROVIDER_GEMINI, GeminiAudioBackend)

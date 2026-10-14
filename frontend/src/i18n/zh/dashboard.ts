@@ -1405,6 +1405,7 @@ export default {
   'endpoint_minimax_tts_display': 'MiniMax（语音）',
   'endpoint_openai_tts_display': 'OpenAI 语音合成 (TTS)',
   'endpoint_dashscope_tts_display': '阿里百炼（语音合成）',
+  'endpoint_gemini_tts_display': 'Gemini 语音合成 (TTS)',
   'endpoint_catalog_loading': '加载端点目录…',
   // Image Capability
   'image_capability_t2i': '文生图',

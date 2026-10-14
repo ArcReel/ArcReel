@@ -48,6 +48,7 @@ class TestRegistry:
             "openai-tts",
             "dashscope-tts",
             "minimax-tts",
+            "gemini-tts",
         }
 
     def test_each_spec_has_required_fields(self):
@@ -252,7 +253,7 @@ class TestRegistry:
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         audio_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "audio"}
-        assert audio_keys == {"openai-tts", "dashscope-tts", "minimax-tts"}
+        assert audio_keys == {"openai-tts", "dashscope-tts", "minimax-tts", "gemini-tts"}
         assert text_keys == {"openai-chat", "openai-responses", "gemini-generate", "anthropic-messages"}
         assert image_keys == {
             "openai-images",
@@ -346,6 +347,11 @@ INFER_RULE_CASES = [
     ("speech-02-turbo", "google", "minimax-tts"),
     ("minimax/Speech-2.6-HD", "openai", "minimax-tts"),
     ("speech-1.5", "openai", "openai-tts"),  # 无档位后缀（Fish Audio 风格）仍为 openai-tts
+    # ── #3203：Gemini TTS → gemini-tts，不分 discovery_format ──
+    ("gemini-3.8-flash-tts", "google", "gemini-tts"),
+    ("gemini-2.5-flash-preview-tts", "openai", "gemini-tts"),
+    ("models/gemini-3.8-flash-lite-tts", "google", "gemini-tts"),
+    ("gemini-3-flash-preview", "google", "gemini-generate"),  # 非 TTS 的 gemini 文本不受影响
     # ── #3202、#3203 的规则在此追加 ──
 ]
 

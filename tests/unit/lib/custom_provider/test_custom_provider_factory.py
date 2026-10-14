@@ -28,6 +28,7 @@ _ENDPOINT_BACKEND_CLASSES = (
     "DashScopeImageBackend",
     "DashScopeVideoBackend",
     "DeclarativeVideoBackend",
+    "GeminiAudioBackend",
     "GeminiImageBackend",
     "GeminiTextBackend",
     "KlingImageBackend",
@@ -117,6 +118,20 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://generativelanguage.googleapis.com/",
                 "image_model": "imagen-4",
+            },
+        }
+
+    def test_gemini_tts(self):
+        provider = _make_provider(base_url="https://generativelanguage.googleapis.com")
+        result, built = _built(provider, "gemini-3.8-flash-tts", "gemini-tts")
+        assert isinstance(result, CustomAudioBackend)
+        assert built == {
+            "backend": "GeminiAudioBackend",
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://generativelanguage.googleapis.com/",
+                "model": "gemini-3.8-flash-tts",
+                "provider_name": "custom-42",
             },
         }
 

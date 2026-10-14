@@ -22,6 +22,7 @@ from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 from arcreel_market_core.endpoint_definition.media_type import definition_media_type
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.image_backends.base import ImageCapability
@@ -327,6 +328,17 @@ def _build_minimax_tts(provider, model_id: str) -> CustomAudioBackend:
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_gemini_tts(provider, model_id: str) -> CustomAudioBackend:
+    base_url = ensure_google_base_url(provider.base_url) or None
+    delegate = GeminiAudioBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        provider_name=provider.provider_id,
+    )
+    return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
@@ -578,6 +590,15 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/t2a_v2",
         build_backend=_build_minimax_tts,
+    ),
+    "gemini-tts": EndpointSpec(
+        key="gemini-tts",
+        media_type="audio",
+        family="google",
+        display_name_key="endpoint_gemini_tts_display",
+        request_method="POST",
+        request_path_template="/v1beta/models/{model}:generateContent",
+        build_backend=_build_gemini_tts,
     ),
     "dashscope-async-video": EndpointSpec(
         key="dashscope-async-video",
@@ -1027,7 +1048,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        语义但本质是视频）；其余含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
        _VIDEO_PATTERN，须先于通用 is_video 拦截，否则视频会落到 openai-video；v3-omni 图像/视频同名
        默认归视频、图像手动选。
-    3) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
+    3) gemini 原生模型（非 video）→ TTS 走 "gemini-tts"，image 形态走 "gemini-image"，否则文本走
+       "gemini-generate"（不分 discovery_format）
     4) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、Veo 且 discovery_format=google→
        "gemini-video"、否则 "openai-video"
     5) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"（imagen 随图像家族
@@ -1128,6 +1150,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     is_video = bool(_VIDEO_PATTERN.search(model_id)) and not wan_image_variant
 
     if "gemini" in lowered and not is_video:
+        if "tts" in lowered:
+            return "gemini-tts"
         return "gemini-image" if is_image else "gemini-generate"
     if is_video:
         if "seedance" in lowered:

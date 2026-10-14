@@ -239,6 +239,34 @@ class TestGeminiSpec:
             "credentials_path": "/legacy/vertex.json",
         }
 
+    @pytest.mark.parametrize(
+        ("provider_id", "backend_type", "credentials", "extra"),
+        [
+            ("gemini-aistudio", "aistudio", {"api_key": "sk-aistudio", "base_url": "https://custom.example.com"}, {}),
+            (
+                "gemini-vertex",
+                "vertex",
+                {"credentials_path": "/legacy/vertex.json"},
+                {"credentials_path": "/legacy/vertex.json"},
+            ),
+        ],
+    )
+    def test_audio_both_modes_build_gemini_tts(self, provider_id, backend_type, credentials, extra):
+        config = LoadedConfig(
+            credentials=credentials, provider_meta=PROVIDER_REGISTRY.get(provider_id), rate_limiter=None
+        )
+        assert _built(get_provider_spec(provider_id, "audio"), config, "gemini-3.8-flash-tts") == {
+            "media": "audio",
+            "backend": "gemini",
+            "kwargs": {
+                "backend_type": backend_type,
+                "api_key": credentials.get("api_key"),
+                "base_url": credentials.get("base_url"),
+                "model": "gemini-3.8-flash-tts",
+                **extra,
+            },
+        }
+
     def test_bare_gemini_not_registered(self):
         # 裸 "gemini"（无 aistudio/vertex 后缀）是死路径：resolver 只产出带后缀 id。
         # fail-loud，不为死路径登记兜底行。
@@ -490,9 +518,14 @@ class TestRegistryShape:
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):
             get_provider_spec("ark", "audio")  # ark 无 audio backend，未登记
 
-    def test_audio_dashscope_and_minimax_registered(self):
+    def test_audio_registered(self):
         audio_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "audio"}
-        assert audio_keys == {("dashscope", "audio"), ("minimax", "audio")}
+        assert audio_keys == {
+            ("dashscope", "audio"),
+            ("minimax", "audio"),
+            ("gemini-aistudio", "audio"),
+            ("gemini-vertex", "audio"),
+        }
 
     def test_simple_family_image_video_complete(self):
         for provider in ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax"):

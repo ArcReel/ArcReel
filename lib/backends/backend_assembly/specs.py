@@ -3,7 +3,7 @@
 镜像自定义侧 ENDPOINT_REGISTRY（lib/custom_provider/endpoints.py）：每条 spec 是 frozen
 dataclass，挂一个 build 闭包；闭包读 LoadedConfig 信封 + model_id 拼 backend，不查 DB、不 await。
 登记简单族（媒体侧只需 api_key + model + base_url 的内置 provider）的 image/video/audio，
-共享一个 _build_simple 闭包；外加 gemini（backend_type 双模式，image/video 对等透传 base_url）与
+共享一个 _build_simple 闭包；外加 gemini（backend_type 双模式，image/video/audio 对等透传 base_url）与
 kling（JWT 双 secret + api_model_name 解耦）两个特例族，各自挂专属 build 闭包。文本（media_type=text）
 四条 media_type 同经本表：简单文本（ark/ark-agent-plan/grok/agnes，agnes 走 OpenAI 兼容
 chat/completions 但鉴权 / base_url 收口在专属 AgnesTextBackend，故归简单族而非 OpenAI-compat 别名）、gemini 文本（aistudio/vertex）、
@@ -167,7 +167,7 @@ def _build_minimax_declarative_video(config: LoadedConfig, model_id: str | None)
 # ── gemini 特例族 ──────────────────────────────────────────────────
 # gemini-aistudio / gemini-vertex 两个 provider_id 都映射到同一个 "gemini" media backend，
 # 差异只在 backend_type（aistudio | vertex）—— 由 spec 行声明（每个 provider_id 各一行），不在闭包内 if。
-# image/video 对等透传 base_url：aistudio 用用户配置的自定义 endpoint。api_key 与 base_url 无条件
+# image/video/audio 对等透传 base_url：aistudio 用用户配置的自定义 endpoint。api_key 与 base_url 无条件
 # 透传（含 None），由 backend 内 resolve_gemini_api_key / normalize_base_url 处理 None（None base_url 省略）；
 # vertex 分支走 vertexai=True + 服务账号凭证，结构性忽略 base_url（无注入点），透传的 None 被丢弃。
 
@@ -198,8 +198,22 @@ def _build_gemini_video(config: LoadedConfig, model_id: str | None, *, backend_t
     )
 
 
+def _build_gemini_audio(config: LoadedConfig, model_id: str | None, *, backend_type: str) -> Any:
+    return _media_create_backend("audio")(
+        _GEMINI_REGISTRY_BACKEND,
+        backend_type=backend_type,
+        api_key=config.credentials.get("api_key"),
+        base_url=config.credentials.get("base_url"),
+        model=model_id,
+        **({"credentials_path": config.credentials.get("credentials_path")} if backend_type == "vertex" else {}),
+    )
+
+
+_GEMINI_BUILDS = {"image": _build_gemini_image, "video": _build_gemini_video, "audio": _build_gemini_audio}
+
+
 def _gemini_spec(provider_id: str, media_type: str, *, backend_type: str) -> ProviderSpec:
-    build = _build_gemini_image if media_type == "image" else _build_gemini_video
+    build = _GEMINI_BUILDS[media_type]
     return ProviderSpec(
         provider_id=provider_id,
         media_type=media_type,
@@ -398,13 +412,13 @@ def _text_openai_compat_spec(
 # 共享 _build_simple 闭包。「简单族」按构造形态界定（不是 provider 名白名单），含 ark/ark-agent-plan/
 # grok/openai/vidu 与 dashscope/minimax（后两者媒体侧走原生简单构造；其文本侧 OpenAI-compat 形态见下方
 # 文本族）。ark-agent-plan 媒体侧复用 Ark image/video backend（registry 同名注册），与 ark 同为简单形态。
-# 特例族 = gemini（backend_type 双模式，image/video 对等透传 base_url）与 kling（JWT 双 secret +
+# 特例族 = gemini（backend_type 双模式，image/video/audio 对等透传 base_url）与 kling（JWT 双 secret +
 # api_model_name 解耦），各挂专属 build 闭包；gemini 的两个 provider_id 各按 backend_type 登记一行（裸
 # "gemini" 是死路径——resolver 只产出带后缀 id，按 fail-loud 不登记兜底行）。文本族（media_type=text）按
 # 构造形态分三类登记（简单文本 / gemini 文本 / OpenAI-compat 文本，见各闭包），其中 dashscope/minimax 文本
 # 映射到 "openai" registry backend，别名映射并入 spec.registry_backend 字段。每对显式登记一行，fail-loud
 # （未登记的 provider × media 抛 ValueError，不「缺席即默认」造静默错误 backend）。只登记今天确有注册 backend
-# 的对：image/video 简单族七家齐全，audio 仅 dashscope 与 minimax，text 八家（六 provider，gemini 两 id）。
+# 的对：image/video 简单族七家齐全，audio 为 dashscope、minimax 与 gemini 两个 id，text 八家（六 provider，gemini 两 id）。
 
 _SIMPLE_IMAGE_VIDEO_PROVIDERS = ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax")
 _SIMPLE_MEDIA_PAIRS: list[tuple[str, str]] = [
@@ -414,7 +428,7 @@ _SIMPLE_MEDIA_PAIRS: list[tuple[str, str]] = [
     ("minimax", "audio"),
 ]
 
-# gemini 两个 provider_id → backend_type，每个 × image/video 登记一行。
+# gemini 两个 provider_id → backend_type，每个 × image/video/audio 登记一行。
 _GEMINI_BACKEND_TYPES: dict[str, str] = {"gemini-aistudio": "aistudio", "gemini-vertex": "vertex"}
 
 PROVIDER_SPEC_REGISTRY: dict[tuple[str, str], ProviderSpec] = {
@@ -424,7 +438,7 @@ PROVIDER_SPEC_REGISTRY.update(
     {
         (provider_id, media_type): _gemini_spec(provider_id, media_type, backend_type=backend_type)
         for provider_id, backend_type in _GEMINI_BACKEND_TYPES.items()
-        for media_type in ("image", "video")
+        for media_type in ("image", "video", "audio")
     }
 )
 PROVIDER_SPEC_REGISTRY.update(

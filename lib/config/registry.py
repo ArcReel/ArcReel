@@ -151,6 +151,28 @@ def _gemini_text_pricing(model_id: str, input_rate: float, output_rate: float) -
     )
 
 
+# Gemini TTS 费率（美元/百万 token）：input 为文本输入，output 为音频输出。
+# shortcut: 音频结算目前只上报字符数，按本表算出 0，#3215 落地后改报 token 才生效。
+# 两侧定价页的 3.8 TTS 价格 2027-01-01 起翻倍，届时需同步。
+def _gemini_tts_models() -> dict[str, ModelInfo]:
+    """AI Studio 与 Vertex 同名同价的 TTS 模型（Vertex 只在 global 提供）。"""
+    return {
+        "gemini-3.8-flash-tts": ModelInfo(
+            display_name="Gemini 3.8 Flash TTS",
+            media_type="audio",
+            capabilities=["text_to_speech"],
+            default=True,
+            pricing=_gemini_text_pricing("gemini-3.8-flash-tts", 0.50, 9.00),
+        ),
+        "gemini-3.8-flash-lite-tts": ModelInfo(
+            display_name="Gemini 3.8 Flash-Lite TTS",
+            media_type="audio",
+            capabilities=["text_to_speech"],
+            pricing=_gemini_text_pricing("gemini-3.8-flash-lite-tts", 0.50, 6.00),
+        ),
+    }
+
+
 # Gemini 图片费率（美元/张），按分辨率档位。
 def _gemini_image_pricing(model_id: str, rates: dict[str, float]) -> PerImageByResolution:
     return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="USD")
@@ -415,9 +437,17 @@ def _agnes_video_pricing_by_resolution(model_id: str, rates: dict[str, float]) -
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "gemini-aistudio": ProviderMeta(
         display_name="AI Studio",
-        description="Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
+        description="Google AI Studio 提供 Gemini 系列模型，支持图片、视频和语音生成，适合快速原型和个人项目。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
+        optional_keys=[
+            "base_url",
+            "image_rpm",
+            "video_rpm",
+            "request_gap",
+            "image_max_workers",
+            "video_max_workers",
+            "audio_max_workers",
+        ],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -498,13 +528,23 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["720p", "1080p"],
                 pricing=_veo_video_pricing("veo-3.1-lite-generate-preview", _VEO_LITE_RATES),
             ),
+            # --- audio ---
+            **_gemini_tts_models(),
         },
     ),
     "gemini-vertex": ProviderMeta(
         display_name="Vertex AI",
         description="Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
         required_keys=["credentials_path"],
-        optional_keys=["gcs_bucket", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
+        optional_keys=[
+            "gcs_bucket",
+            "image_rpm",
+            "video_rpm",
+            "request_gap",
+            "image_max_workers",
+            "video_max_workers",
+            "audio_max_workers",
+        ],
         secret_keys=[],
         models={
             # --- text ---
@@ -577,6 +617,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["720p", "1080p"],
                 pricing=_veo_video_pricing("veo-3.1-fast-generate-001", _VEO_FAST_RATES),
             ),
+            # --- audio ---
+            **_gemini_tts_models(),
         },
     ),
     "ark": ProviderMeta(

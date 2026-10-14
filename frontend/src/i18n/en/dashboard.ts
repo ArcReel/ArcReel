@@ -1406,6 +1406,7 @@ export default {
   'endpoint_minimax_tts_display': 'MiniMax (Speech)',
   'endpoint_openai_tts_display': 'OpenAI Speech (TTS)',
   'endpoint_dashscope_tts_display': 'Alibaba Model Studio (TTS)',
+  'endpoint_gemini_tts_display': 'Google Gemini Speech (TTS)',
   'endpoint_catalog_loading': 'Loading endpoint catalog…',
   // Image Capability
   'image_capability_t2i': 'T2I',

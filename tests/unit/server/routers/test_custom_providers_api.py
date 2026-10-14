@@ -216,6 +216,7 @@ class TestEndpointCatalog:
             "openai-tts",
             "dashscope-tts",
             "minimax-tts",
+            "gemini-tts",
         }
 
     def test_descriptor_shape(self, custom_providers_client: TestClient):

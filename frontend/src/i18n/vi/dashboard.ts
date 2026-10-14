@@ -1396,6 +1396,7 @@ export default {
   'endpoint_minimax_tts_display': 'MiniMax (Giọng nói)',
   'endpoint_openai_tts_display': 'OpenAI Giọng nói (TTS)',
   'endpoint_dashscope_tts_display': 'Alibaba Model Studio (Giọng nói TTS)',
+  'endpoint_gemini_tts_display': 'Giọng nói Google Gemini (TTS)',
   'endpoint_catalog_loading': 'Đang tải danh mục endpoint…',
   // Image Capability
   'image_capability_t2i': 'T2I',
