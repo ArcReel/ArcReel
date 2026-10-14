@@ -29,10 +29,17 @@ export interface UsageRecord {
   started_at: string;
   finished_at: string | null;
   duration_ms: number | null;
-  cost_amount: number;
+  /** null 表示未定价，原因见 `unpriced_reason`；0 是定价为零。 */
+  cost_amount: number | null;
+  /** 未定价的原因码（后端 `UnpricedReason`）；已定价的记录为 null。 */
+  unpriced_reason: string | null;
   currency: string;
+  /** 总输入，含缓存读写；未缓存输入 = input_tokens − 缓存读 − 两档缓存写。 */
   input_tokens: number | null;
   output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_5m_tokens: number | null;
+  cache_write_1h_tokens: number | null;
   usage_tokens: number | null;
   image_input_tokens: number | null;
   image_output_tokens: number | null;
@@ -81,7 +88,10 @@ export interface UsageStatsBlock {
   cancelled: number;
   /** 分母为 0 时为 null。 */
   success_rate: number | null;
+  /** 只合计已定价的调用。 */
   cost: Record<string, number>;
+  /** 未定价（费用为 null）的调用数，不计入 `cost`。 */
+  unpriced_calls: number;
 }
 
 /** 趋势覆盖的本地日区间，两端均含。 */

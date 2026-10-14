@@ -597,10 +597,10 @@ class UsageRepository(BaseRepository):
             result.setdefault(key, {}).setdefault(call_type, {})[currency] = round(total, 6)
         return result
 
-    async def get_zero_cost_calls_by_model(self, project_name: str) -> list[tuple[str, str, str, int]]:
-        """成功但费用为 0 的媒体调用（image / video / audio），按 (call_type, provider, model) 计数。
+    async def get_unpriced_calls_by_model(self, project_name: str) -> list[tuple[str, str, str, int]]:
+        """成功但未定价（``cost_amount`` 为 NULL）的媒体调用，按 (call_type, provider, model) 计数。
 
-        这些调用是否算「未计价」由调用方按模型当前有没有价格判断：价格本身为 0 的模型也落在这里。
+        0 是定价为零，不在其中；历史上记为 0 的调用不会被追认为未定价。
         """
         stmt = (
             select(ApiCall.call_type, ApiCall.provider, ApiCall.model, func.count().label("calls"))
@@ -608,7 +608,7 @@ class UsageRepository(BaseRepository):
                 ApiCall.project_name == project_name,
                 ApiCall.status == CallStatus.SUCCESS,
                 ApiCall.call_type.in_(_MEDIA_CALL_TYPES),
-                or_(ApiCall.cost_amount.is_(None), ApiCall.cost_amount <= 0),
+                ApiCall.cost_amount.is_(None),
             )
             .group_by(ApiCall.call_type, ApiCall.provider, ApiCall.model)
         )
@@ -926,9 +926,13 @@ def _record_to_dict(row: ApiCall, task_type: str | None) -> dict[str, Any]:
         "finished_at": _record_iso(row.finished_at),
         "duration_ms": row.duration_ms,
         "cost_amount": row.cost_amount,
+        "unpriced_reason": row.unpriced_reason,
         "currency": row.currency,
         "input_tokens": row.input_tokens,
         "output_tokens": row.output_tokens,
+        "cache_read_tokens": row.cache_read_tokens,
+        "cache_write_5m_tokens": row.cache_write_5m_tokens,
+        "cache_write_1h_tokens": row.cache_write_1h_tokens,
         "usage_tokens": row.usage_tokens,
         "image_input_tokens": row.image_input_tokens,
         "image_output_tokens": row.image_output_tokens,

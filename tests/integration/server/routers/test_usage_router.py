@@ -104,9 +104,23 @@ class TestUnpricedCost:
         async with db_factory() as session:
             session.add_all(
                 [
-                    make_call(segment_id="null", cost_amount=null()),
+                    make_call(
+                        segment_id="null",
+                        cost_amount=null(),
+                        unpriced_reason="missing_rate",
+                        input_tokens=1000,
+                        cache_read_tokens=600,
+                        cache_write_5m_tokens=100,
+                        cache_write_1h_tokens=50,
+                    ),
                     make_call(segment_id="zero", cost_amount=0.0, started_at=BASE_TIME + timedelta(minutes=1)),
                     make_call(segment_id="paid", cost_amount=1.5, started_at=BASE_TIME + timedelta(minutes=2)),
+                    make_call(
+                        segment_id="paid-cny",
+                        cost_amount=2.0,
+                        currency="CNY",
+                        started_at=BASE_TIME + timedelta(minutes=3),
+                    ),
                 ]
             )
             await session.commit()
@@ -119,7 +133,21 @@ class TestUnpricedCost:
             "null": None,
             "zero": 0.0,
             "paid": 1.5,
+            "paid-cny": 2.0,
         }
+
+    def test_records_carry_unpriced_reason_and_cache_tokens(self, unpriced_client):
+        items = {item["segment_id"]: item for item in unpriced_client.get("/api/v1/usage/records").json()["items"]}
+
+        assert items["null"]["unpriced_reason"] == "missing_rate"
+        assert (
+            items["null"]["input_tokens"],
+            items["null"]["cache_read_tokens"],
+            items["null"]["cache_write_5m_tokens"],
+            items["null"]["cache_write_1h_tokens"],
+        ) == (1000, 600, 100, 50)
+        assert items["zero"]["unpriced_reason"] is None
+        assert items["zero"]["cache_read_tokens"] is None
 
     def test_detail_with_null_cost(self, unpriced_client):
         record_id = next(
@@ -131,13 +159,21 @@ class TestUnpricedCost:
         response = unpriced_client.get(f"/api/v1/usage/records/{record_id}")
 
         assert response.status_code == 200
-        assert response.json()["cost_amount"] is None
+        body = response.json()
+        assert body["cost_amount"] is None
+        assert body["unpriced_reason"] == "missing_rate"
+        assert body["cache_write_1h_tokens"] == 50
 
-    def test_summary_totals_skip_null(self, unpriced_client):
+    def test_summary_totals_only_priced_calls_and_counts_the_rest(self, unpriced_client):
+        """汇总只合计已定价的调用（0 元也是已定价），未定价的另给次数；主币种判定不变。"""
         body = unpriced_client.get("/api/v1/usage/summary").json()
 
-        assert body["kpi"]["calls"] == 3
-        assert body["kpi"]["cost"] == {"USD": 1.5}
+        assert body["kpi"]["calls"] == 4
+        assert body["kpi"]["cost"] == {"CNY": 2.0, "USD": 1.5}
+        assert body["kpi"]["unpriced_calls"] == 1
+        assert body["primary_currency"] == "CNY"
+        gemini = next(row for row in body["breakdown"]["provider"]["rows"] if row["provider"] == "gemini")
+        assert gemini["unpriced_calls"] == 1
 
 
 class TestUsageRecordsList:

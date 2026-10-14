@@ -11,7 +11,8 @@
       "failed": 0,
       "cancelled": 0,
       "success_rate": null,
-      "cost": {}
+      "cost": {},
+      "unpriced_calls": 0
     },
     "daily": [],
     "breakdown": {

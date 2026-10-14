@@ -4,10 +4,12 @@ import json
 from pathlib import Path
 
 import pytest
+from sqlalchemy import update
 
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.billing.cost_calculator import cost_calculator
 from lib.config.resolver import ConfigResolver
+from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation.video_request_facts import VideoRequestCostFacts, VideoRequestFactsFailure
 from lib.script.reference_video.request_projection import (
@@ -32,6 +34,7 @@ async def _seed_call(
     usage_tokens: int | None = None,
     cost_amount: float | None = None,
     currency: str | None = None,
+    unpriced: bool = False,
 ) -> None:
     """直连 UsageRepository 写入一条已完成调用记录（等价于旧 UsageTracker 的种子写法）。
 
@@ -54,6 +57,12 @@ async def _seed_call(
             settlement=SettlementInput(usage_tokens=usage_tokens, cost_amount=cost_amount, currency=currency),
             output_path=output_path,
         )
+        if unpriced:
+            # 结算只会把数值写成费用；未定价（NULL）的行直接改列，等价于内置供应商查不到单价的结算结果。
+            await session.execute(
+                update(ApiCall).where(ApiCall.id == cid).values(cost_amount=None, unpriced_reason="missing_rate")
+            )
+            await session.commit()
 
 
 def _make_script(
@@ -2351,7 +2360,9 @@ class TestUnpricedCosts:
                 ],
             )
             await session.commit()
-        await _seed_call(db_factory, "test-unpriced", "image", "img", provider="custom-1", segment_id="E1S001")
+        await _seed_call(
+            db_factory, "test-unpriced", "image", "img", provider="custom-1", segment_id="E1S001", unpriced=True
+        )
         await _seed_call(db_factory, "test-unpriced", "video", "vid", provider="custom-1", segment_id="E1S001")
 
         project_data = {
@@ -2409,35 +2420,23 @@ class TestUnpricedCosts:
             {"call_type": "video", "provider": "custom-1", "provider_name": "Relay", "model": "vid", "count": 2}
         ]
 
-    async def test_zero_cost_call_is_priced_once_the_model_has_a_price(self, db_factory):
-        """调用时还没有价格、之后设了价格的模型不再算未计价：设置价格后提示随之消失。"""
-        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
-
-        await _seed_call(db_factory, "test-repriced", "image", "img", provider="custom-1", segment_id="E1S001")
-        async with db_factory() as session:
-            await CustomProviderRepository(session).create_provider(
-                display_name="Relay",
-                discovery_format="openai",
-                base_url="https://api.example.com",
-                api_key="k",
-                models=[
-                    {
-                        "model_id": "img",
-                        "display_name": "Img",
-                        "endpoint": "openai-images",
-                        "price_unit": "image",
-                        "price_input": 0.05,
-                        "currency": "USD",
-                    }
-                ],
-            )
-            await session.commit()
-
-        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
-            {"title": "Test", "content_mode": "narration", "episodes": []}, {}, project_name="test-repriced"
+    async def test_zero_cost_call_is_not_reported_as_unpriced(self, db_factory):
+        """未计价看费用是否为 NULL：记为 0 的调用是真实的 0，模型有没有价格都不改变这一点。"""
+        await _seed_call(db_factory, "test-zero", "image", "img", provider="custom-1", segment_id="E1S001")
+        await _seed_call(
+            db_factory, "test-zero", "video", "vid", provider="custom-1", segment_id="E1S001", unpriced=True
+        )
+        await _seed_call(
+            db_factory, "test-zero", "video", "vid", provider="custom-1", segment_id="E1S002", unpriced=True
         )
 
-        assert result["unpriced"]["actual"] == []
+        result = await CostEstimationService(ConfigResolver(db_factory), db_factory).compute(
+            {"title": "Test", "content_mode": "narration", "episodes": []}, {}, project_name="test-zero"
+        )
+
+        assert result["unpriced"]["actual"] == [
+            {"call_type": "video", "provider": "custom-1", "provider_name": "custom-1", "model": "vid", "count": 2}
+        ]
 
     @pytest.mark.parametrize(
         ("generated", "call", "expected"),

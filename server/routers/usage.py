@@ -65,9 +65,15 @@ class UsageRecord(BaseModel):
     duration_ms: int | None = None
     # None 表示未定价；0 是定价为零。
     cost_amount: float | None
+    # 未定价的原因码（``lib.billing.metering.UnpricedReason``）；已定价的记录为 None。
+    unpriced_reason: str | None = None
     currency: str
+    # input_tokens 是总输入，含缓存读写；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
     input_tokens: int | None = None
     output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_5m_tokens: int | None = None
+    cache_write_1h_tokens: int | None = None
     usage_tokens: int | None = None
     image_input_tokens: int | None = None
     image_output_tokens: int | None = None
@@ -212,7 +218,9 @@ class UsageStats(BaseModel):
     failed: int
     cancelled: int
     success_rate: float | None
+    # 只合计已定价的调用；未定价的调用不计入金额，数量见 unpriced_calls。
     cost: dict[str, float]
+    unpriced_calls: int
 
 
 class UsageRange(BaseModel):

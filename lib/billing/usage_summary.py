@@ -98,6 +98,8 @@ class _StatsAccumulator:
     success: int = 0
     failed: int = 0
     cancelled: int = 0
+    # 未定价（cost_amount 为 NULL）的调用数：不进 cost，单独计数，避免被误读成「0 元」。
+    unpriced: int = 0
     cost: dict[str, float] = field(default_factory=dict)
 
     def add(self, row: UsageSummaryRow) -> None:
@@ -107,8 +109,11 @@ class _StatsAccumulator:
             self.failed += 1
         elif row.status == CallStatus.CANCELLED:
             self.cancelled += 1
-        # 参考费用汇总所有 cost_amount > 0 的终态行（NULL 即未定价，不计），不看状态——失败的调用一样可能被计费。
-        if row.cost_amount is not None and row.cost_amount > 0:
+        # 参考费用汇总所有 cost_amount > 0 的终态行，不看状态——失败的调用一样可能被计费。
+        # NULL 即未定价：不计金额，另记次数。
+        if row.cost_amount is None:
+            self.unpriced += 1
+        elif row.cost_amount > 0:
             self.cost[row.currency] = self.cost.get(row.currency, 0.0) + row.cost_amount
 
     @property
@@ -125,6 +130,7 @@ class _StatsAccumulator:
             # 成功率的分母只数已判定的调用；用户取消既不算成功也不算失败。
             "success_rate": round(self.success / decided, _ROUND_DIGITS) if decided else None,
             "cost": {currency: round(amount, _ROUND_DIGITS) for currency, amount in sorted(self.cost.items())},
+            "unpriced_calls": self.unpriced,
         }
 
 
@@ -235,6 +241,7 @@ def _breakdown_dimension(
             merged.success += stats.success
             merged.failed += stats.failed
             merged.cancelled += stats.cancelled
+            merged.unpriced += stats.unpriced
             for currency, amount in stats.cost.items():
                 merged.cost[currency] = merged.cost.get(currency, 0.0) + amount
         result["other"] = {"groups": len(overflow), **merged.to_dict()}

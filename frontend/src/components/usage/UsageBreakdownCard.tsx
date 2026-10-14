@@ -146,7 +146,7 @@ function BreakdownRow({
       >
         {formatRatio(row.stats.success_rate, i18n.language)}
       </span>
-      <CostCell cost={row.stats.cost} primary={primary} />
+      <CostCell cost={row.stats.cost} unpricedCalls={row.stats.unpriced_calls} primary={primary} />
     </>
   );
 
@@ -173,7 +173,15 @@ function BreakdownRow({
   );
 }
 
-function CostCell({ cost, primary }: { cost: Record<string, number>; primary: string | null }) {
+function CostCell({
+  cost,
+  unpricedCalls,
+  primary,
+}: {
+  cost: Record<string, number>;
+  unpricedCalls: number;
+  primary: string | null;
+}) {
   const { t } = useTranslation("dashboard");
   const entries = costEntries(cost);
   const others = entries.filter(([currency]) => currency !== primary);
@@ -184,6 +192,11 @@ function CostCell({ cost, primary }: { cost: Record<string, number>; primary: st
   return (
     <span className="num relative text-right">
       {main}
+      {unpricedCalls > 0 && (
+        <span className="block text-xs text-muted-foreground">
+          {t("usage_breakdown_unpriced", { count: unpricedCalls })}
+        </span>
+      )}
       {others.length > 0 && (
         <>
           <span aria-hidden="true" className="ml-1 text-xs text-muted-foreground">

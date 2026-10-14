@@ -81,6 +81,7 @@ class TestSummaryKpi:
             "cancelled": 1,
             "success_rate": 0.5,
             "cost": {"USD": 1.5},
+            "unpriced_calls": 0,
         }
 
     async def test_success_rate_is_null_without_decided_calls(self, summary_client, db_factory):
@@ -285,6 +286,7 @@ class TestSummaryBreakdown:
             "cancelled": 0,
             "success_rate": 1.0,
             "cost": {"USD": 2.0},
+            "unpriced_calls": 0,
         }
 
 

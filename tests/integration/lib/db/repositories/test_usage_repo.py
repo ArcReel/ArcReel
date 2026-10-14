@@ -973,12 +973,13 @@ class TestNullCostReadPaths:
 
         assert costs == {"characters": {"USD": 2.0}}
 
-    async def test_zero_cost_calls_by_model_still_counts_null_rows(self, async_session):
+    async def test_unpriced_calls_by_model_counts_only_null_rows(self, async_session):
         await self._seed_mixed(async_session)
 
-        rows = await UsageRepository(async_session).get_zero_cost_calls_by_model("demo")
+        rows = await UsageRepository(async_session).get_unpriced_calls_by_model("demo")
 
-        assert rows == [("image", "gemini", "gemini-3.1-flash-image-preview", 4)]
+        # 7 行里 4 行 NULL，0 元与已定价的不计。
+        assert rows == [("image", "gemini", "gemini-3.1-flash-image-preview", 3)]
 
     async def test_summary_rows_keep_null_distinct_from_zero(self, async_session):
         async_session.add_all([make_call(cost_amount=null()), make_call(cost_amount=0.0), make_call(cost_amount=3.0)])
@@ -1008,6 +1009,13 @@ class TestNullCostReadPaths:
         assert page["items"][0]["cost_amount"] is None
         assert detail is not None
         assert detail["cost_amount"] is None
+        for record in (page["items"][0], detail):
+            assert record["unpriced_reason"] == "no_price"
+            assert (record["cache_read_tokens"], record["cache_write_5m_tokens"], record["cache_write_1h_tokens"]) == (
+                7,
+                3,
+                2,
+            )
 
     async def test_write_path_still_records_priced_cost(self, async_session):
         """现有写入路径不变：结算后的费用是数值（含 0），新列留空。"""

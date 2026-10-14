@@ -731,13 +731,10 @@ class CostEstimationService:
         async with self._session_factory() as session:
             usage_repo = UsageRepository(session)
             project_image_by_type = await usage_repo.get_project_image_costs_by_asset_type(project_name)
-            # 零费用的成功调用里，模型至今没有价格的算未计价；之后设了价格（含 0）的不再提示——
-            # 历史调用不会按新价格补记，提示的用途是引导设置价格。
+            # 成功调用里费用为 NULL 的即未定价；定价为零（0）的调用是真实的 0，不在其中。
             actual_unpriced: UnpricedCounts = Counter()
-            price_repo = CustomProviderRepository(session)
-            for call_type, provider, model, calls in await usage_repo.get_zero_cost_calls_by_model(project_name):
-                if _price_missing(provider, await price_repo.resolve_price(provider, model)):
-                    actual_unpriced[call_type, provider, model] += calls
+            for call_type, provider, model, calls in await usage_repo.get_unpriced_calls_by_model(project_name):
+                actual_unpriced[call_type, provider, model] += calls
             provider_names = await usage_repo.provider_display_names(
                 {provider for _, provider, _ in (*estimate_unpriced, *actual_unpriced)}
             )
