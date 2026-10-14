@@ -89,8 +89,8 @@ _STDLIB_DIRS = tuple(
 # coverage 的 tracer 每进入或恢复一个被测帧，都经 lock_data 阻塞地获取自身的数据锁（concurrency 含
 # thread 时才有这把锁），工作线程上的 tracer 恰好持锁时事件循环线程就等它。违规会随线程交错落在任意
 # 被测协程头上，常见的是生成队列 worker 主循环在 await 处恢复的那一刻；这把锁只在开 coverage 的运行里
-# 存在，生产路径上没有。只放行经 lock_data 的这一条：CI 上出现过栈里没有 lock_data、只停在协程 await
-# 行的 lock.acquire，拿锁的非仓库帧现在会出现在栈预览里，据此再定是否另加放行。
+# 存在，生产路径上没有。只放行经 lock_data 的这一条；栈里没有 lock_data 的 lock.acquire 照常记为违规，
+# 拿锁的非仓库帧见栈预览。
 _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
     ("posixpath.py", frozenset({"realpath", "_joinrealpath"})),
     ("<frozen posixpath>", frozenset({"realpath", "_joinrealpath"})),
@@ -103,7 +103,7 @@ _ALWAYS_ALLOWED_FRAMES: tuple[tuple[str, frozenset[str] | None], ...] = (
 
 # 栈预览的两份预算互不挤占：仓库帧（lib/server/tests）至多这么多条，看得出调用方；拦截点到第一个
 # 仓库帧之间的非仓库帧另取最内层的几条，看得出阻塞的到底是谁，超出的注明省略条数。
-_STACK_PREVIEW_FRAMES = 6
+_REPO_PREVIEW_FRAMES = 6
 _NON_REPO_PREVIEW_FRAMES = 4
 
 
@@ -186,8 +186,7 @@ class BlockingGuard:
         driven_by_tests = False
         for candidate in frames:
             filename = candidate.f_code.co_filename
-            module = candidate.f_globals.get("__name__", "")
-            if filename.startswith(_GUARD_DIR) or module.startswith(_GUARD_MODULE):
+            if _is_guard_frame(candidate):
                 continue
             if self._is_tests_frame(candidate):
                 # 替身、测试辅助函数的帧不终止查找：外层若有 lib/server 的 async 函数，
@@ -213,19 +212,16 @@ class BlockingGuard:
         non_repo: list[FrameType] = []
         repo: list[FrameType] = []
         for frame in frames:
-            filename = frame.f_code.co_filename
-            if filename.startswith((_GUARD_DIR, _BLOCKBUSTER_DIR)) or frame.f_globals.get("__name__", "").startswith(
-                _GUARD_MODULE
-            ):
+            if _is_guard_frame(frame) or frame.f_code.co_filename.startswith(_BLOCKBUSTER_DIR):
                 continue
-            if filename.startswith(self.scanned_prefixes) or self._is_tests_frame(frame):
+            if frame.f_code.co_filename.startswith(self.scanned_prefixes) or self._is_tests_frame(frame):
                 repo.append(frame)
             elif not repo:
                 non_repo.append(frame)
         lines = [self._describe_frame(f) for f in non_repo[:_NON_REPO_PREVIEW_FRAMES]]
         if len(non_repo) > _NON_REPO_PREVIEW_FRAMES:
             lines.append(f"…（省略 {len(non_repo) - _NON_REPO_PREVIEW_FRAMES} 个非仓库帧）")
-        lines.extend(self._describe_frame(f) for f in repo[:_STACK_PREVIEW_FRAMES])
+        lines.extend(self._describe_frame(f) for f in repo[:_REPO_PREVIEW_FRAMES])
         return tuple(lines)
 
     def _describe_frame(self, frame: FrameType) -> str:
@@ -265,6 +261,12 @@ class BlockingGuard:
             else:
                 unexpected.append(violation)
         return unexpected
+
+
+def _is_guard_frame(frame: FrameType) -> bool:
+    return frame.f_code.co_filename.startswith(_GUARD_DIR) or frame.f_globals.get("__name__", "").startswith(
+        _GUARD_MODULE
+    )
 
 
 def _runs_once_per_process(frame: FrameType) -> bool:

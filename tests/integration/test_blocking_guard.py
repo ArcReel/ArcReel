@@ -140,8 +140,8 @@ def acquire_nested(lock, depth):
 
 
 def acquire_now(lock):
-    lock.acquire()
-    lock.release()
+    if lock.acquire(timeout=0.01):
+        lock.release()
 """
 
 _APP = """
@@ -254,23 +254,10 @@ async def test_postgres_connect():
     await samples.connect_unreachable_postgres()
 
 
-def _lock_released_once_waiting_in(function_name):
-    # 返回一把已持有的锁：事件循环线程停进 function_name 后另一个线程才放锁，护栏必然看到竞争。
-    loop_thread = threading.get_ident()
+def _held_lock():
+    # 一把已被持有、不再释放的锁：样本带超时去拿，护栏一定看到它被占用，结果不取决于线程交错。
     lock = threading.Lock()
     lock.acquire()
-
-    def release_once_waiting():
-        while True:
-            frame = sys._current_frames().get(loop_thread)
-            while frame is not None and frame.f_code.co_name != function_name:
-                frame = frame.f_back
-            if frame is not None:
-                break
-            threading.Event().wait(0.001)
-        lock.release()
-
-    threading.Thread(target=release_once_waiting, daemon=True).start()
     return lock
 
 
@@ -279,11 +266,11 @@ async def test_lock_in_stdlib_internals():
 
 
 async def test_lock_in_third_party_code():
-    await samples.acquire_via_vendor(_lock_released_once_waiting_in("acquire_now"), 0)
+    await samples.acquire_via_vendor(_held_lock(), 0)
 
 
 async def test_lock_deep_in_third_party_code():
-    await samples.acquire_via_vendor(_lock_released_once_waiting_in("acquire_now"), 8)
+    await samples.acquire_via_vendor(_held_lock(), 8)
 
 
 async def test_coverage_data_lock():
@@ -487,12 +474,13 @@ def test_preview_caps_third_party_frames_without_dropping_business_frames(probe_
     positions = _preview_lines(
         section,
         r"blocking_vendor\.py:\d+ in acquire_now",
-        r"…（省略 \d+ 个非仓库帧）",
+        r"…（省略 6 个非仓库帧）",
         r"lib/blocking_samples\.py:\d+ in acquire_via_vendor",
         r"tests/test_probe\.py:\d+ in test_lock_deep_in_third_party_code",
     )
     assert positions == sorted(positions), section
-    assert section.count("in acquire_nested") < 9, section
+    # 10 条非仓库帧（acquire_now 与 9 层 acquire_nested）保留最内层 4 条。
+    assert section.count("in acquire_nested") == 3, section
 
 
 @pytest.mark.parametrize(
