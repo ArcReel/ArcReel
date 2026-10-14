@@ -121,17 +121,19 @@ describe("ShotDetail 结构化 → 文本切换在途", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "文本" })[0]);
 
-    // 返回后整体替换该侧草稿：在途期间的编辑会被静默覆盖
+    // 返回后整体替换该侧提示词：在途期间对它的编辑会被静默覆盖
     expect(screen.getByDisplayValue("雨夜街道")).toHaveAttribute("readonly");
     expect(screen.getByRole("button", { name: /添加引用/ })).toBeDisabled();
     fireEvent.change(screen.getByDisplayValue("旁白正文"), { target: { value: "改过的旁白" } });
     expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "放弃修改" })).toBeDisabled();
 
     pending.resolve(preview());
 
     expect(await screen.findByDisplayValue(/Scene: 雨夜街道/)).not.toHaveAttribute("readonly");
     expect(screen.getByRole("button", { name: /添加引用/ })).toBeEnabled();
     expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "放弃修改" })).toBeEnabled();
   });
 
   it.each([
