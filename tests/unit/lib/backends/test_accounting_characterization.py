@@ -21,7 +21,7 @@ aware(finished_at) 相减，duration_ms 按真实步进（单次 start→finish 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -30,6 +30,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from arcreel_catalog_core import CatalogEntry, Meter, PriceRow, PriceTable, TextFacts
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoCapabilities,
@@ -39,9 +40,15 @@ from arcreel_market_core.video_backend_contract import (
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.backends.providers import CallPurpose
-from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.backends.text_backends.base import (
+    TextCapability,
+    TextGenerationRequest,
+    TextGenerationResult,
+    prompt_json_fallback,
+)
 from lib.backends.text_generator import TextGenerator
 from lib.billing.ledger import Ledger
+from lib.billing.multipliers import set_provider_multiplier
 from lib.config.resolver import ConfigResolver
 from lib.db.models.api_call import ApiCall
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -50,6 +57,7 @@ from lib.generation.media_generator import MediaGenerator
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
+from tests.catalog_support import catalog_of, install_catalog
 from tests.fakes import FakeConfigResolver, write_backend_output
 
 # ---------------------------------------------------------------------------
@@ -234,12 +242,14 @@ class _FakeAudioBackend:
         *,
         provider: str,
         model: str,
-        characters: int = 0,
         error: BaseException | None = None,
+        input_tokens: int | None = None,
+        audio_output_tokens: int | None = None,
     ) -> None:
         self._provider = provider
         self._model = model
-        self._characters = characters
+        self._input_tokens = input_tokens
+        self._audio_output_tokens = audio_output_tokens
         self._error = error
 
     @property
@@ -261,8 +271,10 @@ class _FakeAudioBackend:
         return AudioSynthesisResult(
             provider=self._provider,
             model=self._model,
-            characters=self._characters,
+            text=request.text,
             output_path=request.output_path,
+            input_tokens=self._input_tokens,
+            audio_output_tokens=self._audio_output_tokens,
         )
 
 
@@ -332,11 +344,13 @@ class _FakeTextBackend:
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         error: BaseException | None = None,
+        **cache_tokens: int,
     ) -> None:
         self._provider = provider
         self._model = model
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
+        self._cache_tokens = cache_tokens
         self._error = error
 
     @property
@@ -360,6 +374,7 @@ class _FakeTextBackend:
             model=self._model,
             input_tokens=self._input_tokens,
             output_tokens=self._output_tokens,
+            **self._cache_tokens,
         )
 
 
@@ -532,16 +547,18 @@ class TestImageChannel:
 
 
 class TestAudioChannel:
-    async def test_success_per_character_billing_full_row(self, tmp_path: Path, acct: _AccountingDb) -> None:
+    async def test_chinese_tts_counts_each_han_character_twice(self, tmp_path: Path, acct: _AccountingDb) -> None:
         gen = _media_generator(
             tmp_path,
             acct,
-            audio_backend=_FakeAudioBackend(provider="dashscope", model="qwen3-tts-flash", characters=25_000),
+            audio_backend=_FakeAudioBackend(provider="dashscope", model="qwen3-tts-flash"),
         )
+        text = "念" * 6000 + "a" * 3000
 
-        await gen.generate_audio_async(text="念" * 700, resource_id="E1S01", voice="Cherry", task_id="T-1")
+        await gen.generate_audio_async(text=text, resource_id="E1S01", voice="Cherry", task_id="T-1")
 
-        # usage_tokens 承载合成字符数，按每万字符 0.8 CNY 计费
+        # 条目的字符数计量项带「汉字计 2」：6000 × 2 + 3000 = 15000 字符，按每万字符 0.8 CNY 计 1.2；
+        # usage_tokens 记原文字符数
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
@@ -549,14 +566,14 @@ class TestAudioChannel:
                 call_type="audio",
                 model="qwen3-tts-flash",
                 provider="dashscope",
-                prompt="念" * 700,
+                prompt=text,
                 task_id="T-1",
                 segment_id="E1S01",
                 inputs={"voice": "Cherry", "parameters": {"language_type": "Chinese"}},
                 output_path="audio/segment_E1S01.wav",
-                cost_amount=pytest.approx(2.0),
+                cost_amount=pytest.approx(1.2),
                 currency="CNY",
-                usage_tokens=25_000,
+                usage_tokens=9000,
             ),
         )
 
@@ -872,6 +889,256 @@ class TestTextChannel:
                 currency="CNY",
                 input_tokens=1_000_000,
                 output_tokens=500_000,
+            ),
+        )
+
+
+class _PromptFallbackTextBackend(_FakeTextBackend):
+    """结构化输出走 prompt 注入降级：按 ``replies`` 依次回复 (文本, 输入 token, 输出 token)，每次请求都已计费。"""
+
+    def __init__(self, *, provider: str, model: str, replies: list[tuple[str, int, int]]) -> None:
+        super().__init__(provider=provider, model=model)
+        self._replies = replies
+
+    async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
+        replies = iter(self._replies)
+
+        async def generate_once(_request: TextGenerationRequest) -> TextGenerationResult:
+            text, input_tokens, output_tokens = next(replies)
+            return TextGenerationResult(
+                text=text,
+                provider=self._provider,
+                model=self._model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+
+        return await prompt_json_fallback(request, generate_once, provider=self._provider, model=self._model)
+
+
+def _text_entry(name: str, *meters: Meter) -> CatalogEntry:
+    return CatalogEntry(
+        maker="acme",
+        name=name,
+        media_type="text",
+        display_name=name,
+        facts=TextFacts(),
+        price=PriceTable(currency="USD", meters=meters),
+    )
+
+
+def _meter(meter: str, *rows: tuple[dict[str, object], float], dims: tuple[str, ...] = ()) -> Meter:
+    return Meter(meter=meter, dims=dims, rows=tuple(PriceRow(when=when, price=price) for when, price in rows))
+
+
+def _text_generator(acct: _AccountingDb, provider_id: str, model: str, **usage: int) -> TextGenerator:
+    return TextGenerator(
+        _FakeTextBackend(provider=provider_id, model=model, **usage),
+        Ledger(session_factory=acct.factory),
+        provider_id,
+        purpose=CallPurpose.SCRIPT_GENERATION,
+    )
+
+
+async def _set_provider_multiplier(acct: _AccountingDb, provider_id: str, value: float) -> None:
+    async with acct.factory() as session:
+        await set_provider_multiplier(session, provider_id, value)
+        await session.commit()
+
+
+class TestCatalogPricedText:
+    """文本按模型目录的价目表结算：计量项互不重叠、上下文档、未定价与两级倍率。"""
+
+    async def test_context_tier_and_cache_meters_priced_separately(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        tiered = ("context_tier",)
+        entry = _text_entry(
+            "tiered",
+            _meter("uncached_input_tokens", ({"context_tier": 0}, 2.0), ({"context_tier": 200_000}, 4.0), dims=tiered),
+            _meter("cache_read_tokens", ({"context_tier": 0}, 0.2), ({"context_tier": 200_000}, 0.4), dims=tiered),
+            _meter("cache_write_5m_tokens", ({"context_tier": 0}, 2.5), ({"context_tier": 200_000}, 5.0), dims=tiered),
+            _meter("cache_write_1h_tokens", ({}, 4.0)),
+            _meter("output_tokens", ({"context_tier": 0}, 10.0), ({"context_tier": 200_000}, 15.0), dims=tiered),
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/tiered",)}))
+
+        await _text_generator(
+            acct,
+            "openai",
+            "tiered",
+            input_tokens=300_000,
+            output_tokens=20_000,
+            cache_read_tokens=100_000,
+            cache_write_5m_tokens=40_000,
+            cache_write_1h_tokens=10_000,
+        ).generate(TextGenerationRequest(prompt="p"), project_name="demo")
+
+        # 总输入 30 万（含缓存读写）超过 20 万，整个请求落入第二档：未缓存输入 15 万 × 4 + 缓存读 10 万 × 0.4
+        # + 5 分钟缓存写 4 万 × 5 + 1 小时缓存写 1 万 × 4（不分档）+ 输出 2 万 × 15，按每百万 token 计 = 1.18
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="tiered",
+                prompt="p",
+                provider="openai",
+                cost_amount=pytest.approx(1.18),
+                input_tokens=300_000,
+                output_tokens=20_000,
+                cache_read_tokens=100_000,
+                cache_write_5m_tokens=40_000,
+                cache_write_1h_tokens=10_000,
+            ),
+        )
+
+    async def test_fallback_requests_each_fall_into_their_own_context_tier(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        tiered = ("context_tier",)
+        entry = _text_entry(
+            "tiered",
+            _meter("uncached_input_tokens", ({"context_tier": 0}, 1.0), ({"context_tier": 200_000}, 2.0), dims=tiered),
+            _meter("output_tokens", ({"context_tier": 0}, 10.0), ({"context_tier": 200_000}, 20.0), dims=tiered),
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/tiered",)}))
+        backend = _PromptFallbackTextBackend(
+            provider="openai",
+            model="tiered",
+            replies=[("不是 JSON", 150_000, 1_000), ('{"ok": true}', 150_000, 1_000)],
+        )
+
+        await TextGenerator(
+            backend, Ledger(session_factory=acct.factory), "openai", purpose=CallPurpose.SCRIPT_GENERATION
+        ).generate(TextGenerationRequest(prompt="p", response_schema={"type": "object"}), project_name="demo")
+
+        # 两次请求各 15 万输入，合计 30 万超过 20 万，但每次单独看都在首档：
+        # 2 × (15 万 × 1 + 1000 × 10) / 百万 = 0.32；按合计落档会是 0.64
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="tiered",
+                prompt="p",
+                provider="openai",
+                cost_amount=pytest.approx(0.32),
+                input_tokens=300_000,
+                output_tokens=2_000,
+            ),
+        )
+
+    async def test_usage_on_meter_missing_from_price_table_is_unpriced(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = _text_entry(
+            "no-cache-price", _meter("uncached_input_tokens", ({}, 1.0)), _meter("output_tokens", ({}, 5.0))
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/no-cache-price",)}))
+
+        await _text_generator(
+            acct, "openai", "no-cache-price", input_tokens=10_000, output_tokens=1_000, cache_read_tokens=8_000
+        ).generate(TextGenerationRequest(prompt="p"), project_name="demo")
+
+        # 供应商回报了缓存命中，价目表却没有缓存读价：这部分查不到单价，整笔记为未定价，不按 0 计
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="no-cache-price",
+                prompt="p",
+                provider="openai",
+                cost_amount=None,
+                unpriced_reason="missing_rate",
+                input_tokens=10_000,
+                output_tokens=1_000,
+                cache_read_tokens=8_000,
+            ),
+        )
+
+    async def test_missing_rate_without_default_is_unpriced(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = _text_entry(
+            "tiered-only",
+            _meter("uncached_input_tokens", ({}, 1.0)),
+            _meter("output_tokens", ({"service_tier": "flex"}, 5.0), dims=("service_tier",)),
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/tiered-only",)}))
+
+        await _text_generator(acct, "openai", "tiered-only", input_tokens=1_000, output_tokens=1_000).generate(
+            TextGenerationRequest(prompt="p"), project_name="demo"
+        )
+
+        # 请求没有发送服务档、计量项也没有默认值：不回落到 flex 档，记为未定价并带原因
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="tiered-only",
+                prompt="p",
+                provider="openai",
+                cost_amount=None,
+                unpriced_reason="missing_rate",
+                input_tokens=1_000,
+                output_tokens=1_000,
+            ),
+        )
+
+    async def test_provider_and_model_multipliers_multiply(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = _text_entry("flat", _meter("uncached_input_tokens", ({}, 2.0)), _meter("output_tokens", ({}, 8.0)))
+        data = catalog_of((entry,), {"openai": ("acme/flat",)})
+        listing = data.builtin_providers["openai"]
+        discounted = replace(listing, models=(replace(listing.models[0], multiplier=0.8),))
+        install_catalog(monkeypatch, replace(data, builtin_providers={"openai": discounted}))
+        await _set_provider_multiplier(acct, "openai", 0.5)
+
+        await _text_generator(acct, "openai", "flat", input_tokens=1_000_000, output_tokens=1_000_000).generate(
+            TextGenerationRequest(prompt="p"), project_name="demo"
+        )
+
+        # (2 + 8) USD × 供应商倍率 0.5 × 供应商模型倍率 0.8 = 4.0
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="flat",
+                prompt="p",
+                provider="openai",
+                cost_amount=pytest.approx(4.0),
+                input_tokens=1_000_000,
+                output_tokens=1_000_000,
+            ),
+        )
+
+    async def test_zero_multiplier_records_zero_without_pricing(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # 条目没有价目表：倍率不为 0 时会是未定价；ark-agent-plan 的供应商倍率默认 0，直接记 0
+        entry = replace(_text_entry("subscription"), price=None)
+        install_catalog(monkeypatch, catalog_of((entry,), {"ark-agent-plan": ("acme/subscription",)}))
+
+        await _text_generator(acct, "ark-agent-plan", "subscription", input_tokens=1_000, output_tokens=1_000).generate(
+            TextGenerationRequest(prompt="p"), project_name="demo"
+        )
+
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="subscription",
+                prompt="p",
+                provider="ark-agent-plan",
+                cost_amount=0.0,
+                input_tokens=1_000,
+                output_tokens=1_000,
             ),
         )
 

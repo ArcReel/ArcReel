@@ -432,6 +432,17 @@ ArcReel can record costs by provider and media type, but keep in mind:
 - Some failed tasks may still incur charges;
 - The provider's final invoice is authoritative.
 
+Costs of text and voiceover calls are computed from each model's official prices:
+
+- Cache hits and cache writes are charged at their own prices, not as regular input;
+- For models priced by input length, the tier is chosen by the total input of the single request (including cache), and the whole request uses that tier's prices;
+- Voiceover models that officially count each Chinese character as 2 characters are counted the same way;
+- A call with no applicable price is recorded as "Unpriced" instead of being estimated with another model's or another tier's price.
+
+Each provider can have a multiplier that applies to the cost of all its calls, to reflect top-up discounts or relay price differences.
+The multiplier defaults to 1; Volcengine Ark Agent Plan is billed by subscription, so its multiplier defaults to 0 and no cost is computed. Changing a multiplier only affects later calls;
+costs already recorded are not recalculated.
+
 Use ArcReel's cost tracking for:
 
 - Project budgets;

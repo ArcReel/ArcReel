@@ -7,7 +7,8 @@ from typing import NamedTuple
 
 from sqlalchemy import String, cast, delete, literal, or_, select
 
-from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX, is_custom_provider, parse_provider_id
+from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX, is_custom_provider, make_provider_id, parse_provider_id
+from lib.db.models.config import ProviderConfig
 from lib.db.models.custom_endpoint import CustomEndpoint
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.base import BaseRepository
@@ -104,12 +105,16 @@ class CustomProviderRepository(BaseRepository):
         return provider
 
     async def delete_provider(self, provider_id: int) -> None:
-        """删除供应商及其所有模型。
+        """删除供应商及其所有模型，以及记在它名下的供应商设置（如供应商倍率）。
 
         显式删除模型而非依赖 FK CASCADE：级联只在开启 foreign_keys pragma 的连接上生效，
         应用引擎虽统一开启（engine.py），脚本或外部工具直连时不保证；显式删除不依赖连接配置。
+        供应商设置按 ``custom-<id>`` 记在 ``provider_config``，id 可能被新建的供应商复用，须一并删除。
         """
         await self.session.execute(delete(CustomProviderModel).where(CustomProviderModel.provider_id == provider_id))
+        await self.session.execute(
+            delete(ProviderConfig).where(ProviderConfig.provider == make_provider_id(provider_id))
+        )
         await self.session.execute(delete(CustomProvider).where(CustomProvider.id == provider_id))
         await self.session.flush()
 

@@ -327,6 +327,7 @@ MESSAGES = {
     "duplicate_model_id": "Duplicate model_id: {model_id}",
     "default_model_conflict": "Each media_type can have at most one default model. Conflict: {conflict}",
     "provider_not_found": "Provider does not exist",
+    "provider_multiplier_not_in_config": "The provider multiplier cannot be changed through the config endpoint; use the multiplier endpoint",
     "custom_endpoint_not_found": "Endpoint does not exist",
     "custom_endpoint_definition_invalid": "The endpoint definition failed validation. Fix the reported issues and try again",
     "custom_endpoint_referenced_by_models": "This endpoint is used by {count} model(s). Remove those references before deleting it",

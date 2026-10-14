@@ -13,7 +13,10 @@ from sqlalchemy import ColumnElement, and_, func, or_, select, update
 
 from lib.backends.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallErrorCode
+from lib.billing.catalog_pricing import is_builtin_provider, price_builtin_call
 from lib.billing.cost_calculator import cost_calculator
+from lib.billing.metering import Priced, Usage
+from lib.billing.multipliers import get_provider_multiplier
 from lib.billing.pricing.strategies import PricingParams
 from lib.billing.usage_summary import UsageFilterOptions, UsageSummaryRow
 from lib.db.base import DEFAULT_USER_ID, utc_now
@@ -76,6 +79,10 @@ class SettlementInput:
 
     这些是"申报时刻"的原始值——``billed_duration_seconds`` 可能非法/超限、显式
     ``cost_amount`` 绕过自动计算——由 ``_settle`` 归一为生效定价（``PricingParams``）。
+
+    ``usage`` 是按用量契约上报的计量项用量与选择维度，每次供应商请求一份（降级链上被丢弃的请求也已计费，各占
+    一份）：给出时，内置供应商的这次调用按模型目录的价目表逐次计价后相加；不给（Agent 会话补录、图片与视频）或
+    自定义供应商时沿用旧计价。三项缓存 token 是各次请求之和，原样写入同名列。
     与 ``PricingParams``（结算后的生效定价输入）刻意分成两个对象，避免原始值与生效值
     在同一结构里语义混淆。新增计费字段自此只扩本对象，不再穿仓储写侧散参。
     """
@@ -93,6 +100,10 @@ class SettlementInput:
     image_output_tokens: int | None = None
     text_input_tokens: int | None = None
     text_output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_5m_tokens: int | None = None
+    cache_write_1h_tokens: int | None = None
+    usage: tuple[Usage, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -104,8 +115,10 @@ class _SettledCall:
     effective_generate_audio: bool | None
     input_tokens: int | None
     output_tokens: int | None
-    cost_amount: float
+    #: ``None`` 表示未定价，原因见 ``unpriced_reason``。
+    cost_amount: float | None
     currency: str
+    unpriced_reason: str | None = None
 
 
 def _classify_asset_output_path(output_path: str | None) -> str:
@@ -232,8 +245,9 @@ class UsageRepository(BaseRepository):
         - 计费时长/有声标志覆盖：backend 回报值覆盖 start_call 时的请求值，非正或超出
           ``MAX_BILLED_DURATION_SECONDS`` 的计费时长视同未提供、回落请求时长。
         - 费用：显式 ``cost_amount`` 视作 provider 直报计费数据、优先于自动计算；否则在
-          ``auto_calc`` 为真时按行字段 + 申报值调 ``cost_calculator``（自定义供应商价格预查
-          避免 CostCalculator 内 sync-over-async）。
+          ``auto_calc`` 为真时计算并冻结：申报了 ``usage`` 的内置供应商调用按模型目录的价目表与两级倍率计价，
+          查不到单价时费用为 ``None`` 并带未定价原因；其余按行字段 + 申报值调 ``cost_calculator``（自定义
+          供应商价格预查避免 CostCalculator 内 sync-over-async）。
         - ``base_currency`` 由 caller 传入承载各自的币种兜底口径（finish_call 兜底
           ``row.currency``，resume 兜底 ``settlement.currency``），保持行为不分叉。
 
@@ -275,14 +289,26 @@ class UsageRepository(BaseRepository):
             input_tokens = (settlement.image_input_tokens or 0) + (settlement.text_input_tokens or 0)
             output_tokens = (settlement.image_output_tokens or 0) + (settlement.text_output_tokens or 0)
 
-        cost_amount = 0.0
+        cost_amount: float | None = 0.0
         currency = base_currency
+        unpriced_reason: str | None = None
+        effective_provider = row.provider or PROVIDER_GEMINI
         if settlement.cost_amount is not None:
             cost_amount = settlement.cost_amount
             currency = settlement.currency or base_currency
+        elif auto_calc and settlement.usage and is_builtin_provider(effective_provider):
+            cost = price_builtin_call(
+                provider=effective_provider,
+                model=row.model or "",
+                media_type=row.call_type,
+                requests=settlement.usage,
+                provider_multiplier=await get_provider_multiplier(self.session, effective_provider),
+            )
+            if isinstance(cost, Priced):
+                cost_amount, currency = cost.amount, cost.currency
+            else:
+                cost_amount, unpriced_reason = None, str(cost.reason)
         elif auto_calc:
-            effective_provider = row.provider or PROVIDER_GEMINI
-
             # 自定义供应商价格预查（避免 CostCalculator 内 sync-over-async）；与费用预估链路共用
             # CustomProviderRepository.resolve_price，非自定义 / 畸形 id / 查询异常 / 缺价统一降级为无价。
             custom_price = await CustomProviderRepository(self.session).resolve_price(
@@ -322,6 +348,7 @@ class UsageRepository(BaseRepository):
             output_tokens=output_tokens,
             cost_amount=cost_amount,
             currency=currency,
+            unpriced_reason=unpriced_reason,
         )
 
     async def find_pending_call_id_by_task_id(self, task_id: str) -> int | None:
@@ -384,6 +411,7 @@ class UsageRepository(BaseRepository):
             "duration_seconds": settled.effective_duration_seconds,
             "cost_amount": settled.cost_amount,
             "currency": settled.currency,
+            "unpriced_reason": settled.unpriced_reason,
             "usage_tokens": settlement.usage_tokens,
             "generate_audio": settled.effective_generate_audio,
         }
@@ -517,9 +545,13 @@ class UsageRepository(BaseRepository):
                 generate_audio=settled.effective_generate_audio,
                 cost_amount=settled.cost_amount,
                 currency=settled.currency,
+                unpriced_reason=settled.unpriced_reason,
                 usage_tokens=settlement.usage_tokens,
                 input_tokens=settled.input_tokens,
                 output_tokens=settled.output_tokens,
+                cache_read_tokens=settlement.cache_read_tokens,
+                cache_write_5m_tokens=settlement.cache_write_5m_tokens,
+                cache_write_1h_tokens=settlement.cache_write_1h_tokens,
                 image_input_tokens=settlement.image_input_tokens,
                 image_output_tokens=settlement.image_output_tokens,
                 text_input_tokens=settlement.text_input_tokens,

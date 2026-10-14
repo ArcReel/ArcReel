@@ -5,7 +5,8 @@
 供应商一级的代码事实（凭证形态、调用通道、默认地址、并发默认）。
 
 模型清单、条目事实与默认模型取自随代码打包的出厂快照（``lib/catalog/snapshot/``），加载时过
-``arcreel_catalog_core`` 的实例侧校验。价格取自注册表的 ``ModelInfo.pricing``，见 :func:`model_pricing`。
+``arcreel_catalog_core`` 的实例侧校验。文本与音频按条目的价目表计价，见 :func:`provider_model_price`；图片与视频的价格
+仍取自注册表的 ``ModelInfo.pricing``，见 :func:`model_pricing`。
 供应商模型一级的查询返回目录自己的值对象（:class:`CatalogModel`、:class:`CatalogSearchHit`）；按名字对应条目的
 :func:`find_entry` 返回 ``arcreel_catalog_core`` 的 ``CatalogEntry``，调用方要的正是条目本身的键、事实与价目表。
 """
@@ -28,6 +29,7 @@ from arcreel_catalog_core import (
     CatalogEntry,
     EntryKey,
     ImageFacts,
+    PriceTable,
     TextFacts,
     VideoFacts,
     load_catalog,
@@ -132,10 +134,19 @@ def _to_catalog_model(entry: CatalogEntry, model: BuiltinProviderModel, key: str
     )
 
 
-def _build_index(data: CatalogData) -> dict[str, dict[str, CatalogModel]]:
-    index: dict[str, dict[str, CatalogModel]] = {}
+@dataclass(frozen=True)
+class _IndexedModel:
+    """索引里的一个供应商模型：对外的目录信息，加上它引用的条目与清单里的供应商模型。"""
+
+    model: CatalogModel
+    entry: CatalogEntry
+    listing_model: BuiltinProviderModel
+
+
+def _build_index(data: CatalogData) -> dict[str, dict[str, _IndexedModel]]:
+    index: dict[str, dict[str, _IndexedModel]] = {}
     for provider_id, listing in data.builtin_providers.items():
-        models: dict[str, CatalogModel] = {}
+        models: dict[str, _IndexedModel] = {}
         for model in listing.models:
             entry = data.entry_of(model)
             if entry is None:
@@ -148,20 +159,24 @@ def _build_index(data: CatalogData) -> dict[str, dict[str, CatalogModel]]:
                 logger.warning("内置供应商 %s 的模型键 %s 重复，已跳过后一个", provider_id, key)
                 continue
             default = listing.defaults.get(entry.media_type) == model.api_model_name
-            models[key] = _to_catalog_model(entry, model, key, default)
+            models[key] = _IndexedModel(_to_catalog_model(entry, model, key, default), entry, model)
         index[provider_id] = models
     return index
 
 
 # 按快照对象缓存的索引：快照每进程只加载一次，索引随之只建一次。
-_index_cache: list[tuple[CatalogData, dict[str, dict[str, CatalogModel]]]] = []
+_index_cache: list[tuple[CatalogData, dict[str, dict[str, _IndexedModel]]]] = []
 
 
-def _provider_models(provider_id: str) -> dict[str, CatalogModel]:
+def _indexed_models(provider_id: str) -> dict[str, _IndexedModel]:
     data = factory_snapshot()
     if not _index_cache or _index_cache[0][0] is not data:
         _index_cache[:] = [(data, _build_index(data))]
     return _index_cache[0][1].get(provider_id, {})
+
+
+def _provider_models(provider_id: str) -> dict[str, CatalogModel]:
+    return {key: indexed.model for key, indexed in _indexed_models(provider_id).items()}
 
 
 def reset_for_tests() -> None:
@@ -170,21 +185,27 @@ def reset_for_tests() -> None:
     _index_cache.clear()
 
 
+def _indexed_model(provider_id: str, model_id: str, media_type: str | None) -> _IndexedModel | None:
+    """按供应商与模型键取索引项；给了 ``media_type`` 时，模型不是这一媒体类型也视为不存在。"""
+    indexed = _indexed_models(provider_id).get(model_id)
+    if indexed is None or media_type not in (None, indexed.model.media_type):
+        return None
+    return indexed
+
+
 def get_model(provider_id: str, model_id: str, *, media_type: str | None = None) -> CatalogModel | None:
     """按供应商与模型键取目录信息；供应商或模型不在目录中时返回 ``None``。
 
     给了 ``media_type`` 时，模型不是这一媒体类型也返回 ``None``：调用方要的是「这个供应商的这类模型」，
     模型键引用到别的媒体类型与不在清单里同样不可用。
     """
-    model = _provider_models(provider_id).get(model_id)
-    if model is None or media_type not in (None, model.media_type):
-        return None
-    return model
+    indexed = _indexed_model(provider_id, model_id, media_type)
+    return indexed.model if indexed is not None else None
 
 
 def list_models(provider_id: str) -> dict[str, CatalogModel]:
     """列出供应商的全部模型（按清单顺序，含 ``hidden`` 的模型）；供应商不在目录中时为空。"""
-    return dict(_provider_models(provider_id))
+    return _provider_models(provider_id)
 
 
 def default_model(provider_id: str, media_type: str) -> str | None:
@@ -218,10 +239,30 @@ def find_entry(
     return match_entry(factory_snapshot().entries, model_name, media_type=media_type, binding=binding)
 
 
+@dataclass(frozen=True)
+class ModelPrice:
+    """内置供应商模型的计价依据：所引用条目的价目表（没有时为 ``None``）与这个供应商模型的倍率。"""
+
+    price: PriceTable | None
+    multiplier: float
+
+
+def provider_model_price(provider_id: str, model_id: str, media_type: str) -> ModelPrice | None:
+    """内置供应商模型的价目表与供应商模型倍率。
+
+    供应商或模型键不在目录中、或模型不是调用的 ``media_type``（与 :func:`get_model` 同一口径）时，视为对应不上
+    条目，返回 ``None``。
+    """
+    indexed = _indexed_model(provider_id, model_id, media_type)
+    if indexed is None:
+        return None
+    return ModelPrice(price=indexed.entry.price, multiplier=indexed.listing_model.multiplier)
+
+
 def model_pricing(provider_id: str, model_id: str) -> Pricing | None:
     """模型的定价声明；模型不在注册表中或没有定价时返回 ``None``。
 
-    价格读注册表的 ``ModelInfo.pricing``；出厂快照里的价目表目前没有消费方。
+    价格读注册表的 ``ModelInfo.pricing``，只剩图片与视频的计价在用。
     """
     meta = registry.PROVIDER_REGISTRY.get(provider_id)
     info = meta.models.get(model_id) if meta is not None else None

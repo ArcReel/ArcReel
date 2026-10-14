@@ -122,7 +122,7 @@ class MiniMaxAudioBackend:
         return AudioSynthesisResult(
             provider=self._provider_name,
             model=self._model,
-            characters=len(request.text),
+            text=request.text,
             output_path=request.output_path,
         )
 

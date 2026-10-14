@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from arcreel_market_core.video_backend_contract import ResumeExpiredError
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import CallPurpose, CallStatus
+from lib.backends.text_backends.base import TextGenerationResult, merge_billed_usage
 from lib.billing.ledger import Ledger, _settlement_from_result
 from lib.db.base import utc_now
 from lib.db.models.api_call import ApiCall
@@ -67,7 +68,9 @@ class _ImgResult:
 
 @dataclass
 class _AudioResult:
-    characters: int = 25_000
+    text: str = "念" * 25_000
+    input_tokens: int | None = None
+    audio_output_tokens: int | None = None
 
 
 @dataclass
@@ -77,10 +80,12 @@ class _VideoResult:
     duration_seconds: int = 15
 
 
-@dataclass
-class _TextResult:
-    input_tokens: int | None = 100
-    output_tokens: int | None = 50
+def _text_result(
+    *, input_tokens: int | None = 100, output_tokens: int | None = 50, **cache_tokens: int
+) -> TextGenerationResult:
+    return TextGenerationResult(
+        text="ok", provider="p", model="m", input_tokens=input_tokens, output_tokens=output_tokens, **cache_tokens
+    )
 
 
 class TestSettlementDispatch:
@@ -89,10 +94,11 @@ class TestSettlementDispatch:
         assert s.usage_tokens == 8
         assert s.quality == "high"
 
-    def test_audio_transcribes_characters_to_usage_tokens(self) -> None:
-        # 语义转写①：合成字符数 → 计费 token
-        s = _settlement_from_result("audio", _AudioResult(characters=25_000))
+    def test_audio_reports_raw_text_and_records_character_count(self) -> None:
+        # 语义转写①：原始文本交计算器统计字符，usage_tokens 记原文字符数
+        s = _settlement_from_result("audio", _AudioResult(text="念" * 25_000))
         assert s.usage_tokens == 25_000
+        assert [usage.text for usage in s.usage] == ["念" * 25_000]
 
     def test_video_transcribes_duration_to_billed_and_carries_service_tier(self) -> None:
         # 语义转写②：backend 实际计费时长 → billed_duration_seconds（覆盖请求时长）
@@ -103,10 +109,27 @@ class TestSettlementDispatch:
         assert s.generate_audio is False
         assert s.service_tier == "pro"
 
-    def test_text_extracts_input_output_tokens(self) -> None:
-        s = _settlement_from_result("text", _TextResult(input_tokens=100, output_tokens=50))
-        assert s.input_tokens == 100
-        assert s.output_tokens == 50
+    def test_text_splits_total_input_into_non_overlapping_meters(self) -> None:
+        s = _settlement_from_result(
+            "text", _text_result(input_tokens=100, output_tokens=50, cache_read_tokens=30, cache_write_1h_tokens=20)
+        )
+        assert (s.input_tokens, s.output_tokens, s.cache_read_tokens, s.cache_write_1h_tokens) == (100, 50, 30, 20)
+        assert [usage.quantities for usage in s.usage] == [
+            {"uncached_input_tokens": 50, "cache_read_tokens": 30, "cache_write_1h_tokens": 20, "output_tokens": 50}
+        ]
+
+    def test_text_fallback_reports_one_usage_per_billed_request(self) -> None:
+        # 降级链上被丢弃的请求也已计费：各次请求各出一份用量，计费时逐次落上下文档
+        kept = _text_result(input_tokens=100, output_tokens=50)
+        merge_billed_usage(kept, _text_result(input_tokens=70, output_tokens=10, cache_read_tokens=30))
+
+        s = _settlement_from_result("text", kept)
+
+        assert (s.input_tokens, s.output_tokens, s.cache_read_tokens) == (170, 60, 30)
+        assert [usage.quantities for usage in s.usage] == [
+            {"uncached_input_tokens": 100, "output_tokens": 50},
+            {"cache_read_tokens": 30, "uncached_input_tokens": 40, "output_tokens": 10},
+        ]
 
     def test_unknown_channel_raises(self) -> None:
         with pytest.raises(AssertionError, match="Expected code to be unreachable"):
@@ -124,7 +147,7 @@ class TestRecordBracket:
         seen_call_id: int | None = None
         async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
             seen_call_id = call.call_id
-            call.success(_TextResult(input_tokens=100, output_tokens=50))
+            call.success(_text_result(input_tokens=100, output_tokens=50))
 
         assert seen_call_id is not None
         assert seen_call_id > 0
@@ -195,7 +218,7 @@ class TestRecordBracket:
 
         with pytest.raises(asyncio.CancelledError):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
-                call.success(_TextResult(input_tokens=100, output_tokens=50))
+                call.success(_text_result(input_tokens=100, output_tokens=50))
 
         assert write_done, "取消重抛之前写入已经落地"
         row = await _only_row(db_factory)
@@ -424,7 +447,7 @@ class TestRecordBracket:
 
         with pytest.raises(RuntimeError, match="settlement write down"):
             async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
-                call.success(_TextResult(input_tokens=1, output_tokens=1))
+                call.success(_text_result(input_tokens=1, output_tokens=1))
 
         assert statuses == ["success", "failed"]
 
@@ -660,7 +683,7 @@ class TestSettlementEvents:
 
         async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
             assert publisher.batches == [], "pending 阶段不发事件"
-            call.success(_TextResult())
+            call.success(_text_result())
 
         row = await _only_row(db_factory)
         assert publisher.batches == [
@@ -723,7 +746,7 @@ class TestSettlementEvents:
         async with ledger.record(
             project_name="", call_type="text", model="m", provider="anthropic", purpose=CallPurpose.ENDPOINT_TRIAL
         ) as call:
-            call.success(_TextResult())
+            call.success(_text_result())
 
         assert (await _only_row(db_factory)).status == "success"
         assert publisher.batches == []
@@ -774,7 +797,7 @@ class TestSettlementEvents:
 
         ledger = Ledger(session_factory=db_factory, publish_change=_boom)
         async with ledger.record(project_name="demo", call_type="text", model="m", provider="anthropic") as call:
-            call.success(_TextResult())
+            call.success(_text_result())
 
         assert (await _only_row(db_factory)).status == "success"
 

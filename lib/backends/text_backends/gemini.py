@@ -20,6 +20,7 @@ from .base import (
     TextGenerationRequest,
     TextGenerationResult,
     check_truncation,
+    merge_billed_usage,
     prompt_json_fallback,
     resolve_schema,
     structured_fallback_reason,
@@ -237,11 +238,7 @@ class GeminiTextBackend:
                     model=self._model,
                 )
                 # 这次原生 200 调用已被计费，把它的 token 并入降级结果，否则会系统性漏记。
-                # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
-                if result.input_tokens is not None or native.input_tokens is not None:
-                    result.input_tokens = (result.input_tokens or 0) + (native.input_tokens or 0)
-                if result.output_tokens is not None or native.output_tokens is not None:
-                    result.output_tokens = (result.output_tokens or 0) + (native.output_tokens or 0)
+                merge_billed_usage(result, native)
                 return result
 
         return native
@@ -276,9 +273,16 @@ class GeminiTextBackend:
 
         input_tokens: int | None = None
         output_tokens: int | None = None
-        if response.usage_metadata is not None:
-            input_tokens = getattr(response.usage_metadata, "prompt_token_count", None)
-            output_tokens = getattr(response.usage_metadata, "candidates_token_count", None)
+        cache_read_tokens: int | None = None
+        usage = response.usage_metadata
+        if usage is not None:
+            # prompt_token_count 含缓存命中部分（cached_content_token_count）；思考 token 按输出计费，
+            # 不在 candidates_token_count 里，须加回。
+            input_tokens = usage.prompt_token_count
+            cache_read_tokens = usage.cached_content_token_count
+            candidates = usage.candidates_token_count
+            thoughts = usage.thoughts_token_count
+            output_tokens = None if candidates is None and thoughts is None else (candidates or 0) + (thoughts or 0)
 
         candidates = getattr(response, "candidates", None) or []
         truncated = False
@@ -300,4 +304,5 @@ class GeminiTextBackend:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             truncated=truncated,
+            cache_read_tokens=cache_read_tokens,
         )

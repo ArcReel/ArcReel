@@ -79,7 +79,12 @@ async def test_structured_output_with_image_is_encoded_natively(tmp_path: Path):
         route = router.post(_MESSAGES_URL).mock(
             return_value=_sse(
                 '{"label": "ok", "score": 7}',
-                usage={"input_tokens": 100, "cache_read_input_tokens": 30, "cache_creation_input_tokens": 20},
+                usage={
+                    "input_tokens": 100,
+                    "cache_read_input_tokens": 30,
+                    "cache_creation_input_tokens": 20,
+                    "cache_creation": {"ephemeral_5m_input_tokens": 5, "ephemeral_1h_input_tokens": 15},
+                },
                 output_tokens=12,
             )
         )
@@ -133,9 +138,9 @@ async def test_structured_output_with_image_is_encoded_natively(tmp_path: Path):
 
     assert _Verdict.model_validate_json(result.text) == _Verdict(label="ok", score=7)
     assert result.model == "claude-x"
-    # 现有字段口径：总输入 = 未缓存输入 + 缓存读 + 缓存写
-    assert result.input_tokens == 150
-    assert result.output_tokens == 12
+    # Anthropic 的 input_tokens 不含缓存：总输入 = 未缓存输入 + 缓存读 + 缓存写，缓存写按 TTL 分两档
+    assert (result.input_tokens, result.output_tokens) == (150, 12)
+    assert (result.cache_read_tokens, result.cache_write_5m_tokens, result.cache_write_1h_tokens) == (30, 5, 15)
 
 
 async def test_relay_ignoring_output_config_falls_back_to_prompt_injection():

@@ -15,8 +15,9 @@
 3. **事后补录**（``backfill``）—— agent 会话用量一次调用写入终态行（含 SDK 直报费用），对调用
    方省掉需要自行管理的 pending 中间态。
 
-成功通道的 backend 结果对象 union 分发集中在 ``_settlement_from_result``：audio 合成字符数、
-video 实际计费时长两处语义转写在此单点完成，调用点成功分支不再有逐字段提取胶水。
+成功通道的 backend 结果对象 union 分发集中在 ``_settlement_from_result``：text 与 audio 的用量在此
+按用量契约转成计量项用量（结算时按模型目录的价目表计价），video 实际计费时长的语义转写也在此单点完成，
+调用点成功分支不再有逐字段提取胶水。
 
 结算落库后发一条 ``usage_record / recorded`` 项目变更（走 ``project_change_hints`` 的 batch 总线，
 与任务终态事件同一条 SSE），界面据此刷新用量而不必轮询；无项目名的调用（端点试跑）不发，pending
@@ -39,6 +40,7 @@ from typing import Any, assert_never
 
 from lib.backends.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallFailure, classify_call_failure
+from lib.billing.metering import Usage, token_usage
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
@@ -76,8 +78,11 @@ def build_usage_record_change(call_id: int, status: CallStatus) -> dict[str, Any
 def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: str = "default") -> SettlementInput:
     """成功通道 union 分发：按 call_type 从 backend 结果对象提取计费维度。
 
-    两处语义转写的唯一落点：
-    - audio 的 ``characters``（合成字符数）→ ``usage_tokens``（驱动 per-character 计费）；
+    语义转写的唯一落点：
+    - text 的总输入与三项缓存 → 互不重叠的 token 计量项（未缓存输入 = 总输入 − 缓存读 − 两档缓存写），
+      降级链上的多次请求各出一份，计费时逐次落上下文档；
+    - audio 的原始文本 → 计量用的 ``text``（字符数由计算器按价目表统计），另把字符数记进 ``usage_tokens``；
+      按 token 计价的 TTS 再带输入 token 与输出音频 token；
     - video 的 ``duration_seconds``（backend 回报的实际计费/生成时长）→
       ``billed_duration_seconds``（覆盖 start_call 时的请求时长）。
 
@@ -93,7 +98,21 @@ def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: s
             text_output_tokens=result.text_output_tokens,
         )
     if call_type == "audio":
-        return SettlementInput(usage_tokens=result.characters)
+        return SettlementInput(
+            usage_tokens=len(result.text),
+            input_tokens=result.input_tokens,
+            output_tokens=result.audio_output_tokens,
+            usage=(
+                Usage(
+                    quantities=token_usage(
+                        input_tokens=result.input_tokens,
+                        output_tokens=result.audio_output_tokens,
+                        output_meter="audio_output_tokens",
+                    ),
+                    text=result.text,
+                ),
+            ),
+        )
     if call_type == "video":
         return SettlementInput(
             usage_tokens=result.usage_tokens,
@@ -105,6 +124,23 @@ def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: s
         return SettlementInput(
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
+            cache_read_tokens=result.cache_read_tokens,
+            cache_write_5m_tokens=result.cache_write_5m_tokens,
+            cache_write_1h_tokens=result.cache_write_1h_tokens,
+            # 没有任何计量（未追踪）时仍按一次零用量的请求计价，不落回旧计价。
+            usage=tuple(
+                Usage(
+                    quantities=token_usage(
+                        input_tokens=request.input_tokens,
+                        output_tokens=request.output_tokens,
+                        cache_read_tokens=request.cache_read_tokens,
+                        cache_write_5m_tokens=request.cache_write_5m_tokens,
+                        cache_write_1h_tokens=request.cache_write_1h_tokens,
+                    )
+                )
+                for request in result.request_tokens()
+            )
+            or (Usage(),),
         )
     assert_never(call_type)
 

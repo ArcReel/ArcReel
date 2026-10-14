@@ -327,6 +327,7 @@ MESSAGES = {
     "duplicate_model_id": "model_id trùng lặp: {model_id}",
     "default_model_conflict": "Mỗi media_type chỉ có tối đa một mô hình mặc định. Xung đột: {conflict}",
     "provider_not_found": "Nhà cung cấp không tồn tại",
+    "provider_multiplier_not_in_config": "Không thể đổi hệ số giá của nhà cung cấp qua giao diện cấu hình; hãy dùng giao diện hệ số giá",
     "custom_endpoint_not_found": "Endpoint không tồn tại",
     "custom_endpoint_definition_invalid": "Định nghĩa endpoint không qua được kiểm tra, hãy sửa các lỗi được báo rồi thử lại",
     "custom_endpoint_referenced_by_models": "Endpoint này đang được {count} mô hình sử dụng, hãy gỡ các tham chiếu đó trước khi xóa",

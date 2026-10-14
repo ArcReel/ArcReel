@@ -320,7 +320,7 @@ class TestCustomAudioBackend:
         expected_result = AudioSynthesisResult(
             provider="custom-9",
             model="tts-1",
-            characters=4,
+            text="你好世界",
             output_path=output_path,
         )
         delegate = AsyncMock()
@@ -349,7 +349,7 @@ class TestCustomAudioBackend:
         output_path = tmp_path / "seg.wav"
         delegate = AsyncMock()
         delegate.synthesize = AsyncMock(
-            return_value=AudioSynthesisResult(provider="x", model="y", characters=2, output_path=output_path)
+            return_value=AudioSynthesisResult(provider="x", model="y", text="hi", output_path=output_path)
         )
         delegate.capabilities = set()
 

@@ -20,7 +20,7 @@ from lib.backends.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     check_truncation,
-    merge_billed_tokens,
+    merge_billed_usage,
     prompt_json_fallback,
     resolve_schema,
     structured_fallback_reason,
@@ -99,8 +99,7 @@ class OpenAIResponsesTextBackend:
                 )
                 result = await self._prompt_json_fallback(request)
                 # 这次原生 200 调用已被计费，把它的 token 并入降级结果。
-                result.input_tokens = merge_billed_tokens(result.input_tokens, native.input_tokens)
-                result.output_tokens = merge_billed_tokens(result.output_tokens, native.output_tokens)
+                merge_billed_usage(result, native)
                 return result
 
         return native
@@ -161,10 +160,11 @@ class OpenAIResponsesTextBackend:
             text=response.output_text,
             provider=self._provider_name,
             model=self._model,
-            # Responses 的 input_tokens 含缓存命中，按现有字段上报总输入。
+            # Responses 的 input_tokens 是总输入，其中缓存命中的部分在 input_tokens_details.cached_tokens。
             input_tokens=usage.input_tokens if usage else None,
             output_tokens=output_tokens,
             truncated=truncated,
+            cache_read_tokens=usage.input_tokens_details.cached_tokens if usage else None,
         )
 
 

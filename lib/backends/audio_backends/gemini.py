@@ -13,6 +13,7 @@ import json as json_module
 import logging
 import wave
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from lib.backends.audio_backends.base import (
     AudioCapability,
@@ -25,6 +26,9 @@ from lib.backends.transport_layer import TransportLayer
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_noninterruptible_sync
+
+if TYPE_CHECKING:
+    from google.genai.types import GenerateContentResponseUsageMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -163,20 +167,25 @@ class GeminiAudioBackend:
             logger.debug("Gemini TTS 不支持语速参数 speed=%s，已忽略", request.speed)
         # language_type 不发送：Gemini TTS 按输入文本自动识别语种。
         # 计费调用与写盘分离：重试只包 API 调用，写盘失败不回头重跑会再次计费的合成请求。
-        data, mime_type = await self._request_speech(request)
+        data, mime_type, usage = await self._request_speech(request)
         await run_noninterruptible_sync(_write_audio, data, mime_type, request.output_path)
 
         logger.info("Gemini 语音合成完成: %s", request.output_path)
         return AudioSynthesisResult(
             provider=self._provider_name,
             model=self._model,
-            characters=len(request.text),
+            text=request.text,
             output_path=request.output_path,
+            # 按 token 计价：输入是文本 token，输出全是音频 token。
+            input_tokens=usage.prompt_token_count if usage is not None else None,
+            audio_output_tokens=usage.candidates_token_count if usage is not None else None,
         )
 
     @with_retry_async()
-    async def _request_speech(self, request: AudioSynthesisRequest) -> tuple[bytes, str | None]:
-        """提交合成请求（计费段），返回音频字节与 mime。"""
+    async def _request_speech(
+        self, request: AudioSynthesisRequest
+    ) -> tuple[bytes, str | None, GenerateContentResponseUsageMetadata | None]:
+        """提交合成请求（计费段），返回音频字节、mime 与这次调用的 usage。"""
         types = self._types
         # prebuilt_voice_config 新旧 TTS 模型都接受；3.8 新增的 voice_config.voice 旧模型不认
         config = types.GenerateContentConfig(
@@ -200,6 +209,6 @@ class GeminiAudioBackend:
         for candidate in response.candidates or []:
             for part in (candidate.content.parts if candidate.content else None) or []:
                 if part.inline_data is not None and part.inline_data.data:
-                    return part.inline_data.data, part.inline_data.mime_type
+                    return part.inline_data.data, part.inline_data.mime_type, response.usage_metadata
         # 合成已在供应商侧计费，重试等于再次计费，直接失败交由任务层处理
         raise RuntimeError("Gemini 语音合成未返回音频")

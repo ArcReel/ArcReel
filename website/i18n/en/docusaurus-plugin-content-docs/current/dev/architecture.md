@@ -354,8 +354,10 @@ Usage tracking spans:
 
 Design principles:
 
-- provider adapters report raw usage;
-- cost policies perform conversions;
+- provider adapters report raw usage under the usage contract: non-overlapping meter quantities (uncached input, cache read, and the two cache-write tiers add up to the total input)
+  plus the pricing dimensions actually sent to the provider; each provider's usage quirks are handled in the adapter; when one call contains several billed requests (such as fallback retries), each request is reported separately;
+- the calculator sums over the model catalog's price table, placing each request in its own context tier, then applies the provider multiplier and the provider-model multiplier; when no price applies, the call is recorded as unpriced, including when a meter with reported usage is missing from the price table (`docs/adr/0100`);
+- costs are computed and frozen when a call completes; catalog changes do not recompute historical costs;
 - different currencies are totaled separately by default;
 - whether failed tasks are billed follows the provider's semantics;
 - ArcReel's records do not replace official provider invoices.

@@ -307,6 +307,7 @@ MESSAGES = {
     "duplicate_model_id": "model_id 重复: {model_id}",
     "default_model_conflict": "每个 media_type 最多只能有一个默认模型，冲突: {conflict}",
     "provider_not_found": "供应商不存在",
+    "provider_multiplier_not_in_config": "供应商倍率不能经配置接口修改，请用倍率设置接口",
     "custom_endpoint_not_found": "调用端点不存在",
     "custom_endpoint_definition_invalid": "调用端点定义未通过校验，请按诊断逐条修正后重试",
     "custom_endpoint_referenced_by_models": "该调用端点已被 {count} 个模型使用，解除引用后才能删除",

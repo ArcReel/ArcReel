@@ -15,13 +15,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
-from pydantic import AfterValidator, BaseModel
+from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.gemini_shared import VERTEX_SCOPES
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.billing.multipliers import (
+    PROVIDER_MULTIPLIER_KEY,
+    default_provider_multiplier,
+    get_provider_multiplier,
+    set_provider_multiplier,
+)
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
@@ -35,9 +41,11 @@ from lib.config.resolver import (
 )
 from lib.config.service import ConfigService, ProviderConfigValueError
 from lib.config.url_utils import normalize_base_url
+from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db import async_session_factory, get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
 from lib.i18n import render_message, translate_or
 from lib.infra.api_errors import BadRequestError, UnprocessableError
@@ -205,6 +213,19 @@ def _stripped(v: str | None) -> str | None:
 
 _StrippedStr = Annotated[str, AfterValidator(_stripped)]
 _StrippedOptStr = Annotated[str | None, AfterValidator(_stripped)]
+
+
+class ProviderMultiplierResponse(BaseModel):
+    """供应商倍率：``multiplier`` 是生效值，``default`` 是没有设置时的值。"""
+
+    multiplier: float
+    default: float
+
+
+class ProviderMultiplierUpdate(BaseModel):
+    """设置供应商倍率；``null`` 表示恢复默认值。"""
+
+    multiplier: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None
 
 
 class CreateCredentialRequest(BaseModel):
@@ -544,8 +565,10 @@ async def patch_provider_config(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    """更新供应商配置。值为 null 表示删除该键。"""
+    """更新供应商配置。值为 null 表示删除该键。供应商倍率只经 ``PUT /{provider_id}/multiplier`` 修改。"""
     _validate_provider(provider_id, _t)
+    if PROVIDER_MULTIPLIER_KEY in body:
+        raise HTTPException(status_code=422, detail=_t("provider_multiplier_not_in_config"))
 
     svc = ConfigService(session)
     for key, value in body.items():
@@ -568,6 +591,55 @@ async def patch_provider_config(
     await _invalidate_caches(request)
 
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# 供应商倍率
+# ---------------------------------------------------------------------------
+
+
+async def _validate_priced_provider(provider_id: str, session: AsyncSession, _t: Callable[..., str]) -> None:
+    """倍率对内置供应商与已存在的自定义供应商开放，其余抛 404。"""
+    if is_custom_provider(provider_id):
+        try:
+            db_id = parse_provider_id(provider_id)
+        except ValueError:
+            db_id = None
+        if db_id is None or await CustomProviderRepository(session).get_provider(db_id) is None:
+            raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+        return
+    _validate_provider(provider_id, _t)
+
+
+@router.get("/{provider_id}/multiplier", response_model=ProviderMultiplierResponse)
+async def get_provider_multiplier_setting(
+    provider_id: str,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ProviderMultiplierResponse:
+    """供应商倍率：乘在这个供应商全部调用的参考费用上。"""
+    await _validate_priced_provider(provider_id, session, _t)
+    return ProviderMultiplierResponse(
+        multiplier=await get_provider_multiplier(session, provider_id),
+        default=default_provider_multiplier(provider_id),
+    )
+
+
+@router.put("/{provider_id}/multiplier", response_model=ProviderMultiplierResponse)
+async def put_provider_multiplier_setting(
+    provider_id: str,
+    body: ProviderMultiplierUpdate,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ProviderMultiplierResponse:
+    """设置供应商倍率，只影响之后结算的调用；已记下的费用不重算。"""
+    await _validate_priced_provider(provider_id, session, _t)
+    await set_provider_multiplier(session, provider_id, body.multiplier)
+    await session.commit()
+    return ProviderMultiplierResponse(
+        multiplier=await get_provider_multiplier(session, provider_id),
+        default=default_provider_multiplier(provider_id),
+    )
 
 
 # ---------------------------------------------------------------------------

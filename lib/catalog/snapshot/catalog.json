@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-15T10:00:00Z",
+  "dataset_version": "2026-10-15T12:00:00Z",
   "entries": [
     {
       "maker": "google",
@@ -16,21 +16,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 200000
+                },
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 200000
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 12.0
+              },
+              {
+                "when": {
+                  "context_tier": 200000
+                },
+                "price": 18.0
               }
             ]
           }
@@ -57,6 +97,16 @@
               {
                 "when": {},
                 "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.05
               }
             ]
           },
@@ -93,6 +143,16 @@
               {
                 "when": {},
                 "price": 0.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.025
               }
             ]
           },
@@ -669,21 +729,79 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 3.2
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 4.8
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 9.6
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.64
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.96
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 1.92
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 16.0
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 24.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 48.0
               }
             ]
           }
@@ -707,21 +825,79 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.6
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.9
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 1.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.12
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.18
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.36
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 3.6
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 5.4
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 10.8
               }
             ]
           }
@@ -745,21 +921,79 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.4
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.04
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.08
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.16
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 4.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 8.0
               }
             ]
           }
@@ -1391,6 +1625,26 @@
             ]
           },
           {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.42
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.625
+              }
+            ]
+          },
+          {
             "meter": "output_tokens",
             "dims": [],
             "rows": [
@@ -1418,21 +1672,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 2.0
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 6.0
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 5.0
               }
             ]
           }
@@ -1454,21 +1748,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 2.0
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 6.0
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 5.0
               }
             ]
           }
@@ -1490,21 +1824,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 0.5
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 5.0
               }
             ]
           }
@@ -1526,21 +1900,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 0.5
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 5.0
               }
             ]
           }
@@ -2308,23 +2722,102 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
                 "price": 30.0
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 60.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 15.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
+                "price": 30.0
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 60.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 15.0
+              }
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
                 "price": 180.0
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 270.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 90.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           }
         ]
       }
@@ -2344,23 +2837,72 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard"
+                },
                 "price": 1.75
+              },
+              {
+                "when": {
+                  "service_tier": "fast"
+                },
+                "price": 3.5
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "service_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "service_tier": "standard"
+                },
+                "price": 0.175
+              },
+              {
+                "when": {
+                  "service_tier": "fast"
+                },
+                "price": 0.35
+              }
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard"
+                },
                 "price": 14.0
+              },
+              {
+                "when": {
+                  "service_tier": "fast"
+                },
+                "price": 28.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           }
         ]
       }
@@ -2380,6 +2922,16 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 20.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
             "dims": [],
             "rows": [
               {
@@ -2973,21 +3525,105 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.8
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 2.4
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 4.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.16
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.48
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 0.96
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 3.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 6.0
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 20.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 48.0
               }
             ]
           }
@@ -3009,21 +3645,81 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 0.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 10.0
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 12.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 48.0
               }
             ]
           }
@@ -3088,6 +3784,26 @@
             ]
           },
           {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.4
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 15.0
+              }
+            ]
+          },
+          {
             "meter": "output_tokens",
             "dims": [],
             "rows": [
@@ -3115,21 +3831,81 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 1.2
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 4.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.12
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 0.48
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.5
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 6.0
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 7.2
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 28.8
               }
             ]
           }
@@ -3990,21 +4766,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.1
+              },
+              {
+                "when": {
+                  "context_tier": 512000
+                },
+                "price": 4.2
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.42
+              },
+              {
+                "when": {
+                  "context_tier": 512000
+                },
+                "price": 0.84
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 8.4
+              },
+              {
+                "when": {
+                  "context_tier": 512000
+                },
+                "price": 16.8
               }
             ]
           }

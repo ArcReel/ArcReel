@@ -14,8 +14,9 @@ from lib.backends.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     TokenParam,
+    chat_completion_result,
     check_truncation,
-    merge_billed_tokens,
+    merge_billed_usage,
     resolve_schema,
     strip_leading_think_block,
     structured_fallback_reason,
@@ -134,8 +135,7 @@ class OpenAITextBackend:
                     token_param=self._max_tokens_param,
                 )
                 # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果。
-                result.input_tokens = merge_billed_tokens(result.input_tokens, native.input_tokens)
-                result.output_tokens = merge_billed_tokens(result.output_tokens, native.output_tokens)
+                merge_billed_usage(result, native)
                 return result
 
         return native
@@ -199,13 +199,8 @@ class OpenAITextBackend:
             output_tokens=output_tokens,
             structured=bool(request.response_schema),
         )
-        return TextGenerationResult(
-            text=text,
-            provider=self._provider_name,
-            model=self._model,
-            input_tokens=usage.prompt_tokens if usage else None,
-            output_tokens=output_tokens,
-            truncated=truncated,
+        return chat_completion_result(
+            text=text, provider=self._provider_name, model=self._model, usage=usage, truncated=truncated
         )
 
 

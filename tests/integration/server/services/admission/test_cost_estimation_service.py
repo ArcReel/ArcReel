@@ -1148,7 +1148,7 @@ class TestCostEstimationService:
         assert any("ep2.json" in m for m in warnings), warnings
 
     async def test_audio_estimate_per_segment_by_characters(self, db_factory):
-        """旁白配音预估 = novel_text 字符数 × 项目 TTS 快照模型的按字符费率；models 含 audio 条目。"""
+        """旁白配音预估与结算同一个计算器：novel_text 按条目的「汉字计 2」统计字符数；models 含 audio 条目。"""
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)
 
@@ -1169,13 +1169,13 @@ class TestCostEstimationService:
 
         assert result["models"]["audio"] == {"provider": "dashscope", "model": "qwen3-tts-flash"}
         segments = result["episodes"][0]["segments"]
-        # qwen3-tts-flash 按 ¥0.8/万字符：100 字 → 0.008 CNY
-        assert segments[0]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
+        # qwen3-tts-flash 按 ¥0.8/万字符、汉字计 2：100 个汉字计 200 字符 → 0.016 CNY
+        assert segments[0]["estimate"]["audio"]["CNY"] == pytest.approx(0.016)
         # 无原文的段不产生旁白预估
         assert segments[1]["estimate"]["audio"] == {}
         # 集/项目两级合计纳入 audio
-        assert result["episodes"][0]["totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
-        assert result["project_totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.008)
+        assert result["episodes"][0]["totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.016)
+        assert result["project_totals"]["estimate"]["audio"]["CNY"] == pytest.approx(0.016)
 
     async def test_post_production_project_has_no_audio_estimate(self, db_factory):
         """后期配音项目即使保留着 TTS 快照也不产生旁白配音预估，全局默认同样不参与。"""

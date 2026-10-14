@@ -14,7 +14,10 @@ from typing import Any, Literal
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.billing.catalog_pricing import price_builtin_call
 from lib.billing.cost_calculator import cost_calculator
+from lib.billing.metering import Priced, Usage
+from lib.billing.multipliers import get_provider_multiplier
 from lib.billing.pricing.strategies import PricingParams
 from lib.config.resolver import (
     ConfigResolver,
@@ -387,6 +390,7 @@ class CostEstimationService:
             custom_repo = CustomProviderRepository(session)
             image_price = await custom_repo.resolve_price(image_provider, image_model)
             audio_price = await custom_repo.resolve_price(audio_provider, audio_model)
+            audio_multiplier = await get_provider_multiplier(session, audio_provider)
             # 两个桶常解析到同一个模型，按身份去重后再查单价，不重复打 DB。
             video_prices: dict[tuple[str, str], Any] = {}
             for bucket_provider, bucket_model, _, _ in video_identity.values():
@@ -601,10 +605,26 @@ class CostEstimationService:
                     except ValueError:
                         logger.debug("无法计算 video 预估 for %s", seg_id, exc_info=True)
 
-                # 旁白配音按 novel_text 字符数估价（仅旁白/解说 segment 携带原文）
+                # 旁白配音按 novel_text 估价（仅旁白/解说 segment 携带原文）
                 novel_text = seg.get("novel_text")
-                narration_chars = len(novel_text.strip()) if isinstance(novel_text, str) else 0
-                if narration_chars:
+                narration_text = novel_text.strip() if isinstance(novel_text, str) else ""
+                narration_chars = len(narration_text)
+                if narration_chars and tts_settings is not None and not is_custom_provider(audio_provider):
+                    # 内置供应商与结算同一个目录查询与计算器：字符数按价目表的「汉字计 2」统计；按 token
+                    # 计价的模型没有估算函数，记为未定价
+                    audio_cost = price_builtin_call(
+                        provider=audio_provider,
+                        model=audio_model,
+                        media_type="audio",
+                        requests=(Usage(text=narration_text),),
+                        provider_multiplier=audio_multiplier,
+                        estimate=True,
+                    )
+                    if isinstance(audio_cost, Priced):
+                        _add_cost(est_audio, audio_cost.amount, audio_cost.currency)
+                    else:
+                        estimate_unpriced["audio", audio_provider, audio_model] += 1
+                elif narration_chars:
                     if audio_unpriced:
                         estimate_unpriced["audio", audio_provider, audio_model] += 1
                     try:

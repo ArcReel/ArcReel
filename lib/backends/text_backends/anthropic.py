@@ -28,7 +28,7 @@ from lib.backends.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     check_truncation,
-    merge_billed_tokens,
+    merge_billed_usage,
     prompt_json_fallback,
     resolve_schema,
     structured_fallback_reason,
@@ -113,8 +113,7 @@ class AnthropicTextBackend:
                 )
                 result = await self._prompt_json_fallback(request)
                 # 这次原生 200 调用已被计费，把它的 token 并入降级结果。
-                result.input_tokens = merge_billed_tokens(result.input_tokens, native.input_tokens)
-                result.output_tokens = merge_billed_tokens(result.output_tokens, native.output_tokens)
+                merge_billed_usage(result, native)
                 return result
 
         return native
@@ -160,10 +159,14 @@ class AnthropicTextBackend:
             raise
 
         usage = message.usage
-        # 现有字段只有总输入：Anthropic 的 input_tokens 不含缓存，缓存读写须加回。
-        input_tokens = (
-            usage.input_tokens + (usage.cache_read_input_tokens or 0) + (usage.cache_creation_input_tokens or 0)
-        )
+        # Anthropic 的 input_tokens 不含缓存读写：总输入须加回缓存读与缓存写。缓存写按 TTL 分两档上报；
+        # 没有分档明细时按默认的 5 分钟档计。
+        cache_read = usage.cache_read_input_tokens or 0
+        cache_write = usage.cache_creation_input_tokens or 0
+        breakdown = usage.cache_creation
+        cache_write_1h = breakdown.ephemeral_1h_input_tokens if breakdown is not None else 0
+        cache_write_5m = breakdown.ephemeral_5m_input_tokens if breakdown is not None else cache_write
+        input_tokens = usage.input_tokens + cache_read + cache_write
         text = "".join(block.text for block in message.content if block.type == "text").strip()
         truncated = check_truncation(
             message.stop_reason,
@@ -179,6 +182,9 @@ class AnthropicTextBackend:
             input_tokens=input_tokens,
             output_tokens=usage.output_tokens,
             truncated=truncated,
+            cache_read_tokens=cache_read,
+            cache_write_5m_tokens=cache_write_5m,
+            cache_write_1h_tokens=cache_write_1h,
         )
 
 
