@@ -378,6 +378,7 @@ class TestAudioCallSettlement:
                 assert [row.call_type for row in stored] == ["audio"]
                 # audio 按字符冻结费用（非 0）
                 assert stored[0].currency == "CNY"
+                assert stored[0].cost_amount is not None
                 assert stored[0].cost_amount > 0
         finally:
             await engine.dispose()

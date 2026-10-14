@@ -734,7 +734,7 @@ class UsageRepository(BaseRepository):
                 model=row.model,
                 status=row.status,
                 started_at=row.started_at,
-                cost_amount=row.cost_amount or 0.0,
+                cost_amount=row.cost_amount,
                 currency=row.currency or "USD",
                 segment_id=row.segment_id,
                 error_code=row.error_code,

@@ -164,6 +164,10 @@ def _expected_row(**overrides: Any) -> dict[str, Any]:
         "text_input_tokens": None,
         "text_output_tokens": None,
         "last_provider_response": None,
+        "unpriced_reason": None,
+        "cache_read_tokens": None,
+        "cache_write_5m_tokens": None,
+        "cache_write_1h_tokens": None,
     }
     row.update(overrides)
     return row

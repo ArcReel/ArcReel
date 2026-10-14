@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import null
 
 from lib.backends.providers import CallStatus
 from lib.db.models.api_call import ApiCall
@@ -95,6 +96,48 @@ async def records_client(db_factory, monkeypatch):
         await session.commit()
 
     return build_client(db_factory, monkeypatch)
+
+
+class TestUnpricedCost:
+    @pytest.fixture
+    async def unpriced_client(self, db_factory, monkeypatch):
+        async with db_factory() as session:
+            session.add_all(
+                [
+                    make_call(segment_id="null", cost_amount=null()),
+                    make_call(segment_id="zero", cost_amount=0.0, started_at=BASE_TIME + timedelta(minutes=1)),
+                    make_call(segment_id="paid", cost_amount=1.5, started_at=BASE_TIME + timedelta(minutes=2)),
+                ]
+            )
+            await session.commit()
+        return build_client(db_factory, monkeypatch)
+
+    def test_records_distinguish_null_from_zero(self, unpriced_client):
+        items = unpriced_client.get("/api/v1/usage/records").json()["items"]
+
+        assert {item["segment_id"]: item["cost_amount"] for item in items} == {
+            "null": None,
+            "zero": 0.0,
+            "paid": 1.5,
+        }
+
+    def test_detail_with_null_cost(self, unpriced_client):
+        record_id = next(
+            item["id"]
+            for item in unpriced_client.get("/api/v1/usage/records").json()["items"]
+            if item["segment_id"] == "null"
+        )
+
+        response = unpriced_client.get(f"/api/v1/usage/records/{record_id}")
+
+        assert response.status_code == 200
+        assert response.json()["cost_amount"] is None
+
+    def test_summary_totals_skip_null(self, unpriced_client):
+        body = unpriced_client.get("/api/v1/usage/summary").json()
+
+        assert body["kpi"]["calls"] == 3
+        assert body["kpi"]["cost"] == {"USD": 1.5}
 
 
 class TestUsageRecordsList:

@@ -63,7 +63,8 @@ class UsageRecord(BaseModel):
     started_at: str
     finished_at: str | None = None
     duration_ms: int | None = None
-    cost_amount: float
+    # None 表示未定价；0 是定价为零。
+    cost_amount: float | None
     currency: str
     input_tokens: int | None = None
     output_tokens: int | None = None

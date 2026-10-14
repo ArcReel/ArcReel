@@ -47,7 +47,8 @@ class UsageSummaryRow:
     model: str
     status: str
     started_at: datetime
-    cost_amount: float
+    # None 表示未定价：不计入任何金额合计。
+    cost_amount: float | None
     currency: str
     segment_id: str | None
     error_code: str | None
@@ -106,8 +107,8 @@ class _StatsAccumulator:
             self.failed += 1
         elif row.status == CallStatus.CANCELLED:
             self.cancelled += 1
-        # 参考费用汇总所有 cost_amount > 0 的终态行，不看状态——失败的调用一样可能被计费。
-        if row.cost_amount > 0:
+        # 参考费用汇总所有 cost_amount > 0 的终态行（NULL 即未定价，不计），不看状态——失败的调用一样可能被计费。
+        if row.cost_amount is not None and row.cost_amount > 0:
             self.cost[row.currency] = self.cost.get(row.currency, 0.0) + row.cost_amount
 
     @property
@@ -183,7 +184,12 @@ def _daily_buckets(
         if row.status in counts[day]:
             counts[day][row.status] += 1
         # 堆叠柱只能落在一种币种上，取主币种；其余币种的金额不混进来，也不做汇率折算。
-        if row.cost_amount > 0 and row.currency == primary_currency and row.media_type in costs[day]:
+        if (
+            row.cost_amount is not None
+            and row.cost_amount > 0
+            and row.currency == primary_currency
+            and row.media_type in costs[day]
+        ):
             costs[day][row.media_type] += row.cost_amount
 
     first, last = window

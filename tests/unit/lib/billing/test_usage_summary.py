@@ -34,7 +34,7 @@ def row(
     media_type: str = "image",
     provider: str = "gemini",
     model: str = "flash",
-    cost_amount: float = 0.0,
+    cost_amount: float | None = 0.0,
     currency: str = "USD",
     segment_id: str | None = None,
 ) -> UsageSummaryRow:
@@ -142,3 +142,27 @@ class TestAttentionOrdering:
             row(index=3, status=CallStatus.CANCELLED, cost_amount=0.0),
         ]
         assert summarize(rows)["kpi"]["cost"] == {"USD": 0.123457}
+
+    def test_unpriced_rows_stay_out_of_every_cost_total(self):
+        """费用为 NULL（未定价）的行不报错，也不进合计、构成与日桶金额；混合 NULL、0 与正数。"""
+        rows = [
+            row(index=1, cost_amount=None, provider="ark", model="a"),
+            row(index=2, cost_amount=0.0, provider="ark", model="a"),
+            row(index=3, cost_amount=0.5, provider="ark", model="a"),
+            row(index=4, cost_amount=None, provider="gemini", model="b"),
+        ]
+        body = summarize(rows)
+
+        assert body["kpi"]["calls"] == 4
+        assert body["kpi"]["cost"] == {"USD": 0.5}
+        assert body["primary_currency"] == "USD"
+        assert body["daily"][0]["cost_by_media_type"]["image"] == 0.5
+        by_provider = {item["provider"]: item for item in body["breakdown"]["provider"]["rows"]}
+        assert by_provider["ark"]["cost"] == {"USD": 0.5}
+        assert by_provider["gemini"]["calls"] == 1
+        assert by_provider["gemini"]["cost"] == {}
+
+    def test_only_unpriced_rows_have_no_primary_currency(self):
+        body = summarize([row(index=1, cost_amount=None), row(index=2, cost_amount=None)])
+        assert body["primary_currency"] is None
+        assert body["kpi"]["cost"] == {}

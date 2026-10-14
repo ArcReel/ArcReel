@@ -6,7 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import null, select, update
 
 from lib.backends.providers import CallStatus
 from lib.db.base import DEFAULT_USER_ID, utc_now
@@ -14,6 +14,7 @@ from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
 from lib.db.repositories.usage_repo import (
     MAX_PROVIDER_RESPONSE_BYTES,
+    PROJECT_LEVEL_SEGMENT_KEY,
     SettlementInput,
     UsageCursor,
     UsageCursorError,
@@ -147,6 +148,7 @@ class TestFinalizePendingByCallId:
         calls = await stored_calls(async_session)
         # auto-calc 由 cost_calculator 按 model/duration/resolution/audio 算出，应为正数
         assert calls[0].status == "success"
+        assert calls[0].cost_amount is not None
         assert calls[0].cost_amount > 0.0, "auto-calc 应算出真实 cost，不应是 0"
 
     async def test_service_tier_passed_to_cost_calculator(self, async_session, monkeypatch):
@@ -934,6 +936,88 @@ class TestSummaryQueriesRespectScope:
 
         rows = await repo.fetch_summary_rows()
         assert [row.id for row in rows] == [done]
+
+
+class TestNullCostReadPaths:
+    """cost_amount 为 NULL 表示未定价：读路径不报错，NULL 不进合计，也不与 0 混为一谈。"""
+
+    async def _seed_mixed(self, async_session) -> None:
+        async_session.add_all(
+            [
+                make_call(segment_id="S1", cost_amount=null(), unpriced_reason="no_price"),
+                make_call(segment_id="S1", cost_amount=0.0),
+                make_call(segment_id="S1", cost_amount=1.25),
+                make_call(segment_id="S1", cost_amount=0.75),
+                make_call(segment_id="S2", cost_amount=null()),
+                make_call(segment_id=None, cost_amount=null(), output_path="characters/a.png"),
+                make_call(segment_id=None, cost_amount=2.0, output_path="characters/b.png"),
+            ]
+        )
+        await async_session.commit()
+
+    async def test_actual_costs_by_segment_skip_null_and_zero(self, async_session):
+        await self._seed_mixed(async_session)
+
+        costs = await UsageRepository(async_session).get_actual_costs_by_segment("demo")
+
+        assert costs == {
+            "S1": {"image": {"USD": 2.0}},
+            PROJECT_LEVEL_SEGMENT_KEY: {"image": {"USD": 2.0}},
+        }
+
+    async def test_project_image_costs_skip_null(self, async_session):
+        await self._seed_mixed(async_session)
+
+        costs = await UsageRepository(async_session).get_project_image_costs_by_asset_type("demo")
+
+        assert costs == {"characters": {"USD": 2.0}}
+
+    async def test_zero_cost_calls_by_model_still_counts_null_rows(self, async_session):
+        await self._seed_mixed(async_session)
+
+        rows = await UsageRepository(async_session).get_zero_cost_calls_by_model("demo")
+
+        assert rows == [("image", "gemini", "gemini-3.1-flash-image-preview", 4)]
+
+    async def test_summary_rows_keep_null_distinct_from_zero(self, async_session):
+        async_session.add_all([make_call(cost_amount=null()), make_call(cost_amount=0.0), make_call(cost_amount=3.0)])
+        await async_session.commit()
+
+        rows = await UsageRepository(async_session).fetch_summary_rows()
+
+        assert sorted(row.cost_amount is None for row in rows) == [False, False, True]
+        assert sorted(row.cost_amount for row in rows if row.cost_amount is not None) == [0.0, 3.0]
+
+    async def test_records_list_and_detail_return_null_cost(self, async_session):
+        async_session.add(
+            make_call(
+                cost_amount=null(),
+                unpriced_reason="no_price",
+                cache_read_tokens=7,
+                cache_write_5m_tokens=3,
+                cache_write_1h_tokens=2,
+            )
+        )
+        await async_session.commit()
+        repo = UsageRepository(async_session)
+
+        page = await repo.list_records()
+        detail = await repo.get_record(page["items"][0]["id"])
+
+        assert page["items"][0]["cost_amount"] is None
+        assert detail is not None
+        assert detail["cost_amount"] is None
+
+    async def test_write_path_still_records_priced_cost(self, async_session):
+        """现有写入路径不变：结算后的费用是数值（含 0），新列留空。"""
+        repo = UsageRepository(async_session)
+        call_id = await repo.start_call(project_name="demo", call_type="image", model="m")
+        await repo.finish_call(call_id, status="success", settlement=SettlementInput(cost_amount=0.0))
+
+        (row,) = await stored_calls(async_session)
+        assert row.cost_amount == 0.0
+        assert (row.unpriced_reason, row.cache_read_tokens) == (None, None)
+        assert (row.cache_write_5m_tokens, row.cache_write_1h_tokens) == (None, None)
 
 
 class TestSettleInterruptedPendingCalls:
