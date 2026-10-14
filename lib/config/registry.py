@@ -1626,26 +1626,3 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         default_concurrency={"video": 1},
     ),
 }
-
-
-def model_info_for(provider_id: str, model_id: str) -> ModelInfo | None:
-    """返回该 (provider, model) 的 ``ModelInfo``；provider 或 model 未登记时 None。
-
-    供 backend 读取本模型的能力/约束声明，把 registry 作为约束的单一真相源。未登记的
-    路径（自定义供应商包装、中转站、下线型号）返回 None，由调用方自行兜底。
-    """
-    meta = PROVIDER_REGISTRY.get(provider_id)
-    if meta is None:
-        return None
-    return meta.models.get(model_id)
-
-
-def default_model_for_provider(provider_id: str, media_type: str) -> str | None:
-    """返回该 provider 在 ``PROVIDER_REGISTRY`` 中指定 media_type 的默认 model_id；无则 None。"""
-    meta = PROVIDER_REGISTRY.get(provider_id)
-    if meta is None:
-        return None
-    for model_id, model_info in meta.models.items():
-        if model_info.media_type == media_type and model_info.default:
-            return model_id
-    return None

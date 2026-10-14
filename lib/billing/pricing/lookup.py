@@ -58,24 +58,24 @@ def _gemini_default_pricing_for(media_type: str, model: str | None = None) -> Pr
     ``veo-3.1-generate-001`` 这类历史调用），未命中再回落 aistudio 该媒体类型的默认模型——
     历史上所有 Gemini 家族 provider 共用同一通用默认（如视频 veo-3.1-lite），故按 aistudio
     的 ``default=True`` 取，避免按各 provider 自身默认（如 vertex 视频默认是 fast-001）算错价。"""
-    # registry 导入放函数内：lib.config 包初始化会拉起 resolver→usage_repo→cost_calculator，
+    # 目录查询导入放函数内：它经注册表拉起 dashscope_shared→usage_repo→cost_calculator，
     # 与本模块（被 cost_calculator 导入）构成导入环；延迟到调用时导入即可避开。
-    from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
+    from lib.catalog import query as catalog
 
     if model is not None:
         for provider_id in ("gemini-aistudio", "gemini-vertex"):
-            info = PROVIDER_REGISTRY[provider_id].models.get(model)
-            if info is not None and info.pricing is not None and info.media_type == media_type:
-                return info.pricing
+            info = catalog.get_model(provider_id, model)
+            pricing = catalog.model_pricing(provider_id, model)
+            if info is not None and pricing is not None and info.media_type == media_type:
+                return pricing
 
-    meta = PROVIDER_REGISTRY["gemini-aistudio"]
-    # 默认模型取 registry 的 default=True 单一真相源，避免与硬编码模型名漂移。
+    # 默认模型取模型目录的默认模型单一真相源，避免与硬编码模型名漂移。
     for fallback_media in (media_type, "text"):
-        model_id = default_model_for_provider("gemini-aistudio", fallback_media)
+        model_id = catalog.default_model("gemini-aistudio", fallback_media)
         if model_id is not None:
-            info = meta.models.get(model_id)
-            if info is not None and info.pricing is not None:
-                return info.pricing
+            pricing = catalog.model_pricing("gemini-aistudio", model_id)
+            if pricing is not None:
+                return pricing
     raise RuntimeError("gemini-aistudio 缺少可用于兜底的默认模型定价声明")
 
 
@@ -87,18 +87,19 @@ def lookup_pricing(provider: str, model: str | None, media_type: str) -> Pricing
         # provider 级判定：不经 model→pricing 回落，确保策略拿到原始 model 透传给 vidu 计费。
         return ViduDelegate()
 
-    from lib.config.registry import PROVIDER_REGISTRY, default_model_for_provider
+    from lib.catalog import query as catalog
+    from lib.config.registry import PROVIDER_REGISTRY
 
-    meta = PROVIDER_REGISTRY.get(provider)
-    if meta is None:
+    if provider not in PROVIDER_REGISTRY:
         return _gemini_default_pricing_for(media_type, model)
 
-    info = meta.models.get(model) if model is not None else None
+    info = catalog.get_model(provider, model) if model is not None else None
+    pricing = catalog.model_pricing(provider, model) if model is not None else None
     # 必须媒体类型匹配才命中：历史按 call_type 分表，模型名只在本模态费率表内查。跨模态的
     # (model, call_type) 组合（如 video 调用带着图像模型名）应回落到当前媒体类型的默认模型，
     # 而非按该模型自身的异模态费率计价。
-    if info is not None and info.media_type == media_type and info.pricing is not None:
-        return info.pricing
+    if info is not None and info.media_type == media_type and pricing is not None:
+        return pricing
 
     # 未知 model 名很可能是配置/调用错误，告警；媒体类型与调用不符同样告警（将按默认模型计价）；
     # 已知 model 但定价为 None（如 Agent Plan 套餐）是预期的 Gemini 兜底，降级到 debug 避免噪声。
@@ -112,15 +113,15 @@ def lookup_pricing(provider: str, model: str | None, media_type: str) -> Pricing
             info.media_type,
             media_type,
         )
-    elif info is not None and info.pricing is None:
+    elif info is not None and pricing is None:
         logger.debug("pricing lookup: provider=%s model=%s 未声明定价，回落到默认模型费率", provider, model)
 
     # ark/grok/openai 各有专属费率表 → 未知 model 回落到该 provider 的默认模型；
     # 其余（gemini 家族等）回落 Gemini 通用默认费率，与历史路由一致。
     if provider in _OWN_TABLE_PROVIDERS:
-        default_model = default_model_for_provider(provider, media_type)
+        default_model = catalog.default_model(provider, media_type)
         if default_model is not None:
-            default_info = meta.models.get(default_model)
-            if default_info is not None and default_info.pricing is not None:
-                return default_info.pricing
+            default_pricing = catalog.model_pricing(provider, default_model)
+            if default_pricing is not None:
+                return default_pricing
     return _gemini_default_pricing_for(media_type, model)

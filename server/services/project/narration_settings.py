@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider
@@ -44,12 +45,11 @@ def validate_tts_backend(value: str) -> str:
     if pair is None:
         raise NarrationConfigError("narration_tts_model_required")
     provider_id, model_id = pair
-    provider = PROVIDER_REGISTRY.get(provider_id)
-    if provider is None:
+    if provider_id not in PROVIDER_REGISTRY:
         if not is_custom_provider(provider_id):
             raise NarrationConfigError("narration_tts_model_invalid")
     else:
-        model = provider.models.get(model_id)
+        model = catalog.get_model(provider_id, model_id)
         if model is not None and model.media_type != "audio":
             raise NarrationConfigError("narration_tts_model_invalid")
     return f"{provider_id}/{model_id}"

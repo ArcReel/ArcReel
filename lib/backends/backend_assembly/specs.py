@@ -21,6 +21,8 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from lib.backends.kling_shared import kling_auth_mode
+from lib.backends.providers import PROVIDER_KLING
+from lib.catalog import query as catalog
 
 if TYPE_CHECKING:
     from arcreel_market_core.video_backend_contract import VideoCapabilities
@@ -252,8 +254,8 @@ def _build_kling(config: LoadedConfig, model_id: str | None, *, media_type: str)
             "model": model_id,
         }
     if media_type == "image":
-        # 两栖别名键读 registry api_model_name 发真实 API 名；video backend 不接受该参数，仅 image 注入。
-        model_info = config.provider_meta.models.get(model_id) if (config.provider_meta and model_id) else None
+        # 两栖别名键读模型目录的 api_model_name 发真实 API 名；video backend 不接受该参数，仅 image 注入。
+        model_info = catalog.get_model(PROVIDER_KLING, model_id) if model_id else None
         if model_info is not None and model_info.api_model_name:
             kwargs["api_model_name"] = model_info.api_model_name
     base_url = _resolve_base_url(config)

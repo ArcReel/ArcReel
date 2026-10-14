@@ -36,7 +36,8 @@ from starlette.datastructures import FormData, UploadFile
 
 from arcreel_market_core.endpoint_definition import AssetData, DefinitionDiagnostics, validate_definition
 from lib.backends.backend_assembly.specs import builtin_declarative_video_diagnostics
-from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta, model_info_for
+from lib.catalog import query as catalog
+from lib.config.registry import PROVIDER_REGISTRY, ProviderMeta
 from lib.config.resolver import ConfigResolver
 from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.custom_provider.comfyui.failures import ComfyuiError
@@ -558,7 +559,7 @@ async def _model_ref_target(
     if not is_custom_provider(model_ref.provider_id):
         # 内置供应商同样要先核模型行：未登记的 model 会让装配层落到该供应商的默认视频模型，
         # 已登记的非视频 model（如文本档）则会被派发到视频端点——两种都会付费打给另一个模型。
-        info = model_info_for(model_ref.provider_id, model_ref.model_id)
+        info = catalog.get_model(model_ref.provider_id, model_ref.model_id)
         if info is None:
             raise NotFoundError("model_not_found")
         if info.media_type != "video":

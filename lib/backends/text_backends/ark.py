@@ -43,17 +43,14 @@ class ArkTextBackend:
         self._capabilities: set[TextCapability] = self._resolve_capabilities()
 
     def _resolve_capabilities(self) -> set[TextCapability]:
-        """根据 PROVIDER_REGISTRY 中的模型声明构建能力集合。"""
-        from lib.config.registry import PROVIDER_REGISTRY
+        """根据模型目录中的模型声明构建能力集合。"""
+        from lib.catalog import query as catalog
 
         base = {TextCapability.TEXT_GENERATION, TextCapability.VISION}
         # 同一 backend 类同时服务 ark 与 ark-agent-plan，模型 ID 命名格式不同，
         # 任一 provider 命中即可解析 STRUCTURED_OUTPUT。
         for provider_id in ("ark", "ark-agent-plan"):
-            provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta is None:
-                continue
-            model_info = provider_meta.models.get(self._model)
+            model_info = catalog.get_model(provider_id, self._model)
             if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
                 base.add(TextCapability.STRUCTURED_OUTPUT)
                 break

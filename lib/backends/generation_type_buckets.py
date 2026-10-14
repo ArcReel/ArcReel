@@ -2,13 +2,13 @@
 
 判定来源逐桶固定：
 
-- 内置图片：registry ``ModelInfo.capabilities`` 的 ``text_to_image`` / ``image_to_image``；
+- 内置图片：模型目录 ``CatalogModel.capabilities`` 的 ``text_to_image`` / ``image_to_image``；
 - 内置视频：backend ``VideoCapabilities``，i2v 取 ``first_frame``、r2v 取 ``max_reference_images``；
 - 自定义供应商图片：endpoint spec 的 ``image_capabilities``；
 - 自定义供应商视频：endpoint 系统判定 ⊕ 模型级覆盖的既有合成点，同样取 ``first_frame`` 与
   ``max_reference_images``。
 
-内置视频两个维度取 backend 而非 registry ``ModelInfo``：backend 的能力声明与请求构造同源
+内置视频两个维度取 backend 而非模型目录：backend 的能力声明与请求构造同源
 （例如 ``vidu`` 按端点白名单算 caps，白名单外的 model 提交首帧会在构造请求时报错），registry
 不声明这两维。桶承诺的是「选中的组合执行得了」，故以执行期同源的那一份为准。视频两维的判定式本身由
 ``lib.config.resolver.video_capability_satisfied`` 提供，与解析层的能力闸共用同一份，两处不会漂。
@@ -23,7 +23,7 @@ from typing import Literal
 
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.image_backends.base import ImageCapability
-from lib.config.registry import ModelInfo
+from lib.catalog.query import CatalogModel
 from lib.config.resolver import video_capability_satisfied
 from lib.custom_provider.capabilities import synthesize_video_capabilities
 from lib.custom_provider.endpoints import EndpointSpec, endpoint_to_image_capabilities, endpoint_to_media_type
@@ -56,7 +56,7 @@ def _video_buckets(has_i2v: bool, max_reference_images: int) -> frozenset[Genera
     )
 
 
-def builtin_model_buckets(provider_id: str, model_id: str, model_info: ModelInfo) -> frozenset[GenerationTypeBucket]:
+def builtin_model_buckets(provider_id: str, model_id: str, model_info: CatalogModel) -> frozenset[GenerationTypeBucket]:
     """内置模型具备的任务类型桶；文本 / 音频模型恒为空集。"""
     if model_info.media_type == "image":
         return _image_buckets_from_capabilities(

@@ -4,7 +4,8 @@ from typing import ClassVar
 
 import pytest
 
-from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta, default_model_for_provider
+from lib.catalog.query import default_model
+from lib.config.registry import PROVIDER_REGISTRY, ModelInfo, ProviderMeta
 
 
 class TestModelInfo:
@@ -214,9 +215,9 @@ class TestProviderRegistry:
         assert meta.models["agnes-video-2.5"].resolutions == ["720p", "1080p", "2K"]
         assert "agnes-image-2.0-flash" not in meta.models
 
-        assert default_model_for_provider("agnes", "text") == "agnes-3.0-flash"
-        assert default_model_for_provider("agnes", "image") == "agnes-image-2.5-flash"
-        assert default_model_for_provider("agnes", "video") == "agnes-video-2.5-flash"
+        assert default_model("agnes", "text") == "agnes-3.0-flash"
+        assert default_model("agnes", "image") == "agnes-image-2.5-flash"
+        assert default_model("agnes", "video") == "agnes-video-2.5-flash"
 
     def test_dashscope_video_models_include_happyhorse_11(self):
         meta = PROVIDER_REGISTRY["dashscope"]

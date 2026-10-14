@@ -44,18 +44,19 @@ def build_display_names(
     custom_providers: Mapping[str, str],
     custom_models: Mapping[tuple[str, str], str],
 ) -> DisplayNames:
-    """在注册表的内置名称之上合入自定义供应商与模型的名称，按 ``locale`` 成文。
+    """在注册表与模型目录的内置名称之上合入自定义供应商与模型的名称，按 ``locale`` 成文。
 
-    内置供应商与模型的名称有译名表的按语言翻译，没有的用注册表原名；已隐藏的模型同样收录，
+    内置供应商与模型的名称有译名表的按语言翻译，没有的用注册表与模型目录的原名；已隐藏的模型同样收录，
     旧失败记录仍可能引用它们。
     """
+    from lib.catalog import query as catalog  # 同 _builtin_provider_name
     from lib.config.registry import PROVIDER_REGISTRY  # 同 _builtin_provider_name
 
     providers: dict[str, str] = dict(_LEGACY_PROVIDER_DISPLAY_NAMES)
     models: dict[tuple[str, str], str] = {}
     for provider_id, meta in PROVIDER_REGISTRY.items():
         providers[provider_id] = translate_or(f"provider_name_{provider_id}", meta.display_name, locale)
-        for model_id, info in meta.models.items():
+        for model_id, info in catalog.list_models(provider_id).items():
             models[(provider_id, model_id)] = translate_or(
                 f"model_name_{provider_id}_{model_id}", info.display_name, locale
             )

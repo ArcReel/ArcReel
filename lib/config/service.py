@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import math
-from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_market_core.video_backend_contract import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
+from lib.catalog import query as catalog
 from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
@@ -111,7 +111,7 @@ class ProviderStatus:
     required_keys: list[str]
     # 凭证（界面称「密钥」）条数，供设置页二级栏显示「已配置 N 个密钥」。
     credential_count: int
-    models: dict[str, dict] | None = None  # model_id -> ModelInfo dict representation
+    models: dict[str, dict] | None = None  # model_id -> CatalogModel 的 dict 形态
 
 
 class ConfigService:
@@ -158,21 +158,16 @@ class ConfigService:
         statuses = []
         for name, meta in PROVIDER_REGISTRY.items():
             status: Literal["ready", "unconfigured", "error"] = "ready" if name in active_creds else "unconfigured"
-            # 先按 __dict__ 排除 pricing（其费率含 tuple 键，非 JSON 可序列化且响应不消费；
-            # 用 __dict__ 而非 asdict 以免递归转换 pricing 后又被丢弃），再 deepcopy 其余可变容器
-            # 字段（list/dict），避免返回值与全局 PROVIDER_REGISTRY 共享引用被调用方意外改写。
-            models_dict = {
-                mid: deepcopy({k: v for k, v in mi.__dict__.items() if k != "pricing"})
-                for mid, mi in meta.models.items()
-            }
+            # asdict 深拷贝 list/dict 字段，返回值不与模型目录共享引用，调用方改写不会波及目录。
+            models_dict = {mid: asdict(mi) for mid, mi in catalog.list_models(name).items()}
             statuses.append(
                 ProviderStatus(
                     name=name,
                     display_name=meta.display_name,
                     description=meta.description,
                     status=status,
-                    media_types=list(meta.media_types),
-                    capabilities=list(meta.capabilities),
+                    media_types=catalog.provider_media_types(name),
+                    capabilities=catalog.provider_capabilities(name),
                     required_keys=list(meta.required_keys),
                     credential_count=credential_counts.get(name, 0),
                     models=models_dict,

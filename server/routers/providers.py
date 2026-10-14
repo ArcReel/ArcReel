@@ -22,6 +22,7 @@ from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.gemini_shared import VERTEX_SCOPES
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import (
@@ -528,7 +529,7 @@ async def get_provider_config(
         display_name=translate_or(f"provider_name_{provider_id}", meta.display_name, locale),
         description=_t(f"provider_desc_{provider_id}"),
         status=status,
-        media_types=list(meta.media_types),
+        media_types=catalog.provider_media_types(provider_id),
         fields=fields,
         supports_base_url="base_url" in meta.optional_keys,
         secret_fields=secret_fields,

@@ -33,6 +33,7 @@ from lib.backends.generation_type_buckets import (
     custom_model_buckets,
 )
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
@@ -197,7 +198,7 @@ async def _enumerate_candidates(
         if provider_id not in ready_providers:
             continue
         provider_names[provider_id] = translate_or(f"provider_name_{provider_id}", meta.display_name, locale)
-        for model_id, model_info in meta.models.items():
+        for model_id, model_info in catalog.list_models(provider_id).items():
             if model_info.hidden:
                 continue
             candidates.append(

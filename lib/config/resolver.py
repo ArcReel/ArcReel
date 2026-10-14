@@ -27,11 +27,8 @@ from lib.backends.backend_assembly.specs import (
     builtin_video_capabilities_for_model,
 )
 from lib.backends.text_backends.base import TEXT_TASK_TIERS, VISION_REQUIRED_TASKS, TextTaskTier, TextTaskType
-from lib.config.registry import (
-    PROVIDER_REGISTRY,
-    default_model_for_provider,
-    model_info_for,
-)
+from lib.catalog import query as catalog
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import (
     _DEFAULT_AUDIO_BACKEND,
     _DEFAULT_IMAGE_BACKEND,
@@ -128,7 +125,7 @@ def _parse_project_provider(raw: object, media_type: str) -> tuple[str, str] | N
         # 裸供应商，或带尾斜杠缺 model 的脏值（如 "openai/"）→ 取该供应商默认 model
         provider = raw.strip().rstrip("/").strip()
         if provider:
-            model = default_model_for_provider(provider, media_type)
+            model = catalog.default_model(provider, media_type)
             if model is not None:
                 return provider, model
     return None
@@ -151,13 +148,13 @@ def _trusted_payload_provider(provider_id: object) -> str | None:
 
 
 def _payload_model_or_default(raw_model: object, provider_id: str, media_type: str) -> str | None:
-    """payload 显式 model（非空字符串）优先；缺失则补该 provider 的 registry 默认 model。
+    """payload 显式 model（非空字符串）优先；缺失则补该 provider 在模型目录中的默认 model。
 
     避免「半截 payload」（只有 provider、缺 model）把空 model 带到执行层。补不出默认 model 时
     返回 None，由调用方回退 project/global。"""
     if isinstance(raw_model, str) and raw_model.strip():
         return raw_model.strip()
-    return default_model_for_provider(provider_id, media_type)
+    return catalog.default_model(provider_id, media_type)
 
 
 @dataclass(frozen=True)
@@ -366,8 +363,7 @@ def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_typ
     None 的三种成因都归到「无信号」：供应商不在注册表（自定义供应商走
     ``synthesize_video_capabilities``，不经本函数）、该 model 不是视频模型、backend 未声明能力。
     """
-    provider_meta = PROVIDER_REGISTRY.get(provider_id)
-    model_info = provider_meta.models.get(model_id) if provider_meta is not None else None
+    model_info = catalog.get_model(provider_id, model_id)
     if model_info is None or model_info.media_type != "video":
         return None
     try:
@@ -501,7 +497,7 @@ def _clean_resolution(value: object, *, field: str) -> str | None:
 # 时长联动约束
 #
 # 时长并非只由 supported_durations 决定：部分型号（当前是 Veo 全系与 MiniMax 海螺）在高分辨率
-# 或参考图路径下把时长收窄到单一取值，声明在 registry 的 ModelInfo 上（单一真相源）。这里是
+# 或参考图路径下把时长收窄到单一取值，声明在模型目录上（单一真相源）。这里是
 # 后端唯一的消费入口——候选集合在交给 LLM、写进动态 schema、或作为默认值取首项之前都经此收窄，
 # 否则产出的时长在执行期必然被 backend 拒。
 # ---------------------------------------------------------------------------
@@ -522,7 +518,7 @@ def constrain_durations(
     """
     if not durations:
         return durations
-    model_info = model_info_for(provider_id, model_id) if provider_id and model_id else None
+    model_info = catalog.get_model(provider_id, model_id) if provider_id and model_id else None
     if model_info is None:
         return durations
     allowed = list(durations)
@@ -649,10 +645,9 @@ def _video_bucket_reference_unavailable(
 def _ensure_text_model_vision_capable(task_type: TextTaskType, provider_id: str, model_id: str) -> None:
     """校验解析出的模型支持图像输入；不满足直接报错，不静默换模型。
 
-    仅对 PROVIDER_REGISTRY 中登记的模型判定；registry 之外（自定义供应商等）无逐模型
+    仅对模型目录中登记的内置模型判定；目录之外（自定义供应商等）无逐模型
     能力事实，放行交由供应商 API 把关，不做猜测。"""
-    meta = PROVIDER_REGISTRY.get(provider_id)
-    model_info = meta.models.get(model_id) if meta else None
+    model_info = catalog.get_model(provider_id, model_id)
     if model_info is not None and "vision" not in model_info.capabilities:
         raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
 
@@ -1202,8 +1197,7 @@ class ConfigResolver:
         """
         provider_id, model_id = selected.provider_id, selected.model_id
         if not is_custom_provider(provider_id):
-            provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            model_info = provider_meta.models.get(model_id) if provider_meta else None
+            model_info = catalog.get_model(provider_id, model_id)
             if model_info is None or model_info.media_type != "video":
                 raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id)
             return None
@@ -1478,10 +1472,9 @@ class ConfigResolver:
         else:
             source = "registry"
             durations_optional = False
-            provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta is None:
+            if provider_id not in PROVIDER_REGISTRY:
                 raise ValueError(f"provider not in PROVIDER_REGISTRY: {provider_id}")
-            model_info = provider_meta.models.get(model_id)
+            model_info = catalog.get_model(provider_id, model_id)
             if model_info is None:
                 raise ValueError(f"model not found in registry: {provider_id}/{model_id}")
             supported_durations = list(model_info.supported_durations or [])
@@ -1687,12 +1680,12 @@ class ConfigResolver:
         statuses = await svc.get_all_providers_status()
         ready = {s.name for s in statuses if s.status == "ready"}
 
-        for provider_id, meta in PROVIDER_REGISTRY.items():
+        for provider_id in PROVIDER_REGISTRY:
             if provider_id not in ready:
                 continue
-            for model_id, model_info in meta.models.items():
-                if model_info.media_type == media_type and model_info.default:
-                    return provider_id, model_id
+            model_id = catalog.default_model(provider_id, media_type)
+            if model_id is not None:
+                return provider_id, model_id
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，
         # 这些符号所在的装配层反过来依赖 lib.config，模块级导入会成环。

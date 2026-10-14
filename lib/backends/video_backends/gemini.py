@@ -35,7 +35,7 @@ from lib.backends.backend_runtime import (
 )
 from lib.backends.gemini_shared import VERTEX_SCOPES, RateLimiter, get_shared_rate_limiter, resolve_gemini_api_key
 from lib.backends.providers import PROVIDER_GEMINI
-from lib.config.registry import model_info_for
+from lib.catalog import query as catalog
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_sync_transaction
@@ -50,8 +50,8 @@ _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 #: 未配置 base_url 时 google-genai 发往的 AI Studio 域名（SDK 缺省值），续跑回放据此比对提交域名。
 _AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
-# 约束的单一真相源是 registry 的 ModelInfo（reference_image_durations /
-# duration_resolution_constraints），下面两个常量只在 registry 查不到该型号时兜底——中转站、
+# 约束的单一真相源是模型目录（reference_image_durations /
+# duration_resolution_constraints），下面两个常量只在目录查不到该型号时兜底——中转站、
 # 自定义供应商包装、已下线型号都会走到未登记路径，那里同样不能把必然失败的请求发出去。
 # 兜底值复刻 Veo 全系现行约束：参考图路径与 1080p/4k 分辨率下只接受 8 秒，两条路径各自
 # 独立触发，与首帧/尾帧无关。
@@ -227,11 +227,11 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         原始报文；在构建请求前 fail-loud 换成可读拒绝，也省掉一次必然失败的调用。首帧
         （image）与尾帧（last_frame）不在约束内，4/6 秒照常下发。
         """
-        info = model_info_for(self.name, self._video_model)
+        info = catalog.get_model(self.name, self._video_model)
 
         if request.reference_images:
             # 已登记型号一律采信其声明：空声明的语义是「参考图路径不额外约束时长」（见
-            # ModelInfo.reference_image_durations），与前端 `?? []` 同口径；只有型号未登记
+            # CatalogModel.reference_image_durations），与前端 `?? []` 同口径；只有型号未登记
             # （info is None）才回落兜底常量。用 `or` 折叠两者会让空声明被兜底覆盖成 [8]，
             # 前后端读同一份声明得出不同结论。
             allowed = info.reference_image_durations if info is not None else [_REQUIRED_DURATION_SECONDS]

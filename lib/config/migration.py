@@ -7,7 +7,7 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.config.registry import PROVIDER_REGISTRY
+from lib.catalog import query as catalog
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
 from lib.config.retired_model_ids import (
     TEXT_BACKEND_SETTING_KEYS,
@@ -131,12 +131,10 @@ async def migrate_json_to_db(session: AsyncSession, data_root: Path) -> None:
     video_max = overrides.get("video_max_workers")
 
     for provider_id in configured_providers:
-        meta = PROVIDER_REGISTRY.get(provider_id)
-        if not meta:
-            continue
-        if image_max is not None and "image" in meta.media_types:
+        media_types = catalog.provider_media_types(provider_id)
+        if image_max is not None and "image" in media_types:
             await provider_repo.set(provider_id, "image_max_workers", str(image_max), is_secret=False)
-        if video_max is not None and "video" in meta.media_types:
+        if video_max is not None and "video" in media_types:
             await provider_repo.set(provider_id, "video_max_workers", str(video_max), is_secret=False)
 
     # 6. Catch-all: remaining override keys → system_setting

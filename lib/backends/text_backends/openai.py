@@ -61,10 +61,9 @@ class OpenAITextBackend:
             base.add(TextCapability.STRUCTURED_OUTPUT)
             return base
 
-        from lib.config.registry import PROVIDER_REGISTRY
+        from lib.catalog import query as catalog
 
-        provider_meta = PROVIDER_REGISTRY.get(self._provider_name)
-        model_info = provider_meta.models.get(self._model) if provider_meta else None
+        model_info = catalog.get_model(self._provider_name, self._model)
         if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
             base.add(TextCapability.STRUCTURED_OUTPUT)
         return base

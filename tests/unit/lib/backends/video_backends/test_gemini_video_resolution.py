@@ -204,7 +204,7 @@ async def test_reference_images_empty_declaration_means_unconstrained(tmp_path, 
         supported_durations=[4, 6, 8],
         reference_image_durations=[],
     )
-    monkeypatch.setattr("lib.backends.video_backends.gemini.model_info_for", lambda *_: info)
+    monkeypatch.setattr("lib.catalog.query.get_model", lambda *_: info)
 
     backend = _make_backend()
     req = VideoGenerationRequest(

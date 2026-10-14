@@ -32,7 +32,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.rendered_artifact import RENDERS_DIRNAME
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
-from lib.config.registry import model_info_for
+from lib.catalog import query as catalog
 from lib.config.resolver import VideoGenerationType, project_video_backend_ids
 from lib.episode.episode_ledger import parse_positive_episode_num
 from lib.infra.content_digest import digest_stream, sha256_file
@@ -294,7 +294,7 @@ def _registry_bucket_durations(
     project: dict[str, Any], generation_type: VideoGenerationType | None = None
 ) -> list[int] | None:
     ids = project_video_backend_ids(project, generation_type=generation_type)
-    model_info = model_info_for(*ids) if ids is not None else None
+    model_info = catalog.get_model(*ids) if ids is not None else None
     if model_info is None or not model_info.supported_durations:
         return None
     return list(model_info.supported_durations)

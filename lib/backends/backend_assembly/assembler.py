@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from lib.backends.backend_assembly.loaded_config import LoadedConfig
 from lib.backends.backend_assembly.specs import get_provider_spec
+from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.custom_provider import is_custom_provider
 
@@ -91,8 +92,7 @@ async def output_limit_facts(*, provider_id: str, model_id: str, resolver: Confi
                 session=session, provider_id=provider_id, model_id=model_id
             )
         return OutputLimitFacts(registered_max_output_tokens=registered, custom_model=True)
-    meta = PROVIDER_REGISTRY.get(provider_id)
-    info = meta.models.get(model_id) if meta is not None else None
+    info = catalog.get_model(provider_id, model_id)
     return OutputLimitFacts(
         registered_max_output_tokens=info.max_output_tokens if info is not None else None, custom_model=False
     )
