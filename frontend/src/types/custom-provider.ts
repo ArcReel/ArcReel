@@ -51,7 +51,14 @@ export interface EndpointRequest {
   default_path: string;
   placeholders: string[];
   /** 没有覆盖时 base_url 的归一化方式，界面据此还原最终地址；有覆盖时一律相对原样值。 */
-  base_url_rule: "as_is" | "strip_version" | "append_v1";
+  base_url_rule:
+    | "as_is"
+    | "strip_version"
+    | "append_v1"
+    | "ensure_api_v3"
+    | "ensure_ent_v2"
+    | "ensure_v1"
+    | "dashscope_api_v1";
 }
 
 /** 请求名 → 整条替换的路径。 */

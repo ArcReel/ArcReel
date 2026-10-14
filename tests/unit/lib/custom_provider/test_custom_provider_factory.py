@@ -168,6 +168,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/api/v3",
                 "model": "doubao-seedance-2-0",
+                "transport_layer": None,
             },
         }
 
@@ -182,6 +183,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/ent/v2",
                 "model": "viduq3-turbo",
+                "transport_layer": None,
             },
         }
 
@@ -214,7 +216,12 @@ class TestEndpointDispatch:
         # base_url 原样下传，归一化（host→{host}/v1）由 MiniMaxImageBackend 内部处理
         assert built == {
             "backend": "MiniMaxImageBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.minimaxi.com/v1", "model": "image-01"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.minimaxi.com/v1",
+                "model": "image-01",
+                "transport_layer": None,
+            },
         }
 
     def test_minimax_video(self):
@@ -238,6 +245,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/v1",
                 "model": "kling-image-o1",
+                "transport_layer": None,
             },
         }
 
@@ -259,6 +267,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/v1",
                 "model": "kling-v2-5-turbo",
+                "transport_layer": None,
             },
         }
 

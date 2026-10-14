@@ -25,6 +25,7 @@ from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
+from lib.backends.dashscope_shared import dashscope_native_base_url
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.backends.image_backends.gemini import GeminiImageBackend
@@ -32,6 +33,7 @@ from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
+from lib.backends.minimax_shared import minimax_text_base_url
 from lib.backends.text_backends.anthropic import AnthropicTextBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
@@ -80,7 +82,14 @@ from lib.custom_provider.declarative_backend import (
     strips_base_url_version,
 )
 from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend, image_capabilities_from_definition
-from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, EndpointRequest, PathOverrides, placeholder_names
+from lib.custom_provider.path_overrides import (
+    NO_PATH_OVERRIDES,
+    BaseUrlRule,
+    EndpointRequest,
+    PathOverrides,
+    path_override_layer,
+    placeholder_names,
+)
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -350,15 +359,24 @@ def _build_openai_tts(
 
 
 def _build_dashscope_tts(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomAudioBackend:
     # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
-    delegate = DashScopeAudioBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    layer = path_override_layer(
+        _DASHSCOPE_GENERATION_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        dashscope_native_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = DashScopeAudioBackend(
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_minimax_tts(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomAudioBackend:
     # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
     delegate = MiniMaxAudioBackend(
@@ -366,6 +384,13 @@ def _build_minimax_tts(
         base_url=provider.base_url,
         model=model_id,
         provider_name=provider.provider_id,
+        transport_layer=path_override_layer(
+            _MINIMAX_TTS_REQUESTS,
+            path_overrides,
+            provider.base_url,
+            minimax_text_base_url(provider.base_url),
+            model_id,
+        ),
     )
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
@@ -402,6 +427,60 @@ def _build_gemini_video(
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _python_requests(rule: BaseUrlRule, *requests: tuple[str, str, str]) -> tuple[EndpointRequest, ...]:
+    """Python 端点的请求声明，每项为（请求名、显示名 key、默认路径）；占位符放行模型名与默认路径里已有的。"""
+    return tuple(
+        EndpointRequest(
+            name=name,
+            display_name_key=display_name_key,
+            default_path=path,
+            placeholders=tuple(sorted({"model", *placeholder_names(path)})),
+            base_url_rule=rule,
+        )
+        for name, display_name_key, path in requests
+    )
+
+
+# 直连 httpx 与方舟 SDK 的端点各自发出的请求；取自响应的下载地址不提供请求名（docs/adr/0101）。
+_ARK_SEEDANCE_REQUESTS = _python_requests(
+    "ensure_api_v3",
+    ("submit", "cp_request_submit", "/contents/generations/tasks"),
+    ("poll", "cp_request_poll", "/contents/generations/tasks/{{ task_id }}"),
+)
+_VIDU_VIDEO_REQUESTS = _python_requests(
+    "ensure_ent_v2",
+    ("submit_text2video", "cp_request_submit_text2video", "/text2video"),
+    ("submit_img2video", "cp_request_submit_img2video", "/img2video"),
+    ("submit_start_end2video", "cp_request_submit_start_end2video", "/start-end2video"),
+    ("submit_reference2video", "cp_request_submit_reference2video", "/reference2video"),
+    ("poll", "cp_request_poll", "/tasks/{{ task_id }}/creations"),
+)
+_KLING_IMAGE_REQUESTS = _python_requests(
+    "ensure_v1",
+    ("submit", "cp_request_submit", "/images/generations"),
+    ("poll", "cp_request_poll", "/images/generations/{{ task_id }}"),
+)
+_KLING_VIDEO_REQUESTS = _python_requests(
+    "ensure_v1",
+    ("submit_text2video", "cp_request_submit_text2video", "/videos/text2video"),
+    ("poll_text2video", "cp_request_poll_text2video", "/videos/text2video/{{ task_id }}"),
+    ("submit_image2video", "cp_request_submit_img2video", "/videos/image2video"),
+    ("poll_image2video", "cp_request_poll_img2video", "/videos/image2video/{{ task_id }}"),
+    ("submit_multi_image2video", "cp_request_submit_multi_image2video", "/videos/multi-image2video"),
+    ("poll_multi_image2video", "cp_request_poll_multi_image2video", "/videos/multi-image2video/{{ task_id }}"),
+)
+_DASHSCOPE_GENERATION_REQUESTS = _python_requests(
+    "dashscope_api_v1", ("generate", "cp_request_generate", "/services/aigc/multimodal-generation/generation")
+)
+_DASHSCOPE_ASYNC_VIDEO_REQUESTS = _python_requests(
+    "dashscope_api_v1",
+    ("submit", "cp_request_submit", "/services/aigc/video-generation/video-synthesis"),
+    ("poll", "cp_request_poll", "/tasks/{{ task_id }}"),
+)
+_MINIMAX_IMAGE_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_generate", "/image_generation"))
+_MINIMAX_TTS_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_generate", "/t2a_v2"))
+
+
 def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     """补全协议已知挂载路径（ark /api/v3、vidu /ent/v2、kling /v1）；
     已带对应协议路径则原样信任，避免重复叠加。供 ark/vidu/kling 闭包复用。
@@ -419,60 +498,103 @@ def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
 
 
 def _build_ark_seedance(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
-    delegate = ArkVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    layer = path_override_layer(_ARK_SEEDANCE_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
+    delegate = ArkVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_vidu_video(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
-) -> CustomVideoBackend:
+def _build_vidu_video(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/ent/v2")
-    delegate = ViduVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    layer = path_override_layer(_VIDU_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
+    delegate = ViduVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_dashscope_image(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomImageBackend:
     # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
-    delegate = DashScopeImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    layer = path_override_layer(
+        _DASHSCOPE_GENERATION_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        dashscope_native_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = DashScopeImageBackend(
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_dashscope_async_video(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomVideoBackend:
-    delegate = DashScopeVideoBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    layer = path_override_layer(
+        _DASHSCOPE_ASYNC_VIDEO_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        dashscope_native_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = DashScopeVideoBackend(
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_minimax_image(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomImageBackend:
     # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
-    delegate = MiniMaxImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    layer = path_override_layer(
+        _MINIMAX_IMAGE_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        minimax_text_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = MiniMaxImageBackend(
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_kling_image(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomImageBackend:
     # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步图像端点。
     # 仅 host 时补全可灵协议挂载路径 /v1（含显式路径则原样信任）；原生 model_name 透传不解耦别名。
     base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
-    delegate = KlingImageBackend(auth_mode="bearer", api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = KlingImageBackend(
+        auth_mode="bearer",
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _KLING_IMAGE_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_kling_video(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomVideoBackend:
     # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步视频端点。
     base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
-    delegate = KlingVideoBackend(auth_mode="bearer", api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = KlingVideoBackend(
+        auth_mode="bearer",
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _KLING_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -587,6 +709,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/api/v3/contents/generations/tasks",
         build_backend=_build_ark_seedance,
+        requests=_ARK_SEEDANCE_REQUESTS,
         video_caps_for_model=ArkVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
         # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
@@ -600,6 +723,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/ent/v2/img2video",
         build_backend=_build_vidu_video,
+        requests=_VIDU_VIDEO_REQUESTS,
         video_caps_for_model=ViduVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
     ),
@@ -612,6 +736,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_dashscope_image,
+        requests=_DASHSCOPE_GENERATION_REQUESTS,
     ),
     "openai-tts": EndpointSpec(
         key="openai-tts",
@@ -630,6 +755,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
         build_backend=_build_dashscope_tts,
+        requests=_DASHSCOPE_GENERATION_REQUESTS,
     ),
     "gemini-video": EndpointSpec(
         key="gemini-video",
@@ -652,6 +778,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/t2a_v2",
         build_backend=_build_minimax_tts,
+        requests=_MINIMAX_TTS_REQUESTS,
     ),
     "gemini-tts": EndpointSpec(
         key="gemini-tts",
@@ -670,6 +797,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/api/v1/services/aigc/video-generation/video-synthesis",
         build_backend=_build_dashscope_async_video,
+        requests=_DASHSCOPE_ASYNC_VIDEO_REQUESTS,
         # 多 model（happyhorse-r2v=9 / wan2.7-r2v=5）容量不同 → endpoint 维度不声明 int cap，
         # 按 model 读 backend caps（不构造 client）。
         video_caps_for_model=DashScopeVideoBackend.video_capabilities_for_model,
@@ -685,6 +813,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/image_generation",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_minimax_image,
+        requests=_MINIMAX_IMAGE_REQUESTS,
     ),
     "kling-image": EndpointSpec(
         key="kling-image",
@@ -695,6 +824,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/generations",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_kling_image,
+        requests=_KLING_IMAGE_REQUESTS,
     ),
     "kling-video": EndpointSpec(
         key="kling-video",
@@ -705,6 +835,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # 无首帧走 text2video、有首帧走 image2video（含可选尾帧）、有多图主体走 multi-image2video（R2V）
         request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
         build_backend=_build_kling_video,
+        requests=_KLING_VIDEO_REQUESTS,
         # 参考图上限随 model 异质（v3-omni / video-o1 多图主体 R2V max=4，其余首尾帧无参考为 0）→ 不在
         # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数。
         video_caps_for_model=KlingVideoBackend.video_capabilities_for_model,

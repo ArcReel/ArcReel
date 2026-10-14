@@ -9,6 +9,11 @@ import type { EndpointRequest, PathOverrides } from "@/types";
 
 const MODEL_PLACEHOLDER = /\{\{\s*model\s*\}\}/g;
 const VERSION_SUFFIX = /\/v\d+(?:\.\d+)?[a-zA-Z]*$/;
+const ENSURED_SUFFIX: Partial<Record<EndpointRequest["base_url_rule"], string>> = {
+  ensure_api_v3: "/api/v3",
+  ensure_ent_v2: "/ent/v2",
+};
+const DASHSCOPE_SUFFIX = /\/(?:compatible-mode\/v1|api\/v1)$/;
 
 /** 供应商填写的 base_url 原样值（补缺失的协议、去尾斜杠），与服务端 raw_base_url 同口径。 */
 function rawBaseUrl(baseUrl: string): string {
@@ -20,6 +25,11 @@ function rawBaseUrl(baseUrl: string): string {
 function normalizedBase(raw: string, request: EndpointRequest) {
   if (request.base_url_rule === "strip_version") return { base: raw.replace(VERSION_SUFFIX, ""), autoV1: false };
   if (request.base_url_rule === "append_v1") return { base: raw, autoV1: !/\/v\d+$/.test(raw) };
+  if (request.base_url_rule === "ensure_v1") return { base: raw, autoV1: !raw.endsWith("/v1") };
+  if (request.base_url_rule === "dashscope_api_v1")
+    return { base: `${raw.replace(DASHSCOPE_SUFFIX, "")}/api/v1`, autoV1: false };
+  const suffix = ENSURED_SUFFIX[request.base_url_rule];
+  if (suffix) return { base: raw.endsWith(suffix) ? raw : raw + suffix, autoV1: false };
   return { base: raw, autoV1: false };
 }
 

@@ -13,6 +13,9 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
+from urllib.parse import urlsplit
+
+import httpx
 
 #: 请求名 → 整条替换的路径。
 PathOverrides = Mapping[str, str]
@@ -20,8 +23,12 @@ NO_PATH_OVERRIDES: PathOverrides = MappingProxyType({})
 
 #: 没有覆盖时，端点在默认路径之前怎样归一化 base_url；界面据此还原最终请求地址。
 #: ``as_is`` 只去尾斜杠；``strip_version`` 剥去末尾的版本段（如 ``/v1``）；``append_v1``
-#: 末尾没有版本段时补 ``/v1``。有覆盖的请求一律相对原样值，不按本规则归一化。
-BaseUrlRule = Literal["as_is", "strip_version", "append_v1"]
+#: 末尾没有版本段时补 ``/v1``；``ensure_<后缀>`` 末尾不是该后缀时补上（方舟 ``/api/v3``、Vidu ``/ent/v2``、
+#: 可灵与 MiniMax ``/v1``）；``dashscope_api_v1`` 剥去百炼已知后缀后接 ``/api/v1``。
+#: 有覆盖的请求一律相对原样值，不按本规则归一化。
+BaseUrlRule = Literal[
+    "as_is", "strip_version", "append_v1", "ensure_api_v3", "ensure_ent_v2", "ensure_v1", "dashscope_api_v1"
+]
 
 #: 路径中的占位符写法，与声明式定义的模板同形：``{{ model }}``、``{{ task_id }}``。
 _PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
@@ -84,3 +91,82 @@ def endpoint_guard(endpoint: str, overrides: PathOverrides) -> str:
     if not overrides:
         return endpoint
     return f"{endpoint} paths={json.dumps(dict(overrides), sort_keys=True, ensure_ascii=False, separators=(',', ':'))}"
+
+
+def _path_pattern(prefix: str, default_path: str) -> re.Pattern[str]:
+    """``prefix + default_path`` 的整串匹配式，占位符各匹配一段路径。"""
+    parts = _PLACEHOLDER.split(default_path)  # 字面量与占位符名交替
+    body = "".join(re.escape(part) if i % 2 == 0 else f"(?P<{part}>[^/]+)" for i, part in enumerate(parts))
+    return re.compile(re.escape(prefix) + body)
+
+
+class PathOverrideLayer:
+    """Python 端点的路径覆盖：按请求路径认出请求名，有覆盖时把路径换成「原样 base_url 的路径 + 覆盖路径」。
+
+    只认「归一化 base_url 的路径 + 默认路径」整串相符的请求，取自响应的下载地址不会被认成任何请求。
+    不改域名：续跑回放提交时的域名照旧生效。
+    """
+
+    def __init__(self, routes: list[tuple[re.Pattern[str], str]], raw_path: str, model: str) -> None:
+        self._routes = routes
+        self._raw_path = raw_path
+        self._model = model
+
+    def __call__(self, inner: httpx.AsyncBaseTransport | httpx.BaseTransport, /) -> _PathOverrideTransport:
+        return _PathOverrideTransport(inner, self)
+
+    def rewrite(self, request: httpx.Request) -> None:
+        found = next(
+            ((m, override) for pattern, override in self._routes if (m := pattern.fullmatch(request.url.path))), None
+        )
+        if found is None:
+            return
+        match, override = found
+        values = {"model": self._model, **match.groupdict()}
+        target = self._raw_path + _PLACEHOLDER.sub(lambda p: values.get(p.group(1), p.group(0)), override)
+        path, has_query, query = target.partition("?")
+        request.url = (
+            request.url.copy_with(path=path, query=query.encode()) if has_query else request.url.copy_with(path=path)
+        )
+
+
+class _PathOverrideTransport(httpx.BaseTransport, httpx.AsyncBaseTransport):
+    def __init__(self, inner: httpx.AsyncBaseTransport | httpx.BaseTransport, layer: PathOverrideLayer) -> None:
+        self._inner = inner
+        self._layer = layer
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        assert isinstance(self._inner, httpx.BaseTransport)
+        self._layer.rewrite(request)
+        return self._inner.handle_request(request)
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        assert isinstance(self._inner, httpx.AsyncBaseTransport)
+        self._layer.rewrite(request)
+        return await self._inner.handle_async_request(request)
+
+    def close(self) -> None:
+        assert isinstance(self._inner, httpx.BaseTransport)
+        self._inner.close()
+
+    async def aclose(self) -> None:
+        assert isinstance(self._inner, httpx.AsyncBaseTransport)
+        await self._inner.aclose()
+
+
+def path_override_layer(
+    requests: Iterable[EndpointRequest],
+    overrides: PathOverrides,
+    base_url: str | None,
+    normalized_base_url: str | None,
+    model: str,
+) -> PathOverrideLayer | None:
+    """Python 端点注入调用通道的路径覆盖层；没有覆盖时 None，调用通道照原样构造。
+
+    ``normalized_base_url`` 是端点没有覆盖时实际使用的 base_url，默认路径相对它匹配。
+    """
+    prefix = urlsplit(normalized_base_url or "").path.rstrip("/")
+    routes = [(_path_pattern(prefix, r.default_path), overrides[r.name]) for r in requests if r.name in overrides]
+    if not routes:
+        return None
+    return PathOverrideLayer(routes, urlsplit(raw_base_url(base_url or "")).path, model)

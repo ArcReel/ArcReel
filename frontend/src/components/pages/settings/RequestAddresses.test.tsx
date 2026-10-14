@@ -119,4 +119,23 @@ describe("RequestAddresses", () => {
 
     expect(screen.getByText("/v1")).toBeInTheDocument();
   });
+
+  it.each([
+    ["ensure_api_v3", "https://relay.test", "https://relay.test/api/v3"],
+    ["ensure_api_v3", "https://relay.test/api/v3", "https://relay.test/api/v3"],
+    ["ensure_ent_v2", "https://relay.test", "https://relay.test/ent/v2"],
+    ["dashscope_api_v1", "https://relay.test/compatible-mode/v1", "https://relay.test/api/v1"],
+  ] as const)("没有修改时按 %s 还原 %s 的接口地址", (rule, baseUrl, base) => {
+    render(
+      <RequestAddresses
+        requests={[{ ...POLL, base_url_rule: rule }]}
+        baseUrl={baseUrl}
+        modelId="m"
+        overrides={null}
+        onChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(base)).toBeInTheDocument();
+  });
 });
