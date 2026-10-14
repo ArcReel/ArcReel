@@ -91,3 +91,22 @@ async def test_text_to_image_extracts_markdown_image_from_content(tmp_path):
     content = request_json(only_request(route))["messages"][-1]["content"]
     assert [part["type"] for part in content] == ["text"]
     assert out.read_bytes() == _PNG
+
+
+async def test_download_failure_retries_download_only(tmp_path, poll_clock):
+    # 出图已计费：取件的瞬态失败只在下载层重试，不重发 Chat Completions 请求
+    out = tmp_path / "out.png"
+    backend = get_endpoint_spec("openai-chat-image").build_backend(_provider(), "gemini-2.5-flash-image")
+
+    with capture_http() as router:
+        route = router.post("https://relay.example.com/v1/chat/completions").mock(
+            return_value=_chat_response({"content": "![image](https://cdn.example.com/a.png)"})
+        )
+        download = router.get("https://cdn.example.com/a.png").mock(
+            side_effect=[httpx.Response(503), httpx.Response(200, content=_PNG)]
+        )
+        await backend.generate(ImageGenerationRequest(prompt="雨夜街景", output_path=out, aspect_ratio="9:16"))
+
+    assert route.call_count == 1
+    assert download.call_count == 2
+    assert out.read_bytes() == _PNG

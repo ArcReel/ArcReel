@@ -137,6 +137,10 @@ class OpenAIResponsesTextBackend:
 
         logger.info("调用 %s 文本 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
         response = await self._client.responses.create(**kwargs)
+        if response.status == "failed":
+            # 部分网关以 200 + status=failed 回报失败，output_text 为空，不能当成功结果
+            detail = response.error.message if response.error else "unknown error"
+            raise RuntimeError(f"Responses 调用失败 (model={self._model}): {detail}")
 
         usage = response.usage
         output_tokens = usage.output_tokens if usage else None

@@ -15,9 +15,10 @@ import re
 from pathlib import Path
 from typing import Any
 
-from openai.types.chat import ChatCompletionContentPartImageParam, ChatCompletionContentPartParam
+from openai.types.chat import ChatCompletion, ChatCompletionContentPartImageParam, ChatCompletionContentPartParam
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE
+from lib.backends.backend_runtime import with_artifact_retry
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -28,6 +29,7 @@ from lib.backends.image_backends.base import (
 )
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
+from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,8 @@ def _extract_image_url(message: Any) -> str | None:
 
 async def _save_image(url: str, output_path: Path) -> None:
     if not url.startswith("data:"):
-        await download_image_to_path(url, output_path)
+        # 取件失败只在下载层重试，不回退到重跑已计费的出图请求
+        await with_artifact_retry(lambda: download_image_to_path(url, output_path), label="Chat Completions 图像")
         return
 
     def _decode_and_save() -> None:
@@ -71,7 +74,7 @@ async def _save_image(url: str, output_path: Path) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(base64.b64decode(payload))
 
-    await asyncio.to_thread(_decode_and_save)
+    await run_noninterruptible_sync(_decode_and_save)
 
 
 class OpenAIChatImageBackend:
@@ -106,16 +109,10 @@ class OpenAIChatImageBackend:
         # 同一个协议背后挂的是各家模型，参考图上限随模型而异，交由上游裁决。
         return 0
 
-    @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         content: list[ChatCompletionContentPartParam] = [{"type": "text", "text": request.prompt}]
         content.extend(await asyncio.to_thread(self._reference_parts, request))
-        response = await self._client.chat.completions.create(
-            model=self._model,
-            messages=[{"role": "user", "content": content}],
-            modalities=["image", "text"],  # type: ignore[list-item]  # SDK 类型只列 text / audio
-            extra_body={"image_config": _image_config(request)},
-        )
+        response = await self._complete(content, request)
         message = response.choices[0].message if response.choices else None
         url = _extract_image_url(message) if message is not None else None
         if not url:
@@ -125,7 +122,7 @@ class OpenAIChatImageBackend:
         await _save_image(url, request.output_path)
         logger.info("Chat Completions 出图完成: %s", request.output_path)
 
-        # 用量契约落地前按现有字段上报总输入与总输出（读侧把两类相加，见 usage_repo）。
+        # 按现有字段上报总输入与总输出（读侧把两类相加，见 usage_repo）。
         usage = response.usage
         return ImageGenerationResult(
             image_path=request.output_path,
@@ -133,6 +130,17 @@ class OpenAIChatImageBackend:
             model=self._model,
             text_input_tokens=usage.prompt_tokens if usage is not None else None,
             image_output_tokens=usage.completion_tokens if usage is not None else None,
+        )
+
+    @with_retry_async(retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    async def _complete(
+        self, content: list[ChatCompletionContentPartParam], request: ImageGenerationRequest
+    ) -> ChatCompletion:
+        return await self._client.chat.completions.create(
+            model=self._model,
+            messages=[{"role": "user", "content": content}],
+            modalities=["image", "text"],  # type: ignore[list-item]  # SDK 类型只列 text / audio
+            extra_body={"image_config": _image_config(request)},
         )
 
     def _reference_parts(self, request: ImageGenerationRequest) -> list[ChatCompletionContentPartImageParam]:

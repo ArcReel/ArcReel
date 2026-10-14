@@ -5,7 +5,7 @@
     "name": "OpenRouter Video",
     "author": "ArcReel",
     "version": "1.0.0",
-    "hints": {"base_url": "https://openrouter.ai", "suggested_models": [{"id": "google/veo-3.1"}]}
+    "hints": {"base_url": "https://openrouter.ai/api/v1", "suggested_models": [{"id": "google/veo-3.1"}]}
   },
   "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
   "inputs": {
@@ -15,7 +15,7 @@
   },
   "submit": {
     "method": "POST",
-    "url": "{{ base_url }}/api/v1/videos",
+    "url": "{{ base_url }}/videos",
     "body": {
       "model": "{{ model }}",
       "prompt": "{{ prompt }}",
@@ -52,7 +52,7 @@
   },
   "poll": {
     "method": "GET",
-    "url": "{{ base_url }}/api/v1/videos/{{ task_id }}",
+    "url": "{{ base_url }}/videos/{{ task_id }}",
     "extract": {
       "status": ["$.status"],
       "video_url": ["$.unsigned_urls[0]"],

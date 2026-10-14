@@ -41,12 +41,14 @@ def _response(
     cached_tokens: int = 0,
     output_tokens: int = 20,
     incomplete_reason: str | None = None,
+    error: str | None = None,
 ) -> httpx.Response:
     body: dict[str, Any] = {
         "id": "resp_1",
         "object": "response",
         "created_at": 0,
-        "status": "incomplete" if incomplete_reason else "completed",
+        "status": "failed" if error else "incomplete" if incomplete_reason else "completed",
+        "error": {"code": "server_error", "message": error} if error else None,
         "incomplete_details": {"reason": incomplete_reason} if incomplete_reason else None,
         "model": "gpt-5.5-pro",
         "output": [
@@ -159,3 +161,10 @@ async def test_truncated_free_text_is_flagged():
 
     assert result.text == "从前有座山"
     assert result.truncated is True
+
+
+async def test_failed_status_raises():
+    with capture_http() as router:
+        router.post(_RESPONSES_URL).mock(return_value=_response("", error="upstream boom"))
+        with pytest.raises(RuntimeError, match="upstream boom"):
+            await _backend().generate(TextGenerationRequest(prompt="讲个故事"))

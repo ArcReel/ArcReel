@@ -5,7 +5,7 @@
     "name": "xAI Video",
     "author": "ArcReel",
     "version": "1.0.0",
-    "hints": {"base_url": "https://api.x.ai/v1", "suggested_models": [{"id": "grok-imagine-video-1.5"}]}
+    "hints": {"base_url": "https://api.x.ai", "suggested_models": [{"id": "grok-imagine-video-1.5"}]}
   },
   "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
   "inputs": {
