@@ -17,6 +17,7 @@
 - [minimax-hailuo-v1-fast](minimax-hailuo-v1-fast.md)
 - [minimax-image](minimax-image.md)
 - [minimax-s2v-01](minimax-s2v-01.md)
+- [minimax-tts](minimax-tts.md)
 - [newapi-video](newapi-video.md)
 - [openai-chat](openai-chat.md)
 - [openai-chat-image](openai-chat-image.md)

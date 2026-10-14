@@ -1403,6 +1403,7 @@ export default {
   'endpoint_kling_image_display': 'Kling (Image)',
   'endpoint_kling_video_display': 'Kling (Video)',
   'endpoint_gemini_video_display': 'Google Gemini Video (Veo)',
+  'endpoint_minimax_tts_display': 'MiniMax (Speech)',
   'endpoint_openai_tts_display': 'OpenAI Speech (TTS)',
   'endpoint_dashscope_tts_display': 'Alibaba Model Studio (TTS)',
   'endpoint_catalog_loading': 'Loading endpoint catalog…',

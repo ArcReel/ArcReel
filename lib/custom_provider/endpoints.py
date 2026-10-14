@@ -22,6 +22,7 @@ from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 from arcreel_market_core.endpoint_definition.media_type import definition_media_type
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
 from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
@@ -315,6 +316,17 @@ def _build_dashscope_tts(provider, model_id: str) -> CustomAudioBackend:
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_minimax_tts(provider, model_id: str) -> CustomAudioBackend:
+    # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
+    delegate = MiniMaxAudioBackend(
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        model=model_id,
+        provider_name=provider.provider_id,
+    )
+    return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
@@ -557,6 +569,15 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         video_caps_for_model=GeminiVideoBackend.video_capabilities_for_model,
         # generate() 把 end_image 下传为 config.last_frame
         end_image_capable=True,
+    ),
+    "minimax-tts": EndpointSpec(
+        key="minimax-tts",
+        media_type="audio",
+        family="minimax",
+        display_name_key="endpoint_minimax_tts_display",
+        request_method="POST",
+        request_path_template="/v1/t2a_v2",
+        build_backend=_build_minimax_tts,
     ),
     "dashscope-async-video": EndpointSpec(
         key="dashscope-async-video",
@@ -964,6 +985,9 @@ _VIDEO_PATTERN = re.compile(
 _AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
 # 通义 TTS 家族（qwen-tts / qwen3-tts-flash 等）走百炼原生同步端点，不是 /v1/audio/speech
 _QWEN_TTS_PATTERN = re.compile(r"qwen3?-tts", re.IGNORECASE)
+# MiniMax 语音型号（speech-2.8-hd / speech-02-turbo 等，剥离命名空间后整段比较）走 t2a_v2。
+# 必须带 -hd / -turbo 档位后缀：Fish Audio 的 speech-1.5 等同名前缀 id 仍是 /v1/audio/speech。
+_MINIMAX_TTS_PATTERN = re.compile(r"speech-[\d.]+-(?:hd|turbo)")
 # 裸 "speech" 会撞上 ASR（语音转文字）家族 id，按内容排除，避免把识别模型默认归到 TTS 端点
 _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
 
@@ -1008,7 +1032,8 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        "gemini-video"、否则 "openai-video"
     5) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"（imagen 随图像家族
        推断，不再单独拦截）
-    6) TTS 家族（tts/speech/cosyvoice）→ qwen-tts / qwen3-tts 走 "dashscope-tts"，其余 "openai-tts"
+    6) TTS 家族（tts/speech/cosyvoice）→ qwen-tts / qwen3-tts 走 "dashscope-tts"，MiniMax 的
+       speech-<版本>-hd|turbo 走 "minimax-tts"，其余 "openai-tts"
        （不分 discovery_format；precedence 在 text 默认之前）
     7) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
     """
@@ -1116,5 +1141,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     if is_image:
         return "gemini-image" if discovery_format == "google" else "openai-images"
     if _AUDIO_PATTERN.search(model_id) and not _ASR_PATTERN.search(model_id):
-        return "dashscope-tts" if _QWEN_TTS_PATTERN.search(model_id) else "openai-tts"
+        if _QWEN_TTS_PATTERN.search(model_id):
+            return "dashscope-tts"
+        return "minimax-tts" if _MINIMAX_TTS_PATTERN.fullmatch(canonical) else "openai-tts"
     return "gemini-generate" if discovery_format == "google" else "openai-chat"

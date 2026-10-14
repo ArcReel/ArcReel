@@ -1402,6 +1402,7 @@ export default {
   'endpoint_kling_image_display': '可灵 Kling（图片）',
   'endpoint_kling_video_display': '可灵 Kling（视频）',
   'endpoint_gemini_video_display': 'Gemini 视频 (Veo)',
+  'endpoint_minimax_tts_display': 'MiniMax（语音）',
   'endpoint_openai_tts_display': 'OpenAI 语音合成 (TTS)',
   'endpoint_dashscope_tts_display': '阿里百炼（语音合成）',
   'endpoint_catalog_loading': '加载端点目录…',

@@ -312,6 +312,12 @@ def _minimax_text_pricing(model_id: str, input_rate: float, output_rate: float) 
     )
 
 
+# MiniMax 语音合成费率（元/万字符）。
+# shortcut: 官方按中文 1 字计 2 字符计费，PerCharacter 按 len(text) 计，中文估价偏低一半；用量契约 #3215 落地后改用上报的计费字符数。
+def _minimax_audio_pricing(model_id: str, per_10k_chars: float) -> PerCharacter:
+    return PerCharacter(rates={model_id: per_10k_chars}, default_model=model_id, currency="CNY")
+
+
 # MiniMax 图片费率（元/张），T2I 与 I2I 同价。
 def _minimax_image_pricing(model_id: str, per_image: float) -> PerImageFlat:
     return PerImageFlat(rates={model_id: per_image}, default_model=model_id, currency="CNY")
@@ -1287,9 +1293,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "minimax": ProviderMeta(
         display_name="MiniMax",
-        description="MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
+        description="MiniMax（海螺）多模态平台，提供文本、图片、视频与语音生成。默认连接国内站，海外可将 base_url 切换到国际站。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -1374,6 +1380,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 supported_durations=[6],
                 resolutions=["768p"],
                 pricing=_minimax_video_pricing("S2V-01", {("768p", 6): 3.0}),
+            ),
+            # --- audio ---
+            # 同步 t2a_v2 语音合成，按字符计费（元/万字符）。定价出处见 docs/api-docs/endpoints/minimax-tts.md。
+            "speech-2.8-hd": ModelInfo(
+                display_name="MiniMax Speech 2.8 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                default=True,
+                pricing=_minimax_audio_pricing("speech-2.8-hd", 3.5),
+            ),
+            "speech-2.8-turbo": ModelInfo(
+                display_name="MiniMax Speech 2.8 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                pricing=_minimax_audio_pricing("speech-2.8-turbo", 2.0),
             ),
         },
         default_base_url=MINIMAX_BASE_URL,

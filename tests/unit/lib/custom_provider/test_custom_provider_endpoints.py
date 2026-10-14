@@ -47,6 +47,7 @@ class TestRegistry:
             "gemini-video",
             "openai-tts",
             "dashscope-tts",
+            "minimax-tts",
         }
 
     def test_each_spec_has_required_fields(self):
@@ -251,7 +252,7 @@ class TestRegistry:
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         audio_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "audio"}
-        assert audio_keys == {"openai-tts", "dashscope-tts"}
+        assert audio_keys == {"openai-tts", "dashscope-tts", "minimax-tts"}
         assert text_keys == {"openai-chat", "openai-responses", "gemini-generate", "anthropic-messages"}
         assert image_keys == {
             "openai-images",
@@ -340,6 +341,11 @@ INFER_RULE_CASES = [
     ("veo-3.1-generate-preview", "google", "gemini-video"),
     ("veo-3", "openai", "openai-video"),
     ("sora-2", "google", "openai-video"),
+    # ── #3202：MiniMax 的 speech-<版本>-hd|turbo → minimax-tts，不分 discovery_format ──
+    ("speech-2.8-hd", "openai", "minimax-tts"),
+    ("speech-02-turbo", "google", "minimax-tts"),
+    ("minimax/Speech-2.6-HD", "openai", "minimax-tts"),
+    ("speech-1.5", "openai", "openai-tts"),  # 无档位后缀（Fish Audio 风格）仍为 openai-tts
     # ── #3202、#3203 的规则在此追加 ──
 ]
 

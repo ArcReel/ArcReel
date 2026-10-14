@@ -24,7 +24,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_openai": "OpenAI 官方平台，支持 GPT-5.4 文本、GPT Image 图片和 Sora 视频生成。",
     "provider_desc_vidu": "生数科技 Vidu 视频生成平台，支持文生视频、图生视频、首尾帧、参考生视频与参考生图，仅图片与视频能力。",
     "provider_desc_dashscope": "阿里云百炼（Model Studio）全模态平台，支持 Qwen 文本、Qwen-Image / 万相图像与 HappyHorse / 万相视频（含参考生视频）。",
-    "provider_desc_minimax": "MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
+    "provider_desc_minimax": "MiniMax（海螺）多模态平台，提供文本、图片、视频与语音生成。默认连接国内站，海外可将 base_url 切换到国际站。",
     "provider_desc_kling": "快手可灵 Kling 视频与图像生成平台。API Key 鉴权适用于全部模型；Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。",
     "provider_desc_agnes": "Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像 / 文本 / 视频生成。",
     # Model display names（registry 里非拉丁写法的条目；纯品牌名条目不入表，由

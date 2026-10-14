@@ -24,7 +24,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_openai": "OpenAI platform supporting GPT-5.4 text, GPT Image and Sora video generation.",
     "provider_desc_vidu": "Shengshu Vidu video platform supporting text-to-video, image-to-video, first-last frame, reference-to-video and reference-to-image. Image and video only.",
     "provider_desc_dashscope": "Alibaba Cloud Model Studio (DashScope) full-modality platform supporting Qwen text, Qwen-Image / Wan images, and HappyHorse / Wan video (including reference-to-video).",
-    "provider_desc_minimax": "MiniMax (Hailuo) multimodal platform with text, image and video generation. Connects to the domestic site by default; set base_url to the international site for overseas access.",
+    "provider_desc_minimax": "MiniMax (Hailuo) multimodal platform with text, image, video and speech generation. Connects to the domestic site by default; set base_url to the international site for overseas access.",
     "provider_desc_kling": "Kuaishou Kling video and image generation platform. API Key authentication works with all models; Access Key + Secret Key (JWT) only supports 3.0-and-earlier models. Choose either — when both are set, API Key takes priority.",
     "provider_desc_agnes": "Agnes multimodal platform (OpenAI-style), authenticated with a Bearer API key; currently supports image, text and video generation.",
     # Model display names (registry entries written in a non-Latin script; brand-only

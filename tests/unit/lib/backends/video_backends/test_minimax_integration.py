@@ -28,11 +28,11 @@ def _text_response(content: str = "ok", in_tok: int = 10, out_tok: int = 5) -> M
 
 
 class TestRegistry:
-    def test_minimax_registered_with_text_image_and_video(self):
+    def test_minimax_registered_with_all_media_types(self):
         from lib.config.registry import PROVIDER_REGISTRY
 
         meta = PROVIDER_REGISTRY[PROVIDER_MINIMAX]
-        assert meta.media_types == ["image", "text", "video"]
+        assert meta.media_types == ["audio", "image", "text", "video"]
         assert "api_key" in meta.required_keys
         assert "api_key" in meta.secret_keys
         assert "base_url" in meta.optional_keys
