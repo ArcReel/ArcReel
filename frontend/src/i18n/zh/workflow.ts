@@ -312,6 +312,7 @@ export default {
   'problem_video_capability_missing_r2v': '所选视频模型不支持参考生视频。',
   'problem_video_capability_missing_t2v': '所选视频模型不支持文生视频，需要首帧图。',
   'problem_video_capability_reference_unavailable': '设置里选的视频模型已不可用。',
+  'problem_model_not_in_provider_catalog': '设置里选的模型已不在供应商的模型清单中。',
   'problem_generation_dependency_failed': '同批依赖的单元没有生成成功，这个单元没有提交。',
   'problem_fallback_retry': '上一次没有成功。',
   'problem_fallback_fix_input': '这个单元的内容需要修改后才能生成。',

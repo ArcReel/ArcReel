@@ -135,14 +135,14 @@ class TestRealResolverResponse:
             "excluded": {"4": "resolution", "6": "resolution"},
         }
 
-    def test_candidate_missing_from_registry_reports_bucket_failure(self, real_resolver_client):
+    def test_candidate_missing_from_catalog_asks_to_reselect(self, real_resolver_client):
         with real_resolver_client as client:
             resp = client.get(
                 "/api/v1/providers/video-capabilities",
                 params={"video_backend": "gemini-aistudio/deleted-model"},
             )
         assert resp.status_code == 400
-        assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_reference_unavailable"].format(
+        assert resp.json()["detail"] == zh_errors.MESSAGES["model_not_in_provider_catalog"].format(
             **make_display_names().apply({"provider": "gemini-aistudio", "model": "deleted-model"})
         )
 

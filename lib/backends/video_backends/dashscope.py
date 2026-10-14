@@ -62,6 +62,7 @@ from lib.backends.data_uri import file_to_data_uri
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_DASHSCOPE
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.name_family import capabilities_by_names
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
     DEFAULT_BACKOFF_SECONDS,
@@ -165,7 +166,7 @@ WAN_IMAGE_TO_VIDEO_PATTERN = re.compile(r"(?<![a-z0-9])image[-_]?(?:to|2)[-_]?vi
 # wan2.7-videoedit（指令式视频编辑）是
 # 万相家族内真实存在的独立模态，但本后端只实现了 t2v/i2v/r2v 三档的请求构造，没有该模态所需的
 # 输入视频传输字段。命中家族正则但落这个模态的 id 须排除出原生路由与已知能力档，否则会带着
-# _DEFAULT_PROFILE（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。两侧标识符边界
+# 统一回落（丢失该模态实际所需的能力声明）发出本后端无法正确构造的请求。两侧标识符边界
 # 避免 "videoeditor" 一类无关词形（"edit" 后紧邻字母）被误判命中。
 WAN_VIDEOEDIT_PATTERN = re.compile(r"(?<![a-z0-9])video[-_]?edit(?![a-z0-9])", re.I)
 
@@ -295,12 +296,12 @@ def classify_wan_model(model_id: str | None) -> WanClassification:
         is_known_video_modality = has_known_modality or is_videoedit or is_s2v_or_v2v
     elif family == "wan2x_dot" and is_image_to_video:
         # wan2x_dot 没有登记任何 VideoCapabilities（profile_key 恒 None，下条注释），image-to-video
-        # 续接语法命中时若仍放行原生路由，_profile_for_model 会回落 _DEFAULT_PROFILE（first_frame
+        # 续接语法命中时若仍放行原生路由，_match_profile 会认不得、取统一回落（first_frame
         # 默认 True，恰好掩盖问题）——但本后端并未为这些未收窄的 2.x 小版本声明过已验证的首帧
         # 请求构造，没有已验证能力/请求 schema 的 id 排除出原生路由，同落下方 5) 的通用视频端点。
         has_known_modality = False
     # wan2x_dot 无法从 model_id 直接归一化出确切 t2v/i2v/r2v 档位（其命名形态未收敛），
-    # profile_key 留空，交由 _profile_for_model 末尾的兜底子串匹配处理（多数落 _DEFAULT_PROFILE）；
+    # profile_key 留空，交由 _match_profile 末尾的兜底子串匹配处理（多数认不得、取统一回落）；
     # 是否收窄同 wan2.7 一样按已知模态门控需要供应商 API 事实与产品判断，不由本字段代为决定。
     return WanClassification(
         family=family,
@@ -319,7 +320,7 @@ def _normalize_wan27_alias(family_suffix: str) -> str:
 
     分两步是因为两段分隔符独立可变（"wan_2.7-r2v" 只有前段是下划线、"wan-2.7_r2v" 只有后段
     是下划线、"wan_2.7_r2v" 两段都是），任一段漏归一化都会导致结果不与 _MODEL_PROFILES 的 key
-    构成子串关系，静默落 _DEFAULT_PROFILE。调用方须传入从 wan2.7 标记本身开始的子串（不含标记前
+    构成子串关系，静默取统一回落。调用方须传入从 wan2.7 标记本身开始的子串（不含标记前
     的装饰前缀），且须先用 WAN2_PATTERN.search 确认命中。
     """
     family_suffix = WAN2_PATTERN.sub("wan2.7", family_suffix)
@@ -376,11 +377,10 @@ _MODEL_PROFILES: dict[str, VideoCapabilities] = {
     ),
 }
 
-# 未知 model（如代理中转自定义命名）按通用 i2v/t2v 处理，VideoCapabilities() 默认支持首帧、
-# 音轨开关按「无信号不收紧」保持可控。请求侧的对应判定是「无信号不发未知参数」（_build_payload
-# 只对 _is_wan3 命中的型号下发 audio），两者方向不同是有意的：声明侧误判恒有声会把用户的开关
-# 锁死，请求侧误发未知参数会被上游直接拒。
-_DEFAULT_PROFILE = VideoCapabilities()
+# 认不得的 model（如代理中转自定义命名）取 name_family 的统一回落（文生视频与首帧），音轨开关按
+# 「无信号不收紧」保持可控。请求侧的对应判定是「无信号不发未知参数」（_build_payload 只对 _is_wan3
+# 命中的型号下发 audio），两者方向不同是有意的：声明侧误判恒有声会把用户的开关锁死，请求侧误发未知
+# 参数会被上游直接拒。
 
 
 def _is_wan3(model: str | None) -> bool:
@@ -407,27 +407,25 @@ def _find_known_profile_key(normalized: str, keys: Iterable[str]) -> str | None:
     return None
 
 
-def _profile_for_model(model: str | None) -> VideoCapabilities:
-    """按 model_id 解析能力档：先精确命中，再容忍代理中转的前后缀装饰。
+def _match_profile(model: str) -> VideoCapabilities | None:
+    """按名字解析能力档：先精确命中，再容忍代理中转的前后缀装饰；认不得时为 ``None``。
 
     infer_endpoint 用 classify_wan_model 的同一结论路由到 dashscope-async-video，故此处也须
-    子串容忍，否则 "proxy/happyhorse-1.0-r2v" / "wan2.7-r2v-0715" 这类装饰名会退回 _DEFAULT_PROFILE、
-    丢掉 r2v 的 max_reference_images，_build_media 据此构造出错误 payload。
-    仅带系列名而无变体后缀（如裸 "happyhorse"）无法判别 t2v/i2v/r2v，按设计回落通用默认。
-    __init__ 与 video_capabilities_for_model 共用本函数，保持单一真相源。
+    子串容忍，否则 "proxy/happyhorse-1.0-r2v" / "wan2.7-r2v-0715" 这类装饰名会退回统一回落、丢掉 r2v 的 max_reference_images，_build_media 据此构造出错误 payload。
+    仅带系列名而无变体后缀（如裸 "happyhorse"）无法判别 t2v/i2v/r2v，按设计认不得。
     """
     normalized = (model or "").strip().lower()
     if not normalized:
-        return _DEFAULT_PROFILE
+        return None
     if normalized in _MODEL_PROFILES:
         return _MODEL_PROFILES[normalized]
     classification = classify_wan_model(normalized)
     # has_known_modality=False 表示 infer_endpoint 已把该 id 排除出原生路由（videoedit/s2v/v2v
-    # 等未实现模态、或 wan2x_dot 的未验证 image-to-video 续接），此处必须同步回落 _DEFAULT_PROFILE
+    # 等未实现模态、或 wan2x_dot 的未验证 image-to-video 续接），此处必须同步认不得
     # ——否则子串容忍匹配仍可能在装饰后缀里找到共存的已知 token（如 "wan2.7-i2v-s2v"
     # 里的 "i2v"），让不落原生路由的 id 反而拿到该路由的能力档，与路由判定互斥。
     if not classification.has_known_modality:
-        return _DEFAULT_PROFILE
+        return None
     if classification.profile_key is not None:
         normalized = classification.profile_key
     # 各 profile key（happyhorse-{1.0,1.1}-{t2v,i2v,r2v} / wan2.7-{t2v,i2v,r2v} /
@@ -435,7 +433,15 @@ def _profile_for_model(model: str | None) -> VideoCapabilities:
     known = _find_known_profile_key(normalized, _MODEL_PROFILES)
     if known is not None:
         return _MODEL_PROFILES[known]
-    return _DEFAULT_PROFILE
+    return None
+
+
+def _profile_for_model(model: str | None) -> VideoCapabilities:
+    """model 的能力档：名字按 name_family 的规则逐个解析，都认不得时取统一回落。
+
+    __init__ 与 video_capabilities_for_model 共用本函数，保持单一真相源。
+    """
+    return capabilities_by_names(model or "", _match_profile)
 
 
 class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):

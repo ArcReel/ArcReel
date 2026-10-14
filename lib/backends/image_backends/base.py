@@ -57,6 +57,14 @@ class ImageCapability(StrEnum):
     IMAGE_TO_IMAGE = "image_to_image"
 
 
+#: 文生图与图生图都实现了的调用通道的通道事实。内置调用通道在类属性 ``CHANNEL_CAPABILITIES`` 上声明
+#: 自己实现了哪些（不构造实例即可读，见 ``registry.channel_capabilities``）；模型接不接受由模型条目说明，
+#: 生效能力取两者都满足的部分（见 ``lib.backends.image_capabilities``）。
+BOTH_IMAGE_CAPABILITIES: frozenset[ImageCapability] = frozenset(
+    {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+)
+
+
 @dataclass
 class ReferenceImage:
     """参考图片。参考图在 prompt 里按数组序位以「图N」指认，传输链只携带路径。"""
@@ -106,7 +114,10 @@ class ImageBackend(Protocol):
     @property
     def model(self) -> str: ...
     @property
-    def capabilities(self) -> set[ImageCapability]: ...
+    def capabilities(self) -> set[ImageCapability]:
+        """这条调用通道实现了文生图还是图生图（通道事实，不含模型事实）。"""
+        ...
+
     @property
     def max_reference_images(self) -> int:
         """单请求可携带的参考图上限；``0`` = 该后端不按数量裁剪。

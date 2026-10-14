@@ -312,6 +312,7 @@ export default {
   'problem_video_capability_missing_r2v': 'Mô hình video đã chọn không hỗ trợ tạo video từ tham chiếu.',
   'problem_video_capability_missing_t2v': 'Mô hình video đã chọn không hỗ trợ tạo video từ văn bản, cần ảnh khung đầu.',
   'problem_video_capability_reference_unavailable': 'Mô hình video chọn trong Cài đặt không còn khả dụng.',
+  'problem_model_not_in_provider_catalog': 'Mô hình chọn trong Cài đặt không còn trong danh sách mô hình của nhà cung cấp.',
   'problem_generation_dependency_failed': 'Đơn vị mà đơn vị này phụ thuộc trong cùng lô chưa tạo thành công, nên đơn vị này chưa được gửi.',
   'problem_fallback_retry': 'Lần thử trước chưa thành công.',
   'problem_fallback_fix_input': 'Nội dung của đơn vị này cần sửa trước khi tạo.',

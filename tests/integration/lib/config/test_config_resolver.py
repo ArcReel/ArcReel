@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
@@ -1228,28 +1229,25 @@ class TestResolveVideoBackendBuckets:
             await resolver._resolve_video_provider_model(fake_svc, None, None, None, "r2v")
         assert exc_info.value.code == "video_capability_missing_r2v"
 
-    async def test_bucket_reference_to_unknown_model_raises_unavailable(self):
-        """悬空引用（注册表已无该 model）由同一解析闸报错兜底，不静默换模型。"""
-        from lib.config.resolver import VideoBucketCapabilityError
-
+    async def test_bucket_reference_to_unknown_model_asks_to_reselect(self):
+        """悬空引用（模型清单已无该 model）由同一解析闸报「请重新选择模型」，不静默换模型。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_video_backend_i2v": "ark/removed-model"})
-        with pytest.raises(VideoBucketCapabilityError) as exc_info:
+        with pytest.raises(ModelNotInCatalogError) as exc_info:
             await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
-        assert exc_info.value.code == "video_capability_reference_unavailable"
+        assert exc_info.value.code == "model_not_in_provider_catalog"
         assert exc_info.value.params == {"provider": "ark", "model": "removed-model"}
 
-    async def test_bucket_reference_to_non_video_model_raises_unavailable(self):
+    async def test_bucket_reference_to_non_video_model_asks_to_reselect(self):
         """所引模型不是视频模型同属悬空引用：backend caps 函数对同 provider 的图片模型也返回
         静态能力（``gemini-aistudio/gemini-3.1-flash-image`` 会拿到 first_frame=True），
         只判成员资格会放行，落到执行层才炸。"""
-        from lib.config.resolver import VideoBucketCapabilityError
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image"})
-        with pytest.raises(VideoBucketCapabilityError) as exc_info:
+        with pytest.raises(ModelNotInCatalogError) as exc_info:
             await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
-        assert exc_info.value.code == "video_capability_reference_unavailable"
+        assert exc_info.value.code == "model_not_in_provider_catalog"
 
     async def test_capability_none_keeps_legacy_resolution_without_gate(self):
         """不定桶调用（费用估算、限流路由兜底）保持旧三级解析，不读桶键、不过能力闸。"""
@@ -1680,7 +1678,7 @@ class TestPayloadPinnedVideoModel:
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
         payload = {"video_provider_i2v": "seedance/legacy"}
-        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+        with pytest.raises(ModelNotInCatalogError) as excinfo:
             await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
         assert excinfo.value.provider_id == "seedance"
 
@@ -1690,7 +1688,7 @@ class TestPayloadPinnedVideoModel:
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
         payload = {"video_provider_i2v": "ark/retired-model"}
-        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+        with pytest.raises(ModelNotInCatalogError) as excinfo:
             await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
         assert excinfo.value.model_id == "retired-model"
 
@@ -1700,7 +1698,7 @@ class TestPayloadPinnedVideoModel:
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
         payload = {"video_provider_i2v": "ark/doubao-seedream-4-0-250828"}
-        with pytest.raises(VideoBucketCapabilityError):
+        with pytest.raises(ModelNotInCatalogError):
             await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
 
     async def test_malformed_pin_falls_through_to_config(self):

@@ -30,6 +30,7 @@ from lib.backends.backend_runtime import (
 )
 from lib.backends.providers import PROVIDER_ARK
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.name_family import capabilities_by_names
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -217,15 +218,27 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         return False
 
     @staticmethod
+    def _is_seedance_1(model: str) -> bool:
+        """按 model_id 子串识别 seedance-1-x / seedance-1.x 系列；系列内的逐型号能力另走各白名单。"""
+        model_lower = model.lower()
+        return "seedance-1-" in model_lower or "seedance-1." in model_lower
+
+    @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
+        """按模型名纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
 
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
-        保持 backend 为单一真相源。
+        保持 backend 为单一真相源。名字按 ``name_family`` 的规则取，Seedance 1.x / 2.0 / 2.5 三个
+        系列之外的名字统一回落。
 
         音轨形态全系取 ``VideoCapabilities`` 的默认值（开关可控）：``_build_payload`` 无条件把
         ``generate_audio`` 放进请求体，各档 Seedance 都认这个开关，故无需分支声明。
         """
+        return capabilities_by_names(model, ArkVideoBackend._match_video_capabilities)
+
+    @staticmethod
+    def _match_video_capabilities(model: str) -> VideoCapabilities | None:
+        """按名字族认定的能力；不属于已知 Seedance 系列时为 ``None``。"""
         if ArkVideoBackend._is_seedance_2_5(model):
             # 2.5 与 2.0 的差别不止数值：素材上限放宽到参考图 30 / 音频 10 段、总时长 30 秒，
             # 且首帧在场时比例必须交给上游按首帧自适应（见 first_frame_ratio_adaptive_only），
@@ -267,9 +280,11 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                     _SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS if on_verified_allowlist else None
                 ),
             )
-        # 非 2.0 系列：1.5 pro 可正常下发 role="last_frame"（见
+        if not ArkVideoBackend._is_seedance_1(model):
+            return None
+        # 1.x 系列：1.5 pro 可正常下发 role="last_frame"（见
         # test_first_last_frame_role_fields）。白名单覆盖能力表已验证支持首尾帧的三个型号，
-        # 未命中白名单的一律 last_frame=False（含上游或自定义供应商的未知型号）。
+        # 未命中白名单的一律 last_frame=False（含系列内未上表的变体）。
         model_lower = model.lower()
         no_first_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_FIRST_FRAME_SUBSTRINGS)
         allowed_last_frame = ArkVideoBackend._matches_known_model(

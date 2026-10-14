@@ -28,9 +28,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
@@ -65,6 +67,9 @@ _MODEL_REF_LIMITS: dict[str, int] = {
 class KlingImageBackend(KlingBackendBase):
     """可灵 Kling 图像后端（异步轮询，JWT / Bearer 双模式）。"""
 
+    # 文生图与图生图（多图主体）同一端点。
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+
     _media_label = "图像"
 
     def __init__(
@@ -92,15 +97,10 @@ class KlingImageBackend(KlingBackendBase):
         )
         # 发给可灵 API 的模型名：调用方按 registry 解耦后传入；缺省回退 registry 键名（普通模型键名即 API 名）。
         self._api_model_name = api_model_name or self._model
-        # o1 / v3-omni 均支持文生图 + 图生图（多图主体）。
-        self._capabilities: set[ImageCapability] = {
-            ImageCapability.TEXT_TO_IMAGE,
-            ImageCapability.IMAGE_TO_IMAGE,
-        }
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return self._capabilities
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:

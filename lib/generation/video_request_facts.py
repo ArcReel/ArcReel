@@ -20,6 +20,7 @@ from typing import Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
     ConfigResolver,
     DurationExclusionReason,
@@ -286,7 +287,7 @@ async def evaluate_video_request_facts(
     else:
         try:
             selected = await resolver.resolve_video_backend(project, None, generation_type=generation_type)
-        except VideoBucketCapabilityError as exc:
+        except (VideoBucketCapabilityError, ModelNotInCatalogError) as exc:
             return VideoRequestFactsFailure(exc.code, tuple(exc.params.items()))
         except (ValueError, SQLAlchemyError):
             return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type),))

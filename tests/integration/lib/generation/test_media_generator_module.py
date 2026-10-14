@@ -157,7 +157,7 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen._video_backend = _FakeVideoBackend()
     gen._user_id = "default"
     gen._config = FakeConfigResolver(requested_generate_audio=False)
-    gen._image_provider_id = None
+    gen._image_provider_id = "fake-image"
     gen._video_provider_id = None
     gen.versions = _FakeVersions()
     gen.ledger = _FakeLedger()

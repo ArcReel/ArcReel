@@ -378,8 +378,7 @@ def builtin_video_audio_track(provider_id: str, model_id: str, *, generation_typ
     None 的三种成因都归到「无信号」：供应商不在注册表（自定义供应商走
     ``synthesize_video_capabilities``，不经本函数）、该 model 不是视频模型、backend 未声明能力。
     """
-    model_info = catalog.get_model(provider_id, model_id)
-    if model_info is None or model_info.media_type != "video":
+    if catalog.get_model(provider_id, model_id, media_type="video") is None:
         return None
     try:
         caps = builtin_video_capabilities_for_model(provider_id, model_id)
@@ -791,8 +790,9 @@ class ConfigResolver:
           > 项目默认（``video_backend``）> 全局桶（``default_video_backend_<generation_type>``）> 全局默认
           （``default_video_backend``）> 自动推断，空桶回退默认层。解析结果过能力闸：模型缺该桶
           所需能力、或配置引用已不可用（模型被删 / 能力被改 / 供应商被删）时抛
-          ``VideoBucketCapabilityError``，不静默换模型。payload 命中时跳过能力闸——已入队任务
-          按 payload 照常执行，不回头补校验；但已物化的身份仍过身份可用性校验，悬空同样抛该异常。
+          ``VideoBucketCapabilityError``，不静默换模型；内置模型不在供应商的视频模型清单中时抛
+          ``ModelNotInCatalogError``。payload 命中时跳过能力闸——已入队任务按 payload 照常执行，
+          不回头补校验；但已物化的身份仍过身份可用性校验，悬空同样报错。
         - ``generation_type`` 为 None：同一骨架去掉桶层，项目默认（``video_backend``）> 全局默认
           （``default_video_backend``）> 自动推断，无能力闸；自定义供应商的 model 不存在、
           已禁用或 endpoint 的 media_type 不是 video 时，收敛到该 provider 默认启用的 video
@@ -1137,8 +1137,8 @@ class ConfigResolver:
         ``lib.custom_provider.default_models.lacks_bucket``。与
         ``_ensure_video_bucket_capability`` 两处不同：
 
-        - 只判自定义供应商。内置图片模型的桶能力由执行层 ``MediaGenerator`` 按 registry 能力位
-          把关（``image_capability_missing_*``，与本闸同一批 code）。
+        - 只判自定义供应商。内置图片模型的桶能力由执行层 ``MediaGenerator`` 按同一份生效能力
+          （``lib.backends.image_capabilities``）把关（``image_capability_missing_*``，与本闸同一批 code）。
         - 引用失效（模型被删 / 禁用 / endpoint 改成别的媒体类型）不在此报错：图片侧按设计回退到
           该桶的默认模型（``lib.custom_provider.loader``），回退本身也按桶过滤。
         """
@@ -1203,20 +1203,21 @@ class ConfigResolver:
         selected: ProviderModel,
         generation_type: VideoGenerationType,
     ) -> CustomProviderModel | None:
-        """校验视频身份现在仍解析得到，悬空即抛 ``VideoBucketCapabilityError``。
+        """校验视频身份现在仍解析得到，悬空即报错。
 
-        判的是身份存在性而非能力声明：内置模型看 registry（供应商被下线 / 模型被注册表升级删除 /
-        所引模型压根不是视频模型），自定义模型看 DB（供应商被删、模型被删或禁用、endpoint 改成
-        其它媒体类型）。自定义模型命中时返回该行，供调用方就地合成能力、不重复查库；内置返回 None。
+        判的是身份存在性而非能力声明：内置模型看模型目录，不在该供应商的视频模型清单里（已下架、
+        已改名，或所引模型不是视频模型）时抛 ``ModelNotInCatalogError``，与装配层、图片路径同一个
+        「请重新选择模型」；自定义模型看 DB（供应商被删、模型被删或禁用、endpoint 改成其它媒体类型），
+        悬空抛 ``VideoBucketCapabilityError``。自定义模型命中时返回该行，供调用方就地合成能力、不重复
+        查库；内置返回 None。
 
         backend caps 函数不都校验 model 存在性、也不都校验 media_type（部分 provider 对任意 model id
         返回静态能力，同一 provider 的图片模型也会拿到 first_frame=True），故身份需单独判。
         """
         provider_id, model_id = selected.provider_id, selected.model_id
         if not is_custom_provider(provider_id):
-            model_info = catalog.get_model(provider_id, model_id)
-            if model_info is None or model_info.media_type != "video":
-                raise _video_bucket_reference_unavailable(generation_type, provider_id, model_id)
+            if catalog.get_model(provider_id, model_id, media_type="video") is None:
+                raise ModelNotInCatalogError(provider_id=provider_id, model_id=model_id, media_type="video")
             return None
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，

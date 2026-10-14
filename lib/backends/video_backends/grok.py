@@ -20,6 +20,7 @@ from lib.backends.backend_runtime import download_video
 from lib.backends.data_uri import image_to_data_uri
 from lib.backends.grok_shared import create_grok_client
 from lib.backends.providers import PROVIDER_GROK
+from lib.backends.video_backends.name_family import capabilities_by_names
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 
@@ -27,6 +28,16 @@ logger = logging.getLogger(__name__)
 
 _MODEL_CLASSIC = "grok-imagine-video"
 _MODEL_1_5 = "grok-imagine-video-1.5"
+
+
+def _match_video_capabilities(name: str) -> VideoCapabilities | None:
+    """按名字族认定的能力；不属于 ``grok-imagine-video`` 系列时为 ``None``。"""
+    if not name.startswith(_MODEL_CLASSIC):
+        return None
+    return VideoCapabilities(
+        last_frame=name == _MODEL_1_5, max_reference_images=7, audio_track=VideoAudioMode.CONTROLLABLE
+    )
+
 
 # 全系参考生视频（带参考图，或带尾帧）的分辨率上限：「Reference-to-video is capped at 720p」，且首帧与
 # last_frame 组合即参考生视频（https://docs.x.ai/developers/model-capabilities/video/generation）。
@@ -74,10 +85,10 @@ class GrokVideoBackend:
 
         音轨可开关：请求把音轨意图下发为 SDK 的 ``generate_audio``（缺省有声，``False`` 出无声
         视频），``generate`` 结算按同一下发值记录。
+
+        ``grok-imagine-video`` 系列之外的名字取 name_family 的统一回落。
         """
-        return VideoCapabilities(
-            last_frame=model == _MODEL_1_5, max_reference_images=7, audio_track=VideoAudioMode.CONTROLLABLE
-        )
+        return capabilities_by_names(model, _match_video_capabilities)
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

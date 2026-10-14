@@ -1,12 +1,11 @@
-"""测试 GeminiVideoBackend 对 resolution 的处理与 duration 联动约束。"""
+"""测试 GeminiVideoBackend 对 resolution 与 duration 的透传。"""
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
+from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.video_backends.gemini import GeminiVideoBackend
-from lib.config.registry import ModelInfo
 
 
 def _make_backend(model="veo-3.1-lite-generate-preview", backend_type="aistudio"):
@@ -73,7 +72,7 @@ async def test_duration_passthrough_str(tmp_path, seconds):
     assert cfg_call.kwargs["duration_seconds"] == str(seconds)
 
 
-# ── duration 联动约束：参考图 / 1080p·4k 强制 8 秒 ──────────────────
+# ── 时长不在 backend 另做检查：参考图 / 1080p·4k 的时长约束由上游判定 ──────────────────
 
 
 def _frame(tmp_path, name="frame.png"):
@@ -82,155 +81,20 @@ def _frame(tmp_path, name="frame.png"):
     return p
 
 
-# 统一走 generate()：校验在重试装饰器之外，只有从这个入口进才覆盖真实调用顺序。
-
-
-@pytest.mark.parametrize("seconds", [4, 6])
+@pytest.mark.parametrize("resolution", ["1080p", "4k"])
 @pytest.mark.asyncio
-async def test_reference_images_reject_non_8s(tmp_path, seconds):
+async def test_generate_passes_constrained_duration_through(tmp_path, resolution):
+    """参考图与高分辨率下的非 8 秒请求也原样下发，超出范围由上游拒绝。"""
     backend = _make_backend()
     req = VideoGenerationRequest(
         prompt="x",
         output_path=tmp_path / "o.mp4",
-        duration_seconds=seconds,
-        reference_images=[_frame(tmp_path, "ref.png")],
-    )
-    with pytest.raises(VideoCapabilityError) as exc:
-        await backend.generate(req)
-
-    assert exc.value.code == "video_reference_images_duration_unsupported"
-    assert exc.value.params["model"] == "veo-3.1-lite-generate-preview"
-    assert exc.value.params["duration"] == seconds
-    assert exc.value.params["supported"] == "8s"
-    backend._client.aio.models.generate_videos.assert_not_awaited()
-
-
-@pytest.mark.parametrize("seconds", [4, 6])
-@pytest.mark.parametrize("resolution", ["1080p", "1080P", "4k", "4K"])
-@pytest.mark.asyncio
-async def test_high_resolution_rejects_non_8s(tmp_path, resolution, seconds):
-    backend = _make_backend()
-    req = VideoGenerationRequest(
-        prompt="x",
-        output_path=tmp_path / "o.mp4",
-        duration_seconds=seconds,
+        duration_seconds=4,
         resolution=resolution,
-    )
-    with pytest.raises(VideoCapabilityError) as exc:
-        await backend.generate(req)
-
-    assert exc.value.code == "video_resolution_duration_unsupported"
-    assert exc.value.params["model"] == "veo-3.1-lite-generate-preview"
-    assert exc.value.params["resolution"] == resolution.upper()
-    assert exc.value.params["duration"] == seconds
-    backend._client.aio.models.generate_videos.assert_not_awaited()
-
-
-@pytest.mark.parametrize("seconds", [4, 6])
-@pytest.mark.asyncio
-async def test_start_and_last_frame_keep_short_durations(tmp_path, seconds):
-    """image / lastFrame 路径不受约束，720p 下 4/6 秒照常下发。"""
-    backend = _make_backend()
-    req = VideoGenerationRequest(
-        prompt="x",
-        output_path=tmp_path / "o.mp4",
-        duration_seconds=seconds,
-        resolution="720p",
-        start_image=_frame(tmp_path, "start.png"),
-        end_image=_frame(tmp_path, "end.png"),
+        reference_images=[_frame(tmp_path, "ref.png")],
     )
     with pytest.raises(RuntimeError):  # SDK mock 的 stop 哨兵，说明已走到调用点
         await backend.generate(req)
 
     backend._client.aio.models.generate_videos.assert_awaited_once()
-    assert backend._types.GenerateVideosConfig.call_args.kwargs["duration_seconds"] == str(seconds)
-
-
-@pytest.mark.parametrize(
-    ("model", "backend_type"),
-    [
-        ("veo-3.1-generate-preview", "aistudio"),
-        ("veo-3.1-generate-001", "vertex"),
-        # registry 未登记的型号（中转站 / 自定义供应商包装）：约束读不到声明，落兜底常量。
-        ("veo-3.1-via-relay", "aistudio"),
-    ],
-)
-@pytest.mark.parametrize("resolution", ["1080p", "4k"])
-@pytest.mark.asyncio
-async def test_constraints_follow_registry_declaration(tmp_path, model, backend_type, resolution):
-    """已登记型号按 registry 声明拒绝，未登记型号回落兜底常量——两条路径都不放行 4 秒。"""
-    backend = _make_backend(model=model, backend_type=backend_type)
-    req = VideoGenerationRequest(
-        prompt="x",
-        output_path=tmp_path / "o.mp4",
-        duration_seconds=4,
-        resolution=resolution,
-    )
-    with pytest.raises(VideoCapabilityError) as exc:
-        await backend.generate(req)
-
-    assert exc.value.code == "video_resolution_duration_unsupported"
-    assert exc.value.params["supported"] == "8s"
-    backend._client.aio.models.generate_videos.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_reference_images_constraint_for_unregistered_model(tmp_path):
-    """未登记型号的参考图路径同样落兜底，不因查不到声明而放行。"""
-    backend = _make_backend(model="veo-3.1-via-relay")
-    req = VideoGenerationRequest(
-        prompt="x",
-        output_path=tmp_path / "o.mp4",
-        duration_seconds=6,
-        reference_images=[_frame(tmp_path, "ref.png")],
-    )
-    with pytest.raises(VideoCapabilityError) as exc:
-        await backend.generate(req)
-
-    assert exc.value.code == "video_reference_images_duration_unsupported"
-    assert exc.value.params["supported"] == "8s"
-
-
-@pytest.mark.asyncio
-async def test_reference_images_empty_declaration_means_unconstrained(tmp_path, monkeypatch):
-    """已登记但把 reference_image_durations 声明为空 = 该路径不额外约束，不落兜底。
-
-    空声明与「未登记」是两种语义（前端读同一份声明也按不约束处理），兜底只对未登记生效。
-    """
-    info = ModelInfo(
-        display_name="Veo test",
-        media_type="video",
-        capabilities=["text_to_video"],
-        supported_durations=[4, 6, 8],
-        reference_image_durations=[],
-    )
-    monkeypatch.setattr("lib.catalog.query.get_model", lambda *_: info)
-
-    backend = _make_backend()
-    req = VideoGenerationRequest(
-        prompt="x",
-        output_path=tmp_path / "o.mp4",
-        duration_seconds=4,
-        reference_images=[_frame(tmp_path, "ref.png")],
-    )
-    with pytest.raises(RuntimeError):  # 走到 SDK 调用即说明未被约束拦截
-        await backend.generate(req)
-
-    backend._client.aio.models.generate_videos.assert_awaited_once()
-
-
-@pytest.mark.parametrize("resolution", ["1080p", "4k"])
-@pytest.mark.asyncio
-async def test_8s_passes_through(tmp_path, resolution):
-    backend = _make_backend()
-    req = VideoGenerationRequest(
-        prompt="x",
-        output_path=tmp_path / "o.mp4",
-        duration_seconds=8,
-        resolution=resolution,
-        reference_images=[_frame(tmp_path, "ref.png")],
-    )
-    with pytest.raises(RuntimeError):
-        await backend.generate(req)
-
-    backend._client.aio.models.generate_videos.assert_awaited_once()
+    assert backend._types.GenerateVideosConfig.call_args.kwargs["duration_seconds"] == "4"

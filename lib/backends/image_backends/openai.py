@@ -10,6 +10,7 @@ from typing import ClassVar, Literal
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
@@ -83,6 +84,9 @@ def _resolve_openai_params(
 
 class OpenAIImageBackend:
     """OpenAI 图片生成后端，按 mode 决定支持 T2I / I2I / 两者。"""
+
+    #: 内置供应商按缺省的 ``both`` 构造；自定义端点按 mode 收窄，通道事实由端点声明。
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
 
     _MODE_TO_CAPS: ClassVar[dict[str, set[ImageCapability]]] = {
         "both": {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE},

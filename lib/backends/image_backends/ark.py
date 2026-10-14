@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from lib.backends.ark_shared import create_ark_client
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
@@ -69,6 +71,8 @@ _MAX_REFERENCE_IMAGES = 14
 class ArkImageBackend:
     """Ark (火山方舟) Seedream 图片生成后端。"""
 
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+
     DEFAULT_MODEL = "doubao-seedream-5-0-lite-260128"
 
     def __init__(
@@ -80,10 +84,6 @@ class ArkImageBackend:
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url)
         self._model = model or self.DEFAULT_MODEL
-        self._capabilities: set[ImageCapability] = {
-            ImageCapability.TEXT_TO_IMAGE,
-            ImageCapability.IMAGE_TO_IMAGE,
-        }
 
     @property
     def name(self) -> str:
@@ -95,7 +95,7 @@ class ArkImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return self._capabilities
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:

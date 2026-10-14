@@ -162,11 +162,11 @@ async def test_endpoint_fixed_duration_is_a_legal_empty_tier_set(resolver, db_fa
     assert facts.excluded_durations == ()
 
 
-async def test_unresolvable_bucket_fails_with_the_capability_gate_code(resolver):
+async def test_model_missing_from_catalog_fails_asking_to_reselect(resolver):
     facts = await _read(resolver, {"video_provider_i2v": f"{VEO_PROVIDER}/retired-model"})
 
     assert facts == VideoRequestFactsFailure(
-        "video_capability_reference_unavailable",
+        "model_not_in_provider_catalog",
         (("provider", VEO_PROVIDER), ("model", "retired-model")),
     )
 

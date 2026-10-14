@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from lib.backends.grok_shared import create_grok_client, grok_should_retry
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
@@ -59,6 +61,8 @@ def _encode_existing_refs(ref_paths: list[str]) -> list[str]:
 class GrokImageBackend:
     """xAI Grok (Aurora) 图片生成后端，支持 T2I 和 I2I。"""
 
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+
     def __init__(
         self,
         *,
@@ -67,10 +71,6 @@ class GrokImageBackend:
     ):
         self._client = create_grok_client(api_key=api_key)
         self._model = model or DEFAULT_MODEL
-        self._capabilities: set[ImageCapability] = {
-            ImageCapability.TEXT_TO_IMAGE,
-            ImageCapability.IMAGE_TO_IMAGE,
-        }
 
     @property
     def name(self) -> str:
@@ -82,7 +82,7 @@ class GrokImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return self._capabilities
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:

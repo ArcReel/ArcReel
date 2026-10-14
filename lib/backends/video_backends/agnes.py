@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from dataclasses import replace
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -43,6 +44,7 @@ from lib.backends.backend_runtime import (
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import image_to_base64_data_uri
 from lib.backends.providers import PROVIDER_AGNES
+from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
@@ -59,19 +61,13 @@ _VIDEOS_ENDPOINT = "/videos"
 # 成片查询端点，挂在网关根（不在 /v1 下），按 video_id 查询。
 _VIDEO_QUERY_ENDPOINT = "/agnesapi"
 
-# fps 固定 24；num_frames 必须形如 8n+1，上限 441（≈18.4s @24fps）。时长按秒 × fps 取整后
-# 对齐到最近的 8n+1。1–3s 会落到 81 帧以下（25/49/73），文档允许的合法值。
+# fps 固定 24；num_frames 必须形如 8n+1。时长按秒 × fps 取整后对齐到最近的 8n+1，不截断：
+# 超出上游帧数上限的请求由上游拒绝，而不是静默生成更短的成片。1–3s 会落到 81 帧以下（25/49/73），
+# 文档允许的合法值。
 _FPS = 24
 _FRAME_STEP = 8
-_MAX_NUM_FRAMES = 441
 
-# 后端防御时长边界，与 registry agnes-video-v2.0 的 supported_durations（1..18s）同步。越界请求
-# fail-loud，而非静默截断到 _MAX_NUM_FRAMES——否则 30s 请求实际只生成约 18s，却按原请求秒数计费。
-_MIN_DURATION_SECONDS = 1
-_MAX_DURATION_SECONDS = 18
-
-_V25_MIN_DURATION_SECONDS = 4
-_V25_MAX_DURATION_SECONDS = 12
+_V20_MODEL = "agnes-video-v2.0"
 _V25_FLASH_MODEL = "agnes-video-2.5-flash"
 _V25_MODEL = "agnes-video-2.5"
 _V25_ASPECT_RATIOS = frozenset({"21:9", "16:9", "4:3", "1:1", "3:4", "9:16"})
@@ -160,11 +156,10 @@ def _first_url_field(body: dict) -> str | None:
 
 
 def _duration_to_num_frames(duration_seconds: int) -> int:
-    """秒 → num_frames：秒 × fps 取整后对齐到最近的 ``8n+1``，上限 441。"""
+    """秒 → num_frames：秒 × fps 取整后对齐到最近的 ``8n+1``。"""
     target = max(1, duration_seconds) * _FPS
     n = round((target - 1) / _FRAME_STEP)
-    num_frames = _FRAME_STEP * n + 1
-    return max(1, min(num_frames, _MAX_NUM_FRAMES))
+    return max(1, _FRAME_STEP * n + 1)
 
 
 def _resolve_size(resolution: str | None, aspect_ratio: str) -> tuple[int, int]:
@@ -187,6 +182,23 @@ def _image_to_bare_base64(image_path: Path) -> str:
 def _image_to_data_uri(image_path: Path) -> str:
     """本地图片 → ``data:image/...;base64,...``；2.5 契约的媒体输入统一使用该形态。"""
     return image_to_base64_data_uri(image_path)
+
+
+def _match_video_capabilities(name: str) -> VideoCapabilities | None:
+    """按名字认定的能力；不是已知型号时为 ``None``。"""
+    if name in _V25_REFERENCE_LIMITS:
+        return VideoCapabilities(
+            last_frame=True,
+            max_reference_images=_V25_REFERENCE_LIMITS[name],
+            audio_track=VideoAudioMode.ALWAYS_ON,
+        )
+    if name == _V20_MODEL:
+        return VideoCapabilities(
+            last_frame=True,
+            max_reference_images=_MAX_REFERENCE_IMAGES,
+            audio_track=VideoAudioMode.ALWAYS_OFF,
+        )
+    return None
 
 
 def _uses_v25_contract(model: str) -> bool:
@@ -298,24 +310,18 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+        """按模型名纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         首帧 + 尾帧（首尾关键帧）+ 多图主体参考；参考图不与首帧叠加（单通道 + mode 不可叠加）。
         2.5 系列固定产出音频，flash 与完整版参考图上限分别为 5 / 8；v2.0 保持无声与 4 图上限。
+        这三个型号之外的名字取 name_family 的统一回落，按 v2.0 契约提交、成片无声。
 
         instance property 委托至此，保持 backend 为单一真相源。
         """
-        if model in (_V25_FLASH_MODEL, _V25_MODEL):
-            max_reference_images = _V25_REFERENCE_LIMITS[model]
-            audio_track = VideoAudioMode.ALWAYS_ON
-        else:
-            max_reference_images = _MAX_REFERENCE_IMAGES
-            audio_track = VideoAudioMode.ALWAYS_OFF
-        return VideoCapabilities(
-            first_frame=True,
-            last_frame=True,
-            max_reference_images=max_reference_images,
-            audio_track=audio_track,
+        return capabilities_by_names(
+            model,
+            _match_video_capabilities,
+            fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=VideoAudioMode.ALWAYS_OFF),
         )
 
     @property
@@ -353,7 +359,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
     def _build_v20_payload(self, request: VideoGenerationRequest) -> dict:
         """构建 v2.0 提交体，保持既有 WxH / 帧数 / 裸 base64 契约不变。"""
-        self._reject_out_of_range_duration(request.duration_seconds)
         width, height = _resolve_size(request.resolution, request.aspect_ratio)
         payload: dict = {
             "model": self._model,
@@ -396,7 +401,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
     def _build_v25_payload(self, request: VideoGenerationRequest) -> dict:
         """构建 2.5 提交体：mode + 秒数字符串 + 分辨率档位 + Data URI 媒体。"""
-        self._reject_out_of_range_duration(request.duration_seconds)
         self._reject_v25_aspect_ratio(request.aspect_ratio)
         size = self._normalize_v25_resolution(request.resolution)
 
@@ -459,22 +463,6 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
                 model=self._model,
                 aspect_ratio=aspect_ratio,
                 supported=", ".join(sorted(_V25_ASPECT_RATIOS)),
-            )
-
-    def _reject_out_of_range_duration(self, duration_seconds: int) -> None:
-        """时长越界时 fail-loud；2.5 为 4–12s，v2.0 保持 1–18s。"""
-        if _uses_v25_contract(self._model):
-            minimum = _V25_MIN_DURATION_SECONDS
-            maximum = _V25_MAX_DURATION_SECONDS
-        else:
-            minimum = _MIN_DURATION_SECONDS
-            maximum = _MAX_DURATION_SECONDS
-        if not minimum <= duration_seconds <= maximum:
-            raise VideoCapabilityError(
-                "video_duration_not_supported",
-                model=self._model,
-                duration=duration_seconds,
-                supported=f"{minimum}-{maximum}",
             )
 
     @staticmethod

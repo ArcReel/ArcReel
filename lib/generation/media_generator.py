@@ -675,10 +675,20 @@ class MediaGenerator:
                     ref_images.append(ReferenceImage(path=str(ref)))
                 # PIL Image 等不支持的类型忽略
 
-        # Capability gating：上层 resolver 应当已经选到对的 backend，
-        # 这里是兜底（防御调用方手工拼 backend 或配置漂移）。
+        # Capability gating：调用通道实现了、且模型条目接受的才放行，与任务类型桶的候选同一个结果
+        # （lib.backends.image_capabilities）。上层 resolver 选桶时已按同一口径筛过，这里按实际请求形态把关。
+        from lib.backends.image_capabilities import effective_image_capabilities
+        from lib.custom_provider import is_custom_provider
+
+        # 成对不变量保证 backend 非 None 时 provider_id 亦非 None。
+        provider_id = cast(str, self._image_provider_id)
+        available = effective_image_capabilities(
+            self._image_backend.capabilities,
+            model_id=self._image_backend.model,
+            builtin_provider=None if is_custom_provider(provider_id) else provider_id,
+        )
         needed = ImageCapability.IMAGE_TO_IMAGE if ref_images else ImageCapability.TEXT_TO_IMAGE
-        if needed not in self._image_backend.capabilities:
+        if needed not in available:
             raise ImageCapabilityError(
                 "image_capability_missing_i2i"
                 if needed == ImageCapability.IMAGE_TO_IMAGE

@@ -64,9 +64,8 @@ def _gemini_default_pricing_for(media_type: str, model: str | None = None) -> Pr
 
     if model is not None:
         for provider_id in ("gemini-aistudio", "gemini-vertex"):
-            info = catalog.get_model(provider_id, model)
             pricing = catalog.model_pricing(provider_id, model)
-            if info is not None and pricing is not None and info.media_type == media_type:
+            if pricing is not None and catalog.get_model(provider_id, model, media_type=media_type) is not None:
                 return pricing
 
     # 默认模型取模型目录的默认模型单一真相源，避免与硬编码模型名漂移。
@@ -93,24 +92,21 @@ def lookup_pricing(provider: str, model: str | None, media_type: str) -> Pricing
     if provider not in PROVIDER_REGISTRY:
         return _gemini_default_pricing_for(media_type, model)
 
-    info = catalog.get_model(provider, model) if model is not None else None
-    pricing = catalog.model_pricing(provider, model) if model is not None else None
     # 必须媒体类型匹配才命中：历史按 call_type 分表，模型名只在本模态费率表内查。跨模态的
     # (model, call_type) 组合（如 video 调用带着图像模型名）应回落到当前媒体类型的默认模型，
     # 而非按该模型自身的异模态费率计价。
-    if info is not None and info.media_type == media_type and pricing is not None:
+    info = catalog.get_model(provider, model, media_type=media_type) if model is not None else None
+    pricing = catalog.model_pricing(provider, model) if model is not None else None
+    if info is not None and pricing is not None:
         return pricing
 
-    # 未知 model 名很可能是配置/调用错误，告警；媒体类型与调用不符同样告警（将按默认模型计价）；
+    # 未知 model 名或媒体类型与调用不符，很可能是配置/调用错误，告警（将按默认模型计价）；
     # 已知 model 但定价为 None（如 Agent Plan 套餐）是预期的 Gemini 兜底，降级到 debug 避免噪声。
     if model is not None and info is None:
-        logger.warning("pricing lookup: provider=%s model=%s 未在 registry，回落到默认模型费率", provider, model)
-    elif info is not None and info.media_type != media_type:
         logger.warning(
-            "pricing lookup: provider=%s model=%s 媒体类型(%s)与调用(%s)不符，回落到默认模型费率",
+            "pricing lookup: provider=%s model=%s 不在该供应商的 %s 模型清单中，回落到默认模型费率",
             provider,
             model,
-            info.media_type,
             media_type,
         )
     elif info is not None and pricing is None:

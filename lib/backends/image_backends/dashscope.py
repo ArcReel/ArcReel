@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.artifact_download_guard import artifact_http_client
@@ -23,6 +24,7 @@ from lib.backends.dashscope_shared import (
     safe_body_for_log,
 )
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
@@ -39,9 +41,6 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "qwen-image-2.0"
 
 _IMAGE_ENDPOINT = "/services/aigc/multimodal-generation/generation"
-
-# 编辑系列仅图生图（无文生图能力）；子串覆盖 qwen-image-edit / -edit-plus / -edit-max
-_I2I_ONLY_MARKERS = ("qwen-image-edit",)
 
 # 参考图上限：qwen 系 1~3 张、wan 系 0~9 张（docs 确权）
 _QWEN_REF_LIMIT = 3
@@ -69,6 +68,8 @@ _EDIT_MAX_RATIO = 4.0
 class DashScopeImageBackend:
     """阿里百炼图像后端（同步 multimodal 端点）。"""
 
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+
     def __init__(
         self,
         *,
@@ -86,14 +87,6 @@ class DashScopeImageBackend:
         mid = self._model.lower()
         self._is_wan = mid.startswith("wan")
         self._is_edit = "qwen-image-edit" in mid
-        self._capabilities = self._resolve_caps(self._model)
-
-    @staticmethod
-    def _resolve_caps(model: str) -> set[ImageCapability]:
-        mid = model.lower()
-        if any(marker in mid for marker in _I2I_ONLY_MARKERS):
-            return {ImageCapability.IMAGE_TO_IMAGE}
-        return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
     @staticmethod
     def _exceeds_standard_budget(size: str) -> bool:
@@ -128,7 +121,7 @@ class DashScopeImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return self._capabilities
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:
@@ -137,11 +130,6 @@ class DashScopeImageBackend:
     @with_retry_async(retry_if=should_retry_submit)
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         has_refs = bool(request.reference_images)
-        if has_refs and ImageCapability.IMAGE_TO_IMAGE not in self._capabilities:
-            raise ImageCapabilityError("image_endpoint_mismatch_no_i2i", model=self._model)
-        if not has_refs and ImageCapability.TEXT_TO_IMAGE not in self._capabilities:
-            raise ImageCapabilityError("image_endpoint_mismatch_no_t2i", model=self._model)
-
         size = self._resolve_size(request, has_refs)
         content = await asyncio.to_thread(self._build_content, request, has_refs)
 

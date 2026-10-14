@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from lib.backends.image_backends.base import ImageBackend
+from lib.backends.image_backends.base import ImageBackend, ImageCapability
 
 _BACKEND_FACTORIES: dict[str, Callable[..., ImageBackend]] = {}
 
@@ -22,3 +22,14 @@ def create_backend(name: str, **kwargs: Any) -> ImageBackend:
 
 def get_registered_backends() -> list[str]:
     return list(_BACKEND_FACTORIES.keys())
+
+
+def channel_capabilities(name: str) -> frozenset[ImageCapability]:
+    """读某个内置调用通道声明实现了的文生图 / 图生图（类属性 ``CHANNEL_CAPABILITIES``），不构造实例。"""
+    factory = _BACKEND_FACTORIES.get(name)
+    if factory is None:
+        raise ValueError(f"Unknown image backend: {name}")
+    declared = getattr(factory, "CHANNEL_CAPABILITIES", None)
+    if not isinstance(declared, frozenset):
+        raise ValueError(f"image backend {name!r} does not declare CHANNEL_CAPABILITIES")
+    return declared

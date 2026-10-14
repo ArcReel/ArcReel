@@ -11,12 +11,14 @@ import asyncio
 import base64
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.agnes_shared import agnes_base_url, agnes_headers, resolve_agnes_api_key
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
@@ -72,6 +74,8 @@ def _safe_body_for_log(body: dict) -> dict:
 class AgnesImageBackend:
     """Agnes 图像后端（单步同步 OpenAI 兼容 images/generations 端点）。"""
 
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+
     def __init__(
         self,
         *,
@@ -95,7 +99,7 @@ class AgnesImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:

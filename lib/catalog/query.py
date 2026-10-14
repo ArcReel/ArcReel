@@ -170,9 +170,16 @@ def reset_for_tests() -> None:
     _index_cache.clear()
 
 
-def get_model(provider_id: str, model_id: str) -> CatalogModel | None:
-    """按供应商与模型键取目录信息；供应商或模型不在目录中时返回 ``None``。"""
-    return _provider_models(provider_id).get(model_id)
+def get_model(provider_id: str, model_id: str, *, media_type: str | None = None) -> CatalogModel | None:
+    """按供应商与模型键取目录信息；供应商或模型不在目录中时返回 ``None``。
+
+    给了 ``media_type`` 时，模型不是这一媒体类型也返回 ``None``：调用方要的是「这个供应商的这类模型」，
+    模型键引用到别的媒体类型与不在清单里同样不可用。
+    """
+    model = _provider_models(provider_id).get(model_id)
+    if model is None or media_type not in (None, model.media_type):
+        return None
+    return model
 
 
 def list_models(provider_id: str) -> dict[str, CatalogModel]:

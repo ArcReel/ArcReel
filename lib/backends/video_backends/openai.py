@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 from openai import AsyncOpenAI
@@ -29,6 +30,7 @@ from lib.backends.backend_runtime import (
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -160,13 +162,21 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         Sora input_reference 为单张首帧图，参考图上限为 1；首帧与参考共享该单槽位。
-        当前全系模型能力一致，不按 model_id 分支；instance property 委托至此，
-        保持 backend 为单一真相源。
+        Sora 2 系列能力一致，按名字族认定；其余名字取 name_family 的统一回落。instance property
+        委托至此，保持 backend 为单一真相源。
 
         音轨恒有声：Sora 成片自带音轨，``generate`` 组装的 kwargs 里没有音轨开关字段，用户的
         关闭意图无处可下发。
         """
-        return VideoCapabilities(max_reference_images=1, audio_track=VideoAudioMode.ALWAYS_ON)
+        return capabilities_by_names(
+            model,
+            lambda name: (
+                VideoCapabilities(max_reference_images=1, audio_track=VideoAudioMode.ALWAYS_ON)
+                if name.startswith("sora-2")
+                else None
+            ),
+            fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=VideoAudioMode.ALWAYS_ON),
+        )
 
     @property
     def video_capabilities(self) -> VideoCapabilities:

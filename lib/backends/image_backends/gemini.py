@@ -6,6 +6,7 @@ import asyncio
 import json as json_module
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from PIL import Image
 
@@ -18,6 +19,7 @@ from lib.backends.gemini_shared import (
     with_retry_async,
 )
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
@@ -45,6 +47,8 @@ _MODELS_WITH_14_REFERENCES = frozenset(
 
 class GeminiImageBackend:
     """Gemini 图片生成后端，支持 AI Studio 和 Vertex AI。"""
+
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
 
     def __init__(
         self,
@@ -95,11 +99,6 @@ class GeminiImageBackend:
                 api_key=api_key, http_options=gemini_http_options(effective_base_url, transport_layer)
             )
 
-        self._capabilities: set[ImageCapability] = {
-            ImageCapability.TEXT_TO_IMAGE,
-            ImageCapability.IMAGE_TO_IMAGE,
-        }
-
     @property
     def name(self) -> str:
         return f"gemini-{self._backend_type}"
@@ -110,7 +109,7 @@ class GeminiImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return self._capabilities
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:

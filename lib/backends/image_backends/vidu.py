@@ -1,8 +1,7 @@
 """ViduImageBackend — Vidu 参考生图 / 文生图后端。
 
-Vidu 图片 API 仅有一个端点 ``/reference2image``：
-- ``viduq2``：images 为空时为 T2I，提供 1-7 张参考图时为 I2I / 图片编辑
-- ``viduq1``：必须提供 1-7 张参考图，仅 I2I
+Vidu 图片 API 仅有一个端点 ``/reference2image``：images 为空时为 T2I，提供 1-7 张参考图时为 I2I /
+图片编辑。调用通道两者都实现；各型号接不接受文生图（如 ``viduq1`` 只接受图生图）是模型事实，记在模型条目上。
 """
 
 from __future__ import annotations
@@ -10,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 import httpx
 
@@ -21,8 +21,8 @@ from lib.backends.backend_runtime import (
 )
 from lib.backends.http_status_errors import provider_rejected_error, redacted_status_error
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
-    ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
     download_image_to_path,
@@ -62,14 +62,10 @@ _RESOLUTION_WHITELIST: dict[str, list[str]] = {
 }
 
 
-_MODEL_CAPABILITIES: dict[str, set[ImageCapability]] = {
-    "viduq2": {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE},
-    "viduq1": {ImageCapability.IMAGE_TO_IMAGE},
-}
-
-
 class ViduImageBackend:
     """Vidu 图片生成后端。"""
+
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
 
     def __init__(
         self,
@@ -81,9 +77,6 @@ class ViduImageBackend:
         self._api_key = api_key
         self._base_url = base_url
         self._model = model or DEFAULT_MODEL
-        self._capabilities = _MODEL_CAPABILITIES.get(
-            self._model, {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
-        )
 
     @property
     def name(self) -> str:
@@ -95,19 +88,13 @@ class ViduImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return self._capabilities
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:
         return _MAX_REFERENCE_IMAGES
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        has_refs = bool(request.reference_images)
-        if has_refs and ImageCapability.IMAGE_TO_IMAGE not in self._capabilities:
-            raise ImageCapabilityError("image_endpoint_mismatch_no_i2i", model=self._model)
-        if not has_refs and ImageCapability.TEXT_TO_IMAGE not in self._capabilities:
-            raise ImageCapabilityError("image_endpoint_mismatch_no_t2i", model=self._model)
-
         # viduq1 必须 1-7 张；viduq2 允许 0-7 张。这里截断到上限。
         refs = list(request.reference_images or [])
         if len(refs) > _MAX_REFERENCE_IMAGES:

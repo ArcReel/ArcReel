@@ -335,6 +335,8 @@ The model discovery protocol only determines which type of model-listing interfa
 6. TTS;
 7. Error codes and rate-limiting behavior.
 
+Each video call endpoint decides first/last frame, reference image, and reference audio support from the model name. When the name maps to a known model in the model catalog, the endpoint uses that model's official name and aliases. A video model the endpoint does not recognize supports only text-to-video and first-frame generation; last frame, reference images, and reference audio are unavailable. For image models, text-to-image and image-to-image are available only where both the model catalog entry and the call endpoint support them; a model that maps to no known model follows the call endpoint alone.
+
 If someone has already adapted the call endpoint you need, you can install it directly from the [Market](./market.md) instead of writing the definition yourself.
 
 When a provider submits jobs as JSON and then polls JSON results by task ID, you can click "New endpoint" in the "Endpoints" section and write a declarative definition yourself.

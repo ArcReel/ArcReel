@@ -15,7 +15,7 @@
 - ``kling-v3`` / ``kling-v3-omni``：旗舰，首尾帧 + 4K（``mode="4k"``）+ 音画同出；v3-omni 多图主体 R2V。
 - ``kling-v2-6``：支持视频内人声，官方限 1080P。
 - ``kling-video-o1``：图生 + 多图主体 R2V；只能保留参考视频原声、不生成原生人声。
-未登记 model（bearer 透传原生 model_name）回落保守默认能力。
+认不得的 model（bearer 透传原生 model_name）取 name_family 的统一回落能力。
 """
 
 from __future__ import annotations
@@ -49,6 +49,7 @@ from lib.backends.kling_shared import (
 )
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.name_family import match_by_names
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +91,12 @@ class _KlingVideoModelCaps:
     audio_requires_1080p: bool
 
 
-# turbo / 未登记 model（bearer 透传原生 model_name）兜底：文/图生视频、首尾帧，无音频/参考。
-_DEFAULT_VIDEO_CAPS = _KlingVideoModelCaps(
+# 认不得的 model（bearer 透传原生 model_name）按 name_family 的统一回落：文生视频与首帧，不开尾帧，
+# 无参考图；也不下发音频开关，成片恒无声。
+_UNRECOGNIZED_VIDEO_CAPS = _KlingVideoModelCaps(
     text_to_video=True,
-    last_frame=True,
-    last_frame_requires_pro=True,
+    last_frame=False,
+    last_frame_requires_pro=False,
     reference_images=False,
     max_reference_images=0,
     generate_audio=False,
@@ -102,7 +104,16 @@ _DEFAULT_VIDEO_CAPS = _KlingVideoModelCaps(
 )
 
 _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
-    "kling-v2-5-turbo": _DEFAULT_VIDEO_CAPS,
+    # 文/图生视频、首尾帧（仅 pro 档），无音频/参考。
+    "kling-v2-5-turbo": _KlingVideoModelCaps(
+        text_to_video=True,
+        last_frame=True,
+        last_frame_requires_pro=True,
+        reference_images=False,
+        max_reference_images=0,
+        generate_audio=False,
+        audio_requires_1080p=False,
+    ),
     "kling-v3": _KlingVideoModelCaps(
         text_to_video=True,
         last_frame=True,
@@ -154,16 +165,21 @@ def _audio_track_for(caps: _KlingVideoModelCaps) -> VideoAudioMode:
     return VideoAudioMode.CONTROLLABLE if caps.generate_audio else VideoAudioMode.ALWAYS_OFF
 
 
-def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
-    """按 model 取能力位：剥厂商前缀后 + 去首尾空白 + lower 归一化，再做【精确】命中 _KLING_VIDEO_CAPS。
+def _match_video_caps(name: str) -> _KlingVideoModelCaps | None:
+    """按名字取能力位：剥厂商前缀后 + 去首尾空白 + lower 归一化，再做【精确】命中 _KLING_VIDEO_CAPS。
     中转前缀分隔符仅认仓库既有约定 ``/``（``vendor/kling-v3-omni``）与 ``:``（``provider:kling-v3-omni``）
     ——把 ``:`` 统一成 ``/`` 后取最后一段。刻意不把 ``_``/``.`` 当分隔符：它们是 model 名合法字符
-    （wan2. / image-01 / kling-v3-omni 都含），当分隔符会切坏真实 model 名。未登记 model（含未来版本
-    kling-v4、归一化后仍不精确匹配的中转自定义 id）回落保守默认（首尾帧、无参考/音频）——绝不按子串猜
-    未知 model 的能力上限：未知 model 的限额可能与已知档不同，误报参考图能力会在请求期触发 provider 400
-    或计费漂移，宁可保守。"""
-    key = model.replace(":", "/").rsplit("/", 1)[-1].strip().lower()
-    return _KLING_VIDEO_CAPS.get(key, _DEFAULT_VIDEO_CAPS)
+    （wan2. / image-01 / kling-v3-omni 都含），当分隔符会切坏真实 model 名。不按子串猜未知 model（含未来
+    版本 kling-v4）的能力上限：未知 model 的限额可能与已知档不同，误报参考图能力会在请求期触发 provider 400
+    或计费漂移。"""
+    key = name.replace(":", "/").rsplit("/", 1)[-1].strip().lower()
+    return _KLING_VIDEO_CAPS.get(key)
+
+
+def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
+    """model 的能力位：名字按 name_family 的规则逐个精确命中，都认不得时取统一回落。"""
+    found = match_by_names(model, _match_video_caps)
+    return found if found is not None else _UNRECOGNIZED_VIDEO_CAPS
 
 
 def _encode_job_id(subpath: str, task_id: str, *, generate_audio: bool) -> str:
@@ -226,13 +242,13 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             http_timeout=http_timeout,
             transport_layer=transport_layer,
         )
-        # 按 model 取能力位（归一化前缀/大小写后精确命中）；未登记 model（bearer 透传）回落保守默认。
+        # 按 model 取能力位（归一化前缀/大小写后精确命中）；认不得的 model（bearer 透传）取统一回落。
         self._caps = _lookup_video_caps(self._model)
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
         # first_frame 恒真（各档均支持 i2v 首帧）；last_frame / reference_images / 上限按 model 从
-        # _KLING_VIDEO_CAPS 读（_lookup_video_caps 归一化前缀/大小写后精确命中，未登记回落保守默认）。
+        # _KLING_VIDEO_CAPS 读（_lookup_video_caps 归一化前缀/大小写后精确命中，认不得时取统一回落）。
         # max_reference_images 只在此处声明（编排层裁剪与生成时防御同读它），取保守值——
         # 官方文档未明确列出该上限。纯函数（不构造 client /
         # 不需 api_key），供 custom endpoint resolver 按 model_id 读上限复用。
@@ -243,7 +259,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # video_capabilities_for_tier 在 media_generator 处拒，能力被用户覆盖放行时由
         # _build_payload 的 fail-loud 护栏兜底。declare 一个仅在少数档位成立的 True 会让无 tier
         # 上下文的调用方按此位放行 end_image、多数请求撞硬失败；保守声明 False 更贴近默认档的
-        # 真实执行结果，与未登记 model 回落保守默认同一原则。
+        # 真实执行结果，与认不得的 model 取保守回落同一原则。
         caps = _lookup_video_caps(model)
         return VideoCapabilities(
             text_to_video=caps.text_to_video,

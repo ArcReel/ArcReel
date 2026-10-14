@@ -11,16 +11,17 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Buffer, Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, BinaryIO
 
 from PIL import Image
 
+from arcreel_catalog_core import normalize_model_name
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
-    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -42,7 +43,7 @@ from lib.backends.gemini_shared import (
 )
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.transport_layer import TransportLayer
-from lib.catalog import query as catalog
+from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_sync_transaction
@@ -57,14 +58,6 @@ _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 #: 未配置 base_url 时 google-genai 发往的 AI Studio 域名（SDK 缺省值），续跑回放据此比对提交域名。
 _AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
-# 约束的单一真相源是模型目录（reference_image_durations /
-# duration_resolution_constraints），下面两个常量只在目录查不到该型号时兜底——中转站、
-# 自定义供应商包装、已下线型号都会走到未登记路径，那里同样不能把必然失败的请求发出去。
-# 兜底值复刻 Veo 全系现行约束：参考图路径与 1080p/4k 分辨率下只接受 8 秒，两条路径各自
-# 独立触发，与首帧/尾帧无关。
-_REQUIRED_DURATION_SECONDS = 8
-_DURATION_CONSTRAINED_RESOLUTIONS = frozenset({"1080p", "4k"})
-
 # 请求里带得动音轨开关的 Veo 型号（即 Vertex 目录）：`_create_task` 只在 backend_type == "vertex"
 # 时下发 generate_audio，AI Studio 的请求没有这个字段。两家目录的 model 命名不重叠，一致性由
 # tests/unit/lib/backends/video_backends/test_video_backend_capabilities.py 的音轨立场守卫锁定（新增型号漏登记会在那里暴露）。
@@ -74,6 +67,11 @@ _AUDIO_SWITCH_MODELS: frozenset[str] = frozenset(
         "veo-3.1-fast-generate-001",
     }
 )
+
+
+def _is_veo_3_1(name: str) -> bool:
+    """名字属于 Veo 3.1 系列（含 fast / lite 与日期、preview 变体）；中转命名空间与点号写法一并认。"""
+    return normalize_model_name(name).startswith("veo-3-1-")
 
 
 class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
@@ -156,21 +154,26 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """按 model_id 纯计算 caps —— 不构造 SDK client（无需 api_key）。
+        """按模型名纯计算 caps —— 不构造 SDK client（无需 api_key）。
 
         Veo 官方文档（docs/api-docs/providers/gemini-aistudio.md）把 Image-to-video 与 Reference images
-        列为并列模式，带参考图时 durationSeconds 必须为 8。首帧/尾帧/参考图三维全系一致，不按
-        model_id 分支；instance property 委托至此，保持 backend 为单一真相源。
+        列为并列模式。Veo 3.1 系列的首帧/尾帧/参考图三维一致，按名字族认定；其余名字取 name_family 的
+        统一回落。instance property 委托至此，保持 backend 为单一真相源。
 
         音轨形态按 model_id 分派：Veo 成片恒带音轨，只有 Vertex 的请求带 ``generate_audio`` 开关
         （见 ``_create_task``），AI Studio 的不带、开关无处可下发。registry 名 ``gemini`` 同时服务
         gemini-vertex 与 gemini-aistudio，静态查询只拿得到 model_id，故判据落在 model_id 上——两家
         目录的 model 命名不重叠，未登记的 Veo model 保守按「有音轨、无开关」声明。
         """
-        return VideoCapabilities(
-            last_frame=True,
-            max_reference_images=3,
-            audio_track=(VideoAudioMode.CONTROLLABLE if model in _AUDIO_SWITCH_MODELS else VideoAudioMode.ALWAYS_ON),
+        audio_track = VideoAudioMode.CONTROLLABLE if model in _AUDIO_SWITCH_MODELS else VideoAudioMode.ALWAYS_ON
+
+        def match(name: str) -> VideoCapabilities | None:
+            if not _is_veo_3_1(name):
+                return None
+            return VideoCapabilities(last_frame=True, max_reference_images=3, audio_track=audio_track)
+
+        return capabilities_by_names(
+            model, match, fallback=replace(UNRECOGNIZED_MODEL_CAPABILITIES, audio_track=audio_track)
         )
 
     @property
@@ -186,8 +189,6 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
-        # 能力校验放在重试装饰器之外：约束违规必然复现，重试只是重复失败
-        self._validate_duration_constraints(request)
         operation = await self._create_task(request)
         op_name = getattr(operation, "name", None)
         if not op_name:
@@ -240,47 +241,6 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
                 raise ResumeExpiredError(job_id=job_id, provider=PROVIDER_GEMINI) from exc
             raise
         return await self._collect_video(done_operation, request)
-
-    def _validate_duration_constraints(self, request: VideoGenerationRequest) -> None:
-        """参考图 / 受约束分辨率两条路径的时长约束，违反即拒绝。
-
-        约束按本型号的 registry 声明判定（前端门控读的是同一份声明，两侧口径一致）；
-        型号未登记时回落模块级兜底常量。供应商侧对越界组合直接报错，透传过去用户拿到的是
-        原始报文；在构建请求前 fail-loud 换成可读拒绝，也省掉一次必然失败的调用。首帧
-        （image）与尾帧（last_frame）不在约束内，4/6 秒照常下发。
-        """
-        info = catalog.get_model(self.name, self._video_model)
-
-        if request.reference_images:
-            # 已登记型号一律采信其声明：空声明的语义是「参考图路径不额外约束时长」（见
-            # CatalogModel.reference_image_durations），与前端 `?? []` 同口径；只有型号未登记
-            # （info is None）才回落兜底常量。用 `or` 折叠两者会让空声明被兜底覆盖成 [8]，
-            # 前后端读同一份声明得出不同结论。
-            allowed = info.reference_image_durations if info is not None else [_REQUIRED_DURATION_SECONDS]
-            if allowed and request.duration_seconds not in allowed:
-                raise VideoCapabilityError(
-                    "video_reference_images_duration_unsupported",
-                    model=self._video_model,
-                    duration=request.duration_seconds,
-                    supported=_format_durations(allowed),
-                )
-
-        resolution = (request.resolution or "").strip().lower()
-        constraints = (info.duration_resolution_constraints if info else None) or {}
-        # 声明缺位处兜底常量继续生效：registry 只声明本型号「支持的分辨率」下的时长约束，
-        # 而防线要覆盖的是所有会被送到供应商的取值——如 Lite 不支持 4k、声明里自然没有 4k 档，
-        # 但真收到 4k 请求时放行只会换来一次必然失败的调用。
-        allowed = constraints.get(resolution)
-        if allowed is None and resolution in _DURATION_CONSTRAINED_RESOLUTIONS:
-            allowed = [_REQUIRED_DURATION_SECONDS]
-        if allowed and request.duration_seconds not in allowed:
-            raise VideoCapabilityError(
-                "video_resolution_duration_unsupported",
-                model=self._video_model,
-                resolution=resolution.upper(),
-                duration=request.duration_seconds,
-                supported=_format_durations(allowed),
-            )
 
     @with_retry_async()
     async def _create_task(self, request: VideoGenerationRequest) -> Any:
@@ -541,11 +501,6 @@ def _write_atomically(output_path: Path, write: Callable[[Path], object]) -> Non
     except BaseException:
         partial_path.unlink(missing_ok=True)
         raise
-
-
-def _format_durations(durations: list[int]) -> str:
-    """把允许时长列表渲染进拒绝文案，如 ``[8]`` → ``8s``。"""
-    return ", ".join(f"{d}s" for d in sorted(durations))
 
 
 def _should_retry_gemini_poll(exc: Exception) -> bool:
