@@ -55,7 +55,7 @@ basedpyright 不跟踪回调里的赋值，`x: T | None = None` 加 `nonlocal` �
 
 在这一范围里，下面两条规则防的是超时与将来新增的 `cancel()`。事件循环拆除不设防，被它打断的生成任务由 `GenerationWorker` 的取消分支标成 `interrupted`，来不及标记的由重启恢复收尾。
 
-其他场景各有取消来源：SSE 流式响应在客户端断开时取消事件生产协程，`TrialRunManager.cancel()` 取消进行中的供应商试跑，`SessionManager._evict_one()` 在断开超时后取消会话的收件处理任务。在这些场景里，按各自的取消来源核对下面两条规则。
+这一范围之外，不少场景自己发起取消，例如 SSE 流式响应在客户端断开时取消事件生产协程，`TrialRunManager.cancel()` 取消进行中的供应商试跑，`SessionManager` 在会话驱逐或启动失败时取消收件处理任务。在这些场景里，先从代码找出全部取消来源，再核对下面两条规则。
 
 ### 线程里写入正式文件或创建临时产物时，用 `run_sync_transaction`
 
