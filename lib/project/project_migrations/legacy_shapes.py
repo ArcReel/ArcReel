@@ -15,7 +15,8 @@ v6→v7 的剧本改写、产物目标态规划（v7→v8 起的各步与归档�
   的产物不因改绑丢失归属。
 - **剧本顶层的集号缺失或与绑定不符**（旧版同步与保存都接受缺集号的剧本）：以账本绑定为准写回。
 - **同一资产表里名字归一后相同**（去两端空白、Unicode NFC、不区分大小写），或名字归一后为空：
-  留第一条，其余从资产表去掉；资产图文件不动，改前的 ``project.json`` 留作保留副本。
+  留第一条，其余从资产表去掉；资产图文件不动，改前的 ``project.json`` 留作保留副本。去掉的条目
+  名下的衍生按资产合并的规则并进保留条目，各集剧本与草稿里指向只差大小写那条的引用改写为保留名。
 - **剧本条目缺 id 或 id 重复**：缺的补新 id，重复的从第二条起换新 id（取号规则同新增条目）；换号
   条目上指向原 id 规范媒体路径的产物引用清空——那些文件属于保留原 id 的条目；只描述这些媒体的
   生成状态一并清空，换号条目读作尚未生成。
@@ -40,11 +41,24 @@ from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, Proj
 from lib.episode.episode_paths import episode_drafts_dir, episode_script_relpath
 from lib.infra.json_io import atomic_write_json
 from lib.infra.path_safety import try_safe_join
-from lib.project.asset_types import ASSET_SPECS, asset_name_namespace_key
+from lib.project.asset_derivatives import (
+    DERIVATIVE_ASSET_TYPE,
+    derivative_artifact_id,
+    derivative_table,
+    ensure_derivative_table,
+)
+from lib.project.asset_merge import DerivativeMergePlan, merge_payload_references, plan_derivative_merge
+from lib.project.asset_types import (
+    ASSET_SPECS,
+    DERIVATIVES_FIELD,
+    asset_name_comparison_key,
+    asset_name_namespace_key,
+    resolve_asset_key,
+)
 from lib.project.project_migration_report import MigrationAdjustment
 from lib.project.project_migrations.backups import ensure_versioned_backup, set_aside_as_kept_copy
 from lib.project.project_migrations.v9_to_v10_script_plan_naming import DRAFT_FILE_RENAMES
-from lib.project.resource_paths import resource_relative_path
+from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 from lib.script.script_editor import ScriptEditError, new_item_id, resolve_items
 
 logger = logging.getLogger(__name__)
@@ -211,15 +225,16 @@ def _correct_script_episodes(work: _Work) -> None:
         )
 
 
-def _commit_project(work: _Work) -> None:
+def _commit_project(work: _Work, *, keep_copy: bool = False) -> None:
     """把内存里的 ``project`` 写回盘上，写过的 ``project.json`` 规整项随之记进 ``adjusted``。
 
     第一次写之前留备份：有改动 ``project.json`` 的规整项时留保留副本（报告指向它），否则留版本化备份。
+    ``keep_copy`` 用于规整项尚未登记就要先提交的情形，让之后的规整项仍能指向改前的那份。
     """
 
     project_file = work.project_dir / "project.json"
     if not work.project_committed:
-        if work.project_adjustments:
+        if work.project_adjustments or keep_copy:
             work.project_backup = work.rel(set_aside_as_kept_copy(project_file, work.schema_version, copy=True))
         else:
             ensure_versioned_backup(project_file, work.schema_version)
@@ -422,13 +437,39 @@ def _binding_canonicalized(rebind: _Rebind, backup: str | None) -> MigrationAdju
     )
 
 
+@dataclass(frozen=True)
+class _AssetDrop:
+    """资产表里要去掉的一条重名资产，以及它并向的保留条目（归一后为空时 ``kept`` 为空串）。"""
+
+    asset_type: str
+    name: str
+    kept: str
+    derivatives: DerivativeMergePlan
+
+    @property
+    def renames_references(self) -> bool:
+        """引用要不要改写：只差大小写时要；只差空白与 Unicode 形态的引用本就按比对坐标解析到保留条目。"""
+        return bool(self.kept) and asset_name_comparison_key(self.name) != asset_name_comparison_key(self.kept)
+
+    def params(self) -> dict[str, str]:
+        return {"asset_type": self.asset_type, "name": self.name, "kept": self.kept}
+
+
 def _drop_duplicate_assets(work: _Work) -> None:
+    """资产表里归一后重名的资产留第一条，其余并进它：衍生迁过去，指向它们的引用改写为保留名。
+
+    落盘顺序保证中途失败后重跑能收敛：引用、产物清单与版本历史先改，删资产的 ``project.json``
+    最后才提交；提交前失败时重跑仍能发现这些重名资产，已改过的引用与登记不再变动。
+    """
+
+    drops: list[_AssetDrop] = []
     for asset_type, spec in ASSET_SPECS.items():
         bucket = work.project.get(spec.bucket_key)
         if not isinstance(bucket, dict):
             continue
         seen: dict[str, str] = {}
-        removed: list[tuple[str, str]] = []
+        # 保留条目的衍生表连同前面几条重名资产迁入的衍生：同一保留条目可能并入多条重名资产。
+        kept_tables: dict[str, dict[str, Any]] = {}
         for name in list(bucket):
             if not isinstance(name, str):
                 continue
@@ -436,16 +477,154 @@ def _drop_duplicate_assets(work: _Work) -> None:
             if key and key not in seen:
                 seen[key] = name
                 continue
-            removed.append((name, seen.get(key, "")))
-        for name, kept in removed:
-            del bucket[name]
-            work.project_changed = True
-            work.project_adjustments.append(
-                MigrationAdjustment(
-                    code="duplicate_asset_removed",
-                    params={"asset_type": asset_type, "name": name, "kept": kept},
+            kept = seen.get(key, "")
+            source_entry, kept_entry = bucket[name], bucket.get(kept)
+            derivatives = DerivativeMergePlan()
+            if kept and spec.supports_derivatives and isinstance(source_entry, dict) and isinstance(kept_entry, dict):
+                kept_table = kept_tables.setdefault(kept, derivative_table(kept_entry))
+                derivatives = plan_derivative_merge(
+                    source_entry, {DERIVATIVES_FIELD: kept_table}, name, as_derivative=False
                 )
+                kept_table.update(dict.fromkeys(derivatives.moved))
+            drops.append(_AssetDrop(asset_type=asset_type, name=name, kept=kept, derivatives=derivatives))
+    if not drops:
+        return
+    _rewrite_dropped_asset_references(work, drops)
+    _carry_moved_derivative_records(work, drops)
+    for drop in drops:
+        bucket = work.project[ASSET_SPECS[drop.asset_type].bucket_key]
+        source_entry = bucket.pop(drop.name)
+        work.project_changed = True
+        work.project_adjustments.append(MigrationAdjustment(code="duplicate_asset_removed", params=drop.params()))
+        source_table = derivative_table(source_entry)
+        if drop.derivatives.moved:
+            kept_table = ensure_derivative_table(bucket[drop.kept])
+            for derivative in drop.derivatives.moved:
+                kept_table[derivative] = source_table[derivative]
+        for derivative in source_table:
+            if derivative not in drop.derivatives.moved and derivative not in drop.derivatives.folded:
+                continue
+            into = drop.derivatives.kept_derivative(asset_name_comparison_key(derivative))
+            params = {"name": drop.name, "kept": drop.kept, "derivative": derivative, "into": into}
+            if derivative in drop.derivatives.folded:
+                params["folded"] = "true"
+            work.project_adjustments.append(
+                MigrationAdjustment(code="duplicate_asset_derivative_merged", params=params)
             )
+
+
+def _rewrite_dropped_asset_references(work: _Work, drops: list[_AssetDrop]) -> None:
+    """把各集剧本与草稿里指向被去掉资产的引用改写为保留名，规则同资产合并（并为本体）。
+
+    改写的是已确认的正式脚本规划时，确认指纹随之平移，且先于草稿落盘提交：草稿已改写、确认还没
+    平移时失败，重跑就再也认不出那份确认了。
+    """
+
+    renaming = [drop for drop in drops if drop.renames_references]
+    if not renaming:
+        return
+    # script_review 经 project_manager 间接依赖迁移链，惰性 import 破环。
+    from lib.script.script_review import (
+        carry_confirmation_through_migration,
+        content_fingerprint_of_data,
+        script_plan_path,
+    )
+
+    changed: list[tuple[int, Path, dict[str, Any], str | None]] = []
+    rewritten: dict[int, set[int]] = {}
+    scanned: set[Path] = set()
+    for episode, entry in _episode_entries(work.project):
+        paths = [_bound_path(work.project_dir, entry.get("script_file"))]
+        drafts_dir = episode_drafts_dir(work.project_dir, episode)
+        if drafts_dir.is_dir() and not drafts_dir.is_symlink():
+            paths.extend(sorted(drafts_dir.glob("*.json")))
+        for path in paths:
+            if path is None or path in scanned or path.is_symlink() or not path.is_file():
+                continue
+            scanned.add(path)
+            payload = _load_object(path)
+            if payload is None:
+                continue
+            before = content_fingerprint_of_data(payload)
+            hits = [
+                index
+                for index, drop in enumerate(renaming)
+                if merge_payload_references(
+                    payload,
+                    drop.asset_type,
+                    drop.name,
+                    asset_name_comparison_key(drop.kept),
+                    derivatives=drop.derivatives,
+                ).total
+            ]
+            if not hits:
+                continue
+            is_plan = path.parent == drafts_dir
+            changed.append((episode, path, payload, before if is_plan else None))
+            for index in hits:
+                rewritten.setdefault(index, set()).add(episode)
+
+    carried = False
+    for episode, path, payload, before in changed:
+        if before is not None and script_plan_path(work.project_dir, work.project, episode) == path:
+            carried |= carry_confirmation_through_migration(
+                work.project, episode, before, content_fingerprint_of_data(payload)
+            )
+    if carried:
+        work.project_changed = True
+        _commit_project(work, keep_copy=True)
+    for _episode, path, payload, _before in changed:
+        ensure_versioned_backup(path, work.schema_version)
+        atomic_write_json(path, payload)
+    for index, drop in enumerate(renaming):
+        for episode in sorted(rewritten.get(index, ())):
+            work.adjusted.append(
+                MigrationAdjustment(code="duplicate_asset_references_rewritten", episode=episode, params=drop.params())
+            )
+
+
+def _carry_moved_derivative_records(work: _Work, drops: list[_AssetDrop]) -> None:
+    """迁到保留名下的衍生带上自己的清单登记与版本历史，与资产合并迁衍生同一口径。
+
+    资产图文件不动、条目里的路径照旧：登记只换键，依据摘要原样保留。新键下已有登记或历史时不动，
+    重跑时旧键已不在，同样不动。
+    """
+
+    moved = [
+        (derivative_artifact_id(drop.name, name), derivative_artifact_id(drop.kept, name))
+        for drop in drops
+        for name in drop.derivatives.moved
+    ]
+    if not moved:
+        return
+    if (work.project_dir / MANIFEST_FILENAME).is_file():
+        adapter = ProjectArtifactManifestAdapter(work.project_dir)
+        for old_id, new_id in moved:
+            old_key = ArtifactKey.asset_sheet(DERIVATIVE_ASSET_TYPE, old_id)
+            new_key = ArtifactKey.asset_sheet(DERIVATIVE_ASSET_TYPE, new_id)
+            stored = adapter.get_entry(old_key)
+            if stored is None or adapter.get_entry(new_key) is not None:
+                continue
+            ensure_versioned_backup(work.project_dir / MANIFEST_FILENAME, work.schema_version)
+            if not adapter.replace_entries_if_matches_atomically(
+                expected={old_key: stored, new_key: None}, replacements={old_key: None, new_key: stored}
+            ):
+                raise RuntimeError("artifact manifest changed while moving a derivative claim")
+    versions_path = work.project_dir / "versions" / "versions.json"
+    versions = _load_object(versions_path) if versions_path.is_file() else None
+    history = versions.get(CHARACTER_DERIVATIVE_RESOURCE_TYPE) if versions is not None else None
+    if not isinstance(history, dict):
+        return
+    changed = False
+    for old_id, new_id in moved:
+        old_key = resolve_asset_key(history, old_id)
+        if old_key is None or resolve_asset_key(history, new_id) is not None:
+            continue
+        history[new_id] = history.pop(old_key)
+        changed = True
+    if changed:
+        ensure_versioned_backup(versions_path, work.schema_version)
+        atomic_write_json(versions_path, versions)
 
 
 #: 条目 id 的集号前缀（与 ``script_editor`` 的条目 id 形态一致，含 ``_N`` 拆分后缀）。

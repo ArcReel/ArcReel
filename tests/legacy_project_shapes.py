@@ -1080,6 +1080,26 @@ def add_asset_names_differing_only_in_case(project_dir: Path, bucket: str, sheet
     return variant
 
 
+def refer_to_asset_in_episode(project_dir: Path, episode: int, field: str, name: str) -> None:
+    """只差大小写的两条资产并存时，剧本与草稿可以写其中任何一个的名字。
+
+    让该集剧本第一个分镜在引用数组 ``field`` 与画面描述的 ``@`` 提及里写 ``name``，脚本规划草稿
+    第一段的同一引用数组也写它（剧本形态取 ``write_legacy_storyboard_project`` 一类的解说分镜）。
+    """
+
+    project = _load_json_object(project_dir / "project.json")
+    script_path = project_dir / _ledger_entry(project, episode)["script_file"]
+    script = _load_json_object(script_path)
+    segment = script["segments"][0]
+    segment.setdefault(field, []).append(name)
+    segment["image_prompt"] = f"@[{name}]{segment.get('image_prompt') or ''}"
+    _write_json(script_path, script)
+    draft_path = project_dir / "drafts" / f"episode_{episode}" / "script_plan_segments.json"
+    draft = _load_json_object(draft_path)
+    draft["segments"][0].setdefault(field, []).append(name)
+    _write_json(draft_path, draft)
+
+
 def break_script_item_ids(project_dir: Path, episode: int) -> None:
     """降级保存的剧本可以有重复或缺失的条目 id。
 
@@ -1410,6 +1430,7 @@ __all__ = [
     "advance_project_schema",
     "bind_episode_script_to_filename",
     "legacy_transition_presentation_basis",
+    "refer_to_asset_in_episode",
     "write_legacy_ad_reference_video_project",
     "write_legacy_drama_storyboard_project",
     "write_legacy_episode_id_remnants_project",

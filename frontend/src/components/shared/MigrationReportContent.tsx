@@ -70,6 +70,20 @@ function adjustmentText(t: TFunction, item: WorkflowMigrationAdjustment, episode
             kept: params.kept,
           })
         : t("dashboard:migration_adjustment_blank_asset_removed", { assetType: assetTypeLabel(t, params.asset_type) });
+    case "duplicate_asset_derivative_merged":
+      return t(
+        params.folded
+          ? "dashboard:migration_adjustment_duplicate_asset_derivative_folded"
+          : "dashboard:migration_adjustment_duplicate_asset_derivative_moved",
+        { name: params.name, kept: params.kept, derivative: params.derivative, into: params.into },
+      );
+    case "duplicate_asset_references_rewritten":
+      return t("dashboard:migration_adjustment_duplicate_asset_references_rewritten", {
+        episode,
+        assetType: assetTypeLabel(t, params.asset_type),
+        name: params.name,
+        kept: params.kept,
+      });
     case "placeholder_asset_added":
       return t("dashboard:migration_adjustment_placeholder_asset_added", {
         assetType: assetTypeLabel(t, params.asset_type),

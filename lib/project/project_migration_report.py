@@ -105,6 +105,8 @@ MigrationAdjustmentCode = Literal[
     "script_binding_canonicalized",
     "item_id_reassigned",
     "duplicate_asset_removed",
+    "duplicate_asset_derivative_merged",
+    "duplicate_asset_references_rewritten",
     "placeholder_asset_added",
 ]
 """What kind of change one adjustment made; the frontend renders each code with its own text."""
