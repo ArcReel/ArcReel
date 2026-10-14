@@ -20,6 +20,7 @@ class TestRegistry:
     def test_endpoint_count(self):
         assert set(ENDPOINT_REGISTRY.keys()) == {
             "openai-chat",
+            "openai-responses",
             "gemini-generate",
             "openai-images",
             "openai-images-generations",
@@ -231,7 +232,7 @@ class TestRegistry:
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         audio_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "audio"}
         assert audio_keys == {"openai-tts"}
-        assert text_keys == {"openai-chat", "gemini-generate"}
+        assert text_keys == {"openai-chat", "openai-responses", "gemini-generate"}
         assert image_keys == {
             "openai-images",
             "openai-images-generations",
@@ -276,7 +277,7 @@ class TestHelpers:
 
     def test_list_endpoints_by_media_type(self):
         text = list_endpoints_by_media_type("text")
-        assert {s.key for s in text} == {"openai-chat", "gemini-generate"}
+        assert {s.key for s in text} == {"openai-chat", "openai-responses", "gemini-generate"}
 
     @pytest.mark.parametrize(
         ("definition", "required"),

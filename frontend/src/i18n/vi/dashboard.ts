@@ -1376,6 +1376,7 @@ export default {
   'endpoint_video_group': 'Video',
   'endpoint_audio_group': 'Giọng nói',
   'endpoint_openai_chat_display': 'OpenAI Chat Completions',
+  'endpoint_openai_responses_display': 'OpenAI Responses',
   'endpoint_gemini_generate_display': 'Google Gemini',
   'endpoint_openai_images_display': 'Ảnh OpenAI',
   'endpoint_openai_images_generations_display': 'Ảnh OpenAI (chỉ T2I)',

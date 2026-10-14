@@ -20,6 +20,7 @@
 - [openai-images](openai-images.md)
 - [openai-images-edits](openai-images-edits.md)
 - [openai-images-generations](openai-images-generations.md)
+- [openai-responses](openai-responses.md)
 - [openai-tts](openai-tts.md)
 - [openai-video](openai-video.md)
 - [v2-video-generations](v2-video-generations.md)

@@ -31,6 +31,7 @@ from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
+from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
 from lib.backends.video_backends.ark import ArkVideoBackend
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
 from lib.backends.video_backends.kling import KlingVideoBackend
@@ -223,6 +224,12 @@ def _build_openai_chat(provider, model_id: str) -> CustomTextBackend:
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_openai_responses(provider, model_id: str) -> CustomTextBackend:
+    base_url = ensure_openai_base_url(provider.base_url)
+    delegate = OpenAIResponsesTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 def _build_gemini_generate(provider, model_id: str) -> CustomTextBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
@@ -365,6 +372,15 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/chat/completions",
         build_backend=_build_openai_chat,
+    ),
+    "openai-responses": EndpointSpec(
+        key="openai-responses",
+        media_type="text",
+        family="openai",
+        display_name_key="endpoint_openai_responses_display",
+        request_method="POST",
+        request_path_template="/v1/responses",
+        build_backend=_build_openai_responses,
     ),
     "gemini-generate": EndpointSpec(
         key="gemini-generate",

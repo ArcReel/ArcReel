@@ -942,6 +942,28 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_openai_text_pricing("gpt-5.4-nano", 0.20, 1.25),
                 max_output_tokens=128000,
             ),
+            # 以下三个只开放 Responses，经内置 openai 的 Responses 调用通道可用。
+            "gpt-5.5-pro": ModelInfo(
+                display_name="GPT-5.5 Pro",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_openai_text_pricing("gpt-5.5-pro", 30.00, 180.00),
+                max_output_tokens=128000,
+            ),
+            "gpt-5.3-codex": ModelInfo(
+                display_name="GPT-5.3-Codex",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_openai_text_pricing("gpt-5.3-codex", 1.75, 14.00),
+                max_output_tokens=128000,
+            ),
+            "o3-pro": ModelInfo(
+                display_name="o3-pro",
+                media_type="text",
+                capabilities=["text_generation", "structured_output", "vision"],
+                pricing=_openai_text_pricing("o3-pro", 20.00, 80.00),
+                max_output_tokens=100000,
+            ),
             # --- image ---
             "gpt-image-2": ModelInfo(
                 display_name="GPT Image 2",

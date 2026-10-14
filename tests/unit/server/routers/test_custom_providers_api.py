@@ -188,6 +188,7 @@ class TestEndpointCatalog:
         keys = {e["key"] for e in body["endpoints"]}
         assert keys == {
             "openai-chat",
+            "openai-responses",
             "gemini-generate",
             "openai-images",
             "openai-images-generations",

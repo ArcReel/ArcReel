@@ -330,6 +330,8 @@ def _text_gemini_spec(provider_id: str, *, build: Callable[[LoadedConfig, str | 
 
 
 _TEXT_OPENAI_COMPAT_REGISTRY_BACKEND = "openai"
+# 内置 openai 的文本走 Responses：o3-pro、gpt-5.5-pro 等只开放 Responses 的模型也能调用。
+_TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND = "openai-responses"
 
 
 def _dashscope_text_base_url(configured: str | None) -> str:
@@ -351,8 +353,10 @@ def _build_text_openai_compat(
     *,
     derive_base_url: Callable[[str | None], str] | None,
     provider_name: str | None,
+    registry_backend: str = _TEXT_OPENAI_COMPAT_REGISTRY_BACKEND,
 ) -> Any:
-    """OpenAI-compat 文本构造：openai / dashscope / minimax 都用 OpenAITextBackend。
+    """OpenAI 协议文本构造：dashscope / minimax 走 Chat Completions（OpenAITextBackend），
+    openai 走 Responses（OpenAIResponsesTextBackend），二者构造参数同形，由 registry_backend 区分。
 
     derive_base_url=None（openai）：直传用户 base_url（无条件，含 None，由 backend 决定 endpoint）。
     derive_base_url 非空（dashscope/minimax）：由 helper 从用户 host 派生 OpenAI 兼容 base，并透传
@@ -366,7 +370,7 @@ def _build_text_openai_compat(
     }
     if provider_name:
         kwargs["provider_name"] = provider_name
-    return _media_create_backend("text")(_TEXT_OPENAI_COMPAT_REGISTRY_BACKEND, **kwargs)
+    return _media_create_backend("text")(registry_backend, **kwargs)
 
 
 def _text_openai_compat_spec(
@@ -374,12 +378,18 @@ def _text_openai_compat_spec(
     *,
     derive_base_url: Callable[[str | None], str] | None,
     provider_name: str | None,
+    registry_backend: str = _TEXT_OPENAI_COMPAT_REGISTRY_BACKEND,
 ) -> ProviderSpec:
     return ProviderSpec(
         provider_id=provider_id,
         media_type="text",
-        registry_backend=_TEXT_OPENAI_COMPAT_REGISTRY_BACKEND,
-        build_backend=partial(_build_text_openai_compat, derive_base_url=derive_base_url, provider_name=provider_name),
+        registry_backend=registry_backend,
+        build_backend=partial(
+            _build_text_openai_compat,
+            derive_base_url=derive_base_url,
+            provider_name=provider_name,
+            registry_backend=registry_backend,
+        ),
     )
 
 
@@ -437,8 +447,9 @@ PROVIDER_SPEC_REGISTRY[("agnes", "video")] = _simple_spec("agnes", "video")
 
 # ── 文本族注册 ────────────────────────────────────────────────────
 # 简单文本四家（registry_backend = provider_id 自身）；gemini 两个 provider_id 按 backend 分两行
-# （aistudio/vertex 各自闭包，registry_backend 同为 "gemini"）；OpenAI-compat 三家都映射到 "openai"
-# registry backend，openai 直传用户 base_url，dashscope/minimax 经 helper 派生 + 透传 provider_name 计费归因。
+# （aistudio/vertex 各自闭包，registry_backend 同为 "gemini"）；OpenAI-compat 三家共用一个构造闭包：
+# dashscope/minimax 映射到 "openai"（Chat Completions），经 helper 派生 base_url + 透传 provider_name 计费归因；
+# openai 映射到 "openai-responses"（Responses），直传用户 base_url。
 # agnes 虽走 OpenAI 兼容 chat/completions，但鉴权 / base_url 归一化收口在专属 AgnesTextBackend（复用
 # agnes_shared），故归简单文本族（registry_backend = "agnes"），不并入 OpenAI-compat 别名映射。
 _TEXT_SIMPLE_PROVIDERS = ("ark", "ark-agent-plan", "grok", "agnes")
@@ -447,7 +458,9 @@ PROVIDER_SPEC_REGISTRY.update(
     {
         ("gemini-aistudio", "text"): _text_gemini_spec("gemini-aistudio", build=_build_text_gemini_aistudio),
         ("gemini-vertex", "text"): _text_gemini_spec("gemini-vertex", build=_build_text_gemini_vertex),
-        ("openai", "text"): _text_openai_compat_spec("openai", derive_base_url=None, provider_name=None),
+        ("openai", "text"): _text_openai_compat_spec(
+            "openai", derive_base_url=None, provider_name=None, registry_backend=_TEXT_OPENAI_RESPONSES_REGISTRY_BACKEND
+        ),
         ("dashscope", "text"): _text_openai_compat_spec(
             "dashscope", derive_base_url=_dashscope_text_base_url, provider_name="dashscope"
         ),

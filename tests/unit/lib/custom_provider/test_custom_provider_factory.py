@@ -35,6 +35,7 @@ _ENDPOINT_BACKEND_CLASSES = (
     "OpenAIAudioBackend",
     "OpenAIImageBackend",
     "OpenAITextBackend",
+    "OpenAIResponsesTextBackend",
     "OpenAIVideoBackend",
     "ViduVideoBackend",
 )

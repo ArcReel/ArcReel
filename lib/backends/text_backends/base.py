@@ -5,7 +5,8 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -14,6 +15,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaMode, JsonSchemaValue
 
 from lib.infra.retry import NonRetryableError
+from lib.infra.text_utils import strip_json_code_fences
 
 _logger = logging.getLogger(__name__)
 
@@ -447,6 +449,85 @@ def structured_fallback_reason(text: str, response_schema: dict | type | None, *
     if not is_valid_json(text):
         return "返回非 JSON 内容（供应商可能未支持结构化输出）"
     return None
+
+
+# prompt 注入降级的最大调用次数：首次注入 schema + 一次带校验错误反馈的重试。
+# 每次都是计费调用；schema 注入后仍两连败的模型/代理网关，再多重试收益趋零。
+PROMPT_JSON_FALLBACK_MAX_ATTEMPTS = 2
+
+
+async def prompt_json_fallback(
+    request: TextGenerationRequest,
+    generate_once: Callable[[TextGenerationRequest], Awaitable[TextGenerationResult]],
+    *,
+    provider: str,
+    model: str,
+) -> TextGenerationResult:
+    """Prompt 注入降级：schema 写进 prompt 重发纯文本调用，剥栅栏后校验，失败带反馈重试。
+
+    触发场景是供应商拒收或静默忽略 wire 级结构化参数，此时把 schema 约束写进 prompt 是唯一
+    不依赖 wire 参数的手段。``generate_once`` 是后端的单次原生调用（含日志、截断处理与瞬态
+    错误重试），收到的请求 ``response_schema`` 已置空；它仍是一次结构化输出尝试，截断须按
+    结构化口径处理。校验通过后返回规范化 JSON（model_dump_json），下游解析必定成功。
+    """
+    assert request.response_schema is not None  # 调用方（generate 复验分支）保证
+    schema_dict = resolve_schema(request.response_schema)
+    schema_model = request.response_schema if isinstance(request.response_schema, type) else None
+
+    base_prompt = (
+        f"{request.prompt}\n\n"
+        "仅输出一个符合以下 JSON Schema 的 JSON 对象，"
+        "不要输出任何解释、前后缀或 markdown 代码栅栏：\n"
+        f"{json.dumps(schema_dict, ensure_ascii=False)}"
+    )
+    feedback = ""
+    total_input: int | None = None
+    total_output: int | None = None
+    last_reason = ""
+    for _attempt in range(PROMPT_JSON_FALLBACK_MAX_ATTEMPTS):
+        fb_request = replace(request, prompt=base_prompt + feedback, response_schema=None)
+        fb_result = await generate_once(fb_request)
+        total_input = merge_billed_tokens(total_input, fb_result.input_tokens)
+        total_output = merge_billed_tokens(total_output, fb_result.output_tokens)
+
+        text = strip_json_code_fences(fb_result.text)
+        normalized, last_reason = _validate_fallback_text(text, schema_model)
+        if normalized is not None:
+            return TextGenerationResult(
+                text=normalized,
+                provider=provider,
+                model=model,
+                input_tokens=total_input,
+                output_tokens=total_output,
+            )
+        feedback = f"\n\n上次输出不符合要求（{last_reason}），请严格按上述 JSON Schema 重新输出纯 JSON。"
+        _logger.warning(
+            "prompt 注入降级输出校验未通过（%s），带反馈重试；模型原始输出：%s",
+            last_reason,
+            truncate_for_log(text),
+        )
+
+    raise StructuredOutputExhaustedError(
+        provider=provider,
+        model=model,
+        reason=f"prompt 注入降级 {PROMPT_JSON_FALLBACK_MAX_ATTEMPTS} 次尝试后输出仍不合规（{last_reason}）",
+    )
+
+
+def _validate_fallback_text(text: str, schema_model: type | None) -> tuple[str | None, str]:
+    """校验降级输出并规范化。返回 (规范化 JSON 文本, "") 或 (None, 失败原因)。
+
+    Pydantic 模型走完整 schema 校验并以 model_dump_json 规范化；dict schema 无对应模型，
+    沿用「合法 JSON 即放行」口径（与 structured_fallback_reason 对 dict schema 的行为对齐）。
+    """
+    if schema_model is not None and issubclass(schema_model, BaseModel):
+        try:
+            return schema_model.model_validate_json(text).model_dump_json(), ""
+        except ValidationError as exc:
+            return None, summarize_validation_error(exc)
+    if is_valid_json(text):
+        return text, ""
+    return None, "输出不是合法 JSON"
 
 
 class TextBackend(Protocol):
