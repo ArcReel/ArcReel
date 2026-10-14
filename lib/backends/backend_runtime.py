@@ -39,8 +39,8 @@ from lib.infra.retry import (
     BASE_RETRYABLE_ERRORS,
     AsyncClock,
     NonRetryableError,
-    SystemClock,
     _should_retry,
+    resolve_clock,
     with_retry_async,
 )
 
@@ -410,9 +410,10 @@ async def poll_with_retry[T](
             哪些异常应当重试（如按 HTTP status_code 区分确定性 4xx 与瞬态 5xx）。
         label: 日志前缀（如 "Ark"、"Gemini"）。
         on_progress: 可选的进度回调，每次非终态轮询后调用。
-        clock: 单调计时与异步等待 seam；生产默认使用系统时钟。
+        clock: 单调计时与异步等待 seam；未传时按 ``resolve_clock`` 取当前上下文绑定的时钟，
+            生产默认是系统时钟。
     """
-    active_clock = clock if clock is not None else SystemClock()
+    active_clock = resolve_clock(clock)
     start = active_clock.monotonic()
     prefix = f"{label} " if label else ""
     predicate = retry_if if retry_if is not None else (lambda e: _should_retry(e, retryable_errors))

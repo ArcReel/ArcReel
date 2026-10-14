@@ -12,7 +12,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -26,14 +25,7 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_video_request_facts
-from tests.fakes import fake_reference_request_projector
-
-
-def _write_output(path: Path, content: bytes) -> None:
-    """生产后端在工作线程里落盘产物；替身经 ``asyncio.to_thread`` 调用本函数，同样不占事件循环。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-
+from tests.fakes import fake_reference_request_projector, write_backend_output
 
 _TINY_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
@@ -170,7 +162,7 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     async def _fake_generate_video_async(**kwargs):
         captured_backend_kwargs.update(kwargs)
         out = proj_dir / "reference_videos" / f"{uid}.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()

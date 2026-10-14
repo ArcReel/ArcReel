@@ -37,7 +37,7 @@ from lib.speech.narration_delivery import (
 from lib.speech.speech_composition import admit_script_unit
 from server.services.tasks import generation_context, generation_tasks
 from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
-from tests.fakes import persist_fake_script
+from tests.fakes import persist_fake_script, write_backend_output
 
 
 def _audio_ctx(
@@ -124,11 +124,6 @@ class _FakePM:
         assets["status"] = "completed" if assets.get("video_clip") else "pending"
 
 
-def _write_output(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-
-
 class _FakeAudioGenerator:
     def __init__(self, project_path: Path):
         self.project_path = project_path
@@ -146,7 +141,7 @@ class _FakeAudioGenerator:
         output = self.project_path / "audio" / f"segment_{kwargs['resource_id']}.wav"
         staged = output.with_name(f".{output.stem}.staged{output.suffix}")
         # 生产后端在工作线程里落盘产物，替身同样不占事件循环
-        await asyncio.to_thread(_write_output, staged, b"RIFF-current-audio")
+        await write_backend_output(staged, b"RIFF-current-audio")
         if before_commit := kwargs.get("before_commit"):
             await before_commit(staged)
         if commit_staged := kwargs.get("commit_staged"):

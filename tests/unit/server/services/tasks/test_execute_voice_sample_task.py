@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -13,6 +12,7 @@ from lib.generation.generation_queue import DispatchProviderChanged
 from lib.project.resource_paths import resource_relative_path
 from server.services.tasks import generation_tasks
 from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
+from tests.fakes import write_backend_output
 
 
 def _audio_ctx(generator):
@@ -45,11 +45,6 @@ class _FakePM:
         return self._project_path
 
 
-def _write_output(path: Path, content: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
-
-
 class _FakeAudioGenerator:
     def __init__(self, project_path: Path, content: bytes = b"fake-wav-bytes"):
         self._project_path = project_path
@@ -63,7 +58,7 @@ class _FakeAudioGenerator:
         )
         path = self._project_path / resource_relative_path("audio", resource_id)
         # 生产后端在工作线程里落盘产物，替身同样不占事件循环
-        await asyncio.to_thread(_write_output, path, self._content)
+        await write_backend_output(path, self._content)
         return path, 1
 
     def get_versions(self, resource_type, resource_id):

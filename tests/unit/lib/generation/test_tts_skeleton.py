@@ -22,7 +22,7 @@ from lib.generation.media_generator import MediaGenerator
 from lib.project.data_validator import DataValidator
 from lib.project.resource_paths import RESOURCE_TYPES, resource_extension, resource_relative_path
 from lib.script.script_models import GeneratedAssets
-from tests.fakes import refuse_resume_execution
+from tests.fakes import refuse_resume_execution, write_backend_output
 
 
 async def _refuse_generation_execution(task: dict[str, Any], *, claimed_provider_id: str) -> dict[str, Any]:
@@ -77,16 +77,6 @@ class TestGeneratedAssetsNarrationAudio:
 # ── generate_audio_async ──────────────────────────────────────────────────────
 
 
-async def _write_backend_output(path: Path, data: bytes) -> None:
-    """后端替身落产物：生产后端在工作线程里写产物文件，替身照同一契约放进线程。"""
-
-    def _write() -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-
-    await asyncio.to_thread(_write)
-
-
 class _FakeAudioBackend:
     name = "fake-audio"
     model = "tts-model"
@@ -97,7 +87,7 @@ class _FakeAudioBackend:
 
     async def synthesize(self, request):
         self.calls.append(request)
-        await _write_backend_output(request.output_path, b"RIFFfakewav")
+        await write_backend_output(request.output_path, b"RIFFfakewav")
         return AudioSynthesisResult(
             provider=self.name, model=self.model, characters=len(request.text), output_path=request.output_path
         )
@@ -251,7 +241,7 @@ class TestGenerateAudioAsync:
         formal.write_bytes(b"paid-old-audio")
 
         async def _overwrite_then_raise(request):
-            await _write_backend_output(request.output_path, b"broken-new-audio")
+            await write_backend_output(request.output_path, b"broken-new-audio")
             raise RuntimeError("boom")
 
         gen._audio_backend.synthesize = _overwrite_then_raise
@@ -270,7 +260,7 @@ class TestGenerateAudioAsync:
         formal.write_bytes(b"paid-old-audio")
 
         async def _overwrite_then_cancel(request):
-            await _write_backend_output(request.output_path, b"cancelled-new-audio")
+            await write_backend_output(request.output_path, b"cancelled-new-audio")
             raise asyncio.CancelledError
 
         gen._audio_backend.synthesize = _overwrite_then_cancel

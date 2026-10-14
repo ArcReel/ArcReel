@@ -50,7 +50,7 @@ from lib.generation.media_generator import MediaGenerator
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeConfigResolver
+from tests.fakes import FakeConfigResolver, write_backend_output
 
 # ---------------------------------------------------------------------------
 # 冻结时钟：写入侧（usage_repo.utc_now）是 aware datetime，SQLite 回读为 naive。
@@ -186,16 +186,6 @@ def _expected_pending_row(**overrides: Any) -> dict[str, Any]:
 _PNG_BYTES = b"\x89PNG\r\n\x1a\nfake"
 
 
-async def _write_backend_output(path: Path, data: bytes) -> None:
-    """后端替身落产物：生产后端在工作线程里写产物文件，替身照同一契约放进线程。"""
-
-    def _write() -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-
-    await asyncio.to_thread(_write)
-
-
 class _FakeImageBackend:
     def __init__(
         self,
@@ -225,7 +215,7 @@ class _FakeImageBackend:
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         if self._error is not None:
             raise self._error
-        await _write_backend_output(request.output_path, _PNG_BYTES)
+        await write_backend_output(request.output_path, _PNG_BYTES)
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=self._provider,
@@ -263,7 +253,7 @@ class _FakeAudioBackend:
     async def synthesize(self, request: AudioSynthesisRequest) -> AudioSynthesisResult:
         if self._error is not None:
             raise self._error
-        await _write_backend_output(request.output_path, b"fake-wav")
+        await write_backend_output(request.output_path, b"fake-wav")
         return AudioSynthesisResult(
             provider=self._provider,
             model=self._model,
@@ -303,7 +293,7 @@ class _FakeVideoBackend:
         return VideoCapabilities()
 
     async def _build_result(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        await _write_backend_output(request.output_path, b"fake-mp4")
+        await write_backend_output(request.output_path, b"fake-mp4")
         fields = {
             "duration_seconds": request.duration_seconds,
             "video_uri": "fake-video-uri",

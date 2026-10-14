@@ -31,6 +31,7 @@ from lib.speech.narration_delivery import (
 from lib.speech.speech_composition import admit_script_unit
 from server.services.tasks import generation_tasks
 from tests.factories import make_video_request_facts, wav_bytes
+from tests.fakes import write_backend_output
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -87,11 +88,7 @@ class TestGenerationTasks:
 
         async def fake_extract(video_path, out_path):
             # 生产由 ffmpeg 子进程写缩略图，替身在工作线程里落盘，不占事件循环
-            def _write() -> None:
-                out_path.parent.mkdir(parents=True, exist_ok=True)
-                out_path.write_bytes(b"thumb")
-
-            await asyncio.to_thread(_write)
+            await write_backend_output(out_path, b"thumb")
             return out_path
 
         monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)

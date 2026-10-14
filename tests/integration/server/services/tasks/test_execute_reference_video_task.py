@@ -16,18 +16,12 @@ from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.i18n import SUPPORTED_LOCALES, _, render_message
 from lib.script.reference_video.request_projection import resolve_reference_assets
 from tests.factories import make_display_names, make_video_request_facts, wav_bytes
-from tests.fakes import FakeConfigResolver
+from tests.fakes import FakeConfigResolver, write_backend_output
 from tests.integration.server.services.tasks.reference_video_tasks_support import (
     _TINY_PNG,
     register_asset_sheet,
     write_project,
 )
-
-
-def _write_output(path: Path, content: bytes) -> None:
-    """生产后端在工作线程里落盘产物；替身经 ``asyncio.to_thread`` 调用本函数，同样不占事件循环。"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(content)
 
 
 def _wire_locked_script(fake_pm: MagicMock) -> None:
@@ -168,7 +162,7 @@ async def test_execute_reference_video_task_success(tmp_path: Path, monkeypatch:
     # Mock generator.generate_video_async: 创建伪视频文件
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         # (output_path, version, video_ref, video_uri)
         return out, 1, None, None
 
@@ -220,7 +214,7 @@ async def test_execute_reference_video_task_passes_planned_duration_when_endpoin
     async def _fake_generate_video_async(**kwargs):
         await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -378,7 +372,7 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
 
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -504,7 +498,7 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -600,7 +594,7 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -787,7 +781,7 @@ async def test_execute_reference_video_task_aligns_reference_audio_targets_for_p
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -850,7 +844,7 @@ async def test_execute_reference_video_task_omits_audio_field_for_soft_tier(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -898,7 +892,7 @@ async def test_execute_reference_video_task_surfaces_backend_warnings(tmp_path: 
     async def _fake_generate_video_async(**kwargs):
         kwargs["warnings"].append(warning)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -952,7 +946,7 @@ async def test_execute_reference_video_task_surfaces_render_warnings(tmp_path: P
 
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1003,7 +997,7 @@ async def test_execute_reference_video_task_reports_reference_image_limit(
     async def _fake_generate_video_async(**kwargs):
         captured["reference_images"] = kwargs.get("reference_images")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1084,7 +1078,7 @@ async def test_execute_reference_video_task_clears_stale_video_uri_and_thumbnail
     # 新后端不返回 video_uri（第 4 个元素为 None）
     async def _fake_generate_video_async(**kwargs):
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1139,7 +1133,7 @@ async def test_execute_reference_video_task_sends_the_request_facts_resolution(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1193,7 +1187,7 @@ async def test_execute_reference_video_task_picks_the_tier_from_narrowed_request
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00\x00\x00 ftypmp42")
+        await write_backend_output(out, b"\x00\x00\x00 ftypmp42")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1617,7 +1611,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
 
         async def generate(self, request):
             captured_requests.append(request)
-            await asyncio.to_thread(_write_output, request.output_path, b"\x00\x00\x00 ftypmp42")
+            await write_backend_output(request.output_path, b"\x00\x00\x00 ftypmp42")
             return VideoGenerationResult(
                 video_path=request.output_path,
                 provider=self.name,
@@ -1706,7 +1700,7 @@ async def test_execute_reference_video_task_passes_source_refs(tmp_path: Path, m
         call_count["n"] += 1
         captured["reference_images"] = kwargs.get("reference_images")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00")
+        await write_backend_output(out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1766,7 +1760,7 @@ async def test_execute_reference_video_task_rejects_duration_above_lane_maximum(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00")
+        await write_backend_output(out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1843,7 +1837,7 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00")
+        await write_backend_output(out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -1954,7 +1948,7 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
     async def _fake_generate_video_async(**kwargs):
         captured.update(kwargs)
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00")
+        await write_backend_output(out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2032,7 +2026,7 @@ async def test_execute_reference_video_task_requests_planned_tier_regardless_of_
         captured.update(kwargs)
         await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00")
+        await write_backend_output(out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2100,7 +2094,7 @@ async def test_execute_reference_video_task_persists_effective_duration_when_rou
     async def _fake_generate_video_async(**kwargs):
         await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00")
+        await write_backend_output(out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2156,7 +2150,7 @@ async def test_execute_reference_video_task_persists_duration_when_unchanged(
     async def _fake_generate_video_async(**kwargs):
         await kwargs["before_submit"]()
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00")
+        await write_backend_output(out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2212,7 +2206,7 @@ async def test_execute_reference_video_task_persists_execution_identity(
         await kwargs["before_submit"]()
         events.append("provider_submit")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"\x00")
+        await write_backend_output(out, b"\x00")
         return out, 1, None, None
 
     fake_generator = MagicMock()
@@ -2305,7 +2299,7 @@ async def test_execute_reference_video_task_stages_actual_request_and_checkpoint
         submitted["checkpoint_metadata"] = await kwargs["before_submit"]()
         events.append("provider_submit")
         out = proj_dir / "reference_videos" / "E1U1.mp4"
-        await asyncio.to_thread(_write_output, out, b"paid-video")
+        await write_backend_output(out, b"paid-video")
         return out, 1, None, None
 
     fake_generator = MagicMock()

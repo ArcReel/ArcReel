@@ -13,7 +13,9 @@ import functools
 import logging
 import random
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Protocol
 
 logger = logging.getLogger(__name__)
@@ -79,6 +81,35 @@ class SystemClock:
         await asyncio.sleep(delay)
 
 
+_SYSTEM_CLOCK = SystemClock()
+
+# 未显式传 ``clock`` 时生效的时钟。按 contextvars 语义只作用于绑定它的上下文及其后派生的
+# 任务与 ``to_thread`` 线程，同进程里其他上下文仍走系统时钟。
+_bound_clock: ContextVar[AsyncClock | None] = ContextVar("lib_infra_retry_bound_clock", default=None)
+
+
+def resolve_clock(clock: AsyncClock | None) -> AsyncClock:
+    """等待方取用的时钟：显式参数优先，其次是当前上下文绑定的时钟，最后是系统时钟。"""
+    if clock is not None:
+        return clock
+    bound = _bound_clock.get()
+    return bound if bound is not None else _SYSTEM_CLOCK
+
+
+@contextmanager
+def bind_clock(clock: AsyncClock) -> Generator[None]:
+    """在当前上下文内把未显式传 ``clock`` 的重试与轮询等待改走 ``clock``。
+
+    适用于等待方深埋在调用链里、``clock`` 参数无法逐层传到的场景。绑定只对当前上下文和在
+    绑定期间派生的任务生效，退出时恢复原值；不改动 ``time`` / ``asyncio`` 等模块级状态。
+    """
+    token = _bound_clock.set(clock)
+    try:
+        yield
+    finally:
+        _bound_clock.reset(token)
+
+
 def _should_retry(exc: Exception, retryable_errors: tuple[type[Exception], ...]) -> bool:
     """判断异常是否应当重试。"""
     if isinstance(exc, NonRetryableError):
@@ -137,8 +168,11 @@ async def retry_async[T](
     clock: AsyncClock | None = None,
     jitter: Callable[[float, float], float] | None = None,
 ) -> T:
-    """执行可重试异步操作，允许显式注入时钟与随机抖动。"""
-    active_clock = clock if clock is not None else SystemClock()
+    """执行可重试异步操作，允许显式注入时钟与随机抖动。
+
+    未传 ``clock`` 时按 ``resolve_clock`` 取当前上下文绑定的时钟，缺省为系统时钟。
+    """
+    active_clock = resolve_clock(clock)
     predicate = retry_if if retry_if is not None else lambda e: _should_retry(e, retryable_errors)
 
     for attempt in range(max_attempts):

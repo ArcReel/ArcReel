@@ -41,6 +41,8 @@ from _pytest.main import resolve_collection_argument
 from sqlalchemy import event, pool, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
+from tests.memory_db_guard import install_shared_connection_write_guard
+
 # `lib.db.engine` 的模块级 engine 在 import 期就按 `DATABASE_URL` 绑定，进程内不再重建，
 # 所以覆写必须发生在下方任何会传染到该模块的 import 之前。未显式指定时它落在仓库根的
 # `projects/arcreel.db`：一份文件被 xdist 的多个 worker 共用，且 schema 只由某个先跑到
@@ -384,7 +386,8 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
     （partial unique index + ON CONFLICT、SELECT ... FOR UPDATE）由此被真实覆盖。
 
     其余情况建 SQLite：``file_path`` 为 None 时用内存库；给了路径则用 NullPool 文件库，
-    供必须绕开 StaticPool 串行化的并发用例。``dialect_aware=False`` 固定走 SQLite，
+    供必须绕开 StaticPool 串行化的并发用例。内存库挂 ``tests.memory_db_guard`` 的并发写检查：
+    多个任务同时写库时用例失败，提示改用对应的文件库夹具。``dialect_aware=False`` 固定走 SQLite，
     postgres-compat job 里也不改道——unit 档用例不该被拉去跑 PG。
     """
     pg_url = _pg_url_from_env() if dialect_aware else None
@@ -406,8 +409,13 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
             await engine.dispose()
         return
 
+    write_guard = None
     if file_path is None:
         engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+        # 内存库所有 session 共用一个连接，多个任务并发写时直接失败并指向对应的文件库夹具。
+        write_guard = install_shared_connection_write_guard(
+            engine, file_fixture="concurrent_session_factory" if dialect_aware else "file_db_factory"
+        )
     else:
         engine = create_async_engine(f"sqlite+aiosqlite:///{file_path}", poolclass=pool.NullPool)
 
@@ -429,6 +437,8 @@ async def make_test_engine(*, dialect_aware: bool = True, file_path: Path | None
         yield engine
     finally:
         await engine.dispose()
+    if write_guard is not None:
+        write_guard.raise_if_violated()
 
 
 @pytest.fixture
