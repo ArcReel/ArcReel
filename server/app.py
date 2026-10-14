@@ -63,6 +63,7 @@ from server.routers import (
     asset_sheets,
     assets,
     assistant,
+    catalog,
     characters,
     cost_estimation,
     custom_endpoints,
@@ -722,6 +723,7 @@ app.include_router(
 )
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
 app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
+app.include_router(catalog.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["模型目录"])
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
 app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
 app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])

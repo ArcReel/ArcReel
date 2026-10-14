@@ -49,6 +49,8 @@ import type {
   ApiKeyInfo,
   CreateApiKeyResponse,
   ProviderInfo,
+  CatalogSearchResponse,
+  MediaType,
   ProviderConfigDetail,
   ConnectivityCheckResult,
   ProviderCredential,
@@ -3113,6 +3115,20 @@ class API {
   /** 删除（吊销）指定 API Key。 */
   static async deleteApiKey(keyId: number): Promise<void> {
     return this.request(`/api-keys/${keyId}`, { method: "DELETE" });
+  }
+
+  // ==================== 模型目录 API ====================
+
+  /** 按名称与媒体类型搜索模型目录中的条目；名称留空列出全部。 */
+  static async searchCatalogEntries(
+    query: { q?: string; mediaType?: MediaType } = {},
+    options: { signal?: AbortSignal } = {}
+  ): Promise<CatalogSearchResponse> {
+    const params = new URLSearchParams();
+    if (query.q) params.set("q", query.q);
+    if (query.mediaType) params.set("media_type", query.mediaType);
+    const qs = params.toString();
+    return this.request(`/catalog/entries${qs ? `?${qs}` : ""}`, { signal: options.signal });
   }
 
   // ==================== Provider 管理 API ====================

@@ -30,6 +30,7 @@ from arcreel_catalog_core import (
     TextFacts,
     VideoFacts,
     load_catalog,
+    normalize_model_name,
 )
 from lib.catalog.entry_matching import match_entry
 from lib.config import registry
@@ -211,3 +212,46 @@ def model_pricing(provider_id: str, model_id: str) -> Pricing | None:
     meta = registry.PROVIDER_REGISTRY.get(provider_id)
     info = meta.models.get(model_id) if meta is not None else None
     return info.pricing if info is not None else None
+
+
+@dataclass(frozen=True)
+class CatalogSearchHit:
+    """目录搜索命中的一个模型条目。``maker`` 加 ``name`` 加 ``media_type`` 唯一确定条目（两栖模型有两个条目）。"""
+
+    maker: str
+    name: str
+    media_type: str
+    display_name: str
+    discontinued: bool
+
+
+def _search_keys(entry: CatalogEntry) -> list[str]:
+    """条目可被搜索词命中的名称：官方模型名与模型别名按归一化后的写法，显示名只忽略大小写并视点号同连字符。"""
+    names = [entry.name, *entry.aliases]
+    return [normalize_model_name(name) for name in names] + [entry.display_name.lower().replace(".", "-")]
+
+
+def search_entries(query: str = "", media_type: str | None = None) -> list[CatalogSearchHit]:
+    """按名称与媒体类型搜索模型条目。
+
+    搜索词按空白切成若干词，每个词都要命中条目的官方模型名、模型别名或显示名之一（忽略大小写，
+    点号视同连字符，写成「厂商/模型名」时忽略厂商）。空搜索词列出全部。整句与名称相同的排最前，
+    其次是以整句开头的，其余按目录顺序；已下架的条目一律排在后面。
+    """
+    tokens = [normalize_model_name(token) for token in query.split()]
+    whole = normalize_model_name(query.strip())
+    ranked: list[tuple[bool, int, int, CatalogSearchHit]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for index, entry in enumerate(factory_snapshot().entries):
+        identity = (entry.maker, entry.name, entry.media_type)
+        if identity in seen or (media_type is not None and entry.media_type != media_type):
+            continue
+        keys = _search_keys(entry)
+        if not all(any(token in key for key in keys) for token in tokens):
+            continue
+        seen.add(identity)
+        rank = 0 if whole in keys else 1 if any(key.startswith(whole) for key in keys) else 2
+        hit = CatalogSearchHit(entry.maker, entry.name, entry.media_type, entry.display_name, entry.discontinued)
+        ranked.append((entry.discontinued, rank, index, hit))
+    ranked.sort(key=lambda item: item[:3])
+    return [hit for *_, hit in ranked]
