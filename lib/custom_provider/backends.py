@@ -27,6 +27,7 @@ from lib.backends.image_backends.base import (
     ImageGenerationResult,
 )
 from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, endpoint_guard
 
 
 class CustomTextBackend:
@@ -126,6 +127,7 @@ class CustomVideoBackend:
         video_capabilities: VideoCapabilities | None = None,
         capability_overrides: dict[str, object] | None = None,
         endpoint: str | None = None,
+        path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
@@ -133,6 +135,7 @@ class CustomVideoBackend:
         self._video_capabilities = video_capabilities
         self._capability_overrides = capability_overrides or {}
         self._endpoint = endpoint
+        self._path_overrides = path_overrides
 
     @property
     def endpoint(self) -> str | None:
@@ -143,6 +146,14 @@ class CustomVideoBackend:
         绕过工厂直接构造时为 None，此时续跑不比对、行为与未持久化 endpoint 的存量任务一致。
         """
         return self._endpoint
+
+    @property
+    def endpoint_guard(self) -> str | None:
+        """冻结进执行检查点的协议标识：endpoint 连同构造所用的路径覆盖（``docs/adr/0101``）。
+
+        续跑时覆盖已被修改，与「调用端点已更换」一样按协议漂移失败（``docs/adr/0007``）。
+        """
+        return None if self._endpoint is None else endpoint_guard(self._endpoint, self._path_overrides)
 
     def with_video_capabilities(
         self, capabilities: VideoCapabilities, *, overrides: dict[str, object] | None = None
@@ -161,10 +172,11 @@ class CustomVideoBackend:
             video_capabilities=capabilities,
             capability_overrides=overrides,
             endpoint=self._endpoint,
+            path_overrides=self._path_overrides,
         )
 
-    def with_endpoint(self, endpoint: str) -> CustomVideoBackend:
-        """返回记住构造 endpoint 的新实例（不就地改写，包装器保持构造后不可变）。"""
+    def with_endpoint(self, endpoint: str, *, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomVideoBackend:
+        """返回记住构造 endpoint 与路径覆盖的新实例（不就地改写，包装器保持构造后不可变）。"""
         return CustomVideoBackend(
             provider_id=self._provider_id,
             delegate=self._delegate,
@@ -172,6 +184,7 @@ class CustomVideoBackend:
             video_capabilities=self._video_capabilities,
             capability_overrides=self._capability_overrides,
             endpoint=endpoint,
+            path_overrides=path_overrides,
         )
 
     @property

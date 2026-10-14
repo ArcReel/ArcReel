@@ -59,6 +59,7 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import redacted_status_error
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, raw_base_url
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import NonRetryableError, retry_async
@@ -155,6 +156,11 @@ def request_urls(definition: Mapping[str, Any]) -> list[str]:
     return urls
 
 
+def strips_base_url_version(definition: Mapping[str, Any]) -> bool:
+    """定义里有请求以 ``{{ base_url }}`` 加显式版本段起头时，配置末尾的版本段要剥掉。"""
+    return any(_VERSIONED_BASE_URL.match(url) for url in request_urls(definition))
+
+
 def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any]) -> str:
     """补协议 + 去尾斜杠；定义带显式版本路径时剥配置末尾版本段，避免拼成 ``/v1/v2``。
 
@@ -165,9 +171,25 @@ def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any])
     stripped = base_url.strip().rstrip("/")
     if stripped and "://" not in stripped:
         stripped = f"https://{stripped}"
-    if any(_VERSIONED_BASE_URL.match(url) for url in request_urls(definition)):
+    if strips_base_url_version(definition):
         return re.sub(r"/v\d+(?:\.\d+)?[a-zA-Z]*$", "", stripped)
     return stripped
+
+
+#: 有覆盖的节在模板里引用的域名变量：供应商填写的原样 base_url。
+OVERRIDE_BASE_URL = "override_base_url"
+
+
+def apply_path_overrides(definition: Mapping[str, Any], path_overrides: PathOverrides) -> Mapping[str, Any]:
+    """把有覆盖的请求节的 URL 换成「原样 base_url + 覆盖路径」，其余部分原样保留。"""
+    if not path_overrides:
+        return definition
+    rewritten = dict(definition)
+    for section, path in path_overrides.items():
+        node = definition.get(section)
+        if isinstance(node, Mapping):
+            rewritten[section] = {**node, "url": f"{{{{ {OVERRIDE_BASE_URL} }}}}{path}"}
+    return rewritten
 
 
 class DeclarativeRuntimeError(RuntimeError):
@@ -362,19 +384,24 @@ class DeclarativeJobEngine[StateT: JobState]:
         provider: str,
         read_state: StateReader[StateT],
         log_label: str,
+        path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     ) -> None:
         self._api_key = api_key
+        self._raw_base_url = raw_base_url(base_url)
         self._base_url = normalize_declarative_base_url(base_url, definition)
+        self._source_definition = definition
         self._model = model
-        self._definition = definition
+        # 有覆盖的节改写成相对原样 base_url 的地址，不经归一化（docs/adr/0101）；是否剥版本段
+        # 仍按原定义判定，没有覆盖的节行为不变。
+        self._definition = apply_path_overrides(definition, path_overrides)
         self._provider = provider
         self._read_state = read_state
         self._log_label = log_label
 
     @property
     def base_url(self) -> str:
-        """归一化后的配置域名。"""
-        return self._base_url
+        """供应商配置的域名（补协议、去尾斜杠，未归一化），提交后随任务落库供续跑回放。"""
+        return self._raw_base_url
 
     def request_context(
         self,
@@ -415,7 +442,12 @@ class DeclarativeJobEngine[StateT: JobState]:
                 {
                     "api_key": self._api_key,
                     # 续跑回放提交时的域名（提交路径恒 None）：域名是连接维度，不是协议维度。
-                    "base_url": submitted_base_url or self._base_url,
+                    "base_url": (
+                        normalize_declarative_base_url(submitted_base_url, self._source_definition)
+                        if submitted_base_url
+                        else self._base_url
+                    ),
+                    OVERRIDE_BASE_URL: raw_base_url(submitted_base_url) if submitted_base_url else self._raw_base_url,
                     "model": self._model,
                     **variables,
                 },
@@ -733,6 +765,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         model: str,
         definition: Mapping[str, Any],
         provider: str,
+        path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     ) -> None:
         self._engine = DeclarativeJobEngine(
             api_key=api_key,
@@ -742,6 +775,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             provider=provider,
             read_state=extract_provider_state,
             log_label="声明式视频请求",
+            path_overrides=path_overrides,
         )
         self._model = model
         self._definition = definition

@@ -595,6 +595,7 @@ export function CustomProviderForm({
               <ModelTable
                 rows={models}
                 protocol={discoveryFormat}
+                baseUrl={value.baseUrl}
                 providerId={existing?.id}
                 expanded={expanded}
                 onToggleExpanded={toggleExpanded}

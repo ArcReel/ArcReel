@@ -100,6 +100,7 @@ class TestCustomProviderModelTable:
             "resolution",
             "capability_overrides",
             "max_output_tokens",
+            "path_overrides",
             "created_at",
             "updated_at",
         }

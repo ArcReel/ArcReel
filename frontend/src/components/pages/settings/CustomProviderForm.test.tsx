@@ -28,6 +28,7 @@ const CHAT_ENDPOINT: EndpointDescriptor = {
   duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
+  requests: [],
 };
 
 const IMAGE_ENDPOINT: EndpointDescriptor = {
@@ -59,6 +60,8 @@ function model(id: number, modelId: string, endpoint = "openai-chat"): CustomPro
     capability_overrides: null,
     system_capabilities: null,
     global_bucket_refs: [],
+    path_overrides: null,
+    requests: [],
   };
 }
 
@@ -172,6 +175,42 @@ describe("CustomProviderForm", () => {
     // 保存失败不能通知宿主：宿主会切走表单并当作已落库，用户的输入随之丢失
     expect(onSaved).not.toHaveBeenCalled();
     expect(screen.getByRole("textbox", { name: "模型 ID" })).toHaveValue("gpt-4o");
+  });
+
+  it("warns that modified request URLs go back to default when the endpoint changes, and saves without them", async () => {
+    const requests = [
+      { name: "submit", display_name_key: "cp_request_submit", default_path: "/videos", placeholders: ["model"], base_url_rule: "as_is" as const },
+    ];
+    const videoEndpoint: EndpointDescriptor = {
+      ...CHAT_ENDPOINT,
+      key: "openrouter-video",
+      media_type: "video",
+      kind: "declarative",
+      display_name: "OpenRouter Video",
+      requests,
+    };
+    vi.mocked(API.listEndpointCatalog).mockResolvedValue({
+      endpoints: [videoEndpoint, { ...videoEndpoint, key: "xai-video", display_name: "xAI Video" }],
+    });
+    vi.spyOn(API, "fullUpdateCustomProvider").mockResolvedValue(undefined as never);
+    vi.spyOn(API, "getCustomProvider").mockRejectedValue(new Error("refetch skipped"));
+    const user = userEvent.setup();
+    const saved = { ...model(1, "veo-3", "openrouter-video"), path_overrides: { submit: "/api/videos" }, requests };
+    renderForm({ existing: provider([saved]), focusModelId: "veo-3" });
+
+    expect(await screen.findByRole("button", { name: "请求路径 /api/videos" })).toBeInTheDocument();
+    await user.click(screen.getByRole("combobox", { name: "调用端点" }));
+    await user.click(await screen.findByRole("option", { name: /xAI Video/ }));
+
+    expect(screen.getByText("更换调用端点后，修改过的请求地址会恢复默认。")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "请求路径 /videos" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(API.fullUpdateCustomProvider).toHaveBeenCalledWith(
+        3,
+        expect.objectContaining({ models: [expect.objectContaining({ endpoint: "xai-video", path_overrides: null })] }),
+      ),
+    );
   });
 
   it("expands and edits the model named by the deep link", async () => {

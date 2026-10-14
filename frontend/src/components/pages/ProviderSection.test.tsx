@@ -115,6 +115,7 @@ const CHAT_ENDPOINT: EndpointDescriptor = {
   duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
+  requests: [],
 };
 
 function customProvider(id: number, displayName: string): CustomProviderInfo {

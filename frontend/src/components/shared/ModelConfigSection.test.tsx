@@ -1340,6 +1340,7 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     duration_frame_rate_missing: false,
     duration_tier_empty: false,
     native_resolution: null,
+    requests: [],
   };
 
   const COMFY_PROVIDER: CustomProviderInfo = {
@@ -1370,6 +1371,8 @@ describe("dimensions a ComfyUI workflow fixes", () => {
         system_capabilities: null,
         capability_overrides: null,
         global_bucket_refs: [],
+        path_overrides: null,
+        requests: [],
       },
     ],
   };

@@ -24,11 +24,13 @@ import {
   capabilityFieldsFor,
   globalBucketRefsFor,
   isComfyuiProtocol,
+  pathOverridesFor,
   priceLabel,
   withLastFrameOverride,
 } from "./customProviderHelpers";
 import { parsePositiveInt, type ModelRow } from "./customProviderFormState";
 import { EndpointSelect } from "./EndpointSelect";
+import { RequestAddresses } from "./RequestAddresses";
 
 //: 模型多于这个数量时显示搜索框与按类型筛选。
 const FILTER_THRESHOLD = 5;
@@ -95,6 +97,8 @@ export interface ModelTableProps {
   /** 已按当前协议派生过端点的模型行。 */
   rows: ModelRow[];
   protocol: DiscoveryFormat;
+  /** 表单里当前填写的接口地址，请求地址条据此拼出完整地址。 */
+  baseUrl: string;
   /** 已保存的供应商 id；新建表单没有。 */
   providerId?: number;
   expanded: ReadonlySet<string>;
@@ -112,6 +116,7 @@ export interface ModelTableProps {
 export function ModelTable({
   rows,
   protocol,
+  baseUrl,
   providerId,
   expanded,
   onToggleExpanded,
@@ -307,6 +312,7 @@ export function ModelTable({
                           <ModelFields
                             row={row}
                             protocol={protocol}
+                            baseUrl={baseUrl}
                             providerId={providerId}
                             onUpdate={(patch) => onUpdate(row.key, patch)}
                             onRemove={() => onRemove(row.key)}
@@ -328,14 +334,18 @@ export function ModelTable({
 interface ModelFieldsProps {
   row: ModelRow;
   protocol: DiscoveryFormat;
+  baseUrl: string;
   providerId?: number;
   onUpdate: (patch: Partial<ModelRow>) => void;
   onRemove: () => void;
 }
 
 /** 展开的编辑区：属性共用一条标签列，「删除模型」在底部。 */
-function ModelFields({ row, protocol, providerId, onUpdate, onRemove }: ModelFieldsProps) {
+function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }: ModelFieldsProps) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const requests = useEndpointCatalogStore((s) => s.endpoints.find((e) => e.key === row.endpoint)?.requests);
+  // 换了端点、原来又修改过请求地址：保存后这些修改恢复默认，换端点时就提示。
+  const pathsReset = row.endpoint !== row.original_endpoint && !!row.original_path_overrides;
   const media = useEndpointCatalogStore((s) => s.endpointToMediaType[row.endpoint]);
   const constraints = useEndpointCatalogStore((s) => s.endpointConstraints[row.endpoint]);
   const endImageCapable = useEndpointCatalogStore((s) => s.endpointToEndImageCapable[row.endpoint] ?? false);
@@ -384,9 +394,11 @@ function ModelFields({ row, protocol, providerId, onUpdate, onRemove }: ModelFie
               // 覆盖的合法性本身随 endpoint 变化（last_frame 要求目标 endpoint 支持尾帧），
               // 切走即作废；切回原 endpoint 且 model_id 未变则原样取回。
               ...capabilityFieldsFor(row, row.model_id, next),
+              path_overrides: pathOverridesFor(row, next),
             })
           }
         />
+        {pathsReset && <FieldHint tone="warn">{t("cp_endpoint_change_resets_paths")}</FieldHint>}
         <div className="flex flex-wrap items-center gap-x-4">
           {row.endpoint && (
             <Link
@@ -403,6 +415,18 @@ function ModelFields({ row, protocol, providerId, onUpdate, onRemove }: ModelFie
           </Link>
         </div>
       </FieldRow>
+
+      {requests && requests.length > 0 && (
+        <FieldRow label={t("cp_request_address")} group>
+          <RequestAddresses
+            requests={requests}
+            baseUrl={baseUrl}
+            modelId={row.model_id}
+            overrides={row.path_overrides}
+            onChange={(next) => onUpdate({ path_overrides: next })}
+          />
+        </FieldRow>
+      )}
 
       <FieldRow label={t("cp_model_price_column")} group>
         <div className="flex flex-wrap items-center gap-2">

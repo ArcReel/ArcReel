@@ -40,6 +40,8 @@ function model(overrides: Partial<CustomProviderModelInfo>): CustomProviderModel
     system_capabilities: null,
     capability_overrides: null,
     global_bucket_refs: null,
+    path_overrides: null,
+    requests: [],
     ...overrides,
   };
 }

@@ -63,6 +63,7 @@ from lib.custom_provider.endpoint_test import (
     supports_test_mode,
     trial_run_manager,
 )
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, effective_path_overrides
 from lib.db import async_session_factory, get_async_session
 from lib.db.models.custom_provider import CustomProvider
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
@@ -433,11 +434,12 @@ async def start_trial_run(
         # 两种目标形态并存时静默取其一会让付费请求打到调用方没选中的那个目标上。
         raise BadRequestError("endpoint_test_definition_and_model_ref_exclusive")
     if body.model_ref is not None:
-        target, credentials, definition = await _model_ref_target(body.model_ref, session, resolver, _t)
+        target, credentials, definition, path_overrides = await _model_ref_target(body.model_ref, session, resolver, _t)
         # 结果体记录的模型与实际执行、记账的必须是同一个：model_ref 路径以模型行为准，
         # 覆盖 parameters 里独立携带的 model。
         parameters = replace(parameters, model=body.model_ref.model_id)
     elif body.definition is not None:
+        path_overrides = NO_PATH_OVERRIDES
         definition = _accepted_definition(body.definition, _t, mode=EndpointTestMode.TRIAL_RUN)
         support = _support(definition)
         require_base_url, require_api_key = support.credential_needs(definition)
@@ -448,7 +450,7 @@ async def start_trial_run(
     else:
         raise BadRequestError("endpoint_test_definition_or_model_ref_required")
 
-    preview_payload = _preview_payload(definition, parameters, credentials, assets, _t)
+    preview_payload = _preview_payload(definition, parameters, credentials, assets, _t, path_overrides)
     # 临时目录在线程里建好就登记进来：取消落在落素材那一程时返回值会丢，靠它回收。
     staged: list[Path] = []
     try:
@@ -554,8 +556,11 @@ async def _model_ref_target(
     session: AsyncSession,
     resolver: ConfigResolver,
     _t: Translator,
-) -> tuple[TrialRunTarget, EndpointTestCredentials | None, dict[str, Any] | None]:
-    """按模型行解析目标。解析出声明式定义时连凭证一起取出，好让结果体有请求与提取两段。"""
+) -> tuple[TrialRunTarget, EndpointTestCredentials | None, dict[str, Any] | None, PathOverrides]:
+    """按模型行解析目标。解析出声明式定义时连凭证一起取出，好让结果体有请求与提取两段。
+
+    自定义供应商的模型行还带出它生效的路径覆盖（``docs/adr/0101``），渲染请求段与真发一致。
+    """
     if not is_custom_provider(model_ref.provider_id):
         # 内置供应商同样要先核模型行：未登记的 model 会让装配层落到该供应商的默认视频模型，
         # 已登记的非视频 model（如文本档）则会被派发到视频端点——两种都会付费打给另一个模型。
@@ -579,7 +584,7 @@ async def _model_ref_target(
             definition = _accepted_definition(dict(builtin_definition), _t, mode=EndpointTestMode.TRIAL_RUN)
             credentials = EndpointTestCredentials(base_url=base_url, api_key=api_key)
         target = model_ref_target(model_ref.provider_id, model_ref.model_id, resolver=resolver, definition=definition)
-        return target, credentials, definition
+        return target, credentials, definition, NO_PATH_OVERRIDES
     provider = await _custom_provider(model_ref.provider_id, session)
     model = await CustomProviderRepository(session).get_model_by_ids(provider.id, model_ref.model_id)
     if model is None:
@@ -616,7 +621,7 @@ async def _model_ref_target(
         definition=definition,
         media_type=endpoint_spec.media_type,
     )
-    return target, credentials, definition
+    return target, credentials, definition, effective_path_overrides(model.path_overrides, endpoint_spec.requests)
 
 
 def _preview_payload(
@@ -625,6 +630,7 @@ def _preview_payload(
     credentials: EndpointTestCredentials | None,
     assets: EndpointTestAssets,
     _t: Translator,
+    path_overrides: PathOverrides = NO_PATH_OVERRIDES,
 ) -> dict[str, Any] | None:
     """结果体里的「渲染请求」段。
 
@@ -639,7 +645,12 @@ def _preview_payload(
         return None
     try:
         preview = support.preview(
-            definition, parameters, credentials=credentials, assets=assets, placeholder_missing_assets=False
+            definition,
+            parameters,
+            credentials=credentials,
+            assets=assets,
+            placeholder_missing_assets=False,
+            path_overrides=path_overrides,
         )
     except EndpointTestDefinitionError as exc:
         raise _invalid(exc.diagnostics, _t) from exc

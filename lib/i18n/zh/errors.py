@@ -397,6 +397,9 @@ MESSAGES = {
         "模型 {model_id} 支持参考音频时 max_reference_audio_count 必须大于 0；"
         "如需关闭音色参考，请把 reference_audio_mode 覆盖为 none"
     ),
+    "path_override_unknown_request": "模型 {model_id} 的调用端点没有可修改地址的请求 {request}",
+    "path_override_invalid_path": "模型 {model_id} 的请求地址 {path} 不合法：路径须以 / 开头，不含空白，花括号只能用于占位符",
+    "path_override_placeholder_not_allowed": "模型 {model_id} 的请求地址 {path} 用了这条请求没有的占位符，可用的只有 {allowed}",
     # Projects
     "unknown_style_template": "未知的风格模版: {template_id}",
     "ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",

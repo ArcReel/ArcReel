@@ -31,6 +31,7 @@ const CHAT_ENDPOINT: EndpointDescriptor = {
   duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
+  requests: [],
 };
 
 const DECLARATIVE_VIDEO_ENDPOINT: EndpointDescriptor = {
@@ -50,6 +51,7 @@ const DECLARATIVE_VIDEO_ENDPOINT: EndpointDescriptor = {
   duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
+  requests: [],
 };
 
 const COMFYUI_VIDEO_ENDPOINT: EndpointDescriptor = {
@@ -69,6 +71,7 @@ const COMFYUI_VIDEO_ENDPOINT: EndpointDescriptor = {
   duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
+  requests: [],
 };
 
 const ALL_ENDPOINTS = [CHAT_ENDPOINT, DECLARATIVE_VIDEO_ENDPOINT, COMFYUI_VIDEO_ENDPOINT];

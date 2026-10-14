@@ -16,6 +16,7 @@ from typing import Any, Protocol
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND, DECLARATIVE_KIND
 from lib.custom_provider.endpoints import declarative_requires_api_key, declarative_requires_base_url
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides
 
 from .comfyui import comfyui_credential_needs, comfyui_target, preview_comfyui_request
 from .inputs import EndpointTestAssets, EndpointTestCredentials, EndpointTestParameters
@@ -34,6 +35,7 @@ class PreviewFn(Protocol):
         credentials: EndpointTestCredentials | None = None,
         assets: EndpointTestAssets | None = None,
         placeholder_missing_assets: bool = True,
+        path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     ) -> RequestPreview: ...
 
 

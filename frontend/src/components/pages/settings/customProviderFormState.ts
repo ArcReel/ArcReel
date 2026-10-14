@@ -7,9 +7,10 @@ import type {
   DiscoveredModel,
   EndpointDescriptor,
   EndpointKey,
+  PathOverrides,
   VideoCapabilityFlags,
 } from "@/types";
-import { capabilityFieldsFor, isComfyuiEndpoint, type DiscoveryFormat } from "./customProviderHelpers";
+import { capabilityFieldsFor, isComfyuiEndpoint, pathOverridesFor, type DiscoveryFormat } from "./customProviderHelpers";
 
 // ---------------------------------------------------------------------------
 // 自定义供应商表单的编辑单元内容：已保存的供应商与未保存修改都按这份形状比较。
@@ -31,6 +32,8 @@ export interface ModelRow {
   supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
   max_output_tokens_text: string; // 仅文本模型；空串 = 未登记
   capability_overrides: CapabilityOverrides | null;
+  // 请求地址修改（请求名 → 路径）；null = 全部按端点默认。
+  path_overrides: PathOverrides | null;
   // 系统按 (endpoint, model_id) 判定的能力，只读展示用；null = 非视频模型，或该行尚未落库
   // （新增/改过 model_id 的行判定要后端算，前端不猜），此时控件只显示「待判定」。
   system_capabilities: VideoCapabilityFlags | null;
@@ -42,6 +45,7 @@ export interface ModelRow {
   original_model_id: string;
   original_endpoint: EndpointKey;
   original_capability_overrides: CapabilityOverrides | null;
+  original_path_overrides: PathOverrides | null;
   original_system_capabilities: VideoCapabilityFlags | null;
   original_global_bucket_refs: string[];
 }
@@ -84,6 +88,7 @@ export function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     supported_durations_text: "",
     max_output_tokens_text: "",
     capability_overrides: null,
+    path_overrides: null,
     system_capabilities: null,
     global_bucket_refs: [],
     ...partial,
@@ -93,6 +98,7 @@ export function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     original_model_id: base.model_id,
     original_endpoint: base.endpoint,
     original_capability_overrides: base.capability_overrides,
+    original_path_overrides: base.path_overrides,
     original_system_capabilities: base.system_capabilities,
     original_global_bucket_refs: base.global_bucket_refs,
   };
@@ -126,6 +132,7 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
     max_output_tokens_text: m.max_output_tokens != null ? String(m.max_output_tokens) : "",
     capability_overrides: m.capability_overrides,
+    path_overrides: m.path_overrides,
     system_capabilities: m.system_capabilities,
     global_bucket_refs: m.global_bucket_refs ?? [],
   });
@@ -196,6 +203,7 @@ export function rowToInput(r: ModelRow): CustomProviderModelInput {
     ...(supported_durations ? { supported_durations } : { supported_durations: null }),
     max_output_tokens: parsePositiveInt(r.max_output_tokens_text) ?? null,
     capability_overrides: r.capability_overrides,
+    path_overrides: r.path_overrides,
   };
 }
 
@@ -223,6 +231,12 @@ export function effectiveModelRows(
     const endpoint = (isComfyui ? firstComfyui : DEFAULT_ENDPOINT) ?? UNSET_ENDPOINT;
     // 换了一路，默认标记与能力覆盖随之作废：覆盖的合法性本就绑在 (endpoint, model_id) 上，
     // 而 ComfyUI 协议整个关闭覆盖（服务端 _check_protocol_constraints），留着必被拒。
-    return { ...row, endpoint, is_default: false, ...capabilityFieldsFor(row, row.model_id, endpoint) };
+    return {
+      ...row,
+      endpoint,
+      is_default: false,
+      ...capabilityFieldsFor(row, row.model_id, endpoint),
+      path_overrides: pathOverridesFor(row, endpoint),
+    };
   });
 }

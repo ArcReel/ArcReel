@@ -248,8 +248,9 @@ class VideoLaneResult:
     request_facts: VideoRequestFacts | VideoRequestFactsFailure | None = None
     # 未声明路线的续跑保留用户音频意图；声明路线时只读视频请求事实。
     requested_generate_audio_fallback: bool = True
-    # 自定义供应商解析出的 endpoint（ENDPOINT_REGISTRY 键）；内置供应商无该维度，为 None。
-    # 续跑据此与提交时持久化的 endpoint 比对，见 server.services.tasks.resume_executor。
+    # 自定义供应商解析出的协议标识（endpoint 键，有路径覆盖时连同覆盖，见
+    # CustomVideoBackend.endpoint_guard）；内置供应商无该维度，为 None。续跑据此与执行检查点
+    # 冻结的标识比对，见 server.services.tasks.resume_executor。
     endpoint: str | None = None
 
     @property
@@ -426,7 +427,7 @@ async def resolve_generation_context(
                 requested_generate_audio_fallback=requested_generate_audio_fallback,
                 # 显式按类型分流而非 getattr 探测：endpoint 为 None 恰好是「跳过续跑比对」
                 # 这条最宽松分支，属性一旦改名，探测式取值会静默失效且无任何信号。
-                endpoint=video_backend.endpoint if isinstance(video_backend, CustomVideoBackend) else None,
+                endpoint=video_backend.endpoint_guard if isinstance(video_backend, CustomVideoBackend) else None,
             )
 
         if audio is not None:

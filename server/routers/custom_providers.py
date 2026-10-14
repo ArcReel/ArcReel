@@ -11,7 +11,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, field_validator
@@ -43,6 +43,7 @@ from lib.custom_provider.endpoints import (
     get_endpoint_spec,
     static_media_type,
 )
+from lib.custom_provider.path_overrides import BaseUrlRule, effective_path_overrides, path_problem
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
@@ -50,6 +51,9 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.infra.api_errors import BadRequestError
 from lib.infra.async_thread import run_sync_transaction
 from server.i18n import Translator
+
+if TYPE_CHECKING:
+    from lib.db.models.custom_provider import CustomProviderModel
 
 
 def _validate_endpoint(value: str) -> str:
@@ -164,6 +168,14 @@ class ModelInput(BaseModel):
     capability_overrides: dict[str, object] | None = None
     # 最大输出长度（单位 token），只对文本模型保存；None = 未登记，文本请求按 64000 封顶。
     max_output_tokens: int | None = Field(default=None, gt=0)
+    # 路径覆盖：请求名 → 整条替换的路径（docs/adr/0101），与 capability_overrides 一样须随列表回传。
+    # 空字典收敛为 None。
+    path_overrides: dict[str, str] | None = None
+
+    @field_validator("path_overrides")
+    @classmethod
+    def _empty_path_overrides_to_none(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        return value or None
 
     @field_validator("capability_overrides")
     @classmethod
@@ -257,6 +269,17 @@ class ConnectivityCheckRequest(BaseModel):
     api_key: str
 
 
+class EndpointRequestDescriptor(BaseModel):
+    """调用端点发出的一条可覆盖路径的请求，与 lib.custom_provider.path_overrides.EndpointRequest 对齐。"""
+
+    name: str
+    # 前端 i18n key（dashboard ns）。
+    display_name_key: str
+    default_path: str
+    placeholders: list[str]
+    base_url_rule: BaseUrlRule
+
+
 class ModelResponse(BaseModel):
     id: int
     model_id: str
@@ -276,6 +299,10 @@ class ModelResponse(BaseModel):
     capability_overrides: dict[str, object] | None = None
     # 最大输出长度（单位 token）；未登记为 None。
     max_output_tokens: int | None = None
+    # 生效的路径覆盖（docs/adr/0101）：端点定义里已不存在的请求名不回显，下次保存随之丢弃。
+    path_overrides: dict[str, str] | None = None
+    # 当前端点可覆盖路径的请求（请求名、显示名 key、默认路径），供界面渲染请求地址。
+    requests: list[EndpointRequestDescriptor] = []
     # 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为
     # None。只查 DB 全局配置，不扫描项目文件（`docs/adr/0054`）；前端据此渲染非阻塞提示。
     global_bucket_refs: list[str] | None = None
@@ -349,6 +376,8 @@ class EndpointDescriptor(BaseModel):
     # 子集，只决定文案说「天生固定」「缺帧率来源、补一处」还是「换算不出整秒时长」。
     duration_tier_empty: bool = False
     native_resolution: str | None = None
+    # 可覆盖路径的请求（docs/adr/0101）；空列表 = 该端点不开放修改请求地址。
+    requests: list[EndpointRequestDescriptor] = []
 
 
 class EndpointCatalogResponse(BaseModel):
@@ -467,7 +496,10 @@ def _model_to_response(
     endpoint_spec: EndpointSpec | None = None,
 ) -> ModelResponse:
     durations = json.loads(m.supported_durations) if m.supported_durations else None
+    requests = endpoint_spec.requests if endpoint_spec is not None else ()
     return ModelResponse(
+        path_overrides=effective_path_overrides(m.path_overrides, requests) or None,
+        requests=[EndpointRequestDescriptor(**asdict(r)) for r in requests],
         system_capabilities=_system_capabilities_for(m.endpoint, m.model_id, endpoint_spec),
         capability_overrides=_effective_overrides_for_response(
             m.endpoint, m.model_id, m.capability_overrides, endpoint_spec
@@ -666,6 +698,49 @@ def _check_model_capability_overrides(
         )
 
 
+def _check_model_path_overrides(
+    models: list[ModelInput],
+    specs: Mapping[str, EndpointSpec],
+    _t: Callable[..., str],
+) -> None:
+    """路径覆盖的写入校验：请求名属于当前端点，路径以 ``/`` 开头、占位符在该请求允许的范围内。
+
+    ComfyUI 端点与没有声明请求的端点没有可覆盖的请求，任何覆盖都按请求名不属于端点拒绝。
+    """
+    for m in models:
+        requests = {r.name: r for r in specs[m.endpoint].requests}
+        for name, path in (m.path_overrides or {}).items():
+            request = requests.get(name)
+            if request is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=_t("path_override_unknown_request", model_id=m.model_id, request=name),
+                )
+            if problem := path_problem(request, path):
+                raise HTTPException(
+                    status_code=422,
+                    detail=_t(
+                        problem,
+                        model_id=m.model_id,
+                        path=path,
+                        allowed=", ".join(f"{{{{ {p} }}}}" for p in request.placeholders),
+                    ),
+                )
+
+
+def _drop_rebound_path_overrides(m: ModelInput, stored: CustomProviderModel | None) -> ModelInput:
+    """更换调用端点时丢弃原有路径覆盖（docs/adr/0101）。
+
+    整表 PUT 会把原有覆盖原样回传：换了端点的行，与库里同名同值的条目即原有覆盖，丢弃；换端点后
+    新填的条目保留，交给 :func:`_check_model_path_overrides` 按新端点校验。
+    """
+    if stored is None or stored.endpoint == m.endpoint or not m.path_overrides:
+        return m
+    original = stored.path_overrides or {}
+    kept = {name: path for name, path in m.path_overrides.items() if original.get(name) != path}
+    return m.model_copy(update={"path_overrides": kept or None})
+
+
 def _check_protocol_constraints(
     models: list[ModelInput],
     discovery_format: str,
@@ -850,6 +925,7 @@ async def create_provider(
         _check_unique_defaults(body.models, specs, _t)
         _check_protocol_constraints(body.models, body.discovery_format, specs, _t)
         _check_model_capability_overrides(body.models, _t, specs)
+        _check_model_path_overrides(body.models, specs, _t)
     repo = CustomProviderRepository(session)
     model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models] if body.models else None
     provider = await repo.create_provider(
@@ -944,14 +1020,17 @@ async def full_update_provider(
     specs = await _resolve_model_endpoint_specs(session, body.models, _t)
     _check_unique_defaults(body.models, specs, _t)
     repo = CustomProviderRepository(session)
+    stored_models = {m.model_id: m for m in await repo.list_models(provider_id)}
+    models = [_drop_rebound_path_overrides(m, stored_models.get(m.model_id)) for m in body.models]
     # 协议是创建时定下、之后不可改的，故读库里这一行而非请求体。取行排在写入之前：协议约束要
     # 先于覆盖校验判定，comfyui 行才拿得到「该协议不支持覆盖」这条专用文案，而不是被通用的
     # 「endpoint 不支持尾帧」抢先拒掉。
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    _check_protocol_constraints(body.models, provider.discovery_format, specs, _t)
-    _check_model_capability_overrides(body.models, _t, specs)
+    _check_protocol_constraints(models, provider.discovery_format, specs, _t)
+    _check_model_capability_overrides(models, _t, specs)
+    _check_model_path_overrides(models, specs, _t)
     kwargs: dict = {
         "display_name": body.display_name,
         "base_url": body.base_url,
@@ -965,10 +1044,9 @@ async def full_update_provider(
     provider = await repo.update_provider(provider_id, **kwargs)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    old_model_ids = {m.model_id for m in await repo.list_models(provider_id)}
-    model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models]
+    model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in models]
     await repo.replace_models(provider_id, model_dicts)
-    await _clear_global_provider_refs(session, provider_id, old_model_ids - {m.model_id for m in body.models})
+    await _clear_global_provider_refs(session, provider_id, stored_models.keys() - {m.model_id for m in models})
     await session.commit()
     await _invalidate_caches(request)
     await session.refresh(provider)

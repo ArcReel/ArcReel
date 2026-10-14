@@ -10,7 +10,7 @@ import json
 from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -240,6 +240,7 @@ class TestEndpointCatalog:
                 "duration_frame_rate_missing",
                 "duration_tier_empty",
                 "native_resolution",
+                "requests",
             }
             assert entry["request_method"] == "POST"
             assert entry["request_path_template"].startswith("/")
@@ -2026,5 +2027,48 @@ class TestMaxOutputTokens:
             custom_providers_client,
             [{"model_id": "my-llm", "display_name": "My LLM", "endpoint": "openai-chat", "max_output_tokens": bad}],
         )
+
+        assert resp.status_code == 422
+
+
+class TestPathOverrides:
+    _POLL_OVERRIDE: ClassVar[dict[str, str]] = {"poll": "/api/videos/{{ task_id }}"}
+
+    @staticmethod
+    def _model(endpoint: str, path_overrides: dict[str, str] | None) -> dict[str, Any]:
+        return {"model_id": "veo-3", "display_name": "Veo", "endpoint": endpoint, "path_overrides": path_overrides}
+
+    def _create(self, client: TestClient, path_overrides: dict[str, str] | None):
+        return client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Relay",
+                "discovery_format": "openai",
+                "base_url": "https://relay.test/v1",
+                "api_key": "sk-relay-12345678",
+                "models": [self._model("openrouter-video", path_overrides)],
+            },
+        )
+
+    def test_changing_the_endpoint_on_save_clears_the_original_overrides(self, custom_providers_client: TestClient):
+        created = self._create(custom_providers_client, self._POLL_OVERRIDE).json()
+        assert created["models"][0]["path_overrides"] == self._POLL_OVERRIDE
+        assert [r["name"] for r in created["models"][0]["requests"]] == ["submit", "poll"]
+
+        resp = custom_providers_client.put(
+            f"/api/v1/custom-providers/{created['id']}",
+            json={
+                "display_name": "Relay",
+                "base_url": "https://relay.test/v1",
+                "models": [self._model("xai-video", self._POLL_OVERRIDE)],
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["models"][0]["endpoint"] == "xai-video"
+        assert resp.json()["models"][0]["path_overrides"] is None
+
+    def test_request_name_outside_the_endpoint_is_rejected(self, custom_providers_client: TestClient):
+        resp = self._create(custom_providers_client, {"result": "/api/result"})
 
         assert resp.status_code == 422

@@ -93,5 +93,8 @@ class CustomProviderModel(TimestampMixin, Base):
     # 跟随系统判定；写死的能力维度列表不进 schema，向新维度开放无需迁移。合成语义由
     # lib.custom_provider.capabilities 唯一承载。
     capability_overrides: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
+    # 路径覆盖：调用端点的请求名 → 整条替换的路径（docs/adr/0101）。NULL = 全部按端点默认路径；
+    # 更换调用端点时由写入侧清空，端点定义里已不存在的请求名在读取与执行时忽略。
+    path_overrides: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
     # 最大输出长度（单位 token），只对文本模型有意义；NULL = 未登记，文本请求按 64000 封顶。
     max_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

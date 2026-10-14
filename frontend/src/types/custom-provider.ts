@@ -38,7 +38,24 @@ export interface EndpointDescriptor {
   duration_tier_empty: boolean;
   /** 不选分辨率档位时这份 workflow 实际会出的那一档；非 ComfyUI 端点或读不出字面尺寸时为 null。 */
   native_resolution: string | null;
+  /** 可修改请求地址的请求；空数组 = 该端点不开放修改。 */
+  requests: EndpointRequest[];
 }
+
+/** 调用端点发出的一条可修改地址的请求（docs/adr/0101）。 */
+export interface EndpointRequest {
+  /** 请求名，模型的 path_overrides 按它记录。 */
+  name: string;
+  display_name_key: string;
+  /** 归一化后的 base_url 之后的默认路径，可含 {{ model }}、{{ task_id }} 等占位符。 */
+  default_path: string;
+  placeholders: string[];
+  /** 没有覆盖时 base_url 的归一化方式，界面据此还原最终地址；有覆盖时一律相对原样值。 */
+  base_url_rule: "as_is" | "strip_version" | "append_v1";
+}
+
+/** 请求名 → 整条替换的路径。 */
+export type PathOverrides = Record<string, string>;
 
 export interface CustomProviderInfo {
   id: number;
@@ -73,6 +90,10 @@ export interface CustomProviderModelInfo {
   system_capabilities: VideoCapabilityFlags | null;
   /** 用户覆盖（稀疏），与 system_capabilities 合并即为生效值；无覆盖为 null。 */
   capability_overrides: CapabilityOverrides | null;
+  /** 生效的请求地址修改；无修改为 null。 */
+  path_overrides: PathOverrides | null;
+  /** 当前端点可修改地址的请求。 */
+  requests: EndpointRequest[];
   /** 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为 null。 */
   global_bucket_refs: string[] | null;
 }
@@ -154,6 +175,8 @@ export interface CustomProviderModelInput {
   max_output_tokens?: number | null;
   /** 保存模型列表是整体替换语义：省略该字段会清空已有覆盖，编辑既有模型时必须原样回传。 */
   capability_overrides?: CapabilityOverrides | null;
+  /** 请求地址修改，与 capability_overrides 同为整体替换语义，编辑既有模型时必须原样回传。 */
+  path_overrides?: PathOverrides | null;
 }
 
 export interface AnthropicDiscoverRequest {

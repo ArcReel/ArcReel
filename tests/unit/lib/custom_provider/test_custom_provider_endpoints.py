@@ -6,6 +6,7 @@ import pytest
 
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
+    declarative_requests,
     declarative_requires_base_url,
     endpoint_spec_to_dict,
     endpoint_to_media_type,
@@ -108,6 +109,7 @@ class TestRegistry:
             "duration_frame_rate_missing": False,
             "duration_tier_empty": False,
             "native_resolution": None,
+            "requests": (),
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
@@ -352,6 +354,26 @@ INFER_RULE_CASES = [
     ("models/gemini-3.8-flash-lite-tts", "google", "gemini-tts"),
     ("gemini-3-flash-preview", "google", "gemini-generate"),  # 非 TTS 的 gemini 文本不受影响
 ]
+
+
+class TestDeclarativeRequests:
+    def test_versioned_definition_declares_submit_and_poll_with_their_default_paths(self):
+        requests = {r.name: r for r in get_endpoint_spec("xai-video").requests}
+
+        assert set(requests) == {"submit", "poll"}
+        assert requests["submit"].default_path == "/v1/videos/generations"
+        assert requests["poll"].default_path == "/v1/videos/{{ task_id }}"
+        assert requests["poll"].placeholders == ("model", "task_id")
+        assert requests["poll"].base_url_rule == "strip_version"
+
+    def test_request_with_an_absolute_url_is_not_overridable(self):
+        definition = dict(ENDPOINT_REGISTRY["openrouter-video"].definition or {})
+        definition["poll"] = {**definition["poll"], "url": "https://status.test/videos/{{ task_id }}"}
+
+        assert [r.name for r in declarative_requests(definition)] == ["submit"]
+
+    def test_python_endpoint_without_declarations_exposes_no_requests(self):
+        assert get_endpoint_spec("openai-chat").requests == ()
 
 
 class TestInferEndpoint:

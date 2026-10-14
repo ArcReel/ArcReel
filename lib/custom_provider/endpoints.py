@@ -14,7 +14,7 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from urllib.parse import urlsplit
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
@@ -73,8 +73,14 @@ from lib.custom_provider.comfyui.capabilities import (
 from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
 from lib.custom_provider.comfyui.failures import ComfyuiError
-from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
+from lib.custom_provider.declarative_backend import (
+    REQUEST_SECTIONS,
+    DeclarativeVideoBackend,
+    request_urls,
+    strips_base_url_version,
+)
 from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend, image_capabilities_from_definition
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, EndpointRequest, PathOverrides, placeholder_names
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -86,6 +92,18 @@ CUSTOM_ENDPOINT_FAMILY = "custom"
 
 
 # ── EndpointSpec 数据类型 ───────────────────────────────────────────
+
+
+class BackendBuilder(Protocol):
+    """endpoint 的 backend 构造闭包。
+
+    ``path_overrides`` 是该模型生效的路径覆盖（``docs/adr/0101``），键都在
+    :attr:`EndpointSpec.requests` 里；没有声明请求的端点恒收到空映射。
+    """
+
+    def __call__(
+        self, provider: CustomProvider, model_id: str, path_overrides: PathOverrides = ..., /
+    ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend: ...
 
 
 @dataclass(frozen=True)
@@ -100,10 +118,7 @@ class EndpointSpec:
     display_name_key: str
     request_method: str  # "POST"
     request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
-    build_backend: Callable[
-        [CustomProvider, str],
-        CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend,
-    ]
+    build_backend: BackendBuilder
     # 端点来源：内置（随版发布，不可编辑删除）或用户自定义（落 custom_endpoint 表）。
     source: Literal["builtin", "custom"] = "builtin"
     image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
@@ -128,6 +143,9 @@ class EndpointSpec:
     # Python 实现的 endpoint 为 None。非 None 即该 endpoint 的调用形态由这份定义描述，上面各字段
     # 都是从它派生出来的镜像，取值一律以本字段为准。
     definition: Mapping[str, Any] | None = None
+    # 可覆盖路径的请求（docs/adr/0101）：路径覆盖只接受这里列出的请求名。空元组 = 该端点不开放
+    # 路径覆盖（ComfyUI 端点，以及没有声明请求的 Python 端点）。
+    requests: tuple[EndpointRequest, ...] = ()
 
     @property
     def kind(self) -> str:
@@ -228,38 +246,50 @@ class EndpointSpec:
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
 
 
-def _build_openai_chat(provider, model_id: str) -> CustomTextBackend:
+def _build_openai_chat(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomTextBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAITextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_responses(provider, model_id: str) -> CustomTextBackend:
+def _build_openai_responses(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomTextBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIResponsesTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_gemini_generate(provider, model_id: str) -> CustomTextBackend:
+def _build_gemini_generate(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomTextBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_anthropic_messages(provider, model_id: str) -> CustomTextBackend:
+def _build_anthropic_messages(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomTextBackend:
     # SDK 自己在 base_url 后拼 /v1/messages，这里只剥掉用户整条复制进来的端点后缀，不补也不剥 /vN
     base_url = normalize_anthropic_base_url(provider.base_url or "") or None
     delegate = AnthropicTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_images(provider, model_id: str) -> CustomImageBackend:
+def _build_openai_images(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_images_generations(provider, model_id: str) -> CustomImageBackend:
+def _build_openai_images_generations(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIImageBackend(
         api_key=provider.api_key,
@@ -270,7 +300,9 @@ def _build_openai_images_generations(provider, model_id: str) -> CustomImageBack
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_images_edits(provider, model_id: str) -> CustomImageBackend:
+def _build_openai_images_edits(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIImageBackend(
         api_key=provider.api_key,
@@ -281,7 +313,9 @@ def _build_openai_images_edits(provider, model_id: str) -> CustomImageBackend:
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_chat_image(provider, model_id: str) -> CustomImageBackend:
+def _build_openai_chat_image(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIChatImageBackend(
         api_key=provider.api_key,
@@ -292,13 +326,17 @@ def _build_openai_chat_image(provider, model_id: str) -> CustomImageBackend:
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_gemini_image(provider, model_id: str) -> CustomImageBackend:
+def _build_gemini_image(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiImageBackend(api_key=provider.api_key, base_url=base_url, image_model=model_id)
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_tts(provider, model_id: str) -> CustomAudioBackend:
+def _build_openai_tts(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomAudioBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     # provider_name 让 delegate 日志与 AudioSynthesisResult.provider 归因到真实 provider，
     # 与包装层 .name 的记账身份一致，而非内置 openai。
@@ -311,13 +349,17 @@ def _build_openai_tts(provider, model_id: str) -> CustomAudioBackend:
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_dashscope_tts(provider, model_id: str) -> CustomAudioBackend:
+def _build_dashscope_tts(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomAudioBackend:
     # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
     delegate = DashScopeAudioBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_minimax_tts(provider, model_id: str) -> CustomAudioBackend:
+def _build_minimax_tts(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomAudioBackend:
     # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
     delegate = MiniMaxAudioBackend(
         api_key=provider.api_key,
@@ -328,7 +370,9 @@ def _build_minimax_tts(provider, model_id: str) -> CustomAudioBackend:
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_gemini_tts(provider, model_id: str) -> CustomAudioBackend:
+def _build_gemini_tts(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomAudioBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiAudioBackend(
         api_key=provider.api_key,
@@ -339,13 +383,17 @@ def _build_gemini_tts(provider, model_id: str) -> CustomAudioBackend:
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
+def _build_openai_video(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_gemini_video(provider, model_id: str) -> CustomVideoBackend:
+def _build_gemini_video(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
     # 自定义供应商只走 AI Studio 模式（Vertex 凭证不经 base_url）；SDK 自己拼 api_version
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiVideoBackend(
@@ -370,36 +418,48 @@ def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     return normalized + suffix
 
 
-def _build_ark_seedance(provider, model_id: str) -> CustomVideoBackend:
+def _build_ark_seedance(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
     delegate = ArkVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_vidu_video(provider, model_id: str) -> CustomVideoBackend:
+def _build_vidu_video(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/ent/v2")
     delegate = ViduVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_dashscope_image(provider, model_id: str) -> CustomImageBackend:
+def _build_dashscope_image(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
     delegate = DashScopeImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_dashscope_async_video(provider, model_id: str) -> CustomVideoBackend:
+def _build_dashscope_async_video(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
     delegate = DashScopeVideoBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_minimax_image(provider, model_id: str) -> CustomImageBackend:
+def _build_minimax_image(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
     delegate = MiniMaxImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_kling_image(provider, model_id: str) -> CustomImageBackend:
+def _build_kling_image(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步图像端点。
     # 仅 host 时补全可灵协议挂载路径 /v1（含显式路径则原样信任）；原生 model_name 透传不解耦别名。
     base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
@@ -407,7 +467,9 @@ def _build_kling_image(provider, model_id: str) -> CustomImageBackend:
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_kling_video(provider, model_id: str) -> CustomVideoBackend:
+def _build_kling_video(
+    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
     # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步视频端点。
     base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
     delegate = KlingVideoBackend(auth_mode="bearer", api_key=provider.api_key, base_url=base_url, model=model_id)
@@ -725,10 +787,12 @@ def _require_declarative_base_url(definition: Mapping[str, Any], provider: Custo
 
 def _build_declarative_video(
     definition: Mapping[str, Any],
-) -> Callable[[CustomProvider, str], CustomVideoBackend]:
+) -> BackendBuilder:
     """声明式视频端点的 backend 构造闭包。"""
 
-    def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
+    def build(
+        provider: CustomProvider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    ) -> CustomVideoBackend:
         _require_declarative_base_url(definition, provider)
         delegate = DeclarativeVideoBackend(
             api_key=provider.api_key,
@@ -736,6 +800,7 @@ def _build_declarative_video(
             model=model_id,
             definition=definition,
             provider=provider.provider_id,
+            path_overrides=path_overrides,
         )
         return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
@@ -744,10 +809,12 @@ def _build_declarative_video(
 
 def _build_declarative_image(
     definition: Mapping[str, Any],
-) -> Callable[[CustomProvider, str], CustomImageBackend]:
+) -> BackendBuilder:
     """声明式图片端点的 backend 构造闭包。"""
 
-    def build(provider: CustomProvider, model_id: str) -> CustomImageBackend:
+    def build(
+        provider: CustomProvider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    ) -> CustomImageBackend:
         _require_declarative_base_url(definition, provider)
         delegate = DeclarativeImageBackend(
             api_key=provider.api_key,
@@ -755,10 +822,51 @@ def _build_declarative_image(
             model=model_id,
             definition=definition,
             provider=provider.provider_id,
+            path_overrides=path_overrides,
         )
         return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
     return build
+
+
+#: 声明式定义三节请求的显示名（前端 i18n key）与覆盖路径里可用的占位符：只限该请求本身
+#: 已有的值，提交只有模型名，轮询多一个任务 id，二次取件再多一个结果 id。
+_DECLARATIVE_REQUESTS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "submit": ("cp_request_submit", ("model",)),
+    "poll": ("cp_request_poll", ("model", "task_id")),
+    "result": ("cp_request_result", ("model", "result_id", "task_id")),
+}
+_BASE_URL_PREFIX = re.compile(r"^\s*\{\{\s*base_url\s*\}\}")
+
+
+def declarative_requests(definition: Mapping[str, Any]) -> tuple[EndpointRequest, ...]:
+    """声明式定义里可覆盖路径的请求：URL 以 ``{{ base_url }}`` 开头的那几节。
+
+    写死绝对地址的节没有可替换的路径，不提供请求名（``docs/adr/0101``）；从响应里取得的产物
+    地址不是定义里的请求节，本就不在其列。默认路径里已用到的占位符一并放行。
+    """
+    rule = "strip_version" if strips_base_url_version(definition) else "as_is"
+    requests: list[EndpointRequest] = []
+    for section in REQUEST_SECTIONS:
+        node = definition.get(section)
+        if not isinstance(node, Mapping):
+            continue
+        url = str(node.get("url", ""))
+        prefix = _BASE_URL_PREFIX.match(url)
+        if prefix is None:
+            continue
+        default_path = url[prefix.end() :]
+        display_name_key, placeholders = _DECLARATIVE_REQUESTS[section]
+        requests.append(
+            EndpointRequest(
+                name=section,
+                display_name_key=display_name_key,
+                default_path=default_path,
+                placeholders=tuple(sorted({*placeholders, *placeholder_names(default_path)})),
+                base_url_rule=rule,
+            )
+        )
+    return tuple(requests)
 
 
 def declarative_endpoint_spec(
@@ -798,6 +906,7 @@ def declarative_endpoint_spec(
         end_image_capable=caps.last_frame if caps is not None else False,
         reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
         definition=definition,
+        requests=declarative_requests(definition),
     )
     # 内置注册表在 import 期逐条过同一条不变式（见 _validate_registry）；用户定义现构造、没有
     # import 期可依托，故在构造处就过——两种来源的 spec 因此不必被能力判定层区分对待。
@@ -807,7 +916,7 @@ def declarative_endpoint_spec(
 
 def _build_comfyui_runtime(
     definition: Mapping[str, Any],
-) -> Callable[[CustomProvider, str], CustomImageBackend | CustomVideoBackend]:
+) -> BackendBuilder:
     """ComfyUI 端点的 backend 构造闭包，按定义声明的 ``media_type`` 分叉。
 
     两种 kind 的同一件事：一份 workflow 产图还是产视频只有定义自己知道（键前缀推不出来），而两条
@@ -825,7 +934,9 @@ def _build_comfyui_runtime(
     （``docs/adr/0081``），图像能力只从绑定表推导，没有可叠加的第二个来源。
     """
 
-    def build(provider: CustomProvider, model_id: str) -> CustomImageBackend | CustomVideoBackend:
+    def build(
+        provider: CustomProvider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    ) -> CustomImageBackend | CustomVideoBackend:
         media_type = str(definition.get("media_type"))
         if media_type not in ("image", "video"):
             raise ComfyuiError("provider_unsupported_media", provider_id=provider.provider_id, media_type=media_type)

@@ -5,6 +5,7 @@ import type {
   EndpointKey,
   ImageCap,
   MediaType,
+  PathOverrides,
   VideoCapabilityFlags,
 } from "@/types";
 
@@ -236,6 +237,15 @@ export function capabilityFieldsFor(
         system_capabilities: row.original_system_capabilities,
       }
     : { capability_overrides: null, system_capabilities: null };
+}
+
+/** 请求地址修改只绑定 endpoint（模型名占位符随 model_id 展开）：换了端点即恢复默认（服务端同样
+ *  丢弃原有修改，docs/adr/0101），改回加载时的端点原样取回。 */
+export function pathOverridesFor(
+  row: { original_endpoint: EndpointKey; original_path_overrides: PathOverrides | null },
+  nextEndpoint: EndpointKey,
+): PathOverrides | null {
+  return nextEndpoint === row.original_endpoint ? row.original_path_overrides : null;
 }
 
 /** 全局桶引用只绑定 model_id：桶值形如 `custom-<id>/<model_id>`，与 endpoint 无关，切换 endpoint
