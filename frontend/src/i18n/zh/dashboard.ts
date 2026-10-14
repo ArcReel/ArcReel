@@ -1265,6 +1265,7 @@ export default {
   'cp_request_poll_text2video': '查询进度（文生视频）',
   'cp_request_poll_img2video': '查询进度（图生视频）',
   'cp_request_poll_multi_image2video': '查询进度（多图参考生视频）',
+  'cp_request_download': '下载视频',
   'cp_request_path_label': '请求路径',
   'cp_request_auto_v1': '自动补上的 /v1。修改路径后不再自动补。',
   'cp_request_default': '默认：{{path}}',

@@ -93,10 +93,10 @@ def endpoint_guard(endpoint: str, overrides: PathOverrides) -> str:
     return f"{endpoint} paths={json.dumps(dict(overrides), sort_keys=True, ensure_ascii=False, separators=(',', ':'))}"
 
 
-def _path_pattern(prefix: str, default_path: str) -> re.Pattern[str]:
-    """``prefix + default_path`` 的整串匹配式，占位符各匹配一段路径。"""
+def _path_pattern(prefix: str, default_path: str, placeholder: str) -> re.Pattern[str]:
+    """``prefix + default_path`` 的整串匹配式，占位符按 ``placeholder`` 匹配。"""
     parts = _PLACEHOLDER.split(default_path)  # 字面量与占位符名交替
-    body = "".join(re.escape(part) if i % 2 == 0 else f"(?P<{part}>[^/]+)" for i, part in enumerate(parts))
+    body = "".join(re.escape(part) if i % 2 == 0 else f"(?P<{part}>{placeholder})" for i, part in enumerate(parts))
     return re.compile(re.escape(prefix) + body)
 
 
@@ -160,13 +160,17 @@ def path_override_layer(
     base_url: str | None,
     normalized_base_url: str | None,
     model: str,
+    placeholder: str = "[^/]+",
 ) -> PathOverrideLayer | None:
     """Python 端点注入调用通道的路径覆盖层；没有覆盖时 None，调用通道照原样构造。
 
-    ``normalized_base_url`` 是端点没有覆盖时实际使用的 base_url，默认路径相对它匹配。
+    ``normalized_base_url`` 是端点没有覆盖时实际使用的 base_url，默认路径相对它匹配。``placeholder`` 是占位符的
+    匹配式，默认只匹配一段路径；值本身含 ``/`` 的家族（Google 的 operation name）按自己的路径形态另给。
     """
     prefix = urlsplit(normalized_base_url or "").path.rstrip("/")
-    routes = [(_path_pattern(prefix, r.default_path), overrides[r.name]) for r in requests if r.name in overrides]
+    routes = [
+        (_path_pattern(prefix, r.default_path, placeholder), overrides[r.name]) for r in requests if r.name in overrides
+    ]
     if not routes:
         return None
     return PathOverrideLayer(routes, urlsplit(raw_base_url(base_url or "")).path, model)

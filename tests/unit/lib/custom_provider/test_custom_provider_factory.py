@@ -98,6 +98,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://generativelanguage.googleapis.com/",
                 "model": "gemini-2.5-flash",
+                "transport_layer": None,
             },
         }
 
@@ -118,6 +119,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://generativelanguage.googleapis.com/",
                 "image_model": "imagen-4",
+                "transport_layer": None,
             },
         }
 
@@ -132,6 +134,7 @@ class TestEndpointDispatch:
                 "base_url": "https://generativelanguage.googleapis.com/",
                 "model": "gemini-3.8-flash-tts",
                 "provider_name": "custom-42",
+                "transport_layer": None,
             },
         }
 

@@ -86,6 +86,7 @@ from lib.custom_provider.path_overrides import (
     NO_PATH_OVERRIDES,
     BaseUrlRule,
     EndpointRequest,
+    PathOverrideLayer,
     PathOverrides,
     path_override_layer,
     placeholder_names,
@@ -272,10 +273,15 @@ def _build_openai_responses(
 
 
 def _build_gemini_generate(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomTextBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
-    delegate = GeminiTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = GeminiTextBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=_google_path_layer(_GEMINI_GENERATE_REQUESTS, provider.base_url, model_id, path_overrides),
+    )
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -336,10 +342,15 @@ def _build_openai_chat_image(
 
 
 def _build_gemini_image(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomImageBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
-    delegate = GeminiImageBackend(api_key=provider.api_key, base_url=base_url, image_model=model_id)
+    delegate = GeminiImageBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        image_model=model_id,
+        transport_layer=_google_path_layer(_GEMINI_GENERATE_REQUESTS, provider.base_url, model_id, path_overrides),
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -395,15 +406,14 @@ def _build_minimax_tts(
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_gemini_tts(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
-) -> CustomAudioBackend:
+def _build_gemini_tts(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomAudioBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiAudioBackend(
         api_key=provider.api_key,
         base_url=base_url,
         model=model_id,
         provider_name=provider.provider_id,
+        transport_layer=_google_path_layer(_GEMINI_GENERATE_REQUESTS, provider.base_url, model_id, path_overrides),
     )
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
@@ -417,12 +427,16 @@ def _build_openai_video(
 
 
 def _build_gemini_video(
-    provider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomVideoBackend:
     # 自定义供应商只走 AI Studio 模式（Vertex 凭证不经 base_url）；SDK 自己拼 api_version
     base_url = ensure_google_base_url(provider.base_url) or None
     delegate = GeminiVideoBackend(
-        backend_type="aistudio", api_key=provider.api_key, base_url=base_url, video_model=model_id
+        backend_type="aistudio",
+        api_key=provider.api_key,
+        base_url=base_url,
+        video_model=model_id,
+        transport_layer=_google_path_layer(_GEMINI_VIDEO_REQUESTS, provider.base_url, model_id, path_overrides),
     )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
@@ -479,6 +493,27 @@ _DASHSCOPE_ASYNC_VIDEO_REQUESTS = _python_requests(
 )
 _MINIMAX_IMAGE_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_generate", "/image_generation"))
 _MINIMAX_TTS_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_generate", "/t2a_v2"))
+# SDK 在剥去 /vN 的 base_url 后自己拼 /v1beta
+_GEMINI_GENERATE_REQUESTS = _python_requests(
+    "strip_version", ("generate", "cp_request_generate", "/v1beta/models/{{ model }}:generateContent")
+)
+_GEMINI_VIDEO_REQUESTS = _python_requests(
+    "strip_version",
+    ("submit", "cp_request_submit", "/v1beta/models/{{ model }}:predictLongRunning"),
+    # operation name 形如 models/<model>/operations/<id>，含 /，原样展开为多级路径
+    ("poll", "cp_request_poll", "/v1beta/{{ task_id }}"),
+    # SDK 从产物 uri 取出文件 id，再按 base_url 拼下载地址，所以下载也相对 base_url
+    ("download", "cp_request_download", "/v1beta/files/{{ file_id }}:download"),
+)
+
+
+def _google_path_layer(
+    requests: tuple[EndpointRequest, ...], base_url: str | None, model_id: str, path_overrides: PathOverrides
+) -> PathOverrideLayer | None:
+    # 占位符不跨 ``:``：含 / 的 operation name 整段捕获，SDK 的方法后缀（:predictLongRunning、:download）仍区分得开
+    return path_override_layer(
+        requests, path_overrides, base_url, ensure_google_base_url(base_url), model_id, placeholder="[^:]+"
+    )
 
 
 def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
@@ -628,6 +663,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1beta/models/{model}:generateContent",
         build_backend=_build_gemini_generate,
+        requests=_GEMINI_GENERATE_REQUESTS,
     ),
     "anthropic-messages": EndpointSpec(
         key="anthropic-messages",
@@ -689,6 +725,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1beta/models/{model}:generateContent",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_gemini_image,
+        requests=_GEMINI_GENERATE_REQUESTS,
     ),
     "openai-video": EndpointSpec(
         key="openai-video",
@@ -765,6 +802,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1beta/models/{model}:predictLongRunning",
         build_backend=_build_gemini_video,
+        requests=_GEMINI_VIDEO_REQUESTS,
         # 参考图上限、音轨形态按 model 读 backend 纯 caps 函数（不构造 client）
         video_caps_for_model=GeminiVideoBackend.video_capabilities_for_model,
         # generate() 把 end_image 下传为 config.last_frame
@@ -788,6 +826,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1beta/models/{model}:generateContent",
         build_backend=_build_gemini_tts,
+        requests=_GEMINI_GENERATE_REQUESTS,
     ),
     "dashscope-async-video": EndpointSpec(
         key="dashscope-async-video",

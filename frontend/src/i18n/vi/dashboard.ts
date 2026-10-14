@@ -1256,6 +1256,7 @@ export default {
   'cp_request_poll_text2video': 'Kiểm tra tiến độ (văn bản thành video)',
   'cp_request_poll_img2video': 'Kiểm tra tiến độ (ảnh thành video)',
   'cp_request_poll_multi_image2video': 'Kiểm tra tiến độ (tham chiếu nhiều ảnh)',
+  'cp_request_download': 'Tải video',
   'cp_request_path_label': 'Đường dẫn yêu cầu',
   'cp_request_auto_v1': '/v1 được tự động thêm vào. Sau khi bạn sửa đường dẫn, /v1 sẽ không được thêm nữa.',
   'cp_request_default': 'Mặc định: {{path}}',
