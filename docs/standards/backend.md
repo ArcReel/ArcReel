@@ -51,9 +51,9 @@ basedpyright 不跟踪回调里的赋值，`x: T | None = None` 加 `nonlocal` �
 
 ### 按真实的取消来源设防
 
-生成任务与请求处理中，执行中的协程只被两件事打断：任务内部的 `asyncio.timeout` 块到期时取消当前任务，出块后转成 `TimeoutError`；关停期间再次 Ctrl-C 强制退出，事件循环拆除时取消全部任务。正常关停由 `GenerationWorker.stop()` 等在飞任务跑完，用户取消只对排队任务生效（`GLOSSARY.md` 「取消」），客户端断开只置标志位，三者都让执行中的协程跑到结束。下面两条规则在这里防的是超时块与将来新增的 `cancel()`；事件循环拆除不设防，被它打断的生成任务由 `GenerationWorker` 的取消分支标成 `interrupted`，来不及标记的由重启恢复收尾。
+生成任务与非流式请求处理中，执行中的协程只被两件事打断：任务内部的 `asyncio.timeout` 块到期时取消当前任务，出块后转成 `TimeoutError`；关停期间再次 Ctrl-C 强制退出，事件循环拆除时取消全部任务。正常关停由 `GenerationWorker.stop()` 等在飞任务跑完，用户取消只对排队任务生效（`GLOSSARY.md` 「取消」），客户端断开只置标志位，三者都让执行中的协程跑到结束。下面两条规则在这里防的是超时块与将来新增的 `cancel()`；事件循环拆除不设防，被它打断的生成任务由 `GenerationWorker` 的取消分支标成 `interrupted`，来不及标记的由重启恢复收尾。
 
-其他子系统自己调用 `cancel()`，例如 `TrialRunManager.cancel()` 取消进行中的供应商试跑，`SessionManager._evict_one()` 在断开超时后取消会话的收件处理任务。在这些子系统里，按它们各自的取消来源核对下面两条规则。
+其他场景各有取消来源：SSE 流式响应在客户端断开时取消事件生产协程，`TrialRunManager.cancel()` 取消进行中的供应商试跑，`SessionManager._evict_one()` 在断开超时后取消会话的收件处理任务。在这些场景里，按各自的取消来源核对下面两条规则。
 
 ### 线程里写入正式文件或创建临时产物时，用 `run_sync_transaction`
 
