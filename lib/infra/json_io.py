@@ -48,7 +48,11 @@ def load_json_or_none(path: Path) -> Any | None:
 
 
 def atomic_write_json(path: Path, data: Any) -> None:
-    """同目录 tempfile + os.replace 原子写入 JSON。"""
+    """同目录 tempfile + os.replace 原子写入 JSON。
+
+    替换前 fsync 临时文件：否则断电时目标可能被换成尚未落盘的空文件或半截文件，
+    项目文件、剧本与版本记录读不出会拒绝整个项目（``docs/adr/0098``）。
+    """
     tmp_path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -61,6 +65,8 @@ def atomic_write_json(path: Path, data: Any) -> None:
         ) as tmp:
             tmp_path = Path(tmp.name)
             json.dump(data, tmp, ensure_ascii=False, indent=2)
+            tmp.flush()
+            os.fsync(tmp.fileno())
         os.replace(tmp_path, path)
         tmp_path = None
     finally:
