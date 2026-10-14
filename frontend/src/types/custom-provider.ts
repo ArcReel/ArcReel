@@ -58,7 +58,8 @@ export interface EndpointRequest {
     | "ensure_api_v3"
     | "ensure_ent_v2"
     | "ensure_v1"
-    | "dashscope_api_v1";
+    | "dashscope_api_v1"
+    | "strip_messages";
 }
 
 /** 请求名 → 整条替换的路径。 */

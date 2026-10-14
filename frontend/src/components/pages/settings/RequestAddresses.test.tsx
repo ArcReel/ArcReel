@@ -125,6 +125,8 @@ describe("RequestAddresses", () => {
     ["ensure_api_v3", "https://relay.test/api/v3", "https://relay.test/api/v3"],
     ["ensure_ent_v2", "https://relay.test", "https://relay.test/ent/v2"],
     ["dashscope_api_v1", "https://relay.test/compatible-mode/v1", "https://relay.test/api/v1"],
+    ["strip_messages", "https://relay.test/anthropic/v1/messages/", "https://relay.test/anthropic"],
+    ["strip_messages", "https://relay.test/anthropic/v1", "https://relay.test/anthropic/v1"],
   ] as const)("没有修改时按 %s 还原 %s 的接口地址", (rule, baseUrl, base) => {
     render(
       <RequestAddresses

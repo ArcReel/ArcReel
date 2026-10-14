@@ -24,10 +24,18 @@ NO_PATH_OVERRIDES: PathOverrides = MappingProxyType({})
 #: 没有覆盖时，端点在默认路径之前怎样归一化 base_url；界面据此还原最终请求地址。
 #: ``as_is`` 只去尾斜杠；``strip_version`` 剥去末尾的版本段（如 ``/v1``）；``append_v1``
 #: 末尾没有版本段时补 ``/v1``；``ensure_<后缀>`` 末尾不是该后缀时补上（方舟 ``/api/v3``、Vidu ``/ent/v2``、
-#: 可灵与 MiniMax ``/v1``）；``dashscope_api_v1`` 剥去百炼已知后缀后接 ``/api/v1``。
+#: 可灵与 MiniMax ``/v1``）；``dashscope_api_v1`` 剥去百炼已知后缀后接 ``/api/v1``；``strip_messages`` 剥去整条
+#: 复制进来的 ``/v1/messages`` 后缀（``normalize_anthropic_base_url``）。
 #: 有覆盖的请求一律相对原样值，不按本规则归一化。
 BaseUrlRule = Literal[
-    "as_is", "strip_version", "append_v1", "ensure_api_v3", "ensure_ent_v2", "ensure_v1", "dashscope_api_v1"
+    "as_is",
+    "strip_version",
+    "append_v1",
+    "ensure_api_v3",
+    "ensure_ent_v2",
+    "ensure_v1",
+    "dashscope_api_v1",
+    "strip_messages",
 ]
 
 #: 路径中的占位符写法，与声明式定义的模板同形：``{{ model }}``、``{{ task_id }}``。

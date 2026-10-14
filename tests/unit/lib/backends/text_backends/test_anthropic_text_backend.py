@@ -171,3 +171,25 @@ async def test_empty_base_url_goes_to_official_endpoint_not_env(monkeypatch):
 
     assert route.call_count == 1
     assert result.text == "hi"
+
+
+async def test_pasted_endpoint_suffix_matches_displayed_address_with_and_without_override():
+    """base_url 整条复制成 …/v1/messages：默认请求不重复该段；有覆盖时相对原样值（docs/adr/0101），与界面灰显一致。"""
+    provider = _provider(base_url=f"{_MESSAGES_URL}/")
+    default = create_custom_backend(provider=provider, model_id="claude-x", endpoint="anthropic-messages")
+    overridden = create_custom_backend(
+        provider=provider, model_id="claude-x", endpoint="anthropic-messages", path_overrides={"generate": "/chat"}
+    )
+
+    with capture_http() as router:
+        default_route = router.post(_MESSAGES_URL).mock(
+            return_value=_sse("hi", usage={"input_tokens": 3}, output_tokens=1)
+        )
+        override_route = router.post(f"{_MESSAGES_URL}/chat").mock(
+            return_value=_sse("hi", usage={"input_tokens": 3}, output_tokens=1)
+        )
+        await default.generate(TextGenerationRequest(prompt="hello"))
+        await overridden.generate(TextGenerationRequest(prompt="hello"))
+
+    assert default_route.call_count == 1
+    assert override_route.call_count == 1

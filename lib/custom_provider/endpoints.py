@@ -575,7 +575,9 @@ _OPENAI_VIDEO_REQUESTS = _python_requests(
     ("download", "cp_request_download", "/videos/{{ task_id }}/content"),
 )
 # anthropic SDK 自己在 base_url 后拼 /v1/messages，base_url 只去尾斜杠（和整条复制进来的 /v1/messages）
-_ANTHROPIC_MESSAGES_REQUESTS = _python_requests("as_is", ("generate", "cp_request_generate", ANTHROPIC_MESSAGES_PATH))
+_ANTHROPIC_MESSAGES_REQUESTS = _python_requests(
+    "strip_messages", ("generate", "cp_request_generate", ANTHROPIC_MESSAGES_PATH)
+)
 
 
 def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
