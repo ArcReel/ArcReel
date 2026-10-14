@@ -2,6 +2,8 @@
 # 条目格式：<文件>::<最近的 lib/server async 函数>。
 # 请求、任务、轮询路径上的阻塞不进这里，没有别的豁免途径：修掉它。
 # 完整运行时本次未触发的条目会让会话失败：启动与关停路径改了，就同步删掉对应条目。
+# 每条豁免都必须由 tests/unit 下的用例触发：CI 的 unit job 带 --blocking-guard-expect-all-exemptions，
+# 只跑 tests/unit 也要求每条都触发，否则报它过期。
 
 [[exemption]]
 key = "server/app.py::lifespan"

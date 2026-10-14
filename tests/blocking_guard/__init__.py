@@ -25,7 +25,8 @@ asyncpg 建连时解析连接参数，以及模块级的无上限缓存（``func
 的函数会被淘汰后重读，不放行。
 
 永久豁免清单 ``exemptions.toml`` 只收应用启动与关停路径上的一次性阻塞，每条写明理由。
-完整运行（未做任何选择或筛选）结束时，豁免清单里本次未触发的条目让会话以失败收场：
+完整运行（未做任何选择或筛选）结束时，豁免清单里本次未触发的条目让会话以失败收场；带
+``--blocking-guard-expect-all-exemptions`` 时筛选过的运行也一样（CI 只有 unit job 带它）：
 启动与关停路径改了就同步删掉对应条目。
 """
 
@@ -48,6 +49,7 @@ import pytest
 from blockbuster import BlockBuster, BlockBusterFunction
 
 EXEMPTIONS_RELPATH = "tests/blocking_guard/exemptions.toml"
+EXPECT_ALL_EXEMPTIONS_OPTION = "--blocking-guard-expect-all-exemptions"
 SCANNED_DIRS = ("lib", "server")
 TESTS_DIR = "tests"
 
@@ -341,6 +343,7 @@ class _SessionTotals:
     triggered: set[str] = field(default_factory=set)
     deselected: int = 0
     full_run: bool = False
+    expect_all: bool = False
     errors: list[str] = field(default_factory=list)
 
 
@@ -350,6 +353,11 @@ def _is_xdist_worker(config: pytest.Config) -> bool:
 
 def _is_xdist_controller(config: pytest.Config) -> bool:
     return not _is_xdist_worker(config) and bool(getattr(config.option, "dist", "no") != "no")
+
+
+def _executes_tests(config: pytest.Config) -> bool:
+    # --collect-only/--setup-only/--setup-plan 不执行用例，记录不到任何违规。
+    return not any(getattr(config.option, name, None) for name in ("collectonly", "setuponly", "setupplan"))
 
 
 def _selects_whole_suite(config: pytest.Config) -> bool:
@@ -363,17 +371,26 @@ def _selects_whole_suite(config: pytest.Config) -> bool:
         resolved = (path if path.is_absolute() else config.invocation_params.dir / path).resolve()
         if resolved not in targets:
             return False
-    # --ignore/--ignore-glob 在收集期跳过路径，既不改 config.args，也不经过 pytest_deselected；
-    # --collect-only/--setup-only/--setup-plan 不执行用例，记录不到任何违规。
-    filters = (
-        *("keyword", "markexpr", "lf", "stepwise", "testmon", "deselect", "ignore", "ignore_glob"),
-        *("collectonly", "setuponly", "setupplan"),
-    )
+    # --ignore/--ignore-glob 在收集期跳过路径，既不改 config.args，也不经过 pytest_deselected。
+    filters = ("keyword", "markexpr", "lf", "stepwise", "testmon", "deselect", "ignore", "ignore_glob")
     return not any(getattr(config.option, name, None) for name in filters)
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        EXPECT_ALL_EXEMPTIONS_OPTION,
+        action="store_true",
+        default=False,
+        help="本次运行应触发永久豁免清单的每一条：不论路径或关键字筛选，结束时未触发的豁免都让会话失败。",
+    )
+
+
 def pytest_configure(config: pytest.Config) -> None:
-    config.stash[_SESSION_KEY] = _SessionTotals(full_run=_selects_whole_suite(config))
+    executes = _executes_tests(config)
+    config.stash[_SESSION_KEY] = _SessionTotals(
+        full_run=executes and _selects_whole_suite(config),
+        expect_all=executes and bool(config.getoption(EXPECT_ALL_EXEMPTIONS_OPTION)),
+    )
     if _is_xdist_controller(config):
         return
     guard = BlockingGuard(root=config.rootpath, exemptions=load_exemptions(config.rootpath))
@@ -454,9 +471,9 @@ def pytest_testnodedown(node: Any, error: object) -> None:
 
 
 def _finish(config: pytest.Config, session: pytest.Session, totals: _SessionTotals) -> None:
+    # 显式选项声明「这批用例应触发每一条豁免」，筛选掉的用例不影响判定。
     complete = (
-        totals.full_run
-        and totals.deselected == 0
+        (totals.expect_all or (totals.full_run and totals.deselected == 0))
         and not session.shouldstop
         and not session.shouldfail
         and session.exitstatus not in (pytest.ExitCode.INTERRUPTED, pytest.ExitCode.USAGE_ERROR)

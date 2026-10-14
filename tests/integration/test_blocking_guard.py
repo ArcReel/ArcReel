@@ -13,6 +13,7 @@
 - 在事件循环线程上阻塞地获取项目文件锁、版本管理锁记为违规，非阻塞的尝试加锁不算。
 - 永久豁免清单里的条目放行，没有别的豁免途径；完整运行时未触发的豁免条目让会话失败，部分运行
   （含 ``--ignore`` 跳过路径、``--collect-only`` 等不执行用例的模式）不报。
+- 带 ``--blocking-guard-expect-all-exemptions`` 时，按路径或关键字筛选的运行同样报未触发的豁免。
 """
 
 from __future__ import annotations
@@ -354,6 +355,36 @@ def test_full_run_fails_on_untriggered_exemptions_but_partial_run_does_not(tmp_p
     assert f"永久豁免未触发，请从 {_EXEMPTIONS} 删除：{stale}" in full.stdout
     assert partial.returncode == 0, partial.stdout
     assert stale not in partial.stdout
+
+
+@pytest.mark.parametrize(
+    "selection",
+    [("tests/test_probe.py::test_offloaded_read",), ("-k", "offloaded"), ("tests",)],
+)
+def test_expect_all_exemptions_option_reports_untriggered_exemptions_on_selected_runs(
+    tmp_path: Path, selection: tuple[str, ...]
+):
+    # CI 按 tests/unit、tests/integration 分路径跑，两边都是部分运行；unit job 带上这个选项，
+    # 删掉或改了启动路径后，过期的豁免条目在 CI 里就报出来。
+    stale = "lib/blocking_samples.py::never_called"
+    root = _make_session_dir(tmp_path / "session", {stale: "样本：从未触发的豁免"})
+
+    run = _run(root, "--blocking-guard-expect-all-exemptions", *selection)
+
+    assert run.returncode == pytest.ExitCode.TESTS_FAILED, run.stdout
+    assert f"永久豁免未触发，请从 {_EXEMPTIONS} 删除：{stale}" in run.stdout
+
+
+def test_expect_all_exemptions_option_passes_when_every_exemption_is_triggered(tmp_path: Path):
+    root = _make_session_dir(
+        tmp_path / "session",
+        {"lib/blocking_samples.py::exempted_read": "样本：模拟启动路径上的一次性阻塞"},
+    )
+
+    run = _run(root, "--blocking-guard-expect-all-exemptions", "tests/test_probe.py::test_exempted_read")
+
+    assert run.returncode == 0, run.stdout
+    assert "永久豁免未触发" not in run.stdout
 
 
 @pytest.mark.parametrize(
