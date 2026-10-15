@@ -133,6 +133,21 @@ length; the model maker, official model name, type, and aliases are read-only. A
   changes and returns to official data. It takes effect immediately without the save bar and cannot be undone;
 - No official information, filled in by you: the model catalog had no information for this model.
 
+The "Pricing" part of "Model info" is edited as one card per billing item, and you can use it to add prices the catalog does not have:
+
+- Choose the currency first (US dollar or Chinese yuan). A price table uses the currency of the model maker's main site, with no
+  exchange-rate conversion;
+- "Add billing item" lists only the items available for this type of model, such as "Input", "Cache hit", and "Output" for text, or
+  "Video duration" for video. An item without conditions has one price line. After "Price by condition" adds a condition such as
+  resolution, audio, or service tier (Standard, Flex, Fast), each tier gets a "condition → price" line; click a condition tag to change
+  its value, and "Add tier" adds a line. A condition cannot be removed once added: to change conditions, delete the whole card and add
+  the item again;
+- When a request gives no value for a condition, the line below the card, "When a request gives no condition, use", supplies it. A
+  condition without a value cannot be priced, so the call is recorded as unpriced;
+- Items such as reference images can have a free allowance: only the part of a request beyond it is charged;
+- Without a price, call costs are recorded as unpriced. When the entry has been modified, the official pricing is shown below the
+  prices and "Use the official pricing" takes it back; it is not shown when the currency differs from the official one.
+
 When other providers use the same model, "Model info" lists them: changes and restoring official data apply to them as well. If only one
 provider differs from the model info (for example, a relay offers only some durations), change "Parameters this provider supports"
 instead of the model info.

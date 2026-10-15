@@ -43,6 +43,7 @@ from .reading import (
 from .vocabulary import (
     CJK_DOUBLE_METER,
     CURRENCIES,
+    DIMENSION_MEDIA_TYPES,
     DIMENSIONS,
     MEDIA_TYPES,
     METERS,
@@ -60,6 +61,7 @@ __all__ = [
     "CJK_DOUBLE_METER",
     "CURRENCIES",
     "DIMENSIONS",
+    "DIMENSION_MEDIA_TYPES",
     "MANIFEST_FILENAME",
     "MEDIA_TYPES",
     "METERS",

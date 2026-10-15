@@ -207,6 +207,25 @@ export interface ProviderModelCapabilities {
   effective: Partial<Record<CapabilityKey, unknown>>;
 }
 
+/** 价目表里一个选择维度的取值：上下文档的下界与时长秒数是数字，是否有声等是布尔，分辨率、服务档是文字。 */
+export type PriceDimensionValue = string | number | boolean;
+
+/**
+ * 模型条目的价目表（目录数据的格式）：单币种，由若干计费项组成，每个计费项按选择维度分档，
+ * 每档一行「条件 → 单价」。`defaults` 是请求缺少某个维度取值时使用的取值；`free_allowance` 是单请求免费额度。
+ */
+export interface CatalogPriceTable {
+  currency: string;
+  meters: {
+    meter: string;
+    dims: string[];
+    rows: { when: Record<string, PriceDimensionValue>; price: number }[];
+    defaults?: Record<string, PriceDimensionValue>;
+    free_allowance?: number;
+    cjk_double?: boolean;
+  }[];
+}
+
 /** 模型信息由谁维护：跟随官方、用户改过、官方没有由用户填写。 */
 export type CatalogEntrySource = "official" | "modified" | "user_created";
 
@@ -227,8 +246,10 @@ export interface ProviderModelEntryInfo extends CatalogEntryKey {
   discontinued: boolean;
   context_length: number | null;
   facts: Record<string, unknown>;
+  /** 价目表；没有价目表时调用费用记为未定价。 */
+  price: CatalogPriceTable | null;
   source: CatalogEntrySource;
-  official: { display_name: string; facts: Record<string, unknown> } | null;
+  official: { display_name: string; facts: Record<string, unknown>; price: CatalogPriceTable | null } | null;
   shared_with: { provider_id: string; display_name: string }[];
 }
 
@@ -236,6 +257,8 @@ export interface ProviderModelEntryInfo extends CatalogEntryKey {
 export interface CatalogEntryUpdate extends CatalogEntryKey {
   display_name?: string;
   facts?: Record<string, unknown>;
+  /** 整份价目表，整份替换；`null` 清除价目表。没有这个键表示不改。 */
+  price?: CatalogPriceTable | null;
 }
 
 /** 供应商模型 Sheet 的内容。 */

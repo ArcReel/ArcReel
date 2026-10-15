@@ -41,6 +41,7 @@ import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS, resolutionPlace
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { EndpointSelect } from "./EndpointSelect";
 import { ProviderCapabilityOverrides } from "./ProviderCapabilityOverrides";
+import { priceForSave, samePrice } from "./price-editor/priceTable";
 import { ENTRY_INVALID_PREFIX, ProviderModelEntryInfo, entryDraftOf, providerNames, type EntryDraft } from "./ProviderModelEntryInfo";
 import { ProviderModelFlags } from "./providerModelDisplay";
 import { RequestAddresses } from "./RequestAddresses";
@@ -224,6 +225,17 @@ function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
+/** 草稿是否相同：模型信息按 {@link sameEntryDraft} 比，其余字段按 JSON。 */
+function sameDraft(a: Draft, b: Draft): boolean {
+  return sameJson({ ...a, entry: null }, { ...b, entry: null }) && sameEntryDraft(a.entry, b.entry);
+}
+
+/** 模型信息的草稿是否相同；没有计费项的价目表与没有价目表等价，只换了币种不算修改。 */
+function sameEntryDraft(a: EntryDraft | null, b: EntryDraft | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.display_name === b.display_name && sameJson(a.facts, b.facts) && samePrice(a.price, b.price);
+}
+
 /** 两级倍率相乘后的最终倍率，去掉浮点尾差。 */
 function finalMultiplier(provider: number, model: number): string {
   return String(Number((provider * model).toFixed(6)));
@@ -294,7 +306,7 @@ function ModelSheetForm({
         if (value.resolution !== saved.resolution) patch.resolution = value.resolution || null;
       }
       const entry = detail.entry;
-      if (entry && value.entry && saved.entry && !sameJson(value.entry, saved.entry)) {
+      if (entry && value.entry && saved.entry && !sameEntryDraft(value.entry, saved.entry)) {
         if (entryInvalid || !value.entry.display_name.trim()) throw new Error(t("pm_sheet_entry_invalid"));
         const facts = Object.fromEntries(
           Object.entries(value.entry.facts).filter(([key, fact]) => !sameJson(fact, saved.entry?.facts[key])),
@@ -302,6 +314,7 @@ function ModelSheetForm({
         patch.entry = { maker: entry.maker, name: entry.name, media_type: entry.media_type };
         if (value.entry.display_name !== saved.entry.display_name) patch.entry.display_name = value.entry.display_name.trim();
         if (Object.keys(facts).length > 0) patch.entry.facts = facts;
+        if (!samePrice(value.entry.price, saved.entry.price)) patch.entry.price = priceForSave(value.entry.price);
       }
       const updated = await API.updateProviderModel(providerId, detail.model.model_id, patch);
       // 能力覆盖不落任何项目字段，在用的能力查询不会因此重取：显式作废
@@ -312,7 +325,7 @@ function ModelSheetForm({
     },
     [isCustom, userOwned, providerInvalid, entryInvalid, providerId, detail.model.model_id, detail.entry, onDetailChange, onSaved, t],
   );
-  const unit = useEditUnit({ source, save, leaveTitle: t("pm_sheet_leave_title", { name: detail.model.display_name ?? detail.model.model_id }) });
+  const unit = useEditUnit({ source, save, isEqual: sameDraft, leaveTitle: t("pm_sheet_leave_title", { name: detail.model.display_name ?? detail.model.model_id }) });
   const draft = unit.value;
   const setDraft = (patch: Partial<Draft>) => unit.setValue((prev) => ({ ...prev, ...patch }));
 
@@ -337,7 +350,7 @@ function ModelSheetForm({
   const name = detail.model.display_name ?? detail.model.model_id;
   // 「已修改」在下段的维护说明里讲，标题旁只留影响调用的标记
   const titleFlags = detail.model.flags.filter((flag) => flag !== "modified");
-  const entryDirty = !sameJson(draft.entry, unit.savedValue.entry);
+  const entryDirty = !sameEntryDraft(draft.entry, unit.savedValue.entry);
   const stopsFollowing = entryDirty && detail.entry?.source === "official";
 
   // 恢复官方数据立即生效、不经保存栏：重读 Sheet 内容，只把下段的草稿换成官方值，上段未保存的修改保留

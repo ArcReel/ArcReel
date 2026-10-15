@@ -18,13 +18,22 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from arcreel_catalog_core import MEDIA_TYPES, AudioFacts, CatalogEntry, ImageFacts, MediaType, TextFacts, VideoFacts
+from arcreel_catalog_core import (
+    MEDIA_TYPES,
+    AudioFacts,
+    CatalogEntry,
+    ImageFacts,
+    MediaType,
+    TextFacts,
+    VideoFacts,
+    dump_entry,
+)
 from lib.billing.multipliers import get_provider_multiplier
 from lib.catalog import builtin_discovery, builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.composition import EntrySource
 from lib.catalog.price_summary import summarize_price
-from lib.catalog.user_entries import EntryEditRejected, edited_entry, reload_user_entries, save_user_entry
+from lib.catalog.user_entries import UNSET, EntryEditRejected, edited_entry, reload_user_entries, save_user_entry
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS, PROJECT_MODEL_SETTING_KEYS
 from lib.config.service import ConfigService
@@ -181,6 +190,7 @@ class OfficialEntryValues(BaseModel):
 
     display_name: str
     facts: dict[str, Any]
+    price: dict[str, Any] | None
 
 
 class SharedProviderResponse(BaseModel):
@@ -191,6 +201,7 @@ class SharedProviderResponse(BaseModel):
 class EntryInfoResponse(BaseModel):
     """供应商模型对应到的条目（合成后），供 Sheet 下段「模型信息」。
 
+    - ``price``：价目表（目录数据的格式，可直接作为 ``EntryUpdate.price`` 回写）；没有价目表时为 ``null``。
     - ``source``：``official`` 跟随官方；``modified`` 用户改过，不再随官方更新；``user_created`` 官方没有、由用户填写。
     - ``official``：用户改过时官方数据里的值；其余情况为 ``null``。
     - ``shared_with``：同样使用这个条目的其他供应商（已配置密钥的内置供应商与自定义供应商中启用的模型），
@@ -205,6 +216,7 @@ class EntryInfoResponse(BaseModel):
     discontinued: bool
     context_length: int | None
     facts: dict[str, Any]
+    price: dict[str, Any] | None
     source: EntrySource
     official: OfficialEntryValues | None
     shared_with: list[SharedProviderResponse]
@@ -233,13 +245,15 @@ class ProviderModelDetail(BaseModel):
 
 class EntryUpdate(BaseModel):
     """Sheet 下段「模型信息」的修改。``maker``、``name``、``media_type`` 是 Sheet 读到的条目身份，须与这个供应商模型
-    当前对应的条目一致；``display_name`` 与 ``facts`` 没有传的不改，``facts`` 只给要改的模型事实。"""
+    当前对应的条目一致；``display_name``、``facts`` 与 ``price`` 没有传的不改，``facts`` 只给要改的模型事实。
+    ``price`` 是整份价目表（见 ``EntryInfoResponse.price``），整份替换；显式传 ``null`` 清除价目表，调用费用记为未定价。"""
 
     maker: str
     name: str
     media_type: MediaType
     display_name: str | None = None
     facts: dict[str, Any] | None = None
+    price: dict[str, Any] | None = None
 
 
 class ProviderModelSettingsUpdate(BaseModel):
@@ -653,6 +667,10 @@ def _facts_json(entry: CatalogEntry) -> dict[str, Any]:
             assert_never(facts)
 
 
+def _price_json(entry: CatalogEntry) -> dict[str, Any] | None:
+    return cast("dict[str, Any] | None", dump_entry(entry).get("price"))
+
+
 async def _custom_model_entry(row: CustomProviderModel, endpoint_repo: CustomEndpointRepository) -> CatalogEntry | None:
     try:
         media_type = (await resolve_endpoint_spec(row.endpoint, endpoint_repo.get)).media_type
@@ -699,9 +717,12 @@ async def _entry_info(session: AsyncSession, entry: CatalogEntry | None, provide
         discontinued=entry.discontinued,
         context_length=entry.context_length,
         facts=_facts_json(entry),
+        price=_price_json(entry),
         source=source,
         official=(
-            OfficialEntryValues(display_name=official.display_name, facts=_facts_json(official))
+            OfficialEntryValues(
+                display_name=official.display_name, facts=_facts_json(official), price=_price_json(official)
+            )
             if official is not None
             else None
         ),
@@ -800,7 +821,12 @@ async def _save_entry(
     ):
         raise HTTPException(status_code=409, detail=_t("provider_model_entry_mismatch", model=model_id))
     try:
-        entry = edited_entry(current, display_name=update.display_name, facts=update.facts)
+        entry = edited_entry(
+            current,
+            display_name=update.display_name,
+            facts=update.facts,
+            price=update.price if "price" in update.model_fields_set else UNSET,
+        )
     except EntryEditRejected as exc:
         raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
     if entry == current:

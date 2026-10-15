@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from arcreel_catalog_core import EntryKey
 from lib.catalog import query as catalog
 from lib.config.service import ConfigService
 from lib.db import get_async_session
@@ -463,6 +464,7 @@ async def test_modify_official_entry_then_restore_official_data(
     assert body["entry"]["official"] == {
         "display_name": "Gemini 3 Flash",
         "facts": {"image_input": True, "structured_output": True, "max_output_tokens": 65536},
+        "price": entry["price"],
     }
     # 停止跟随官方：共用这个条目的供应商一起变化，运行时读到的也是修改后的信息
     vertex = _models(models_client, "gemini-vertex")["gemini-3-flash-preview"]
@@ -510,6 +512,66 @@ def test_entry_edit_is_validated_and_must_target_the_mapped_entry(models_client:
     resp = models_client.patch(_FLASH_URL, json={"entry": {**_FLASH, "display_name": "Gemini 3 Flash"}})
     assert resp.status_code == 200
     assert resp.json()["entry"]["source"] == "official"
+
+
+def test_entry_price_table_is_shown_edited_cleared_and_compared_with_official(models_client: TestClient) -> None:
+    entry = models_client.get(_FLASH_URL).json()["entry"]
+    official_price = entry["price"]
+    assert official_price["currency"] == "USD"
+    assert {meter["meter"] for meter in official_price["meters"]} >= {"uncached_input_tokens", "output_tokens"}
+
+    new_price = {
+        "currency": "CNY",
+        "meters": [
+            {
+                "meter": "uncached_input_tokens",
+                "dims": ["context_tier"],
+                "rows": [{"when": {"context_tier": 0}, "price": 1.5}, {"when": {"context_tier": 100000}, "price": 3}],
+            },
+            {"meter": "output_tokens", "dims": [], "rows": [{"when": {}, "price": 9}]},
+        ],
+    }
+    resp = models_client.patch(_FLASH_URL, json={"entry": {**_FLASH, "price": new_price}})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["entry"]["source"] == "modified"
+    assert body["entry"]["price"] == new_price
+    assert body["entry"]["official"]["price"] == official_price
+    assert body["model"]["price"]["currency"] == "CNY"
+    # 价目表是整份替换，运行时计价读到的也是新价目表
+    runtime_entry = catalog.get_entry(EntryKey("google", "gemini-3-flash-preview", "text"))
+    assert runtime_entry is not None
+    assert runtime_entry.price is not None
+    assert runtime_entry.price.currency == "CNY"
+
+    # 价格栏目没有传时不改价目表
+    resp = models_client.patch(_FLASH_URL, json={"entry": {**_FLASH, "display_name": "My Flash"}})
+    assert resp.json()["entry"]["price"] == new_price
+
+    # null 清除价目表：调用费用记为未定价
+    resp = models_client.patch(_FLASH_URL, json={"entry": {**_FLASH, "price": None}})
+    assert resp.status_code == 200
+    assert resp.json()["entry"]["price"] is None
+    assert "unpriced" in resp.json()["model"]["flags"]
+
+
+def test_entry_price_table_is_validated(models_client: TestClient) -> None:
+    overlapping = {
+        "currency": "USD",
+        "meters": [
+            {
+                "meter": "output_tokens",
+                "dims": ["service_tier"],
+                "rows": [{"when": {}, "price": 1}, {"when": {"service_tier": "flex"}, "price": 2}],
+            }
+        ],
+    }
+
+    resp = models_client.patch(_FLASH_URL, json={"entry": {**_FLASH, "price": overlapping}})
+
+    assert resp.status_code == 422
+    assert models_client.get(_FLASH_URL).json()["entry"]["source"] == "official"
 
 
 def test_restore_rejects_entries_without_official_data(models_client: TestClient) -> None:

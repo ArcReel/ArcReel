@@ -2,7 +2,7 @@
 
 import pytest
 
-from arcreel_catalog_core import DurationConstraints, TextFacts, VideoFacts, parse_entry
+from arcreel_catalog_core import DurationConstraints, TextFacts, VideoFacts, dump_entry, parse_entry
 from lib.catalog.user_entries import EntryEditRejected, edited_entry
 
 _VIDEO = {
@@ -58,6 +58,54 @@ def test_text_max_output_tokens_can_be_cleared():
     edited = edited_entry(current, facts={"image_input": True, "max_output_tokens": None})
 
     assert edited.facts == TextFacts(image_input=True)
+
+
+_NEW_PRICE = {
+    "currency": "CNY",
+    "meters": [
+        {
+            "meter": "output_seconds",
+            "dims": ["resolution", "audio"],
+            "rows": [
+                {"when": {"resolution": "720p", "audio": True}, "price": 0.8},
+                {"when": {"resolution": "720p", "audio": False}, "price": 0.5},
+            ],
+            "defaults": {"resolution": "720p", "audio": True},
+        },
+        {"meter": "input_images", "dims": [], "rows": [{"when": {}, "price": 0.1}], "free_allowance": 2},
+    ],
+}
+
+
+def test_edit_replaces_the_whole_price_table():
+    edited = edited_entry(parse_entry(_VIDEO), price=_NEW_PRICE)
+
+    assert dump_entry(edited)["price"] == _NEW_PRICE
+
+
+def test_price_none_clears_the_price_table_and_unset_keeps_it():
+    current = parse_entry(_VIDEO)
+
+    assert edited_entry(current, price=None).price is None
+    assert edited_entry(current, display_name="x").price == current.price
+
+
+@pytest.mark.parametrize(
+    ("price", "field"),
+    [
+        ({"currency": "USD", "meters": []}, "price.meters"),
+        ({"currency": "EUR", "meters": _NEW_PRICE["meters"]}, "price.currency"),
+        (
+            {"currency": "USD", "meters": [{"meter": "characters", "dims": [], "rows": [{"when": {}, "price": 1}]}]},
+            "price.meters[0].meter",
+        ),
+    ],
+)
+def test_invalid_price_is_rejected_with_the_field(price, field):
+    with pytest.raises(EntryEditRejected) as excinfo:
+        edited_entry(parse_entry(_VIDEO), price=price)
+
+    assert excinfo.value.params == {"field": field}
 
 
 @pytest.mark.parametrize(

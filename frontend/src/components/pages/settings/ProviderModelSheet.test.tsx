@@ -267,7 +267,7 @@ describe("ProviderModelSheet", () => {
     const modified = veoDetail({
       display_name: "My Veo",
       source: "modified",
-      official: { display_name: "Veo 3", facts: official.entry!.facts },
+      official: { display_name: "Veo 3", facts: official.entry!.facts, price: null },
       shared_with: shared,
     });
     const get = vi.spyOn(API, "getProviderModel").mockResolvedValueOnce(official).mockResolvedValueOnce(official);
@@ -312,6 +312,58 @@ describe("ProviderModelSheet", () => {
     expect(update).toHaveBeenCalledTimes(1);
   });
 
+  it("edits the price table in the model info, blocks saving while a tier has no price, and saves the whole table", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(veoDetail());
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(veoDetail());
+    renderSheet();
+
+    const info = await infoSection();
+    expect(within(info).getByText("不填价格时，调用费用记为未定价。")).toBeInTheDocument();
+    await user.click(within(info).getByRole("button", { name: "人民币" }));
+    await user.click(within(info).getByRole("button", { name: "添加计费项" }));
+    await user.click(await screen.findByRole("menuitem", { name: "视频时长" }));
+
+    // 单价还没填：保存被拦下，不发请求
+    expect(within(info).getByText("请填写单价。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(await screen.findByText(/「模型信息」里有填写不正确的值。/)).toBeInTheDocument();
+    expect(update).not.toHaveBeenCalled();
+
+    await user.type(within(info).getByRole("textbox", { name: "视频时长的单价" }), "0.5");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("custom-3", "relay-video", {
+        entry: {
+          maker: "google",
+          name: "veo-3",
+          media_type: "video",
+          price: { currency: "CNY", meters: [{ meter: "output_seconds", dims: [], rows: [{ when: {}, price: 0.5 }] }] },
+        },
+      }),
+    );
+  });
+
+  it("clears the price table when every billing item is deleted", async () => {
+    const user = userEvent.setup();
+    const price = { currency: "USD", meters: [{ meter: "output_seconds", dims: [], rows: [{ when: {}, price: 0.5 }] }] };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(veoDetail({ price }));
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(veoDetail());
+    renderSheet();
+
+    const info = await infoSection();
+    expect(within(info).getByRole("textbox", { name: "视频时长的单价" })).toHaveValue("0.5");
+    await user.click(within(info).getByRole("button", { name: "删除计费项「视频时长」" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("custom-3", "relay-video", {
+        entry: { maker: "google", name: "veo-3", media_type: "video", price: null },
+      }),
+    );
+  });
+
   it("shows the official value under a modified field and adopts it", async () => {
     const user = userEvent.setup();
     const base = veoDetail();
@@ -319,7 +371,7 @@ describe("ProviderModelSheet", () => {
       veoDetail({
         source: "modified",
         facts: { ...base.entry!.facts, durations: [5, 10] },
-        official: { display_name: "Veo 3", facts: base.entry!.facts },
+        official: { display_name: "Veo 3", facts: base.entry!.facts, price: null },
       }),
     );
     const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(base);
@@ -360,6 +412,7 @@ function veoDetail(entry: Partial<NonNullable<ProviderModelDetail["entry"]>> = {
         resolutions: ["720p", "1080p"],
         duration_constraints: { by_resolution: {}, with_reference_images: [] },
       },
+      price: null,
       source: "official",
       official: null,
       shared_with: [],

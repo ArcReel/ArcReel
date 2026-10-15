@@ -20,16 +20,20 @@ import type { CapabilityKey, ProviderModelDetail, ProviderModelEntryInfo, Provid
 import { errMsg } from "@/utils/async";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { CapabilityValueEditor, capabilityValueText, withoutDroppedResolutions } from "./ProviderCapabilityOverrides";
-import { MEDIA_LABEL_KEY, priceSummaryText } from "./providerModelDisplay";
+import { PriceEditor } from "./price-editor/PriceEditor";
+import { isPriceTableValid, priceTableOf, type PriceTable } from "./price-editor/priceTable";
+import { MEDIA_LABEL_KEY } from "./providerModelDisplay";
 
 /** 「模型信息」可以修改的部分。 */
 export interface EntryDraft {
   display_name: string;
   facts: Record<string, unknown>;
+  /** 编辑中的价目表；没有计费项就是「不填价格」。 */
+  price: PriceTable;
 }
 
 export function entryDraftOf(entry: ProviderModelEntryInfo | null): EntryDraft | null {
-  return entry ? { display_name: entry.display_name, facts: entry.facts } : null;
+  return entry ? { display_name: entry.display_name, facts: entry.facts, price: priceTableOf(entry.price) } : null;
 }
 
 /** 各媒体类型可以修改的模型事实，按界面顺序；时长联动约束紧跟可选时长。 */
@@ -42,6 +46,7 @@ const EDITABLE_FACTS: Record<ProviderModelItem["media_type"], CapabilityKey[]> =
 
 /** 「模型信息」里填写不正确的字段，在 Sheet 的校验集合里与上段的键区分开。 */
 export const ENTRY_INVALID_PREFIX = "entry:";
+const PRICE_INVALID_KEY = `${ENTRY_INVALID_PREFIX}price`;
 
 function sameJson(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -77,7 +82,6 @@ export function ProviderModelEntryInfo({ detail, value, onChange, onValidityChan
   const headingId = useId();
   const idPrefix = useId();
   const entry = detail.entry;
-  const price = detail.model.price ? priceSummaryText(t, detail.model.price) : "";
 
   const setFact = (key: CapabilityKey, next: unknown) => {
     if (!value) return;
@@ -183,11 +187,53 @@ export function ProviderModelEntryInfo({ detail, value, onChange, onValidityChan
             );
           })}
 
-          <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-            <InfoRow label={t("pm_info_price")}>{price || t("pm_info_price_none")}</InfoRow>
-          </dl>
+          <EntryPrice
+            entry={entry}
+            value={value.price}
+            resolutions={Array.isArray(value.facts.resolutions) ? (value.facts.resolutions as string[]) : []}
+            onChange={(next) => onChange({ ...value, price: next })}
+            onValidityChange={onValidityChange}
+          />
         </>
       )}
+    </section>
+  );
+}
+
+/** 「价格」一段：价格编辑器；价目表有填写不完整或条件重复的档时，保存栏拦下保存。 */
+function EntryPrice({
+  entry,
+  value,
+  resolutions,
+  onChange,
+  onValidityChange,
+}: {
+  entry: ProviderModelEntryInfo;
+  value: PriceTable;
+  resolutions: string[];
+  onChange: (next: PriceTable) => void;
+  onValidityChange: (key: string, valid: boolean) => void;
+}) {
+  const { t } = useTranslation("dashboard");
+  const headingId = useId();
+  const valid = isPriceTableValid(value);
+  useEffect(() => {
+    onValidityChange(PRICE_INVALID_KEY, valid);
+    return () => onValidityChange(PRICE_INVALID_KEY, true);
+  }, [valid, onValidityChange]);
+
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-2">
+      <h4 id={headingId} className="text-sm text-muted-foreground">
+        {t("pm_info_price")}
+      </h4>
+      <PriceEditor
+        value={value}
+        onChange={onChange}
+        mediaType={entry.media_type}
+        resolutions={resolutions}
+        official={entry.official ? priceTableOf(entry.official.price) : null}
+      />
     </section>
   );
 }

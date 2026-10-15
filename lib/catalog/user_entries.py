@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
-from typing import cast
+from enum import Enum
+from typing import Final, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,18 +52,35 @@ async def reload_user_entries(session: AsyncSession) -> None:
     catalog.install_user_entries(await load_user_entries(session))
 
 
-def edited_entry(
-    current: CatalogEntry, *, display_name: str | None = None, facts: Mapping[str, object] | None = None
-) -> CatalogEntry:
-    """在当前条目上改显示名与模型事实，得到新的整条副本；其余字段（别名、上下文长度、价目表等）原样带上。
+class _Unset(Enum):
+    UNSET = "unset"
 
-    ``facts`` 只给要改的键，按目录数据的格式与媒体类型校验；不合法时抛 :class:`EntryEditRejected`。
+
+#: ``edited_entry`` 的 ``price`` 缺省值：不改价目表。``None`` 是有意义的取值（清除价目表）。
+UNSET: Final = _Unset.UNSET
+
+
+def edited_entry(
+    current: CatalogEntry,
+    *,
+    display_name: str | None = None,
+    facts: Mapping[str, object] | None = None,
+    price: Mapping[str, object] | _Unset | None = UNSET,
+) -> CatalogEntry:
+    """在当前条目上改显示名、模型事实与价目表，得到新的整条副本；其余字段（别名、上下文长度等）原样带上。
+
+    ``facts`` 只给要改的键；``price`` 是整份价目表，``None`` 表示清除（调用费用记为未定价），不传表示不改。
+    都按目录数据的格式与媒体类型校验；不合法时抛 :class:`EntryEditRejected`。
     """
     raw = dump_entry(current)
     if display_name is not None:
         raw["display_name"] = display_name.strip()
     if facts is not None:
         raw["facts"] = {**cast("dict[str, object]", raw["facts"]), **facts}
+    if price is None:
+        raw.pop("price", None)
+    elif not isinstance(price, _Unset):
+        raw["price"] = price
     issues = check_entry(raw)
     if issues:
         raise EntryEditRejected("catalog_entry_invalid", field=issues[0].path)

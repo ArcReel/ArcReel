@@ -234,8 +234,26 @@ const KLING_FACTS = {
   duration_constraints: { by_resolution: { "1080p": [5] }, with_reference_images: [5] },
 };
 
+const KLING_OFFICIAL_PRICE = {
+  currency: "CNY",
+  meters: [
+    {
+      meter: "output_seconds",
+      dims: ["resolution", "audio"],
+      rows: [
+        { when: { resolution: "720p", audio: false }, price: 0.6 },
+        { when: { resolution: "720p", audio: true }, price: 0.8 },
+        { when: { resolution: "1080p", audio: false }, price: 0.8 },
+        { when: { resolution: "1080p", audio: true }, price: 1 },
+      ],
+      defaults: { resolution: "720p", audio: false },
+    },
+    { meter: "input_images", dims: [], rows: [{ when: {}, price: 0.05 }], free_allowance: 2 },
+  ],
+};
+
 // 模型 Sheet 的压力内容：视频模型的参数全部可改，其中两项已修改；下段的模型信息用户改过，
-// 各字段下方带官方值，另有两个供应商共用这个条目
+// 各字段下方带官方值，价格是分辨率 × 有声的四档加带免费额度的参考图，另有两个供应商共用这个条目
 const klingDetail = {
   model: customListItems.find((m) => m.model_id === KLING_ID),
   multiplier: 1.25,
@@ -249,8 +267,18 @@ const klingDetail = {
     discontinued: false,
     context_length: null,
     facts: { ...KLING_FACTS, durations: [5, 10, 15], resolutions: ["720p", "1080p", "2160p"] },
+    price: {
+      ...KLING_OFFICIAL_PRICE,
+      meters: [
+        {
+          ...KLING_OFFICIAL_PRICE.meters[0],
+          rows: KLING_OFFICIAL_PRICE.meters[0].rows.map((row) => ({ ...row, price: row.price + 0.1 })),
+        },
+        KLING_OFFICIAL_PRICE.meters[1],
+      ],
+    },
     source: "modified",
-    official: { display_name: "Kling v2.6 Master", facts: KLING_FACTS },
+    official: { display_name: "Kling v2.6 Master", facts: KLING_FACTS, price: KLING_OFFICIAL_PRICE },
     shared_with: [
       { provider_id: "kling", display_name: "可灵" },
       { provider_id: "custom-8", display_name: "海外备用中转站（按量计费，晚高峰限流）" },
@@ -565,6 +593,21 @@ defineRegionScenarios("供应商", [
     },
     // 下拉渲染在弹层里，截 Sheet 连同盖在上面的下拉一起看
     screenshot: { name: "providers-custom-endpoint-select", target: (page) => page.getByRole("dialog") },
+  },
+  {
+    name: "模型 Sheet：价格编辑器点开条件标签，选项留在视口内",
+    path: CUSTOM_PROVIDER_PATH,
+    api: CUSTOM_PROVIDER_DETAIL,
+    ready: customDetailReady,
+    act: async (page) => {
+      const sheet = await openModelSheet(page, KLING_ID);
+      const tag = sheet.getByRole("button", { name: /修改条件：分辨率：720p/ }).first();
+      await tag.scrollIntoViewIfNeeded();
+      await tag.click();
+      const popover = page.locator('[data-slot="popover-content"]');
+      await expect(popover.getByRole("button", { name: "2160p" })).toBeVisible();
+      await expect(popover).toBeInViewport({ ratio: 1 });
+    },
   },
   {
     name: "模型 Sheet：「从『供应商』移除」的确认框列出在用的设置与项目",
