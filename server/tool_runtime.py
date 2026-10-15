@@ -24,6 +24,7 @@ from pydantic.json_schema import SkipJsonSchema
 from lib.agent.profile_manifest import ContentMode
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.backends.text_backends.base import TextOutputTruncatedError
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, caps_generation_mode, video_bucket_for_generation_mode
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -618,6 +619,16 @@ def truncation_problem(exc: TextOutputTruncatedError) -> ToolProblem:
         str(exc),
         action=GenerationAction.CONFIGURE_PROVIDER,
         params={"provider_id": exc.provider_id or exc.provider, "model": exc.model, "custom_model": exc.custom_model},
+    )
+
+
+def model_not_in_catalog_problem(exc: ModelNotInCatalogError) -> ToolProblem:
+    """引用的内置模型已不在供应商清单中：沿用任务失败的稳定码与参数，出路是重新选择模型（去配置供应商）。"""
+    return ToolProblem(
+        exc.code,
+        str(exc),
+        action=GenerationAction.CONFIGURE_PROVIDER,
+        params=dict(exc.params),
     )
 
 
@@ -1463,6 +1474,8 @@ async def _run_draft(call: Awaitable[dict[str, Any]]) -> ToolOutcome[dict[str, A
         return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
+    except ModelNotInCatalogError as exc:
+        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", str(exc)))
 
