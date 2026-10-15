@@ -10,10 +10,12 @@ import {
   parseUsageFilters,
   parseUsageRecordId,
   useUsageRecordsStore,
+  viewPatch,
   writeUsageFilters,
 } from "@/stores/usage-records-store";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
-import type { TaskItem } from "@/types";
+import type { TaskItem, UsageView } from "@/types";
+import { Button } from "@/components/ui/button";
 import { CancelConfirmDialog } from "./CancelConfirmDialog";
 import { UsageAttentionCard } from "./UsageAttentionCard";
 import { UsageBreakdownCard } from "./UsageBreakdownCard";
@@ -21,6 +23,7 @@ import { UsageFilterBar } from "./UsageFilterBar";
 import { UsageKpiStrip } from "./UsageKpiStrip";
 import { UsageRecordDetailModal } from "./UsageRecordDetailModal";
 import { UsageRecordsCard } from "./UsageRecordsCard";
+import { UsageSessionsCard } from "./UsageSessionsCard";
 import { UsageTrendCard } from "./UsageTrendCard";
 import { providerLabelResolver } from "./usage-record-format";
 import { useTaskCancellation } from "./use-task-cancellation";
@@ -32,6 +35,11 @@ import {
 
 /** 进行中区非空时的兜底轮询间隔；设置页不订阅事件流。 */
 const PENDING_POLL_MS = 3000;
+
+const VIEWS: { value: UsageView; labelKey: string }[] = [
+  { value: "generation", labelKey: "usage_view_generation" },
+  { value: "agent", labelKey: "usage_view_agent" },
+];
 
 /** 时间范围不作用于进行中区，其余维度同样作用于任务行。 */
 function taskMatchesFilters(task: TaskItem, filters: UsageRecordsFilters): boolean {
@@ -51,10 +59,10 @@ export function UsageRecordsSection() {
   const search = useSearch();
 
   const parsedFilters = useMemo(() => parseUsageFilters(search), [search]);
-  const { range, project, provider, model, mediaType, segment, status } = parsedFilters;
+  const { view, range, project, provider, model, mediaType, segment, status } = parsedFilters;
   const filters = useMemo(
-    () => ({ range, project, provider, model, mediaType, segment, status }),
-    [range, project, provider, model, mediaType, segment, status],
+    () => ({ view, range, project, provider, model, mediaType, segment, status }),
+    [view, range, project, provider, model, mediaType, segment, status],
   );
   const recordId = useMemo(() => parseUsageRecordId(search), [search]);
 
@@ -63,6 +71,7 @@ export function UsageRecordsSection() {
 
   const summary = useUsageRecordsStore((s) => s.summary);
   const records = useUsageRecordsStore((s) => s.records);
+  const sessions = useUsageRecordsStore((s) => s.sessions);
   const pendingRecords = useUsageRecordsStore((s) => s.pendingRecords);
   const recordsLoading = useUsageRecordsStore((s) => s.recordsLoading);
   const recordsFailed = useUsageRecordsStore((s) => s.recordsFailed);
@@ -143,7 +152,9 @@ export function UsageRecordsSection() {
 
   // 进行中区 = 任务 store（有任务的调用）∪ 无任务的 pending 调用，两者不相交。
   const showInProgress =
-    pageIndex === 0 && (filters.status === "all" || filters.status === "pending");
+    filters.view === "generation" &&
+    pageIndex === 0 &&
+    (filters.status === "all" || filters.status === "pending");
   const inProgress = useMemo(() => {
     if (!showInProgress) return [];
     return sortByStartedDesc([
@@ -211,6 +222,25 @@ export function UsageRecordsSection() {
         <p className="text-sm text-muted-foreground">{t("usage_records_desc")}</p>
       </header>
 
+      <div role="group" aria-label={t("usage_view_label")} className="flex items-center gap-1">
+        {VIEWS.map((option) => {
+          const active = filters.view === option.value;
+          return (
+            <Button
+              key={option.value}
+              size="sm"
+              variant={active ? "secondary" : "ghost"}
+              aria-pressed={active}
+              onClick={() => {
+                if (!active) onFiltersChange(viewPatch(option.value));
+              }}
+            >
+              {t(option.labelKey)}
+            </Button>
+          );
+        })}
+      </div>
+
       <UsageFilterBar
         filters={filters}
         summary={summary}
@@ -246,21 +276,35 @@ export function UsageRecordsSection() {
         )}
       </div>
 
-      <UsageRecordsCard
-        filters={filters}
-        summary={summary}
-        records={rows}
-        inProgress={inProgress}
-        loading={recordsLoading}
-        failed={recordsFailed}
-        total={total}
-        pageIndex={pageIndex}
-        hasNext={nextCursor !== null}
-        onStatusChange={(status) => onFiltersChange({ status })}
-        onPage={(direction) => void goToPage(direction)}
-        onOpenDetail={onOpenDetail}
-        onCancelAll={onCancelAll}
-      />
+      {filters.view === "agent" ? (
+        <UsageSessionsCard
+          filters={filters}
+          summary={summary}
+          sessions={sessions}
+          loading={recordsLoading}
+          failed={recordsFailed}
+          total={total}
+          pageIndex={pageIndex}
+          hasNext={nextCursor !== null}
+          onPage={(direction) => void goToPage(direction)}
+        />
+      ) : (
+        <UsageRecordsCard
+          filters={filters}
+          summary={summary}
+          records={rows}
+          inProgress={inProgress}
+          loading={recordsLoading}
+          failed={recordsFailed}
+          total={total}
+          pageIndex={pageIndex}
+          hasNext={nextCursor !== null}
+          onStatusChange={(status) => onFiltersChange({ status })}
+          onPage={(direction) => void goToPage(direction)}
+          onOpenDetail={onOpenDetail}
+          onCancelAll={onCancelAll}
+        />
+      )}
 
       {cancellation.request && (
         <CancelConfirmDialog

@@ -54,6 +54,8 @@ import type {
   ProviderConfigDetail,
   ConnectivityCheckResult,
   ProviderCredential,
+  UsageAgentSessionDetail,
+  UsageAgentSessionPage,
   UsageRecordDetail,
   UsageRecordPage,
   UsageSummary,
@@ -214,6 +216,7 @@ import type {
   SuccessResponse,
   TaskListFilters,
   UsageRecordsQuery,
+  UsageSessionsQuery,
   UsageSummaryQuery,
   VersionInfo,
   VideoCapabilitiesQuery,
@@ -240,6 +243,7 @@ export type {
   ProjectAssetType,
   ProjectEventStreamOptions,
   UsageRecordsQuery,
+  UsageSessionsQuery,
   UsageSummaryQuery,
   VersionInfo,
   VideoCapabilitiesQuery,
@@ -3065,8 +3069,41 @@ class API {
     if (query.until) params.append("until", query.until);
     if (query.limit !== undefined) params.append("limit", String(query.limit));
     if (query.cursor) params.append("cursor", query.cursor);
+    if (query.view) params.append("view", query.view);
     const search = params.toString();
     return this.request(`/usage/records${search ? "?" + search : ""}`, {
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * 获取 Agent 会话列表的一页（keyset 分页）：按 session_id 聚合，每个会话一行，
+   * 按最近一轮的时间倒序。
+   */
+  static async getUsageSessions(
+    query: UsageSessionsQuery = {},
+    options: { signal?: AbortSignal } = {}
+  ): Promise<UsageAgentSessionPage> {
+    const params = new URLSearchParams();
+    if (query.projectName !== undefined) params.append("project_name", query.projectName);
+    if (query.providers?.length) params.append("provider", query.providers.join(","));
+    if (query.models?.length) params.append("model", query.models.join(","));
+    if (query.since) params.append("since", query.since);
+    if (query.until) params.append("until", query.until);
+    if (query.limit !== undefined) params.append("limit", String(query.limit));
+    if (query.cursor) params.append("cursor", query.cursor);
+    const search = params.toString();
+    return this.request(`/usage/sessions${search ? "?" + search : ""}`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 获取一个 Agent 会话的明细：按时间每条记录一行。 */
+  static async getUsageSession(
+    sessionId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<UsageAgentSessionDetail> {
+    return this.request(`/usage/sessions/${encodeURIComponent(sessionId)}`, {
       signal: options.signal,
     });
   }
@@ -3092,6 +3129,7 @@ class API {
     if (query.since) params.append("since", query.since);
     if (query.until) params.append("until", query.until);
     if (query.tz) params.append("tz", query.tz);
+    if (query.view) params.append("view", query.view);
     const search = params.toString();
     return this.request(`/usage/summary${search ? "?" + search : ""}`, {
       signal: options.signal,

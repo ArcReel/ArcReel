@@ -371,6 +371,7 @@ MESSAGES = {
     "trial_run_already_running": "Đã có một lần chạy thử đang diễn ra, hãy đợi nó kết thúc hoặc hủy trước",
     "trial_run_not_found": "Không tìm thấy bản ghi chạy thử hoặc bản ghi đã hết hạn",
     "usage_record_not_found": "Không tìm thấy bản ghi sử dụng",
+    "usage_session_not_found": "Không tìm thấy phiên Agent",
     "usage_cursor_invalid": "Con trỏ phân trang không hợp lệ, hãy quay lại trang đầu và duyệt lại",
     "usage_range_too_wide": "Khoảng thời gian thống kê quá rộng, hãy thu hẹp mốc bắt đầu và kết thúc rồi thử lại",
     "usage_time_out_of_range": "Mốc bắt đầu hoặc kết thúc nằm ngoài phạm vi thời gian biểu diễn được, hãy kiểm tra lại rồi thử lại",

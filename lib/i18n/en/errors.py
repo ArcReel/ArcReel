@@ -371,6 +371,7 @@ MESSAGES = {
     "trial_run_already_running": "A trial run is already in progress. Wait for it to finish or cancel it first",
     "trial_run_not_found": "Trial run not found or expired",
     "usage_record_not_found": "Usage record not found",
+    "usage_session_not_found": "Agent session not found",
     "usage_cursor_invalid": "Invalid pagination cursor; go back to the first page and browse again",
     "usage_range_too_wide": "The requested time range is too wide; narrow the start and end and try again",
     "usage_time_out_of_range": "The start or end time is outside the representable range; check it and try again",

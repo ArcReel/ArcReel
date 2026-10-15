@@ -1,4 +1,6 @@
 import type {
+  UsageAgentSession,
+  UsageAgentSessionRecord,
   UsageDailyBucket,
   UsageRecord,
   UsageRecordDetail,
@@ -112,4 +114,47 @@ export function makeUsageDaily(
       ...fill(index),
     };
   });
+}
+
+/** 会话列表的一行；未覆写的列取一个已定价、无未定价记录的会话。 */
+export function makeUsageAgentSession(overrides: Partial<UsageAgentSession> = {}): UsageAgentSession {
+  return {
+    session_id: "sess-1",
+    title: "分镜讨论",
+    session_deleted: false,
+    project_name: "星海列车",
+    project_title: null,
+    models: ["deepseek-chat"],
+    calls: 2,
+    input_tokens: 100_000,
+    output_tokens: 23_000,
+    cost: { USD: 0.5 },
+    unpriced_calls: 0,
+    first_started_at: "2026-03-15T08:00:00+00:00",
+    last_started_at: "2026-03-15T09:00:00+00:00",
+    ...overrides,
+  };
+}
+
+/** 会话明细里的一条记录；未覆写的列取一条已定价、无缓存的记录。 */
+export function makeUsageAgentSessionRecord(
+  overrides: Partial<UsageAgentSessionRecord> = {},
+): UsageAgentSessionRecord {
+  return {
+    id: 1,
+    started_at: "2026-03-15T08:00:00+00:00",
+    status: "success",
+    prompt: "把第三幕的分镜改短一些",
+    provider: "agent-1",
+    model: "deepseek-chat",
+    input_tokens: 1000,
+    output_tokens: 200,
+    cache_read_tokens: null,
+    cache_write_5m_tokens: null,
+    cache_write_1h_tokens: null,
+    cost_amount: 0.0031,
+    unpriced_reason: null,
+    currency: "USD",
+    ...overrides,
+  };
 }

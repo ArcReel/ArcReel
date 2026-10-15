@@ -21,6 +21,7 @@ import {
   providerLabelResolver,
   purposeKey,
   targetParts,
+  unpricedReasonKey,
   usageProjectLabel,
 } from "./usage-record-format";
 
@@ -195,19 +196,6 @@ function InputsGroup({ detail }: { detail: UsageRecordDetail }) {
       </div>
     </div>
   );
-}
-
-/** 未定价原因码 → 文案 key；码来自后端 `UnpricedReason`，不认识的码回落到通用说明。 */
-const UNPRICED_REASON_KEYS: Record<string, string> = {
-  no_entry: "usage_unpriced_reason_no_entry",
-  no_price_table: "usage_unpriced_reason_no_price_table",
-  missing_rate: "usage_unpriced_reason_missing_rate",
-  unrecognized_terms: "usage_unpriced_reason_unrecognized_terms",
-  no_usage_estimate: "usage_unpriced_reason_no_usage_estimate",
-};
-
-function unpricedReasonKey(reason: string | null): string {
-  return (reason && UNPRICED_REASON_KEYS[reason]) || "usage_unpriced_reason_unknown";
 }
 
 const formatTokens = (value: number) => value.toLocaleString();

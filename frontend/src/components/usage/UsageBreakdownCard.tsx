@@ -5,6 +5,7 @@ import { cn } from "cn";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import type { UsageStatsBlock, UsageSummary } from "@/types";
+import { viewPatch } from "@/stores/usage-records-store";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
 import { formatRatio, projectTitleResolver, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
@@ -63,6 +64,7 @@ export function UsageBreakdownCard({
     providerLabel,
     projectLabel: (name: string) => usageProjectLabel(name, t, i18n.language, titleOf(name)),
     other: (count: number) => t("usage_breakdown_other", { count }),
+    agentSessions: t("usage_breakdown_agent_sessions"),
   });
   const totalCalls = Math.max(1, summary?.kpi.calls ?? 0);
 
@@ -215,6 +217,8 @@ interface RowLabels {
   providerLabel: (provider: string | null) => string;
   projectLabel: (name: string) => string;
   other: (count: number) => string;
+  /** Agent 记录合并成的那一项的名称。 */
+  agentSessions: string;
 }
 
 /**
@@ -247,6 +251,19 @@ function buildRows(
     }
   } else if (dim === "provider") {
     for (const row of summary.breakdown.provider.rows) {
+      if (row.agent) {
+        // 点击在两个视图间切换：Agent 记录只在「Agent 会话」视图里按供应商筛选。
+        const active = filters.view === "agent";
+        rows.push({
+          key: "provider:agent",
+          name: labels.agentSessions,
+          sub: null,
+          stats: row,
+          active,
+          filters: viewPatch(active ? "generation" : "agent"),
+        });
+        continue;
+      }
       const active = filters.provider === row.provider;
       rows.push({
         key: `provider:${row.provider}`,
@@ -261,6 +278,18 @@ function buildRows(
     }
   } else {
     for (const row of summary.breakdown.model.rows) {
+      if (row.agent) {
+        const active = filters.view === "agent" && filters.model === row.model;
+        rows.push({
+          key: `model:agent/${row.model}`,
+          name: row.model,
+          sub: labels.agentSessions,
+          stats: row,
+          active,
+          filters: active ? { model: null } : { ...viewPatch("agent"), model: row.model },
+        });
+        continue;
+      }
       const active = filters.provider === row.provider && filters.model === row.model;
       rows.push({
         key: `model:${row.provider}/${row.model}`,

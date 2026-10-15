@@ -118,6 +118,19 @@ export function providerLabelResolver(
   return (provider) => (provider ? (labels.get(provider) ?? provider) : DASH);
 }
 
+/** 未定价原因码 → 文案 key；码来自后端 `UnpricedReason`，不认识的码回落到通用说明。 */
+const UNPRICED_REASON_KEYS: Record<string, string> = {
+  no_entry: "usage_unpriced_reason_no_entry",
+  no_price_table: "usage_unpriced_reason_no_price_table",
+  missing_rate: "usage_unpriced_reason_missing_rate",
+  unrecognized_terms: "usage_unpriced_reason_unrecognized_terms",
+  no_usage_estimate: "usage_unpriced_reason_no_usage_estimate",
+};
+
+export function unpricedReasonKey(reason: string | null): string {
+  return (reason && UNPRICED_REASON_KEYS[reason]) || "usage_unpriced_reason_unknown";
+}
+
 /** 汇总里只有项目名，标题从 `filter_options.project_titles` 查。 */
 export function projectTitleResolver(summary: UsageSummary | null): (name: string) => string | null {
   const titles = summary?.filter_options.project_titles ?? {};
@@ -173,6 +186,32 @@ export function formatCount(value: number, language: string): string {
     countFormatters.set(locale, formatter);
   }
   return formatter.format(value);
+}
+
+const compactFormatters = new Map<string, Intl.NumberFormat>();
+
+/** 末位去零的定点小数：12.0 → 12，12.34 → 12.3。 */
+function trimmedFixed(value: number): string {
+  return String(Number(value.toFixed(1)));
+}
+
+/**
+ * token 数量带单位的紧凑写法，单位写在值里（如「12.3 万 token」）。中文按「万」「亿」进位，
+ * 其余语言走 Intl 的紧凑记数（12.3K tokens）；不足一万（千）的原样写出，带千分位。
+ */
+export function formatTokenAmount(value: number, language: string, t: TFunction): string {
+  if (language.split("-")[0] === "zh") {
+    if (value >= 100_000_000) return t("usage_tokens_amount_100m", { value: trimmedFixed(value / 100_000_000) });
+    if (value >= 10_000) return t("usage_tokens_amount_10k", { value: trimmedFixed(value / 10_000) });
+    return t("usage_tokens_amount", { value: formatCount(value, language) });
+  }
+  const locale = intlLocale(language);
+  let formatter = compactFormatters.get(locale);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 });
+    compactFormatters.set(locale, formatter);
+  }
+  return t("usage_tokens_amount", { value: formatter.format(value) });
 }
 
 const dayFormatters = new Map<string, Intl.DateTimeFormat>();

@@ -351,6 +351,7 @@ MESSAGES = {
     "trial_run_already_running": "已有一个测试连接在进行中，请等它结束或取消后再试",
     "trial_run_not_found": "测试连接记录不存在或已过期",
     "usage_record_not_found": "使用记录不存在",
+    "usage_session_not_found": "Agent 会话不存在",
     "usage_cursor_invalid": "分页游标无效，请回到第一页重新翻阅",
     "usage_range_too_wide": "统计时间范围过大，请缩小起止时刻后重试",
     "usage_time_out_of_range": "起止时刻超出可表示的时间范围，请检查后重试",

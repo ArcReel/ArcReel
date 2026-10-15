@@ -5,11 +5,11 @@ from __future__ import annotations
 import base64
 import binascii
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, func, or_, select, update
+from sqlalchemy import ColumnElement, and_, case, func, or_, select, update
 
 from lib.backends.providers import CALL_TYPE_VIDEO, PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallErrorCode
@@ -22,11 +22,13 @@ from lib.billing.usage_summary import UsageFilterOptions, UsageSummaryRow
 from lib.custom_provider import is_custom_provider
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
+from lib.db.models.session import AgentSession
 from lib.db.models.task import Task
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.display_names import provider_display_names
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
+from lib.i18n import DEFAULT_LOCALE
 
 # 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
 # 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
@@ -755,9 +757,9 @@ class UsageRepository(BaseRepository):
     # 只取行，不在 SQL 里聚合：切天与桶填充交给 lib/billing/usage_summary.py，回避 SQLite 与
     # PostgreSQL 的日期函数差异，也让时区与异常判定的边界能脱离数据库单独驱动。
 
-    async def provider_display_names(self, provider_ids: set[str]) -> dict[str, str]:
-        """供应商 id → 目录里的显示名；目录查不到的回退 id 本身。"""
-        return await provider_display_names(self.session, provider_ids)
+    async def provider_display_names(self, provider_ids: set[str], *, locale: str = DEFAULT_LOCALE) -> dict[str, str]:
+        """供应商 id → 目录里的显示名；目录查不到的回退 id 本身，查不到的 Agent 供应商给泛称。"""
+        return await provider_display_names(self.session, provider_ids, locale=locale)
 
     async def fetch_summary_rows(self, *, filters: UsageFilters | None = None) -> list[UsageSummaryRow]:
         """期间内可聚合的调用行（轻投影）；pending 行不参与任何汇总口径。"""
@@ -773,6 +775,7 @@ class UsageRepository(BaseRepository):
             ApiCall.currency,
             ApiCall.segment_id,
             ApiCall.error_code,
+            ApiCall.purpose,
         ).where(ApiCall.status != CallStatus.PENDING, *usage_filter_clauses(filters or UsageFilters()))
         stmt = self._scope_query(stmt, ApiCall)
 
@@ -789,25 +792,166 @@ class UsageRepository(BaseRepository):
                 currency=row.currency or "USD",
                 segment_id=row.segment_id,
                 error_code=row.error_code,
+                agent=row.purpose == CallPurpose.ASSISTANT_SESSION,
             )
             for row in (await self.session.execute(stmt)).all()
         ]
 
-    async def fetch_usage_filter_options(self) -> UsageFilterOptions:
-        """筛选候选值：全表 distinct，不受本次筛选影响，好让下拉项在筛选后不消失。"""
-        projects_stmt = self._scope_query(select(ApiCall.project_name).distinct(), ApiCall)
-        models_stmt = self._scope_query(select(ApiCall.provider, ApiCall.model).distinct(), ApiCall)
+    async def fetch_usage_filter_options(
+        self, *, agent: bool | None = None, locale: str = DEFAULT_LOCALE
+    ) -> UsageFilterOptions:
+        """筛选候选值：期间不限的 distinct，不受本次筛选影响，好让下拉项在筛选后不消失。
+
+        ``agent`` 选定视图：``False`` 只列生成调用的项目、供应商与模型，``True`` 只列 Agent 会话的，
+        ``None`` 不分视图。
+        """
+        view = _view_clauses(agent)
+        projects_stmt = self._scope_query(select(ApiCall.project_name).where(*view).distinct(), ApiCall)
+        models_stmt = self._scope_query(select(ApiCall.provider, ApiCall.model).where(*view).distinct(), ApiCall)
 
         projects = sorted({row[0] for row in (await self.session.execute(projects_stmt)).all()})
         models = sorted({(row.provider, row.model) for row in (await self.session.execute(models_stmt)).all()})
         provider_ids = {provider for provider, _ in models}
-        labels = await self.provider_display_names(provider_ids)
+        labels = await self.provider_display_names(provider_ids, locale=locale)
 
         return UsageFilterOptions(
             projects=projects,
             providers=[(provider, labels[provider]) for provider in sorted(provider_ids)],
             models=models,
         )
+
+    # --- Agent 会话视图 ------------------------------------------------------------------
+    # 记账粒度不变：每轮每个模型一条供应商调用记录。会话视图只是把 Agent 记录按 session_id 聚合展示。
+
+    async def list_agent_sessions(
+        self,
+        *,
+        filters: UsageFilters | None = None,
+        limit: int = 20,
+        cursor: UsageSessionCursor | None = None,
+    ) -> dict[str, Any]:
+        """按最近一轮的时间倒序取一页 Agent 会话；每个会话一行。
+
+        ``filters`` 与记录列表同口径，先筛记录再按会话聚合（会话只含落在筛选内的记录）。``session_id``
+        为空的记录不成会话，不出现在这里。返回 ``{"items", "next_cursor", "total"}``。
+        """
+        clauses = [
+            *usage_filter_clauses(replace(filters or UsageFilters(), agent=True)),
+            ApiCall.session_id.is_not(None),
+            ApiCall.status != CallStatus.PENDING,
+        ]
+        last_started = func.max(ApiCall.started_at)
+        grouped = select(ApiCall.session_id.label("session_id"), last_started.label("last_started_at")).where(*clauses)
+        grouped = self._scope_query(grouped, ApiCall).group_by(ApiCall.session_id)
+
+        count_stmt = select(func.count()).select_from(grouped.subquery())
+        total = (await self.session.execute(count_stmt)).scalar() or 0
+
+        page_stmt = grouped
+        if cursor is not None:
+            page_stmt = page_stmt.having(
+                or_(
+                    last_started < cursor.last_started_at,
+                    and_(last_started == cursor.last_started_at, ApiCall.session_id < cursor.session_id),
+                )
+            )
+        # 多取一行只为判断还有没有下一页。
+        page_stmt = page_stmt.order_by(last_started.desc(), ApiCall.session_id.desc()).limit(limit + 1)
+        heads = (await self.session.execute(page_stmt)).all()
+        page = heads[:limit]
+        if not page:
+            return {"items": [], "next_cursor": None, "total": total}
+        next_cursor = (
+            UsageSessionCursor(last_started_at=page[-1].last_started_at, session_id=page[-1].session_id)
+            if len(heads) > limit
+            else None
+        )
+
+        session_ids = [row.session_id for row in page]
+        in_page = [*clauses, ApiCall.session_id.in_(session_ids)]
+        unpriced = ApiCall.cost_amount.is_(None)
+        totals_stmt = (
+            select(
+                ApiCall.session_id,
+                func.min(ApiCall.project_name).label("project_name"),
+                func.count().label("calls"),
+                func.coalesce(func.sum(ApiCall.input_tokens), 0).label("input_tokens"),
+                func.coalesce(func.sum(ApiCall.output_tokens), 0).label("output_tokens"),
+                func.min(ApiCall.started_at).label("first_started_at"),
+                func.sum(case((unpriced, 1), else_=0)).label("unpriced_calls"),
+            )
+            .where(*in_page)
+            .group_by(ApiCall.session_id)
+        )
+        totals = {row.session_id: row for row in (await self.session.execute(self._scope_query(totals_stmt, ApiCall)))}
+
+        # 费用按币种分别合计：不同模型的价目表币种可以不同；未定价（NULL）的记录不计入。
+        costs_stmt = (
+            select(ApiCall.session_id, ApiCall.currency, func.sum(ApiCall.cost_amount))
+            .where(*in_page, ApiCall.cost_amount.is_not(None))
+            .group_by(ApiCall.session_id, ApiCall.currency)
+        )
+        costs: dict[str, dict[str, float]] = {}
+        for session_id, currency, amount in (await self.session.execute(self._scope_query(costs_stmt, ApiCall))).all():
+            costs.setdefault(session_id, {})[currency or "USD"] = float(amount or 0.0)
+
+        # 模型按在会话里首次出现的先后列出。
+        models_stmt = (
+            select(ApiCall.session_id, ApiCall.model, func.min(ApiCall.started_at).label("first_seen"))
+            .where(*in_page)
+            .group_by(ApiCall.session_id, ApiCall.model)
+            .order_by("first_seen", ApiCall.model)
+        )
+        models: dict[str, list[str]] = {}
+        for session_id, model, _first_seen in (
+            await self.session.execute(self._scope_query(models_stmt, ApiCall))
+        ).all():
+            models.setdefault(session_id, []).append(model)
+
+        titles = await self._session_titles(session_ids)
+        items = []
+        for head in page:
+            row = totals[head.session_id]
+            items.append(
+                {
+                    "session_id": head.session_id,
+                    # 会话元数据已删除时标题为 None，由界面显示「已删除的会话」。
+                    "title": titles.get(head.session_id),
+                    "session_deleted": head.session_id not in titles,
+                    "project_name": row.project_name,
+                    "models": models.get(head.session_id, []),
+                    "calls": row.calls,
+                    "input_tokens": int(row.input_tokens),
+                    "output_tokens": int(row.output_tokens),
+                    "cost": costs.get(head.session_id, {}),
+                    "unpriced_calls": int(row.unpriced_calls),
+                    "first_started_at": _record_iso(row.first_started_at),
+                    "last_started_at": _record_iso(head.last_started_at),
+                }
+            )
+        return {
+            "items": items,
+            "next_cursor": next_cursor.encode() if next_cursor is not None else None,
+            "total": total,
+        }
+
+    async def _session_titles(self, session_ids: list[str]) -> dict[str, str]:
+        """``api_calls.session_id``（SDK 会话 id）→ 会话标题；会话元数据已删除的不在结果里。"""
+        stmt = select(AgentSession.sdk_session_id, AgentSession.title).where(
+            AgentSession.sdk_session_id.in_(session_ids)
+        )
+        rows = (await self.session.execute(self._scope_query(stmt, AgentSession))).all()
+        return {sdk_session_id: title or "" for sdk_session_id, title in rows}
+
+    async def list_agent_session_records(self, session_id: str) -> list[dict[str, Any]]:
+        """一个 Agent 会话的全部记录，按时间正序；同一轮的几条记录写入时间相同，自然排在一起。"""
+        stmt = (
+            select(ApiCall)
+            .where(*usage_filter_clauses(UsageFilters(agent=True)), ApiCall.session_id == session_id)
+            .order_by(ApiCall.started_at, ApiCall.id)
+        )
+        rows = (await self.session.execute(self._scope_query(stmt, ApiCall))).scalars().all()
+        return [_session_record_to_dict(row) for row in rows]
 
 
 # ---------------------------------------------------------------------------
@@ -837,6 +981,18 @@ class UsageFilters:
     media_types: tuple[str, ...] = ()
     since: datetime | None = None
     until: datetime | None = None
+    # 视图：``False`` 只要生成调用，``True`` 只要 Agent 会话的记录（来源 assistant_session），
+    # ``None`` 不分。汇总默认不分，计入合计的口径包含 Agent。
+    agent: bool | None = None
+
+
+def _view_clauses(agent: bool | None) -> list[ColumnElement[bool]]:
+    """按视图筛记录。来源为空的记录不是 Agent 记录。"""
+    if agent is None:
+        return []
+    if agent:
+        return [ApiCall.purpose == CallPurpose.ASSISTANT_SESSION]
+    return [or_(ApiCall.purpose.is_(None), ApiCall.purpose != CallPurpose.ASSISTANT_SESSION)]
 
 
 def as_utc(value: datetime) -> datetime:
@@ -863,6 +1019,7 @@ def usage_filter_clauses(filters: UsageFilters) -> list[ColumnElement[bool]]:
         clauses.append(ApiCall.started_at >= as_utc(filters.since))
     if filters.until is not None:
         clauses.append(ApiCall.started_at < as_utc(filters.until))
+    clauses.extend(_view_clauses(filters.agent))
     return clauses
 
 
@@ -911,6 +1068,32 @@ class UsageCursor:
             return cls(started_at=as_utc(datetime.fromisoformat(started_at)), id=cursor_id)
         except (binascii.Error, LookupError, OverflowError, TypeError, UnicodeError, ValueError) as exc:
             # OverflowError：时刻带极端偏移，换算到 UTC 越过 datetime 边界，与解析失败同等对待。
+            raise UsageCursorError(f"无法解码的游标: {raw!r}") from exc
+
+
+@dataclass(frozen=True)
+class UsageSessionCursor:
+    """会话列表 keyset 分页的位置：上一页最后一个会话的 ``(最近一轮时间, session_id)``。"""
+
+    last_started_at: datetime
+    session_id: str
+
+    def encode(self) -> str:
+        payload = json.dumps(
+            {"last_started_at": as_utc(self.last_started_at).isoformat(), "session_id": self.session_id}
+        )
+        return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii")
+
+    @classmethod
+    def decode(cls, raw: str) -> UsageSessionCursor:
+        try:
+            payload = json.loads(base64.b64decode(raw.encode("ascii"), altchars=b"-_", validate=True))
+            last_started_at = payload["last_started_at"]
+            session_id = payload["session_id"]
+            if not isinstance(last_started_at, str) or not isinstance(session_id, str) or not session_id:
+                raise ValueError("游标字段类型或范围无效")
+            return cls(last_started_at=as_utc(datetime.fromisoformat(last_started_at)), session_id=session_id)
+        except (binascii.Error, LookupError, OverflowError, TypeError, UnicodeError, ValueError) as exc:
             raise UsageCursorError(f"无法解码的游标: {raw!r}") from exc
 
 
@@ -971,4 +1154,31 @@ def _record_detail_to_dict(row: ApiCall, task_type: str | None) -> dict[str, Any
         "prompt": row.prompt,
         "inputs": row.inputs,
         "last_provider_response": row.last_provider_response,
+    }
+
+
+# 会话明细里「消息」一栏的截断长度：同一轮的几条记录共用同一条提示词，全文放进每一行没有意义。
+SESSION_PROMPT_PREVIEW_CHARS = 300
+
+
+def _session_record_to_dict(row: ApiCall) -> dict[str, Any]:
+    """会话明细里一条记录的投影：时间、这一轮的用户消息、模型、各项 token 与费用。"""
+    prompt = row.prompt
+    if prompt is not None and len(prompt) > SESSION_PROMPT_PREVIEW_CHARS:
+        prompt = prompt[:SESSION_PROMPT_PREVIEW_CHARS] + "…"
+    return {
+        "id": row.id,
+        "started_at": _record_iso(row.started_at),
+        "status": row.status,
+        "prompt": prompt,
+        "provider": row.provider,
+        "model": row.model,
+        "input_tokens": row.input_tokens,
+        "output_tokens": row.output_tokens,
+        "cache_read_tokens": row.cache_read_tokens,
+        "cache_write_5m_tokens": row.cache_write_5m_tokens,
+        "cache_write_1h_tokens": row.cache_write_1h_tokens,
+        "cost_amount": row.cost_amount,
+        "unpriced_reason": row.unpriced_reason,
+        "currency": row.currency,
     }

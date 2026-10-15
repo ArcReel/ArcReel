@@ -15,6 +15,7 @@ MESSAGES: dict[str, str] = {
     "provider_name_agnes": "Agnes",
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "Deleted provider",
+    "deleted_agent_provider_display_name": "Deleted Agent provider",
     # Provider descriptions
     "provider_desc_gemini-aistudio": "Google AI Studio provides Gemini models with image, video, and speech generation, ideal for rapid prototyping and personal projects.",
     "provider_desc_gemini-vertex": "Google Cloud Vertex AI enterprise platform supporting Gemini and Imagen models with higher quotas and audio generation.",

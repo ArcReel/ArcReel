@@ -52,6 +52,8 @@ class UsageSummaryRow:
     currency: str
     segment_id: str | None
     error_code: str | None
+    # Agent 会话的记录（来源 assistant_session）：计入合计与构成，不参与「需要关注」。
+    agent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -250,7 +252,17 @@ def _breakdown_dimension(
     return result
 
 
+_AGENT_MARK = "1"
+_GENERATION_MARK = "0"
+
+
 def _breakdown(rows: list[UsageSummaryRow]) -> dict[str, object]:
+    """三个维度的构成。
+
+    供应商与模型两个维度里，Agent 记录各合并成一项（``agent=True``，不带具体的供应商）：它们的
+    供应商是每条 Agent 凭证一个 ``agent-<凭证 id>``，逐个列出会与生成调用的供应商混在一起，而这里
+    关心的是 Agent 整体的占比；按凭证拆开看在「Agent 会话」视图里筛选。
+    """
     return {
         "project": _breakdown_dimension(
             rows,
@@ -259,13 +271,15 @@ def _breakdown(rows: list[UsageSummaryRow]) -> dict[str, object]:
         ),
         "provider": _breakdown_dimension(
             rows,
-            key_of=lambda row: (row.provider,),
-            fields_of=lambda key: {"provider": key[0]},
+            key_of=lambda row: (_AGENT_MARK, "") if row.agent else (_GENERATION_MARK, row.provider),
+            fields_of=lambda key: {"provider": key[1], "agent": key[0] == _AGENT_MARK},
         ),
         "model": _breakdown_dimension(
             rows,
-            key_of=lambda row: (row.provider, row.model),
-            fields_of=lambda key: {"provider": key[0], "model": key[1]},
+            key_of=lambda row: (
+                (_AGENT_MARK, "", row.model) if row.agent else (_GENERATION_MARK, row.provider, row.model)
+            ),
+            fields_of=lambda key: {"provider": key[1], "model": key[2], "agent": key[0] == _AGENT_MARK},
         ),
     }
 
@@ -368,6 +382,8 @@ def _failure_count(item: dict[str, object]) -> int:
 
 
 def _attention(rows: list[UsageSummaryRow]) -> list[dict[str, object]]:
+    # 失败率与连续失败只统计生成调用：Agent 的轮次不拉高或拉低失败率。
+    rows = [row for row in rows if not row.agent]
     items = _failure_rate_attention(rows) + _consecutive_failure_attention(rows)
 
     # 两类异常按各自的失败次数一起排序；并列时按条目内容定序，保证同一批数据的输出稳定。

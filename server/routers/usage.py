@@ -16,7 +16,14 @@ from pydantic import BaseModel, Field
 from lib.backends.providers import CallStatus, CallType
 from lib.billing.usage_summary import UsageFilterOptions, UsageWindowTooWideError, build_summary
 from lib.db import async_session_factory
-from lib.db.repositories.usage_repo import UsageCursor, UsageCursorError, UsageFilters, UsageRepository, as_utc
+from lib.db.repositories.usage_repo import (
+    UsageCursor,
+    UsageCursorError,
+    UsageFilters,
+    UsageRepository,
+    UsageSessionCursor,
+    as_utc,
+)
 from lib.i18n import _, translate_or
 from lib.infra.api_errors import NotFoundError, UnprocessableError
 from lib.project.project_manager import get_project_manager
@@ -24,6 +31,17 @@ from server.i18n import Locale, Translator
 from server.services.project.episode_item_refs import with_episode_item_refs
 
 router = APIRouter()
+
+# 使用记录的两个视图：「生成调用」不含 Agent 记录，「Agent 会话」只含 Agent 记录。
+UsageView = Literal["generation", "agent"]
+_VIEW_DESCRIPTION = "视图：generation（生成调用，默认，不含 Agent 记录）或 agent（Agent 会话的记录）"
+
+
+def _view_filter(view: UsageView) -> bool:
+    """视图 → ``UsageFilters.agent``。"""
+    return view == "agent"
+
+
 _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
 
 
@@ -137,6 +155,7 @@ async def list_usage_records(
     until: datetime | None = Query(None, description="结束时刻（不含），ISO 8601，无时区按 UTC"),
     limit: int = Query(20, ge=1, le=200, description="每页记录数"),
     cursor: str | None = Query(None, description="上一页返回的不透明游标"),
+    view: UsageView = Query("generation", description=_VIEW_DESCRIPTION),
 ) -> UsageRecordPage:
     try:
         decoded = UsageCursor.decode(cursor) if cursor else None
@@ -152,6 +171,7 @@ async def list_usage_records(
                 media_types=_multi(media_type),
                 since=_utc_instant(since),
                 until=_utc_instant(until),
+                agent=_view_filter(view),
             ),
             statuses=_multi(status),
             segment_ids=_multi(segment_id),
@@ -205,6 +225,114 @@ async def get_usage_record(record_id: int, _t: Translator) -> UsageRecordDetail:
     return UsageRecordDetail.model_validate(record)
 
 
+# --- Agent 会话视图 ---------------------------------------------------------------------
+# 记账粒度不变（每轮每个模型一条记录），这里把 Agent 记录按 session_id 聚合成每个会话一行。
+
+
+class UsageAgentSession(BaseModel):
+    """一个 Agent 会话在会话列表里的一行；合计只含落在筛选内的记录。"""
+
+    session_id: str
+    # 会话标题取自会话元数据；元数据已删除时为 None（``session_deleted`` 同时为真），空串表示尚未命名。
+    title: str | None
+    session_deleted: bool
+    project_name: str
+    project_title: str | None = None
+    # 会话里用到的模型，按首次出现的先后。
+    models: list[str]
+    calls: int
+    # input_tokens 是总输入，含缓存读写。
+    input_tokens: int
+    output_tokens: int
+    # 已定价记录的费用，按币种分别合计；未定价（NULL）的记录不计入，数量见 unpriced_calls。
+    cost: dict[str, float]
+    unpriced_calls: int
+    first_started_at: str
+    last_started_at: str
+
+
+class UsageAgentSessionPage(BaseModel):
+    """keyset 分页的一页，按最近一轮的时间倒序；``next_cursor`` 为空表示已到末页。"""
+
+    items: list[UsageAgentSession]
+    next_cursor: str | None = None
+    total: int
+
+
+class UsageAgentSessionRecord(BaseModel):
+    """会话明细里的一条记录：一轮里某个模型的用量与费用。"""
+
+    id: int
+    started_at: str
+    status: str
+    # 这一轮的用户消息，超长时截断。
+    prompt: str | None = None
+    provider: str
+    model: str
+    # input_tokens 是总输入，含缓存读写；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_5m_tokens: int | None = None
+    cache_write_1h_tokens: int | None = None
+    # None 表示未定价，原因见 unpriced_reason；0 是定价为零。
+    cost_amount: float | None
+    unpriced_reason: str | None = None
+    currency: str
+
+
+class UsageAgentSessionDetail(BaseModel):
+    session_id: str
+    items: list[UsageAgentSessionRecord]
+
+
+@router.get("/usage/sessions", response_model=UsageAgentSessionPage)
+async def list_usage_sessions(
+    project_name: str | None = Query(None, description="项目名称"),
+    provider: str | None = Query(None, description="供应商 id，逗号分隔多选"),
+    model: str | None = Query(None, description="模型，逗号分隔多选"),
+    since: datetime | None = Query(None, description="起始时刻（含），ISO 8601，无时区按 UTC"),
+    until: datetime | None = Query(None, description="结束时刻（不含），ISO 8601，无时区按 UTC"),
+    limit: int = Query(20, ge=1, le=200, description="每页会话数"),
+    cursor: str | None = Query(None, description="上一页返回的不透明游标"),
+) -> UsageAgentSessionPage:
+    """Agent 会话列表：按 ``session_id`` 聚合，每个会话一行，按最近一轮的时间倒序。
+
+    筛选与 ``/usage/records`` 同口径（时间范围、项目、供应商、模型）；已经以 ``anthropic`` 落库的
+    历史记录同样按会话聚合。
+    """
+    try:
+        decoded = UsageSessionCursor.decode(cursor) if cursor else None
+    except UsageCursorError as exc:
+        raise UnprocessableError("usage_cursor_invalid") from exc
+
+    async with async_session_factory() as session:
+        page = await UsageRepository(session).list_agent_sessions(
+            filters=UsageFilters(
+                project_name=project_name,
+                providers=_multi(provider),
+                models=_multi(model),
+                since=_utc_instant(since),
+                until=_utc_instant(until),
+            ),
+            limit=limit,
+            cursor=decoded,
+        )
+    titles = await asyncio.to_thread(_project_titles, (item["project_name"] for item in page["items"]))
+    page["items"] = [{**item, "project_title": titles.get(item["project_name"])} for item in page["items"]]
+    return UsageAgentSessionPage.model_validate(page)
+
+
+@router.get("/usage/sessions/{session_id}", response_model=UsageAgentSessionDetail)
+async def get_usage_session(session_id: str) -> UsageAgentSessionDetail:
+    """一个 Agent 会话的明细：按时间每条记录一行，不套列表的筛选。"""
+    async with async_session_factory() as session:
+        items = await UsageRepository(session).list_agent_session_records(session_id)
+    if not items:
+        raise NotFoundError("usage_session_not_found")
+    return UsageAgentSessionDetail(session_id=session_id, items=[UsageAgentSessionRecord(**item) for item in items])
+
+
 # --- 汇总读接口（GET /usage/summary）---------------------------------------------------
 # 设置页总览与顶栏入口共用这一次请求：KPI、日桶趋势、三维构成、需要关注与筛选候选值。
 # 聚合规则在 lib/billing/usage_summary.py，这里只负责取参、取行与形状声明。
@@ -243,12 +371,15 @@ class UsageProjectRow(UsageStats):
 
 
 class UsageProviderRow(UsageStats):
+    # Agent 记录合并成一项：``agent`` 为真，``provider`` 为空。
     provider: str
+    agent: bool = False
 
 
 class UsageModelRow(UsageStats):
     provider: str
     model: str
+    agent: bool = False
 
 
 class UsageBreakdownOther(UsageStats):
@@ -340,8 +471,11 @@ async def get_usage_summary(
     media_type: CallType | None = Query(None, description="媒体类型 (image/video/text/audio)"),
     since: datetime | None = Query(None, description="起始时刻（含），ISO 8601，无时区按 UTC"),
     until: datetime | None = Query(None, description="结束时刻（不含），ISO 8601，无时区按 UTC"),
+    view: UsageView = Query("generation", description="决定筛选候选值列哪个视图的项目、供应商与模型；合计不分视图"),
 ) -> dict[str, object]:
     """一次返回总览所需的全部聚合；不传 since / until 即全部时间。
+
+    合计、趋势与构成包含 Agent 记录（构成里 Agent 会话单独占一项），「需要关注」只统计生成调用。
 
     不收 ``status``：pending 不进聚合，其余三个终态一起构成 KPI 的口径，按状态再切会让
     调用次数与成功率互相矛盾。记录表的状态筛选带上来时在此被忽略。
@@ -368,7 +502,7 @@ async def get_usage_summary(
     async with async_session_factory() as session:
         repo = UsageRepository(session)
         rows = await repo.fetch_summary_rows(filters=filters)
-        options = await repo.fetch_usage_filter_options()
+        options = await repo.fetch_usage_filter_options(agent=_view_filter(view), locale=locale)
 
     # 仓储按默认语言给出目录里的显示名；有译名表的内置供应商按请求语言改写，自定义供应商
     # 用户自填的名字原样保留，与 /providers 目录同一张表。
