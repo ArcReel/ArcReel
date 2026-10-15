@@ -1,5 +1,6 @@
-"""PROVIDER_REGISTRY 字段与注册完整性单元测试。"""
+"""PROVIDER_REGISTRY 字段与注册完整性单元测试；模型清单经目录查询读取。"""
 
+from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
 
 
@@ -17,20 +18,20 @@ def test_ark_agent_plan_registered() -> None:
     p = PROVIDER_REGISTRY["ark-agent-plan"]
     assert p.default_base_url == "https://ark.cn-beijing.volces.com/api/plan/v3"
     assert "api_key" in p.required_keys
-    defaults_by_media = {m.media_type: mid for mid, m in p.models.items() if m.default}
+    models = catalog.list_models("ark-agent-plan")
+    defaults_by_media = {m.media_type: mid for mid, m in models.items() if m.default}
     assert defaults_by_media == {
         "text": "doubao-seed-2.0-lite",
         "image": "doubao-seedream-5.0-lite",
         "video": "doubao-seedance-2.0-mini",
     }
-    for mid, m in p.models.items():
+    for mid, m in models.items():
         if m.media_type == "video":
             assert m.supported_durations, f"{mid} missing supported_durations"
             assert m.resolutions, f"{mid} missing resolutions"
 
 
 def test_ark_agent_plan_baseline_models_present() -> None:
-    p = PROVIDER_REGISTRY["ark-agent-plan"]
     baseline = {
         "doubao-seed-2.0-mini",
         "doubao-seed-2.0-lite",
@@ -41,17 +42,18 @@ def test_ark_agent_plan_baseline_models_present() -> None:
         "doubao-seedance-2.0-fast",
         "doubao-seedance-2.0-mini",
     }
-    assert baseline.issubset(set(p.models.keys()))
+    assert baseline.issubset(set(catalog.list_models("ark-agent-plan")))
 
 
 def test_ark_agent_plan_fast_has_no_1080p() -> None:
-    p = PROVIDER_REGISTRY["ark-agent-plan"]
-    assert p.models["doubao-seedance-2.0-fast"].resolutions == ["480p", "720p"]
+    model = catalog.get_model("ark-agent-plan", "doubao-seedance-2.0-fast")
+    assert model is not None
+    assert model.resolutions == ["480p", "720p"]
 
 
 def test_ark_agent_plan_model_id_format_differs_from_ark() -> None:
-    ark_ids = set(PROVIDER_REGISTRY["ark"].models.keys())
-    agent_plan_ids = set(PROVIDER_REGISTRY["ark-agent-plan"].models.keys())
+    ark_ids = set(catalog.list_models("ark"))
+    agent_plan_ids = set(catalog.list_models("ark-agent-plan"))
     assert not (ark_ids & agent_plan_ids), "ark vs ark-agent-plan 模型 ID 命名不同，不应重叠"
 
 
@@ -80,51 +82,42 @@ def test_provider_meta_credential_groups_default_empty() -> None:
 def test_kling_declares_image_and_video_max_workers() -> None:
     """可灵覆盖 image + video 两条 lane，optional_keys 须声明两者的并发上限字段。"""
     p = PROVIDER_REGISTRY["kling"]
-    assert {"image", "video"} <= set(p.media_types)
+    assert {"image", "video"} <= set(catalog.provider_media_types("kling"))
     assert "image_max_workers" in p.optional_keys
     assert "video_max_workers" in p.optional_keys
 
 
 def test_kling_default_video_model_v2_5_turbo() -> None:
     """JWT 直连视频默认模型 kling-v2-5-turbo，能力声明齐备。"""
-    p = PROVIDER_REGISTRY["kling"]
-    assert "kling-v2-5-turbo" in p.models
-    turbo = p.models["kling-v2-5-turbo"]
+    assert catalog.default_model("kling", "video") == "kling-v2-5-turbo"
+    turbo = catalog.get_model("kling", "kling-v2-5-turbo")
+    assert turbo is not None
     assert turbo.media_type == "video"
-    assert turbo.default is True
     assert turbo.supported_durations == [5, 10]
     assert turbo.resolutions, "默认视频模型须声明 resolutions"
-    assert turbo.pricing is not None
+    price = catalog.provider_model_price("kling", "kling-v2-5-turbo", "video")
+    assert price is not None
+    assert price.price is not None
 
 
 def test_kling_image_models() -> None:
-    """图像模型：默认 kling-image-o1（按张 flat ¥0.2），v3-omni 别名键按分辨率（4K ¥0.4）。"""
-    from lib.billing.pricing.types import PerImageByResolution, PerImageFlat
-
-    p = PROVIDER_REGISTRY["kling"]
-    assert "image" in p.media_types
-
-    o1 = p.models["kling-image-o1"]
+    """图像模型：默认 kling-image-o1，v3-omni 的图像模型沿用别名键。"""
+    assert catalog.default_model("kling", "image") == "kling-image-o1"
+    o1 = catalog.get_model("kling", "kling-image-o1")
+    assert o1 is not None
     assert o1.media_type == "image"
-    assert o1.default is True
     assert o1.capabilities == ["text_to_image", "image_to_image"]
     assert o1.resolutions == ["1K", "2K"]
     # 普通模型：无别名，键名即 API 名。
     assert o1.api_model_name is None
-    assert isinstance(o1.pricing, PerImageFlat)
-    assert o1.pricing.currency == "CNY"
-    assert o1.pricing.rates["kling-image-o1"] == 0.2
 
-    # 两栖模型：图像条目用别名键避开与视频条目撞主键，api_model_name 回指真实 API 名。
-    omni = p.models["kling-v3-omni-image"]
+    # 两栖模型：图像模型用别名键避开与视频模型撞键，api_model_name 回指真实 API 名。
+    omni = catalog.get_model("kling", "kling-v3-omni-image")
+    assert omni is not None
     assert omni.media_type == "image"
     assert omni.api_model_name == "kling-v3-omni"
     assert omni.resolutions == ["1K", "2K", "4K"]
-    assert isinstance(omni.pricing, PerImageByResolution)
-    # 计费查表键 = registry 键名（result.model），非 API 名。
-    assert omni.pricing.rates["kling-v3-omni-image"] == {"1K": 0.2, "2K": 0.2, "4K": 0.4}
-    # 视频主键 kling-v3-omni 不归本片（图像片不注册视频条目）。
-    video_omni = p.models.get("kling-v3-omni")
+    video_omni = catalog.get_model("kling", "kling-v3-omni")
     assert video_omni is None or video_omni.media_type == "video"
 
 

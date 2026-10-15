@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from lib.catalog import query as catalog
 from lib.catalog.builtin_models import disabled_without_state
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.service import ConfigService, ProviderStatus
@@ -98,8 +99,8 @@ def _make_mock_svc(
                     display_name=meta.display_name,
                     description=meta.description,
                     status=status,
-                    media_types=list(meta.media_types),
-                    capabilities=list(meta.capabilities),
+                    media_types=catalog.provider_media_types(name),
+                    capabilities=catalog.provider_capabilities(name),
                     required_keys=list(meta.required_keys),
                     credential_count=1 if name in ready else 0,
                     # 没有内置供应商模型状态行的实例：条目已下架的模型为停用

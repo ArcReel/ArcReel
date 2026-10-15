@@ -1,47 +1,17 @@
-"""出厂快照：随代码打包、过校验器，且与注册表登记的模型保持一致。
+"""出厂快照：随代码打包、过校验器，且与注册表登记的供应商一级代码事实对得上。
 
-注册表的 ``ModelInfo`` 在计费迁到价目表之前仍保留模型字段。快照由注册表一次性转换而来，这里核对两份数据
-没有分叉：往注册表加模型而不同步快照，或反过来，都会在这里失败。
-
-价格不逐项比对：快照的价目表按官方定价页修正过（Seedance 2.x、可灵视频、Vidu、缓存价、服务档等），以快照为准；
-注册表的定价只是计费迁到价目表之前的过渡，这里只核对有定价的模型在快照里有同币种、可计价的价目表。
+模型清单、模型事实、默认模型与价目表只在快照里有一份，模型级内容的登记见 ``test_builtin_provider_models.py``。
+这里核对快照与代码之间的约定：快照里的内置供应商就是注册表登记的那些，供应商在某个媒体类型下有模型时，
+代码里登记了这一媒体类型的调用通道。
 """
 
 import pytest
 
 from arcreel_catalog_core import CATALOG_FILENAME, MANIFEST_FILENAME, check_catalog_files
-from lib.billing.pricing.types import ViduDelegate
+from lib.backends.backend_assembly.specs import get_provider_spec
 from lib.catalog import query as catalog
-from lib.catalog.query import SNAPSHOT_DIR, CatalogModel
-from lib.config.registry import PROVIDER_REGISTRY, ModelInfo
-
-# 方舟 Agent Plan 的 minimax-m2.7 与 MiniMax 供应商的 MiniMax-M2.7 名字归一化后相同，按目录格式只能共用
-# 一个条目，事实取 MiniMax 官方的登记（多出结构化输出、最大输出 204800）。
-_SHARED_ENTRY_DEVIATIONS = {("ark-agent-plan", "minimax-m2.7")}
-
-
-def _registry_view(info: ModelInfo) -> CatalogModel:
-    return CatalogModel(
-        display_name=info.display_name,
-        media_type=info.media_type,
-        capabilities=info.capabilities,
-        default=info.default,
-        supported_durations=info.supported_durations,
-        duration_resolution_constraints=info.duration_resolution_constraints,
-        reference_image_durations=info.reference_image_durations,
-        resolutions=info.resolutions,
-        hidden=info.hidden,
-        api_model_name=info.api_model_name,
-        max_output_tokens=info.max_output_tokens,
-    )
-
-
-def _registry_models() -> list[tuple[str, str, ModelInfo]]:
-    return [
-        (provider_id, model_id, info)
-        for provider_id, meta in PROVIDER_REGISTRY.items()
-        for model_id, info in meta.models.items()
-    ]
+from lib.catalog.query import SNAPSHOT_DIR
+from lib.config.registry import PROVIDER_REGISTRY
 
 
 def test_snapshot_passes_build_side_check():
@@ -52,24 +22,26 @@ def test_snapshot_passes_build_side_check():
     assert catalog.factory_snapshot().dataset_version
 
 
+def test_snapshot_lists_exactly_the_registry_providers():
+    assert set(catalog.factory_snapshot().builtin_providers) == set(PROVIDER_REGISTRY)
+
+
 @pytest.mark.parametrize("provider_id", list(PROVIDER_REGISTRY))
-def test_snapshot_lists_every_registry_model_in_order(provider_id: str):
-    assert list(catalog.list_models(provider_id)) == list(PROVIDER_REGISTRY[provider_id].models)
+def test_every_listed_model_resolves_to_an_entry(provider_id: str):
+    # 引用不到条目的供应商模型会在查询时被跳过，这里要求清单与查询结果一一对应。
+    listing = catalog.factory_snapshot().builtin_providers[provider_id]
+    assert len(catalog.list_models(provider_id)) == len(listing.models)
 
 
-@pytest.mark.parametrize(
-    ("provider_id", "model_id", "info"),
-    [
-        pytest.param(*row, id=f"{row[0]}/{row[1]}")
-        for row in _registry_models()
-        if (row[0], row[1]) not in _SHARED_ENTRY_DEVIATIONS
-    ],
-)
-def test_snapshot_model_matches_registry(provider_id: str, model_id: str, info: ModelInfo):
-    assert catalog.get_model(provider_id, model_id) == _registry_view(info)
+@pytest.mark.parametrize("provider_id", list(PROVIDER_REGISTRY))
+def test_every_listed_media_type_has_a_call_channel(provider_id: str):
+    for media_type in catalog.provider_media_types(provider_id):
+        assert get_provider_spec(provider_id, media_type).provider_id == provider_id
 
 
 def test_agent_plan_model_sharing_an_entry_takes_the_maker_facts():
+    # 方舟 Agent Plan 的 minimax-m2.7 与 MiniMax 供应商的 MiniMax-M2.7 名字归一化后相同，按目录格式只能共用
+    # 一个条目，事实取 MiniMax 官方的登记。
     plan = catalog.get_model("ark-agent-plan", "minimax-m2.7")
     maker = catalog.get_model("minimax", "MiniMax-M2.7")
 
@@ -89,22 +61,12 @@ def test_amphibious_legacy_key_resolves_to_image_entry():
     assert (model.media_type, model.api_model_name) == ("image", "kling-v3-omni")
 
 
-@pytest.mark.parametrize(
-    ("provider_id", "model_id", "info"),
-    [
-        pytest.param(*row, id=f"{row[0]}/{row[1]}")
-        for row in _registry_models()
-        if row[2].pricing is not None and not isinstance(row[2].pricing, ViduDelegate)
-    ],
-)
-def test_priced_registry_model_has_price_table_in_same_currency(provider_id: str, model_id: str, info: ModelInfo):
+def test_every_listed_model_with_a_price_table_is_priceable():
     data = catalog.factory_snapshot()
-    api_model_name = info.api_model_name or model_id
-    listed = [m for m in data.builtin_providers[provider_id].models if m.api_model_name == api_model_name]
-    entries = [entry for m in listed if (entry := data.entry_of(m)) is not None and entry.media_type == info.media_type]
-
-    assert len(entries) == 1
-    price = entries[0].price
-    assert price is not None
-    assert info.pricing is not None
-    assert (price.currency, price.is_priceable) == (info.pricing.currency, True)
+    unpriceable = [
+        f"{provider_id}/{model.api_model_name}"
+        for provider_id, listing in data.builtin_providers.items()
+        for model in listing.models
+        if (entry := data.entry_of(model)) is not None and entry.price is not None and not entry.price.is_priceable
+    ]
+    assert unpriceable == []

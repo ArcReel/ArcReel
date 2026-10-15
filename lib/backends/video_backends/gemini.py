@@ -35,6 +35,7 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.gemini_shared import (
+    GEMINI_DEFAULT_VIDEO_MODEL,
     VERTEX_SCOPES,
     RateLimiter,
     gemini_http_options,
@@ -103,9 +104,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         self._transport_layer = transport_layer
         self._http_options: _types.HttpOptions | _types.HttpOptionsDict | None = None
 
-        from lib.billing.cost_calculator import cost_calculator
-
-        self._video_model = video_model or cost_calculator.DEFAULT_VIDEO_MODEL
+        self._video_model = video_model or GEMINI_DEFAULT_VIDEO_MODEL
 
         if self._backend_type == "vertex":
             import json as json_module

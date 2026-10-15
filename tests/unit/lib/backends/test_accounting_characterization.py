@@ -2,7 +2,7 @@
 
 以生成器公开方法驱动 + 假 backend（Protocol 实现，返回可控结果/抛可控异常）+ 真内存
 SQLite 落库 + 冻结时钟，把记账链路（Ledger → UsageRepository → 结算 →
-CostCalculator → 定价策略）的落库行为逐字段锁定：链路内部不 mock，断言 ApiCall 整行，
+目录价目表计价）的落库行为逐字段锁定：链路内部不 mock，断言 ApiCall 整行，
 任何记账落库行为的意外变化都会在此当场失败。
 
 五条通道（Agent 会话的轮次记账见 ``tests/integration/server/agent_runtime/test_session_manager_usage_billing.py``）：
@@ -54,6 +54,7 @@ from lib.backends.text_backends.base import (
     prompt_json_fallback,
 )
 from lib.backends.text_generator import TextGenerator
+from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.billing.ledger import Ledger
 from lib.billing.metering import Usage
 from lib.billing.multipliers import set_provider_multiplier
@@ -433,9 +434,14 @@ class TestImageChannel:
             tmp_path,
             acct,
             image_backend=_FakeImageBackend(
-                provider="gemini",
+                provider="gemini-aistudio",
                 model="gemini-3-pro-image",
                 result_fields={"usage_tokens": 8},
+                usage_from_request=lambda request: GeminiImageBackend.estimate_usage(
+                    ImageRequestFacts(
+                        model="gemini-3-pro-image", aspect_ratio=request.aspect_ratio, image_size=request.image_size
+                    )
+                ),
             ),
         )
 
@@ -449,6 +455,7 @@ class TestImageChannel:
                 purpose="generation_task",
                 call_type="image",
                 model="gemini-3-pro-image",
+                provider="gemini-aistudio",
                 prompt="图" * 700,
                 task_id="T-1",
                 resolution="2K",
@@ -472,6 +479,15 @@ class TestImageChannel:
                     "text_input_tokens": 50_000,
                     "text_output_tokens": 10_000,
                 },
+                usage_from_request=lambda _request: Usage(
+                    quantities={
+                        "uncached_input_tokens": 50_000,
+                        "uncached_image_input_tokens": 100_000,
+                        "image_output_tokens": 200_000,
+                        "output_tokens": 10_000,
+                    },
+                    dimensions={"resolution": "1024x1536", "quality": "medium"},
+                ),
             ),
         )
 
@@ -737,7 +753,13 @@ class TestAudioChannel:
 
 
 def _veo_backend(**result_fields: Any) -> _FakeVideoBackend:
-    return _FakeVideoBackend(provider="gemini", model="veo-3.1-generate-preview", result_fields=result_fields)
+    """AI Studio 的 Veo 3.1：按 GeminiVideoBackend 的用量契约上报计量，价目表按输出秒数 × 分辨率 × 有声计价。"""
+    return _FakeVideoBackend(
+        provider="gemini-aistudio",
+        model="veo-3.1-generate-preview",
+        result_fields=result_fields,
+        metered=lambda request, result: GeminiVideoBackend.metered_usage("veo-3.1-generate-preview", request, result),
+    )
 
 
 async def _generate_video(gen: MediaGenerator) -> None:
@@ -776,7 +798,7 @@ class TestVideoChannel:
         # (720p, 有声) 0.40 USD/s × 8s
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(cost_amount=pytest.approx(3.2), usage_tokens=0),
+            _expected_video_row(provider="gemini-aistudio", cost_amount=pytest.approx(3.2), usage_tokens=0),
         )
 
     async def test_backend_reported_audio_flag_overrides_request(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -787,7 +809,9 @@ class TestVideoChannel:
         # provider 回报无声覆盖请求有声：行落 False，按 (720p, 无声) 0.20 USD/s 计费
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(generate_audio=False, cost_amount=pytest.approx(1.6), usage_tokens=0),
+            _expected_video_row(
+                provider="gemini-aistudio", generate_audio=False, cost_amount=pytest.approx(1.6), usage_tokens=0
+            ),
         )
 
     async def test_billed_duration_overrides_requested_duration(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -798,7 +822,9 @@ class TestVideoChannel:
         # 实际计费时长 6s 覆盖请求 8s，账本与自动费用同口径
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(duration_seconds=6, cost_amount=pytest.approx(2.4), usage_tokens=0),
+            _expected_video_row(
+                provider="gemini-aistudio", duration_seconds=6, cost_amount=pytest.approx(2.4), usage_tokens=0
+            ),
         )
 
     async def test_billed_duration_over_limit_falls_back_to_request(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -809,7 +835,9 @@ class TestVideoChannel:
         # 超出 24h 上限的计费时长视同未提供，回落请求时长
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(duration_seconds=8, cost_amount=pytest.approx(3.2), usage_tokens=0),
+            _expected_video_row(
+                provider="gemini-aistudio", duration_seconds=8, cost_amount=pytest.approx(3.2), usage_tokens=0
+            ),
         )
 
     async def test_ark_per_token_billing(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -1447,7 +1475,7 @@ async def _pending_video_call(acct: _AccountingDb, *, task_id: str | None = _RES
             duration_seconds=8,
             aspect_ratio="9:16",
             generate_audio=True,
-            provider="gemini",
+            provider="gemini-aistudio",
             segment_id="E1S01",
             task_id=task_id,
             purpose=CallPurpose.GENERATION_TASK,
@@ -1471,6 +1499,7 @@ def _expected_resume_row(**overrides: Any) -> dict[str, Any]:
     # resume 补账不回写 output_path：finalize 只翻状态与费用口径字段
     defaults: dict[str, Any] = {
         "purpose": "generation_task",
+        "provider": "gemini-aistudio",
         "task_id": _RESUME_TASK_ID,
         "call_type": "video",
         "model": "veo-3.1-generate-preview",
@@ -1579,6 +1608,7 @@ class TestResumeChannel:
             await acct.fetch_only_row(),
             _expected_pending_row(
                 purpose="generation_task",
+                provider="gemini-aistudio",
                 call_type="video",
                 model="veo-3.1-generate-preview",
                 prompt="p",

@@ -1,4 +1,4 @@
-"""目录查询的测试数据：在出厂快照上改写条目或换一份目录数据，再交给目录查询读取。"""
+"""目录查询的测试数据：在出厂快照上改写条目或换一份目录数据，再交给目录查询读取；按目录价目表给内置供应商的一次调用计价。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 
 from arcreel_catalog_core import BuiltinProviderListing, BuiltinProviderModel, CatalogData, CatalogEntry
+from lib.billing.catalog_pricing import price_builtin_call
+from lib.billing.metering import Priced, Usage
 from lib.catalog import query
 
 
@@ -50,3 +52,22 @@ def catalog_of(
         for provider_id, refs in providers.items()
     }
     return CatalogData(dataset_version="2026-01-01T00:00:00Z", entries=entries, builtin_providers=listings)
+
+
+def builtin_price(
+    provider_id: str,
+    model: str,
+    media_type: str,
+    quantities: Mapping[str, float],
+    dimensions: Mapping[str, object] | None = None,
+) -> tuple[float, str]:
+    """内置供应商一次单请求调用在倍率 1 下的参考费用 ``(金额, 币种)``；算不出时断言失败。"""
+    cost = price_builtin_call(
+        provider=provider_id,
+        model=model,
+        media_type=media_type,
+        requests=(Usage(quantities=quantities, dimensions=dimensions or {}),),
+        provider_multiplier=1.0,
+    )
+    assert isinstance(cost, Priced), cost
+    return cost.amount, cost.currency

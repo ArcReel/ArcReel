@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, and_, case, func, null, or_, select, update
 
 from lib.agent.credential_tiers import AgentPricing
-from lib.backends.providers import CALL_TYPE_TEXT, CALL_TYPE_VIDEO, PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.backends.providers import CALL_TYPE_TEXT, PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallErrorCode
 from lib.billing.catalog_pricing import (
     is_builtin_provider,
@@ -21,10 +21,8 @@ from lib.billing.catalog_pricing import (
     price_builtin_call,
     price_custom_call,
 )
-from lib.billing.cost_calculator import cost_calculator
 from lib.billing.metering import Priced, UnpricedReason, Usage
 from lib.billing.multipliers import get_provider_multiplier
-from lib.billing.pricing.strategies import PricingParams
 from lib.billing.usage_summary import UsageFilterOptions, UsageSummaryRow
 from lib.custom_provider import is_custom_provider
 from lib.db.base import DEFAULT_USER_ID, utc_now
@@ -90,26 +88,21 @@ class SettlementInput:
     """仓储写侧的申报值对象：承载 caller 在快照时刻提交的原始计费维度。
 
     这些是"申报时刻"的原始值——``billed_duration_seconds`` 可能非法/超限、显式
-    ``cost_amount`` 绕过自动计算——由 ``_settle`` 归一为生效定价（``PricingParams``）。
+    ``cost_amount`` 绕过自动计算——由 ``_settle`` 归一为生效值。
 
     ``usage`` 是按用量契约上报的计量项用量与选择维度，每次供应商请求一份（降级链上被丢弃的请求也已计费，各占
-    一份）：给出时，内置供应商的这次调用按模型目录的价目表逐次计价后相加；自定义供应商的调用一律按所对应条目的
-    价目表计价；其余调用不给时按注册表的定价声明计价，算不出时记为未定价。内置供应商的视频调用不给时也走价目表，计量项全部
-    落空，记为未定价。Agent 会话的轮次不经这里，见 :meth:`UsageRepository.record_agent_turn`。三项缓存 token 是各次请求之和，
-    原样写入同名列。
-    与 ``PricingParams``（结算后的生效定价输入）刻意分成两个对象，避免原始值与生效值
-    在同一结构里语义混淆。新增计费字段自此只扩本对象，不再穿仓储写侧散参。
+    一份）：内置与自定义供应商的这次调用按所对应条目的价目表逐次计价后相加；不给时计量项全部落空，记为未定价。
+    供应商既不是内置也不是自定义时记为未定价。Agent 会话的轮次不经这里，见 :meth:`UsageRepository.record_agent_turn`。
+    三项缓存 token 是各次请求之和，原样写入同名列。新增计费字段自此只扩本对象，不再穿仓储写侧散参。
     """
 
     cost_amount: float | None = None
     currency: str | None = None
-    service_tier: str = "default"
     generate_audio: bool | None = None
     billed_duration_seconds: int | None = None
     usage_tokens: int | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
-    quality: str | None = None
     image_input_tokens: int | None = None
     image_output_tokens: int | None = None
     text_input_tokens: int | None = None
@@ -276,9 +269,8 @@ class UsageRepository(BaseRepository):
         - 计费时长/有声标志覆盖：backend 回报值覆盖 start_call 时的请求值，非正或超出
           ``MAX_BILLED_DURATION_SECONDS`` 的计费时长视同未提供、回落请求时长。
         - 费用：显式 ``cost_amount`` 视作 provider 直报计费数据、优先于自动计算；否则在
-          ``auto_calc`` 为真时计算并冻结：申报了 ``usage`` 的内置供应商调用与全部自定义供应商调用按模型目录的
-          价目表与两级倍率计价，查不到单价时费用为 ``None`` 并带未定价原因；其余按行字段 + 申报值调
-          ``cost_calculator``。
+          ``auto_calc`` 为真时计算并冻结：内置与自定义供应商的调用按模型目录的价目表与两级倍率计价，查不到单价时
+          费用为 ``None`` 并带未定价原因；其余供应商记为未定价（``no_entry``）。
         - ``base_currency`` 由 caller 传入承载各自的币种兜底口径（finish_call 兜底
           ``row.currency``，resume 兜底 ``settlement.currency``），保持行为不分叉。
 
@@ -323,37 +315,33 @@ class UsageRepository(BaseRepository):
         cost_amount: float | None = 0.0
         currency = base_currency
         unpriced_reason: str | None = None
-        effective_provider = row.provider or PROVIDER_GEMINI
+        provider = row.provider or ""
         if settlement.cost_amount is not None:
             cost_amount = settlement.cost_amount
             currency = settlement.currency or base_currency
-        elif (
-            auto_calc
-            and (settlement.usage or row.call_type == CALL_TYPE_VIDEO)
-            and is_builtin_provider(effective_provider)
-        ):
-            # 内置视频调用没有上报用量时也走价目表：计量项全部落空，记为未定价，不按秒数猜。
+        elif auto_calc and is_builtin_provider(provider):
+            # 没有上报用量的调用同样走价目表：计量项全部落空，记为未定价，不按秒数或默认模型猜。
             cost = price_builtin_call(
-                provider=effective_provider,
+                provider=provider,
                 model=row.model or "",
                 media_type=row.call_type,
                 requests=settlement.usage,
-                provider_multiplier=await get_provider_multiplier(self.session, effective_provider),
+                provider_multiplier=await get_provider_multiplier(self.session, provider),
             )
             if isinstance(cost, Priced):
                 cost_amount, currency = cost.amount, cost.currency
             else:
                 cost_amount, unpriced_reason = None, str(cost.reason)
-        elif auto_calc and is_custom_provider(effective_provider):
+        elif auto_calc and is_custom_provider(provider):
             # 自定义供应商按所对应条目的价目表与两级倍率计价，对应不上条目时记为未定价（docs/adr/0106）。没有上报
             # 用量时计量项全部落空，同样记为未定价，不按媒体类型硬算、不猜秒数。
-            pricing = await CustomProviderRepository(self.session).resolve_pricing(effective_provider, row.model or "")
+            pricing = await CustomProviderRepository(self.session).resolve_pricing(provider, row.model or "")
             cost = price_custom_call(
                 model=row.model or "",
                 media_type=row.call_type,
                 entry_binding=pricing.entry_binding,
                 requests=settlement.usage,
-                provider_multiplier=await get_provider_multiplier(self.session, effective_provider),
+                provider_multiplier=await get_provider_multiplier(self.session, provider),
                 model_multiplier=pricing.multiplier,
             )
             if isinstance(cost, Priced):
@@ -361,30 +349,8 @@ class UsageRepository(BaseRepository):
             else:
                 cost_amount, unpriced_reason = None, str(cost.reason)
         elif auto_calc:
-            # 没有申报用量、又不是内置或自定义供应商的调用（供应商标识已不在注册表里的存量行）按注册表的定价声明计价。
-            params = PricingParams(
-                call_type=row.call_type,
-                model=row.model,
-                resolution=row.resolution,
-                aspect_ratio=row.aspect_ratio,
-                duration_seconds=effective_duration_seconds,
-                generate_audio=bool(effective_generate_audio),
-                usage_tokens=settlement.usage_tokens,
-                service_tier=settlement.service_tier,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                quality=settlement.quality,
-                image_input_tokens=settlement.image_input_tokens,
-                image_output_tokens=settlement.image_output_tokens,
-                text_input_tokens=settlement.text_input_tokens,
-                text_output_tokens=settlement.text_output_tokens,
-            )
-            try:
-                cost_amount, currency = cost_calculator.calculate_cost(effective_provider, params)
-            except ValueError:
-                # 定价声明算不出（如按秒计价的视频缺时长）：记为未定价。结算报错会让已经产出、已经计费的结果
-                # 被记账括号翻成失败。
-                cost_amount, unpriced_reason = None, str(UnpricedReason.MISSING_RATE)
+            # 供应商既不在注册表、也不是自定义供应商（如已下线供应商的存量行）：对应不上条目，记为未定价。
+            cost_amount, unpriced_reason = None, str(UnpricedReason.NO_ENTRY)
 
         return _SettledCall(
             duration_ms=duration_ms,

@@ -1042,7 +1042,6 @@ class MediaGenerator:
                 provider=cast(str, self._video_provider_id),
                 user_id=self._user_id,
                 segment_id=segment_id_for("video", resource_type, resource_id),
-                service_tier=version_metadata.get("service_tier", "default"),
                 output_path=_project_relative_path(self.project_path, output_path),
                 task_id=task_id,
                 purpose=CallPurpose.GENERATION_TASK,
@@ -1290,16 +1289,14 @@ class MediaGenerator:
 
         # Resume 成功：精准翻 pending → success。ledger.resume_success 收 backend 结果对象，
         # 与视频通道成功分支同源做 union 分发（usage_tokens / generate_audio / 实际计费时长），
-        # cost 由 repo 按 ApiCall 行字段自动算——与 generate 路径记账等价，避免视频已生成但账本
-        # 永久漏记。service_tier 由 caller 透传（ApiCall 模型无该列），让非 default 档位按真实档
-        # 计费。finalize 自身异常不吞，交 worker finally 兜底；WHERE status='pending' 保护幂等性。
+        # cost 由 repo 按调用通道对续跑请求上报的计量计价——与 generate 路径记账等价，避免视频已生成但账本
+        # 永久漏记。finalize 自身异常不吞，交 worker finally 兜底；WHERE status='pending' 保护幂等性。
         if api_call_id is not None:
             async with _remove_staged_output_on_error(staged_output_path):
                 await self.ledger.resume_success(
                     call_id=api_call_id,
                     result=result,
                     usage=backend_metered_usage(self._video_backend, request, result),
-                    service_tier=version_metadata.get("service_tier", "default"),
                 )
         else:
             logger.warning(

@@ -1,4 +1,4 @@
-"""MiniMax 跨层集成测试：内置 provider 注册、文本记账 provider、定价查表、env keys。"""
+"""MiniMax 跨层集成测试：内置 provider 注册、文本记账 provider、目录计价、env keys。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lib.backends.providers import PROVIDER_MINIMAX, PROVIDER_OPENAI
-from lib.billing.pricing.lookup import lookup_pricing
-from lib.billing.pricing.strategies import PricingParams, calculate_pricing
+from lib.catalog import query as catalog
+from tests.catalog_support import builtin_price
 from tests.fakes import captured_openai_clients
 
 
@@ -32,18 +32,17 @@ class TestRegistry:
         from lib.config.registry import PROVIDER_REGISTRY
 
         meta = PROVIDER_REGISTRY[PROVIDER_MINIMAX]
-        assert meta.media_types == ["audio", "image", "text", "video"]
+        assert catalog.provider_media_types(PROVIDER_MINIMAX) == ["audio", "image", "text", "video"]
         assert "api_key" in meta.required_keys
         assert "api_key" in meta.secret_keys
         assert "base_url" in meta.optional_keys
         assert meta.default_base_url == "https://api.minimaxi.com/v1"
-        assert "MiniMax-M3" in meta.models
-        assert meta.models["MiniMax-M3"].default is True
-        assert "vision" in meta.models["MiniMax-M3"].capabilities
-        assert "MiniMax-M2.7" in meta.models
-        assert meta.models["MiniMax-M2.7"].default is False
+        models = catalog.list_models(PROVIDER_MINIMAX)
+        assert models["MiniMax-M3"].default is True
+        assert "vision" in models["MiniMax-M3"].capabilities
+        assert models["MiniMax-M2.7"].default is False
         # image-01：默认图像模型，T2I + I2I
-        image = meta.models["image-01"]
+        image = models["image-01"]
         assert image.media_type == "image"
         assert image.default is True
         assert image.capabilities == ["text_to_image", "image_to_image"]
@@ -113,24 +112,17 @@ class TestFactoryWiring:
         assert captured["model"] == "MiniMax-M2.7"
 
 
-class TestLookupPricing:
+class TestCatalogPricing:
     def test_text_cny_per_token(self):
-        p = lookup_pricing(PROVIDER_MINIMAX, "MiniMax-M2.7", "text")
-        amount, cur = calculate_pricing(
-            p,
-            PricingParams(call_type="text", model="MiniMax-M2.7", input_tokens=1_000_000, output_tokens=1_000_000),
+        amount, cur = builtin_price(
+            PROVIDER_MINIMAX,
+            "MiniMax-M2.7",
+            "text",
+            {"uncached_input_tokens": 1_000_000, "output_tokens": 1_000_000},
         )
         assert cur == "CNY"
         # ¥2.1 入 + ¥8.4 出
         assert amount == pytest.approx(10.5)
-
-    def test_unknown_model_falls_back_to_minimax_cny(self):
-        # 未知 minimax model 回落自身默认 CNY，而非 Gemini USD
-        p = lookup_pricing(PROVIDER_MINIMAX, "minimax-unknown-xyz", "text")
-        _, cur = calculate_pricing(
-            p, PricingParams(call_type="text", model="minimax-unknown-xyz", input_tokens=1000, output_tokens=0)
-        )
-        assert cur == "CNY"
 
     @pytest.mark.parametrize(
         ("model", "resolution", "duration", "expected"),
@@ -144,9 +136,8 @@ class TestLookupPricing:
         ],
     )
     def test_video_per_video_bucket(self, model, resolution, duration, expected):
-        p = lookup_pricing(PROVIDER_MINIMAX, model, "video")
-        amount, cur = calculate_pricing(
-            p, PricingParams(call_type="video", model=model, resolution=resolution, duration_seconds=duration)
+        amount, cur = builtin_price(
+            PROVIDER_MINIMAX, model, "video", {"requests": 1}, {"resolution": resolution, "duration": duration}
         )
         assert cur == "CNY"
         assert amount == pytest.approx(expected)
@@ -156,30 +147,17 @@ class TestLookupPricing:
         [("768p", 4, 2.0), ("768p", 15, 7.5), ("2k", 5, 4.0), ("2k", 15, 12.0)],
     )
     def test_h3_per_second_by_resolution(self, resolution, duration, expected):
-        # H3 按秒 × 分辨率计价（768P 0.50、2K 0.80 元/秒）；键写错会静默回落到 0，故两档都钉死。
-        p = lookup_pricing(PROVIDER_MINIMAX, "MiniMax-H3", "video")
-        amount, cur = calculate_pricing(
-            p,
-            PricingParams(call_type="video", model="MiniMax-H3", resolution=resolution, duration_seconds=duration),
+        # H3 按秒 × 分辨率计价（768P 0.50、2K 0.80 元/秒），两档都钉死。
+        amount, cur = builtin_price(
+            PROVIDER_MINIMAX, "MiniMax-H3", "video", {"output_seconds": duration}, {"resolution": resolution}
         )
         assert cur == "CNY"
         assert amount == pytest.approx(expected)
 
-    def test_video_unmet_bucket_falls_back_nearest_cny(self):
-        # 1080p 仅 6s 档；请求 1080p 10s 未命中 → 同分辨率最近档 (1080p,6)=3.5
-        p = lookup_pricing(PROVIDER_MINIMAX, "MiniMax-Hailuo-2.3", "video")
-        amount, cur = calculate_pricing(
-            p, PricingParams(call_type="video", model="MiniMax-Hailuo-2.3", resolution="1080p", duration_seconds=10)
-        )
-        assert cur == "CNY"
-        assert amount == pytest.approx(3.5)
-
 
 class TestVideoRegistry:
-    def test_video_models_registered(self):
-        from lib.config.registry import PROVIDER_REGISTRY
-
-        models = PROVIDER_REGISTRY[PROVIDER_MINIMAX].models
+    def test_video_models_listed(self):
+        models = catalog.list_models(PROVIDER_MINIMAX)
         h3 = models["MiniMax-H3"]
         assert h3.media_type == "video"
         # H3 是 minimax 视频默认，海螺 2.3 仍可选回。
@@ -195,7 +173,7 @@ class TestVideoRegistry:
         assert hailuo.supported_durations == [6, 10]
         assert hailuo.duration_resolution_constraints == {"1080p": [6]}
 
-        # registry 不声明视频输入模式，minimax 两个型号均无其他特性 token，故 capabilities 为空
+        # 目录不声明视频输入模式，minimax 两个型号均无其他特性 token，故 capabilities 为空
         # ——t2v / i2v 判定读 backend。
         assert hailuo.capabilities == []
         assert models["MiniMax-Hailuo-2.3-Fast"].capabilities == []

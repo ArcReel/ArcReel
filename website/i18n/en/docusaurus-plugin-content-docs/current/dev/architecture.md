@@ -499,13 +499,13 @@ Security principles:
 
 A complete integration of a new provider usually requires:
 
-1. defining capability and configuration models;
+1. declaring the provider's credentials, call channels and default URL in the registry, and adding model entries and the built-in provider listing to the factory snapshot `lib/catalog/snapshot/`;
 2. implementing the corresponding Backend protocol;
 3. standardizing error types;
 4. implementing a synchronous or asynchronous task lifecycle;
 5. saving remote task IDs;
 6. parsing outputs and usage;
-7. implementing cost policies;
+7. reporting meters and selection dimensions from the call channel under the usage contract, and recording price tables on the entries (see [Usage and cost](#usage-and-cost));
 8. integrating with the Settings page;
 9. adding unit and integration tests;
 10. updating provider documentation;

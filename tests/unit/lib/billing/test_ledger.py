@@ -61,7 +61,6 @@ async def _only_row(db_factory: async_sessionmaker) -> ApiCall:
 @dataclass
 class _ImgResult:
     usage_tokens: int | None = 8
-    quality: str | None = "high"
     image_input_tokens: int | None = None
     image_output_tokens: int | None = None
     text_input_tokens: int | None = None
@@ -92,10 +91,9 @@ def _text_result(
 
 
 class TestSettlementDispatch:
-    def test_image_extracts_token_and_quality_fields(self) -> None:
-        s = _settlement_from_result("image", _ImgResult(usage_tokens=8, quality="high"))
+    def test_image_extracts_token_fields(self) -> None:
+        s = _settlement_from_result("image", _ImgResult(usage_tokens=8))
         assert s.usage_tokens == 8
-        assert s.quality == "high"
 
     def test_audio_reports_raw_text_and_records_character_count(self) -> None:
         # 语义转写①：原始文本交计算器统计字符，usage_tokens 记原文字符数
@@ -103,14 +101,11 @@ class TestSettlementDispatch:
         assert s.usage_tokens == 25_000
         assert [usage.text for usage in s.usage] == ["念" * 25_000]
 
-    def test_video_transcribes_duration_to_billed_and_carries_service_tier(self) -> None:
+    def test_video_transcribes_duration_to_billed(self) -> None:
         # 语义转写②：backend 实际计费时长 → billed_duration_seconds（覆盖请求时长）
-        s = _settlement_from_result(
-            "video", _VideoResult(duration_seconds=15, generate_audio=False), service_tier="pro"
-        )
+        s = _settlement_from_result("video", _VideoResult(duration_seconds=15, generate_audio=False))
         assert s.billed_duration_seconds == 15
         assert s.generate_audio is False
-        assert s.service_tier == "pro"
 
     def test_text_splits_total_input_into_non_overlapping_meters(self) -> None:
         s = _settlement_from_result(

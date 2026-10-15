@@ -903,10 +903,11 @@ class TestBuiltinBackendsDeclareCapabilityFunction:
     def test_every_builtin_video_provider_resolvable(self):
         from arcreel_market_core.video_backend_contract import VideoCapabilities
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+        from lib.catalog import query as catalog
         from lib.config.registry import PROVIDER_REGISTRY
 
-        for provider_id, meta in PROVIDER_REGISTRY.items():
-            video_models = [mid for mid, mi in meta.models.items() if mi.media_type == "video"]
+        for provider_id in PROVIDER_REGISTRY:
+            video_models = [mid for mid, mi in catalog.list_models(provider_id).items() if mi.media_type == "video"]
             if not video_models:
                 continue
             for model_id in video_models:

@@ -6,6 +6,7 @@
 
 import pytest
 
+from lib.catalog import query as catalog
 from lib.generation.generation_worker import CapacityTable
 from tests.fakes import bind_safe_session_factory
 
@@ -46,7 +47,7 @@ class TestCapacityTable:
         for pid, meta in PROVIDER_REGISTRY.items():
             assert pid in table._limits
             for lane, global_default in (("image", 5), ("video", 3), ("audio", 10)):
-                if lane not in meta.media_types:
+                if lane not in catalog.provider_media_types(pid):
                     assert table.get(pid, lane) == 0  # 不支持的 lane → 投影为 0
                 elif lane not in meta.default_concurrency:
                     # 未声明出厂默认的 lane 必须落到硬编码全局默认。这条断言不读
@@ -72,11 +73,11 @@ class TestCapacityTable:
         from lib.config.registry import PROVIDER_REGISTRY
 
         table = await CapacityTable.from_db()
-        for pid, meta in PROVIDER_REGISTRY.items():
+        for pid in PROVIDER_REGISTRY:
             assert pid in table._limits
-            if "image" not in meta.media_types:
+            if "image" not in catalog.provider_media_types(pid):
                 assert table.get(pid, "image") == 0
-            if "video" not in meta.media_types:
+            if "video" not in catalog.provider_media_types(pid):
                 assert table.get(pid, "video") == 0
 
     @staticmethod

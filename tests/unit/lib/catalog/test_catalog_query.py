@@ -3,13 +3,9 @@
 import pytest
 
 from arcreel_catalog_core import parse_catalog
-from lib.billing.pricing.types import PerImageFlat
 from lib.catalog import query as catalog
 from lib.catalog.query import CatalogModel
-from lib.config.registry import ModelInfo, ProviderMeta
 from tests.catalog_support import install_catalog
-
-_IMAGE_PRICING = PerImageFlat(rates={"img-new": 0.04}, default_model="img-new", currency="USD")
 
 
 def _entry(name: str, media_type: str, facts: dict, **extra) -> dict:
@@ -122,28 +118,6 @@ class TestCatalogQuery:
             "vision",
         ]
         assert catalog.provider_media_types("unknown-provider") == []
-
-
-def test_model_pricing_reads_registry_pricing(monkeypatch):
-    registry = {
-        "acme": ProviderMeta(
-            display_name="Acme",
-            description="",
-            required_keys=["api_key"],
-            models={
-                "chat": ModelInfo(display_name="Chat", media_type="text", capabilities=["text_generation"]),
-                "img-new": ModelInfo(
-                    display_name="Img New", media_type="image", capabilities=["text_to_image"], pricing=_IMAGE_PRICING
-                ),
-            },
-        ),
-    }
-    monkeypatch.setattr("lib.config.registry.PROVIDER_REGISTRY", registry)
-
-    assert catalog.model_pricing("acme", "img-new") == _IMAGE_PRICING
-    assert catalog.model_pricing("acme", "chat") is None
-    assert catalog.model_pricing("acme", "missing") is None
-    assert catalog.model_pricing("unknown-provider", "img-new") is None
 
 
 def test_reset_for_tests_reloads_snapshot_and_index():

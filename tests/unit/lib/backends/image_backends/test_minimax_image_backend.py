@@ -385,12 +385,8 @@ class TestRetryScope:
 
 class TestPricing:
     def test_image_01_per_image_flat_cny(self):
-        from lib.billing.pricing.lookup import lookup_pricing
-        from lib.billing.pricing.strategies import PricingParams, calculate_pricing
-        from lib.billing.pricing.types import PerImageFlat
+        from tests.catalog_support import builtin_price
 
-        pricing = lookup_pricing(PROVIDER_MINIMAX, "image-01", "image")
-        assert isinstance(pricing, PerImageFlat)
-        amount, currency = calculate_pricing(pricing, PricingParams(call_type="image", model="image-01"))
+        amount, currency = builtin_price(PROVIDER_MINIMAX, "image-01", "image", {"output_images": 1})
         assert amount == pytest.approx(0.025)
         assert currency == "CNY"

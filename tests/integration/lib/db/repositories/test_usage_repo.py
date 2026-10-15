@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import null, select, update
 
 from lib.backends.providers import CallStatus
-from lib.billing.metering import Usage
+from lib.billing.metering import Usage, token_usage
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
@@ -131,27 +131,28 @@ class TestFinalizePendingByCallId:
         assert calls[0].cost_amount == 0.0
 
     async def test_auto_calculates_cost_when_amount_omitted(self, async_session):
-        """cost_amount=None + status='success' → 按 ApiCall 行字段调 cost_calculator 算实际 cost。"""
+        """cost_amount=None + status='success' → 按续跑请求上报的计量查价目表算实际 cost。"""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
             call_type="video",
-            model="veo-3.0-fast-generate-001",
+            model="veo-3.1-generate-preview",
             duration_seconds=8,
             resolution="1080p",
             aspect_ratio="9:16",
             generate_audio=True,
-            provider="gemini",
+            provider="gemini-aistudio",
         )
 
-        affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput())
+        usage = Usage(quantities={"output_seconds": 8}, dimensions={"resolution": "1080p", "audio": True})
+        affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(usage=(usage,)))
         assert affected == 1
 
         calls = await stored_calls(async_session)
-        # auto-calc 由 cost_calculator 按 model/duration/resolution/audio 算出，应为正数
+        # (1080p, 有声) 0.40 USD/s × 8s
         assert calls[0].status == "success"
-        assert calls[0].cost_amount is not None
-        assert calls[0].cost_amount > 0.0, "auto-calc 应算出真实 cost，不应是 0"
+        assert calls[0].cost_amount == pytest.approx(3.2)
+        assert calls[0].unpriced_reason is None
 
     async def test_builtin_video_prices_the_reported_usage(self, async_session):
         """内置视频按调用通道上报的计量与选择维度查价目表，回报的视频 token 同时写回 ApiCall.usage_tokens。"""
@@ -344,41 +345,32 @@ class TestFinalizePendingByCallId:
         assert row.duration_ms is not None
         assert row.duration_ms >= 30 * 24 * 3600 * 1000
 
-    async def test_generate_audio_override_passed_to_cost_calculator(self, async_session, monkeypatch):
+    async def test_generate_audio_override_written_back(self, async_session):
         """provider 在 submit 后可能降级/关闭音频；finalize 接受 caller 透传的 generate_audio
-        覆盖 ApiCall 行上 start_call 时的请求值（与 finish_call 同语义），cost_calculator 也应收到
-        覆盖后的值，避免按请求值误计费。"""
-        from lib.billing import cost_calculator as cc_module
-
-        captured: dict[str, object] = {}
-
-        def _spy_calculate_cost(provider, params, **kwargs):
-            captured["generate_audio"] = params.generate_audio
-            return (1.5, "USD")
-
-        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
-
+        覆盖 ApiCall 行上 start_call 时的请求值（与 finish_call 同语义）。计价按调用通道上报的有声维度，与之同源。"""
         repo = UsageRepository(async_session)
         # start_call 时请求 generate_audio=True
         call_id = await repo.start_call(
             project_name="demo",
             call_type="video",
-            model="veo-3.0-fast-generate-001",
+            model="veo-3.1-generate-preview",
             duration_seconds=8,
+            resolution="720p",
             generate_audio=True,
-            provider="gemini",
+            provider="gemini-aistudio",
         )
 
         # provider 实际降级到关闭音频
+        usage = Usage(quantities={"output_seconds": 8}, dimensions={"resolution": "720p", "audio": False})
         affected = await repo.finalize_pending_by_call_id(
-            call_id=call_id, settlement=SettlementInput(generate_audio=False)
+            call_id=call_id, settlement=SettlementInput(generate_audio=False, usage=(usage,))
         )
         assert affected == 1
-        assert captured["generate_audio"] is False, "generate_audio 透传必须覆盖到 cost_calculator"
 
-        # 并且 ApiCall.generate_audio 也回写为降级后的实际值
         calls = await stored_calls(async_session)
         assert calls[0].generate_audio is False
+        # (720p, 无声) 0.20 USD/s × 8s
+        assert calls[0].cost_amount == pytest.approx(1.6)
 
 
 class TestMultiProviderUsage:
@@ -400,7 +392,6 @@ class TestMultiProviderUsage:
             status="success",
             settlement=SettlementInput(
                 usage_tokens=246840,
-                service_tier="default",
                 usage=(Usage(quantities={"video_tokens": 246840}, dimensions={"resolution": "720p"}),),
             ),
         )
@@ -413,7 +404,8 @@ class TestMultiProviderUsage:
         # 46.00 CNY/百万 token
         assert item.cost_amount == pytest.approx(246840 * 46.0 / 1_000_000, rel=1e-3)
 
-    async def test_gemini_call_defaults_to_usd(self, async_session):
+    async def test_provider_neither_builtin_nor_custom_settles_unpriced(self, async_session):
+        # 供应商标识既不在注册表、也不是自定义供应商的存量行（如裸 gemini）对应不上条目，记为未定价，结算本身不报错
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
@@ -423,21 +415,22 @@ class TestMultiProviderUsage:
             duration_seconds=8,
             generate_audio=True,
         )
-        await repo.finish_call(call_id, status="success", settlement=SettlementInput())
+        usage = Usage(quantities={"output_seconds": 8}, dimensions={"resolution": "1080p", "audio": True})
+        await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage=(usage,)))
 
-        calls = await stored_calls(async_session)
-        item = calls[0]
+        item = (await stored_calls(async_session))[0]
         assert item.provider == "gemini"
-        assert item.currency == "USD"
-        assert item.cost_amount == pytest.approx(3.2)
+        assert item.status == "success"
+        assert item.cost_amount is None
+        assert item.unpriced_reason == "no_entry"
 
-    async def test_legacy_provider_video_without_duration_settles_unpriced(self, async_session):
-        # 供应商标识不在注册表里的存量行走注册表的定价声明；按秒计价缺时长时记为未定价，结算本身不报错
+    async def test_builtin_call_without_reported_usage_settles_unpriced(self, async_session):
+        # 没有上报用量的内置供应商调用同样查价目表：计量项全部落空，记为未定价，不按默认模型或秒数猜
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
-            project_name="demo", call_type="video", model="veo-3.1-generate-001", resolution="1080p"
+            project_name="demo", call_type="image", model="gemini-3-pro-image", provider="gemini-aistudio"
         )
-        await repo.finish_call(call_id, status="success", settlement=SettlementInput())
+        await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=8))
 
         item = (await stored_calls(async_session))[0]
         assert item.status == "success"
@@ -451,13 +444,17 @@ class TestMultiProviderUsage:
             call_type="text",
             model="gemini-3-flash-preview",
             prompt="分析小说内容",
-            provider="gemini",
+            provider="gemini-aistudio",
         )
 
         await repo.finish_call(
             call_id,
             status="success",
-            settlement=SettlementInput(input_tokens=1000, output_tokens=500),
+            settlement=SettlementInput(
+                input_tokens=1000,
+                output_tokens=500,
+                usage=(Usage(quantities=token_usage(input_tokens=1000, output_tokens=500)),),
+            ),
         )
 
         calls = await stored_calls(async_session)
@@ -482,7 +479,11 @@ class TestMultiProviderUsage:
         await repo.finish_call(
             call_id,
             status="success",
-            settlement=SettlementInput(input_tokens=2000, output_tokens=1000),
+            settlement=SettlementInput(
+                input_tokens=2000,
+                output_tokens=1000,
+                usage=(Usage(quantities=token_usage(input_tokens=2000, output_tokens=1000)),),
+            ),
         )
 
         calls = await stored_calls(async_session)

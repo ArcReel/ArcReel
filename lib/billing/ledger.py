@@ -76,9 +76,7 @@ def build_usage_record_change(call_id: int, status: CallStatus) -> dict[str, Any
     }
 
 
-def _settlement_from_result(
-    call_type: CallType, result: Any, *, service_tier: str = "default", usage: Usage | None = None
-) -> SettlementInput:
+def _settlement_from_result(call_type: CallType, result: Any, *, usage: Usage | None = None) -> SettlementInput:
     """成功通道 union 分发：按 call_type 从 backend 结果对象提取计费维度。
 
     语义转写的唯一落点：
@@ -96,7 +94,6 @@ def _settlement_from_result(
     if call_type == "image":
         return SettlementInput(
             usage_tokens=result.usage_tokens,
-            quality=result.quality,
             image_input_tokens=result.image_input_tokens,
             image_output_tokens=result.image_output_tokens,
             text_input_tokens=result.text_input_tokens,
@@ -125,7 +122,6 @@ def _settlement_from_result(
             usage_tokens=result.usage_tokens,
             generate_audio=result.generate_audio,
             billed_duration_seconds=result.duration_seconds,
-            service_tier=service_tier,
             usage=(usage,) if usage is not None else (),
         )
     if call_type == "text":
@@ -156,10 +152,9 @@ def _settlement_from_result(
 class LedgerCall:
     """记账括号句柄：块内暴露 ``call_id``，``success(result)`` 递交 backend 结果对象。"""
 
-    def __init__(self, call_id: int, *, call_type: CallType, service_tier: str) -> None:
+    def __init__(self, call_id: int, *, call_type: CallType) -> None:
         self.call_id = call_id
         self._call_type: CallType = call_type
-        self._service_tier = service_tier
         self._settlement: SettlementInput | None = None
 
     def success(self, result: Any, *, usage: Usage | None = None) -> None:
@@ -167,9 +162,7 @@ class LedgerCall:
 
         ``usage`` 只用于 video：调用通道按用量契约上报的这次请求的计量。
         """
-        self._settlement = _settlement_from_result(
-            self._call_type, result, service_tier=self._service_tier, usage=usage
-        )
+        self._settlement = _settlement_from_result(self._call_type, result, usage=usage)
 
 
 class Ledger:
@@ -206,7 +199,6 @@ class Ledger:
         generate_audio: bool | None = None,
         user_id: str = DEFAULT_USER_ID,
         segment_id: str | None = None,
-        service_tier: str = "default",
         output_path: str | None = None,
         task_id: str | None = None,
         purpose: CallPurpose | None = None,
@@ -236,7 +228,7 @@ class Ledger:
             session_id=session_id,
             inputs=inputs,
         )
-        call = LedgerCall(call_id, call_type=call_type, service_tier=service_tier)
+        call = LedgerCall(call_id, call_type=call_type)
         try:
             yield call
         except asyncio.CancelledError:
@@ -273,15 +265,13 @@ class Ledger:
         async with self._session_factory() as session:
             return await UsageRepository(session).find_pending_call_id_by_task_id(task_id)
 
-    async def resume_success(
-        self, *, call_id: int, result: Any, usage: Usage | None = None, service_tier: str = "default"
-    ) -> int:
+    async def resume_success(self, *, call_id: int, result: Any, usage: Usage | None = None) -> int:
         """resume 成功补账：按 call_id 精准翻 pending → success，返回受影响行数（幂等 0/1）。
 
         ``usage`` 是视频调用通道按续跑请求上报的计量。finalize 自身异常不吞、直接冒泡（交 worker finally
         兜底），避免 ApiCall 永久卡 pending。
         """
-        settlement = _settlement_from_result("video", result, service_tier=service_tier, usage=usage)
+        settlement = _settlement_from_result("video", result, usage=usage)
         return await self._finalize(call_id=call_id, status=CallStatus.SUCCESS, settlement=settlement)
 
     async def resume_failed(self, *, call_id: int, failure: BaseException | str | None = None) -> int:

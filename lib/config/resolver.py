@@ -1046,8 +1046,7 @@ class ConfigResolver:
     ) -> bool:
         """费用预估用的有效 ``generate_audio``：读能力接口，解析不出时降级，绝不抛错。
 
-        能力解析会对注册表里已下线的 model id 抛错，而价目查询对同一 id 仍会回落到该 provider
-        的默认模型出价（见 ``lib/billing/pricing/lookup.py``）——此时估算仍要出数。降级口径分两层：
+        能力解析会对目录里已下线的 model id 抛错，估算不应因此中断（价目查询对它记为未定价）。降级口径分两层：
         恒含音出账的 provider 按 provider 级规则取 True；其余 provider 没有默认执行档的信息，
         只能回到请求值（backend 也正是照请求值下发并结算），若一律取 False，这些历史 model
         会被按静音档低估。
@@ -1342,7 +1341,7 @@ class ConfigResolver:
 
         判定经 ``video_capability_satisfied`` 与桶候选下拉（``lib.backends.generation_type_buckets``）共用一份
         口径：内置模型两维都取 backend ``VideoCapabilities``（与请求构造同源，也是这两维唯一的
-        声明处；registry ``ModelInfo`` 不声明视频能力位）。身份先过
+        声明处；目录的模型信息不声明视频能力位）。身份先过
         ``_ensure_video_identity_resolvable``，悬空引用（模型被删 /
         能力被事后修改 / 供应商被删 / endpoint 变更）在此统一报错兜底，写入侧不拦截、不级联清理
         （``docs/adr/0054``）。

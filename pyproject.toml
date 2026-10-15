@@ -138,7 +138,7 @@ include_external_packages = true
 # 契约（如图像通道取 video_backends.base 的 IMAGE_MIME_TYPES）不算方向违规；共用的运行支持在
 # lib.backends.backend_runtime，不属于任何一层。
 # ignore_imports 是存量违规的 baseline，逐条掐的是**违规链的终端边**而非首跳，这样中间模块
-# （project_manager / cost_calculator / usage_repo 等）后续新增的反向依赖仍会被契约拦下。
+# （project_manager / usage_repo 等）后续新增的反向依赖仍会被契约拦下。
 # 新增条目前先确认该边无法就地清零；清零一条即删一行。
 [[tool.importlinter.contracts]]
 name = "lib.config / lib.backends.*_backends / lib.custom_provider / lib.market 分层契约"

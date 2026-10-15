@@ -15,11 +15,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from lib.billing.metering import Cost, Usage, price_requests
+from lib.catalog import query as catalog
 
 
 def is_builtin_provider(provider: str) -> bool:
     """注册表里的内置供应商；其余（自定义供应商、Agent 凭证）不经清单查条目。"""
-    # 注册表导入放函数内，理由同 price_builtin_call 里的目录查询导入。
+    # 注册表导入放函数内：注册表经 dashscope_shared→usage_repo 导入本模块，模块级导入会成环。
     from lib.config.registry import PROVIDER_REGISTRY
 
     return provider in PROVIDER_REGISTRY
@@ -39,9 +40,6 @@ def price_builtin_call(
     ``requests`` 是这次调用所含各次供应商请求的用量，各自落上下文档、单独计价后相加；``estimate`` 的含义见
     :func:`lib.billing.metering.price_usage`。
     """
-    # 目录查询导入放函数内：它经注册表拉起 dashscope_shared→usage_repo→本模块，模块级导入会成环。
-    from lib.catalog import query as catalog
-
     target = catalog.provider_model_price(provider, model, media_type)
     multiplier = provider_multiplier * (target.multiplier if target is not None else 1.0)
     return price_requests(
@@ -69,8 +67,6 @@ def price_custom_call(
     取这次调用的媒体类型；对应条目的规则见 :func:`lib.catalog.query.find_entry`。两级倍率之积为 0 时直接记 0。
     其余参数同 :func:`price_builtin_call`。
     """
-    from lib.catalog import query as catalog
-
     entry = catalog.find_entry(model, media_type=media_type, binding=catalog.binding_key(entry_binding, media_type))
     return price_requests(
         entry.price if entry is not None else None,
@@ -94,8 +90,6 @@ def price_agent_call(
     :func:`lib.catalog.query.find_entry`；``multiplier`` 是 Agent 凭证倍率，只此一级，为 0 时直接记 0。
     ``requests`` 是这一轮各次请求的用量，各自落上下文档、单独计价后相加。
     """
-    from lib.catalog import query as catalog
-
     entry = catalog.find_entry(model, media_type="text", binding=catalog.binding_key(entry_binding, "text"))
     return price_requests(
         entry.price if entry is not None else None,

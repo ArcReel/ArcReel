@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.catalog import query as catalog
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.routers.system_config import _build_options
@@ -41,8 +42,8 @@ def _make_mock_svc(ready_providers: list[str] | None = None) -> ConfigService:
                 display_name=meta.display_name,
                 description=meta.description,
                 status="ready" if name in ready else "unconfigured",
-                media_types=list(meta.media_types),
-                capabilities=list(meta.capabilities),
+                media_types=catalog.provider_media_types(name),
+                capabilities=catalog.provider_capabilities(name),
                 required_keys=list(meta.required_keys),
                 credential_count=1 if name in ready else 0,
             )

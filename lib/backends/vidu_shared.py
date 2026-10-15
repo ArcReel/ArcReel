@@ -1,6 +1,6 @@
 """Vidu (生数科技) 共享工具模块。
 
-供 image_backends / video_backends / cost_calculator / providers router 复用。包含：
+供 image_backends / video_backends / providers router 复用。包含：
 - VIDU_BASE_URL — Vidu 开放平台 API 基础 URL
 - resolve_vidu_api_key — API Key 解析（缺失即 raise，不走 env fallback）
 - create_vidu_client — 经出站目的地校验的 httpx.AsyncClient 工厂
@@ -9,7 +9,6 @@
 - VIDU_RETRYABLE_ERRORS — Vidu HTTPX 瞬态错误集合（仅 NetworkError / TimeoutException）
 - VIDU_MAX_BODY_BYTES / assert_vidu_body_size — 20MB 请求体上限校验
 - safe_body_for_log — 日志输出白名单视图（避免泄漏 base64 图片或意外字段）
-- calculate_vidu_cost — 计费（fork-only，从 cost_calculator 抽出以降低上游侵入）
 - test_vidu_connection — 连接测试（fork-only，从 providers router 抽出）
 """
 
@@ -142,52 +141,6 @@ def extract_vidu_url(payload: dict) -> str:
     if not url:
         raise RuntimeError(f"Vidu creations[0].url 为空: task_id={payload.get('id')}")
     return url
-
-
-# ---------------------------------------------------------------------------
-# 计费（fork-only，原住在 lib/billing/cost_calculator.py，抽出以降低上游侵入面）
-# ---------------------------------------------------------------------------
-# 仅图片仍按响应 ``credits`` 委托计价（视频已改由模型目录的价目表计价）。
-# Vidu 响应直接返回 ``credits``，按 1 积分 = 0.03125 CNY 折算
-# （Vidu 标准积分包 500 元 / 16000 积分；其他套餐费率不同，用户需自行核对）
-# 实际计费 99% 走"响应 credits × 费率"路径，下面的 fallback 表仅在响应未带
-# credits（极少数失败/超时情况）时使用，数值为参考估算，并未逐项对账官方
-# pricing 页。准确价格请以 https://platform.vidu.cn/docs/pricing 为准。
-VIDU_CREDIT_TO_CNY = 0.03125
-# 图片按张计费（积分/张），仅作 fallback；实际从响应 credits 取
-VIDU_IMAGE_CREDITS: dict[str, dict[str, int]] = {
-    "viduq2": {"1080p": 8, "2k": 12, "4k": 20},
-    "viduq1": {"1080p": 20},
-}
-DEFAULT_VIDU_IMAGE_MODEL = "viduq2"
-
-
-def calculate_vidu_cost(
-    *,
-    call_type: str,
-    usage_tokens: int | None = None,
-    model: str | None = None,
-    resolution: str | None = None,
-) -> tuple[float, str]:
-    """Vidu 图片计费：优先用响应 ``credits``（=usage_tokens），否则按表估算。
-
-    视频按模型目录的价目表按输出秒数与分辨率计价，不按 credits；视频调用传进来时直接拒绝。
-    """
-    if call_type == "video":
-        raise ValueError("Vidu 视频按模型目录的价目表计价，不按 credits 计价")
-    # credits=0 是合法值（如 off_peak / 平台促销），不能被当成"无 credits"。
-    if usage_tokens is not None and usage_tokens >= 0:
-        return usage_tokens * VIDU_CREDIT_TO_CNY, "CNY"
-
-    res_key = (resolution or "").lower()
-
-    if call_type == "image":
-        m = model or DEFAULT_VIDU_IMAGE_MODEL
-        table = VIDU_IMAGE_CREDITS.get(m, VIDU_IMAGE_CREDITS[DEFAULT_VIDU_IMAGE_MODEL])
-        credits = table.get(res_key or "1080p", next(iter(table.values())))
-        return credits * VIDU_CREDIT_TO_CNY, "CNY"
-
-    return 0.0, "CNY"
 
 
 # ---------------------------------------------------------------------------

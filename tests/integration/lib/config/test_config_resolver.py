@@ -1613,9 +1613,9 @@ class TestStyleAnalysisVisionGuard:
         from unittest.mock import MagicMock
 
         from lib.backends.text_backends.base import TextTaskType
-        from lib.config.registry import PROVIDER_REGISTRY
+        from lib.catalog import query as catalog
 
-        assert "gemini-3.1-flash-lite" in PROVIDER_REGISTRY[provider_id].models
+        assert "gemini-3.1-flash-lite" in catalog.list_models(provider_id)
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"text_backend_simple": f"{provider_id}/gemini-3.1-flash-lite"})
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)

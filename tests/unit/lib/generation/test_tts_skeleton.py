@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.artifacts.version_manager import VersionManager
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisResult
+from lib.billing.metering import Usage
 from lib.db.base import Base
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
@@ -373,7 +374,11 @@ class TestAudioCallSettlement:
                 call_id = await repo.start_call(
                     project_name="demo", call_type="audio", model="qwen3-tts-flash", provider="dashscope"
                 )
-                await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
+                await repo.finish_call(
+                    call_id,
+                    status="success",
+                    settlement=SettlementInput(usage_tokens=1500, usage=(Usage(text="念" * 1500),)),
+                )
                 stored = (await session.execute(select(ApiCall))).scalars().all()
                 assert [row.call_type for row in stored] == ["audio"]
                 # audio 按字符冻结费用（非 0）

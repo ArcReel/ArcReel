@@ -1,12 +1,11 @@
 """目录查询：模型级信息的唯一读入口。
 
 模型的显示名、媒体类型、能力、可选时长与分辨率、最大输出 token、价格，以及供应商在某媒体类型下的
-默认模型，生产代码一律经这里读取，不直接遍历或索引注册表的 ``models``。注册表只向调用方提供
-供应商一级的代码事实（凭证形态、调用通道、默认地址、并发默认）。
+默认模型，一律经这里读取。注册表（``lib.config.registry``）只登记供应商一级的代码事实（凭证形态、调用通道、
+默认地址、并发默认），不含模型。
 
 模型清单、条目事实与默认模型取自随代码打包的出厂快照（``lib/catalog/snapshot/``），加载时过
-``arcreel_catalog_core`` 的实例侧校验。文本与音频按条目的价目表计价，见 :func:`provider_model_price`；图片与视频的价格
-仍取自注册表的 ``ModelInfo.pricing``，见 :func:`model_pricing`。
+``arcreel_catalog_core`` 的实例侧校验。价格是条目的价目表，见 :func:`provider_model_price`。
 供应商模型一级的查询返回目录自己的值对象（:class:`CatalogModel`、:class:`CatalogSearchHit`）；按名字对应条目的
 :func:`find_entry` 返回 ``arcreel_catalog_core`` 的 ``CatalogEntry``，调用方要的正是条目本身的键、事实与价目表。
 """
@@ -18,7 +17,7 @@ import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, assert_never, cast
+from typing import Literal, assert_never, cast
 
 from packaging.version import InvalidVersion, Version
 
@@ -40,15 +39,22 @@ from arcreel_catalog_core import (
 )
 from lib.app_version import app_version
 from lib.catalog.entry_matching import match_entry
-from lib.config import registry
-
-if TYPE_CHECKING:
-    from lib.billing.pricing.types import Pricing
-    from lib.config.registry import ModelCapability
 
 logger = logging.getLogger(__name__)
 
 SNAPSHOT_DIR = Path(__file__).parent / "snapshot"
+
+#: 能力 token 的封闭词汇表，由条目事实推出：仅收录有消费方的 token，词汇与各媒体 backend 能力枚举
+#: （TextCapability / ImageCapability / AudioCapability）同名同义。视频模型的输入模式、参考图上限与音轨形态不在
+#: 这里，真相源是各 backend 的 VideoCapabilities 与请求期 gate。
+ModelCapability = Literal[
+    "text_generation",
+    "structured_output",  # 消费点：文本 backend 结构化输出探测
+    "vision",  # 消费点：文本解析的 vision 闸（lib/config/resolver.py）
+    "text_to_image",  # 消费点：图片任务类型桶判定（lib/backends/generation_type_buckets.py）
+    "image_to_image",  # 消费点：同上
+    "text_to_speech",
+]
 
 #: 两栖模型沿用的旧模型键。目录数据里供应商模型的身份是（API 模型名, 条目媒体类型），同一 API 模型名的
 #: 两个供应商模型在这里各取一个键；不在表中的供应商模型以 API 模型名为键。设置与项目里已存的键靠它保持可解析。
@@ -64,7 +70,7 @@ class CatalogModel:
     条目事实：``display_name``、``media_type``、``capabilities``、可选时长与时长约束、
     ``resolutions``、``max_output_tokens``、``hidden``（条目已下架，不出现在候选里）。供应商模型事实：
     ``default``（这个供应商在该媒体类型下的默认模型）、``api_model_name``（发给供应商的模型名，``None``
-    时用模型键）。价格不在这里，经 :func:`model_pricing` 取。
+    时用模型键）。价格不在这里，经 :func:`provider_model_price` 取。
 
     字段名与顺序即设置接口里模型信息的序列化形状（``dataclasses.asdict``）。
     """
@@ -420,16 +426,6 @@ def provider_model_price(provider_id: str, model_id: str, media_type: str) -> Mo
     return ModelPrice(
         price=entry.price if entry is not None else None, multiplier=indexed.multiplier, entry_found=entry is not None
     )
-
-
-def model_pricing(provider_id: str, model_id: str) -> Pricing | None:
-    """模型的定价声明；模型不在注册表中或没有定价时返回 ``None``。
-
-    价格读注册表的 ``ModelInfo.pricing``，只剩图片与视频的计价在用。
-    """
-    meta = registry.PROVIDER_REGISTRY.get(provider_id)
-    info = meta.models.get(model_id) if meta is not None else None
-    return info.pricing if info is not None else None
 
 
 @dataclass(frozen=True)

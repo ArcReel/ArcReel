@@ -275,11 +275,12 @@ class TestVideoAudioTrack:
     def test_every_video_model_matches_declared_stance(self):
         """backend 声明在全部内置视频 model 上的逐路径取值与上表相等（整表相等，非子集）。"""
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+        from lib.catalog import query as catalog
         from lib.config.registry import PROVIDER_REGISTRY
 
         actual: dict[tuple[str, str], tuple[str, str]] = {}
-        for provider_id, meta in PROVIDER_REGISTRY.items():
-            for model_id, info in meta.models.items():
+        for provider_id in PROVIDER_REGISTRY:
+            for model_id, info in catalog.list_models(provider_id).items():
                 if info.media_type != "video":
                     continue
                 caps = builtin_video_capabilities_for_model(provider_id, model_id)
@@ -307,54 +308,56 @@ class TestVideoAudioTrack:
 
 
 class TestVideoCapabilitySingleSourceOfTruth:
-    """全注册表扫描：内置视频模型的输入模式、参考图上限与音轨形态只有 backend 一处手写声明。
+    """全目录扫描：内置视频模型的输入模式、参考图上限与音轨形态只有 backend 一处手写声明。
 
-    registry `ModelInfo` 不描述这些维度——第二份手写声明没有比对方，两侧漂了也无人发现，还会
+    目录的模型信息 `CatalogModel` 不描述这些维度——第二份声明没有比对方，两侧漂了也无人发现，还会
     把审查者引到不参与解析的那一份上。这几个用例守住单一真相源的形状。
     """
 
     def test_registry_declares_no_video_capability_bits(self):
         """视频模型的 capabilities 不得含输入模式或音轨 token——真相源是 VideoCapabilities。"""
+        from lib.catalog import query as catalog
         from lib.config.registry import PROVIDER_REGISTRY
 
         banned = {"text_to_video", "image_to_video", "reference_to_video", "generate_audio"}
         offenders = [
             f"{provider_id}/{model_id}: {sorted(banned & set(info.capabilities))}"
-            for provider_id, meta in PROVIDER_REGISTRY.items()
-            for model_id, info in meta.models.items()
+            for provider_id in PROVIDER_REGISTRY
+            for model_id, info in catalog.list_models(provider_id).items()
             if info.media_type == "video" and banned & set(info.capabilities)
         ]
         assert offenders == []
 
     def test_model_info_has_no_reference_image_cap_field(self):
-        """ModelInfo 不得重新长出参考图上限字段：加回去就等于把第二份手写来源请回来。"""
+        """CatalogModel 不得长出参考图上限字段：加上就等于把第二份来源请回来。"""
         from dataclasses import fields
 
-        from lib.config.registry import ModelInfo
+        from lib.catalog.query import CatalogModel
 
-        assert "max_reference_images" not in {f.name for f in fields(ModelInfo)}
+        assert "max_reference_images" not in {f.name for f in fields(CatalogModel)}
 
     def test_model_info_has_no_audio_cap_field(self):
-        """同上：ModelInfo 不得长出音轨字段。
+        """同上：CatalogModel 不得长出音轨字段。
 
-        registry 的单一声明表达不了「同一 model 内按执行子路径分叉」，加回去就会长出
+        逐模型的单一声明表达不了「同一 model 内按执行子路径分叉」，加上就会长出
         「界面允许关音频、执行期静默丢弃」的分裂。
         """
         from dataclasses import fields
 
-        from lib.config.registry import ModelInfo
+        from lib.catalog.query import CatalogModel
 
-        names = {f.name for f in fields(ModelInfo)}
+        names = {f.name for f in fields(CatalogModel)}
         assert not {n for n in names if "audio" in n}
 
     def test_every_registry_video_model_resolves_backend_capabilities(self):
-        """每个内置视频模型都能从 backend 取到能力声明——单一真相源须覆盖全注册表。"""
+        """每个内置视频模型都能从 backend 取到能力声明——单一真相源须覆盖全部内置供应商。"""
         from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+        from lib.catalog import query as catalog
         from lib.config.registry import PROVIDER_REGISTRY
 
         unresolved: list[str] = []
-        for provider_id, meta in PROVIDER_REGISTRY.items():
-            for model_id, info in meta.models.items():
+        for provider_id in PROVIDER_REGISTRY:
+            for model_id, info in catalog.list_models(provider_id).items():
                 if info.media_type != "video":
                     continue
                 try:
