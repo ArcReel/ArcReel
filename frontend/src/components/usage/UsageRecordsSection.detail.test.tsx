@@ -73,6 +73,15 @@ describe("UsageRecordsSection detail", () => {
   });
 
   it("links the model to its Sheet in the provider settings", async () => {
+    vi.spyOn(API, "getUsageSummary").mockResolvedValue(
+      makeUsageSummary({
+        filter_options: {
+          projects: [],
+          providers: [{ provider: "custom-7", label: "中转站" }],
+          models: [],
+        },
+      }),
+    );
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
       makeUsageRecordDetail({ id: 42, provider: "custom-7", model: "relay/veo-3" }),
     );
@@ -80,11 +89,26 @@ describe("UsageRecordsSection detail", () => {
     renderUsageRecordsSection("section=usage&record=42");
     const dialog = within(await screen.findByRole("dialog"));
 
-    expect(dialog.getByRole("link", { name: "relay/veo-3" })).toHaveAttribute(
+    expect(await dialog.findByRole("link", { name: "relay/veo-3" })).toHaveAttribute(
       "href",
       expect.stringContaining("section=providers&custom=7&model=relay%2Fveo-3"),
     );
   });
+
+  it.each(["custom-7", "agent-3", "retired-preset"])(
+    "shows the model as plain text when provider %s has no Sheet to open",
+    async (provider) => {
+      vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+        makeUsageRecordDetail({ id: 42, provider, model: "relay/veo-3" }),
+      );
+
+      renderUsageRecordsSection("section=usage&record=42");
+      const dialog = within(await screen.findByRole("dialog"));
+
+      expect(await dialog.findByText("relay/veo-3")).toBeInTheDocument();
+      expect(dialog.queryByRole("link", { name: "relay/veo-3" })).not.toBeInTheDocument();
+    },
+  );
 
   it("lists the four token counts with input excluding the cached parts", async () => {
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
