@@ -74,6 +74,7 @@ const MODEL_LIST_STATES: ApiOverrides = {
   "GET /api/v1/providers/gemini-aistudio/models": {
     status: 200,
     body: {
+      discoverable: true,
       models: [
         ...recordedAiStudioModels.models,
         {
@@ -318,10 +319,64 @@ const CUSTOM_PROVIDER_DETAIL: ApiOverrides = {
   "GET /api/v1/custom-providers": { status: 200, body: { providers: [customProvider] } },
   [`GET /api/v1/custom-providers/${CUSTOM_PROVIDER_ID}`]: { status: 200, body: customProvider },
   [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/multiplier`]: { status: 200, body: { multiplier: 0.9, default: 1 } },
-  [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/models`]: { status: 200, body: { models: customListItems } },
+  [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/models`]: {
+    status: 200,
+    body: { discoverable: true, models: customListItems },
+  },
   [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/models/${KLING_ID}`]: { status: 200, body: klingDetail },
   [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/models/gpt-image-1`]: { status: 200, body: gptImageDetail },
 };
+
+// 压力变体：「获取模型」两组都有、模型 ID 很长；已添加的 gpt-image-1 不列出。
+const fetched = (model_id: string, media_type: string, recognized: boolean, matched_entry: unknown = null) => ({
+  model_id,
+  display_name: model_id,
+  media_type,
+  recognized,
+  model_key: null,
+  matched_entry,
+  endpoint: media_type === "video" ? "openai-video" : media_type === "image" ? "openai-images" : "openai-chat",
+  endpoint_by_media_type: {
+    text: "openai-chat",
+    image: "openai-images",
+    video: "openai-video",
+    audio: "openai-tts",
+  },
+  is_default: false,
+});
+
+const CUSTOM_DISCOVERY: ApiOverrides = {
+  [`POST /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/models/discover`]: {
+    status: 200,
+    body: {
+      not_applicable: false,
+      reason: null,
+      models: [
+        fetched("gpt-image-1", "image", true, entry("openai", "gpt-image-1", "image", "GPT Image 1")),
+        fetched("gpt-5.5", "text", true, entry("openai", "gpt-5.5", "text", "GPT-5.5")),
+        fetched(
+          "doubao-seedance-2-0-pro-260128-relay-cn-east-2-high-priority",
+          "video",
+          true,
+          entry("bytedance", "doubao-seedance-2-0-pro-260128", "video", "Seedance 2.0 Pro"),
+        ),
+        fetched("house-chat-internal-finetune-2026-09-customer-support-zh", "text", false),
+        fetched("acme-video-pro", "video", false),
+      ],
+    },
+  },
+};
+
+const SEEDANCE_ENTRIES = [
+  { maker: "bytedance", name: "doubao-seedance-2-0-pro-260128", media_type: "video", display_name: "Seedance 2.0 Pro", discontinued: false },
+  {
+    maker: "bytedance",
+    name: "doubao-seedance-1-0-lite-i2v-250428",
+    media_type: "video",
+    display_name: "Seedance 1.0 Lite 图生视频（旧版）",
+    discontinued: true,
+  },
+];
 
 async function customDetailReady(page: Page) {
   await page.getByRole("heading", { name: CUSTOM_PROVIDER_NAME }).waitFor();
@@ -435,6 +490,43 @@ defineRegionScenarios("供应商", [
       await expect(save).toBeEnabled();
     },
     screenshot: { name: "providers-custom-detail", target: (page) => page.getByRole("main") },
+  },
+  {
+    name: "自定义供应商「获取模型」：已识别与未识别分两组，长模型 ID 换行，每行可选调用端点",
+    path: CUSTOM_PROVIDER_PATH,
+    api: { ...CUSTOM_PROVIDER_DETAIL, ...CUSTOM_DISCOVERY },
+    ready: customDetailReady,
+    act: async (page) => {
+      await page.getByRole("region", { name: "模型" }).getByRole("button", { name: "获取模型" }).click();
+      const dialog = page.getByRole("dialog");
+      const recognized = dialog.getByRole("region", { name: /已识别/ });
+      const unrecognized = dialog.getByRole("region", { name: /未识别/ });
+      await expect(recognized.getByRole("checkbox", { name: /gpt-5\.5/ })).toBeChecked();
+      await expect(unrecognized.getByRole("checkbox", { name: /acme-video-pro/ })).not.toBeChecked();
+      await expect(dialog.getByText("另有 1 个已添加的模型未列出。")).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "添加 2 个模型" })).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "providers-fetch-models-dialog", target: (page) => page.getByRole("dialog") },
+  },
+  {
+    name: "「添加模型」：输入模型 ID 后可按 ID 添加，或从模型目录选择",
+    path: CUSTOM_PROVIDER_PATH,
+    api: {
+      ...CUSTOM_PROVIDER_DETAIL,
+      // 打开时搜索词为空，列出整个目录；输入后按名字搜索
+      "GET /api/v1/catalog/entries": { status: 200, body: { entries: SEEDANCE_ENTRIES } },
+      "GET /api/v1/catalog/entries?q=seedance": { status: 200, body: { entries: SEEDANCE_ENTRIES } },
+    },
+    ready: customDetailReady,
+    act: async (page) => {
+      await page.getByRole("region", { name: "模型" }).getByRole("button", { name: "添加模型" }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByPlaceholder("搜索模型名称，或输入模型 ID").fill("seedance");
+      await expect(dialog.getByRole("option", { name: /添加「seedance」/ })).toBeVisible();
+      await expect(dialog.getByRole("option", { name: /Seedance 2\.0 Pro/ })).toBeVisible();
+      await expect(dialog).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "providers-add-model-dialog", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "自定义供应商的模型 Sheet：参数全部展开时正文在 Sheet 里滚动，保存栏始终可见",

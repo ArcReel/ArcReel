@@ -6,7 +6,6 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
@@ -47,10 +46,6 @@ function CommandDialog({
 }) {
   return (
     <Dialog {...props}>
-      <DialogHeader className="sr-only">
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{description}</DialogDescription>
-      </DialogHeader>
       <DialogContent
         className={cn(
           "top-1/3 translate-y-0 overflow-hidden rounded-xl! p-0",
@@ -58,6 +53,9 @@ function CommandDialog({
         )}
         showCloseButton={showCloseButton}
       >
+        {/* 标题放在弹层里：放在外面时对话框关着也留在页面上。不套 DialogHeader，它的内边距会撑开 sr-only */}
+        <DialogTitle className="sr-only">{title}</DialogTitle>
+        <DialogDescription className="sr-only">{description}</DialogDescription>
         {children}
       </DialogContent>
     </Dialog>

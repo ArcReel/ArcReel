@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import type { ProviderModelItem } from "@/types";
+import userEvent from "@testing-library/user-event";
+import type { FetchedProviderModel, ProviderModelDetail, ProviderModelItem } from "@/types";
 import { ProviderModelList } from "./ProviderModelList";
 
 function item(overrides: Partial<ProviderModelItem> & Pick<ProviderModelItem, "model_id">): ProviderModelItem {
@@ -18,6 +19,34 @@ function item(overrides: Partial<ProviderModelItem> & Pick<ProviderModelItem, "m
     price: null,
     endpoint: null,
     ...overrides,
+  };
+}
+
+function detailOf(model: ProviderModelItem): ProviderModelDetail {
+  return {
+    model,
+    multiplier: 1,
+    provider_multiplier: 1,
+    entry: null,
+    capabilities: { media_type: model.media_type, editable: [], base: {}, overrides: {}, effective: {} },
+    endpoint: null,
+    resolution: null,
+    path_overrides: null,
+    requests: [],
+  };
+}
+
+function fetchedOf(modelId: string): FetchedProviderModel {
+  return {
+    model_id: modelId,
+    display_name: modelId,
+    media_type: "text",
+    recognized: false,
+    model_key: null,
+    matched_entry: null,
+    endpoint: null,
+    endpoint_by_media_type: null,
+    is_default: false,
   };
 }
 
@@ -48,7 +77,7 @@ describe("ProviderModelList", () => {
   });
 
   it("groups models by media type with default badge, status flags and price summary", async () => {
-    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS, discoverable: false });
 
     render(<ProviderModelList providerId="acme" providerName="Acme" />);
 
@@ -66,11 +95,12 @@ describe("ProviderModelList", () => {
     expect(within(image).getByText("Image One")).toBeInTheDocument();
     // 改过模型信息的行带「已修改」
     expect(within(image).getByText("已修改")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /添加模型/ })).toBeDisabled();
+    // 没有模型列表接口的供应商没有「获取模型」
+    expect(screen.queryByRole("button", { name: "获取模型" })).not.toBeInTheDocument();
   });
 
   it("filters to enabled models", async () => {
-    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS, discoverable: false });
 
     render(<ProviderModelList providerId="acme" providerName="Acme" />);
     await screen.findByText("Chat One");
@@ -81,7 +111,7 @@ describe("ProviderModelList", () => {
   });
 
   it("applies a toggle immediately and clears the default when disabling", async () => {
-    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS, discoverable: false });
     const setEnabled = vi
       .spyOn(API, "setProviderModelEnabled")
       .mockResolvedValue({ ...MODELS[1], enabled: false, is_default: false });
@@ -96,7 +126,7 @@ describe("ProviderModelList", () => {
   });
 
   it("keeps the state and reports the reason when a toggle fails", async () => {
-    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS, discoverable: false });
     vi.spyOn(API, "setProviderModelEnabled").mockRejectedValue(new Error("boom"));
     const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
 
@@ -108,22 +138,61 @@ describe("ProviderModelList", () => {
     expect(toggle).not.toBeChecked();
   });
 
-  it("calls the add-model entry when provided", async () => {
-    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [] });
-    const onAddModel = vi.fn();
+  it("adds a model by ID and opens the new model's Sheet", async () => {
+    const user = userEvent.setup();
+    const added = item({ model_id: "my-model", official: false });
+    vi.spyOn(API, "listProviderModels")
+      .mockResolvedValueOnce({ models: [], discoverable: false })
+      .mockResolvedValue({ models: [added], discoverable: false });
+    vi.spyOn(API, "searchCatalogEntries").mockResolvedValue({ entries: [] });
+    const add = vi.spyOn(API, "addProviderModel").mockResolvedValue({ model: added, official: false });
+    const getModel = vi.spyOn(API, "getProviderModel").mockResolvedValue(detailOf(added));
+    const onModelsChanged = vi.fn();
 
-    render(<ProviderModelList providerId="acme" providerName="Acme" onAddModel={onAddModel} />);
+    render(<ProviderModelList providerId="acme" providerName="Acme" onModelsChanged={onModelsChanged} />);
     await screen.findByText("这个供应商还没有模型。");
-    fireEvent.click(screen.getByRole("button", { name: /添加模型/ }));
+    await user.click(screen.getByRole("button", { name: "添加模型" }));
+    await user.type(await screen.findByPlaceholderText("搜索模型名称，或输入模型 ID"), "my-model");
+    await user.click(await screen.findByRole("option", { name: "添加「my-model」" }));
 
-    expect(onAddModel).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(add).toHaveBeenCalledWith("acme", { model_id: "my-model" }));
+    await waitFor(() => expect(getModel).toHaveBeenCalledWith("acme", "my-model", expect.anything()));
+    expect(onModelsChanged).toHaveBeenCalled();
+  });
+
+  it("fetches models and adds a disabled official model by enabling it", async () => {
+    const user = userEvent.setup();
+    const disabled = item({ model_id: "chat-2", enabled: false });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [MODELS[1], disabled], discoverable: true });
+    vi.spyOn(API, "discoverProviderModels").mockResolvedValue({
+      not_applicable: false,
+      reason: null,
+      models: [
+        { ...fetchedOf("chat-1"), recognized: true, model_key: "chat-1" },
+        { ...fetchedOf("chat-2"), recognized: true, model_key: "chat-2" },
+        fetchedOf("vendor-new"),
+      ],
+    });
+    const add = vi
+      .spyOn(API, "addProviderModel")
+      .mockResolvedValue({ model: { ...disabled, enabled: true }, official: true });
+
+    render(<ProviderModelList providerId="acme" providerName="Acme" />);
+    await user.click(await screen.findByRole("button", { name: "获取模型" }));
+
+    // 已启用的 chat-1 已添加；停用的官方收录模型列为已识别，添加即启用
+    expect(await screen.findByRole("checkbox", { name: /chat-2/ })).toBeChecked();
+    expect(screen.getByText("另有 1 个已添加的模型未列出。")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "添加 1 个模型" }));
+
+    await waitFor(() => expect(add).toHaveBeenCalledWith("acme", { model_id: "chat-2", media_type: "text" }));
   });
 
   it("opens a model's Sheet from its row and shows the renamed row after the Sheet saves", async () => {
     const own = item({ model_id: "my-chat", official: false });
     vi.spyOn(API, "listProviderModels")
-      .mockResolvedValueOnce({ models: [own] })
-      .mockResolvedValue({ models: [{ ...own, model_id: "my-chat-2", api_model_name: "my-chat-2" }] });
+      .mockResolvedValueOnce({ models: [own], discoverable: false })
+      .mockResolvedValue({ models: [{ ...own, model_id: "my-chat-2", api_model_name: "my-chat-2" }], discoverable: false });
     const detail = {
       model: own,
       multiplier: 1,

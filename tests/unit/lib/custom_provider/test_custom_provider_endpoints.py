@@ -618,6 +618,26 @@ class TestInferEndpoint:
         """出图模型名与 openai-chat / openai-images 的模型名无从区分，不自动推断，由用户在获取或编辑模型时选择。"""
         assert infer_endpoint(model_id, discovery_format) != "openai-chat-image"
 
+    @pytest.mark.parametrize(
+        ("model_id", "discovery_format", "media_type", "expected"),
+        [
+            # 名字规则推出的端点就在这个媒体类型里：照用
+            ("seedance-2.0-pro", "openai", "video", "ark-seedance"),
+            ("gpt-5.5", "openai", "text", "openai-chat"),
+            # 两栖模型按条目的媒体类型在名字族内选
+            ("kling-v3-omni", "openai", "image", "kling-image"),
+            ("gemini-3-pro-image", "openai", "text", "gemini-generate"),
+            # 名字族里没有：取该媒体类型在模型发现协议下的默认端点
+            ("house-painter", "openai", "image", "openai-images"),
+            ("house-painter", "google", "image", "gemini-image"),
+            ("house-motion", "openai", "video", "openai-video"),
+            ("house-motion", "google", "video", "gemini-video"),
+            ("house-voice", "openai", "audio", "openai-tts"),
+        ],
+    )
+    def test_infer_within_known_media_type(self, model_id, discovery_format, media_type, expected):
+        assert infer_endpoint(model_id, discovery_format, media_type) == expected
+
 
 def test_image_endpoint_registry_entries():
     from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE

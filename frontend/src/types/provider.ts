@@ -1,4 +1,4 @@
-import type { CapabilityOverrides, EndpointRequest, PathOverrides } from "./custom-provider";
+import type { CapabilityOverrides, EndpointRequest, MatchedCatalogEntry, PathOverrides } from "./custom-provider";
 
 /**
  * 声音一致性三级标识，与 `lib/config/resolver.py::VoiceConsistency` 一一对应。
@@ -143,6 +143,52 @@ export interface ProviderModelItem {
   price: PriceSummary | null;
   /** 自定义供应商模型的调用端点键；内置供应商为 null。 */
   endpoint: string | null;
+}
+
+/** 供应商模型列表（GET /providers/{id}/models）；`discoverable` 为真时可以「获取模型」。 */
+export interface ProviderModelsResponse {
+  models: ProviderModelItem[];
+  discoverable: boolean;
+}
+
+/**
+ * 「获取模型」获取到的一个模型（POST /providers/{id}/models/discover）。
+ * - `recognized`：自定义供应商为名字对应上了条目；内置供应商为对上了清单里官方收录的模型，`model_key` 是它的模型键。
+ * - `media_type`：对应上的取条目的，对应不上的按名字推断。
+ * - `endpoint`、`endpoint_by_media_type`：自定义供应商的默认调用端点，以及改为对应其他媒体类型的条目时各媒体类型下的
+ *   默认端点；内置供应商为 null。
+ */
+export interface FetchedProviderModel {
+  model_id: string;
+  display_name: string;
+  media_type: ProviderModelItem["media_type"];
+  recognized: boolean;
+  model_key: string | null;
+  matched_entry: MatchedCatalogEntry | null;
+  endpoint: string | null;
+  endpoint_by_media_type: Partial<Record<ProviderModelItem["media_type"], string>> | null;
+  is_default: boolean;
+}
+
+/** 获取模型的结果；`not_applicable` 为真时这个供应商没有模型列表接口，`reason` 是可直接展示的说明。 */
+export interface FetchProviderModelsResponse {
+  models: FetchedProviderModel[];
+  not_applicable: boolean;
+  reason: string | null;
+}
+
+/** 按 ID 添加模型（POST /providers/{id}/models）。`endpoint` 只用于自定义供应商，不给时按名字推断。 */
+export interface AddProviderModelRequest {
+  model_id: string;
+  media_type?: ProviderModelItem["media_type"];
+  entry_binding?: string | null;
+  endpoint?: string | null;
+}
+
+export interface AddProviderModelResponse {
+  model: ProviderModelItem;
+  /** 对上了官方收录的模型，添加即启用它。 */
+  official: boolean;
 }
 
 /** 能力覆盖的维度键。 */

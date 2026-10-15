@@ -21,7 +21,7 @@ from arcreel_market_core.video_backend_contract import ReferenceAudioMode, audio
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
-from lib.catalog.query import binding_key
+from lib.catalog.query import binding_key, find_bound_entry
 from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
@@ -44,6 +44,7 @@ from lib.custom_provider.endpoints import (
     EndpointSpec,
     endpoint_spec_to_dict,
     get_endpoint_spec,
+    infer_endpoint,
     static_media_type,
 )
 from lib.custom_provider.model_facts import (
@@ -1051,6 +1052,93 @@ async def remove_custom_model(session: AsyncSession, provider_id: int, model_id:
     await _clear_global_provider_refs(session, provider_id, {model_id})
 
 
+async def _comfyui_default_endpoint(session: AsyncSession, media_type: str | None) -> str | None:
+    """ComfyUI 供应商添加模型时的默认调用端点：媒体类型一致的 ComfyUI 端点优先，否则取第一个 ComfyUI 端点。"""
+    specs: list[EndpointSpec] = []
+    for row in await CustomEndpointRepository(session).list_all():
+        try:
+            spec = endpoint_spec_from_row(row)
+        except ValueError:
+            continue
+        if spec.kind == COMFYUI_KIND:
+            specs.append(spec)
+    preferred = next((spec for spec in specs if spec.media_type == media_type), None)
+    chosen = preferred or (specs[0] if specs else None)
+    return chosen.key if chosen is not None else None
+
+
+async def add_custom_model(
+    session: AsyncSession,
+    provider_id: int,
+    model_id: str,
+    *,
+    endpoint: str | None,
+    media_type: str | None,
+    entry_binding: str | None,
+    _t: Callable[..., str],
+) -> CustomProviderModel:
+    """向自定义供应商添加一个模型，不提交事务；返回新的模型行。
+
+    没给调用端点时按 docs/adr/0105 推断：有条目绑定或名字对应上条目的，在条目的媒体类型内选；都没有时，
+    ``media_type`` 给了就在这个媒体类型内选，否则按名字一并推断。ComfyUI 供应商取已导入的 ComfyUI 端点。
+    这个媒体类型还没有默认模型时，新模型成为默认。校验规则与整表保存相同。
+    """
+    from lib.custom_provider.discovery import match_discovered_model
+
+    repo = CustomProviderRepository(session)
+    provider = await repo.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    model_id = model_id.strip()
+    if not model_id:
+        raise HTTPException(status_code=422, detail=_t("builtin_model_id_required"))
+    rows = await repo.list_models(provider_id)
+    if any(r.model_id == model_id for r in rows):
+        raise HTTPException(status_code=422, detail=_t("builtin_model_duplicate", model=model_id))
+
+    bound = find_bound_entry(entry_binding, media_type) if entry_binding and media_type else None
+    if endpoint is None:
+        if is_comfyui_protocol(provider.discovery_format):
+            endpoint = await _comfyui_default_endpoint(session, bound.media_type if bound else media_type)
+            if endpoint is None:
+                raise HTTPException(status_code=422, detail=_t("comfyui_model_endpoint_missing"))
+        elif bound is not None:
+            endpoint = infer_endpoint(model_id, provider.discovery_format, bound.media_type)
+        else:
+            entry, by_name = match_discovered_model(model_id, provider.discovery_format)
+            endpoint = (
+                infer_endpoint(model_id, provider.discovery_format, media_type)
+                if entry is None and media_type is not None
+                else by_name
+            )
+    try:
+        target = ModelInput(
+            model_id=model_id, display_name=model_id, endpoint=endpoint, is_enabled=True, entry_binding=entry_binding
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=_t("unknown_endpoint", endpoint=endpoint)) from exc
+
+    specs = await _resolve_model_endpoint_specs(session, [target], _t)
+    _check_protocol_constraints([target], provider.discovery_format, specs, _t)
+    default_rows = [r for r in rows if r.is_default]
+    default_specs = await _read_endpoint_specs(session, default_rows)
+    taken = any(
+        other.endpoint in default_specs
+        and _default_group_conflicts(
+            target,
+            _row_to_input(other),
+            {target.endpoint: specs[target.endpoint], other.endpoint: default_specs[other.endpoint]},
+        )
+        for other in default_rows
+    )
+    if not taken:
+        target = target.model_copy(update={"is_default": True})
+    row = CustomProviderModel(provider_id=provider_id, **target.to_db_dict(specs[target.endpoint]))
+    session.add(row)
+    await session.flush()
+    return row
+
+
 @dataclass(frozen=True)
 class CustomModelSettings:
     """Sheet 上自定义供应商模型独有的设置：调用端点、请求地址与默认分辨率，以及「这个供应商支持的参数」。"""
@@ -1384,8 +1472,14 @@ async def discover_models_by_id(
     session: AsyncSession = Depends(get_async_session),
 ):
     """使用已存储凭证发现指定供应商的可用模型。"""
-    repo = CustomProviderRepository(session)
-    provider = await repo.get_provider(provider_id)
+    return await discover_custom_provider_models(session, provider_id, _t)
+
+
+async def discover_custom_provider_models(
+    session: AsyncSession, provider_id: int, _t: Callable[..., str]
+) -> DiscoverResponse:
+    """用已存储凭证获取自定义供应商的模型，每个模型带对应条目与默认调用端点。"""
+    provider = await CustomProviderRepository(session).get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     return await _run_discover(provider.discovery_format, provider.base_url, provider.api_key, _t)

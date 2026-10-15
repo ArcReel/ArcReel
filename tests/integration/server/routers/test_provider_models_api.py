@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from dataclasses import replace
 
 import pytest
 from fastapi import FastAPI
@@ -17,6 +18,8 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.routers import catalog as catalog_router
 from server.routers import provider_models
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+from tests.catalog_support import install_catalog
+from tests.http_capture import capture_http
 
 
 @pytest.fixture
@@ -135,11 +138,16 @@ def test_user_added_model_matches_entry_by_name(models_client: TestClient) -> No
     assert model["price"]["currency"] == "USD"
 
 
-def test_official_model_cannot_be_removed_and_unknown_type_needs_media_type(models_client: TestClient) -> None:
+def test_add_by_id_infers_media_type_by_name_when_no_entry_matches(models_client: TestClient) -> None:
+    resp = models_client.post("/api/v1/providers/ark/models", json={"model_id": "acme-video-x1"})
+
+    assert resp.status_code == 201
+    assert (resp.json()["model"]["media_type"], resp.json()["official"]) == ("video", False)
+
+
+def test_official_model_cannot_be_removed_and_unsupported_media_type_is_rejected(models_client: TestClient) -> None:
     assert models_client.delete("/api/v1/providers/agnes/models/agnes-3.0-flash").status_code == 422
     assert models_client.delete("/api/v1/providers/agnes/models/nope").status_code == 404
-    # 对应不上条目又没给媒体类型
-    assert models_client.post("/api/v1/providers/ark/models", json={"model_id": "mystery-model"}).status_code == 422
     # 供应商不提供这类模型
     resp = models_client.post(
         "/api/v1/providers/openai/models", json={"model_id": "mystery-clip", "media_type": "video"}
@@ -190,8 +198,6 @@ async def test_custom_provider_list_and_disable_clears_default(
         row = await CustomProviderRepository(session).get_model_by_ids(provider.id, "anthropic/gemini-3-flash-preview")
     assert row is not None
     assert (row.is_enabled, row.is_default) == (False, False)
-    # 自定义供应商的模型经自定义供应商接口增删
-    assert models_client.post(f"/api/v1/providers/{provider_id}/models", json={"model_id": "x"}).status_code == 404
 
 
 # ---------------------------------------------------------------------------
@@ -514,3 +520,135 @@ def test_restore_rejects_entries_without_official_data(models_client: TestClient
     assert resp.status_code == 404
     # 没有副本时恢复什么都不做
     assert models_client.post("/api/v1/catalog/entries/restore-official", json=_FLASH).status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# 获取模型与按 ID 添加
+# ---------------------------------------------------------------------------
+
+
+def _model_list(*model_ids: str) -> dict:
+    return {
+        "object": "list",
+        "data": [{"id": mid, "object": "model", "created": 0, "owned_by": "relay"} for mid in model_ids],
+    }
+
+
+async def _create_relay(db_factory: async_sessionmaker[AsyncSession]) -> str:
+    async with db_factory() as session:
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="中转站",
+            discovery_format="openai",
+            base_url="https://relay.example.com/v1",
+            api_key="k",
+        )
+        await session.commit()
+        return f"custom-{provider.id}"
+
+
+async def test_custom_discovery_matches_entries_and_infers_default_endpoints(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 图片条目带一个不含图片语义的模型别名：按名字会推成文本，对应上条目后应按条目的媒体类型选端点
+    data = catalog.factory_snapshot()
+    entries = tuple(
+        replace(e, aliases=(*e.aliases, "house-painter")) if e.name == "gpt-image-2" else e for e in data.entries
+    )
+    install_catalog(monkeypatch, replace(data, entries=entries))
+    provider_id = await _create_relay(db_factory)
+
+    with capture_http() as http:
+        http.get("https://relay.example.com/v1/models").respond(
+            json=_model_list("openai/gpt-5.5", "house-painter", "acme-video-pro", "house-chat")
+        )
+        resp = models_client.post(f"/api/v1/providers/{provider_id}/models/discover")
+
+    assert resp.status_code == 200
+    rows = {m["model_id"]: m for m in resp.json()["models"]}
+    summary = {
+        mid: (m["recognized"], m["media_type"], m["endpoint"], (m["matched_entry"] or {}).get("name"))
+        for mid, m in rows.items()
+    }
+    assert summary == {
+        "openai/gpt-5.5": (True, "text", "openai-chat", "gpt-5.5"),
+        "house-painter": (True, "image", "openai-images", "gpt-image-2"),
+        "acme-video-pro": (False, "video", "openai-video", None),
+        "house-chat": (False, "text", "openai-chat", None),
+    }
+    # 选了其他媒体类型的「对应模型」时换用的端点
+    assert rows["house-chat"]["endpoint_by_media_type"]["video"] == "openai-video"
+
+
+async def test_custom_discovery_failure_reports_reason(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    provider_id = await _create_relay(db_factory)
+
+    with capture_http() as http:
+        http.get("https://relay.example.com/v1/models").respond(401, json={"error": {"message": "bad key"}})
+        resp = models_client.post(f"/api/v1/providers/{provider_id}/models/discover")
+
+    assert resp.status_code == 502
+    assert "bad key" in resp.json()["detail"]
+
+
+async def test_builtin_discovery_matches_listing_exactly(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    async with db_factory() as session:
+        await CredentialRepository(session).create(provider="dashscope", name="k", api_key="sk-test")
+        await session.commit()
+
+    with capture_http() as http:
+        route = http.get("https://dashscope.aliyuncs.com/compatible-mode/v1/models").respond(
+            json=_model_list("qwen3-max", "Qwen3-Max", "qwen-vl-max-latest")
+        )
+        resp = models_client.post("/api/v1/providers/dashscope/models/discover")
+
+    assert route.call_count == 1
+    assert route.calls.last.request.headers["authorization"] == "Bearer sk-test"
+    rows = {m["model_id"]: m for m in resp.json()["models"]}
+    # 只按清单中的 API 模型名精确匹配：大小写不同即未识别
+    assert {mid: (m["recognized"], m["model_key"], m["media_type"]) for mid, m in rows.items()} == {
+        "qwen3-max": (True, "qwen3-max", "text"),
+        "Qwen3-Max": (False, None, "text"),
+        "qwen-vl-max-latest": (False, None, "text"),
+    }
+
+
+def test_builtin_discovery_without_list_api_or_credentials(models_client: TestClient) -> None:
+    ark = models_client.post("/api/v1/providers/ark/models/discover").json()
+    assert (ark["not_applicable"], ark["models"]) == (True, [])
+    assert models_client.post("/api/v1/providers/openai/models/discover").status_code == 422
+    listed = models_client.get("/api/v1/providers/openai/models").json()
+    assert listed["discoverable"] is True
+    assert models_client.get("/api/v1/providers/ark/models").json()["discoverable"] is False
+
+
+async def test_custom_add_by_id_infers_endpoint_and_takes_default(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    provider_id = await _create_relay(db_factory)
+
+    first = models_client.post(f"/api/v1/providers/{provider_id}/models", json={"model_id": "openai/gpt-5.5"})
+    second = models_client.post(f"/api/v1/providers/{provider_id}/models", json={"model_id": "house-chat"})
+    bound = models_client.post(
+        f"/api/v1/providers/{provider_id}/models",
+        json={"model_id": "relay-omni", "media_type": "image", "entry_binding": "kuaishou/kling-v3-omni"},
+    )
+
+    assert first.status_code == second.status_code == bound.status_code == 201
+    assert (first.json()["model"]["endpoint"], first.json()["model"]["is_default"]) == ("openai-chat", True)
+    # 同一媒体类型已有默认模型
+    assert (second.json()["model"]["endpoint"], second.json()["model"]["is_default"]) == ("openai-chat", False)
+    # 有条目绑定时在条目的媒体类型内选端点，显示名取条目
+    assert (bound.json()["model"]["endpoint"], bound.json()["model"]["media_type"]) == ("openai-images", "image")
+    assert bound.json()["model"]["flags"] == []
+    duplicate = models_client.post(f"/api/v1/providers/{provider_id}/models", json={"model_id": "house-chat"})
+    assert duplicate.status_code == 422
+    assert (
+        models_client.post(
+            "/api/v1/providers/ark/models", json={"model_id": "x", "endpoint": "openai-chat"}
+        ).status_code
+        == 422
+    )

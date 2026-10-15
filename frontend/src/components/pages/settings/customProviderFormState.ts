@@ -8,25 +8,21 @@ import type {
   DiscoveredModel,
   EndpointDescriptor,
   EndpointKey,
+  FetchedProviderModel,
   MatchedCatalogEntry,
+  MediaType,
   PathOverrides,
   ProviderMultiplierInfo,
-  VideoCapabilityFlags,
 } from "@/types";
-import {
-  capabilityFieldsFor,
-  isComfyuiEndpoint,
-  pathOverridesFor,
-  withDurationsOverride,
-  type DiscoveryFormat,
-} from "./customProviderHelpers";
+import { isComfyuiEndpoint, withDurationsOverride, type DiscoveryFormat } from "./customProviderHelpers";
+import type { FetchSelection } from "./FetchModelsDialog";
 
 // ---------------------------------------------------------------------------
 // 自定义供应商表单的编辑单元内容：已保存的供应商与未保存修改都按这份形状比较。
 // ---------------------------------------------------------------------------
 
 export interface ModelRow {
-  /** 行的稳定标识：已落库的模型取模型 id，新增行随机生成。 */
+  /** 行的稳定标识，随机生成。 */
   key: string;
   model_id: string;
   display_name: string;
@@ -39,28 +35,17 @@ export interface ModelRow {
   durations_text: string;
   // 供应商模型倍率的原始文本，提交前 parse；必须是非负有限数。
   multiplier_text: string;
-  // 条目绑定：本表单不编辑，只原样回传，否则整表 PUT 会把它清掉。
+  // 条目绑定「模型厂商/官方模型名」：获取模型时为未识别的模型选了对应模型才有。
   entry_binding: string | null;
   // 服务端按 (model_id, 媒体类型, 条目绑定) 对应到的条目；null = 对应不上（未定价），
-  // undefined = 还不知道（手动新增、尚未保存的行）。
+  // undefined = 还不知道（手动新增、选了对应模型或改过模型 ID 与端点的行，保存后才知道）。
   matched_entry: MatchedCatalogEntry | null | undefined;
   capability_overrides: CapabilityOverrides | null;
   // 请求地址修改（请求名 → 路径）；null = 全部按端点默认。
   path_overrides: PathOverrides | null;
-  // 系统按 (endpoint, model_id) 判定的能力，只读展示用；null = 非视频模型，或该行尚未落库
-  // （新增/改过 model_id 的行判定要后端算，前端不猜），此时控件只显示「待判定」。
-  system_capabilities: VideoCapabilityFlags | null;
-  // 正在引用该模型的全局 system_settings 键名，只读展示用；新增/未落库的行恒为空数组。
-  global_bucket_refs: string[];
-  // 行创建时的快照，之后不再变化：model_id/endpoint 的清除判断须对齐这份原始值而非上一次
-  // 的中间态——逐字符编辑 model_id 时若拿"上一次的值"作基准，第一次改动即清空覆盖，之后就
-  // 算把输入改回原值也已丢失、无法通过继续编辑恢复；改回原值时应从这份快照原样取回覆盖。
+  // 行创建时的模型 ID 与端点：获取模型时服务端给出的对应条目只对这一组合有效，改过任一项即按「还不知道」处理。
   original_model_id: string;
   original_endpoint: EndpointKey;
-  original_capability_overrides: CapabilityOverrides | null;
-  original_path_overrides: PathOverrides | null;
-  original_system_capabilities: VideoCapabilityFlags | null;
-  original_global_bucket_refs: string[];
 }
 
 export interface CustomProviderFormValue {
@@ -102,31 +87,41 @@ export function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     matched_entry: undefined,
     capability_overrides: null,
     path_overrides: null,
-    system_capabilities: null,
-    global_bucket_refs: [],
     ...partial,
   };
-  return {
-    ...base,
-    original_model_id: base.model_id,
-    original_endpoint: base.endpoint,
-    original_capability_overrides: base.capability_overrides,
-    original_path_overrides: base.path_overrides,
-    original_system_capabilities: base.system_capabilities,
-    original_global_bucket_refs: base.global_bucket_refs,
-  };
+  return { ...base, original_model_id: base.model_id, original_endpoint: base.endpoint };
 }
 
-export function discoveredToRow(m: DiscoveredModel): ModelRow {
+/**
+ * 「获取模型」对话框里勾选的模型变成新建表单的一行。选了对应模型的行存为条目绑定，对应结果要等保存后由服务端算，
+ * 按「还不知道」处理；`isDefault` 由调用方按媒体类型给出。
+ */
+export function fetchedToRow(selection: FetchSelection, isDefault: boolean): ModelRow {
+  const { model, endpoint, binding } = selection;
   return newModelRow({
+    model_id: model.model_id,
+    display_name: model.model_id,
+    endpoint: endpoint ?? DEFAULT_ENDPOINT,
+    is_default: isDefault,
+    is_enabled: true,
+    entry_binding: binding ? `${binding.maker}/${binding.name}` : null,
+    matched_entry: binding ? undefined : model.matched_entry,
+  });
+}
+
+/** 新建表单的模型发现结果转成「获取模型」对话框的行；自定义供应商以名字对应上条目为已识别。 */
+export function discoveredToFetched(m: DiscoveredModel, mediaOf: (endpoint: EndpointKey) => MediaType | undefined): FetchedProviderModel {
+  return {
     model_id: m.model_id,
     display_name: m.display_name,
+    media_type: m.media_type ?? mediaOf(m.endpoint) ?? "text",
+    recognized: m.recognized ?? !!m.matched_entry,
+    model_key: null,
+    matched_entry: m.matched_entry ?? null,
     endpoint: m.endpoint,
+    endpoint_by_media_type: m.endpoint_by_media_type ?? null,
     is_default: m.is_default,
-    is_enabled: m.is_enabled,
-    // 发现结果里的条目对应与保存后服务端算的是同一条判据；没带这一项时按「还不知道」处理。
-    matched_entry: m.matched_entry,
-  });
+  };
 }
 
 // 并发上限：number 输入用受控字符串存储；空串 = 未设置（null，走全局默认）。
@@ -259,14 +254,8 @@ export function effectiveModelRows(
     const descriptor = catalog.find((item) => item.key === row.endpoint);
     if (descriptor !== undefined && isComfyuiEndpoint(descriptor) === isComfyui) return row;
     const endpoint = (isComfyui ? firstComfyui : DEFAULT_ENDPOINT) ?? UNSET_ENDPOINT;
-    // 换了一路，默认标记与能力覆盖随之作废：覆盖的合法性本就绑在 (endpoint, model_id) 上，
+    // 换了一路，默认标记、能力覆盖与请求地址修改随之作废：覆盖的合法性本就绑在 (endpoint, model_id) 上，
     // 而 ComfyUI 协议整个关闭覆盖（服务端 _check_protocol_constraints），留着必被拒。
-    return {
-      ...row,
-      endpoint,
-      is_default: false,
-      ...capabilityFieldsFor(row, row.model_id, endpoint),
-      path_overrides: pathOverridesFor(row, endpoint),
-    };
+    return { ...row, endpoint, is_default: false, capability_overrides: null, path_overrides: null };
   });
 }

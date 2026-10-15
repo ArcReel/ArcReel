@@ -121,12 +121,13 @@ async def add_builtin_model(
     *,
     media_type: str | None = None,
     entry_binding: str | None = None,
+    inferred_media_type: str | None = None,
 ) -> AddedModel:
     """按 ID 添加模型。
 
     先按清单中的 API 模型名精确匹配官方收录的模型，两栖模型再按 ``media_type`` 区分；对上了就启用它。
     匹配不上的作为用户添加的模型，经条目绑定或名字对应条目（docs/adr/0105），媒体类型取 ``media_type``，
-    没给时取名字对应上的条目的媒体类型。
+    没给时取名字对应上的条目的媒体类型，对应不上再取调用方按名字推断的 ``inferred_media_type``。
     """
     _ensure_builtin(provider_id)
     model_id = model_id.strip()
@@ -149,7 +150,7 @@ async def add_builtin_model(
     existing = next((v for v in views if v.model_id == model_id), None)
     if existing is not None:
         raise BuiltinModelError("builtin_model_duplicate", model=model_id)
-    resolved_media = media_type or _entry_media_type(model_id)
+    resolved_media = media_type or _entry_media_type(model_id) or inferred_media_type
     if resolved_media is None:
         raise BuiltinModelError("builtin_model_media_type_required", model=model_id)
     if resolved_media not in _media_types_of(views):

@@ -142,6 +142,35 @@ and saving them does not change the models in the model list.
 
 In the details of a usage record, click the model name to open that model's settings.
 
+### 3.3 Adding and Fetching Models {#add-models}
+
+Above the model list are two entries, "Add model" and "Fetch models", for both Preset and custom providers.
+
+"Add model" lets you search model names or type a model ID directly, and filter by media type:
+
+- "Disabled models": shown only for Preset Providers. It lists the officially listed models that are disabled; selecting one enables it;
+- "Add by model ID": adds the model ID you typed. Its media type comes from the model catalog when the name maps to a known model;
+  otherwise it is inferred from the model name, or taken from the media type filter when one is selected;
+- "Model catalog": adds a model picked from the model catalog; its price and model info follow the selected entry. Entries already in the
+  list are marked "Added".
+
+After adding, the new model's settings open right away so you can adjust its call endpoint and other settings.
+
+"Fetch models" calls the provider's model-listing interface and lists only the models not yet added; already-added models are shown as a
+count. The results are split into two groups:
+
+- "Recognized": models that map to a known model in the model catalog, checked by default;
+- "Unrecognized": models that do not map, unchecked by default; their calls will be recorded as "Unpriced". For each row you can click
+  "Match model" to pick one from the model catalog, and the model is then priced as the selected one.
+
+For custom providers each row also has a call endpoint dropdown. Its default is inferred from the model name, or from the media type of the
+matching model once you pick one. When fetching fails, the reason is shown, and you can check the base URL and key and try again.
+
+Among Preset Providers, AI Studio, Vertex AI, OpenAI, Grok, DashScope, MiniMax, and Agnes support fetching models, which
+requires adding a key first. A model ID returned by the provider counts as "Recognized" only when it exactly matches the API model name of an
+officially listed model. A provider listing a model does not mean your account or region can call it; likewise, officially listed models
+that are not returned stay in the list as usual.
+
 ## 4. Six Dimensions for Choosing a Provider {#six-selection-dimensions}
 
 Do not consider only the result of a single generation.

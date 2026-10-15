@@ -126,7 +126,7 @@ describe("CustomProviderForm（计费）", () => {
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT, VIDEO_ENDPOINT] });
     vi.spyOn(API, "fullUpdateCustomProvider").mockResolvedValue(provider([]));
-    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [] });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [], discoverable: false });
     vi.spyOn(API, "getCustomProvider").mockRejectedValue(new Error("refetch not under test"));
     vi.spyOn(API, "setProviderMultiplier").mockImplementation((_, multiplier) =>
       Promise.resolve({ multiplier: multiplier ?? 1, default: 1 }),
@@ -169,7 +169,10 @@ describe("CustomProviderForm（计费）", () => {
       });
       renderNew();
 
-      fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+      fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
+      // 对应不上条目的模型默认不勾选
+      fireEvent.click(await screen.findByRole("checkbox", { name: /relay-only/ }));
+      fireEvent.click(screen.getByRole("button", { name: "添加 2 个模型" }));
 
       expect(await within(await screen.findByRole("table")).findByText("GPT-4o")).toBeInTheDocument();
       expect(within(rowOf("relay-only")).getByText("未定价")).toBeInTheDocument();

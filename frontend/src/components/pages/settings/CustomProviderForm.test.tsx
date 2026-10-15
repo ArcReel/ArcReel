@@ -137,7 +137,15 @@ function detailOf(item: ProviderModelItem): ProviderModelDetail {
 }
 
 function discovered(modelId: string, endpoint = "openai-chat"): DiscoveredModel {
-  return { model_id: modelId, display_name: modelId, endpoint, is_default: false, is_enabled: true, matched_entry: null };
+  return {
+    model_id: modelId,
+    display_name: modelId,
+    endpoint,
+    is_default: false,
+    is_enabled: true,
+    matched_entry: null,
+    recognized: true,
+  };
 }
 
 /** 填满新建表单的全部必填项：名称、接口地址、密钥，以及一行启用的模型。 */
@@ -157,7 +165,7 @@ describe("CustomProviderForm", () => {
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT, IMAGE_ENDPOINT] });
     vi.spyOn(API, "createCustomProvider").mockRejectedValue(new Error("unexpected create"));
-    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [] });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [], discoverable: false });
   });
 
   it("blocks the save and names the missing field in the save bar when the provider name is empty", async () => {
@@ -233,6 +241,7 @@ describe("CustomProviderForm", () => {
   it("lists the saved models and opens the Sheet of the model named by the deep link", async () => {
     vi.mocked(API.listProviderModels).mockResolvedValue({
       models: [listItem("gpt-4o"), listItem("gpt-4o-mini")],
+      discoverable: true,
     });
     vi.spyOn(API, "getProviderModel").mockResolvedValue(detailOf(listItem("gpt-4o-mini")));
     renderForm({ existing: provider([model(1, "gpt-4o"), model(2, "gpt-4o-mini")]), focusModelId: "gpt-4o-mini" });
@@ -262,7 +271,8 @@ describe("CustomProviderForm", () => {
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
     fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://api.example.invalid" } });
     fireEvent.change(screen.getByLabelText("密钥"), { target: { value: "sk-live" } });
-    fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+    fireEvent.click(screen.getByRole("button", { name: "获取模型" }));
+    fireEvent.click(await screen.findByRole("button", { name: "添加 6 个模型" }));
     await screen.findByRole("button", { name: "编辑 gpt-image-1" });
     const rowNames = () => screen.getAllByRole("button", { name: /^编辑 / }).map((b) => b.getAttribute("aria-label"));
 

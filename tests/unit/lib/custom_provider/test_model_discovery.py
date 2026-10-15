@@ -125,6 +125,23 @@ class TestDiscoverModelsOpenAI:
         assert (matched["openai/GPT-5.4"]["maker"], matched["openai/GPT-5.4"]["name"]) == ("openai", "gpt-5.4")
 
     @patch("lib.custom_provider.discovery.OpenAI")
+    async def test_amphibious_model_maps_by_name_inferred_media_type(self, mock_openai_cls):
+        """两栖模型不限媒体类型时对应不上，按名字推断的媒体类型取条目，端点在条目的媒体类型内选。"""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        omni = MagicMock()
+        omni.id = "kling-v3-omni"
+        mock_client.models.list.return_value = [omni]
+
+        from lib.custom_provider.discovery import discover_models
+
+        [result] = await discover_models(discovery_format="openai", base_url="https://api.example.com/v1", api_key="k")
+
+        assert (result["recognized"], result["media_type"], result["endpoint"]) == (True, "video", "kling-video")
+        assert result["matched_entry"]["media_type"] == "video"
+        assert result["endpoint_by_media_type"]["image"] == "kling-image"
+
+    @patch("lib.custom_provider.discovery.OpenAI")
     async def test_default_marking(self, mock_openai_cls):
         """每种 media_type 的第一个模型（排序后）标为 is_default=True。"""
         mock_client = MagicMock()

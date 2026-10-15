@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ChevronRight, Loader2, Plus } from "lucide-react";
+import { ChevronRight, CloudDownload, Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { API } from "@/api";
@@ -8,8 +8,10 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import type { ProviderModelItem } from "@/types";
+import type { AddProviderModelRequest, FetchedProviderModel, ProviderModelItem } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
+import { AddModelDialog } from "./AddModelDialog";
+import { FetchModelsDialog, type FetchSelection } from "./FetchModelsDialog";
 import { MEDIA_LABEL_KEY, ProviderModelFlags, priceSummaryText } from "./providerModelDisplay";
 import { ProviderModelSheet, type CustomProviderContext, type OpenProviderModel } from "./ProviderModelSheet";
 
@@ -27,21 +29,33 @@ interface Props {
   custom?: CustomProviderContext;
   /** 深链里的模型 ID：打开时直接打开它的 Sheet。 */
   initialModelId?: string;
-  /** 「添加模型」入口；没有传入时按钮不可用。 */
-  onAddModel?: () => void;
-  /** 模型 Sheet 保存或移除之后调用，供上层刷新依赖模型的内容。 */
+  /** 添加模型、模型 Sheet 保存或移除之后调用，供上层刷新依赖模型的内容。 */
   onModelsChanged?: () => void;
+}
+
+/** 获取到的模型添加时的请求：内置供应商对上官方收录的模型即启用它，自定义供应商带调用端点。 */
+function addRequestFor({ model, mediaType, endpoint, binding }: FetchSelection, custom: boolean): AddProviderModelRequest {
+  return {
+    model_id: model.model_id,
+    media_type: mediaType,
+    ...(binding ? { entry_binding: `${binding.maker}/${binding.name}` } : {}),
+    ...(custom && endpoint ? { endpoint } : {}),
+  };
 }
 
 /**
  * 供应商详情的模型列表：按文本、图片、视频、音频分组，筛选「全部 / 已启用」。行上的启用开关点击即生效，
- * 停用时同时取消默认。内置与自定义供应商共用；自定义供应商的行另显示调用端点。
+ * 停用时同时取消默认。上方是「获取模型」（有模型列表接口的供应商）与「添加模型」，添加后打开新模型的 Sheet。
+ * 内置与自定义供应商共用；自定义供应商的行另显示调用端点。
  */
-export function ProviderModelList({ providerId, providerName, custom, initialModelId, onAddModel, onModelsChanged }: Props) {
+export function ProviderModelList({ providerId, providerName, custom, initialModelId, onModelsChanged }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
   const endpoints = useEndpointCatalogStore((s) => s.endpoints);
   const [models, setModels] = useState<ProviderModelItem[] | null>(null);
+  const [discoverable, setDiscoverable] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [fetchOpen, setFetchOpen] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [filter, setFilter] = useState<Filter>("all");
@@ -64,6 +78,7 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
         .then((res) => {
           if (controller.signal.aborted) return;
           setModels(res.models);
+          setDiscoverable(res.discoverable);
           setLoadError(null);
         })
         .catch((err: unknown) => {
@@ -120,8 +135,82 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
   );
   const closeSheet = useCallback(() => setOpenModel(null), []);
 
+  // 添加或启用之后：整表重取（新模型可能成为默认），并打开新模型的 Sheet
+  const handleAdded = useCallback(
+    (model: ProviderModelItem) => {
+      setModels((prev) => {
+        if (!prev) return prev;
+        return prev.some((m) => m.model_id === model.model_id)
+          ? prev.map((m) => (m.model_id === model.model_id ? model : m))
+          : [...prev, model];
+      });
+      setReloadKey((k) => k + 1);
+      sheetKeyRef.current += 1;
+      setOpenModel({ modelId: model.model_id, key: sheetKeyRef.current });
+      onModelsChanged?.();
+    },
+    [onModelsChanged],
+  );
+
+  const loadFetched = useCallback(
+    (signal: AbortSignal) => API.discoverProviderModels(providerId, { signal }),
+    [providerId],
+  );
+  // 已添加：自定义供应商按模型 ID；内置供应商按 API 模型名，停用的官方收录模型不算（添加即启用它）
+  const isFetchedAdded = useCallback(
+    (fetched: FetchedProviderModel) =>
+      (models ?? []).some((m) =>
+        custom
+          ? m.model_id === fetched.model_id
+          : m.api_model_name === fetched.model_id &&
+            (fetched.model_key === null || m.model_id === fetched.model_key) &&
+            (m.enabled || !m.official),
+      ),
+    [models, custom],
+  );
+  const addFetched = useCallback(
+    async (selections: FetchSelection[]) => {
+      const errors: (string | null)[] = [];
+      for (const selection of selections) {
+        try {
+          await API.addProviderModel(providerId, addRequestFor(selection, !!custom));
+          errors.push(null);
+        } catch (err) {
+          errors.push(errMsg(err));
+        }
+      }
+      const addedCount = errors.filter((e) => e === null).length;
+      if (addedCount > 0) {
+        setReloadKey((k) => k + 1);
+        onModelsChanged?.();
+        pushToast(t("pm_fetch_added", { count: addedCount }), "success");
+      }
+      return errors;
+    },
+    [providerId, custom, onModelsChanged, pushToast, t],
+  );
+
   const sheet = (
-    <ProviderModelSheet
+    <>
+      <AddModelDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        providerId={providerId}
+        providerName={providerName}
+        builtin={!custom}
+        models={models ?? []}
+        onAdded={handleAdded}
+      />
+      <FetchModelsDialog
+        open={fetchOpen}
+        onOpenChange={setFetchOpen}
+        providerName={providerName}
+        load={loadFetched}
+        isAdded={isFetchedAdded}
+        protocol={custom?.protocol}
+        onAdd={addFetched}
+      />
+      <ProviderModelSheet
       providerId={providerId}
       providerName={providerName}
       open={openModel}
@@ -129,7 +218,8 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
       onClose={closeSheet}
       onSaved={handleSheetSaved}
       onRemoved={handleSheetRemoved}
-    />
+      />
+    </>
   );
 
   const endpointLabel = (key: string) => {
@@ -143,10 +233,18 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
       <h3 id={headingId} className="text-base font-medium">
         {t("pm_heading")}
       </h3>
-      <Button size="sm" variant="outline" disabled={!onAddModel} onClick={onAddModel}>
-        <Plus aria-hidden data-icon="inline-start" />
-        {t("pm_add_model")}
-      </Button>
+      <div className="flex items-center gap-2">
+        {discoverable && (
+          <Button size="sm" variant="outline" disabled={!models} onClick={() => setFetchOpen(true)}>
+            <CloudDownload aria-hidden data-icon="inline-start" />
+            {t("pm_fetch_models")}
+          </Button>
+        )}
+        <Button size="sm" variant="outline" disabled={!models} onClick={() => setAddOpen(true)}>
+          <Plus aria-hidden data-icon="inline-start" />
+          {t("pm_add_model")}
+        </Button>
+      </div>
     </div>
   );
 

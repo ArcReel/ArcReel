@@ -64,6 +64,10 @@ import type {
   CustomProviderFullUpdateRequest,
   ProviderMultiplierInfo,
   ProviderModelItem,
+  ProviderModelsResponse,
+  FetchProviderModelsResponse,
+  AddProviderModelRequest,
+  AddProviderModelResponse,
   ProviderModelDetail,
   ProviderModelReferences,
   ProviderModelSettingsUpdate,
@@ -3229,8 +3233,27 @@ class API {
   static async listProviderModels(
     id: string,
     options: { signal?: AbortSignal } = {}
-  ): Promise<{ models: ProviderModelItem[] }> {
+  ): Promise<ProviderModelsResponse> {
     return this.request(`/providers/${encodeURIComponent(id)}/models`, { signal: options.signal });
+  }
+
+  /** 获取模型：调用供应商的模型列表接口，返回全部模型与对应结果；已添加的模型由界面排除。 */
+  static async discoverProviderModels(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<FetchProviderModelsResponse> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/discover`, {
+      method: "POST",
+      signal: options.signal,
+    });
+  }
+
+  /** 按 ID 添加模型：内置供应商对上官方收录的模型即启用它，对不上的作为用户添加的模型。 */
+  static async addProviderModel(id: string, body: AddProviderModelRequest): Promise<AddProviderModelResponse> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   }
 
   /** 启用或停用一个供应商模型，立即生效；停用时同时取消默认。 */
@@ -3444,12 +3467,15 @@ class API {
     return this.request(`/custom-providers/${id}`, { method: "DELETE" });
   }
 
-  static async discoverModels(data: { discovery_format: string; base_url: string; api_key: string }): Promise<DiscoverModelsResponse> {
-    return this.request("/custom-providers/discover", { method: "POST", body: JSON.stringify(data) });
-  }
-
-  static async discoverModelsForProvider(id: number): Promise<DiscoverModelsResponse> {
-    return this.request(`/custom-providers/${id}/discover`, { method: "POST" });
+  static async discoverModels(
+    data: { discovery_format: string; base_url: string; api_key: string },
+    options: { signal?: AbortSignal } = {}
+  ): Promise<DiscoverModelsResponse> {
+    return this.request("/custom-providers/discover", {
+      method: "POST",
+      body: JSON.stringify(data),
+      signal: options.signal,
+    });
   }
 
   static async checkCustomConnectivity(data: { discovery_format: string; base_url: string; api_key: string }): Promise<{ success: boolean; message: string }> {

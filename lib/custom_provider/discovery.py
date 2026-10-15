@@ -9,11 +9,13 @@ from collections.abc import Mapping
 from google import genai
 from openai import OpenAI
 
+from arcreel_catalog_core import MEDIA_TYPES, CatalogEntry
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.catalog import query as catalog
 from lib.config.anthropic_probe import anthropic_auth_headers
 from lib.config.url_utils import anthropic_endpoint_url, validate_anthropic_base_url
-from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint
+from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint, infer_media_type
 from lib.custom_provider.model_facts import matched_entry_summary
 
 logger = logging.getLogger(__name__)
@@ -55,7 +57,7 @@ async def _discover_openai(base_url: str | None, api_key: str) -> list[dict]:
         client = OpenAI(api_key=api_key, base_url=ensure_openai_base_url(base_url))
         raw_models = client.models.list()
         models = sorted(raw_models, key=lambda m: m.id)
-        return _build_result_list([(m.id, infer_endpoint(m.id, "openai")) for m in models])
+        return _build_result_list([m.id for m in models], "openai")
 
     return await asyncio.to_thread(_sync)
 
@@ -71,7 +73,7 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
         client = genai.Client(**kwargs)
         raw_models = client.models.list()
 
-        entries: list[tuple[str, str]] = []
+        model_ids: list[str] = []
         output_limits: dict[str, int] = {}
         for m in raw_models:
             if not m.name:
@@ -79,13 +81,13 @@ async def _discover_google(base_url: str | None, api_key: str) -> list[dict]:
             model_id: str = m.name
             if model_id.startswith("models/"):
                 model_id = model_id[len("models/") :]
-            entries.append((model_id, infer_endpoint(model_id, "google")))
+            model_ids.append(model_id)
             limit = getattr(m, "output_token_limit", None)
             if isinstance(limit, int) and not isinstance(limit, bool) and limit > 0:
                 output_limits[model_id] = limit
 
-        entries.sort(key=lambda e: e[0])
-        return _build_result_list(entries, output_limits=output_limits)
+        model_ids.sort()
+        return _build_result_list(model_ids, "google", output_limits=output_limits)
 
     return await asyncio.to_thread(_sync)
 
@@ -132,14 +134,33 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
     ]
 
 
-def _build_result_list(entries: list[tuple[str, str]], *, output_limits: Mapping[str, int] | None = None) -> list[dict]:
-    """每个推算 media_type 取首项为 default，并带上按名字对应到的条目摘要。
+def match_discovered_model(model_id: str, discovery_format: str) -> tuple[CatalogEntry | None, str]:
+    """获取到的模型 ID 对应的条目与默认调用端点（docs/adr/0105）。
+
+    还没有调用端点，先不限媒体类型对应条目；两栖模型这样对应不上，再按名字推断的媒体类型取。对应上条目的，
+    在条目的媒体类型内选端点；对应不上的，按名字同时推断媒体类型与端点。
+    """
+    entry = catalog.find_entry(model_id) or catalog.find_entry(
+        model_id, media_type=infer_media_type(model_id, discovery_format)
+    )
+    if entry is None:
+        return None, infer_endpoint(model_id, discovery_format)
+    return entry, infer_endpoint(model_id, discovery_format, entry.media_type)
+
+
+def _build_result_list(
+    model_ids: list[str], discovery_format: str, *, output_limits: Mapping[str, int] | None = None
+) -> list[dict]:
+    """每个模型带上对应的条目摘要与默认调用端点；每个媒体类型的首项为 default。
 
     ``output_limits`` 是协议给出的模型最大输出长度，只对文本模型给出；没有给出时为 None。
+    ``endpoint_by_media_type`` 是改为对应其他媒体类型的条目时各媒体类型下的默认端点，供获取模型对话框在
+    用户选了「对应模型」后换端点。
     """
     seen_media: set[str] = set()
     result: list[dict] = []
-    for model_id, endpoint in entries:
+    for model_id in model_ids:
+        entry, endpoint = match_discovered_model(model_id, discovery_format)
         media = endpoint_to_media_type(endpoint)
         is_default = media not in seen_media
         seen_media.add(media)
@@ -148,11 +169,14 @@ def _build_result_list(entries: list[tuple[str, str]], *, output_limits: Mapping
                 "model_id": model_id,
                 "display_name": model_id,
                 "endpoint": endpoint,
+                "media_type": media,
                 "is_default": is_default,
                 "is_enabled": True,
                 "max_output_tokens": (output_limits or {}).get(model_id) if media == "text" else None,
-                # 按推断端点的媒体类型对应到的条目（docs/adr/0105）；对应不上为 None，添加后费用记为未定价。
-                "matched_entry": matched_entry_summary(model_id, media),
+                # 对应不上为 None，添加后费用记为未定价。
+                "matched_entry": matched_entry_summary(model_id, media) if entry is not None else None,
+                "recognized": entry is not None,
+                "endpoint_by_media_type": {m: infer_endpoint(model_id, discovery_format, m) for m in MEDIA_TYPES},
             }
         )
     return result

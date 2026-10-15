@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import MEDIA_TYPES, AudioFacts, CatalogEntry, ImageFacts, MediaType, TextFacts, VideoFacts
 from lib.billing.multipliers import get_provider_multiplier
-from lib.catalog import builtin_models
+from lib.catalog import builtin_discovery, builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.composition import EntrySource
 from lib.catalog.price_summary import summarize_price
@@ -36,9 +36,10 @@ from lib.custom_provider.capability_view import (
     check_user_added_overrides,
     user_added_runtime_overrides,
 )
+from lib.custom_provider.discovery_formats import is_comfyui_protocol
 from lib.custom_provider.duration_presets import infer_supported_durations
 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
-from lib.custom_provider.model_facts import model_entry
+from lib.custom_provider.model_facts import entry_summary, model_entry
 from lib.db import get_async_session
 from lib.db.models.custom_provider import CustomProviderModel
 from lib.db.repositories.credential_repository import CredentialRepository
@@ -48,7 +49,9 @@ from server.i18n import Translator
 from server.routers.custom_providers import (
     CUSTOM_MODEL_SETTING_FIELDS,
     EndpointRequestDescriptor,
+    add_custom_model,
     custom_model_settings,
+    discover_custom_provider_models,
     invalidate_provider_caches,
     remove_custom_model,
     update_custom_model,
@@ -99,7 +102,10 @@ class ProviderModelItem(BaseModel):
 
 
 class ProviderModelsResponse(BaseModel):
+    """``discoverable``：供应商可以「获取模型」（自定义供应商的 ComfyUI 协议与没有模型列表接口的内置供应商不行）。"""
+
     models: list[ProviderModelItem]
+    discoverable: bool = False
 
 
 class ProviderModelEnabledUpdate(BaseModel):
@@ -111,11 +117,45 @@ class ProviderModelEnabledUpdate(BaseModel):
 
 class AddProviderModelRequest(BaseModel):
     """按 ID 添加：``media_type`` 用来区分两栖模型，以及给对应不上条目的模型指定媒体类型；``entry_binding`` 是
-    用户为它指定的条目（「模型厂商/官方模型名」）。"""
+    用户为它指定的条目（「模型厂商/官方模型名」）。``endpoint`` 是自定义供应商模型的调用端点，不给时按名字推断
+    （docs/adr/0105）；内置供应商不接受。"""
 
     model_id: Annotated[str, Field(min_length=1, max_length=128)]
     media_type: MediaType | None = None
     entry_binding: str | None = None
+    endpoint: str | None = None
+
+
+class DiscoveredModelItem(BaseModel):
+    """获取到的一个模型。
+
+    - ``recognized``：自定义供应商为名字对应上了条目；内置供应商为对上了清单里官方收录的模型（API 模型名精确匹配），
+      ``model_key`` 是它的模型键，对不上时为 ``null``。
+    - ``media_type``：对应上的取条目或官方收录模型的，对应不上的按名字推断；添加时作为用户添加的模型的媒体类型。
+    - ``matched_entry``：对应到的条目摘要。
+    - ``endpoint`` 与 ``endpoint_by_media_type``：自定义供应商的默认调用端点，以及改为对应其他媒体类型的条目时
+      各媒体类型下的默认端点；内置供应商为 ``null``。
+    """
+
+    model_id: str
+    display_name: str
+    media_type: MediaType
+    recognized: bool
+    model_key: str | None = None
+    matched_entry: dict[str, Any] | None = None
+    endpoint: str | None = None
+    endpoint_by_media_type: dict[str, str] | None = None
+    is_default: bool = False
+    is_enabled: bool = True
+    max_output_tokens: int | None = None
+
+
+class DiscoverProviderModelsResponse(BaseModel):
+    """获取模型的结果。``not_applicable`` 为真时这个供应商没有模型列表接口，``reason`` 说明原因。"""
+
+    models: list[DiscoveredModelItem] = []
+    not_applicable: bool = False
+    reason: str | None = None
 
 
 class AddProviderModelResponse(BaseModel):
@@ -365,9 +405,16 @@ async def list_provider_models(
     """供应商的全部供应商模型，带启用状态、状态标记与价格摘要。"""
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
-        return ProviderModelsResponse(models=await _custom_items(session, provider_id, db_id))
+        provider = await CustomProviderRepository(session).get_provider(db_id)
+        return ProviderModelsResponse(
+            models=await _custom_items(session, provider_id, db_id),
+            discoverable=provider is not None and not is_comfyui_protocol(provider.discovery_format),
+        )
     _require_builtin(provider_id, _t)
-    return ProviderModelsResponse(models=await _builtin_items(session, provider_id))
+    return ProviderModelsResponse(
+        models=await _builtin_items(session, provider_id),
+        discoverable=builtin_discovery.is_discoverable(provider_id),
+    )
 
 
 @router.put("/{provider_id}/models/enabled", response_model=ProviderModelItem)
@@ -414,14 +461,47 @@ async def _one_builtin_item(
 async def add_provider_model(
     provider_id: str,
     body: AddProviderModelRequest,
+    request: Request,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> AddProviderModelResponse:
-    """内置供应商按 ID 添加模型：对上官方收录的模型即启用它，对不上的作为用户添加的模型。"""
+    """按 ID 添加模型。
+
+    内置供应商：对上官方收录的模型即启用它，对不上的作为用户添加的模型。自定义供应商：没给调用端点时按名字推断，
+    这个媒体类型还没有默认模型时新模型成为默认。
+    """
+    if is_custom_provider(provider_id):
+        db_id = await _custom_db_id(session, provider_id, _t)
+        row = await add_custom_model(
+            session,
+            db_id,
+            body.model_id,
+            endpoint=body.endpoint,
+            media_type=body.media_type,
+            entry_binding=body.entry_binding,
+            _t=_t,
+        )
+        model_id = row.model_id
+        await session.commit()
+        await invalidate_provider_caches(request)
+        item = next((i for i in await _custom_items(session, provider_id, db_id) if i.model_id == model_id), None)
+        if item is None:
+            raise HTTPException(status_code=404, detail=_t("provider_model_not_found", model=model_id))
+        return AddProviderModelResponse(model=item, official=False)
     _require_builtin(provider_id, _t)
+    if body.endpoint is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=_t("provider_model_setting_not_applicable", model=body.model_id, setting="endpoint"),
+        )
     try:
         added = await builtin_models.add_builtin_model(
-            session, provider_id, body.model_id, media_type=body.media_type, entry_binding=body.entry_binding
+            session,
+            provider_id,
+            body.model_id,
+            media_type=body.media_type,
+            entry_binding=body.entry_binding,
+            inferred_media_type=builtin_discovery.name_media_type(provider_id, body.model_id.strip()),
         )
     except builtin_models.BuiltinModelError as exc:
         raise _raise_for(exc, _t) from exc
@@ -429,6 +509,77 @@ async def add_provider_model(
     await reload_user_added_models(session)
     return AddProviderModelResponse(
         model=await _one_builtin_item(session, provider_id, added.model_id, _t), official=added.official
+    )
+
+
+#: 内置供应商获取模型时等待模型列表接口的上限。
+_DISCOVERY_TIMEOUT_SECONDS = 30
+
+
+@router.post("/{provider_id}/models/discover", response_model=DiscoverProviderModelsResponse)
+async def discover_provider_models(
+    provider_id: str,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> DiscoverProviderModelsResponse:
+    """获取模型：调用供应商的模型列表接口，返回全部模型 ID 与对应结果，由界面排除已添加的模型。
+
+    自定义供应商按名字对应条目并给出默认调用端点；内置供应商按清单中的 API 模型名精确匹配。获取结果不用来判断
+    模型是否可用。
+    """
+    if is_custom_provider(provider_id):
+        db_id = await _custom_db_id(session, provider_id, _t)
+        found = await discover_custom_provider_models(session, db_id, _t)
+        return DiscoverProviderModelsResponse(
+            models=[DiscoveredModelItem.model_validate(m) for m in found.models],
+            not_applicable=found.not_applicable,
+            reason=found.reason,
+        )
+    _require_builtin(provider_id, _t)
+    if not builtin_discovery.is_discoverable(provider_id):
+        return DiscoverProviderModelsResponse(not_applicable=True, reason=_t("discovery_not_applicable_builtin"))
+    config = await _builtin_discovery_config(session, provider_id)
+    if config is None:
+        raise HTTPException(status_code=422, detail=_t("missing_credentials"))
+    try:
+        model_ids = await asyncio.wait_for(
+            asyncio.to_thread(builtin_discovery.list_model_ids, provider_id, config),
+            timeout=_DISCOVERY_TIMEOUT_SECONDS,
+        )
+    except builtin_discovery.BuiltinDiscoveryConfigError as exc:
+        raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
+    except Exception as exc:
+        err_msg = str(exc) or type(exc).__name__
+        if len(err_msg) > 200:
+            err_msg = err_msg[:200] + "..."
+        logger.warning("获取模型失败 [%s]: %s", provider_id, err_msg)
+        raise HTTPException(status_code=502, detail=_t("discovery_failed", err_msg=err_msg)) from exc
+    return DiscoverProviderModelsResponse(
+        models=[_discovered_builtin_item(m) for m in builtin_discovery.classify_model_ids(provider_id, model_ids)]
+    )
+
+
+async def _builtin_discovery_config(session: AsyncSession, provider_id: str) -> dict[str, str] | None:
+    """叠加了激活凭证的供应商配置；没有凭证时为 ``None``。"""
+    cred = await CredentialRepository(session).get_active(provider_id)
+    if cred is None:
+        return None
+    config = await ConfigService(session).get_provider_config(provider_id)
+    # 叠加凭证时会探测 Vertex 凭证文件是否存在，放进线程
+    await asyncio.to_thread(cred.overlay_config, config)
+    if not config.get("base_url") and (meta := PROVIDER_REGISTRY.get(provider_id)) and meta.default_base_url:
+        config["base_url"] = meta.default_base_url
+    return config
+
+
+def _discovered_builtin_item(model: builtin_discovery.DiscoveredBuiltinModel) -> DiscoveredModelItem:
+    return DiscoveredModelItem(
+        model_id=model.model_id,
+        display_name=model.entry.display_name if model.entry is not None else model.model_id,
+        media_type=cast("MediaType", model.media_type),
+        recognized=model.recognized,
+        model_key=model.model_key,
+        matched_entry=entry_summary(model.entry) if model.entry is not None else None,
     )
 
 

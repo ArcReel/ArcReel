@@ -34,7 +34,7 @@ describe("ProviderDetail", () => {
     await act(async () => i18n.changeLanguage("zh"));
     vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
     vi.spyOn(API, "getProviderMultiplier").mockResolvedValue({ multiplier: 1, default: 1 });
-    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [] });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [], discoverable: false });
   });
 
   afterEach(() => {

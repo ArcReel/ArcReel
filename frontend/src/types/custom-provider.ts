@@ -177,6 +177,12 @@ export interface DiscoveredModel {
   max_output_tokens?: number | null;
   /** 按模型名对应到的模型条目；null = 对应不上，调用记为未定价。 */
   matched_entry?: MatchedCatalogEntry | null;
+  /** 调用端点的媒体类型。 */
+  media_type?: MediaType;
+  /** 对应上了条目（已识别）。 */
+  recognized?: boolean;
+  /** 改为对应其他媒体类型的条目时，各媒体类型下的默认调用端点。 */
+  endpoint_by_media_type?: Record<MediaType, EndpointKey> | null;
 }
 
 export interface CustomProviderCreateRequest {

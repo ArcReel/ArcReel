@@ -1,5 +1,5 @@
 import { Fragment, useId, useMemo, useState, type MouseEvent } from "react";
-import { Check, ChevronDown, ChevronRight, ExternalLink, Link2, Search, Store, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ExternalLink, Search, Store, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Link } from "wouter";
@@ -20,14 +20,7 @@ import { parseMultiplier } from "@/utils/multiplier";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS, resolutionPlaceholder } from "@/utils/provider-models";
 import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
-import {
-  capabilityFieldsFor,
-  globalBucketRefsFor,
-  isComfyuiProtocol,
-  isComfyuiVideoEndpoint,
-  pathOverridesFor,
-  withLastFrameOverride,
-} from "./customProviderHelpers";
+import { isComfyuiProtocol, isComfyuiVideoEndpoint, withLastFrameOverride } from "./customProviderHelpers";
 import { matchedEntryFor, type ModelRow } from "./customProviderFormState";
 import { EndpointSelect } from "./EndpointSelect";
 import { RequestAddresses } from "./RequestAddresses";
@@ -118,8 +111,6 @@ export interface ModelTableProps {
   protocol: DiscoveryFormat;
   /** 表单里当前填写的接口地址，请求地址条据此拼出完整地址。 */
   baseUrl: string;
-  /** 已保存的供应商 id；新建表单没有。 */
-  providerId?: number;
   expanded: ReadonlySet<string>;
   onToggleExpanded: (key: string) => void;
   onUpdate: (key: string, patch: Partial<ModelRow>) => void;
@@ -136,7 +127,6 @@ export function ModelTable({
   rows,
   protocol,
   baseUrl,
-  providerId,
   expanded,
   onToggleExpanded,
   onUpdate,
@@ -327,7 +317,6 @@ export function ModelTable({
                             row={row}
                             protocol={protocol}
                             baseUrl={baseUrl}
-                            providerId={providerId}
                             onUpdate={(patch) => onUpdate(row.key, patch)}
                             onRemove={() => onRemove(row.key)}
                           />
@@ -349,17 +338,14 @@ interface ModelFieldsProps {
   row: ModelRow;
   protocol: DiscoveryFormat;
   baseUrl: string;
-  providerId?: number;
   onUpdate: (patch: Partial<ModelRow>) => void;
   onRemove: () => void;
 }
 
 /** 展开的编辑区：属性共用一条标签列，「删除模型」在底部。 */
-function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }: ModelFieldsProps) {
+function ModelFields({ row, protocol, baseUrl, onUpdate, onRemove }: ModelFieldsProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const requests = useEndpointCatalogStore((s) => s.endpoints.find((e) => e.key === row.endpoint)?.requests);
-  // 换了端点、原来又修改过请求地址：保存后这些修改恢复默认，换端点时就提示。
-  const pathsReset = row.endpoint !== row.original_endpoint && !!row.original_path_overrides;
   const media = useEndpointCatalogStore((s) => s.endpointToMediaType[row.endpoint]);
   const constraints = useEndpointCatalogStore((s) => s.endpointConstraints[row.endpoint]);
   const endImageCapable = useEndpointCatalogStore((s) => s.endpointToEndImageCapable[row.endpoint] ?? false);
@@ -387,13 +373,8 @@ function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }:
           placeholder={t("cp_model_id_placeholder")}
           onChange={(e) => {
             const nextId = e.target.value;
-            onUpdate({
-              model_id: nextId,
-              // 覆盖与判定都随 (endpoint, model_id) 作废/恢复，见 capabilityFieldsFor
-              ...capabilityFieldsFor(row, nextId, row.endpoint),
-              // 引用事实只绑 model_id，见 globalBucketRefsFor
-              global_bucket_refs: globalBucketRefsFor(row, nextId),
-            });
+            // 能力覆盖的合法性绑在 (endpoint, model_id) 上，改了模型 ID 即作废
+            onUpdate({ model_id: nextId, capability_overrides: null });
           }}
         />
       </FieldRow>
@@ -407,18 +388,17 @@ function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }:
             onUpdate({
               endpoint: next,
               is_default: false,
-              // 覆盖的合法性本身随 endpoint 变化（last_frame 要求目标 endpoint 支持尾帧），
-              // 切走即作废；切回原 endpoint 且 model_id 未变则原样取回。
-              ...capabilityFieldsFor(row, row.model_id, next),
-              path_overrides: pathOverridesFor(row, next),
+              // 覆盖的合法性随 endpoint 变化（last_frame 要求目标 endpoint 支持尾帧），请求地址修改只对原端点有意义：
+              // 换端点即一并作废
+              capability_overrides: null,
+              path_overrides: null,
             })
           }
         />
-        {pathsReset && <FieldHint tone="warn">{t("cp_endpoint_change_resets_paths")}</FieldHint>}
         <div className="flex flex-wrap items-center gap-x-4">
           {row.endpoint && (
             <Link
-              href={endpointSettingsPath(row.endpoint, { fromCustomProvider: providerId })}
+              href={endpointSettingsPath(row.endpoint)}
               className={buttonVariants({ variant: "link", size: "sm" })}
             >
               <ExternalLink aria-hidden data-icon="inline-start" />
@@ -523,23 +503,12 @@ function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }:
         <FieldRow label={t("cap_override_last_frame_label")}>
           <CapabilityOverrideRow
             override={row.capability_overrides?.last_frame}
-            systemValue={row.system_capabilities?.last_frame ?? null}
+            // 系统判定要后端按 (endpoint, model_id) 算，新建的行还没有
+            systemValue={null}
             endImageCapable={endImageCapable}
             onChange={(next) => onUpdate({ capability_overrides: withLastFrameOverride(row.capability_overrides, next) })}
           />
         </FieldRow>
-      )}
-
-      {/* 全局默认引用提示（只读，不影响保存） */}
-      {row.global_bucket_refs.length > 0 && (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Link2 aria-hidden className="size-3.5 shrink-0" />
-          {t("global_bucket_ref_hint", {
-            buckets: row.global_bucket_refs
-              .map((key) => t(`global_bucket_label_${key}`))
-              .join(t("global_bucket_ref_separator")),
-          })}
-        </p>
       )}
 
       <div className="flex justify-end">

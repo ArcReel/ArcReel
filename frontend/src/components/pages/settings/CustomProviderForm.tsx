@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Eye, EyeOff, Loader2, MoreHorizontal, Plus, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, CloudDownload, Eye, EyeOff, Loader2, MoreHorizontal, Plus, Trash2, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
@@ -27,13 +27,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import type { CustomProviderInfo, EndpointKey, ProviderMultiplierInfo } from "@/types";
+import type {
+  CustomProviderInfo,
+  EndpointKey,
+  FetchedProviderModel,
+  FetchProviderModelsResponse,
+  ProviderMultiplierInfo,
+} from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 import { DurationParseError } from "@/utils/duration_format";
 import { formatNameList } from "@/utils/list-format";
 import { parseMultiplier } from "@/utils/multiplier";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { DURATION_ERROR_KEY, ModelTable } from "./CustomProviderModelTable";
+import { FetchModelsDialog, type FetchSelection } from "./FetchModelsDialog";
 import { ProviderModelList } from "./ProviderModelList";
 import {
   isComfyuiEndpoint,
@@ -46,8 +53,9 @@ import {
 } from "./customProviderHelpers";
 import {
   DEFAULT_PROVIDER_MULTIPLIER,
-  discoveredToRow,
+  discoveredToFetched,
   effectiveModelRows,
+  fetchedToRow,
   formFromProvider,
   newModelRow,
   newProviderDefaultMultiplier,
@@ -310,8 +318,7 @@ export function CustomProviderForm({
     setExpanded((prev) => new Set(prev).add(row.key));
   };
 
-  // --- 测试连接与获取模型列表：用表单当前内容，不经保存 ---
-  const [discovering, setDiscovering] = useState(false);
+  // --- 测试连接与获取模型：用表单当前内容，不经保存 ---
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const showError = useCallback((msg: string) => useAppStore.getState().pushToast(msg, "error"), []);
@@ -338,30 +345,47 @@ export function CustomProviderForm({
     return true;
   };
 
-  const handleDiscover = async () => {
+  // 获取模型：连接信息在打开对话框时定下，对话框里的列表不随表单之后的输入重取
+  const [fetchConnection, setFetchConnection] = useState<{
+    discovery_format: DiscoveryFormat;
+    base_url: string;
+    api_key: string;
+  } | null>(null);
+  const openFetch = () => {
     if (!checkConnectionInputs()) return;
-    setDiscovering(true);
-    try {
-      const res =
-        useStoredCredential && existing
-          ? await API.discoverModelsForProvider(existing.id)
-          : await API.discoverModels({ discovery_format: discoveryFormat, base_url: value.baseUrl, api_key: value.apiKey });
-      if (res.not_applicable) {
-        showError(res.reason ?? t("discovery_not_applicable"));
-        return;
-      }
-      const discovered = res.models.map(discoveredToRow);
-      // 用 getState 读最新目录映射：目录在挂载时异步拉取，就绪前点「获取模型列表」时闭包里仍是空表，
-      // 合并会跳过默认消解，保存时可能 default_model_conflict。
+    setFetchConnection({ discovery_format: discoveryFormat, base_url: value.baseUrl, api_key: value.apiKey });
+  };
+  const loadFetched = useCallback(
+    async (signal: AbortSignal): Promise<FetchProviderModelsResponse> => {
+      if (!fetchConnection) return { models: [], not_applicable: false, reason: null };
+      const res = await API.discoverModels(fetchConnection, { signal });
+      // 用 getState 读最新目录映射：目录在挂载时异步拉取，打开对话框时可能还没到
+      const mediaMap = useEndpointCatalogStore.getState().endpointToMediaType;
+      return { ...res, models: res.models.map((m) => discoveredToFetched(m, (endpoint) => mediaMap[endpoint])) };
+    },
+    [fetchConnection],
+  );
+  const isFetchedAdded = useCallback(
+    (fetched: FetchedProviderModel) => models.some((m) => m.model_id.trim() === fetched.model_id),
+    [models],
+  );
+  const addFetched = useCallback(
+    (selections: FetchSelection[]) => {
       const { endpointToMediaType: mediaMap, endpointToImageCapabilities: capsMap } =
         useEndpointCatalogStore.getState();
-      updateModels((rows) => mergeDiscoveredModels(rows, discovered, mediaMap, capsMap));
-    } catch (e) {
-      showError(errMsg(e, t("fetch_models_failed")));
-    } finally {
-      setDiscovering(false);
-    }
-  };
+      // 每种媒体类型勾选的第一个模型标为默认，与已有行的默认冲突时由合并让出
+      const seenMedia = new Set<string>();
+      const rows = selections.map((selection) => {
+        const media = selection.endpoint ? mediaMap[selection.endpoint] : undefined;
+        const isDefault = media !== undefined && !seenMedia.has(media);
+        if (media !== undefined) seenMedia.add(media);
+        return fetchedToRow(selection, isDefault);
+      });
+      updateModels((prev) => mergeDiscoveredModels(prev, rows, mediaMap, capsMap));
+      return Promise.resolve(selections.map(() => null));
+    },
+    [updateModels],
+  );
 
   const handleTest = async () => {
     // 先清空上一次结果：校验失败直接返回时也不残留旧的成功或失败提示
@@ -649,9 +673,9 @@ export function CustomProviderForm({
                 {models.length > 0 && <span className="ml-2 text-muted-foreground tabular-nums">{models.length}</span>}
               </h3>
               {!isComfyui && (
-                <Button variant="outline" size="sm" disabled={discovering} onClick={() => void handleDiscover()}>
-                  {discovering && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
-                  {discovering ? t("discovering_models") : t("discover_models")}
+                <Button variant="outline" size="sm" onClick={openFetch}>
+                  <CloudDownload aria-hidden data-icon="inline-start" />
+                  {t("pm_fetch_models")}
                 </Button>
               )}
               <Button variant="outline" size="sm" disabled={noComfyuiEndpointYet} onClick={addModel}>
@@ -689,6 +713,17 @@ export function CustomProviderForm({
                     : t("cp_models_empty_hint")}
               </p>
             )}
+            <FetchModelsDialog
+              open={fetchConnection !== null}
+              onOpenChange={(open) => {
+                if (!open) setFetchConnection(null);
+              }}
+              providerName={value.displayName.trim() || t("add_custom_provider_title")}
+              load={loadFetched}
+              isAdded={isFetchedAdded}
+              protocol={discoveryFormat}
+              onAdd={addFetched}
+            />
           </section>
         )}
 

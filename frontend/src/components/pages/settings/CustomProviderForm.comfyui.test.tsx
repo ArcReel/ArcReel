@@ -321,12 +321,12 @@ describe("CustomProviderForm（comfyui 协议）", () => {
 
   it("replaces the discover button with an explanation", async () => {
     renderForm();
-    expect(screen.getByRole("button", { name: "获取模型列表" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "获取模型" })).toBeInTheDocument();
 
     await selectProtocol("comfyui");
 
-    expect(screen.queryByRole("button", { name: "获取模型列表" })).not.toBeInTheDocument();
-    expect(screen.getByText(/「获取模型列表」对 ComfyUI 不适用/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "获取模型" })).not.toBeInTheDocument();
+    expect(screen.getByText(/「获取模型」对 ComfyUI 不适用/)).toBeInTheDocument();
     await waitFor(() => expect(API.listEndpointCatalog).toHaveBeenCalled());
   });
 
