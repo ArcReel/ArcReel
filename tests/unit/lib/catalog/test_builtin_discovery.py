@@ -37,6 +37,17 @@ def test_openai_form_lists_ids_from_provider_base_url(provider_id: str, base_url
     assert sorted(ids) == ["a-model", "b-model"]
 
 
+def test_openai_without_configured_base_url_ignores_the_environment_base_url(monkeypatch: pytest.MonkeyPatch):
+    """没配 base_url 时请求官方地址，不随 SDK 改读 OPENAI_BASE_URL，密钥不会发到环境变量指定的主机。"""
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://env-relay.example.com/v1")
+    with capture_http() as http:
+        route = http.get("https://api.openai.com/v1/models").respond(json=_openai_list("a-model"))
+        ids = builtin_discovery.list_model_ids("openai", {"api_key": "sk-test"})
+
+    assert only_request(route).headers["authorization"] == "Bearer sk-test"
+    assert ids == ["a-model"]
+
+
 def test_google_form_strips_path_prefix():
     with capture_http() as http:
         route = http.get(url__startswith="https://generativelanguage.googleapis.com/").respond(
@@ -44,8 +55,22 @@ def test_google_form_strips_path_prefix():
         )
         ids = builtin_discovery.list_model_ids("gemini-aistudio", {"api_key": "g-key"})
 
-    assert only_request(route).headers["x-goog-api-key"] == "g-key"
+    request = only_request(route)
+    assert request.headers["x-goog-api-key"] == "g-key"
+    # 单次请求的超时与 OpenAI 形态一致（30 秒），不按 SDK 默认值挂着
+    assert request.extensions["timeout"]["read"] == 30
     assert ids == ["gemini-3-flash-preview", "veo-3.1-generate-preview"]
+
+
+@pytest.mark.parametrize("credentials_path", ["", "missing.json"])
+def test_vertex_without_a_credentials_file_is_a_config_error(tmp_path, credentials_path: str):
+    path = str(tmp_path / credentials_path) if credentials_path else ""
+
+    with pytest.raises(builtin_discovery.BuiltinDiscoveryConfigError) as exc_info:
+        builtin_discovery.list_model_ids("gemini-vertex", {"credentials_path": path})
+
+    assert exc_info.value.code == "file_not_found"
+    assert exc_info.value.params == {"path": path}
 
 
 def test_classify_lists_amphibious_listing_once_per_model_key_and_infers_unknown_media():

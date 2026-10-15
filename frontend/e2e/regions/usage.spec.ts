@@ -152,6 +152,7 @@ const DETAIL = {
   prompt: Array.from({ length: 30 }, (_, i) => `第 ${i + 1} 段：夜雨中的码头，镜头缓慢推近灯塔，雾气在探照灯里翻涌。`).join("\n"),
   inputs: { parameters: { seed: 42, negative_prompt: "blurry, low quality", camera: "dolly-in" } },
   last_provider_response: { error: { code: 400, message: "content policy violation" } },
+  provider_in_settings: true,
 };
 
 const STRESS: ApiOverrides = {

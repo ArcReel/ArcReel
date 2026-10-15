@@ -116,14 +116,29 @@ describe("ProviderModelList", () => {
     const setEnabled = vi
       .spyOn(API, "setProviderModelEnabled")
       .mockResolvedValue({ ...MODELS[1], enabled: false, is_default: false });
+    const onModelsChanged = vi.fn();
 
-    render(<ProviderModelList providerId="acme" providerName="Acme" />);
+    render(<ProviderModelList providerId="acme" providerName="Acme" onModelsChanged={onModelsChanged} />);
     const toggle = await screen.findByRole("switch", { name: "启用「Chat One」" });
     fireEvent.click(toggle);
 
     await waitFor(() => expect(setEnabled).toHaveBeenCalledWith("acme", "chat-1", false));
     await waitFor(() => expect(toggle).not.toBeChecked());
     expect(screen.queryByText("默认")).not.toBeInTheDocument();
+    // 上层按已启用的模型判断（如自定义供应商不填密钥时的冲突提示），启停后要通知它
+    expect(onModelsChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("refetches the rows when the saved provider multiplier changes", async () => {
+    // 倍率为 0 时不标「未定价」：倍率跨过 0 后行上的标记要跟着变
+    const list = vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS, discoverable: false });
+
+    const { rerender } = render(<ProviderModelList providerId="acme" providerName="Acme" providerMultiplier={1} />);
+    await screen.findByRole("switch", { name: "启用「Chat One」" });
+    expect(list).toHaveBeenCalledTimes(1);
+
+    rerender(<ProviderModelList providerId="acme" providerName="Acme" providerMultiplier={0} />);
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   });
 
   it("keeps the state and reports the reason when a toggle fails", async () => {
@@ -203,6 +218,42 @@ describe("ProviderModelList", () => {
         model_id: "relay-flux",
         media_type: "image",
         entry_binding: "bfl/flux-x",
+      }),
+    );
+  });
+
+  it("leaves the output limit of a hand-filled text model unset unless the user gives one", async () => {
+    // 预填一个常见值会作为模型事实写入，文本请求随之被压到这个上限；不填时按未登记处理
+    const user = userEvent.setup();
+    const added = item({ model_id: "relay-chat", official: false, media_type: "text" });
+    vi.spyOn(API, "listProviderModels")
+      .mockResolvedValueOnce({ models: [], discoverable: false })
+      .mockResolvedValue({ models: [added], discoverable: false });
+    vi.spyOn(API, "searchCatalogEntries").mockResolvedValue({ entries: [] });
+    vi.spyOn(API, "getNewEntryHints").mockResolvedValue({ existing: null, durations: null });
+    const create = vi
+      .spyOn(API, "createCatalogEntry")
+      .mockResolvedValue({ maker: "acme", name: "relay-chat", media_type: "text", display_name: "relay-chat", discontinued: false });
+    vi.spyOn(API, "addProviderModel").mockResolvedValue({ model: added, official: false });
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(detailOf(added));
+
+    render(<ProviderModelList providerId="acme" providerName="Acme" />);
+    await screen.findByText("这个供应商还没有模型。");
+    await user.click(screen.getByRole("button", { name: "添加模型" }));
+    await user.type(await screen.findByPlaceholderText("搜索模型名称，或输入模型 ID"), "relay-chat");
+    await user.click(await screen.findByRole("button", { name: "手动填写" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "手动填写模型信息" });
+    await user.type(within(dialog).getByLabelText("模型厂商"), "acme");
+    await user.click(within(dialog).getByRole("button", { name: "文本" }));
+    await user.click(within(dialog).getByRole("button", { name: "确定" }));
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith({
+        maker: "acme",
+        name: "relay-chat",
+        media_type: "text",
+        facts: { image_input: false, structured_output: false },
       }),
     );
   });

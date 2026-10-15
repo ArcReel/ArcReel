@@ -1,9 +1,10 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import "@/i18n";
 import { API } from "@/api";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
+import { createDeferred } from "@/test/deferred";
 import type { EndpointDescriptor, EndpointRequest, ProviderModelDetail, ProviderModelItem } from "@/types";
 import { ProviderModelSheet, type CustomProviderContext } from "./ProviderModelSheet";
 
@@ -249,6 +250,21 @@ describe("ProviderModelSheet", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("enables removal only after the references have been looked up", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(unmatchedVideo());
+    const references = createDeferred<{ settings: never[]; projects: never[] }>();
+    vi.spyOn(API, "getProviderModelReferences").mockReturnValue(references.promise);
+    renderSheet();
+
+    await user.click(await screen.findByRole("button", { name: "从「我的中转站」移除" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "从「我的中转站」移除「relay-video」？" });
+    expect(within(dialog).getByRole("button", { name: "移除" })).toBeDisabled();
+
+    await act(async () => references.resolve({ settings: [], projects: [] }));
+    expect(within(dialog).getByRole("button", { name: "移除" })).toBeEnabled();
+  });
+
   it("shows maker, official name and media type read-only and the facts as editable fields", async () => {
     vi.spyOn(API, "getProviderModel").mockResolvedValue(veoDetail());
     renderSheet();
@@ -428,7 +444,8 @@ describe("ProviderModelSheet", () => {
       await waitFor(() =>
         expect(update).toHaveBeenCalledWith("custom-3", "relay-video", { entry_binding: "google/veo-3" }),
       );
-      expect(await within(info).findByText(/已关联到「.*veo-3」，不再按名字对应。/)).toBeInTheDocument();
+      // 关联的条目按显示名称呼，不出现「厂商/官方模型名」
+      expect(await within(info).findByText("已关联到「Veo 3」，不再按名字对应。")).toBeInTheDocument();
     });
 
     it("rejects an entry of another media type without touching the draft", async () => {

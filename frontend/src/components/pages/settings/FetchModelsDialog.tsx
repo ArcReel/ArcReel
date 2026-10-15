@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { Link2, Loader2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { CatalogEntryPicker } from "@/components/shared/CatalogEntryPicker";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -341,9 +342,14 @@ function FetchedRow({
         <Checkbox id={checkboxId} checked={row.checked} disabled={disabled} onCheckedChange={onCheck} />
         <label htmlFor={checkboxId} className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="font-mono text-sm break-all">{model.model_id}</span>
-          <span className="truncate text-xs text-muted-foreground">
-            {entryName ? `${entryName}（${t(MEDIA_LABEL_KEY[media])}）` : t(MEDIA_LABEL_KEY[media])}
-          </span>
+          <TruncatedText
+            className="text-xs text-muted-foreground"
+            text={
+              entryName
+                ? t("pm_fetch_entry_media", { name: entryName, media: t(MEDIA_LABEL_KEY[media]) })
+                : t(MEDIA_LABEL_KEY[media])
+            }
+          />
         </label>
         {!model.recognized &&
           (row.binding ? (

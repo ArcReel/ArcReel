@@ -166,7 +166,7 @@ instead of the model info.
 The name, base URL, key, concurrency limits, and provider multiplier of a custom provider are still saved together in the provider details,
 and saving them does not change the models in the model list.
 
-In the details of a usage record, click the model name to open that model's settings.
+In the details of a usage record, click the model name to open that model's settings; when the provider has been deleted or is an Agent credential, only the model name is shown.
 
 ### 3.3 Adding and Fetching Models {#add-models}
 
@@ -178,7 +178,8 @@ Above the model list are two entries, "Add model" and "Fetch models", for both P
 - "Add by model ID": adds the model ID you typed. Its media type comes from the model catalog when the name maps to a known model;
   otherwise it is inferred from the model name, or taken from the media type filter when one is selected;
 - "Model catalog": adds a model picked from the model catalog; its price and model info follow the selected entry. Entries already in the
-  list are marked "Added".
+  list are marked "Added"; when a Preset Provider already lists the model (its API model name may differ from the catalog name),
+  selecting it enables that listed model.
 
 After adding, the new model's settings open right away so you can adjust its call endpoint and other settings.
 

@@ -20,11 +20,14 @@ const MEDIA_TYPES: readonly MediaType[] = ["text", "image", "video", "audio"];
 /** 手动填写时列出的模型事实：与「模型信息」可修改的一致，时长联动约束留到保存之后再设。 */
 const FILL_IN_FACTS = (media: MediaType): CapabilityKey[] => EDITABLE_FACTS[media].filter((key) => key !== "duration_constraints");
 
-/** 各媒体类型的初始取值。文本的输出上限是常见值；视频的可选时长随名字预填，见 `ManualEntryDialog`。 */
+/**
+ * 各媒体类型的初始取值；视频的可选时长随名字预填，见 `ManualEntryDialog`。文本的最大输出长度不预填：写入的值
+ * 是文本请求的上限，不知道时留空按未登记处理。
+ */
 function defaultFacts(media: MediaType): Record<string, unknown> {
   switch (media) {
     case "text":
-      return { image_input: false, structured_output: false, max_output_tokens: 8192 };
+      return { image_input: false, structured_output: false };
     case "image":
       return { text_to_image: true, image_to_image: false, resolutions: [] };
     case "video":

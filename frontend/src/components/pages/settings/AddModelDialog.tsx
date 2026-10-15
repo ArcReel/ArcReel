@@ -3,6 +3,7 @@ import { Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { CatalogEntryLabel, CatalogMediaFilter, type MediaFilter } from "@/components/shared/CatalogEntryPicker";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { useCatalogEntrySearch } from "@/components/shared/useCatalogEntrySearch";
 import { Button } from "@/components/ui/button";
 import {
@@ -120,7 +121,7 @@ function AddModelBody({
         </p>
       )}
       <CommandList label={t("pm_add_title_short")} className="max-h-[50dvh]" aria-busy={busy || !search.settled}>
-        {search.settled && <CommandEmpty>{t("pm_add_empty")}</CommandEmpty>}
+        {search.settled && search.error === null && <CommandEmpty>{t("pm_add_empty")}</CommandEmpty>}
         {disabledModels.length > 0 && (
           <CommandGroup heading={t("pm_add_group_disabled")}>
             {disabledModels.map((model) => (
@@ -133,9 +134,10 @@ function AddModelBody({
                 }
               >
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate">{model.display_name ?? model.model_id}</span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    <span className="font-mono">{model.api_model_name}</span> · {t(MEDIA_LABEL_KEY[model.media_type])}
+                  <TruncatedText text={model.display_name ?? model.model_id} focusable={false} />
+                  <span className="flex min-w-0 gap-1 text-xs text-muted-foreground">
+                    <TruncatedText text={model.api_model_name} focusable={false} className="font-mono" />
+                    <span className="shrink-0">· {t(MEDIA_LABEL_KEY[model.media_type])}</span>
                   </span>
                 </span>
                 <span className="shrink-0 text-xs text-muted-foreground">{t("pm_add_enable")}</span>
@@ -151,22 +153,11 @@ function AddModelBody({
               onSelect={() => add({ model_id: trimmed, ...(filter === "all" ? {} : { media_type: filter }) })}
             >
               <Plus aria-hidden />
-              <span className="min-w-0 truncate">{t("pm_add_by_id", { id: trimmed })}</span>
+              <TruncatedText text={t("pm_add_by_id", { id: trimmed })} focusable={false} />
             </CommandItem>
           </CommandGroup>
         )}
-        {search.error !== null ? (
-          <div role="alert" className="flex flex-col items-start gap-2 px-2 py-4 text-sm">
-            <p>{t("catalog_picker_load_failed")}</p>
-            <details className="text-xs text-muted-foreground">
-              <summary>{t("catalog_picker_error_details")}</summary>
-              {search.error}
-            </details>
-            <Button variant="outline" size="sm" onClick={search.retry}>
-              {t("common:retry")}
-            </Button>
-          </div>
-        ) : (
+        {search.error === null &&
           search.entries !== null &&
           search.entries.length > 0 && (
             <CommandGroup heading={t("pm_add_group_catalog")}>
@@ -192,9 +183,21 @@ function AddModelBody({
                 );
               })}
             </CommandGroup>
-          )
-        )}
+          )}
       </CommandList>
+      {/* 列表只放选项（listbox 的子元素要求），目录读取失败的说明与重试放在列表之外 */}
+      {search.error !== null && (
+        <div role="alert" className="flex flex-col items-start gap-2 border-t border-border px-3 py-3 text-sm">
+          <p>{t("catalog_picker_load_failed")}</p>
+          <details className="text-xs text-muted-foreground">
+            <summary>{t("catalog_picker_error_details")}</summary>
+            {search.error}
+          </details>
+          <Button variant="outline" size="sm" onClick={search.retry}>
+            {t("common:retry")}
+          </Button>
+        </div>
+      )}
       {busy && (
         <p className="flex items-center gap-2 border-t border-border px-3 py-2 text-sm text-muted-foreground">
           <Loader2 aria-hidden className="size-4 animate-spin text-primary" />

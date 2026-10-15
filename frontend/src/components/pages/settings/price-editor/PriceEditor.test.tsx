@@ -145,6 +145,36 @@ describe("PriceEditor", () => {
     expect(screen.getByText("与前面某一档的条件重复，请修改条件。")).toBeInTheDocument();
   });
 
+  it("flags context tiers that do not start at 0 or differ between meters as not savable", () => {
+    const tiered = (meter: string, tiers: number[]) => ({
+      meter,
+      dims: ["context_tier"],
+      rows: tiers.map((tier) => ({ when: { context_tier: tier }, price: 1 })),
+    });
+    const { unmount } = render(
+      <Harness
+        mediaType="text"
+        initial={{ currency: "USD", meters: [tiered("uncached_input_tokens", [100_000, 200_000])] }}
+      />,
+    );
+    expect(within(card("输入")).getByText("输入长度的第一档要从 0 起。")).toBeInTheDocument();
+    expect(screen.getByTestId("valid")).toHaveTextContent("false");
+    unmount();
+
+    render(
+      <Harness
+        mediaType="text"
+        initial={{
+          currency: "USD",
+          meters: [tiered("uncached_input_tokens", [0, 200_000]), tiered("output_tokens", [0, 128_000])],
+        }}
+      />,
+    );
+    expect(within(card("输出")).getByText(/各计费项按输入长度分档的位置要相同/)).toBeInTheDocument();
+    expect(within(card("输入")).queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("valid")).toHaveTextContent("false");
+  });
+
   it("offers the service tiers as standard, Flex and Fast", async () => {
     render(<Harness mediaType="text" />);
     await pickMenuItem("添加计费项", "输入");

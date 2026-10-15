@@ -92,6 +92,25 @@ describe("ProviderDetail", () => {
     expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
+  it("keeps a multiplier load failure when the detail arrives after it", async () => {
+    // 倍率先失败、详情后到：详情成功不能清掉倍率的错误，否则页面停在加载态且没有重试入口。
+    const detail = createDeferred<ProviderConfigDetail>();
+    vi.spyOn(API, "getProviderConfig")
+      .mockImplementationOnce(() => detail.promise)
+      .mockResolvedValue(detailFor("zh"));
+    vi.mocked(API.getProviderMultiplier)
+      .mockRejectedValueOnce(new Error("multiplier failed"))
+      .mockResolvedValue({ multiplier: 1, default: 1 });
+
+    render(<ProviderDetail providerId="gemini-aistudio" />);
+    await screen.findByText("multiplier failed");
+    await act(async () => detail.resolve(detailFor("zh")));
+
+    expect(screen.getByText("multiplier failed")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: i18n.t("common:retry") }));
+    await screen.findByText("Gemini AI Studio（中文）");
+  });
+
   it("keeps the saved detail when a slower language refetch lands last", async () => {
     let resolveLanguage: (detail: ProviderConfigDetail) => void = () => {};
     vi.spyOn(API, "getProviderConfig")

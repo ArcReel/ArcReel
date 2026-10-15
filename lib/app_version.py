@@ -24,3 +24,8 @@ def load_app_version(pyproject_path: Path) -> str:
 def app_version() -> str:
     """当前应用版本，进程内只读一次。"""
     return load_app_version(PYPROJECT_PATH)
+
+
+def reset_for_tests() -> None:
+    """清掉 :func:`app_version` 的进程级缓存，只供测试使用。"""
+    app_version.cache_clear()

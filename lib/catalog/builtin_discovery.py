@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from arcreel_catalog_core import CatalogEntry
@@ -33,7 +34,7 @@ XAI_OPENAI_BASE_URL = "https://api.x.ai/v1"
 
 
 class BuiltinDiscoveryConfigError(ValueError):
-    """凭证缺少获取模型需要的字段（如 Vertex 凭证文件没有 project_id）。``code`` 是错误文案的 i18n key。"""
+    """凭证缺少获取模型需要的字段（如 Vertex 凭证文件不存在或没有 project_id）。``code`` 是错误文案的 i18n key。"""
 
     def __init__(self, code: str, **params: object) -> None:
         super().__init__(code)
@@ -120,7 +121,8 @@ def list_model_ids(provider_id: str, config: Mapping[str, str]) -> list[str]:
             raise ValueError(f"provider {provider_id!r} has no model list API")
 
 
-def _openai_base_url(provider_id: str, configured: str | None) -> str | None:
+def _openai_base_url(provider_id: str, configured: str | None) -> str:
+    """列表接口的地址；每家都返回显式地址。传 ``None`` 时 OpenAI SDK 改读 ``OPENAI_BASE_URL`` 环境变量，会把密钥发到那里。"""
     match provider_id:
         case "grok":
             return XAI_OPENAI_BASE_URL
@@ -137,14 +139,22 @@ def _openai_base_url(provider_id: str, configured: str | None) -> str | None:
 
             return agnes_base_url(configured)
         case _:
-            return configured or None
+            from lib.config.url_utils import OFFICIAL_OPENAI_BASE_URL
+
+            return (configured or "").strip() or OFFICIAL_OPENAI_BASE_URL
 
 
-def _list_openai(api_key: str, base_url: str | None) -> list[str]:
+#: 模型列表接口单次请求的超时。调用方另有总时限，这里让线程随之结束，不按 SDK 默认的长超时与重试挂着。
+_LIST_TIMEOUT_SECONDS = 30
+#: 同一超时按 genai SDK ``HttpOptions.timeout`` 的单位（毫秒）；不设 ``retry_options`` 时它不重试。
+_GENAI_LIST_TIMEOUT_MS = _LIST_TIMEOUT_SECONDS * 1000
+
+
+def _list_openai(api_key: str, base_url: str) -> list[str]:
     from openai import OpenAI
 
-    client = OpenAI(api_key=api_key, base_url=base_url)
-    return [m.id for m in client.models.list() if m.id]
+    with OpenAI(api_key=api_key, base_url=base_url, timeout=_LIST_TIMEOUT_SECONDS, max_retries=0) as client:
+        return [m.id for m in client.models.list() if m.id]
 
 
 def _short_name(name: str | None) -> str:
@@ -157,10 +167,9 @@ def _list_google_aistudio(config: Mapping[str, str]) -> list[str]:
 
     from lib.config.url_utils import ensure_google_base_url
 
-    base_url = config.get("base_url")
-    http_options: genai.types.HttpOptionsDict | None = (
-        {"base_url": ensure_google_base_url(base_url)} if base_url else None
-    )
+    http_options: genai.types.HttpOptionsDict = {"timeout": _GENAI_LIST_TIMEOUT_MS}
+    if base_url := config.get("base_url"):
+        http_options["base_url"] = ensure_google_base_url(base_url)
     client = genai.Client(api_key=config["api_key"], http_options=http_options)
     return [name for m in client.models.list() if (name := _short_name(m.name))]
 
@@ -172,10 +181,18 @@ def _list_google_vertex(config: Mapping[str, str]) -> list[str]:
     from lib.backends.gemini_shared import VERTEX_SCOPES
 
     credentials_path = config.get("credentials_path", "")
+    if not credentials_path or not Path(credentials_path).is_file():
+        raise BuiltinDiscoveryConfigError("file_not_found", path=credentials_path)
     with open(credentials_path, encoding="utf-8") as f:
         project_id = json.load(f).get("project_id")
     if not project_id:
         raise BuiltinDiscoveryConfigError("vertex_json_missing_project_id")
     credentials = service_account.Credentials.from_service_account_file(credentials_path, scopes=VERTEX_SCOPES)
-    client = genai.Client(vertexai=True, project=project_id, location="global", credentials=credentials)
+    client = genai.Client(
+        vertexai=True,
+        project=project_id,
+        location="global",
+        credentials=credentials,
+        http_options={"timeout": _GENAI_LIST_TIMEOUT_MS},
+    )
     return [name for m in client.models.list() if (name := _short_name(m.name))]

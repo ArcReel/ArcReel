@@ -161,8 +161,6 @@ function fillRequiredFields() {
 describe("CustomProviderForm", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
-    // jsdom 不实现滚动；深链定位模型时会把展开的行滚进视野
-    Element.prototype.scrollIntoView = vi.fn();
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT, IMAGE_ENDPOINT] });
     vi.spyOn(API, "createCustomProvider").mockRejectedValue(new Error("unexpected create"));

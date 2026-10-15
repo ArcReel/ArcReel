@@ -103,7 +103,10 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
   const [detail, setDetail] = useState<ProviderConfigDetail | null>(null);
   const [multiplier, setMultiplier] = useState<ProviderMultiplierInfo | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // 详情与倍率各自记读取错误：一方成功不能清掉另一方的错误，否则页面停在加载态且没有重试入口。
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [multiplierError, setMultiplierError] = useState<string | null>(null);
+  const loadError = detailError ?? multiplierError;
   const [reloadKey, setReloadKey] = useState(0);
   const detailRef = useRef<ProviderConfigDetail | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
@@ -132,12 +135,12 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
         .then((res) => {
           if (controller.signal.aborted) return;
           applyDetail(res);
-          setLoadError(null);
+          setDetailError(null);
         })
         .catch((err: unknown) => {
           // 语言重取失败时旧详情仍可读，静默即可；手上没有详情可展示就必须报错，
           // 否则页面停在加载态且没有重试入口。
-          if (!controller.signal.aborted && detailRef.current === null) setLoadError(errMsg(err));
+          if (!controller.signal.aborted && detailRef.current === null) setDetailError(errMsg(err));
         }),
     );
     return () => controller.abort();
@@ -152,7 +155,7 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
           if (!controller.signal.aborted) setMultiplier(res);
         })
         .catch((err: unknown) => {
-          if (!controller.signal.aborted) setLoadError(errMsg(err));
+          if (!controller.signal.aborted) setMultiplierError(errMsg(err));
         }),
     );
     return () => controller.abort();
@@ -224,7 +227,8 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
             variant="outline"
             size="sm"
             onClick={() => {
-              setLoadError(null);
+              setDetailError(null);
+              setMultiplierError(null);
               setReloadKey((k) => k + 1);
             }}
           >
@@ -322,6 +326,7 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
           providerName={detail.display_name}
           initialModelId={initialModelId}
           onModelsChanged={onSaved}
+          providerMultiplier={multiplier.multiplier}
         />
 
         {detail.fields.length > 0 && (

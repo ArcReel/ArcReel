@@ -134,14 +134,16 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
     ]
 
 
-def match_discovered_model(model_id: str, discovery_format: str) -> tuple[CatalogEntry | None, str]:
+def match_discovered_model(
+    model_id: str, discovery_format: str, media_type: str | None = None
+) -> tuple[CatalogEntry | None, str]:
     """获取到的模型 ID 对应的条目与默认调用端点（docs/adr/0105）。
 
-    还没有调用端点，先不限媒体类型对应条目；两栖模型这样对应不上，再按名字推断的媒体类型取。对应上条目的，
-    在条目的媒体类型内选端点；对应不上的，按名字同时推断媒体类型与端点。
+    还没有调用端点，先不限媒体类型对应条目；两栖模型这样对应不上，再按 ``media_type`` 取，没给时按名字推断的
+    媒体类型取。对应上条目的，在条目的媒体类型内选端点；对应不上的，按名字同时推断媒体类型与端点。
     """
     entry = catalog.find_entry(model_id) or catalog.find_entry(
-        model_id, media_type=infer_media_type(model_id, discovery_format)
+        model_id, media_type=media_type or infer_media_type(model_id, discovery_format)
     )
     if entry is None:
         return None, infer_endpoint(model_id, discovery_format)

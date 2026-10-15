@@ -73,15 +73,6 @@ describe("UsageRecordsSection detail", () => {
   });
 
   it("links the model to its Sheet in the provider settings", async () => {
-    vi.spyOn(API, "getUsageSummary").mockResolvedValue(
-      makeUsageSummary({
-        filter_options: {
-          projects: [],
-          providers: [{ provider: "custom-7", label: "中转站" }],
-          models: [],
-        },
-      }),
-    );
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
       makeUsageRecordDetail({ id: 42, provider: "custom-7", model: "relay/veo-3" }),
     );
@@ -95,11 +86,11 @@ describe("UsageRecordsSection detail", () => {
     );
   });
 
-  it.each(["custom-7", "agent-3", "retired-preset"])(
-    "shows the model as plain text when provider %s has no Sheet to open",
+  it.each(["custom-7", "agent-3", "gemini"])(
+    "shows the model as plain text when provider %s is no longer in the provider settings",
     async (provider) => {
       vi.spyOn(API, "getUsageRecord").mockResolvedValue(
-        makeUsageRecordDetail({ id: 42, provider, model: "relay/veo-3" }),
+        makeUsageRecordDetail({ id: 42, provider, model: "relay/veo-3", provider_in_settings: false }),
       );
 
       renderUsageRecordsSection("section=usage&record=42");

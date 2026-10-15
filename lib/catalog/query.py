@@ -100,7 +100,7 @@ def factory_snapshot() -> CatalogData:
 
 
 def official_data() -> CatalogData:
-    """官方数据：出厂快照与官方同步中数据集版本较新的一份。官方同步尚未接入，目前只有出厂快照这一个来源。"""
+    """官方数据：在候选来源中取数据集版本较新的一份；候选来源只有出厂快照，官方同步的数据作为另一个候选传入。"""
     return newest_official((factory_snapshot(),))
 
 

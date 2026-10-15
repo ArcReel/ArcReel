@@ -35,6 +35,7 @@ from lib.catalog import builtin_discovery, builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.composition import EntrySource
 from lib.catalog.price_summary import summarize_price
+from lib.catalog.reload_order import LatestReadWins
 from lib.catalog.user_entries import (
     UNSET,
     EntryEditRejected,
@@ -307,25 +308,32 @@ class ProviderModelReferences(BaseModel):
     projects: list[ProjectReference]
 
 
+_USER_ADDED_RELOADS = LatestReadWins()
+
+
 async def reload_user_added_models(session: AsyncSession) -> None:
     """从内置供应商模型表装入用户添加的模型，交给目录查询。应用启动时与每次写入提交之后调用。
 
-    读目录的代码（接口、生成 worker、Agent 会话的工具）都跑在应用进程里，进程内替换即对全部读点生效。
+    读目录的代码（接口、生成 worker、Agent 会话的工具）都跑在应用进程里，进程内替换即对全部读点生效；并发的两次
+    装入按开始读的先后生效。
     """
-    catalog.install_user_added_models(
-        catalog.UserAddedModel(
-            provider_id=row.provider_id,
-            model_id=row.model_id,
-            media_type=cast("MediaType", row.media_type),
-            multiplier=row.multiplier,
-            entry_binding=row.entry_binding,
-            fallback_durations=tuple(infer_supported_durations(row.model_id)) if row.media_type == "video" else (),
-            capability_overrides=user_added_runtime_overrides(
-                row.media_type, row.capability_overrides, model_id=row.model_id
-            ),
-        )
-        for row in await builtin_models.list_user_added_rows(session)
-        if row.media_type in MEDIA_TYPES
+    await _USER_ADDED_RELOADS.reload(
+        lambda: builtin_models.list_user_added_rows(session),
+        lambda rows: catalog.install_user_added_models(
+            catalog.UserAddedModel(
+                provider_id=row.provider_id,
+                model_id=row.model_id,
+                media_type=cast("MediaType", row.media_type),
+                multiplier=row.multiplier,
+                entry_binding=row.entry_binding,
+                fallback_durations=tuple(infer_supported_durations(row.model_id)) if row.media_type == "video" else (),
+                capability_overrides=user_added_runtime_overrides(
+                    row.media_type, row.capability_overrides, model_id=row.model_id
+                ),
+            )
+            for row in rows
+            if row.media_type in MEDIA_TYPES
+        ),
     )
 
 
@@ -454,10 +462,14 @@ async def list_provider_models(
 async def set_provider_model_enabled(
     provider_id: str,
     body: ProviderModelEnabledUpdate,
+    request: Request,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderModelItem:
-    """启用或停用一个供应商模型，立即生效。"""
+    """启用或停用一个供应商模型，立即生效。
+
+    自定义供应商开放哪些媒体类型由已启用的模型决定，启停后与其他模型改动一样清缓存、刷新 worker 的容量表。
+    """
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         repo = CustomProviderRepository(session)
@@ -468,6 +480,7 @@ async def set_provider_model_enabled(
         if not body.enabled:
             row.is_default = False
         await session.commit()
+        await invalidate_provider_caches(request)
         item = next((i for i in await _custom_items(session, provider_id, db_id) if i.model_id == body.model_id), None)
         if item is None:
             raise HTTPException(status_code=404, detail=_t("provider_model_not_found", model=body.model_id))
@@ -973,6 +986,9 @@ async def update_provider_model(
             changes["entry_binding"] = binding.ref
         row = await update_custom_model(session, db_id, model_id, changes, _t)
         saved_model_id = row.model_id
+        # 换调用端点可能换了媒体类型：没改绑定时也按新的媒体类型核对原绑定
+        if binding is None and "endpoint" in changes and row.entry_binding:
+            binding = _BindingChange(ref=row.entry_binding, created=None)
         if binding is not None:
             media_type = (await resolve_endpoint_spec(row.endpoint, CustomEndpointRepository(session).get)).media_type
             await _apply_binding(session, binding, media_type, _t)

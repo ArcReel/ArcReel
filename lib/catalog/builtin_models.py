@@ -141,6 +141,19 @@ async def add_builtin_model(
     ]
     if len(official) > 1:
         raise BuiltinModelError("builtin_model_media_type_required", model=model_id)
+    binding = entry_binding.strip() if entry_binding else None
+    if not official and binding:
+        # 从「模型目录」选条目时 model_id 是官方模型名，可能与清单里的 API 模型名不同（如方舟带日期的名字）：
+        # 这个供应商已收录对应这个条目的模型时启用它，不另建一个供应商调不通的用户添加模型。同一条目可以有多个
+        # 别名 API 名（如方舟 Seedream 5.0 Lite 的两个名字），启用清单顺序里的第一个。
+        official = [
+            v
+            for v in views
+            if v.official
+            and v.entry is not None
+            and v.entry.key.ref == binding
+            and media_type in (None, v.model.media_type)
+        ][:1]
     repo = BuiltinProviderModelRepository(session)
     if official:
         view = official[0]
@@ -155,7 +168,6 @@ async def add_builtin_model(
         raise BuiltinModelError("builtin_model_media_type_required", model=model_id)
     if resolved_media not in _media_types_of(views):
         raise BuiltinModelError("builtin_model_media_type_unsupported", media_type=resolved_media)
-    binding = entry_binding.strip() if entry_binding else None
     if binding and catalog.binding_key(binding, resolved_media) is None:
         raise BuiltinModelError("builtin_model_binding_invalid", binding=binding)
 

@@ -113,6 +113,7 @@ def build_new_entry(body: NewEntryBody, _t: Translator) -> CatalogEntry:
 @router.post("/entries", response_model=CatalogEntryHit, status_code=201)
 async def create_catalog_entry(
     body: NewEntryBody,
+    request: Request,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> CatalogEntryHit:
@@ -120,11 +121,14 @@ async def create_catalog_entry(
 
     Sheet 里的「手动填写」不走这个接口：新条目随 Sheet 的保存写入（``PATCH /providers/{id}/models/{model}`` 的
     ``new_entry``），取消则不留下条目。这个接口给没有 Sheet 的入口，如添加模型的对话框。
+
+    已有的供应商模型可能从此按名字对应上新条目，能力随之改变，所以与恢复官方数据一样清空 backend 缓存。
     """
     entry = build_new_entry(body, _t)
     await create_user_entry(session, entry)
     await session.commit()
     await reload_user_entries(session)
+    await invalidate_provider_caches(request)
     return CatalogEntryHit(
         maker=entry.maker,
         name=entry.name,

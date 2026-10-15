@@ -716,6 +716,42 @@ async def test_queued_plan_failure_carries_the_way_out(
         assert problem.detail == str(failure)
 
 
+@pytest.mark.usefixtures("video_request_facts")
+@pytest.mark.parametrize(
+    ("content_mode", "task_type"),
+    [
+        ("ad", "text_episode_script"),
+        ("drama", "text_drama_script_plan"),
+        ("narration", "text_narration_script_plan"),
+        ("narration", "text_episode_plan"),
+    ],
+)
+async def test_queued_text_task_with_a_retired_text_model_fails_with_a_reselectable_problem(
+    monkeypatch: pytest.MonkeyPatch, content_mode: str, task_type: str
+) -> None:
+    """项目引用的文本模型已不在供应商清单：剧本、规划与分集规划任务都以稳定码失败并带「去配置供应商」，不归为通用失败。"""
+    projects = ProjectManager(DataRootLayout.current().root)
+    projects.create_project("retired", content_mode=content_mode)
+    projects.create_project_metadata("retired", "Retired", "", content_mode)
+    _admit_text_operations(projects, "retired")
+
+    async def raise_retired(*_args, **_kwargs):
+        raise ModelNotInCatalogError(provider_id="gemini-aistudio", model_id="retired-model", media_type="text")
+
+    monkeypatch.setattr(TextGenerator, "create", raise_retired)
+    task = {"task_id": "task-retired", "project_name": "retired", "task_type": task_type, "payload": {"episode": 1}}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "model_not_in_provider_catalog",
+        GenerationAction.CONFIGURE_PROVIDER,
+        {"provider": "gemini-aistudio", "model": "retired-model"},
+    )
+
+
 async def test_queued_reference_plan_fails_with_the_real_video_model_problem(set_video_request_facts) -> None:
     """所选视频模型不支持参考生视频：任务失败带真实问题码与「去配置供应商」，而不是笼统的拒绝。"""
     projects = ProjectManager(DataRootLayout.current().root)

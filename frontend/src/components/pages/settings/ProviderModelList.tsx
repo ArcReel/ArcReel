@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 
 import { ChevronRight, CloudDownload, Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { API } from "@/api";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -38,6 +39,8 @@ interface Props {
   initialModelId?: string;
   /** 添加模型、模型 Sheet 保存或移除之后调用，供上层刷新依赖模型的内容。 */
   onModelsChanged?: () => void;
+  /** 已保存的供应商倍率。行上的「未定价」标记随倍率是否为 0 变化，倍率保存后整表重取。 */
+  providerMultiplier?: number;
 }
 
 /** 获取到的模型添加时的请求：内置供应商对上官方收录的模型即启用它，自定义供应商带调用端点。 */
@@ -55,7 +58,14 @@ function addRequestFor({ model, mediaType, endpoint, binding }: FetchSelection, 
  * 停用时同时取消默认。上方是「获取模型」（有模型列表接口的供应商）与「添加模型」，添加后打开新模型的 Sheet。
  * 内置与自定义供应商共用；自定义供应商的行另显示调用端点。
  */
-export function ProviderModelList({ providerId, providerName, custom, initialModelId, onModelsChanged }: Props) {
+export function ProviderModelList({
+  providerId,
+  providerName,
+  custom,
+  initialModelId,
+  onModelsChanged,
+  providerMultiplier,
+}: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
   const endpoints = useEndpointCatalogStore((s) => s.endpoints);
@@ -80,8 +90,11 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
     setOpenModel({ modelId, key: sheetKeyRef.current });
   };
 
+  // 整表重取在途时切换了开关：重取的结果可能早于这次切换，切换完成后再取一次，不让旧行盖回开关
+  const listLoadingRef = useRef(false);
   useEffect(() => {
     const controller = new AbortController();
+    listLoadingRef.current = true;
     voidCall(
       API.listProviderModels(providerId, { signal: controller.signal })
         .then((res) => {
@@ -92,10 +105,13 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
         })
         .catch((err: unknown) => {
           if (!controller.signal.aborted) setLoadError(errMsg(err));
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) listLoadingRef.current = false;
         }),
     );
     return () => controller.abort();
-  }, [providerId, reloadKey]);
+  }, [providerId, reloadKey, providerMultiplier]);
 
   const hasEndpoints = models?.some((m) => m.endpoint) ?? false;
   useEffect(() => {
@@ -108,6 +124,8 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
       try {
         const updated = await API.setProviderModelEnabled(providerId, model.model_id, enabled);
         setModels((prev) => prev?.map((m) => (m.model_id === updated.model_id ? updated : m)) ?? prev);
+        if (listLoadingRef.current) setReloadKey((k) => k + 1);
+        onModelsChanged?.();
       } catch (err) {
         pushToast(
           t("pm_toggle_failed", { name: model.display_name ?? model.model_id, message: errMsg(err) }),
@@ -121,7 +139,7 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
         });
       }
     },
-    [providerId, pushToast, t],
+    [providerId, pushToast, t, onModelsChanged],
   );
 
   // Sheet 保存后整表重取：设为默认会取消同组其他模型的默认，改名会换掉行的键
@@ -301,7 +319,7 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {header}
         <div role="alert" className="flex flex-col items-start gap-2">
-          <p className="text-sm text-warn">{t("pm_load_failed", { message: loadError })}</p>
+          <p className="text-sm text-destructive">{t("pm_load_failed", { message: loadError })}</p>
           <Button
             variant="outline"
             size="sm"
@@ -389,11 +407,15 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
                       type="button"
                       aria-haspopup="dialog"
                       onClick={() => openSheet(model.model_id)}
-                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50"
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left focus-ring hover:bg-muted/60"
                     >
-                      <span className={cn("flex min-w-0 flex-1 flex-col gap-0.5", !model.enabled && "opacity-60")}>
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                         <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                          <span className="truncate text-sm">{name}</span>
+                          <TruncatedText
+                            text={name}
+                            focusable={false}
+                            className={cn("text-sm", !model.enabled && "text-muted-foreground")}
+                          />
                           {model.is_default && (
                             <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/15 px-1.5 text-xs text-primary">
                               {t("pm_default_badge")}
@@ -402,7 +424,7 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
                           <ProviderModelFlags flags={model.flags} />
                         </span>
                         <span className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
-                          <span className="truncate font-mono">{model.model_id}</span>
+                          <TruncatedText text={model.model_id} focusable={false} className="font-mono" />
                           {price && <span>{price}</span>}
                           {model.endpoint && <span>{endpointLabel(model.endpoint)}</span>}
                         </span>

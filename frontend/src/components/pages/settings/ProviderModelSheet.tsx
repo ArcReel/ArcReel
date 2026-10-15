@@ -165,7 +165,7 @@ function ModelSheetLoader({ modelId, providerId, providerName, requestCloseRef, 
         <SheetBody>
           {loadError ? (
             <div role="alert" className="flex flex-col items-start gap-2">
-              <p className="text-sm text-warn">{t("pm_sheet_load_failed", { message: loadError })}</p>
+              <p className="text-sm text-destructive">{t("pm_sheet_load_failed", { message: loadError })}</p>
               <Button
                 variant="outline"
                 size="sm"
@@ -561,6 +561,8 @@ function ModelSheetForm({
               providerId={providerId}
               providerName={providerName}
               model={detail.model}
+              // 保存在途时不能移除：两个写入会互相覆盖
+              disabled={unit.status === "saving"}
               onRemoved={() => {
                 onRemoved(detail.model.model_id);
                 onClose();
@@ -620,11 +622,13 @@ function RemoveModel({
   providerId,
   providerName,
   model,
+  disabled,
   onRemoved,
 }: {
   providerId: string;
   providerName: string;
   model: ProviderModelItem;
+  disabled: boolean;
   onRemoved: () => void;
 }) {
   const { t } = useTranslation(["dashboard", "common"]);
@@ -675,6 +679,7 @@ function RemoveModel({
         variant="destructive"
         size="sm"
         className="self-start"
+        disabled={disabled}
         onClick={() => {
           setReferences(null);
           setReferencesError(null);
@@ -705,7 +710,7 @@ function RemoveModel({
                 </p>
               )}
               {referencesError && (
-                <p className="text-sm text-warn">{t("pm_sheet_remove_references_failed", { message: referencesError })}</p>
+                <p className="text-sm text-destructive">{t("pm_sheet_remove_references_failed", { message: referencesError })}</p>
               )}
               {used && (
                 <div className="flex flex-col gap-1">
@@ -733,7 +738,12 @@ function RemoveModel({
           </AlertDialogBody>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={removing}>{t("common:cancel")}</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" disabled={removing} onClick={() => void handleRemove()}>
+            {/* 引用查到之前不能确认，免得没看到哪些设置与项目还在用它就移除；查询失败时已提示，仍可移除 */}
+            <AlertDialogAction
+              variant="destructive"
+              disabled={removing || (references === null && !referencesError)}
+              onClick={() => void handleRemove()}
+            >
               {removing && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
               {t("pm_sheet_remove_confirm")}
             </AlertDialogAction>

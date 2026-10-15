@@ -25,6 +25,7 @@ from arcreel_catalog_core import (
     parse_entry,
 )
 from lib.catalog import query as catalog
+from lib.catalog.reload_order import LatestReadWins
 from lib.db.repositories.catalog_user_entry_repo import CatalogUserEntryRepository
 
 logger = logging.getLogger(__name__)
@@ -67,10 +68,15 @@ async def load_user_entries(session: AsyncSession) -> UserEntries:
     return UserEntries(entries, frozenset(created))
 
 
+_RELOADS = LatestReadWins()
+
+
 async def reload_user_entries(session: AsyncSession) -> None:
-    """从用户条目表装入用户副本，交给目录查询。应用启动时与每次写入提交之后调用。"""
-    loaded = await load_user_entries(session)
-    catalog.install_user_entries(loaded.entries, loaded.created)
+    """从用户条目表装入用户副本，交给目录查询。应用启动时与每次写入提交之后调用；并发时按开始读的先后生效。"""
+    await _RELOADS.reload(
+        lambda: load_user_entries(session),
+        lambda loaded: catalog.install_user_entries(loaded.entries, loaded.created),
+    )
 
 
 class _Unset(Enum):

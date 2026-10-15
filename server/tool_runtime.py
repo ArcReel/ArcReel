@@ -683,6 +683,8 @@ async def _run_text_generation(
         return ToolOutcome(problem=video_facts_problem(exc.failure, str(exc)))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
+    except ModelNotInCatalogError as exc:
+        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except Exception as exc:
         return ToolOutcome(problem=ToolProblem("internal_error", f"{operation} 失败: {exc}"))
 
@@ -2828,6 +2830,8 @@ async def _execute_plan_episodes(
             )
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
+    except ModelNotInCatalogError as exc:
+        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except NoCutPointError as exc:
         return ToolOutcome(
             problem=ToolProblem(
@@ -3117,6 +3121,8 @@ async def _draft_replan_window(
         )
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
+    except ModelNotInCatalogError as exc:
+        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except NoCutPointError as exc:
         return ToolOutcome(
             problem=ToolProblem(

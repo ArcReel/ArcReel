@@ -187,10 +187,14 @@ export function withCjkDouble(meter: PriceMeter, on: boolean): PriceMeter {
 
 // ---- 校验：与后端 check_entry 对价目表的要求一致，保存前拦下 ----
 
+const CONTEXT_TIER: DimKey = "context_tier";
+
 export type PriceIssue =
   | { kind: "missing_price"; meter: string; row: number }
   | { kind: "overlapping_rows"; meter: string; row: number }
-  | { kind: "invalid_free_allowance"; meter: string };
+  | { kind: "invalid_free_allowance"; meter: string }
+  | { kind: "context_tier_not_from_zero"; meter: string }
+  | { kind: "context_tier_mismatch"; meter: string };
 
 /** 两档的条件能否同时命中一个请求：共同列出的维度取值都相同（后端同一规则）。 */
 function overlaps(a: PriceRow["when"], b: PriceRow["when"]): boolean {
@@ -213,6 +217,26 @@ export function priceIssues(table: PriceTable): PriceIssue[] {
     if (meter.free_allowance !== undefined && !(Number.isFinite(meter.free_allowance) && meter.free_allowance >= 0)) {
       issues.push({ kind: "invalid_free_allowance", meter: meter.meter });
     }
+  }
+  issues.push(...contextTierIssues(table));
+  return issues;
+}
+
+/** 上下文档首档写 0，且各计费项分界相同：整个请求只落入一档，各计费项都按这一档取单价。 */
+function contextTierIssues(table: PriceTable): PriceIssue[] {
+  const issues: PriceIssue[] = [];
+  let grid: string | null = null;
+  for (const meter of table.meters) {
+    const tiers = [
+      ...new Set(
+        meter.rows.map((row) => row.when[CONTEXT_TIER]).filter((v): v is number => typeof v === "number" && v >= 0),
+      ),
+    ].sort((a, b) => a - b);
+    if (tiers.length === 0) continue;
+    if (tiers[0] !== 0) issues.push({ kind: "context_tier_not_from_zero", meter: meter.meter });
+    const key = tiers.join(",");
+    if (grid === null) grid = key;
+    else if (key !== grid) issues.push({ kind: "context_tier_mismatch", meter: meter.meter });
   }
   return issues;
 }

@@ -655,6 +655,38 @@ export function CustomProviderForm({
           )}
         </section>
 
+        {/* 供应商设置在模型列表之上：接口地址与倍率经页面保存栏保存 */}
+        <section aria-labelledby={billingHeadingId} className="flex max-w-178 flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h3 id={billingHeadingId} className="text-base font-medium">
+              {t("cp_billing_heading")}
+            </h3>
+            <p className="text-sm text-muted-foreground">{t("cp_provider_multiplier_help")}</p>
+          </div>
+          <FieldRow
+            label={t("cp_provider_multiplier_label")}
+            htmlFor={`${billingHeadingId}-input`}
+            hint={
+              providerMultiplierInvalid ? (
+                <FieldHint tone="warn">{t("cp_multiplier_invalid")}</FieldHint>
+              ) : undefined
+            }
+          >
+            <Input
+              id={`${billingHeadingId}-input`}
+              inputMode="decimal"
+              autoComplete="off"
+              className="w-32"
+              value={value.providerMultiplier}
+              onChange={(e) => setField("providerMultiplier", e.target.value)}
+              placeholder={t("cp_provider_multiplier_placeholder", {
+                value: existing ? savedMultiplier.default : newProviderDefaultMultiplier(isComfyui),
+              })}
+              aria-invalid={providerMultiplierInvalid}
+            />
+          </FieldRow>
+        </section>
+
         {existing ? (
           <div className="max-w-178">
             <ProviderModelList
@@ -663,6 +695,7 @@ export function CustomProviderForm({
               custom={{ id: existing.id, baseUrl: existing.base_url, protocol: existing.discovery_format }}
               initialModelId={focusModelId}
               onModelsChanged={refreshAfterModelChange}
+              providerMultiplier={savedMultiplier.multiplier}
             />
           </div>
         ) : (
@@ -758,37 +791,6 @@ export function CustomProviderForm({
               />
             </FieldRow>
           ))}
-        </section>
-
-        <section aria-labelledby={billingHeadingId} className="flex max-w-178 flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <h3 id={billingHeadingId} className="text-base font-medium">
-              {t("cp_billing_heading")}
-            </h3>
-            <p className="text-sm text-muted-foreground">{t("cp_provider_multiplier_help")}</p>
-          </div>
-          <FieldRow
-            label={t("cp_provider_multiplier_label")}
-            htmlFor={`${billingHeadingId}-input`}
-            hint={
-              providerMultiplierInvalid ? (
-                <FieldHint tone="warn">{t("cp_multiplier_invalid")}</FieldHint>
-              ) : undefined
-            }
-          >
-            <Input
-              id={`${billingHeadingId}-input`}
-              inputMode="decimal"
-              autoComplete="off"
-              className="w-32"
-              value={value.providerMultiplier}
-              onChange={(e) => setField("providerMultiplier", e.target.value)}
-              placeholder={t("cp_provider_multiplier_placeholder", {
-                value: existing ? savedMultiplier.default : newProviderDefaultMultiplier(isComfyui),
-              })}
-              aria-invalid={providerMultiplierInvalid}
-            />
-          </FieldRow>
         </section>
       </div>
 

@@ -276,6 +276,15 @@ function MeterCard({ meter, currency, mediaType, resolutions, issues, onChange, 
         </div>
       )}
 
+      {issues.map(
+        (issue) =>
+          (issue.kind === "context_tier_not_from_zero" || issue.kind === "context_tier_mismatch") && (
+            <p key={issue.kind} role="alert" className="text-xs text-warn">
+              {issue.kind === "context_tier_not_from_zero" ? t("pm_pe_context_tier_from_zero") : t("pm_pe_context_tier_mismatch")}
+            </p>
+          ),
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="xs" onClick={() => onChange(withRow(meter))} disabled={!conditional}>
           <Plus aria-hidden data-icon="inline-start" />

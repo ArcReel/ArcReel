@@ -989,6 +989,9 @@ async def update_custom_model(
     ``changes`` 只含要改的字段（见 :data:`CUSTOM_MODEL_SETTING_FIELDS`），校验规则与整表保存相同。停用时同时
     取消默认；设为默认时同时启用，并取消同一默认分组里其他模型的默认。改了模型 ID 时，全局设置里指向旧 ID 的
     引用随之清空，与整表保存删掉一个模型同一口径。
+
+    条目绑定只校验形状；是否在目录里、是否与保存后的调用端点同媒体类型，由调用方在提交前核对（见
+    ``server/routers/provider_models.py`` 的 ``_apply_binding``），因为同一次保存新建的条目这时还不在目录里。
     """
     repo = CustomProviderRepository(session)
     provider = await repo.get_provider(provider_id)
@@ -1008,7 +1011,8 @@ async def update_custom_model(
     try:
         target = _row_to_input(row, patch)
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=_t("unknown_endpoint", endpoint=patch.get("endpoint"))) from exc
+        # 请求模型已校验倍率等取值，这里只剩调用端点与条目绑定的形状会被拒
+        raise _model_input_rejected(exc, patch.get("endpoint"), patch.get("entry_binding"), _t) from exc
     if not target.model_id:
         raise HTTPException(status_code=422, detail=_t("model_id_required"))
     if target.model_id != row.model_id and row.display_name in ("", row.model_id):
@@ -1041,6 +1045,15 @@ async def update_custom_model(
     if target.model_id != old_model_id:
         await _clear_global_provider_refs(session, provider_id, {old_model_id})
     return row
+
+
+def _model_input_rejected(
+    exc: ValidationError, endpoint: object, entry_binding: object, _t: Callable[..., str]
+) -> HTTPException:
+    """单个模型的调用端点或条目绑定形状不对时的 422：说清是哪一个被拒。"""
+    if any(error["loc"][:1] == ("entry_binding",) for error in exc.errors()):
+        return HTTPException(status_code=422, detail=_t("provider_model_binding_not_found", binding=entry_binding))
+    return HTTPException(status_code=422, detail=_t("unknown_endpoint", endpoint=endpoint))
 
 
 async def remove_custom_model(session: AsyncSession, provider_id: int, model_id: str, _t: Callable[..., str]) -> None:
@@ -1080,8 +1093,8 @@ async def add_custom_model(
 ) -> CustomProviderModel:
     """向自定义供应商添加一个模型，不提交事务；返回新的模型行。
 
-    没给调用端点时按 docs/adr/0105 推断：有条目绑定或名字对应上条目的，在条目的媒体类型内选；都没有时，
-    ``media_type`` 给了就在这个媒体类型内选，否则按名字一并推断。ComfyUI 供应商取已导入的 ComfyUI 端点。
+    没给调用端点时按 docs/adr/0105 推断：有条目绑定或名字对应上条目的，在条目的媒体类型内选（两栖模型按
+    ``media_type`` 取条目）；都没有时，``media_type`` 给了就在这个媒体类型内选，否则按名字一并推断。ComfyUI 供应商取已导入的 ComfyUI 端点。
     这个媒体类型还没有默认模型时，新模型成为默认。校验规则与整表保存相同。
     """
     from lib.custom_provider.discovery import match_discovered_model
@@ -1106,7 +1119,7 @@ async def add_custom_model(
         elif bound is not None:
             endpoint = infer_endpoint(model_id, provider.discovery_format, bound.media_type)
         else:
-            entry, by_name = match_discovered_model(model_id, provider.discovery_format)
+            entry, by_name = match_discovered_model(model_id, provider.discovery_format, media_type)
             endpoint = (
                 infer_endpoint(model_id, provider.discovery_format, media_type)
                 if entry is None and media_type is not None
@@ -1117,10 +1130,13 @@ async def add_custom_model(
             model_id=model_id, display_name=model_id, endpoint=endpoint, is_enabled=True, entry_binding=entry_binding
         )
     except ValidationError as exc:
-        raise HTTPException(status_code=422, detail=_t("unknown_endpoint", endpoint=endpoint)) from exc
+        raise _model_input_rejected(exc, endpoint, entry_binding, _t) from exc
 
     specs = await _resolve_model_endpoint_specs(session, [target], _t)
     _check_protocol_constraints([target], provider.discovery_format, specs, _t)
+    # 关联的条目要在目录里、且与调用端点同媒体类型；对不上的关联读取与计费时都会被忽略
+    if entry_binding and find_bound_entry(entry_binding, specs[target.endpoint].media_type) is None:
+        raise HTTPException(status_code=422, detail=_t("provider_model_binding_not_found", binding=entry_binding))
     default_rows = [r for r in rows if r.is_default]
     default_specs = await _read_endpoint_specs(session, default_rows)
     taken = any(

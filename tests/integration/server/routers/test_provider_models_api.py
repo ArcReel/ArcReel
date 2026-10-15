@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from dataclasses import replace
+from types import SimpleNamespace
+from typing import cast
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
@@ -114,6 +117,30 @@ def test_add_by_id_matches_listing_exactly_and_by_media_type(models_client: Test
     assert (body["model"]["model_id"], body["model"]["enabled"]) == ("kling-v3-omni-image", True)
 
 
+def test_add_from_catalog_enables_the_official_model_whose_api_name_differs_from_the_entry(
+    models_client: TestClient,
+) -> None:
+    """「模型目录」里选的条目对应这个供应商官方收录的模型（API 模型名与官方模型名不同）：启用它，不另建用户添加的模型。"""
+    models_client.put(
+        "/api/v1/providers/ark/models/enabled", json={"model_id": "doubao-seedance-2-0-260128", "enabled": False}
+    )
+
+    resp = models_client.post(
+        "/api/v1/providers/ark/models",
+        json={
+            "model_id": "doubao-seedance-2.0",
+            "media_type": "video",
+            "entry_binding": "bytedance/doubao-seedance-2.0",
+        },
+    )
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["official"] is True
+    assert (body["model"]["model_id"], body["model"]["enabled"]) == ("doubao-seedance-2-0-260128", True)
+    assert "doubao-seedance-2.0" not in _models(models_client, "ark")
+
+
 def test_add_unlisted_model_as_user_added_then_remove(models_client: TestClient) -> None:
     resp = models_client.post("/api/v1/providers/ark/models", json={"model_id": "my-private-ep", "media_type": "text"})
 
@@ -190,11 +217,15 @@ async def test_custom_provider_list_and_disable_clears_default(
     house = models["house-model"]
     assert (house["display_name"], house["flags"], house["price"]) == ("自家模型", ["unpriced"], None)
 
+    # 启停改变这个供应商开放的媒体类型，worker 的容量表要随之刷新
+    worker = SimpleNamespace(reload_limits=AsyncMock())
+    cast("FastAPI", models_client.app).state.generation_worker = worker
     resp = models_client.put(
         f"/api/v1/providers/{provider_id}/models/enabled",
         json={"model_id": "anthropic/gemini-3-flash-preview", "enabled": False},
     )
     assert (resp.json()["enabled"], resp.json()["is_default"]) == (False, False)
+    worker.reload_limits.assert_awaited_once()
     async with db_factory() as session:
         row = await CustomProviderRepository(session).get_model_by_ids(provider.id, "anthropic/gemini-3-flash-preview")
     assert row is not None
@@ -738,6 +769,19 @@ async def test_custom_add_by_id_infers_endpoint_and_takes_default(
     assert bound.json()["model"]["flags"] == []
     duplicate = models_client.post(f"/api/v1/providers/{provider_id}/models", json={"model_id": "house-chat"})
     assert duplicate.status_code == 422
+    # 两栖模型不限媒体类型对应不上条目时，按调用方给的媒体类型取条目，不按名字推断成视频
+    omni = models_client.post(
+        f"/api/v1/providers/{provider_id}/models", json={"model_id": "kling-v3-omni", "media_type": "image"}
+    )
+    assert omni.status_code == 201
+    assert omni.json()["model"]["media_type"] == "image"
+    # 显式给的调用端点与关联条目的媒体类型不一致：拒绝，不留下对不上的关联
+    mismatched = models_client.post(
+        f"/api/v1/providers/{provider_id}/models",
+        json={"model_id": "relay-chat", "endpoint": "openai-chat", "entry_binding": "kuaishou/kling-v3-omni"},
+    )
+    assert mismatched.status_code == 422
+    assert "kuaishou/kling-v3-omni" in mismatched.json()["detail"]
     assert (
         models_client.post(
             "/api/v1/providers/ark/models", json={"model_id": "x", "endpoint": "openai-chat"}
@@ -877,8 +921,22 @@ async def test_link_is_validated_against_the_catalog_and_the_media_type(
     assert models_client.patch(url, json={"entry_binding": "acme/nope"}).status_code == 422
     # 条目存在，但媒体类型与模型的调用端点不一致
     assert models_client.patch(url, json={"entry_binding": text_entry.key.ref}).status_code == 422
-    assert models_client.patch(url, json={"entry_binding": "no-slash"}).status_code == 422
+    # 形状不对：说的是这个绑定，而不是调用端点
+    malformed = models_client.patch(url, json={"entry_binding": "no-slash"})
+    assert malformed.status_code == 422
+    assert "no-slash" in malformed.json()["detail"]
     assert models_client.get(url).json()["entry_binding"] is None
+
+    # 已关联的模型换到另一种媒体类型的调用端点：原绑定不再成立，要求同一次保存里重新关联或解除
+    image_entry = catalog.find_entry("gemini-3.1-flash-image-preview", media_type="image")
+    assert image_entry is not None
+    assert models_client.patch(url, json={"entry_binding": image_entry.key.ref}).status_code == 200
+    switched = models_client.patch(url, json={"endpoint": "openai-chat"})
+    assert switched.status_code == 422
+    assert image_entry.key.ref in switched.json()["detail"]
+    assert models_client.get(url).json()["entry_binding"] == image_entry.key.ref
+    relinked = models_client.patch(url, json={"endpoint": "openai-chat", "entry_binding": text_entry.key.ref})
+    assert (relinked.status_code, relinked.json()["entry_binding"]) == (200, text_entry.key.ref)
 
 
 def test_builtin_user_added_model_can_link_or_fill_in_but_official_cannot(models_client: TestClient) -> None:

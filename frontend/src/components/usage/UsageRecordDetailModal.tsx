@@ -54,14 +54,9 @@ function providerModelPath(provider: string, model: string): string {
 }
 
 /**
- * 供应商还在设置里才有 Sheet 可开。显示名目录查不到的供应商（已删除的自定义供应商、不再内置的旧值）
- * 回退为 id 本身，据此判断；Agent 凭证（`agent-<id>`）不在供应商设置里，从不链接。
+ * 调用的模型：供应商还在供应商设置里时打开它的 Sheet；Agent 凭证、已删除的自定义供应商、不再内置的旧值与没有供应商的
+ * 旧记录只显示模型名。
  */
-function hasProviderSheet(provider: string, resolvedLabel: string): boolean {
-  return Boolean(provider) && !provider.startsWith("agent-") && resolvedLabel !== provider;
-}
-
-/** 调用的模型：供应商还在时打开它在供应商设置里的 Sheet；否则（含没有供应商的旧记录）只显示模型名。 */
 function ProviderModelLink({ provider, model, linkable }: { provider: string; model: string; linkable: boolean }) {
   const { t } = useTranslation("dashboard");
   if (!linkable) return model;
@@ -378,7 +373,7 @@ export function UsageRecordDetailModal({
                           <ProviderModelLink
                             provider={detail.provider}
                             model={detail.model}
-                            linkable={hasProviderSheet(detail.provider, providerLabel(detail.provider))}
+                            linkable={detail.provider_in_settings}
                           />
                         ) : (
                           "—"

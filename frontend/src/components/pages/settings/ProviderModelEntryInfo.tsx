@@ -25,6 +25,7 @@ import type {
   ProviderModelEntryInfo,
   ProviderModelItem,
 } from "@/types";
+import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { ManualEntryDialog } from "./ManualEntryDialog";
@@ -192,7 +193,11 @@ export function ProviderModelEntryInfo({
           <div className="-mt-2 flex flex-col gap-2">
             <SourceNote entry={entry} onRestored={onRestored} />
             {userOwned && detail.entry_binding && (
-              <BoundNote binding={detail.entry_binding} onUnlink={() => onPendingChange({ kind: "unlink" })} />
+              <BoundNote
+                binding={detail.entry_binding}
+                displayName={entry.display_name}
+                onUnlink={() => onPendingChange({ kind: "unlink" })}
+              />
             )}
             {entry.shared_with.length > 0 && (
               <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
@@ -463,6 +468,7 @@ interface DiscardCopyProps {
 /** 丢弃用户副本、回到官方数据：「恢复官方数据」与「改用官方数据」是同一个接口，先确认，确认后立即生效。 */
 function DiscardCopy({ entry, onRestored, text, action, title, description, sharedText, failed }: DiscardCopyProps) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const pushToast = useAppStore((s) => s.pushToast);
   const [open, setOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -472,12 +478,18 @@ function DiscardCopy({ entry, onRestored, text, action, title, description, shar
     setError(null);
     try {
       await API.restoreCatalogEntry({ maker: entry.maker, name: entry.name, media_type: entry.media_type });
-      await onRestored();
-      setOpen(false);
     } catch (err) {
       setError(errMsg(err));
-    } finally {
       setRestoring(false);
+      return;
+    }
+    // 已经生效：刷新失败只提示刷新，不再让用户以为没有恢复而重试
+    setOpen(false);
+    setRestoring(false);
+    try {
+      await onRestored();
+    } catch {
+      pushToast(t("pm_entry_discard_refresh_failed"), "warning");
     }
   };
 
@@ -519,7 +531,7 @@ function DiscardCopy({ entry, onRestored, text, action, title, description, shar
           </AlertDialogBody>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={restoring}>{t("common:cancel")}</AlertDialogCancel>
-            <AlertDialogAction disabled={restoring} onClick={() => void handleRestore()}>
+            <AlertDialogAction variant="destructive" disabled={restoring} onClick={() => void handleRestore()}>
               {restoring && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
               {action}
             </AlertDialogAction>
@@ -530,14 +542,25 @@ function DiscardCopy({ entry, onRestored, text, action, title, description, shar
   );
 }
 
-/** 用户指定了条目绑定时的说明：这个模型不再按名字对应，可以解除。 */
-function BoundNote({ binding, onUnlink }: { binding: string; onUnlink: () => void }) {
+/**
+ * 用户指定了条目绑定时的说明：这个模型不再按名字对应，可以解除。关联的条目还在时显示它的显示名；条目已不在目录里时
+ * 没有显示名可取，退回「厂商/官方模型名」。
+ */
+function BoundNote({
+  binding,
+  displayName,
+  onUnlink,
+}: {
+  binding: string;
+  displayName?: string;
+  onUnlink: () => void;
+}) {
   const { t } = useTranslation("dashboard");
   const [maker, ...rest] = binding.split("/");
   return (
     <p className="flex flex-wrap items-center gap-x-1 text-xs text-muted-foreground">
       <span className="min-w-0 wrap-break-word">
-        {t("pm_link_bound", { name: `${makerLabel(t, maker ?? "")}/${rest.join("/")}` })}
+        {t("pm_link_bound", { name: displayName ?? `${makerLabel(t, maker ?? "")}/${rest.join("/")}` })}
       </span>
       <Button variant="link" size="xs" onClick={onUnlink}>
         {t("pm_link_unlink")}
