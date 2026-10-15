@@ -248,33 +248,126 @@ describe("ProviderModelSheet", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("shows the matched entry read-only under 模型信息", async () => {
-    vi.spyOn(API, "getProviderModel").mockResolvedValue(
-      unmatchedVideo({
-        entry: {
-          maker: "google",
-          name: "veo-3",
-          display_name: "Veo 3",
-          media_type: "video",
-          aliases: [],
-          discontinued: false,
-          context_length: null,
-          facts: {
-            durations: [4, 6, 8],
-            resolutions: ["720p", "1080p"],
-            duration_constraints: { by_resolution: {}, with_reference_images: [] },
-          },
-        },
-      }),
-    );
+  it("shows maker, official name and media type read-only and the facts as editable fields", async () => {
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(veoDetail());
     renderSheet();
 
-    const info = (await screen.findByRole("heading", { name: "模型信息" })).closest("section")!;
-    expect(within(info).getByText("Veo 3")).toBeInTheDocument();
+    const info = await infoSection();
+    expect(within(info).getByText("veo-3")).toBeInTheDocument();
+    expect(within(info).getByText("信息由官方维护，随官方数据更新。")).toBeInTheDocument();
+    expect(within(info).getByLabelText("显示名称")).toHaveValue("Veo 3");
+    expect(within(info).getByRole("textbox", { name: "「可选时长」的值" })).toHaveValue("4, 6, 8");
+    expect(within(info).queryByRole("button", { name: "恢复官方数据" })).not.toBeInTheDocument();
+  });
+
+  it("saves an edit of an official entry, then restores official data after confirming", async () => {
+    const user = userEvent.setup();
+    const shared = [{ provider_id: "gemini-vertex", display_name: "Vertex AI" }];
+    const official = veoDetail({ shared_with: shared });
+    const modified = veoDetail({
+      display_name: "My Veo",
+      source: "modified",
+      official: { display_name: "Veo 3", facts: official.entry!.facts },
+      shared_with: shared,
+    });
+    const get = vi.spyOn(API, "getProviderModel").mockResolvedValueOnce(official).mockResolvedValueOnce(official);
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(modified);
+    const restore = vi.spyOn(API, "restoreCatalogEntry").mockResolvedValue();
+    const { onSaved } = renderSheet();
+
+    const info = await infoSection();
+    expect(within(info).getByText("「Vertex AI」也使用这些信息，修改会一起生效。")).toBeInTheDocument();
+    await user.clear(within(info).getByLabelText("显示名称"));
+    await user.type(within(info).getByLabelText("显示名称"), "My Veo");
+    // 保存前提示：停止跟随官方，共用的供应商一起改变
+    expect(screen.getByText(/保存后，这个模型改用你修改的信息，不再随官方更新。/)).toHaveTextContent(
+      "「Vertex AI」也会一起改变。",
+    );
+
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("custom-3", "relay-video", {
+        entry: { maker: "google", name: "veo-3", media_type: "video", display_name: "My Veo" },
+      }),
+    );
+    expect(await within(info).findByText("你修改过这些信息，官方更新不会覆盖。")).toBeInTheDocument();
+    expect(screen.queryByText(/不再随官方更新。/)).not.toBeInTheDocument();
+    expect(within(info).getByText("Veo 3", { selector: "span" })).toBeInTheDocument();
+
+    await user.click(within(info).getByRole("button", { name: "恢复官方数据" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("你对「My Veo」所做的修改会被丢弃，无法撤销。「Vertex AI」也会一起恢复。");
+    expect(restore).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "恢复官方数据" }));
+
+    await waitFor(() =>
+      expect(restore).toHaveBeenCalledWith({ maker: "google", name: "veo-3", media_type: "video" }),
+    );
+    await waitFor(() => expect(within(info).getByLabelText("显示名称")).toHaveValue("Veo 3"));
+    expect(within(info).getByText("信息由官方维护，随官方数据更新。")).toBeInTheDocument();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(onSaved).toHaveBeenLastCalledWith(official.model, "relay-video");
+    // 恢复不经保存栏
+    expect(update).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the official value under a modified field and adopts it", async () => {
+    const user = userEvent.setup();
+    const base = veoDetail();
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(
+      veoDetail({
+        source: "modified",
+        facts: { ...base.entry!.facts, durations: [5, 10] },
+        official: { display_name: "Veo 3", facts: base.entry!.facts },
+      }),
+    );
+    const update = vi.spyOn(API, "updateProviderModel").mockResolvedValue(base);
+    renderSheet();
+
+    const info = await infoSection();
+    const durations = within(info).getByRole("textbox", { name: "「可选时长」的值" });
+    expect(durations).toHaveValue("5, 10");
     expect(within(info).getByText("4, 6, 8 秒")).toBeInTheDocument();
-    expect(within(info).getByText("720p、1080p")).toBeInTheDocument();
-    // 没有填写的时长联动约束不占行
-    expect(within(info).queryByText("按分辨率限定时长")).not.toBeInTheDocument();
-    expect(within(info).queryByRole("textbox")).not.toBeInTheDocument();
+
+    await user.click(within(info).getByRole("button", { name: "采用「可选时长」的官方值" }));
+
+    expect(within(info).getByRole("textbox", { name: "「可选时长」的值" })).toHaveValue("4, 6, 8");
+    expect(within(info).queryByText("4, 6, 8 秒")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("custom-3", "relay-video", {
+        entry: { maker: "google", name: "veo-3", media_type: "video", facts: { durations: [4, 6, 8] } },
+      }),
+    );
   });
 });
+
+/** 自定义供应商下对应到 Veo 3 条目的视频模型。 */
+function veoDetail(entry: Partial<NonNullable<ProviderModelDetail["entry"]>> = {}): ProviderModelDetail {
+  return unmatchedVideo({
+    model: item({ display_name: entry.display_name ?? "Veo 3", flags: [] }),
+    entry: {
+      maker: "google",
+      name: "veo-3",
+      display_name: "Veo 3",
+      media_type: "video",
+      aliases: [],
+      discontinued: false,
+      context_length: null,
+      facts: {
+        durations: [4, 6, 8],
+        resolutions: ["720p", "1080p"],
+        duration_constraints: { by_resolution: {}, with_reference_images: [] },
+      },
+      source: "official",
+      official: null,
+      shared_with: [],
+      ...entry,
+    },
+  });
+}
+
+async function infoSection() {
+  return (await screen.findByRole("heading", { name: "模型信息" })).closest("section")!;
+}

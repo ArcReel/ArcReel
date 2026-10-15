@@ -17,11 +17,13 @@ export const MEDIA_LABEL_KEY: Record<ProviderModelItem["media_type"], string> = 
 const FLAG_LABEL_KEY: Record<ProviderModelFlag, string> = {
   discontinued: "pm_flag_discontinued",
   unpriced: "pm_flag_unpriced",
+  modified: "pm_flag_modified",
 };
 
 const FLAG_TONE: Record<ProviderModelFlag, string> = {
   discontinued: "border-destructive/50 text-destructive",
   unpriced: "border-warn/50 text-warn",
+  modified: "border-border text-muted-foreground",
 };
 
 // 价格摘要里各计费项的写法，如「$0.05/百万 token 输入」；没有登记的计费项不显示。
@@ -53,7 +55,7 @@ export function priceSummaryText(t: TFunction, price: PriceSummary): string {
     .join(t("pm_price_separator"));
 }
 
-/** 模型的状态标记（已下架、未定价），列表行与 Sheet 标题共用。 */
+/** 模型的状态标记（已下架、未定价、已修改），列表行与 Sheet 标题共用。 */
 export function ProviderModelFlags({ flags }: { flags: ProviderModelFlag[] }) {
   const { t } = useTranslation("dashboard");
   return flags.map((flag) => (

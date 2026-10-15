@@ -227,7 +227,14 @@ const customListItems = customProvider.models.map((m) => ({
 
 const KLING_ID = "kling-v2-6-master-image-to-video-pro-1080p";
 
-// 模型 Sheet 的压力内容：视频模型的参数全部可改，其中两项已修改，下段带条目信息
+const KLING_FACTS = {
+  durations: [5, 10],
+  resolutions: ["720p", "1080p"],
+  duration_constraints: { by_resolution: { "1080p": [5] }, with_reference_images: [5] },
+};
+
+// 模型 Sheet 的压力内容：视频模型的参数全部可改，其中两项已修改；下段的模型信息用户改过，
+// 各字段下方带官方值，另有两个供应商共用这个条目
 const klingDetail = {
   model: customListItems.find((m) => m.model_id === KLING_ID),
   multiplier: 1.25,
@@ -235,16 +242,18 @@ const klingDetail = {
   entry: {
     maker: "kling",
     name: "kling-v2-6-master",
-    display_name: "Kling v2.6 Master",
+    display_name: "Kling v2.6 Master（中转站自用，最长 15 秒）",
     media_type: "video",
     aliases: ["kling-v2.6-master", "kling-v2-6-master-image-to-video"],
     discontinued: false,
     context_length: null,
-    facts: {
-      durations: [5, 10],
-      resolutions: ["720p", "1080p"],
-      duration_constraints: { by_resolution: { "1080p": [5] }, with_reference_images: [5] },
-    },
+    facts: { ...KLING_FACTS, durations: [5, 10, 15], resolutions: ["720p", "1080p", "2160p"] },
+    source: "modified",
+    official: { display_name: "Kling v2.6 Master", facts: KLING_FACTS },
+    shared_with: [
+      { provider_id: "kling", display_name: "可灵" },
+      { provider_id: "custom-8", display_name: "海外备用中转站（按量计费，晚高峰限流）" },
+    ],
   },
   capabilities: {
     media_type: "video",
@@ -492,6 +501,22 @@ defineRegionScenarios("供应商", [
       await expect(dialog.getByRole("button", { name: "移除" })).toBeInViewport({ ratio: 1 });
     },
     screenshot: { name: "providers-model-remove-dialog", target: (page) => page.getByRole("alertdialog") },
+  },
+  {
+    name: "模型 Sheet：「恢复官方数据」的确认框写明无法撤销与一起恢复的供应商",
+    path: CUSTOM_PROVIDER_PATH,
+    api: CUSTOM_PROVIDER_DETAIL,
+    ready: customDetailReady,
+    act: async (page) => {
+      const sheet = await openModelSheet(page, KLING_ID);
+      const restore = sheet.getByRole("button", { name: "恢复官方数据" });
+      await restore.scrollIntoViewIfNeeded();
+      await restore.click();
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog.getByText(/无法撤销/)).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "恢复官方数据" })).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "providers-model-restore-dialog", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "自定义供应商详情：删除确认写明模型数量，操作按钮留在视口内",

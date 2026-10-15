@@ -105,7 +105,8 @@ the lowest to the highest tier. Actual costs are further multiplied by the provi
 
 Click a row in the model list to open that model's settings on the right; this works the same for Preset and custom providers. The upper
 part, "Provider settings", applies only to the current provider. The lower part, "Model info", is the model's record in the model catalog
-and is read-only for now. Both parts share the save bar at the bottom, and closing with unsaved changes asks first.
+and is shared by every provider that uses the model. Both parts share the save bar at the bottom and are saved together, and closing with
+unsaved changes asks first.
 
 - Officially listed built-in models can only be enabled or disabled; their other settings are maintained officially;
 - Models of custom providers, and models you added yourself under a built-in provider, also have:
@@ -121,6 +122,20 @@ and is read-only for now. Both parts share the save bar at the bottom, and closi
 - Models of custom providers also have "Set as default", "Call endpoint", "Request URL", and a default resolution. Changing the endpoint
   resets modified request URLs to their defaults and clears the changes under "Parameters this provider supports"; save first, then adjust
   them for the new endpoint.
+
+In "Model info" you can change the display name, capabilities, durations, durations by resolution, resolutions, and the maximum output
+length; the model maker, official model name, type, and aliases are read-only. A line at the top says who maintains the information:
+
+- Maintained officially: it is updated with official data. Before you save a change, a note above the save bar says that after saving,
+  this model uses your information and no longer follows official updates;
+- Modified by you: official updates do not overwrite your changes, and the row is marked "Modified" in the model list. Each changed field
+  shows the official value below it, and "Use" takes that one value back. "Restore official data", after confirmation, discards all your
+  changes and returns to official data. It takes effect immediately without the save bar and cannot be undone;
+- No official information, filled in by you: the model catalog had no information for this model.
+
+When other providers use the same model, "Model info" lists them: changes and restoring official data apply to them as well. If only one
+provider differs from the model info (for example, a relay offers only some durations), change "Parameters this provider supports"
+instead of the model info.
 
 The name, base URL, key, concurrency limits, and provider multiplier of a custom provider are still saved together in the provider details,
 and saving them does not change the models in the model list.

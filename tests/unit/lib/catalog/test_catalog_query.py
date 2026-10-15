@@ -2,7 +2,7 @@
 
 import pytest
 
-from arcreel_catalog_core import parse_catalog
+from arcreel_catalog_core import parse_catalog, parse_entry
 from lib.catalog import query as catalog
 from lib.catalog.query import CatalogModel
 from tests.catalog_support import install_catalog
@@ -208,3 +208,83 @@ class TestUserAddedModels:
         price = catalog.provider_model_price("acme", "img-new", "image")
         assert price is not None
         assert price.multiplier == 1.0
+
+
+def _user_copy(name: str, media_type: str, facts: dict, **extra):
+    return parse_entry(_entry(name, media_type, facts, **extra))
+
+
+@pytest.fixture
+def user_entries(acme_catalog):
+    catalog.install_user_entries(
+        [
+            _user_copy("chat", "text", {"max_output_tokens": 1024}, display_name="My Chat"),
+            _user_copy("homebrew", "text", {"structured_output": True}),
+        ]
+    )
+    yield
+    catalog.install_user_entries(())
+
+
+@pytest.mark.usefixtures("user_entries")
+class TestUserEntries:
+    def test_user_copy_replaces_entry_for_every_provider_model_using_it(self):
+        model = catalog.get_model("acme", "chat")
+
+        assert model is not None
+        assert (model.display_name, model.capabilities, model.max_output_tokens) == (
+            "My Chat",
+            ["text_generation"],
+            1024,
+        )
+        found = catalog.find_entry("chat", media_type="text")
+        assert found is not None
+        assert found.display_name == "My Chat"
+
+    def test_entry_source_and_official_entry(self):
+        chat = catalog.find_entry("chat", media_type="text")
+        homebrew = catalog.find_entry("homebrew", media_type="text")
+        img = catalog.find_entry("img-new", media_type="image")
+        assert chat is not None
+        assert homebrew is not None
+        assert img is not None
+
+        assert catalog.entry_source(chat.key) == "modified"
+        official = catalog.official_entry(chat.key)
+        assert official is not None
+        assert official.display_name == "Chat"
+        assert catalog.entry_source(homebrew.key) == "user_created"
+        assert catalog.official_entry(homebrew.key) is None
+        assert catalog.entry_source(img.key) == "official"
+
+    def test_user_created_entry_is_searchable(self):
+        hits = catalog.search_entries("homebrew")
+
+        assert [(hit.name, hit.display_name) for hit in hits] == [("homebrew", "Homebrew")]
+
+    def test_discarding_copies_returns_to_official_data(self):
+        catalog.install_user_entries(())
+
+        model = catalog.get_model("acme", "chat")
+        assert model is not None
+        assert (model.display_name, model.max_output_tokens) == ("Chat", 8192)
+
+
+def test_user_copy_price_table_is_used_for_pricing(acme_catalog):
+    price = {
+        "currency": "CNY",
+        "meters": [{"meter": "output_images", "dims": [], "rows": [{"when": {}, "price": 0.3}]}],
+    }
+    catalog.install_user_entries(
+        [_user_copy("img-new", "image", {"text_to_image": True, "resolutions": ["1K"]}, price=price)]
+    )
+    try:
+        priced = catalog.provider_model_price("acme", "img-new", "image")
+        assert priced is not None
+        assert priced.price is not None
+        assert (priced.price.currency, priced.price.meters[0].rows[0].price) == ("CNY", 0.3)
+        model = catalog.get_model("acme", "img-new")
+        assert model is not None
+        assert (model.capabilities, model.resolutions) == (["text_to_image"], ["1K"])
+    finally:
+        catalog.install_user_entries(())

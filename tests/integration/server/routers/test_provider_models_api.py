@@ -1,4 +1,4 @@
-"""供应商模型接口：列出、启用与停用、按 ID 添加与移除，绑内存库。"""
+"""供应商模型接口：列出、启用与停用、按 ID 添加与移除、Sheet 的供应商设置与模型信息，绑内存库。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.catalog import query as catalog
 from lib.config.service import ConfigService
 from lib.db import get_async_session
+from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+from server.routers import catalog as catalog_router
 from server.routers import provider_models
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 
@@ -28,10 +30,12 @@ def models_client(db_factory: async_sessionmaker[AsyncSession]) -> Generator[Tes
     app.dependency_overrides[get_async_session] = _override_session
     override_auth(app)
     app.include_router(provider_models.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(catalog_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     with TestClient(app) as test_client:
         yield test_client
-    # 添加与移除会换掉目录查询里进程级的用户添加模型
+    # 添加与移除、修改模型信息会换掉目录查询里进程级的用户添加模型与用户条目副本
     catalog.install_user_added_models(())
+    catalog.install_user_entries(())
 
 
 def _models(client: TestClient, provider_id: str) -> dict[str, dict]:
@@ -394,3 +398,119 @@ async def test_custom_model_rename_and_remove_clear_global_references(
 
     assert models_client.delete(f"/api/v1/providers/{provider_id}/models/spare").status_code == 204
     assert set(_models(models_client, provider_id)) == {"house-v2"}
+
+
+# ---------------------------------------------------------------------------
+# 供应商模型 Sheet：模型信息（用户修改层）
+# ---------------------------------------------------------------------------
+
+_FLASH = {"maker": "google", "name": "gemini-3-flash-preview", "media_type": "text"}
+_FLASH_URL = "/api/v1/providers/gemini-aistudio/models/gemini-3-flash-preview"
+
+
+async def _share_flash(db_factory: async_sessionmaker[AsyncSession]) -> str:
+    """让 Vertex AI（配好密钥）与一个中转站也使用 Gemini 3 Flash 的条目，返回中转站的供应商 ID。"""
+    async with db_factory() as session:
+        await CredentialRepository(session).create("gemini-vertex", "k", api_key="k")
+        await session.commit()
+    db_id = await _custom_provider(
+        db_factory,
+        [
+            {
+                "model_id": "anthropic/gemini-3-flash-preview",
+                "display_name": "anthropic/gemini-3-flash-preview",
+                "endpoint": "openai-chat",
+                "is_enabled": True,
+            }
+        ],
+    )
+    return f"custom-{db_id}"
+
+
+async def test_modify_official_entry_then_restore_official_data(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    relay = await _share_flash(db_factory)
+
+    entry = models_client.get(_FLASH_URL).json()["entry"]
+    assert (entry["source"], entry["official"], entry["display_name"]) == ("official", None, "Gemini 3 Flash")
+    assert entry["shared_with"] == [
+        {"provider_id": "gemini-vertex", "display_name": "Vertex AI"},
+        {"provider_id": relay, "display_name": "中转站"},
+    ]
+
+    # 供应商设置与模型信息在同一个请求里保存
+    resp = models_client.patch(
+        _FLASH_URL,
+        json={
+            "enabled": False,
+            "entry": {**_FLASH, "display_name": "My Flash", "facts": {"image_input": False, "max_output_tokens": 1000}},
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert (body["model"]["enabled"], body["model"]["display_name"]) == (False, "My Flash")
+    assert "modified" in body["model"]["flags"]
+    assert body["entry"]["source"] == "modified"
+    assert body["entry"]["facts"]["max_output_tokens"] == 1000
+    assert body["entry"]["official"] == {
+        "display_name": "Gemini 3 Flash",
+        "facts": {"image_input": True, "structured_output": True, "max_output_tokens": 65536},
+    }
+    # 停止跟随官方：共用这个条目的供应商一起变化，运行时读到的也是修改后的信息
+    vertex = _models(models_client, "gemini-vertex")["gemini-3-flash-preview"]
+    assert (vertex["display_name"], "modified" in vertex["flags"]) == ("My Flash", True)
+    relay_model = _models(models_client, relay)["anthropic/gemini-3-flash-preview"]
+    assert relay_model["display_name"] == "My Flash"
+    runtime = catalog.get_model("gemini-vertex", "gemini-3-flash-preview")
+    assert runtime is not None
+    assert (runtime.max_output_tokens, "vision" in runtime.capabilities) == (1000, False)
+
+    resp = models_client.post("/api/v1/catalog/entries/restore-official", json=_FLASH)
+
+    assert resp.status_code == 204
+    entry = models_client.get(_FLASH_URL).json()["entry"]
+    assert (entry["source"], entry["display_name"], entry["facts"]["max_output_tokens"]) == (
+        "official",
+        "Gemini 3 Flash",
+        65536,
+    )
+    vertex = _models(models_client, "gemini-vertex")["gemini-3-flash-preview"]
+    assert (vertex["display_name"], "modified" in vertex["flags"]) == ("Gemini 3 Flash", False)
+    runtime = catalog.get_model("gemini-vertex", "gemini-3-flash-preview")
+    assert runtime is not None
+    assert runtime.max_output_tokens == 65536
+
+
+def test_entry_change_is_saved_atomically_with_provider_settings(models_client: TestClient) -> None:
+    # 官方收录的模型不接受倍率：整个请求被拒，模型信息也不写入
+    resp = models_client.patch(_FLASH_URL, json={"multiplier": 2, "entry": {**_FLASH, "display_name": "My Flash"}})
+
+    assert resp.status_code == 422
+    entry = models_client.get(_FLASH_URL).json()["entry"]
+    assert (entry["source"], entry["display_name"]) == ("official", "Gemini 3 Flash")
+
+
+def test_entry_edit_is_validated_and_must_target_the_mapped_entry(models_client: TestClient) -> None:
+    resp = models_client.patch(_FLASH_URL, json={"entry": {**_FLASH, "facts": {"max_output_tokens": 0}}})
+    assert resp.status_code == 422
+
+    other = {**_FLASH, "name": "gemini-3.1-pro-preview"}
+    resp = models_client.patch(_FLASH_URL, json={"entry": {**other, "display_name": "x"}})
+    assert resp.status_code == 409
+
+    # 与当前条目相同的修改不写副本，条目照旧跟随官方
+    resp = models_client.patch(_FLASH_URL, json={"entry": {**_FLASH, "display_name": "Gemini 3 Flash"}})
+    assert resp.status_code == 200
+    assert resp.json()["entry"]["source"] == "official"
+
+
+def test_restore_rejects_entries_without_official_data(models_client: TestClient) -> None:
+    resp = models_client.post(
+        "/api/v1/catalog/entries/restore-official", json={"maker": "acme", "name": "nope", "media_type": "text"}
+    )
+
+    assert resp.status_code == 404
+    # 没有副本时恢复什么都不做
+    assert models_client.post("/api/v1/catalog/entries/restore-official", json=_FLASH).status_code == 204

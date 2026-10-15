@@ -4,8 +4,9 @@
 默认模型，一律经这里读取。注册表（``lib.config.registry``）只登记供应商一级的代码事实（凭证形态、调用通道、
 默认地址、并发默认），不含模型。
 
-模型清单、条目事实与默认模型取自随代码打包的出厂快照（``lib/catalog/snapshot/``），加载时过
-``arcreel_catalog_core`` 的实例侧校验。价格是条目的价目表，见 :func:`provider_model_price`。
+模型清单、条目事实与默认模型取自合成后的目录（``lib.catalog.composition``）：官方数据是随代码打包的出厂快照
+（``lib/catalog/snapshot/``，加载时过 ``arcreel_catalog_core`` 的实例侧校验），用户修改的条目副本整条替换官方条目。
+价格是条目的价目表，见 :func:`provider_model_price`。
 供应商模型一级的查询返回目录自己的值对象（:class:`CatalogModel`、:class:`CatalogSearchHit`）；按名字对应条目的
 :func:`find_entry` 返回 ``arcreel_catalog_core`` 的 ``CatalogEntry``，调用方要的正是条目本身的键、事实与价目表。
 """
@@ -38,6 +39,7 @@ from arcreel_catalog_core import (
     normalize_model_name,
 )
 from lib.app_version import app_version
+from lib.catalog.composition import ComposedCatalog, EntrySource, compose_catalog, newest_official
 from lib.catalog.entry_matching import match_entry
 
 logger = logging.getLogger(__name__)
@@ -95,6 +97,11 @@ def factory_snapshot() -> CatalogData:
         (SNAPSHOT_DIR / MANIFEST_FILENAME).read_bytes(),
         (SNAPSHOT_DIR / CATALOG_FILENAME).read_bytes(),
     )
+
+
+def official_data() -> CatalogData:
+    """官方数据：出厂快照与官方同步中数据集版本较新的一份。官方同步尚未接入，目前只有出厂快照这一个来源。"""
+    return newest_official((factory_snapshot(),))
 
 
 def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, default: bool) -> CatalogModel:
@@ -330,6 +337,12 @@ _user_added: list[tuple[UserAddedModel, ...]] = [()]
 # 按快照对象缓存的索引：快照每进程只加载一次，索引随之只建一次；用户添加的模型变化时清空重建。
 _index_cache: list[tuple[CatalogData, dict[str, dict[str, _IndexedModel]]]] = []
 
+# 用户修改的条目副本：由用户条目表装入，见 install_user_entries。单元素列表当信箱。
+_user_entries: list[tuple[CatalogEntry, ...]] = [()]
+
+# 按官方数据对象缓存的合成结果；用户副本变化时清空重建。
+_composed_cache: list[tuple[CatalogData, ComposedCatalog]] = []
+
 
 def install_user_added_models(models: Iterable[UserAddedModel]) -> None:
     """换上内置供应商下用户添加的模型，之后的查询把它们并进各自供应商的模型清单。
@@ -341,8 +354,47 @@ def install_user_added_models(models: Iterable[UserAddedModel]) -> None:
     _index_cache.clear()
 
 
+def install_user_entries(entries: Iterable[CatalogEntry]) -> None:
+    """换上用户修改的条目副本，之后的查询（门面、能力、计价、按名字对应条目、搜索）都读合成后的条目。
+
+    应用启动时与每次写入用户条目表之后由写入方调用；与 :func:`install_user_added_models` 同理，全部读点都在
+    应用进程里，进程内替换即对全部读点生效。
+    """
+    _user_entries[0] = tuple(entries)
+    _composed_cache.clear()
+    _index_cache.clear()
+
+
+def composed_catalog() -> ComposedCatalog:
+    """合成后的目录：官方数据加上用户修改的条目副本。"""
+    official = official_data()
+    if not _composed_cache or _composed_cache[0][0] is not official:
+        _composed_cache[:] = [(official, compose_catalog(official, _user_entries[0]))]
+    return _composed_cache[0][1]
+
+
+def catalog_data() -> CatalogData:
+    """运行时读的目录数据（合成后）。"""
+    return composed_catalog().data
+
+
+def entry_source(key: EntryKey) -> EntrySource:
+    """条目由谁维护：跟随官方、用户改过，或官方没有、由用户填写。"""
+    return composed_catalog().source_of(key)
+
+
+def official_entry(key: EntryKey) -> CatalogEntry | None:
+    """官方数据里这个身份的条目，用于显示官方值与恢复官方数据；用户新建的条目没有。"""
+    return composed_catalog().official_entry(key)
+
+
+def get_entry(key: EntryKey) -> CatalogEntry | None:
+    """按身份取合成后的条目；目录里没有时为 ``None``。"""
+    return next((entry for entry in catalog_data().entries if entry.key == key), None)
+
+
 def _indexed_models(provider_id: str) -> dict[str, _IndexedModel]:
-    data = factory_snapshot()
+    data = catalog_data()
     if not _index_cache or _index_cache[0][0] is not data:
         _index_cache[:] = [(data, _build_index(data, _user_added[0], app_version()))]
     return _index_cache[0][1].get(provider_id, {})
@@ -353,9 +405,11 @@ def _provider_models(provider_id: str) -> dict[str, CatalogModel]:
 
 
 def reset_for_tests() -> None:
-    """清空出厂快照、索引与用户添加模型的进程级状态，下次查询重新读取快照。"""
+    """清空出厂快照、索引、用户添加模型与用户条目副本的进程级状态，下次查询重新读取快照。"""
     factory_snapshot.cache_clear()
     _user_added[0] = ()
+    _user_entries[0] = ()
+    _composed_cache.clear()
     _index_cache.clear()
 
 
@@ -457,7 +511,7 @@ def find_entry(
     为这个模型指定的条目（尚无存储时传 ``None``）。对应不上、或两栖模型没给 ``media_type`` 时返回 ``None``。
     对应关系不缓存，目录变化（官方同步带来新条目或模型别名）后下次调用即得到新结果。规则见 :func:`match_entry`。
     """
-    return match_entry(factory_snapshot().entries, model_name, media_type=media_type, binding=binding)
+    return match_entry(catalog_data().entries, model_name, media_type=media_type, binding=binding)
 
 
 def binding_key(ref: str | None, media_type: str) -> EntryKey | None:
@@ -475,7 +529,7 @@ def find_bound_entry(ref: str, media_type: str) -> CatalogEntry | None:
     key = binding_key(ref, media_type)
     if key is None:
         return None
-    return next((entry for entry in factory_snapshot().entries if entry.key == key), None)
+    return get_entry(key)
 
 
 def entry_ref(entry: CatalogEntry) -> str:
@@ -538,7 +592,7 @@ def search_entries(query: str = "", media_type: str | None = None) -> list[Catal
     whole = normalize_model_name(query.strip())
     ranked: list[tuple[bool, int, int, CatalogSearchHit]] = []
     seen: set[tuple[str, str, str]] = set()
-    for index, entry in enumerate(factory_snapshot().entries):
+    for index, entry in enumerate(catalog_data().entries):
         identity = (entry.maker, entry.name, entry.media_type)
         if identity in seen or (media_type is not None and entry.media_type != media_type):
             continue

@@ -48,6 +48,15 @@ function sameResolution(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+/** 去掉时长联动约束里已不在可选分辨率中的分辨率。 */
+export function withoutDroppedResolutions(constraints: unknown, resolutions: string[]): Constraints {
+  const value = asConstraints(constraints);
+  const byResolution = Object.fromEntries(
+    Object.entries(value.by_resolution ?? {}).filter(([res]) => resolutions.some((kept) => sameResolution(kept, res))),
+  );
+  return { ...value, by_resolution: byResolution };
+}
+
 function scalarText(value: unknown): string {
   return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
     ? String(value)
@@ -106,13 +115,7 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
     }
     // 去掉的分辨率不再出现在时长联动约束里
     if (key === "resolutions" && Array.isArray(next) && draft.duration_constraints) {
-      const constraints = asConstraints(draft.duration_constraints);
-      const byResolution = Object.fromEntries(
-        Object.entries(constraints.by_resolution ?? {}).filter(([res]) =>
-          (next as string[]).some((kept) => sameResolution(kept, res)),
-        ),
-      );
-      draft.duration_constraints = { ...constraints, by_resolution: byResolution };
+      draft.duration_constraints = withoutDroppedResolutions(draft.duration_constraints, next as string[]);
     }
     onChange(draft);
   };
@@ -162,7 +165,7 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
               )}
             </div>
             {overridden && (
-              <OverrideEditor
+              <CapabilityValueEditor
                 dimension={key}
                 label={label}
                 value={value[key]}
@@ -198,7 +201,11 @@ interface EditorProps {
   onValidityChange: (valid: boolean) => void;
 }
 
-function OverrideEditor({ dimension, label, value, resolutions, onChange, onValidityChange }: EditorProps) {
+/**
+ * 一个能力维度的取值编辑器，「这个供应商支持的参数」与「模型信息」共用。文本输入只在挂载时取 `value` 作初值，
+ * 外部改了取值（放弃修改、采用官方值）时由调用方换 `key` 重新挂载。
+ */
+export function CapabilityValueEditor({ dimension, label, value, resolutions, onChange, onValidityChange }: EditorProps) {
   const { t } = useTranslation("dashboard");
   const editLabel = t("pm_cap_edit_named", { name: label });
 

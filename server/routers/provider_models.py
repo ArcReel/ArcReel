@@ -3,6 +3,9 @@
 内置与自定义供应商共用。读取单个与保存对应供应商模型 Sheet 的「供应商设置」：官方收录的模型只有启用；用户负责的
 模型（自定义供应商的模型、内置供应商下用户添加的模型）另有模型 ID、供应商模型倍率与能力覆盖；自定义供应商的模型
 另有默认、调用端点、请求地址与默认分辨率。
+
+Sheet 下段「模型信息」是对应到的模型条目，由所有使用它的供应商共用：读取时带上条目由谁维护、官方值与共用它的
+其他供应商；保存时与供应商设置在同一个请求里原子写入，修改存为整个条目的用户副本（docs/adr/0099）。
 """
 
 from __future__ import annotations
@@ -19,11 +22,13 @@ from arcreel_catalog_core import MEDIA_TYPES, AudioFacts, CatalogEntry, ImageFac
 from lib.billing.multipliers import get_provider_multiplier
 from lib.catalog import builtin_models
 from lib.catalog import query as catalog
+from lib.catalog.composition import EntrySource
 from lib.catalog.price_summary import summarize_price
+from lib.catalog.user_entries import EntryEditRejected, edited_entry, reload_user_entries, save_user_entry
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS, PROJECT_MODEL_SETTING_KEYS
 from lib.config.service import ConfigService
-from lib.custom_provider import is_custom_provider, parse_provider_id
+from lib.custom_provider import is_custom_provider, make_provider_id, parse_provider_id
 from lib.custom_provider.capability_view import (
     CapabilityView,
     OverrideRejected,
@@ -36,6 +41,7 @@ from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
 from lib.custom_provider.model_facts import model_entry
 from lib.db import get_async_session
 from lib.db.models.custom_provider import CustomProviderModel
+from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.i18n import Translator
@@ -52,7 +58,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/providers", tags=["Providers"])
 
-ModelFlag = Literal["discontinued", "unpriced"]
+ModelFlag = Literal["discontinued", "unpriced", "modified"]
 
 
 class PriceSummaryItemResponse(BaseModel):
@@ -76,7 +82,7 @@ class ProviderModelItem(BaseModel):
     - ``display_name``：对应条目的显示名（自定义供应商取用户填写的名字）；没有时为 ``null``，界面显示模型 ID。
     - ``official``：内置供应商官方收录的模型，只能启用、停用；用户添加的与自定义供应商的模型为 ``false``。
     - ``flags``：``discontinued`` 条目已下架；``unpriced`` 调用费用会记为未定价（对应不上条目或条目没有价格，
-      两级倍率之积为 0 时不计费，不标）。
+      两级倍率之积为 0 时不计费，不标）；``modified`` 用户改过对应的条目，不再随官方更新。
     - ``endpoint``：自定义供应商模型的调用端点键；内置供应商为 ``null``。
     """
 
@@ -130,8 +136,26 @@ class CapabilityViewResponse(BaseModel):
     effective: dict[str, Any]
 
 
+class OfficialEntryValues(BaseModel):
+    """用户改过的条目在官方数据里的值，供逐项比对与「采用」。"""
+
+    display_name: str
+    facts: dict[str, Any]
+
+
+class SharedProviderResponse(BaseModel):
+    provider_id: str
+    display_name: str
+
+
 class EntryInfoResponse(BaseModel):
-    """供应商模型对应到的条目，供 Sheet 下段「模型信息」只读展示。"""
+    """供应商模型对应到的条目（合成后），供 Sheet 下段「模型信息」。
+
+    - ``source``：``official`` 跟随官方；``modified`` 用户改过，不再随官方更新；``user_created`` 官方没有、由用户填写。
+    - ``official``：用户改过时官方数据里的值；其余情况为 ``null``。
+    - ``shared_with``：同样使用这个条目的其他供应商（已配置密钥的内置供应商与自定义供应商中启用的模型），
+      修改与恢复官方数据会一起影响它们。
+    """
 
     maker: str
     name: str
@@ -141,6 +165,9 @@ class EntryInfoResponse(BaseModel):
     discontinued: bool
     context_length: int | None
     facts: dict[str, Any]
+    source: EntrySource
+    official: OfficialEntryValues | None
+    shared_with: list[SharedProviderResponse]
 
 
 class ProviderModelDetail(BaseModel):
@@ -164,10 +191,21 @@ class ProviderModelDetail(BaseModel):
     requests: list[EndpointRequestDescriptor] = []
 
 
-class ProviderModelSettingsUpdate(BaseModel):
-    """保存供应商模型 Sheet 的供应商设置；没有传的字段不改。
+class EntryUpdate(BaseModel):
+    """Sheet 下段「模型信息」的修改。``maker``、``name``、``media_type`` 是 Sheet 读到的条目身份，须与这个供应商模型
+    当前对应的条目一致；``display_name`` 与 ``facts`` 没有传的不改，``facts`` 只给要改的模型事实。"""
 
-    - 所有供应商模型：``enabled``。
+    maker: str
+    name: str
+    media_type: MediaType
+    display_name: str | None = None
+    facts: dict[str, Any] | None = None
+
+
+class ProviderModelSettingsUpdate(BaseModel):
+    """保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。
+
+    - 所有供应商模型：``enabled``，以及 ``entry``（修改对应的条目，存为用户副本，条目从此不再随官方更新）。
     - 用户负责的模型：``model_id``（改模型 ID）、``multiplier``、``capability_overrides``（整份替换，``null`` 或
       空对象表示清除）。
     - 自定义供应商的模型：``is_default``、``endpoint``、``path_overrides``、``resolution``。
@@ -181,6 +219,7 @@ class ProviderModelSettingsUpdate(BaseModel):
     endpoint: str | None = None
     path_overrides: dict[str, str] | None = None
     resolution: str | None = None
+    entry: EntryUpdate | None = None
 
 
 class ProjectReference(BaseModel):
@@ -224,6 +263,8 @@ def _flags(entry: CatalogEntry | None, multiplier: float) -> list[ModelFlag]:
     priced = entry is not None and entry.price is not None and entry.price.is_priceable
     if not priced and multiplier != 0:
         flags.append("unpriced")
+    if entry is not None and catalog.entry_source(entry.key) == "modified":
+        flags.append("modified")
     return flags
 
 
@@ -461,9 +502,43 @@ def _facts_json(entry: CatalogEntry) -> dict[str, Any]:
             assert_never(facts)
 
 
-def _entry_info(entry: CatalogEntry | None) -> EntryInfoResponse | None:
+async def _custom_model_entry(row: CustomProviderModel, endpoint_repo: CustomEndpointRepository) -> CatalogEntry | None:
+    try:
+        media_type = (await resolve_endpoint_spec(row.endpoint, endpoint_repo.get)).media_type
+    except ValueError:
+        return None
+    return model_entry(row.model_id, media_type, row.entry_binding) if media_type in MEDIA_TYPES else None
+
+
+async def _providers_sharing(
+    session: AsyncSession, entry: CatalogEntry, provider_id: str
+) -> list[SharedProviderResponse]:
+    """同样使用这个条目的其他供应商：已配置密钥的内置供应商与自定义供应商，只算启用的模型。"""
+    shared: list[SharedProviderResponse] = []
+    configured = await CredentialRepository(session).get_active_credentials_bulk()
+    for builtin_id, meta in PROVIDER_REGISTRY.items():
+        if builtin_id == provider_id or builtin_id not in configured:
+            continue
+        items = await builtin_models.list_builtin_models(session, builtin_id)
+        if any(i.enabled and i.view.entry is not None and i.view.entry.key == entry.key for i in items):
+            shared.append(SharedProviderResponse(provider_id=builtin_id, display_name=meta.display_name))
+    endpoint_repo = CustomEndpointRepository(session)
+    for provider, rows in await CustomProviderRepository(session).list_providers_with_models():
+        custom_id = make_provider_id(provider.id)
+        if custom_id == provider_id:
+            continue
+        for row in rows:
+            if row.is_enabled and (found := await _custom_model_entry(row, endpoint_repo)) and found.key == entry.key:
+                shared.append(SharedProviderResponse(provider_id=custom_id, display_name=provider.display_name))
+                break
+    return shared
+
+
+async def _entry_info(session: AsyncSession, entry: CatalogEntry | None, provider_id: str) -> EntryInfoResponse | None:
     if entry is None:
         return None
+    source = catalog.entry_source(entry.key)
+    official = catalog.official_entry(entry.key) if source == "modified" else None
     return EntryInfoResponse(
         maker=entry.maker,
         name=entry.name,
@@ -473,6 +548,13 @@ def _entry_info(entry: CatalogEntry | None) -> EntryInfoResponse | None:
         discontinued=entry.discontinued,
         context_length=entry.context_length,
         facts=_facts_json(entry),
+        source=source,
+        official=(
+            OfficialEntryValues(display_name=official.display_name, facts=_facts_json(official))
+            if official is not None
+            else None
+        ),
+        shared_with=await _providers_sharing(session, entry, provider_id),
     )
 
 
@@ -496,7 +578,7 @@ async def _builtin_detail(
         model=_builtin_item(item, provider_multiplier),
         multiplier=None if view.official else view.multiplier,
         provider_multiplier=provider_multiplier,
-        entry=_entry_info(view.entry),
+        entry=await _entry_info(session, view.entry, provider_id),
         capabilities=_capabilities_response(capabilities, view.model.media_type),
     )
 
@@ -513,7 +595,7 @@ async def _custom_detail(
         model=item,
         multiplier=row.multiplier,
         provider_multiplier=await get_provider_multiplier(session, provider_id),
-        entry=_entry_info(model_entry(row.model_id, item.media_type, row.entry_binding)),
+        entry=await _entry_info(session, model_entry(row.model_id, item.media_type, row.entry_binding), provider_id),
         capabilities=_capabilities_response(settings.capabilities, item.media_type),
         endpoint=settings.endpoint,
         resolution=settings.resolution,
@@ -537,7 +619,43 @@ async def get_provider_model(
     return await _builtin_detail(session, provider_id, model_id, _t)
 
 
-_BUILTIN_SETTING_FIELDS = frozenset({"enabled", "model_id", "multiplier", "capability_overrides"})
+_BUILTIN_SETTING_FIELDS = frozenset({"enabled", "model_id", "multiplier", "capability_overrides", "entry"})
+
+
+async def _current_entry(session: AsyncSession, provider_id: str, model_id: str, _t: Translator) -> CatalogEntry | None:
+    """供应商模型当前对应到的条目（合成后）；供应商模型不存在时 404。"""
+    if is_custom_provider(provider_id):
+        db_id = await _custom_db_id(session, provider_id, _t)
+        row = await CustomProviderRepository(session).get_model_by_ids(db_id, model_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=_t("provider_model_not_found", model=model_id))
+        return await _custom_model_entry(row, CustomEndpointRepository(session))
+    items = await builtin_models.list_builtin_models(session, provider_id)
+    item = next((i for i in items if i.view.model_id == model_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail=_t("provider_model_not_found", model=model_id))
+    return item.view.entry
+
+
+async def _save_entry(
+    session: AsyncSession, provider_id: str, model_id: str, update: EntryUpdate, _t: Translator
+) -> bool:
+    """把「模型信息」的修改存为条目的用户副本；返回是否写入（与当前条目相同时不写，条目照旧跟随官方）。"""
+    current = await _current_entry(session, provider_id, model_id, _t)
+    if current is None or (current.maker, current.name, current.media_type) != (
+        update.maker,
+        update.name,
+        update.media_type,
+    ):
+        raise HTTPException(status_code=409, detail=_t("provider_model_entry_mismatch", model=model_id))
+    try:
+        entry = edited_entry(current, display_name=update.display_name, facts=update.facts)
+    except EntryEditRejected as exc:
+        raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
+    if entry == current:
+        return False
+    await save_user_entry(session, entry)
+    return True
 
 
 async def _save_builtin_settings(
@@ -587,7 +705,11 @@ async def update_provider_model(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderModelDetail:
-    """保存供应商模型 Sheet 的供应商设置，一次请求原子保存；返回保存后的 Sheet 内容。"""
+    """保存供应商模型 Sheet 的供应商设置与模型信息，一次请求原子保存；返回保存后的 Sheet 内容。"""
+    if not is_custom_provider(provider_id):
+        _require_builtin(provider_id, _t)
+    # 先按保存前的对应关系写条目副本：Sheet 读到的就是这个条目，同一请求里改模型 ID 不影响改哪个条目
+    entry_saved = body.entry is not None and await _save_entry(session, provider_id, model_id, body.entry, _t)
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         renames = {"enabled": "is_enabled"}
@@ -599,11 +721,14 @@ async def update_provider_model(
         row = await update_custom_model(session, db_id, model_id, changes, _t)
         saved_model_id = row.model_id
         await session.commit()
+        if entry_saved:
+            await reload_user_entries(session)
         await invalidate_provider_caches(request)
         return await _custom_detail(session, provider_id, db_id, saved_model_id, _t)
-    _require_builtin(provider_id, _t)
     saved_model_id = await _save_builtin_settings(session, provider_id, model_id, body, _t)
     await session.commit()
+    if entry_saved:
+        await reload_user_entries(session)
     await reload_user_added_models(session)
     await invalidate_provider_caches(request)
     return await _builtin_detail(session, provider_id, saved_model_id, _t)

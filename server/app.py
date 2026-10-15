@@ -481,6 +481,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("official market source seed failed (non-fatal): %s", exc)
 
+    # 用户修改的模型条目副本并进目录查询；读不到时这些条目暂按官方数据，其余照常
+    try:
+        from lib.catalog.user_entries import reload_user_entries
+
+        async with async_session_factory() as session:
+            await reload_user_entries(session)
+    except Exception:
+        logger.exception("loading user-modified catalog entries failed (non-fatal)")
+
     # 内置供应商下用户添加的模型并进目录查询；读不到时这些模型暂不可用，其余模型照常
     try:
         from server.routers.provider_models import reload_user_added_models

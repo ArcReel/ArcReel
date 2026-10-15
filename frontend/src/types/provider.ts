@@ -121,8 +121,11 @@ export interface PriceSummary {
   items: PriceSummaryItem[];
 }
 
-/** 供应商模型的状态标记：`discontinued` 已下架；`unpriced` 调用费用会记为未定价。 */
-export type ProviderModelFlag = "discontinued" | "unpriced";
+/**
+ * 供应商模型的状态标记：`discontinued` 已下架；`unpriced` 调用费用会记为未定价；
+ * `modified` 用户改过对应的模型信息，不再随官方更新。
+ */
+export type ProviderModelFlag = "discontinued" | "unpriced" | "modified";
 
 /** 供应商详情模型列表的一行（GET /providers/{id}/models），内置与自定义供应商共用。 */
 export interface ProviderModelItem {
@@ -158,16 +161,35 @@ export interface ProviderModelCapabilities {
   effective: Partial<Record<CapabilityKey, unknown>>;
 }
 
-/** 供应商模型对应到的条目，Sheet 下段「模型信息」只读展示。 */
-export interface ProviderModelEntryInfo {
+/** 模型信息由谁维护：跟随官方、用户改过、官方没有由用户填写。 */
+export type CatalogEntrySource = "official" | "modified" | "user_created";
+
+/** 条目身份：「模型厂商/官方模型名」，两栖模型再以媒体类型区分。 */
+export interface CatalogEntryKey {
   maker: string;
   name: string;
-  display_name: string;
   media_type: ProviderModelItem["media_type"];
+}
+
+/**
+ * 供应商模型对应到的条目（合成后），Sheet 下段「模型信息」。
+ * `official` 是用户改过时官方数据里的值；`shared_with` 是同样使用这个条目的其他供应商。
+ */
+export interface ProviderModelEntryInfo extends CatalogEntryKey {
+  display_name: string;
   aliases: string[];
   discontinued: boolean;
   context_length: number | null;
   facts: Record<string, unknown>;
+  source: CatalogEntrySource;
+  official: { display_name: string; facts: Record<string, unknown> } | null;
+  shared_with: { provider_id: string; display_name: string }[];
+}
+
+/** 「模型信息」的修改：身份是 Sheet 读到的条目，`facts` 只给要改的模型事实。 */
+export interface CatalogEntryUpdate extends CatalogEntryKey {
+  display_name?: string;
+  facts?: Record<string, unknown>;
 }
 
 /** 供应商模型 Sheet 的内容。 */
@@ -185,7 +207,7 @@ export interface ProviderModelDetail {
   requests: EndpointRequest[];
 }
 
-/** 保存供应商模型 Sheet 的供应商设置；没有传的字段不改。 */
+/** 保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。 */
 export interface ProviderModelSettingsUpdate {
   enabled?: boolean;
   is_default?: boolean;
@@ -195,6 +217,8 @@ export interface ProviderModelSettingsUpdate {
   endpoint?: string;
   path_overrides?: PathOverrides | null;
   resolution?: string | null;
+  /** 修改对应的模型信息，存为用户副本，这个模型从此不再随官方更新。 */
+  entry?: CatalogEntryUpdate;
 }
 
 /** 引用某个供应商模型的全局设置键与项目。 */

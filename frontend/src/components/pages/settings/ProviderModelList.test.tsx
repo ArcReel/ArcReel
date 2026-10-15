@@ -22,7 +22,7 @@ function item(overrides: Partial<ProviderModelItem> & Pick<ProviderModelItem, "m
 }
 
 const MODELS: ProviderModelItem[] = [
-  item({ model_id: "img-1", display_name: "Image One", media_type: "image" }),
+  item({ model_id: "img-1", display_name: "Image One", media_type: "image", flags: ["modified"] }),
   item({
     model_id: "chat-1",
     display_name: "Chat One",
@@ -64,6 +64,8 @@ describe("ProviderModelList", () => {
     expect(within(text).getByText("已下架")).toBeInTheDocument();
     expect(within(text).getByText("未定价")).toBeInTheDocument();
     expect(within(image).getByText("Image One")).toBeInTheDocument();
+    // 改过模型信息的行带「已修改」
+    expect(within(image).getByText("已修改")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /添加模型/ })).toBeDisabled();
   });
 

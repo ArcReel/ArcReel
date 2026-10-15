@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ExternalLink, Loader2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 import { Link } from "wouter";
 import { API } from "@/api";
 import { endpointSettingsPath } from "@/app-routes";
@@ -28,7 +27,6 @@ import { Switch } from "@/components/ui/switch";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type {
-  CapabilityKey,
   CapabilityOverrides,
   DiscoveryFormat,
   PathOverrides,
@@ -42,8 +40,9 @@ import { parseMultiplier } from "@/utils/multiplier";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS, resolutionPlaceholder } from "@/utils/provider-models";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { EndpointSelect } from "./EndpointSelect";
-import { ProviderCapabilityOverrides, capabilityValueText } from "./ProviderCapabilityOverrides";
-import { MEDIA_LABEL_KEY, ProviderModelFlags, priceSummaryText } from "./providerModelDisplay";
+import { ProviderCapabilityOverrides } from "./ProviderCapabilityOverrides";
+import { ENTRY_INVALID_PREFIX, ProviderModelEntryInfo, entryDraftOf, providerNames, type EntryDraft } from "./ProviderModelEntryInfo";
+import { ProviderModelFlags } from "./providerModelDisplay";
 import { RequestAddresses } from "./RequestAddresses";
 
 /** 自定义供应商的模型另有调用端点与请求地址，需要供应商的接口地址与模型发现协议。 */
@@ -75,7 +74,8 @@ interface Props {
 
 /**
  * 供应商模型 Sheet：上段「供应商设置」只属于这个供应商（启用、默认、模型 ID、倍率、这个供应商支持的参数、
- * 调用端点与请求地址），下段「模型信息」是对应到的模型条目，先只读展示。官方收录的模型只有启用。
+ * 调用端点与请求地址），官方收录的模型只有启用；下段「模型信息」是对应到的模型条目，所有使用它的供应商共用。
+ * 两段共用一份草稿与一条保存栏，在同一个请求里保存。
  */
 export function ProviderModelSheet({ providerId, providerName, open, custom, onClose, onSaved, onRemoved }: Props) {
   // 关闭动画期间仍显示刚关掉的模型，动画结束后卸载
@@ -193,7 +193,7 @@ function ModelSheetLoader({ modelId, providerId, providerName, requestCloseRef, 
   );
 }
 
-/** Sheet 上段的草稿。倍率保留输入原文，保存时才解析。 */
+/** Sheet 的草稿：上段的供应商设置与下段的模型信息。倍率保留输入原文，保存时才解析。 */
 interface Draft {
   enabled: boolean;
   isDefault: boolean;
@@ -203,6 +203,7 @@ interface Draft {
   endpoint: string;
   pathOverrides: PathOverrides | null;
   resolution: string;
+  entry: EntryDraft | null;
 }
 
 function draftOf(detail: ProviderModelDetail): Draft {
@@ -215,6 +216,7 @@ function draftOf(detail: ProviderModelDetail): Draft {
     endpoint: detail.endpoint ?? "",
     pathOverrides: detail.path_overrides,
     resolution: detail.resolution ?? "",
+    entry: entryDraftOf(detail.entry),
   };
 }
 
@@ -248,6 +250,17 @@ function ModelSheetForm({
   const userOwned = !official;
   const isCustom = custom !== undefined && detail.endpoint !== null;
   const [invalidKeys, setInvalidKeys] = useState<ReadonlySet<string>>(new Set());
+  const setValidity = useCallback((key: string, valid: boolean) => {
+    setInvalidKeys((prev) => {
+      if (prev.has(key) === !valid) return prev;
+      const next = new Set(prev);
+      if (valid) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+  const entryInvalid = [...invalidKeys].some((key) => key.startsWith(ENTRY_INVALID_PREFIX));
+  const providerInvalid = [...invalidKeys].some((key) => !key.startsWith(ENTRY_INVALID_PREFIX));
 
   const fetchEndpointCatalog = useEndpointCatalogStore((s) => s.fetch);
   useEffect(() => {
@@ -269,7 +282,7 @@ function ModelSheetForm({
           if (multiplier === undefined) throw new Error(t("cp_multiplier_invalid"));
           patch.multiplier = multiplier;
         }
-        if (invalidKeys.size > 0) throw new Error(t("pm_sheet_capabilities_invalid"));
+        if (providerInvalid) throw new Error(t("pm_sheet_capabilities_invalid"));
         if (!sameJson(value.overrides, saved.overrides)) {
           patch.capability_overrides = Object.keys(value.overrides).length > 0 ? value.overrides : null;
         }
@@ -280,6 +293,16 @@ function ModelSheetForm({
         if (!sameJson(value.pathOverrides, saved.pathOverrides)) patch.path_overrides = value.pathOverrides;
         if (value.resolution !== saved.resolution) patch.resolution = value.resolution || null;
       }
+      const entry = detail.entry;
+      if (entry && value.entry && saved.entry && !sameJson(value.entry, saved.entry)) {
+        if (entryInvalid || !value.entry.display_name.trim()) throw new Error(t("pm_sheet_entry_invalid"));
+        const facts = Object.fromEntries(
+          Object.entries(value.entry.facts).filter(([key, fact]) => !sameJson(fact, saved.entry?.facts[key])),
+        );
+        patch.entry = { maker: entry.maker, name: entry.name, media_type: entry.media_type };
+        if (value.entry.display_name !== saved.entry.display_name) patch.entry.display_name = value.entry.display_name.trim();
+        if (Object.keys(facts).length > 0) patch.entry.facts = facts;
+      }
       const updated = await API.updateProviderModel(providerId, detail.model.model_id, patch);
       // 能力覆盖不落任何项目字段，在用的能力查询不会因此重取：显式作废
       useCapabilitiesStore.getState().invalidate();
@@ -287,7 +310,7 @@ function ModelSheetForm({
       onSaved(updated.model, detail.model.model_id);
       return draftOf(updated);
     },
-    [isCustom, userOwned, invalidKeys, providerId, detail.model.model_id, onDetailChange, onSaved, t],
+    [isCustom, userOwned, providerInvalid, entryInvalid, providerId, detail.model.model_id, detail.entry, onDetailChange, onSaved, t],
   );
   const unit = useEditUnit({ source, save, leaveTitle: t("pm_sheet_leave_title", { name: detail.model.display_name ?? detail.model.model_id }) });
   const draft = unit.value;
@@ -312,6 +335,19 @@ function ModelSheetForm({
 
   const idPrefix = useId();
   const name = detail.model.display_name ?? detail.model.model_id;
+  // 「已修改」在下段的维护说明里讲，标题旁只留影响调用的标记
+  const titleFlags = detail.model.flags.filter((flag) => flag !== "modified");
+  const entryDirty = !sameJson(draft.entry, unit.savedValue.entry);
+  const stopsFollowing = entryDirty && detail.entry?.source === "official";
+
+  // 恢复官方数据立即生效、不经保存栏：重读 Sheet 内容，只把下段的草稿换成官方值，上段未保存的修改保留
+  const handleRestored = useCallback(async () => {
+    const updated = await API.getProviderModel(providerId, detail.model.model_id);
+    useCapabilitiesStore.getState().invalidate();
+    onDetailChange(updated);
+    unit.setValue((prev) => ({ ...prev, entry: entryDraftOf(updated.entry) }));
+    onSaved(updated.model, detail.model.model_id);
+  }, [providerId, detail.model.model_id, onDetailChange, onSaved, unit]);
 
   return (
     <>
@@ -319,7 +355,7 @@ function ModelSheetForm({
         <SheetTitle>
           <span className="flex min-w-0 flex-wrap items-center gap-2">
             <TruncatedText text={name} />
-            <ProviderModelFlags flags={detail.model.flags} />
+            <ProviderModelFlags flags={titleFlags} />
           </span>
         </SheetTitle>
         <SheetDescription>{providerName}</SheetDescription>
@@ -473,15 +509,7 @@ function ModelSheetForm({
                   capabilities={detail.capabilities}
                   value={draft.overrides}
                   onChange={(overrides) => setDraft({ overrides })}
-                  onValidityChange={(key, valid) =>
-                    setInvalidKeys((prev) => {
-                      if (prev.has(key) === !valid) return prev;
-                      const next = new Set(prev);
-                      if (valid) next.delete(key);
-                      else next.add(key);
-                      return next;
-                    })
-                  }
+                  onValidityChange={setValidity}
                 />
               )}
             </Subsection>
@@ -512,10 +540,23 @@ function ModelSheetForm({
           )}
         </section>
 
-        <ModelInfo detail={detail} />
+        <ProviderModelEntryInfo
+          detail={detail}
+          value={draft.entry}
+          onChange={(entry) => setDraft({ entry })}
+          onValidityChange={setValidity}
+          onRestored={handleRestored}
+        />
       </SheetBody>
 
-      <SheetFooter>
+      <SheetFooter className="flex-col items-stretch">
+        {stopsFollowing && detail.entry && (
+          <p className="text-xs text-warn">
+            {t("pm_entry_save_stops_following")}
+            {detail.entry.shared_with.length > 0 &&
+              t("pm_entry_save_shared", { providers: providerNames(t, detail.entry) })}
+          </p>
+        )}
         <SaveBar unit={unit} />
       </SheetFooter>
     </>
@@ -662,87 +703,6 @@ function RemoveModel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
-  );
-}
-
-/** 条目事实在「模型信息」里的显示顺序；与「这个供应商支持的参数」同名的维度共用标签与写法。 */
-const FACT_ORDER: CapabilityKey[] = [
-  "image_input",
-  "structured_output",
-  "max_output_tokens",
-  "text_to_image",
-  "image_to_image",
-  "durations",
-  "duration_constraints",
-  "resolutions",
-];
-
-/** 没有填写的事实不占行：缺省、空的时长联动约束。 */
-function hasFact(value: unknown): boolean {
-  if (value === undefined) return false;
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return Object.values(value as Record<string, unknown>).some((part) =>
-      Array.isArray(part) ? part.length > 0 : typeof part === "object" && part !== null && Object.keys(part).length > 0,
-    );
-  }
-  return true;
-}
-
-function makerLabel(t: TFunction, maker: string): string {
-  return t(`dashboard:catalog_maker_${maker}`, { defaultValue: maker });
-}
-
-/** 下段「模型信息」：对应到的模型条目，只读。对应不上时说明调用费用会记为未定价。 */
-function ModelInfo({ detail }: { detail: ProviderModelDetail }) {
-  const { t } = useTranslation("dashboard");
-  const headingId = useId();
-  const entry = detail.entry;
-  const price = detail.model.price ? priceSummaryText(t, detail.model.price) : "";
-
-  return (
-    // 与上段分开：铺满 Sheet 宽度的浅底色，抵消 SheetBody 的左右与底部内边距
-    <section
-      aria-labelledby={headingId}
-      className="-mx-5 -mb-4 flex flex-col gap-4 border-t border-border bg-muted/30 px-5 pt-5 pb-6"
-    >
-      <h3 id={headingId} className="text-base font-medium">
-        {t("pm_sheet_model_info")}
-      </h3>
-      {entry === null ? (
-        <p className="rounded-lg border border-dashed border-warn/50 px-4 py-3 text-sm">{t("pm_sheet_no_entry")}</p>
-      ) : (
-        <dl className="grid grid-cols-[7rem_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-          <InfoRow label={t("pm_info_display_name")}>{entry.display_name}</InfoRow>
-          <InfoRow label={t("pm_info_maker")}>{makerLabel(t, entry.maker)}</InfoRow>
-          <InfoRow label={t("pm_info_media_type")}>{t(MEDIA_LABEL_KEY[entry.media_type])}</InfoRow>
-          {entry.aliases.length > 0 && (
-            <InfoRow label={t("pm_info_aliases")}>
-              <span className="font-mono">{entry.aliases.join(t("pm_cap_value_list_separator"))}</span>
-            </InfoRow>
-          )}
-          {entry.context_length !== null && (
-            <InfoRow label={t("pm_info_context_length")}>
-              {t("pm_info_token_count", { value: entry.context_length.toLocaleString() })}
-            </InfoRow>
-          )}
-          {FACT_ORDER.filter((key) => hasFact(entry.facts[key])).map((key) => (
-            <InfoRow key={key} label={t(`pm_cap_${key}`)}>
-              {capabilityValueText(t, key, entry.facts[key])}
-            </InfoRow>
-          ))}
-          <InfoRow label={t("pm_info_price")}>{price || t("pm_info_price_none")}</InfoRow>
-        </dl>
-      )}
-    </section>
-  );
-}
-
-function InfoRow({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 wrap-break-word">{children}</dd>
     </>
   );
 }

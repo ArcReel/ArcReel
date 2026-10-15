@@ -67,6 +67,7 @@ import type {
   ProviderModelDetail,
   ProviderModelReferences,
   ProviderModelSettingsUpdate,
+  CatalogEntryKey,
   DiscoverModelsResponse,
   EndpointDescriptor,
   ComfyuiInferResponse,
@@ -3261,6 +3262,11 @@ class API {
       method: "PATCH",
       body: JSON.stringify(settings),
     });
+  }
+
+  /** 恢复官方数据：丢弃模型信息的用户修改，所有使用这个模型的供应商一起生效，不能撤销。 */
+  static async restoreCatalogEntry(key: CatalogEntryKey): Promise<void> {
+    await this.request("/catalog/entries/restore-official", { method: "POST", body: JSON.stringify(key) });
   }
 
   /** 从供应商移除用户负责的模型。 */

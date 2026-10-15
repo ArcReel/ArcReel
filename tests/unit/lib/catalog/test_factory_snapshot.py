@@ -7,7 +7,7 @@
 
 import pytest
 
-from arcreel_catalog_core import CATALOG_FILENAME, MANIFEST_FILENAME, check_catalog_files
+from arcreel_catalog_core import CATALOG_FILENAME, MANIFEST_FILENAME, check_catalog_files, dump_entry, parse_entry
 from lib.backends.backend_assembly.specs import get_provider_spec
 from lib.catalog import query as catalog
 from lib.catalog.query import SNAPSHOT_DIR
@@ -70,3 +70,9 @@ def test_every_listed_model_with_a_price_table_is_priceable():
         if (entry := data.entry_of(model)) is not None and entry.price is not None and not entry.price.is_priceable
     ]
     assert unpriceable == []
+
+
+def test_every_entry_survives_a_user_copy_round_trip():
+    # 用户修改存下整条副本：任何快照条目（含价目表）写回再读入都必须原样还原
+    for entry in catalog.factory_snapshot().entries:
+        assert parse_entry(dump_entry(entry)) == entry, entry.key
