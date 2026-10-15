@@ -331,7 +331,7 @@ async def test_patch_credential(agent_config_client) -> None:
 
 
 def _tiers(cred: dict) -> dict[str, dict]:
-    return {tier.pop("tier"): tier for tier in cred["tiers"]}
+    return {tier["tier"]: {k: v for k, v in tier.items() if k != "tier"} for tier in cred["tiers"]}
 
 
 async def test_saved_credential_reports_multiplier_and_the_pricing_status_of_each_tier(agent_config_client) -> None:
@@ -347,12 +347,19 @@ async def test_saved_credential_reports_multiplier_and_the_pricing_status_of_eac
         "model_name": "deepseek-v4-pro",
         "entry_display_name": "DeepSeek V4 Pro",
         "manually_bound": False,
+        "binding_stale": False,
         "priced": True,
     }
     # 非官方预设留空的档位用主模型；对应不到条目的档位未定价
     assert _tiers(cred) == {
         "model": main,
-        "haiku": {"model_name": "my-private-llm", "entry_display_name": None, "manually_bound": False, "priced": False},
+        "haiku": {
+            "model_name": "my-private-llm",
+            "entry_display_name": None,
+            "manually_bound": False,
+            "binding_stale": False,
+            "priced": False,
+        },
         "sonnet": main,
         "opus": main,
         "subagent": main,
@@ -367,7 +374,13 @@ async def test_official_preset_leaves_blank_tiers_to_the_cli(agent_config_client
 
     tiers = _tiers(resp.json())
     assert tiers["model"]["entry_display_name"] == "Claude Sonnet 4.6"
-    assert tiers["haiku"] == {"model_name": None, "entry_display_name": None, "manually_bound": False, "priced": False}
+    assert tiers["haiku"] == {
+        "model_name": None,
+        "entry_display_name": None,
+        "manually_bound": False,
+        "binding_stale": False,
+        "priced": False,
+    }
 
 
 async def test_a_tier_binding_takes_precedence_over_the_model_name(agent_config_client, db_factory) -> None:
@@ -390,9 +403,145 @@ async def test_a_tier_binding_takes_precedence_over_the_model_name(agent_config_
         "model_name": "gw-llm",
         "entry_display_name": "Claude Haiku 4.5",
         "manually_bound": True,
+        "binding_stale": False,
         "priced": True,
     }
+    # 失效绑定回到按模型名对应，但绑定还存着，状态里标出来让界面能解除
     assert tiers["opus"]["manually_bound"] is False
+    assert tiers["opus"]["binding_stale"] is True
+
+
+# ── 档位手动绑定 ──────────────────────────────────────────────
+
+
+async def _create_gateway_credential(client, **extra) -> dict:
+    resp = await client.post(
+        "/api/v1/agent/credentials",
+        json={
+            "preset_id": "__custom__",
+            "base_url": "https://gw.example.com",
+            "api_key": "sk",
+            "model": "gw-llm",
+            **extra,
+        },
+    )
+    assert resp.status_code == 201
+    return resp.json()
+
+
+async def test_binding_a_catalog_entry_prices_an_unpriced_tier_and_unbinding_reverts_it(agent_config_client) -> None:
+    created = await _create_gateway_credential(agent_config_client)
+    assert _tiers(created)["model"]["priced"] is False
+
+    bound = await agent_config_client.put(
+        f"/api/v1/agent/credentials/{created['id']}/tiers/model/binding",
+        json={"entry_binding": "anthropic/claude-haiku-4-5"},
+    )
+
+    assert bound.status_code == 200
+    tiers = _tiers(bound.json())
+    assert tiers["model"] == {
+        "model_name": "gw-llm",
+        "entry_display_name": "Claude Haiku 4.5",
+        "manually_bound": True,
+        "binding_stale": False,
+        "priced": True,
+    }
+    # 只绑了主模型；其余档位用主模型名，没有绑定，仍按名字对应
+    assert tiers["haiku"]["manually_bound"] is False
+    assert tiers["haiku"]["priced"] is False
+    (listed,) = (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"]
+    assert _tiers(listed)["model"]["priced"] is True
+
+    unbound = await agent_config_client.delete(f"/api/v1/agent/credentials/{created['id']}/tiers/model/binding")
+
+    assert unbound.status_code == 200
+    assert _tiers(unbound.json())["model"] == {
+        "model_name": "gw-llm",
+        "entry_display_name": None,
+        "manually_bound": False,
+        "binding_stale": False,
+        "priced": False,
+    }
+
+
+async def test_binding_an_entry_missing_from_the_catalog_is_rejected_and_stores_nothing(agent_config_client) -> None:
+    created = await _create_gateway_credential(agent_config_client)
+
+    for ref in ("acme/gone", "not-a-binding", " "):
+        resp = await agent_config_client.put(
+            f"/api/v1/agent/credentials/{created['id']}/tiers/model/binding", json={"entry_binding": ref}
+        )
+        assert resp.status_code == 422
+
+    (listed,) = (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"]
+    assert not any(t["manually_bound"] or t["binding_stale"] for t in listed["tiers"])
+
+
+async def test_binding_endpoints_return_404_for_an_unknown_credential(agent_config_client) -> None:
+    put = await agent_config_client.put(
+        "/api/v1/agent/credentials/999/tiers/model/binding", json={"entry_binding": "anthropic/claude-haiku-4-5"}
+    )
+    delete = await agent_config_client.delete("/api/v1/agent/credentials/999/tiers/model/binding")
+
+    assert (put.status_code, delete.status_code) == (404, 404)
+
+
+async def test_saving_a_credential_can_submit_tier_bindings(agent_config_client) -> None:
+    created = await _create_gateway_credential(
+        agent_config_client,
+        tier_bindings={"model": "anthropic/claude-haiku-4-5", "opus": "anthropic/claude-sonnet-4-6", "haiku": None},
+    )
+    tiers = _tiers(created)
+    assert tiers["model"]["entry_display_name"] == "Claude Haiku 4.5"
+    assert tiers["opus"]["entry_display_name"] == "Claude Sonnet 4.6"
+    assert tiers["haiku"]["manually_bound"] is False
+
+    # 更新按档位合并：给出的档位改绑，null 的档位解除，没给出的档位保持不变
+    resp = await agent_config_client.patch(
+        f"/api/v1/agent/credentials/{created['id']}",
+        json={"tier_bindings": {"opus": None, "sonnet": "anthropic/claude-haiku-4-5"}},
+    )
+
+    assert resp.status_code == 200
+    tiers = _tiers(resp.json())
+    assert tiers["model"]["manually_bound"] is True
+    assert tiers["opus"]["manually_bound"] is False
+    assert tiers["sonnet"]["entry_display_name"] == "Claude Haiku 4.5"
+
+
+async def test_saving_a_credential_with_an_unknown_binding_is_rejected_without_creating_it(agent_config_client) -> None:
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "deepseek", "api_key": "sk", "tier_bindings": {"model": "acme/gone"}},
+    )
+
+    assert resp.status_code == 422
+    assert (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"] == []
+
+
+async def test_a_stale_binding_to_a_delisted_entry_can_still_be_unbound(agent_config_client, db_factory) -> None:
+    created = await _create_gateway_credential(agent_config_client)
+    async with db_factory() as session:
+        # 绑定存着，所绑条目已从目录下架
+        await AgentCredentialRepository(session).update(created["id"], tier_bindings={"model": "acme/gone"})
+        await session.commit()
+
+    (listed,) = (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"]
+    assert _tiers(listed)["model"]["manually_bound"] is False
+    assert _tiers(listed)["model"]["binding_stale"] is True
+
+    # 与这条绑定无关的编辑不被它堵住
+    assert (
+        await agent_config_client.patch(f"/api/v1/agent/credentials/{created['id']}", json={"multiplier": 2})
+    ).status_code == 200
+
+    resp = await agent_config_client.delete(f"/api/v1/agent/credentials/{created['id']}/tiers/model/binding")
+
+    assert resp.status_code == 200
+    assert _tiers(resp.json())["model"]["binding_stale"] is False
+    async with db_factory() as session:
+        assert (await AgentCredentialRepository(session).get(created["id"])).tier_bindings is None
 
 
 async def test_patch_updates_the_multiplier_and_rejects_negative_values(agent_config_client) -> None:

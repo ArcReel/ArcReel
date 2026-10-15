@@ -5,7 +5,8 @@ import { cn } from "cn";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { AgentCredential, TestConnectionResponse } from "@/types/agent-credential";
+import type { CatalogEntryHit } from "@/types";
+import type { AgentCredential, AgentCredentialTier, TestConnectionResponse } from "@/types/agent-credential";
 
 import { CredentialTierPricing } from "./CredentialTierPricing";
 import { PresetIcon } from "./PresetIcon";
@@ -21,6 +22,10 @@ interface Props {
   onTest: (id: number) => void;
   onEdit: (cred: AgentCredential) => void;
   onDelete: (cred: AgentCredential) => void;
+  /** 档位绑定或解除绑定请求在途的 Agent 供应商。 */
+  tierBusyId?: number | null;
+  onBindTier: (id: number, tier: AgentCredentialTier, entry: CatalogEntryHit) => void;
+  onUnbindTier: (id: number, tier: AgentCredentialTier) => void;
 }
 
 export function CredentialList({
@@ -32,6 +37,9 @@ export function CredentialList({
   onTest,
   onEdit,
   onDelete,
+  tierBusyId = null,
+  onBindTier,
+  onUnbindTier,
 }: Props) {
   const { t } = useTranslation("dashboard");
 
@@ -123,7 +131,12 @@ export function CredentialList({
               <dt className="text-muted-foreground">{t("cred_multiplier_label")}</dt>
               <dd className="tabular-nums">×{c.multiplier}</dd>
             </dl>
-            <CredentialTierPricing tiers={c.tiers} />
+            <CredentialTierPricing
+              tiers={c.tiers}
+              busy={tierBusyId === c.id}
+              onBind={(tier, entry) => onBindTier(c.id, tier, entry)}
+              onUnbind={(tier) => onUnbindTier(c.id, tier)}
+            />
             {testedId === c.id && testResult && <TestResultPanel result={testResult} />}
           </li>
         );

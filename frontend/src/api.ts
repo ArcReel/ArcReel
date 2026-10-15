@@ -177,6 +177,7 @@ import type {
 } from "@/types/storyboard-batch";
 import type {
   AgentCredential,
+  AgentCredentialTier,
   CreateAgentCredentialRequest,
   PresetProvidersResponse,
   TestConnectionRequest,
@@ -3302,6 +3303,23 @@ class API {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  }
+
+  /** 为单个档位选择模型条目（`entryBinding` 为「模型厂商/官方模型名」）；返回更新后的凭证。 */
+  static async bindAgentCredentialTier(
+    id: number,
+    tier: AgentCredentialTier,
+    entryBinding: string,
+  ): Promise<AgentCredential> {
+    return this.request(`/agent/credentials/${id}/tiers/${tier}/binding`, {
+      method: "PUT",
+      body: JSON.stringify({ entry_binding: entryBinding }),
+    });
+  }
+
+  /** 解除单个档位的绑定，回到按模型名自动对应；返回更新后的凭证。 */
+  static async unbindAgentCredentialTier(id: number, tier: AgentCredentialTier): Promise<AgentCredential> {
+    return this.request(`/agent/credentials/${id}/tiers/${tier}/binding`, { method: "DELETE" });
   }
 
   static async deleteAgentCredential(id: number): Promise<void> {

@@ -137,6 +137,7 @@ describe("AgentConfigTab", () => {
       model_name: "claude-sonnet-4",
       entry_display_name: "Claude Sonnet 4",
       manually_bound: false,
+      binding_stale: false,
       priced: true,
       ...overrides,
     });
@@ -148,7 +149,7 @@ describe("AgentConfigTab", () => {
             tier({ tier: "model" }),
             tier({ tier: "haiku", model_name: null, entry_display_name: null, priced: false }),
             tier({ tier: "sonnet", manually_bound: true }),
-            tier({ tier: "opus", model_name: "gw-opus", entry_display_name: null, priced: false }),
+            tier({ tier: "opus", model_name: "gw-opus", entry_display_name: null, binding_stale: true, priced: false }),
             tier({ tier: "subagent" }),
           ],
         }),
@@ -166,10 +167,92 @@ describe("AgentConfigTab", () => {
     expect(tiers.map((el) => el.textContent)).toEqual([
       "默认模型claude-sonnet-4已定价Claude Sonnet 4",
       "Haiku 模型由 Claude Code 决定",
-      "Sonnet 模型claude-sonnet-4已定价Claude Sonnet 4手动选择",
-      "Opus 模型gw-opus未定价",
+      "Sonnet 模型claude-sonnet-4已定价Claude Sonnet 4手动选择解除绑定",
+      "Opus 模型gw-opus未定价所选模型已下架选择模型解除绑定",
       "子智能体模型claude-sonnet-4已定价Claude Sonnet 4",
     ]);
+  });
+
+  describe("档位手动选择模型", () => {
+    const tierRow = (tier: AgentCredentialTierStatus["tier"], overrides: Partial<AgentCredentialTierStatus> = {}) => ({
+      tier,
+      model_name: "gw-llm",
+      entry_display_name: null,
+      manually_bound: false,
+      binding_stale: false,
+      priced: false,
+      ...overrides,
+    });
+    const credentialWith = (haiku: Partial<AgentCredentialTierStatus>) =>
+      makeCredential({ tiers: [tierRow("model", { priced: true, entry_display_name: "GW" }), tierRow("haiku", haiku)] });
+
+    it("未定价的档位选择模型后变为已定价，提交的是所选条目", async () => {
+      setupBaseMocks({ credentials: [credentialWith({})] });
+      const search = vi.spyOn(API, "searchCatalogEntries").mockResolvedValue({
+        entries: [
+          { maker: "anthropic", name: "claude-haiku-4-5", media_type: "text", display_name: "Claude Haiku 4.5", discontinued: false },
+        ],
+      });
+      const bind = vi.spyOn(API, "bindAgentCredentialTier").mockResolvedValue(
+        credentialWith({ entry_display_name: "Claude Haiku 4.5", manually_bound: true, priced: true }),
+      );
+      renderSection();
+      const user = userEvent.setup();
+
+      const row = await screen.findByRole("listitem", { name: "Haiku 模型" });
+      expect(within(row).queryByRole("button", { name: "解除绑定" })).not.toBeInTheDocument();
+      await user.click(within(row).getByRole("button", { name: "选择模型" }));
+      await user.click(await screen.findByRole("option", { name: /Claude Haiku 4.5/ }));
+
+      await waitFor(() => expect(bind).toHaveBeenCalledWith(1, "haiku", "anthropic/claude-haiku-4-5"));
+      expect(search).toHaveBeenCalledWith(expect.objectContaining({ mediaType: "text" }), expect.anything());
+      await waitFor(() =>
+        expect(screen.getByRole("listitem", { name: "Haiku 模型" })).toHaveTextContent(
+          "gw-llm已定价Claude Haiku 4.5手动选择解除绑定",
+        ),
+      );
+      expect(within(screen.getByRole("listitem", { name: "Haiku 模型" })).queryByRole("button", { name: "选择模型" })).not.toBeInTheDocument();
+      // 面板选中后关闭
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it("已手动选择的档位解除绑定后回到按名字对应", async () => {
+      setupBaseMocks({
+        credentials: [credentialWith({ entry_display_name: "Claude Haiku 4.5", manually_bound: true, priced: true })],
+      });
+      const unbind = vi.spyOn(API, "unbindAgentCredentialTier").mockResolvedValue(credentialWith({}));
+      renderSection();
+      const user = userEvent.setup();
+
+      const row = await screen.findByRole("listitem", { name: "Haiku 模型" });
+      await user.click(within(row).getByRole("button", { name: "解除绑定" }));
+
+      await waitFor(() => expect(unbind).toHaveBeenCalledWith(1, "haiku"));
+      await waitFor(() =>
+        expect(screen.getByRole("listitem", { name: "Haiku 模型" })).toHaveTextContent("gw-llm未定价选择模型"),
+      );
+      expect(within(screen.getByRole("listitem", { name: "Haiku 模型" })).queryByRole("button", { name: "解除绑定" })).not.toBeInTheDocument();
+    });
+
+    it("所选模型已下架的档位仍可解除绑定", async () => {
+      // 档位已回到按名字对应而已定价，但存着的绑定还在，用户须能清掉
+      setupBaseMocks({
+        credentials: [credentialWith({ entry_display_name: "Claude Haiku 4.5", binding_stale: true, priced: true })],
+      });
+      const unbind = vi.spyOn(API, "unbindAgentCredentialTier").mockResolvedValue(
+        credentialWith({ entry_display_name: "Claude Haiku 4.5", priced: true }),
+      );
+      renderSection();
+      const user = userEvent.setup();
+
+      const row = await screen.findByRole("listitem", { name: "Haiku 模型" });
+      expect(row).toHaveTextContent("所选模型已下架");
+      await user.click(within(row).getByRole("button", { name: "解除绑定" }));
+
+      await waitFor(() => expect(unbind).toHaveBeenCalledWith(1, "haiku"));
+      await waitFor(() => expect(screen.getByRole("listitem", { name: "Haiku 模型" })).not.toHaveTextContent("已下架"));
+      expect(within(screen.getByRole("listitem", { name: "Haiku 模型" })).queryByRole("button", { name: "解除绑定" })).not.toBeInTheDocument();
+    });
   });
 
   it("编辑 Agent 供应商时修改倍率，保存时一并提交", async () => {

@@ -617,6 +617,7 @@ MESSAGES = {
     "agent_base_url_invalid": "Agent 凭证地址不支持查询参数、锚点或用户名密码，请填写形如 https://host/path 的地址",
     "agent_no_fields_to_update": "没有需要更新的字段",
     "agent_credential_not_found": "凭证不存在",
+    "agent_tier_binding_invalid": "档位绑定的模型不在模型目录中",
     "agent_cannot_delete_active": "无法删除当前生效凭证，请先切换到其他凭证",
     "agent_test_validation_error": "测试连接失败，请检查配置后重试",
     "invalid_project_name": "项目名称 '{name}' 非法",

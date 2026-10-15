@@ -36,6 +36,8 @@ export interface AgentCredentialTierStatus {
   entry_display_name: string | null;
   /** 对应关系取自用户为档位选择的模型条目，而不是按模型名自动对应。 */
   manually_bound: boolean;
+  /** 档位存着绑定、但所绑条目已不在模型目录里：对应关系已回到按模型名，绑定仍可解除。 */
+  binding_stale: boolean;
   priced: boolean;
 }
 
@@ -73,6 +75,8 @@ export interface CreateAgentCredentialRequest {
   opus_model?: string | null;
   subagent_model?: string | null;
   multiplier?: number;
+  /** 档位 → 模型条目（「模型厂商/官方模型名」）；更新时按档位合并，null 解除该档位的绑定。 */
+  tier_bindings?: Partial<Record<AgentCredentialTier, string | null>>;
   activate?: boolean | null;
 }
 

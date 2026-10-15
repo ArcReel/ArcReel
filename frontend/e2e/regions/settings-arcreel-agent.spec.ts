@@ -6,11 +6,17 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 
 const PATH = "/app/settings?section=arcreel-agent";
 
-function tierStatus(tier: string, model_name: string, entry_display_name: string | null, manually_bound = false) {
-  return { tier, model_name, entry_display_name, manually_bound, priced: entry_display_name !== null };
+function tierStatus(
+  tier: string,
+  model_name: string,
+  entry_display_name: string | null,
+  manually_bound = false,
+  binding_stale = false,
+) {
+  return { tier, model_name, entry_display_name, manually_bound, binding_stale, priced: entry_display_name !== null };
 }
 
-// 压力变体：Agent 供应商多、名称与地址长，每条都设置了全部模型路由，档位有已定价、未定价与手动选择三种状态。
+// 压力变体：Agent 供应商多、名称与地址长，每条都设置了全部模型路由，档位有已定价、未定价、手动选择与所选模型已下架四种状态。
 const MANY_AGENT_PROVIDERS: ApiOverrides = {
   "GET /api/v1/agent/credentials": {
     status: 200,
@@ -32,7 +38,7 @@ const MANY_AGENT_PROVIDERS: ApiOverrides = {
           tierStatus("model", "claude-sonnet-4-5-20250929-extended-context-preview", null),
           tierStatus("haiku", "claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
           tierStatus("sonnet", "claude-sonnet-4-5-20250929", "Claude Sonnet 4.5", true),
-          tierStatus("opus", "claude-opus-4-1-20250805", null),
+          tierStatus("opus", "claude-opus-4-1-20250805", null, false, true),
           tierStatus("subagent", "claude-haiku-4-5-20251001", "Claude Haiku 4.5"),
         ],
         is_active: i === 0,

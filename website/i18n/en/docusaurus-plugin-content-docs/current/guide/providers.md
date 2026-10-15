@@ -464,6 +464,8 @@ Each Agent provider can have a multiplier, applied to the cost of every Agent ca
 
 The Agent provider list in Settings shows the model actually called by the main model and by each of the four tiers (Haiku, Sonnet, Opus, and subagent), along with whether each tier is priced and which model in the catalog it matches. Tiers that match no model show "Unpriced", and their calls are recorded as unpriced. Tiers left empty in the official Anthropic preset are resolved by Claude Code, and their cost is computed from the model actually called.
 
+For an unpriced tier, choose "Select model" to pick a model from the catalog by hand; the tier's calls are then priced as the selected model, and "Unbind" returns it to automatic matching by model name. The selection is stored only on that Agent provider: it does not change the catalog entry or its official updates. If the selected model is later delisted from the catalog, the tier falls back to matching by model name and shows "Selected model delisted"; you can still unbind it.
+
 Use ArcReel's cost tracking for:
 
 - Project budgets;

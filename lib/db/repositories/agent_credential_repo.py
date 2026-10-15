@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from sqlalchemy import delete, select, update
 
-from lib.agent.credential_tiers import tier_binding_for
+from lib.agent.credential_tiers import Tier, tier_binding_for
 from lib.config.repository import SystemSettingRepository
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.agent_credential import AgentAnthropicCredential
@@ -40,6 +41,7 @@ class AgentCredentialRepository(BaseRepository):
         opus_model: str | None = None,
         subagent_model: str | None = None,
         multiplier: float = 1.0,
+        tier_bindings: Mapping[Tier, str] | None = None,
         user_id: str = DEFAULT_USER_ID,
     ) -> AgentAnthropicCredential:
         cred = AgentAnthropicCredential(
@@ -54,6 +56,7 @@ class AgentCredentialRepository(BaseRepository):
             opus_model=opus_model,
             subagent_model=subagent_model,
             multiplier=multiplier,
+            tier_bindings=dict(tier_bindings) if tier_bindings else None,
             is_active=False,
         )
         self.session.add(cred)
@@ -106,6 +109,24 @@ class AgentCredentialRepository(BaseRepository):
             return None
         for k, v in kwargs.items():
             setattr(cred, k, v)
+        await self.session.flush()
+        return cred
+
+    async def merge_tier_bindings(
+        self, cred_id: int, changes: Mapping[Tier, str | None]
+    ) -> AgentAnthropicCredential | None:
+        """按档位合并条目绑定：值为 ``None`` 的档位解除绑定，其余档位保持不变。凭证不存在时返回 ``None``。"""
+        cred = await self.get(cred_id)
+        if cred is None:
+            return None
+        merged = dict(cred.tier_bindings or {})
+        for tier, ref in changes.items():
+            if ref is None:
+                merged.pop(tier, None)
+            else:
+                merged[tier] = ref
+        # JSON 列不跟踪原地修改，整体换成新字典；全部解除时存 NULL，与「没有绑定」同一形状。
+        cred.tier_bindings = merged or None
         await self.session.flush()
         return cred
 

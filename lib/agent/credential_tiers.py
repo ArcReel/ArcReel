@@ -78,15 +78,17 @@ def tier_binding_for(credential: AgentAnthropicCredential, settings: Mapping[str
 class TierStatus:
     """一个档位的定价状态，按当前目录现查，不存储。
 
-    ``model_name`` 为 ``None`` 表示档位留空、由 CLI 决定调用哪个模型，此时其余字段没有意义。``manually_bound`` 表示
+    ``model_name`` 为 ``None`` 表示档位留空、由 CLI 决定调用哪个模型，此时只有两个绑定字段有意义。``manually_bound`` 表示
     档位的条目绑定指向目录里的条目、对应关系取自绑定；绑定的条目已不在目录里时回到按模型名对应，记为假。
-    ``priced`` 表示对应到的条目有当前代码认得的价目表。
+    ``binding_stale`` 表示档位存着绑定、但所绑条目已不在目录里（官方数据下架了条目）：对应关系已回到按模型名，
+    绑定还存着，界面据此仍提供「解除绑定」。``priced`` 表示对应到的条目有当前代码认得的价目表。
     """
 
     tier: Tier
     model_name: str | None
     entry_display_name: str | None
     manually_bound: bool
+    binding_stale: bool
     priced: bool
 
 
@@ -98,11 +100,15 @@ def tier_statuses(credential: AgentAnthropicCredential, settings: Mapping[str, s
     bindings = credential.tier_bindings or {}
     statuses: list[TierStatus] = []
     for tier, name in tier_models(credential, settings).items():
-        if not name:
-            statuses.append(TierStatus(tier, None, None, manually_bound=False, priced=False))
-            continue
         ref = bindings.get(tier)
         bound = catalog.find_bound_entry(ref, "text") if ref else None
+        stale = bool(ref) and bound is None
+        if not name:
+            # 档位留空时绑定不生效，但仍存着：照实报出，用户才清得掉。
+            statuses.append(
+                TierStatus(tier, None, None, manually_bound=bound is not None, binding_stale=stale, priced=False)
+            )
+            continue
         entry = bound or catalog.find_entry(name, media_type="text")
         statuses.append(
             TierStatus(
@@ -110,6 +116,7 @@ def tier_statuses(credential: AgentAnthropicCredential, settings: Mapping[str, s
                 name,
                 entry.display_name if entry is not None else None,
                 manually_bound=bound is not None,
+                binding_stale=stale,
                 priced=entry is not None and entry.price is not None and entry.price.is_priceable,
             )
         )
