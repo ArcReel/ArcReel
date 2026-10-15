@@ -215,7 +215,7 @@ class TestProviderListings:
         assert seedance_25.media_type == "video"
         # 30 秒直出全展开为离散档；官方的 -1（模型自选时长）不登记
         assert seedance_25.supported_durations == list(range(4, 31))
-        assert seedance_25.resolutions == ["480p", "720p"]
+        assert seedance_25.resolutions == ["480p", "720p", "1080p"]
         # 2.0 mini 仍是默认，2.5 只是可选
         assert seedance_25.default is False
 

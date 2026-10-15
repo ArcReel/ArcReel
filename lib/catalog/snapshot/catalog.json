@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-15T18:00:00Z",
+  "dataset_version": "2026-10-15T19:00:00Z",
   "entries": [
     {
       "maker": "google",
@@ -1211,7 +1211,8 @@
         "resolutions": [
           "480p",
           "720p",
-          "1080p"
+          "1080p",
+          "4k"
         ]
       },
       "price": {
@@ -1479,7 +1480,8 @@
         ],
         "resolutions": [
           "480p",
-          "720p"
+          "720p",
+          "1080p"
         ]
       },
       "price": {

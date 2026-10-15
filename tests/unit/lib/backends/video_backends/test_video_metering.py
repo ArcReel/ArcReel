@@ -14,6 +14,7 @@ from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.vidu import ViduVideoBackend
 from lib.billing.catalog_pricing import price_builtin_call
 from lib.billing.metering import Priced, Unpriced, UnpricedReason
+from lib.catalog import query as catalog
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 
 
@@ -146,6 +147,39 @@ class TestArkVideoTokens:
             estimate=True,
         )
         assert cost == Unpriced(UnpricedReason.NO_USAGE_ESTIMATE)
+
+
+class TestSeedanceSelectableResolutions:
+    """方舟《创建视频生成任务 API》：Seedance 2.0 可选 480p/720p/1080p/4k，2.5 可选 480p/720p/1080p。"""
+
+    @pytest.mark.parametrize(
+        ("provider", "model", "resolutions"),
+        [
+            ("ark", "doubao-seedance-2-0-260128", ["480p", "720p", "1080p", "4k"]),
+            ("ark", "doubao-seedance-2-5-260628", ["480p", "720p", "1080p"]),
+            # agent plan 共用同一条目，套餐未纳入 2.5
+            ("ark-agent-plan", "doubao-seedance-2.0", ["480p", "720p", "1080p", "4k"]),
+        ],
+    )
+    def test_every_selectable_resolution_is_priced(self, provider: str, model: str, resolutions: list[str]) -> None:
+        catalog_model = catalog.get_model(provider, model)
+        assert catalog_model is not None
+        assert catalog_model.resolutions == resolutions
+
+        for resolution in resolutions:
+            usage = builtin_video_metered_usage(
+                provider, model, _request(duration_seconds=5, resolution=resolution, aspect_ratio="16:9")
+            )
+            cost = price_builtin_call(
+                provider=provider,
+                model=model,
+                media_type="video",
+                requests=(usage,),
+                provider_multiplier=1.0,
+                estimate=True,
+            )
+            assert isinstance(cost, Priced), f"{provider}/{model} 的 {resolution} 算不出价格"
+            assert cost.amount > 0
 
 
 class TestKlingMetering:
