@@ -65,6 +65,34 @@ const MANY_CREDENTIALS: ApiOverrides = {
   },
 };
 
+// 压力变体：模型列表里有已下架、未定价的模型与很长的模型 ID，状态标记与价格摘要换行而不撑出横向滚动。
+const recordedAiStudioModels = (
+  JSON.parse(readFileSync(join(RECORDED_DIR, "provider-gemini-aistudio-models.json"), "utf8")) as RecordedResponse
+).body as { models: Record<string, unknown>[] };
+
+const MODEL_LIST_STATES: ApiOverrides = {
+  "GET /api/v1/providers/gemini-aistudio/models": {
+    status: 200,
+    body: {
+      models: [
+        ...recordedAiStudioModels.models,
+        {
+          model_id: "gemini-2.0-flash-experimental-image-generation-legacy-2025-03-preview",
+          api_model_name: "gemini-2.0-flash-experimental-image-generation-legacy-2025-03-preview",
+          display_name: "Gemini 2.0 Flash 图片生成（实验版，已停止维护的旧接口）",
+          media_type: "image",
+          enabled: false,
+          is_default: false,
+          official: true,
+          flags: ["discontinued", "unpriced"],
+          price: null,
+          endpoint: null,
+        },
+      ],
+    },
+  },
+};
+
 // 压力变体：自定义供应商多且名称长，「自定义」Tab 下的列表在自己的栏里滚动到底。
 const MANY_CUSTOM_PROVIDERS: ApiOverrides = {
   "GET /api/v1/custom-providers": {
@@ -203,6 +231,26 @@ defineRegionScenarios("供应商", [
       await expect(save).toBeEnabled();
     },
     screenshot: { name: "providers-preset-detail", target: (page) => page.getByRole("main") },
+  },
+  {
+    name: "预置供应商详情：模型列表按类型分组，筛选「已启用」后停用的模型不再出现，长名称与状态标记换行",
+    path: PROVIDERS_PATH,
+    api: { ...PROVIDERS_WITH_KEYS, ...MODEL_LIST_STATES },
+    ready: presetDetailReady,
+    act: async (page) => {
+      const models = page.getByRole("region", { name: "模型" });
+      await models.scrollIntoViewIfNeeded();
+      await expect(models.getByText("已下架")).toBeVisible();
+      await models.getByRole("button", { name: /已启用/ }).click();
+      await expect(models.getByText("已下架")).toHaveCount(0);
+      await expect(models.getByRole("switch").first()).toBeChecked();
+      // 回到「全部」，截长名称与状态标记所在的行
+      await models.getByRole("button", { name: /全部/ }).click();
+      const legacy = models.getByRole("listitem").filter({ hasText: "已下架" });
+      await legacy.scrollIntoViewIfNeeded();
+      await expect(legacy).toBeInViewport();
+    },
+    screenshot: { name: "providers-preset-models", target: (page) => page.getByRole("main") },
   },
   {
     name: "自定义供应商多且名称长：切到「自定义」后第一个位于栏顶，列表滚动到底",

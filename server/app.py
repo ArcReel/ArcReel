@@ -89,6 +89,7 @@ from server.routers import (
     prompt_authoring,
     prompt_templates,
     props,
+    provider_models,
     providers,
     reference_videos,
     scenes,
@@ -480,6 +481,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("official market source seed failed (non-fatal): %s", exc)
 
+    # 内置供应商下用户添加的模型并进目录查询；读不到时这些模型暂不可用，其余模型照常
+    try:
+        from server.routers.provider_models import reload_user_added_models
+
+        async with async_session_factory() as session:
+            await reload_user_added_models(session)
+    except Exception:
+        logger.exception("loading user-added built-in provider models failed (non-fatal)")
+
     # 把 agent_runtime_profile 物化到存量项目（文件 I/O → worker 线程）
     from lib.project.project_manager import get_project_manager
 
@@ -732,6 +742,9 @@ app.include_router(
 )
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
 app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
+app.include_router(
+    provider_models.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"]
+)
 app.include_router(catalog.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["模型目录"])
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
 app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])

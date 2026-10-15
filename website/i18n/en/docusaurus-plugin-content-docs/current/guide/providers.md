@@ -87,6 +87,20 @@ Project-level overrides are suitable when:
 - You need to compare results from two providers;
 - Only some services are accessible in a particular region.
 
+### 3.1 Enabling and Disabling Models {#enable-models}
+
+The detail page of a Preset Provider lists all of its models grouped into text, image, video, and audio. Each row shows the model name,
+model ID, and a price summary; models that are discontinued, or whose calls will be recorded as "Unpriced", are flagged.
+Use "All / Enabled" to switch what is shown.
+
+- Turning off a model's switch disables it immediately: disabled models no longer appear among the global and project default model
+  candidates, and when a provider's default model is disabled, automatic selection skips it;
+- A model already selected in settings or a project keeps working after it is disabled; to replace it, pick another one in the default model settings;
+- The old Agnes models that were hidden in earlier versions appear as disabled after upgrading, and can be re-enabled if needed.
+
+The price summary shows the unit price range for each billing item; for models priced by tiers such as resolution or duration, it shows
+the lowest to the highest tier. Actual costs are further multiplied by the provider's multiplier, which is set higher up on the same page.
+
 ## 4. Six Dimensions for Choosing a Provider {#six-selection-dimensions}
 
 Do not consider only the result of a single generation.

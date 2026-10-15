@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.app_version import load_app_version
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
@@ -169,17 +170,17 @@ class TestLoadAppVersion:
     def test_reads_project_version_from_pyproject(self, tmp_path):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('[project]\nname = "arcreel"\nversion = "1.2.3"\n', encoding="utf-8")
-        assert system_config._load_app_version(pyproject) == "1.2.3"
+        assert load_app_version(pyproject) == "1.2.3"
 
     def test_missing_file_propagates(self, tmp_path):
         with pytest.raises(FileNotFoundError, match=r"No such file or directory"):
-            system_config._load_app_version(tmp_path / "absent.toml")
+            load_app_version(tmp_path / "absent.toml")
 
     def test_empty_version_is_rejected(self, tmp_path):
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text('[project]\nname = "arcreel"\nversion = "  "\n', encoding="utf-8")
         with pytest.raises(RuntimeError):
-            system_config._load_app_version(pyproject)
+            load_app_version(pyproject)
 
 
 class TestGetLatestReleaseCache:

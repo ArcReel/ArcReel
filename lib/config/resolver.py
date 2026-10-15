@@ -1804,13 +1804,14 @@ class ConfigResolver:
         一个（各供应商各设默认是常态，与「同一供应商同桶两个默认」不同）。
         """
         statuses = await svc.get_all_providers_status()
-        ready = {s.name for s in statuses if s.status == "ready"}
+        ready = {s.name: s for s in statuses if s.status == "ready"}
 
         for provider_id in PROVIDER_REGISTRY:
             if provider_id not in ready:
                 continue
+            # 供应商一级的默认只在没有任何默认模型设置时用于自动挑选；用户停用了它就不挑。
             model_id = catalog.default_model(provider_id, media_type)
-            if model_id is not None:
+            if model_id is not None and model_id not in ready[provider_id].disabled_models:
                 return provider_id, model_id
 
         # 延迟导入：分层契约（pyproject.toml [tool.importlinter]）以 lib.config 为下层，

@@ -33,6 +33,8 @@ describe("ProviderDetail", () => {
   beforeEach(async () => {
     await act(async () => i18n.changeLanguage("zh"));
     vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
+    vi.spyOn(API, "getProviderMultiplier").mockResolvedValue({ multiplier: 1, default: 1 });
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [] });
   });
 
   afterEach(() => {
@@ -196,5 +198,43 @@ describe("ProviderDetail", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled());
     expect(screen.getByRole("spinbutton", { name: "Max Workers" })).toHaveValue(7);
+  });
+
+  it("saves the provider multiplier through the save bar and resets it when cleared", async () => {
+    vi.spyOn(API, "getProviderConfig").mockImplementation(() => Promise.resolve(detailFor(i18n.language)));
+    const patch = vi.spyOn(API, "patchProviderConfig").mockResolvedValue(undefined);
+    const setMultiplier = vi
+      .spyOn(API, "setProviderMultiplier")
+      .mockResolvedValueOnce({ multiplier: 0.8, default: 1 })
+      .mockResolvedValueOnce({ multiplier: 1, default: 1 });
+
+    render(<ProviderDetail providerId="gemini-aistudio" />);
+    const input = await screen.findByRole("textbox", { name: "倍率" });
+    expect(input).toHaveValue("");
+
+    fireEvent.change(input, { target: { value: "0.8" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(setMultiplier).toHaveBeenCalledWith("gemini-aistudio", 0.8));
+    await waitFor(() => expect(screen.getByRole("button", { name: "保存" })).toBeDisabled());
+    expect(input).toHaveValue("0.8");
+    expect(patch).not.toHaveBeenCalled();
+
+    // 清空即恢复默认值
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(setMultiplier).toHaveBeenLastCalledWith("gemini-aistudio", null));
+  });
+
+  it("blocks saving an invalid multiplier", async () => {
+    vi.spyOn(API, "getProviderConfig").mockImplementation(() => Promise.resolve(detailFor(i18n.language)));
+    const setMultiplier = vi.spyOn(API, "setProviderMultiplier");
+
+    render(<ProviderDetail providerId="gemini-aistudio" />);
+    const input = await screen.findByRole("textbox", { name: "倍率" });
+    fireEvent.change(input, { target: { value: "-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(input).toHaveAttribute("aria-invalid", "true"));
+    expect(setMultiplier).not.toHaveBeenCalled();
   });
 });

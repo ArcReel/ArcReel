@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
 from lib.catalog import query as catalog
+from lib.catalog.builtin_models import disabled_without_state
 from lib.catalog.query import factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService, ProviderStatus
@@ -73,6 +74,8 @@ def _make_mock_svc(ready_providers: list[str]) -> ConfigService:
                 capabilities=list(meta.capabilities),
                 required_keys=list(meta.required_keys),
                 credential_count=1 if name in ready else 0,
+                # 没有内置供应商模型状态行的实例：条目已下架的模型为停用
+                disabled_models=disabled_without_state(name),
             )
             for name, meta in PROVIDER_REGISTRY.items()
         ]

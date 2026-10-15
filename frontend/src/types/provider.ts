@@ -105,3 +105,37 @@ export interface ProviderCredential {
 
 export type CallType = "image" | "video" | "text" | "audio";
 
+
+/** 价格摘要里一个计费项的单价范围；`per` 是单价对应的计数量（每百万 token 为 1000000，每张、每秒为 1）。 */
+export interface PriceSummaryItem {
+  meter: string;
+  min_price: number;
+  max_price: number;
+  per: number;
+}
+
+export interface PriceSummary {
+  currency: string;
+  items: PriceSummaryItem[];
+}
+
+/** 供应商模型的状态标记：`discontinued` 已下架；`unpriced` 调用费用会记为未定价。 */
+export type ProviderModelFlag = "discontinued" | "unpriced";
+
+/** 供应商详情模型列表的一行（GET /providers/{id}/models），内置与自定义供应商共用。 */
+export interface ProviderModelItem {
+  /** 设置与项目里引用这个模型的模型键。 */
+  model_id: string;
+  api_model_name: string;
+  /** 没有显示名时界面显示模型 ID。 */
+  display_name: string | null;
+  media_type: "text" | "image" | "video" | "audio";
+  enabled: boolean;
+  is_default: boolean;
+  /** 内置供应商官方收录的模型，只能启用、停用。 */
+  official: boolean;
+  flags: ProviderModelFlag[];
+  price: PriceSummary | null;
+  /** 自定义供应商模型的调用端点键；内置供应商为 null。 */
+  endpoint: string | null;
+}

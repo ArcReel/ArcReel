@@ -8,11 +8,14 @@ import { ProviderIcon } from "@/components/shared/ProviderIcon";
 import { CredentialList } from "@/components/pages/CredentialList";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
-import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { PartialSaveError, useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { FieldHint } from "@/components/pages/settings/CustomProviderFieldRow";
+import { ProviderModelList } from "@/components/pages/settings/ProviderModelList";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { ProviderConfigDetail, ProviderField } from "@/types";
+import type { ProviderConfigDetail, ProviderField, ProviderMultiplierInfo } from "@/types";
+import { parseMultiplier } from "@/utils/multiplier";
 
 // 能力徽标展示顺序：图片→视频→文本→音频，未列出的类型排到末尾。
 // media_types 由后端按注册顺序返回，前端统一排序避免 audio 等新类型插到队首。
@@ -65,6 +68,25 @@ function advancedValues(detail: ProviderConfigDetail | null): AdvancedValues {
   return Object.fromEntries((detail?.fields ?? []).map((field) => [field.key, field.value ?? ""]));
 }
 
+// 订阅制供应商：倍率默认 0，不计算费用。
+const SUBSCRIPTION_PROVIDERS = new Set(["ark-agent-plan"]);
+
+/** 供应商倍率的输入值：等于默认值时为空串，表示跟随默认；保存空串即恢复默认。 */
+function multiplierText(info: ProviderMultiplierInfo | null): string {
+  if (!info || info.multiplier === info.default) return "";
+  return String(info.multiplier);
+}
+
+/** 保存栏管理的内容：顶部的供应商倍率与高级配置。 */
+interface DetailValues {
+  multiplier: string;
+  advanced: AdvancedValues;
+}
+
+function isMultiplierValid(text: string): boolean {
+  return !text.trim() || parseMultiplier(text) !== undefined;
+}
+
 interface Props {
   providerId: string;
   /** 高级配置或密钥改动入库之后调用，供上层刷新供应商目录（二级栏的密钥数量与状态）。 */
@@ -73,16 +95,19 @@ interface Props {
 
 /**
  * 预置供应商详情。换供应商时由上层按 `providerId` 重建整栏，组件内只处理同一供应商的语言重取与重试。
- * 密钥区的增改删与切换立即生效；底部保存栏只负责高级配置（并发上限等）。
+ * 密钥区的增改删与切换、模型列表的启用开关立即生效；底部保存栏负责供应商倍率与高级配置（并发上限等）。
  */
 export function ProviderDetail({ providerId, onSaved }: Props) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
   const [detail, setDetail] = useState<ProviderConfigDetail | null>(null);
+  const [multiplier, setMultiplier] = useState<ProviderMultiplierInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const detailRef = useRef<ProviderConfigDetail | null>(null);
   const detailAbortRef = useRef<AbortController | null>(null);
   const advancedHeadingId = useId();
+  const billingHeadingId = useId();
+  const multiplierInputId = useId();
 
   const applyDetail = useCallback((next: ProviderConfigDetail) => {
     detailRef.current = next;
@@ -116,6 +141,21 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     return () => controller.abort();
   }, [i18n.language, providerId, reloadKey, applyDetail, startDetailRequest]);
 
+  // 倍率与语言无关，只随供应商取一次；取齐之前不渲染保存栏，后到的倍率不会被当成外部更新覆盖编辑。
+  useEffect(() => {
+    const controller = new AbortController();
+    voidCall(
+      API.getProviderMultiplier(providerId, { signal: controller.signal })
+        .then((res) => {
+          if (!controller.signal.aborted) setMultiplier(res);
+        })
+        .catch((err: unknown) => {
+          if (!controller.signal.aborted) setLoadError(errMsg(err));
+        }),
+    );
+    return () => controller.abort();
+  }, [providerId, reloadKey]);
+
   const refetchDetail = useCallback(async () => {
     const controller = startDetailRequest();
     const updated = await API.getProviderConfig(providerId, { signal: controller.signal });
@@ -130,27 +170,47 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     voidCall(refetchDetail().catch(() => undefined));
   }, [onSaved, refetchDetail]);
 
-  const source = useMemo(() => advancedValues(detail), [detail]);
-  const saveAdvanced = useCallback(
-    async (value: AdvancedValues, saved: AdvancedValues): Promise<AdvancedValues | void> => {
+  const source = useMemo<DetailValues>(
+    () => ({ multiplier: multiplierText(multiplier), advanced: advancedValues(detail) }),
+    [multiplier, detail],
+  );
+  const save = useCallback(
+    async (value: DetailValues, saved: DetailValues): Promise<DetailValues | void> => {
+      if (!isMultiplierValid(value.multiplier)) throw new Error(t("cp_multiplier_invalid"));
       const patch: Record<string, string | null> = {};
-      for (const [key, next] of Object.entries(value)) {
-        if (next !== saved[key]) patch[key] = next.trim() || null;
+      for (const [key, next] of Object.entries(value.advanced)) {
+        if (next !== saved.advanced[key]) patch[key] = next.trim() || null;
       }
-      // 后端校验失败（如并发上限非法）返回已本地化的 detail，由保存栏显示
-      await API.patchProviderConfig(providerId, patch);
-      onSaved?.();
-      // 入库值经后端规范化（如「+5」存为「5」），以重取结果为准；重取失败不算保存失败。
+      let advanced = value.advanced;
+      if (Object.keys(patch).length > 0) {
+        // 后端校验失败（如并发上限非法）返回已本地化的 detail，由保存栏显示
+        await API.patchProviderConfig(providerId, patch);
+        onSaved?.();
+        // 入库值经后端规范化（如「+5」存为「5」），以重取结果为准；重取失败不算保存失败。
+        try {
+          const updated = await refetchDetail();
+          if (updated) advanced = advancedValues(updated);
+        } catch {
+          // 详情停在旧值即可
+        }
+      }
+      if (value.multiplier === saved.multiplier) return { multiplier: value.multiplier, advanced };
       try {
-        const updated = await refetchDetail();
-        if (updated) return advancedValues(updated);
-      } catch {
-        // 详情停在旧值即可
+        const info = await API.setProviderMultiplier(providerId, parseMultiplier(value.multiplier) ?? null);
+        setMultiplier(info);
+        return { multiplier: multiplierText(info), advanced };
+      } catch (err) {
+        if (Object.keys(patch).length === 0) throw err;
+        // 高级配置已经落库，按部分保存报告
+        throw new PartialSaveError(t("pm_multiplier_save_failed", { message: errMsg(err) }), {
+          saved: { multiplier: saved.multiplier, advanced },
+          cause: err,
+        });
       }
     },
-    [providerId, onSaved, refetchDetail],
+    [providerId, onSaved, refetchDetail, t],
   );
-  const unit = useEditUnit({ source, save: saveAdvanced });
+  const unit = useEditUnit({ source, save });
 
   if (loadError) {
     return (
@@ -173,7 +233,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
     );
   }
 
-  if (!detail) {
+  if (!detail || !multiplier) {
     return (
       <DetailPane>
         <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
@@ -185,6 +245,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
   }
 
   const mediaTypes = [...(detail.media_types ?? [])].sort((a, b) => mediaTypeRank(a) - mediaTypeRank(b));
+  const multiplierValid = isMultiplierValid(unit.value.multiplier);
 
   return (
     <DetailPane
@@ -214,7 +275,7 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
         </div>
       }
       // 保存栏与正文的表单列同宽同起点（正文 max-w-190 含左右各 24px 内边距），宽窗口下不横跨整栏
-      footer={detail.fields.length > 0 ? <SaveBar unit={unit} className="max-w-178" /> : undefined}
+      footer={<SaveBar unit={unit} className="max-w-178" />}
     >
       <div className="flex max-w-190 flex-col gap-8 px-6 py-6">
         <CredentialList
@@ -224,6 +285,37 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
           secretFieldGroups={detail.secret_field_groups}
           onChanged={handleCredentialChanged}
         />
+
+        <section aria-labelledby={billingHeadingId} className="flex flex-col gap-1.5">
+          <h3 id={billingHeadingId} className="sr-only">
+            {t("cp_billing_heading")}
+          </h3>
+          <label htmlFor={multiplierInputId} className="text-sm font-medium">
+            {t("pm_multiplier_label")}
+          </label>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <Input
+              id={multiplierInputId}
+              inputMode="decimal"
+              autoComplete="off"
+              className="w-24"
+              value={unit.value.multiplier}
+              onChange={(e) => {
+                const next = e.target.value;
+                unit.setValue((prev) => ({ ...prev, multiplier: next }));
+              }}
+              placeholder={t("cp_provider_multiplier_placeholder", { value: multiplier.default })}
+              aria-invalid={!multiplierValid}
+              aria-describedby={`${multiplierInputId}-help`}
+            />
+            <p id={`${multiplierInputId}-help`} className="text-sm text-muted-foreground">
+              {SUBSCRIPTION_PROVIDERS.has(providerId) ? t("pm_multiplier_help_subscription") : t("pm_multiplier_help")}
+            </p>
+          </div>
+          {!multiplierValid && <FieldHint tone="warn">{t("cp_multiplier_invalid")}</FieldHint>}
+        </section>
+
+        <ProviderModelList providerId={providerId} />
 
         {detail.fields.length > 0 && (
           <section aria-labelledby={advancedHeadingId} className="flex flex-col gap-3">
@@ -246,10 +338,10 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
                     autoComplete="off"
                     type={field.type === "number" ? "number" : field.type === "url" ? "url" : "text"}
                     className={field.type === "number" ? "w-32" : undefined}
-                    value={unit.value[field.key] ?? ""}
+                    value={unit.value.advanced[field.key] ?? ""}
                     onChange={(e) => {
                       const next = e.target.value;
-                      unit.setValue((prev) => ({ ...prev, [field.key]: next }));
+                      unit.setValue((prev) => ({ ...prev, advanced: { ...prev.advanced, [field.key]: next } }));
                     }}
                     placeholder={fieldPlaceholder(t, field)}
                   />

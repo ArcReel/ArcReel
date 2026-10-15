@@ -63,6 +63,7 @@ import type {
   CustomProviderCreateRequest,
   CustomProviderFullUpdateRequest,
   ProviderMultiplierInfo,
+  ProviderModelItem,
   DiscoverModelsResponse,
   EndpointDescriptor,
   ComfyuiInferResponse,
@@ -3212,6 +3213,22 @@ class API {
     return this.request(`/providers/${encodeURIComponent(id)}/multiplier`, {
       method: "PUT",
       body: JSON.stringify({ multiplier }),
+    });
+  }
+
+  /** 供应商的全部供应商模型，带启用状态、状态标记与价格摘要；内置与自定义供应商共用。 */
+  static async listProviderModels(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<{ models: ProviderModelItem[] }> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models`, { signal: options.signal });
+  }
+
+  /** 启用或停用一个供应商模型，立即生效；停用时同时取消默认。 */
+  static async setProviderModelEnabled(id: string, modelId: string, enabled: boolean): Promise<ProviderModelItem> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/enabled`, {
+      method: "PUT",
+      body: JSON.stringify({ model_id: modelId, enabled }),
     });
   }
 

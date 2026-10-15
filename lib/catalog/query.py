@@ -15,17 +15,18 @@ from __future__ import annotations
 
 import functools
 import logging
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, assert_never, cast
+
+from packaging.version import InvalidVersion, Version
 
 from arcreel_catalog_core import (
     CATALOG_FILENAME,
     MANIFEST_FILENAME,
     MEDIA_TYPES,
     AudioFacts,
-    BuiltinProviderModel,
     CatalogData,
     CatalogEntry,
     EntryKey,
@@ -37,6 +38,7 @@ from arcreel_catalog_core import (
     load_catalog,
     normalize_model_name,
 )
+from lib.app_version import app_version
 from lib.catalog.entry_matching import match_entry
 from lib.config import registry
 
@@ -89,7 +91,7 @@ def factory_snapshot() -> CatalogData:
     )
 
 
-def _to_catalog_model(entry: CatalogEntry, model: BuiltinProviderModel, key: str, default: bool) -> CatalogModel:
+def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, default: bool) -> CatalogModel:
     capabilities: list[ModelCapability] = []
     durations: list[int] = []
     by_resolution: dict[str, list[int]] = {}
@@ -131,49 +133,151 @@ def _to_catalog_model(entry: CatalogEntry, model: BuiltinProviderModel, key: str
         reference_image_durations=reference_durations,
         resolutions=resolutions,
         hidden=entry.discontinued,
-        api_model_name=None if key == model.api_model_name else model.api_model_name,
+        api_model_name=None if key == api_model_name else api_model_name,
         max_output_tokens=max_output_tokens,
     )
 
 
+def _unmatched_catalog_model(user: UserAddedModel) -> CatalogModel:
+    """对应不上条目的用户添加模型：只知道媒体类型，模型事实按运行时回落（docs/adr/0104）。
+
+    文本与音频只有基本能力；图片的文生图与图生图不加约束；视频的可选时长取装入时给出的回落时长。
+    """
+    model_id, media_type = user.model_id, user.media_type
+    match media_type:
+        case "text":
+            return CatalogModel(display_name=model_id, media_type=media_type, capabilities=["text_generation"])
+        case "image":
+            return CatalogModel(
+                display_name=model_id, media_type=media_type, capabilities=["text_to_image", "image_to_image"]
+            )
+        case "video":
+            return CatalogModel(
+                display_name=model_id,
+                media_type=media_type,
+                capabilities=[],
+                supported_durations=list(user.fallback_durations),
+            )
+        case "audio":
+            return CatalogModel(display_name=model_id, media_type=media_type, capabilities=["text_to_speech"])
+        case _:
+            assert_never(media_type)
+
+
+@dataclass(frozen=True)
+class UserAddedModel:
+    """内置供应商下用户添加的供应商模型，数据来自内置供应商模型表。
+
+    ``model_id`` 是 API 模型名，也是设置里引用它的模型键；``entry_binding`` 是「模型厂商/官方模型名」。
+    ``fallback_durations`` 是对应不上条目的视频模型在运行时回落的可选时长（按名字推断的时长预设），由装入方给出。
+    """
+
+    provider_id: str
+    model_id: str
+    media_type: MediaType
+    multiplier: float = 1.0
+    entry_binding: str | None = None
+    fallback_durations: tuple[int, ...] = ()
+
+
 @dataclass(frozen=True)
 class _IndexedModel:
-    """索引里的一个供应商模型：对外的目录信息，加上它引用的条目与清单里的供应商模型。"""
+    """索引里的一个供应商模型：对外的目录信息，加上它对应的条目（对应不上时为 ``None``）与供应商模型倍率。"""
 
     model: CatalogModel
-    entry: CatalogEntry
-    listing_model: BuiltinProviderModel
+    entry: CatalogEntry | None
+    multiplier: float
+    api_model_name: str
+    official: bool
 
 
-def _build_index(data: CatalogData) -> dict[str, dict[str, _IndexedModel]]:
-    index: dict[str, dict[str, _IndexedModel]] = {}
-    for provider_id, listing in data.builtin_providers.items():
-        models: dict[str, _IndexedModel] = {}
-        for model in listing.models:
-            entry = data.entry_of(model)
-            if entry is None:
-                logger.warning(
-                    "内置供应商 %s 的模型 %s 引用不到条目 %s，已跳过", provider_id, model.api_model_name, model.entry
-                )
-                continue
-            key = _LEGACY_MODEL_KEYS.get((provider_id, model.api_model_name, entry.media_type), model.api_model_name)
-            if key in models:
-                logger.warning("内置供应商 %s 的模型键 %s 重复，已跳过后一个", provider_id, key)
-                continue
-            default = listing.defaults.get(entry.media_type) == model.api_model_name
-            models[key] = _IndexedModel(_to_catalog_model(entry, model, key, default), entry, model)
-        index[provider_id] = models
+def meets_min_app_version(required: str | None, current: str) -> bool:
+    """应用版本 ``current`` 是否达到供应商模型标注的最低应用版本；没有标注时总是满足。
+
+    任一侧判不出高低时视为不满足：宁可不展示，也不让旧实例调用它的调用通道不会编码的模型。
+    """
+    if required is None:
+        return True
+    try:
+        return Version(current) >= Version(required)
+    except InvalidVersion:
+        return False
+
+
+def _official_models(data: CatalogData, provider_id: str, current_version: str) -> dict[str, _IndexedModel]:
+    listing = data.builtin_providers[provider_id]
+    models: dict[str, _IndexedModel] = {}
+    for model in listing.models:
+        entry = data.entry_of(model)
+        if entry is None:
+            logger.warning(
+                "内置供应商 %s 的模型 %s 引用不到条目 %s，已跳过", provider_id, model.api_model_name, model.entry
+            )
+            continue
+        # 低于最低应用版本的实例不展示、也不启用它；它被指定为默认时，按没有默认处理（docs/adr/0103）。
+        if not meets_min_app_version(model.min_app_version, current_version):
+            continue
+        key = _LEGACY_MODEL_KEYS.get((provider_id, model.api_model_name, entry.media_type), model.api_model_name)
+        if key in models:
+            logger.warning("内置供应商 %s 的模型键 %s 重复，已跳过后一个", provider_id, key)
+            continue
+        default = listing.defaults.get(entry.media_type) == model.api_model_name
+        models[key] = _IndexedModel(
+            _to_catalog_model(entry, model.api_model_name, key, default),
+            entry,
+            model.multiplier,
+            model.api_model_name,
+            official=True,
+        )
+    return models
+
+
+def _user_added_model(data: CatalogData, user: UserAddedModel) -> _IndexedModel:
+    binding = binding_key(user.entry_binding, user.media_type)
+    entry = match_entry(data.entries, user.model_id, media_type=user.media_type, binding=binding)
+    model = (
+        _to_catalog_model(entry, user.model_id, user.model_id, default=False)
+        if entry is not None
+        else _unmatched_catalog_model(user)
+    )
+    return _IndexedModel(model, entry, user.multiplier, user.model_id, official=False)
+
+
+def _build_index(
+    data: CatalogData, user_models: tuple[UserAddedModel, ...], current_version: str
+) -> dict[str, dict[str, _IndexedModel]]:
+    index = {
+        provider_id: _official_models(data, provider_id, current_version) for provider_id in data.builtin_providers
+    }
+    for user in user_models:
+        models = index.setdefault(user.provider_id, {})
+        # 官方数据收录了同一模型键时，换成官方版本，只保留启用状态（docs/adr/0099）。
+        if user.model_id not in models:
+            models[user.model_id] = _user_added_model(data, user)
     return index
 
 
-# 按快照对象缓存的索引：快照每进程只加载一次，索引随之只建一次。
+# 内置供应商下用户添加的模型：由内置供应商模型表装入，见 install_user_added_models。单元素列表当信箱。
+_user_added: list[tuple[UserAddedModel, ...]] = [()]
+
+# 按快照对象缓存的索引：快照每进程只加载一次，索引随之只建一次；用户添加的模型变化时清空重建。
 _index_cache: list[tuple[CatalogData, dict[str, dict[str, _IndexedModel]]]] = []
+
+
+def install_user_added_models(models: Iterable[UserAddedModel]) -> None:
+    """换上内置供应商下用户添加的模型，之后的查询把它们并进各自供应商的模型清单。
+
+    应用启动时与每次写入内置供应商模型表之后由写入方调用。读目录的代码（生成 worker、Agent 会话的工具、
+    接口）都跑在应用进程里，进程内替换即对全部读点生效。
+    """
+    _user_added[0] = tuple(models)
+    _index_cache.clear()
 
 
 def _indexed_models(provider_id: str) -> dict[str, _IndexedModel]:
     data = factory_snapshot()
     if not _index_cache or _index_cache[0][0] is not data:
-        _index_cache[:] = [(data, _build_index(data))]
+        _index_cache[:] = [(data, _build_index(data, _user_added[0], app_version()))]
     return _index_cache[0][1].get(provider_id, {})
 
 
@@ -182,8 +286,9 @@ def _provider_models(provider_id: str) -> dict[str, CatalogModel]:
 
 
 def reset_for_tests() -> None:
-    """清空出厂快照与索引的进程级缓存，下次查询重新读取快照；只清缓存，不改生产行为。"""
+    """清空出厂快照、索引与用户添加模型的进程级状态，下次查询重新读取快照。"""
     factory_snapshot.cache_clear()
+    _user_added[0] = ()
     _index_cache.clear()
 
 
@@ -208,6 +313,32 @@ def get_model(provider_id: str, model_id: str, *, media_type: str | None = None)
 def list_models(provider_id: str) -> dict[str, CatalogModel]:
     """列出供应商的全部模型（按清单顺序，含 ``hidden`` 的模型）；供应商不在目录中时为空。"""
     return _provider_models(provider_id)
+
+
+@dataclass(frozen=True)
+class ProviderModelView:
+    """供应商模型列表里的一个模型：目录信息、对应的条目（对应不上时为 ``None``），以及它是官方收录还是用户添加。"""
+
+    model_id: str
+    api_model_name: str
+    model: CatalogModel
+    entry: CatalogEntry | None
+    official: bool
+    #: 供应商模型倍率：官方收录的随官方数据下发，用户添加的由用户填写。
+    multiplier: float
+
+
+def provider_models(provider_id: str) -> list[ProviderModelView]:
+    """列出内置供应商的全部供应商模型：官方收录的按清单顺序在前，用户添加的随后。
+
+    低于最低应用版本的官方收录模型不在其中。启用状态不在目录里，由内置供应商模型表决定。
+    """
+    return [
+        ProviderModelView(
+            key, indexed.api_model_name, indexed.model, indexed.entry, indexed.official, indexed.multiplier
+        )
+        for key, indexed in _indexed_models(provider_id).items()
+    ]
 
 
 def default_model(provider_id: str, media_type: str) -> str | None:
@@ -266,22 +397,29 @@ def entry_ref(entry: CatalogEntry) -> str:
 
 @dataclass(frozen=True)
 class ModelPrice:
-    """内置供应商模型的计价依据：所引用条目的价目表（没有时为 ``None``）与这个供应商模型的倍率。"""
+    """内置供应商模型的计价依据：所对应条目的价目表（没有时为 ``None``）与这个供应商模型的倍率。
+
+    ``entry_found`` 为假时，这是一个对应不上条目的用户添加模型。
+    """
 
     price: PriceTable | None
     multiplier: float
+    entry_found: bool = True
 
 
 def provider_model_price(provider_id: str, model_id: str, media_type: str) -> ModelPrice | None:
     """内置供应商模型的价目表与供应商模型倍率。
 
-    供应商或模型键不在目录中、或模型不是调用的 ``media_type``（与 :func:`get_model` 同一口径）时，视为对应不上
-    条目，返回 ``None``。
+    供应商或模型键不在目录中、或模型不是调用的 ``media_type``（与 :func:`get_model` 同一口径）时返回 ``None``，
+    按对应不上条目计。
     """
     indexed = _indexed_model(provider_id, model_id, media_type)
     if indexed is None:
         return None
-    return ModelPrice(price=indexed.entry.price, multiplier=indexed.listing_model.multiplier)
+    entry = indexed.entry
+    return ModelPrice(
+        price=entry.price if entry is not None else None, multiplier=indexed.multiplier, entry_found=entry is not None
+    )
 
 
 def model_pricing(provider_id: str, model_id: str) -> Pricing | None:

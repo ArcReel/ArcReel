@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from arcreel_market_core.video_backend_contract import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.agent.credential_tiers import TIERS, AgentPricing, Tier, agent_pricing, tier_models
 from lib.catalog import query as catalog
+from lib.catalog.builtin_models import disabled_builtin_models
 from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
@@ -129,6 +130,8 @@ class ProviderStatus:
     # 凭证（界面称「密钥」）条数，供设置页二级栏显示「已配置 N 个密钥」。
     credential_count: int
     models: dict[str, dict] | None = None  # model_id -> CatalogModel 的 dict 形态
+    # 用户停用的模型键：不出现在默认模型设置的候选里，也不被自动挑选（docs/adr/0099）。
+    disabled_models: frozenset[str] = frozenset()
 
 
 class ConfigService:
@@ -172,6 +175,7 @@ class ConfigService:
         cred_repo = CredentialRepository(self._provider_repo.session)
         active_creds = await cred_repo.get_active_credentials_bulk()
         credential_counts = await cred_repo.count_by_provider_bulk()
+        disabled = await disabled_builtin_models(self._provider_repo.session)
         statuses = []
         for name, meta in PROVIDER_REGISTRY.items():
             status: Literal["ready", "unconfigured", "error"] = "ready" if name in active_creds else "unconfigured"
@@ -188,6 +192,7 @@ class ConfigService:
                     required_keys=list(meta.required_keys),
                     credential_count=credential_counts.get(name, 0),
                     models=models_dict,
+                    disabled_models=disabled.get(name, frozenset()),
                 )
             )
         return statuses

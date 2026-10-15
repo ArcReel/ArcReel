@@ -48,7 +48,7 @@ def price_builtin_call(
         target.price if target is not None else None,
         requests,
         multiplier=multiplier,
-        entry_found=target is not None,
+        entry_found=target is not None and target.entry_found,
         estimate=estimate,
     )
 
