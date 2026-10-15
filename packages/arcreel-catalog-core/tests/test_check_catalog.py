@@ -93,6 +93,18 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
             id="选择维度取值类型不符",
         ),
         pytest.param(
+            _mutate(
+                "entries[1].price.meters[0]",
+                {
+                    "meter": "output_seconds",
+                    "dims": ["reference_to_video"],
+                    "rows": [{"when": {"reference_to_video": "yes"}, "price": 0.5}],
+                },
+            ),
+            ("entries[1].price.meters[0].rows[0].when.reference_to_video", "invalid_dimension_value"),
+            id="参考生视频维度取值不是布尔值",
+        ),
+        pytest.param(
             _mutate("entries[0].price.meters[2].cjk_double", True),
             ("entries[0].price.meters[2].cjk_double", "cjk_double_not_characters"),
             id="汉字计 2 只用于字符数",

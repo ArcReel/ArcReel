@@ -172,20 +172,6 @@ class TestUnknownProviderFallsBackToGemini:
         assert "veo-3.1-lite-generate-preview" in pricing.rates
 
 
-class TestAnthropicException:
-    def test_anthropic_returns_per_token(self):
-        pricing = lookup_pricing("anthropic", "claude-sonnet-4", "text")
-        assert isinstance(pricing, PerToken)
-        assert pricing.currency == "USD"
-        assert pricing.rates["claude-sonnet-4"] == {"input": 3.00, "output": 15.00}
-
-    def test_anthropic_unknown_model_still_anthropic_table(self):
-        # Anthropic 走 provider 级例外，未知 model 不回落 Gemini，仍用 Anthropic 默认。
-        pricing = lookup_pricing("anthropic", "unknown-claude", "text")
-        assert isinstance(pricing, PerToken)
-        assert pricing.default_model == "claude-sonnet-4"
-
-
 class TestViduDelegate:
     def test_vidu_returns_delegate_provider_level(self):
         # 任意 model（含未知）都返回委托标记，不经 model→pricing 回落。

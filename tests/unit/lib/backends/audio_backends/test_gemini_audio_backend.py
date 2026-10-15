@@ -15,9 +15,12 @@ from tests.http_capture import capture_http, only_request, request_json
 _URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash-tts:generateContent"
 
 
-def _audio_response(data: bytes, mime_type: str) -> httpx.Response:
+def _audio_response(data: bytes, mime_type: str, usage: dict | None = None) -> httpx.Response:
     part = {"inlineData": {"mimeType": mime_type, "data": base64.b64encode(data).decode()}}
-    return httpx.Response(200, json={"candidates": [{"content": {"role": "model", "parts": [part]}}]})
+    body: dict = {"candidates": [{"content": {"role": "model", "parts": [part]}}]}
+    if usage is not None:
+        body["usageMetadata"] = usage
+    return httpx.Response(200, json=body)
 
 
 def _field(obj: dict, snake: str):
@@ -43,7 +46,13 @@ async def backend():
 async def test_pcm_is_wrapped_as_wav_matching_rate_and_channels(backend, tmp_path):
     pcm = bytes(range(256)) * 8
     with capture_http() as router:
-        route = router.post(_URL).mock(return_value=_audio_response(pcm, "audio/L16;codec=pcm;rate=16000;channels=2"))
+        route = router.post(_URL).mock(
+            return_value=_audio_response(
+                pcm,
+                "audio/L16;codec=pcm;rate=16000;channels=2",
+                usage={"promptTokenCount": 7, "candidatesTokenCount": 120},
+            )
+        )
         result = await backend.synthesize(_request(tmp_path, speed=1.5))
 
     body = request_json(only_request(route))
@@ -55,7 +64,9 @@ async def test_pcm_is_wrapped_as_wav_matching_rate_and_channels(backend, tmp_pat
     with wave.open(str(result.output_path), "rb") as wav:
         assert (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) == (16000, 2, 2)
         assert wav.readframes(wav.getnframes()) == pcm
-    assert (result.provider, result.model, result.characters) == ("custom-7", "gemini-3.8-flash-tts", 5)
+    assert (result.provider, result.model, result.text) == ("custom-7", "gemini-3.8-flash-tts", "你好，世界")
+    # 按 token 计价：输入 token 与输出音频 token 取自响应的 usage
+    assert (result.input_tokens, result.audio_output_tokens) == (7, 120)
 
 
 async def test_pcm_without_params_defaults_to_24k_mono(backend, tmp_path):

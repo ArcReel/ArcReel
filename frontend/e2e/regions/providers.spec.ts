@@ -99,6 +99,14 @@ const VIDEO_CAPABILITIES = {
   max_reference_audio_count: 0,
 };
 
+const entry = (maker: string, name: string, media_type: string, display_name: string, priced = true) => ({
+  maker,
+  name,
+  media_type,
+  display_name,
+  priced,
+});
+
 const customModel = (id: number, model_id: string, endpoint: string, extra: Record<string, unknown> = {}) => ({
   id,
   model_id,
@@ -106,13 +114,10 @@ const customModel = (id: number, model_id: string, endpoint: string, extra: Reco
   endpoint,
   is_default: false,
   is_enabled: true,
-  price_unit: null,
-  price_input: null,
-  price_output: null,
-  currency: null,
-  supported_durations: null,
   resolution: null,
-  max_output_tokens: null,
+  multiplier: 1,
+  entry_binding: null,
+  matched_entry: null,
   system_capabilities: null,
   capability_overrides: null,
   global_bucket_refs: null,
@@ -128,24 +133,29 @@ const customProvider = {
   models: [
     customModel(1, "deepseek-ai/DeepSeek-V3.2-Exp-Thinking-128k-2026-09-preview", "openai-chat", {
       is_default: true,
-      price_unit: "token",
-      price_input: 2,
-      price_output: 8,
-      currency: "CNY",
-      max_output_tokens: 32768,
+      multiplier: 0.8,
+      matched_entry: entry("deepseek", "deepseek-v3.2-exp", "text", "DeepSeek V3.2 Exp"),
+      capability_overrides: { max_output_tokens: 32768 },
     }),
     customModel(2, "qwen3-max-preview", "openai-chat", { is_enabled: false }),
-    customModel(3, "gemini-3-pro-image-preview", "gemini-image", { is_default: true, resolution: "2K" }),
-    customModel(4, "gpt-image-1", "openai-images", { price_unit: "image", price_input: 0.04, currency: "USD" }),
+    customModel(3, "gemini-3-pro-image-preview", "gemini-image", {
+      is_default: true,
+      resolution: "2K",
+      matched_entry: entry("google", "gemini-3-pro-image-preview", "image", "Gemini 3 Pro Image Preview"),
+    }),
+    customModel(4, "gpt-image-1", "openai-images", {
+      matched_entry: entry("openai", "gpt-image-1", "image", "GPT Image 1", false),
+    }),
     customModel(5, "kling-v2-6-master-image-to-video-pro-1080p", "kling-video", {
       is_default: true,
-      supported_durations: [5, 10],
       resolution: "1080p",
+      multiplier: 1.25,
+      matched_entry: entry("kling", "kling-v2-6-master", "video", "Kling v2.6 Master"),
       system_capabilities: VIDEO_CAPABILITIES,
-      capability_overrides: { last_frame: false },
+      capability_overrides: { last_frame: false, durations: [5, 10] },
     }),
     customModel(6, "doubao-seedance-1-0-pro-250528", "ark-seedance", {
-      supported_durations: [3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+      matched_entry: entry("bytedance", "doubao-seedance-1-0-pro", "video", "Doubao Seedance 1.0 Pro"),
       system_capabilities: VIDEO_CAPABILITIES,
       global_bucket_refs: ["default_video_backend_i2v"],
     }),
@@ -162,6 +172,7 @@ const customProvider = {
 const CUSTOM_PROVIDER_DETAIL: ApiOverrides = {
   "GET /api/v1/custom-providers": { status: 200, body: { providers: [customProvider] } },
   [`GET /api/v1/custom-providers/${CUSTOM_PROVIDER_ID}`]: { status: 200, body: customProvider },
+  [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/multiplier`]: { status: 200, body: { multiplier: 0.9, default: 1 } },
 };
 
 async function customDetailReady(page: Page) {
@@ -243,7 +254,7 @@ defineRegionScenarios("供应商", [
       if (viewport.width >= 1440) {
         // 「启用」列的表头是全选框
         await expect(main.getByRole("checkbox", { name: "启用列表中的全部模型" })).toBeInViewport({ ratio: 1 });
-        for (const column of ["模型 ID", "类型", "调用端点", "价格", "默认"]) {
+        for (const column of ["模型 ID", "类型", "调用端点", "对应条目", "默认"]) {
           await expect(main.getByRole("columnheader", { name: column, exact: true })).toBeInViewport({ ratio: 1 });
         }
       }

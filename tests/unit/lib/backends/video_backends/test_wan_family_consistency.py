@@ -17,7 +17,8 @@ import itertools
 
 import pytest
 
-from lib.backends.video_backends.dashscope import _DEFAULT_PROFILE, DashScopeVideoBackend
+from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES
 from lib.custom_provider.duration_presets import infer_supported_durations
 from lib.custom_provider.endpoints import infer_endpoint
 
@@ -154,7 +155,7 @@ def test_adjacent_letters_do_not_qualify_as_classification_tokens(model_id: str,
     """分类 token 两侧标识符边界须完整：紧邻字母/数字的相似子串不应被误判命中。"""
     assert infer_endpoint(model_id, "openai") == expected_endpoint
     caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps is _DEFAULT_PROFILE
+    assert caps is UNRECOGNIZED_MODEL_CAPABILITIES
 
 
 @pytest.mark.parametrize("model_id", ["swan2.7-image", "vendorwan2.7-image"])
@@ -253,7 +254,7 @@ def test_wan27_suffix_not_polluted_by_literal_marker_text_in_decoration_prefix(m
     （"videoedit"/"s2v"）误当模态段的一部分。"""
     assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
     caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps is not _DEFAULT_PROFILE
+    assert caps is not UNRECOGNIZED_MODEL_CAPABILITIES
 
 
 def test_wan27_videoedit_excluded_from_family_duration_preset() -> None:
@@ -312,7 +313,7 @@ def test_wan27_unrecognized_modality_excluded_from_native_route_and_family_durat
 @pytest.mark.parametrize("model_id", ["wan2.6-image-to-video", "wan2.1-image-to-video"])
 def test_wan2x_dot_image_to_video_has_no_registered_capability_falls_back_to_generic(model_id: str) -> None:
     """wan2x_dot（2.7 以外的点号形态）没有登记任何 VideoCapabilities；image-to-video 续接语法
-    命中时若仍放行原生路由，会静默拿到 _DEFAULT_PROFILE（恰好 first_frame=True，掩盖问题）。
+    命中时若仍放行原生路由，会静默拿到 统一回落（恰好 first_frame=True，掩盖问题）。
     没有已验证能力/请求 schema 的 id 排除出原生路由，落通用视频端点。"""
     assert infer_endpoint(model_id, "openai") == "openai-video"
 
@@ -367,8 +368,8 @@ def test_native_route_and_non_default_profile_agree(model_id: str) -> None:
     # 用对象身份而非字段相等判定"是否解析出已知档"——happyhorse-i2v 的声明字段值恰好与
     # VideoCapabilities() 的默认值逐项相同（first_frame 默认即 True），字段级比较会漏判。
     # `_profile_for_model` 命中已知 key 时返回 `_MODEL_PROFILES` 里的原对象，未命中时返回
-    # `_DEFAULT_PROFILE` 单例，两者身份不同，可靠区分"解析成功"与"落回默认"。
-    has_known_profile = caps is not _DEFAULT_PROFILE
+    # `UNRECOGNIZED_MODEL_CAPABILITIES` 单例，两者身份不同，可靠区分"解析成功"与"落回默认"。
+    has_known_profile = caps is not UNRECOGNIZED_MODEL_CAPABILITIES
     assert routed_native is True
     assert has_known_profile is True
 
@@ -390,7 +391,7 @@ def test_excluded_from_native_route_agrees_with_default_profile(model_id: str) -
     routed_native = infer_endpoint(model_id, "openai") == "dashscope-async-video"
     caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
     assert routed_native is False
-    assert caps is _DEFAULT_PROFILE
+    assert caps is UNRECOGNIZED_MODEL_CAPABILITIES
 
 
 @pytest.mark.parametrize(
@@ -412,4 +413,4 @@ def test_wan27_image_to_video_detected_within_modality_segment_after_marker(mode
     i2v，落原生路由与非默认能力档。"""
     assert infer_endpoint(model_id, "openai") == "dashscope-async-video"
     caps = DashScopeVideoBackend.video_capabilities_for_model(model_id)
-    assert caps is not _DEFAULT_PROFILE
+    assert caps is not UNRECOGNIZED_MODEL_CAPABILITIES

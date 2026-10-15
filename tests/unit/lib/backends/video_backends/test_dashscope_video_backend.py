@@ -174,7 +174,7 @@ class TestCapabilities:
 
     def test_decorated_model_name_resolves_r2v_caps(self):
         """代理中转的前缀/后缀装饰名（infer_endpoint 会按子串路由到 dashscope-async-video）
-        必须解析出真实 r2v caps，而非退回 _DEFAULT_PROFILE 丢掉 reference_images。"""
+        必须解析出真实 r2v caps，而非退回统一回落 丢掉 reference_images。"""
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         for model, expected_max in (
@@ -191,7 +191,7 @@ class TestCapabilities:
             assert DashScopeVideoBackend.video_capabilities_for_model(model).max_reference_images == expected_max
 
     def test_alnum_glued_prefix_does_not_resolve_r2v_caps(self):
-        """字母数字直接粘连的前缀（无分隔符）不算装饰名，须落回 _DEFAULT_PROFILE。
+        """字母数字直接粘连的前缀（无分隔符）不算装饰名，须落回统一回落。
 
         与上一条用例的边界相反："myhappyhorse-1.0-r2v" 去掉 "my" 后与
         "happyhorse-1.0-r2v" 逐字符相同，若子串匹配不做标识符边界校验就会误判命中——
@@ -203,7 +203,7 @@ class TestCapabilities:
 
     @pytest.mark.parametrize("model", ["wan2.7-i2vfoo", "happyhorse-1.0-r2vfoo"])
     def test_alnum_glued_suffix_does_not_resolve_known_profile(self, model):
-        """字母数字直接粘连的后缀同样不算装饰名，须落回 _DEFAULT_PROFILE。
+        """字母数字直接粘连的后缀同样不算装饰名，须落回统一回落。
 
         与前两条用例互补的第三个边界方向："wan2.7-i2vfoo" 截断掉 "foo" 后与 key "wan2.7-i2v"
         逐字符相同，若子串匹配只做左侧边界校验、不做右侧校验，未知变体后缀会被截断误判成已知
@@ -979,7 +979,7 @@ class TestWan2Aliases:
         assert caps.max_prompt_chars == 5000
 
     def test_fully_underscored_t2v_alias_does_not_get_default_first_frame(self):
-        """ "wan_2.7_t2v" 的版本号与模态后缀均用下划线分隔；t2v 无首帧能力，与 _DEFAULT_PROFILE
+        """ "wan_2.7_t2v" 的版本号与模态后缀均用下划线分隔；t2v 无首帧能力，与统一回落
         的默认 first_frame=True 恰好相反，能验证确实解析到了 wan2.7-t2v 而非静默落回默认档。
         """
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend

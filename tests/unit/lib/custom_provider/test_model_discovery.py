@@ -106,6 +106,25 @@ class TestDiscoverModelsOpenAI:
             assert "endpoint" in m
 
     @patch("lib.custom_provider.discovery.OpenAI")
+    async def test_each_model_reports_the_entry_it_maps_to(self, mock_openai_cls):
+        """发现结果带出按名字对应到的条目，对应不上时为 None：新建模型时就能看到哪些会记为未定价。"""
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        known = MagicMock()
+        known.id = "openai/GPT-5.4"
+        unknown = MagicMock()
+        unknown.id = "my-private-llm"
+        mock_client.models.list.return_value = [known, unknown]
+
+        from lib.custom_provider.discovery import discover_models
+
+        result = await discover_models(discovery_format="openai", base_url="https://api.example.com/v1", api_key="k")
+
+        matched = {m["model_id"]: m["matched_entry"] for m in result}
+        assert matched["my-private-llm"] is None
+        assert (matched["openai/GPT-5.4"]["maker"], matched["openai/GPT-5.4"]["name"]) == ("openai", "gpt-5.4")
+
+    @patch("lib.custom_provider.discovery.OpenAI")
     async def test_default_marking(self, mock_openai_cls):
         """每种 media_type 的第一个模型（排序后）标为 is_default=True。"""
         mock_client = MagicMock()

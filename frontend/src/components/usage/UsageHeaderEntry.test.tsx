@@ -46,6 +46,7 @@ describe("UsageHeaderEntry", () => {
           cancelled: 0,
           success_rate: 1,
           cost: { CNY: 75.3, USD: 4.59 },
+          unpriced_calls: 0,
         },
       }),
     );

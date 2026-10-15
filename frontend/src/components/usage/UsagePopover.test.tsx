@@ -22,6 +22,7 @@ const EMPTY_KPI = {
   cancelled: 0,
   success_rate: null,
   cost: {},
+  unpriced_calls: 0,
 };
 
 function stubUsageApi() {

@@ -14,13 +14,15 @@ from lib.backends.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     TokenParam,
+    chat_completion_result,
     check_truncation,
-    merge_billed_tokens,
+    merge_billed_usage,
     resolve_schema,
     strip_leading_think_block,
     structured_fallback_reason,
     truncate_for_log,
 )
+from lib.backends.transport_layer import TransportLayer
 from lib.config.url_utils import is_official_openai_base_url
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -39,10 +41,13 @@ class OpenAITextBackend:
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        transport_layer: TransportLayer | None = None,
         provider_name: str = PROVIDER_OPENAI,
     ):
         # 禁用 SDK 内置重试，由本层 generate() 统一管理重试策略
-        self._client = create_openai_client(api_key=api_key, base_url=base_url, max_retries=0)
+        self._client = create_openai_client(
+            api_key=api_key, base_url=base_url, max_retries=0, transport_layer=transport_layer
+        )
         self._model = model or DEFAULT_MODEL
         # 复用 OpenAI 兼容协议的 provider（如 dashscope）须用真实 provider 记账，
         # 否则计费查表会命中 OpenAI 的 USD 费率而非自身定价。
@@ -130,8 +135,7 @@ class OpenAITextBackend:
                     token_param=self._max_tokens_param,
                 )
                 # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果。
-                result.input_tokens = merge_billed_tokens(result.input_tokens, native.input_tokens)
-                result.output_tokens = merge_billed_tokens(result.output_tokens, native.output_tokens)
+                merge_billed_usage(result, native)
                 return result
 
         return native
@@ -195,13 +199,8 @@ class OpenAITextBackend:
             output_tokens=output_tokens,
             structured=bool(request.response_schema),
         )
-        return TextGenerationResult(
-            text=text,
-            provider=self._provider_name,
-            model=self._model,
-            input_tokens=usage.prompt_tokens if usage else None,
-            output_tokens=output_tokens,
-            truncated=truncated,
+        return chat_completion_result(
+            text=text, provider=self._provider_name, model=self._model, usage=usage, truncated=truncated
         )
 
 

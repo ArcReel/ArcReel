@@ -7,9 +7,10 @@
       {
         "id": "gemini-aistudio",
         "display_name": "AI Studio",
-        "description": "Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
+        "description": "Google AI Studio 提供 Gemini 系列模型，支持图片、视频和语音生成，适合快速原型和个人项目。",
         "status": "unconfigured",
         "media_types": [
+          "audio",
           "image",
           "text",
           "video"
@@ -19,6 +20,7 @@
           "structured_output",
           "text_generation",
           "text_to_image",
+          "text_to_speech",
           "vision"
         ],
         "credential_count": 0,
@@ -159,6 +161,32 @@
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
+          },
+          "gemini-3.8-flash-tts": {
+            "display_name": "Gemini 3.8 Flash TTS",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": true,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "gemini-3.8-flash-lite-tts": {
+            "display_name": "Gemini 3.8 Flash-Lite TTS",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
           }
         }
       },
@@ -168,6 +196,7 @@
         "description": "Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
         "status": "unconfigured",
         "media_types": [
+          "audio",
           "image",
           "text",
           "video"
@@ -177,6 +206,7 @@
           "structured_output",
           "text_generation",
           "text_to_image",
+          "text_to_speech",
           "vision"
         ],
         "credential_count": 0,
@@ -298,6 +328,32 @@
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
+          },
+          "gemini-3.8-flash-tts": {
+            "display_name": "Gemini 3.8 Flash TTS",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": true,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "gemini-3.8-flash-lite-tts": {
+            "display_name": "Gemini 3.8 Flash-Lite TTS",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
           }
         }
       },
@@ -1816,9 +1872,10 @@
       {
         "id": "minimax",
         "display_name": "MiniMax",
-        "description": "MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
+        "description": "MiniMax（海螺）多模态平台，提供文本、图片、视频与语音生成。默认连接国内站，海外可将 base_url 切换到国际站。",
         "status": "unconfigured",
         "media_types": [
+          "audio",
           "image",
           "text",
           "video"
@@ -1828,6 +1885,7 @@
           "structured_output",
           "text_generation",
           "text_to_image",
+          "text_to_speech",
           "vision"
         ],
         "credential_count": 0,
@@ -1935,6 +1993,32 @@
               "768p",
               "1080p"
             ],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "speech-2.8-hd": {
+            "display_name": "MiniMax Speech 2.8 HD",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": true,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "speech-2.8-turbo": {
+            "display_name": "MiniMax Speech 2.8 Turbo",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"

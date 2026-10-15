@@ -666,12 +666,14 @@ class TestArkVideoBackendBaseUrl:
             ArkVideoBackend(
                 api_key="k", model=_SEEDANCE_1_5_PRO, base_url="https://ark.cn-beijing.volces.com/api/plan/v3"
             )
-        assert created == [{"api_key": "k", "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"}]
+        assert created == [
+            {"api_key": "k", "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "transport_layer": None}
+        ]
 
     def test_default_base_url_is_none(self):
         with captured_ark_clients("lib.backends.video_backends.ark") as created:
             ArkVideoBackend(api_key="k", model=_SEEDANCE_1_5_PRO)
-        assert created == [{"api_key": "k", "base_url": None}]
+        assert created == [{"api_key": "k", "base_url": None, "transport_layer": None}]
 
 
 _RELAY_A = "https://relay-a.example.com/api/v3"

@@ -2,9 +2,10 @@
 
 判定来源逐桶固定：
 
-- 内置图片：模型目录 ``CatalogModel.capabilities`` 的 ``text_to_image`` / ``image_to_image``；
+- 图片：生效能力（``lib.backends.image_capabilities``），即模型条目的文生图 / 图生图（自定义供应商的能力覆盖
+  整维替换；ComfyUI 端点不看条目）与调用通道声明（内置 backend 的 ``CHANNEL_CAPABILITIES``、自定义供应商
+  endpoint spec 的 ``image_capabilities``）都满足的部分，与执行层 ``MediaGenerator`` 的能力校验同一个结果；
 - 内置视频：backend ``VideoCapabilities``，i2v 取 ``first_frame``、r2v 取 ``max_reference_images``；
-- 自定义供应商图片：endpoint spec 的 ``image_capabilities``；
 - 自定义供应商视频：endpoint 系统判定 ⊕ 模型级覆盖的既有合成点，同样取 ``first_frame`` 与
   ``max_reference_images``。
 
@@ -19,10 +20,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Literal
 
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.image_backends.base import ImageCapability
+from lib.backends.image_capabilities import (
+    builtin_channel_capabilities,
+    custom_image_model_capabilities,
+    effective_image_capabilities,
+    intersect_image_capabilities,
+)
 from lib.catalog.query import CatalogModel
 from lib.config.resolver import video_capability_satisfied
 from lib.custom_provider.capabilities import synthesize_video_capabilities
@@ -37,11 +45,12 @@ BUCKETS_BY_MEDIA_TYPE: dict[str, tuple[GenerationTypeBucket, ...]] = {
 }
 
 
-def _image_buckets_from_capabilities(has_t2i: bool, has_i2i: bool) -> frozenset[GenerationTypeBucket]:
+def _image_buckets(caps: Iterable[ImageCapability]) -> frozenset[GenerationTypeBucket]:
+    caps = frozenset(caps)
     buckets: set[GenerationTypeBucket] = set()
-    if has_t2i:
+    if ImageCapability.TEXT_TO_IMAGE in caps:
         buckets.add("t2i")
-    if has_i2i:
+    if ImageCapability.IMAGE_TO_IMAGE in caps:
         buckets.add("i2i")
     return frozenset(buckets)
 
@@ -59,10 +68,11 @@ def _video_buckets(has_i2v: bool, max_reference_images: int) -> frozenset[Genera
 def builtin_model_buckets(provider_id: str, model_id: str, model_info: CatalogModel) -> frozenset[GenerationTypeBucket]:
     """内置模型具备的任务类型桶；文本 / 音频模型恒为空集。"""
     if model_info.media_type == "image":
-        return _image_buckets_from_capabilities(
-            "text_to_image" in model_info.capabilities,
-            "image_to_image" in model_info.capabilities,
-        )
+        try:
+            channel = builtin_channel_capabilities(provider_id)
+        except ValueError:
+            return frozenset()
+        return _image_buckets(effective_image_capabilities(channel, model_id=model_id, builtin_provider=provider_id))
     if model_info.media_type != "video":
         return frozenset()
 
@@ -79,6 +89,7 @@ def custom_model_buckets(
     model_id: str,
     capability_overrides: object | None = None,
     endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> frozenset[GenerationTypeBucket]:
     """自定义供应商模型具备的任务类型桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。"""
     try:
@@ -92,10 +103,11 @@ def custom_model_buckets(
         )
         if caps is None:
             return frozenset()
-        return _image_buckets_from_capabilities(
-            ImageCapability.TEXT_TO_IMAGE in caps,
-            ImageCapability.IMAGE_TO_IMAGE in caps,
+        endpoint_kind = endpoint_spec.kind if endpoint_spec is not None else "python"
+        model_caps = custom_image_model_capabilities(
+            model_id, overrides=capability_overrides, endpoint_kind=endpoint_kind, entry_binding=entry_binding
         )
+        return _image_buckets(intersect_image_capabilities(caps, model_caps))
     if media_type != "video":
         return frozenset()
 

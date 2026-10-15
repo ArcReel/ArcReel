@@ -23,7 +23,10 @@ export interface StoryboardBatchSkip {
 export interface StoryboardBatchPreview {
   targets: { unit_id: string }[];
   skipped: StoryboardBatchSkip[];
+  /** 只合计已定价的部分；一项都没有定价时为 `null`。 */
   estimated_cost: CostBreakdown | null;
+  /** 价目表算不出价、未计入 `estimated_cost` 的项数。 */
+  unpriced_count: number;
   /** 仅分镜视频：整批准入结论；`blocked` 时这一批不能提交。 */
   admission?: WorkflowAdmission;
 }

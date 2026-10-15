@@ -38,6 +38,7 @@ from server.services.admission.asset_sheet_batch import (
 )
 from server.services.admission.cost_estimation import estimate_image_batch_cost
 from server.services.currency.asset_regeneration_impact import asset_regeneration_impact
+from server.services.tasks.formal_image_commit import get_aspect_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ async def get_asset_sheet_status(project_name: str):
 
 @router.post("/projects/{project_name}/asset-sheets/batch/preview")
 async def preview_asset_sheet_batch(project_name: str, request: AssetSheetBatchRequest, user: CurrentUser):
-    """规划一批但不建任务：要生成的名单、跳过项与能算出时的预估费用。"""
+    """规划一批但不建任务：要生成的名单、跳过项与已定价部分的预估费用及未定价项数。"""
 
     project, plan = await _plan(project_name, request, user.id)
     new_ids = plan.new_task_ids
@@ -140,13 +141,14 @@ async def preview_asset_sheet_batch(project_name: str, request: AssetSheetBatchR
     estimated = await estimate_image_batch_cost(
         project,
         ["i2i" if plan.units[unit_id].image_to_image else "t2i" for unit_id in new_ids],
+        aspect_ratio=get_aspect_ratio(project, "characters"),
         resolver=ConfigResolver(async_session_factory),
         session_factory=async_session_factory,
     )
     return {
         "targets": [{**_unit_view(plan, unit_id), "depends_on": plan.dependencies.get(unit_id)} for unit_id in new_ids],
         "skipped": skipped,
-        "estimated_cost": estimated or None,
+        **estimated.to_payload(),
     }
 
 

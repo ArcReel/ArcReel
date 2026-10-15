@@ -279,15 +279,10 @@ def _openai_text_pricing(model_id: str, input_rate: float, output_rate: float) -
     )
 
 
-# OpenAI 图片费率：token 主路径 + (quality, size) 兜底表。
-def _openai_image_pricing(
-    model_id: str,
-    token_rates: dict[str, float],
-    fallback_rates: dict[tuple[str, str], float],
-) -> PerImageOpenAIToken:
+# OpenAI 图片费率：按 token 计。
+def _openai_image_pricing(model_id: str, token_rates: dict[str, float]) -> PerImageOpenAIToken:
     return PerImageOpenAIToken(
         token_rates={model_id: token_rates},
-        fallback_rates={model_id: fallback_rates},
         default_model=model_id,
         currency="USD",
     )
@@ -989,17 +984,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                         "text_in": 5.0,
                         "text_cached_in": 1.25,
                         "text_out": 0.0,
-                    },
-                    {
-                        ("low", "1024x1024"): 0.006,
-                        ("low", "1024x1792"): 0.012,
-                        ("low", "1792x1024"): 0.012,
-                        ("medium", "1024x1024"): 0.053,
-                        ("medium", "1024x1792"): 0.106,
-                        ("medium", "1792x1024"): 0.106,
-                        ("high", "1024x1024"): 0.211,
-                        ("high", "1024x1792"): 0.317,
-                        ("high", "1792x1024"): 0.317,
                     },
                 ),
             ),

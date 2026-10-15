@@ -36,3 +36,48 @@ def only_request(route: respx.Route) -> httpx.Request:
     """断言该路由恰好收到一次请求并返回它。"""
     assert route.call_count == 1, f"期望 1 次请求，实际 {route.call_count} 次"
     return route.calls.last.request
+
+
+class PathPrefixRewrite:
+    """注入调用通道的 transport 层替身：把请求路径开头的 ``old`` 换成 ``new`` 再交给下层，并记下所见的 URL 与关闭次数。"""
+
+    def __init__(self, old: str, new: str) -> None:
+        self.old = old
+        self.new = new
+        self.seen: list[str] = []
+        self.closed = 0
+
+    def __call__(self, inner: httpx.AsyncBaseTransport | httpx.BaseTransport, /) -> _PathPrefixRewriting:
+        return _PathPrefixRewriting(inner, self)
+
+
+class _PathPrefixRewriting(httpx.BaseTransport, httpx.AsyncBaseTransport):
+    def __init__(self, inner: httpx.AsyncBaseTransport | httpx.BaseTransport, layer: PathPrefixRewrite) -> None:
+        self._inner = inner
+        self._layer = layer
+
+    def _rewrite(self, request: httpx.Request) -> None:
+        self._layer.seen.append(str(request.url))
+        path = request.url.path
+        if path.startswith(self._layer.old):
+            request.url = request.url.copy_with(path=self._layer.new + path[len(self._layer.old) :])
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        assert isinstance(self._inner, httpx.BaseTransport)
+        self._rewrite(request)
+        return self._inner.handle_request(request)
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        assert isinstance(self._inner, httpx.AsyncBaseTransport)
+        self._rewrite(request)
+        return await self._inner.handle_async_request(request)
+
+    def close(self) -> None:
+        assert isinstance(self._inner, httpx.BaseTransport)
+        self._layer.closed += 1
+        self._inner.close()
+
+    async def aclose(self) -> None:
+        assert isinstance(self._inner, httpx.AsyncBaseTransport)
+        self._layer.closed += 1
+        await self._inner.aclose()

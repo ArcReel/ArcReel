@@ -72,6 +72,81 @@ describe("UsageRecordsSection detail", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("lists the four token counts with input excluding the cached parts", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({
+        id: 42,
+        media_type: "text",
+        segment_id: null,
+        purpose: "script_generation",
+        input_tokens: 1_000,
+        output_tokens: 30,
+        cache_read_tokens: 600,
+        cache_write_5m_tokens: 100,
+        cache_write_1h_tokens: 50,
+      }),
+    );
+
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+
+    const valueOf = (label: string) =>
+      (dialog.getByText(label, { selector: "span" }).closest("div") as HTMLElement).textContent?.replace(label, "");
+    // 记录里的总输入 1000 含缓存命中 600 与缓存写入 150，「输入」只剩没缓存的 250。
+    expect(valueOf("输入")).toBe("250");
+    expect(valueOf("缓存命中")).toBe("600");
+    expect(valueOf("缓存写入")).toBe("150");
+    expect(valueOf("5 分钟")).toBe("100");
+    expect(valueOf("1 小时")).toBe("50");
+    expect(valueOf("输出")).toBe("30");
+
+    await userEvent.hover(dialog.getByText("输入", { selector: "span" }));
+    expect(await screen.findByText("不含缓存命中与缓存写入的部分")).toBeInTheDocument();
+  });
+
+  it("shows dashes for cache counts the provider never reported", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, media_type: "text", input_tokens: 120, output_tokens: 30 }),
+    );
+
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+
+    const valueOf = (label: string) =>
+      (dialog.getByText(label, { selector: "span" }).closest("div") as HTMLElement).textContent?.replace(label, "");
+    expect(valueOf("输入")).toBe("120");
+    expect(valueOf("缓存命中")).toBe("—");
+    expect(valueOf("缓存写入")).toBe("—");
+    expect(dialog.queryByText("5 分钟")).not.toBeInTheDocument();
+  });
+
+  it("shows 未定价 with its reason instead of a zero amount", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, cost_amount: null, unpriced_reason: "no_price_table" }),
+    );
+
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+
+    expect(dialog.getByText("未定价")).toBeInTheDocument();
+    expect(dialog.getByText("未定价原因")).toBeInTheDocument();
+    expect(dialog.getByText("模型条目没有价目表")).toBeInTheDocument();
+    expect(dialog.queryByText("$0.00")).not.toBeInTheDocument();
+  });
+
+  it("shows a zero amount, with no unpriced reason, for a call priced at zero", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, cost_amount: 0 }),
+    );
+
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+
+    expect(await dialog.findByText("$0.00")).toBeInTheDocument();
+    expect(dialog.queryByText("未定价")).not.toBeInTheDocument();
+    expect(dialog.queryByText("未定价原因")).not.toBeInTheDocument();
+  });
+
   it("resolves a project-relative image output as a thumbnail", async () => {
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
       makeUsageRecordDetail({

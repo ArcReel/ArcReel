@@ -1,4 +1,3 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -7,6 +6,7 @@ import type { UsageSummary } from "@/types";
 import type { UsageRecordsFilters, UsageStatusFilter } from "@/stores/usage-records-store";
 import { USAGE_PAGE_SIZE } from "@/stores/usage-records-store";
 import { RecordRow } from "./RecordRow";
+import { UsagePager } from "./UsagePager";
 import { projectTitleResolver, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
 import type { UsageRecordView } from "./usage-record-view";
 
@@ -176,29 +176,7 @@ export function UsageRecordsCard({
       )}
 
       {showPagination && (
-        <footer className="flex items-center justify-between border-t border-border px-4 py-2">
-          <span className="num text-xs text-muted-foreground">{t("usage_page_position", { from, to, total })}</span>
-          <div className="flex items-center gap-1">
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={t("usage_prev_page")}
-              disabled={pageIndex === 0}
-              onClick={() => onPage("prev")}
-            >
-              <ChevronLeft aria-hidden="true" />
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label={t("usage_next_page")}
-              disabled={!hasNext}
-              onClick={() => onPage("next")}
-            >
-              <ChevronRight aria-hidden="true" />
-            </Button>
-          </div>
-        </footer>
+        <UsagePager from={from} to={to} total={total} hasPrev={pageIndex > 0} hasNext={hasNext} onPage={onPage} />
       )}
     </section>
   );

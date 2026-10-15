@@ -77,8 +77,7 @@ async def assemble_backend(
 
 def _ensure_listed(provider_id: str, model_id: str, media_type: str) -> None:
     """内置供应商的模型必须在该供应商该媒体类型的模型清单中；不在时报错，由用户重新选择，不回落到别的模型。"""
-    info = catalog.get_model(provider_id, model_id)
-    if info is None or info.media_type != media_type:
+    if catalog.get_model(provider_id, model_id, media_type=media_type) is None:
         raise ModelNotInCatalogError(provider_id=provider_id, model_id=model_id, media_type=media_type)
 
 

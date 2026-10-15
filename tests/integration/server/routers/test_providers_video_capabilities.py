@@ -135,14 +135,14 @@ class TestRealResolverResponse:
             "excluded": {"4": "resolution", "6": "resolution"},
         }
 
-    def test_candidate_missing_from_registry_reports_bucket_failure(self, real_resolver_client):
+    def test_candidate_missing_from_catalog_asks_to_reselect(self, real_resolver_client):
         with real_resolver_client as client:
             resp = client.get(
                 "/api/v1/providers/video-capabilities",
                 params={"video_backend": "gemini-aistudio/deleted-model"},
             )
         assert resp.status_code == 400
-        assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_reference_unavailable"].format(
+        assert resp.json()["detail"] == zh_errors.MESSAGES["model_not_in_provider_catalog"].format(
             **make_display_names().apply({"provider": "gemini-aistudio", "model": "deleted-model"})
         )
 
@@ -282,10 +282,9 @@ async def test_disabled_candidate_never_returns_default_model(
                     model_id=model_id,
                     display_name=model_id,
                     endpoint="newapi-video",
-                    supported_durations="[5]",
                     is_default=default,
                     is_enabled=default or disable_after_gate,
-                    capability_overrides={"first_frame": True, "max_reference_images": 4},
+                    capability_overrides={"durations": [5], "first_frame": True, "max_reference_images": 4},
                 )
             )
         await session.commit()

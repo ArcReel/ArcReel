@@ -25,8 +25,13 @@ from lib.backends.providers import PROVIDER_KLING
 from lib.catalog import query as catalog
 
 if TYPE_CHECKING:
-    from arcreel_market_core.video_backend_contract import VideoCapabilities
+    from arcreel_market_core.video_backend_contract import (
+        VideoCapabilities,
+        VideoGenerationRequest,
+        VideoGenerationResult,
+    )
     from lib.backends.backend_assembly.loaded_config import LoadedConfig
+    from lib.billing.metering import Usage
 
 
 @dataclass(frozen=True)
@@ -534,6 +539,30 @@ def builtin_video_capabilities_for_model(provider_id: str, model_id: str) -> Vid
     from lib.backends.video_backends.registry import video_capabilities_for_model
 
     return video_capabilities_for_model(spec.registry_backend, model_id)
+
+
+def builtin_video_metered_usage(
+    provider_id: str,
+    model_id: str,
+    request: VideoGenerationRequest,
+    result: VideoGenerationResult | None = None,
+) -> Usage:
+    """内置供应商的视频调用通道对一个请求上报的计量，不构造实例；声明式供应商从随版定义读。
+
+    ``result`` 为 ``None`` 时是提交前预估；给出时与结算时调用通道实例上报的计量相同。
+    """
+    spec = get_provider_spec(provider_id, "video")
+    if spec.registry_backend == "declarative":
+        from lib.custom_provider.declarative_backend import declarative_video_usage
+        from lib.custom_provider.endpoints import get_endpoint_spec
+
+        definition = get_endpoint_spec(_minimax_video_endpoint(model_id)).definition
+        if definition is None:
+            raise ValueError(f"builtin declarative definition missing for {provider_id}/{model_id}")
+        return declarative_video_usage(definition, request, result)
+    from lib.backends.video_backends.registry import metered_usage_for_model
+
+    return metered_usage_for_model(spec.registry_backend, model_id, request, result)
 
 
 def builtin_effective_generate_audio_for_model(provider_id: str, model_id: str) -> bool:

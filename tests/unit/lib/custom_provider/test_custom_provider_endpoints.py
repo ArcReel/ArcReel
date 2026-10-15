@@ -6,6 +6,7 @@ import pytest
 
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
+    declarative_requests,
     declarative_requires_base_url,
     endpoint_spec_to_dict,
     endpoint_to_media_type,
@@ -14,6 +15,39 @@ from lib.custom_provider.endpoints import (
     list_endpoints_by_media_type,
     validate_video_caps_declaration,
 )
+
+
+class TestMeteringBackend:
+    """计价读 ``metering_backend`` 类上的计量声明：它必须就是 ``build_backend`` 包装的那个调用通道类。"""
+
+    @pytest.mark.parametrize(
+        "key",
+        sorted(
+            key
+            for key, spec in ENDPOINT_REGISTRY.items()
+            if spec.media_type in {"image", "video"} and spec.definition is None
+        ),
+    )
+    def test_python_media_endpoints_declare_the_delegate_class(self, key):
+        from types import SimpleNamespace
+
+        spec = ENDPOINT_REGISTRY[key]
+        provider = SimpleNamespace(
+            id=7,
+            provider_id="custom-7",
+            api_key="sk",
+            base_url="https://relay.example.com/v1",
+            discovery_format="openai",
+        )
+
+        backend = spec.build_backend(provider, "some-model")
+
+        assert spec.metering_backend is type(backend._delegate)
+
+    def test_declarative_endpoints_meter_by_their_definition(self):
+        declarative = [spec for spec in ENDPOINT_REGISTRY.values() if spec.definition is not None]
+        assert declarative
+        assert all(spec.metering_backend is None for spec in declarative)
 
 
 class TestRegistry:
@@ -108,6 +142,15 @@ class TestRegistry:
             "duration_frame_rate_missing": False,
             "duration_tier_empty": False,
             "native_resolution": None,
+            "requests": (
+                {
+                    "name": "generate",
+                    "display_name_key": "cp_request_generate",
+                    "default_path": "/chat/completions",
+                    "placeholders": ("model",),
+                    "base_url_rule": "append_v1",
+                },
+            ),
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
@@ -352,6 +395,23 @@ INFER_RULE_CASES = [
     ("models/gemini-3.8-flash-lite-tts", "google", "gemini-tts"),
     ("gemini-3-flash-preview", "google", "gemini-generate"),  # 非 TTS 的 gemini 文本不受影响
 ]
+
+
+class TestDeclarativeRequests:
+    def test_versioned_definition_declares_submit_and_poll_with_their_default_paths(self):
+        requests = {r.name: r for r in get_endpoint_spec("xai-video").requests}
+
+        assert set(requests) == {"submit", "poll"}
+        assert requests["submit"].default_path == "/v1/videos/generations"
+        assert requests["poll"].default_path == "/v1/videos/{{ task_id }}"
+        assert requests["poll"].placeholders == ("model", "task_id")
+        assert requests["poll"].base_url_rule == "strip_version"
+
+    def test_request_with_an_absolute_url_is_not_overridable(self):
+        definition = dict(ENDPOINT_REGISTRY["openrouter-video"].definition or {})
+        definition["poll"] = {**definition["poll"], "url": "https://status.test/videos/{{ task_id }}"}
+
+        assert [r.name for r in declarative_requests(definition)] == ["submit"]
 
 
 class TestInferEndpoint:

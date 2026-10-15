@@ -89,10 +89,10 @@ export function lookupSupportedDurations(
     const dbId = parseInt(providerId.slice(CUSTOM_PREFIX.length), 10);
     const cp = customProviders.find((p) => p.id === dbId);
     const model = cp?.models?.find((m) => m.model_id === modelId);
-    if (model?.supported_durations?.length) {
-      return model.supported_durations;
-    }
-    return undefined;
+    // 自定义模型的时长由对应的模型条目给出，前端只看得到用户写下的时长覆盖；
+    // 其余情形交给服务端的能力查询（useModelCapabilities）
+    const durations = model?.capability_overrides?.durations;
+    return durations?.length ? durations : undefined;
   }
 
   // Built-in provider

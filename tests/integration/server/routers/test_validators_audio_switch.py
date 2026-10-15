@@ -60,6 +60,38 @@ class TestRequireAudioSwitchSupported:
 
         assert await require_audio_switch_supported({}, "i2v") is None
 
+    @pytest.mark.parametrize(("audio_track", "rejected"), [("always_on", True), ("controllable", False)])
+    async def test_custom_model_follows_its_audio_track_override(self, db_factory, monkeypatch, audio_track, rejected):
+        """自定义供应商的模型按用户覆盖的音轨形态判开关：覆盖为恒有声时与内置恒有声模型同样在入口拒绝。"""
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Relay", discovery_format="openai", base_url="https://relay.test", api_key="k"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="relay-video-x1",
+                    display_name="relay-video-x1",
+                    endpoint="ark-seedance",
+                    capability_overrides={"audio_track": audio_track},
+                )
+            )
+            await session.commit()
+            backend = f"custom-{provider.id}/relay-video-x1"
+        await _seed_settings(db_factory, default_video_backend=backend, video_generate_audio="false")
+        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+
+        if rejected:
+            with pytest.raises(BadRequestError) as exc_info:
+                await require_audio_switch_supported({}, "i2v")
+            assert exc_info.value.key == "video_audio_switch_not_supported"
+        else:
+            assert await require_audio_switch_supported({}, "i2v") is None
+
     async def test_no_provider_configured_passes_through(self, db_factory, monkeypatch):
         await _seed_settings(db_factory, video_generate_audio="false")
         monkeypatch.setattr("lib.db.async_session_factory", db_factory)

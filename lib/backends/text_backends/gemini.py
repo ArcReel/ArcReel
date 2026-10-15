@@ -12,13 +12,15 @@ from PIL import Image
 from lib.config.url_utils import normalize_base_url
 from lib.infra.logging_utils import format_kwargs_for_log
 
-from ..gemini_shared import VERTEX_SCOPES, with_retry_async
+from ..gemini_shared import VERTEX_SCOPES, gemini_http_options, with_retry_async
 from ..providers import PROVIDER_GEMINI
+from ..transport_layer import TransportLayer
 from .base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
     check_truncation,
+    merge_billed_usage,
     prompt_json_fallback,
     resolve_schema,
     structured_fallback_reason,
@@ -110,6 +112,7 @@ class GeminiTextBackend:
         base_url: str | None = None,
         gcs_bucket: str | None = None,
         credentials_path: str | None = None,
+        transport_layer: TransportLayer | None = None,
     ):
         self._model = model or DEFAULT_MODEL
         raw_backend = backend or "aistudio"
@@ -148,10 +151,9 @@ class GeminiTextBackend:
             if not api_key:
                 raise ValueError("Gemini API Key 未提供（API Key is required for AI Studio mode）。")
             effective_base_url = normalize_base_url(base_url)
-            http_options: genai.types.HttpOptionsDict | None = (
-                {"base_url": effective_base_url} if effective_base_url else None
+            self._client = genai.Client(
+                api_key=api_key, http_options=gemini_http_options(effective_base_url, transport_layer)
             )
-            self._client = genai.Client(api_key=api_key, http_options=http_options)
             if base_url:
                 logger.info("GeminiTextBackend: 使用 AI Studio 后端（Base URL: %s）", base_url)
             else:
@@ -236,11 +238,7 @@ class GeminiTextBackend:
                     model=self._model,
                 )
                 # 这次原生 200 调用已被计费，把它的 token 并入降级结果，否则会系统性漏记。
-                # 仅在至少一侧有计量时相加；两侧皆 None（未追踪）保持 None，不塌成字面 0 token。
-                if result.input_tokens is not None or native.input_tokens is not None:
-                    result.input_tokens = (result.input_tokens or 0) + (native.input_tokens or 0)
-                if result.output_tokens is not None or native.output_tokens is not None:
-                    result.output_tokens = (result.output_tokens or 0) + (native.output_tokens or 0)
+                merge_billed_usage(result, native)
                 return result
 
         return native
@@ -275,9 +273,16 @@ class GeminiTextBackend:
 
         input_tokens: int | None = None
         output_tokens: int | None = None
-        if response.usage_metadata is not None:
-            input_tokens = getattr(response.usage_metadata, "prompt_token_count", None)
-            output_tokens = getattr(response.usage_metadata, "candidates_token_count", None)
+        cache_read_tokens: int | None = None
+        usage = response.usage_metadata
+        if usage is not None:
+            # prompt_token_count 含缓存命中部分（cached_content_token_count）；思考 token 按输出计费，
+            # 不在 candidates_token_count 里，须加回。
+            input_tokens = usage.prompt_token_count
+            cache_read_tokens = usage.cached_content_token_count
+            candidates = usage.candidates_token_count
+            thoughts = usage.thoughts_token_count
+            output_tokens = None if candidates is None and thoughts is None else (candidates or 0) + (thoughts or 0)
 
         candidates = getattr(response, "candidates", None) or []
         truncated = False
@@ -299,4 +304,5 @@ class GeminiTextBackend:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             truncated=truncated,
+            cache_read_tokens=cache_read_tokens,
         )

@@ -271,6 +271,31 @@ class TestCustomProviderBucketFiltering:
         assert option not in body["image"]["buckets"]["t2i"]
         assert option in body["image"]["default"]
 
+    @pytest.mark.parametrize(
+        ("endpoint", "model_id", "buckets"),
+        [
+            # 端点两者都实现，条目只接受图生图
+            ("dashscope-image", "qwen-image-edit-plus", {"i2i"}),
+            # 端点只实现文生图，条目只接受图生图：没有两者都满足的组合
+            ("openai-images-generations", "qwen-image-edit-plus", set()),
+            # 对应不上条目：模型事实不加约束，按端点声明
+            ("dashscope-image", "relay-image-x", {"t2i", "i2i"}),
+        ],
+    )
+    async def test_custom_image_buckets_need_both_entry_and_endpoint(
+        self, make_client, session_factory_and_engine, endpoint, model_id, buckets
+    ):
+        factory, _engine = session_factory_and_engine
+        with make_client([]) as client:
+            await _seed_custom_models(
+                factory,
+                [{"model_id": model_id, "display_name": model_id, "endpoint": endpoint, "is_enabled": True}],
+            )
+            body = client.get(CANDIDATES_URL).json()
+        option = _custom_option(body, model_id)
+        assert {bucket for bucket in ("t2i", "i2i") if option in body["image"]["buckets"][bucket]} == buckets
+        assert option in body["image"]["default"]
+
     async def test_disabled_custom_models_absent(self, make_client, session_factory_and_engine):
         factory, _engine = session_factory_and_engine
         with make_client([]) as client:

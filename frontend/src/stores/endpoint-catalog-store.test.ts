@@ -21,6 +21,7 @@ const FIXTURE: EndpointDescriptor[] = [
     duration_frame_rate_missing: false,
     duration_tier_empty: false,
     native_resolution: null,
+    requests: [],
   },
   {
     key: "newapi-video",
@@ -39,6 +40,7 @@ const FIXTURE: EndpointDescriptor[] = [
     duration_frame_rate_missing: false,
     duration_tier_empty: false,
     native_resolution: null,
+    requests: [],
   },
   {
     key: "openai-images",
@@ -57,6 +59,7 @@ const FIXTURE: EndpointDescriptor[] = [
     duration_frame_rate_missing: false,
     duration_tier_empty: false,
     native_resolution: null,
+    requests: [],
   },
   {
     key: "openai-images-generations",
@@ -75,6 +78,7 @@ const FIXTURE: EndpointDescriptor[] = [
     duration_frame_rate_missing: false,
     duration_tier_empty: false,
     native_resolution: null,
+    requests: [],
   },
   {
     key: "openai-images-edits",
@@ -93,6 +97,7 @@ const FIXTURE: EndpointDescriptor[] = [
     duration_frame_rate_missing: false,
     duration_tier_empty: false,
     native_resolution: null,
+    requests: [],
   },
 ];
 

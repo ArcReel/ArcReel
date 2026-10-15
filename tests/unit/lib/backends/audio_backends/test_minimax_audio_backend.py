@@ -47,7 +47,7 @@ async def test_synthesize_decodes_hex_audio_to_file(tmp_path: Path):
     assert body["audio_setting"]["format"] == "wav"
     assert out.read_bytes() == b"RIFFwavbytes"
     assert result.provider == "minimax"
-    assert result.characters == len("你好世界")
+    assert result.text == "你好世界"
 
 
 async def test_base_resp_error_raises_without_file(tmp_path: Path):

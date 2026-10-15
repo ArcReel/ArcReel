@@ -1,17 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { CapabilityOverrides, ImageCap, MediaType, VideoCapabilityFlags } from "@/types";
 import {
-  priceLabel,
   urlPreviewFor,
   toggleDefaultReducer,
   mergeDiscoveredModels,
   withLastFrameOverride,
+  withDurationsOverride,
   capabilityFieldsFor,
   globalBucketRefsFor,
   type CapabilitySnapshotRow,
 } from "./customProviderHelpers";
-
-const id = (k: string) => k;
 
 // 测试 fixture：模拟从 endpoint-catalog-store 派生的 endpoint→media map。
 const ENDPOINT_TO_MEDIA: Record<string, MediaType> = {
@@ -32,25 +30,6 @@ const ENDPOINT_TO_CAPS: Record<string, ImageCap[]> = {
   "openai-images-edits": ["image_to_image"],
   "gemini-image": ["text_to_image", "image_to_image"],
 };
-
-describe("priceLabel", () => {
-  it("video endpoint → per-second label", () => {
-    expect(priceLabel("newapi-video", ENDPOINT_TO_MEDIA, id).input).toBe("price_per_second");
-    expect(priceLabel("openai-video", ENDPOINT_TO_MEDIA, id).output).toBe("");
-  });
-  it("image endpoint → per-image label", () => {
-    expect(priceLabel("openai-images", ENDPOINT_TO_MEDIA, id).input).toBe("price_per_image");
-    expect(priceLabel("gemini-image", ENDPOINT_TO_MEDIA, id).output).toBe("");
-  });
-  it("text endpoint → per-M-token labels", () => {
-    expect(priceLabel("openai-chat", ENDPOINT_TO_MEDIA, id).input).toBe("price_per_m_input");
-    expect(priceLabel("gemini-generate", ENDPOINT_TO_MEDIA, id).output).toBe("price_per_m_output");
-  });
-  it("audio endpoint → per-10k-characters label", () => {
-    expect(priceLabel("openai-tts", ENDPOINT_TO_MEDIA, id).input).toBe("price_per_10k_chars");
-    expect(priceLabel("openai-tts", ENDPOINT_TO_MEDIA, id).output).toBe("");
-  });
-});
 
 describe("urlPreviewFor", () => {
   it("openai appends /v1 when missing", () => {
@@ -317,6 +296,18 @@ describe("withLastFrameOverride", () => {
     const prev: CapabilityOverrides = { last_frame: true };
     withLastFrameOverride(prev, undefined);
     expect(prev).toEqual({ last_frame: true });
+  });
+});
+
+describe("withDurationsOverride", () => {
+  it("写入档位时保留其余维度的覆盖", () => {
+    const prev = { last_frame: false } as CapabilityOverrides;
+    expect(withDurationsOverride(prev, [4, 8])).toEqual({ last_frame: false, durations: [4, 8] });
+  });
+
+  it("移除（undefined）后字典为空即收敛回 null，回到跟随 workflow 原生时长", () => {
+    expect(withDurationsOverride({ durations: [4, 8] }, undefined)).toBeNull();
+    expect(withDurationsOverride(null, undefined)).toBeNull();
   });
 });
 

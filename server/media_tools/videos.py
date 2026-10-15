@@ -19,6 +19,7 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.episode.episode_ids import describe_episode_for_agent
 from lib.generation.batch_admission import (
     BatchAdmission,
@@ -346,7 +347,10 @@ def _confirmation_lines(admission: BatchAdmission) -> list[str]:
         )
         headline = f"- {tier_label} × {tier.unit_count}：{'、'.join(tier.unit_ids)}"
         if tier.cost_amount is not None:
-            headline += f"；合计 {tier.cost_amount} {tier.cost_currency}"
+            suffix = "（仅含已定价的 unit）" if tier.unpriced_count else ""
+            headline += f"；合计 {tier.cost_amount} {tier.cost_currency}{suffix}"
+        if tier.unpriced_count:
+            headline += f"；其中 {tier.unpriced_count} 个 unit 未定价，费用未知，须如实告知用户"
         lines.append(headline)
     for ticket in admission.tickets:
         if not ticket.confirmation_only:
@@ -1051,7 +1055,9 @@ class _StoryboardBatch:
                 self.builder,
                 self.log,
                 storyboard_durations=durations,
-                storyboard_costs=await quote_storyboard_video_units(facts, durations),
+                storyboard_costs=await quote_storyboard_video_units(
+                    facts, durations, aspect_ratio=resolve_video_aspect_ratio(self.sb.project)
+                ),
             )
         if not admission.admitted:
             return _batch_admission_response(BatchAdmissionRefused(admission), self.log, self.builder, self.states)

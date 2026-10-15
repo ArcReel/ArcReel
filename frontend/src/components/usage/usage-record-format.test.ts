@@ -7,6 +7,7 @@ import {
   formatCount,
   formatDurationMs,
   formatRatio,
+  formatTokenAmount,
   usageProjectLabel,
 } from "./usage-record-format";
 
@@ -116,5 +117,21 @@ describe("usageProjectLabel", () => {
     expect(usageProjectLabel("rain-detective", t, "zh", null)).toBe("rain-detective");
     // 已删除的项目读不到标题，回退到原名与删除日期。
     expect(usageProjectLabel("demo#deleted-20261002T120000Z", t, "zh", null)).toBe("demo（2026年10月2日删除）");
+  });
+});
+
+describe("formatTokenAmount", () => {
+  it("writes the unit into the value, carrying to 万 and 亿 in Chinese", () => {
+    const t = dashboardT();
+    expect(formatTokenAmount(950, "zh", t)).toBe("950 token");
+    expect(formatTokenAmount(123_000, "zh", t)).toBe("12.3 万 token");
+    expect(formatTokenAmount(120_000, "zh", t)).toBe("12 万 token");
+    expect(formatTokenAmount(250_000_000, "zh", t)).toBe("2.5 亿 token");
+  });
+
+  it("uses compact notation in the other languages", async () => {
+    await i18n.changeLanguage("en");
+
+    expect(formatTokenAmount(123_000, "en", dashboardT())).toBe("123K tokens");
   });
 });

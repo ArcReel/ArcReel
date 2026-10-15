@@ -27,8 +27,9 @@ from lib.backends.text_backends.base import (
     TextGenerationResult,
     TextOutputTruncatedError,
     TokenParam,
+    chat_completion_result,
     check_truncation,
-    merge_billed_tokens,
+    merge_billed_usage,
     model_facing_response_model,
     strip_leading_think_block,
     truncate_for_log,
@@ -176,7 +177,7 @@ def _failure_reason(exc: BaseException) -> str:
     return f"降级链各档重试耗尽后模型输出仍不合规（{exc.n_attempts} 次尝试，最后一次 {detail}）"
 
 
-def _billed_usage(exc: BaseException) -> tuple[int | None, int | None]:
+def _billed_usage(exc: BaseException, *, provider: str, model: str) -> TextGenerationResult:
     """取这一档已经计费的 token，供降档时并入最终结果。
 
     档内重试里每次拿到 HTTP 200 的尝试都已被计费，即便响应最终没通过解析 / 校验；Instructor
@@ -184,9 +185,15 @@ def _billed_usage(exc: BaseException) -> tuple[int | None, int | None]:
     以免把 None 塌成字面 0 token。
     """
     usage = getattr(exc, "total_usage", None)
-    prompt = getattr(usage, "prompt_tokens", None) or None
-    completion = getattr(usage, "completion_tokens", None) or None
-    return prompt, completion
+    details = getattr(usage, "prompt_tokens_details", None)
+    return TextGenerationResult(
+        text="",
+        provider=provider,
+        model=model,
+        input_tokens=getattr(usage, "prompt_tokens", None) or None,
+        output_tokens=getattr(usage, "completion_tokens", None) or None,
+        cache_read_tokens=getattr(details, "cached_tokens", None) or None,
+    )
 
 
 def _propagated_cause(exc: Exception) -> Exception:
@@ -271,11 +278,11 @@ def generate_structured_via_instructor(
     max_tokens: int | None = None,
     token_param: TokenParam = "max_tokens",
     provider: str = "",
-) -> tuple[str, int | None, int | None]:
+) -> TextGenerationResult:
     """通过 Instructor 生成结构化输出（同步版，供 Ark 等同步 SDK 使用）。
 
     token_param 决定 max_tokens 值在导线上的参数名，由调用方按端点选择。
-    返回 (json_text, input_tokens, output_tokens)。Instructor 的
+    返回的结果以 JSON 文本为 ``text``，带这次调用的计量。Instructor 的
     ``IncompleteOutputException``（输出被 max_tokens 截断）归一为 :class:`TextOutputTruncatedError`，
     与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
@@ -294,15 +301,7 @@ def generate_structured_via_instructor(
         raise TextOutputTruncatedError(
             provider=provider, model=model, output_tokens=_output_tokens_from_incomplete(exc)
         ) from exc
-    json_text = result.model_dump_json()
-
-    input_tokens = None
-    output_tokens = None
-    if completion.usage:
-        input_tokens = completion.usage.prompt_tokens
-        output_tokens = completion.usage.completion_tokens
-
-    return json_text, input_tokens, output_tokens
+    return chat_completion_result(text=result.model_dump_json(), provider=provider, model=model, usage=completion.usage)
 
 
 async def generate_structured_via_instructor_async(
@@ -315,11 +314,11 @@ async def generate_structured_via_instructor_async(
     max_tokens: int | None = None,
     token_param: TokenParam = "max_tokens",
     provider: str = "",
-) -> tuple[str, int | None, int | None]:
+) -> TextGenerationResult:
     """通过 Instructor 生成结构化输出（异步版，供 OpenAI AsyncOpenAI 使用）。
 
     token_param 决定 max_tokens 值在导线上的参数名，由调用方按端点选择。
-    返回 (json_text, input_tokens, output_tokens)。Instructor 的
+    返回的结果以 JSON 文本为 ``text``，带这次调用的计量。Instructor 的
     ``IncompleteOutputException``（输出被 max_tokens 截断）归一为 :class:`TextOutputTruncatedError`，
     与原生结构化通道的截断行为同口径（见 docs/adr/0044）。
     """
@@ -338,15 +337,7 @@ async def generate_structured_via_instructor_async(
         raise TextOutputTruncatedError(
             provider=provider, model=model, output_tokens=_output_tokens_from_incomplete(exc)
         ) from exc
-    json_text = result.model_dump_json()
-
-    input_tokens = None
-    output_tokens = None
-    if completion.usage:
-        input_tokens = completion.usage.prompt_tokens
-        output_tokens = completion.usage.completion_tokens
-
-    return json_text, input_tokens, output_tokens
+    return chat_completion_result(text=result.model_dump_json(), provider=provider, model=model, usage=completion.usage)
 
 
 def inject_json_instruction(messages: list[dict]) -> list[dict]:
@@ -374,7 +365,7 @@ def _handle_mode_failure(
     next_mode: Mode | None,
     provider: str,
     model: str,
-) -> tuple[int | None, int | None]:
+) -> TextGenerationResult:
     """处理降级链某一档的失败：可降档则记日志后正常返回，否则抛终局异常或原样冒泡。
 
     正常返回即「调用方应继续下一档」，返回值是这一档已计费、需并入最终结果的 token。
@@ -392,7 +383,7 @@ def _handle_mode_failure(
             next_mode.value,
             _raw_output_from_exception(exc),
         )
-        return _billed_usage(exc)
+        return _billed_usage(exc, provider=provider, model=model)
     # 校验类耗尽，或末档仍是 wire 层不兼容——降级链已无更弱的档可退。
     logger.warning(
         "Instructor %s 档失败且降级链已走完，判定为结构化输出能力不足；模型原始输出：%s",
@@ -420,14 +411,11 @@ def instructor_fallback_sync(
     不做瞬态重试，瞬态错误由调用方的重试循环统一处理；档内的结构化校验重试由 Instructor 自带。
     """
     if isinstance(response_schema, type):
-        json_text: str | None = None
-        input_tokens: int | None = None
-        output_tokens: int | None = None
-        billed_input: int | None = None
-        billed_output: int | None = None
+        result: TextGenerationResult | None = None
+        billed = TextGenerationResult(text="", provider=provider, model=model)
         for mode, next_mode in _mode_chain_steps():
             try:
-                json_text, input_tokens, output_tokens = generate_structured_via_instructor(
+                result = generate_structured_via_instructor(
                     client=client,
                     model=model,
                     messages=messages,
@@ -439,19 +427,12 @@ def instructor_fallback_sync(
                 )
                 break
             except Exception as exc:
-                discarded_input, discarded_output = _handle_mode_failure(
-                    exc, mode=mode, next_mode=next_mode, provider=provider, model=model
-                )
-                billed_input = merge_billed_tokens(billed_input, discarded_input)
-                billed_output = merge_billed_tokens(billed_output, discarded_output)
-        assert json_text is not None  # 链内每条失败路径都抛异常，走到这里必有结果
-        return TextGenerationResult(
-            text=json_text,
-            provider=provider,
-            model=model,
-            input_tokens=merge_billed_tokens(input_tokens, billed_input),
-            output_tokens=merge_billed_tokens(output_tokens, billed_output),
-        )
+                discarded = _handle_mode_failure(exc, mode=mode, next_mode=next_mode, provider=provider, model=model)
+                merge_billed_usage(billed, discarded)
+        assert result is not None  # 链内每条失败路径都抛异常，走到这里必有结果
+        merge_billed_usage(billed, result)
+        billed.text = result.text
+        return billed
 
     logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")
     fb_messages = inject_json_instruction(messages)
@@ -478,13 +459,7 @@ def instructor_fallback_sync(
         output_tokens=output_tokens,
         structured=True,
     )
-    return TextGenerationResult(
-        text=text.strip(),
-        provider=provider,
-        model=model,
-        input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
-        output_tokens=output_tokens,
-    )
+    return chat_completion_result(text=text.strip(), provider=provider, model=model, usage=usage)
 
 
 async def instructor_fallback_async(
@@ -505,14 +480,11 @@ async def instructor_fallback_async(
     不做瞬态重试，瞬态错误由调用方的重试循环统一处理；档内的结构化校验重试由 Instructor 自带。
     """
     if isinstance(response_schema, type):
-        json_text: str | None = None
-        input_tokens: int | None = None
-        output_tokens: int | None = None
-        billed_input: int | None = None
-        billed_output: int | None = None
+        result: TextGenerationResult | None = None
+        billed = TextGenerationResult(text="", provider=provider, model=model)
         for mode, next_mode in _mode_chain_steps():
             try:
-                json_text, input_tokens, output_tokens = await generate_structured_via_instructor_async(
+                result = await generate_structured_via_instructor_async(
                     client=client,
                     model=model,
                     messages=messages,
@@ -524,19 +496,12 @@ async def instructor_fallback_async(
                 )
                 break
             except Exception as exc:
-                discarded_input, discarded_output = _handle_mode_failure(
-                    exc, mode=mode, next_mode=next_mode, provider=provider, model=model
-                )
-                billed_input = merge_billed_tokens(billed_input, discarded_input)
-                billed_output = merge_billed_tokens(billed_output, discarded_output)
-        assert json_text is not None  # 链内每条失败路径都抛异常，走到这里必有结果
-        return TextGenerationResult(
-            text=json_text,
-            provider=provider,
-            model=model,
-            input_tokens=merge_billed_tokens(input_tokens, billed_input),
-            output_tokens=merge_billed_tokens(output_tokens, billed_output),
-        )
+                discarded = _handle_mode_failure(exc, mode=mode, next_mode=next_mode, provider=provider, model=model)
+                merge_billed_usage(billed, discarded)
+        assert result is not None  # 链内每条失败路径都抛异常，走到这里必有结果
+        merge_billed_usage(billed, result)
+        billed.text = result.text
+        return billed
 
     logger.info("response_schema 为 dict，无法使用 Instructor，回退到 json_object 模式")
     fb_messages = inject_json_instruction(messages)
@@ -563,10 +528,4 @@ async def instructor_fallback_async(
         output_tokens=output_tokens,
         structured=True,
     )
-    return TextGenerationResult(
-        text=text.strip(),
-        provider=provider,
-        model=model,
-        input_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
-        output_tokens=output_tokens,
-    )
+    return chat_completion_result(text=text.strip(), provider=provider, model=model, usage=usage)

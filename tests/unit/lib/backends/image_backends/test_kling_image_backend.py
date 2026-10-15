@@ -222,6 +222,10 @@ class TestGenerateHappyPath:
         assert result.provider == PROVIDER_KLING
         assert result.image_uri == "https://x/final.png"
         assert result.image_path.read_bytes() == b"png-bytes"
+        # 请求体不带分辨率，不报分辨率
+        assert result.usage is not None
+        assert result.usage.dimensions == {}
+        assert result.usage.quantities == {"output_images": 1, "input_images": 0}
 
     async def test_multiple_images_takes_first(self, tmp_path):
         with _kling_image_api() as routes:

@@ -7,6 +7,7 @@ from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_market_core.video_backend_contract import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
+from lib.agent.credential_tiers import TIERS, AgentPricing, Tier, agent_pricing, tier_models
 from lib.catalog import query as catalog
 from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
@@ -67,37 +68,53 @@ assert set(_ANTHROPIC_ENV_MAP.values()) == set(ANTHROPIC_ENV_KEYS), (
 )
 
 
-async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
-    """从 DB 读 active credential，返回 {ENV_KEY: value} dict，**不写 os.environ**。
+# 档位 → 环境变量名。
+_TIER_ENV_KEYS: dict[Tier, str] = {
+    "model": "ANTHROPIC_MODEL",
+    "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "sonnet": "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "opus": "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "subagent": "CLAUDE_CODE_SUBAGENT_MODEL",
+}
 
-    返回值由 OptionsAssembler 的凭证注入（load_provider_env_overrides）注入到
-    ClaudeAgentOptions.env。
 
-    双轨期 fallback：active credential 字段为空时从 system_settings 兜底。
+@dataclass(frozen=True)
+class AnthropicEnv:
+    """注入 Agent 会话的 ANTHROPIC_* 环境变量，以及取自同一行凭证的计价依据（没有生效凭证时为默认值）。"""
+
+    env: dict[str, str]
+    pricing: AgentPricing
+
+
+async def build_anthropic_env(session: AsyncSession) -> AnthropicEnv:
+    """从 DB 读 active credential，返回 {ENV_KEY: value} 与计价依据快照，**不写 os.environ**。
+
+    返回值由 OptionsAssembler 的凭证注入（load_provider_env_overrides）注入到 ClaudeAgentOptions.env。凭证只读一次，
+    环境变量与计价依据（凭证 id、倍率、档位绑定）取自同一行：会话按连接时注入的凭证计价（docs/adr/0102）。
+
+    双轨期 fallback：active credential 字段为空时从 system_settings 兜底。档位模型名的规则见
+    :func:`lib.agent.credential_tiers.tier_models`。
     """
     # 局部 import 避免循环依赖（agent_credential_repo → agent_credential model → base）
     from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
-    repo = AgentCredentialRepository(session)
-    cred = await repo.get_active()
+    cred = await AgentCredentialRepository(session).get_active()
+    settings = await SystemSettingRepository(session).get_all()
 
     if cred is not None:
-        settings = await SystemSettingRepository(session).get_all()
-        return {
+        models = tier_models(cred, settings)
+        env = {
             "ANTHROPIC_API_KEY": cred.api_key or "",
             "ANTHROPIC_BASE_URL": cred.base_url or "",
-            "ANTHROPIC_MODEL": cred.model or settings.get("anthropic_model", "").strip(),
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": cred.haiku_model
-            or settings.get("anthropic_default_haiku_model", "").strip(),
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": cred.sonnet_model
-            or settings.get("anthropic_default_sonnet_model", "").strip(),
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": cred.opus_model or settings.get("anthropic_default_opus_model", "").strip(),
-            "CLAUDE_CODE_SUBAGENT_MODEL": cred.subagent_model or settings.get("claude_code_subagent_model", "").strip(),
+            **{_TIER_ENV_KEYS[tier]: models[tier] for tier in TIERS},
         }
+        return AnthropicEnv(env=env, pricing=agent_pricing(cred, settings))
 
     # 无 active credential — 回退 system_settings（双轨期兼容）
-    settings = await SystemSettingRepository(session).get_all()
-    return {env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()}
+    return AnthropicEnv(
+        env={env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()},
+        pricing=AgentPricing(),
+    )
 
 
 @dataclass

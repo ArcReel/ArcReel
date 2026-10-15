@@ -108,8 +108,8 @@ async def test_structured_output_encodes_text_format(tmp_path):
         }
     ]
     assert json.loads(result.text) == {"title": "雪夜", "episode_count": 3}
-    # 用量契约未落地前按现有字段上报：input_tokens 是含缓存命中的总输入
-    assert (result.input_tokens, result.output_tokens) == (1200, 40)
+    # input_tokens 是含缓存命中的总输入，缓存命中另报
+    assert (result.input_tokens, result.cache_read_tokens, result.output_tokens) == (1200, 1000, 40)
 
 
 async def test_schema_violating_output_falls_back_to_prompt_injection():

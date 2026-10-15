@@ -355,7 +355,7 @@ def comfyui_endpoint_definition(**overrides: Any) -> dict[str, Any]:
 
 
 async def seed_endpoint_fixed_video_model(db_factory, *, reference_images: bool = False) -> str:
-    """在测试库里建一个时长由端点固定的 ComfyUI 视频模型（``supported_durations`` 为空集），返回 ``provider/model``。
+    """在测试库里建一个时长由端点固定的 ComfyUI 视频模型（端点没绑定帧数，可选时长为空集），返回 ``provider/model``。
 
     端点绑定首帧输入，``reference_images=True`` 时再绑定参考图输入，使该模型同时满足 i2v 与 r2v 桶的能力闸。
     """
@@ -383,7 +383,6 @@ async def seed_endpoint_fixed_video_model(db_factory, *, reference_images: bool 
                 model_id="wan-workflow",
                 display_name="Workflow",
                 endpoint=f"ce-{endpoint.id}",
-                supported_durations="[]",
                 is_default=True,
                 is_enabled=True,
             )

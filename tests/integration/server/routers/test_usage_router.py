@@ -3,7 +3,6 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import null
 
@@ -11,10 +10,7 @@ from lib.backends.providers import CallStatus
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
 from lib.project.project_manager import ProjectManager
-from server.auth import CurrentUserInfo, get_current_user
-from server.error_handlers import register_error_handlers
 from server.routers import usage
-from tests.auth_deps import AUTH_DEPENDENCIES
 
 BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 
@@ -35,17 +31,8 @@ def make_call(**overrides) -> ApiCall:
     return ApiCall(**fields)
 
 
-def build_client(db_factory, monkeypatch) -> TestClient:
-    monkeypatch.setattr(usage, "async_session_factory", db_factory)
-    app = FastAPI()
-    register_error_handlers(app)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    return TestClient(app)
-
-
 @pytest.fixture
-async def records_client(db_factory, monkeypatch):
+async def records_client(db_factory, usage_app):
     """五条终态记录 + 一条被任务代表的 pending + 一条无任务的 pending。"""
     async with db_factory() as session:
         session.add(
@@ -95,22 +82,36 @@ async def records_client(db_factory, monkeypatch):
         )
         await session.commit()
 
-    return build_client(db_factory, monkeypatch)
+    return TestClient(usage_app(db_factory))
 
 
 class TestUnpricedCost:
     @pytest.fixture
-    async def unpriced_client(self, db_factory, monkeypatch):
+    async def unpriced_client(self, db_factory, usage_app):
         async with db_factory() as session:
             session.add_all(
                 [
-                    make_call(segment_id="null", cost_amount=null()),
+                    make_call(
+                        segment_id="null",
+                        cost_amount=null(),
+                        unpriced_reason="missing_rate",
+                        input_tokens=1000,
+                        cache_read_tokens=600,
+                        cache_write_5m_tokens=100,
+                        cache_write_1h_tokens=50,
+                    ),
                     make_call(segment_id="zero", cost_amount=0.0, started_at=BASE_TIME + timedelta(minutes=1)),
                     make_call(segment_id="paid", cost_amount=1.5, started_at=BASE_TIME + timedelta(minutes=2)),
+                    make_call(
+                        segment_id="paid-cny",
+                        cost_amount=2.0,
+                        currency="CNY",
+                        started_at=BASE_TIME + timedelta(minutes=3),
+                    ),
                 ]
             )
             await session.commit()
-        return build_client(db_factory, monkeypatch)
+        return TestClient(usage_app(db_factory))
 
     def test_records_distinguish_null_from_zero(self, unpriced_client):
         items = unpriced_client.get("/api/v1/usage/records").json()["items"]
@@ -119,7 +120,21 @@ class TestUnpricedCost:
             "null": None,
             "zero": 0.0,
             "paid": 1.5,
+            "paid-cny": 2.0,
         }
+
+    def test_records_carry_unpriced_reason_and_cache_tokens(self, unpriced_client):
+        items = {item["segment_id"]: item for item in unpriced_client.get("/api/v1/usage/records").json()["items"]}
+
+        assert items["null"]["unpriced_reason"] == "missing_rate"
+        assert (
+            items["null"]["input_tokens"],
+            items["null"]["cache_read_tokens"],
+            items["null"]["cache_write_5m_tokens"],
+            items["null"]["cache_write_1h_tokens"],
+        ) == (1000, 600, 100, 50)
+        assert items["zero"]["unpriced_reason"] is None
+        assert items["zero"]["cache_read_tokens"] is None
 
     def test_detail_with_null_cost(self, unpriced_client):
         record_id = next(
@@ -131,13 +146,21 @@ class TestUnpricedCost:
         response = unpriced_client.get(f"/api/v1/usage/records/{record_id}")
 
         assert response.status_code == 200
-        assert response.json()["cost_amount"] is None
+        body = response.json()
+        assert body["cost_amount"] is None
+        assert body["unpriced_reason"] == "missing_rate"
+        assert body["cache_write_1h_tokens"] == 50
 
-    def test_summary_totals_skip_null(self, unpriced_client):
+    def test_summary_totals_only_priced_calls_and_counts_the_rest(self, unpriced_client):
+        """汇总只合计已定价的调用（0 元也是已定价），未定价的另给次数；主币种判定不变。"""
         body = unpriced_client.get("/api/v1/usage/summary").json()
 
-        assert body["kpi"]["calls"] == 3
-        assert body["kpi"]["cost"] == {"USD": 1.5}
+        assert body["kpi"]["calls"] == 4
+        assert body["kpi"]["cost"] == {"CNY": 2.0, "USD": 1.5}
+        assert body["kpi"]["unpriced_calls"] == 1
+        assert body["primary_currency"] == "CNY"
+        gemini = next(row for row in body["breakdown"]["provider"]["rows"] if row["provider"] == "gemini")
+        assert gemini["unpriced_calls"] == 1
 
 
 class TestUsageRecordsList:
@@ -242,7 +265,7 @@ class TestUsageRecordEpisodeItemRefs:
     """条目 ID 里的集 ID 不给创作者看：记录附上所属集的标题、播出位置与集内 ID。"""
 
     @pytest.fixture
-    async def client(self, db_factory, monkeypatch, tmp_path):
+    async def client(self, db_factory, monkeypatch, tmp_path, usage_app):
         projects = ProjectManager(tmp_path / "projects")
         projects.create_project("demo")
         projects.create_project_metadata("demo", "Demo")
@@ -266,7 +289,7 @@ class TestUsageRecordEpisodeItemRefs:
                 ]
             )
             await session.commit()
-        return build_client(db_factory, monkeypatch)
+        return TestClient(usage_app(db_factory))
 
     def test_records_carry_the_episode_title_and_broadcast_position(self, client):
         items = client.get("/api/v1/usage/records").json()["items"]
@@ -290,7 +313,7 @@ class TestUsageRecordProjectTitles:
     """项目列显示标题；项目读不到或没有标题时不给标题，由界面回退显示项目名。"""
 
     @pytest.fixture
-    async def client(self, db_factory, monkeypatch, tmp_path):
+    async def client(self, db_factory, monkeypatch, tmp_path, usage_app):
         projects = ProjectManager(tmp_path / "projects")
         projects.create_project("demo")
         projects.create_project_metadata("demo", "雨夜行舟")
@@ -311,7 +334,7 @@ class TestUsageRecordProjectTitles:
                 ]
             )
             await session.commit()
-        return build_client(db_factory, monkeypatch)
+        return TestClient(usage_app(db_factory))
 
     def test_records_carry_the_title_only_when_the_project_has_one(self, client):
         items = client.get("/api/v1/usage/records").json()["items"]

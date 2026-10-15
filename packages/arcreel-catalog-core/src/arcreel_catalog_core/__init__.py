@@ -48,6 +48,7 @@ from .vocabulary import (
     SERVICE_TIERS,
     Currency,
     MediaType,
+    MeterKind,
     MeterSpec,
     is_valid_dimension_value,
 )
@@ -75,6 +76,7 @@ __all__ = [
     "ImageFacts",
     "MediaType",
     "Meter",
+    "MeterKind",
     "MeterSpec",
     "ModelFacts",
     "PriceRow",

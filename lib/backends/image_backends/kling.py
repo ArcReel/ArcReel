@@ -28,15 +28,19 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     ReferenceImage,
     download_image_to_path,
+    per_image_usage,
 )
 from lib.backends.kling_backend_base import KlingBackendBase
 from lib.backends.kling_shared import (
@@ -44,6 +48,8 @@ from lib.backends.kling_shared import (
     image_to_base64,
 )
 from lib.backends.providers import PROVIDER_KLING
+from lib.backends.transport_layer import TransportLayer
+from lib.billing.metering import Usage
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +70,9 @@ _MODEL_REF_LIMITS: dict[str, int] = {
 class KlingImageBackend(KlingBackendBase):
     """可灵 Kling 图像后端（异步轮询，JWT / Bearer 双模式）。"""
 
+    # 文生图与图生图（多图主体）同一端点。
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+
     _media_label = "图像"
 
     def __init__(
@@ -77,6 +86,7 @@ class KlingImageBackend(KlingBackendBase):
         api_model_name: str | None = None,
         base_url: str | None = None,
         http_timeout: float = 60.0,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         super().__init__(
             auth_mode=auth_mode,
@@ -86,18 +96,14 @@ class KlingImageBackend(KlingBackendBase):
             model=model or DEFAULT_MODEL,
             base_url=base_url,
             http_timeout=http_timeout,
+            transport_layer=transport_layer,
         )
         # 发给可灵 API 的模型名：调用方按 registry 解耦后传入；缺省回退 registry 键名（普通模型键名即 API 名）。
         self._api_model_name = api_model_name or self._model
-        # o1 / v3-omni 均支持文生图 + 图生图（多图主体）。
-        self._capabilities: set[ImageCapability] = {
-            ImageCapability.TEXT_TO_IMAGE,
-            ImageCapability.IMAGE_TO_IMAGE,
-        }
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return self._capabilities
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:
@@ -170,10 +176,17 @@ class KlingImageBackend(KlingBackendBase):
 
     # ── generate ────────────────────────────────────────────────────────
 
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        """请求体不带分辨率（见模块说明），不报分辨率，按价目表的默认档计。"""
+        refs = facts.reference_count
+        limit = _MODEL_REF_LIMITS.get(facts.model, _DEFAULT_REF_LIMIT)
+        return per_image_usage(output_images=1, input_images=None if refs is None else min(refs, limit))
+
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         payload = self._build_payload(request)
         logger.info("调用 Kling 图像 API payload=%s", self._safe_log_view(payload))
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             task_id = await self._submit_task(client, _IMAGE_ENDPOINT, payload)
             logger.info("Kling 图像任务已创建: task_id=%s model=%s", task_id, self._model)
 
@@ -194,4 +207,6 @@ class KlingImageBackend(KlingBackendBase):
             model=self._model,
             image_uri=download_url,
             seed=request.seed,
+            # 请求体不带分辨率，不报分辨率。
+            usage=per_image_usage(output_images=1, input_images=len(payload.get("image", []))),
         )

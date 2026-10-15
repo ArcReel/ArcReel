@@ -2,7 +2,9 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
+from sqlalchemy import select
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
@@ -563,7 +565,7 @@ class TestVideoCapabilities:
         assert caps["max_reference_images"] == 0
 
     @staticmethod
-    async def _seed_comfyui_video_model(db_factory, definition: dict, supported_durations: str) -> str:
+    async def _seed_comfyui_video_model(db_factory, definition: dict, durations: list[int] | None = None) -> str:
         """落一个 ComfyUI 视频模型行，返回 ``provider/model``。"""
         from lib.db.models.custom_endpoint import CustomEndpoint
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -587,16 +589,16 @@ class TestVideoCapabilities:
                     model_id="my-wan-workflow",
                     display_name="My Workflow",
                     endpoint=f"ce-{endpoint.id}",
-                    supported_durations=supported_durations,
+                    capability_overrides=None if durations is None else {"durations": durations},
                 )
             )
             await session.commit()
             return f"custom-{provider.id}/my-wan-workflow"
 
-    async def test_a_stale_tier_on_the_row_is_dropped_when_the_endpoint_lost_its_frames_binding(self, db_factory):
-        """端点说这一维给不出档位时，行上存着的那份一律作废：真相源是端点，不是行。
+    async def test_a_stale_override_is_dropped_when_the_endpoint_lost_its_frames_binding(self, db_factory):
+        """端点说这一维给不出档位时，行上的可选时长覆盖一律作废：空集豁免以端点为准。
 
-        两边分叉时沿用行上的 ``[5]``，能力接口与剧本规划就会宣称 5 秒，而端点目录已经把时长
+        沿用行上的 ``[5]``，能力接口与剧本规划就会宣称 5 秒，而端点目录已经把时长
         控件禁掉——同一个问题两处答案不一样。
         """
         from tests.factories import comfyui_endpoint_definition
@@ -604,8 +606,8 @@ class TestVideoCapabilities:
         definition = comfyui_endpoint_definition()
         definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
         assert "frames" not in definition["bindings"]
-        # 行上存着的那份档位，与端点此刻的答案分叉。
-        backend = await self._seed_comfyui_video_model(db_factory, definition, "[5]")
+        # 行上存着的那份覆盖，与端点此刻的答案分叉。
+        backend = await self._seed_comfyui_video_model(db_factory, definition, [5])
 
         caps = await _video_caps(db_factory, {"video_backend": backend})
 
@@ -613,24 +615,34 @@ class TestVideoCapabilities:
         assert caps["max_duration"] == 0
         assert caps["duration_endpoint_fixed"] is True
 
-    async def test_an_empty_tier_on_the_row_gives_way_once_the_endpoint_can_drive_duration(self, db_factory):
-        """同一条规则的另一侧：行上是空集而端点给得出档位时，按端点的来。
-
-        沿用行上那份空集会让时长控件禁着、剧本规划借固定篇幅，而请求构造正在往图里写帧数。
-        """
+    @staticmethod
+    def _drivable_definition() -> dict:
         from tests.factories import comfyui_endpoint_definition
 
         definition = comfyui_endpoint_definition()
         definition["workflow"]["5"]["inputs"]["length"] = 81
         definition["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
         definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
-        # 行上是空集，而端点此刻推得出一档原生时长。
-        backend = await self._seed_comfyui_video_model(db_factory, definition, "[]")
+        return definition
+
+    async def test_without_an_override_the_tier_is_the_endpoint_native_duration(self, db_factory):
+        """端点推得出一档原生时长、行上没有覆盖时，按端点的来。"""
+        backend = await self._seed_comfyui_video_model(db_factory, self._drivable_definition())
 
         caps = await _video_caps(db_factory, {"video_backend": backend})
 
         assert caps["supported_durations"] == [5]
         assert caps["max_duration"] == 5
+        assert caps["duration_endpoint_fixed"] is False
+
+    async def test_a_durations_override_wins_once_the_endpoint_can_drive_duration(self, db_factory):
+        """端点驱动得了时长时，用户在模型行上增删过的可选时长优先（docs/adr/0082、0104 的例外）。"""
+        backend = await self._seed_comfyui_video_model(db_factory, self._drivable_definition(), [5, 10])
+
+        caps = await _video_caps(db_factory, {"video_backend": backend})
+
+        assert caps["supported_durations"] == [5, 10]
+        assert caps["max_duration"] == 10
         assert caps["duration_endpoint_fixed"] is False
 
 
@@ -775,7 +787,6 @@ class TestVoiceConsistency:
                 model_id="sora-like",
                 display_name="Sora-like",
                 endpoint="openai-video",
-                supported_durations="[4, 8]",
             )
             session.add(model)
             await session.commit()
@@ -804,7 +815,6 @@ class TestVoiceConsistency:
                 model_id="seedance-like",
                 display_name="Seedance-like",
                 endpoint="ark-seedance",
-                supported_durations="[4, 8]",
                 # max_reference_images 覆盖是让该 model 落进 r2v 桶的前提：参考生视频项目按
                 # r2v 定桶解析，ark-seedance 对未上表型号保守判 0，不覆盖会被解析闸挡在能力查询前
                 capability_overrides={
@@ -826,6 +836,72 @@ class TestVoiceConsistency:
             },
         )
         assert caps["voice_consistency"] == "native"
+
+
+class TestUnmatchedCustomVideoModelOverrides:
+    """对应不上条目的视频供应商模型带一维能力覆盖：覆盖的维度整体替换，未覆盖的维度按回落值（docs/adr/0104、0105）。
+
+    ark-seedance 端点按名字族认定通道事实；名字认不得时回落为文生视频 + 首帧、无尾帧、参考上限 0。可选时长
+    在对应不上条目时取按名字推断的预设，一个族都匹配不上时为 [4, 8]。回落结果不写回模型行。
+    """
+
+    @staticmethod
+    async def _seed(db_factory, model_id: str, overrides: dict) -> str:
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Relay", discovery_format="openai", base_url="https://relay.test", api_key="k"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add(
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id=model_id,
+                    display_name=model_id,
+                    endpoint="ark-seedance",
+                    capability_overrides=overrides,
+                )
+            )
+            await session.commit()
+            return f"custom-{provider.id}/{model_id}"
+
+    async def test_overridden_durations_replace_the_fallback_and_channel_facts_fall_back(self, db_factory):
+        backend = await self._seed(db_factory, "relay-video-x1", {"durations": [5, 10]})
+
+        caps = await _video_caps(db_factory, {"video_backend": backend})
+
+        assert caps["supported_durations"] == [5, 10]
+        assert (caps["text_to_video"], caps["first_frame"], caps["last_frame"]) == (True, True, False)
+        assert caps["max_reference_images"] == 0
+
+    @pytest.mark.parametrize(
+        ("model_id", "durations"),
+        [("relay-video-x1", [4, 8]), ("relay-kling-v2-turbo", [5, 10])],
+        ids=["no-family", "name-preset"],
+    )
+    async def test_overridden_channel_fact_replaces_and_durations_fall_back(self, db_factory, model_id, durations):
+        backend = await self._seed(db_factory, model_id, {"max_reference_images": 3})
+
+        caps = await _video_caps(db_factory, {"video_backend": backend})
+
+        assert caps["max_reference_images"] == 3
+        assert (caps["text_to_video"], caps["first_frame"], caps["last_frame"]) == (True, True, False)
+        assert caps["supported_durations"] == durations
+
+        from lib.db.models.custom_provider import CustomProviderModel
+
+        async with db_factory() as session:
+            row = (await session.execute(select(CustomProviderModel))).scalar_one()
+        assert row.capability_overrides == {"max_reference_images": 3}
+
+    async def test_audio_track_override_turns_voice_consistency_off(self, db_factory):
+        backend = await self._seed(db_factory, "relay-video-x1", {"audio_track": "always_off"})
+
+        caps = await _video_caps(db_factory, {"video_backend": backend})
+
+        assert caps["voice_consistency"] == "none"
 
 
 class TestVideoPricingGenerateAudio:
@@ -1228,28 +1304,25 @@ class TestResolveVideoBackendBuckets:
             await resolver._resolve_video_provider_model(fake_svc, None, None, None, "r2v")
         assert exc_info.value.code == "video_capability_missing_r2v"
 
-    async def test_bucket_reference_to_unknown_model_raises_unavailable(self):
-        """悬空引用（注册表已无该 model）由同一解析闸报错兜底，不静默换模型。"""
-        from lib.config.resolver import VideoBucketCapabilityError
-
+    async def test_bucket_reference_to_unknown_model_asks_to_reselect(self):
+        """悬空引用（模型清单已无该 model）由同一解析闸报「请重新选择模型」，不静默换模型。"""
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_video_backend_i2v": "ark/removed-model"})
-        with pytest.raises(VideoBucketCapabilityError) as exc_info:
+        with pytest.raises(ModelNotInCatalogError) as exc_info:
             await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
-        assert exc_info.value.code == "video_capability_reference_unavailable"
+        assert exc_info.value.code == "model_not_in_provider_catalog"
         assert exc_info.value.params == {"provider": "ark", "model": "removed-model"}
 
-    async def test_bucket_reference_to_non_video_model_raises_unavailable(self):
+    async def test_bucket_reference_to_non_video_model_asks_to_reselect(self):
         """所引模型不是视频模型同属悬空引用：backend caps 函数对同 provider 的图片模型也返回
         静态能力（``gemini-aistudio/gemini-3.1-flash-image`` 会拿到 first_frame=True），
         只判成员资格会放行，落到执行层才炸。"""
-        from lib.config.resolver import VideoBucketCapabilityError
 
         resolver = ConfigResolver.__new__(ConfigResolver)
         fake_svc = _FakeConfigService(settings={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image"})
-        with pytest.raises(VideoBucketCapabilityError) as exc_info:
+        with pytest.raises(ModelNotInCatalogError) as exc_info:
             await resolver._resolve_video_provider_model(fake_svc, None, None, None, "i2v")
-        assert exc_info.value.code == "video_capability_reference_unavailable"
+        assert exc_info.value.code == "model_not_in_provider_catalog"
 
     async def test_capability_none_keeps_legacy_resolution_without_gate(self):
         """不定桶调用（费用估算、限流路由兜底）保持旧三级解析，不读桶键、不过能力闸。"""
@@ -1569,6 +1642,49 @@ class TestStyleAnalysisVisionGuard:
         result = await resolver._resolve_text_backend(fake_svc, MagicMock(), TextTaskType.STYLE_ANALYSIS, None)
         assert result == ("custom-abc", "some-model")
 
+    async def test_custom_model_follows_image_input_override(self, db_factory):
+        """自定义供应商的文本模型：能力覆盖关掉图片输入时报错；对应不上条目且没有覆盖时放行。"""
+        from lib.backends.text_backends.base import TextTaskType
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        async with db_factory() as session:
+            provider = CustomProvider(display_name="R", discovery_format="openai", base_url="https://r", api_key="k")
+            session.add(provider)
+            await session.flush()
+            session.add_all(
+                [
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="blind-llm",
+                        display_name="blind",
+                        endpoint="openai-chat",
+                        capability_overrides={"image_input": False},
+                    ),
+                    CustomProviderModel(
+                        provider_id=provider.id, model_id="relay-llm", display_name="relay", endpoint="openai-chat"
+                    ),
+                ]
+            )
+            await session.commit()
+            pid = f"custom-{provider.id}"
+
+        resolver = ConfigResolver(db_factory)
+        async with db_factory() as session:
+            with pytest.raises(ValueError, match="vision"):
+                await resolver._resolve_text_backend(
+                    _FakeConfigService(settings={"text_backend_simple": f"{pid}/blind-llm"}),
+                    session,
+                    TextTaskType.STYLE_ANALYSIS,
+                    None,
+                )
+            result = await resolver._resolve_text_backend(
+                _FakeConfigService(settings={"text_backend_simple": f"{pid}/relay-llm"}),
+                session,
+                TextTaskType.STYLE_ANALYSIS,
+                None,
+            )
+        assert result == (pid, "relay-llm")
+
     @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
     async def test_complex_tier_task_not_vision_checked(self, provider_id):
         """vision 校验只针对需要图像输入的任务，SCRIPT 不受限。"""
@@ -1680,7 +1796,7 @@ class TestPayloadPinnedVideoModel:
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
         payload = {"video_provider_i2v": "seedance/legacy"}
-        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+        with pytest.raises(ModelNotInCatalogError) as excinfo:
             await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
         assert excinfo.value.provider_id == "seedance"
 
@@ -1690,7 +1806,7 @@ class TestPayloadPinnedVideoModel:
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
         payload = {"video_provider_i2v": "ark/retired-model"}
-        with pytest.raises(VideoBucketCapabilityError) as excinfo:
+        with pytest.raises(ModelNotInCatalogError) as excinfo:
             await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
         assert excinfo.value.model_id == "retired-model"
 
@@ -1700,7 +1816,7 @@ class TestPayloadPinnedVideoModel:
         fake_svc = _FakeConfigService(settings={})
         project = {"video_backend": "grok/grok-imagine-video"}
         payload = {"video_provider_i2v": "ark/doubao-seedream-4-0-250828"}
-        with pytest.raises(VideoBucketCapabilityError):
+        with pytest.raises(ModelNotInCatalogError):
             await resolver._resolve_video_provider_model(fake_svc, None, project, payload, "i2v")
 
     async def test_malformed_pin_falls_through_to_config(self):

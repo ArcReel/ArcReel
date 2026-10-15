@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-15T10:00:00Z",
+  "dataset_version": "2026-10-15T18:00:00Z",
   "entries": [
     {
       "maker": "google",
@@ -16,21 +16,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 200000
+                },
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 200000
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 12.0
+              },
+              {
+                "when": {
+                  "context_tier": 200000
+                },
+                "price": 18.0
               }
             ]
           }
@@ -57,6 +97,16 @@
               {
                 "when": {},
                 "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.05
               }
             ]
           },
@@ -93,6 +143,16 @@
               {
                 "when": {},
                 "price": 0.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.025
               }
             ]
           },
@@ -628,20 +688,6 @@
                   "audio": false
                 },
                 "price": 0.1
-              },
-              {
-                "when": {
-                  "resolution": "4k",
-                  "audio": true
-                },
-                "price": 0.3
-              },
-              {
-                "when": {
-                  "resolution": "4k",
-                  "audio": false
-                },
-                "price": 0.25
               }
             ],
             "defaults": {
@@ -656,7 +702,7 @@
       "maker": "bytedance",
       "name": "doubao-seed-2.0-pro",
       "media_type": "text",
-      "display_name": "豆包 Seed 2.0 Pro",
+      "display_name": "\u8c46\u5305 Seed 2.0 Pro",
       "aliases": [
         "doubao-seed-2-0-pro-260215"
       ],
@@ -669,21 +715,79 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 3.2
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 4.8
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 9.6
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.64
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.96
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 1.92
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 16.0
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 24.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 48.0
               }
             ]
           }
@@ -694,7 +798,7 @@
       "maker": "bytedance",
       "name": "doubao-seed-2.0-lite",
       "media_type": "text",
-      "display_name": "豆包 Seed 2.0 Lite",
+      "display_name": "\u8c46\u5305 Seed 2.0 Lite",
       "aliases": [
         "doubao-seed-2-0-lite-260215"
       ],
@@ -707,21 +811,79 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.6
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.9
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 1.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.12
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.18
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.36
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 3.6
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 5.4
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 10.8
               }
             ]
           }
@@ -732,7 +894,7 @@
       "maker": "bytedance",
       "name": "doubao-seed-2.0-mini",
       "media_type": "text",
-      "display_name": "豆包 Seed 2.0 Mini",
+      "display_name": "\u8c46\u5305 Seed 2.0 Mini",
       "aliases": [
         "doubao-seed-2-0-mini-260215"
       ],
@@ -745,21 +907,79 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.4
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.04
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.08
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.16
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 4.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 8.0
               }
             ]
           }
@@ -770,7 +990,7 @@
       "maker": "bytedance",
       "name": "doubao-seed-1.8",
       "media_type": "text",
-      "display_name": "豆包 Seed 1.8",
+      "display_name": "\u8c46\u5305 Seed 1.8",
       "aliases": [
         "doubao-seed-1-8-251228"
       ],
@@ -1327,9 +1547,92 @@
       "maker": "bytedance",
       "name": "doubao-seed-2.0-code",
       "media_type": "text",
-      "display_name": "豆包 Seed 2.0 Code",
+      "display_name": "\u8c46\u5305 Seed 2.0 Code",
       "facts": {
         "max_output_tokens": 131072
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 3.2
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 4.8
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 9.6
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.64
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.96
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 1.92
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 16.0
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 24.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 48.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1337,8 +1640,46 @@
       "name": "deepseek-v4-flash",
       "media_type": "text",
       "display_name": "DeepSeek V4 Flash",
+      "aliases": [
+        "deepseek-flash"
+      ],
       "facts": {
         "max_output_tokens": 393216
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.04
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 8.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1348,6 +1689,41 @@
       "display_name": "DeepSeek V4 Pro",
       "facts": {
         "max_output_tokens": 393216
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 9.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 27.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1357,6 +1733,71 @@
       "display_name": "GLM 5.1",
       "facts": {
         "max_output_tokens": 131072
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 6.0
+              },
+              {
+                "when": {
+                  "context_tier": 31999
+                },
+                "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.3
+              },
+              {
+                "when": {
+                  "context_tier": 31999
+                },
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 24.0
+              },
+              {
+                "when": {
+                  "context_tier": 31999
+                },
+                "price": 28.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1366,6 +1807,41 @@
       "display_name": "Kimi K2.6",
       "facts": {
         "max_output_tokens": 32768
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.1
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 27.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1387,6 +1863,26 @@
               {
                 "when": {},
                 "price": 2.1
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.42
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.625
               }
             ]
           },
@@ -1418,21 +1914,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 2.0
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 6.0
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 5.0
               }
             ]
           }
@@ -1454,21 +1990,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 2.0
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 6.0
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 5.0
               }
             ]
           }
@@ -1490,21 +2066,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 0.5
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 5.0
               }
             ]
           }
@@ -1526,21 +2142,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 0.4
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
-                "price": 0.5
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 5.0
               }
             ]
           }
@@ -1600,6 +2256,16 @@
               {
                 "when": {},
                 "price": 0.02
+              }
+            ]
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.002
               }
             ]
           }
@@ -2308,23 +2974,102 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
                 "price": 30.0
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 60.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 15.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
+                "price": 30.0
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 60.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 15.0
+              }
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier",
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 0
+                },
                 "price": 180.0
+              },
+              {
+                "when": {
+                  "service_tier": "standard",
+                  "context_tier": 272000
+                },
+                "price": 270.0
+              },
+              {
+                "when": {
+                  "service_tier": "flex",
+                  "context_tier": 0
+                },
+                "price": 90.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           }
         ]
       }
@@ -2344,23 +3089,72 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard"
+                },
                 "price": 1.75
+              },
+              {
+                "when": {
+                  "service_tier": "fast"
+                },
+                "price": 3.5
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "service_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "service_tier": "standard"
+                },
+                "price": 0.175
+              },
+              {
+                "when": {
+                  "service_tier": "fast"
+                },
+                "price": 0.35
+              }
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "service_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "service_tier": "standard"
+                },
                 "price": 14.0
+              },
+              {
+                "when": {
+                  "service_tier": "fast"
+                },
+                "price": 28.0
               }
-            ]
+            ],
+            "defaults": {
+              "service_tier": "standard"
+            }
           }
         ]
       }
@@ -2380,6 +3174,16 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 20.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
             "dims": [],
             "rows": [
               {
@@ -2709,30 +3513,56 @@
           {
             "meter": "output_seconds",
             "dims": [
-              "resolution"
+              "resolution",
+              "reference_to_video"
             ],
             "rows": [
               {
                 "when": {
-                  "resolution": "540p"
+                  "resolution": "540p",
+                  "reference_to_video": false
                 },
                 "price": 0.21875
               },
               {
                 "when": {
-                  "resolution": "720p"
+                  "resolution": "540p",
+                  "reference_to_video": true
+                },
+                "price": 0.125
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "reference_to_video": false
                 },
                 "price": 0.375
               },
               {
                 "when": {
-                  "resolution": "1080p"
+                  "resolution": "720p",
+                  "reference_to_video": true
+                },
+                "price": 0.3125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "reference_to_video": false
+                },
+                "price": 0.40625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "reference_to_video": true
                 },
                 "price": 0.40625
               }
             ],
             "defaults": {
-              "resolution": "720p"
+              "resolution": "720p",
+              "reference_to_video": false
             }
           }
         ]
@@ -2920,40 +3750,62 @@
             "meter": "requests",
             "dims": [
               "resolution",
-              "duration"
+              "duration",
+              "reference_to_video"
             ],
             "rows": [
               {
                 "when": {
                   "resolution": "360p",
-                  "duration": 4
+                  "duration": 4,
+                  "reference_to_video": false
                 },
                 "price": 0.625
               },
               {
                 "when": {
                   "resolution": "720p",
-                  "duration": 4
+                  "duration": 4,
+                  "reference_to_video": false
                 },
                 "price": 1.25
               },
               {
                 "when": {
                   "resolution": "1080p",
-                  "duration": 4
+                  "duration": 4,
+                  "reference_to_video": false
                 },
                 "price": 3.125
               },
               {
                 "when": {
                   "resolution": "720p",
-                  "duration": 8
+                  "duration": 8,
+                  "reference_to_video": false
                 },
                 "price": 3.125
+              },
+              {
+                "when": {
+                  "resolution": "360p",
+                  "duration": 4,
+                  "reference_to_video": true
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 4,
+                  "reference_to_video": true
+                },
+                "price": 2.5
               }
             ],
             "defaults": {
-              "resolution": "720p"
+              "resolution": "720p",
+              "reference_to_video": false
             }
           }
         ]
@@ -2973,21 +3825,105 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 0.8
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 2.4
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 4.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.16
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 0.48
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 0.96
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 3.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 6.0
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 20.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 48.0
               }
             ]
           }
@@ -3009,21 +3945,81 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 0.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 10.0
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 12.0
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 48.0
               }
             ]
           }
@@ -3088,6 +4084,26 @@
             ]
           },
           {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.4
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 15.0
+              }
+            ]
+          },
+          {
             "meter": "output_tokens",
             "dims": [],
             "rows": [
@@ -3115,21 +4131,81 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 1.2
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 4.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.12
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 0.48
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.5
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 6.0
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 7.2
+              },
+              {
+                "when": {
+                  "context_tier": 256000
+                },
+                "price": 28.8
               }
             ]
           }
@@ -3300,7 +4376,7 @@
       "maker": "alibaba",
       "name": "wan2.7-image",
       "media_type": "image",
-      "display_name": "万相 2.7 图像",
+      "display_name": "\u4e07\u76f8 2.7 \u56fe\u50cf",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -3329,7 +4405,7 @@
       "maker": "alibaba",
       "name": "wan2.7-image-pro",
       "media_type": "image",
-      "display_name": "万相 2.7 图像 Pro",
+      "display_name": "\u4e07\u76f8 2.7 \u56fe\u50cf Pro",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -3359,7 +4435,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.1-i2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.1 图生视频",
+      "display_name": "HappyHorse 1.1 \u56fe\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -3421,7 +4497,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.1-t2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.1 文生视频",
+      "display_name": "HappyHorse 1.1 \u6587\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -3483,7 +4559,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.1-r2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.1 参考生视频",
+      "display_name": "HappyHorse 1.1 \u53c2\u8003\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -3545,7 +4621,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.0-i2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.0 图生视频",
+      "display_name": "HappyHorse 1.0 \u56fe\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -3600,7 +4676,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.0-t2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.0 文生视频",
+      "display_name": "HappyHorse 1.0 \u6587\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -3655,7 +4731,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.0-r2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.0 参考生视频",
+      "display_name": "HappyHorse 1.0 \u53c2\u8003\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -3710,7 +4786,7 @@
       "maker": "alibaba",
       "name": "wan2.7-i2v",
       "media_type": "video",
-      "display_name": "万相 2.7 图生视频",
+      "display_name": "\u4e07\u76f8 2.7 \u56fe\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           2,
@@ -3766,7 +4842,7 @@
       "maker": "alibaba",
       "name": "wan2.7-t2v",
       "media_type": "video",
-      "display_name": "万相 2.7 文生视频",
+      "display_name": "\u4e07\u76f8 2.7 \u6587\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           2,
@@ -3822,7 +4898,7 @@
       "maker": "alibaba",
       "name": "wan2.7-r2v",
       "media_type": "video",
-      "display_name": "万相 2.7 参考生视频",
+      "display_name": "\u4e07\u76f8 2.7 \u53c2\u8003\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           2,
@@ -3878,7 +4954,7 @@
       "maker": "alibaba",
       "name": "wan3.0-video",
       "media_type": "video",
-      "display_name": "万相 3.0 视频",
+      "display_name": "\u4e07\u76f8 3.0 \u89c6\u9891",
       "facts": {
         "durations": [
           2,
@@ -3990,21 +5066,61 @@
         "meters": [
           {
             "meter": "uncached_input_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 2.1
+              },
+              {
+                "when": {
+                  "context_tier": 512000
+                },
+                "price": 4.2
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.42
+              },
+              {
+                "when": {
+                  "context_tier": 512000
+                },
+                "price": 0.84
               }
             ]
           },
           {
             "meter": "output_tokens",
-            "dims": [],
+            "dims": [
+              "context_tier"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "context_tier": 0
+                },
                 "price": 8.4
+              },
+              {
+                "when": {
+                  "context_tier": 512000
+                },
+                "price": 16.8
               }
             ]
           }
@@ -4262,7 +5378,7 @@
       "maker": "kuaishou",
       "name": "kling-v2-5-turbo",
       "media_type": "video",
-      "display_name": "可灵 2.5 Turbo",
+      "display_name": "\u53ef\u7075 2.5 Turbo",
       "facts": {
         "durations": [
           5,
@@ -4306,7 +5422,7 @@
       "maker": "kuaishou",
       "name": "kling-image-o1",
       "media_type": "image",
-      "display_name": "可灵图像 O1",
+      "display_name": "\u53ef\u7075\u56fe\u50cf O1",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -4335,7 +5451,7 @@
       "maker": "kuaishou",
       "name": "kling-v3-omni",
       "media_type": "image",
-      "display_name": "可灵 V3-Omni（图像）",
+      "display_name": "\u53ef\u7075 V3-Omni\uff08\u56fe\u50cf\uff09",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -4384,7 +5500,7 @@
       "maker": "kuaishou",
       "name": "kling-v3",
       "media_type": "video",
-      "display_name": "可灵 v3",
+      "display_name": "\u53ef\u7075 v3",
       "facts": {
         "durations": [
           3,
@@ -4464,7 +5580,7 @@
       "maker": "kuaishou",
       "name": "kling-v3-omni",
       "media_type": "video",
-      "display_name": "可灵 v3 Omni",
+      "display_name": "\u53ef\u7075 v3 Omni",
       "facts": {
         "durations": [
           3,
@@ -4566,7 +5682,7 @@
       "maker": "kuaishou",
       "name": "kling-v2-6",
       "media_type": "video",
-      "display_name": "可灵 v2.6",
+      "display_name": "\u53ef\u7075 v2.6",
       "facts": {
         "durations": [
           5,
@@ -4621,7 +5737,7 @@
       "maker": "kuaishou",
       "name": "kling-video-o1",
       "media_type": "video",
-      "display_name": "可灵 Video O1",
+      "display_name": "\u53ef\u7075 Video O1",
       "facts": {
         "durations": [
           5,
@@ -4851,6 +5967,797 @@
       }
     },
     {
+      "maker": "anthropic",
+      "name": "claude-opus-5-5",
+      "media_type": "text",
+      "display_name": "Claude Opus 5.5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.2
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 20.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-5",
+      "media_type": "text",
+      "display_name": "Claude Opus 5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-4-8",
+      "media_type": "text",
+      "display_name": "Claude Opus 4.8",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-4-7",
+      "media_type": "text",
+      "display_name": "Claude Opus 4.7",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-4-6",
+      "media_type": "text",
+      "display_name": "Claude Opus 4.6",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-4-5",
+      "media_type": "text",
+      "display_name": "Claude Opus 4.5",
+      "aliases": [
+        "claude-opus-4-5-20251101"
+      ],
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-sonnet-5-5",
+      "media_type": "text",
+      "display_name": "Claude Sonnet 5.5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-sonnet-5",
+      "media_type": "text",
+      "display_name": "Claude Sonnet 5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.2
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-sonnet-4-6",
+      "media_type": "text",
+      "display_name": "Claude Sonnet 4.6",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.75
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 15.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-sonnet-4-5",
+      "media_type": "text",
+      "display_name": "Claude Sonnet 4.5",
+      "aliases": [
+        "claude-sonnet-4-5-20250929"
+      ],
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.75
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 15.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-haiku-5-5",
+      "media_type": "text",
+      "display_name": "Claude Haiku 5.5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.1
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.01
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 0.05
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.125
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 0.625
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 1.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.5
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 2.5
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-haiku-4-5",
+      "media_type": "text",
+      "display_name": "Claude Haiku 4.5",
+      "aliases": [
+        "claude-haiku-4-5-20251001"
+      ],
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "maker": "agnes",
       "name": "agnes-image-2.5-flash",
       "media_type": "image",
@@ -4902,6 +6809,17 @@
             "defaults": {
               "resolution": "1K"
             }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.003
+              }
+            ],
+            "free_allowance": 3
           }
         ]
       }
@@ -4957,6 +6875,17 @@
             "defaults": {
               "resolution": "1K"
             }
+          },
+          {
+            "meter": "input_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.003
+              }
+            ],
+            "free_allowance": 3
           }
         ]
       }
