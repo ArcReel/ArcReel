@@ -29,6 +29,7 @@ from lib.backends.backend_runtime import (
 )
 from lib.backends.providers import PROVIDER_VIDU
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, match_by_names
 from lib.backends.vidu_shared import (
     VIDU_RETRYABLE_ERRORS,
@@ -41,6 +42,7 @@ from lib.backends.vidu_shared import (
     safe_body_for_log,
     vidu_failure_reason,
 )
+from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -359,11 +361,7 @@ class ViduVideoBackend:
 
         # 8) images 按端点形态填充
         if endpoint == "/reference2video":
-            refs = [Path(p) for p in (request.reference_images or []) if p]
-            if len(refs) > _MAX_REFERENCE_IMAGES:
-                logger.warning("Vidu 参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
-                refs = refs[:_MAX_REFERENCE_IMAGES]
-            body["images"] = [image_to_data_uri(p) for p in refs]
+            body["images"] = [image_to_data_uri(p) for p in _reference_images(request)]
         elif endpoint == "/start-end2video":
             assert request.start_image is not None
             assert request.end_image is not None
@@ -379,21 +377,34 @@ class ViduVideoBackend:
         return endpoint, body
 
     def _select_endpoint(self, request: VideoGenerationRequest) -> str:
-        refs = [p for p in (request.reference_images or []) if p]
         # 若用户显式传了 start/end_image 但文件不存在，应直接失败而不是静默降级到 text2video。
         if request.start_image is not None and not Path(request.start_image).exists():
             raise FileNotFoundError(f"start_image 文件不存在: {request.start_image}")
         if request.end_image is not None and not Path(request.end_image).exists():
             raise FileNotFoundError(f"end_image 文件不存在: {request.end_image}")
-        has_start = request.start_image is not None
-        has_end = request.end_image is not None
-        if refs:
-            return "/reference2video"
-        if has_start and has_end:
-            return "/start-end2video"
-        if has_start:
-            return "/img2video"
-        return "/text2video"
+        return _endpoint_for(request)
+
+    @staticmethod
+    def metered_usage(
+        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+        时长、分辨率与参考图张数取 ``_build_request`` 同一套校正后的发送值；参考生视频按端点判定，Vidu 的
+        参考生视频与图生、文生视频单价不同。是否有声只对 q3 系列成立（只有它们发送 ``audio``）。
+        """
+        known = _known_model(model)
+        endpoint = _endpoint_for(request)
+        seconds = _coerce_duration(known or model, endpoint, request.duration_seconds)
+        return video_usage(
+            request,
+            result,
+            seconds=seconds,
+            resolution=_coerce_resolution(known or model, request.resolution),
+            audio=bool(request.generate_audio) if known in _Q3_MODELS else False,
+            reference_images=len(_reference_images(request)) if endpoint == "/reference2video" else 0,
+            reference_to_video=endpoint == "/reference2video",
+        )
 
     # ── HTTP wrappers ───────────────────────────────────────────────────
 
@@ -425,6 +436,26 @@ class ViduVideoBackend:
         终态刚签发的地址可能尚未在 CDN 侧传播，403/404 要重试而不是判死一条已付费的成片。
         """
         await download_video(url, output_path, label="Vidu", retryable_errors=VIDU_RETRYABLE_ERRORS)
+
+
+def _endpoint_for(request: VideoGenerationRequest) -> str:
+    """请求派发到哪个端点：有参考图 → 参考生视频；首尾帧 → 首尾帧生视频；首帧 → 图生视频；否则文生视频。"""
+    if any(request.reference_images or []):
+        return "/reference2video"
+    if request.start_image is not None and request.end_image is not None:
+        return "/start-end2video"
+    if request.start_image is not None:
+        return "/img2video"
+    return "/text2video"
+
+
+def _reference_images(request: VideoGenerationRequest) -> list[Path]:
+    """参考生视频实际发出的参考图：超过上限的部分截断。"""
+    refs = [Path(p) for p in (request.reference_images or []) if p]
+    if len(refs) > _MAX_REFERENCE_IMAGES:
+        logger.warning("Vidu 参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
+        refs = refs[:_MAX_REFERENCE_IMAGES]
+    return refs
 
 
 def _coerce_duration(model: str, endpoint: str, requested: int | None) -> int:

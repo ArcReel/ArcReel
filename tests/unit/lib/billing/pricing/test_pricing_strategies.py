@@ -245,9 +245,9 @@ class TestPerSecondMatrix:
         )
         assert amount == pytest.approx(0.50)
 
-    def test_duration_defaults_to_8(self):
-        amount, _ = calculate_pricing(self.flat, PricingParams(call_type="video", model="grok"))
-        assert amount == pytest.approx(0.40)
+    def test_missing_duration_is_not_guessed(self):
+        with pytest.raises(ValueError, match="缺少时长"):
+            calculate_pricing(self.flat, PricingParams(call_type="video", model="grok"))
 
     def test_resolution_audio_zero_fallback_rate_not_treated_as_missing(self):
         # free 模型 (720p,True) 显式 0.0，未知分辨率回落 fallback 时应保留自身 0.0，不误用 paid 费率。
@@ -352,9 +352,9 @@ class TestPerVideoBucket:
         )
         assert amount == pytest.approx(2.0)
 
-    def test_none_duration_defaults_to_min_bucket(self):
-        amount, _ = calculate_pricing(self.pricing, PricingParams(call_type="video", model="hailuo", resolution="768p"))
-        assert amount == pytest.approx(2.0)
+    def test_missing_duration_is_not_guessed(self):
+        with pytest.raises(ValueError, match="缺少时长"):
+            calculate_pricing(self.pricing, PricingParams(call_type="video", model="hailuo", resolution="768p"))
 
 
 class TestPerTokenVideo:
@@ -402,23 +402,18 @@ class TestPerTokenVideo:
 
 
 class TestViduDelegate:
-    def test_credits_path(self):
+    def test_image_credits_path(self):
         # usage_tokens (credits) 给定 → credits × 0.03125 CNY
         amount, currency = calculate_pricing(
             ViduDelegate(),
-            PricingParams(call_type="video", model="viduq3-turbo", usage_tokens=100),
+            PricingParams(call_type="image", model="viduq2", usage_tokens=8),
         )
         assert currency == "CNY"
-        assert amount == pytest.approx(100 * 0.03125)
+        assert amount == pytest.approx(8 * 0.03125)
 
-    def test_fallback_passes_original_model(self):
-        # 无 credits → 按表估算，model 透传（viduq3-turbo 720p = 12 credits/s）
-        amount, currency = calculate_pricing(
-            ViduDelegate(),
-            PricingParams(call_type="video", model="viduq3-turbo", resolution="720p", duration_seconds=5),
-        )
-        assert currency == "CNY"
-        assert amount == pytest.approx(5 * 12 * 0.03125)
+    def test_video_is_no_longer_delegated_to_credits(self):
+        with pytest.raises(ValueError, match="价目表"):
+            calculate_pricing(ViduDelegate(), PricingParams(call_type="video", model="viduq3-turbo", usage_tokens=100))
 
 
 class TestPerSecondTiered:
@@ -501,12 +496,12 @@ class TestPerSecondTiered:
         )
         assert amount == pytest.approx(1.0 * 5)
 
-    def test_none_duration_defaults_to_eight_seconds(self):
-        amount, _ = calculate_pricing(
-            self.pricing,
-            PricingParams(call_type="video", model="kling-v2-5-turbo", service_tier="std", generate_audio=False),
-        )
-        assert amount == pytest.approx(0.6 * 8)
+    def test_missing_duration_is_not_guessed(self):
+        with pytest.raises(ValueError, match="缺少时长"):
+            calculate_pricing(
+                self.pricing,
+                PricingParams(call_type="video", model="kling-v2-5-turbo", service_tier="std", generate_audio=False),
+            )
 
 
 class TestKlingRegistryPricingReachability:

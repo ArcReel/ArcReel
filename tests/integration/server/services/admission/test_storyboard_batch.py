@@ -10,12 +10,11 @@ import pytest
 from lib.artifacts.artifact_currency import resolve_current_artifact_target
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.db.base import DEFAULT_USER_ID
-from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.batch_admission import BatchAdmissionDecision
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.video_request_facts import VideoRequestCostFacts
 from lib.project.project_manager import ProjectManager
-from server.services.admission.cost_estimation import quote_video_request_from_price
+from server.services.admission.cost_estimation import load_video_price_source, quote_video_request_from_price
 from server.services.admission.storyboard_batch import (
     BatchSkip,
     BatchSkipReason,
@@ -345,10 +344,18 @@ async def test_video_batch_cost_sums_each_target_at_its_planned_duration(
     estimated = await estimate_storyboard_video_batch_cost(plan, session_factory)
 
     async with session_factory() as session:
-        price = await CustomProviderRepository(session).resolve_price(facts.provider_id, facts.model_id)
-    expected = [quote_video_request_from_price(VideoRequestCostFacts(facts, seconds), price) for seconds in (4, 8)]
-    assert estimated == {expected[0].currency: pytest.approx(expected[0].amount + expected[1].amount)}
-    assert expected[1].amount > expected[0].amount > 0
+        source = await load_video_price_source(session, facts.provider_id, facts.model_id)
+    expected = [
+        quote_video_request_from_price(
+            VideoRequestCostFacts(facts, seconds, aspect_ratio=plan.video_aspect_ratio, has_first_frame=True), source
+        )
+        for seconds in (4, 8)
+    ]
+    short, long_ = (quote.amount for quote in expected)
+    assert short is not None
+    assert long_ is not None
+    assert estimated == {expected[0].currency: pytest.approx(short + long_)}
+    assert long_ > short > 0
 
 
 async def test_video_batch_cost_is_unknown_when_a_target_has_no_planned_duration(

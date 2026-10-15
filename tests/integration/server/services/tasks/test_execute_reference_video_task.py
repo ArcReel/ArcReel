@@ -1628,7 +1628,7 @@ async def test_execute_reference_video_task_uses_real_media_generator(tmp_path: 
             class _Call:
                 call_id = 1
 
-                def success(self, _result):
+                def success(self, _result, *, usage=None):
                     pass
 
             yield _Call()

@@ -904,6 +904,7 @@ async def test_generate_videos_reference_request_is_independent_of_project_narra
         "provider_id": "grok",
         "model_id": "grok-imagine-video",
         "request_duration_seconds": 8,
+        "unpriced_reason": None,
     }
     assert specs == [("E1U1", specs[0][1])]
     assert specs[0][1]["reference_request_options"] == {"confirmed_request_duration_seconds": 8}
@@ -1892,9 +1893,8 @@ async def test_generate_videos_preview_quotes_storyboard_units_at_their_planned_
     """分镜图生视频预检：不入队，按编排时长报价，档位不变；报价与 Web 批量确认的计价同一口径。"""
 
     from lib.db import async_session_factory
-    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
     from lib.generation.video_request_facts import VideoRequestCostFacts
-    from server.services.admission.cost_estimation import quote_video_request_from_price
+    from server.services.admission.cost_estimation import load_video_price_source, quote_video_request_from_price
 
     facts = make_video_request_facts(
         provider_id="grok", model_id="grok-imagine-video", resolution="720p", audio_switch_controllable=True
@@ -1912,7 +1912,10 @@ async def test_generate_videos_preview_quotes_storyboard_units_at_their_planned_
     assert unit["outcome"] == "generate"
     assert (unit["script_duration_seconds"], unit["request_duration_seconds"], unit["tier_changed"]) == (4, 4, False)
     async with async_session_factory() as session:
-        price = await CustomProviderRepository(session).resolve_price(facts.provider_id, facts.model_id)
-    expected = quote_video_request_from_price(VideoRequestCostFacts(facts, 4), price)
+        source = await load_video_price_source(session, facts.provider_id, facts.model_id)
+    expected = quote_video_request_from_price(
+        VideoRequestCostFacts(facts, 4, aspect_ratio="9:16", has_first_frame=True), source
+    )
+    assert expected.amount is not None
     assert unit["estimated_cost"] == expected.to_payload()
     assert quote["estimated_total"] == {expected.currency: pytest.approx(expected.amount)}

@@ -40,6 +40,7 @@ from arcreel_market_core.video_backend_contract import (
     ProviderJobStatus,
     ProviderResponseStage,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -59,6 +60,8 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import redacted_status_error
+from lib.backends.video_backends.metering import video_usage
+from lib.billing.metering import Usage
 from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, raw_base_url
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
@@ -796,6 +799,13 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
         return video_capabilities_from_definition(self._definition)
 
+    def metered_usage(
+        self, model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量，见 :func:`declarative_video_usage`。"""
+        del model
+        return declarative_video_usage(self._definition, request, result)
+
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         context = await asyncio.to_thread(self._request_context, request, require_declared_inputs=True)
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
@@ -875,6 +885,25 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             task_id=job_id,
             generate_audio=request.generate_audio,
         )
+
+
+def declarative_video_usage(
+    definition: Mapping[str, Any], request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+) -> Usage:
+    """声明式视频定义的一次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+    分辨率取请求档位，请求没给时取定义的 ``defaults.resolution``（与模板上下文同一个补缺规则）；是否有声按定义
+    声明的音轨形态判定，开关可控时取请求值。
+    """
+    # 延迟导入理由同 DeclarativeVideoBackend.video_capabilities。
+    from lib.custom_provider.capabilities import video_capabilities_from_definition
+
+    defaults = definition.get("defaults")
+    default_resolution = defaults.get("resolution") if isinstance(defaults, Mapping) else None
+    resolution = request.resolution or (default_resolution if isinstance(default_resolution, str) else None)
+    audio_track = video_capabilities_from_definition(definition).audio_track
+    audio = {VideoAudioMode.ALWAYS_OFF: False, VideoAudioMode.ALWAYS_ON: True}.get(audio_track, request.generate_audio)
+    return video_usage(request, result, seconds=request.duration_seconds, resolution=resolution, audio=audio)
 
 
 def _job_call(request: VideoGenerationRequest) -> JobCall:

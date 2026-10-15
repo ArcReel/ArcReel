@@ -135,7 +135,12 @@ def _unit_line(unit: VideoUnitQuote) -> str:
     script = f"{unit.script_duration_seconds}s" if unit.script_duration_seconds is not None else "未写"
     tier = f"申请 {request}（编排 {script}，档位有变化）" if unit.tier_changed else f"申请 {request}"
     cost = unit.cost
-    price = f"预计 {cost.get('amount')} {cost.get('currency')}" if cost is not None else "报不出价"
+    if cost is None:
+        price = "报不出价"
+    elif cost.get("amount") is None:
+        price = f"未定价（{cost.get('unpriced_reason')}）"
+    else:
+        price = f"预计 {cost.get('amount')} {cost.get('currency')}"
     return f"{tier}，{price}"
 
 
@@ -195,10 +200,13 @@ def quote_sheet(
 async def quote_storyboard_video_units(
     facts: VideoRequestFacts | VideoRequestFactsFailure | None,
     durations: Mapping[str, object],
+    *,
+    aspect_ratio: str,
 ) -> dict[str, dict[str, object] | None]:
     """分镜图生视频逐单元报价：按剧本编排时长、用准入同一份视频请求事实。
 
-    事实不成立或单元没写编排时长时报不出价，记 ``None``。
+    ``aspect_ratio`` 是视频请求发出的画面比例。事实不成立或单元没写编排时长时报不出价，记 ``None``；
+    价目表算不出的单元报价金额为 ``None``，带未定价原因。
     """
 
     costs: dict[str, dict[str, object] | None] = {}
@@ -207,7 +215,10 @@ async def quote_storyboard_video_units(
         if not isinstance(facts, VideoRequestFacts) or duration is None:
             costs[unit_id] = None
             continue
-        quote = await quote_video_request(VideoRequestCostFacts(facts, duration), async_session_factory)
+        quote = await quote_video_request(
+            VideoRequestCostFacts(facts, duration, aspect_ratio=aspect_ratio, has_first_frame=True),
+            async_session_factory,
+        )
         costs[unit_id] = quote.to_payload() if quote is not None else None
     return costs
 

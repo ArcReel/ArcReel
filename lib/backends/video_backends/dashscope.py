@@ -62,7 +62,9 @@ from lib.backends.data_uri import file_to_data_uri
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.providers import PROVIDER_DASHSCOPE
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
     DEFAULT_BACKOFF_SECONDS,
@@ -383,6 +385,11 @@ _MODEL_PROFILES: dict[str, VideoCapabilities] = {
 # 参数会被上游直接拒。
 
 
+def _sent_resolution(request: VideoGenerationRequest) -> str:
+    """下发的分辨率档位：百炼要求大写，未指定时下发 720P。"""
+    return (request.resolution or "720p").upper()
+
+
 def _is_wan3(model: str | None) -> bool:
     """识别 wan3.0 系列：它与其余型号在请求形态上有三处结构差异。
 
@@ -525,6 +532,26 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
 
     # ── request building ────────────────────────────────────────────────
 
+    @staticmethod
+    def metered_usage(
+        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+        分辨率取实际下发的档位（未指定时下发 720P）；结算的输出秒数取 ``usage.duration``。音轨开关只对 wan3.0
+        下发，其余型号恒有声。参考图张数按型号上限截断后计。
+        """
+        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        provided = [r for r in (request.reference_images or []) if r] if caps.max_reference_images > 0 else []
+        return video_usage(
+            request,
+            result,
+            seconds=request.duration_seconds,
+            resolution=_sent_resolution(request),
+            audio=request.generate_audio if _is_wan3(model) else True,
+            reference_images=min(len(provided), caps.max_reference_images),
+        )
+
     def _build_payload(self, request: VideoGenerationRequest) -> dict:
         media = self._build_media(request)
         input_block: dict = {"prompt": request.prompt}
@@ -532,7 +559,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             input_block["media"] = media
 
         parameters: dict = {
-            "resolution": (request.resolution or "720p").upper(),
+            "resolution": _sent_resolution(request),
             "duration": request.duration_seconds,
             # HappyHorse 默认带 "Happy Horse" 水印，显式关闭
             "watermark": False,

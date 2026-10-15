@@ -5,8 +5,11 @@
 按条目价目表上的「汉字计 2」属性统计。
 
 :func:`price_usage` 按价目表的计量项求和：费用 = 倍率 × Σ max(用量 − 免费额度, 0) × 单价(选择维度)，不按定价
-形状、媒体类型或供应商分派。查不到单价时返回 :class:`Unpriced` 并带原因，不回落到别的模型或别的档；上报了用量、
-价目表却没有这个计量项，同样算查不到单价，不按 0 计。
+形状、媒体类型或供应商分派。查不到单价时返回 :class:`Unpriced` 并带原因，不回落到别的模型或别的档。
+
+上报了用量、价目表却没有这个计量项时，按计量项的类别处理（``arcreel_catalog_core.MeterKind``）：token 类是同一份
+token 总量拆出的一部分，缺单价就算查不到单价，不按 0 计；计数类（秒数、张数、调用次数等）各是一条独立的计费轴，
+价目表没有它表示厂商不按它收费。调用通道因此可以如实上报实际发生的全部计数类用量，不必知道条目按哪一项计价。
 
 一次调用可能含多次供应商请求（降级链上被丢弃的请求也已计费）：:func:`price_requests` 让每次请求按自己的输入
 总量落上下文档、单独计价，再把费用相加。
@@ -47,7 +50,8 @@ class UnpricedReason(StrEnum):
     NO_ENTRY = "no_entry"
     #: 条目没有价目表。
     NO_PRICE_TABLE = "no_price_table"
-    #: 查不到单价：单价表缺少请求的维度组合且没有默认值，或上报了用量的计量项不在价目表里。
+    #: 查不到单价：单价表缺少请求的维度组合且没有默认值；上报了用量的 token 类计量项不在价目表里；或结算时
+    #: 价目表的计量项一项用量都没有拿到。
     MISSING_RATE = "missing_rate"
     #: 价目表依赖当前代码不认识的币种、计量项或选择维度。
     UNRECOGNIZED_TERMS = "unrecognized_terms"
@@ -151,9 +155,19 @@ def _rate(meter: Meter, dimensions: Mapping[str, object]) -> float | None:
 
 
 def _unpriced_meter(table: PriceTable, usage: Usage) -> bool:
-    """是否上报了价目表没有的计量项：这部分用量查不到单价，不能按 0 计。"""
+    """是否上报了价目表没有的 token 类计量项：这部分 token 查不到单价，不能按 0 计。
+
+    计数类计量项不在价目表里表示厂商不按它收费，不算查不到单价。不认识的计量项按 token 类处理。
+    """
     priced = {meter.meter for meter in table.meters}
-    return any(quantity > 0 and meter not in priced for meter, quantity in usage.quantities.items())
+    return any(
+        quantity > 0 and meter not in priced and _is_token_meter(meter) for meter, quantity in usage.quantities.items()
+    )
+
+
+def _is_token_meter(meter: str) -> bool:
+    spec = METERS.get(meter)
+    return spec is None or spec.kind == "token"
 
 
 def price_usage(
@@ -168,8 +182,9 @@ def price_usage(
 
     ``multiplier`` 是供应商倍率与供应商模型倍率之积，为 0 时直接记 0、不查价；``entry_found`` 为 False 表示
     供应商模型对应不上模型条目。价目表里用量为 0 或没有上报的计量项不参与查价：结算时供应商没回报就是没有这项
-    用量；``estimate`` 为真时用量来自请求事实与估算函数，缺一项就无从估算，记为未定价。上报的计量项用量大于 0、
-    价目表却没有这个计量项时记为未定价（:attr:`UnpricedReason.MISSING_RATE`）。
+    用量，但价目表的计量项一项用量都没有拿到时，这次调用的费用无从得知，记为未定价，不静默记 0；``estimate``
+    为真时用量来自请求事实与估算函数，缺一项就无从估算，记为未定价。上报的 token 类计量项用量大于 0、价目表
+    却没有这个计量项时记为未定价（:attr:`UnpricedReason.MISSING_RATE`），计数类不在价目表里的不计费。
     """
     if multiplier == 0:
         return Priced(0.0, table.currency if table is not None and table.is_priceable else "USD")
@@ -180,6 +195,8 @@ def price_usage(
     if not table.is_priceable:
         return Unpriced(UnpricedReason.UNRECOGNIZED_TERMS)
     if _unpriced_meter(table, usage):
+        return Unpriced(UnpricedReason.MISSING_RATE)
+    if not estimate and table.meters and all(_quantity(meter, usage) is None for meter in table.meters):
         return Unpriced(UnpricedReason.MISSING_RATE)
 
     dimensions = dict(usage.dimensions)

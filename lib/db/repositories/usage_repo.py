@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, and_, func, or_, select, update
 
-from lib.backends.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.backends.providers import CALL_TYPE_VIDEO, PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallErrorCode
 from lib.billing.catalog_pricing import is_builtin_provider, price_builtin_call
 from lib.billing.cost_calculator import cost_calculator
@@ -81,8 +81,9 @@ class SettlementInput:
     ``cost_amount`` 绕过自动计算——由 ``_settle`` 归一为生效定价（``PricingParams``）。
 
     ``usage`` 是按用量契约上报的计量项用量与选择维度，每次供应商请求一份（降级链上被丢弃的请求也已计费，各占
-    一份）：给出时，内置供应商的这次调用按模型目录的价目表逐次计价后相加；不给（Agent 会话补录、视频）或
-    自定义供应商时沿用旧计价。三项缓存 token 是各次请求之和，原样写入同名列。
+    一份）：给出时，内置供应商的这次调用按模型目录的价目表逐次计价后相加；不给（Agent 会话补录）或自定义供应商
+    时沿用旧计价。内置供应商的视频调用不给时也走价目表，计量项全部落空，记为未定价。三项缓存 token 是各次请求之和，
+    原样写入同名列。
     与 ``PricingParams``（结算后的生效定价输入）刻意分成两个对象，避免原始值与生效值
     在同一结构里语义混淆。新增计费字段自此只扩本对象，不再穿仓储写侧散参。
     """
@@ -296,7 +297,12 @@ class UsageRepository(BaseRepository):
         if settlement.cost_amount is not None:
             cost_amount = settlement.cost_amount
             currency = settlement.currency or base_currency
-        elif auto_calc and settlement.usage and is_builtin_provider(effective_provider):
+        elif (
+            auto_calc
+            and (settlement.usage or row.call_type == CALL_TYPE_VIDEO)
+            and is_builtin_provider(effective_provider)
+        ):
+            # 内置视频调用没有上报用量时也走价目表：计量项全部落空，记为未定价，不再回落旧计价去猜秒数。
             cost = price_builtin_call(
                 provider=effective_provider,
                 model=row.model or "",

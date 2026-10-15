@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-15T14:00:00Z",
+  "dataset_version": "2026-10-15T15:00:00Z",
   "entries": [
     {
       "maker": "google",
@@ -688,20 +688,6 @@
                   "audio": false
                 },
                 "price": 0.1
-              },
-              {
-                "when": {
-                  "resolution": "4k",
-                  "audio": true
-                },
-                "price": 0.3
-              },
-              {
-                "when": {
-                  "resolution": "4k",
-                  "audio": false
-                },
-                "price": 0.25
               }
             ],
             "defaults": {
@@ -716,7 +702,7 @@
       "maker": "bytedance",
       "name": "doubao-seed-2.0-pro",
       "media_type": "text",
-      "display_name": "豆包 Seed 2.0 Pro",
+      "display_name": "\u8c46\u5305 Seed 2.0 Pro",
       "aliases": [
         "doubao-seed-2-0-pro-260215"
       ],
@@ -812,7 +798,7 @@
       "maker": "bytedance",
       "name": "doubao-seed-2.0-lite",
       "media_type": "text",
-      "display_name": "豆包 Seed 2.0 Lite",
+      "display_name": "\u8c46\u5305 Seed 2.0 Lite",
       "aliases": [
         "doubao-seed-2-0-lite-260215"
       ],
@@ -908,7 +894,7 @@
       "maker": "bytedance",
       "name": "doubao-seed-2.0-mini",
       "media_type": "text",
-      "display_name": "豆包 Seed 2.0 Mini",
+      "display_name": "\u8c46\u5305 Seed 2.0 Mini",
       "aliases": [
         "doubao-seed-2-0-mini-260215"
       ],
@@ -1004,7 +990,7 @@
       "maker": "bytedance",
       "name": "doubao-seed-1.8",
       "media_type": "text",
-      "display_name": "豆包 Seed 1.8",
+      "display_name": "\u8c46\u5305 Seed 1.8",
       "aliases": [
         "doubao-seed-1-8-251228"
       ],
@@ -1561,7 +1547,7 @@
       "maker": "bytedance",
       "name": "doubao-seed-2.0-code",
       "media_type": "text",
-      "display_name": "豆包 Seed 2.0 Code",
+      "display_name": "\u8c46\u5305 Seed 2.0 Code",
       "facts": {
         "max_output_tokens": 131072
       }
@@ -3271,30 +3257,56 @@
           {
             "meter": "output_seconds",
             "dims": [
-              "resolution"
+              "resolution",
+              "reference_to_video"
             ],
             "rows": [
               {
                 "when": {
-                  "resolution": "540p"
+                  "resolution": "540p",
+                  "reference_to_video": false
                 },
                 "price": 0.21875
               },
               {
                 "when": {
-                  "resolution": "720p"
+                  "resolution": "540p",
+                  "reference_to_video": true
+                },
+                "price": 0.125
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "reference_to_video": false
                 },
                 "price": 0.375
               },
               {
                 "when": {
-                  "resolution": "1080p"
+                  "resolution": "720p",
+                  "reference_to_video": true
+                },
+                "price": 0.3125
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "reference_to_video": false
+                },
+                "price": 0.40625
+              },
+              {
+                "when": {
+                  "resolution": "1080p",
+                  "reference_to_video": true
                 },
                 "price": 0.40625
               }
             ],
             "defaults": {
-              "resolution": "720p"
+              "resolution": "720p",
+              "reference_to_video": false
             }
           }
         ]
@@ -3482,40 +3494,62 @@
             "meter": "requests",
             "dims": [
               "resolution",
-              "duration"
+              "duration",
+              "reference_to_video"
             ],
             "rows": [
               {
                 "when": {
                   "resolution": "360p",
-                  "duration": 4
+                  "duration": 4,
+                  "reference_to_video": false
                 },
                 "price": 0.625
               },
               {
                 "when": {
                   "resolution": "720p",
-                  "duration": 4
+                  "duration": 4,
+                  "reference_to_video": false
                 },
                 "price": 1.25
               },
               {
                 "when": {
                   "resolution": "1080p",
-                  "duration": 4
+                  "duration": 4,
+                  "reference_to_video": false
                 },
                 "price": 3.125
               },
               {
                 "when": {
                   "resolution": "720p",
-                  "duration": 8
+                  "duration": 8,
+                  "reference_to_video": false
                 },
                 "price": 3.125
+              },
+              {
+                "when": {
+                  "resolution": "360p",
+                  "duration": 4,
+                  "reference_to_video": true
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "resolution": "720p",
+                  "duration": 4,
+                  "reference_to_video": true
+                },
+                "price": 2.5
               }
             ],
             "defaults": {
-              "resolution": "720p"
+              "resolution": "720p",
+              "reference_to_video": false
             }
           }
         ]
@@ -4086,7 +4120,7 @@
       "maker": "alibaba",
       "name": "wan2.7-image",
       "media_type": "image",
-      "display_name": "万相 2.7 图像",
+      "display_name": "\u4e07\u76f8 2.7 \u56fe\u50cf",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -4115,7 +4149,7 @@
       "maker": "alibaba",
       "name": "wan2.7-image-pro",
       "media_type": "image",
-      "display_name": "万相 2.7 图像 Pro",
+      "display_name": "\u4e07\u76f8 2.7 \u56fe\u50cf Pro",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -4145,7 +4179,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.1-i2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.1 图生视频",
+      "display_name": "HappyHorse 1.1 \u56fe\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -4207,7 +4241,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.1-t2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.1 文生视频",
+      "display_name": "HappyHorse 1.1 \u6587\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -4269,7 +4303,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.1-r2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.1 参考生视频",
+      "display_name": "HappyHorse 1.1 \u53c2\u8003\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -4331,7 +4365,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.0-i2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.0 图生视频",
+      "display_name": "HappyHorse 1.0 \u56fe\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -4386,7 +4420,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.0-t2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.0 文生视频",
+      "display_name": "HappyHorse 1.0 \u6587\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -4441,7 +4475,7 @@
       "maker": "alibaba",
       "name": "happyhorse-1.0-r2v",
       "media_type": "video",
-      "display_name": "HappyHorse 1.0 参考生视频",
+      "display_name": "HappyHorse 1.0 \u53c2\u8003\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           3,
@@ -4496,7 +4530,7 @@
       "maker": "alibaba",
       "name": "wan2.7-i2v",
       "media_type": "video",
-      "display_name": "万相 2.7 图生视频",
+      "display_name": "\u4e07\u76f8 2.7 \u56fe\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           2,
@@ -4552,7 +4586,7 @@
       "maker": "alibaba",
       "name": "wan2.7-t2v",
       "media_type": "video",
-      "display_name": "万相 2.7 文生视频",
+      "display_name": "\u4e07\u76f8 2.7 \u6587\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           2,
@@ -4608,7 +4642,7 @@
       "maker": "alibaba",
       "name": "wan2.7-r2v",
       "media_type": "video",
-      "display_name": "万相 2.7 参考生视频",
+      "display_name": "\u4e07\u76f8 2.7 \u53c2\u8003\u751f\u89c6\u9891",
       "facts": {
         "durations": [
           2,
@@ -4664,7 +4698,7 @@
       "maker": "alibaba",
       "name": "wan3.0-video",
       "media_type": "video",
-      "display_name": "万相 3.0 视频",
+      "display_name": "\u4e07\u76f8 3.0 \u89c6\u9891",
       "facts": {
         "durations": [
           2,
@@ -5088,7 +5122,7 @@
       "maker": "kuaishou",
       "name": "kling-v2-5-turbo",
       "media_type": "video",
-      "display_name": "可灵 2.5 Turbo",
+      "display_name": "\u53ef\u7075 2.5 Turbo",
       "facts": {
         "durations": [
           5,
@@ -5132,7 +5166,7 @@
       "maker": "kuaishou",
       "name": "kling-image-o1",
       "media_type": "image",
-      "display_name": "可灵图像 O1",
+      "display_name": "\u53ef\u7075\u56fe\u50cf O1",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -5161,7 +5195,7 @@
       "maker": "kuaishou",
       "name": "kling-v3-omni",
       "media_type": "image",
-      "display_name": "可灵 V3-Omni（图像）",
+      "display_name": "\u53ef\u7075 V3-Omni\uff08\u56fe\u50cf\uff09",
       "facts": {
         "text_to_image": true,
         "image_to_image": true,
@@ -5210,7 +5244,7 @@
       "maker": "kuaishou",
       "name": "kling-v3",
       "media_type": "video",
-      "display_name": "可灵 v3",
+      "display_name": "\u53ef\u7075 v3",
       "facts": {
         "durations": [
           3,
@@ -5290,7 +5324,7 @@
       "maker": "kuaishou",
       "name": "kling-v3-omni",
       "media_type": "video",
-      "display_name": "可灵 v3 Omni",
+      "display_name": "\u53ef\u7075 v3 Omni",
       "facts": {
         "durations": [
           3,
@@ -5392,7 +5426,7 @@
       "maker": "kuaishou",
       "name": "kling-v2-6",
       "media_type": "video",
-      "display_name": "可灵 v2.6",
+      "display_name": "\u53ef\u7075 v2.6",
       "facts": {
         "durations": [
           5,
@@ -5447,7 +5481,7 @@
       "maker": "kuaishou",
       "name": "kling-video-o1",
       "media_type": "video",
-      "display_name": "可灵 Video O1",
+      "display_name": "\u53ef\u7075 Video O1",
       "facts": {
         "durations": [
           5,

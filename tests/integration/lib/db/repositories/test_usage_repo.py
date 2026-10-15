@@ -9,10 +9,12 @@ import pytest
 from sqlalchemy import null, select, update
 
 from lib.backends.providers import CallStatus
+from lib.billing.metering import Usage
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
 from lib.db.repositories.usage_repo import (
+    MAX_BILLED_DURATION_SECONDS,
     MAX_PROVIDER_RESPONSE_BYTES,
     PROJECT_LEVEL_SEGMENT_KEY,
     SettlementInput,
@@ -151,77 +153,42 @@ class TestFinalizePendingByCallId:
         assert calls[0].cost_amount is not None
         assert calls[0].cost_amount > 0.0, "auto-calc 应算出真实 cost，不应是 0"
 
-    async def test_service_tier_passed_to_cost_calculator(self, async_session, monkeypatch):
-        """service_tier 应从 caller 透传到 cost_calculator.calculate_cost，非 default 档位才算对。"""
-        from lib.billing import cost_calculator as cc_module
-
-        captured: dict[str, str] = {}
-
-        def _spy_calculate_cost(provider, params, **kwargs):
-            captured["service_tier"] = params.service_tier
-            return (1.5, "USD")
-
-        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
-
+    async def test_builtin_video_prices_the_reported_usage(self, async_session):
+        """内置视频按调用通道上报的计量与选择维度查价目表，回报的视频 token 同时写回 ApiCall.usage_tokens。"""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
             call_type="video",
-            model="sora-2",
-            duration_seconds=8,
-            provider="openai",
-        )
-
-        affected = await repo.finalize_pending_by_call_id(
-            call_id=call_id, settlement=SettlementInput(service_tier="priority")
-        )
-        assert affected == 1
-        assert captured["service_tier"] == "priority", "service_tier 必须从 caller 透传到 cost_calculator"
-
-    async def test_usage_tokens_passed_to_cost_calculator(self, async_session, monkeypatch):
-        """Ark video 按 usage_tokens 计费，repo 必须把 caller 传入的 usage_tokens 透传到 cost_calculator，
-        否则按 token 计费的视频走 usage_tokens or 0 路径 → cost 永远为 0 CNY。"""
-        from lib.billing import cost_calculator as cc_module
-
-        captured: dict[str, object] = {}
-
-        def _spy_calculate_cost(provider, params, **kwargs):
-            captured["usage_tokens"] = params.usage_tokens
-            return (3.2, "CNY")
-
-        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
-
-        repo = UsageRepository(async_session)
-        call_id = await repo.start_call(
-            project_name="demo",
-            call_type="video",
-            model="doubao-seedance-1-0-pro",
-            duration_seconds=8,
+            model="doubao-seedance-2-0-260128",
+            duration_seconds=5,
+            resolution="1080p",
             provider="ark",
         )
 
+        usage = Usage(
+            quantities={"video_tokens": 246840, "output_seconds": 5, "input_images": 0, "requests": 1},
+            dimensions={"resolution": "1080p", "input_video": False},
+        )
         affected = await repo.finalize_pending_by_call_id(
-            call_id=call_id, settlement=SettlementInput(usage_tokens=12345)
+            call_id=call_id, settlement=SettlementInput(usage_tokens=246840, usage=(usage,))
         )
         assert affected == 1
-        assert captured["usage_tokens"] == 12345, "usage_tokens 必须从 caller 透传到 cost_calculator"
 
-        # 同时必须写回 ApiCall.usage_tokens 列，否则用量明细/抽屉里这条记录的
-        # tokens 字段永远为 null（resume 路径与正常 finish_call 路径行为不一致）。
         calls = await stored_calls(async_session)
-        assert calls[0].usage_tokens == 12345, "usage_tokens 必须 UPDATE 写回 ApiCall 行"
+        assert calls[0].currency == "CNY"
+        # 1080p、无输入视频：51 CNY / 百万 token
+        assert calls[0].cost_amount == pytest.approx(246840 * 51.0 / 1_000_000)
+        assert calls[0].unpriced_reason is None
+        assert calls[0].usage_tokens == 246840, "usage_tokens 必须 UPDATE 写回 ApiCall 行"
 
-    async def test_settlement_does_not_approximate_missing_usage_tokens(self, async_session):
-        """provider 成功响应但漏报 usage（``usage_tokens`` 为 None）时，实付结算必须如实按
-        0 计费，不能借费用预估侧的 token 近似换算兜底把估算近似值当成真实支出记录——
-        该兜底只应在 ``CostCalculator.calculate_cost(estimate_only=True)`` 时生效
-        （见 ``server/services/admission/cost_estimation.py`` 的视频预估分支），
-        ``UsageRepository._settle`` 走真实结算，不传 ``estimate_only``。"""
+    async def test_builtin_video_without_usage_is_unpriced(self, async_session):
+        """内置视频没有上报计量时，价目表的计量项全部落空，记为未定价：不按秒数或 token 近似值猜一个金额，
+        也不静默记 0。"""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
             call_type="video",
-            model="doubao-seedance-1-0-pro",
+            model="doubao-seedance-2-0-260128",
             duration_seconds=8,
             provider="ark",
         )
@@ -230,21 +197,17 @@ class TestFinalizePendingByCallId:
         assert affected == 1
 
         calls = await stored_calls(async_session)
-        assert calls[0].cost_amount == 0.0, "usage_tokens 缺失时实付结算不得伪造近似金额"
+        assert calls[0].cost_amount is None
+        assert calls[0].unpriced_reason == "missing_rate"
 
-    async def test_billed_duration_passed_to_cost_calculator_and_ledger(self, async_session, monkeypatch):
-        """provider 回报的实际计费时长必须透传到 cost_calculator 并回写 ApiCall.duration_seconds，
-        与 finish_call 的 billed_duration_seconds 覆盖语义一致（resume 路径不分叉）。"""
-        from lib.billing import cost_calculator as cc_module
-
-        captured: dict[str, object] = {}
-
-        def _spy_calculate_cost(provider, params, **kwargs):
-            captured["duration_seconds"] = params.duration_seconds
-            return (6.0, "CNY")
-
-        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
-
+    @pytest.mark.parametrize(
+        ("billed", "expected"),
+        [(15, 15), (0, 6), (MAX_BILLED_DURATION_SECONDS + 1, 6)],
+        ids=["reported", "non-positive", "over-limit"],
+    )
+    async def test_billed_duration_written_back_with_fallback(self, async_session, billed, expected):
+        """provider 回报的实际计费时长回写 ApiCall.duration_seconds；非正或超出合理上限（24h）的视同未提供，
+        保留请求时长（repo 写入层是全部 backend 的最后防线，防超大数值写入 DB Integer 列溢出）。"""
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(
             project_name="demo",
@@ -254,76 +217,15 @@ class TestFinalizePendingByCallId:
             provider="dashscope",
         )
 
+        usage = Usage(quantities={"output_seconds": expected}, dimensions={"resolution": "720p"})
         affected = await repo.finalize_pending_by_call_id(
-            call_id=call_id, settlement=SettlementInput(billed_duration_seconds=15)
+            call_id=call_id, settlement=SettlementInput(billed_duration_seconds=billed, usage=(usage,))
         )
         assert affected == 1
-        assert captured["duration_seconds"] == 15, "实际计费时长必须从 caller 透传到 cost_calculator"
 
         calls = await stored_calls(async_session)
-        assert calls[0].duration_seconds == 15, "实际计费时长必须 UPDATE 写回 ApiCall 行"
-
-    async def test_billed_duration_non_positive_falls_back_to_request_duration(self, async_session, monkeypatch):
-        """非正的实际计费时长视同未提供：cost_calculator 入参与账本均回落 start_call 的请求时长。"""
-        from lib.billing import cost_calculator as cc_module
-
-        captured: dict[str, object] = {}
-
-        def _spy_calculate_cost(provider, params, **kwargs):
-            captured["duration_seconds"] = params.duration_seconds
-            return (2.4, "CNY")
-
-        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
-
-        repo = UsageRepository(async_session)
-        call_id = await repo.start_call(
-            project_name="demo",
-            call_type="video",
-            model="wan2.7-r2v",
-            duration_seconds=6,
-            provider="dashscope",
-        )
-
-        affected = await repo.finalize_pending_by_call_id(
-            call_id=call_id, settlement=SettlementInput(billed_duration_seconds=0)
-        )
-        assert affected == 1
-        assert captured["duration_seconds"] == 6, "非正计费时长不得传给 cost_calculator，应回落请求时长"
-
-        calls = await stored_calls(async_session)
-        assert calls[0].duration_seconds == 6, "非正计费时长不得写回账本，应保留请求时长"
-
-    async def test_billed_duration_over_limit_falls_back_to_request_duration(self, async_session, monkeypatch):
-        """超出合理上限（24h）的计费时长视同未提供：repo 写入层是全部 backend 的最后防线，
-        防超大数值写入 DB Integer 列溢出。"""
-        from lib.billing import cost_calculator as cc_module
-        from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
-
-        captured: dict[str, object] = {}
-
-        def _spy_calculate_cost(provider, params, **kwargs):
-            captured["duration_seconds"] = params.duration_seconds
-            return (2.4, "CNY")
-
-        monkeypatch.setattr(cc_module.cost_calculator, "calculate_cost", _spy_calculate_cost)
-
-        repo = UsageRepository(async_session)
-        call_id = await repo.start_call(
-            project_name="demo",
-            call_type="video",
-            model="wan2.7-r2v",
-            duration_seconds=6,
-            provider="dashscope",
-        )
-
-        affected = await repo.finalize_pending_by_call_id(
-            call_id=call_id, settlement=SettlementInput(billed_duration_seconds=MAX_BILLED_DURATION_SECONDS + 1)
-        )
-        assert affected == 1
-        assert captured["duration_seconds"] == 6, "超限计费时长不得传给 cost_calculator，应回落请求时长"
-
-        calls = await stored_calls(async_session)
-        assert calls[0].duration_seconds == 6, "超限计费时长不得写回账本，应保留请求时长"
+        assert calls[0].duration_seconds == expected
+        assert calls[0].cost_amount == pytest.approx(expected * 0.6)
 
     async def test_does_not_touch_other_pending_call(self, async_session):
         repo = UsageRepository(async_session)
@@ -487,7 +389,7 @@ class TestMultiProviderUsage:
             call_type="video",
             model="doubao-seedance-2-0-260128",
             prompt="test",
-            resolution="1080p",
+            resolution="720p",
             duration_seconds=5,
             generate_audio=True,
             provider="ark",
@@ -496,7 +398,11 @@ class TestMultiProviderUsage:
         await repo.finish_call(
             call_id,
             status="success",
-            settlement=SettlementInput(usage_tokens=246840, service_tier="default"),
+            settlement=SettlementInput(
+                usage_tokens=246840,
+                service_tier="default",
+                usage=(Usage(quantities={"video_tokens": 246840}, dimensions={"resolution": "720p"}),),
+            ),
         )
 
         calls = await stored_calls(async_session)

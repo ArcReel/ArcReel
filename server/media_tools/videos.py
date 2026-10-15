@@ -19,6 +19,7 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.episode.episode_ids import describe_episode_for_agent
 from lib.generation.batch_admission import (
     BatchAdmission,
@@ -1051,7 +1052,9 @@ class _StoryboardBatch:
                 self.builder,
                 self.log,
                 storyboard_durations=durations,
-                storyboard_costs=await quote_storyboard_video_units(facts, durations),
+                storyboard_costs=await quote_storyboard_video_units(
+                    facts, durations, aspect_ratio=resolve_video_aspect_ratio(self.sb.project)
+                ),
             )
         if not admission.admitted:
             return _batch_admission_response(BatchAdmissionRefused(admission), self.log, self.builder, self.states)

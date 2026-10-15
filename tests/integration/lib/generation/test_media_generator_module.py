@@ -106,10 +106,12 @@ class _FakeLedgerCall:
         self.call_id = call_id
         self.declared = False
         self.result = None
+        self.usage = None
 
-    def success(self, result):
+    def success(self, result, *, usage=None):
         self.declared = True
         self.result = result
+        self.usage = usage
 
 
 class _FakeLedger:

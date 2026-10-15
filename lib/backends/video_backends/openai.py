@@ -30,7 +30,9 @@ from lib.backends.backend_runtime import (
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
+from lib.billing.metering import Usage
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -198,6 +200,23 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         if not submitted or submitted.rstrip("/") == self._request_base_url:
             return self._client
         return self._client.with_options(base_url=submitted)
+
+    @staticmethod
+    def metered_usage(
+        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+        分辨率取下发的 ``size`` 的短边档（如 ``1024x1792`` 记为 1024p）。请求没有音轨开关，不上报是否有声。
+        """
+        width, _, height = _resolve_size(model, request.resolution, request.aspect_ratio).partition("x")
+        return video_usage(
+            request,
+            result,
+            seconds=request.duration_seconds,
+            resolution=f"{min(int(width), int(height))}p",
+            audio=None,
+        )
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         kwargs: dict = {

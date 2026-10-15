@@ -7,11 +7,9 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
 from lib.billing.pricing.lookup import lookup_pricing
 from lib.billing.pricing.strategies import PricingParams, calculate_pricing
-from lib.billing.pricing.types import CHARACTERS_PER_PRICING_UNIT, PerSecondMatrix, PerSecondTiered, PerTokenVideo
+from lib.billing.pricing.types import CHARACTERS_PER_PRICING_UNIT
 from lib.custom_provider import is_custom_provider
 
 
@@ -22,9 +20,6 @@ class CostCalculator:
     DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
     DEFAULT_VIDEO_MODEL = "veo-3.1-lite-generate-preview"
 
-    # Ark 生成视频的 token/s 近似常量（用于参考生视频成本估算，实际 token 由生成回调覆盖）。
-    _ARK_TOKENS_PER_SECOND_ESTIMATE = 60_000
-
     def calculate_cost(
         self,
         provider: str,
@@ -33,17 +28,14 @@ class CostCalculator:
         custom_price_input: float | None = None,
         custom_price_output: float | None = None,
         custom_currency: str | None = None,
-        estimate_only: bool = False,
     ) -> tuple[float, str]:
         """统一费用计算入口。调用方直接构造 ``PricingParams`` 传入，返回 ``(amount, currency)``。
 
         自定义供应商的价格信息通过 ``custom_price_*`` 参数传入（调用方需预先查询 DB）；
         它们是 DB 侧的价格来源、非定价形状维度，故不并入 ``PricingParams``。
 
-        ``estimate_only``：调用方明确只是预估（非真实调用结算）时置 True，允许对缺失的
-        ``usage_tokens`` 做近似换算兜底。真实调用的费用结算（``UsageRepository._settle``）
-        必须保持默认 False——provider 成功响应但漏报 usage 是真实的数据缺陷，结算侧应如实
-        按 0 处理，不能用估算近似值掩盖，否则会把预估口径的近似值悄悄写成实际支出记录。
+        内置供应商的视频调用已改由模型目录的价目表计价（``lib.billing.catalog_pricing``），这里不再为它
+        补「缺秒数按 8 秒」「每秒 60000 token」一类的近似值。
         """
         if is_custom_provider(provider):
             return self._calculate_custom_cost(
@@ -62,54 +54,6 @@ class CostCalculator:
             return 0.0, "USD"
 
         pricing = lookup_pricing(provider, params.model, params.call_type)
-        # 按秒计费的视频：单次实时调用无/0 时长时按默认 8 秒计。参考生视频聚合走
-        # estimate_reference_video_cost，传真实累计时长（可为 0），不经此默认。
-        if isinstance(pricing, (PerSecondMatrix, PerSecondTiered)) and not params.duration_seconds:
-            params = replace(params, duration_seconds=8)
-        # 按 token 计费的视频（Ark/Seedance）：仅预估场景下，调用方只传了时长、未预先换算
-        # token 时按估算近似值换算，否则该模型的预估恒为 0。真实结算场景不做这层兜底，见
-        # ``estimate_only`` 参数说明。
-        if (
-            estimate_only
-            and isinstance(pricing, PerTokenVideo)
-            and params.usage_tokens is None
-            and params.duration_seconds
-        ):
-            params = replace(params, usage_tokens=params.duration_seconds * self._ARK_TOKENS_PER_SECOND_ESTIMATE)
-        return calculate_pricing(pricing, params)
-
-    def estimate_reference_video_cost(
-        self,
-        *,
-        unit_durations_seconds: list[int],
-        provider: str,
-        model: str | None = None,
-        resolution: str | None = None,
-        generate_audio: bool = True,
-        service_tier: str = "default",
-    ) -> tuple[float, str]:
-        """聚合参考生视频一集的视频费用：sum over units of (duration × 单价)。
-
-        token 计费的视频（Ark）按 duration × ``_ARK_TOKENS_PER_SECOND_ESTIMATE`` 近似换算 token；
-        其余按秒计费的模型直接用累计时长。空列表返回该定价声明自带的币种。
-        """
-        pricing = lookup_pricing(provider, model, "video")
-        if not unit_durations_seconds:
-            return 0.0, pricing.currency
-
-        total_duration = sum(max(0, int(d)) for d in unit_durations_seconds)
-        usage_tokens = (
-            total_duration * self._ARK_TOKENS_PER_SECOND_ESTIMATE if isinstance(pricing, PerTokenVideo) else None
-        )
-        params = PricingParams(
-            call_type="video",
-            model=model,
-            resolution=resolution,
-            duration_seconds=total_duration,
-            generate_audio=generate_audio,
-            usage_tokens=usage_tokens,
-            service_tier=service_tier,
-        )
         return calculate_pricing(pricing, params)
 
     @staticmethod

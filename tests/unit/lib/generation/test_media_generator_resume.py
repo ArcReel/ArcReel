@@ -102,10 +102,12 @@ class _FakeLedgerCall:
         self.call_id = call_id
         self.declared = False
         self.result: Any = None
+        self.usage: Any = None
 
-    def success(self, result: Any) -> None:
+    def success(self, result: Any, *, usage: Any = None) -> None:
         self.declared = True
         self.result = result
+        self.usage = usage
 
 
 class _FakeLedger:
@@ -139,8 +141,12 @@ class _FakeLedger:
         except Exception:
             raise
 
-    async def resume_success(self, *, call_id: int, result: Any, service_tier: str = "default") -> int:
-        self.resumed.append({"status": "success", "call_id": call_id, "result": result, "service_tier": service_tier})
+    async def resume_success(
+        self, *, call_id: int, result: Any, usage: Any = None, service_tier: str = "default"
+    ) -> int:
+        self.resumed.append(
+            {"status": "success", "call_id": call_id, "result": result, "usage": usage, "service_tier": service_tier}
+        )
         return self._resume_affected
 
     async def resume_failed(self, *, call_id: int, failure: BaseException | str | None = None) -> int:
@@ -502,7 +508,9 @@ class _FailingResumeLedger(_FakeLedger):
         super().__init__()
         self._exc = exc
 
-    async def resume_success(self, *, call_id: int, result: Any, service_tier: str = "default") -> int:
+    async def resume_success(
+        self, *, call_id: int, result: Any, usage: Any = None, service_tier: str = "default"
+    ) -> int:
         self.resumed.append({"status": "success", "call_id": call_id})
         raise self._exc
 

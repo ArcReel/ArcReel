@@ -16,10 +16,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
     ConfigResolver,
@@ -140,10 +142,35 @@ class VideoRequestFacts:
 
 @dataclass(frozen=True, slots=True)
 class VideoRequestCostFacts:
-    """报价共用的供应商请求坐标：一份视频请求事实加上这次申请的秒数。"""
+    """报价共用的供应商请求坐标：一份视频请求事实，加上这次申请的秒数与请求形态。
+
+    ``aspect_ratio`` 是项目的视频宽高比；``has_first_frame`` 表示请求带首帧（分镜图生视频），
+    ``reference_image_count`` 是发出的参考图张数（参考生视频）。三者与执行时构造的请求同源，提交前预估据此
+    还原一份设想的供应商请求（:meth:`provider_request`），交给调用通道按用量契约给出计量。
+    """
 
     request_facts: VideoRequestFacts
     duration_seconds: int
+    aspect_ratio: str
+    has_first_frame: bool = False
+    reference_image_count: int = 0
+
+    def provider_request(self) -> VideoGenerationRequest:
+        """执行时会发给调用通道的请求的设想形态：图片只占位，不读文件，只用于求计量。
+
+        分镜图生视频的首帧是按项目宽高比生成的分镜图；要求首帧时宽高比交给上游自适应的通道
+        （``first_frame_ratio_adaptive_only``），成片宽高比即分镜图的宽高比，这里因此直接写项目宽高比。
+        """
+        return VideoGenerationRequest(
+            prompt="",
+            output_path=Path("estimate.mp4"),
+            aspect_ratio=self.aspect_ratio,
+            duration_seconds=self.duration_seconds,
+            resolution=self.request_facts.resolution,
+            start_image=Path("first-frame.png") if self.has_first_frame else None,
+            reference_images=[Path(f"reference-{index}.png") for index in range(self.reference_image_count)] or None,
+            generate_audio=self.request_facts.requested_generate_audio,
+        )
 
     @property
     def provider_id(self) -> str:

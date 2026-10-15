@@ -24,6 +24,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import httpx
 
@@ -49,7 +50,9 @@ from lib.backends.kling_shared import (
 )
 from lib.backends.providers import PROVIDER_KLING
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import match_by_names
+from lib.billing.metering import Usage
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +183,29 @@ def _lookup_video_caps(model: str) -> _KlingVideoModelCaps:
     """model 的能力位：名字按 name_family 的规则逐个精确命中，都认不得时取统一回落。"""
     found = match_by_names(model, _match_video_caps)
     return found if found is not None else _UNRECOGNIZED_VIDEO_CAPS
+
+
+# mode → 输出分辨率档位（可灵官方：std 720P、pro 1080P，4k 档即 4K）。
+_MODE_RESOLUTIONS = {"std": "720p", "pro": "1080p", "4k": "4k"}
+
+
+def _valid_frames(images: list[Path] | None) -> list[Path]:
+    """过滤出有效（非空）参考图路径；空 / None 归空列表。"""
+    if not images:
+        return []
+    return [Path(img) for img in images if str(img)]
+
+
+def _has_start_image(request: VideoGenerationRequest) -> bool:
+    start_image = request.start_image
+    return isinstance(start_image, (str, Path)) and bool(str(start_image))
+
+
+def _subpath_for(request: VideoGenerationRequest) -> str:
+    """请求走哪个子路径：有参考图 → 多图主体；有首帧 → 图生视频；都没有 → 文生视频。"""
+    if _valid_frames(request.reference_images):
+        return _MULTI_IMAGE2VIDEO
+    return _IMAGE2VIDEO if _has_start_image(request) else _TEXT2VIDEO
 
 
 def _encode_job_id(subpath: str, task_id: str, *, generate_audio: bool) -> str:
@@ -327,7 +353,31 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     def _resolve_mode(self, request: VideoGenerationRequest) -> str:
         return self._resolve_mode_from(request.resolution, request.service_tier)
 
+    @staticmethod
+    def metered_usage(
+        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+        可灵请求体没有分辨率字段，输出档位由 ``mode`` 决定：分辨率维度取 mode 对应的档位（std 720p、pro 1080p、
+        4k 4k）。是否有声按实际发出的 ``sound`` 判定；结算取 ``result`` 上同一口径的有声标志（续跑时由 job_id
+        复原，请求里已没有图片字段可推断子路径）。
+        """
+        return video_usage(
+            request,
+            result,
+            seconds=request.duration_seconds,
+            resolution=_MODE_RESOLUTIONS[
+                KlingVideoBackend._resolve_mode_from(request.resolution, request.service_tier)
+            ],
+            audio=KlingVideoBackend._effective_audio_for(model, request, subpath=_subpath_for(request)),
+        )
+
     def _effective_audio(self, request: VideoGenerationRequest, *, subpath: str) -> bool:
+        return self._effective_audio_for(self._model, request, subpath=subpath)
+
+    @staticmethod
+    def _effective_audio_for(model: str, request: VideoGenerationRequest, *, subpath: str) -> bool:
         """实际是否产出视频内人声：请求要 + model 有 generate_audio 能力 + 走得到音频开关的子路径
         + 满足该 model 的分辨率约束。
 
@@ -343,25 +393,21 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         的开关，也会让该请求因标志进 ledger 而按有声价出账。
         """
         route: VideoRoute = "r2v" if subpath == _MULTI_IMAGE2VIDEO else "i2v"
-        if self.video_capabilities_for_model(self._model).audio_track_for_route(route) != VideoAudioMode.CONTROLLABLE:
+        if (
+            KlingVideoBackend.video_capabilities_for_model(model).audio_track_for_route(route)
+            != VideoAudioMode.CONTROLLABLE
+        ):
             return False
         if not request.generate_audio:
             return False
-        if self._caps.audio_requires_1080p:
+        if _lookup_video_caps(model).audio_requires_1080p:
             # 官方约束的维度是分辨率（v2-6「生成有声视频时，仅支持生成 1080P」），但可灵请求体没有
             # 分辨率字段：输出档位只由 mode 决定，``request.resolution`` 除识别 4k 档外不进入 payload。
             # 判据因此落在实际发出的 mode 上。声明该位的 model（v2-6）只有 std / pro 两档，pro 即
             # 1080P；4k 档是 v3 系专有，对这些 model 是非法请求，不当作满足 1080P 放行——否则会发
             # sound="on" 并按有声价出账，换回一个必然失败或无声的任务。
-            return self._resolve_mode(request) == "pro"
+            return KlingVideoBackend._resolve_mode_from(request.resolution, request.service_tier) == "pro"
         return True
-
-    @staticmethod
-    def _valid_frames(images: list[Path] | None) -> list[Path]:
-        """过滤出有效（非空）参考图路径；空 / None 归空列表。"""
-        if not images:
-            return []
-        return [Path(img) for img in images if str(img)]
 
     def _build_payload(self, request: VideoGenerationRequest) -> tuple[str, dict]:
         """返回 (子路径, 请求体)。
@@ -377,8 +423,9 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             "aspect_ratio": request.aspect_ratio,
         }
 
-        reference_images = self._valid_frames(request.reference_images)
-        if reference_images:
+        subpath = _subpath_for(request)
+        if subpath == _MULTI_IMAGE2VIDEO:
+            reference_images = _valid_frames(request.reference_images)
             # 生成时防御（fail-loud）：未声明多图主体能力的 model 不得升级到 R2V 子路径，
             # 超上限的参考图数同样拦截——否则会把必然报错的请求发出去且照常计费。
             if not self._caps.reference_images:
@@ -394,14 +441,12 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             payload["image_list"] = [{"image": self._encode_frame(p)} for p in reference_images]
             return _MULTI_IMAGE2VIDEO, payload
 
-        start_image = request.start_image
-        if not (isinstance(start_image, (str, Path)) and str(start_image)):
+        if subpath == _TEXT2VIDEO:
             # 无首帧/无参考 = 文生视频意图；不支持 t2v 的 model（如 kling-video-o1）即拒绝。
             if not self._caps.text_to_video:
                 raise VideoCapabilityError("video_capability_missing_t2v", provider=self.name, model=self._model)
-            subpath = _TEXT2VIDEO
         else:
-            payload["image"] = self._encode_frame(Path(start_image))
+            payload["image"] = self._encode_frame(Path(cast(Path, request.start_image)))
             end_image = request.end_image
             if isinstance(end_image, (str, Path)) and str(end_image):
                 # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
@@ -409,7 +454,6 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
                 if self._caps.last_frame_requires_pro and self._resolve_mode(request) != "pro":
                     raise VideoCapabilityError("video_last_frame_requires_pro", provider=self.name, model=self._model)
                 payload["image_tail"] = self._encode_frame(Path(end_image))
-            subpath = _IMAGE2VIDEO
 
         # 音频开关 sound（官方参数，取 "on"/"off"，各档默认 off）仅 text2video / image2video 子路径
         # 携带（multi-image2video 原生 schema 不含）；无音频能力的 model 不发该字段，避免向不支持的

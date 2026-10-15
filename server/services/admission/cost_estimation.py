@@ -14,6 +14,8 @@ from typing import Any, Literal
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
+from lib.backends.backend_assembly.specs import builtin_video_metered_usage
 from lib.backends.image_backends.base import ImageRequestFacts
 from lib.backends.image_usage import estimate_builtin_image_usage
 from lib.billing.catalog_pricing import is_builtin_provider, price_builtin_call
@@ -90,18 +92,19 @@ class _VideoPricing:
     model: str | None
     resolution: str | None
     generate_audio: bool
-    price: Any
+    price: VideoPriceSource
 
 
 @dataclass(frozen=True, slots=True)
 class VideoRequestQuote:
-    """Exact current price for one projected provider video request."""
+    """一次视频请求按当前价格的报价；``amount`` 为 ``None`` 表示未定价，原因见 ``unpriced_reason``。"""
 
-    amount: float
-    currency: str
+    amount: float | None
+    currency: str | None
     provider_id: str
     model_id: str
     request_duration_seconds: int
+    unpriced_reason: str | None = None
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -110,35 +113,68 @@ class VideoRequestQuote:
             "provider_id": self.provider_id,
             "model_id": self.model_id,
             "request_duration_seconds": self.request_duration_seconds,
+            "unpriced_reason": self.unpriced_reason,
         }
 
 
-def quote_video_request_from_price(
-    facts: VideoRequestCostFacts,
-    price: Any,
-) -> VideoRequestQuote:
-    """Price one request using the same calculator and custom-price coordinates as cost estimation."""
+@dataclass(frozen=True, slots=True)
+class VideoPriceSource:
+    """视频报价要读库的两项：自定义供应商的单价（旧计价），内置供应商的供应商倍率。"""
 
-    amount, currency = cost_calculator.calculate_cost(
-        facts.provider_id,
-        PricingParams(
-            call_type="video",
-            model=facts.model_id,
-            resolution=facts.resolution,
-            duration_seconds=facts.duration_seconds,
-            generate_audio=facts.generate_audio,
-        ),
-        custom_price_input=price.price_input,
-        custom_price_output=price.price_output,
-        custom_currency=price.currency,
-        estimate_only=True,
+    custom_price: CustomProviderPrice
+    provider_multiplier: float
+
+
+async def load_video_price_source(session: AsyncSession, provider_id: str, model_id: str) -> VideoPriceSource:
+    """读一个视频模型报价所需的价格来源，与结算同一组读取。"""
+    return VideoPriceSource(
+        custom_price=await CustomProviderRepository(session).resolve_price(provider_id, model_id),
+        provider_multiplier=await get_provider_multiplier(session, provider_id),
     )
+
+
+def quote_video_request_from_price(facts: VideoRequestCostFacts, source: VideoPriceSource) -> VideoRequestQuote:
+    """按与结算同一个目录查询与计算器给一次视频请求报价。
+
+    内置供应商由调用通道按用量契约给出这次请求的计量（需要换算的计量项用通道的估算函数），再交模型目录的
+    价目表计价；有计量项既不能从请求事实得出、也没有估算函数时记为未定价。自定义供应商暂走旧计价。
+    """
+    if is_builtin_provider(facts.provider_id):
+        cost = price_builtin_call(
+            provider=facts.provider_id,
+            model=facts.model_id,
+            media_type="video",
+            requests=(builtin_video_metered_usage(facts.provider_id, facts.model_id, facts.provider_request()),),
+            provider_multiplier=source.provider_multiplier,
+            estimate=True,
+        )
+        if isinstance(cost, Priced):
+            amount, currency, reason = round(cost.amount, 6), cost.currency, None
+        else:
+            amount, currency, reason = None, None, str(cost.reason)
+    else:
+        price = source.custom_price
+        amount, currency = cost_calculator.calculate_cost(
+            facts.provider_id,
+            PricingParams(
+                call_type="video",
+                model=facts.model_id,
+                resolution=facts.resolution,
+                duration_seconds=facts.duration_seconds,
+                generate_audio=facts.generate_audio,
+            ),
+            custom_price_input=price.price_input,
+            custom_price_output=price.price_output,
+            custom_currency=price.currency,
+        )
+        amount, reason = round(amount, 6), None
     return VideoRequestQuote(
-        amount=round(amount, 6),
+        amount=amount,
         currency=currency,
         provider_id=facts.provider_id,
         model_id=facts.model_id,
         request_duration_seconds=facts.duration_seconds,
+        unpriced_reason=reason,
     )
 
 
@@ -146,12 +182,12 @@ async def quote_video_request(
     facts: VideoRequestCostFacts,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> VideoRequestQuote | None:
-    """Resolve current pricing and quote a projected video request."""
+    """读取当前价格来源，给一次视频请求报价；读库失败或调用通道认不出请求时返回 ``None``。"""
 
     try:
         async with session_factory() as session:
-            price = await CustomProviderRepository(session).resolve_price(facts.provider_id, facts.model_id)
-        return quote_video_request_from_price(facts, price)
+            source = await load_video_price_source(session, facts.provider_id, facts.model_id)
+        return quote_video_request_from_price(facts, source)
     except (SQLAlchemyError, ValueError):
         logger.warning(
             "无法为 current video request 计算精确费用 provider=%s model=%s duration=%s",
@@ -446,11 +482,11 @@ class CostEstimationService:
             audio_price = await custom_repo.resolve_price(audio_provider, audio_model)
             audio_multiplier = await get_provider_multiplier(session, audio_provider)
             # 两个桶常解析到同一个模型，按身份去重后再查单价，不重复打 DB。
-            video_prices: dict[tuple[str, str], Any] = {}
+            video_prices: dict[tuple[str, str], VideoPriceSource] = {}
             for bucket_provider, bucket_model, _, _ in video_identity.values():
                 if (bucket_provider, bucket_model) not in video_prices:
-                    video_prices[(bucket_provider, bucket_model)] = await custom_repo.resolve_price(
-                        bucket_provider, bucket_model
+                    video_prices[(bucket_provider, bucket_model)] = await load_video_price_source(
+                        session, bucket_provider, bucket_model
                     )
 
         video_pricing: dict[VideoGenerationType, _VideoPricing] = {
@@ -475,6 +511,8 @@ class CostEstimationService:
 
         grid_enabled = grid_storyboard_enabled(project_data)
         aspect_ratio = _storyboard_aspect_ratio(project_data)
+        # 视频请求发出的画面比例，与生成任务同一个解析；方舟按它换算视频 token
+        video_aspect_ratio = resolve_video_aspect_ratio(project_data)
 
         # 预计算普通分镜图单价（按配置的分辨率档，估价以文生图为准，不带参考图）。宫格图按每张宫格的比例
         # 在集内逐张估价，分辨率未配置时执行侧下发 ``GRID_FALLBACK_RESOLUTION``，估价同源。
@@ -634,13 +672,22 @@ class CostEstimationService:
 
                 # 剧本上的秒数可能被外部编辑成非整数：单条脏数据只让该分镜没有视频报价，不进计价。
                 if isinstance(storyboard_facts, VideoRequestFacts) and is_int(duration, minimum=1):
-                    if _price_missing(storyboard_facts.provider_id, episode_video.price):
+                    if _price_missing(storyboard_facts.provider_id, episode_video.price.custom_price):
                         estimate_unpriced["video", storyboard_facts.provider_id, storyboard_facts.model_id] += 1
                     try:
                         video_quote = quote_video_request_from_price(
-                            VideoRequestCostFacts(storyboard_facts, duration), episode_video.price
+                            VideoRequestCostFacts(
+                                storyboard_facts,
+                                duration,
+                                aspect_ratio=video_aspect_ratio,
+                                has_first_frame=True,
+                            ),
+                            episode_video.price,
                         )
-                        _add_cost(est_video, video_quote.amount, video_quote.currency)
+                        if video_quote.amount is None or video_quote.currency is None:
+                            estimate_unpriced["video", storyboard_facts.provider_id, storyboard_facts.model_id] += 1
+                        else:
+                            _add_cost(est_video, video_quote.amount, video_quote.currency)
                     except ValueError:
                         logger.debug("无法计算 video 预估 for %s", seg_id, exc_info=True)
 
@@ -822,7 +869,7 @@ class CostEstimationService:
         script_file: str,
         units: list[Any],
         request_facts_lookup: ReferenceRequestFactsLookup,
-        video_prices: dict[tuple[str, str], Any],
+        video_prices: dict[tuple[str, str], VideoPriceSource],
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
         unpriced: UnpricedCounts,
@@ -922,7 +969,7 @@ class CostEstimationService:
                 if projection is not None and projection.cost is not None and not blockers:
                     cost = projection.cost
                     price = video_prices.get((cost.provider_id, cost.model_id))
-                    if _price_missing(cost.provider_id, price):
+                    if _price_missing(cost.provider_id, price.custom_price if price is not None else None):
                         unpriced["video", cost.provider_id, cost.model_id] += 1
                     if price is not None:
                         try:
@@ -937,7 +984,10 @@ class CostEstimationService:
                                 exc_info=True,
                             )
                         else:
-                            _add_cost(est_video, priced_quote.amount, priced_quote.currency)
+                            if priced_quote.amount is None or priced_quote.currency is None:
+                                unpriced["video", cost.provider_id, cost.model_id] += 1
+                            else:
+                                _add_cost(est_video, priced_quote.amount, priced_quote.currency)
 
             unit_actual = _claim_actual(actual_by_segment, claimed_actual, unit_id)
             act_image: CostBreakdown = unit_actual.get("image", {})

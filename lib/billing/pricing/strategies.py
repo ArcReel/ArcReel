@@ -26,10 +26,6 @@ from lib.billing.pricing.types import (
 
 logger = logging.getLogger(__name__)
 
-# (resolution, duration) 离散档计费里 duration 缺省时的兜底秒数。海螺最短档为 6s，
-# 缺省按最短档计避免高估；真实请求恒带 duration，仅防御性兜底。
-_DEFAULT_BUCKET_DURATION = 6
-
 # per_second_tiered 档位派生常量：service_tier "default" 归一到 "std"，4K 分辨率独立成 "4k" 档。
 _TIERED_DEFAULT_TIER = "std"
 _TIERED_4K_RESOLUTION = "4k"
@@ -93,12 +89,17 @@ def _per_image_openai_token(pricing: PerImageOpenAIToken, params: PricingParams)
     return amount, pricing.currency
 
 
+def _required_duration(params: PricingParams) -> int:
+    """按秒或按时长档计费的视频必须带上时长；缺时长不猜测，算不出。"""
+    if params.duration_seconds is None:
+        raise ValueError("视频计费缺少时长，不按默认秒数估算")
+    return params.duration_seconds
+
+
 def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple[float, str]:
     model = params.model or pricing.default_model
     model_costs = pricing.rates.get(model, pricing.rates[pricing.default_model])
-    # 真实 0 秒（如参考生视频全零时长聚合）保持 0；缺省（None）才按 8 秒兜底。
-    # 「无时长视为 8 秒」的默认由 calculate_cost 对单次实时调用施加，不在此处。
-    duration = params.duration_seconds if params.duration_seconds is not None else 8
+    duration = _required_duration(params)
     if pricing.dimensions == "resolution_audio":
         default_resolution = pricing.default_resolution.lower()
         resolution = (params.resolution or default_resolution).lower()
@@ -122,8 +123,7 @@ def _per_second_matrix(pricing: PerSecondMatrix, params: PricingParams) -> tuple
 def _per_second_tiered(pricing: PerSecondTiered, params: PricingParams) -> tuple[float, str]:
     model = params.model or pricing.default_model
     model_rates = pricing.rates.get(model, pricing.rates[pricing.default_model])
-    # 真实 0 秒保持 0；缺省（None）按 8 秒兜底（与 _per_second_matrix 对齐）。
-    duration = params.duration_seconds if params.duration_seconds is not None else 8
+    duration = _required_duration(params)
 
     # 档位派生：4K 分辨率独立成档（忽略 std/pro），否则取 service_tier（"default"→"std"）。
     resolution = (params.resolution or "").lower()
@@ -154,7 +154,7 @@ def _per_video_bucket(pricing: PerVideoBucket, params: PricingParams) -> tuple[f
     model = params.model or pricing.default_model
     model_buckets = pricing.rates.get(model, pricing.rates[pricing.default_model])
     resolution = (params.resolution or "768p").lower()
-    duration = params.duration_seconds if params.duration_seconds is not None else _DEFAULT_BUCKET_DURATION
+    duration = _required_duration(params)
 
     key = (resolution, duration)
     exact = model_buckets.get(key)
@@ -200,7 +200,6 @@ def _vidu(pricing: ViduDelegate, params: PricingParams) -> tuple[float, str]:
         usage_tokens=params.usage_tokens,
         model=params.model,
         resolution=params.resolution,
-        duration_seconds=params.duration_seconds,
     )
 
 

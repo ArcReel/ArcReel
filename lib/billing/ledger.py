@@ -17,7 +17,7 @@
 
 成功通道的 backend 结果对象 union 分发集中在 ``_settlement_from_result``：text 与 audio 的用量在此
 按用量契约转成计量项用量（结算时按模型目录的价目表计价），video 实际计费时长的语义转写也在此单点完成，
-调用点成功分支不再有逐字段提取胶水。
+调用点成功分支不再有逐字段提取胶水。video 的计量依赖发出的请求，由调用点向视频调用通道取得后随结果一并递交。
 
 结算落库后发一条 ``usage_record / recorded`` 项目变更（走 ``project_change_hints`` 的 batch 总线，
 与任务终态事件同一条 SSE），界面据此刷新用量而不必轮询；无项目名的调用（端点试跑）不发，pending
@@ -75,7 +75,9 @@ def build_usage_record_change(call_id: int, status: CallStatus) -> dict[str, Any
     }
 
 
-def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: str = "default") -> SettlementInput:
+def _settlement_from_result(
+    call_type: CallType, result: Any, *, service_tier: str = "default", usage: Usage | None = None
+) -> SettlementInput:
     """成功通道 union 分发：按 call_type 从 backend 结果对象提取计费维度。
 
     语义转写的唯一落点：
@@ -85,7 +87,8 @@ def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: s
     - audio 的原始文本 → 计量用的 ``text``（字符数由计算器按价目表统计），另把字符数记进 ``usage_tokens``；
       按 token 计价的 TTS 再带输入 token 与输出音频 token；
     - video 的 ``duration_seconds``（backend 回报的实际计费/生成时长）→
-      ``billed_duration_seconds``（覆盖 start_call 时的请求时长）。
+      ``billed_duration_seconds``（覆盖 start_call 时的请求时长）；``usage`` 是视频调用通道按用量契约上报的
+      这次请求的计量，没有时（自定义供应商的包装层）沿用旧计价。
 
     四种 backend 结果对象结构独立、无共同基类，按调用点已知的 ``call_type`` 显式分发。
     """
@@ -122,6 +125,7 @@ def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: s
             generate_audio=result.generate_audio,
             billed_duration_seconds=result.duration_seconds,
             service_tier=service_tier,
+            usage=(usage,) if usage is not None else (),
         )
     if call_type == "text":
         return SettlementInput(
@@ -157,9 +161,14 @@ class LedgerCall:
         self._service_tier = service_tier
         self._settlement: SettlementInput | None = None
 
-    def success(self, result: Any) -> None:
-        """声明成功并递交 backend 结果对象；union 分发在此完成，结算在括号退出时执行。"""
-        self._settlement = _settlement_from_result(self._call_type, result, service_tier=self._service_tier)
+    def success(self, result: Any, *, usage: Usage | None = None) -> None:
+        """声明成功并递交 backend 结果对象；union 分发在此完成，结算在括号退出时执行。
+
+        ``usage`` 只用于 video：调用通道按用量契约上报的这次请求的计量。
+        """
+        self._settlement = _settlement_from_result(
+            self._call_type, result, service_tier=self._service_tier, usage=usage
+        )
 
 
 class Ledger:
@@ -263,12 +272,15 @@ class Ledger:
         async with self._session_factory() as session:
             return await UsageRepository(session).find_pending_call_id_by_task_id(task_id)
 
-    async def resume_success(self, *, call_id: int, result: Any, service_tier: str = "default") -> int:
+    async def resume_success(
+        self, *, call_id: int, result: Any, usage: Usage | None = None, service_tier: str = "default"
+    ) -> int:
         """resume 成功补账：按 call_id 精准翻 pending → success，返回受影响行数（幂等 0/1）。
 
-        finalize 自身异常不吞、直接冒泡（交 worker finally 兜底），避免 ApiCall 永久卡 pending。
+        ``usage`` 是视频调用通道按续跑请求上报的计量。finalize 自身异常不吞、直接冒泡（交 worker finally
+        兜底），避免 ApiCall 永久卡 pending。
         """
-        settlement = _settlement_from_result("video", result, service_tier=service_tier)
+        settlement = _settlement_from_result("video", result, service_tier=service_tier, usage=usage)
         return await self._finalize(call_id=call_id, status=CallStatus.SUCCESS, settlement=settlement)
 
     async def resume_failed(self, *, call_id: int, failure: BaseException | str | None = None) -> int:

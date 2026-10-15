@@ -5,7 +5,13 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from arcreel_market_core.video_backend_contract import VideoBackend, VideoCapabilities
+from arcreel_market_core.video_backend_contract import (
+    VideoBackend,
+    VideoCapabilities,
+    VideoGenerationRequest,
+    VideoGenerationResult,
+)
+from lib.billing.metering import Usage
 
 _BACKEND_FACTORIES: dict[str, Callable[..., VideoBackend]] = {}
 
@@ -62,3 +68,36 @@ def effective_generate_audio_for_model(name: str, model_id: str) -> bool:
     if not isinstance(result, bool):
         raise ValueError(f"video backend {name!r} effective_generate_audio_for_model returned {type(result).__name__}")
     return result
+
+
+def backend_metered_usage(
+    backend: VideoBackend, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+) -> Usage | None:
+    """调用通道实例按用量契约上报的这次请求的计量；通道没有声明 ``metered_usage`` 时为 ``None``。
+
+    内置调用通道都声明了它（见 :mod:`lib.backends.video_backends.metering`）；自定义供应商的包装层与第三方
+    通道没有，结算沿用旧计价。
+    """
+    metered_usage = getattr(backend, "metered_usage", None)
+    if metered_usage is None:
+        return None
+    usage = metered_usage(backend.model, request, result)
+    if not isinstance(usage, Usage):
+        raise ValueError(f"video backend {backend.name!r} metered_usage returned {type(usage).__name__}")
+    return usage
+
+
+def metered_usage_for_model(
+    name: str, model_id: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+) -> Usage:
+    """按 registry 名读某后端对一个请求上报的计量 —— 纯计算，不构造实例；``result`` 为 ``None`` 时是提交前预估。"""
+    factory = _BACKEND_FACTORIES.get(name)
+    if factory is None:
+        raise ValueError(f"Unknown video backend: {name}")
+    metered_usage = getattr(factory, "metered_usage", None)
+    if metered_usage is None:
+        raise ValueError(f"video backend {name!r} does not declare metered_usage")
+    usage = metered_usage(model_id, request, result)
+    if not isinstance(usage, Usage):
+        raise ValueError(f"video backend {name!r} metered_usage returned {type(usage).__name__}")
+    return usage

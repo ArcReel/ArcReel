@@ -44,7 +44,9 @@ from lib.backends.backend_runtime import (
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import image_to_base64_data_uri
 from lib.backends.providers import PROVIDER_AGNES
+from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
+from lib.billing.metering import Usage
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import (
@@ -348,6 +350,23 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         """接续已 submit 的 Agnes task：仅轮询 + 下载，不重新提交（ADR 0007）。"""
         async with artifact_http_client(timeout=self._http_timeout) as client:
             return await self._poll_and_build(client, job_id, request, is_resume=True)
+
+    @staticmethod
+    def metered_usage(
+        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+        两版契约的分辨率都由请求档位决定，未指定时按 720p 下发（2.5 的 ``size``、v2.0 的短边）；结算的输出秒数
+        取 Agnes 回报的成片时长。2.5 契约的成片有声，v2.0 无声。
+        """
+        return video_usage(
+            request,
+            result,
+            seconds=request.duration_seconds,
+            resolution=request.resolution or "720p",
+            audio=_uses_v25_contract(model),
+        )
 
     # ── request building ────────────────────────────────────────────────
 

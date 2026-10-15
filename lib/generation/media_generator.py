@@ -1064,6 +1064,7 @@ class MediaGenerator:
             ) as call,
         ):
             from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+            from lib.backends.video_backends.registry import backend_metered_usage
 
             video_backend = self._video_backend
             # FRAME（start/end 帧，永不缩尺寸）+ ARRAY（参考数组，完整梯子）按已知序位组织成
@@ -1073,6 +1074,8 @@ class MediaGenerator:
             end_spec_idx = slot_plan.end_index
             ref_start_idx = slot_plan.reference_start_index
             provider_resubmit_unsafe = False
+            # 最后一次真正发出的请求：压缩降档重试会重建请求，计量按最终发出的那份取。
+            sent_request: list[VideoGenerationRequest] = []
 
             def _mark_provider_resubmit_unsafe() -> None:
                 nonlocal provider_resubmit_unsafe
@@ -1086,34 +1089,34 @@ class MediaGenerator:
                 ref_arg = (
                     [c.path for c in compressed[ref_start_idx:]] if ref_start_idx is not None else reference_images
                 )
-                return video_backend.generate(
-                    VideoGenerationRequest(
-                        prompt=prompt,
-                        output_path=backend_output_path,
-                        aspect_ratio=request_aspect_ratio,
-                        duration_seconds=duration_int,
-                        resolution=resolution,
-                        start_image=start_arg,
-                        end_image=end_arg,
-                        reference_images=ref_arg,
-                        # 音频不进压缩器（specs 只收图片），故直接透传原列表：顺序即 prompt
-                        # 「音频N」的指认顺序，任何重排都会把 A 角色的音色安到 B 角色头上。
-                        reference_audio_files=reference_audio_files,
-                        # 数组参考图压缩保序（不改数量、不重排），故调用方按未压缩的
-                        # reference_images 下标算出的 targets 对压缩后的 ref_arg 同样有效。
-                        reference_audio_targets=reference_audio_targets,
-                        generate_audio=effective_generate_audio,
-                        poll_timeout_seconds=poll_timeout_seconds,
-                        project_name=self.project_name,
-                        task_id=task_id,
-                        on_provider_resubmit_unsafe=_mark_provider_resubmit_unsafe,
-                        on_provider_response=lambda _stage, body: self.ledger.record_provider_response(
-                            call_id=call.call_id, body=body
-                        ),
-                        service_tier=version_metadata.get("service_tier", "default"),
-                        seed=version_metadata.get("seed"),
-                    )
+                request = VideoGenerationRequest(
+                    prompt=prompt,
+                    output_path=backend_output_path,
+                    aspect_ratio=request_aspect_ratio,
+                    duration_seconds=duration_int,
+                    resolution=resolution,
+                    start_image=start_arg,
+                    end_image=end_arg,
+                    reference_images=ref_arg,
+                    # 音频不进压缩器（specs 只收图片），故直接透传原列表：顺序即 prompt
+                    # 「音频N」的指认顺序，任何重排都会把 A 角色的音色安到 B 角色头上。
+                    reference_audio_files=reference_audio_files,
+                    # 数组参考图压缩保序（不改数量、不重排），故调用方按未压缩的
+                    # reference_images 下标算出的 targets 对压缩后的 ref_arg 同样有效。
+                    reference_audio_targets=reference_audio_targets,
+                    generate_audio=effective_generate_audio,
+                    poll_timeout_seconds=poll_timeout_seconds,
+                    project_name=self.project_name,
+                    task_id=task_id,
+                    on_provider_resubmit_unsafe=_mark_provider_resubmit_unsafe,
+                    on_provider_response=lambda _stage, body: self.ledger.record_provider_response(
+                        call_id=call.call_id, body=body
+                    ),
+                    service_tier=version_metadata.get("service_tier", "default"),
+                    seed=version_metadata.get("seed"),
                 )
+                sent_request[:] = [request]
+                return video_backend.generate(request)
 
             async def _before_first_submit() -> None:
                 if before_submit is not None:
@@ -1135,7 +1138,7 @@ class MediaGenerator:
             video_uri = result.video_uri
             _merge_result_provenance(version_metadata, result)
             _collect_result_warnings(warnings, result)
-            call.success(result)
+            call.success(result, usage=backend_metered_usage(video_backend, sent_request[0], result))
 
         await self._prepare_formal_video_commit(
             resource_type=resource_type,
@@ -1236,6 +1239,7 @@ class MediaGenerator:
             raise ValueError("before_formal_commit requires formal video output")
 
         from arcreel_market_core.video_backend_contract import ResumeExpiredError, VideoGenerationRequest
+        from lib.backends.video_backends.registry import backend_metered_usage
 
         request = VideoGenerationRequest(
             prompt=prompt,
@@ -1294,6 +1298,7 @@ class MediaGenerator:
                 await self.ledger.resume_success(
                     call_id=api_call_id,
                     result=result,
+                    usage=backend_metered_usage(self._video_backend, request, result),
                     service_tier=version_metadata.get("service_tier", "default"),
                 )
         else:

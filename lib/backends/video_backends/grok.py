@@ -20,7 +20,9 @@ from lib.backends.backend_runtime import download_video
 from lib.backends.data_uri import image_to_data_uri
 from lib.backends.grok_shared import create_grok_client
 from lib.backends.providers import PROVIDER_GROK
+from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.billing.metering import Usage
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 
@@ -93,6 +95,20 @@ class GrokVideoBackend:
     @property
     def video_capabilities(self) -> VideoCapabilities:
         return self.video_capabilities_for_model(self._model)
+
+    @staticmethod
+    def metered_usage(
+        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）；结算的输出秒数取 xAI 回报的时长。"""
+        del model
+        return video_usage(
+            request,
+            result,
+            seconds=request.duration_seconds,
+            resolution=request.resolution,
+            audio=request.generate_audio,
+        )
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         # Grok 同步型 API，无 job_id 可接续；orphan handler 据 NotImplementedError 标 [resume_unsupported]

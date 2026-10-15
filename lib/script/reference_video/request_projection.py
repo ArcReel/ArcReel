@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.config.resolver import (
     VideoGenerationType,
     video_capability_satisfied,
@@ -655,6 +656,8 @@ class ReferenceUnitRequestProjector:
                 cost = VideoRequestCostFacts(
                     request_facts=facts,
                     duration_seconds=projected.slot.seconds,
+                    aspect_ratio=resolve_video_aspect_ratio(project),
+                    reference_image_count=len(request_assets),
                 )
 
         return ReferenceUnitRequestProjection(

@@ -31,7 +31,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from arcreel_catalog_core import CatalogEntry, Meter, PriceRow, PriceTable, TextFacts
+from arcreel_catalog_core import CatalogEntry, Meter, PriceRow, PriceTable, TextFacts, VideoFacts
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoCapabilities,
@@ -299,6 +299,7 @@ class _FakeVideoBackend:
         result_fields: dict[str, Any] | None = None,
         error: BaseException | None = None,
         resume_error: BaseException | None = None,
+        metered: Callable[[VideoGenerationRequest, VideoGenerationResult | None], Usage] | None = None,
     ) -> None:
         self._provider = provider
         self._model = model
@@ -307,6 +308,9 @@ class _FakeVideoBackend:
         self._result_fields = result_fields or {}
         self._error = error
         self._resume_error = resume_error
+        # 内置调用通道按用量契约上报计量（``metered_usage``）；不给时模拟没有声明它的通道。
+        if metered is not None:
+            self.metered_usage = lambda _model, request, result=None: metered(request, result)
 
     @property
     def name(self) -> str:
@@ -769,6 +773,10 @@ class TestVideoChannel:
                 provider="ark",
                 model="doubao-seedance-2-0-260128",
                 result_fields={"usage_tokens": 1_000_000},
+                metered=lambda request, result: Usage(
+                    quantities={"video_tokens": result.usage_tokens if result is not None else 0},
+                    dimensions={"resolution": request.resolution, "input_video": False},
+                ),
             ),
         )
 
@@ -829,6 +837,102 @@ class TestVideoChannel:
         )
 
 
+def _clip_entry() -> CatalogEntry:
+    """测试用视频条目：输出秒数按分辨率 × 有声分档，输入视频按秒计，参考图每请求免费 2 张。"""
+    return CatalogEntry(
+        maker="acme",
+        name="clip",
+        media_type="video",
+        display_name="clip",
+        facts=VideoFacts(durations=(8,), resolutions=("720p", "1080p")),
+        price=PriceTable(
+            currency="USD",
+            meters=(
+                _meter(
+                    "output_seconds",
+                    ({"resolution": "720p", "audio": True}, 0.4),
+                    ({"resolution": "720p", "audio": False}, 0.2),
+                    ({"resolution": "1080p", "audio": True}, 0.6),
+                    ({"resolution": "1080p", "audio": False}, 0.3),
+                    dims=("resolution", "audio"),
+                ),
+                _meter("input_video_seconds", ({}, 0.1)),
+                replace(_meter("input_images", ({}, 0.05)), free_allowance=2),
+            ),
+        ),
+    )
+
+
+def _clip_usage(request: VideoGenerationRequest, result: VideoGenerationResult | None) -> Usage:
+    """模拟内置调用通道的上报：输出秒数与是否有声取结果，带 4 秒输入视频与 5 张参考图；调用次数价目表不计。"""
+    assert result is not None
+    return Usage(
+        quantities={
+            "output_seconds": result.duration_seconds or request.duration_seconds,
+            "input_video_seconds": 4,
+            "input_images": 5,
+            "requests": 1,
+        },
+        dimensions={"resolution": request.resolution, "audio": result.generate_audio, "input_video": True},
+    )
+
+
+class TestCatalogPricedVideo:
+    """视频按模型目录的价目表结算：调用通道上报的计量项与选择维度，免费额度与计数类计量项。"""
+
+    @pytest.mark.parametrize(
+        ("resolution", "audio", "per_second"),
+        [("720p", True, 0.4), ("720p", False, 0.2), ("1080p", True, 0.6), ("1080p", False, 0.3)],
+    )
+    async def test_resolution_audio_matrix_with_input_video_and_extra_reference_images(
+        self,
+        tmp_path: Path,
+        acct: _AccountingDb,
+        monkeypatch: pytest.MonkeyPatch,
+        resolution: str,
+        audio: bool,
+        per_second: float,
+    ) -> None:
+        install_catalog(monkeypatch, catalog_of((_clip_entry(),), {"openai": ("acme/clip",)}))
+        backend = _FakeVideoBackend(
+            provider="openai",
+            model="clip",
+            result_fields={"generate_audio": audio},
+            metered=_clip_usage,
+        )
+        gen = _media_generator(tmp_path, acct, video_backend=backend)
+
+        await gen.generate_video_async(
+            prompt="p", resource_type="videos", resource_id="E1S01", duration_seconds="8", resolution=resolution
+        )
+
+        # 8 秒 × 档位单价 + 输入视频 4 秒 × 0.1 + 超出免费 2 张的 3 张参考图 × 0.05；调用次数不在价目表里，不计费
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_video_row(
+                model="clip",
+                provider="openai",
+                resolution=resolution,
+                generate_audio=audio,
+                cost_amount=pytest.approx(8 * per_second + 4 * 0.1 + 3 * 0.05),
+            ),
+        )
+
+    async def test_channel_without_metered_usage_is_unpriced(
+        self, tmp_path: Path, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        install_catalog(monkeypatch, catalog_of((_clip_entry(),), {"openai": ("acme/clip",)}))
+        gen = _media_generator(tmp_path, acct, video_backend=_FakeVideoBackend(provider="openai", model="clip"))
+
+        await _generate_video(gen)
+
+        # 内置调用通道没有上报计量：价目表的计量项全部落空，记为未定价，不按秒数猜
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_video_row(model="clip", provider="openai", cost_amount=None, unpriced_reason="missing_rate"),
+        )
+
+
 # ---------------------------------------------------------------------------
 # 通道四：text 生成括号
 # ---------------------------------------------------------------------------
@@ -865,7 +969,7 @@ class TestTextChannel:
             ),
         )
 
-    async def test_no_tokens_and_no_project_yields_zero_cost(self, acct: _AccountingDb) -> None:
+    async def test_no_tokens_and_no_project_is_unpriced(self, acct: _AccountingDb) -> None:
         gen = TextGenerator(
             _FakeTextBackend(provider="gemini", model="gemini-3-flash-preview"),
             Ledger(session_factory=acct.factory),
@@ -875,7 +979,7 @@ class TestTextChannel:
 
         await gen.generate(TextGenerationRequest(prompt="p"))
 
-        # 无 token 数据无从计费（成功仍 0 费用）；project_name 缺省落空串
+        # 价目表的计量项一项用量都没拿到：费用无从得知，记为未定价，不静默记 0；project_name 缺省落空串
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
@@ -885,6 +989,8 @@ class TestTextChannel:
                 project_name="",
                 prompt="p",
                 provider="gemini-aistudio",
+                cost_amount=None,
+                unpriced_reason="missing_rate",
             ),
         )
 

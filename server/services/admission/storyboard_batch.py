@@ -30,8 +30,8 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.config.resolver import ConfigResolver
-from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
 from lib.generation.generation_batch import GenerationBatchReadModel, build_generation_batch_admission
 from lib.generation.generation_queue import GenerationQueue
@@ -68,7 +68,11 @@ from lib.script.storyboard_sequence import (
     build_storyboard_dependency_plan,
     get_storyboard_items,
 )
-from server.services.admission.cost_estimation import ImageLane, quote_video_request_from_price
+from server.services.admission.cost_estimation import (
+    ImageLane,
+    load_video_price_source,
+    quote_video_request_from_price,
+)
 from server.services.admission.reference_admission import reference_admission_problems
 from server.services.admission.video_batch_admission import (
     admit_storyboard_video_request,
@@ -443,6 +447,8 @@ class StoryboardVideoBatchPlan:
     video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None
     #: 每个目标剧本上的计划秒数；不是正整数时为 ``None``，这一批就报不出价。
     durations: Mapping[str, int | None] = field(default_factory=dict)
+    #: 视频请求发出的画面比例，与生成任务同一个解析。
+    video_aspect_ratio: str = "16:9"
 
     @property
     def target_ids(self) -> list[str]:
@@ -591,13 +597,14 @@ async def load_storyboard_video_batch_plan(
         admission=admission,
         video_request_facts=facts,
         durations=durations,
+        video_aspect_ratio=resolve_video_aspect_ratio(loaded.project),
     )
 
 
 async def estimate_storyboard_video_batch_cost(
     plan: StoryboardVideoBatchPlan, session_factory: async_sessionmaker[AsyncSession]
 ) -> dict[str, float] | None:
-    """这一批视频按剧本计划秒数的预估费用；请求事实不成立或有目标缺秒数时返回 ``None``（算不出）。"""
+    """这一批视频按剧本计划秒数的预估费用；请求事实不成立、有目标缺秒数或有请求未定价时返回 ``None``（算不出）。"""
 
     facts = plan.video_request_facts
     if not plan.specs:
@@ -606,11 +613,16 @@ async def estimate_storyboard_video_batch_cost(
         return None
     try:
         async with session_factory() as session:
-            price = await CustomProviderRepository(session).resolve_price(facts.provider_id, facts.model_id)
+            source = await load_video_price_source(session, facts.provider_id, facts.model_id)
         total: dict[str, float] = {}
         for duration in plan.durations.values():
             assert duration is not None
-            quote = quote_video_request_from_price(VideoRequestCostFacts(facts, duration), price)
+            quote = quote_video_request_from_price(
+                VideoRequestCostFacts(facts, duration, aspect_ratio=plan.video_aspect_ratio, has_first_frame=True),
+                source,
+            )
+            if quote.amount is None or quote.currency is None:
+                return None
             total[quote.currency] = round(total.get(quote.currency, 0.0) + quote.amount, 6)
     except (SQLAlchemyError, ValueError):
         return None

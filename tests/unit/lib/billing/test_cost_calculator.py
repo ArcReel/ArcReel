@@ -293,10 +293,10 @@ class TestGrokVideoCost:
         cost, _ = _cost("grok", "video", duration_seconds=15, model="grok-imagine-video")
         assert cost == pytest.approx(0.75)
 
-    def test_zero_duration_defaults_to_8s(self):
-        # 统一入口把 0/缺省时长视为默认 8 秒（与历史 calculate_cost 行为一致）：8 × 0.050 = 0.40
+    def test_zero_duration_is_not_replaced_by_a_default(self):
+        # 缺秒数不再按 8 秒兜底：0 秒就是 0 秒
         cost, _ = _cost("grok", "video", duration_seconds=0, model="grok-imagine-video")
-        assert cost == pytest.approx(0.40)
+        assert cost == 0
 
     def test_unknown_model_uses_default(self):
         cost, _ = _cost("grok", "video", duration_seconds=10, model="unknown-grok-model")

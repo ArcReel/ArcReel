@@ -43,7 +43,9 @@ from lib.backends.gemini_shared import (
 )
 from lib.backends.providers import PROVIDER_GEMINI
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
+from lib.billing.metering import Usage
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
 from lib.infra.async_thread import run_sync_transaction
@@ -151,6 +153,23 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
     @property
     def model(self) -> str:
         return self._video_model
+
+    @staticmethod
+    def metered_usage(
+        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+        音轨开关只在 Vertex 目录的型号上下发，其余型号的成片恒有声（与 ``video_capabilities_for_model`` 的
+        音轨形态同一判据）。
+        """
+        return video_usage(
+            request,
+            result,
+            seconds=request.duration_seconds,
+            resolution=request.resolution,
+            audio=request.generate_audio if model in _AUDIO_SWITCH_MODELS else True,
+        )
 
     @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:

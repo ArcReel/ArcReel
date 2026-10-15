@@ -30,7 +30,9 @@ from lib.backends.backend_runtime import (
 )
 from lib.backends.providers import PROVIDER_ARK
 from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -59,6 +61,47 @@ _SEEDANCE_2_5_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 30.0
 # 与 dashscope 侧的同名表刻意各存一份：mp3 在这里按官方示例写 audio/mp3，dashscope 走标准
 # 的 audio/mpeg——供应商各自的接受口径，合并成一张共享表会让其中一家收到没验证过的 MIME。
 _REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mp3"}
+
+# Seedance 视频 token 的官方估算公式（《模型价格》视频生成一节）：
+#   (输入视频时长 + 输出视频时长) × 输出视频的宽 × 高 × 帧率 / 1024
+# 帧率与各「分辨率 × 宽高比」的输出像素取自《创建视频生成任务 API》：输出帧率 24；2.5 与 2.0 系列只有 480p 的
+# 16:9 / 9:16 两格不同，2.5 没有 4k。分辨率不发送时 API 默认 720p。结算以供应商回报的 completion_tokens 为准。
+_SEEDANCE_FPS = 24
+_SEEDANCE_DEFAULT_RESOLUTION = "720p"
+_SEEDANCE_2_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
+    ("480p", "16:9"): (864, 496),
+    ("480p", "4:3"): (752, 560),
+    ("480p", "1:1"): (640, 640),
+    ("480p", "3:4"): (560, 752),
+    ("480p", "9:16"): (496, 864),
+    ("480p", "21:9"): (992, 432),
+    ("720p", "16:9"): (1280, 720),
+    ("720p", "4:3"): (1112, 834),
+    ("720p", "1:1"): (960, 960),
+    ("720p", "3:4"): (834, 1112),
+    ("720p", "9:16"): (720, 1280),
+    ("720p", "21:9"): (1470, 630),
+    ("1080p", "16:9"): (1920, 1080),
+    ("1080p", "4:3"): (1664, 1248),
+    ("1080p", "1:1"): (1440, 1440),
+    ("1080p", "3:4"): (1248, 1664),
+    ("1080p", "9:16"): (1080, 1920),
+    ("1080p", "21:9"): (2206, 946),
+    ("4k", "16:9"): (3840, 2160),
+    ("4k", "4:3"): (3326, 2494),
+    ("4k", "1:1"): (2880, 2880),
+    ("4k", "3:4"): (2494, 3326),
+    ("4k", "9:16"): (2160, 3840),
+    ("4k", "21:9"): (4398, 1886),
+}
+_SEEDANCE_2_5_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
+    **{key: size for key, size in _SEEDANCE_2_PIXELS.items() if key[0] != "4k"},
+    ("480p", "16:9"): (854, 480),
+    ("480p", "9:16"): (480, 854),
+}
+
+# 请求的服务档取值 → 价目表的服务档取值：方舟请求里的 ``default`` 即标准档。
+_CATALOG_SERVICE_TIERS = {"default": "standard"}
 
 
 def _retry_ark_download(exc: Exception) -> bool:
@@ -127,7 +170,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         # 该参数是整代都不接受。逐型号的严格判定另走 _matches_known_model 白名单（尾帧与参考
         # 音频用），两者不可互换。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
         # 声明调用方需要据以取舍的输入路径。
-        self._supports_service_tier = not (self._is_seedance_2(self._model) or self._is_seedance_2_5(self._model))
+        self._supports_service_tier = self._accepts_service_tier(self._model)
 
     @property
     def name(self) -> str:
@@ -136,6 +179,60 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     @property
     def model(self) -> str:
         return self._model
+
+    @staticmethod
+    def _accepts_service_tier(model: str) -> bool:
+        """请求体是否带 ``service_tier``：Seedance 2.0 与 2.5 两代都不带。"""
+        return not (ArkVideoBackend._is_seedance_2(model) or ArkVideoBackend._is_seedance_2_5(model))
+
+    @staticmethod
+    def estimate_video_tokens(model: str, *, resolution: str | None, ratio: str, seconds: int) -> float | None:
+        """按官方公式估算一次 Seedance 2.x 请求的视频 token；宽高比为 ``adaptive``、档位或型号不在像素表里时为 ``None``。
+
+        内置调用通道不发送输入视频，输入视频时长恒为 0。
+        """
+        if ArkVideoBackend._is_seedance_2_5(model):
+            pixels = _SEEDANCE_2_5_PIXELS
+        elif ArkVideoBackend._is_seedance_2(model):
+            pixels = _SEEDANCE_2_PIXELS
+        else:
+            return None
+        size = pixels.get(((resolution or _SEEDANCE_DEFAULT_RESOLUTION).lower(), ratio))
+        if size is None:
+            return None
+        width, height = size
+        return seconds * width * height * _SEEDANCE_FPS / 1024
+
+    @staticmethod
+    def metered_usage(
+        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+        视频 token 结算取供应商回报的 ``completion_tokens``（``result.usage_tokens``），预估按
+        :meth:`estimate_video_tokens` 换算。服务档只在请求体带它的型号上上报。
+        """
+        tokens = (
+            result.usage_tokens
+            if result is not None
+            else ArkVideoBackend.estimate_video_tokens(
+                model, resolution=request.resolution, ratio=request.aspect_ratio, seconds=request.duration_seconds
+            )
+        )
+        tier = request.service_tier
+        return video_usage(
+            request,
+            result,
+            seconds=request.duration_seconds,
+            resolution=request.resolution,
+            audio=request.generate_audio,
+            video_tokens=tokens,
+            dimensions=(
+                {"service_tier": _CATALOG_SERVICE_TIERS.get(tier, tier)}
+                if ArkVideoBackend._accepts_service_tier(model)
+                else None
+            ),
+        )
 
     @staticmethod
     def _is_seedance_2(model: str) -> bool:

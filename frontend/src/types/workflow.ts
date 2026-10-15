@@ -169,11 +169,13 @@ export interface AdmissionProblem {
 
 /** 供应商侧对这一次视频请求的精确报价。 */
 export interface VideoRequestCostQuote {
-  amount: number;
-  currency: string;
+  /** null 表示价目表算不出这次请求，原因见 unpriced_reason。 */
+  amount: number | null;
+  currency: string | null;
   provider_id: string;
   model_id: string;
   request_duration_seconds: number;
+  unpriced_reason?: string | null;
 }
 
 export interface BatchAdmissionUnit {
