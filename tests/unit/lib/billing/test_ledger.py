@@ -1,4 +1,4 @@
-"""ledger 直驱缝测试：直接驱动记账括号 / resume / backfill / union 分发。
+"""ledger 直驱缝测试：直接驱动记账括号 / resume / Agent 轮次 / union 分发。
 
 特征化矩阵（tests/test_accounting_characterization.py）从生成器公开方法端到端锁落库行为；
 本文件补齐矩阵覆盖不到的 CM 契约语义：块内 call_id 可用、漏调成功声明抛 RuntimeError、
@@ -26,10 +26,10 @@ from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import CallPurpose, CallStatus
 from lib.backends.text_backends.base import TextGenerationResult, merge_billed_usage
 from lib.billing.ledger import Ledger, _settlement_from_result
-from lib.billing.metering import Usage
+from lib.billing.metering import Usage, token_usage
 from lib.db.base import utc_now
 from lib.db.models.api_call import ApiCall
-from lib.db.repositories.usage_repo import UsageRepository
+from lib.db.repositories.usage_repo import AgentModelCall, UsageRepository
 
 _HTTP_REQUEST = httpx.Request("POST", "https://provider.example/v1/videos")
 
@@ -455,11 +455,11 @@ class TestRecordBracket:
 
 
 # ---------------------------------------------------------------------------
-# resume 补账 / 事后补录：语义齐备的直驱确认（端到端计费口径见特征化矩阵）
+# resume 补账 / Agent 轮次：语义齐备的直驱确认（端到端计费口径见特征化矩阵）
 # ---------------------------------------------------------------------------
 
 
-class TestResumeAndBackfill:
+class TestResumeAndAgentTurn:
     async def _seed_pending_video(self, db_factory: async_sessionmaker) -> int:
         from lib.db.repositories.usage_repo import UsageRepository
 
@@ -572,79 +572,33 @@ class TestResumeAndBackfill:
         affected = await ledger.resume_success(call_id=call_id, result=_VideoResult())
         assert affected == 0
 
-    async def test_backfill_rejects_pending_status(self, db_factory: async_sessionmaker) -> None:
-        """补录只写终态行：pending 会留下一条无人结算的行，进门就拒。"""
-        ledger = Ledger(session_factory=db_factory)
-        with pytest.raises(ValueError, match="pending"):
-            await ledger.backfill(
-                project_name="demo",
-                call_type="text",
-                model="m",
-                provider="anthropic",
-                prompt=None,
-                user_id="default",
-                status=CallStatus.PENDING,
-                purpose=CallPurpose.ASSISTANT_SESSION,
-            )
-
-    async def test_backfill_writes_single_terminal_row(self, db_factory: async_sessionmaker) -> None:
-        ledger = Ledger(session_factory=db_factory)
-        await ledger.backfill(
-            project_name="demo",
-            call_type="text",
-            model="claude-sonnet-4",
-            provider="anthropic",
-            prompt="u",
-            user_id="default",
-            status=CallStatus.SUCCESS,
-            input_tokens=1_000_000,
-            output_tokens=200_000,
-            usage_tokens=1_200_000,
-            cost_amount=0.123,
-            currency="USD",
-            purpose=CallPurpose.ASSISTANT_SESSION,
-            session_id="s1",
-        )
-
-        row = await _only_row(db_factory)
-        assert row.status == "success"
-        assert row.cost_amount == pytest.approx(0.123)  # SDK 直报费用优先
-        assert row.usage_tokens == 1_200_000
-        assert row.purpose == "assistant_session"
-        assert row.session_id == "s1"
-
-    async def test_cancel_between_open_and_finish_still_writes_terminal_row(
+    async def test_cancel_during_agent_turn_write_still_lands_the_rows(
         self, db_factory: async_sessionmaker, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """取消打在补录的开账与结算之间：等终态行带着 SDK 直报费用落库、事件发出后再传播取消。"""
+        """取消打在 Agent 轮次的写入上：等这一轮的行落库、事件发出后再传播取消，已产生的费用不丢。"""
         publisher = _RecordingPublisher()
         ledger = Ledger(session_factory=db_factory, publish_change=publisher)
-        real_start_call = UsageRepository.start_call
+        real_record = UsageRepository.record_agent_turn
         committed = asyncio.Event()
         release = asyncio.Event()
 
-        async def _commit_then_hold(repo: UsageRepository, **kwargs: Any) -> int:
-            call_id = await real_start_call(repo, **kwargs)
+        async def _commit_then_hold(repo: UsageRepository, **kwargs: Any) -> list[int]:
+            call_ids = await real_record(repo, **kwargs)
             committed.set()
             await release.wait()
-            return call_id
+            return call_ids
 
-        monkeypatch.setattr(UsageRepository, "start_call", _commit_then_hold)
+        monkeypatch.setattr(UsageRepository, "record_agent_turn", _commit_then_hold)
         task = asyncio.create_task(
-            ledger.backfill(
+            ledger.record_agent_turn(
                 project_name="demo",
-                call_type="text",
-                model="claude-sonnet-4",
-                provider="anthropic",
+                session_id="s1",
                 prompt="u",
                 user_id="default",
+                provider="agent-1",
+                credential_id=1,
                 status=CallStatus.CANCELLED,
-                input_tokens=1_000,
-                output_tokens=200,
-                cost_amount=0.05,
-                currency="USD",
-                purpose=CallPurpose.ASSISTANT_SESSION,
-                session_id="s1",
+                calls=[_agent_call("claude-sonnet-4-6"), _agent_call("claude-haiku-4-5")],
             )
         )
         await committed.wait()
@@ -653,13 +607,28 @@ class TestResumeAndBackfill:
         with pytest.raises(asyncio.CancelledError):
             await task
 
-        row = await _only_row(db_factory)
-        assert row.status == "cancelled"
-        assert row.cost_amount == pytest.approx(0.05)  # 中断前已消耗的费用不丢
-        assert row.finished_at is not None
-        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
-            ("demo", ["cancelled"])
+        async with db_factory() as session:
+            rows = (await session.execute(select(ApiCall).order_by(ApiCall.id))).scalars().all()
+        assert [(row.model, row.status, row.cost_amount) for row in rows] == [
+            ("claude-sonnet-4-6", "cancelled", pytest.approx(3.0)),
+            ("claude-haiku-4-5", "cancelled", pytest.approx(1.0)),
         ]
+        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
+            ("demo", ["cancelled", "cancelled"])
+        ]
+
+
+def _agent_call(model: str) -> AgentModelCall:
+    """一个模型一轮一次请求、100 万未缓存输入 token。"""
+    return AgentModelCall(
+        model=model,
+        requests=(Usage(quantities=token_usage(input_tokens=1_000_000, output_tokens=0)),),
+        input_tokens=1_000_000,
+        output_tokens=0,
+        cache_read_tokens=0,
+        cache_write_5m_tokens=0,
+        cache_write_1h_tokens=0,
+    )
 
 
 class _RecordingPublisher:
@@ -767,25 +736,6 @@ class TestSettlementEvents:
 
         assert await ledger.resume_success(call_id=call_id, result=_VideoResult()) == 1
         assert await ledger.resume_success(call_id=call_id, result=_VideoResult()) == 0
-
-        assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
-            ("demo", ["success"])
-        ]
-
-    async def test_backfill_emits_recorded_change(self, db_factory: async_sessionmaker) -> None:
-        publisher = _RecordingPublisher()
-        ledger = Ledger(session_factory=db_factory, publish_change=publisher)
-
-        await ledger.backfill(
-            project_name="demo",
-            call_type="text",
-            model="claude-sonnet-4",
-            provider="anthropic",
-            prompt="u",
-            user_id="default",
-            status=CallStatus.SUCCESS,
-            cost_amount=0.1,
-        )
 
         assert [(project, [c["status"] for c in changes]) for project, changes in publisher.batches] == [
             ("demo", ["success"])

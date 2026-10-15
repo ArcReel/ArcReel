@@ -7,7 +7,6 @@ gemini-aistudio）。仅在底层暴露的形态（如按张 n、纯策略 fallb
 
 import pytest
 
-from lib.backends.providers import PROVIDER_ANTHROPIC
 from lib.billing.cost_calculator import CostCalculator, cost_calculator
 from lib.billing.pricing.strategies import PricingParams
 
@@ -91,41 +90,6 @@ class TestVideoCost:
 
     def test_singleton_instance(self):
         assert isinstance(cost_calculator, CostCalculator)
-
-
-class TestAnthropicTextCost:
-    def test_calculate_anthropic_text_cost(self):
-        amount, currency = _cost(
-            PROVIDER_ANTHROPIC,
-            "text",
-            input_tokens=100_000,
-            output_tokens=50_000,
-            model="claude-sonnet-4",
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx(1.05)
-
-    def test_unknown_anthropic_model_uses_default(self):
-        amount, currency = _cost(
-            PROVIDER_ANTHROPIC,
-            "text",
-            input_tokens=100_000,
-            output_tokens=50_000,
-            model="unknown-claude",
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx(1.05)
-
-    def test_calculate_anthropic_haiku_text_cost(self):
-        amount, currency = _cost(
-            PROVIDER_ANTHROPIC,
-            "text",
-            input_tokens=100_000,
-            output_tokens=50_000,
-            model="claude-haiku-4-5",
-        )
-        assert currency == "USD"
-        assert amount == pytest.approx(0.35)
 
 
 class TestKlingVideoCost:

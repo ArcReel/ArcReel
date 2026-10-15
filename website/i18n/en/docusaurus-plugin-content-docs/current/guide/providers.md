@@ -453,6 +453,13 @@ Each model on a custom provider can also have its own multiplier, so the final c
 The multiplier defaults to 1; Volcengine Ark Agent Plan is billed by subscription and ComfyUI providers run on your own hardware, so their multipliers default to 0 and no cost is computed. Changing a multiplier only affects later calls;
 costs already recorded are not recalculated.
 
+Agent session costs are computed from the same model catalog; the cost reported by the Claude Agent SDK is not used:
+
+- Each model request is priced by its own token usage and total input, and subagent requests are included.
+- Each model used in a conversation turn gets one record, named after the model that was actually called.
+- When a model name does not match any known model in the catalog, its tokens are still recorded and the cost is marked "Unpriced".
+- Calls that do not appear in the message stream, such as context compaction, are filled in from the cumulative usage the SDK reports. The first turn after a session is resumed has no baseline to compare against, so such calls are not counted in that turn.
+
 Use ArcReel's cost tracking for:
 
 - Project budgets;

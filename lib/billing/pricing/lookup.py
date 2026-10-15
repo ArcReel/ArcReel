@@ -10,7 +10,6 @@ import logging
 
 from lib.backends.providers import (
     PROVIDER_AGNES,
-    PROVIDER_ANTHROPIC,
     PROVIDER_ARK,
     PROVIDER_DASHSCOPE,
     PROVIDER_GROK,
@@ -19,7 +18,7 @@ from lib.backends.providers import (
     PROVIDER_OPENAI,
     PROVIDER_VIDU,
 )
-from lib.billing.pricing.types import PerToken, Pricing, ViduDelegate
+from lib.billing.pricing.types import Pricing, ViduDelegate
 
 logger = logging.getLogger(__name__)
 
@@ -30,29 +29,9 @@ _OWN_TABLE_PROVIDERS = frozenset(
     {PROVIDER_ARK, PROVIDER_GROK, PROVIDER_OPENAI, PROVIDER_DASHSCOPE, PROVIDER_MINIMAX, PROVIDER_KLING, PROVIDER_AGNES}
 )
 
-# Anthropic 不在 PROVIDER_REGISTRY（无 ModelInfo 落点），文本定价作为 registry-external 例外。
-# Agent 主链路优先使用 SDK 回报的实际费用；此表仅在只拿到 token 数时兜底。费率为美元/百万 token。
-_ANTHROPIC_PRICING = PerToken(
-    rates={
-        "claude-sonnet-4": {"input": 3.00, "output": 15.00},
-        "claude-sonnet-4-20250514": {"input": 3.00, "output": 15.00},
-        "claude-sonnet-4.5": {"input": 3.00, "output": 15.00},
-        "claude-sonnet-4-5": {"input": 3.00, "output": 15.00},
-        "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
-        "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
-        "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
-        "claude-haiku-4-20250514": {"input": 1.00, "output": 5.00},
-        "claude-opus-4": {"input": 15.00, "output": 75.00},
-        "claude-opus-4-6": {"input": 15.00, "output": 75.00},
-        "claude-opus-4-7": {"input": 15.00, "output": 75.00},
-    },
-    default_model="claude-sonnet-4",
-    currency="USD",
-)
-
 
 def _gemini_default_pricing_for(media_type: str, model: str | None = None) -> Pricing:
-    """非 ark/grok/openai/vidu/anthropic 的 provider（含裸 ``gemini`` / 未知 provider /
+    """非 ark/grok/openai/vidu 的 provider（含裸 ``gemini`` / 未知 provider /
     Agent Plan / gemini-aistudio / gemini-vertex）统一走 Gemini 家族费率：先按 model 在
     aistudio + vertex 命中（复刻历史「全局 Gemini 费率表按 model 命中」，覆盖如裸 ``gemini`` +
     ``veo-3.1-generate-001`` 这类历史调用），未命中再回落 aistudio 该媒体类型的默认模型——
@@ -80,8 +59,6 @@ def _gemini_default_pricing_for(media_type: str, model: str | None = None) -> Pr
 
 def lookup_pricing(provider: str, model: str | None, media_type: str) -> Pricing:
     """返回该调用的定价声明。``media_type`` 即 call_type（``text`` / ``image`` / ``video`` / ``audio``）。"""
-    if provider == PROVIDER_ANTHROPIC:
-        return _ANTHROPIC_PRICING
     if provider == PROVIDER_VIDU:
         # provider 级判定：不经 model→pricing 回落，确保策略拿到原始 model 透传给 vidu 计费。
         return ViduDelegate()

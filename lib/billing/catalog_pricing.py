@@ -7,6 +7,7 @@
 - 内置供应商：供应商模型引用清单里的条目，供应商模型倍率随目录数据下发。
 - 自定义供应商：供应商模型按条目绑定或名字对应条目（docs/adr/0105），供应商模型倍率由用户填写；对应不上条目时
   记为未定价（docs/adr/0106）。
+- Agent 会话：模型名按 Agent 凭证档位的条目绑定或名字对应条目，倍率只有 Agent 凭证倍率一级（docs/adr/0102）。
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from lib.billing.metering import Cost, Usage, price_requests
 
 
 def is_builtin_provider(provider: str) -> bool:
-    """注册表里的内置供应商；其余（自定义供应商、Agent 会话的供应商）不经清单查条目。"""
+    """注册表里的内置供应商；其余（自定义供应商、Agent 凭证）不经清单查条目。"""
     # 注册表导入放函数内，理由同 price_builtin_call 里的目录查询导入。
     from lib.config.registry import PROVIDER_REGISTRY
 
@@ -77,4 +78,28 @@ def price_custom_call(
         multiplier=provider_multiplier * model_multiplier,
         entry_found=entry is not None,
         estimate=estimate,
+    )
+
+
+def price_agent_call(
+    *,
+    model: str,
+    entry_binding: str | None,
+    requests: Sequence[Usage],
+    multiplier: float,
+) -> Cost:
+    """Agent 会话里一个模型一轮的参考费用（docs/adr/0102）。
+
+    ``model`` 是 API 模型名，``entry_binding`` 是 Agent 凭证上这个模型所在档位的条目绑定，对应条目的规则见
+    :func:`lib.catalog.query.find_entry`；``multiplier`` 是 Agent 凭证倍率，只此一级，为 0 时直接记 0。
+    ``requests`` 是这一轮各次请求的用量，各自落上下文档、单独计价后相加。
+    """
+    from lib.catalog import query as catalog
+
+    entry = catalog.find_entry(model, media_type="text", binding=catalog.binding_key(entry_binding, "text"))
+    return price_requests(
+        entry.price if entry is not None else None,
+        requests,
+        multiplier=multiplier,
+        entry_found=entry is not None,
     )

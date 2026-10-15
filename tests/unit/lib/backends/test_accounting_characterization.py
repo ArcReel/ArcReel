@@ -1,14 +1,13 @@
-"""记账特征化测试矩阵：六通道落库行为锁。
+"""记账特征化测试矩阵：五通道落库行为锁。
 
 以生成器公开方法驱动 + 假 backend（Protocol 实现，返回可控结果/抛可控异常）+ 真内存
 SQLite 落库 + 冻结时钟，把记账链路（Ledger → UsageRepository → 结算 →
 CostCalculator → 定价策略）的落库行为逐字段锁定：链路内部不 mock，断言 ApiCall 整行，
 任何记账落库行为的意外变化都会在此当场失败。
 
-六条通道：
+五条通道（Agent 会话的轮次记账见 ``tests/integration/server/agent_runtime/test_session_manager_usage_billing.py``）：
 - image / audio / video / text 生成括号（MediaGenerator / TextGenerator 公开方法）
 - resume 补账（MediaGenerator.resume_video_async：成功与过期失败两分支 + pending 幂等守卫）
-- agent 会话事后补录（SessionManager._record_assistant_usage）
 
 时间字段口径：usage_repo 的 utc_now 被替换为步进时钟（每读一次前进 5 秒），
 started_at / finished_at 可精确断言。SQLite 回读 DateTime(timezone=True) 为 naive
@@ -63,9 +62,6 @@ from lib.db.models.api_call import ApiCall
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation.media_generator import MediaGenerator
-from server.agent_runtime.session_actor import SessionActor
-from server.agent_runtime.session_manager import ManagedSession, SessionManager
-from server.agent_runtime.session_store import SessionMetaStore
 from tests.catalog_support import catalog_of, install_catalog
 from tests.fakes import FakeConfigResolver, write_backend_output
 
@@ -1593,114 +1589,3 @@ class TestResumeChannel:
                 segment_id="E1S01",
             ),
         )
-
-
-# ---------------------------------------------------------------------------
-# 通道六：agent 会话事后补录
-# ---------------------------------------------------------------------------
-
-
-def _managed_session() -> ManagedSession:
-    managed = ManagedSession(session_id="s1", actor=cast(SessionActor, None), status="idle", project_name="demo")
-    managed.last_user_prompt = "u" * 700
-    return managed
-
-
-_AGENT_USAGE = {
-    "input_tokens": 400_000,
-    "cache_creation_input_tokens": 100_000,
-    "cache_read_input_tokens": 500_000,
-    "output_tokens": 200_000,
-}
-
-
-class TestAgentBackfillChannel:
-    @pytest.fixture
-    async def manager(self, tmp_path: Path, acct: _AccountingDb) -> SessionManager:
-        mgr = SessionManager(
-            project_root=tmp_path,
-            meta_store=SessionMetaStore(session_factory=acct.factory),
-        )
-        mgr.ledger = Ledger(session_factory=acct.factory)
-        return mgr
-
-    async def test_completed_turn_prefers_reported_cost(self, manager: SessionManager, acct: _AccountingDb) -> None:
-        result_msg = {"model": "claude-sonnet-4", "usage": dict(_AGENT_USAGE), "total_cost_usd": 0.123}
-
-        await manager._record_assistant_usage(_managed_session(), result_msg, "completed")
-
-        # SDK 直报费用优先于按 token 自动计算（自动口径为 6.0 USD）；cache token 并入 input
-        _assert_full_row(
-            await acct.fetch_only_row(),
-            _expected_row(
-                purpose="assistant_session",
-                session_id="s1",
-                call_type="text",
-                model="claude-sonnet-4",
-                provider="anthropic",
-                prompt="u" * 700,
-                cost_amount=pytest.approx(0.123),
-                usage_tokens=1_200_000,
-                input_tokens=1_000_000,
-                output_tokens=200_000,
-            ),
-        )
-
-    async def test_non_completed_turn_records_failed_but_keeps_reported_cost(
-        self, manager: SessionManager, acct: _AccountingDb
-    ) -> None:
-        result_msg = {"model": "claude-sonnet-4", "usage": dict(_AGENT_USAGE), "total_cost_usd": 0.123}
-
-        await manager._record_assistant_usage(_managed_session(), result_msg, "error")
-
-        # 非 completed 终态翻 failed，但直报费用仍入账（provider 已实际扣费）
-        _assert_full_row(
-            await acct.fetch_only_row(),
-            _expected_row(
-                purpose="assistant_session",
-                session_id="s1",
-                call_type="text",
-                model="claude-sonnet-4",
-                provider="anthropic",
-                prompt="u" * 700,
-                status="failed",
-                cost_amount=pytest.approx(0.123),
-                usage_tokens=1_200_000,
-                input_tokens=1_000_000,
-                output_tokens=200_000,
-            ),
-        )
-
-    async def test_token_only_turn_auto_bills_from_anthropic_rates(
-        self, manager: SessionManager, acct: _AccountingDb
-    ) -> None:
-        result_msg = {
-            "model": "claude-sonnet-4",
-            "usage": {"input_tokens": 1_000_000, "output_tokens": 200_000},
-        }
-
-        await manager._record_assistant_usage(_managed_session(), result_msg, "completed")
-
-        # 无直报费用时按 3.00/15.00 USD 每百万 token 兜底：3.0 + 3.0
-        _assert_full_row(
-            await acct.fetch_only_row(),
-            _expected_row(
-                purpose="assistant_session",
-                session_id="s1",
-                call_type="text",
-                model="claude-sonnet-4",
-                provider="anthropic",
-                prompt="u" * 700,
-                cost_amount=pytest.approx(6.0),
-                usage_tokens=1_200_000,
-                input_tokens=1_000_000,
-                output_tokens=200_000,
-            ),
-        )
-
-    async def test_turn_without_usage_or_cost_writes_nothing(
-        self, manager: SessionManager, acct: _AccountingDb
-    ) -> None:
-        await manager._record_assistant_usage(_managed_session(), {"model": "claude-sonnet-4"}, "completed")
-
-        assert await acct.fetch_rows() == []

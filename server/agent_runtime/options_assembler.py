@@ -51,8 +51,26 @@ _EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS = 15 * 60
 CLI_STDOUT_MAX_BUFFER_BYTES = 32 * 1024 * 1024
 
 
+class AgentEnv(dict[str, str]):
+    """注入 ``ClaudeAgentOptions.env`` 的环境变量，并带着注入的是哪一条 Agent 凭证。
+
+    记账按会话连接时注入的凭证计价（docs/adr/0017、docs/adr/0102），凭证 id 随 env 一起交给会话层；
+    没有生效凭证、env 回退到系统设置时为 ``None``。
+    """
+
+    def __init__(self, env: dict[str, str], *, agent_credential_id: int | None) -> None:
+        super().__init__(env)
+        self.agent_credential_id = agent_credential_id
+
+
+def agent_credential_id_of(options: object) -> int | None:
+    """会话 options 注入的 Agent 凭证 id；env 不是 :class:`AgentEnv` 时为 ``None``。"""
+    env = getattr(options, "env", None)
+    return env.agent_credential_id if isinstance(env, AgentEnv) else None
+
+
 async def load_provider_env_overrides() -> dict[str, str]:
-    """构造 options.env 注入字典。
+    """构造 options.env 注入字典，返回 :class:`AgentEnv`。
 
     - ANTHROPIC_* 从 DB active credential 取真值
     - 其他 provider env 全部空值覆盖（防御性兜底）
@@ -63,11 +81,13 @@ async def load_provider_env_overrides() -> dict[str, str]:
     from lib.config.env_keys import OTHER_PROVIDER_ENV_KEYS
     from lib.config.service import build_anthropic_env_dict
     from lib.db import async_session_factory
+    from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
     async with async_session_factory() as session:
+        active = await AgentCredentialRepository(session).get_active()
         anthropic_env = await build_anthropic_env_dict(session)
 
-    result = dict(anthropic_env)
+    result = AgentEnv(anthropic_env, agent_credential_id=active.id if active is not None else None)
     for key in OTHER_PROVIDER_ENV_KEYS:
         result[key] = ""
     return result

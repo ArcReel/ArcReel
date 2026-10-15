@@ -5,15 +5,21 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, case, func, or_, select, update
+from sqlalchemy import ColumnElement, and_, case, func, null, or_, select, update
 
-from lib.backends.providers import CALL_TYPE_VIDEO, PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.backends.providers import CALL_TYPE_TEXT, CALL_TYPE_VIDEO, PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallErrorCode
-from lib.billing.catalog_pricing import is_builtin_provider, price_builtin_call, price_custom_call
+from lib.billing.catalog_pricing import (
+    is_builtin_provider,
+    price_agent_call,
+    price_builtin_call,
+    price_custom_call,
+)
 from lib.billing.cost_calculator import cost_calculator
 from lib.billing.metering import Priced, UnpricedReason, Usage
 from lib.billing.multipliers import get_provider_multiplier
@@ -24,11 +30,14 @@ from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.session import AgentSession
 from lib.db.models.task import Task
+from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.display_names import provider_display_names
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
 from lib.i18n import DEFAULT_LOCALE
+
+logger = logging.getLogger(__name__)
 
 # 计费时长合理上限（24 小时），语义单点定义：repo 写入层是全部 backend 落账的最后防线，
 # 超出上限的计费时长视同未提供、回落请求时长，防超大数值写入 DB Integer 列溢出；
@@ -85,8 +94,8 @@ class SettlementInput:
 
     ``usage`` 是按用量契约上报的计量项用量与选择维度，每次供应商请求一份（降级链上被丢弃的请求也已计费，各占
     一份）：给出时，内置供应商的这次调用按模型目录的价目表逐次计价后相加；自定义供应商的调用一律按所对应条目的
-    价目表计价；其余调用不给（Agent 会话补录）时按注册表的定价声明计价，算不出时记为未定价。内置供应商的视频调用不给时也走价目表，计量项全部
-    落空，记为未定价。三项缓存 token 是各次请求之和，
+    价目表计价；其余调用不给时按注册表的定价声明计价，算不出时记为未定价。内置供应商的视频调用不给时也走价目表，计量项全部
+    落空，记为未定价。Agent 会话的轮次不经这里，见 :meth:`UsageRepository.record_agent_turn`。三项缓存 token 是各次请求之和，
     原样写入同名列。
     与 ``PricingParams``（结算后的生效定价输入）刻意分成两个对象，避免原始值与生效值
     在同一结构里语义混淆。新增计费字段自此只扩本对象，不再穿仓储写侧散参。
@@ -109,6 +118,23 @@ class SettlementInput:
     cache_write_5m_tokens: int | None = None
     cache_write_1h_tokens: int | None = None
     usage: tuple[Usage, ...] = ()
+
+
+@dataclass(frozen=True)
+class AgentModelCall:
+    """Agent 会话一轮里一个模型的用量，写成一条供应商调用记录。
+
+    ``requests`` 是这一轮各次请求的计量，计价时各自落上下文档；四个 token 字段是各次请求之和，``input_tokens``
+    是总输入（含缓存读与两档缓存写）。
+    """
+
+    model: str
+    requests: tuple[Usage, ...]
+    input_tokens: int
+    output_tokens: int
+    cache_read_tokens: int
+    cache_write_5m_tokens: int
+    cache_write_1h_tokens: int
 
 
 @dataclass(frozen=True)
@@ -335,8 +361,7 @@ class UsageRepository(BaseRepository):
             else:
                 cost_amount, unpriced_reason = None, str(cost.reason)
         elif auto_calc:
-            # 没有申报用量、又不是内置或自定义供应商的调用（Agent 会话的回填，以及供应商标识已不在注册表里的存量行）
-            # 按注册表的定价声明计价。
+            # 没有申报用量、又不是内置或自定义供应商的调用（供应商标识已不在注册表里的存量行）按注册表的定价声明计价。
             params = PricingParams(
                 call_type=row.call_type,
                 model=row.model,
@@ -526,6 +551,74 @@ class UsageRepository(BaseRepository):
         if settled:
             await self.session.commit()
         return settled
+
+    async def record_agent_turn(
+        self,
+        *,
+        project_name: str,
+        session_id: str,
+        prompt: str | None,
+        user_id: str,
+        provider: str,
+        credential_id: int | None,
+        status: CallStatus,
+        calls: list[AgentModelCall],
+    ) -> list[int]:
+        """Agent 会话的一轮：每个模型写一条终态行，返回各行 id（docs/adr/0102）。
+
+        同一轮的几行共用 ``session_id``、prompt 与写入时间。费用是该模型本轮各请求之和，按 ``credential_id``
+        （会话连接时注入的 Agent 凭证）的倍率与条目绑定计价，不随 ``status`` 归零：中断与失败的轮次里已完成的
+        请求同样产生了花费。对应不到条目时照常写入 token，费用记为未定价。
+        """
+        now = utc_now()
+        credentials = AgentCredentialRepository(self.session)
+        rows: list[ApiCall] = []
+        for call in calls:
+            pricing = await credentials.resolve_pricing(credential_id, call.model)
+            cost = price_agent_call(
+                model=call.model,
+                entry_binding=pricing.entry_binding,
+                requests=call.requests,
+                multiplier=pricing.multiplier,
+            )
+            if isinstance(cost, Priced):
+                cost_amount, currency, unpriced_reason = cost.amount, cost.currency, None
+            else:
+                cost_amount, currency, unpriced_reason = null(), "USD", str(cost.reason)
+                logger.warning(
+                    "Agent 模型对应不到可计价的条目，费用记为未定价 provider=%s model=%s reason=%s",
+                    provider,
+                    call.model,
+                    cost.reason,
+                )
+            rows.append(
+                ApiCall(
+                    project_name=project_name,
+                    call_type=CALL_TYPE_TEXT,
+                    model=call.model,
+                    prompt=prompt,
+                    status=status,
+                    started_at=now,
+                    finished_at=now,
+                    duration_ms=0,
+                    provider=provider,
+                    user_id=user_id,
+                    purpose=CallPurpose.ASSISTANT_SESSION,
+                    session_id=session_id,
+                    cost_amount=cost_amount,
+                    currency=currency,
+                    unpriced_reason=unpriced_reason,
+                    usage_tokens=call.input_tokens + call.output_tokens,
+                    input_tokens=call.input_tokens,
+                    output_tokens=call.output_tokens,
+                    cache_read_tokens=call.cache_read_tokens,
+                    cache_write_5m_tokens=call.cache_write_5m_tokens,
+                    cache_write_1h_tokens=call.cache_write_1h_tokens,
+                )
+            )
+        self.session.add_all(rows)
+        await self.session.commit()
+        return [row.id for row in rows]
 
     async def finish_call(
         self,

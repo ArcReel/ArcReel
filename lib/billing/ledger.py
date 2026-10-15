@@ -12,8 +12,8 @@
    幂等守卫（``WHERE status='pending'``）由仓储承担；finalize 自身异常不吞、直接冒泡（交
    worker finally 兜底）。``resume_failed`` 收调用方手上的异常或失败原文，与记账括号同经
    :mod:`lib.billing.call_failure` 编码后落三元组。
-3. **事后补录**（``backfill``）—— agent 会话用量一次调用写入终态行（含 SDK 直报费用），对调用
-   方省掉需要自行管理的 pending 中间态。
+3. **Agent 轮次**（``record_agent_turn``）—— Agent 会话的一轮按模型各写一条终态行，费用由仓储按会话的
+   Agent 凭证与模型目录计价，调用方不经 pending 中间态。
 
 成功通道的 backend 结果对象 union 分发集中在 ``_settlement_from_result``：text 与 audio 的用量在此
 按用量契约转成计量项用量（结算时按模型目录的价目表计价），video 实际计费时长的语义转写也在此单点完成，
@@ -43,7 +43,7 @@ from lib.billing.call_failure import CallFailure, classify_call_failure
 from lib.billing.metering import Usage, token_usage
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.db.repositories.usage_repo import AgentModelCall, SettlementInput, UsageRepository
 from lib.project.project_change_hints import emit_project_change_batch
 
 logger = logging.getLogger(__name__)
@@ -308,66 +308,43 @@ class Ledger:
         async with self._session_factory() as session:
             await UsageRepository(session).update_last_provider_response(call_id, body)
 
-    async def backfill(
+    async def record_agent_turn(
         self,
         *,
         project_name: str,
-        call_type: CallType,
-        model: str,
-        provider: str,
+        session_id: str,
         prompt: str | None,
         user_id: str,
+        provider: str,
+        credential_id: int | None,
         status: CallStatus,
-        input_tokens: int | None = None,
-        output_tokens: int | None = None,
-        usage_tokens: int | None = None,
-        cost_amount: float | None = None,
-        currency: str | None = None,
-        task_id: str | None = None,
-        purpose: CallPurpose | None = None,
-        session_id: str | None = None,
-        inputs: object | None = None,
+        calls: Sequence[AgentModelCall],
     ) -> None:
-        """事后补录：一次调用写入终态行（agent 会话用量含 SDK 直报费用）。
+        """Agent 会话的一轮：每个模型写一条终态行，按 Agent 凭证的倍率与条目绑定计价（docs/adr/0102）。
 
-        无 backend 结果对象 union —— 用量与 SDK 直报费用由调用方显式给出。内部经 start_call +
-        finish_call 复用结算口径（含 SQLite 跨 session 的 duration_ms 兜底语义），调用方不需自行
-        管理 pending 中间态。两步写入整体不被取消打断：取消到达时先等终态行落库、事件发出，再传播取消。
+        没有用量的轮次不写。写入整体不被取消打断：取消到达时先等这一轮的行落库、事件发出，再传播取消。
         """
-        if status is CallStatus.PENDING:
-            raise ValueError("backfill 只写终态行：status 不能是 pending")
-        settlement = SettlementInput(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            usage_tokens=usage_tokens,
-            cost_amount=cost_amount,
-            currency=currency,
-        )
+        if not calls:
+            return
         await self._settle(
-            self._write_backfill(
-                status=status,
-                settlement=settlement,
+            self._write_agent_turn(
                 project_name=project_name,
-                call_type=call_type,
-                model=model,
-                prompt=prompt,
-                provider=provider,
-                user_id=user_id,
-                task_id=task_id,
-                purpose=purpose,
                 session_id=session_id,
-                inputs=inputs,
+                prompt=prompt,
+                user_id=user_id,
+                provider=provider,
+                credential_id=credential_id,
+                status=status,
+                calls=list(calls),
             )
         )
 
-    async def _write_backfill(
-        self, *, status: CallStatus, settlement: SettlementInput, project_name: str, **kwargs: Any
-    ) -> None:
-        """补录的开账与结算是一次写入：两步之间被打断会留下 pending 行，SDK 直报费用也随之丢失。"""
-        call_id = await self._start_call(project_name=project_name, **kwargs)
+    async def _write_agent_turn(self, *, project_name: str, status: CallStatus, **kwargs: Any) -> None:
         async with self._session_factory() as session:
-            await UsageRepository(session).finish_call(call_id, status=status, settlement=settlement)
-        self._emit_recorded(project_name, call_id, status)
+            call_ids = await UsageRepository(session).record_agent_turn(
+                project_name=project_name, status=status, **kwargs
+            )
+        self._publish(project_name, [build_usage_record_change(call_id, status) for call_id in call_ids])
 
     async def settle_interrupted_calls(self, *, taskless_started_before: datetime | None) -> int:
         """服务启动收口：把没有存活任务的 pending 调用行翻成终态，返回翻掉的行数。

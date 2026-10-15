@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import delete, select, update
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.repositories.base import BaseRepository
+
+
+@dataclass(frozen=True)
+class AgentModelPricing:
+    """Agent 凭证上一个模型名的计价依据：模型所在档位的条目绑定（「模型厂商/官方模型名」）与 Agent 凭证倍率。"""
+
+    entry_binding: str | None = None
+    multiplier: float = 1.0
 
 
 class AgentCredentialRepository(BaseRepository):
@@ -67,6 +77,15 @@ class AgentCredentialRepository(BaseRepository):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def resolve_pricing(self, cred_id: int | None, model: str) -> AgentModelPricing:
+        """记账时 Agent 凭证上模型名 ``model`` 的计价依据（docs/adr/0102）。
+
+        ``cred_id`` 是会话连接时注入环境变量的那条凭证，不是记账时的生效凭证；没有凭证（回退到系统设置的
+        环境变量）或凭证已删除时取默认值。凭证还没有倍率与档位绑定的存储：倍率取默认值 1，条目绑定为空，
+        模型名按名字对应条目。
+        """
+        return AgentModelPricing()
 
     async def update(self, cred_id: int, **kwargs) -> AgentAnthropicCredential | None:
         cred = await self.get(cred_id)

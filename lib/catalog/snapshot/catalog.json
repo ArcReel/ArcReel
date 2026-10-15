@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-15T15:00:00Z",
+  "dataset_version": "2026-10-15T18:00:00Z",
   "entries": [
     {
       "maker": "google",
@@ -1550,6 +1550,89 @@
       "display_name": "\u8c46\u5305 Seed 2.0 Code",
       "facts": {
         "max_output_tokens": 131072
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 3.2
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 4.8
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 9.6
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.64
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 0.96
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 1.92
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 16.0
+              },
+              {
+                "when": {
+                  "context_tier": 32000
+                },
+                "price": 24.0
+              },
+              {
+                "when": {
+                  "context_tier": 128000
+                },
+                "price": 48.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1557,8 +1640,46 @@
       "name": "deepseek-v4-flash",
       "media_type": "text",
       "display_name": "DeepSeek V4 Flash",
+      "aliases": [
+        "deepseek-flash"
+      ],
       "facts": {
         "max_output_tokens": 393216
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.04
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 8.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1568,6 +1689,41 @@
       "display_name": "DeepSeek V4 Pro",
       "facts": {
         "max_output_tokens": 393216
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 9.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 27.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1577,6 +1733,71 @@
       "display_name": "GLM 5.1",
       "facts": {
         "max_output_tokens": 131072
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 6.0
+              },
+              {
+                "when": {
+                  "context_tier": 31999
+                },
+                "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.3
+              },
+              {
+                "when": {
+                  "context_tier": 31999
+                },
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 24.0
+              },
+              {
+                "when": {
+                  "context_tier": 31999
+                },
+                "price": 28.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -1586,6 +1807,41 @@
       "display_name": "Kimi K2.6",
       "facts": {
         "max_output_tokens": 32768
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.1
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 27.0
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -5704,6 +5960,797 @@
               {
                 "when": {},
                 "price": 0.15
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-5-5",
+      "media_type": "text",
+      "display_name": "Claude Opus 5.5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.2
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 8.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 20.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-5",
+      "media_type": "text",
+      "display_name": "Claude Opus 5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-4-8",
+      "media_type": "text",
+      "display_name": "Claude Opus 4.8",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-4-7",
+      "media_type": "text",
+      "display_name": "Claude Opus 4.7",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-4-6",
+      "media_type": "text",
+      "display_name": "Claude Opus 4.6",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-opus-4-5",
+      "media_type": "text",
+      "display_name": "Claude Opus 4.5",
+      "aliases": [
+        "claude-opus-4-5-20251101"
+      ],
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 25.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-sonnet-5-5",
+      "media_type": "text",
+      "display_name": "Claude Sonnet 5.5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-sonnet-5",
+      "media_type": "text",
+      "display_name": "Claude Sonnet 5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.2
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 4.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 10.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-sonnet-4-6",
+      "media_type": "text",
+      "display_name": "Claude Sonnet 4.6",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.75
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 15.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-sonnet-4-5",
+      "media_type": "text",
+      "display_name": "Claude Sonnet 4.5",
+      "aliases": [
+        "claude-sonnet-4-5-20250929"
+      ],
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.3
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 3.75
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 6.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 15.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-haiku-5-5",
+      "media_type": "text",
+      "display_name": "Claude Haiku 5.5",
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.1
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 0.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.01
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 0.05
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.125
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 0.625
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 1.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.5
+              },
+              {
+                "when": {
+                  "context_tier": 100000
+                },
+                "price": 2.5
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "anthropic",
+      "name": "claude-haiku-4-5",
+      "media_type": "text",
+      "display_name": "Claude Haiku 4.5",
+      "aliases": [
+        "claude-haiku-4-5-20251001"
+      ],
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 1.25
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_1h_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 5.0
               }
             ]
           }
