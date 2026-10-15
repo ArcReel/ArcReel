@@ -13,7 +13,7 @@ from arcreel_market_core.video_backend_contract import VideoGenerationRequest
 from lib.backends.image_backends.base import ImageGenerationRequest, ReferenceImage
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
-from tests.http_capture import capture_http, only_request
+from tests.http_capture import capture_http
 
 _PROVIDER = SimpleNamespace(provider_id="custom-7", api_key="sk", base_url="https://relay.example/proxy")
 
@@ -37,9 +37,7 @@ async def test_async_video_overriding_only_poll_keeps_submit_on_the_default_path
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", resolution="720p", task_id="w-1")
         )
 
-    only_request(submit)
-    only_request(poll)
-    only_request(download)
+    assert (submit.call_count, poll.call_count, download.call_count) == (1, 1, 1)
 
 
 async def test_sdk_endpoint_override_is_relative_to_the_raw_base_url_and_expands_the_model():

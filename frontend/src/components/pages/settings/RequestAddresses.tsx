@@ -54,8 +54,10 @@ export function RequestAddresses({ requests, baseUrl, modelId, overrides, onChan
     const trimmed = draft.trim();
     const path = trimmed && !trimmed.startsWith("/") ? `/${trimmed}` : trimmed;
     const { [request.name]: _previous, ...rest } = overrides ?? {};
-    // 空值或与默认相同的值不算修改
-    const next = path && path !== request.default_path ? { ...rest, [request.name]: path } : rest;
+    const { base, autoV1 } = normalizedBase(raw, request);
+    // 空值不算修改；与默认同文本的路径只在接口地址不经归一化时才不改变请求地址
+    const unchanged = !path || (path === request.default_path && base === raw && !autoV1);
+    const next = unchanged ? rest : { ...rest, [request.name]: path };
     onChange(Object.keys(next).length ? next : null);
   };
 
@@ -135,7 +137,8 @@ function AddressBar({ request, rawBase, override, display, onCommit }: AddressBa
           spellCheck={false}
           autoComplete="off"
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => finish(true)}
+          // 没改动就失焦不提交，否则归一化端点上点开路径再离开就会生成一条修改；Enter 是明确确认，照常提交
+          onBlur={() => finish(draft !== (override ?? request.default_path))}
           onKeyDown={(e) => {
             // 输入法组合输入中按 Enter 是在确认候选词，不应提交
             if (e.nativeEvent.isComposing) return;
@@ -181,7 +184,7 @@ function AddressBar({ request, rawBase, override, display, onCommit }: AddressBa
       <button
         type="button"
         aria-label={`${label} ${display}`}
-        className="min-w-0 flex-1 truncate rounded-sm text-left text-foreground hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="min-w-0 flex-1 truncate rounded-sm text-left text-foreground hover:bg-accent focus-ring"
         onClick={() => setDraft(override ?? request.default_path)}
       >
         {display}

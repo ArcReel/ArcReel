@@ -160,15 +160,13 @@ class OpenAIImageBackend:
 
         image_files = await asyncio.to_thread(_read_refs)
         if not image_files:
-            # 旧版会回退到 T2I；新语义下若所有 ref 图都打不开，抛错而非降级
-            # （等价于用户提交了 i2i 请求但没有有效素材，应该是错误而非默默 fallback）
+            # 参考图全部打不开时报错，不降级为 T2I：请求要的是 I2I，没有有效素材属于错误
             raise ImageCapabilityError(
                 "image_endpoint_mismatch_no_i2i",
                 model=self._model,
                 detail="all reference images failed to open",
             )
-        # I2I 与 T2I 对称下传 size/quality——否则 images.edit 不带 size，比例由上游默认决定，
-        # 项目 aspect_ratio 静默失效（用户实测正是 I2I 路径出图比例错）。
+        # I2I 与 T2I 对称下传 size/quality：images.edit 不带 size 时比例由上游默认决定，项目 aspect_ratio 不生效
         edit_kwargs: dict = {
             "model": self._model,
             "image": image_files,

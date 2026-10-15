@@ -68,9 +68,10 @@ describe("RequestAddresses", () => {
     expect(screen.getByText("默认：/v1/videos/{{ task_id }}")).toBeInTheDocument();
   });
 
-  it("提交与默认相同的值或空值不算修改", async () => {
+  it("空值不算修改；接口地址不经归一化时，与默认相同的值也不算", async () => {
     const user = userEvent.setup();
-    render(<Harness requests={[SUBMIT, POLL]} initial={{ submit: "/custom", poll: "/api/{{ task_id }}" }} />);
+    const asIs = { ...SUBMIT, base_url_rule: "as_is" } as const;
+    render(<Harness requests={[asIs, POLL]} initial={{ submit: "/custom", poll: "/api/{{ task_id }}" }} />);
 
     await user.click(pathButton("/custom"));
     const input = screen.getByRole("textbox", { name: "请求路径" });
@@ -82,6 +83,29 @@ describe("RequestAddresses", () => {
     await user.click(pathButton("/api/{{ task_id }}"));
     await user.clear(screen.getByRole("textbox", { name: "请求路径" }));
     await user.keyboard("{Enter}");
+    expect(overrides()).toBeNull();
+  });
+
+  it("接口地址经过归一化时，与默认同文本的路径仍是修改，用来去掉自动补上或剥掉的部分", async () => {
+    const user = userEvent.setup();
+    render(<Harness requests={[POLL]} initial={null} />);
+
+    await user.click(pathButton("/v1/videos/{{ task_id }}"));
+    const input = screen.getByRole("textbox", { name: "请求路径" });
+    await user.clear(input);
+    await user.type(input, "/v1/videos/{{{{ task_id }}{Enter}");
+
+    expect(overrides()).toEqual({ poll: "/v1/videos/{{ task_id }}" });
+    expect(screen.getByText("https://relay.test/api/v1")).toBeInTheDocument();
+  });
+
+  it("点开路径不改动就失焦，不产生修改", async () => {
+    const user = userEvent.setup();
+    render(<Harness requests={[POLL]} initial={null} />);
+
+    await user.click(pathButton("/v1/videos/{{ task_id }}"));
+    await user.tab();
+
     expect(overrides()).toBeNull();
   });
 

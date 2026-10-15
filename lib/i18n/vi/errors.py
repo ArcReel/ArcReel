@@ -424,7 +424,7 @@ MESSAGES = {
         "hãy ghi đè reference_audio_mode thành none để tắt tham chiếu giọng nói"
     ),
     "path_override_unknown_request": "Endpoint của mô hình {model_id} không có yêu cầu {request} có thể đổi địa chỉ",
-    "path_override_invalid_path": "Địa chỉ yêu cầu {path} của mô hình {model_id} không hợp lệ: đường dẫn phải bắt đầu bằng /, không chứa khoảng trắng và chỉ dùng dấu ngoặc nhọn cho placeholder",
+    "path_override_invalid_path": "Địa chỉ yêu cầu {path} của mô hình {model_id} không hợp lệ: đường dẫn phải bắt đầu bằng /, không chứa khoảng trắng hay ký tự #, và chỉ dùng dấu ngoặc nhọn cho placeholder",
     "path_override_placeholder_not_allowed": "Địa chỉ yêu cầu {path} của mô hình {model_id} dùng placeholder mà yêu cầu này không có; chỉ có thể dùng {allowed}",
     "capability_override_last_frame_unsupported": (
         "Endpoint {endpoint} của mô hình {model_id} không hỗ trợ tạo khung hình cuối; "

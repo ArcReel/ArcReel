@@ -429,7 +429,7 @@ MESSAGES = {
         "override reference_audio_mode to none to turn voice reference off"
     ),
     "path_override_unknown_request": "The endpoint of model {model_id} has no request {request} whose URL can be changed",
-    "path_override_invalid_path": "Request URL {path} of model {model_id} is invalid: the path must start with /, contain no whitespace, and use braces only for placeholders",
+    "path_override_invalid_path": "Request URL {path} of model {model_id} is invalid: the path must start with /, contain no whitespace or #, and use braces only for placeholders",
     "path_override_placeholder_not_allowed": "Request URL {path} of model {model_id} uses a placeholder this request does not have; only {allowed} are available",
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",

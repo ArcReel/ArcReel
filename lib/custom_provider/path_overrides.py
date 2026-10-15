@@ -67,10 +67,10 @@ def placeholder_names(path: str) -> set[str]:
 def path_problem(request: EndpointRequest, path: str) -> PathProblem | None:
     """覆盖路径不合法的原因；合法时 None。
 
-    路径必须以 ``/`` 开头，占位符之外不含空白与花括号；占位符只能取请求声明的那几个。
+    路径必须以 ``/`` 开头，占位符之外不含空白、花括号与 ``#``（片段不随请求发出）；占位符只能取请求声明的那几个。
     """
     literal = _PLACEHOLDER.sub("", path)
-    if not path.startswith("/") or len(path) > _MAX_PATH_LENGTH or any(c.isspace() or c in "{}" for c in literal):
+    if not path.startswith("/") or len(path) > _MAX_PATH_LENGTH or any(c.isspace() or c in "{}#" for c in literal):
         return "path_override_invalid_path"
     if not placeholder_names(path) <= set(request.placeholders):
         return "path_override_placeholder_not_allowed"
@@ -124,9 +124,9 @@ class PathOverrideLayer:
         return _PathOverrideTransport(inner, self)
 
     def rewrite(self, request: httpx.Request) -> None:
-        found = next(
-            ((m, override) for pattern, override in self._routes if (m := pattern.fullmatch(request.url.path))), None
-        )
+        # 按未解码的路径匹配：前缀取自 base_url 原文，%2F 这类转义解码后就对不上；捕获的占位符值也原样写回
+        raw_path = request.url.raw_path.decode("ascii").partition("?")[0]
+        found = next(((m, override) for pattern, override in self._routes if (m := pattern.fullmatch(raw_path))), None)
         if found is None:
             return
         match, override = found
