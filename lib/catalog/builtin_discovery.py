@@ -47,7 +47,7 @@ class DiscoveredBuiltinModel:
 
     ``recognized`` 为真时对上了清单里的官方收录模型，``model_key`` 是它的模型键（两栖模型的 API 模型名对上两个
     模型键，各列一行）；对不上时 ``model_key`` 为 ``None``，``media_type`` 先看名字对应上的条目，再按名字推断，
-    添加时作为用户添加的模型的媒体类型。
+    添加时作为用户添加的模型的媒体类型；``entry`` 是名字对应上的条目（对应不上为 ``None``），添加后调用按它计价。
     """
 
     model_id: str
@@ -61,12 +61,23 @@ def is_discoverable(provider_id: str) -> bool:
     return provider_id in BUILTIN_DISCOVERY_FORMS
 
 
-def name_media_type(provider_id: str, model_id: str) -> str:
-    """对不上官方收录模型时的媒体类型：名字对应上条目取条目的，否则按名字推断（规则同自定义供应商的模型发现）。"""
+def match_by_name(provider_id: str, model_id: str) -> tuple[str, CatalogEntry | None]:
+    """对不上官方收录模型时，按名字对应的条目与媒体类型（docs/adr/0105）。
+
+    名字直接对应上条目时取条目的媒体类型；两栖模型的名字对应不上单个条目，先按名字推断媒体类型，再在该媒体类型内
+    查一次。与添加后用户添加的模型经 ``catalog.find_entry`` 对应条目的口径一致，所以这里对应到的条目就是添加后
+    计价所依据的条目。
+    """
     entry = catalog.find_entry(model_id)
     if entry is not None:
-        return entry.media_type
-    return infer_media_type(model_id, BUILTIN_DISCOVERY_FORMS.get(provider_id, "openai"))
+        return entry.media_type, entry
+    media_type = infer_media_type(model_id, BUILTIN_DISCOVERY_FORMS.get(provider_id, "openai"))
+    return media_type, catalog.find_entry(model_id, media_type=media_type)
+
+
+def name_media_type(provider_id: str, model_id: str) -> str:
+    """对不上官方收录模型时的媒体类型：名字对应上条目取条目的，否则按名字推断（规则同自定义供应商的模型发现）。"""
+    return match_by_name(provider_id, model_id)[0]
 
 
 def classify_model_ids(provider_id: str, model_ids: list[str]) -> list[DiscoveredBuiltinModel]:
@@ -84,7 +95,8 @@ def classify_model_ids(provider_id: str, model_ids: list[str]) -> list[Discovere
                 for view in views
             )
         else:
-            result.append(DiscoveredBuiltinModel(model_id, name_media_type(provider_id, model_id), False, None, None))
+            media_type, entry = match_by_name(provider_id, model_id)
+            result.append(DiscoveredBuiltinModel(model_id, media_type, False, None, entry))
     return result
 
 

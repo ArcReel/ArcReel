@@ -50,7 +50,8 @@ interface Props {
 
 /**
  * 「获取模型」对话框：调用供应商的模型列表接口，只列尚未添加的模型，分「已识别」（默认勾选）与「未识别」
- * （默认不勾，费用会记为未定价）两组。未识别的行可以选一个「对应模型」，添加时存为条目绑定。
+ * 两组。未识别的行默认不勾，可以选一个「对应模型」，添加时存为条目绑定；名字已对应到条目的行显示条目名，
+ * 只有对应不上条目、或条目没有价格的行提示费用会记为未定价。
  */
 export function FetchModelsDialog({ open, onOpenChange, ...rest }: Props) {
   return (
@@ -184,6 +185,8 @@ function FetchModelsBody({
     if (!row) return null;
     const media = mediaOf(model, row);
     const entryName = row.binding?.display_name ?? model.matched_entry?.display_name;
+    // 用户选了对应模型的行不提示：搜索结果不带价格，选择即视为用户的决定
+    const unpriced = !model.recognized && !row.binding && !model.matched_entry?.priced;
     return (
       <FetchedRow
         key={rowKey(model)}
@@ -191,6 +194,7 @@ function FetchModelsBody({
         row={row}
         media={media}
         entryName={entryName}
+        unpriced={unpriced}
         protocol={protocol}
         disabled={adding}
         onCheck={(checked) => updateRow(model, { checked })}
@@ -309,6 +313,7 @@ function FetchedRow({
   row,
   media,
   entryName,
+  unpriced,
   protocol,
   disabled,
   onCheck,
@@ -320,6 +325,7 @@ function FetchedRow({
   row: RowState;
   media: MediaType;
   entryName: string | undefined;
+  unpriced: boolean;
   protocol: DiscoveryFormat | undefined;
   disabled: boolean;
   onCheck: (checked: boolean) => void;
@@ -375,6 +381,7 @@ function FetchedRow({
           </div>
         )}
       </div>
+      {unpriced && <p className="pl-7 text-xs text-warn">{t("pm_fetch_row_unpriced")}</p>}
       {row.error && (
         <p role="alert" className="pl-7 text-xs wrap-break-word text-destructive">
           {t("pm_fetch_add_failed", { message: row.error })}

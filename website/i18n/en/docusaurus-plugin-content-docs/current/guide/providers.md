@@ -186,8 +186,10 @@ After adding, the new model's settings open right away so you can adjust its cal
 count. The results are split into two groups:
 
 - "Recognized": models that map to a known model in the model catalog, checked by default;
-- "Unrecognized": models that do not map, unchecked by default; their calls will be recorded as "Unpriced". For each row you can click
-  "Match model" to pick one from the model catalog, and the model is then priced as the selected one.
+- "Unrecognized": unchecked by default. A model whose name maps to an entry in the model catalog shows the matching model name on its row
+  and is priced as that entry once added; a model that maps to no entry, or to an entry without a price, is flagged on its row as
+  recorded as "Unpriced". For each row you can click "Match model" to pick one from the model catalog, and the model is then priced as
+  the selected one.
 
 For custom providers each row also has a call endpoint dropdown. Its default is inferred from the model name, or from the media type of the
 matching model once you pick one. When fetching fails, the reason is shown, and you can check the base URL and key and try again.

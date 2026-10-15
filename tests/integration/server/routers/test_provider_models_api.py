@@ -678,6 +678,36 @@ async def test_builtin_discovery_matches_listing_exactly(
     }
 
 
+async def test_builtin_discovery_unlisted_model_returns_the_entry_its_name_maps_to(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # 清单外、名字能对应条目的模型带上对应条目与是否已定价；没有价格的条目标为未定价，对应不上的没有条目
+    data = catalog.factory_snapshot()
+    entries = tuple(replace(e, price=None) if e.name == "qwen3-max" else e for e in data.entries)
+    install_catalog(monkeypatch, replace(data, entries=entries))
+    async with db_factory() as session:
+        await CredentialRepository(session).create(provider="dashscope", name="k", api_key="sk-test")
+        await session.commit()
+
+    with capture_http() as http:
+        http.get("https://dashscope.aliyuncs.com/compatible-mode/v1/models").respond(
+            json=_model_list("gpt-5.5", "Qwen3-Max", "acme-x")
+        )
+        resp = models_client.post("/api/v1/providers/dashscope/models/discover")
+
+    assert resp.status_code == 200
+    rows = {m["model_id"]: m for m in resp.json()["models"]}
+    assert {
+        mid: (m["recognized"], (m["matched_entry"] or {}).get("name"), (m["matched_entry"] or {}).get("priced"))
+        for mid, m in rows.items()
+    } == {
+        "gpt-5.5": (False, "gpt-5.5", True),
+        "Qwen3-Max": (False, "qwen3-max", False),
+        "acme-x": (False, None, None),
+    }
+    assert rows["gpt-5.5"]["display_name"] == rows["gpt-5.5"]["matched_entry"]["display_name"]
+
+
 def test_builtin_discovery_without_list_api_or_credentials(models_client: TestClient) -> None:
     ark = models_client.post("/api/v1/providers/ark/models/discover").json()
     assert (ark["not_applicable"], ark["models"]) == (True, [])

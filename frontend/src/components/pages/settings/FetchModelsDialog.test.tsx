@@ -30,6 +30,15 @@ const RESPONSE: FetchProviderModelsResponse = {
     }),
     fetched({ model_id: "already-there", recognized: true }),
     fetched({ model_id: "relay-mystery" }),
+    // 清单外、名字对应上条目的模型：已定价的显示条目名，条目没有价格的仍提示未定价
+    fetched({
+      model_id: "GPT-5.5-relay",
+      matched_entry: { maker: "openai", name: "gpt-5.5", media_type: "text", display_name: "GPT-5.5", priced: true },
+    }),
+    fetched({
+      model_id: "free-tier-model",
+      matched_entry: { maker: "acme", name: "free-tier", media_type: "text", display_name: "Free Tier", priced: false },
+    }),
   ],
 };
 
@@ -61,10 +70,25 @@ describe("FetchModelsDialog", () => {
     const unrecognized = screen.getByRole("region", { name: /未识别/ });
     expect(within(recognized).getByRole("checkbox", { name: /gpt-5\.5/ })).toBeChecked();
     expect(within(unrecognized).getByRole("checkbox", { name: /relay-mystery/ })).not.toBeChecked();
-    expect(within(unrecognized).getByText("没有这些模型的价格，调用费用会记为未定价。可以为它们选择对应模型。")).toBeInTheDocument();
+    expect(within(unrecognized).getByText("可以为这些模型选择对应模型。")).toBeInTheDocument();
     expect(screen.queryByText("already-there")).not.toBeInTheDocument();
     expect(screen.getByText("另有 1 个已添加的模型未列出。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "添加 1 个模型" })).toBeEnabled();
+  });
+
+  it("flags only the unrecognized rows whose name maps to no entry or to an unpriced entry as unpriced", async () => {
+    renderDialog(async () => RESPONSE);
+
+    const unrecognized = await screen.findByRole("region", { name: /未识别/ });
+    const rowOf = (name: RegExp) => within(unrecognized).getByRole("checkbox", { name }).closest("li") as HTMLElement;
+    const flag = "调用费用会记为未定价";
+
+    expect(within(rowOf(/relay-mystery/)).getByText(flag)).toBeInTheDocument();
+    expect(within(rowOf(/free-tier-model/)).getByText(flag)).toBeInTheDocument();
+    const priced = rowOf(/GPT-5\.5-relay/);
+    expect(within(priced).getByText("GPT-5.5（文本）")).toBeInTheDocument();
+    expect(within(priced).queryByText(flag)).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: /已识别/ })).queryByText(flag)).not.toBeInTheDocument();
   });
 
   it("submits the matching model chosen for an unrecognized row as its binding", async () => {
