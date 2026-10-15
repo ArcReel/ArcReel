@@ -238,6 +238,8 @@ export default {
   'tier_units_other': '{{count}} đơn vị',
   'tier_cost': 'khoảng {{cost}}',
   'tier_cost_unknown': 'chưa có báo giá',
+  'tier_unpriced_one': 'Còn {{count}} đơn vị chưa có giá, không tính vào',
+  'tier_unpriced_other': 'Còn {{count}} đơn vị chưa có giá, không tính vào',
   'tier_unknown': 'chưa xác định mức',
   'duration_seconds': '{{value}} giây',
   'unit_request_tier': 'yêu cầu {{request}}',

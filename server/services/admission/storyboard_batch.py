@@ -69,6 +69,7 @@ from lib.script.storyboard_sequence import (
     get_storyboard_items,
 )
 from server.services.admission.cost_estimation import (
+    BatchCostEstimate,
     ImageLane,
     load_video_price_source,
     quote_video_request_from_price,
@@ -603,30 +604,44 @@ async def load_storyboard_video_batch_plan(
 
 async def estimate_storyboard_video_batch_cost(
     plan: StoryboardVideoBatchPlan, session_factory: async_sessionmaker[AsyncSession]
-) -> dict[str, float] | None:
-    """这一批视频按剧本计划秒数的预估费用；请求事实不成立、有目标缺秒数或有请求未定价时返回 ``None``（算不出）。"""
+) -> BatchCostEstimate:
+    """这一批视频按剧本计划秒数的预估费用：合计已定价的部分，并数出未定价的目标数。
+
+    请求事实不成立、目标没写计划秒数、读库失败或价目表算不出价的目标，都计入未定价。
+    """
 
     facts = plan.video_request_facts
     if not plan.specs:
-        return {}
-    if not isinstance(facts, VideoRequestFacts) or any(value is None for value in plan.durations.values()):
-        return None
+        return BatchCostEstimate(total={}, unpriced_count=0)
+    durations = list(plan.durations.values())
+    if not isinstance(facts, VideoRequestFacts):
+        return BatchCostEstimate(total={}, unpriced_count=len(durations))
     try:
         async with session_factory() as session:
             source = await load_video_price_source(session, facts.provider_id, facts.model_id)
-        total: dict[str, float] = {}
-        for duration in plan.durations.values():
-            assert duration is not None
+    except SQLAlchemyError:
+        return BatchCostEstimate(total={}, unpriced_count=len(durations))
+    total: dict[str, float] = {}
+    unpriced = 0
+    for duration in durations:
+        if duration is None:
+            unpriced += 1
+            continue
+        try:
             quote = quote_video_request_from_price(
                 VideoRequestCostFacts(facts, duration, aspect_ratio=plan.video_aspect_ratio, has_first_frame=True),
                 source,
             )
-            if quote.amount is None or quote.currency is None:
-                return None
-            total[quote.currency] = round(total.get(quote.currency, 0.0) + quote.amount, 6)
-    except (SQLAlchemyError, ValueError):
-        return None
-    return {currency: amount for currency, amount in total.items() if amount > 0}
+        except ValueError:
+            unpriced += 1
+            continue
+        if quote.amount is None or quote.currency is None:
+            unpriced += 1
+            continue
+        total[quote.currency] = round(total.get(quote.currency, 0.0) + quote.amount, 6)
+    return BatchCostEstimate(
+        total={currency: amount for currency, amount in total.items() if amount > 0}, unpriced_count=unpriced
+    )
 
 
 async def submit_storyboard_video_batch(

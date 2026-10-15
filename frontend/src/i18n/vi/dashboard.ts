@@ -1938,6 +1938,8 @@ export default {
   'storyboard_batch_skip.unavailable': 'hiện không thể tạo',
   'storyboard_batch_cost': 'Chi phí ước tính: {{cost}}',
   'storyboard_batch_cost_unknown': 'Chưa thể ước tính chi phí cho lô này',
+  'storyboard_batch_unpriced_one': 'Còn {{count}} mục chưa có giá, không tính vào chi phí ước tính',
+  'storyboard_batch_unpriced_other': 'Còn {{count}} mục chưa có giá, không tính vào chi phí ước tính',
   'storyboard_batch_stale_note.storyboards': 'Ảnh phân cảnh đã lỗi thời không được đưa vào lô; hãy tạo lại từng ảnh trong chi tiết phân cảnh.',
   'storyboard_batch_stale_note.videos': 'Video đã lỗi thời không được đưa vào lô; hãy tạo lại từng video trong chi tiết phân cảnh.',
   'storyboard_batch_confirm': 'Bắt đầu tạo',

@@ -195,6 +195,8 @@ export interface BatchAdmissionTier {
   unit_ids: string[];
   cost_amount?: number | null;
   cost_currency?: string | null;
+  /** 这一档里价目表算不出价、未计入 `cost_amount` 的单元数。 */
+  unpriced_count?: number;
 }
 
 export interface WorkflowAdmission {

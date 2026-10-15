@@ -5,7 +5,7 @@
 - 分镜视频：只补本集没有可用视频的分镜；缺提示词、缺分镜图、已在生成中的分镜列为跳过项，其余分镜整批准入，
   任一目标不满足时整批拒绝，一个任务也不建，并逐项说明原因。
 
-两者都分预览与提交：预览只规划不建任务，供确认框列名单、跳过项与能算出时的预估费用；提交重新规划后建一个
+两者都分预览与提交：预览只规划不建任务，供确认框列名单、跳过项与已定价部分的预估费用及未定价项数；提交重新规划后建一个
 持久批次，立即返回。过期的产物不进批量。
 """
 
@@ -92,7 +92,7 @@ async def _video_plan(project_name: str, episode: int, user_id: str) -> Storyboa
 
 @router.post("/storyboards/batch/preview")
 async def preview_storyboard_batch(project_name: str, episode: int, user: CurrentUser) -> dict[str, Any]:
-    """规划一批分镜图但不建任务：要生成的分镜、跳过项与能算出时的预估费用。"""
+    """规划一批分镜图但不建任务：要生成的分镜、跳过项与已定价部分的预估费用及未定价项数。"""
 
     loaded, plan = await _image_plan(project_name, episode, user.id)
     new_ids = plan.new_task_ids
@@ -106,7 +106,7 @@ async def preview_storyboard_batch(project_name: str, episode: int, user: Curren
     return {
         "targets": [{"unit_id": unit_id} for unit_id in new_ids],
         "skipped": _skipped(plan.skips),
-        "estimated_cost": estimated or None,
+        **estimated.to_payload(),
     }
 
 
@@ -130,7 +130,7 @@ async def submit_storyboard_batch(project_name: str, episode: int, user: Current
 async def preview_storyboard_video_batch(
     project_name: str, episode: int, user: CurrentUser, _t: Translator, names: DisplayNamesCatalog
 ) -> dict[str, Any]:
-    """规划一批分镜视频但不建任务：要生成的分镜、跳过项、整批准入结论与能算出时的预估费用。"""
+    """规划一批分镜视频但不建任务：要生成的分镜、跳过项、整批准入结论与已定价部分的预估费用及未定价项数。"""
 
     plan = await _video_plan(project_name, episode, user.id)
     estimated = await estimate_storyboard_video_batch_cost(plan, async_session_factory)
@@ -138,7 +138,7 @@ async def preview_storyboard_video_batch(
         "targets": [{"unit_id": unit_id} for unit_id in plan.target_ids],
         "skipped": _skipped(plan.skips),
         "admission": localized_admission_payload(plan.admission, _t, names),
-        "estimated_cost": estimated or None,
+        **estimated.to_payload(),
     }
 
 

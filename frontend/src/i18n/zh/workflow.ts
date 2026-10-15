@@ -238,6 +238,8 @@ export default {
   'tier_units_other': '{{count}} 个单元',
   'tier_cost': '约 {{cost}}',
   'tier_cost_unknown': '报价不可用',
+  'tier_unpriced_one': '另有 {{count}} 个单元未定价，未计入',
+  'tier_unpriced_other': '另有 {{count}} 个单元未定价，未计入',
   'tier_unknown': '档位待定',
   'duration_seconds': '{{value}} 秒',
   'unit_request_tier': '申请 {{request}}',

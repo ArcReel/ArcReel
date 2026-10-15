@@ -347,7 +347,10 @@ def _confirmation_lines(admission: BatchAdmission) -> list[str]:
         )
         headline = f"- {tier_label} × {tier.unit_count}：{'、'.join(tier.unit_ids)}"
         if tier.cost_amount is not None:
-            headline += f"；合计 {tier.cost_amount} {tier.cost_currency}"
+            suffix = "（仅含已定价的 unit）" if tier.unpriced_count else ""
+            headline += f"；合计 {tier.cost_amount} {tier.cost_currency}{suffix}"
+        if tier.unpriced_count:
+            headline += f"；其中 {tier.unpriced_count} 个 unit 未定价，费用未知，须如实告知用户"
         lines.append(headline)
     for ticket in admission.tickets:
         if not ticket.confirmation_only:

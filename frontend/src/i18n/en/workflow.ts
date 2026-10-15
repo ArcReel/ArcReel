@@ -236,6 +236,8 @@ export default {
   'tier_units_other': '{{count}} units',
   'tier_cost': 'about {{cost}}',
   'tier_cost_unknown': 'price unavailable',
+  'tier_unpriced_one': '{{count}} more unit has no price and is not counted',
+  'tier_unpriced_other': '{{count}} more units have no price and are not counted',
   'tier_unknown': 'length undetermined',
   'duration_seconds': '{{value}}s',
   'unit_request_tier': 'requesting {{request}}',

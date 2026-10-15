@@ -730,7 +730,7 @@ describe("WorkflowPanel 集层资产图入口", () => {
   it("下一步是生成本集资产图时，直接调用打开集范围的批量确认", async () => {
     const preview = vi
       .spyOn(API, "previewAssetSheetBatch")
-      .mockResolvedValue({ targets: [], skipped: [], estimated_cost: null });
+      .mockResolvedValue({ targets: [], skipped: [], estimated_cost: null, unpriced_count: 0 });
     await renderExpanded(
       scenario({
         next: nextAction("generate_asset_sheets", { args: { episode_id: 1 }, requested_ids: ["庭院"] }),
@@ -749,7 +749,7 @@ describe("WorkflowPanel 分镜图与视频批量入口", () => {
   ] as const)("下一步是 %s 时，直接调用打开本集的批量确认", async (action, label, kind) => {
     const preview = vi
       .spyOn(API, "previewStoryboardBatch")
-      .mockResolvedValue({ targets: [], skipped: [], estimated_cost: null });
+      .mockResolvedValue({ targets: [], skipped: [], estimated_cost: null, unpriced_count: 0 });
     await renderExpanded(
       scenario({
         next: nextAction(action, { requested_ids: ["E1S01"] }),
@@ -946,6 +946,36 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
         expect.anything(),
       ),
     );
+  });
+
+  it("需确认档位时，档位合计只含已定价的单元，并列出未定价的单元数", async () => {
+    mockPlan(
+      videoScenario({
+        admission: {
+          decision: "confirmation_required",
+          operation: "generate_videos",
+          selection: "missing_only",
+          units: [],
+          confirmation: {
+            tiers: [
+              {
+                request_duration_seconds: 8,
+                unit_count: 3,
+                unit_ids: ["E1U1", "E1U2", "E1U3"],
+                cost_amount: 1.6,
+                cost_currency: "USD",
+                unpriced_count: 1,
+              },
+            ],
+          },
+        },
+      }),
+    );
+    render(<WorkflowPanel projectName="proj" episode={1} />);
+    fireEvent.click(await screen.findByRole("button", { name: /制作进度/ }));
+
+    expect(await screen.findByText("约 $1.60")).toBeInTheDocument();
+    expect(screen.getByText("另有 1 个单元未定价，未计入")).toBeInTheDocument();
   });
 
   it("项目整体不可用时走阻断摘要，给出字段位置，技术细节收进折叠区", async () => {

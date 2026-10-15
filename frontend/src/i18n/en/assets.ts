@@ -139,6 +139,8 @@ export default {
   "sheet_batch_skip.unavailable": "can't be generated now",
   "sheet_batch_cost": "Estimated cost: {{cost}}",
   "sheet_batch_cost_unknown": "Cost can't be estimated for this batch",
+  "sheet_batch_unpriced_one": "{{count}} more item has no price and is not counted in the estimate",
+  "sheet_batch_unpriced_other": "{{count}} more items have no price and are not counted in the estimate",
   "sheet_batch_nothing": "No asset sheets need generating",
   "sheet_batch_confirm": "Generate",
   "sheet_batch_submitting": "Submitting…",

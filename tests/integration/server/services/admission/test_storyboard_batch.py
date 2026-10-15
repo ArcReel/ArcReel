@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -354,11 +355,44 @@ async def test_video_batch_cost_sums_each_target_at_its_planned_duration(
     short, long_ = (quote.amount for quote in expected)
     assert short is not None
     assert long_ is not None
-    assert estimated == {expected[0].currency: pytest.approx(short + long_)}
+    assert estimated.total == {expected[0].currency: pytest.approx(short + long_)}
+    assert estimated.unpriced_count == 0
     assert long_ > short > 0
 
 
-async def test_video_batch_cost_is_unknown_when_a_target_has_no_planned_duration(
+async def test_video_batch_cost_totals_the_priced_targets_and_counts_a_target_without_planned_duration(
+    board_projects: ProjectManager, board_queue: GenerationQueue, session_factory
+) -> None:
+    planned = _with_storyboard(board_projects, "E1S01")
+    unplanned = _with_storyboard(board_projects, "E1S02")
+    unplanned.pop("duration_seconds")
+    _write_episode(board_projects, [planned, unplanned])
+    _claim_storyboards(board_projects, "E1S01", "E1S02")
+    facts = make_video_request_facts()
+
+    plan = await load_storyboard_video_batch_plan(
+        board_projects,
+        board_queue,
+        project_name=PROJECT,
+        episode_id=1,
+        user_id=DEFAULT_USER_ID,
+        video_request_facts=facts,
+    )
+    estimated = await estimate_storyboard_video_batch_cost(plan, session_factory)
+
+    async with session_factory() as session:
+        source = await load_video_price_source(session, facts.provider_id, facts.model_id)
+    only = quote_video_request_from_price(
+        VideoRequestCostFacts(facts, 4, aspect_ratio=plan.video_aspect_ratio, has_first_frame=True), source
+    )
+    assert only.amount is not None
+    assert plan.target_ids == ["E1S01", "E1S02"]
+    assert estimated.total == {only.currency: pytest.approx(only.amount)}
+    assert estimated.unpriced_count == 1
+    assert estimated.to_payload() == {"estimated_cost": estimated.total, "unpriced_count": 1}
+
+
+async def test_video_batch_cost_counts_every_target_when_no_target_has_planned_duration(
     board_projects: ProjectManager, board_queue: GenerationQueue, session_factory
 ) -> None:
     unplanned = _with_storyboard(board_projects, "E1S01")
@@ -376,4 +410,35 @@ async def test_video_batch_cost_is_unknown_when_a_target_has_no_planned_duration
     )
 
     assert plan.target_ids == ["E1S01"]
-    assert await estimate_storyboard_video_batch_cost(plan, session_factory) is None
+    estimated = await estimate_storyboard_video_batch_cost(plan, session_factory)
+    assert (estimated.total, estimated.unpriced_count) == ({}, 1)
+    assert estimated.to_payload() == {"estimated_cost": None, "unpriced_count": 1}
+
+
+async def test_video_batch_cost_counts_targets_whose_converted_meter_has_no_estimate(
+    board_projects: ProjectManager, board_queue: GenerationQueue, session_factory
+) -> None:
+    """视频 token 需要按像素数换算；宽高比交给上游自适应时没有估算值，整批预估把这些目标列入未定价。"""
+
+    first = _with_storyboard(board_projects, "E1S01")
+    second = _with_storyboard(board_projects, "E1S02")
+    _write_episode(board_projects, [first, second])
+    _claim_storyboards(board_projects, "E1S01", "E1S02")
+    facts = make_video_request_facts(provider_id="ark", model_id="doubao-seedance-2-0-260128", resolution="720p")
+
+    plan = await load_storyboard_video_batch_plan(
+        board_projects,
+        board_queue,
+        project_name=PROJECT,
+        episode_id=1,
+        user_id=DEFAULT_USER_ID,
+        video_request_facts=facts,
+    )
+    adaptive = replace(plan, video_aspect_ratio="adaptive")
+
+    priced = await estimate_storyboard_video_batch_cost(plan, session_factory)
+    estimated = await estimate_storyboard_video_batch_cost(adaptive, session_factory)
+
+    assert priced.unpriced_count == 0
+    assert priced.total.get("CNY", 0) > 0
+    assert (estimated.total, estimated.unpriced_count) == ({}, 2)

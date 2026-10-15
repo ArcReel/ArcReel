@@ -1934,6 +1934,8 @@ export default {
   'storyboard_batch_skip.unavailable': '暂不可生成',
   'storyboard_batch_cost': '预估费用：{{cost}}',
   'storyboard_batch_cost_unknown': '这一批暂无法预估费用',
+  'storyboard_batch_unpriced_one': '另有 {{count}} 项未定价，未计入预估费用',
+  'storyboard_batch_unpriced_other': '另有 {{count}} 项未定价，未计入预估费用',
   'storyboard_batch_stale_note.storyboards': '过期的分镜图不进批量，请在分镜详情里逐条重新生成。',
   'storyboard_batch_stale_note.videos': '过期的视频不进批量，请在分镜详情里逐条重新生成。',
   'storyboard_batch_confirm': '开始生成',

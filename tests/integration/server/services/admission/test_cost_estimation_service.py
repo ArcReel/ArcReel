@@ -2596,7 +2596,8 @@ class TestImageBatchEstimate:
         )
 
         # 1K → quality medium、1:1 → 1024x1024：官方计算器 1756 个输出 token × $30/百万；提示词文字 token 记 0
-        assert estimated == {"USD": pytest.approx(2 * 1756 * 30 / 1_000_000)}
+        assert estimated.total == {"USD": pytest.approx(2 * 1756 * 30 / 1_000_000)}
+        assert estimated.unpriced_count == 0
 
     async def test_unknown_reference_count_is_unpriced_when_references_are_billed(self, db_factory):
         from server.services.admission.cost_estimation import estimate_image_batch_cost
@@ -2609,13 +2610,76 @@ class TestImageBatchEstimate:
         }
         resolver = ConfigResolver(db_factory)
 
-        assert await estimate_image_batch_cost(
+        t2i = await estimate_image_batch_cost(
             project, ["t2i"], aspect_ratio="9:16", resolver=resolver, session_factory=db_factory
-        ) == {"USD": pytest.approx(0.01)}
-        # 图生图只知道走参考图、不知道几张；Agnes 第 4 张起按张加价，算不出
-        assert (
-            await estimate_image_batch_cost(
-                project, ["i2i"], aspect_ratio="9:16", resolver=resolver, session_factory=db_factory
-            )
-            is None
         )
+        assert (t2i.total, t2i.unpriced_count) == ({"USD": pytest.approx(0.01)}, 0)
+        # 图生图只知道走参考图、不知道几张；Agnes 第 4 张起按张加价，算不出
+        i2i = await estimate_image_batch_cost(
+            project, ["i2i"], aspect_ratio="9:16", resolver=resolver, session_factory=db_factory
+        )
+        assert (i2i.total, i2i.unpriced_count) == ({}, 1)
+        assert i2i.to_payload() == {"estimated_cost": None, "unpriced_count": 1}
+
+    async def test_batch_totals_the_priced_images_and_counts_the_unpriced_ones(self, db_factory):
+        """一批里文生图能定价、图生图算不出价：合计只含文生图，图生图的张数列入未定价。"""
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "agnes/agnes-image-2.5-flash",
+            "image_provider_i2i": "agnes/agnes-image-2.5-flash",
+        }
+
+        estimated = await estimate_image_batch_cost(
+            project,
+            ["t2i", "i2i", "t2i", "i2i", "i2i"],
+            aspect_ratio="9:16",
+            resolver=ConfigResolver(db_factory),
+            session_factory=db_factory,
+        )
+
+        assert estimated.total == {"USD": pytest.approx(0.02)}
+        assert estimated.unpriced_count == 3
+        assert estimated.to_payload() == {"estimated_cost": {"USD": pytest.approx(0.02)}, "unpriced_count": 3}
+
+    async def test_lane_whose_provider_cannot_be_resolved_counts_all_its_images_as_unpriced(
+        self, db_factory, monkeypatch
+    ):
+        from lib.config.resolver import ConfigResolver as Resolver
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        real = Resolver.resolve_image_backend
+
+        async def resolve(self, project, payload, *, generation_type=None, **kwargs):
+            if generation_type == "i2i":
+                raise ValueError("没有配置图片供应商")
+            return await real(self, project, payload, generation_type=generation_type, **kwargs)
+
+        monkeypatch.setattr(Resolver, "resolve_image_backend", resolve)
+        project = {
+            "title": "T",
+            "content_mode": "narration",
+            "image_provider_t2i": "agnes/agnes-image-2.5-flash",
+        }
+
+        estimated = await estimate_image_batch_cost(
+            project,
+            ["t2i", "i2i", "i2i"],
+            aspect_ratio="9:16",
+            resolver=ConfigResolver(db_factory),
+            session_factory=db_factory,
+        )
+
+        assert estimated.total == {"USD": pytest.approx(0.01)}
+        assert estimated.unpriced_count == 2
+
+    async def test_empty_batch_has_nothing_to_price(self, db_factory):
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        estimated = await estimate_image_batch_cost(
+            {"title": "T"}, [], aspect_ratio="9:16", resolver=ConfigResolver(db_factory), session_factory=db_factory
+        )
+
+        assert (estimated.total, estimated.unpriced_count) == ({}, 0)

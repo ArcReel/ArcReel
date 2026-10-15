@@ -1935,6 +1935,8 @@ export default {
   'storyboard_batch_skip.unavailable': 'can\'t be generated now',
   'storyboard_batch_cost': 'Estimated cost: {{cost}}',
   'storyboard_batch_cost_unknown': 'The cost of this batch can\'t be estimated yet',
+  'storyboard_batch_unpriced_one': '{{count}} more item has no price and is not counted in the estimate',
+  'storyboard_batch_unpriced_other': '{{count}} more items have no price and are not counted in the estimate',
   'storyboard_batch_stale_note.storyboards': 'Outdated storyboards aren\'t included. Regenerate them one by one in shot details.',
   'storyboard_batch_stale_note.videos': 'Outdated videos aren\'t included. Regenerate them one by one in shot details.',
   'storyboard_batch_confirm': 'Start generating',

@@ -153,6 +153,7 @@ async def test_preview_lists_targets_skips_and_cost_without_queueing(
         }
     ]
     assert body["estimated_cost"] == {"USD": pytest.approx(0.13)}
+    assert body["unpriced_count"] == 0
 
 
 async def test_submit_returns_member_tasks_and_a_second_run_reports_them_generating(

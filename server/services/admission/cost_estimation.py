@@ -96,6 +96,23 @@ class _VideoPricing:
 
 
 @dataclass(frozen=True, slots=True)
+class BatchCostEstimate:
+    """一整批生成的预估费用：只合计已定价的部分，另数出算不出价的项数。
+
+    ``total`` 按币种分开；``unpriced_count`` 不为 0 时，``total`` 低于这批的真实费用，界面据此提示，
+    不把偏低的合计当作整批的价。
+    """
+
+    total: CostBreakdown
+    unpriced_count: int
+
+    def to_payload(self) -> dict[str, object]:
+        """批量预览端点里的两个字段；没有任何已定价的项时 ``estimated_cost`` 为 ``None``。"""
+
+        return {"estimated_cost": self.total or None, "unpriced_count": self.unpriced_count}
+
+
+@dataclass(frozen=True, slots=True)
 class VideoRequestQuote:
     """一次视频请求按当前价格的报价；``amount`` 为 ``None`` 表示未定价，原因见 ``unpriced_reason``。"""
 
@@ -1035,46 +1052,58 @@ async def estimate_image_batch_cost(
     aspect_ratio: str,
     resolver: ConfigResolver,
     session_factory: async_sessionmaker[AsyncSession],
-) -> CostBreakdown | None:
-    """一批图片生成按当前项目配置的预估费用；供应商解析不出或有未定价的项时返回 ``None``（算不出）。
+) -> BatchCostEstimate:
+    """一批图片生成按当前项目配置的预估费用：合计已定价的部分，并数出未定价的张数。
 
     每张图按自己的生图通道计价：文生图与图生图是两个正交的能力槽，可能配置成不同的模型。
     分辨率档与执行侧同样按通道解析出的模型取，取不到时不下发，按价目表的默认档计。``aspect_ratio`` 是这批
-    图下发的比例（按尺寸计价的模型要用）。
+    图下发的比例（按尺寸计价的模型要用）。供应商解析不出、读库失败或算不出价的通道，它名下的每一张都
+    计入未定价。
     """
 
     counts = Counter(lanes)
-    if not counts:
-        return {}
-    identities: dict[ImageLane, tuple[str, str, str | None]] = {}
+    total: CostBreakdown = {}
+    unpriced = 0
+    for lane, count in counts.items():
+        quote = await _quote_image_lane(
+            project, lane, aspect_ratio=aspect_ratio, resolver=resolver, session_factory=session_factory
+        )
+        if quote is None:
+            unpriced += count
+        else:
+            _add_cost(total, quote[0] * count, quote[1])
+    return BatchCostEstimate(total=total, unpriced_count=unpriced)
+
+
+async def _quote_image_lane(
+    project: dict[str, Any],
+    lane: ImageLane,
+    *,
+    aspect_ratio: str,
+    resolver: ConfigResolver,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> tuple[float, str] | None:
+    """一条生图通道上每张图的预估单价；通道解析不出、读库失败或未定价时返回 ``None``。"""
+
     try:
         async with resolver.session() as r:
-            for lane in counts:
-                resolved = await r.resolve_image_backend(project, None, generation_type=lane)
-                try:
-                    resolution = await r.resolve_resolution(project, resolved.provider_id, resolved.model_id or "")
-                except (ValueError, SQLAlchemyError):
-                    resolution = None
-                identities[lane] = (resolved.provider_id, resolved.model_id or "", resolution)
-        total: CostBreakdown = {}
+            resolved = await r.resolve_image_backend(project, None, generation_type=lane)
+            provider, model = resolved.provider_id, resolved.model_id or ""
+            try:
+                resolution = await r.resolve_resolution(project, provider, model)
+            except (ValueError, SQLAlchemyError):
+                resolution = None
         async with session_factory() as session:
-            repo = CustomProviderRepository(session)
-            for lane, count in counts.items():
-                provider, model, resolution = identities[lane]
-                quote = _quote_image(
-                    provider,
-                    model,
-                    await repo.resolve_price(provider, model),
-                    multiplier=await get_provider_multiplier(session, provider),
-                    image_size=resolution,
-                    aspect_ratio=aspect_ratio,
-                    # 图生图只知道走参考图，不知道几张：需要参考图张数的价目表记为未定价。
-                    reference_count=0 if lane == "t2i" else None,
-                )
-                if quote is None:
-                    return None
-                _add_cost(total, quote[0] * count, quote[1])
+            return _quote_image(
+                provider,
+                model,
+                await CustomProviderRepository(session).resolve_price(provider, model),
+                multiplier=await get_provider_multiplier(session, provider),
+                image_size=resolution,
+                aspect_ratio=aspect_ratio,
+                # 图生图只知道走参考图，不知道几张：需要参考图张数的价目表记为未定价。
+                reference_count=0 if lane == "t2i" else None,
+            )
     except (ValueError, SQLAlchemyError):
-        logger.debug("无法估算这批图片的费用", exc_info=True)
+        logger.debug("无法估算这批图片的费用 lane=%s", lane, exc_info=True)
         return None
-    return total

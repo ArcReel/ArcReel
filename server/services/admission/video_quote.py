@@ -43,6 +43,22 @@ class VideoUnitQuote:
     problems: tuple[GenerationProblem, ...] = ()
 
     @property
+    def priced_cost(self) -> tuple[float, str] | None:
+        """报价里的 ``(金额, 币种)``；报不出价（没有报价，或金额为 ``None`` 的未定价报价）时为 ``None``。"""
+
+        amount = self.cost.get("amount") if self.cost is not None else None
+        currency = self.cost.get("currency") if self.cost is not None else None
+        if not isinstance(amount, (int, float)) or isinstance(amount, bool) or not isinstance(currency, str):
+            return None
+        return float(amount), currency
+
+    @property
+    def unpriced(self) -> bool:
+        """会入队、却报不出价：Agent 须如实告知用户这一单元的费用未知，不能当作 0。"""
+
+        return self.outcome is VideoQuoteOutcome.GENERATE and self.priced_cost is None
+
+    @property
     def tier_changed(self) -> bool:
         """申请档位与剧本编排时长不同：成片会比编排的长或短，费用按申请档位算。"""
 
@@ -59,6 +75,7 @@ class VideoUnitQuote:
             "script_duration_seconds": self.script_duration_seconds,
             "request_duration_seconds": self.request_duration_seconds,
             "tier_changed": self.tier_changed,
+            "unpriced": self.unpriced,
             "estimated_cost": dict(self.cost) if self.cost is not None else None,
             "problems": [problem.model_dump(mode="json") for problem in self.problems],
         }
@@ -87,18 +104,27 @@ class VideoQuoteSheet:
         }
 
     @property
+    def unpriced_count(self) -> int:
+        """会入队、却报不出价的单元数。"""
+
+        return sum(1 for unit in self.units if unit.unpriced)
+
+    @property
     def estimated_total(self) -> dict[str, float] | None:
-        """会入队单元的费用合计，按币种分开；有单元报不出价时为 ``None``，不给偏低的部分和。"""
+        """会入队单元里已定价部分的费用合计，按币种分开。
+
+        有单元报不出价时，合计只含已定价的部分，未定价的单元数见 :attr:`unpriced_count`；一个单元都
+        没有定价时为 ``None``（无从给出合计），不与「没有要收费的单元」的空合计混同。
+        """
 
         total: dict[str, float] = {}
         for unit in self.units:
-            if unit.outcome is not VideoQuoteOutcome.GENERATE:
+            if unit.outcome is not VideoQuoteOutcome.GENERATE or unit.priced_cost is None:
                 continue
-            amount = unit.cost.get("amount") if unit.cost is not None else None
-            currency = unit.cost.get("currency") if unit.cost is not None else None
-            if not isinstance(amount, (int, float)) or isinstance(amount, bool) or not isinstance(currency, str):
-                return None
-            total[currency] = round(total.get(currency, 0.0) + float(amount), 6)
+            amount, currency = unit.priced_cost
+            total[currency] = round(total.get(currency, 0.0) + amount, 6)
+        if not total and self.unpriced_count:
+            return None
         return total
 
     def to_payload(self) -> dict[str, object]:
@@ -106,16 +132,22 @@ class VideoQuoteSheet:
             "submittable": self.submittable,
             "units": [unit.to_payload() for unit in self.units],
             "estimated_total": self.estimated_total,
+            "unpriced_count": self.unpriced_count,
             "confirmed_request_durations": self.confirmed_request_durations,
         }
 
     def summary(self, log: Sequence[str] = ()) -> str:
         lines = [*log, "预检完成，未入队任何任务。", *(f"- {unit.unit_id}：{_unit_line(unit)}" for unit in self.units)]
         total = self.estimated_total
+        unpriced = self.unpriced_count
         if total is None:
-            lines.append("预计合计：有单元报不出价，无法给出合计。")
-        elif total:
-            lines.append("预计合计：" + "、".join(f"{amount:g} {currency}" for currency, amount in total.items()))
+            lines.append(f"预计合计：{unpriced} 个单元未定价，无法给出合计，须如实告知用户费用未知。")
+        else:
+            if total:
+                amounts = "、".join(f"{amount:g} {currency}" for currency, amount in total.items())
+                lines.append(f"预计合计：{amounts}" + ("（仅含已定价的单元）" if unpriced else ""))
+            if unpriced:
+                lines.append(f"另有 {unpriced} 个单元未定价，上面的合计不含它们的费用，须如实告知用户。")
         if not self.submittable:
             lines.append("有单元受阻：按各单元的 problems 修复后再预检或提交。")
         elif self.confirmed_request_durations:
@@ -136,9 +168,9 @@ def _unit_line(unit: VideoUnitQuote) -> str:
     tier = f"申请 {request}（编排 {script}，档位有变化）" if unit.tier_changed else f"申请 {request}"
     cost = unit.cost
     if cost is None:
-        price = "报不出价"
+        price = "未定价（无法为这次请求报价）"
     elif cost.get("amount") is None:
-        price = f"未定价（{cost.get('unpriced_reason')}）"
+        price = f"未定价（原因：{cost.get('unpriced_reason')}）"
     else:
         price = f"预计 {cost.get('amount')} {cost.get('currency')}"
     return f"{tier}，{price}"

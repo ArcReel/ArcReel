@@ -1919,3 +1919,27 @@ async def test_generate_videos_preview_quotes_storyboard_units_at_their_planned_
     assert expected.amount is not None
     assert unit["estimated_cost"] == expected.to_payload()
     assert quote["estimated_total"] == {expected.currency: pytest.approx(expected.amount)}
+
+
+async def test_generate_videos_preview_states_plainly_that_a_unit_is_unpriced(
+    fake_ctx: ToolHarness,
+    set_admission_video_request_facts,
+) -> None:
+    """分镜图生视频预检：价目表算不出价的单元如实返回未定价，不当作 0 元，也不给出偏低的合计。"""
+
+    set_admission_video_request_facts(
+        make_video_request_facts(provider_id="grok", model_id="grok-model-without-a-price", resolution="720p")
+    )
+
+    out = await run_generate_videos(fake_ctx, _selected("E1S01"), force=True, preview=True)
+
+    quote = _video_quote(out)
+    [unit] = quote["units"]
+    assert unit["outcome"] == "generate"
+    assert unit["unpriced"] is True
+    assert unit["estimated_cost"]["amount"] is None
+    assert unit["estimated_cost"]["unpriced_reason"] == "no_entry"
+    assert quote["unpriced_count"] == 1
+    assert quote["estimated_total"] is None
+    assert "未定价" in out.value["summary"]
+    assert "费用未知" in out.value["summary"]
