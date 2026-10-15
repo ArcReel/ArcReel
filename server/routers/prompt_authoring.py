@@ -5,13 +5,13 @@
 任务进度经任务事件呈现。附加指令按集保存，下次打开弹窗时预填。
 """
 
-import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.infra.api_errors import ConflictError, UnprocessableError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import get_project_manager
 from lib.script.prompt_authoring_scope import prompt_overwrite_with_text
 from server.agent_toolset.envelope import json_value
@@ -70,7 +70,7 @@ def _raise_problem(problem: ToolProblem, episode: int, _t: Translator) -> None:
 @router.put("/projects/{project_name}/episodes/{episode}/prompt-authoring/instructions")
 async def save_prompt_authoring_instructions(project_name: str, episode: int, req: PromptAuthoringInstructions):
     """只保存本集的附加指令（「交给 Agent」路径用），不提交生成。"""
-    await asyncio.to_thread(
+    await run_sync_transaction(
         save_episode_instructions,
         get_project_manager(),
         project_name,
@@ -95,7 +95,7 @@ async def author_prompts(
     ``prompt_overwrite`` 列出将被覆盖的条目与字段、渲染好的 ``text`` 和认可令牌 ``revision``，不提交任务。
     """
     pm = get_project_manager()
-    await asyncio.to_thread(
+    await run_sync_transaction(
         save_episode_instructions,
         pm,
         project_name,

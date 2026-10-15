@@ -141,6 +141,8 @@ export default {
   "sheet_batch_skip.unavailable": "暂不可生成",
   "sheet_batch_cost": "预估费用：{{cost}}",
   "sheet_batch_cost_unknown": "这一批暂无法预估费用",
+  "sheet_batch_unpriced_one": "另有 {{count}} 项未定价，未计入预估费用",
+  "sheet_batch_unpriced_other": "另有 {{count}} 项未定价，未计入预估费用",
   "sheet_batch_nothing": "没有需要生成的资产图",
   "sheet_batch_confirm": "开始生成",
   "sheet_batch_submitting": "正在提交…",

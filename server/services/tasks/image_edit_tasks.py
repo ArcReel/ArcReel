@@ -26,7 +26,7 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
-from lib.artifacts.image_reference_snapshot import freeze_image_references
+from lib.artifacts.image_reference_snapshot import FrozenImageReferences, freeze_image_references
 from lib.artifacts.visual_artifact_provenance import (
     VisualReference,
     build_asset_sheet_visual_basis,
@@ -34,6 +34,7 @@ from lib.artifacts.visual_artifact_provenance import (
 )
 from lib.db.base import DEFAULT_USER_ID
 from lib.infra.api_errors import NotFoundError
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
     DERIVATIVE_TASK_TYPE,
@@ -315,6 +316,8 @@ async def execute_image_edit_task(
         raise ValueError("script_file is required for storyboard image_edit task")
 
     version_resource_type = edit_version_resource_type(resource_type)
+    # 快照在线程里一建好就登记：取消落在准备那一程时返回值会丢，按登记回收快照目录。
+    frozen_snapshots: list[FrozenImageReferences] = []
 
     def _prepare():
         pm = get_project_manager()
@@ -357,6 +360,7 @@ async def execute_image_edit_task(
                 )
             ],
         )
+        frozen_snapshots.append(_frozen)
         try:
             _basis = _build_image_edit_basis(
                 resource_type=resource_type,
@@ -370,16 +374,22 @@ async def execute_image_edit_task(
             raise
         return _project, _project_path, _current_image, _key, _aspect_ratio, _frozen, _basis, _source
 
-    (
-        project,
-        project_path,
-        current_image,
-        resource_key,
-        aspect_ratio,
-        frozen_references,
-        edit_basis,
-        selected_source,
-    ) = await asyncio.to_thread(_prepare)
+    try:
+        # 读剧本可能顺带落盘迁移
+        (
+            project,
+            project_path,
+            current_image,
+            resource_key,
+            aspect_ratio,
+            frozen_references,
+            edit_basis,
+            selected_source,
+        ) = await run_sync_transaction(_prepare)
+    except BaseException:
+        for frozen in frozen_snapshots:
+            await run_noninterruptible_sync(frozen.cleanup)
+        raise
     formal_claims = selected_source.formal_claims
 
     canonical_rel = resource_relative_path(version_resource_type, resource_key)
@@ -389,7 +399,7 @@ async def execute_image_edit_task(
         # 旧图若尚无版本记录（如旧宫格项目 current 指向非 canonical 路径），先以中性元数据补登，
         # 保证编辑前的旧图可回滚；也避免 generate_image_async 内部的 ensure_current_tracked
         # 把编辑指令 / 编辑标记误写到旧版本上。已有版本记录时此调用是 no-op。
-        await asyncio.to_thread(
+        await run_sync_transaction(
             generator.versions.ensure_current_tracked,
             version_resource_type,
             resource_key,

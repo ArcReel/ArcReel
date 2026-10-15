@@ -35,6 +35,7 @@ def _confirmation_ticket(
     request: int,
     amount: float | None = None,
     currency: str = "USD",
+    unpriced_reason: str | None = None,
 ):
     return UnitAdmissionTicket(
         unit_id=unit_id,
@@ -48,7 +49,11 @@ def _confirmation_ticket(
         ),
         request_duration_seconds=request,
         request_cost=(
-            None if amount is None else {"amount": amount, "currency": currency, "request_duration_seconds": request}
+            {"amount": None, "currency": None, "request_duration_seconds": request, "unpriced_reason": unpriced_reason}
+            if unpriced_reason is not None
+            else None
+            if amount is None
+            else {"amount": amount, "currency": currency, "request_duration_seconds": request}
         ),
     )
 
@@ -117,18 +122,40 @@ def test_confirmation_tiers_group_by_request_duration_with_totals():
     assert tiers[0].cost_currency == "USD"
 
 
-def test_a_tier_with_an_unquoted_member_reports_no_total():
-    """报价不全的档位不给合计：部分求和会低报用户正在同意支付的金额。"""
+def test_a_tier_totals_the_quoted_members_and_counts_the_unquoted_ones():
+    """档位合计只含已报价的单元，没有报价的单元数另列：用户看得出合计只是下限，按申请秒数跨档的确认不变。"""
 
     admission = _admission(
         _confirmation_ticket("E1U1", request=8, amount=0.8),
+        _confirmation_ticket("E1U2", request=8),
+        _confirmation_ticket("E1U3", request=8, unpriced_reason="no_usage_estimate"),
+    )
+
+    tier = admission.confirmation_tiers()[0]
+
+    assert admission.decision is BatchAdmissionDecision.CONFIRMATION_REQUIRED
+    assert tier.unit_count == 3
+    assert tier.cost_amount == pytest.approx(0.8)
+    assert tier.cost_currency == "USD"
+    assert tier.unpriced_count == 2
+    assert tier.to_payload()["unpriced_count"] == 2
+
+
+def test_a_tier_without_any_quoted_member_reports_no_total():
+    admission = _admission(
+        _confirmation_ticket("E1U1", request=8, unpriced_reason="missing_rate"),
         _confirmation_ticket("E1U2", request=8),
     )
 
     tier = admission.confirmation_tiers()[0]
 
-    assert tier.unit_count == 2
-    assert tier.cost_amount is None
+    assert (tier.unit_count, tier.cost_amount, tier.cost_currency, tier.unpriced_count) == (2, None, None, 2)
+
+
+def test_a_fully_quoted_tier_has_no_unpriced_members():
+    admission = _admission(_confirmation_ticket("E1U1", request=8, amount=0.8))
+
+    assert admission.confirmation_tiers()[0].unpriced_count == 0
 
 
 def test_a_tier_quoted_in_two_currencies_reports_no_total():

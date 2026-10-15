@@ -28,12 +28,15 @@ def _recorded_openai_clients() -> Generator[list[dict[str, Any]]]:
 
 @contextmanager
 def _recorded_instructor_fallback(result: tuple[str, int, int]) -> Generator[list[dict[str, Any]]]:
-    """instructor 降级入口的记录器：收下降级调用参数，回固定结果。"""
+    """instructor 降级入口的记录器：收下降级调用参数，回固定结果（JSON 文本、输入与输出 token）。"""
     calls: list[dict[str, Any]] = []
+    json_text, input_tokens, output_tokens = result
 
-    def _call(**kwargs: Any) -> tuple[str, int, int]:
+    def _call(**kwargs: Any) -> TextGenerationResult:
         calls.append(kwargs)
-        return result
+        return TextGenerationResult(
+            text=json_text, provider="", model="", input_tokens=input_tokens, output_tokens=output_tokens
+        )
 
     with patch("lib.backends.text_backends.instructor_support.generate_structured_via_instructor", _call):
         yield calls
@@ -202,7 +205,9 @@ class TestCapabilityAwareStructured:
 
         with patch(
             "lib.backends.text_backends.instructor_support.generate_structured_via_instructor",
-            return_value=(sample.model_dump_json(), 50, 20),
+            return_value=TextGenerationResult(
+                text=sample.model_dump_json(), provider="", model="", input_tokens=50, output_tokens=20
+            ),
         ) as mock_instructor:
             result = await backend_no_structured.generate(
                 TextGenerationRequest(prompt="gen", response_schema=TestModel)

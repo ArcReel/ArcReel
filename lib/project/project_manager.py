@@ -2620,7 +2620,7 @@ class ProjectManager:
         lost-update 竞态。
 
         Raises:
-            ProjectAssetNameConflictError: 规范化后的名称已被其它资产类型占用。
+            ProjectAssetNameConflictError: 名称已被其它资产类型占用，或与已有资产只差大小写。
         """
         name = validate_asset_name(name)
         spec = ASSET_SPECS[asset_type]
@@ -2649,7 +2649,7 @@ class ProjectManager:
         的 lost-update 竞态。任一名称与其它资产类型冲突时整批不落盘。
 
         Raises:
-            ProjectAssetNameConflictError: 任一规范化后的名称已被其它资产类型占用。
+            ProjectAssetNameConflictError: 任一名称已被其它资产类型占用，或与已有资产只差大小写。
         """
         spec = ASSET_SPECS[asset_type]
         # 与 upsert_assets 同口径：规范化（strip + NFC）后等价的 key（{"李白", "  李白  "}
@@ -2792,7 +2792,7 @@ class ProjectManager:
             for name, attrs in cleaned.items():
                 # 存量 entry 的 key 可能是 NFD：解析真实 key 就地更新，而非按 NFC 名新建第二条
                 match = find_project_asset_name(project, name)
-                if match is not None and match.asset_type != asset_type:
+                if match is not None and not match.is_entry(asset_type, name):
                     raise ProjectAssetNameConflictError(name, match, asset_type)
                 key = match.name if match is not None else name
                 existing = isinstance(bucket.get(key), dict)
@@ -3253,10 +3253,11 @@ class ProjectManager:
             FileNotFoundError: 项目不存在。
             KeyError: 本体条目不存在。
             AssetRenameNotFoundError: 该本体下没有这个衍生。
-            AssetRenameConflictError: 新衍生名已被同一本体下的另一个衍生占用。
+            AssetRenameConflictError: 新衍生名已被同一本体下的另一个衍生占用（只差大小写也算）。
             ValueError: 新名非法（``validate_asset_name``）或条目结构不是对象。
         """
         from lib.project.asset_derivative_rename import plan_derivative_sheet_relocation, rewrite_derivative_sheet_paths
+        from lib.project.asset_derivatives import find_derivative_name
 
         spec = ASSET_SPECS[asset_type]
         new_clean = validate_asset_name(new_name)
@@ -3279,8 +3280,8 @@ class ProjectManager:
             old_key = resolve_asset_key(table, old_name)
             if old_key is None:
                 raise AssetRenameNotFoundError(f"{base_key} 下不存在名为 {old_name!r} 的衍生")
-            taken = resolve_asset_key(table, new_clean)
-            if taken is not None and normalize_asset_name(taken) != normalize_asset_name(old_key):
+            taken = find_derivative_name(table, new_clean, exclude=old_key)
+            if taken is not None:
                 raise AssetRenameConflictError(taken)
 
             old_reference = derivative_reference(base_key, old_key)
@@ -3354,7 +3355,7 @@ class ProjectManager:
         与 :meth:`rename_asset` 同一组锁、同一套「先扫描、再落盘」：全部剧集剧本与 script_plan 草稿里
         指向被并方的引用改指保留方（规则见 :mod:`lib.project.asset_merge`），保留方原样不动，只追加
         别名（并为本体）或衍生（并为衍生）。被并方的描述、资产图及版本历史、声音设置、原图与参考音频
-        都不保留，资产图撤销登记；它名下的衍生迁到保留方，与保留方已有衍生同名的并入那个。
+        都不保留，资产图撤销登记；它名下的衍生迁到保留方，与保留方已有衍生同名（只差大小写也算）的并入那个。
         ``dry_run=True`` 时只返回影响报告，预览与执行共用同一次扫描，数字必然一致。
 
         落盘顺序：剧本 → 草稿 → 衍生资产图搬迁 → project.json 与清单 → 被并方的版本历史与文件。
@@ -3415,6 +3416,14 @@ class ProjectManager:
             if not isinstance(source_entry, dict) or not isinstance(target_entry, dict):
                 raise ValueError(f"project asset {spec.bucket_key} entries must be objects")
 
+            # 被并角色的衍生：迁到保留方名下的随图、版本与清单键一起搬，并入已有同名衍生的整套清掉。
+            # 引用改写要用到规划出的衍生名（并入只差大小写的已有衍生时改用它的名字），故先于扫描规划。
+            derivative_plan = (
+                plan_derivative_merge(source_entry, target_entry, source, as_derivative=as_derivative)
+                if spec.supports_derivatives
+                else DerivativeMergePlan()
+            )
+
             # —— 扫描（dry-run 预览与执行共用同一套逻辑）——
             impacts: dict[int, dict[str, int]] = {}
 
@@ -3430,7 +3439,9 @@ class ProjectManager:
             for filename in script_files:
                 script, _migrated = self._read_script_unlocked(project_name, filename)
                 before = copy.deepcopy(script)
-                changes = merge_payload_references(script, asset_type, source, target, as_derivative=as_derivative)
+                changes = merge_payload_references(
+                    script, asset_type, source, target, as_derivative=as_derivative, derivatives=derivative_plan
+                )
                 if not changes.total:
                     continue
                 changed_scripts.append((filename, script, before))
@@ -3454,7 +3465,9 @@ class ProjectManager:
                 if not isinstance(payload, dict):
                     continue
                 fingerprint = canonical_json_digest(payload)
-                changes = merge_payload_references(payload, asset_type, source, target, as_derivative=as_derivative)
+                changes = merge_payload_references(
+                    payload, asset_type, source, target, as_derivative=as_derivative, derivatives=derivative_plan
+                )
                 if not changes.total:
                     continue
                 changed_drafts.append((path, payload, fingerprint))
@@ -3466,12 +3479,6 @@ class ProjectManager:
                     prompt_text=changes.mentions,
                 )
 
-            # 被并角色的衍生：迁到保留方名下的随图、版本与清单键一起搬，并入已有同名衍生的整套清掉。
-            derivative_plan = (
-                plan_derivative_merge(source_entry, target_entry, source, as_derivative=as_derivative)
-                if spec.supports_derivatives
-                else DerivativeMergePlan()
-            )
             moved_pairs = tuple((name, name) for name in derivative_plan.moved)
             relocation = plan_derivative_sheet_relocation(
                 project_dir,
@@ -3682,7 +3689,7 @@ class ProjectManager:
             bucket = project["characters"]
             # 覆盖写也要落在存量真实 key 上（可能是 NFD），否则会残留视觉同名的旧条目
             match = find_project_asset_name(project, name)
-            if match is not None and match.asset_type != "character":
+            if match is not None and not match.is_entry("character", name):
                 raise ProjectAssetNameConflictError(name, match, "character")
             key = match.name if match is not None else name
             entry = self._build_asset_entry(

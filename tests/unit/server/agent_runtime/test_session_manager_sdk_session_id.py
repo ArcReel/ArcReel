@@ -4,10 +4,6 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-import pytest
-from sqlalchemy import select
-
-from lib.db.models.api_call import ApiCall
 from server.agent_runtime.session_actor import SessionActor
 from server.agent_runtime.session_manager import ManagedSession
 from tests.fakes import FakeSDKClient, session_state_message
@@ -97,182 +93,6 @@ class TestSessionManagerSdkSessionId:
         assert subscribed == [managed.channel]
         assert session_manager._channels[sdk_session_id] is managed.channel
 
-    async def test_finalize_turn_records_assistant_usage(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "sdk-usage-789")
-        managed = _make_managed(session_id=meta.id, project_name="demo", assistant_model="claude-sonnet-4")
-        managed.last_user_prompt = "hello assistant"
-        session_manager._user_id = "assistant-user"
-
-        await session_manager._finalize_turn(
-            managed,
-            {
-                "type": "result",
-                "session_status": "completed",
-                "model": "claude-sonnet-4",
-                "total_cost_usd": 0.1234,
-                "usage": {
-                    "input_tokens": 1000,
-                    "output_tokens": 200,
-                    "cache_creation_input_tokens": 50,
-                },
-            },
-        )
-
-        async with meta_store._session_factory() as session:
-            row = (
-                await session.execute(
-                    select(ApiCall).where(
-                        ApiCall.project_name == "demo",
-                        ApiCall.model == "claude-sonnet-4",
-                        ApiCall.prompt == "hello assistant",
-                    )
-                )
-            ).scalar_one()
-
-        assert row.project_name == "demo"
-        assert row.user_id == "assistant-user"
-        assert row.provider == "anthropic"
-        assert row.call_type == "text"
-        assert row.model == "claude-sonnet-4"
-        assert row.prompt == "hello assistant"
-        assert row.input_tokens == 1050
-        assert row.output_tokens == 200
-        assert row.usage_tokens == 1250
-        assert row.cost_amount == pytest.approx(0.1234)
-        assert row.currency == "USD"
-
-    async def test_finalize_turn_preserves_sdk_cost_for_failed_status(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "sdk-usage-failed-789")
-        managed = _make_managed(session_id=meta.id, project_name="demo", assistant_model="claude-sonnet-4")
-        managed.last_user_prompt = "failed but billed"
-
-        await session_manager._finalize_turn(
-            managed,
-            {
-                "type": "result",
-                "session_status": "error",
-                "model": "claude-sonnet-4",
-                "total_cost_usd": 0.0456,
-                "usage": {"input_tokens": 100, "output_tokens": 20},
-            },
-        )
-
-        async with meta_store._session_factory() as session:
-            row = (
-                await session.execute(
-                    select(ApiCall).where(
-                        ApiCall.project_name == "demo",
-                        ApiCall.model == "claude-sonnet-4",
-                        ApiCall.prompt == "failed but billed",
-                    )
-                )
-            ).scalar_one()
-
-        assert row.status == "failed"
-        assert row.cost_amount == pytest.approx(0.0456)
-        assert row.currency == "USD"
-
-    async def test_finalize_turn_uses_model_usage_cost_when_total_cost_missing(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "sdk-model-usage-cost-789")
-        managed = _make_managed(session_id=meta.id, project_name="demo", assistant_model="claude-sonnet-4")
-        managed.last_user_prompt = "model usage cost"
-
-        await session_manager._finalize_turn(
-            managed,
-            {
-                "type": "result",
-                "session_status": "completed",
-                "model": "claude-sonnet-4",
-                "usage": {"input_tokens": 100, "output_tokens": 20},
-                "model_usage": {
-                    "claude-sonnet-4": {"costUSD": "0.0123"},
-                    "claude-haiku-4-5": {"costUSD": 0.0045},
-                },
-            },
-        )
-
-        async with meta_store._session_factory() as session:
-            row = (
-                await session.execute(
-                    select(ApiCall).where(
-                        ApiCall.project_name == "demo",
-                        ApiCall.model == "claude-sonnet-4",
-                        ApiCall.prompt == "model usage cost",
-                    )
-                )
-            ).scalar_one()
-
-        assert row.cost_amount == pytest.approx(0.0168)
-        assert row.currency == "USD"
-
-    async def test_finalize_turn_uses_model_usage_tokens_when_usage_missing(self, session_manager, meta_store):
-        meta = await meta_store.create("demo", "sdk-model-usage-tokens-789")
-        managed = _make_managed(session_id=meta.id, project_name="demo")
-        managed.last_user_prompt = "model usage tokens"
-
-        await session_manager._finalize_turn(
-            managed,
-            {
-                "type": "result",
-                "session_status": "completed",
-                "model_usage": {
-                    "claude-sonnet-4": {
-                        "inputTokens": 100,
-                        "outputTokens": 20,
-                        "cacheCreationInputTokens": 30,
-                        "cacheReadInputTokens": 40,
-                        "costUSD": 0.0123,
-                    }
-                },
-            },
-        )
-
-        async with meta_store._session_factory() as session:
-            row = (
-                await session.execute(
-                    select(ApiCall).where(
-                        ApiCall.project_name == "demo",
-                        ApiCall.model == "claude-sonnet-4",
-                        ApiCall.prompt == "model usage tokens",
-                    )
-                )
-            ).scalar_one()
-
-        assert row.input_tokens == 170
-        assert row.output_tokens == 20
-        assert row.usage_tokens == 190
-        assert row.cost_amount == pytest.approx(0.0123)
-
-    async def test_finalize_turn_records_interrupted_turn_as_cancelled_with_real_cost(
-        self, session_manager, meta_store
-    ):
-        """用户中断的一轮记 cancelled 而非 failed；中断前已消耗的费用按 SDK 实报保留。"""
-        meta = await meta_store.create("demo", "sdk-interrupted-usage-789")
-        managed = _make_managed(session_id=meta.id, project_name="demo")
-        managed.last_user_prompt = "interrupted turn"
-
-        await session_manager._finalize_turn(
-            managed,
-            {
-                "type": "result",
-                "session_status": "interrupted",
-                "model": "claude-sonnet-4",
-                "usage": {"input_tokens": 50, "output_tokens": 5},
-                "total_cost_usd": 0.0042,
-            },
-        )
-
-        async with meta_store._session_factory() as session:
-            row = (
-                await session.execute(
-                    select(ApiCall).where(ApiCall.project_name == "demo", ApiCall.prompt == "interrupted turn")
-                )
-            ).scalar_one()
-
-        assert row.status == "cancelled"
-        assert row.cost_amount == pytest.approx(0.0042)
-        assert row.currency == "USD"
-
     async def test_usage_failure_does_not_block_settling_the_turn(self, session_manager, meta_store, monkeypatch):
         meta = await meta_store.create("demo", "sdk-usage-error-789")
         managed = _make_managed(session_id=meta.id, project_name="demo", status="running")
@@ -287,7 +107,7 @@ class TestSessionManagerSdkSessionId:
         monkeypatch.setattr(session_manager, "_record_assistant_usage", _raise_usage_error)
 
         on_message = session_manager._make_actor_message_callback([managed])
-        on_message({"type": "result", "subtype": "success", "model": "claude-sonnet-4", "usage": {"input_tokens": 1}})
+        on_message({"type": "result", "subtype": "success"})
         on_message(session_state_message("idle"))
         managed._inbox.put_nowait(None)
         await session_manager._process_inbox(managed)

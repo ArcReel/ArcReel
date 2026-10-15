@@ -161,7 +161,7 @@ def stage_uploaded_bytes(content: bytes, target: Path) -> Path:
 
 async def save_uploaded_bytes(content: bytes, target: Path) -> None:
     """把内存中的上传内容原子写入 target（同 dot-tmp + replace + 失败清理）。"""
-    await asyncio.to_thread(write_bytes_atomic, content, target)
+    await run_sync_transaction(write_bytes_atomic, content, target)
 
 
 def install_manual_asset_sheet_upload(

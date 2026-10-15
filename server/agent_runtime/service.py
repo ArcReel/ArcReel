@@ -34,6 +34,7 @@ from lib.agent.agent_profile import agent_profile_dir
 from lib.agent.profile_frontmatter import FrontmatterError, parse_profile_metadata
 from lib.agent.profile_manifest import VALID_CONTENT_MODES
 from lib.i18n import DEFAULT_LOCALE
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import (
@@ -238,7 +239,7 @@ class AssistantService:
                 )
         elif sdk_delete_session is not None:
             try:
-                await asyncio.to_thread(sdk_delete_session, session_id)
+                await run_sync_transaction(sdk_delete_session, session_id)
             except Exception:
                 logger.warning("sdk delete_session failed for %s", session_id, exc_info=True)
 

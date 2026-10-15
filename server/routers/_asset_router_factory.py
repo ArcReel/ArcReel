@@ -15,7 +15,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, datetime
@@ -25,6 +24,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
 from lib.infra.api_errors import NotFoundError, UnprocessableError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.asset_merge import (
     MERGEABLE_ASSET_TYPES,
     AssetMergeNotFoundError,
@@ -258,7 +258,7 @@ def build_asset_router(
                 data = manager.load_project(project_name)
                 return {"success": True, result_key: data[spec.bucket_key][name]}
 
-            return await asyncio.to_thread(_sync)
+            return await run_sync_transaction(_sync)
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
         except FileNotFoundError as exc:
@@ -314,7 +314,7 @@ def build_asset_router(
                     result = manager.update_asset_entry(asset_type, project_name, entry_name, _mutate)
                 return {"success": True, result_key: result}
 
-            return await asyncio.to_thread(_sync)
+            return await run_sync_transaction(_sync)
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
         except KeyError as exc:
@@ -366,7 +366,7 @@ def build_asset_router(
                     "files": report.files,
                 }
 
-            return await asyncio.to_thread(_sync)
+            return await run_sync_transaction(_sync)
         except AssetRenameNotFoundError as exc:
             raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=entry_name)) from exc
         except ProjectAssetNameConflictError as exc:
@@ -418,7 +418,7 @@ def build_asset_router(
                         )
                     return {"success": True, **merge_report_payload(report)}
 
-                return await asyncio.to_thread(_sync)
+                return await run_sync_transaction(_sync)
             except AssetMergeNotFoundError as exc:
                 raise HTTPException(status_code=404, detail=_t(keys["not_found"], name=exc.name)) from exc
             except AssetMergeRejectedError as exc:
@@ -477,7 +477,7 @@ def build_asset_router(
                     manager.delete_asset(project_name, spec.bucket_key, entry_name)
                 return {"success": True, "message": _t(keys["deleted"], name=entry_name)}
 
-            return await asyncio.to_thread(_sync)
+            return await run_sync_transaction(_sync)
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
         except KeyError as exc:

@@ -160,7 +160,7 @@ class TestDashScopeAudioBackend:
         assert out.read_bytes() == b"RIFFwavbytes"
         assert result.provider == PROVIDER_DASHSCOPE
         assert result.model == "qwen3-tts-flash"
-        assert result.characters == len("你好世界")
+        assert result.text == "你好世界"
         assert result.output_path == out
 
     async def test_speed_param_ignored(self, tmp_path: Path):
@@ -395,7 +395,7 @@ class TestOpenAIAudioBackend:
         # 字节落盘 + 结果字段
         assert out.read_bytes() == b"RIFFwavbytes"
         assert result.model == "tts-1"
-        assert result.characters == len("你好世界")
+        assert result.text == "你好世界"
         assert result.output_path == out
 
     def test_metadata(self):

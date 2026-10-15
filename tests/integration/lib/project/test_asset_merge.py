@@ -338,6 +338,77 @@ class TestMergeAsDerivative:
         assert "小店" in stranger.load_project(PROJECT)["scenes"]
 
 
+_ALICE_COAT = {"description": "旧大衣", "character_sheet": "characters/derivatives/Alice/coat.png"}
+
+
+class TestMergeFoldsCaseOnlyDerivatives:
+    """衍生名只差大小写即视为同一衍生：并入保留方已有的那条，引用改写到它的名字。"""
+
+    @pytest.fixture
+    def cast(self, pm: ProjectManager) -> ProjectManager:
+        pm.upsert_assets(PROJECT, "characters", {"Alice": {"description": "红发"}, "Bob": {"description": "黑衣"}})
+
+        def _derivatives(project: dict[str, Any]) -> None:
+            project["characters"]["Alice"]["derivatives"] = {"coat": dict(_ALICE_COAT)}
+            project["characters"]["Bob"]["derivatives"] = {
+                "Coat": {"description": "新大衣", "character_sheet": ""},
+                "Hat": {"description": "礼帽", "character_sheet": ""},
+            }
+
+        pm.update_project(PROJECT, _derivatives)
+        return pm
+
+    @staticmethod
+    def _save(pm: ProjectManager, cast: list[str], scene: str) -> None:
+        script = _narration_script()
+        segment = script["segments"][0]
+        segment["characters_in_segment"] = cast
+        segment["image_prompt"]["scene"] = scene
+        segment["video_prompt"]["dialogue"] = []
+        pm.save_script(PROJECT, script, "episode_1.json")
+
+    def test_a_case_only_derivative_folds_into_the_kept_one(self, cast: ProjectManager) -> None:
+        self._save(cast, ["Bob/Coat", "Bob/Hat"], "@[Bob/Coat] 与 @[Bob/Hat] 同框")
+
+        report = cast.merge_asset(PROJECT, "characters", "Bob", "Alice")
+
+        assert (report.derivatives_moved, report.derivatives_folded) == (("Hat",), ("Coat",))
+        derivatives = cast.load_project(PROJECT)["characters"]["Alice"]["derivatives"]
+        assert list(derivatives) == ["coat", "Hat"]
+        assert derivatives["coat"] == _ALICE_COAT
+        segment = _script(cast, 1)["segments"][0]
+        assert segment["characters_in_segment"] == ["Alice/coat", "Alice/Hat"]
+        assert segment["image_prompt"]["scene"] == "@[Alice/coat] 与 @[Alice/Hat] 同框"
+
+    def test_merging_as_a_derivative_folds_into_a_case_only_derivative(self, cast: ProjectManager) -> None:
+        cast.upsert_assets(PROJECT, "characters", {"Coat": {"description": "披大衣的人"}})
+        self._save(cast, ["Coat"], "@[Coat] 走来")
+
+        report = cast.merge_asset(PROJECT, "characters", "Coat", "Alice", as_derivative=True)
+
+        assert report.derivative_created is None
+        assert cast.load_project(PROJECT)["characters"]["Alice"]["derivatives"] == {"coat": _ALICE_COAT}
+        segment = _script(cast, 1)["segments"][0]
+        assert segment["characters_in_segment"] == ["Alice/coat"]
+        assert segment["image_prompt"]["scene"] == "@[Alice/coat] 走来"
+
+    def test_the_merged_asset_derivatives_fold_into_the_derivative_it_becomes(self, cast: ProjectManager) -> None:
+        def _own_variant(project: dict[str, Any]) -> None:
+            project["characters"]["Alice"]["derivatives"] = {}
+            project["characters"]["Bob"]["derivatives"] = {"bob": {"description": "便服", "character_sheet": ""}}
+
+        cast.update_project(PROJECT, _own_variant)
+        self._save(cast, ["Bob", "Bob/bob"], "@[Bob] 换上 @[Bob/bob]")
+
+        report = cast.merge_asset(PROJECT, "characters", "Bob", "Alice", as_derivative=True)
+
+        assert (report.derivative_created, report.derivatives_folded) == ("Bob", ("bob",))
+        assert list(cast.load_project(PROJECT)["characters"]["Alice"]["derivatives"]) == ["Bob"]
+        segment = _script(cast, 1)["segments"][0]
+        assert segment["characters_in_segment"] == ["Alice/Bob"]
+        assert segment["image_prompt"]["scene"] == "@[Alice/Bob] 换上 @[Alice/Bob]"
+
+
 def _write_artifact(project_dir: Path, relative_path: str) -> Path:
     path = project_dir / relative_path
     path.parent.mkdir(parents=True, exist_ok=True)

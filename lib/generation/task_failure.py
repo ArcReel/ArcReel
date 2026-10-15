@@ -44,7 +44,6 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
         "video_last_frame_requires_pro",
         "video_last_frame_unsupported",
         "video_prompt_too_long",
-        "video_reference_images_duration_unsupported",
         "video_reference_images_exceeded",
         "video_reference_images_required",
         "video_reference_images_unreadable",
@@ -58,7 +57,6 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
         "video_reference_audio_unreadable",
         "video_reference_audio_unsupported",
         "video_aspect_ratio_not_supported",
-        "video_resolution_duration_unsupported",
         "video_resolution_not_supported",
         "video_start_image_unreadable",
     }
@@ -119,6 +117,8 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     **{code: code for code in GENERATION_INPUT_FAILURE_CODES},
     **{code: code for code in VIDEO_REQUEST_FACTS_FAILURE_CODES},
     "provider_unsupported_media": "task_fail_provider_unsupported_media",
+    # 内置供应商的模型引用不在模型清单中（已下架或改名）：引用原样保留，由用户重新选择。
+    "model_not_in_provider_catalog": "model_not_in_provider_catalog",
     # 上游确定性 4xx 拒绝。params 里的 provider_reason 是脱敏截断后的上游原文，刻意不进
     # 译文模板：它不该被翻译，读侧按独立字段原样展示。
     "provider_rejected": "task_fail_provider_rejected",

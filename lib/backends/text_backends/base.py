@@ -5,7 +5,8 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal, Protocol
@@ -14,6 +15,7 @@ from pydantic import BaseModel, ValidationError
 from pydantic.json_schema import GenerateJsonSchema, JsonSchemaMode, JsonSchemaValue
 
 from lib.infra.retry import NonRetryableError
+from lib.infra.text_utils import strip_json_code_fences
 
 _logger = logging.getLogger(__name__)
 
@@ -273,6 +275,13 @@ class TextGenerationResult:
 
     ``truncated`` 标明自由文本输出被模型输出上限截断（结构化输出截断直接抛
     :class:`TextOutputTruncatedError`，不会带着这个标记返回）。
+
+    用量按用量契约上报（docs/adr/0100）：``input_tokens`` 是总输入，含缓存读与缓存写；``cache_read_tokens``、
+    ``cache_write_5m_tokens``、``cache_write_1h_tokens`` 是其中缓存读与两档缓存写的部分，未缓存输入由总输入减去
+    这三项得出。各家 usage 的语义差异（缓存是否计入输入）由各 backend 在填这些字段前处理。
+
+    结果含降级链上的多次请求时，上面各计量是各次之和，``billed_requests`` 按请求列出各次的计量，供计费逐次落
+    上下文档；只含一次请求时为空，用 :meth:`request_tokens` 统一读取。
     """
 
     text: str
@@ -281,6 +290,34 @@ class TextGenerationResult:
     input_tokens: int | None = None
     output_tokens: int | None = None
     truncated: bool = False
+    cache_read_tokens: int | None = None
+    cache_write_5m_tokens: int | None = None
+    cache_write_1h_tokens: int | None = None
+    billed_requests: list[RequestTokens] = field(default_factory=list)
+
+    def request_tokens(self) -> list[RequestTokens]:
+        """各次已计费请求的计量；没有任何计量（未追踪）时为空。"""
+        if self.billed_requests:
+            return list(self.billed_requests)
+        own = RequestTokens(
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            cache_read_tokens=self.cache_read_tokens,
+            cache_write_5m_tokens=self.cache_write_5m_tokens,
+            cache_write_1h_tokens=self.cache_write_1h_tokens,
+        )
+        return [] if own == RequestTokens() else [own]
+
+
+@dataclass(frozen=True)
+class RequestTokens:
+    """一次供应商请求的 token 计量，字段语义同 :class:`TextGenerationResult` 的同名字段。"""
+
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_5m_tokens: int | None = None
+    cache_write_1h_tokens: int | None = None
 
 
 def merge_billed_tokens(kept: int | None, discarded: int | None) -> int | None:
@@ -293,6 +330,39 @@ def merge_billed_tokens(kept: int | None, discarded: int | None) -> int | None:
     if kept is None and discarded is None:
         return None
     return (kept or 0) + (discarded or 0)
+
+
+def chat_completion_result(
+    *, text: str, provider: str, model: str, usage: object | None, truncated: bool = False
+) -> TextGenerationResult:
+    """按 Chat Completions 的 usage 形态填结果的计量。
+
+    ``prompt_tokens`` 是总输入，其中缓存命中的部分在 ``prompt_tokens_details.cached_tokens``；``completion_tokens``
+    含推理 token。usage 缺失时各计量为 ``None``。
+    """
+    details = getattr(usage, "prompt_tokens_details", None)
+    return TextGenerationResult(
+        text=text,
+        provider=provider,
+        model=model,
+        input_tokens=getattr(usage, "prompt_tokens", None),
+        output_tokens=getattr(usage, "completion_tokens", None),
+        truncated=truncated,
+        cache_read_tokens=getattr(details, "cached_tokens", None),
+    )
+
+
+def merge_billed_usage(kept: TextGenerationResult, discarded: TextGenerationResult) -> None:
+    """把降级路径上被丢弃的那次调用的全部 token 计量并入保留结果（原地修改 ``kept``）。
+
+    各计量相加，各次请求的计量另记进 ``billed_requests``：上下文档按单次请求的输入总量落档，不能按合计落档。
+    """
+    kept.billed_requests = [*kept.request_tokens(), *discarded.request_tokens()]
+    kept.input_tokens = merge_billed_tokens(kept.input_tokens, discarded.input_tokens)
+    kept.output_tokens = merge_billed_tokens(kept.output_tokens, discarded.output_tokens)
+    kept.cache_read_tokens = merge_billed_tokens(kept.cache_read_tokens, discarded.cache_read_tokens)
+    kept.cache_write_5m_tokens = merge_billed_tokens(kept.cache_write_5m_tokens, discarded.cache_write_5m_tokens)
+    kept.cache_write_1h_tokens = merge_billed_tokens(kept.cache_write_1h_tokens, discarded.cache_write_1h_tokens)
 
 
 class _ModelFacingJsonSchema(GenerateJsonSchema):
@@ -447,6 +517,78 @@ def structured_fallback_reason(text: str, response_schema: dict | type | None, *
     if not is_valid_json(text):
         return "返回非 JSON 内容（供应商可能未支持结构化输出）"
     return None
+
+
+# prompt 注入降级的最大调用次数：首次注入 schema + 一次带校验错误反馈的重试。
+# 每次都是计费调用；schema 注入后仍两连败的模型/代理网关，再多重试收益趋零。
+PROMPT_JSON_FALLBACK_MAX_ATTEMPTS = 2
+
+
+async def prompt_json_fallback(
+    request: TextGenerationRequest,
+    generate_once: Callable[[TextGenerationRequest], Awaitable[TextGenerationResult]],
+    *,
+    provider: str,
+    model: str,
+) -> TextGenerationResult:
+    """Prompt 注入降级：schema 写进 prompt 重发纯文本调用，剥栅栏后校验，失败带反馈重试。
+
+    触发场景是供应商拒收或静默忽略 wire 级结构化参数，此时把 schema 约束写进 prompt 是唯一
+    不依赖 wire 参数的手段。``generate_once`` 是后端的单次原生调用（含日志、截断处理与瞬态
+    错误重试），收到的请求 ``response_schema`` 已置空；它仍是一次结构化输出尝试，截断须按
+    结构化口径处理。校验通过后返回规范化 JSON（model_dump_json），下游解析必定成功。
+    """
+    assert request.response_schema is not None  # 调用方（generate 复验分支）保证
+    schema_dict = resolve_schema(request.response_schema)
+    schema_model = request.response_schema if isinstance(request.response_schema, type) else None
+
+    base_prompt = (
+        f"{request.prompt}\n\n"
+        "仅输出一个符合以下 JSON Schema 的 JSON 对象，"
+        "不要输出任何解释、前后缀或 markdown 代码栅栏：\n"
+        f"{json.dumps(schema_dict, ensure_ascii=False)}"
+    )
+    feedback = ""
+    billed = TextGenerationResult(text="", provider=provider, model=model)
+    last_reason = ""
+    for _attempt in range(PROMPT_JSON_FALLBACK_MAX_ATTEMPTS):
+        fb_request = replace(request, prompt=base_prompt + feedback, response_schema=None)
+        fb_result = await generate_once(fb_request)
+        merge_billed_usage(billed, fb_result)
+
+        text = strip_json_code_fences(fb_result.text)
+        normalized, last_reason = _validate_fallback_text(text, schema_model)
+        if normalized is not None:
+            billed.text = normalized
+            return billed
+        feedback = f"\n\n上次输出不符合要求（{last_reason}），请严格按上述 JSON Schema 重新输出纯 JSON。"
+        _logger.warning(
+            "prompt 注入降级输出校验未通过（%s），带反馈重试；模型原始输出：%s",
+            last_reason,
+            truncate_for_log(text),
+        )
+
+    raise StructuredOutputExhaustedError(
+        provider=provider,
+        model=model,
+        reason=f"prompt 注入降级 {PROMPT_JSON_FALLBACK_MAX_ATTEMPTS} 次尝试后输出仍不合规（{last_reason}）",
+    )
+
+
+def _validate_fallback_text(text: str, schema_model: type | None) -> tuple[str | None, str]:
+    """校验降级输出并规范化。返回 (规范化 JSON 文本, "") 或 (None, 失败原因)。
+
+    Pydantic 模型走完整 schema 校验并以 model_dump_json 规范化；dict schema 无对应模型，
+    沿用「合法 JSON 即放行」口径（与 structured_fallback_reason 对 dict schema 的行为对齐）。
+    """
+    if schema_model is not None and issubclass(schema_model, BaseModel):
+        try:
+            return schema_model.model_validate_json(text).model_dump_json(), ""
+        except ValidationError as exc:
+            return None, summarize_validation_error(exc)
+    if is_valid_json(text):
+        return text, ""
+    return None, "输出不是合法 JSON"
 
 
 class TextBackend(Protocol):

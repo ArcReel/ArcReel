@@ -24,6 +24,7 @@ from fastapi.responses import PlainTextResponse
 
 from lib.bgm.library import BGM_DIR, BGM_EXTENSIONS, BGM_MAX_BYTES, BgmTrack
 from lib.bgm.service import BgmError, BgmLibraryService
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import VisionCapabilityError
 from lib.episode.episode_ledger import is_derived_episode_name
 from lib.episode.episode_paths import (
@@ -1452,6 +1453,8 @@ async def upload_style_image(project_name: str, _t: Translator, file: UploadFile
         raise BadRequestError(
             "vision_model_required", provider=e.provider_id, model=e.model_id, task=e.task_type.value
         ) from e
+    except ModelNotInCatalogError:
+        raise
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc

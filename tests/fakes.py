@@ -106,10 +106,10 @@ class FakeProjectAssetMutationMixin:
         new_name: str,
     ) -> dict[str, Any]:
         """衍生改名的项目侧结果；剧本引用的级联改写由 ProjectManager 的用例覆盖。"""
+        from lib.project.asset_derivatives import find_derivative_name
         from lib.project.asset_rename import AssetRenameConflictError, AssetRenameNotFoundError
         from lib.project.asset_types import (
             DERIVATIVES_FIELD,
-            normalize_asset_name,
             rekey_equivalent_entries,
             resolve_asset_key,
             validate_asset_name,
@@ -124,8 +124,8 @@ class FakeProjectAssetMutationMixin:
             key = resolve_asset_key(table, old_name)
             if key is None:
                 raise AssetRenameNotFoundError(old_name)
-            taken = resolve_asset_key(table, clean)
-            if taken is not None and normalize_asset_name(taken) != normalize_asset_name(key):
+            taken = find_derivative_name(table, clean, exclude=key)
+            if taken is not None:
                 raise AssetRenameConflictError(taken)
             rekey_equivalent_entries(table, key, clean)
 

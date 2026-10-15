@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 
 import pytest
 
@@ -17,14 +16,16 @@ from lib.billing.pricing.types import (
     PerTokenVideo,
     ViduDelegate,
 )
+from lib.catalog.query import factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
+from tests.catalog_support import install_catalog, with_entry_changes
 
 
 class TestRegistryHit:
     def test_gemini_image_flash(self):
-        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-flash-image-preview", "image")
+        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-flash-image", "image")
         assert isinstance(pricing, PerImageByResolution)
-        assert pricing.rates["gemini-3.1-flash-image-preview"]["1K"] == 0.067
+        assert pricing.rates["gemini-3.1-flash-image"]["1K"] == 0.067
 
     def test_vertex_video_001(self):
         pricing = lookup_pricing("gemini-vertex", "veo-3.1-fast-generate-001", "video")
@@ -163,26 +164,12 @@ class TestUnknownProviderFallsBackToGemini:
     def test_image(self):
         pricing = lookup_pricing("unknown", None, "image")
         assert isinstance(pricing, PerImageByResolution)
-        assert "gemini-3.1-flash-image-preview" in pricing.rates
+        assert "gemini-3.1-flash-image" in pricing.rates
 
     def test_video(self):
         pricing = lookup_pricing("unknown", None, "video")
         assert isinstance(pricing, PerSecondMatrix)
         assert "veo-3.1-lite-generate-preview" in pricing.rates
-
-
-class TestAnthropicException:
-    def test_anthropic_returns_per_token(self):
-        pricing = lookup_pricing("anthropic", "claude-sonnet-4", "text")
-        assert isinstance(pricing, PerToken)
-        assert pricing.currency == "USD"
-        assert pricing.rates["claude-sonnet-4"] == {"input": 3.00, "output": 15.00}
-
-    def test_anthropic_unknown_model_still_anthropic_table(self):
-        # Anthropic 走 provider 级例外，未知 model 不回落 Gemini，仍用 Anthropic 默认。
-        pricing = lookup_pricing("anthropic", "unknown-claude", "text")
-        assert isinstance(pricing, PerToken)
-        assert pricing.default_model == "claude-sonnet-4"
 
 
 class TestViduDelegate:
@@ -268,17 +255,15 @@ class TestCrossModalModelMismatch:
 
     def test_gemini_image_model_on_video_call_falls_back_to_video_default(self):
         # 非 OWN_TABLE 的 gemini 家族同理 → 回落 Gemini 视频通用默认（lite）。
-        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-flash-image-preview", "video")
+        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-flash-image", "video")
         assert isinstance(pricing, PerSecondMatrix)
         assert "veo-3.1-lite-generate-preview" in pricing.rates
 
 
 class TestHiddenModelStillResolves:
     def test_hidden_does_not_block_lookup(self, monkeypatch):
-        # 冻结费用边角：模型被下线（hidden=True）后，入队遗留任务仍需算价。
-        meta = PROVIDER_REGISTRY["gemini-aistudio"]
-        base = meta.models["gemini-3-flash-preview"]
-        hidden_model = replace(base, hidden=True)
-        monkeypatch.setitem(meta.models, "gemini-3-flash-retired", hidden_model)
-        pricing = lookup_pricing("gemini-aistudio", "gemini-3-flash-retired", "text")
-        assert pricing is hidden_model.pricing
+        # 冻结费用边角：模型的条目下架（hidden=True）后，入队遗留任务仍需算价。
+        data = with_entry_changes(factory_snapshot(), "gemini-aistudio", "gemini-3.1-pro-preview", discontinued=True)
+        install_catalog(monkeypatch, data)
+        pricing = lookup_pricing("gemini-aistudio", "gemini-3.1-pro-preview", "text")
+        assert pricing is PROVIDER_REGISTRY["gemini-aistudio"].models["gemini-3.1-pro-preview"].pricing

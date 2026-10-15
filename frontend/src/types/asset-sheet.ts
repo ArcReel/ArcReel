@@ -30,7 +30,10 @@ export type AssetSheetSkipReason = "generating" | "missing_description" | "owner
 export interface AssetSheetBatchPreview {
   targets: (AssetSheetRef & { depends_on: string | null })[];
   skipped: (AssetSheetRef & { reason: AssetSheetSkipReason })[];
+  /** 只合计已定价的部分；一项都没有定价时为 `null`。 */
   estimated_cost: CostBreakdown | null;
+  /** 价目表算不出价、未计入 `estimated_cost` 的项数。 */
+  unpriced_count: number;
 }
 
 export interface AssetSheetBatchMember extends AssetSheetRef {

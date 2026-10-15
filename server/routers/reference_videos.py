@@ -780,7 +780,7 @@ async def upload_unit_video(
                 raise HTTPException(status_code=400, detail=_t("invalid_resource_id", resource_id=unit_id)) from exc
             return project_path, VersionManager(project_path), script_file
 
-        project_path, versions, script_file = await asyncio.to_thread(_validate_unit)
+        project_path, versions, script_file = await run_sync_transaction(_validate_unit)
         target = project_path / relative_path
 
         with project_change_source("webui"):
@@ -794,7 +794,7 @@ async def upload_unit_video(
                 return script_file2
 
             try:
-                script_file = await asyncio.to_thread(_recheck_binding)
+                script_file = await run_sync_transaction(_recheck_binding)
 
                 def _commit_metadata(thumb_rel: str | None, on_commit: Callable[[Path], None]) -> None:
                     pm = get_project_manager()
@@ -823,7 +823,7 @@ async def upload_unit_video(
                 await asyncio.to_thread(staged_video.unlink, missing_ok=True)
             # emit 内部会读剧本解析 episode 并计算指纹，放线程池避免阻塞事件循环；
             # 返回的指纹直接复用进响应体，免二次计算
-            fingerprints = await asyncio.to_thread(
+            fingerprints = await run_sync_transaction(
                 emit_generation_success_batch,
                 task_type="reference_video",
                 project_name=project_name,

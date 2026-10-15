@@ -14,15 +14,20 @@ from typing import Any, Literal
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from lib.billing.cost_calculator import cost_calculator
-from lib.billing.pricing.strategies import PricingParams
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
+from lib.backends.backend_assembly.specs import builtin_video_metered_usage
+from lib.backends.image_backends.base import ImageRequestFacts
+from lib.backends.image_usage import estimate_builtin_image_usage
+from lib.billing.catalog_pricing import is_builtin_provider, price_builtin_call
+from lib.billing.metering import Priced, Usage
+from lib.billing.multipliers import get_provider_multiplier
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
     video_bucket_for_generation_mode,
 )
-from lib.custom_provider import is_custom_provider
-from lib.db.repositories.custom_provider_repo import CustomProviderPrice, CustomProviderRepository
+from lib.custom_provider.metering import CustomPriceSource, load_custom_price_source
+from lib.db.repositories.custom_provider_repo import CustomModelPricing
 from lib.db.repositories.usage_repo import PROJECT_LEVEL_SEGMENT_KEY, UsageRepository
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
@@ -68,12 +73,6 @@ ACTUAL_COST_TYPES = ("image", "video", "audio")
 #: 生成模式与分镜分支判断该解析哪个桶的复杂度——桶只有两个，代价有界。
 _VIDEO_BUCKETS: tuple[VideoGenerationType, ...] = ("i2v", "r2v")
 
-#: 普通分镜图取不到分辨率档时的计价档。执行侧此路径把 ``None`` 原样下发给 backend、由其自行定档
-#: （不像宫格有 ``GRID_FALLBACK_RESOLUTION`` 这一确定的保底档），估价无从同源，只能取最低档保守
-#: 计价——宁可低估未配置供应商的项目，也不拿高档单价虚报。取值与分档策略自身的缺省档一致（见
-#: ``lib.billing.pricing.strategies``），显式写出是为了让估价侧的保底口径可读、不随策略层缺省漂移。
-_IMAGE_PRICING_FALLBACK_RESOLUTION = "1K"
-
 #: 剧本条目 ``generated_assets`` 里代表已生成媒体的字段，用于识别「有产物却没有本机调用记录」。
 _GENERATED_MEDIA_FIELDS = ("storyboard_image", "video_clip", "narration_audio")
 _SCRIPT_ITEM_KEYS = ("segments", "scenes", "shots", "video_units")
@@ -91,18 +90,36 @@ class _VideoPricing:
     model: str | None
     resolution: str | None
     generate_audio: bool
-    price: Any
+    price: VideoPriceSource
+
+
+@dataclass(frozen=True, slots=True)
+class BatchCostEstimate:
+    """一整批生成的预估费用：只合计已定价的部分，另数出算不出价的项数。
+
+    ``total`` 按币种分开；``unpriced_count`` 不为 0 时，``total`` 低于这批的真实费用，界面据此提示，
+    不把偏低的合计当作整批的价。
+    """
+
+    total: CostBreakdown
+    unpriced_count: int
+
+    def to_payload(self) -> dict[str, object]:
+        """批量预览端点里的两个字段；没有任何已定价的项时 ``estimated_cost`` 为 ``None``。"""
+
+        return {"estimated_cost": self.total or None, "unpriced_count": self.unpriced_count}
 
 
 @dataclass(frozen=True, slots=True)
 class VideoRequestQuote:
-    """Exact current price for one projected provider video request."""
+    """一次视频请求按当前价格的报价；``amount`` 为 ``None`` 表示未定价，原因见 ``unpriced_reason``。"""
 
-    amount: float
-    currency: str
+    amount: float | None
+    currency: str | None
     provider_id: str
     model_id: str
     request_duration_seconds: int
+    unpriced_reason: str | None = None
 
     def to_payload(self) -> dict[str, object]:
         return {
@@ -111,35 +128,62 @@ class VideoRequestQuote:
             "provider_id": self.provider_id,
             "model_id": self.model_id,
             "request_duration_seconds": self.request_duration_seconds,
+            "unpriced_reason": self.unpriced_reason,
         }
 
 
-def quote_video_request_from_price(
-    facts: VideoRequestCostFacts,
-    price: Any,
-) -> VideoRequestQuote:
-    """Price one request using the same calculator and custom-price coordinates as cost estimation."""
+@dataclass(frozen=True, slots=True)
+class VideoPriceSource:
+    """视频报价要读库的两项：供应商倍率，以及自定义供应商模型的报价来源（内置供应商为 ``None``）。"""
 
-    amount, currency = cost_calculator.calculate_cost(
-        facts.provider_id,
-        PricingParams(
-            call_type="video",
-            model=facts.model_id,
-            resolution=facts.resolution,
-            duration_seconds=facts.duration_seconds,
-            generate_audio=facts.generate_audio,
-        ),
-        custom_price_input=price.price_input,
-        custom_price_output=price.price_output,
-        custom_currency=price.currency,
-        estimate_only=True,
+    custom: CustomPriceSource | None
+    provider_multiplier: float
+
+
+async def load_video_price_source(session: AsyncSession, provider_id: str, model_id: str) -> VideoPriceSource:
+    """读一个视频模型报价所需的价格来源，与结算同一组读取。"""
+    return VideoPriceSource(
+        custom=await load_custom_price_source(session, provider_id, model_id),
+        provider_multiplier=await get_provider_multiplier(session, provider_id),
     )
+
+
+def quote_video_request_from_price(facts: VideoRequestCostFacts, source: VideoPriceSource) -> VideoRequestQuote:
+    """按与结算同一个目录查询与计算器给一次视频请求报价。
+
+    内置供应商由调用通道按用量契约给出这次请求的计量（需要换算的计量项用通道的估算函数），再交模型目录的
+    价目表计价；有计量项既不能从请求事实得出、也没有估算函数时记为未定价。自定义供应商的模型按所对应条目的
+    价目表计价，计量取调用端点的声明或通用口径，对应不上条目时记为未定价。
+    """
+    if is_builtin_provider(facts.provider_id):
+        cost = price_builtin_call(
+            provider=facts.provider_id,
+            model=facts.model_id,
+            media_type="video",
+            requests=(builtin_video_metered_usage(facts.provider_id, facts.model_id, facts.provider_request()),),
+            provider_multiplier=source.provider_multiplier,
+            estimate=True,
+        )
+    else:
+        custom = source.custom or CustomPriceSource(CustomModelPricing())
+        cost = custom.price(
+            model=facts.model_id,
+            media_type="video",
+            requests=(custom.video_usage(facts.model_id, facts.provider_request()),),
+            provider_multiplier=source.provider_multiplier,
+            estimate=True,
+        )
+    if isinstance(cost, Priced):
+        amount, currency, reason = round(cost.amount, 6), cost.currency, None
+    else:
+        amount, currency, reason = None, None, str(cost.reason)
     return VideoRequestQuote(
-        amount=round(amount, 6),
+        amount=amount,
         currency=currency,
         provider_id=facts.provider_id,
         model_id=facts.model_id,
         request_duration_seconds=facts.duration_seconds,
+        unpriced_reason=reason,
     )
 
 
@@ -147,12 +191,12 @@ async def quote_video_request(
     facts: VideoRequestCostFacts,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> VideoRequestQuote | None:
-    """Resolve current pricing and quote a projected video request."""
+    """读取当前价格来源，给一次视频请求报价；读库失败或调用通道认不出请求时返回 ``None``。"""
 
     try:
         async with session_factory() as session:
-            price = await CustomProviderRepository(session).resolve_price(facts.provider_id, facts.model_id)
-        return quote_video_request_from_price(facts, price)
+            source = await load_video_price_source(session, facts.provider_id, facts.model_id)
+        return quote_video_request_from_price(facts, source)
     except (SQLAlchemyError, ValueError):
         logger.warning(
             "无法为 current video request 计算精确费用 provider=%s model=%s duration=%s",
@@ -164,12 +208,61 @@ async def quote_video_request(
         return None
 
 
-def _price_missing(provider: str, price: CustomProviderPrice | None) -> bool:
-    """模型没有价格：自定义供应商的模型未设单价。内置供应商总能查到定价声明，不会缺价。
+def _storyboard_aspect_ratio(project: dict[str, Any]) -> str:
+    """分镜图的比例：``aspect_ratio`` 可能是 str 或按资源类型分的 dict，复用生成任务的解析口径。"""
+    raw_ar = project.get("aspect_ratio")
+    if isinstance(raw_ar, str):
+        return raw_ar
+    if isinstance(raw_ar, dict):
+        return raw_ar.get("storyboards", "9:16")
+    # narration/ad 默认竖屏，drama（含未知值的历史兜底）默认横屏
+    return "9:16" if project.get("content_mode", "narration") in {"narration", "ad"} else "16:9"
 
-    价格设为 0 是用户声明的真实 0，不算缺价。
+
+def _quote_image(
+    provider: str,
+    model: str,
+    price: CustomPriceSource | None,
+    *,
+    multiplier: float,
+    image_size: str | None,
+    aspect_ratio: str,
+    reference_count: int | None,
+) -> tuple[float, str] | None:
+    """一张图的预估费用；未定价时返回 ``None``。
+
+    内置供应商与结算同一个目录查询与计算器，用量由调用通道按请求事实推出；``image_size`` 是执行时会下发的
+    分辨率档，没有就不下发，不另设计价保底档。自定义供应商（``price`` 是它的报价来源）按所对应条目的价目表
+    计价，用量取调用端点的预估声明或通用口径。
     """
-    return is_custom_provider(provider) and (price is None or price.price_input is None)
+    facts = ImageRequestFacts(
+        model=model, aspect_ratio=aspect_ratio, image_size=image_size, reference_count=reference_count
+    )
+    if is_builtin_provider(provider):
+        try:
+            usage = estimate_builtin_image_usage(provider, facts)
+        except ValueError:
+            logger.debug("无法推出 image 预估用量 provider=%s model=%s", provider, model, exc_info=True)
+            return None
+        cost = price_builtin_call(
+            provider=provider,
+            model=model,
+            media_type="image",
+            requests=(usage,),
+            provider_multiplier=multiplier,
+            estimate=True,
+        )
+        return (cost.amount, cost.currency) if isinstance(cost, Priced) else None
+    if price is None:
+        return None
+    cost = price.price(
+        model=model,
+        media_type="image",
+        requests=(price.image_usage(facts),),
+        provider_multiplier=multiplier,
+        estimate=True,
+    )
+    return (cost.amount, cost.currency) if isinstance(cost, Priced) else None
 
 
 def _has_generated_media(project: dict[str, Any], scripts: dict[str, dict[str, Any]]) -> bool:
@@ -323,7 +416,7 @@ class CostEstimationService:
             # T2I 槽分辨率档：与路由入队、Agent 工具共用 ``grid_resolution`` 的取档，估算的宫格
             # 张数才不会与实际入队张数漂移；同一档位又是两路分镜图的计价档——宫格图未配置时回落
             # ``GRID_FALLBACK_RESOLUTION``（与 ``execute_grid_task`` 下发的保底档同源），普通
-            # 分镜图未配置时回落 ``_IMAGE_PRICING_FALLBACK_RESOLUTION``。解析在两路之前，宫格
+            # 分镜图未配置时与执行侧一样不下发分辨率，按价目表的默认档计。解析在两路之前，宫格
             # 与非宫格项目共用这一次 IO。计价与执行取的是同一个 T2I 槽、同一套项目配置，但身份
             # 键不同（此处 registry ``model_id``，执行侧构造后的 backend 型号），两者分叉的供应
             # 商上估价档位可能与实际渲染档位不一致。
@@ -381,18 +474,19 @@ class CostEstimationService:
                 else ("unknown", "unknown")
             )
 
-        # Get actual costs + 自定义供应商价格（缺则预估恒为零，需与实际记账同源预查 DB 单价）
+        # Get actual costs + 自定义供应商模型的报价来源（与实际记账同源预查 DB）
         async with self._session_factory() as session:
             actual_by_segment = await UsageRepository(session).get_actual_costs_by_segment(project_name)
-            custom_repo = CustomProviderRepository(session)
-            image_price = await custom_repo.resolve_price(image_provider, image_model)
-            audio_price = await custom_repo.resolve_price(audio_provider, audio_model)
+            image_price = await load_custom_price_source(session, image_provider, image_model)
+            image_multiplier = await get_provider_multiplier(session, image_provider)
+            audio_price = await load_custom_price_source(session, audio_provider, audio_model)
+            audio_multiplier = await get_provider_multiplier(session, audio_provider)
             # 两个桶常解析到同一个模型，按身份去重后再查单价，不重复打 DB。
-            video_prices: dict[tuple[str, str], Any] = {}
+            video_prices: dict[tuple[str, str], VideoPriceSource] = {}
             for bucket_provider, bucket_model, _, _ in video_identity.values():
                 if (bucket_provider, bucket_model) not in video_prices:
-                    video_prices[(bucket_provider, bucket_model)] = await custom_repo.resolve_price(
-                        bucket_provider, bucket_model
+                    video_prices[(bucket_provider, bucket_model)] = await load_video_price_source(
+                        session, bucket_provider, bucket_model
                     )
 
         video_pricing: dict[VideoGenerationType, _VideoPricing] = {
@@ -416,57 +510,40 @@ class CostEstimationService:
         project_video = video_pricing[video_bucket_for_generation_mode(project_data.get("generation_mode"))]
 
         grid_enabled = grid_storyboard_enabled(project_data)
-        # 规范化 aspect_ratio：可能是 str 或 dict，复用生成任务的解析逻辑
-        raw_ar = project_data.get("aspect_ratio")
-        if isinstance(raw_ar, str):
-            aspect_ratio = raw_ar
-        elif isinstance(raw_ar, dict):
-            aspect_ratio = raw_ar.get("storyboards", "9:16")
-        else:
-            # narration/ad 默认竖屏，drama（含未知值的历史兜底）默认横屏
-            aspect_ratio = "9:16" if project_data.get("content_mode", "narration") in {"narration", "ad"} else "16:9"
+        aspect_ratio = _storyboard_aspect_ratio(project_data)
+        # 视频请求发出的画面比例，与生成任务同一个解析；方舟按它换算视频 token
+        video_aspect_ratio = resolve_video_aspect_ratio(project_data)
 
-        # 预计算图片单价
-        image_unit_cost: tuple[float, str] | None = None
-        grid_image_unit_cost: tuple[float, str] | None = None
-        try:
-            image_unit_cost = cost_calculator.calculate_cost(
-                image_provider,
-                PricingParams(
-                    call_type="image",
-                    model=image_model,
-                    resolution=image_resolution or _IMAGE_PRICING_FALLBACK_RESOLUTION,
-                ),
-                custom_price_input=image_price.price_input,
-                custom_price_output=image_price.price_output,
-                custom_currency=image_price.currency,
-            )
-        except ValueError:
-            logger.debug("无法计算 image 预估单价", exc_info=True)
+        # 预计算普通分镜图单价（按配置的分辨率档，估价以文生图为准，不带参考图）。宫格图按每张宫格的比例
+        # 在集内逐张估价，分辨率未配置时执行侧下发 ``GRID_FALLBACK_RESOLUTION``，估价同源。
+        image_unit_cost = _quote_image(
+            image_provider,
+            image_model,
+            image_price,
+            multiplier=image_multiplier,
+            image_size=image_resolution,
+            aspect_ratio=aspect_ratio,
+            reference_count=0,
+        )
+        grid_quotes: dict[str, tuple[float, str] | None] = {}
 
-        if grid_enabled:
-            try:
-                grid_image_unit_cost = cost_calculator.calculate_cost(
+        def _grid_quote(grid_aspect_ratio: str) -> tuple[float, str] | None:
+            if grid_aspect_ratio not in grid_quotes:
+                grid_quotes[grid_aspect_ratio] = _quote_image(
                     image_provider,
-                    PricingParams(
-                        call_type="image",
-                        model=image_model,
-                        resolution=image_resolution or GRID_FALLBACK_RESOLUTION,
-                    ),
-                    custom_price_input=image_price.price_input,
-                    custom_price_output=image_price.price_output,
-                    custom_currency=image_price.currency,
+                    image_model,
+                    image_price,
+                    multiplier=image_multiplier,
+                    image_size=image_resolution or GRID_FALLBACK_RESOLUTION,
+                    aspect_ratio=grid_aspect_ratio,
+                    reference_count=0,
                 )
-            except ValueError:
-                grid_image_unit_cost = image_unit_cost
+            return grid_quotes[grid_aspect_ratio]
 
         episodes_result = []
         proj_est: dict[str, CostBreakdown] = {}
         # 应当有预估、却因模型没有价格而没算进去的项；与实际侧一起让前端区分「0」与「未知」
         estimate_unpriced: UnpricedCounts = Counter()
-        image_unpriced = _price_missing(image_provider, image_price)
-        # 不用 TTS 时旁白不产生配音调用，audio 维度的估算本就为空，不算缺价
-        audio_unpriced = tts_settings is not None and _price_missing(audio_provider, audio_price)
         proj_act: dict[str, CostBreakdown] = {}
         claimed_actual: set[tuple[str, str]] = set()
 
@@ -535,20 +612,22 @@ class CostEstimationService:
             # ``group_scenes_by_segment_break`` 按顺序切出、连续且不重不漏，故位置即组内序号
             # 加上前序各组的长度。
             grid_cost_per_index: dict[int, tuple[float, str]] = {}
-            if grid_enabled and grid_image_unit_cost:
+            grid_unpriced_indices: set[int] = set()
+            if grid_enabled:
                 group_offset = 0
                 for group in group_scenes_by_segment_break(raw_segments, id_key):
                     n = len(group)
                     # 宫格张数与实际入队同源（plan_grid_chunks）：超上限分组按切块后的
                     # 张数计费，避免估算与执行漂移。
                     plans = plan_grid_chunks(group, aspect_ratio, allow_large_grid=grid_allow_large)
-                    if plans:
-                        per_scene_cost = round(grid_image_unit_cost[0] * len(plans) / n, 6)
-                        for offset_in_group in range(n):
-                            grid_cost_per_index[group_offset + offset_in_group] = (
-                                per_scene_cost,
-                                grid_image_unit_cost[1],
-                            )
+                    quotes = [_grid_quote(layout.grid_aspect_ratio) for _, layout in plans]
+                    indices = range(group_offset, group_offset + n)
+                    if quotes and all(quote is not None for quote in quotes):
+                        priced = [quote for quote in quotes if quote is not None]
+                        per_scene_cost = round(sum(amount for amount, _ in priced) / n, 6)
+                        grid_cost_per_index.update(dict.fromkeys(indices, (per_scene_cost, priced[0][1])))
+                    elif quotes:
+                        grid_unpriced_indices.update(indices)
                     group_offset += n
 
             # --- Grid actual cost apportionment ---
@@ -581,43 +660,63 @@ class CostEstimationService:
                 est_video: CostBreakdown = {}
                 est_audio: CostBreakdown = {}
 
-                if grid_enabled and idx in grid_cost_per_index:
+                if idx in grid_cost_per_index:
                     cost_amount, cost_currency = grid_cost_per_index[idx]
                     _add_cost(est_image, cost_amount, cost_currency)
-                elif image_unit_cost:
-                    _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
-                if image_unpriced:
+                elif idx in grid_unpriced_indices or image_unit_cost is None:
                     estimate_unpriced["image", image_provider, image_model] += 1
+                else:
+                    _add_cost(est_image, image_unit_cost[0], image_unit_cost[1])
 
                 # 剧本上的秒数可能被外部编辑成非整数：单条脏数据只让该分镜没有视频报价，不进计价。
                 if isinstance(storyboard_facts, VideoRequestFacts) and is_int(duration, minimum=1):
-                    if _price_missing(storyboard_facts.provider_id, episode_video.price):
-                        estimate_unpriced["video", storyboard_facts.provider_id, storyboard_facts.model_id] += 1
                     try:
                         video_quote = quote_video_request_from_price(
-                            VideoRequestCostFacts(storyboard_facts, duration), episode_video.price
+                            VideoRequestCostFacts(
+                                storyboard_facts,
+                                duration,
+                                aspect_ratio=video_aspect_ratio,
+                                has_first_frame=True,
+                            ),
+                            episode_video.price,
                         )
-                        _add_cost(est_video, video_quote.amount, video_quote.currency)
+                        if video_quote.amount is None or video_quote.currency is None:
+                            estimate_unpriced["video", storyboard_facts.provider_id, storyboard_facts.model_id] += 1
+                        else:
+                            _add_cost(est_video, video_quote.amount, video_quote.currency)
                     except ValueError:
                         logger.debug("无法计算 video 预估 for %s", seg_id, exc_info=True)
 
-                # 旁白配音按 novel_text 字符数估价（仅旁白/解说 segment 携带原文）
+                # 旁白配音按 novel_text 估价（仅旁白/解说 segment 携带原文）
                 novel_text = seg.get("novel_text")
-                narration_chars = len(novel_text.strip()) if isinstance(novel_text, str) else 0
-                if narration_chars:
-                    if audio_unpriced:
-                        estimate_unpriced["audio", audio_provider, audio_model] += 1
-                    try:
-                        audio_amount, audio_currency = cost_calculator.calculate_cost(
-                            audio_provider,
-                            PricingParams(call_type="audio", model=audio_model, usage_tokens=narration_chars),
-                            custom_price_input=audio_price.price_input,
-                            custom_price_output=audio_price.price_output,
-                            custom_currency=audio_price.currency,
+                narration_text = novel_text.strip() if isinstance(novel_text, str) else ""
+                narration_chars = len(narration_text)
+                if narration_chars and tts_settings is not None:
+                    # 与结算同一个目录查询与计算器：字符数按价目表的「汉字计 2」统计；按 token 计价的模型没有
+                    # 估算函数，记为未定价。自定义供应商的模型按所对应条目的价目表计价。
+                    audio_requests = (Usage(text=narration_text),)
+                    audio_cost = (
+                        audio_price.price(
+                            model=audio_model,
+                            media_type="audio",
+                            requests=audio_requests,
+                            provider_multiplier=audio_multiplier,
+                            estimate=True,
                         )
-                        _add_cost(est_audio, audio_amount, audio_currency)
-                    except ValueError:
-                        logger.debug("无法计算 audio 预估 for %s", seg_id, exc_info=True)
+                        if audio_price is not None
+                        else price_builtin_call(
+                            provider=audio_provider,
+                            model=audio_model,
+                            media_type="audio",
+                            requests=audio_requests,
+                            provider_multiplier=audio_multiplier,
+                            estimate=True,
+                        )
+                    )
+                    if isinstance(audio_cost, Priced):
+                        _add_cost(est_audio, audio_cost.amount, audio_cost.currency)
+                    else:
+                        estimate_unpriced["audio", audio_provider, audio_model] += 1
 
                 seg_actual = _claim_actual(actual_by_segment, claimed_actual, seg_id)
                 act_image: CostBreakdown = seg_actual.get("image", {})
@@ -711,13 +810,10 @@ class CostEstimationService:
         async with self._session_factory() as session:
             usage_repo = UsageRepository(session)
             project_image_by_type = await usage_repo.get_project_image_costs_by_asset_type(project_name)
-            # 零费用的成功调用里，模型至今没有价格的算未计价；之后设了价格（含 0）的不再提示——
-            # 历史调用不会按新价格补记，提示的用途是引导设置价格。
+            # 成功调用里费用为 NULL 的即未定价；定价为零（0）的调用是真实的 0，不在其中。
             actual_unpriced: UnpricedCounts = Counter()
-            price_repo = CustomProviderRepository(session)
-            for call_type, provider, model, calls in await usage_repo.get_zero_cost_calls_by_model(project_name):
-                if _price_missing(provider, await price_repo.resolve_price(provider, model)):
-                    actual_unpriced[call_type, provider, model] += calls
+            for call_type, provider, model, calls in await usage_repo.get_unpriced_calls_by_model(project_name):
+                actual_unpriced[call_type, provider, model] += calls
             provider_names = await usage_repo.provider_display_names(
                 {provider for _, provider, _ in (*estimate_unpriced, *actual_unpriced)}
             )
@@ -766,7 +862,7 @@ class CostEstimationService:
         script_file: str,
         units: list[Any],
         request_facts_lookup: ReferenceRequestFactsLookup,
-        video_prices: dict[tuple[str, str], Any],
+        video_prices: dict[tuple[str, str], VideoPriceSource],
         actual_by_segment: ActualBySegment,
         claimed_actual: set[tuple[str, str]],
         unpriced: UnpricedCounts,
@@ -866,8 +962,6 @@ class CostEstimationService:
                 if projection is not None and projection.cost is not None and not blockers:
                     cost = projection.cost
                     price = video_prices.get((cost.provider_id, cost.model_id))
-                    if _price_missing(cost.provider_id, price):
-                        unpriced["video", cost.provider_id, cost.model_id] += 1
                     if price is not None:
                         try:
                             priced_quote = quote_video_request_from_price(cost, price)
@@ -881,7 +975,10 @@ class CostEstimationService:
                                 exc_info=True,
                             )
                         else:
-                            _add_cost(est_video, priced_quote.amount, priced_quote.currency)
+                            if priced_quote.amount is None or priced_quote.currency is None:
+                                unpriced["video", cost.provider_id, cost.model_id] += 1
+                            else:
+                                _add_cost(est_video, priced_quote.amount, priced_quote.currency)
 
             unit_actual = _claim_actual(actual_by_segment, claimed_actual, unit_id)
             act_image: CostBreakdown = unit_actual.get("image", {})
@@ -926,48 +1023,61 @@ async def estimate_image_batch_cost(
     project: dict[str, Any],
     lanes: Sequence[ImageLane],
     *,
+    aspect_ratio: str,
     resolver: ConfigResolver,
     session_factory: async_sessionmaker[AsyncSession],
-) -> CostBreakdown | None:
-    """一批图片生成按当前项目配置的预估费用；供应商或单价解析不出时返回 ``None``（算不出）。
+) -> BatchCostEstimate:
+    """一批图片生成按当前项目配置的预估费用：合计已定价的部分，并数出未定价的张数。
 
     每张图按自己的生图通道计价：文生图与图生图是两个正交的能力槽，可能配置成不同的模型。
-    分辨率档与执行侧同样按通道解析出的模型取，取不到时按保底档计价。
+    分辨率档与执行侧同样按通道解析出的模型取，取不到时不下发，按价目表的默认档计。``aspect_ratio`` 是这批
+    图下发的比例（按尺寸计价的模型要用）。供应商解析不出、读库失败或算不出价的通道，它名下的每一张都
+    计入未定价。
     """
 
     counts = Counter(lanes)
-    if not counts:
-        return {}
-    identities: dict[ImageLane, tuple[str, str, str | None]] = {}
+    total: CostBreakdown = {}
+    unpriced = 0
+    for lane, count in counts.items():
+        quote = await _quote_image_lane(
+            project, lane, aspect_ratio=aspect_ratio, resolver=resolver, session_factory=session_factory
+        )
+        if quote is None:
+            unpriced += count
+        else:
+            _add_cost(total, quote[0] * count, quote[1])
+    return BatchCostEstimate(total=total, unpriced_count=unpriced)
+
+
+async def _quote_image_lane(
+    project: dict[str, Any],
+    lane: ImageLane,
+    *,
+    aspect_ratio: str,
+    resolver: ConfigResolver,
+    session_factory: async_sessionmaker[AsyncSession],
+) -> tuple[float, str] | None:
+    """一条生图通道上每张图的预估单价；通道解析不出、读库失败或未定价时返回 ``None``。"""
+
     try:
         async with resolver.session() as r:
-            for lane in counts:
-                resolved = await r.resolve_image_backend(project, None, generation_type=lane)
-                try:
-                    resolution = await r.resolve_resolution(project, resolved.provider_id, resolved.model_id or "")
-                except (ValueError, SQLAlchemyError):
-                    resolution = None
-                identities[lane] = (resolved.provider_id, resolved.model_id or "", resolution)
-        total: CostBreakdown = {}
+            resolved = await r.resolve_image_backend(project, None, generation_type=lane)
+            provider, model = resolved.provider_id, resolved.model_id or ""
+            try:
+                resolution = await r.resolve_resolution(project, provider, model)
+            except (ValueError, SQLAlchemyError):
+                resolution = None
         async with session_factory() as session:
-            repo = CustomProviderRepository(session)
-            for lane, count in counts.items():
-                provider, model, resolution = identities[lane]
-                price = await repo.resolve_price(provider, model)
-                amount, currency = cost_calculator.calculate_cost(
-                    provider,
-                    PricingParams(
-                        call_type="image",
-                        model=model,
-                        resolution=resolution or _IMAGE_PRICING_FALLBACK_RESOLUTION,
-                    ),
-                    custom_price_input=price.price_input,
-                    custom_price_output=price.price_output,
-                    custom_currency=price.currency,
-                    estimate_only=True,
-                )
-                _add_cost(total, amount * count, currency)
+            return _quote_image(
+                provider,
+                model,
+                await load_custom_price_source(session, provider, model),
+                multiplier=await get_provider_multiplier(session, provider),
+                image_size=resolution,
+                aspect_ratio=aspect_ratio,
+                # 图生图只知道走参考图，不知道几张：需要参考图张数的价目表记为未定价。
+                reference_count=0 if lane == "t2i" else None,
+            )
     except (ValueError, SQLAlchemyError):
-        logger.debug("无法估算这批图片的费用", exc_info=True)
+        logger.debug("无法估算这批图片的费用 lane=%s", lane, exc_info=True)
         return None
-    return total

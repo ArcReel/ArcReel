@@ -866,8 +866,8 @@ async def test_generate_videos_reference_request_is_independent_of_project_narra
     set_video_request_facts(
         make_video_request_facts(
             route="reference_video",
-            provider_id="openai",
-            model_id="sora-2",
+            provider_id="grok",
+            model_id="grok-imagine-video",
             resolution="720p",
             supported_durations=(4, 8, 12),
             allowed_durations=(4, 8, 12),
@@ -899,11 +899,12 @@ async def test_generate_videos_reference_request_is_independent_of_project_narra
     [unit] = admission["units"]
     assert unit["request_duration_seconds"] == 8
     assert unit["request_cost"] == {
-        "amount": pytest.approx(0.8),
+        "amount": pytest.approx(0.56),
         "currency": "USD",
-        "provider_id": "openai",
-        "model_id": "sora-2",
+        "provider_id": "grok",
+        "model_id": "grok-imagine-video",
         "request_duration_seconds": 8,
+        "unpriced_reason": None,
     }
     assert specs == [("E1U1", specs[0][1])]
     assert specs[0][1]["reference_request_options"] == {"confirmed_request_duration_seconds": 8}
@@ -1789,8 +1790,8 @@ async def test_generate_videos_preview_quotes_the_reference_tier_without_enqueui
     set_video_request_facts(
         make_video_request_facts(
             route="reference_video",
-            provider_id="openai",
-            model_id="sora-2",
+            provider_id="grok",
+            model_id="grok-imagine-video",
             resolution="720p",
             supported_durations=(4, 8, 12),
             allowed_durations=(4, 8, 12),
@@ -1809,7 +1810,7 @@ async def test_generate_videos_preview_quotes_the_reference_tier_without_enqueui
     assert (unit["script_duration_seconds"], unit["request_duration_seconds"], unit["tier_changed"]) == (5, 8, True)
     assert quote["submittable"] is True
     assert quote["confirmed_request_durations"] == {"E1U1": 8}
-    assert quote["estimated_total"] == {"USD": pytest.approx(0.8)}
+    assert quote["estimated_total"] == {"USD": pytest.approx(0.56)}
 
     unconfirmed = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
     [admission_unit] = unconfirmed.value["batch_admission"]["units"]
@@ -1845,7 +1846,7 @@ async def test_generate_videos_preview_reports_blockers_per_unit(
     )
     set_video_request_facts(
         make_video_request_facts(
-            route="reference_video", provider_id="openai", model_id="sora-2", allowed_durations=(4, 8, 12)
+            route="reference_video", provider_id="grok", model_id="grok-imagine-video", allowed_durations=(4, 8, 12)
         )
     )
     enqueued: list[Any] = []
@@ -1892,12 +1893,11 @@ async def test_generate_videos_preview_quotes_storyboard_units_at_their_planned_
     """分镜图生视频预检：不入队，按编排时长报价，档位不变；报价与 Web 批量确认的计价同一口径。"""
 
     from lib.db import async_session_factory
-    from lib.db.repositories.custom_provider_repo import CustomProviderRepository
     from lib.generation.video_request_facts import VideoRequestCostFacts
-    from server.services.admission.cost_estimation import quote_video_request_from_price
+    from server.services.admission.cost_estimation import load_video_price_source, quote_video_request_from_price
 
     facts = make_video_request_facts(
-        provider_id="openai", model_id="sora-2", resolution="720p", audio_switch_controllable=True
+        provider_id="grok", model_id="grok-imagine-video", resolution="720p", audio_switch_controllable=True
     )
     set_admission_video_request_facts(facts)
     enqueued: list[Any] = []
@@ -1912,7 +1912,34 @@ async def test_generate_videos_preview_quotes_storyboard_units_at_their_planned_
     assert unit["outcome"] == "generate"
     assert (unit["script_duration_seconds"], unit["request_duration_seconds"], unit["tier_changed"]) == (4, 4, False)
     async with async_session_factory() as session:
-        price = await CustomProviderRepository(session).resolve_price(facts.provider_id, facts.model_id)
-    expected = quote_video_request_from_price(VideoRequestCostFacts(facts, 4), price)
+        source = await load_video_price_source(session, facts.provider_id, facts.model_id)
+    expected = quote_video_request_from_price(
+        VideoRequestCostFacts(facts, 4, aspect_ratio="9:16", has_first_frame=True), source
+    )
+    assert expected.amount is not None
     assert unit["estimated_cost"] == expected.to_payload()
     assert quote["estimated_total"] == {expected.currency: pytest.approx(expected.amount)}
+
+
+async def test_generate_videos_preview_states_plainly_that_a_unit_is_unpriced(
+    fake_ctx: ToolHarness,
+    set_admission_video_request_facts,
+) -> None:
+    """分镜图生视频预检：价目表算不出价的单元如实返回未定价，不当作 0 元，也不给出偏低的合计。"""
+
+    set_admission_video_request_facts(
+        make_video_request_facts(provider_id="grok", model_id="grok-model-without-a-price", resolution="720p")
+    )
+
+    out = await run_generate_videos(fake_ctx, _selected("E1S01"), force=True, preview=True)
+
+    quote = _video_quote(out)
+    [unit] = quote["units"]
+    assert unit["outcome"] == "generate"
+    assert unit["unpriced"] is True
+    assert unit["estimated_cost"]["amount"] is None
+    assert unit["estimated_cost"]["unpriced_reason"] == "no_entry"
+    assert quote["unpriced_count"] == 1
+    assert quote["estimated_total"] is None
+    assert "未定价" in out.value["summary"]
+    assert "费用未知" in out.value["summary"]

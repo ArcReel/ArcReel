@@ -6,6 +6,7 @@ import pytest
 
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
+    declarative_requests,
     declarative_requires_base_url,
     endpoint_spec_to_dict,
     endpoint_to_media_type,
@@ -16,20 +17,58 @@ from lib.custom_provider.endpoints import (
 )
 
 
+class TestMeteringBackend:
+    """计价读 ``metering_backend`` 类上的计量声明：它必须就是 ``build_backend`` 包装的那个调用通道类。"""
+
+    @pytest.mark.parametrize(
+        "key",
+        sorted(
+            key
+            for key, spec in ENDPOINT_REGISTRY.items()
+            if spec.media_type in {"image", "video"} and spec.definition is None
+        ),
+    )
+    def test_python_media_endpoints_declare_the_delegate_class(self, key):
+        from types import SimpleNamespace
+
+        spec = ENDPOINT_REGISTRY[key]
+        provider = SimpleNamespace(
+            id=7,
+            provider_id="custom-7",
+            api_key="sk",
+            base_url="https://relay.example.com/v1",
+            discovery_format="openai",
+        )
+
+        backend = spec.build_backend(provider, "some-model")
+
+        assert spec.metering_backend is type(backend._delegate)
+
+    def test_declarative_endpoints_meter_by_their_definition(self):
+        declarative = [spec for spec in ENDPOINT_REGISTRY.values() if spec.definition is not None]
+        assert declarative
+        assert all(spec.metering_backend is None for spec in declarative)
+
+
 class TestRegistry:
     def test_endpoint_count(self):
         assert set(ENDPOINT_REGISTRY.keys()) == {
             "openai-chat",
+            "openai-responses",
             "gemini-generate",
+            "anthropic-messages",
             "openai-images",
             "openai-images-generations",
             "openai-images-edits",
+            "openai-chat-image",
             "gemini-image",
             "openai-video",
             "newapi-video",
             "v2-video-generations",
             "ark-seedance",
             "vidu-video",
+            "openrouter-video",
+            "xai-video",
             "dashscope-image",
             "dashscope-async-video",
             "minimax-image",
@@ -39,14 +78,31 @@ class TestRegistry:
             "minimax-h3",
             "kling-image",
             "kling-video",
+            "gemini-video",
             "openai-tts",
+            "dashscope-tts",
+            "minimax-tts",
+            "gemini-tts",
         }
 
     def test_each_spec_has_required_fields(self):
         for key, spec in ENDPOINT_REGISTRY.items():
             assert spec.key == key
             assert spec.media_type in {"text", "image", "video", "audio"}
-            assert spec.family in {"openai", "google", "newapi", "v2", "ark", "vidu", "dashscope", "minimax", "kling"}
+            assert spec.family in {
+                "openai",
+                "google",
+                "anthropic",
+                "newapi",
+                "v2",
+                "ark",
+                "vidu",
+                "dashscope",
+                "minimax",
+                "kling",
+                "openrouter",
+                "xai",
+            }
             # 注册表里的都是内置端点，来源恒为 builtin；用户端点不进注册表，由 ce- 键现构造。
             assert spec.source == "builtin"
             # 显示名两种来源恰有其一：Python 内置走 i18n key，声明式端点走定义里的 meta.name。
@@ -86,6 +142,15 @@ class TestRegistry:
             "duration_frame_rate_missing": False,
             "duration_tier_empty": False,
             "native_resolution": None,
+            "requests": (
+                {
+                    "name": "generate",
+                    "display_name_key": "cp_request_generate",
+                    "default_path": "/chat/completions",
+                    "placeholders": ("model",),
+                    "base_url_rule": "append_v1",
+                },
+            ),
         }
 
     def test_new_video_endpoints_have_unset_cap(self):
@@ -100,6 +165,7 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-video",
+            "gemini-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_max_reference_images is None
         # 既有显式 int 保留，行为零变化
@@ -123,6 +189,7 @@ class TestRegistry:
             "minimax-s2v-01",
             "minimax-h3",
             "kling-video",
+            "gemini-video",
         ):
             assert ENDPOINT_REGISTRY[key].video_caps_for_model is not None
         # 显式 int 的 video endpoint 不应再绑 caps 函数
@@ -229,12 +296,13 @@ class TestRegistry:
         image_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "image"}
         video_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "video"}
         audio_keys = {s.key for s in ENDPOINT_REGISTRY.values() if s.media_type == "audio"}
-        assert audio_keys == {"openai-tts"}
-        assert text_keys == {"openai-chat", "gemini-generate"}
+        assert audio_keys == {"openai-tts", "dashscope-tts", "minimax-tts", "gemini-tts"}
+        assert text_keys == {"openai-chat", "openai-responses", "gemini-generate", "anthropic-messages"}
         assert image_keys == {
             "openai-images",
             "openai-images-generations",
             "openai-images-edits",
+            "openai-chat-image",
             "gemini-image",
             "dashscope-image",
             "minimax-image",
@@ -246,12 +314,15 @@ class TestRegistry:
             "v2-video-generations",
             "ark-seedance",
             "vidu-video",
+            "openrouter-video",
+            "xai-video",
             "dashscope-async-video",
             "minimax-hailuo-v1",
             "minimax-hailuo-v1-fast",
             "minimax-s2v-01",
             "minimax-h3",
             "kling-video",
+            "gemini-video",
         }
 
 
@@ -262,7 +333,7 @@ class TestHelpers:
 
     def test_get_endpoint_spec_unknown_raises(self):
         with pytest.raises(ValueError, match="unknown endpoint"):
-            get_endpoint_spec("anthropic-messages")
+            get_endpoint_spec("acme-unknown")
 
     def test_endpoint_to_media_type(self):
         assert endpoint_to_media_type("newapi-video") == "video"
@@ -274,7 +345,7 @@ class TestHelpers:
 
     def test_list_endpoints_by_media_type(self):
         text = list_endpoints_by_media_type("text")
-        assert {s.key for s in text} == {"openai-chat", "gemini-generate"}
+        assert {s.key for s in text} == {"openai-chat", "openai-responses", "gemini-generate", "anthropic-messages"}
 
     @pytest.mark.parametrize(
         ("definition", "required"),
@@ -295,6 +366,54 @@ class TestHelpers:
         assert declarative_requires_base_url(definition) is required
 
 
+# infer_endpoint 按模型家族分组的规则表，行格式 (model_id, discovery_format, 期望 endpoint)。
+INFER_RULE_CASES = [
+    # ── imagen 无专属规则，随通用图像家族按 discovery_format 推断 ──
+    ("imagen-4", "openai", "openai-images"),
+    ("imagen-4", "google", "gemini-image"),
+    ("gemini-imagen-3", "openai", "gemini-image"),  # 靠 gemini + image 语义，与 imagen 规则无关
+    # ── qwen-tts / qwen3-tts 系列 → dashscope-tts，不分 discovery_format ──
+    ("qwen-tts", "openai", "dashscope-tts"),
+    ("qwen3-tts-flash", "openai", "dashscope-tts"),
+    ("Qwen3-TTS-Flash", "google", "dashscope-tts"),
+    ("proxy/qwen3-tts-instruct-flash", "openai", "dashscope-tts"),
+    ("tts-1", "openai", "openai-tts"),  # 其余 TTS 仍为 openai-tts
+    ("cosyvoice-v2", "openai", "openai-tts"),
+    # ── Veo 仅 google 发现协议推断为 gemini-video，其余仍为 openai-video ──
+    ("veo-3", "google", "gemini-video"),
+    ("veo-3.1-generate-preview", "google", "gemini-video"),
+    ("veo-3", "openai", "openai-video"),
+    ("sora-2", "google", "openai-video"),
+    # ── MiniMax 的 speech-<版本>-hd|turbo → minimax-tts，不分 discovery_format ──
+    ("speech-2.8-hd", "openai", "minimax-tts"),
+    ("speech-02-turbo", "google", "minimax-tts"),
+    ("minimax/Speech-2.6-HD", "openai", "minimax-tts"),
+    ("speech-1.5", "openai", "openai-tts"),  # 无档位后缀（Fish Audio 风格）仍为 openai-tts
+    # ── Gemini TTS → gemini-tts，不分 discovery_format ──
+    ("gemini-3.8-flash-tts", "google", "gemini-tts"),
+    ("gemini-2.5-flash-preview-tts", "openai", "gemini-tts"),
+    ("models/gemini-3.8-flash-lite-tts", "google", "gemini-tts"),
+    ("gemini-3-flash-preview", "google", "gemini-generate"),  # 非 TTS 的 gemini 文本不受影响
+]
+
+
+class TestDeclarativeRequests:
+    def test_versioned_definition_declares_submit_and_poll_with_their_default_paths(self):
+        requests = {r.name: r for r in get_endpoint_spec("xai-video").requests}
+
+        assert set(requests) == {"submit", "poll"}
+        assert requests["submit"].default_path == "/v1/videos/generations"
+        assert requests["poll"].default_path == "/v1/videos/{{ task_id }}"
+        assert requests["poll"].placeholders == ("model", "task_id")
+        assert requests["poll"].base_url_rule == "strip_version"
+
+    def test_request_with_an_absolute_url_is_not_overridable(self):
+        definition = dict(ENDPOINT_REGISTRY["openrouter-video"].definition or {})
+        definition["poll"] = {**definition["poll"], "url": "https://status.test/videos/{{ task_id }}"}
+
+        assert [r.name for r in declarative_requests(definition)] == ["submit"]
+
+
 class TestInferEndpoint:
     @pytest.mark.parametrize(
         ("model_id", "discovery_format", "expected"),
@@ -302,9 +421,6 @@ class TestInferEndpoint:
             # ── content-first 纠偏（中转站普遍 discovery_format="openai" 却夹带原生 id）──
             ("gemini-2.5-flash", "openai", "gemini-generate"),  # 不再被错推到 openai-chat
             ("gemini-2.5-flash", "google", "gemini-generate"),
-            ("imagen-4", "openai", "gemini-image"),  # imagen 一律 gemini-image
-            ("imagen-4", "google", "gemini-image"),
-            ("gemini-imagen-3", "openai", "gemini-image"),  # imagen 优先于 gemini 文本
             # gemini 原生图像模型也按内容纠偏到 gemini-image（不被错推到 openai-images）
             ("gemini-2.5-flash-image", "openai", "gemini-image"),
             ("gemini-2.5-flash-image", "google", "gemini-image"),
@@ -385,7 +501,6 @@ class TestInferEndpoint:
             ("sora-2", "openai", "openai-video"),
             ("SORA-2", "openai", "openai-video"),
             ("veo-3", "openai", "openai-video"),
-            ("veo-3", "google", "openai-video"),  # 非 seedance/viduq3/minimax 视频 → openai-video
             # ── MiniMax 原生 token 二级路由 ──
             ("MiniMax-Hailuo-2.3", "openai", "minimax-hailuo-v1"),
             ("MiniMax-Hailuo-2.3-Fast", "openai", "minimax-hailuo-v1-fast"),
@@ -476,6 +591,10 @@ class TestInferEndpoint:
     def test_infer(self, model_id, discovery_format, expected):
         assert infer_endpoint(model_id, discovery_format) == expected
 
+    @pytest.mark.parametrize(("model_id", "discovery_format", "expected"), INFER_RULE_CASES)
+    def test_infer_rule_table(self, model_id, discovery_format, expected):
+        assert infer_endpoint(model_id, discovery_format) == expected
+
     @pytest.mark.parametrize(
         ("model_id", "discovery_format"),
         [
@@ -490,6 +609,15 @@ class TestInferEndpoint:
         """v2-video-generations 命名碎片化无法可靠识别，永不自动推断，留用户手选。"""
         assert infer_endpoint(model_id, discovery_format) != "v2-video-generations"
 
+    @pytest.mark.parametrize(
+        "model_id",
+        ["gemini-2.5-flash-image", "google/gemini-3-pro-image-preview", "gpt-5-image", "gpt-4o"],
+    )
+    @pytest.mark.parametrize("discovery_format", ["openai", "google"])
+    def test_chat_image_never_auto_inferred(self, model_id, discovery_format):
+        """出图模型名与 openai-chat / openai-images 的模型名无从区分，不自动推断，由用户在获取或编辑模型时选择。"""
+        assert infer_endpoint(model_id, discovery_format) != "openai-chat-image"
+
 
 def test_image_endpoint_registry_entries():
     from lib.custom_provider.endpoints import ENDPOINT_KEYS_BY_MEDIA_TYPE
@@ -499,6 +627,7 @@ def test_image_endpoint_registry_entries():
         "openai-images",
         "openai-images-generations",
         "openai-images-edits",
+        "openai-chat-image",
         "gemini-image",
         "dashscope-image",
         "minimax-image",

@@ -88,11 +88,12 @@ function KpiStrip({ summary }: { summary: UsageSummary | null }) {
           kpi && primary ? formatCurrencyAmount(primary, kpi.cost[primary] ?? 0) : "—"
         }
         sub={
-          otherCosts.length > 0
-            ? otherCosts
-                .map(([currency, amount]) => `+ ${formatCurrencyAmount(currency, amount)}`)
-                .join("  ")
-            : "—"
+          [
+            ...otherCosts.map(([currency, amount]) => `+ ${formatCurrencyAmount(currency, amount)}`),
+            ...(kpi && kpi.unpriced_calls > 0
+              ? [t("usage_kpi_unpriced_count", { count: kpi.unpriced_calls })]
+              : []),
+          ].join("  ") || "—"
         }
       />
     </dl>

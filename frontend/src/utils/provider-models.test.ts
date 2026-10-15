@@ -177,14 +177,19 @@ describe("catalogDurations", () => {
     expect(catalogDurations(VEO_PROVIDERS, [], "")).toBeNull();
   });
 
-  it("reads custom backends off the custom provider catalog", () => {
+  it("reads custom backends off the model's duration override", () => {
     const custom = [
       {
         id: 3,
         display_name: "Relay",
-        models: [{ model_id: "relay-video", display_name: "Relay video", supported_durations: [10, 5] }],
+        models: [
+          { model_id: "relay-video", display_name: "Relay video", capability_overrides: { durations: [10, 5] } },
+          { model_id: "plain-video", display_name: "Plain video", capability_overrides: null },
+        ],
       },
     ] as unknown as Parameters<typeof catalogDurations>[1];
     expect(catalogDurations(VEO_PROVIDERS, custom, "custom-3/relay-video")).toEqual([5, 10]);
+    // 没有覆盖时时长由模型条目给出，前端查不到
+    expect(catalogDurations(VEO_PROVIDERS, custom, "custom-3/plain-video")).toBeNull();
   });
 });

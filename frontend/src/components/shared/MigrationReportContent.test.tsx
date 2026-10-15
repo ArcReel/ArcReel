@@ -74,4 +74,42 @@ describe("MigrationReportContent", () => {
       screen.getByText("剧本 scripts/episode_2.json 记录的集与使用它的雨夜不一致，已改为雨夜。"),
     ).toBeInTheDocument();
   });
+
+  it("says where references and derivatives of a removed case variant went", () => {
+    const variant = { name: "ALICE", kept: "Alice" };
+    render(
+      <MigrationReportContent
+        report={report([
+          {
+            code: "duplicate_asset_references_rewritten",
+            episode: 2,
+            file: null,
+            backup: null,
+            params: { asset_type: "character", ...variant },
+          },
+          {
+            code: "duplicate_asset_derivative_merged",
+            episode: null,
+            file: null,
+            backup: "project.json.kept.v17-1",
+            params: { ...variant, derivative: "Hat", into: "Hat" },
+          },
+          {
+            code: "duplicate_asset_derivative_merged",
+            episode: null,
+            file: null,
+            backup: "project.json.kept.v17-1",
+            params: { ...variant, derivative: "Coat", into: "coat", folded: "true" },
+          },
+        ])}
+        episodes={EPISODES}
+      />,
+    );
+
+    expect(screen.getByText("雨夜里引用角色「ALICE」的地方已改为「Alice」。")).toBeInTheDocument();
+    expect(screen.getByText("角色「ALICE」的衍生「Hat」已移到「Alice」名下。")).toBeInTheDocument();
+    expect(
+      screen.getByText("角色「ALICE」的衍生「Coat」与「Alice」已有的衍生「coat」重名，已并入「coat」。"),
+    ).toBeInTheDocument();
+  });
 });

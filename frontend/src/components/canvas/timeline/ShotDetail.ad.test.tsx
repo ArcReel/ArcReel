@@ -66,6 +66,23 @@ describe("ShotDetail 广告/短片", () => {
     );
   });
 
+  it("广告片段仍可编辑台词：添加后随保存提交", () => {
+    const onUpdatePrompt = vi.fn();
+    renderDetail({ onUpdatePrompt });
+
+    fireEvent.click(screen.getByRole("button", { name: "添加对话" }));
+    fireEvent.change(screen.getByPlaceholderText("角色"), { target: { value: "店员" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(onUpdatePrompt).toHaveBeenCalledWith(
+      "E1S01",
+      expect.objectContaining({
+        video_prompt: expect.objectContaining({ dialogue: [{ speaker: "店员", line: "" }] }),
+      }),
+    );
+    expect(screen.queryByRole("button", { name: "清除台词" })).not.toBeInTheDocument();
+  });
+
   it("展示分镜中的商品引用", () => {
     renderDetail();
     expect(screen.getByText("速干杯")).toBeInTheDocument();

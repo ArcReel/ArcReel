@@ -10,6 +10,7 @@ import httpx
 import pytest
 from instructor import Mode
 from openai import BadRequestError
+from openai.types.completion_usage import CompletionUsage, PromptTokensDetails
 from pydantic import BaseModel
 
 from lib.backends.providers import PROVIDER_OPENAI
@@ -26,11 +27,14 @@ from tests.fakes import (
 )
 
 
-def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5):
+def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5, cached_tokens=None):
     """构造 mock ChatCompletion 响应。"""
-    usage = MagicMock()
-    usage.prompt_tokens = input_tokens
-    usage.completion_tokens = output_tokens
+    usage = CompletionUsage(
+        prompt_tokens=input_tokens,
+        completion_tokens=output_tokens,
+        total_tokens=input_tokens + output_tokens,
+        prompt_tokens_details=PromptTokensDetails(cached_tokens=cached_tokens),
+    )
 
     message = MagicMock()
     message.content = content
@@ -117,12 +121,27 @@ class TestOpenAITextBackend:
         assert result.model == "gpt-5.4-mini"
         assert result.input_tokens == 15
         assert result.output_tokens == 8
+        assert result.cache_read_tokens is None
 
         call_kwargs = mock_client.chat.completions.create.call_args[1]
         assert call_kwargs["model"] == "gpt-5.4-mini"
         assert len(call_kwargs["messages"]) == 1
         assert call_kwargs["messages"][0]["role"] == "user"
         assert call_kwargs["messages"][0]["content"] == "Say hello"
+
+    async def test_cache_hits_are_reported_out_of_total_input(self):
+        """prompt_tokens 是总输入，缓存命中的部分按 cached_tokens 另报。"""
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=_make_mock_response("ok", input_tokens=1000, output_tokens=8, cached_tokens=600)
+        )
+
+        with captured_openai_clients(mock_client):
+            from lib.backends.text_backends.openai import OpenAITextBackend
+
+            result = await OpenAITextBackend(api_key="test-key").generate(TextGenerationRequest(prompt="hi"))
+
+        assert (result.input_tokens, result.cache_read_tokens, result.output_tokens) == (1000, 600, 8)
 
     async def test_generate_with_system_prompt(self):
         mock_client = AsyncMock()

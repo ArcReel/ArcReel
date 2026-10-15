@@ -32,6 +32,7 @@ def test_triggers_only_name_known_domains() -> None:
         ("lib/foo.py", ["backend", "tests", "conventions"]),
         ("docs/agents/testing.md", ["tests", "conventions"]),
         ("packages/arcreel-market-core/src/x.py", ["backend", "market-core", "tests", "conventions"]),
+        ("packages/arcreel-catalog-core/src/x.py", ["backend", "catalog-core", "tests", "conventions"]),
         ("frontend/src/i18n/zh/dashboard.ts", ["backend", "tests", "conventions", "frontend"]),
         (".github/workflows/test.yml", ["tests", "conventions", "workflows"]),
         ("CONTRIBUTING.md", ["tests", "conventions", "website"]),

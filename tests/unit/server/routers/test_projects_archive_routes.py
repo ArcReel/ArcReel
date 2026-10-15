@@ -1,11 +1,14 @@
+import asyncio
 import json
 import os
 import re
 import shutil
+import threading
 import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -353,3 +356,43 @@ class TestProjectArchiveDiagnosticsLocalization:
             "Non-standard top-level directory/file 'notes.txt' was excluded from the export"
         ]
         assert not _has_cjk(diagnostics)
+
+
+async def test_export_cancelled_while_packing_leaves_no_archive(tmp_path, monkeypatch):
+    """打包进行中被取消：等线程打包完再传播取消，调用方按登记回收 zip。"""
+    started = threading.Event()
+    release = threading.Event()
+    packed = threading.Event()
+    archive_path = tmp_path / "demo-export.zip"
+
+    class _BlockingArchiveService:
+        def export_project(self, project_name: str, *, scope: str = "full") -> tuple[Path, str]:
+            started.set()
+            release.wait(5)
+            try:
+                archive_path.write_bytes(b"zip")
+                return archive_path, f"{project_name}.zip"
+            finally:
+                packed.set()
+
+    monkeypatch.setattr(projects, "verify_download_token", lambda *_args: None)
+    task = asyncio.create_task(
+        projects.export_project_archive(
+            name="demo",
+            _t=lambda key, **_kwargs: key,
+            archive_service=_BlockingArchiveService(),
+            download_token="token",
+            scope="full",
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        task.cancel()
+        await asyncio.sleep(0)
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert await asyncio.to_thread(packed.wait, 5)
+
+    assert not archive_path.exists()

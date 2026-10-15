@@ -18,6 +18,10 @@ OFFICIAL_OPENAI_BASE_URL = f"https://{OFFICIAL_OPENAI_HOSTNAME}/v1"
 # 也是用户从供应商文档复制整条 Messages 端点时的唯一后缀形态，只有它能被无歧义地剥掉。
 ANTHROPIC_MESSAGES_PATH = "/v1/messages"
 
+# 官方 Anthropic 端点：anthropic SDK 对空 base_url 会回落读取 ANTHROPIC_BASE_URL 环境变量，
+# base_url 为空时显式回填它以断掉该回落（同 OFFICIAL_OPENAI_BASE_URL）。
+OFFICIAL_ANTHROPIC_BASE_URL = "https://api.anthropic.com"
+
 
 def is_official_openai_base_url(base_url: str | None) -> bool:
     """判断 OpenAI 兼容 base_url 是否指向官方 api.openai.com。

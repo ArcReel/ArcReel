@@ -18,7 +18,7 @@ from typing import Any
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.config.retired_model_ids import (
     TEXT_BACKEND_SETTING_KEYS,
-    migrate_retired_text_model_reference,
+    migrate_retired_model_reference,
 )
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_schema import parse_project_schema_version
@@ -36,7 +36,7 @@ def migrate_project_dict(project: Mapping[str, Any]) -> dict[str, Any]:
     for key in TEXT_BACKEND_SETTING_KEYS:
         value = migrated.get(key)
         if isinstance(value, str):
-            migrated[key] = migrate_retired_text_model_reference(value)
+            migrated[key] = migrate_retired_model_reference(value)
     return migrated
 
 

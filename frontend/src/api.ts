@@ -49,15 +49,20 @@ import type {
   ApiKeyInfo,
   CreateApiKeyResponse,
   ProviderInfo,
+  CatalogSearchResponse,
+  MediaType,
   ProviderConfigDetail,
   ConnectivityCheckResult,
   ProviderCredential,
+  UsageAgentSessionDetail,
+  UsageAgentSessionPage,
   UsageRecordDetail,
   UsageRecordPage,
   UsageSummary,
   CustomProviderInfo,
   CustomProviderCreateRequest,
   CustomProviderFullUpdateRequest,
+  ProviderMultiplierInfo,
   DiscoverModelsResponse,
   EndpointDescriptor,
   ComfyuiInferResponse,
@@ -172,6 +177,7 @@ import type {
 } from "@/types/storyboard-batch";
 import type {
   AgentCredential,
+  AgentCredentialTier,
   CreateAgentCredentialRequest,
   PresetProvidersResponse,
   TestConnectionRequest,
@@ -211,6 +217,7 @@ import type {
   SuccessResponse,
   TaskListFilters,
   UsageRecordsQuery,
+  UsageSessionsQuery,
   UsageSummaryQuery,
   VersionInfo,
   VideoCapabilitiesQuery,
@@ -237,6 +244,7 @@ export type {
   ProjectAssetType,
   ProjectEventStreamOptions,
   UsageRecordsQuery,
+  UsageSessionsQuery,
   UsageSummaryQuery,
   VersionInfo,
   VideoCapabilitiesQuery,
@@ -3062,8 +3070,41 @@ class API {
     if (query.until) params.append("until", query.until);
     if (query.limit !== undefined) params.append("limit", String(query.limit));
     if (query.cursor) params.append("cursor", query.cursor);
+    if (query.view) params.append("view", query.view);
     const search = params.toString();
     return this.request(`/usage/records${search ? "?" + search : ""}`, {
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * 获取 Agent 会话列表的一页（keyset 分页）：按 session_id 聚合，每个会话一行，
+   * 按最近一轮的时间倒序。
+   */
+  static async getUsageSessions(
+    query: UsageSessionsQuery = {},
+    options: { signal?: AbortSignal } = {}
+  ): Promise<UsageAgentSessionPage> {
+    const params = new URLSearchParams();
+    if (query.projectName !== undefined) params.append("project_name", query.projectName);
+    if (query.providers?.length) params.append("provider", query.providers.join(","));
+    if (query.models?.length) params.append("model", query.models.join(","));
+    if (query.since) params.append("since", query.since);
+    if (query.until) params.append("until", query.until);
+    if (query.limit !== undefined) params.append("limit", String(query.limit));
+    if (query.cursor) params.append("cursor", query.cursor);
+    const search = params.toString();
+    return this.request(`/usage/sessions${search ? "?" + search : ""}`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 获取一个 Agent 会话的明细：按时间每条记录一行。 */
+  static async getUsageSession(
+    sessionId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<UsageAgentSessionDetail> {
+    return this.request(`/usage/sessions/${encodeURIComponent(sessionId)}`, {
       signal: options.signal,
     });
   }
@@ -3089,6 +3130,7 @@ class API {
     if (query.since) params.append("since", query.since);
     if (query.until) params.append("until", query.until);
     if (query.tz) params.append("tz", query.tz);
+    if (query.view) params.append("view", query.view);
     const search = params.toString();
     return this.request(`/usage/summary${search ? "?" + search : ""}`, {
       signal: options.signal,
@@ -3113,6 +3155,20 @@ class API {
   /** 删除（吊销）指定 API Key。 */
   static async deleteApiKey(keyId: number): Promise<void> {
     return this.request(`/api-keys/${keyId}`, { method: "DELETE" });
+  }
+
+  // ==================== 模型目录 API ====================
+
+  /** 按名称与媒体类型搜索模型目录中的条目；名称留空列出全部。 */
+  static async searchCatalogEntries(
+    query: { q?: string; mediaType?: MediaType } = {},
+    options: { signal?: AbortSignal } = {}
+  ): Promise<CatalogSearchResponse> {
+    const params = new URLSearchParams();
+    if (query.q) params.set("q", query.q);
+    if (query.mediaType) params.set("media_type", query.mediaType);
+    const qs = params.toString();
+    return this.request(`/catalog/entries${qs ? `?${qs}` : ""}`, { signal: options.signal });
   }
 
   // ==================== Provider 管理 API ====================
@@ -3140,6 +3196,22 @@ class API {
     return this.request(`/providers/${encodeURIComponent(id)}/config`, {
       method: "PATCH",
       body: JSON.stringify(patch),
+    });
+  }
+
+  /** 读取供应商倍率。自定义供应商的 id 写作 `custom-<数据库 id>`。 */
+  static async getProviderMultiplier(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderMultiplierInfo> {
+    return this.request(`/providers/${encodeURIComponent(id)}/multiplier`, { signal: options.signal });
+  }
+
+  /** 设置供应商倍率；null 表示恢复默认值。只影响之后结算的调用。 */
+  static async setProviderMultiplier(id: string, multiplier: number | null): Promise<ProviderMultiplierInfo> {
+    return this.request(`/providers/${encodeURIComponent(id)}/multiplier`, {
+      method: "PUT",
+      body: JSON.stringify({ multiplier }),
     });
   }
 
@@ -3231,6 +3303,23 @@ class API {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+  }
+
+  /** 为单个档位选择模型条目（`entryBinding` 为「模型厂商/官方模型名」）；返回更新后的凭证。 */
+  static async bindAgentCredentialTier(
+    id: number,
+    tier: AgentCredentialTier,
+    entryBinding: string,
+  ): Promise<AgentCredential> {
+    return this.request(`/agent/credentials/${id}/tiers/${tier}/binding`, {
+      method: "PUT",
+      body: JSON.stringify({ entry_binding: entryBinding }),
+    });
+  }
+
+  /** 解除单个档位的绑定，回到按模型名自动对应；返回更新后的凭证。 */
+  static async unbindAgentCredentialTier(id: number, tier: AgentCredentialTier): Promise<AgentCredential> {
+    return this.request(`/agent/credentials/${id}/tiers/${tier}/binding`, { method: "DELETE" });
   }
 
   static async deleteAgentCredential(id: number): Promise<void> {

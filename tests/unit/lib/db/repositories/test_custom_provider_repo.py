@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
-from lib.db.repositories.custom_provider_repo import CustomProviderPrice, CustomProviderRepository
+from lib.db.repositories.custom_provider_repo import CustomModelPricing, CustomProviderRepository
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 
 
@@ -42,9 +42,8 @@ class TestProviderCRUD:
                 "endpoint": "openai-images",
                 "is_default": True,
                 "is_enabled": True,
-                "price_unit": "image",
-                "price_input": 0.04,
-                "currency": "USD",
+                "multiplier": 0.5,
+                "entry_binding": "openai/gpt-image-1",
             },
         ]
         provider = await repo.create_provider(
@@ -60,8 +59,8 @@ class TestProviderCRUD:
         assert len(result) == 2
         assert result[0].model_id == "gpt-4o"
         assert result[1].model_id == "dall-e-3"
-        assert result[1].price_unit == "image"
-        assert result[1].price_input == 0.04
+        assert result[1].multiplier == 0.5
+        assert result[1].entry_binding == "openai/gpt-image-1"
 
     async def test_get_provider(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
@@ -488,8 +487,8 @@ class TestModelManagement:
         assert await repo.list_default_models(999, "text") == []
 
 
-class TestResolvePrice:
-    """resolve_price：记账与预估共用的价格取数，全部降级路径归为无价、绝不抛错。"""
+class TestResolvePricing:
+    """resolve_pricing：记账与预估共用的计价依据，全部降级路径归为默认值（倍率 1、无绑定）、绝不抛错。"""
 
     async def _provider_with_model(self, repo: CustomProviderRepository, db_session: AsyncSession, **model_over) -> str:
         model = {
@@ -497,10 +496,8 @@ class TestResolvePrice:
             "display_name": "M1",
             "endpoint": "openai-chat",
             "is_enabled": True,
-            "price_unit": "token",
-            "price_input": 2.0,
-            "price_output": 4.0,
-            "currency": "CNY",
+            "multiplier": 0.8,
+            "entry_binding": "openai/gpt-5.4",
         }
         model.update(model_over)
         p = await repo.create_provider(
@@ -513,29 +510,29 @@ class TestResolvePrice:
         await db_session.flush()
         return f"custom-{p.id}"
 
-    async def test_non_custom_provider_returns_no_price(self, db_session: AsyncSession):
+    async def test_non_custom_provider_returns_defaults(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
-        assert await repo.resolve_price("gemini-aistudio", "gemini-3-flash-preview") == CustomProviderPrice()
+        assert await repo.resolve_pricing("gemini-aistudio", "gemini-3-flash-preview") == CustomModelPricing()
 
-    async def test_valid_custom_provider_returns_declared_price(self, db_session: AsyncSession):
-        repo = CustomProviderRepository(db_session)
-        provider = await self._provider_with_model(repo, db_session)
-        assert await repo.resolve_price(provider, "m1") == CustomProviderPrice(2.0, 4.0, "CNY")
-
-    async def test_missing_model_returns_no_price(self, db_session: AsyncSession):
+    async def test_valid_custom_provider_returns_the_model_multiplier_and_binding(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
         provider = await self._provider_with_model(repo, db_session)
-        assert await repo.resolve_price(provider, "ghost") == CustomProviderPrice()
+        assert await repo.resolve_pricing(provider, "m1") == CustomModelPricing(0.8, "openai/gpt-5.4", "openai-chat")
 
-    async def test_malformed_id_degrades_to_no_price(self, db_session: AsyncSession):
-        """畸形 custom- id（parse_provider_id 抛 ValueError）降级为无价，不抛错。"""
+    async def test_missing_model_returns_defaults(self, db_session: AsyncSession):
         repo = CustomProviderRepository(db_session)
-        assert await repo.resolve_price("custom-abc/ghost", "m1") == CustomProviderPrice()
+        provider = await self._provider_with_model(repo, db_session)
+        assert await repo.resolve_pricing(provider, "ghost") == CustomModelPricing()
 
-    async def test_query_exception_degrades_to_no_price(
+    async def test_malformed_id_degrades_to_defaults(self, db_session: AsyncSession):
+        """畸形 custom- id（parse_provider_id 抛 ValueError）降级为默认值，不抛错。"""
+        repo = CustomProviderRepository(db_session)
+        assert await repo.resolve_pricing("custom-abc/ghost", "m1") == CustomModelPricing()
+
+    async def test_query_exception_degrades_to_defaults(
         self, db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
     ):
-        """底层查询异常（如 DB 瞬时不可用）降级为无价，不冒泡。"""
+        """底层查询异常（如 DB 瞬时不可用）降级为默认值，不冒泡。"""
         repo = CustomProviderRepository(db_session)
         provider = await self._provider_with_model(repo, db_session)
 
@@ -543,13 +540,13 @@ class TestResolvePrice:
             raise RuntimeError("db down")
 
         monkeypatch.setattr(repo, "get_model_by_ids", _boom)
-        assert await repo.resolve_price(provider, "m1") == CustomProviderPrice()
+        assert await repo.resolve_pricing(provider, "m1") == CustomModelPricing()
 
     async def test_disabled_model_still_priced(self, db_session: AsyncSession):
-        """刻意豁免 enabled 校验：停用模型仍按其声明价取价（记账按实际调用的模型计费）。"""
+        """刻意豁免 enabled 校验：停用模型仍取它自己的倍率与绑定（记账按实际调用的模型计费）。"""
         repo = CustomProviderRepository(db_session)
         provider = await self._provider_with_model(repo, db_session, is_enabled=False)
-        assert await repo.resolve_price(provider, "m1") == CustomProviderPrice(2.0, 4.0, "CNY")
+        assert await repo.resolve_pricing(provider, "m1") == CustomModelPricing(0.8, "openai/gpt-5.4", "openai-chat")
 
 
 @pytest.mark.asyncio
@@ -568,11 +565,6 @@ async def test_list_enabled_models_by_media_type_uses_endpoint(db_session):
                 "endpoint": "openai-chat",
                 "is_default": False,
                 "is_enabled": True,
-                "price_unit": None,
-                "price_input": None,
-                "price_output": None,
-                "currency": None,
-                "supported_durations": None,
                 "resolution": None,
             },
             {
@@ -581,11 +573,6 @@ async def test_list_enabled_models_by_media_type_uses_endpoint(db_session):
                 "endpoint": "newapi-video",
                 "is_default": False,
                 "is_enabled": True,
-                "price_unit": None,
-                "price_input": None,
-                "price_output": None,
-                "currency": None,
-                "supported_durations": None,
                 "resolution": None,
             },
         ],

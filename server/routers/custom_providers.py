@@ -7,11 +7,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AfterValidator, BaseModel, Field, field_validator
@@ -22,11 +21,14 @@ from arcreel_market_core.video_backend_contract import ReferenceAudioMode, audio
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
+from lib.catalog.query import binding_key
 from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
+    AUDIO_TRACK_OVERRIDE_KEYS,
     CAPABILITY_OVERRIDE_FIELDS,
+    CHANNEL_FACT_OVERRIDE_KEYS,
     capability_type_name,
     capability_value_matches,
     filter_valid_overrides,
@@ -43,12 +45,27 @@ from lib.custom_provider.endpoints import (
     get_endpoint_spec,
     static_media_type,
 )
+from lib.custom_provider.model_facts import (
+    ALL_MODEL_FACT_OVERRIDE_KEYS,
+    COMFYUI_VIDEO_OVERRIDE_KEYS,
+    MODEL_FACT_OVERRIDE_KEYS,
+    comfyui_duration_override,
+    matched_entry_summary,
+    model_fact_overrides,
+    model_fact_type_name,
+    model_fact_value_matches,
+)
+from lib.custom_provider.path_overrides import BaseUrlRule, effective_path_overrides, path_problem
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.infra.api_errors import BadRequestError
+from lib.infra.async_thread import run_sync_transaction
 from server.i18n import Translator
+
+if TYPE_CHECKING:
+    from lib.db.models.custom_provider import CustomProviderModel
 
 
 def _validate_endpoint(value: str) -> str:
@@ -66,27 +83,26 @@ DiscoveryFormatLiteral = Literal["openai", "google", "comfyui"]
 # 并发上限定型字段：可空正整数（≥1）；None = 未设置 → 容量装载回退全局默认。
 MaxWorkers = Annotated[int | None, Field(default=None, ge=1)]
 
-# 开放给用户覆盖的能力维度。DB 列与合成函数对 VideoCapabilities 全字段通用，写入侧在此收窄：
-# 未列入的维度即便是合法字段名也不落库，扩容只需往这里加键名，无需 DB 迁移或改合成语义。
-#
-# 音轨形态（audio_track / reference_route_audio_track）刻意不开放（``docs/adr/0054``）：自定义
-# 供应商的音轨按「无信号不收紧」处理，设置界面拿不到自定义模型的逐模型音轨目录，用户设的这一位
-# 没有执行侧对应物——协议 backend 要么下发音轨开关要么不下发，声明改不了它——开放覆盖只会请回
-# 一份「界面宣称、执行期反悔」的手写声明。
-CAPABILITY_OVERRIDE_ALLOWLIST = frozenset({"last_frame", "reference_audio_mode", "max_reference_audio_count"})
+# 开放给用户覆盖的能力维度（docs/adr/0104）：模型事实（文本的图片输入、结构化输出、最大输出 token；图片的
+# 文生图、图生图；视频的可选时长、分辨率与时长联动约束）与视频的通道事实（输入模式、参考上限、提示词长度
+# 上限、音轨形态）。每个维度整体替换、优先级最高。未列入的键即便是合法字段名也不落库。
+CAPABILITY_OVERRIDE_ALLOWLIST = CHANNEL_FACT_OVERRIDE_KEYS | ALL_MODEL_FACT_OVERRIDE_KEYS
 
-#: 音轨形态两维：既不开放覆盖，也不回显系统判定（理由同上）。
-_AUDIO_TRACK_FIELDS = frozenset({"audio_track", "reference_route_audio_track"})
+#: 音轨形态两维的系统判定不回显：自定义供应商的音轨在没有覆盖时按「无信号不收紧」处理、不参与派生
+#: （见 ``lib.config.resolver``），把调用通道的静态声明摆到设置页会让用户以为它对自定义模型生效。
+_AUDIO_TRACK_FIELDS = AUDIO_TRACK_OVERRIDE_KEYS
 
-# 两份键集合都必须是 VideoCapabilities 字段名的子集：值类型校验直接按字段名取期望类型，键名写错
-# 要在导入期炸掉，而不是等到一次真实写入才 KeyError 成 500；音轨两维的键名写错则会静默停止过滤，
-# 把 backend 侧声明摆回自定义供应商的设置页——那正是本口径要避免的分裂。
-for _name, _keys in (
-    ("能力覆盖白名单", CAPABILITY_OVERRIDE_ALLOWLIST),
-    ("音轨形态字段", _AUDIO_TRACK_FIELDS),
-):
-    if not _keys <= CAPABILITY_OVERRIDE_FIELDS.keys():
-        raise RuntimeError(f"{_name}含非 VideoCapabilities 字段: {sorted(_keys - set(CAPABILITY_OVERRIDE_FIELDS))}")
+
+#: 图片模型事实覆盖键 → 端点声明里对应的能力。
+_IMAGE_CAPABILITY_BY_OVERRIDE_KEY: dict[str, ImageCapability] = {
+    "text_to_image": ImageCapability.TEXT_TO_IMAGE,
+    "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
+}
+
+
+def _comfyui_override_keys(media_type: str) -> frozenset[str]:
+    """ComfyUI 端点上接受的覆盖维度：只有视频行的可选时长（docs/adr/0104）。"""
+    return COMFYUI_VIDEO_OVERRIDE_KEYS if media_type == "video" else frozenset()
 
 
 def _narrow_to_allowlist(overrides: dict[str, object]) -> dict[str, object]:
@@ -152,17 +168,33 @@ class ModelInput(BaseModel):
     endpoint: EndpointType
     is_default: bool = False
     is_enabled: bool = True
-    price_unit: str | None = None
-    price_input: float | None = None
-    price_output: float | None = None
-    currency: str | None = None
-    supported_durations: list[int] | None = None
     resolution: str | None = None
-    # 稀疏覆盖字典，键名对齐 VideoCapabilities 字段名；None 或键缺席 = 跟随系统判定。
+    # 稀疏覆盖字典：模型事实维度与视频通道事实维度（docs/adr/0104）；None 或键缺席 = 跟随条目与通道声明。
     # 保存模型列表是整体替换语义，本字段必须随列表回传，否则存量覆盖被清空。
     capability_overrides: dict[str, object] | None = None
-    # 最大输出长度（单位 token），只对文本模型保存；None = 未登记，文本请求按 64000 封顶。
-    max_output_tokens: int | None = Field(default=None, gt=0)
+    # 路径覆盖：请求名 → 整条替换的路径（docs/adr/0101），与 capability_overrides 一样须随列表回传。
+    # 空字典收敛为 None。
+    path_overrides: dict[str, str] | None = None
+
+    @field_validator("path_overrides")
+    @classmethod
+    def _empty_path_overrides_to_none(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        return value or None
+
+    # 供应商模型倍率（docs/adr/0100），与供应商倍率相乘后作用在整笔参考费用上。
+    multiplier: float = Field(default=1.0, ge=0, allow_inf_nan=False)
+    # 条目绑定（docs/adr/0105）：「模型厂商/官方模型名」；None = 按名字对应条目。与覆盖同理须随列表回传。
+    entry_binding: str | None = None
+
+    @field_validator("entry_binding")
+    @classmethod
+    def _entry_binding_shape(cls, value: str | None) -> str | None:
+        """条目绑定只校验形状「模型厂商/官方模型名」，不校验条目是否还在目录里：官方数据删掉条目后，存量绑定
+        随整表 PUT 回传时不能把与它无关的编辑堵在 422 上；读取侧对找不到的绑定回到按名字对应。"""
+        value = (value or "").strip() or None
+        if value is not None and binding_key(value, "text") is None:
+            raise ValueError("entry_binding must look like 'maker/name'")
+        return value
 
     @field_validator("capability_overrides")
     @classmethod
@@ -182,40 +214,27 @@ class ModelInput(BaseModel):
         return kept or None
 
     def to_db_dict(self, endpoint_spec: EndpointSpec) -> dict:
-        """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
+        """返回适合写入数据库的字典。
 
-        视频类 endpoint：supported_durations 缺省（None）或显式传 []（空列表，下游视为非法）时，
-        统一归一为缺省并由 duration_presets 启发式填补。
-        非视频类 endpoint 保持 None。
+        价格不在模型行上：模型按所对应条目的价目表计价（docs/adr/0106）。可选时长与最大输出 token 只以能力覆盖
+        的形式保存，保存时不预填：预设只用于新建模型条目时预填与运行时回落（``docs/adr/0105``）。
 
-        ComfyUI 端点不走那套启发式，也不把空集当缺省：时长这一维由节点绑定决定（``docs/adr/0082``）。
-        ``frames`` 未绑定或读不到帧率来源时这份 workflow 的时长根本不由 ArcReel 驱动，服务端把该
-        模型行的档位钉死为空集——用户在界面上改不动它，改了也无处生效；两者齐备时默认只含 workflow
-        的原生时长，用户可在模型行里增删。模型名在这条通道上与 workflow 能出多长毫无关系。
+        ComfyUI 视频端点的可选时长默认只含 workflow 的原生时长，用户增删后的档位存为 ``durations`` 覆盖
+        （``docs/adr/0082``、``0104``）：与端点推导的档位相同时不存；端点驱动不了时长（档位为空集）时一律不存，
+        这一维由 workflow 固定。
 
         媒体类型读调用方已解析好的 spec：``ce-`` 端点的媒体类型写在它那份定义里，键前缀推不出来。
         """
-        from lib.custom_provider.comfyui.capabilities import default_supported_durations
-        from lib.custom_provider.duration_presets import infer_supported_durations
-
         d = self.model_dump()
-        durations = self.supported_durations
-        is_video = endpoint_spec.media_type == "video"
-        definition = endpoint_spec.definition
-        if is_video and definition is not None and endpoint_spec.kind == COMFYUI_KIND:
-            # 默认集为空 = 这份 workflow 的时长不由 ArcReel 驱动，用户传什么都钉回空集。
-            default = default_supported_durations(definition)
-            durations = (durations or default) if default else default
-        else:
-            # video endpoint：把 [] 当作缺省（下游/前端都不接受空列表），交给 preset 兜底
-            if is_video and durations is not None and len(durations) == 0:
-                durations = None
-            if durations is None and is_video:
-                # endpoint 经 EndpointType 校验，值必在 ENDPOINT_REGISTRY 内，无需 ValueError 兜底
-                durations = infer_supported_durations(self.model_id)
-        d["supported_durations"] = json.dumps(durations) if durations is not None else None
-        if endpoint_spec.media_type != "text":
-            d["max_output_tokens"] = None
+        overrides = d.get("capability_overrides")
+        if endpoint_spec.kind == COMFYUI_KIND and isinstance(overrides, dict) and "durations" in overrides:
+            endpoint_durations = endpoint_spec.endpoint_durations or []
+            durations = overrides.get("durations")
+            if not endpoint_durations or (
+                isinstance(durations, list) and sorted(set(durations)) == sorted(set(endpoint_durations))
+            ):
+                overrides = {k: v for k, v in overrides.items() if k != "durations"}
+            d["capability_overrides"] = overrides or None
         return d
 
 
@@ -256,6 +275,17 @@ class ConnectivityCheckRequest(BaseModel):
     api_key: str
 
 
+class EndpointRequestDescriptor(BaseModel):
+    """调用端点发出的一条可覆盖路径的请求，与 lib.custom_provider.path_overrides.EndpointRequest 对齐。"""
+
+    name: str
+    # 前端 i18n key（dashboard ns）。
+    display_name_key: str
+    default_path: str
+    placeholders: list[str]
+    base_url_rule: BaseUrlRule
+
+
 class ModelResponse(BaseModel):
     id: int
     model_id: str
@@ -263,18 +293,21 @@ class ModelResponse(BaseModel):
     endpoint: str
     is_default: bool
     is_enabled: bool
-    price_unit: str | None = None
-    price_input: float | None = None
-    price_output: float | None = None
-    currency: str | None = None
-    supported_durations: list[int] | None = None
     resolution: str | None = None
     # 系统判定值（四字段全量），video endpoint 才有；非 video 或 endpoint 声明异常时为 None。
     system_capabilities: dict[str, object] | None = None
     # 用户覆盖（稀疏字典），与 system_capabilities 平凡合并即为生效值。
     capability_overrides: dict[str, object] | None = None
-    # 最大输出长度（单位 token）；未登记为 None。
-    max_output_tokens: int | None = None
+    # 生效的路径覆盖（docs/adr/0101）：端点定义里已不存在的请求名不回显，下次保存随之丢弃。
+    path_overrides: dict[str, str] | None = None
+    # 当前端点可覆盖路径的请求（请求名、显示名 key、默认路径），供界面渲染请求地址。
+    requests: list[EndpointRequestDescriptor] = []
+    # 供应商模型倍率与条目绑定，原样回显供整表 PUT 回传。
+    multiplier: float = 1.0
+    entry_binding: str | None = None
+    # 对应到的条目摘要（maker / name / media_type / display_name / priced）；对应不上条目时为 None，
+    # 这个模型的调用记为未定价。
+    matched_entry: dict[str, object] | None = None
     # 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为
     # None。只查 DB 全局配置，不扫描项目文件（`docs/adr/0054`）；前端据此渲染非阻塞提示。
     global_bucket_refs: list[str] | None = None
@@ -348,6 +381,8 @@ class EndpointDescriptor(BaseModel):
     # 子集，只决定文案说「天生固定」「缺帧率来源、补一处」还是「换算不出整秒时长」。
     duration_tier_empty: bool = False
     native_resolution: str | None = None
+    # 可覆盖路径的请求（docs/adr/0101）；空列表 = 该端点不开放修改请求地址。
+    requests: list[EndpointRequestDescriptor] = []
 
 
 class EndpointCatalogResponse(BaseModel):
@@ -367,9 +402,7 @@ def _system_capabilities_for(
     判定失败（endpoint 已下线、注册表声明异常）时降级为 None 而非 500：列表端点要能把
     其余模型正常呈现出来，单行判定不出来只是设置页少一段"判定值"提示。
 
-    音轨形态两维不回显：自定义供应商的音轨按「无信号不收紧」处理、不参与派生（见
-    ``CAPABILITY_OVERRIDE_ALLOWLIST`` 的说明），把 backend 侧的静态声明摆到设置页会让用户
-    以为它对自定义模型生效——那正是本口径要避免的分裂。
+    音轨形态两维不回显（见 ``_AUDIO_TRACK_FIELDS`` 的说明）。
     """
     try:
         media_type = endpoint_spec.media_type if endpoint_spec is not None else static_media_type(endpoint)
@@ -401,21 +434,42 @@ def _effective_overrides_for_response(
     音频两维另经 :func:`strip_incoherent_audio_overrides`：单维合法而合起来无意义的组合
     （direct ⊕ 上限 0）过得了 :func:`filter_valid_overrides`，执行层却会把它降到 ``none``，
     回显原值同样落进本函数要消灭的"界面显示已生效、执行其实忽略"。
+
+    模型事实维度只回显该端点媒体类型的、值合法的那些；图片的文生图 / 图生图覆盖为开启而端点没实现时
+    同样隐去（写入侧拒绝同一组合）。ComfyUI 端点只回显视频行的可选时长覆盖，其余不接受、不回显。
     """
-    filtered = _narrow_to_allowlist(
-        filter_valid_overrides(
+    if endpoint_spec is None:
+        try:
+            endpoint_spec = get_endpoint_spec(endpoint)
+        except ValueError:
+            return None
+    if endpoint_spec.kind == COMFYUI_KIND:
+        if endpoint_spec.media_type != "video":
+            return None
+        durations = comfyui_duration_override(overrides, model_id=model_id)
+        return {"durations": durations} if durations else None
+    media_type = endpoint_spec.media_type
+    filtered: dict[str, object] = {}
+    if media_type == "video":
+        filtered = strip_incoherent_audio_overrides(
+            _narrow_to_allowlist(
+                filter_valid_overrides(
+                    endpoint=endpoint,
+                    model_id=model_id,
+                    overrides=overrides,
+                    endpoint_spec=endpoint_spec,
+                )
+            ),
             endpoint=endpoint,
             model_id=model_id,
-            overrides=overrides,
             endpoint_spec=endpoint_spec,
         )
-    )
-    filtered = strip_incoherent_audio_overrides(
-        filtered,
-        endpoint=endpoint,
-        model_id=model_id,
-        endpoint_spec=endpoint_spec,
-    )
+    implemented = endpoint_spec.image_capabilities
+    for key, value in model_fact_overrides(overrides, media_type, model_id=model_id).items():
+        image_capability = _IMAGE_CAPABILITY_BY_OVERRIDE_KEY.get(key)
+        if image_capability is not None and value is True and image_capability not in (implemented or frozenset()):
+            continue
+        filtered[key] = value
     return filtered or None
 
 
@@ -465,8 +519,14 @@ def _model_to_response(
     global_bucket_refs: list[str] | None = None,
     endpoint_spec: EndpointSpec | None = None,
 ) -> ModelResponse:
-    durations = json.loads(m.supported_durations) if m.supported_durations else None
+    requests = endpoint_spec.requests if endpoint_spec is not None else ()
+    try:
+        media_type = endpoint_spec.media_type if endpoint_spec is not None else static_media_type(m.endpoint)
+    except ValueError:
+        media_type = None
     return ModelResponse(
+        path_overrides=effective_path_overrides(m.path_overrides, requests) or None,
+        requests=[EndpointRequestDescriptor(**asdict(r)) for r in requests],
         system_capabilities=_system_capabilities_for(m.endpoint, m.model_id, endpoint_spec),
         capability_overrides=_effective_overrides_for_response(
             m.endpoint, m.model_id, m.capability_overrides, endpoint_spec
@@ -477,13 +537,12 @@ def _model_to_response(
         endpoint=m.endpoint,
         is_default=m.is_default,
         is_enabled=m.is_enabled,
-        price_unit=m.price_unit,
-        price_input=m.price_input,
-        price_output=m.price_output,
-        currency=m.currency,
-        supported_durations=durations,
         resolution=m.resolution,
-        max_output_tokens=m.max_output_tokens,
+        multiplier=m.multiplier,
+        entry_binding=m.entry_binding,
+        matched_entry=(
+            matched_entry_summary(m.model_id, media_type, m.entry_binding) if media_type is not None else None
+        ),
         global_bucket_refs=global_bucket_refs or None,
     )
 
@@ -556,15 +615,13 @@ def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
 
 
 def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str]) -> None:
-    """校验模型列表：无重复 model_id；启用模型有合法 model_id 和 endpoint；价格组合自洽。"""
+    """校验模型列表：同一供应商下 API 模型名唯一；启用模型有合法 model_id 和 endpoint。"""
     seen: set[str] = set()
     for m in models:
         if m.is_enabled and not m.model_id.strip():
             raise HTTPException(status_code=422, detail=_t("model_id_required"))
         if m.is_enabled and not m.endpoint:
             raise HTTPException(status_code=422, detail=_t("endpoint_required"))
-        if m.price_output is not None and m.price_input is None:
-            raise HTTPException(status_code=422, detail=_t("price_input_required"))
         if m.model_id in seen:
             raise HTTPException(status_code=422, detail=_t("duplicate_model_id", model_id=m.model_id))
         if m.model_id:
@@ -580,31 +637,79 @@ def _check_capability_overrides(
 ) -> None:
     """写入侧校验：合成函数对脏值只降级不抛，合法性把关全在这里。
 
-    None 与空字典都表示"全部跟随系统判定"，一律放行。键集合已由 ``ModelInput`` 收窄到开放
-    白名单内，此处校验其余维度：非空覆盖要求 endpoint 为 video 类，值类型与该能力字段一致。
+    None 与空字典都表示"全部跟随条目与通道声明"，一律放行。键集合已由 ``ModelInput`` 收窄到开放
+    白名单内，此处按端点校验其余约束：ComfyUI 端点不接受覆盖；每个键须是该端点媒体类型的维度（通道
+    事实只有视频有）；值的形状与该维度一致；覆盖为开启的能力须是端点真的实现了的。
     """
     if not overrides:
         return
     resolved_spec = spec or get_endpoint_spec(endpoint)
-    if resolved_spec.media_type != "video":
-        raise HTTPException(
-            status_code=422,
-            detail=_t("capability_overrides_video_only", model_id=model_id, endpoint=endpoint),
-        )
+    media_type = resolved_spec.media_type
+    if resolved_spec.kind == COMFYUI_KIND:
+        # ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），覆盖值在执行层没有对应物；唯一的例外是视频行的
+        # 可选时长，它是用户在 workflow 原生时长之外增删的偏好（docs/adr/0104）。
+        if not overrides.keys() <= _comfyui_override_keys(media_type):
+            raise HTTPException(
+                status_code=422,
+                detail=_t("capability_overrides_not_supported_for_comfyui", model_id=model_id),
+            )
+        if not model_fact_value_matches("durations", overrides["durations"]):
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_invalid_value",
+                    model_id=model_id,
+                    capability="durations",
+                    expected=model_fact_type_name("durations"),
+                ),
+            )
+        return
+    applicable = MODEL_FACT_OVERRIDE_KEYS.get(media_type, frozenset()) | (
+        CHANNEL_FACT_OVERRIDE_KEYS if media_type == "video" else frozenset()
+    )
     for key, value in overrides.items():
-        expected = CAPABILITY_OVERRIDE_FIELDS[key]
-        # 值类型判定复用合成层的同一函数：两边各写一份会漂移，届时写入侧放行的值被合成
+        if key not in applicable:
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_not_applicable",
+                    model_id=model_id,
+                    endpoint=endpoint,
+                    media_type=media_type,
+                    capability=key,
+                ),
+            )
+        # 值类型判定复用读取侧的同一函数：两边各写一份会漂移，届时写入侧放行的值被合成
         # 静默忽略，正是本能力覆盖链路要消灭的「界面允许、执行反悔」。
-        if not capability_value_matches(value, expected):
+        if key in CHANNEL_FACT_OVERRIDE_KEYS:
+            expected = CAPABILITY_OVERRIDE_FIELDS[key]
+            valid, expected_name = capability_value_matches(value, expected), capability_type_name(expected)
+        else:
+            valid, expected_name = model_fact_value_matches(key, value), model_fact_type_name(key)
+        if not valid:
             raise HTTPException(
                 status_code=422,
                 detail=_t(
                     "capability_override_invalid_value",
                     model_id=model_id,
                     capability=key,
-                    expected=capability_type_name(expected),
+                    expected=expected_name,
                 ),
             )
+        # 图片的文生图 / 图生图覆盖替换的是模型事实一侧，生效能力仍要与通道声明取交集：端点没实现的
+        # 能力覆盖为开启也打不开，拒在这里而不是让界面显示已开启。
+        if key in _IMAGE_CAPABILITY_BY_OVERRIDE_KEY and value is True:
+            implemented = resolved_spec.image_capabilities or frozenset()
+            if _IMAGE_CAPABILITY_BY_OVERRIDE_KEY[key] not in implemented:
+                raise HTTPException(
+                    status_code=422,
+                    detail=_t(
+                        "capability_override_image_unsupported",
+                        model_id=model_id,
+                        endpoint=endpoint,
+                        capability=key,
+                    ),
+                )
         # last_frame 覆盖为 True 时，endpoint 的 delegate.generate() 必须真的会读取
         # end_image 下传尾帧约束——否则覆盖只是让合成层宣称支持，执行层仍静默生成无约束视频。
         if key == "last_frame" and value is True and not resolved_spec.end_image_capable:
@@ -665,6 +770,49 @@ def _check_model_capability_overrides(
         )
 
 
+def _check_model_path_overrides(
+    models: list[ModelInput],
+    specs: Mapping[str, EndpointSpec],
+    _t: Callable[..., str],
+) -> None:
+    """路径覆盖的写入校验：请求名属于当前端点，路径以 ``/`` 开头、占位符在该请求允许的范围内。
+
+    ComfyUI 端点与没有声明请求的端点没有可覆盖的请求，任何覆盖都按请求名不属于端点拒绝。
+    """
+    for m in models:
+        requests = {r.name: r for r in specs[m.endpoint].requests}
+        for name, path in (m.path_overrides or {}).items():
+            request = requests.get(name)
+            if request is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=_t("path_override_unknown_request", model_id=m.model_id, request=name),
+                )
+            if problem := path_problem(request, path):
+                raise HTTPException(
+                    status_code=422,
+                    detail=_t(
+                        problem,
+                        model_id=m.model_id,
+                        path=path,
+                        allowed=", ".join(f"{{{{ {p} }}}}" for p in request.placeholders),
+                    ),
+                )
+
+
+def _drop_rebound_path_overrides(m: ModelInput, stored: CustomProviderModel | None) -> ModelInput:
+    """更换调用端点时丢弃原有路径覆盖（docs/adr/0101）。
+
+    整表 PUT 会把原有覆盖原样回传：换了端点的行，与库里同名同值的条目即原有覆盖，丢弃；换端点后
+    新填的条目保留，交给 :func:`_check_model_path_overrides` 按新端点校验。
+    """
+    if stored is None or stored.endpoint == m.endpoint or not m.path_overrides:
+        return m
+    original = stored.path_overrides or {}
+    kept = {name: path for name, path in m.path_overrides.items() if original.get(name) != path}
+    return m.model_copy(update={"path_overrides": kept or None})
+
+
 def _check_protocol_constraints(
     models: list[ModelInput],
     discovery_format: str,
@@ -696,7 +844,13 @@ def _check_protocol_constraints(
                 else "comfyui_endpoint_requires_comfyui_provider"
             )
             raise HTTPException(status_code=422, detail=_t(key, model_id=m.model_id, endpoint=m.endpoint))
-        if comfyui_provider and m.capability_overrides:
+        if (
+            comfyui_provider
+            and m.capability_overrides
+            and not (
+                spec.kind == COMFYUI_KIND and m.capability_overrides.keys() <= _comfyui_override_keys(spec.media_type)
+            )
+        ):
             raise HTTPException(
                 status_code=422,
                 detail=_t("capability_overrides_not_supported_for_comfyui", model_id=m.model_id),
@@ -849,6 +1003,7 @@ async def create_provider(
         _check_unique_defaults(body.models, specs, _t)
         _check_protocol_constraints(body.models, body.discovery_format, specs, _t)
         _check_model_capability_overrides(body.models, _t, specs)
+        _check_model_path_overrides(body.models, specs, _t)
     repo = CustomProviderRepository(session)
     model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models] if body.models else None
     provider = await repo.create_provider(
@@ -943,14 +1098,17 @@ async def full_update_provider(
     specs = await _resolve_model_endpoint_specs(session, body.models, _t)
     _check_unique_defaults(body.models, specs, _t)
     repo = CustomProviderRepository(session)
+    stored_models = {m.model_id: m for m in await repo.list_models(provider_id)}
+    models = [_drop_rebound_path_overrides(m, stored_models.get(m.model_id)) for m in body.models]
     # 协议是创建时定下、之后不可改的，故读库里这一行而非请求体。取行排在写入之前：协议约束要
     # 先于覆盖校验判定，comfyui 行才拿得到「该协议不支持覆盖」这条专用文案，而不是被通用的
     # 「endpoint 不支持尾帧」抢先拒掉。
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    _check_protocol_constraints(body.models, provider.discovery_format, specs, _t)
-    _check_model_capability_overrides(body.models, _t, specs)
+    _check_protocol_constraints(models, provider.discovery_format, specs, _t)
+    _check_model_capability_overrides(models, _t, specs)
+    _check_model_path_overrides(models, specs, _t)
     kwargs: dict = {
         "display_name": body.display_name,
         "base_url": body.base_url,
@@ -964,10 +1122,9 @@ async def full_update_provider(
     provider = await repo.update_provider(provider_id, **kwargs)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    old_model_ids = {m.model_id for m in await repo.list_models(provider_id)}
-    model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in body.models]
+    model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in models]
     await repo.replace_models(provider_id, model_dicts)
-    await _clear_global_provider_refs(session, provider_id, old_model_ids - {m.model_id for m in body.models})
+    await _clear_global_provider_refs(session, provider_id, stored_models.keys() - {m.model_id for m in models})
     await session.commit()
     await _invalidate_caches(request)
     await session.refresh(provider)
@@ -998,7 +1155,7 @@ async def delete_provider(
     await session.commit()
     await _invalidate_caches(request)
     # 清理引用该 provider 的项目级配置（同步文件 I/O，放到线程池避免阻塞事件循环）
-    await asyncio.to_thread(_cleanup_project_refs, prefix, _PROJECT_BACKEND_KEYS)
+    await run_sync_transaction(_cleanup_project_refs, prefix, _PROJECT_BACKEND_KEYS)
 
 
 # ---------------------------------------------------------------------------

@@ -37,7 +37,6 @@ def test_ark_agent_plan_baseline_models_present() -> None:
         "doubao-seed-2.0-pro",
         "doubao-seed-2.0-code",
         "doubao-seedream-5.0-lite",
-        "doubao-seedance-1.5-pro",
         "doubao-seedance-2.0",
         "doubao-seedance-2.0-fast",
         "doubao-seedance-2.0-mini",

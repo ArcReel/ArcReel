@@ -11,7 +11,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from typing import Any
 
@@ -20,6 +19,7 @@ from fastapi.responses import Response
 
 from lib.agent.agent_memory_store import AgentMemoryStore
 from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import get_project_manager
 from server.auth import CurrentUser, CurrentUserInfo
 
@@ -48,7 +48,7 @@ def _project_store(project_name: str) -> AgentMemoryStore:
 
 async def _run(build_store: Callable[[], AgentMemoryStore], action: Callable[[AgentMemoryStore], Any]) -> Any:
     """在线程里完成建 store 与磁盘操作：项目目录解析与记忆读写都是阻塞 I/O。"""
-    return await asyncio.to_thread(lambda: action(build_store()))
+    return await run_sync_transaction(lambda: action(build_store()))
 
 
 def _text_response(content: bytes) -> Response:

@@ -24,6 +24,8 @@ from typing import Any
 
 import httpx
 
+from lib.backends.transport_layer import TransportLayer, layer_async_client
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.retry import NonRetryableError
 
 #: 解析器：``(host, port)`` → 该主机解析出的地址文本。
@@ -118,17 +120,19 @@ def artifact_http_client(
     *,
     resolver: Resolver = resolve_host,
     resolve_timeout: float = DNS_RESOLVE_TIMEOUT_SECONDS,
+    transport_layer: TransportLayer | None = None,
     **kwargs: Any,
 ) -> httpx.AsyncClient:
     """构造对每次请求（含每一跳重定向）先做目的地校验的 ``httpx.AsyncClient``。
 
+    ``transport_layer`` 叠在校验之上（见 :func:`layer_async_client`），校验的是它改写后的请求。
     其余关键字参数原样交给 ``httpx.AsyncClient``。
     """
 
     async def guard(request: httpx.Request) -> None:
         await check_destination(request.url, resolver=resolver, resolve_timeout=resolve_timeout)
 
-    return httpx.AsyncClient(event_hooks={"request": [guard]}, **kwargs)
+    return layer_async_client(httpx.AsyncClient(event_hooks={"request": [guard]}, **kwargs), transport_layer)
 
 
 def _declared_length(response: httpx.Response) -> int | None:
@@ -167,8 +171,9 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
     """把流式响应的响应体写入 ``output_path``，超过 ``max_bytes`` 即中止。
 
     先写同目录 ``.part``、成功后原子改名；任何失败（含超限与取消）都删掉 ``.part``，产物路径上
-    不会留下截断的文件。攒够 8 MiB 再一次 ``to_thread`` 落盘：既不为每个分片调度一次线程池任务，
-    也不把整段产物留在内存里。
+    不会留下截断的文件。攒够 8 MiB 再一次放进线程落盘：既不为每个分片调度一次线程池任务，
+    也不把整段产物留在内存里。写入与改名走 ``run_sync_transaction``：取消时等线程写完再传出，
+    下方 ``.part`` 清理与调用方对产物路径的清理不会与仍在运行的线程交错。
     """
     chunks = _capped_chunks(response, max_bytes)
     # 先取首块：声明超限在此抛出，不建 .part
@@ -176,7 +181,7 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
     await asyncio.to_thread(output_path.parent.mkdir, parents=True, exist_ok=True)
     partial_path = output_path.with_name(f"{output_path.name}.part")
     try:
-        with open(partial_path, "wb") as handle:  # noqa: ASYNC230 -- 只在此取句柄，实际写入均由下方 to_thread 卸载
+        with open(partial_path, "wb") as handle:  # noqa: ASYNC230 -- 只在此取句柄，实际写入均卸载到下方线程
             buffered: list[bytes] = [first]
             buffered_bytes = len(first)
 
@@ -187,7 +192,7 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
                 payload = b"".join(buffered)
                 buffered = []
                 buffered_bytes = 0
-                await asyncio.to_thread(handle.write, payload)
+                await run_sync_transaction(handle.write, payload)
 
             async for chunk in chunks:
                 buffered.append(chunk)
@@ -195,7 +200,7 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
                 if buffered_bytes >= _WRITE_BUFFER_BYTES:
                     await flush()
             await flush()
-        await asyncio.to_thread(os.replace, partial_path, output_path)
+        await run_sync_transaction(os.replace, partial_path, output_path)
     except BaseException:
         await asyncio.to_thread(partial_path.unlink, True)
         raise

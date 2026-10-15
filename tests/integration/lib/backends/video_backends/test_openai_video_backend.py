@@ -36,7 +36,7 @@ async def test_generated_video_lands_as_faststart(tmp_path: Path):
     with captured_openai_clients(client), bounded_poll_clock():
         from lib.backends.video_backends.openai import OpenAIVideoBackend
 
-        await OpenAIVideoBackend(api_key="test-key").generate(
+        await OpenAIVideoBackend(api_key="test-key", model="sora-2").generate(
             VideoGenerationRequest(prompt="A cat", output_path=output, duration_seconds=8)
         )
 

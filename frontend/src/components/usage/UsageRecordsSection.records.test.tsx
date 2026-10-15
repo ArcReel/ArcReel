@@ -89,6 +89,29 @@ describe("UsageRecordsSection records", () => {
     expect(cells.getByText(/3\.60/)).toBeInTheDocument();
   });
 
+  it("tells an unpriced call (null cost) from a free one (0) in the cost column", async () => {
+    recordsPage = {
+      items: [
+        makeUsageRecord({ id: 1, segment_id: "E1S01", cost_amount: null, unpriced_reason: "missing_rate" }),
+        makeUsageRecord({ id: 2, segment_id: "E1S02", cost_amount: 0 }),
+        makeUsageRecord({ id: 3, segment_id: "E1S03", cost_amount: 0.5 }),
+      ],
+      next_cursor: null,
+      total: 3,
+    };
+    renderUsageRecordsSection();
+
+    const rowOf = async (segment: string) =>
+      within((await screen.findByText(segment)).closest("tr") as HTMLTableRowElement);
+    const unpriced = await rowOf("S01");
+    const free = await rowOf("S02");
+    const paid = await rowOf("S03");
+    expect(unpriced.getByText("未定价")).toBeInTheDocument();
+    expect(free.queryByText("未定价")).not.toBeInTheDocument();
+    expect(free.getByText("$0.00")).toBeInTheDocument();
+    expect(paid.getByText("$0.50")).toBeInTheDocument();
+  });
+
   it("keeps the raw failure message out of the row when there is no phrase for it", async () => {
     recordsPage = {
       items: [

@@ -27,11 +27,11 @@ from typing import Any, Literal
 
 from pydantic import ValidationError
 
-from lib.project.asset_derivatives import ensure_derivative_table
+from lib.project.asset_derivatives import derivative_table, ensure_derivative_table, find_derivative_name
 from lib.project.asset_types import (
     ASSET_SPECS,
-    DERIVATIVES_FIELD,
     asset_name_comparison_key,
+    asset_name_namespace_key,
     build_asset_entry,
     ensure_project_asset_name_available,
     record_asset_aliases,
@@ -201,8 +201,11 @@ class NewAssetResolution:
             if not isinstance(entry, dict):
                 raise ValueError(f"衍生「{derivative}」的本体角色「{base}」不存在")
             table = ensure_derivative_table(entry)
-            if resolve_asset_key(table, derivative) is None:
+            existing = find_derivative_name(table, derivative)
+            if existing is None:
                 table[derivative] = {"description": description, ASSET_SPECS["character"].sheet_field: ""}
+            elif asset_name_comparison_key(existing) != asset_name_comparison_key(derivative):
+                raise ValueError(f"衍生名「{derivative}」与「{base}」已有的衍生「{existing}」重名")
 
 
 def _remap_mention(outcome: _Outcome | None, speaker: bool) -> str | None:
@@ -245,14 +248,23 @@ def _registered_names(project: Mapping[str, Any]) -> tuple[dict[str, dict[str, s
     return registered, owners
 
 
-def _derivative_names(project: Mapping[str, Any], base: str) -> dict[str, str]:
+def _namespace_names(project: Mapping[str, Any]) -> dict[str, tuple[str, str]]:
+    """``判重键→(类型, 登记名)``：新登记的名字与已有资产只差大小写也算重名，与
+    :func:`ensure_project_asset_name_available` 同口径。"""
+    names: dict[str, tuple[str, str]] = {}
+    for asset_type, spec in ASSET_SPECS.items():
+        bucket = project.get(spec.bucket_key)
+        if not isinstance(bucket, Mapping):
+            continue
+        for name in bucket:
+            names.setdefault(asset_name_namespace_key(str(name)), (asset_type, str(name)))
+    return names
+
+
+def _derivatives_of(project: Mapping[str, Any], base: str) -> dict[str, Any]:
     characters = project.get(ASSET_SPECS["character"].bucket_key)
     key = resolve_asset_key(characters, base) if isinstance(characters, dict) else None
-    entry = characters.get(key) if isinstance(characters, dict) and key is not None else None
-    table = entry.get(DERIVATIVES_FIELD) if isinstance(entry, Mapping) else None
-    if not isinstance(table, Mapping):
-        return {}
-    return {asset_name_comparison_key(str(name)): str(name) for name in table}
+    return derivative_table(characters.get(key) if isinstance(characters, dict) and key is not None else None)
 
 
 class _Resolver:
@@ -260,6 +272,9 @@ class _Resolver:
         self.project = project
         parsed, self.problems = _parse_items(raw_items)
         self.registered, self.owners = _registered_names(project)
+        self.namespace = _namespace_names(project)
+        #: 判重键 → 本次已登记的 (类型, 登记名)；两项新增的登记名只差大小写时后一项落不了地。
+        self.claimed: dict[str, tuple[str, str]] = {}
         #: (类型, 称呼判等键) → (下标, 新增项)；同类同名只留第一项。
         self.items: dict[tuple[str, str], tuple[int, PlanNewAsset]] = {}
         item_types: dict[str, str] = {}
@@ -290,6 +305,8 @@ class _Resolver:
         self.registrations: dict[str, dict[str, _Registration]] = {asset_type: {} for asset_type in _TYPES}
         self.aliases: list[tuple[str, str, str]] = []
         self.derivatives: list[tuple[str, str, str]] = []
+        #: 本体 → 本次新登记的衍生名（值不用）；同一本体下两项新增衍生只差大小写时后一项落不了地。
+        self.claimed_derivatives: dict[str, dict[str, None]] = {}
         self.auto_merged: list[tuple[str, str, str]] = []
         self.outcomes: dict[tuple[str, str], _Outcome] = {}
         self._assets: dict[tuple[str, str], str | None] = {}
@@ -366,9 +383,18 @@ class _Resolver:
         if registered is not None:
             self._auto_merge(asset_type, item, registered)
             return registered
-        owner = self.owners.get(final_key)
-        if owner is not None:
-            self._problem("new_asset_name_taken", index, f"登记名「{final}」已是{_label(owner)}的名字")
+        namespace_key = asset_name_namespace_key(final)
+        taken = self.namespace.get(namespace_key)
+        if taken is not None:
+            owner, existing = taken
+            self._problem("new_asset_name_taken", index, f"登记名「{final}」与已有{_label(owner)}「{existing}」重名")
+            return None
+        claimed = self.claimed.setdefault(namespace_key, (asset_type, final))
+        if claimed != (asset_type, final):
+            owner, existing = claimed
+            self._problem(
+                "new_asset_name_taken", index, f"登记名「{final}」与本集新增的{_label(owner)}「{existing}」重名"
+            )
             return None
         registrations = self.registrations[asset_type]
         registration = registrations.get(final)
@@ -407,9 +433,20 @@ class _Resolver:
             )
             return
         derivative = validate_asset_name(item.asset_name or item.name)
-        existing = _derivative_names(self.project, base).get(asset_name_comparison_key(derivative))
+        existing = find_derivative_name(_derivatives_of(self.project, base), derivative)
+        owner = "已有的"
         if existing is None:
-            self.derivatives.append((base, derivative, item.description))
+            owner = "本集新增的"
+            claimed = self.claimed_derivatives.setdefault(base, {})
+            existing = find_derivative_name(claimed, derivative)
+            if existing is None:
+                claimed[derivative] = None
+                self.derivatives.append((base, derivative, item.description))
+        if existing is not None and asset_name_comparison_key(existing) != asset_name_comparison_key(derivative):
+            self._problem(
+                "new_asset_name_taken", index, f"衍生名「{derivative}」与「{base}」{owner}衍生「{existing}」重名"
+            )
+            return
         self.outcomes[("character", key)] = _Outcome("derivative", base, existing or derivative)
 
 

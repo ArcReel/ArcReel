@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
@@ -10,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Request
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.infra.api_errors import NotFoundError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import get_project_manager
 from lib.script.reference_video import find_reference_unit
 from server.i18n import Translator
@@ -53,7 +53,7 @@ async def get_cost_estimate(
 
         return project_data, scripts, pm.get_project_path(project_name)
 
-    project_data, scripts, project_path = await asyncio.to_thread(_sync)
+    project_data, scripts, project_path = await run_sync_transaction(_sync)
 
     resolver = ConfigResolver(async_session_factory)
     service = CostEstimationService(

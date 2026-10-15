@@ -113,16 +113,6 @@ class TestPerImageOpenAIToken:
                 "text_out": 0.0,
             }
         },
-        fallback_rates={
-            "gpt-image-2": {
-                ("low", "1024x1024"): 0.006,
-                ("medium", "1024x1024"): 0.053,
-                ("medium", "1024x1792"): 0.106,
-                ("high", "1024x1024"): 0.211,
-                ("high", "1024x1792"): 0.317,
-                ("high", "1792x1024"): 0.317,
-            }
-        },
         default_model="gpt-image-2",
         currency="USD",
     )
@@ -156,51 +146,12 @@ class TestPerImageOpenAIToken:
         )
         assert amount == pytest.approx(0.0)
 
-    def test_fallback_no_size_defaults_to_1024_square(self):
-        # size=None, resolution=None, aspect_ratio=None → 不反查 → 1024x1024
+    def test_without_usage_no_size_quality_fallback(self):
+        # 没有 usage 时不按尺寸与质量兜底（兜底表已删除），按 0 token 计。
         amount, _ = calculate_pricing(
-            self.pricing, PricingParams(call_type="image", model="gpt-image-2", quality="medium")
+            self.pricing, PricingParams(call_type="image", model="gpt-image-2", quality="medium", size="1024x1024")
         )
-        assert amount == pytest.approx(0.053)
-
-    def test_fallback_no_size_falls_to_default_square(self):
-        # 计费与输出尺寸解耦（adr 0011）：size 反查已删，即便有 resolution+aspect_ratio，
-        # 无显式 size 也落默认 1024x1024 档（接受兜底丧失按尺寸区分成本；主路径走 token 不受影响）
-        amount, _ = calculate_pricing(
-            self.pricing,
-            PricingParams(call_type="image", model="gpt-image-2", quality="high", resolution="1K", aspect_ratio="9:16"),
-        )
-        assert amount == pytest.approx(0.211)  # ("high","1024x1024")，非旧反查的 0.317
-
-    def test_fallback_explicit_size_overrides(self):
-        amount, _ = calculate_pricing(
-            self.pricing,
-            PricingParams(
-                call_type="image",
-                model="gpt-image-2",
-                quality="medium",
-                resolution="1K",
-                aspect_ratio="1:1",
-                size="1024x1792",
-            ),
-        )
-        assert amount == pytest.approx(0.106)
-
-    def test_fallback_unknown_quality_size_three_level(self):
-        # (quality, size) 与 (quality, 1024x1024) 都缺 → ("medium","1024x1024") 0.053
-        amount, _ = calculate_pricing(
-            self.pricing,
-            PricingParams(call_type="image", model="gpt-image-2", quality="ultra", size="9999x9999"),
-        )
-        assert amount == pytest.approx(0.053)
-
-    def test_fallback_n_images(self):
-        # 兜底路径同样按 n 缩放（与 token 路径无关）
-        amount, _ = calculate_pricing(
-            self.pricing,
-            PricingParams(call_type="image", model="gpt-image-2", quality="medium", n=2),
-        )
-        assert amount == pytest.approx(0.053 * 2)
+        assert amount == pytest.approx(0.0)
 
 
 class TestPerSecondMatrix:
@@ -294,9 +245,9 @@ class TestPerSecondMatrix:
         )
         assert amount == pytest.approx(0.50)
 
-    def test_duration_defaults_to_8(self):
-        amount, _ = calculate_pricing(self.flat, PricingParams(call_type="video", model="grok"))
-        assert amount == pytest.approx(0.40)
+    def test_missing_duration_is_not_guessed(self):
+        with pytest.raises(ValueError, match="缺少时长"):
+            calculate_pricing(self.flat, PricingParams(call_type="video", model="grok"))
 
     def test_resolution_audio_zero_fallback_rate_not_treated_as_missing(self):
         # free 模型 (720p,True) 显式 0.0，未知分辨率回落 fallback 时应保留自身 0.0，不误用 paid 费率。
@@ -401,9 +352,9 @@ class TestPerVideoBucket:
         )
         assert amount == pytest.approx(2.0)
 
-    def test_none_duration_defaults_to_min_bucket(self):
-        amount, _ = calculate_pricing(self.pricing, PricingParams(call_type="video", model="hailuo", resolution="768p"))
-        assert amount == pytest.approx(2.0)
+    def test_missing_duration_is_not_guessed(self):
+        with pytest.raises(ValueError, match="缺少时长"):
+            calculate_pricing(self.pricing, PricingParams(call_type="video", model="hailuo", resolution="768p"))
 
 
 class TestPerTokenVideo:
@@ -451,23 +402,18 @@ class TestPerTokenVideo:
 
 
 class TestViduDelegate:
-    def test_credits_path(self):
+    def test_image_credits_path(self):
         # usage_tokens (credits) 给定 → credits × 0.03125 CNY
         amount, currency = calculate_pricing(
             ViduDelegate(),
-            PricingParams(call_type="video", model="viduq3-turbo", usage_tokens=100),
+            PricingParams(call_type="image", model="viduq2", usage_tokens=8),
         )
         assert currency == "CNY"
-        assert amount == pytest.approx(100 * 0.03125)
+        assert amount == pytest.approx(8 * 0.03125)
 
-    def test_fallback_passes_original_model(self):
-        # 无 credits → 按表估算，model 透传（viduq3-turbo 720p = 12 credits/s）
-        amount, currency = calculate_pricing(
-            ViduDelegate(),
-            PricingParams(call_type="video", model="viduq3-turbo", resolution="720p", duration_seconds=5),
-        )
-        assert currency == "CNY"
-        assert amount == pytest.approx(5 * 12 * 0.03125)
+    def test_video_is_no_longer_delegated_to_credits(self):
+        with pytest.raises(ValueError, match="价目表"):
+            calculate_pricing(ViduDelegate(), PricingParams(call_type="video", model="viduq3-turbo", usage_tokens=100))
 
 
 class TestPerSecondTiered:
@@ -550,12 +496,12 @@ class TestPerSecondTiered:
         )
         assert amount == pytest.approx(1.0 * 5)
 
-    def test_none_duration_defaults_to_eight_seconds(self):
-        amount, _ = calculate_pricing(
-            self.pricing,
-            PricingParams(call_type="video", model="kling-v2-5-turbo", service_tier="std", generate_audio=False),
-        )
-        assert amount == pytest.approx(0.6 * 8)
+    def test_missing_duration_is_not_guessed(self):
+        with pytest.raises(ValueError, match="缺少时长"):
+            calculate_pricing(
+                self.pricing,
+                PricingParams(call_type="video", model="kling-v2-5-turbo", service_tier="std", generate_audio=False),
+            )
 
 
 class TestKlingRegistryPricingReachability:

@@ -22,10 +22,12 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import domain_error_on_value_error
 from lib.infra.path_safety import safe_exists, safe_join
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, DerivativeSheetSource, resolve_derivative_sheet_source
@@ -144,7 +146,7 @@ async def generate_storyboard(
             raise ConflictError("script_prompt_pending", segment_id=segment_id)
         require_admitted_storyboard_references(project, [resolved[0]])
 
-    await asyncio.to_thread(_sync)
+    await run_sync_transaction(_sync)
 
     # 结构校验 + 构造经单一守卫点（与 SDK 入队同源，规则不分叉）；
     # 校验失败抛 TaskSpecValidationError，由 app 级 handler 映射为 400
@@ -246,7 +248,7 @@ async def generate_video(
             raise BadRequestError("invalid_storyboard_image_path", segment_id=segment_id) from None
         return project
 
-    project = await asyncio.to_thread(_sync)
+    project = await run_sync_transaction(_sync)
 
     # 归桶按项目生成模式求值（docs/adr/0054），与执行层 lane 声明同源、不第二次硬编码 i2v；
     # 上面的生成模式检查已挡掉参考生视频，此处对能到达的项目恒为 i2v。解析闸预检让能力缺失 /
@@ -304,6 +306,9 @@ async def _require_audio_provider_configured(project: dict) -> str:
 
     try:
         resolved = await ConfigResolver(async_session_factory).resolve_audio_backend(project, None)
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
     except ValueError as exc:
         raise BadRequestError("audio_provider_not_configured") from exc
     return resolved.provider_id
@@ -377,7 +382,7 @@ async def generate_tts(
             raise BadRequestError("tts_not_applicable", segment_id=segment_id)
         return _project, item
 
-    project, _segment = await asyncio.to_thread(_sync)
+    project, _segment = await run_sync_transaction(_sync)
 
     provider_id = _require_project_tts(project)
 
@@ -429,7 +434,7 @@ async def generate_tts_batch(
                 missing.append(str(seg_id))
         return _project, missing
 
-    project, missing_ids = await asyncio.to_thread(_sync)
+    project, missing_ids = await run_sync_transaction(_sync)
     provider_id = _require_project_tts(project)
 
     if not missing_ids:
@@ -654,7 +659,7 @@ async def confirm_character_voice_sample(
 
         return {"path": ref_audio_rel}
 
-    saved = await asyncio.to_thread(_sync)
+    saved = await run_sync_transaction(_sync)
     return {
         "success": True,
         "path": saved["path"],
@@ -863,6 +868,9 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
         resolved = await ConfigResolver(async_session_factory).resolve_image_backend(
             project, None, generation_type="i2i"
         )
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
     except ValueError as exc:
         raise BadRequestError("image_edit_i2i_unavailable") from exc
     return resolved.provider_id
@@ -918,7 +926,7 @@ async def edit_image(
             raise BadRequestError("image_edit_no_current_image", id=req.resource_id)
         return project
 
-    project = await asyncio.to_thread(_sync)
+    project = await run_sync_transaction(_sync)
 
     provider_id = await _require_i2i_image_provider_configured(project)
 

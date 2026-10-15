@@ -14,6 +14,7 @@
 - **前端页面级套件（`frontend/e2e/`）变更、改动布局或滚动相关的组件、改变调用的接口集合或流连接（含 SSE）的建立时机**：在 `frontend/` 运行 `pnpm e2e`。页面级套件只回放录制替身与场景 `api` 覆盖，未录制的请求直接失败；本机渲染与 CI 不一致时以容器内结果为准，运行方式见 `CONTRIBUTING.md`「前端页面级测试」。改动后端接口的响应形状时，同时运行 `pnpm e2e:record` 重录接口替身。
 - **需要前端完整测试（`pnpm check`）的改动**：`package.json`、`pnpm-lock.yaml`、`vitest.config.*`、测试 setup、i18n 或 branding。
 - **子包 `packages/arcreel-market-core/` 源码变更**：运行子包全部测试（`cd packages/arcreel-market-core && uv run python -m pytest`，子包自带 pytest 配置，与主仓分开收集），并按主仓的导入方选择相关测试；子包的消息键增删时同时运行 `tests/unit/lib/i18n/`。
+- **子包 `packages/arcreel-catalog-core/` 源码变更**：运行子包全部测试（`cd packages/arcreel-catalog-core && uv run python -m pytest`），并按主仓的导入方选择相关测试。
 
 ## 在 worktree 里运行
 
@@ -21,6 +22,6 @@ worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文�
 
 ## 事件循环阻塞护栏
 
-根 conftest 加载 `tests/blocking_guard`：同步与异步用例全程记录 lib/server 代码在事件循环线程上的阻塞调用（含同步 `TestClient` 背后的应用线程），用例结束时豁免清单外的违规让该用例失败，失败信息给出条目和调用栈。条目是离阻塞点最近的 lib/server async 函数（`<文件>::<限定名>`），阻塞发生在 `tests/` 下的替身里也一样：换成生产依赖后，同一位置同样会阻塞事件循环。替身误报时，按生产实现的线程契约修替身：能用内存实现的就改成内存实现；替身的职责本身就要落盘的（后端写产物、模拟并发写方、调用会写正式文件的生产回调），把这段 I/O 放进 `asyncio.to_thread`。外层没有 lib/server async 函数的阻塞（测试函数直接调用同步 lib 代码）不计。
+根 conftest 加载 `tests/blocking_guard`：同步与异步用例全程记录 lib/server 代码在事件循环线程上的阻塞调用（含同步 `TestClient` 背后的应用线程），用例结束时豁免清单外的违规让该用例失败，失败信息给出条目和调用栈。调用栈由内向外列出 lib/server/tests 帧，前面按真实调用顺序附上阻塞点到第一个仓库帧之间最内层的几条非仓库帧（标准库与第三方包，路径取包内相对形式，超出的注明省略条数），用来分辨业务代码 `await` 处被调起的非仓库代码里是谁在阻塞。条目是离阻塞点最近的 lib/server async 函数（`<文件>::<限定名>`），阻塞发生在 `tests/` 下的替身里也一样：换成生产依赖后，同一位置同样会阻塞事件循环。替身误报时，按生产实现的线程契约修替身：能用内存实现的就改成内存实现；替身的职责本身就要落盘的（后端写产物、模拟并发写方、调用会写正式文件的生产回调），把这段 I/O 放进 `asyncio.to_thread`。外层没有 lib/server async 函数的阻塞（测试函数直接调用同步 lib 代码）不计。
 
 - `tests/blocking_guard/exemptions.toml` 是永久豁免，只收应用启动与关停路径上的一次性阻塞，每条写明理由。除此之外没有豁免途径，新增的阻塞调用一律修掉。完整运行时，本次未触发的豁免条目会让会话失败：启动与关停路径改了，就同步删掉对应条目。每条豁免都必须由 `tests/unit` 下的用例触发：CI 的 unit job 按路径只跑 `tests/unit`，带 `--blocking-guard-expect-all-exemptions` 后同样做这项检查，未触发的条目报为过期；integration job 不带。

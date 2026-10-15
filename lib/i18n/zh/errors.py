@@ -302,11 +302,11 @@ MESSAGES = {
     "interface_offline": "该接口已下线，请使用推荐的接口",
     "answers_required": "answers 不能为空",
     # Custom Providers
-    "price_input_required": "设置 price_output 时必须同时设置 price_input",
     "model_id_required": "已启用的模型必须填写 model_id",
     "duplicate_model_id": "model_id 重复: {model_id}",
     "default_model_conflict": "每个 media_type 最多只能有一个默认模型，冲突: {conflict}",
     "provider_not_found": "供应商不存在",
+    "provider_multiplier_not_in_config": "供应商倍率不能经配置接口修改，请用倍率设置接口",
     "custom_endpoint_not_found": "调用端点不存在",
     "custom_endpoint_definition_invalid": "调用端点定义未通过校验，请按诊断逐条修正后重试",
     "custom_endpoint_referenced_by_models": "该调用端点已被 {count} 个模型使用，解除引用后才能删除",
@@ -351,6 +351,7 @@ MESSAGES = {
     "trial_run_already_running": "已有一个测试连接在进行中，请等它结束或取消后再试",
     "trial_run_not_found": "测试连接记录不存在或已过期",
     "usage_record_not_found": "使用记录不存在",
+    "usage_session_not_found": "Agent 会话不存在",
     "usage_cursor_invalid": "分页游标无效，请回到第一页重新翻阅",
     "usage_range_too_wide": "统计时间范围过大，请缩小起止时刻后重试",
     "usage_time_out_of_range": "起止时刻超出可表示的时间范围，请检查后重试",
@@ -387,7 +388,12 @@ MESSAGES = {
     "capability_overrides_not_supported_for_comfyui": (
         "模型 {model_id} 挂的是 ComfyUI 端点，能力只从节点绑定推导，不支持能力覆盖"
     ),
-    "capability_overrides_video_only": "模型 {model_id} 的 endpoint {endpoint} 不是视频类，不支持能力覆盖",
+    "capability_override_not_applicable": (
+        "模型 {model_id} 的 endpoint {endpoint} 是 {media_type} 类，能力项 {capability} 不适用"
+    ),
+    "capability_override_image_unsupported": (
+        "模型 {model_id} 的 endpoint {endpoint} 没有实现 {capability}，无法把它覆盖为开启"
+    ),
     "capability_override_invalid_value": "模型 {model_id} 的能力项 {capability} 取值类型不正确，应为 {expected}",
     "capability_override_last_frame_unsupported": "模型 {model_id} 的 endpoint {endpoint} 不支持尾帧生成，无法覆盖 last_frame 为开启",
     "capability_override_reference_audio_unsupported": (
@@ -397,6 +403,9 @@ MESSAGES = {
         "模型 {model_id} 支持参考音频时 max_reference_audio_count 必须大于 0；"
         "如需关闭音色参考，请把 reference_audio_mode 覆盖为 none"
     ),
+    "path_override_unknown_request": "模型 {model_id} 的调用端点没有可修改地址的请求 {request}",
+    "path_override_invalid_path": "模型 {model_id} 的请求地址 {path} 不合法：路径须以 / 开头，不含空白和 #，花括号只能用于占位符",
+    "path_override_placeholder_not_allowed": "模型 {model_id} 的请求地址 {path} 用了这条请求没有的占位符，可用的只有 {allowed}",
     # Projects
     "unknown_style_template": "未知的风格模版: {template_id}",
     "ad_only_field": "{field} 仅广告/短片项目（content_mode=ad）可用",
@@ -576,11 +585,10 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} 不支持图生视频；请在设置中为「图生视频」单独指定支持该用途的模型，或更换默认视频模型",
     "video_capability_missing_r2v": "{provider}/{model} 不支持参考生视频；请在设置中为「参考生视频」单独指定支持该用途的模型，或更换默认视频模型",
     "video_capability_reference_unavailable": "配置的视频模型 {provider}/{model} 已不可用（模型被删除、能力已变更或供应商被移除）；请在设置中重新选择视频模型",
+    "model_not_in_provider_catalog": "{provider}/{model}：该模型不在供应商的模型清单中；请在设置中重新选择模型",
     "video_resolution_not_supported": "模型 {model} 不支持 {resolution} 分辨率（仅支持 {supported}）；请选择支持的分辨率",
     "video_aspect_ratio_not_supported": "模型 {model} 不支持 {aspect_ratio} 比例（仅支持 {supported}）；请选择支持的比例",
-    "video_resolution_duration_unsupported": "模型 {model} 在 {resolution} 分辨率下不支持 {duration}s（仅支持 {supported}）；请调整分辨率或时长",
     "video_reference_resolution_unsupported": "模型 {model} 使用参考图或尾帧时最高支持 {max_resolution}，当前为 {resolution}；请把分辨率改为 {max_resolution}，或移除参考图与尾帧",
-    "video_reference_images_duration_unsupported": "模型 {model} 使用参考图时不支持 {duration}s（仅支持 {supported}）；请把时长改为 {supported}，或移除参考图",
     "video_reference_images_required": "模型 {model} 需要至少一张参考图；请提供参考图",
     "video_reference_images_unreadable": "模型 {model} 有参考图缺失或无法读取，已中止生成：{names}；请检查参考图路径",
     "video_reference_images_unsupported": "模型 {model} 不支持多图主体参考；请移除参考图，或换一个支持参考生视频的模型",
@@ -609,6 +617,7 @@ MESSAGES = {
     "agent_base_url_invalid": "Agent 凭证地址不支持查询参数、锚点或用户名密码，请填写形如 https://host/path 的地址",
     "agent_no_fields_to_update": "没有需要更新的字段",
     "agent_credential_not_found": "凭证不存在",
+    "agent_tier_binding_invalid": "档位绑定的模型不在模型目录中",
     "agent_cannot_delete_active": "无法删除当前生效凭证，请先切换到其他凭证",
     "agent_test_validation_error": "测试连接失败，请检查配置后重试",
     "invalid_project_name": "项目名称 '{name}' 非法",

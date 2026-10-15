@@ -38,7 +38,9 @@ export interface UsageRecordView {
   startedAt: string;
   finishedAt: string | null;
   durationMs: number | null;
-  costAmount: number;
+  /** null 表示未定价；0 是定价为零。 */
+  costAmount: number | null;
+  unpricedReason: string | null;
   currency: string;
 }
 
@@ -62,6 +64,7 @@ export function usageRecordToView(record: UsageRecord): UsageRecordView {
     finishedAt: record.finished_at,
     durationMs: record.duration_ms,
     costAmount: record.cost_amount,
+    unpricedReason: record.unpriced_reason,
     currency: record.currency,
   };
 }
@@ -138,6 +141,7 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView | null {
     finishedAt: null,
     durationMs: null,
     costAmount: 0,
+    unpricedReason: null,
     currency: "USD",
   };
 }

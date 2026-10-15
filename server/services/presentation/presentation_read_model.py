@@ -17,6 +17,7 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
 from lib.generation.generation_admission import generation_admission_lock
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.infra.path_safety import safe_join
 from lib.project.project_manager import ProjectManager
@@ -215,7 +216,7 @@ class PresentationReadModelService:
             script = episode_snapshot.script
         else:
             script_file = self._current_episode_script(project, selected_video.target.episode)
-            script = await asyncio.to_thread(self._project_manager.load_script, project_name, script_file)
+            script = await run_sync_transaction(self._project_manager.load_script, project_name, script_file)
         item, kind = self._find_item(script, resource_id)
         admission = admit_script_unit(kind, item)
         if not admission.allowed or admission.mode is None:
@@ -296,7 +297,7 @@ class PresentationReadModelService:
             presentation_artifact_path=None,
         )
         if presentation.selection == "current":
-            result = await asyncio.to_thread(
+            result = await run_sync_transaction(
                 self._persist_current,
                 project_name=project_name,
                 project_path=project_path,
@@ -719,7 +720,7 @@ class PresentationReadModelService:
                 continue
             script_file = ProjectManager.normalize_script_filename(raw_script_file)
             try:
-                script = await asyncio.to_thread(self._project_manager.load_script, project_name, script_file)
+                script = await run_sync_transaction(self._project_manager.load_script, project_name, script_file)
             except FileNotFoundError:
                 # 分集规划阶段已写入 script_file 但剧本尚未生成，属于正常状态，跳过该集。
                 continue

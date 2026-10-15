@@ -30,8 +30,8 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.config.resolver import ConfigResolver
-from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
 from lib.generation.generation_batch import GenerationBatchReadModel, build_generation_batch_admission
 from lib.generation.generation_queue import GenerationQueue
@@ -68,7 +68,12 @@ from lib.script.storyboard_sequence import (
     build_storyboard_dependency_plan,
     get_storyboard_items,
 )
-from server.services.admission.cost_estimation import ImageLane, quote_video_request_from_price
+from server.services.admission.cost_estimation import (
+    BatchCostEstimate,
+    ImageLane,
+    load_video_price_source,
+    quote_video_request_from_price,
+)
 from server.services.admission.reference_admission import reference_admission_problems
 from server.services.admission.video_batch_admission import (
     admit_storyboard_video_request,
@@ -443,6 +448,8 @@ class StoryboardVideoBatchPlan:
     video_request_facts: VideoRequestFacts | VideoRequestFactsFailure | None
     #: 每个目标剧本上的计划秒数；不是正整数时为 ``None``，这一批就报不出价。
     durations: Mapping[str, int | None] = field(default_factory=dict)
+    #: 视频请求发出的画面比例，与生成任务同一个解析。
+    video_aspect_ratio: str = "16:9"
 
     @property
     def target_ids(self) -> list[str]:
@@ -591,30 +598,50 @@ async def load_storyboard_video_batch_plan(
         admission=admission,
         video_request_facts=facts,
         durations=durations,
+        video_aspect_ratio=resolve_video_aspect_ratio(loaded.project),
     )
 
 
 async def estimate_storyboard_video_batch_cost(
     plan: StoryboardVideoBatchPlan, session_factory: async_sessionmaker[AsyncSession]
-) -> dict[str, float] | None:
-    """这一批视频按剧本计划秒数的预估费用；请求事实不成立或有目标缺秒数时返回 ``None``（算不出）。"""
+) -> BatchCostEstimate:
+    """这一批视频按剧本计划秒数的预估费用：合计已定价的部分，并数出未定价的目标数。
+
+    请求事实不成立、目标没写计划秒数、读库失败或价目表算不出价的目标，都计入未定价。
+    """
 
     facts = plan.video_request_facts
     if not plan.specs:
-        return {}
-    if not isinstance(facts, VideoRequestFacts) or any(value is None for value in plan.durations.values()):
-        return None
+        return BatchCostEstimate(total={}, unpriced_count=0)
+    durations = list(plan.durations.values())
+    if not isinstance(facts, VideoRequestFacts):
+        return BatchCostEstimate(total={}, unpriced_count=len(durations))
     try:
         async with session_factory() as session:
-            price = await CustomProviderRepository(session).resolve_price(facts.provider_id, facts.model_id)
-        total: dict[str, float] = {}
-        for duration in plan.durations.values():
-            assert duration is not None
-            quote = quote_video_request_from_price(VideoRequestCostFacts(facts, duration), price)
-            total[quote.currency] = round(total.get(quote.currency, 0.0) + quote.amount, 6)
-    except (SQLAlchemyError, ValueError):
-        return None
-    return {currency: amount for currency, amount in total.items() if amount > 0}
+            source = await load_video_price_source(session, facts.provider_id, facts.model_id)
+    except SQLAlchemyError:
+        return BatchCostEstimate(total={}, unpriced_count=len(durations))
+    total: dict[str, float] = {}
+    unpriced = 0
+    for duration in durations:
+        if duration is None:
+            unpriced += 1
+            continue
+        try:
+            quote = quote_video_request_from_price(
+                VideoRequestCostFacts(facts, duration, aspect_ratio=plan.video_aspect_ratio, has_first_frame=True),
+                source,
+            )
+        except ValueError:
+            unpriced += 1
+            continue
+        if quote.amount is None or quote.currency is None:
+            unpriced += 1
+            continue
+        total[quote.currency] = round(total.get(quote.currency, 0.0) + quote.amount, 6)
+    return BatchCostEstimate(
+        total={currency: amount for currency, amount in total.items() if amount > 0}, unpriced_count=unpriced
+    )
 
 
 async def submit_storyboard_video_batch(

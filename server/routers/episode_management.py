@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable
 from typing import Annotated, Any
@@ -16,6 +15,7 @@ from lib.episode.episode_source_commands import EpisodeSourceError
 from lib.episode.source_kinds import SourceKind
 from lib.generation.generation_queue import get_generation_queue
 from lib.infra.api_errors import ApiError, NotFoundError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import ProjectManager, get_project_manager
 from server.dependencies import require_project_migration_ok
@@ -66,7 +66,7 @@ async def _run[T](name: str, _t: Translator, action: Callable[[ProjectManager], 
             return action(manager)
 
     try:
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except EpisodeManagementError as exc:
         raise HTTPException(status_code=_STATUS.get(exc.code, 409), detail=_t(f"episode_manage_{exc.code}")) from exc
     except EpisodeSourceError as exc:

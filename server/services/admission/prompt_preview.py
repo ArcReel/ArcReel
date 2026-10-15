@@ -26,6 +26,7 @@ from lib.artifacts.generation_input import (
     project_input_observation,
     storyboard_image_input,
 )
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.prompts.prompt_utils import render_storyboard_video_prompt
 from lib.script.script_models import resolve_content_mode
@@ -141,7 +142,7 @@ async def preview_item_prompts(
             raise ScriptItemNotFound(item_id)
         return project, project_path, script, resolved[0], resolve_content_mode(script, project)
 
-    project, project_path, script, item, content_mode = await asyncio.to_thread(_load)
+    project, project_path, script, item, content_mode = await run_sync_transaction(_load)
     # 声音绑定按项目当前的视频能力档解析（非 drama 或无声一律 None），与执行期同一判据。
     voice_characters = await resolve_voice_context(project, content_mode)
 

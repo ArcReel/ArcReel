@@ -48,6 +48,7 @@ import logging
 import threading
 from pathlib import Path
 
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.image_utils import normalize_storyboard_upload
 from lib.infra.json_io import domain_error_on_value_error
 from lib.infra.path_safety import PathTraversalError, safe_join
@@ -301,7 +302,9 @@ async def _apply_snapshot(
     except ValueError as exc:
         raise EndFrameError("invalid_image_file") from exc
 
-    await asyncio.to_thread(_write_snapshot_and_field, project_name, script_file, shot_id, target, png_bytes, relative)
+    await run_sync_transaction(
+        _write_snapshot_and_field, project_name, script_file, shot_id, target, png_bytes, relative
+    )
     return relative
 
 
@@ -313,7 +316,7 @@ async def set_end_frame_from_bytes(
     content: bytes,
 ) -> str:
     """上传通道：把上传的图片字节落成该分镜的尾帧快照。"""
-    project_path = await asyncio.to_thread(_locate_shot, project_name, script_file, shot_id)
+    project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
     return await _apply_snapshot(
         project_path=project_path,
         project_name=project_name,
@@ -331,7 +334,7 @@ async def set_end_frame_from_project_image(
     source_path: str,
 ) -> str:
     """项目内选图通道：读源图字节后走与上传完全相同的归一 + 快照落点。"""
-    project_path = await asyncio.to_thread(_locate_shot, project_name, script_file, shot_id)
+    project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
     content = await asyncio.to_thread(read_project_image, project_path, source_path)
     return await _apply_snapshot(
         project_path=project_path,
@@ -344,6 +347,6 @@ async def set_end_frame_from_project_image(
 
 async def clear_end_frame(*, project_name: str, script_file: str, shot_id: str) -> None:
     """清除分镜尾帧：在同一剧本锁临界区内把字段置空并删快照文件，与设置操作互斥。"""
-    project_path = await asyncio.to_thread(_locate_shot, project_name, script_file, shot_id)
+    project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
     target, _ = _snapshot_target(project_path, shot_id)
-    await asyncio.to_thread(_clear_snapshot_and_field, project_name, script_file, shot_id, target)
+    await run_sync_transaction(_clear_snapshot_and_field, project_name, script_file, shot_id, target)

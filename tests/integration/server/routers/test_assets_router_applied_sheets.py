@@ -316,6 +316,84 @@ def test_overwrite_onto_an_nfd_key_records_the_history_under_the_existing_key(li
     }
 
 
+def test_overwrite_folds_a_case_only_derivative_into_the_existing_one(library):
+    client, pm = library
+    pm.create_project("source")
+    pm.create_project_metadata("source", "Source", "Anime", "narration")
+    pm.add_character("source", "王", "白衣少年")
+    library_sheet = solid_png_bytes((0, 0, 160))
+    relative = derivative_sheet_relative_path("王", "Coat")
+    (pm.get_project_path("source") / relative).parent.mkdir(parents=True, exist_ok=True)
+    (pm.get_project_path("source") / relative).write_bytes(library_sheet)
+    pm.update_asset_entry(
+        "character",
+        "source",
+        "王",
+        lambda entry: entry.__setitem__(
+            DERIVATIVES_FIELD, {"Coat": {"description": "新大衣", "character_sheet": relative}}
+        ),
+    )
+    stored = client.post(
+        "/api/v1/assets/from-project",
+        json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+    )
+    assert stored.status_code == 200, stored.text
+    pm.add_character("demo", "王", "项目里的")
+    pm.update_asset_entry(
+        "character",
+        "demo",
+        "王",
+        lambda entry: entry.__setitem__(DERIVATIVES_FIELD, {"coat": {"description": "旧大衣", "character_sheet": ""}}),
+    )
+
+    _apply(client, stored.json()["asset"]["id"], policy="overwrite")
+
+    project_dir = pm.get_project_path("demo")
+    existing = derivative_sheet_relative_path("王", "coat")
+    assert pm.load_project("demo")["characters"]["王"][DERIVATIVES_FIELD] == {
+        "coat": {"description": "新大衣", "character_sheet": existing}
+    }
+    assert (project_dir / existing).read_bytes() == library_sheet
+    assert sorted(path.name for path in (project_dir / existing).parent.iterdir()) == ["coat.png"]
+    history = json.loads((project_dir / "versions/versions.json").read_text(encoding="utf-8"))
+    assert list(history[CHARACTER_DERIVATIVE_RESOURCE_TYPE]) == ["王/coat"]
+    entry = ProjectArtifactManifestAdapter(project_dir).get_entry(derivative_artifact_key("王", "coat"))
+    assert entry is not None
+    assert entry.artifact_path == existing
+    assert ProjectArtifactManifestAdapter(project_dir).get_entry(derivative_artifact_key("王", "Coat")) is None
+
+
+def test_case_only_derivatives_from_the_library_land_as_one(library):
+    client, pm = library
+    pm.create_project("source")
+    pm.create_project_metadata("source", "Source", "Anime", "narration")
+    pm.add_character("source", "王", "白衣少年")
+    table = {}
+    for name, description, color in (("Coat", "蓝大衣", (0, 0, 160)), ("coat", "绿大衣", (0, 160, 0))):
+        relative = derivative_sheet_relative_path("王", name)
+        (pm.get_project_path("source") / relative).parent.mkdir(parents=True, exist_ok=True)
+        (pm.get_project_path("source") / relative).write_bytes(solid_png_bytes(color))
+        table[name] = {"description": description, "character_sheet": relative}
+    pm.update_asset_entry("character", "source", "王", lambda entry: entry.__setitem__(DERIVATIVES_FIELD, table))
+    stored = client.post(
+        "/api/v1/assets/from-project",
+        json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+    )
+    assert stored.status_code == 200, stored.text
+    assert sorted(item["name"] for item in stored.json()["asset"]["derivatives"]) == ["Coat", "coat"]
+
+    _apply(client, stored.json()["asset"]["id"])
+
+    project_dir = pm.get_project_path("demo")
+    landed = derivative_sheet_relative_path("王", "Coat")
+    assert pm.load_project("demo")["characters"]["王"][DERIVATIVES_FIELD] == {
+        "Coat": {"description": "绿大衣", "character_sheet": landed}
+    }
+    assert (project_dir / landed).read_bytes() == solid_png_bytes((0, 160, 0))
+    history = json.loads((project_dir / "versions/versions.json").read_text(encoding="utf-8"))
+    assert list(history[CHARACTER_DERIVATIVE_RESOURCE_TYPE]) == ["王/Coat"]
+
+
 async def test_restoring_the_applied_derivative_version_claims_it_by_the_image_again(library, monkeypatch):
     client, pm = library
     _apply(client, store_character_with_derivatives(client, pm, owner_description="白衣少年"))

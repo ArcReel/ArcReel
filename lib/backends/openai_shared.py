@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import logging
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
+from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.config.url_utils import OFFICIAL_OPENAI_BASE_URL
 
 logger = logging.getLogger(__name__)
@@ -53,16 +54,19 @@ def create_openai_client(
     api_key: str | None = None,
     base_url: str | None = None,
     max_retries: int | None = None,
+    transport_layer: TransportLayer | None = None,
 ) -> AsyncOpenAI:
     """创建 AsyncOpenAI 客户端，统一处理 api_key 和 base_url。
 
     base_url 为空（None/空白）时显式回填官方端点：AsyncOpenAI 对空 base_url
     会回落读取 OPENAI_BASE_URL 环境变量，环境残留将静默覆盖 DB 配置。base_url
-    的唯一来源是 DB，此处兜死显式值断掉该回落路径。
+    的唯一来源是 DB，此处兜死显式值断掉该回落路径。``transport_layer`` 叠在 SDK 默认客户端之上。
     """
     kwargs: dict = {"base_url": (base_url or "").strip() or OFFICIAL_OPENAI_BASE_URL}
     if api_key:
         kwargs["api_key"] = api_key
     if max_retries is not None:
         kwargs["max_retries"] = max_retries
+    if transport_layer is not None:
+        kwargs["http_client"] = layer_async_client(DefaultAsyncHttpxClient(), transport_layer)
     return AsyncOpenAI(**kwargs)

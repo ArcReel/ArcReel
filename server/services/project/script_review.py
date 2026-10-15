@@ -27,6 +27,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFactsFailure,
     reference_migration_durations,
 )
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.json_io import load_json_or_none
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.script import script_review
@@ -217,7 +218,7 @@ class ScriptReviewService:
         """
         project = await asyncio.to_thread(self.pm.load_project, project_name)
         supported_durations = await self._resolve_supported_durations(project)
-        state = await asyncio.to_thread(self._get_state_sync, project_name, project, episode, supported_durations)
+        state = await run_sync_transaction(self._get_state_sync, project_name, project, episode, supported_durations)
         state["soft_violations"] = []
         content = state["content"]
         if script_review.script_plan_kind(project) == "reference_video" and isinstance(content, dict):
@@ -419,7 +420,7 @@ class ScriptReviewService:
         落盘本身全同步（不做时长收编，无需档位表），整段卸到线程；随后的 ``get_state`` 自行
         解析档位表，保存的响应与 GET 首次加载因此同源。
         """
-        await asyncio.to_thread(self._save_content_sync, project_name, episode, content, base_fingerprint)
+        await run_sync_transaction(self._save_content_sync, project_name, episode, content, base_fingerprint)
         return await self.get_state(project_name, episode)
 
     def _save_content_sync(
@@ -502,7 +503,9 @@ class ScriptReviewService:
             return project_path, script_review.formal_script_overwrite(project_path, project, episode)
 
         project_path, overwrite = await asyncio.to_thread(_locate_overwrite)
-        fingerprint = await asyncio.to_thread(self._confirm_sync, project_name, project, episode, supported_durations)
+        fingerprint = await run_sync_transaction(
+            self._confirm_sync, project_name, project, episode, supported_durations
+        )
         if overwrite is not None and overwrite_revision != overwrite.fingerprint:
             raise ScriptReviewError("overwrite_required", overwrite=overwrite.to_dict())
         await self._materialize(

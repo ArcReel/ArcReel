@@ -23,10 +23,12 @@ from lib.custom_provider.factory import create_custom_backend
 
 # endpoints 模块里被 build_backend 闭包直接构造的全部后端类。
 _ENDPOINT_BACKEND_CLASSES = (
+    "AnthropicTextBackend",
     "ArkVideoBackend",
     "DashScopeImageBackend",
     "DashScopeVideoBackend",
     "DeclarativeVideoBackend",
+    "GeminiAudioBackend",
     "GeminiImageBackend",
     "GeminiTextBackend",
     "KlingImageBackend",
@@ -35,6 +37,7 @@ _ENDPOINT_BACKEND_CLASSES = (
     "OpenAIAudioBackend",
     "OpenAIImageBackend",
     "OpenAITextBackend",
+    "OpenAIResponsesTextBackend",
     "OpenAIVideoBackend",
     "ViduVideoBackend",
 )
@@ -83,7 +86,12 @@ class TestEndpointDispatch:
         assert result.model == "gpt-4o"
         assert built == {
             "backend": "OpenAITextBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.example.com/v1", "model": "gpt-4o"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.example.com/v1",
+                "model": "gpt-4o",
+                "transport_layer": None,
+            },
         }
 
     def test_gemini_generate(self):
@@ -95,6 +103,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://generativelanguage.googleapis.com/",
                 "model": "gemini-2.5-flash",
+                "transport_layer": None,
             },
         }
 
@@ -103,7 +112,12 @@ class TestEndpointDispatch:
         assert isinstance(result, CustomImageBackend)
         assert built == {
             "backend": "OpenAIImageBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.example.com/v1", "model": "dall-e-3"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.example.com/v1",
+                "model": "dall-e-3",
+                "transport_layer": None,
+            },
         }
 
     def test_gemini_image(self):
@@ -115,6 +129,22 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://generativelanguage.googleapis.com/",
                 "image_model": "imagen-4",
+                "transport_layer": None,
+            },
+        }
+
+    def test_gemini_tts(self):
+        provider = _make_provider(base_url="https://generativelanguage.googleapis.com")
+        result, built = _built(provider, "gemini-3.8-flash-tts", "gemini-tts")
+        assert isinstance(result, CustomAudioBackend)
+        assert built == {
+            "backend": "GeminiAudioBackend",
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://generativelanguage.googleapis.com/",
+                "model": "gemini-3.8-flash-tts",
+                "provider_name": "custom-42",
+                "transport_layer": None,
             },
         }
 
@@ -123,7 +153,12 @@ class TestEndpointDispatch:
         assert isinstance(result, CustomVideoBackend)
         assert built == {
             "backend": "OpenAIVideoBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.example.com/v1", "model": "sora-2"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.example.com/v1",
+                "model": "sora-2",
+                "transport_layer": None,
+            },
         }
 
     def test_newapi_video(self):
@@ -151,6 +186,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/api/v3",
                 "model": "doubao-seedance-2-0",
+                "transport_layer": None,
             },
         }
 
@@ -165,6 +201,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/ent/v2",
                 "model": "viduq3-turbo",
+                "transport_layer": None,
             },
         }
 
@@ -181,6 +218,7 @@ class TestEndpointDispatch:
                 "base_url": "https://api.example.com/v1",
                 "model": "tts-1",
                 "provider_name": "custom-42",
+                "transport_layer": None,
             },
         }
 
@@ -197,7 +235,12 @@ class TestEndpointDispatch:
         # base_url 原样下传，归一化（host→{host}/v1）由 MiniMaxImageBackend 内部处理
         assert built == {
             "backend": "MiniMaxImageBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.minimaxi.com/v1", "model": "image-01"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.minimaxi.com/v1",
+                "model": "image-01",
+                "transport_layer": None,
+            },
         }
 
     def test_minimax_video(self):
@@ -221,6 +264,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/v1",
                 "model": "kling-image-o1",
+                "transport_layer": None,
             },
         }
 
@@ -242,6 +286,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/v1",
                 "model": "kling-v2-5-turbo",
+                "transport_layer": None,
             },
         }
 
@@ -261,6 +306,7 @@ class TestEndpointDispatch:
                 "base_url": "https://api.example.com/v1",
                 "model": "dall-e-3",
                 "mode": "generations_only",
+                "transport_layer": None,
             },
         }
 
@@ -301,6 +347,21 @@ class TestUrlNormalization:
         _result, built = _built(provider, "viduq3-turbo", "vidu-video")
         assert built["kwargs"]["base_url"] == "https://relay.example.com/ent/v2"
 
+    def test_anthropic_messages_strips_pasted_endpoint_suffix(self):
+        # SDK 自己拼 /v1/messages：用户整条复制的端点地址剥掉后缀，前缀原样保留、不补 /v1
+        provider = _make_provider(base_url="https://relay.example.com/anthropic/v1/messages")
+        result, built = _built(provider, "claude-x", "anthropic-messages")
+        assert isinstance(result, CustomTextBackend)
+        assert built == {
+            "backend": "AnthropicTextBackend",
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://relay.example.com/anthropic",
+                "model": "claude-x",
+                "transport_layer": None,
+            },
+        }
+
     def test_ark_empty_base_url_normalizes_to_none(self):
         """空 base_url → _ensure_url_path_suffix 归一化为 None 下传（不强行补挂载路径）。"""
         provider = _make_provider(base_url="")
@@ -317,7 +378,7 @@ class TestErrors:
     def test_unknown_endpoint(self):
         provider = _make_provider()
         with pytest.raises(ValueError, match="unknown endpoint"):
-            create_custom_backend(provider=provider, model_id="claude-4", endpoint="anthropic-messages")
+            create_custom_backend(provider=provider, model_id="claude-4", endpoint="acme-unknown")
 
     def test_v2_empty_base_url_raises(self):
         """v2-video-generations 强制要求 base_url（无默认 host），空值 fail-loud。"""

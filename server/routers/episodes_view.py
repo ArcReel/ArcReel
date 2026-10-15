@@ -44,6 +44,7 @@ from lib.episode.source_file_changes import (
 )
 from lib.episode.source_kinds import SourceKind
 from lib.infra.api_errors import ApiError, NotFoundError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import ProjectManager, get_project_manager
 from server.dependencies import require_project_migration_ok
@@ -107,7 +108,7 @@ async def get_episodes_view(name: str, _t: Translator) -> dict[str, Any]:
         }
 
     try:
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except (HTTPException, ApiError):
         raise
     except Exception as exc:
@@ -141,7 +142,7 @@ async def adopt_source_file(name: str, filename: str, req: AdoptSourceFileReques
         return {"success": True, "target": req.target, "episode": episode}
 
     try:
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except EpisodeSourceError as exc:
         raise episode_source_http_error(exc, _t, episode=req.episode, filename=filename) from exc
     except (HTTPException, ApiError):
@@ -256,7 +257,7 @@ async def manual_split(name: str, req: ManualSplitRequest, _t: Translator) -> di
             for episode in await asyncio.to_thread(_displaced_episodes):
                 if await episode_has_active_tasks(name, episode):
                     raise HTTPException(status_code=409, detail=_t("manual_split_tasks_active"))
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except ManualSplitError as exc:
         raise HTTPException(
             status_code=_MANUAL_SPLIT_STATUS.get(exc.code, 409), detail=_t(f"manual_split_{exc.code}")
@@ -301,7 +302,7 @@ async def set_source_file_kind(
         }
 
     try:
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except EpisodeSourceError as exc:
         raise episode_source_http_error(exc, _t, filename=filename) from exc
     except (HTTPException, ApiError):
@@ -356,7 +357,7 @@ async def _run_source_file_change(
 
     try:
         await ensure_no_displaced_tasks(name, revision, lambda: command(_manager(), True), _t)
-        return await asyncio.to_thread(_sync)
+        return await run_sync_transaction(_sync)
     except SourceFileChangeError as exc:
         raise source_file_change_http_error(exc, _t) from exc
     except (HTTPException, ApiError):

@@ -114,6 +114,10 @@ jobs:
         working-directory: packages/arcreel-market-core
         run: uv run deptry src tests
 
+      - name: Dependency hygiene (deptry, arcreel-catalog-core)
+        working-directory: packages/arcreel-catalog-core
+        run: uv run deptry src tests
+
       - name: Agent Runtime Profile integrity
         run: uv run python scripts/lint_agent_runtime_profile.py
 
@@ -182,6 +186,8 @@ jobs:
           # workspace 子包的测试目录自带 pytest 配置，与应用测试分开收集
           - suite: market-core
             path: packages/arcreel-market-core/tests
+          - suite: catalog-core
+            path: packages/arcreel-catalog-core/tests
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -209,7 +215,7 @@ jobs:
         # 留在同一 worker。
         run: >-
           uv run python -m pytest ${{ matrix.path }} ${{ matrix.extra_args }} -n 4 --dist loadfile
-          --cov=lib --cov=server --cov=arcreel_market_core --cov-report=term-missing
+          --cov=lib --cov=server --cov=arcreel_market_core --cov=arcreel_catalog_core --cov-report=term-missing
           --cov-report=xml:coverage-${{ matrix.suite }}.xml
 
       - name: Upload backend coverage

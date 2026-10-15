@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import math
-from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_market_core.video_backend_contract import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
+from lib.agent.credential_tiers import TIERS, AgentPricing, Tier, agent_pricing, tier_models
+from lib.catalog import query as catalog
 from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import ProviderConfigRepository, SystemSettingRepository
@@ -15,7 +16,7 @@ from lib.db.repositories.credential_repository import CredentialRepository
 from lib.infra.schema_guards import is_int
 
 _DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
-_DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image-preview"
+_DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image"
 _DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
 _DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
 # 旁白默认音色（DashScope 预设）；全局 setting 未配置时的兜底。全局音色与语速只作为新建 TTS 项目
@@ -67,37 +68,53 @@ assert set(_ANTHROPIC_ENV_MAP.values()) == set(ANTHROPIC_ENV_KEYS), (
 )
 
 
-async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
-    """从 DB 读 active credential，返回 {ENV_KEY: value} dict，**不写 os.environ**。
+# 档位 → 环境变量名。
+_TIER_ENV_KEYS: dict[Tier, str] = {
+    "model": "ANTHROPIC_MODEL",
+    "haiku": "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "sonnet": "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "opus": "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "subagent": "CLAUDE_CODE_SUBAGENT_MODEL",
+}
 
-    返回值由 OptionsAssembler 的凭证注入（load_provider_env_overrides）注入到
-    ClaudeAgentOptions.env。
 
-    双轨期 fallback：active credential 字段为空时从 system_settings 兜底。
+@dataclass(frozen=True)
+class AnthropicEnv:
+    """注入 Agent 会话的 ANTHROPIC_* 环境变量，以及取自同一行凭证的计价依据（没有生效凭证时为默认值）。"""
+
+    env: dict[str, str]
+    pricing: AgentPricing
+
+
+async def build_anthropic_env(session: AsyncSession) -> AnthropicEnv:
+    """从 DB 读 active credential，返回 {ENV_KEY: value} 与计价依据快照，**不写 os.environ**。
+
+    返回值由 OptionsAssembler 的凭证注入（load_provider_env_overrides）注入到 ClaudeAgentOptions.env。凭证只读一次，
+    环境变量与计价依据（凭证 id、倍率、档位绑定）取自同一行：会话按连接时注入的凭证计价（docs/adr/0102）。
+
+    双轨期 fallback：active credential 字段为空时从 system_settings 兜底。档位模型名的规则见
+    :func:`lib.agent.credential_tiers.tier_models`。
     """
     # 局部 import 避免循环依赖（agent_credential_repo → agent_credential model → base）
     from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
-    repo = AgentCredentialRepository(session)
-    cred = await repo.get_active()
+    cred = await AgentCredentialRepository(session).get_active()
+    settings = await SystemSettingRepository(session).get_all()
 
     if cred is not None:
-        settings = await SystemSettingRepository(session).get_all()
-        return {
+        models = tier_models(cred, settings)
+        env = {
             "ANTHROPIC_API_KEY": cred.api_key or "",
             "ANTHROPIC_BASE_URL": cred.base_url or "",
-            "ANTHROPIC_MODEL": cred.model or settings.get("anthropic_model", "").strip(),
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": cred.haiku_model
-            or settings.get("anthropic_default_haiku_model", "").strip(),
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": cred.sonnet_model
-            or settings.get("anthropic_default_sonnet_model", "").strip(),
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": cred.opus_model or settings.get("anthropic_default_opus_model", "").strip(),
-            "CLAUDE_CODE_SUBAGENT_MODEL": cred.subagent_model or settings.get("claude_code_subagent_model", "").strip(),
+            **{_TIER_ENV_KEYS[tier]: models[tier] for tier in TIERS},
         }
+        return AnthropicEnv(env=env, pricing=agent_pricing(cred, settings))
 
     # 无 active credential — 回退 system_settings（双轨期兼容）
-    settings = await SystemSettingRepository(session).get_all()
-    return {env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()}
+    return AnthropicEnv(
+        env={env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()},
+        pricing=AgentPricing(),
+    )
 
 
 @dataclass
@@ -111,7 +128,7 @@ class ProviderStatus:
     required_keys: list[str]
     # 凭证（界面称「密钥」）条数，供设置页二级栏显示「已配置 N 个密钥」。
     credential_count: int
-    models: dict[str, dict] | None = None  # model_id -> ModelInfo dict representation
+    models: dict[str, dict] | None = None  # model_id -> CatalogModel 的 dict 形态
 
 
 class ConfigService:
@@ -158,21 +175,16 @@ class ConfigService:
         statuses = []
         for name, meta in PROVIDER_REGISTRY.items():
             status: Literal["ready", "unconfigured", "error"] = "ready" if name in active_creds else "unconfigured"
-            # 先按 __dict__ 排除 pricing（其费率含 tuple 键，非 JSON 可序列化且响应不消费；
-            # 用 __dict__ 而非 asdict 以免递归转换 pricing 后又被丢弃），再 deepcopy 其余可变容器
-            # 字段（list/dict），避免返回值与全局 PROVIDER_REGISTRY 共享引用被调用方意外改写。
-            models_dict = {
-                mid: deepcopy({k: v for k, v in mi.__dict__.items() if k != "pricing"})
-                for mid, mi in meta.models.items()
-            }
+            # asdict 深拷贝 list/dict 字段，返回值不与模型目录共享引用，调用方改写不会波及目录。
+            models_dict = {mid: asdict(mi) for mid, mi in catalog.list_models(name).items()}
             statuses.append(
                 ProviderStatus(
                     name=name,
                     display_name=meta.display_name,
                     description=meta.description,
                     status=status,
-                    media_types=list(meta.media_types),
-                    capabilities=list(meta.capabilities),
+                    media_types=catalog.provider_media_types(name),
+                    capabilities=catalog.provider_capabilities(name),
                     required_keys=list(meta.required_keys),
                     credential_count=credential_counts.get(name, 0),
                     models=models_dict,

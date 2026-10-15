@@ -19,6 +19,7 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
+from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.episode.episode_ids import describe_episode_for_agent
 from lib.generation.batch_admission import (
     BatchAdmission,
@@ -46,6 +47,7 @@ from lib.generation.generation_result import (
     select_generation_targets,
 )
 from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import ProjectManager, is_reference_video_project
 from lib.script.reference_video.request_projection import ReferenceRequestOptions
 from lib.script.script_models import get_generated_assets, resolve_content_mode
@@ -345,7 +347,10 @@ def _confirmation_lines(admission: BatchAdmission) -> list[str]:
         )
         headline = f"- {tier_label} × {tier.unit_count}：{'、'.join(tier.unit_ids)}"
         if tier.cost_amount is not None:
-            headline += f"；合计 {tier.cost_amount} {tier.cost_currency}"
+            suffix = "（仅含已定价的 unit）" if tier.unpriced_count else ""
+            headline += f"；合计 {tier.cost_amount} {tier.cost_currency}{suffix}"
+        if tier.unpriced_count:
+            headline += f"；其中 {tier.unpriced_count} 个 unit 未定价，费用未知，须如实告知用户"
         lines.append(headline)
     for ticket in admission.tickets:
         if not ticket.confirmation_only:
@@ -822,7 +827,7 @@ async def _run_reference_units(
             call.projects.load_script(call.project_name, script_filename),
         )
 
-    project, script = await asyncio.to_thread(load_inputs)
+    project, script = await run_sync_transaction(load_inputs)
     episode = _reference_episode(project, script, script_filename)
 
     selected, unmatched, duplicated = _select_reference_units(script, unit_ids)
@@ -1050,7 +1055,9 @@ class _StoryboardBatch:
                 self.builder,
                 self.log,
                 storyboard_durations=durations,
-                storyboard_costs=await quote_storyboard_video_units(facts, durations),
+                storyboard_costs=await quote_storyboard_video_units(
+                    facts, durations, aspect_ratio=resolve_video_aspect_ratio(self.sb.project)
+                ),
             )
         if not admission.admitted:
             return _batch_admission_response(BatchAdmissionRefused(admission), self.log, self.builder, self.states)
@@ -1364,7 +1371,7 @@ async def generate_videos(
     target = args.target
     log: list[str] = []
     try:
-        context = await asyncio.to_thread(_video_request_context, call, args)
+        context = await run_sync_transaction(_video_request_context, call, args)
         if isinstance(target, EpisodeTarget):
             await asyncio.to_thread(_check_target_episode, call, context, target.episode_id)
             return await _generate_episode(call, context, log)

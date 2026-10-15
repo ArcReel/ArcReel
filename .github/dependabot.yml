@@ -58,6 +58,7 @@ updates:
           - "patch"
       ai-sdks:
         patterns:
+          - "anthropic"
           - "claude-agent-sdk"
           - "grpcio"
           - "mcp"

@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -23,8 +22,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from lib.infra.api_errors import NotFoundError, UnprocessableError
+from lib.infra.async_thread import run_sync_transaction
 from lib.project.asset_derivative_cleanup import purge_derivative_sheets
-from lib.project.asset_derivatives import ensure_derivative_table
+from lib.project.asset_derivatives import ensure_derivative_table, find_derivative_name
 from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameFileCollisionError,
@@ -63,7 +63,7 @@ class _DerivativeRenameRequest(BaseModel):
 
 
 class _DerivativeExists(Exception):
-    """目标衍生名已被同一本体下的另一个衍生占用。"""
+    """目标衍生名已被同一本体下的另一个衍生占用（只差大小写也算）。"""
 
     def __init__(self, name: str):
         self.name = name
@@ -132,7 +132,7 @@ def register_derivative_routes(
 
                     return write(manager, _commit)
 
-            return await asyncio.to_thread(_sync)
+            return await run_sync_transaction(_sync)
         except _DerivativeExists as exc:
             raise UnprocessableError("asset_derivative_already_exists", name=exc.name) from exc
         except _DerivativeMissing as exc:
@@ -167,8 +167,9 @@ def register_derivative_routes(
 
         def _mutate(entry: dict[str, Any]) -> None:
             table = ensure_derivative_table(entry)
-            if resolve_asset_key(table, name) is not None:
-                raise _DerivativeExists(name)
+            existing = find_derivative_name(table, name)
+            if existing is not None:
+                raise _DerivativeExists(existing)
             table[name] = {"description": req.description, spec.sheet_field: ""}
 
         result = await _run(

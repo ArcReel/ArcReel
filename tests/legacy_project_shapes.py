@@ -196,6 +196,32 @@ def write_legacy_retired_flash_lite_project(root: Path, *, provider_id: str) -> 
     return project_dir
 
 
+def write_legacy_retired_model_references_project(root: Path) -> Path:
+    """schema 17 项目的图片字段引用已改名的 Gemini 图片 preview ID，视频字段引用已下架而没有后继的模型。
+
+    ``model_settings`` 按旧 ID 存了分辨率；其中一个后继 ID 下另有设置。
+    """
+
+    project_dir = write_legacy_storyboard_project(root, name="legacy-retired-model-references")
+    advance_project_schema(project_dir, to_version=17)
+    project_path = project_dir / "project.json"
+    project = json.loads(project_path.read_text(encoding="utf-8"))
+    project.update(
+        {
+            "default_image_backend": "gemini-aistudio/gemini-3.1-flash-image-preview",
+            "image_provider_i2i": "gemini-vertex/gemini-3-pro-image-preview",
+            "video_backend": "openai/sora-2",
+            "model_settings": {
+                "gemini-aistudio/gemini-3.1-flash-image-preview": {"resolution": "4K"},
+                "gemini-vertex/gemini-3-pro-image-preview": {"resolution": "2K"},
+                "gemini-vertex/gemini-3-pro-image": {"resolution": "1K"},
+            },
+        }
+    )
+    _write_json(project_path, project)
+    return project_dir
+
+
 def write_legacy_timeline_agent_turn_project(root: Path) -> Path:
     """schema 17 项目的剪辑时间线修订仍带 Agent 轮次字段（新建与编辑各一个修订）。"""
 
@@ -1061,6 +1087,45 @@ def add_colliding_asset_name(project_dir: Path, bucket: str, name: str) -> str:
     return colliding
 
 
+def add_asset_names_differing_only_in_case(project_dir: Path, bucket: str, sheet_field: str, name: str) -> str:
+    """旧版在同一资产表可登记出只差大小写的两条资产。
+
+    在 ``bucket`` 末尾加 ``name`` 与它的全大写变体，各带一张资产图（不区分大小写的文件系统上两张图
+    落到同一个文件），返回变体名。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    variant = name.upper()
+    for asset_name, content in ((name, b"original"), (variant, b"variant")):
+        sheet = f"{bucket}/{asset_name}.png"
+        project[bucket][asset_name] = {"description": f"{asset_name} 的描述", sheet_field: sheet}
+        (project_dir / sheet).parent.mkdir(parents=True, exist_ok=True)
+        (project_dir / sheet).write_bytes(content)
+    _write_json(project_path, project)
+    return variant
+
+
+def refer_to_asset_in_episode(project_dir: Path, episode: int, field: str, name: str) -> None:
+    """只差大小写的两条资产并存时，剧本与草稿可以写其中任何一个的名字。
+
+    让该集剧本第一个分镜在引用数组 ``field`` 与画面描述的 ``@`` 提及里写 ``name``，脚本规划草稿
+    第一段的同一引用数组也写它（剧本形态取 ``write_legacy_storyboard_project`` 一类的解说分镜）。
+    """
+
+    project = _load_json_object(project_dir / "project.json")
+    script_path = project_dir / _ledger_entry(project, episode)["script_file"]
+    script = _load_json_object(script_path)
+    segment = script["segments"][0]
+    segment.setdefault(field, []).append(name)
+    segment["image_prompt"] = f"@[{name}]{segment.get('image_prompt') or ''}"
+    _write_json(script_path, script)
+    draft_path = project_dir / "drafts" / f"episode_{episode}" / "script_plan_segments.json"
+    draft = _load_json_object(draft_path)
+    draft["segments"][0].setdefault(field, []).append(name)
+    _write_json(draft_path, draft)
+
+
 def break_script_item_ids(project_dir: Path, episode: int) -> None:
     """降级保存的剧本可以有重复或缺失的条目 id。
 
@@ -1391,12 +1456,14 @@ __all__ = [
     "advance_project_schema",
     "bind_episode_script_to_filename",
     "legacy_transition_presentation_basis",
+    "refer_to_asset_in_episode",
     "write_legacy_ad_reference_video_project",
     "write_legacy_drama_storyboard_project",
     "write_legacy_episode_id_remnants_project",
     "write_legacy_presentation_project",
     "write_legacy_reference_video_project",
     "write_legacy_retired_flash_lite_project",
+    "write_legacy_retired_model_references_project",
     "write_legacy_script_plan_project",
     "write_legacy_storyboard_project",
     "write_legacy_style_project",

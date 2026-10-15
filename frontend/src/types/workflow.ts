@@ -169,11 +169,13 @@ export interface AdmissionProblem {
 
 /** 供应商侧对这一次视频请求的精确报价。 */
 export interface VideoRequestCostQuote {
-  amount: number;
-  currency: string;
+  /** null 表示价目表算不出这次请求，原因见 unpriced_reason。 */
+  amount: number | null;
+  currency: string | null;
   provider_id: string;
   model_id: string;
   request_duration_seconds: number;
+  unpriced_reason?: string | null;
 }
 
 export interface BatchAdmissionUnit {
@@ -193,6 +195,8 @@ export interface BatchAdmissionTier {
   unit_ids: string[];
   cost_amount?: number | null;
   cost_currency?: string | null;
+  /** 这一档里价目表算不出价、未计入 `cost_amount` 的单元数。 */
+  unpriced_count?: number;
 }
 
 export interface WorkflowAdmission {
@@ -276,6 +280,8 @@ export type WorkflowMigrationAdjustmentCode =
   | "script_binding_canonicalized"
   | "item_id_reassigned"
   | "duplicate_asset_removed"
+  | "duplicate_asset_derivative_merged"
+  | "duplicate_asset_references_rewritten"
   | "placeholder_asset_added";
 
 export interface WorkflowMigrationAdjustment {

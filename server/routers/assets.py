@@ -29,6 +29,7 @@ from lib.project.asset_derivatives import (
     derivative_artifact_key,
     derivative_sheet_relative_path,
     derivative_table,
+    find_derivative_name,
 )
 from lib.project.asset_types import (
     ASSET_SPECS,
@@ -37,8 +38,6 @@ from lib.project.asset_types import (
     GLOBAL_LIBRARY_ASSET_TYPES,
     SHEET_KEY,
     ProjectAssetNameConflictError,
-    asset_name_comparison_key,
-    ensure_project_asset_name_available,
     find_project_asset_name,
     localize_asset_type,
     resolve_asset_key,
@@ -620,14 +619,14 @@ async def apply_to_project(
         return target_dir, {path for path in stored if (project_manager.data_root / path).is_file()}
 
     project_dir, present_files = await asyncio.to_thread(_probe_planning_inputs)
-    # 四类资产共用一份名称占用表；owner 用于区分同类 overwrite 与不可覆盖的跨类型冲突。
-    occupied: dict[str, tuple[str, str]] = {}
-    for asset_type, bucket_key in BUCKET_KEY.items():
-        bucket = project.get(bucket_key)
+    # 四类资产的名称占用表，形同 project 的资产表，判重与锁内应用同用 find_project_asset_name：
+    # 只差大小写即占用；命中可 overwrite 的同一条目，还是不可覆盖的冲突（跨类型，或同类型里只差
+    # 大小写的另一个资产），由 is_entry 区分。
+    occupied: dict[str, dict[str, None]] = {}
+    for spec in ASSET_SPECS.values():
+        bucket = project.get(spec.bucket_key)
         if isinstance(bucket, dict):
-            for raw_name in bucket:
-                if isinstance(raw_name, str):
-                    occupied[asset_name_comparison_key(raw_name)] = (asset_type, raw_name)
+            occupied[spec.bucket_key] = dict.fromkeys(name for name in bucket if isinstance(name, str))
     plans: list[dict] = []
     for asset_id in asset_ids:
         a = assets_by_id.get(asset_id)
@@ -642,22 +641,22 @@ async def apply_to_project(
             failed.append({"id": a.id, "reason": "invalid_name"})
             continue
 
-        existing = occupied.get(asset_name_comparison_key(desired_name))
+        existing = find_project_asset_name(occupied, desired_name)
         if existing is not None:
-            same_type = existing[0] == a.type
+            same_entry = existing.is_entry(a.type, desired_name)
             if req.conflict_policy == "skip":
                 skipped.append({"id": a.id, "name": a.name})
                 continue
             if req.conflict_policy == "rename":
                 base_name = desired_name
                 i = 2
-                while asset_name_comparison_key(f"{base_name} ({i})") in occupied:
+                while find_project_asset_name(occupied, f"{base_name} ({i})") is not None:
                     i += 1
                 desired_name = f"{base_name} ({i})"
-            elif not same_type:
+            elif not same_entry:
                 failed.append({"id": a.id, "reason": "project_name_conflict"})
                 continue
-            # overwrite 只能覆盖同类型条目。
+            # overwrite 只能覆盖同类型的同名条目。
 
         # 规划图片拷贝
         target_sheet: str | None = None
@@ -731,7 +730,7 @@ async def apply_to_project(
                     {"name": derivative.name, "description": derivative.description, "copy_src": derivative_src}
                 )
 
-        occupied[asset_name_comparison_key(desired_name)] = (a.type, desired_name)
+        occupied.setdefault(bucket_key, {})[desired_name] = None
         plans.append(
             {
                 "asset": a,
@@ -774,7 +773,7 @@ async def apply_to_project(
                         index += 1
                     name_ = f"{base_name} ({index})"
                     existing = None
-                elif existing.asset_type != a_.type:
+                elif not existing.is_entry(a_.type, name_):
                     raise ProjectAssetNameConflictError(name_, existing, a_.type)
 
             plan["desired_name"] = name_
@@ -793,13 +792,6 @@ async def apply_to_project(
 
             ts = plan["target_sheet"]
             ta = plan["target_audio"]
-            ensure_project_asset_name_available(
-                data,
-                name_,
-                requested_asset_type=a_.type,
-                exclude_asset_type=a_.type,
-                exclude_name=existing.name if existing is not None and existing.asset_type == a_.type else None,
-            )
             payload: dict = {"description": a_.description or ""}
             if a_.type == "character":
                 payload["voice_style"] = a_.voice_style or ""
@@ -822,11 +814,22 @@ async def apply_to_project(
                 previous = data[bk].get(key)
                 inherited = previous.get(DERIVATIVES_FIELD) if isinstance(previous, dict) else None
                 table = dict(inherited) if isinstance(inherited, dict) else {}
+                # 库里的衍生先解析成落盘名：存量键可能是 NFD 等价形态或只差大小写（衍生图按名落盘，
+                # 两者会落到同一个文件），命中就并入已有条目、沿用它的名字，避免并存两条。库里自带
+                # 只差大小写的两条时同样归到一个名下，后一条为准。
+                incoming: dict[str, dict] = {}
                 for derivative in plan["derivatives"]:
                     derivative_name = derivative["name"]
+                    derivative_key = (
+                        find_derivative_name(table, derivative_name)
+                        or find_derivative_name(incoming, derivative_name)
+                        or derivative_name
+                    )
+                    incoming[derivative_key] = derivative
+                for derivative_key, derivative in incoming.items():
                     derivative_sheet = ""
                     if derivative["copy_src"] is not None:
-                        relative = derivative_sheet_relative_path(name_, derivative_name)
+                        relative = derivative_sheet_relative_path(name_, derivative_key)
                         try:
                             ProjectManager._safe_subpath(project_dir, relative)
                         except ValueError:
@@ -839,9 +842,7 @@ async def apply_to_project(
                         else:
                             derivative_sheet = relative
                             file_copies.append((derivative["copy_src"], project_dir / relative))
-                            plan["derivative_sheet_names"].append(derivative_name)
-                    # 存量键可能是 NFD 等价形态；命中就写回同一个键，避免并存两条视觉同名衍生。
-                    derivative_key = resolve_asset_key(table, derivative_name) or derivative_name
+                            plan["derivative_sheet_names"].append(derivative_key)
                     if derivative_sheet:
                         plan["installed_sheets"].append(
                             _applied_sheet_version(

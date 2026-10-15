@@ -13,7 +13,7 @@ from lib.backends.text_backends.base import (
     TextCapability,
     TextGenerationRequest,
     TextGenerationResult,
-    merge_billed_tokens,
+    merge_billed_usage,
 )
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -43,17 +43,14 @@ class ArkTextBackend:
         self._capabilities: set[TextCapability] = self._resolve_capabilities()
 
     def _resolve_capabilities(self) -> set[TextCapability]:
-        """根据 PROVIDER_REGISTRY 中的模型声明构建能力集合。"""
-        from lib.config.registry import PROVIDER_REGISTRY
+        """根据模型目录中的模型声明构建能力集合。"""
+        from lib.catalog import query as catalog
 
         base = {TextCapability.TEXT_GENERATION, TextCapability.VISION}
         # 同一 backend 类同时服务 ark 与 ark-agent-plan，模型 ID 命名格式不同，
         # 任一 provider 命中即可解析 STRUCTURED_OUTPUT。
         for provider_id in ("ark", "ark-agent-plan"):
-            provider_meta = PROVIDER_REGISTRY.get(provider_id)
-            if provider_meta is None:
-                continue
-            model_info = provider_meta.models.get(self._model)
+            model_info = catalog.get_model(provider_id, self._model)
             if model_info and TextCapability.STRUCTURED_OUTPUT in model_info.capabilities:
                 base.add(TextCapability.STRUCTURED_OUTPUT)
                 break
@@ -145,8 +142,7 @@ class ArkTextBackend:
                 )
                 result = await self._structured_fallback(request, messages)
                 # 这次原生 200 调用已被代理计费，把它的 token 并入降级结果。
-                result.input_tokens = merge_billed_tokens(result.input_tokens, native.input_tokens)
-                result.output_tokens = merge_billed_tokens(result.output_tokens, native.output_tokens)
+                merge_billed_usage(result, native)
                 return result
             return native
 
@@ -194,24 +190,22 @@ class ArkTextBackend:
         return messages
 
     def _parse_chat_response(self, response, *, structured: bool) -> TextGenerationResult:
-        from lib.backends.text_backends.base import check_truncation
+        from lib.backends.text_backends.base import chat_completion_result, check_truncation
 
         choice = response.choices[0]
         text = choice.message.content
-        input_tokens = getattr(getattr(response, "usage", None), "prompt_tokens", None)
-        output_tokens = getattr(getattr(response, "usage", None), "completion_tokens", None)
+        usage = getattr(response, "usage", None)
         truncated = check_truncation(
             getattr(choice, "finish_reason", None),
             provider=PROVIDER_ARK,
             model=self._model,
-            output_tokens=output_tokens,
+            output_tokens=getattr(usage, "completion_tokens", None),
             structured=structured,
         )
-        return TextGenerationResult(
+        return chat_completion_result(
             text=text.strip() if isinstance(text, str) else str(text),
             provider=PROVIDER_ARK,
             model=self._model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            usage=usage,
             truncated=truncated,
         )

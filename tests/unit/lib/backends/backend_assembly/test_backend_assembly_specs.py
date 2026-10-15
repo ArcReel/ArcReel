@@ -239,6 +239,34 @@ class TestGeminiSpec:
             "credentials_path": "/legacy/vertex.json",
         }
 
+    @pytest.mark.parametrize(
+        ("provider_id", "backend_type", "credentials", "extra"),
+        [
+            ("gemini-aistudio", "aistudio", {"api_key": "sk-aistudio", "base_url": "https://custom.example.com"}, {}),
+            (
+                "gemini-vertex",
+                "vertex",
+                {"credentials_path": "/legacy/vertex.json"},
+                {"credentials_path": "/legacy/vertex.json"},
+            ),
+        ],
+    )
+    def test_audio_both_modes_build_gemini_tts(self, provider_id, backend_type, credentials, extra):
+        config = LoadedConfig(
+            credentials=credentials, provider_meta=PROVIDER_REGISTRY.get(provider_id), rate_limiter=None
+        )
+        assert _built(get_provider_spec(provider_id, "audio"), config, "gemini-3.8-flash-tts") == {
+            "media": "audio",
+            "backend": "gemini",
+            "kwargs": {
+                "backend_type": backend_type,
+                "api_key": credentials.get("api_key"),
+                "base_url": credentials.get("base_url"),
+                "model": "gemini-3.8-flash-tts",
+                **extra,
+            },
+        }
+
     def test_bare_gemini_not_registered(self):
         # 裸 "gemini"（无 aistudio/vertex 后缀）是死路径：resolver 只产出带后缀 id。
         # fail-loud，不为死路径登记兜底行。
@@ -439,17 +467,17 @@ class TestTextGeminiSpec:
 
 
 class TestTextOpenAICompatSpec:
-    """OpenAI-compat 文本（openai / dashscope / minimax）都映射到 "openai" registry backend。
-    openai 直传用户 base_url；dashscope/minimax 经 helper 从 host 派生 base_url 并透传 provider_name
-    计费归因（保证 usage 记账命中自身 CNY 费率，非 OpenAI USD）。"""
+    """OpenAI-compat 文本：openai 映射到 "openai-responses"（Responses）并直传用户 base_url；
+    dashscope/minimax 映射到 "openai"（Chat Completions），经 helper 从 host 派生 base_url 并透传
+    provider_name 计费归因（保证 usage 记账命中自身 CNY 费率，非 OpenAI USD）。"""
 
-    def test_openai_passes_user_base_url_no_provider_name(self):
+    def test_openai_uses_responses_and_passes_user_base_url(self):
         spec = get_provider_spec("openai", "text")
-        assert spec.registry_backend == "openai"
+        assert spec.registry_backend == "openai-responses"
         config = _loaded(credentials={"api_key": "oa", "base_url": "https://relay.test/v1"}, provider_id="openai")
         assert _built(spec, config, "gpt-5") == {
             "media": "text",
-            "backend": "openai",
+            "backend": "openai-responses",
             "kwargs": {"model": "gpt-5", "api_key": "oa", "base_url": "https://relay.test/v1"},
         }
 
@@ -490,9 +518,14 @@ class TestRegistryShape:
         with pytest.raises(ValueError, match="no builtin ProviderSpec"):
             get_provider_spec("ark", "audio")  # ark 无 audio backend，未登记
 
-    def test_audio_only_dashscope_registered(self):
+    def test_audio_registered(self):
         audio_keys = {k for k in PROVIDER_SPEC_REGISTRY if k[1] == "audio"}
-        assert audio_keys == {("dashscope", "audio")}
+        assert audio_keys == {
+            ("dashscope", "audio"),
+            ("minimax", "audio"),
+            ("gemini-aistudio", "audio"),
+            ("gemini-vertex", "audio"),
+        }
 
     def test_simple_family_image_video_complete(self):
         for provider in ("ark", "ark-agent-plan", "grok", "openai", "vidu", "dashscope", "minimax"):
