@@ -13,12 +13,13 @@ from sqlalchemy import ColumnElement, and_, func, or_, select, update
 
 from lib.backends.providers import CALL_TYPE_VIDEO, PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallErrorCode
-from lib.billing.catalog_pricing import is_builtin_provider, price_builtin_call
+from lib.billing.catalog_pricing import is_builtin_provider, price_builtin_call, price_custom_call
 from lib.billing.cost_calculator import cost_calculator
 from lib.billing.metering import Priced, Usage
 from lib.billing.multipliers import get_provider_multiplier
 from lib.billing.pricing.strategies import PricingParams
 from lib.billing.usage_summary import UsageFilterOptions, UsageSummaryRow
+from lib.custom_provider import is_custom_provider
 from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
@@ -81,8 +82,9 @@ class SettlementInput:
     ``cost_amount`` 绕过自动计算——由 ``_settle`` 归一为生效定价（``PricingParams``）。
 
     ``usage`` 是按用量契约上报的计量项用量与选择维度，每次供应商请求一份（降级链上被丢弃的请求也已计费，各占
-    一份）：给出时，内置供应商的这次调用按模型目录的价目表逐次计价后相加；不给（Agent 会话补录）或自定义供应商
-    时沿用旧计价。内置供应商的视频调用不给时也走价目表，计量项全部落空，记为未定价。三项缓存 token 是各次请求之和，
+    一份）：给出时，内置供应商的这次调用按模型目录的价目表逐次计价后相加；自定义供应商的调用一律按所对应条目的
+    价目表计价；其余调用不给（Agent 会话补录）时沿用旧计价。内置供应商的视频调用不给时也走价目表，计量项全部
+    落空，记为未定价。三项缓存 token 是各次请求之和，
     原样写入同名列。
     与 ``PricingParams``（结算后的生效定价输入）刻意分成两个对象，避免原始值与生效值
     在同一结构里语义混淆。新增计费字段自此只扩本对象，不再穿仓储写侧散参。
@@ -246,9 +248,9 @@ class UsageRepository(BaseRepository):
         - 计费时长/有声标志覆盖：backend 回报值覆盖 start_call 时的请求值，非正或超出
           ``MAX_BILLED_DURATION_SECONDS`` 的计费时长视同未提供、回落请求时长。
         - 费用：显式 ``cost_amount`` 视作 provider 直报计费数据、优先于自动计算；否则在
-          ``auto_calc`` 为真时计算并冻结：申报了 ``usage`` 的内置供应商调用按模型目录的价目表与两级倍率计价，
-          查不到单价时费用为 ``None`` 并带未定价原因；其余按行字段 + 申报值调 ``cost_calculator``（自定义
-          供应商价格预查避免 CostCalculator 内 sync-over-async）。
+          ``auto_calc`` 为真时计算并冻结：申报了 ``usage`` 的内置供应商调用与全部自定义供应商调用按模型目录的
+          价目表与两级倍率计价，查不到单价时费用为 ``None`` 并带未定价原因；其余按行字段 + 申报值调
+          ``cost_calculator``。
         - ``base_currency`` 由 caller 传入承载各自的币种兜底口径（finish_call 兜底
           ``row.currency``，resume 兜底 ``settlement.currency``），保持行为不分叉。
 
@@ -314,13 +316,24 @@ class UsageRepository(BaseRepository):
                 cost_amount, currency = cost.amount, cost.currency
             else:
                 cost_amount, unpriced_reason = None, str(cost.reason)
-        elif auto_calc:
-            # 自定义供应商价格预查（避免 CostCalculator 内 sync-over-async）；与费用预估链路共用
-            # CustomProviderRepository.resolve_price，非自定义 / 畸形 id / 查询异常 / 缺价统一降级为无价。
-            custom_price = await CustomProviderRepository(self.session).resolve_price(
-                effective_provider, row.model or ""
+        elif auto_calc and is_custom_provider(effective_provider):
+            # 自定义供应商按所对应条目的价目表与两级倍率计价，对应不上条目时记为未定价（docs/adr/0106）。没有上报
+            # 用量时计量项全部落空，同样记为未定价，不按媒体类型硬算、不猜秒数。
+            pricing = await CustomProviderRepository(self.session).resolve_pricing(effective_provider, row.model or "")
+            cost = price_custom_call(
+                model=row.model or "",
+                media_type=row.call_type,
+                entry_binding=pricing.entry_binding,
+                requests=settlement.usage,
+                provider_multiplier=await get_provider_multiplier(self.session, effective_provider),
+                model_multiplier=pricing.multiplier,
             )
-
+            if isinstance(cost, Priced):
+                cost_amount, currency = cost.amount, cost.currency
+            else:
+                cost_amount, unpriced_reason = None, str(cost.reason)
+        elif auto_calc:
+            # 没有申报用量的其余调用（Agent 会话的回填等）沿用旧计价。
             params = PricingParams(
                 call_type=row.call_type,
                 model=row.model,
@@ -338,13 +351,7 @@ class UsageRepository(BaseRepository):
                 text_input_tokens=settlement.text_input_tokens,
                 text_output_tokens=settlement.text_output_tokens,
             )
-            cost_amount, currency = cost_calculator.calculate_cost(
-                effective_provider,
-                params,
-                custom_price_input=custom_price.price_input,
-                custom_price_output=custom_price.price_output,
-                custom_currency=custom_price.currency,
-            )
+            cost_amount, currency = cost_calculator.calculate_cost(effective_provider, params)
 
         return _SettledCall(
             duration_ms=duration_ms,

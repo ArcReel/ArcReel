@@ -1260,74 +1260,95 @@ class TestDuplicateDefaultRejected:
         assert resp.status_code == 201
 
 
-class TestPriceFieldConsistency:
-    """price_output 不能脱离 price_input 单独存在；currency 可独立存在。"""
+class TestModelPricingFields:
+    """模型按所对应条目计价：表单只填模型倍率与条目绑定，响应带出对应到的条目（docs/adr/0100、0105、0106）。"""
 
-    def test_output_without_input_rejected(self, custom_providers_client: TestClient):
-        resp = custom_providers_client.post(
+    @staticmethod
+    def _create(client: TestClient, models: list[dict[str, Any]]):
+        return client.post(
             "/api/v1/custom-providers",
             json={
-                "display_name": "Bad Price",
+                "display_name": "Relay",
                 "discovery_format": "openai",
-                "base_url": "https://api.example.com/v1",
-                "api_key": "sk-price-test",
-                "models": [
-                    {
-                        "model_id": "m1",
-                        "display_name": "M1",
-                        "endpoint": "openai-chat",
-                        "is_enabled": True,
-                        "price_output": 0.5,
-                    },
-                ],
+                "base_url": "https://relay.test/v1",
+                "api_key": "sk-relay-12345678",
+                "models": models,
             },
         )
+
+    def test_multiplier_binding_and_matched_entry_round_trip(self, custom_providers_client: TestClient):
+        resp = self._create(
+            custom_providers_client,
+            [
+                {"model_id": "relay/GPT-5.4", "display_name": "GPT", "endpoint": "openai-chat", "multiplier": 0.8},
+                {
+                    "model_id": "renamed-llm",
+                    "display_name": "Renamed",
+                    "endpoint": "openai-chat",
+                    "entry_binding": " openai/gpt-5.4 ",
+                },
+                {"model_id": "my-private-llm", "display_name": "Private", "endpoint": "openai-chat"},
+            ],
+        )
+
+        assert resp.status_code == 201, resp.text
+        detail = custom_providers_client.get(f"/api/v1/custom-providers/{resp.json()['id']}").json()
+        models = {m["model_id"]: m for m in detail["models"]}
+        assert (models["relay/GPT-5.4"]["multiplier"], models["relay/GPT-5.4"]["entry_binding"]) == (0.8, None)
+        assert models["relay/GPT-5.4"]["matched_entry"] == {
+            "maker": "openai",
+            "name": "gpt-5.4",
+            "media_type": "text",
+            "display_name": models["relay/GPT-5.4"]["matched_entry"]["display_name"],
+            "priced": True,
+        }
+        assert models["renamed-llm"]["entry_binding"] == "openai/gpt-5.4"
+        assert models["renamed-llm"]["matched_entry"]["name"] == "gpt-5.4"
+        assert models["my-private-llm"]["multiplier"] == 1.0
+        assert models["my-private-llm"]["matched_entry"] is None
+
+    @pytest.mark.parametrize(
+        "field", [{"multiplier": -0.1}, {"entry_binding": "gpt-5.4"}, {"entry_binding": "/gpt-5.4"}]
+    )
+    def test_invalid_multiplier_or_binding_shape_is_rejected(self, custom_providers_client: TestClient, field):
+        resp = self._create(
+            custom_providers_client,
+            [{"model_id": "m1", "display_name": "M1", "endpoint": "openai-chat", **field}],
+        )
+
         assert resp.status_code == 422
 
-    def test_currency_without_input_accepted(self, custom_providers_client: TestClient):
-        """currency 可独立存在（用户先选币种，稍后填价格）。"""
-        resp = custom_providers_client.post(
-            "/api/v1/custom-providers",
-            json={
-                "display_name": "Currency Only",
-                "discovery_format": "openai",
-                "base_url": "https://api.example.com/v1",
-                "api_key": "sk-price-test",
-                "models": [
-                    {
-                        "model_id": "m1",
-                        "display_name": "M1",
-                        "endpoint": "openai-chat",
-                        "is_enabled": True,
-                        "currency": "USD",
-                    },
-                ],
-            },
+    def test_a_binding_to_an_entry_no_longer_in_the_catalog_is_kept(self, custom_providers_client: TestClient):
+        """只校验形状：官方删掉条目后，存量绑定随整表回传不能把无关编辑堵在 422 上。"""
+        resp = self._create(
+            custom_providers_client,
+            [{"model_id": "m1", "display_name": "M1", "endpoint": "openai-chat", "entry_binding": "acme/gone"}],
         )
-        assert resp.status_code == 201
 
-    def test_valid_price_fields_accepted(self, custom_providers_client: TestClient):
-        resp = custom_providers_client.post(
-            "/api/v1/custom-providers",
-            json={
-                "display_name": "Good Price",
-                "discovery_format": "openai",
-                "base_url": "https://api.example.com/v1",
-                "api_key": "sk-price-test",
-                "models": [
-                    {
-                        "model_id": "m1",
-                        "display_name": "M1",
-                        "endpoint": "openai-chat",
-                        "is_enabled": True,
-                        "price_input": 0.1,
-                        "price_output": 0.2,
-                        "currency": "USD",
-                    },
-                ],
-            },
-        )
         assert resp.status_code == 201
+        model = resp.json()["models"][0]
+        assert (model["entry_binding"], model["matched_entry"]) == ("acme/gone", None)
+
+    def test_legacy_price_and_capability_fields_are_ignored(self, custom_providers_client: TestClient):
+        """旧客户端还会带上价格、可选时长与最大输出 token：忽略，不落库也不回显。"""
+        resp = self._create(
+            custom_providers_client,
+            [
+                {
+                    "model_id": "m1",
+                    "display_name": "M1",
+                    "endpoint": "openai-chat",
+                    "price_input": 0.1,
+                    "price_output": 0.2,
+                    "currency": "USD",
+                    "max_output_tokens": 8192,
+                }
+            ],
+        )
+
+        assert resp.status_code == 201
+        model = resp.json()["models"][0]
+        assert {"price_input", "price_output", "currency", "price_unit", "max_output_tokens"}.isdisjoint(model)
 
 
 class TestResolutionField:
@@ -1546,18 +1567,6 @@ def _custom_endpoint_spec(key: str, media_type: str) -> EndpointSpec:
     """一条 ce- 端点的 spec，媒体类型按需改写——键前缀推不出媒体类型，只能由 spec 带过来。"""
     spec = declarative_endpoint_spec(key, custom_endpoint_definition(), source="custom")
     return replace(spec, media_type=media_type)
-
-
-def test_to_db_dict_reads_the_media_type_from_the_resolved_spec():
-    """时长档位归一只对视频端点做；ce- 端点是不是视频，由解析好的 spec 说了算。"""
-    from server.routers.custom_providers import ModelInput
-
-    model = ModelInput(model_id="m1", display_name="m1", endpoint="ce-7", supported_durations=[])
-
-    # video：空列表下游视为非法，归一为缺省（运行时取条目或名字预设）
-    assert model.to_db_dict(_custom_endpoint_spec("ce-7", "video"))["supported_durations"] is None
-    # 非 video：不归一，原样落库
-    assert model.to_db_dict(_custom_endpoint_spec("ce-7", "image"))["supported_durations"] == "[]"
 
 
 def test_check_unique_defaults_reads_the_media_type_from_the_resolved_spec():
@@ -1893,91 +1902,9 @@ class TestProviderSecretReadback:
         assert "sk-secret" not in detail.text
 
 
-class TestSupportedDurationsAutoFill:
-    """video endpoint 模型创建时未传 supported_durations：保存时不预填名字预设（docs/adr/0105），运行时再回落。"""
+class TestDurationsAndOutputLimitAsOverrides:
+    """可选时长与最大输出 token 只以能力覆盖保存，保存时不预填名字预设（docs/adr/0105、0106）。"""
 
-    def test_create_video_model_without_durations_is_not_prefilled(self, custom_providers_client: TestClient):
-        resp = custom_providers_client.post(
-            "/api/v1/custom-providers",
-            json={
-                "display_name": "test-cp",
-                "discovery_format": "openai",
-                "base_url": "https://example.com/v1",
-                "api_key": "sk-test",
-                "models": [
-                    {
-                        "model_id": "sora-2-pro",
-                        "display_name": "Sora 2 Pro",
-                        "endpoint": "openai-video",
-                        "is_default": True,
-                        "is_enabled": True,
-                        # 注意：不传 supported_durations
-                    }
-                ],
-            },
-        )
-        assert resp.status_code == 201, resp.text
-        provider_id = resp.json()["id"]
-
-        resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
-        assert resp.status_code == 200
-        model = resp.json()["models"][0]
-        assert model["supported_durations"] is None
-
-    def test_create_video_model_user_provided_durations_kept(self, custom_providers_client: TestClient):
-        resp = custom_providers_client.post(
-            "/api/v1/custom-providers",
-            json={
-                "display_name": "test-cp-2",
-                "discovery_format": "openai",
-                "base_url": "https://example.com/v1",
-                "api_key": "sk-test",
-                "models": [
-                    {
-                        "model_id": "sora-2-pro",
-                        "display_name": "Sora 2 Pro",
-                        "endpoint": "openai-video",
-                        "is_default": True,
-                        "is_enabled": True,
-                        "supported_durations": [6, 10, 12, 16, 20],
-                    }
-                ],
-            },
-        )
-        assert resp.status_code == 201, resp.text
-        provider_id = resp.json()["id"]
-
-        resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
-        model = resp.json()["models"][0]
-        assert model["supported_durations"] == [6, 10, 12, 16, 20]
-
-    def test_text_endpoint_does_not_get_durations(self, custom_providers_client: TestClient):
-        resp = custom_providers_client.post(
-            "/api/v1/custom-providers",
-            json={
-                "display_name": "test-cp-3",
-                "discovery_format": "openai",
-                "base_url": "https://example.com/v1",
-                "api_key": "sk-test",
-                "models": [
-                    {
-                        "model_id": "gpt-4o",
-                        "display_name": "GPT 4o",
-                        "endpoint": "openai-chat",
-                        "is_default": True,
-                        "is_enabled": True,
-                    }
-                ],
-            },
-        )
-        assert resp.status_code == 201
-        provider_id = resp.json()["id"]
-        resp = custom_providers_client.get(f"/api/v1/custom-providers/{provider_id}")
-        model = resp.json()["models"][0]
-        assert model["supported_durations"] is None
-
-
-class TestMaxOutputTokens:
     @staticmethod
     def _create(client: TestClient, models: list[dict[str, Any]]):
         return client.post(
@@ -1991,41 +1918,51 @@ class TestMaxOutputTokens:
             },
         )
 
-    def test_text_model_keeps_its_registered_limit(self, custom_providers_client: TestClient):
+    def test_video_model_without_override_is_not_prefilled(self, custom_providers_client: TestClient):
         resp = self._create(
             custom_providers_client,
-            [
-                {"model_id": "my-llm", "display_name": "My LLM", "endpoint": "openai-chat", "max_output_tokens": 8192},
-                {"model_id": "bare-llm", "display_name": "Bare", "endpoint": "openai-chat"},
-            ],
+            [{"model_id": "sora-2-pro", "display_name": "Sora 2 Pro", "endpoint": "openai-video"}],
         )
 
-        assert resp.status_code == 201
-        detail = custom_providers_client.get(f"/api/v1/custom-providers/{resp.json()['id']}").json()
-        limits = {m["model_id"]: m["max_output_tokens"] for m in detail["models"]}
-        assert limits == {"my-llm": 8192, "bare-llm": None}
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["models"][0]["capability_overrides"] is None
 
-    def test_non_text_model_drops_the_limit(self, custom_providers_client: TestClient):
+    def test_overrides_are_kept_per_media_type(self, custom_providers_client: TestClient):
         resp = self._create(
             custom_providers_client,
             [
                 {
-                    "model_id": "dall-e-3",
-                    "display_name": "DALL-E 3",
-                    "endpoint": "openai-images",
-                    "max_output_tokens": 4096,
-                }
+                    "model_id": "sora-2-pro",
+                    "display_name": "Sora 2 Pro",
+                    "endpoint": "openai-video",
+                    "capability_overrides": {"durations": [6, 10]},
+                },
+                {
+                    "model_id": "my-llm",
+                    "display_name": "My LLM",
+                    "endpoint": "openai-chat",
+                    "capability_overrides": {"max_output_tokens": 8192},
+                },
             ],
         )
 
-        assert resp.status_code == 201
-        assert resp.json()["models"][0]["max_output_tokens"] is None
+        assert resp.status_code == 201, resp.text
+        detail = custom_providers_client.get(f"/api/v1/custom-providers/{resp.json()['id']}").json()
+        overrides = {m["model_id"]: m["capability_overrides"] for m in detail["models"]}
+        assert overrides == {"sora-2-pro": {"durations": [6, 10]}, "my-llm": {"max_output_tokens": 8192}}
 
     @pytest.mark.parametrize("bad", [0, -1])
-    def test_non_positive_limit_is_rejected(self, custom_providers_client: TestClient, bad: int):
+    def test_non_positive_output_limit_is_rejected(self, custom_providers_client: TestClient, bad: int):
         resp = self._create(
             custom_providers_client,
-            [{"model_id": "my-llm", "display_name": "My LLM", "endpoint": "openai-chat", "max_output_tokens": bad}],
+            [
+                {
+                    "model_id": "my-llm",
+                    "display_name": "My LLM",
+                    "endpoint": "openai-chat",
+                    "capability_overrides": {"max_output_tokens": bad},
+                }
+            ],
         )
 
         assert resp.status_code == 422

@@ -27,6 +27,8 @@ from lib.backends.image_backends.base import (
     ImageGenerationResult,
 )
 from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.billing.metering import Usage
+from lib.custom_provider.metering import custom_video_usage, with_image_counts
 from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, endpoint_guard
 
 
@@ -112,7 +114,10 @@ class CustomImageBackend:
         return self._delegate.max_reference_images
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        return await self._delegate.generate(request)
+        result = await self._delegate.generate(request)
+        # 没有声明计量的通道（ComfyUI、声明式图片、OpenAI Chat 出图）按通用口径上报张数；内置调用通道自己带的
+        # 计量原样保留并补上张数，计价交给对应条目的价目表（docs/adr/0100）。
+        return replace(result, usage=with_image_counts(result.usage, len(request.reference_images)))
 
 
 class CustomAudioBackend:
@@ -268,6 +273,15 @@ class CustomVideoBackend:
         if self._endpoint is not None:
             request = replace(request, execution_endpoint=self._endpoint)
         return await self._delegate.generate(request)
+
+    def metered_usage(
+        self, model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量：被包装的调用通道有声明时取它，认不得这个模型或没有声明时按通用口径上报。
+
+        见 :mod:`lib.custom_provider.metering`；结算经 ``backend_metered_usage`` 调用。
+        """
+        return custom_video_usage(getattr(self._delegate, "metered_usage", None), model, request, result)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 透传到下游 backend；下游不支持 resume 时抛 NotImplementedError，

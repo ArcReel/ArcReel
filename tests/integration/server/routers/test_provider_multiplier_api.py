@@ -79,3 +79,25 @@ def test_generic_config_patch_rejects_multiplier_key(multiplier_client: TestClie
 
     assert resp.status_code == 422
     assert multiplier_client.get("/api/v1/providers/openai/multiplier").json()["multiplier"] == 0.8
+
+
+async def test_comfyui_provider_defaults_to_zero(
+    multiplier_client: TestClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """ComfyUI 协议的供应商跑在用户自己的机器上，默认倍率 0；按租用算力计价时可以改成非 0。"""
+    async with session_factory() as session:
+        provider = CustomProvider(
+            display_name="ComfyUI", discovery_format="comfyui", base_url="http://localhost:8188", api_key=""
+        )
+        session.add(provider)
+        await session.commit()
+        provider_id = f"custom-{provider.id}"
+
+    assert multiplier_client.get(f"/api/v1/providers/{provider_id}/multiplier").json() == {
+        "multiplier": 0.0,
+        "default": 0.0,
+    }
+    assert multiplier_client.put(f"/api/v1/providers/{provider_id}/multiplier", json={"multiplier": 1}).json() == {
+        "multiplier": 1.0,
+        "default": 0.0,
+    }

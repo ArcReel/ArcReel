@@ -322,7 +322,6 @@ MESSAGES = {
     "interface_offline": "This interface is offline, please use the recommended interface",
     "answers_required": "answers cannot be empty",
     # Custom Providers
-    "price_input_required": "price_input must be set when setting price_output",
     "model_id_required": "model_id must be provided for enabled models",
     "duplicate_model_id": "Duplicate model_id: {model_id}",
     "default_model_conflict": "Each media_type can have at most one default model. Conflict: {conflict}",

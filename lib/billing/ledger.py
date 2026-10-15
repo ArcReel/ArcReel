@@ -88,7 +88,7 @@ def _settlement_from_result(
       按 token 计价的 TTS 再带输入 token 与输出音频 token；
     - video 的 ``duration_seconds``（backend 回报的实际计费/生成时长）→
       ``billed_duration_seconds``（覆盖 start_call 时的请求时长）；``usage`` 是视频调用通道按用量契约上报的
-      这次请求的计量，没有时（自定义供应商的包装层）沿用旧计价。
+      这次请求的计量。
 
     四种 backend 结果对象结构独立、无共同基类，按调用点已知的 ``call_type`` 显式分发。
     """
@@ -100,7 +100,7 @@ def _settlement_from_result(
             image_output_tokens=result.image_output_tokens,
             text_input_tokens=result.text_input_tokens,
             text_output_tokens=result.text_output_tokens,
-            # 内置调用通道按用量契约上报；自定义供应商的调用通道不报，沿用旧计价。
+            # 调用通道按用量契约上报（自定义供应商的包装层在被包装的通道不报时按通用口径补上）。
             usage=(result.usage,) if result.usage is not None else (),
         )
     if call_type == "audio":

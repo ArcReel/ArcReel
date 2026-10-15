@@ -89,6 +89,7 @@ def custom_model_buckets(
     model_id: str,
     capability_overrides: object | None = None,
     endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> frozenset[GenerationTypeBucket]:
     """自定义供应商模型具备的任务类型桶；文本 / 音频 endpoint 与未知 endpoint 恒为空集。"""
     try:
@@ -104,7 +105,7 @@ def custom_model_buckets(
             return frozenset()
         endpoint_kind = endpoint_spec.kind if endpoint_spec is not None else "python"
         model_caps = custom_image_model_capabilities(
-            model_id, overrides=capability_overrides, endpoint_kind=endpoint_kind
+            model_id, overrides=capability_overrides, endpoint_kind=endpoint_kind, entry_binding=entry_binding
         )
         return _image_buckets(intersect_image_capabilities(caps, model_caps))
     if media_type != "video":

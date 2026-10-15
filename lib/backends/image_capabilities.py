@@ -31,19 +31,23 @@ def builtin_channel_capabilities(provider_id: str) -> frozenset[ImageCapability]
 
 
 def image_model_capabilities(
-    model_id: str, *, builtin_provider: str | None, overrides: object | None = None
+    model_id: str,
+    *,
+    builtin_provider: str | None,
+    overrides: object | None = None,
+    entry_binding: str | None = None,
 ) -> frozenset[ImageCapability] | None:
     """模型事实一侧允许的文生图 / 图生图；两维都不加约束时为 ``None``。
 
     ``builtin_provider`` 是内置供应商 id，按清单取条目；自定义供应商的模型传 ``None``，按模型名现查，
-    ``overrides`` 是它的能力覆盖（整维替换条目的值）。不加约束的那一维按允许算。
+    ``overrides`` 是它的能力覆盖（整维替换条目的值），``entry_binding`` 是它的条目绑定。不加约束的那一维按允许算。
     """
     if builtin_provider is not None:
         model = catalog.get_model(builtin_provider, model_id, media_type="image")
         if model is None:
             return None
         return frozenset(cap for cap in ImageCapability if cap.value in model.capabilities)
-    facts = image_model_facts(model_id, overrides)
+    facts = image_model_facts(model_id, overrides, entry_binding=entry_binding)
     declared = {
         ImageCapability.TEXT_TO_IMAGE: facts.text_to_image,
         ImageCapability.IMAGE_TO_IMAGE: facts.image_to_image,
@@ -54,12 +58,12 @@ def image_model_capabilities(
 
 
 def custom_image_model_capabilities(
-    model_id: str, *, overrides: object | None, endpoint_kind: str
+    model_id: str, *, overrides: object | None, endpoint_kind: str, entry_binding: str | None = None
 ) -> frozenset[ImageCapability] | None:
     """自定义供应商图片模型的模型事实一侧；ComfyUI 端点只看节点绑定，恒为 ``None``（不加约束）。"""
     if endpoint_kind == COMFYUI_KIND:
         return None
-    return image_model_capabilities(model_id, builtin_provider=None, overrides=overrides)
+    return image_model_capabilities(model_id, builtin_provider=None, overrides=overrides, entry_binding=entry_binding)
 
 
 def intersect_image_capabilities(

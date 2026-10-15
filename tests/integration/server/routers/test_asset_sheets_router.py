@@ -50,17 +50,15 @@ async def sheet_client(
                     "model_id": "text-image",
                     "display_name": "Text image",
                     "endpoint": "openai-images-generations",
-                    "price_unit": "image",
-                    "price_input": 0.04,
-                    "currency": "USD",
+                    # 按条目计价：Grok Imagine Pro 每张 0.07 USD
+                    "entry_binding": "xai/grok-imagine-image-pro",
                 },
                 {
                     "model_id": "edit-image",
                     "display_name": "Edit image",
                     "endpoint": "openai-images-edits",
-                    "price_unit": "image",
-                    "price_input": 0.09,
-                    "currency": "USD",
+                    "entry_binding": "xai/grok-imagine-image-pro",
+                    "multiplier": 2.0,
                 },
             ],
         )
@@ -152,7 +150,7 @@ async def test_preview_lists_targets_skips_and_cost_without_queueing(
             "reason": "missing_description",
         }
     ]
-    assert body["estimated_cost"] == {"USD": pytest.approx(0.13)}
+    assert body["estimated_cost"] == {"USD": pytest.approx(0.07 + 0.07 * 2)}
     assert body["unpriced_count"] == 0
 
 

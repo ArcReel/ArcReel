@@ -14,6 +14,7 @@ from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.config.anthropic_probe import anthropic_auth_headers
 from lib.config.url_utils import anthropic_endpoint_url, validate_anthropic_base_url
 from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint
+from lib.custom_provider.model_facts import matched_entry_summary
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +133,7 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
 
 
 def _build_result_list(entries: list[tuple[str, str]], *, output_limits: Mapping[str, int] | None = None) -> list[dict]:
-    """每个推算 media_type 取首项为 default。
+    """每个推算 media_type 取首项为 default，并带上按名字对应到的条目摘要。
 
     ``output_limits`` 是协议给出的模型最大输出长度，只预填到文本模型上；没有给出时为 None。
     """
@@ -150,6 +151,8 @@ def _build_result_list(entries: list[tuple[str, str]], *, output_limits: Mapping
                 "is_default": is_default,
                 "is_enabled": True,
                 "max_output_tokens": (output_limits or {}).get(model_id) if media == "text" else None,
+                # 按推断端点的媒体类型对应到的条目（docs/adr/0105）；对应不上为 None，添加后费用记为未定价。
+                "matched_entry": matched_entry_summary(model_id, media),
             }
         )
     return result

@@ -86,14 +86,13 @@ export interface CustomProviderModelInfo {
   endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
-  price_unit: string | null;
-  price_input: number | null;
-  price_output: number | null;
-  currency: string | null;
-  supported_durations: number[] | null;
   resolution: string | null;
-  /** 文本模型登记的最大输出长度（token）；未登记或非文本模型为 null。 */
-  max_output_tokens: number | null;
+  /** 供应商模型倍率：与供应商倍率相乘，作用在这个模型的参考费用上。 */
+  multiplier: number;
+  /** 条目绑定「模型厂商/官方模型名」；null = 按模型名对应条目。整表保存时必须原样回传。 */
+  entry_binding: string | null;
+  /** 对应到的模型条目；null = 对应不上条目，这个模型的调用记为未定价。 */
+  matched_entry: MatchedCatalogEntry | null;
   /** 系统判定的视频能力（全字段）；非视频模型为 null。 */
   system_capabilities: VideoCapabilityFlags | null;
   /** 用户覆盖（稀疏），与 system_capabilities 合并即为生效值；无覆盖为 null。 */
@@ -104,6 +103,15 @@ export interface CustomProviderModelInfo {
   requests: EndpointRequest[];
   /** 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为 null。 */
   global_bucket_refs: string[] | null;
+}
+
+/** 供应商模型对应到的模型条目摘要。`priced` 为 false 时条目没有可用的价目表，调用同样记为未定价。 */
+export interface MatchedCatalogEntry {
+  maker: string;
+  name: string;
+  media_type: MediaType;
+  display_name: string;
+  priced: boolean;
 }
 
 /** 后端接受参考音频的运输形态；none 表示该模型没有音色输入通道。 */
@@ -165,8 +173,10 @@ export interface DiscoveredModel {
   endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
-  /** 发现接口给出的最大输出长度（目前只有 Google 协议的文本模型）；拿不到为 null。 */
+  /** 发现接口给出的最大输出长度（目前只有 Google 协议的文本模型）；拿不到为 null。表单不再使用。 */
   max_output_tokens?: number | null;
+  /** 按模型名对应到的模型条目；null = 对应不上，调用记为未定价。 */
+  matched_entry?: MatchedCatalogEntry | null;
 }
 
 export interface CustomProviderCreateRequest {
@@ -199,18 +209,21 @@ export interface CustomProviderModelInput {
   endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
-  price_unit?: string;
-  price_input?: number;
-  price_output?: number;
-  currency?: string;
-  supported_durations?: number[] | null;
   resolution?: string | null;
-  /** 文本模型的最大输出长度（token）；null = 未登记，按 64000 的上限请求。非文本模型服务端忽略。 */
-  max_output_tokens?: number | null;
   /** 保存模型列表是整体替换语义：省略该字段会清空已有覆盖，编辑既有模型时必须原样回传。 */
   capability_overrides?: CapabilityOverrides | null;
   /** 请求地址修改，与 capability_overrides 同为整体替换语义，编辑既有模型时必须原样回传。 */
   path_overrides?: PathOverrides | null;
+  /** 供应商模型倍率，非负有限数；省略为 1。 */
+  multiplier?: number;
+  /** 条目绑定；与覆盖同理，编辑既有模型时必须原样回传。 */
+  entry_binding?: string | null;
+}
+
+/** 供应商倍率：`multiplier` 是生效值，`default` 是没有设置时的值。 */
+export interface ProviderMultiplierInfo {
+  multiplier: number;
+  default: number;
 }
 
 export interface AnthropicDiscoverRequest {

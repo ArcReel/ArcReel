@@ -12,19 +12,6 @@ import type {
 export type { DiscoveryFormat };
 export type ModelLike = { key: string; endpoint: EndpointKey; is_default: boolean };
 
-/** 价格行标签 —— mediaType 由调用方从 endpoint-catalog-store 读出注入。 */
-export function priceLabel(
-  endpoint: EndpointKey,
-  endpointToMediaType: Record<string, MediaType>,
-  t: (key: string) => string,
-): { input: string; output: string } {
-  const media = endpointToMediaType[endpoint];
-  if (media === "video") return { input: t("price_per_second"), output: "" };
-  if (media === "image") return { input: t("price_per_image"), output: "" };
-  if (media === "audio") return { input: t("price_per_10k_chars"), output: "" };
-  return { input: t("price_per_m_input"), output: t("price_per_m_output") };
-}
-
 /** 模型发现协议是否为 ComfyUI。判据只此一处，界面各处不各写一遍字面量比较。 */
 export function isComfyuiProtocol(format: DiscoveryFormat): boolean {
   return format === "comfyui";
@@ -33,6 +20,12 @@ export function isComfyuiProtocol(format: DiscoveryFormat): boolean {
 /** 一个调用端点是否为 ComfyUI 端点。与 isComfyuiProtocol 同理：字面量只在这里出现一次。 */
 export function isComfyuiEndpoint(endpoint: Pick<EndpointDescriptor, "kind">): boolean {
   return endpoint.kind === "comfyui";
+}
+
+/** 一个调用端点是否为 ComfyUI 视频端点：模型行上只有这种端点还留着「支持秒数」，写进能力覆盖的
+ *  durations 键（docs/adr/0082、0104）。其余端点的可选时长由模型条目决定，界面不再编辑。 */
+export function isComfyuiVideoEndpoint(endpoint: Pick<EndpointDescriptor, "kind" | "media_type">): boolean {
+  return isComfyuiEndpoint(endpoint) && endpoint.media_type === "video";
 }
 
 /** 连通性检查将打到的 URL 预览。 */
@@ -123,7 +116,7 @@ export type MergeRow = { model_id: string; endpoint: EndpointKey; is_default: bo
  *  保护，且发现接口对每个 media_type 至多标一个默认（见后端 discovery _build_result_list），
  *  响应本身无冲突。保持「create 模式原样透传 discovery」的约束。
  *
- *  合并（编辑模式）：按 discovered 顺序保留已有行（含其 is_default 与价格等编辑态），新发现行
+ *  合并（编辑模式）：按 discovered 顺序保留已有行（含其 is_default 与倍率等编辑态），新发现行
  *  追加在对应位置，未被发现响应覆盖的既存行保留在末尾。未填 model_id 的手动行（model_id 同为
  *  空串）不进 Map 去重，否则键冲突会静默丢行；单独按原顺序补在末尾。
  *
@@ -217,6 +210,21 @@ export function withLastFrameOverride(
     delete merged.last_frame;
   } else {
     merged.last_frame = next;
+  }
+  return Object.keys(merged).length > 0 ? merged : null;
+}
+
+/** 稀疏覆盖字典里 durations 键的唯一写入点（只有 ComfyUI 视频行编辑它）：undefined 即移除该键，回到跟随
+ *  workflow 的原生时长；移除后为空则与 withLastFrameOverride 一样收敛回 null。 */
+export function withDurationsOverride(
+  prev: CapabilityOverrides | null,
+  durations: number[] | undefined,
+): CapabilityOverrides | null {
+  const merged: CapabilityOverrides = { ...(prev ?? {}) };
+  if (durations === undefined) {
+    delete merged.durations;
+  } else {
+    merged.durations = durations;
   }
   return Object.keys(merged).length > 0 ? merged : null;
 }

@@ -302,7 +302,6 @@ MESSAGES = {
     "interface_offline": "该接口已下线，请使用推荐的接口",
     "answers_required": "answers 不能为空",
     # Custom Providers
-    "price_input_required": "设置 price_output 时必须同时设置 price_input",
     "model_id_required": "已启用的模型必须填写 model_id",
     "duplicate_model_id": "model_id 重复: {model_id}",
     "default_model_conflict": "每个 media_type 最多只能有一个默认模型，冲突: {conflict}",

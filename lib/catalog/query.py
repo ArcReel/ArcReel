@@ -18,17 +18,19 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, assert_never, cast
 
 from arcreel_catalog_core import (
     CATALOG_FILENAME,
     MANIFEST_FILENAME,
+    MEDIA_TYPES,
     AudioFacts,
     BuiltinProviderModel,
     CatalogData,
     CatalogEntry,
     EntryKey,
     ImageFacts,
+    MediaType,
     PriceTable,
     TextFacts,
     VideoFacts,
@@ -237,6 +239,29 @@ def find_entry(
     对应关系不缓存，目录变化（官方同步带来新条目或模型别名）后下次调用即得到新结果。规则见 :func:`match_entry`。
     """
     return match_entry(factory_snapshot().entries, model_name, media_type=media_type, binding=binding)
+
+
+def binding_key(ref: str | None, media_type: str) -> EntryKey | None:
+    """条目绑定存的「模型厂商/官方模型名」加上调用端点的媒体类型，还原为条目键；没有绑定或形状不对时为 ``None``。"""
+    if not ref or media_type not in MEDIA_TYPES:
+        return None
+    maker, sep, name = ref.partition("/")
+    if not sep or not maker or not name:
+        return None
+    return EntryKey(maker, name, cast("MediaType", media_type))
+
+
+def find_bound_entry(ref: str, media_type: str) -> CatalogEntry | None:
+    """条目绑定指向的条目；目录里没有这个条目（或媒体类型不符）时为 ``None``。供写入侧校验绑定使用。"""
+    key = binding_key(ref, media_type)
+    if key is None:
+        return None
+    return next((entry for entry in factory_snapshot().entries if entry.key == key), None)
+
+
+def entry_ref(entry: CatalogEntry) -> str:
+    """条目绑定的存储形状：「模型厂商/官方模型名」。"""
+    return entry.key.ref
 
 
 @dataclass(frozen=True)

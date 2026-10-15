@@ -9,7 +9,9 @@
 :mod:`lib.custom_provider.capabilities` 与调用通道声明合成，不在本模块。两类维度共用
 ``CustomProviderModel.capability_overrides`` 这一个稀疏字典，键名互不重叠。
 
-ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），不经过本模块：调用方按端点形态分流。
+ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），不经过本模块：调用方按端点形态分流。唯一的例外是
+ComfyUI 视频模型行的可选时长，它是用户在 workflow 原生时长之外增删的偏好，存为 ``durations`` 覆盖，经
+:func:`comfyui_duration_override` 读取。
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
-from arcreel_catalog_core import DurationConstraints, ImageFacts, TextFacts, VideoFacts
+from arcreel_catalog_core import CatalogEntry, DurationConstraints, ImageFacts, TextFacts, VideoFacts
 from lib.catalog import query as catalog
 from lib.custom_provider.duration_presets import infer_supported_durations
 
@@ -136,18 +138,17 @@ class VideoModelFacts:
     duration_constraints: DurationConstraints = field(default_factory=DurationConstraints)
 
 
-def text_model_facts(
-    model_id: str, overrides: object | None, *, legacy_max_output_tokens: int | None = None
-) -> TextModelFacts:
-    """文本供应商模型的生效模型事实。
+def model_entry(model_id: str, media_type: str, entry_binding: str | None = None) -> CatalogEntry | None:
+    """供应商模型对应的条目：先看条目绑定，再按名字现查（docs/adr/0105）。媒体类型取调用端点。"""
+    return catalog.find_entry(model_id, media_type=media_type, binding=catalog.binding_key(entry_binding, media_type))
 
-    ``legacy_max_output_tokens`` 是模型行上旧的最大输出 token 列，在 #3222 的迁移把它转进能力覆盖之前，
-    按覆盖对待：排在能力覆盖之后、条目之前。
-    """
+
+def text_model_facts(model_id: str, overrides: object | None, *, entry_binding: str | None = None) -> TextModelFacts:
+    """文本供应商模型的生效模型事实：能力覆盖 > 对应条目；都没有时不加约束。"""
     applied = model_fact_overrides(overrides, "text", model_id=model_id)
-    entry = catalog.find_entry(model_id, media_type="text")
+    entry = model_entry(model_id, "text", entry_binding)
     facts = entry.facts if entry is not None and isinstance(entry.facts, TextFacts) else None
-    max_output_tokens = applied.get("max_output_tokens", legacy_max_output_tokens)
+    max_output_tokens = applied.get("max_output_tokens")
     if max_output_tokens is None and facts is not None:
         max_output_tokens = facts.max_output_tokens
     return TextModelFacts(
@@ -157,10 +158,10 @@ def text_model_facts(
     )
 
 
-def image_model_facts(model_id: str, overrides: object | None) -> ImageModelFacts:
+def image_model_facts(model_id: str, overrides: object | None, *, entry_binding: str | None = None) -> ImageModelFacts:
     """图片供应商模型的生效模型事实（未与调用通道取交集，交集见 :mod:`lib.backends.image_capabilities`）。"""
     applied = model_fact_overrides(overrides, "image", model_id=model_id)
-    entry = catalog.find_entry(model_id, media_type="image")
+    entry = model_entry(model_id, "image", entry_binding)
     facts = entry.facts if entry is not None and isinstance(entry.facts, ImageFacts) else None
     return ImageModelFacts(
         text_to_image=_bool_fact(applied, "text_to_image", None if facts is None else facts.text_to_image),
@@ -168,22 +169,18 @@ def image_model_facts(model_id: str, overrides: object | None) -> ImageModelFact
     )
 
 
-def video_model_facts(
-    model_id: str, overrides: object | None, *, legacy_durations: list[int] | None = None
-) -> VideoModelFacts:
+def video_model_facts(model_id: str, overrides: object | None, *, entry_binding: str | None = None) -> VideoModelFacts:
     """视频供应商模型的生效模型事实。
 
-    可选时长：能力覆盖 > 模型行上旧的可选时长列（``legacy_durations``，#3222 的迁移把它转进能力覆盖之前
-    按覆盖对待）> 对应条目 > 按名字推断的时长预设（对应不上条目时）。
+    可选时长：能力覆盖 > 对应条目 > 按名字推断的时长预设（对应不上条目时）。
     """
     applied = model_fact_overrides(overrides, "video", model_id=model_id)
-    entry = catalog.find_entry(model_id, media_type="video")
+    entry = model_entry(model_id, "video", entry_binding)
     facts = entry.facts if entry is not None and isinstance(entry.facts, VideoFacts) else None
 
     overridden = applied.get("durations")
-    raw_durations = [int(d) for d in overridden] if isinstance(overridden, list) else legacy_durations
-    if raw_durations:
-        durations = tuple(sorted(set(raw_durations)))
+    if isinstance(overridden, list):
+        durations = tuple(sorted({int(d) for d in overridden}))
     elif facts is not None:
         durations = tuple(facts.durations)
     else:
@@ -203,6 +200,24 @@ def video_model_facts(
     return VideoModelFacts(durations=durations, resolutions=resolutions, duration_constraints=constraints)
 
 
+#: ComfyUI 视频端点上唯一接受的覆盖维度：可选时长。ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），
+#: 但时长档位是用户在 workflow 原生时长之外自己增删的偏好，不是能力声明（docs/adr/0104）。
+COMFYUI_VIDEO_OVERRIDE_KEYS: frozenset[str] = frozenset({"durations"})
+
+
+def comfyui_duration_override(overrides: object | None, *, model_id: str = "") -> list[int] | None:
+    """ComfyUI 视频模型行上用户设置的可选时长；没有设置或值不合法时为 ``None``（取端点从节点绑定推导的档位）。"""
+    if not isinstance(overrides, Mapping):
+        return None
+    value = overrides.get("durations")
+    if value is None:
+        return None
+    if not isinstance(value, list) or not model_fact_value_matches("durations", value):
+        logger.warning("忽略 %s 的可选时长覆盖 %r：值不合法，回到端点推导的档位", model_id, value)
+        return None
+    return sorted({int(d) for d in value})
+
+
 def _bool_fact(applied: Mapping[str, object], key: str, entry_value: bool | None) -> bool | None:
     value = applied.get(key)
     return value if isinstance(value, bool) else entry_value
@@ -219,3 +234,20 @@ def _constraints_from_override(raw: Mapping[str, object]) -> DurationConstraints
     with_reference_raw = raw.get("with_reference_images")
     with_reference = tuple(int(d) for d in with_reference_raw) if isinstance(with_reference_raw, list) else ()
     return DurationConstraints(by_resolution=by_resolution, with_reference_images=with_reference)
+
+
+def matched_entry_summary(model_id: str, media_type: str, entry_binding: str | None = None) -> dict[str, object] | None:
+    """供应商模型对应到的条目摘要，供设置页显示「对应到的模型」或「未定价」；对应不上条目时为 ``None``。
+
+    ``priced`` 表示条目有当前代码认得的价目表：为假时这个模型的调用同样记为未定价。
+    """
+    entry = model_entry(model_id, media_type, entry_binding)
+    if entry is None:
+        return None
+    return {
+        "maker": entry.maker,
+        "name": entry.name,
+        "media_type": entry.media_type,
+        "display_name": entry.display_name,
+        "priced": entry.price is not None and entry.price.is_priceable,
+    }

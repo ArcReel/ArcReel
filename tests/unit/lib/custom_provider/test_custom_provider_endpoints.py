@@ -17,6 +17,39 @@ from lib.custom_provider.endpoints import (
 )
 
 
+class TestMeteringBackend:
+    """计价读 ``metering_backend`` 类上的计量声明：它必须就是 ``build_backend`` 包装的那个调用通道类。"""
+
+    @pytest.mark.parametrize(
+        "key",
+        sorted(
+            key
+            for key, spec in ENDPOINT_REGISTRY.items()
+            if spec.media_type in {"image", "video"} and spec.definition is None
+        ),
+    )
+    def test_python_media_endpoints_declare_the_delegate_class(self, key):
+        from types import SimpleNamespace
+
+        spec = ENDPOINT_REGISTRY[key]
+        provider = SimpleNamespace(
+            id=7,
+            provider_id="custom-7",
+            api_key="sk",
+            base_url="https://relay.example.com/v1",
+            discovery_format="openai",
+        )
+
+        backend = spec.build_backend(provider, "some-model")
+
+        assert spec.metering_backend is type(backend._delegate)
+
+    def test_declarative_endpoints_meter_by_their_definition(self):
+        declarative = [spec for spec in ENDPOINT_REGISTRY.values() if spec.definition is not None]
+        assert declarative
+        assert all(spec.metering_backend is None for spec in declarative)
+
+
 class TestRegistry:
     def test_endpoint_count(self):
         assert set(ENDPOINT_REGISTRY.keys()) == {

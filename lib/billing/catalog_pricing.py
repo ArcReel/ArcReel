@@ -1,8 +1,12 @@
-"""内置供应商调用按模型目录计价：结算与提交前预估共用的入口。
+"""供应商调用按模型目录计价：结算与提交前预估共用的入口。
 
-价目表取供应商模型所引用条目的价目表，倍率取供应商倍率（用户偏好，由调用方经
-:func:`lib.billing.multipliers.get_provider_multiplier` 读出）与供应商模型倍率（随目录数据）之积，
-再交 :func:`lib.billing.metering.price_requests` 计算。
+价目表取供应商模型所对应条目的价目表，倍率取供应商倍率（用户偏好，由调用方经
+:func:`lib.billing.multipliers.get_provider_multiplier` 读出）与供应商模型倍率之积，再交
+:func:`lib.billing.metering.price_requests` 计算（docs/adr/0100）。
+
+- 内置供应商：供应商模型引用清单里的条目，供应商模型倍率随目录数据下发。
+- 自定义供应商：供应商模型按条目绑定或名字对应条目（docs/adr/0105），供应商模型倍率由用户填写；对应不上条目时
+  记为未定价（docs/adr/0106）。
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from lib.billing.metering import Cost, Usage, price_requests
 
 
 def is_builtin_provider(provider: str) -> bool:
-    """按模型目录计价的是内置供应商；自定义供应商暂走旧的自定义计价。"""
+    """注册表里的内置供应商；其余（自定义供应商、Agent 会话的供应商）不经清单查条目。"""
     # 注册表导入放函数内，理由同 price_builtin_call 里的目录查询导入。
     from lib.config.registry import PROVIDER_REGISTRY
 
@@ -44,5 +48,33 @@ def price_builtin_call(
         requests,
         multiplier=multiplier,
         entry_found=target is not None,
+        estimate=estimate,
+    )
+
+
+def price_custom_call(
+    *,
+    model: str,
+    media_type: str,
+    entry_binding: str | None,
+    requests: Sequence[Usage],
+    provider_multiplier: float,
+    model_multiplier: float,
+    estimate: bool = False,
+) -> Cost:
+    """一次自定义供应商调用的参考费用。
+
+    ``model`` 是 API 模型名，``entry_binding`` 是模型行上的条目绑定（「模型厂商/官方模型名」），``media_type``
+    取这次调用的媒体类型；对应条目的规则见 :func:`lib.catalog.query.find_entry`。两级倍率之积为 0 时直接记 0。
+    其余参数同 :func:`price_builtin_call`。
+    """
+    from lib.catalog import query as catalog
+
+    entry = catalog.find_entry(model, media_type=media_type, binding=catalog.binding_key(entry_binding, media_type))
+    return price_requests(
+        entry.price if entry is not None else None,
+        requests,
+        multiplier=provider_multiplier * model_multiplier,
+        entry_found=entry is not None,
         estimate=estimate,
     )

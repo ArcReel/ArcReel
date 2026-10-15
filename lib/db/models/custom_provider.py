@@ -14,6 +14,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import text as sa_text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
@@ -79,13 +80,6 @@ class CustomProviderModel(TimestampMixin, Base):
     endpoint: Mapped[str] = mapped_column(String(32), nullable=False)  # ENDPOINT_REGISTRY key
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    price_unit: Mapped[str | None] = mapped_column(
-        String(16), nullable=True
-    )  # "token" | "image" | "second" | "character"
-    price_input: Mapped[float | None] = mapped_column(Float, nullable=True)
-    price_output: Mapped[float | None] = mapped_column(Float, nullable=True)  # only for text
-    currency: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "USD" | "CNY"
-    supported_durations: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON list[int]
     resolution: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )  # standard token ("1080p"/"2K") or native "WxH"
@@ -96,5 +90,8 @@ class CustomProviderModel(TimestampMixin, Base):
     # 路径覆盖：调用端点的请求名 → 整条替换的路径（docs/adr/0101）。NULL = 全部按端点默认路径；
     # 更换调用端点时由写入侧清空，端点定义里已不存在的请求名在读取与执行时忽略。
     path_overrides: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)
-    # 最大输出长度（单位 token），只对文本模型有意义；NULL = 未登记，文本请求按 64000 封顶。
-    max_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 供应商模型倍率（docs/adr/0100）：与供应商倍率相乘后作用在这个模型的整笔参考费用上；默认 1。
+    multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default=sa_text("1"))
+    # 条目绑定（docs/adr/0105）：用户为这个模型指定的模型条目，存「模型厂商/官方模型名」，媒体类型取调用端点。
+    # NULL = 按名字现查；绑定的条目已不在目录里时同样回到按名字现查。
+    entry_binding: Mapped[str | None] = mapped_column(String(255), nullable=True)

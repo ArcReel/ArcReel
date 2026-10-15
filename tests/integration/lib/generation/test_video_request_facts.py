@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from contextlib import asynccontextmanager
 
 import pytest
@@ -184,7 +183,7 @@ async def test_no_configured_video_model_fails_as_capability_unavailable(resolve
 @pytest.mark.parametrize("execution", [False, True], ids=["configured", "execution"])
 async def test_database_query_failure_returns_unavailable_facts(resolver, db_factory, db_engine, route, execution):
     provider_id = await _seed_custom_video_models(
-        db_factory, {"model_id": "m", "supported_durations": "[5]", "is_default": True}
+        db_factory, {"model_id": "m", "capability_overrides": {"durations": [5]}, "is_default": True}
     )
     async with db_engine.begin() as connection:
         await connection.run_sync(CustomProviderModel.__table__.drop)
@@ -204,34 +203,9 @@ async def test_database_query_failure_returns_unavailable_facts(resolver, db_fac
     assert result == VideoRequestFactsFailure(f"{prefix}_capability_unavailable", params)
 
 
-@pytest.mark.parametrize(
-    ("route", "supported_durations", "code"),
-    [
-        pytest.param("storyboard", "not-json", "video_supported_durations_invalid", id="storyboard-unparseable"),
-        pytest.param("storyboard", "{}", "video_supported_durations_invalid", id="storyboard-not-array"),
-        pytest.param("storyboard", '["5"]', "video_supported_durations_invalid", id="storyboard-string-tier"),
-        pytest.param("storyboard", "[4.5]", "video_supported_durations_invalid", id="storyboard-fractional-tier"),
-        pytest.param("storyboard", "[0, 5]", "video_supported_durations_invalid", id="storyboard-non-positive"),
-        pytest.param("reference_video", "[0, 5]", "reference_supported_durations_invalid", id="reference-invalid"),
-    ],
-)
-async def test_tier_declaration_failures_use_the_route_code_family(
-    resolver, db_factory, route, supported_durations, code
-):
-    provider_id = await _seed_custom_video_models(
-        db_factory, {"model_id": "m", "supported_durations": supported_durations, "is_default": True}
-    )
-
-    facts = await _read(resolver, {"video_provider_i2v": f"{provider_id}/m"}, route=route)
-
-    assert facts == VideoRequestFactsFailure(code, (("provider", provider_id), ("model", "m")))
-
-
 async def test_custom_model_without_durations_falls_back_to_name_preset(resolver, db_factory):
     """对应不上条目、行上也没有可选时长：运行时取按名字推断的预设，一个族都匹配不上时为 [4, 8]。"""
-    provider_id = await _seed_custom_video_models(
-        db_factory, {"model_id": "m", "supported_durations": "[]", "is_default": True}
-    )
+    provider_id = await _seed_custom_video_models(db_factory, {"model_id": "m", "is_default": True})
 
     facts = await _read(resolver, {"video_provider_i2v": f"{provider_id}/m"})
 
@@ -294,8 +268,8 @@ async def test_constraints_narrowing_to_nothing_fail_instead_of_falling_back(res
 async def test_unavailable_execution_identity_fails_instead_of_using_the_default_model(resolver, db_factory, route):
     provider_id = await _seed_custom_video_models(
         db_factory,
-        {"model_id": "m-dead", "is_enabled": False, "supported_durations": "[5]"},
-        {"model_id": "m-live", "is_default": True, "supported_durations": "[8]"},
+        {"model_id": "m-dead", "is_enabled": False, "capability_overrides": {"durations": [5]}},
+        {"model_id": "m-live", "is_default": True, "capability_overrides": {"durations": [8]}},
     )
 
     result = await evaluate_video_request_facts(
@@ -319,14 +293,12 @@ async def test_configured_identity_change_after_bucket_validation_fails(db_facto
         db_factory,
         {
             "model_id": "m-selected",
-            "supported_durations": "[5]",
-            "capability_overrides": {"first_frame": True, "max_reference_images": 4},
+            "capability_overrides": {"durations": [5], "first_frame": True, "max_reference_images": 4},
         },
         {
             "model_id": "m-default",
             "is_default": True,
-            "supported_durations": "[8]",
-            "capability_overrides": {"first_frame": False, "max_reference_images": 0},
+            "capability_overrides": {"durations": [8], "first_frame": False, "max_reference_images": 0},
         },
     )
     disabled = []
@@ -364,8 +336,8 @@ async def test_execution_identity_follows_the_backend_when_it_diverges_from_conf
     """配置身份已禁用时读侧报悬空；调用方给定的有效执行身份独立求值。"""
     provider_id = await _seed_custom_video_models(
         db_factory,
-        {"model_id": "m-dead", "is_enabled": False, "supported_durations": json.dumps([5])},
-        {"model_id": "m-live", "is_default": True, "resolution": "540p", "supported_durations": json.dumps([4, 6])},
+        {"model_id": "m-dead", "is_enabled": False, "capability_overrides": {"durations": [5]}},
+        {"model_id": "m-live", "is_default": True, "resolution": "540p", "capability_overrides": {"durations": [4, 6]}},
     )
     project = {"video_provider_i2v": f"{provider_id}/m-dead"}
 
@@ -501,7 +473,7 @@ async def test_auto_resolution_override_falls_back_to_the_custom_model_default(r
     """预览「自动」等于项目未存档位：自定义供应商仍取模型默认档，与保存后的求值一致。"""
     provider_id = await _seed_custom_video_models(
         db_factory,
-        {"model_id": "m", "is_default": True, "resolution": "540p", "supported_durations": json.dumps([4, 6])},
+        {"model_id": "m", "is_default": True, "resolution": "540p", "capability_overrides": {"durations": [4, 6]}},
     )
     pair = f"{provider_id}/m"
 

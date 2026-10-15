@@ -8,7 +8,9 @@ from arcreel_catalog_core import DurationConstraints
 from lib.custom_provider.model_facts import (
     ImageModelFacts,
     TextModelFacts,
+    comfyui_duration_override,
     image_model_facts,
+    matched_entry_summary,
     model_fact_overrides,
     model_fact_value_matches,
     text_model_facts,
@@ -30,9 +32,15 @@ class TestVideoDurations:
     def test_override_replaces_entry(self):
         assert video_model_facts(VEO, {"durations": [10, 5, 5]}).durations == (5, 10)
 
-    def test_legacy_column_sits_between_override_and_entry(self):
-        assert video_model_facts(VEO, None, legacy_durations=[6]).durations == (6,)
-        assert video_model_facts(VEO, {"durations": [8]}, legacy_durations=[6]).durations == (8,)
+    def test_entry_binding_wins_over_the_name(self):
+        assert video_model_facts("relay-video-x1", None, entry_binding="google/veo-3.1-generate-preview").durations == (
+            4,
+            6,
+            8,
+        )
+
+    def test_a_binding_to_a_missing_entry_falls_back_to_the_name(self):
+        assert video_model_facts(VEO, None, entry_binding="google/gone-model").durations == (4, 6, 8)
 
     def test_invalid_override_falls_back(self):
         assert video_model_facts("relay-video-x1", {"durations": []}).durations == (4, 8)
@@ -67,16 +75,39 @@ class TestTextAndImageFacts:
         facts = text_model_facts("gemini-3-flash-preview", {"image_input": False})
         assert facts == TextModelFacts(image_input=False, structured_output=True, max_output_tokens=65536)
 
-    def test_text_max_output_tokens_precedence(self):
-        model = "gemini-3-flash-preview"
-        assert text_model_facts(model, None, legacy_max_output_tokens=8192).max_output_tokens == 8192
-        assert (
-            text_model_facts(model, {"max_output_tokens": 4096}, legacy_max_output_tokens=8192).max_output_tokens
-            == 4096
-        )
+    def test_text_max_output_tokens_override_beats_the_entry(self):
+        assert text_model_facts("gemini-3-flash-preview", {"max_output_tokens": 4096}).max_output_tokens == 4096
+
+    def test_text_entry_binding_supplies_the_facts_of_an_unrecognized_name(self):
+        facts = text_model_facts("relay-llm-x", None, entry_binding="google/gemini-3-flash-preview")
+        assert facts.max_output_tokens == 65536
 
     def test_image_override_on_unmatched_model(self):
         assert image_model_facts("relay-image-x", {"text_to_image": False}) == ImageModelFacts(text_to_image=False)
+
+
+class TestComfyuiDurationOverride:
+    def test_a_valid_override_is_sorted_and_deduplicated(self):
+        assert comfyui_duration_override({"durations": [10, 5, 5]}) == [5, 10]
+
+    @pytest.mark.parametrize("overrides", [None, {}, {"durations": []}, {"durations": [0]}, {"durations": "5"}])
+    def test_absent_or_invalid_override_gives_way_to_the_endpoint(self, overrides):
+        assert comfyui_duration_override(overrides) is None
+
+
+class TestMatchedEntrySummary:
+    def test_a_matched_model_reports_its_entry_and_whether_it_is_priced(self):
+        summary = matched_entry_summary("openai/GPT-5.4", "text")
+        assert summary is not None
+        assert (summary["maker"], summary["name"], summary["priced"]) == ("openai", "gpt-5.4", True)
+
+    def test_an_unmatched_model_reports_nothing(self):
+        assert matched_entry_summary("my-private-llm", "text") is None
+
+    def test_the_binding_decides_the_entry(self):
+        summary = matched_entry_summary("my-private-llm", "text", "openai/gpt-5.4")
+        assert summary is not None
+        assert summary["name"] == "gpt-5.4"
 
 
 class TestOverrideValues:

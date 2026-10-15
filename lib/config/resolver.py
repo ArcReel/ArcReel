@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -573,24 +572,6 @@ def apply_duration_constraints(
     return allowed
 
 
-def _parse_custom_durations(raw: str | None, *, provider_id: str, model_id: str) -> list[int]:
-    """自定义模型行上旧的可选时长列（JSON 字符串）；空值为空列表，不合法时报 ``invalid``。"""
-    if not raw:
-        return []
-    try:
-        parsed = json.loads(raw)
-        if not isinstance(parsed, list) or any(type(d) is not int or d <= 0 for d in parsed):
-            raise ValueError("supported_durations must be a list of positive integers")
-    except (TypeError, ValueError) as exc:
-        raise VideoSupportedDurationsError(
-            "invalid",
-            provider_id=provider_id,
-            model_id=model_id,
-            message=f"invalid supported_durations JSON on custom model {provider_id}/{model_id}",
-        ) from exc
-    return parsed
-
-
 #: 时长被联动约束剔除的成因：``resolution`` = 当前分辨率下不可用，``reference`` = 参考图路径下不可用。
 #: 「型号全集就不含」不在此列——那不是收窄，消费方按不在 ``supported_durations`` 内判定。
 DurationExclusionReason = Literal["resolution", "reference"]
@@ -990,7 +971,9 @@ class ConfigResolver:
                 return None
             if endpoint_spec.endpoint_durations is not None:
                 return None
-            return video_model_facts(model_id, model.capability_overrides).duration_constraints
+            return video_model_facts(
+                model_id, model.capability_overrides, entry_binding=model.entry_binding
+            ).duration_constraints
 
     async def video_capabilities_for_model(
         self,
@@ -1490,7 +1473,7 @@ class ConfigResolver:
                 AUDIO_TRACK_OVERRIDE_KEYS,
                 synthesize_video_capabilities_with_overrides,
             )
-            from lib.custom_provider.model_facts import video_model_facts
+            from lib.custom_provider.model_facts import comfyui_duration_override, video_model_facts
 
             source = "custom"
             try:
@@ -1526,8 +1509,7 @@ class ConfigResolver:
             reference_audio_mode = caps.reference_audio_mode
             max_reference_audio_count = caps.max_reference_audio_count
             reference_audio_per_image = caps.reference_audio_per_image
-            # 自定义供应商按声明单价计费（`CustomProviderPrice` 无音频维度），计价参数不因
-            # 默认执行档收窄，故沿用项目请求值。
+            # 自定义供应商没有执行档：计价参数不因默认执行档收窄，故沿用项目请求值。
             default_tier_generates_audio = True
             # 自定义供应商的音轨形态只认用户的能力覆盖（docs/adr/0104）：调用通道按模型名声明的
             # 音轨形态不参与派生——endpoint 背后的上游 model 由用户填写、无从核实，误判恒无声会把合法
@@ -1543,25 +1525,19 @@ class ConfigResolver:
             # 那一档。这是该协议的合法状态，不适用下面那条「空集即 fail loud」——ADR 0018 守的是
             # 「型号声明缺失」，而这里是「这一维在该端点上不存在」。其余协议照旧 fail loud。
             durations_optional = endpoint_spec.duration_tier_optional
-            # 档位的真相源是端点，不是模型行：端点说这一维给不出档位时，行上存着的那份一律作废。
-            # 写入侧（``ModelInput.to_db_dict``）只在保存那一刻取端点的判断，而端点定义此后可以
-            # 独立改动，两边因此会分叉；分叉时以端点为准，能力接口、剧本规划与端点目录才是同一个
-            # 答案。
-            raw_durations = None if endpoint_spec.duration_tier_empty else model.supported_durations
-            supported_durations = _parse_custom_durations(raw_durations, provider_id=provider_id, model_id=model_id)
             if endpoint_spec.endpoint_durations is not None:
-                # ComfyUI 端点：时长只从节点绑定推导（docs/adr/0082），不看条目、不接受能力覆盖、不按名字
-                # 回落。行上是空集而端点给得出档位时按端点的来——空集只在端点也驱动不了这一维时才成立，
-                # 留着它，时长控件会禁着、剧本规划会借固定篇幅，而请求构造已经在往图里写帧数。
-                if not supported_durations and endpoint_spec.endpoint_durations:
-                    supported_durations = list(endpoint_spec.endpoint_durations)
+                # ComfyUI 端点：时长只从节点绑定推导（docs/adr/0082），不看条目、不按名字回落。用户在 workflow
+                # 原生时长之外增删的档位存为 ``durations`` 覆盖，是这一端点唯一接受的覆盖（docs/adr/0104）。
+                # 档位的真相源仍是端点：端点说这一维给不出档位时（空集），覆盖一律作废，时长控件禁着、
+                # 剧本规划借固定篇幅。
+                override = comfyui_duration_override(model.capability_overrides, model_id=model_id)
+                endpoint_durations = list(endpoint_spec.endpoint_durations)
+                supported_durations = override if override and endpoint_durations else endpoint_durations
             else:
-                # 其余端点：能力覆盖 > 行上旧的可选时长列 > 对应条目 > 按名字推断的预设（对应不上条目时），
-                # 回落结果只在这里现算，不写回任何字段（docs/adr/0105）。
+                # 其余端点：能力覆盖 > 对应条目 > 按名字推断的预设（对应不上条目时），回落结果只在这里现算，
+                # 不写回任何字段（docs/adr/0105）。
                 supported_durations = list(
-                    video_model_facts(
-                        model_id, model.capability_overrides, legacy_durations=supported_durations or None
-                    ).durations
+                    video_model_facts(model_id, model.capability_overrides, entry_binding=model.entry_binding).durations
                 )
         else:
             source = "registry"
@@ -1776,7 +1752,11 @@ class ConfigResolver:
         except ValueError:
             return
         model = await CustomProviderRepository(session).get_model_by_ids(db_pid, model_id)
-        if model is not None and text_model_facts(model_id, model.capability_overrides).image_input is False:
+        if (
+            model is not None
+            and text_model_facts(model_id, model.capability_overrides, entry_binding=model.entry_binding).image_input
+            is False
+        ):
             raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
 
     async def _auto_resolve_backend(

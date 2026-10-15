@@ -1096,3 +1096,71 @@ class TestSettleInterruptedPendingCalls:
         row = await self._row(async_session, call_id)
         assert row.status == "success"
         assert row.cost_amount == pytest.approx(1.5)
+
+
+class TestCustomProviderSettlement:
+    """自定义供应商的调用按所对应条目的价目表结算，乘供应商倍率 × 模型倍率（docs/adr/0100、0106）。"""
+
+    @staticmethod
+    async def _custom_provider(session, discovery_format: str, *, model_id: str, multiplier: float = 1.0) -> str:
+        from lib.custom_provider import make_provider_id
+        from lib.db.repositories.custom_provider_repo import CustomProviderRepository
+
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="P",
+            discovery_format=discovery_format,
+            base_url="http://relay.test",
+            api_key="k",
+            models=[
+                {"model_id": model_id, "display_name": model_id, "endpoint": "openai-video", "multiplier": multiplier}
+            ],
+        )
+        await session.commit()
+        return make_provider_id(provider.id)
+
+    @staticmethod
+    async def _settle(session, provider: str, model: str) -> ApiCall:
+        repo = UsageRepository(session)
+        call_id = await repo.start_call(
+            project_name="demo", call_type="video", model=model, duration_seconds=5, provider=provider
+        )
+        usage = Usage(quantities={"output_seconds": 5}, dimensions={"resolution": "1080p", "audio": False})
+        await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(usage=(usage,)))
+        return (await stored_calls(session))[-1]
+
+    async def test_matched_model_is_priced_at_the_entry_times_both_multipliers(self, async_session):
+        from lib.billing.multipliers import set_provider_multiplier
+
+        provider = await self._custom_provider(async_session, "openai", model_id="relay/kling-v2-6", multiplier=2.0)
+        await set_provider_multiplier(async_session, provider, 0.5)
+        await async_session.commit()
+
+        call = await self._settle(async_session, provider, "relay/kling-v2-6")
+
+        # 可灵 2.6：1080p 无声 0.5 CNY/秒 × 5 秒 × 供应商 0.5 × 模型 2
+        assert (call.cost_amount, call.currency, call.unpriced_reason) == (pytest.approx(2.5), "CNY", None)
+
+    async def test_unmatched_model_is_unpriced_with_reason_no_entry(self, async_session):
+        provider = await self._custom_provider(async_session, "openai", model_id="mystery-video")
+
+        call = await self._settle(async_session, provider, "mystery-video")
+
+        assert (call.cost_amount, call.unpriced_reason) == (None, "no_entry")
+
+    async def test_comfyui_provider_without_a_multiplier_records_zero(self, async_session):
+        provider = await self._custom_provider(async_session, "comfyui", model_id="wan-workflow")
+
+        call = await self._settle(async_session, provider, "wan-workflow")
+
+        assert (call.cost_amount, call.unpriced_reason) == (0, None)
+
+    async def test_comfyui_provider_set_to_one_without_an_entry_is_unpriced(self, async_session):
+        from lib.billing.multipliers import set_provider_multiplier
+
+        provider = await self._custom_provider(async_session, "comfyui", model_id="wan-workflow")
+        await set_provider_multiplier(async_session, provider, 1.0)
+        await async_session.commit()
+
+        call = await self._settle(async_session, provider, "wan-workflow")
+
+        assert (call.cost_amount, call.unpriced_reason) == (None, "no_entry")

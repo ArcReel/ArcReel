@@ -32,19 +32,19 @@ def _media_type_endpoint_filter(media_type: str):
     return or_(builtin, CustomProviderModel.endpoint.in_(custom))
 
 
-class CustomProviderPrice(NamedTuple):
-    """自定义供应商价格三元组，作为 ``calculate_cost`` 的 ``custom_price_*`` 入参来源。
+class CustomModelPricing(NamedTuple):
+    """自定义供应商模型的计价依据：供应商模型倍率、条目绑定与调用端点（docs/adr/0100、0105）。
 
-    三字段全 ``None`` 表示无自定义价格：预置供应商 / 畸形 provider id / 查询异常 / 查无模型
-    均归为此语义，``calculate_cost`` 据此对自定义供应商缺价时计为 0。
+    价格不在模型行上：模型对应上条目时按条目的价目表计价，对应不上时记为未定价。查无模型行（模型已删除、
+    畸形 provider id、查询异常）时取默认值：倍率 1、没有绑定、没有端点，仍按模型名对应条目。
     """
 
-    price_input: float | None = None
-    price_output: float | None = None
-    currency: str | None = None
+    multiplier: float = 1.0
+    entry_binding: str | None = None
+    endpoint: str | None = None
 
 
-_NO_PRICE = CustomProviderPrice()
+_DEFAULT_PRICING = CustomModelPricing()
 
 
 class CustomProviderRepository(BaseRepository):
@@ -200,31 +200,28 @@ class CustomProviderRepository(BaseRepository):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def resolve_price(self, provider: str, model: str) -> CustomProviderPrice:
-        """解析自定义供应商的声明价格，供记账与预估两侧共用，杜绝同源复刻的口径漂移。
+    async def resolve_pricing(self, provider: str, model: str) -> CustomModelPricing:
+        """读自定义供应商模型的计价依据，供记账与预估两侧共用，杜绝同源复刻的口径漂移。
 
-        非自定义供应商 / 畸形 provider id / 查询异常 / 查无模型均降级为无价（三字段 ``None``），
-        绝不抛错——调用方以此驱动 ``calculate_cost`` 的 ``custom_price_*``，缺价时费用计为 0。
+        非自定义供应商 / 畸形 provider id / 查询异常 / 查无模型均降级为默认值，绝不抛错。
 
         刻意不做 enabled / media_type 校验（区别于 ``lib/custom_provider/loader.load_custom_backend``
-        的模型解析回退）：记账须按实际调用的那个模型的声明价计费，与该模型当前是否启用无关——
-        在此过滤 ``is_enabled`` 会让对"事后被停用模型"的历史调用丢价、错计为 0；预估侧同理，
-        停用模型应回落到执行期实际使用的默认模型价，而非 0。enabled / media_type 回退属模型解析层
-        （loader）职责、在价格取数上游发生，两侧共用同一"按声明取价、不过滤"口径以保持一致。
+        的模型解析回退）：记账须按实际调用的那个模型计价，与该模型当前是否启用无关；enabled / media_type
+        回退属模型解析层（loader）职责、在取数上游发生。
         """
         if not is_custom_provider(provider):
-            return _NO_PRICE
+            return _DEFAULT_PRICING
         try:
             # SAVEPOINT 隔离：查询异常只回滚到此处，不污染调用方（如 usage_repo._settle）
             # 随后在同一 session 上执行的结算 UPDATE/commit。
             async with self.session.begin_nested():
-                price_model = await self.get_model_by_ids(parse_provider_id(provider), model or "")
+                row = await self.get_model_by_ids(parse_provider_id(provider), model or "")
         except Exception:
-            logger.debug("自定义供应商价格查询失败 provider=%s model=%s", provider, model, exc_info=True)
-            return _NO_PRICE
-        if price_model is None:
-            return _NO_PRICE
-        return CustomProviderPrice(price_model.price_input, price_model.price_output, price_model.currency)
+            logger.debug("自定义供应商模型查询失败 provider=%s model=%s", provider, model, exc_info=True)
+            return _DEFAULT_PRICING
+        if row is None:
+            return _DEFAULT_PRICING
+        return CustomModelPricing(row.multiplier, row.entry_binding, row.endpoint)
 
     async def list_default_models(self, provider_id: int, media_type: str) -> list[CustomProviderModel]:
         """指定供应商 + 媒体类型的全部默认已启用模型，按 id 升序。

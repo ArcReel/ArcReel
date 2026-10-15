@@ -157,6 +157,7 @@ describe("ProviderSection", () => {
     vi.spyOn(API, "getProviderConfig").mockRejectedValue(new Error("detail not under test"));
     vi.spyOn(API, "listCredentials").mockResolvedValue({ credentials: [] });
     vi.spyOn(API, "patchProviderConfig").mockResolvedValue();
+    vi.spyOn(API, "getProviderMultiplier").mockResolvedValue({ multiplier: 1, default: 1 });
   });
 
   afterEach(async () => {
@@ -383,6 +384,19 @@ describe("ProviderSection", () => {
         tone: "warning",
       }),
     );
+  });
+
+  it("opens a custom provider together with its provider multiplier", async () => {
+    // 倍率与供应商一起取齐再渲染表单：后到的倍率会被已开始的编辑当成外部更新，保存时把旧值写回
+    useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
+    vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT] });
+    vi.spyOn(API, "getCustomProvider").mockResolvedValue(customProvider(1, "旧端点"));
+    vi.mocked(API.getProviderMultiplier).mockResolvedValue({ multiplier: 0.8, default: 1 });
+
+    renderAt("/app/settings?section=providers&custom=1");
+
+    expect(await screen.findByRole("textbox", { name: "供应商倍率" })).toHaveValue("0.8");
+    expect(API.getProviderMultiplier).toHaveBeenCalledWith("custom-1", { signal: expect.any(AbortSignal) });
   });
 
   it("deleting a custom provider with unsaved edits goes straight to the first preset", async () => {

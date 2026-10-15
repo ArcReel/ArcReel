@@ -34,13 +34,11 @@ logger = logging.getLogger(__name__)
 
 
 async def custom_model_max_output_tokens(*, session: AsyncSession, provider_id: str, model_id: str) -> int | None:
-    """自定义供应商模型的最大输出长度：能力覆盖 > 行上旧的最大输出 token 列 > 对应条目；都没有时 None。"""
+    """自定义供应商模型的最大输出长度：能力覆盖 > 对应条目；都没有时 None。"""
     row = await CustomProviderRepository(session).get_model_by_ids(parse_provider_id(provider_id), model_id)
     if row is None:
         return None
-    return text_model_facts(
-        model_id, row.capability_overrides, legacy_max_output_tokens=row.max_output_tokens
-    ).max_output_tokens
+    return text_model_facts(model_id, row.capability_overrides, entry_binding=row.entry_binding).max_output_tokens
 
 
 async def load_custom_backend(
@@ -118,4 +116,5 @@ async def load_custom_backend(
         capability_overrides=model.capability_overrides,
         path_overrides=model.path_overrides,
         endpoint_spec=spec,
+        entry_binding=model.entry_binding,
     )

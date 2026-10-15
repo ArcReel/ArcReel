@@ -738,7 +738,6 @@ class TestResolverReturnsEffectiveCapabilities:
                     "endpoint": endpoint,
                     "is_enabled": True,
                     "is_default": True,
-                    "supported_durations": "[5, 10]",
                     "capability_overrides": overrides,
                 }
             ],
@@ -824,7 +823,6 @@ class TestResolverReturnsEffectiveCapabilities:
                     "endpoint": VIDEO_ENDPOINT,
                     "is_enabled": False,
                     "is_default": False,
-                    "supported_durations": "[5, 10]",
                     "capability_overrides": None,
                 },
                 {
@@ -833,7 +831,6 @@ class TestResolverReturnsEffectiveCapabilities:
                     "endpoint": VIDEO_ENDPOINT,
                     "is_enabled": True,
                     "is_default": True,
-                    "supported_durations": "[5, 10]",
                     "capability_overrides": None,
                 },
             ],
@@ -862,7 +859,6 @@ class TestResolverReturnsEffectiveCapabilities:
                     "endpoint": "openai-images",
                     "is_enabled": True,
                     "is_default": False,
-                    "supported_durations": "[5, 10]",
                     "capability_overrides": None,
                 },
                 {
@@ -871,7 +867,6 @@ class TestResolverReturnsEffectiveCapabilities:
                     "endpoint": VIDEO_ENDPOINT,
                     "is_enabled": True,
                     "is_default": True,
-                    "supported_durations": "[5, 10]",
                     "capability_overrides": None,
                 },
             ],

@@ -7,10 +7,18 @@ import type {
   DiscoveredModel,
   EndpointDescriptor,
   EndpointKey,
+  MatchedCatalogEntry,
   PathOverrides,
+  ProviderMultiplierInfo,
   VideoCapabilityFlags,
 } from "@/types";
-import { capabilityFieldsFor, isComfyuiEndpoint, pathOverridesFor, type DiscoveryFormat } from "./customProviderHelpers";
+import {
+  capabilityFieldsFor,
+  isComfyuiEndpoint,
+  pathOverridesFor,
+  withDurationsOverride,
+  type DiscoveryFormat,
+} from "./customProviderHelpers";
 
 // ---------------------------------------------------------------------------
 // 自定义供应商表单的编辑单元内容：已保存的供应商与未保存修改都按这份形状比较。
@@ -24,13 +32,17 @@ export interface ModelRow {
   endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
-  price_unit: string;
-  price_input: string;
-  price_output: string;
-  currency: string;
   resolution: string; // 空串 = null
-  supported_durations_text: string; // 用户原始文本，提交前 parse；空串 = 让后端按 preset 兜底
-  max_output_tokens_text: string; // 仅文本模型；空串 = 未登记
+  // 可选时长的原始文本，只有 ComfyUI 视频行可编辑：提交时写回能力覆盖的 durations 键，空串 = 去掉该键、
+  // 跟随 workflow 原生时长。加载时取自覆盖，其余行只是原样带着，提交时不读它。
+  durations_text: string;
+  // 供应商模型倍率的原始文本，提交前 parse；必须是非负有限数。
+  multiplier_text: string;
+  // 条目绑定：本表单不编辑，只原样回传，否则整表 PUT 会把它清掉。
+  entry_binding: string | null;
+  // 服务端按 (model_id, 媒体类型, 条目绑定) 对应到的条目；null = 对应不上（未定价），
+  // undefined = 还不知道（手动新增、尚未保存的行）。
+  matched_entry: MatchedCatalogEntry | null | undefined;
   capability_overrides: CapabilityOverrides | null;
   // 请求地址修改（请求名 → 路径）；null = 全部按端点默认。
   path_overrides: PathOverrides | null;
@@ -63,6 +75,8 @@ export interface CustomProviderFormValue {
   imageMaxWorkers: string;
   videoMaxWorkers: string;
   audioMaxWorkers: string;
+  /** 供应商倍率；空串 = 默认值（保存时提交 null）。 */
+  providerMultiplier: string;
 }
 
 //: 新模型行默认挂的端点；协议从 ComfyUI 切走时，挂不住的行也退回它。
@@ -80,13 +94,11 @@ export function newModelRow(partial?: Partial<ModelRow>): ModelRow {
     endpoint: DEFAULT_ENDPOINT,
     is_default: false,
     is_enabled: true,
-    price_unit: "",
-    price_input: "",
-    price_output: "",
-    currency: "USD",
     resolution: "",
-    supported_durations_text: "",
-    max_output_tokens_text: "",
+    durations_text: "",
+    multiplier_text: "1",
+    entry_binding: null,
+    matched_entry: undefined,
     capability_overrides: null,
     path_overrides: null,
     system_capabilities: null,
@@ -111,7 +123,8 @@ export function discoveredToRow(m: DiscoveredModel): ModelRow {
     endpoint: m.endpoint,
     is_default: m.is_default,
     is_enabled: m.is_enabled,
-    max_output_tokens_text: m.max_output_tokens != null ? String(m.max_output_tokens) : "",
+    // 发现结果里的条目对应与保存后服务端算的是同一条判据；没带这一项时按「还不知道」处理。
+    matched_entry: m.matched_entry,
   });
 }
 
@@ -124,13 +137,11 @@ function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
     endpoint: m.endpoint,
     is_default: m.is_default,
     is_enabled: m.is_enabled,
-    price_unit: m.price_unit ?? "",
-    price_input: m.price_input != null ? String(m.price_input) : "",
-    price_output: m.price_output != null ? String(m.price_output) : "",
-    currency: m.currency ?? "",
     resolution: m.resolution ?? "",
-    supported_durations_text: m.supported_durations ? compactRangeFormat(m.supported_durations) : "",
-    max_output_tokens_text: m.max_output_tokens != null ? String(m.max_output_tokens) : "",
+    durations_text: m.capability_overrides?.durations?.length ? compactRangeFormat(m.capability_overrides.durations) : "",
+    multiplier_text: String(m.multiplier),
+    entry_binding: m.entry_binding,
+    matched_entry: m.matched_entry,
     capability_overrides: m.capability_overrides,
     path_overrides: m.path_overrides,
     system_capabilities: m.system_capabilities,
@@ -143,8 +154,19 @@ function workersToStr(n?: number | null): string {
   return n != null ? String(n) : "";
 }
 
+/** 自定义供应商没有设置倍率时的值；新建表单还取不到服务端的默认值，按它显示。 */
+export const DEFAULT_PROVIDER_MULTIPLIER: ProviderMultiplierInfo = { multiplier: 1, default: 1 };
+
+// 供应商倍率：等于默认值时显示为空，表示「跟随默认」；保存空串即恢复默认。
+function providerMultiplierToStr(info: ProviderMultiplierInfo): string {
+  return info.multiplier === info.default ? "" : String(info.multiplier);
+}
+
 /** 已保存的供应商对应的表单内容。 */
-export function formFromProvider(provider: CustomProviderInfo): CustomProviderFormValue {
+export function formFromProvider(
+  provider: CustomProviderInfo,
+  multiplier: ProviderMultiplierInfo = DEFAULT_PROVIDER_MULTIPLIER,
+): CustomProviderFormValue {
   return {
     displayName: provider.display_name,
     pickedFormat: provider.discovery_format,
@@ -155,6 +177,7 @@ export function formFromProvider(provider: CustomProviderInfo): CustomProviderFo
     imageMaxWorkers: workersToStr(provider.image_max_workers),
     videoMaxWorkers: workersToStr(provider.video_max_workers),
     audioMaxWorkers: workersToStr(provider.audio_max_workers),
+    providerMultiplier: providerMultiplierToStr(multiplier),
   };
 }
 
@@ -170,6 +193,7 @@ export function newProviderForm(initialBaseUrl?: string, initialEndpoint?: Endpo
     imageMaxWorkers: "",
     videoMaxWorkers: "",
     audioMaxWorkers: "",
+    providerMultiplier: "",
   };
 }
 
@@ -184,26 +208,56 @@ export function parsePositiveInt(s: string): number | null | undefined {
   return Number.isSafeInteger(n) && n >= 1 ? n : undefined;
 }
 
-export function rowToInput(r: ModelRow): CustomProviderModelInput {
-  const trimmed = r.supported_durations_text.trim();
-  // 失败时直接抛 DurationParseError；保存在调用前应已拦截，故此处只负责诚实地把字符串
-  // 转成 list[int] 而不静默降级（避免无效输入被改成 null 后被后端 preset 自动推断覆盖）
-  const supported_durations = trimmed ? parseDurationInput(trimmed) : null;
+// 倍率：非负有限数。只认十进制写法（「1.5」「0.8」「.5」），科学计数、负号与其他字符一律
+// 视为非法，返回 undefined 由保存拦截——不用 parseFloat 静默截断（「1.5x」→1.5）。
+const DECIMAL_RE = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+
+/** 模型倍率：必填。合法时返回数值，空串或非法输入返回 undefined。 */
+export function parseMultiplier(s: string): number | undefined {
+  const trimmed = s.trim();
+  if (!DECIMAL_RE.test(trimmed)) return undefined;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+/** 供应商倍率：空串 = 恢复默认（null）；否则同 parseMultiplier，非法输入返回 undefined。 */
+export function parseOptionalMultiplier(s: string): number | null | undefined {
+  return s.trim() ? parseMultiplier(s) : null;
+}
+
+/**
+ * 行在当前编辑下对应到的条目。条目由服务端按模型 ID 与端点的媒体类型对应，改过这两项的行
+ * 对应结果要重新算，前端不猜，按「还不知道」（undefined）处理；改回原值即取回加载时的结果。
+ */
+export function matchedEntryFor(row: ModelRow): MatchedCatalogEntry | null | undefined {
+  return row.model_id === row.original_model_id && row.endpoint === row.original_endpoint ? row.matched_entry : undefined;
+}
+
+export interface RowToInputOptions {
+  /** 这一行的可选时长可编辑（ComfyUI 视频端点、档位给得出来）：此时由 durations_text 写回覆盖。 */
+  durationsEditable: boolean;
+}
+
+export function rowToInput(r: ModelRow, { durationsEditable }: RowToInputOptions): CustomProviderModelInput {
+  let overrides = r.capability_overrides;
+  if (durationsEditable) {
+    // 失败时直接抛 DurationParseError；保存在调用前应已拦截，故此处只负责诚实地把字符串
+    // 转成 list[int] 而不静默降级（无效输入被当成空串，会把用户的档位悄悄换回原生时长）
+    overrides = withDurationsOverride(overrides, parseDurationInput(r.durations_text) ?? undefined);
+  }
   return {
     model_id: r.model_id,
     display_name: r.display_name || r.model_id,
     endpoint: r.endpoint,
     is_default: r.is_default,
     is_enabled: r.is_enabled,
-    ...(r.price_unit ? { price_unit: r.price_unit } : {}),
-    ...(r.price_input ? { price_input: parseFloat(r.price_input) } : {}),
-    ...(r.price_output ? { price_output: parseFloat(r.price_output) } : {}),
-    ...(r.currency ? { currency: r.currency } : {}),
     ...(r.resolution ? { resolution: r.resolution } : { resolution: null }),
-    ...(supported_durations ? { supported_durations } : { supported_durations: null }),
-    max_output_tokens: parsePositiveInt(r.max_output_tokens_text) ?? null,
-    capability_overrides: r.capability_overrides,
+    // 其余行的覆盖（含升级迁移写入的 durations、max_output_tokens）原样回传：整表 PUT 省略即清空
+    capability_overrides: overrides,
     path_overrides: r.path_overrides,
+    // 保存前已拦截非法倍率，这里的回退值不会生效
+    multiplier: parseMultiplier(r.multiplier_text) ?? 1,
+    entry_binding: r.entry_binding,
   };
 }
 

@@ -335,6 +335,8 @@ The model discovery protocol only determines which type of model-listing interfa
 6. TTS;
 7. Error codes and rate-limiting behavior.
 
+Model names are mapped to known models in the model catalog, ignoring case, ignoring any namespace before the last `/`, and treating dots as hyphens. For a mapped model, selectable durations, resolutions, maximum output length, and price all come from the model catalog; an unmapped model still works, its video durations are inferred from the model name, and its cost is recorded as "Unpriced".
+
 Each video call endpoint decides first/last frame, reference image, and reference audio support from the model name. When the name maps to a known model in the model catalog, the endpoint uses that model's official name and aliases. A video model the endpoint does not recognize supports only text-to-video and first-frame generation; last frame, reference images, and reference audio are unavailable. For image models, text-to-image and image-to-image are available only where both the model catalog entry and the call endpoint support them; a model that maps to no known model follows the call endpoint alone.
 
 If someone has already adapted the call endpoint you need, you can install it directly from the [Market](./market.md) instead of writing the definition yourself.
@@ -443,8 +445,12 @@ Costs of text, voiceover, image, and video calls on built-in providers are compu
 - Ark Seedance is billed by video tokens: settlement uses the token count the provider reports, and pre-submit estimates convert with the official formula (width × height × frame rate × seconds / 1024). When the aspect ratio is left to the provider (adaptive), the token count is unknown and the estimate is recorded as "Unpriced";
 - A call with no applicable price is recorded as "Unpriced" instead of being estimated with another model's or another tier's price.
 
+Models on a custom provider have no prices of their own. When a model name maps to a known model in the model catalog, its calls are charged at that model's official price, with the same rules as built-in providers;
+when it maps to nothing, its calls are recorded as "Unpriced". The model list on the settings page shows the known model each model maps to, or "Unpriced".
+
 Each provider can have a multiplier that applies to the cost of all its calls, to reflect top-up discounts or relay price differences.
-The multiplier defaults to 1; Volcengine Ark Agent Plan is billed by subscription, so its multiplier defaults to 0 and no cost is computed. Changing a multiplier only affects later calls;
+Each model on a custom provider can also have its own multiplier, so the final cost = official price × provider multiplier × model multiplier. For example, if a relay charges 80% of the official price across the board, set the provider multiplier to 0.8; if one model there costs 1.5× the official price, set that model's multiplier to 1.875 (0.8 × 1.875 = 1.5).
+The multiplier defaults to 1; Volcengine Ark Agent Plan is billed by subscription and ComfyUI providers run on your own hardware, so their multipliers default to 0 and no cost is computed. Changing a multiplier only affects later calls;
 costs already recorded are not recalculated.
 
 Use ArcReel's cost tracking for:

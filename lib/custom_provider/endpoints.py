@@ -156,6 +156,10 @@ class EndpointSpec:
     # 可覆盖路径的请求（docs/adr/0101）：路径覆盖只接受这里列出的请求名。空元组 = 该端点不开放
     # 路径覆盖（ComfyUI 端点，以及没有声明请求的 Python 端点）。
     requests: tuple[EndpointRequest, ...] = ()
+    # 被包装的内置调用通道类（Python 实现的视频与图片端点才填）：计价读它类上的计量声明，视频取
+    # ``metered_usage``、图片预估取 ``estimate_usage``（见 :mod:`lib.custom_provider.metering`）。须与
+    # ``build_backend`` 构造的 delegate 同类，端点注册表测试守着。None = 按定义或通用口径计量。
+    metering_backend: type | None = None
 
     @property
     def kind(self) -> str:
@@ -752,6 +756,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images,
         requests=(_OPENAI_IMAGES_GENERATE, _OPENAI_IMAGES_EDIT),
+        metering_backend=OpenAIImageBackend,
     ),
     "openai-images-generations": EndpointSpec(
         key="openai-images-generations",
@@ -763,6 +768,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE}),
         build_backend=_build_openai_images_generations,
         requests=(_OPENAI_IMAGES_GENERATE,),
+        metering_backend=OpenAIImageBackend,
     ),
     "openai-images-edits": EndpointSpec(
         key="openai-images-edits",
@@ -774,6 +780,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images_edits,
         requests=(_OPENAI_IMAGES_EDIT,),
+        metering_backend=OpenAIImageBackend,
     ),
     "openai-chat-image": EndpointSpec(
         key="openai-chat-image",
@@ -786,6 +793,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_chat_image,
         requests=_OPENAI_CHAT_REQUESTS,
+        metering_backend=OpenAIChatImageBackend,
     ),
     "gemini-image": EndpointSpec(
         key="gemini-image",
@@ -797,6 +805,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_gemini_image,
         requests=_GEMINI_GENERATE_REQUESTS,
+        metering_backend=GeminiImageBackend,
     ),
     "openai-video": EndpointSpec(
         key="openai-video",
@@ -807,6 +816,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/videos",
         build_backend=_build_openai_video,
         requests=_OPENAI_VIDEO_REQUESTS,
+        metering_backend=OpenAIVideoBackend,
         # OpenAI Sora input_reference 为单张首帧图。
         video_max_reference_images=1,
     ),
@@ -819,6 +829,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/api/v3/contents/generations/tasks",
         build_backend=_build_ark_seedance,
         requests=_ARK_SEEDANCE_REQUESTS,
+        metering_backend=ArkVideoBackend,
         video_caps_for_model=ArkVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
         # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
@@ -833,6 +844,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/ent/v2/img2video",
         build_backend=_build_vidu_video,
         requests=_VIDU_VIDEO_REQUESTS,
+        metering_backend=ViduVideoBackend,
         video_caps_for_model=ViduVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
     ),
@@ -846,6 +858,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_dashscope_image,
         requests=_DASHSCOPE_GENERATION_REQUESTS,
+        metering_backend=DashScopeImageBackend,
     ),
     "openai-tts": EndpointSpec(
         key="openai-tts",
@@ -876,6 +889,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1beta/models/{model}:predictLongRunning",
         build_backend=_build_gemini_video,
         requests=_GEMINI_VIDEO_REQUESTS,
+        metering_backend=GeminiVideoBackend,
         # 参考图上限、音轨形态按 model 读 backend 纯 caps 函数（不构造 client）
         video_caps_for_model=GeminiVideoBackend.video_capabilities_for_model,
         # generate() 把 end_image 下传为 config.last_frame
@@ -910,6 +924,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/api/v1/services/aigc/video-generation/video-synthesis",
         build_backend=_build_dashscope_async_video,
         requests=_DASHSCOPE_ASYNC_VIDEO_REQUESTS,
+        metering_backend=DashScopeVideoBackend,
         # 多 model（happyhorse-r2v=9 / wan2.7-r2v=5）容量不同 → endpoint 维度不声明 int cap，
         # 按 model 读 backend caps（不构造 client）。
         video_caps_for_model=DashScopeVideoBackend.video_capabilities_for_model,
@@ -926,6 +941,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_minimax_image,
         requests=_MINIMAX_IMAGE_REQUESTS,
+        metering_backend=MiniMaxImageBackend,
     ),
     "kling-image": EndpointSpec(
         key="kling-image",
@@ -937,6 +953,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_kling_image,
         requests=_KLING_IMAGE_REQUESTS,
+        metering_backend=KlingImageBackend,
     ),
     "kling-video": EndpointSpec(
         key="kling-video",
@@ -948,6 +965,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
         build_backend=_build_kling_video,
         requests=_KLING_VIDEO_REQUESTS,
+        metering_backend=KlingVideoBackend,
         # 参考图上限随 model 异质（v3-omni / video-o1 多图主体 R2V max=4，其余首尾帧无参考为 0）→ 不在
         # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数。
         video_caps_for_model=KlingVideoBackend.video_capabilities_for_model,
@@ -1329,6 +1347,7 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     data = asdict(spec)
     data.pop("build_backend", None)
     data.pop("video_caps_for_model", None)  # 同 build_backend：callable 不可 JSON 化，剥掉
+    data.pop("metering_backend", None)  # 类对象，只供计价取计量口径
     # catalog 不内嵌定义：整份 JSON 由 GET /custom-providers/endpoints/{key}/definition 单独取。
     data.pop("definition", None)
     data["kind"] = spec.kind

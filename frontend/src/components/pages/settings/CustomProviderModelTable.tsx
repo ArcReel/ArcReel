@@ -1,4 +1,4 @@
-import { Fragment, useId, useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { Fragment, useId, useMemo, useState, type MouseEvent } from "react";
 import { Check, ChevronDown, ChevronRight, ExternalLink, Link2, Search, Store, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -10,12 +10,11 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import type { DiscoveryFormat, MediaType } from "@/types";
+import type { DiscoveryFormat, MatchedCatalogEntry, MediaType } from "@/types";
 import { DurationParseError, parseDurationInput, type DurationParseErrorCode } from "@/utils/duration_format";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS, resolutionPlaceholder } from "@/utils/provider-models";
 import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
@@ -24,11 +23,11 @@ import {
   capabilityFieldsFor,
   globalBucketRefsFor,
   isComfyuiProtocol,
+  isComfyuiVideoEndpoint,
   pathOverridesFor,
-  priceLabel,
   withLastFrameOverride,
 } from "./customProviderHelpers";
-import { parsePositiveInt, type ModelRow } from "./customProviderFormState";
+import { matchedEntryFor, parseMultiplier, type ModelRow } from "./customProviderFormState";
 import { EndpointSelect } from "./EndpointSelect";
 import { RequestAddresses } from "./RequestAddresses";
 
@@ -44,8 +43,6 @@ const MEDIA_LABEL_KEY: Record<MediaType, string> = {
 const MEDIA_ORDER = Object.keys(MEDIA_LABEL_KEY) as MediaType[];
 
 type MediaFilter = "all" | MediaType;
-
-const CURRENCY_SYMBOL: Record<string, string> = { USD: "$", CNY: "¥" };
 
 export const DURATION_ERROR_KEY: Record<DurationParseErrorCode, string> = {
   empty_after_split: "supported_durations_err_empty_after_split",
@@ -84,13 +81,34 @@ const EMPTY_TIER_COPY = {
   },
 } as const;
 
-function priceSummary(row: ModelRow, media: MediaType | undefined, t: TFunction): string | null {
-  if (!row.price_input && !row.price_output) return null;
-  const symbol = CURRENCY_SYMBOL[row.currency] ?? `${row.currency} `;
-  const unit = priceLabel(row.endpoint, media ? { [row.endpoint]: media } : {}, t);
-  const input = row.price_input ? `${symbol}${row.price_input}${unit.input}` : null;
-  const output = unit.output && row.price_output ? `${symbol}${row.price_output}${unit.output}` : null;
-  return [input, output].filter(Boolean).join(" · ");
+/** 对应条目的三种状态：还不知道（未保存的新行）、未定价（对应不上条目，或条目没有价目表）、已定价。 */
+function entryState(entry: MatchedCatalogEntry | null | undefined): "pending" | "unpriced" | "priced" {
+  if (entry === undefined) return "pending";
+  return entry?.priced ? "priced" : "unpriced";
+}
+
+/** 表格里「对应条目」一列：已定价显示条目名，其余两种状态显示一个短标签。 */
+function EntryCell({ row }: { row: ModelRow }) {
+  const { t } = useTranslation("dashboard");
+  const entry = matchedEntryFor(row);
+  const multiplier = parseMultiplier(row.multiplier_text);
+  const state = entryState(entry);
+  return (
+    <div className="flex min-w-0 items-center gap-1.5">
+      {state === "priced" && entry ? (
+        <TruncatedText text={entry.display_name} className="text-subtle-foreground" />
+      ) : state === "unpriced" ? (
+        <span className="truncate text-warn">{t("cp_model_entry_unpriced")}</span>
+      ) : (
+        <span className="truncate text-muted-foreground">{t("cp_model_entry_pending")}</span>
+      )}
+      {multiplier !== undefined && multiplier !== 1 && (
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+          <span className="sr-only">{t("cp_model_multiplier_label")} </span>×{multiplier}
+        </span>
+      )}
+    </div>
+  );
 }
 
 export interface ModelTableProps {
@@ -110,7 +128,7 @@ export interface ModelTableProps {
 }
 
 /**
- * 自定义供应商的模型表格：列为启用、模型 ID、类型、调用端点、价格、默认。点击行在下方展开编辑区，
+ * 自定义供应商的模型表格：列为启用、模型 ID、类型、调用端点、对应条目、默认。点击行在下方展开编辑区，
  * 可以同时展开多行；模型多于 5 个时显示搜索框与按类型筛选。
  */
 export function ModelTable({
@@ -198,7 +216,7 @@ export function ModelTable({
             <col />
             <col className="w-16" />
             <col />
-            <col className="w-40" />
+            <col className="w-44" />
             <col className="w-20" />
             <col className="w-11" />
           </colgroup>
@@ -221,7 +239,7 @@ export function ModelTable({
               <TableHead>{t("model_id_label")}</TableHead>
               <TableHead>{t("cp_model_type_column")}</TableHead>
               <TableHead>{t("endpoint_label")}</TableHead>
-              <TableHead>{t("cp_model_price_column")}</TableHead>
+              <TableHead>{t("cp_model_entry_column")}</TableHead>
               <TableHead>{t("default_label")}</TableHead>
               <TableHead>
                 <span className="sr-only">{t("cp_model_expand_column")}</span>
@@ -239,7 +257,6 @@ export function ModelTable({
             {visible.map((row) => {
               const open = expanded.has(row.key);
               const media = endpointToMediaType[row.endpoint];
-              const price = priceSummary(row, media, t);
               const name = row.model_id || t("cp_model_id_missing");
               const editorId = `cp-model-editor-${row.key}`;
               // 点行任意位置展开或收起；行内的勾选框、按钮与输入框各有自己的动作，点它们不切换
@@ -274,11 +291,7 @@ export function ModelTable({
                       <TruncatedText text={endpointLabel(row.endpoint)} className="text-subtle-foreground" />
                     </TableCell>
                     <TableCell>
-                      {price ? (
-                        <TruncatedText text={price} className="text-subtle-foreground tabular-nums" />
-                      ) : (
-                        <span className="text-muted-foreground">{t("cp_model_price_unset")}</span>
-                      )}
+                      <EntryCell row={row} />
                     </TableCell>
                     <TableCell>
                       <Toggle
@@ -349,15 +362,17 @@ function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }:
   const media = useEndpointCatalogStore((s) => s.endpointToMediaType[row.endpoint]);
   const constraints = useEndpointCatalogStore((s) => s.endpointConstraints[row.endpoint]);
   const endImageCapable = useEndpointCatalogStore((s) => s.endpointToEndImageCapable[row.endpoint] ?? false);
+  const descriptor = useEndpointCatalogStore((s) => s.endpoints.find((e) => e.key === row.endpoint));
+  // 只有 ComfyUI 视频行还编辑可选时长；其余行的时长由模型条目决定，存量覆盖原样保留
+  const editsDurations = descriptor !== undefined && isComfyuiVideoEndpoint(descriptor);
   const idPrefix = `cp-model-${row.key}`;
-  const unit = priceLabel(row.endpoint, media ? { [row.endpoint]: media } : {}, t);
   const tierEmpty = constraints?.durationTierEmpty ?? false;
   const emptyCopy =
     EMPTY_TIER_COPY[
       constraints?.durationFixed ? "fixed" : constraints?.durationFrameRateMissing ? "frameRateMissing" : "notDerivable"
     ];
-  const durationError = tierEmpty ? null : durationsError(t, row.supported_durations_text);
-  const maxTokensInvalid = parsePositiveInt(row.max_output_tokens_text) === undefined;
+  const durationError = tierEmpty ? null : durationsError(t, row.durations_text);
+  const multiplierInvalid = parseMultiplier(row.multiplier_text) === undefined;
 
   return (
     <div className="flex flex-col gap-3">
@@ -428,58 +443,31 @@ function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }:
         </FieldRow>
       )}
 
-      <FieldRow label={t("cp_model_price_column")} group>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={row.currency || "USD"} onValueChange={(next) => next && onUpdate({ currency: next })}>
-            <SelectTrigger aria-label={t("currency_label")} className="w-20">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="USD">$ USD</SelectItem>
-              <SelectItem value="CNY">¥ CNY</SelectItem>
-            </SelectContent>
-          </Select>
-          <PriceInput
-            value={row.price_input}
-            label={t("input_price")}
-            unit={unit.input}
-            onChange={(v) => onUpdate({ price_input: v })}
-          />
-          {unit.output && (
-            <PriceInput
-              value={row.price_output}
-              label={t("output_price")}
-              unit={unit.output}
-              onChange={(v) => onUpdate({ price_output: v })}
-            />
-          )}
-        </div>
+      <FieldRow label={t("cp_model_entry_column")} hint={<EntryHint entry={matchedEntryFor(row)} />}>
+        <EntryDetail entry={matchedEntryFor(row)} />
       </FieldRow>
 
-      {/* 最大输出长度（仅 text endpoint）：分集规划按它决定每批规划几集 */}
-      {media === "text" && (
-        <FieldRow
-          label={t("max_output_tokens_label")}
-          htmlFor={`${idPrefix}-max-tokens`}
-          hint={
-            maxTokensInvalid ? (
-              <FieldHint tone="warn">{t("max_output_tokens_invalid")}</FieldHint>
-            ) : (
-              <FieldHint>{t("max_output_tokens_help")}</FieldHint>
-            )
-          }
-        >
-          <Input
-            id={`${idPrefix}-max-tokens`}
-            inputMode="numeric"
-            className="w-40"
-            value={row.max_output_tokens_text}
-            onChange={(e) => onUpdate({ max_output_tokens_text: e.target.value })}
-            placeholder={t("max_output_tokens_placeholder")}
-            aria-invalid={maxTokensInvalid}
-          />
-        </FieldRow>
-      )}
+      <FieldRow
+        label={t("cp_model_multiplier_label")}
+        htmlFor={`${idPrefix}-multiplier`}
+        hint={
+          multiplierInvalid ? (
+            <FieldHint tone="warn">{t("cp_multiplier_invalid")}</FieldHint>
+          ) : (
+            <FieldHint>{t("cp_model_multiplier_help")}</FieldHint>
+          )
+        }
+      >
+        <Input
+          id={`${idPrefix}-multiplier`}
+          inputMode="decimal"
+          autoComplete="off"
+          className="w-32"
+          value={row.multiplier_text}
+          onChange={(e) => onUpdate({ multiplier_text: e.target.value })}
+          aria-invalid={multiplierInvalid}
+        />
+      </FieldRow>
 
       {/* 分辨率（仅 image/video，audio 无分辨率维度） */}
       {(media === "image" || media === "video") && (
@@ -500,7 +488,8 @@ function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }:
         </FieldRow>
       )}
 
-      {media === "video" && (
+      {/* ComfyUI 视频行的可选时长：写进能力覆盖的 durations 键，留空跟随 workflow 原生时长 */}
+      {editsDurations && (
         <FieldRow
           label={t("supported_durations_label")}
           htmlFor={`${idPrefix}-durations`}
@@ -518,8 +507,8 @@ function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }:
         >
           <Input
             id={`${idPrefix}-durations`}
-            value={row.supported_durations_text}
-            onChange={(e) => onUpdate({ supported_durations_text: e.target.value })}
+            value={row.durations_text}
+            onChange={(e) => onUpdate({ durations_text: e.target.value })}
             placeholder={t(tierEmpty ? emptyCopy.placeholder : "supported_durations_placeholder")}
             disabled={tierEmpty}
             aria-invalid={durationError !== null}
@@ -562,27 +551,34 @@ function ModelFields({ row, protocol, baseUrl, providerId, onUpdate, onRemove }:
   );
 }
 
-function PriceInput({
-  value,
-  label,
-  unit,
-  onChange,
-}: {
-  value: string;
-  label: string;
-  unit: string;
-  onChange: (value: string) => void;
-}): ReactNode {
+/** 编辑区里的对应条目：已对应时显示条目名与「模型厂商/官方模型名」。 */
+function EntryDetail({ entry }: { entry: MatchedCatalogEntry | null | undefined }) {
+  const { t } = useTranslation("dashboard");
+  if (entry === undefined) return <p className="pt-1.5 text-sm text-muted-foreground">{t("cp_model_entry_pending")}</p>;
+  if (entry === null) return <p className="pt-1.5 text-sm text-warn">{t("cp_model_entry_unpriced")}</p>;
   return (
-    <InputGroup className="w-36">
-      <InputGroupInput
-        inputMode="decimal"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="0.00"
-        aria-label={label}
-      />
-      <InputGroupAddon align="inline-end">{unit}</InputGroupAddon>
-    </InputGroup>
+    <p className="flex min-w-0 flex-wrap items-baseline gap-x-2 pt-1.5 text-sm">
+      <span>{entry.display_name}</span>
+      <span className="font-mono text-xs break-all text-muted-foreground">
+        {entry.maker}/{entry.name}
+      </span>
+    </p>
   );
+}
+
+/** 对应条目下方的说明：未定价写明调用会怎样记账，还不知道时说明何时给出。 */
+function EntryHint({ entry }: { entry: MatchedCatalogEntry | null | undefined }) {
+  const { t } = useTranslation("dashboard");
+  switch (entryState(entry)) {
+    case "pending":
+      return <FieldHint>{t("cp_model_entry_pending_hint")}</FieldHint>;
+    case "unpriced":
+      return (
+        <FieldHint tone="warn">
+          {t(entry === null ? "cp_model_entry_unmatched_hint" : "cp_model_entry_no_price_hint")}
+        </FieldHint>
+      );
+    default:
+      return null;
+  }
 }

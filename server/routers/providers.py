@@ -24,7 +24,7 @@ from lib.backends.gemini_shared import VERTEX_SCOPES
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.billing.multipliers import (
     PROVIDER_MULTIPLIER_KEY,
-    default_provider_multiplier,
+    get_default_provider_multiplier,
     get_provider_multiplier,
     set_provider_multiplier,
 )
@@ -621,7 +621,7 @@ async def get_provider_multiplier_setting(
     await _validate_priced_provider(provider_id, session, _t)
     return ProviderMultiplierResponse(
         multiplier=await get_provider_multiplier(session, provider_id),
-        default=default_provider_multiplier(provider_id),
+        default=await get_default_provider_multiplier(session, provider_id),
     )
 
 
@@ -638,7 +638,7 @@ async def put_provider_multiplier_setting(
     await session.commit()
     return ProviderMultiplierResponse(
         multiplier=await get_provider_multiplier(session, provider_id),
-        default=default_provider_multiplier(provider_id),
+        default=await get_default_provider_multiplier(session, provider_id),
     )
 
 

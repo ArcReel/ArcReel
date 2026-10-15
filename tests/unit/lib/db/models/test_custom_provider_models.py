@@ -92,14 +92,10 @@ class TestCustomProviderModelTable:
             "endpoint",
             "is_default",
             "is_enabled",
-            "price_unit",
-            "price_input",
-            "price_output",
-            "currency",
-            "supported_durations",
+            "multiplier",
+            "entry_binding",
             "resolution",
             "capability_overrides",
-            "max_output_tokens",
             "path_overrides",
             "created_at",
             "updated_at",
@@ -126,10 +122,8 @@ class TestCustomProviderModelRoundTrip:
             endpoint="openai-chat",
             is_default=True,
             is_enabled=True,
-            price_unit="token",
-            price_input=3.0,
-            price_output=15.0,
-            currency="USD",
+            multiplier=0.8,
+            entry_binding="anthropic/claude-sonnet-4",
         )
         db_session.add(model)
         await db_session.commit()
@@ -143,15 +137,13 @@ class TestCustomProviderModelRoundTrip:
         assert loaded.endpoint == "openai-chat"
         assert loaded.is_default is True
         assert loaded.is_enabled is True
-        assert loaded.price_unit == "token"
-        assert loaded.price_input == 3.0
-        assert loaded.price_output == 15.0
-        assert loaded.currency == "USD"
+        assert loaded.multiplier == 0.8
+        assert loaded.entry_binding == "anthropic/claude-sonnet-4"
         assert loaded.created_at is not None
         assert loaded.updated_at is not None
 
-    async def test_price_fields_nullable(self, db_session):
-        """Price fields should be nullable for local/free providers (e.g., Ollama)."""
+    async def test_multiplier_defaults_to_one_without_a_binding(self, db_session):
+        """未设倍率的模型按条目原价计（倍率 1），默认没有条目绑定。"""
         provider = CustomProvider(
             display_name="Local Ollama",
             discovery_format="openai",
@@ -172,10 +164,8 @@ class TestCustomProviderModelRoundTrip:
 
         result = await db_session.execute(select(CustomProviderModel).where(CustomProviderModel.model_id == "llama3"))
         loaded = result.scalar_one()
-        assert loaded.price_unit is None
-        assert loaded.price_input is None
-        assert loaded.price_output is None
-        assert loaded.currency is None
+        assert loaded.multiplier == 1.0
+        assert loaded.entry_binding is None
         assert loaded.is_default is False
         assert loaded.is_enabled is True
 

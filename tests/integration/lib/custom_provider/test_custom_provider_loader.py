@@ -217,7 +217,12 @@ class TestCustomModelMaxOutputTokens:
         pid = await _seed(
             async_session,
             models=[
-                {"model_id": "my-llm", "endpoint": "openai-chat", "is_enabled": True, "max_output_tokens": 8192},
+                {
+                    "model_id": "my-llm",
+                    "endpoint": "openai-chat",
+                    "is_enabled": True,
+                    "capability_overrides": {"max_output_tokens": 8192},
+                },
                 {"model_id": "bare-llm", "endpoint": "openai-chat", "is_enabled": True},
             ],
         )
@@ -228,8 +233,8 @@ class TestCustomModelMaxOutputTokens:
 
         assert (registered, bare, missing) == (8192, None, None)
 
-    async def test_override_beats_the_column_and_entry_fills_the_gap(self, async_session):
-        """能力覆盖 > 行上旧列 > 对应条目：名字对上条目且两者都没有时取条目的值。"""
+    async def test_override_beats_the_entry_and_the_binding_picks_the_entry(self, async_session):
+        """能力覆盖 > 对应条目：没有覆盖时取条目的值，条目绑定优先于按名字对应。"""
         pid = await _seed(
             async_session,
             models=[
@@ -237,10 +242,16 @@ class TestCustomModelMaxOutputTokens:
                     "model_id": "overridden-llm",
                     "endpoint": "openai-chat",
                     "is_enabled": True,
-                    "max_output_tokens": 8192,
+                    "entry_binding": "google/gemini-3-flash-preview",
                     "capability_overrides": {"max_output_tokens": 2048},
                 },
                 {"model_id": "vendor/gemini-3-flash-preview", "endpoint": "openai-chat", "is_enabled": True},
+                {
+                    "model_id": "relay-alias",
+                    "endpoint": "openai-chat",
+                    "is_enabled": True,
+                    "entry_binding": "google/gemini-3-flash-preview",
+                },
             ],
         )
 
@@ -251,7 +262,9 @@ class TestCustomModelMaxOutputTokens:
             session=async_session, provider_id=pid, model_id="vendor/gemini-3-flash-preview"
         )
 
-        assert (overridden, from_entry) == (2048, 65536)
+        bound = await custom_model_max_output_tokens(session=async_session, provider_id=pid, model_id="relay-alias")
+
+        assert (overridden, from_entry, bound) == (2048, 65536, 65536)
 
 
 class TestCustomImageModelCapabilities:

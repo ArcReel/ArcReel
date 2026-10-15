@@ -60,6 +60,7 @@ import type {
   CustomProviderInfo,
   CustomProviderCreateRequest,
   CustomProviderFullUpdateRequest,
+  ProviderMultiplierInfo,
   DiscoverModelsResponse,
   EndpointDescriptor,
   ComfyuiInferResponse,
@@ -3156,6 +3157,22 @@ class API {
     return this.request(`/providers/${encodeURIComponent(id)}/config`, {
       method: "PATCH",
       body: JSON.stringify(patch),
+    });
+  }
+
+  /** 读取供应商倍率。自定义供应商的 id 写作 `custom-<数据库 id>`。 */
+  static async getProviderMultiplier(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderMultiplierInfo> {
+    return this.request(`/providers/${encodeURIComponent(id)}/multiplier`, { signal: options.signal });
+  }
+
+  /** 设置供应商倍率；null 表示恢复默认值。只影响之后结算的调用。 */
+  static async setProviderMultiplier(id: string, multiplier: number | null): Promise<ProviderMultiplierInfo> {
+    return this.request(`/providers/${encodeURIComponent(id)}/multiplier`, {
+      method: "PUT",
+      body: JSON.stringify({ multiplier }),
     });
   }
 

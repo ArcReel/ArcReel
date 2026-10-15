@@ -347,7 +347,7 @@ class TestOutputLimitFacts:
                         "display_name": "my-llm",
                         "endpoint": "openai-chat",
                         "is_enabled": True,
-                        "max_output_tokens": registered,
+                        "capability_overrides": None if registered is None else {"max_output_tokens": registered},
                     }
                 ],
             )

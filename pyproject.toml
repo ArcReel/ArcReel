@@ -175,7 +175,9 @@ ignore_imports = [
     # 中间模块反向引用 custom_provider（provider_id 解析与自定义供应商记账）
     "lib.backends.backend_assembly.assembler -> lib.custom_provider",
     "lib.backends.backend_assembly.assembler -> lib.custom_provider.loader",
-    "lib.billing.cost_calculator -> lib.custom_provider",
+    "lib.billing.multipliers -> lib.custom_provider",
+    "lib.billing.multipliers -> lib.custom_provider.discovery_formats",
+    "lib.db.repositories.usage_repo -> lib.custom_provider",
     "lib.db.repositories.custom_provider_repo -> lib.custom_provider",
     "lib.db.repositories.custom_provider_repo -> lib.custom_provider.endpoints",
     "lib.db.models.custom_provider -> lib.custom_provider",

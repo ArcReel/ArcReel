@@ -565,7 +565,7 @@ class TestVideoCapabilities:
         assert caps["max_reference_images"] == 0
 
     @staticmethod
-    async def _seed_comfyui_video_model(db_factory, definition: dict, supported_durations: str) -> str:
+    async def _seed_comfyui_video_model(db_factory, definition: dict, durations: list[int] | None = None) -> str:
         """落一个 ComfyUI 视频模型行，返回 ``provider/model``。"""
         from lib.db.models.custom_endpoint import CustomEndpoint
         from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -589,16 +589,16 @@ class TestVideoCapabilities:
                     model_id="my-wan-workflow",
                     display_name="My Workflow",
                     endpoint=f"ce-{endpoint.id}",
-                    supported_durations=supported_durations,
+                    capability_overrides=None if durations is None else {"durations": durations},
                 )
             )
             await session.commit()
             return f"custom-{provider.id}/my-wan-workflow"
 
-    async def test_a_stale_tier_on_the_row_is_dropped_when_the_endpoint_lost_its_frames_binding(self, db_factory):
-        """端点说这一维给不出档位时，行上存着的那份一律作废：真相源是端点，不是行。
+    async def test_a_stale_override_is_dropped_when_the_endpoint_lost_its_frames_binding(self, db_factory):
+        """端点说这一维给不出档位时，行上的可选时长覆盖一律作废：空集豁免以端点为准。
 
-        两边分叉时沿用行上的 ``[5]``，能力接口与剧本规划就会宣称 5 秒，而端点目录已经把时长
+        沿用行上的 ``[5]``，能力接口与剧本规划就会宣称 5 秒，而端点目录已经把时长
         控件禁掉——同一个问题两处答案不一样。
         """
         from tests.factories import comfyui_endpoint_definition
@@ -606,8 +606,8 @@ class TestVideoCapabilities:
         definition = comfyui_endpoint_definition()
         definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
         assert "frames" not in definition["bindings"]
-        # 行上存着的那份档位，与端点此刻的答案分叉。
-        backend = await self._seed_comfyui_video_model(db_factory, definition, "[5]")
+        # 行上存着的那份覆盖，与端点此刻的答案分叉。
+        backend = await self._seed_comfyui_video_model(db_factory, definition, [5])
 
         caps = await _video_caps(db_factory, {"video_backend": backend})
 
@@ -615,24 +615,34 @@ class TestVideoCapabilities:
         assert caps["max_duration"] == 0
         assert caps["duration_endpoint_fixed"] is True
 
-    async def test_an_empty_tier_on_the_row_gives_way_once_the_endpoint_can_drive_duration(self, db_factory):
-        """同一条规则的另一侧：行上是空集而端点给得出档位时，按端点的来。
-
-        沿用行上那份空集会让时长控件禁着、剧本规划借固定篇幅，而请求构造正在往图里写帧数。
-        """
+    @staticmethod
+    def _drivable_definition() -> dict:
         from tests.factories import comfyui_endpoint_definition
 
         definition = comfyui_endpoint_definition()
         definition["workflow"]["5"]["inputs"]["length"] = 81
         definition["bindings"]["frames"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
         definition["bindings"]["start_image"] = [{"node": "11", "input": "image", "class_type": "LoadImage"}]
-        # 行上是空集，而端点此刻推得出一档原生时长。
-        backend = await self._seed_comfyui_video_model(db_factory, definition, "[]")
+        return definition
+
+    async def test_without_an_override_the_tier_is_the_endpoint_native_duration(self, db_factory):
+        """端点推得出一档原生时长、行上没有覆盖时，按端点的来。"""
+        backend = await self._seed_comfyui_video_model(db_factory, self._drivable_definition())
 
         caps = await _video_caps(db_factory, {"video_backend": backend})
 
         assert caps["supported_durations"] == [5]
         assert caps["max_duration"] == 5
+        assert caps["duration_endpoint_fixed"] is False
+
+    async def test_a_durations_override_wins_once_the_endpoint_can_drive_duration(self, db_factory):
+        """端点驱动得了时长时，用户在模型行上增删过的可选时长优先（docs/adr/0082、0104 的例外）。"""
+        backend = await self._seed_comfyui_video_model(db_factory, self._drivable_definition(), [5, 10])
+
+        caps = await _video_caps(db_factory, {"video_backend": backend})
+
+        assert caps["supported_durations"] == [5, 10]
+        assert caps["max_duration"] == 10
         assert caps["duration_endpoint_fixed"] is False
 
 
@@ -777,7 +787,6 @@ class TestVoiceConsistency:
                 model_id="sora-like",
                 display_name="Sora-like",
                 endpoint="openai-video",
-                supported_durations="[4, 8]",
             )
             session.add(model)
             await session.commit()
@@ -806,7 +815,6 @@ class TestVoiceConsistency:
                 model_id="seedance-like",
                 display_name="Seedance-like",
                 endpoint="ark-seedance",
-                supported_durations="[4, 8]",
                 # max_reference_images 覆盖是让该 model 落进 r2v 桶的前提：参考生视频项目按
                 # r2v 定桶解析，ark-seedance 对未上表型号保守判 0，不覆盖会被解析闸挡在能力查询前
                 capability_overrides={
@@ -886,7 +894,6 @@ class TestUnmatchedCustomVideoModelOverrides:
 
         async with db_factory() as session:
             row = (await session.execute(select(CustomProviderModel))).scalar_one()
-        assert row.supported_durations is None
         assert row.capability_overrides == {"max_reference_images": 3}
 
     async def test_audio_track_override_turns_voice_consistency_off(self, db_factory):

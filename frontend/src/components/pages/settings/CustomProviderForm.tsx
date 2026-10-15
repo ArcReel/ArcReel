@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
-import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { PartialSaveError, useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -27,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import type { CustomProviderInfo, EndpointKey } from "@/types";
+import type { CustomProviderInfo, EndpointKey, ProviderMultiplierInfo } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 import { DurationParseError } from "@/utils/duration_format";
 import { formatNameList } from "@/utils/list-format";
@@ -36,22 +36,31 @@ import { DURATION_ERROR_KEY, ModelTable } from "./CustomProviderModelTable";
 import {
   isComfyuiEndpoint,
   isComfyuiProtocol,
+  isComfyuiVideoEndpoint,
   mergeDiscoveredModels,
   toggleDefaultReducer,
   urlPreviewFor,
   type DiscoveryFormat,
 } from "./customProviderHelpers";
 import {
+  DEFAULT_PROVIDER_MULTIPLIER,
   discoveredToRow,
   effectiveModelRows,
   formFromProvider,
   newModelRow,
   newProviderForm,
+  parseMultiplier,
+  parseOptionalMultiplier,
   parsePositiveInt,
   rowToInput,
   type CustomProviderFormValue,
   type ModelRow,
 } from "./customProviderFormState";
+
+/** 供应商配置接口里自定义供应商的 id。 */
+function customProviderKey(id: number): string {
+  return `custom-${id}`;
+}
 
 const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] = [
   { value: "openai", labelKey: "discovery_format_openai" },
@@ -62,6 +71,8 @@ const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] =
 interface CustomProviderFormProps {
   /** 已保存的供应商；不传时是新建表单。 */
   existing?: CustomProviderInfo | null;
+  /** 已保存的供应商倍率，与 `existing` 一起取回；新建表单与未传时按默认值 1。 */
+  providerMultiplier?: ProviderMultiplierInfo;
   /** 从「调用端点」接线过来的预填接口地址（定义里的 meta.hints.base_url）。 */
   initialBaseUrl?: string;
   /** 接线时预选的调用端点：新建表单据此起一行模型。 */
@@ -76,10 +87,11 @@ interface CustomProviderFormProps {
 
 /**
  * 自定义供应商详情：打开即是表单，没有只读态。页头显示协议与接口地址，「删除供应商」在更多操作菜单；
- * 名称、接口地址、密钥、模型与并发上限是一个编辑单元，由详情栏底部的保存栏统一提交。
+ * 名称、接口地址、密钥、模型、并发上限与供应商倍率是一个编辑单元，由详情栏底部的保存栏统一提交。
  */
 export function CustomProviderForm({
   existing,
+  providerMultiplier,
   initialBaseUrl,
   initialEndpoint,
   focusModelId,
@@ -100,7 +112,12 @@ export function CustomProviderForm({
 
   // 已保存的内容：新建表单在挂载时定下，此后保持同一个引用
   const [newForm] = useState(() => newProviderForm(initialBaseUrl, initialEndpoint));
-  const source = useMemo(() => (existing ? formFromProvider(existing) : newForm), [existing, newForm]);
+  // 供应商倍率不在供应商详情里，单独读写：保存后以 PUT 的回显为准，供应商重取不会带回它
+  const [savedMultiplier, setSavedMultiplier] = useState(providerMultiplier ?? DEFAULT_PROVIDER_MULTIPLIER);
+  const source = useMemo(
+    () => (existing ? formFromProvider(existing, savedMultiplier) : newForm),
+    [existing, savedMultiplier, newForm],
+  );
 
   // 接线过来的端点定协议：ComfyUI 端点只挂得上 ComfyUI 供应商（docs/adr/0081 的双向配对），
   // 让用户自己去把协议改过来就是先让他撞一次保存失败。端点目录是异步取的，因此这里取派生值：
@@ -129,7 +146,10 @@ export function CustomProviderForm({
   const allowNavigation = useCallback(() => deletedRef.current, []);
 
   const save = useCallback(
-    async (value: CustomProviderFormValue): Promise<CustomProviderFormValue | void> => {
+    async (
+      value: CustomProviderFormValue,
+      savedValue: CustomProviderFormValue,
+    ): Promise<CustomProviderFormValue | void> => {
       const discoveryFormat = formatOf(value);
       const keyOptional = value.noApiKey || isComfyuiProtocol(discoveryFormat);
       const models = deriveModels(value);
@@ -152,16 +172,15 @@ export function CustomProviderForm({
       if (catalogPending) fail(t("cp_endpoint_catalog_pending"));
       // 停在未选择端点上的行：服务端按行校验协议配对，一行没有端点整份配置都落不了库
       if (models.some((m) => !m.endpoint)) fail(t("cp_model_endpoint_unselected"));
-      if (
-        models.some(
-          (m) => endpointToMediaType[m.endpoint] === "text" && parsePositiveInt(m.max_output_tokens_text) === undefined,
-        )
-      ) {
-        fail(t("max_output_tokens_invalid"));
-      }
+      if (models.some((m) => parseMultiplier(m.multiplier_text) === undefined)) fail(t("cp_model_multiplier_invalid"));
+      // 可选时长只在 ComfyUI 视频行上编辑，且档位给得出来时才写回覆盖；其余行的覆盖原样回传
+      const durationsEditable = (endpoint: EndpointKey) => {
+        const descriptor = catalogEndpoints.find((item) => item.key === endpoint);
+        return descriptor !== undefined && isComfyuiVideoEndpoint(descriptor) && !descriptor.duration_tier_empty;
+      };
       let payloadModels;
       try {
-        payloadModels = models.map(rowToInput);
+        payloadModels = models.map((m) => rowToInput(m, { durationsEditable: durationsEditable(m.endpoint) }));
       } catch (e) {
         if (e instanceof DurationParseError) {
           fail(t("supported_durations_invalid", { message: t(DURATION_ERROR_KEY[e.code], e.params) }));
@@ -172,6 +191,8 @@ export function CustomProviderForm({
       const videoMax = parsePositiveInt(value.videoMaxWorkers);
       const audioMax = parsePositiveInt(value.audioMaxWorkers);
       if (imageMax === undefined || videoMax === undefined || audioMax === undefined) fail(t("max_workers_invalid"));
+      const multiplier = parseOptionalMultiplier(value.providerMultiplier);
+      if (multiplier === undefined) fail(t("cp_provider_multiplier_invalid"));
 
       const workers = { image_max_workers: imageMax ?? null, video_max_workers: videoMax ?? null, audio_max_workers: audioMax ?? null };
       if (existing) {
@@ -186,15 +207,41 @@ export function CustomProviderForm({
         // 能力覆盖随本次保存落库，但它不落任何项目字段，在用的能力查询不会因 props 变化而重取；
         // 显式作废，让常驻的能力警告无需重新挂载组件即随新覆盖增减。
         useCapabilitiesStore.getState().invalidate();
-        // 入库内容以重取结果为准（能力判定、全局引用由后端算出）；重取失败不算保存失败
+        // 供应商倍率是另一份配置，改了才写；失败时供应商与模型已经落库，按部分保存报告
+        let multiplierInfo = savedMultiplier;
+        let multiplierError: unknown = null;
+        if (value.providerMultiplier !== savedValue.providerMultiplier) {
+          try {
+            multiplierInfo = await API.setProviderMultiplier(customProviderKey(existing.id), multiplier ?? null);
+          } catch (e) {
+            multiplierError = e;
+          }
+        }
+        // 入库内容以重取结果为准（能力判定、条目对应、全局引用由后端算出）；重取失败不算保存失败
         let updated: CustomProviderInfo | undefined;
         try {
           updated = await API.getCustomProvider(existing.id);
         } catch {
           updated = undefined;
         }
+        // 与供应商一起交出去，两份已保存内容在同一次渲染里更新，不会先拼出一份新倍率配旧模型的中间态
+        setSavedMultiplier(multiplierInfo);
         onSaved(updated);
-        return updated ? formFromProvider(updated) : { ...value, apiKey: "", models };
+        const savedForm = updated
+          ? formFromProvider(updated, multiplierInfo)
+          : {
+              ...value,
+              apiKey: "",
+              models,
+              providerMultiplier: multiplierError ? savedValue.providerMultiplier : value.providerMultiplier,
+            };
+        if (multiplierError) {
+          throw new PartialSaveError(t("cp_provider_multiplier_save_failed", { message: errMsg(multiplierError) }), {
+            saved: savedForm,
+            cause: multiplierError,
+          });
+        }
+        return savedForm;
       }
       const created = await API.createCustomProvider({
         display_name: value.displayName,
@@ -205,9 +252,19 @@ export function CustomProviderForm({
         ...workers,
       });
       useCapabilitiesStore.getState().invalidate();
+      // 倍率挂在供应商 id 上，只能在创建之后写。供应商已经建好，倍率写失败不回退：
+      // 提示后照常切到新供应商，在那里重新填写即可
+      if (multiplier != null && multiplier !== DEFAULT_PROVIDER_MULTIPLIER.default) {
+        try {
+          await API.setProviderMultiplier(customProviderKey(created.id), multiplier);
+        } catch (e) {
+          const message = t("cp_provider_multiplier_create_failed", { message: errMsg(e) });
+          useAppStore.getState().pushToast(message, "error");
+        }
+      }
       onSaved(created);
     },
-    [formatOf, deriveModels, t, existing, catalogInitialized, initialEndpoint, endpointToMediaType, onSaved],
+    [formatOf, deriveModels, t, existing, catalogInitialized, catalogEndpoints, initialEndpoint, savedMultiplier, onSaved],
   );
 
   const unit = useEditUnit({ source, save, allowNavigation });
@@ -401,6 +458,8 @@ export function CustomProviderForm({
   const modelsHeadingId = useId();
   const connectionHeadingId = useId();
   const concurrencyHeadingId = useId();
+  const billingHeadingId = useId();
+  const providerMultiplierInvalid = parseOptionalMultiplier(value.providerMultiplier) === undefined;
   const urlPreview = urlPreviewFor(discoveryFormat, value.baseUrl);
   const hasUnsetEndpoint = models.some((m) => !m.endpoint);
   const workersPlaceholder = isComfyui ? t("cp_max_workers_placeholder_comfyui") : t("cp_max_workers_placeholder");
@@ -653,6 +712,35 @@ export function CustomProviderForm({
               />
             </FieldRow>
           ))}
+        </section>
+
+        <section aria-labelledby={billingHeadingId} className="flex max-w-178 flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h3 id={billingHeadingId} className="text-base font-medium">
+              {t("cp_billing_heading")}
+            </h3>
+            <p className="text-sm text-muted-foreground">{t("cp_provider_multiplier_help")}</p>
+          </div>
+          <FieldRow
+            label={t("cp_provider_multiplier_label")}
+            htmlFor={`${billingHeadingId}-input`}
+            hint={
+              providerMultiplierInvalid ? (
+                <FieldHint tone="warn">{t("cp_multiplier_invalid")}</FieldHint>
+              ) : undefined
+            }
+          >
+            <Input
+              id={`${billingHeadingId}-input`}
+              inputMode="decimal"
+              autoComplete="off"
+              className="w-32"
+              value={value.providerMultiplier}
+              onChange={(e) => setField("providerMultiplier", e.target.value)}
+              placeholder={t("cp_provider_multiplier_placeholder", { value: savedMultiplier.default })}
+              aria-invalid={providerMultiplierInvalid}
+            />
+          </FieldRow>
         </section>
       </div>
 

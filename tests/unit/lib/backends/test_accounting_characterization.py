@@ -1018,7 +1018,7 @@ class TestTextChannel:
             ),
         )
 
-    async def test_custom_provider_priced_from_db(self, acct: _AccountingDb) -> None:
+    async def _seed_custom_model(self, acct: _AccountingDb, model_id: str, *, multiplier: float = 1.0) -> str:
         async with acct.factory() as session:
             provider = CustomProvider(
                 display_name="自定供应商",
@@ -1031,47 +1031,52 @@ class TestTextChannel:
             session.add(
                 CustomProviderModel(
                     provider_id=provider.id,
-                    model_id="my-model",
+                    model_id=model_id,
                     display_name="My Model",
                     endpoint="openai-chat",
-                    price_unit="token",
-                    price_input=2.0,
-                    price_output=4.0,
-                    currency="CNY",
+                    multiplier=multiplier,
                 )
             )
             await session.commit()
-            provider_key = f"custom-{provider.id}"
+            return f"custom-{provider.id}"
 
+    async def _generate(self, acct: _AccountingDb, provider_key: str, model_id: str) -> None:
         gen = TextGenerator(
-            _FakeTextBackend(
-                provider=provider_key,
-                model="my-model",
-                input_tokens=1_000_000,
-                output_tokens=500_000,
-            ),
+            _FakeTextBackend(provider=provider_key, model=model_id, input_tokens=200_000, output_tokens=100_000),
             Ledger(session_factory=acct.factory),
             provider_key,
             purpose=CallPurpose.SCRIPT_GENERATION,
         )
-
         await gen.generate(TextGenerationRequest(prompt="p"), project_name="demo")
 
-        # (1M × 2.0 + 0.5M × 4.0) / 1M = 4.0，币种取模型行声明
+    async def test_custom_provider_priced_from_the_matched_entry(self, acct: _AccountingDb) -> None:
+        provider_key = await self._seed_custom_model(acct, "relay/GPT-5.4", multiplier=0.5)
+
+        await self._generate(acct, provider_key, "relay/GPT-5.4")
+
+        # 名字对上 gpt-5.4：(0.2M × 2.5 + 0.1M × 15) / 1M = 2.0 USD，再乘模型倍率 0.5
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
                 purpose="script_generation",
                 call_type="text",
-                model="my-model",
+                model="relay/GPT-5.4",
                 provider=provider_key,
                 prompt="p",
-                cost_amount=pytest.approx(4.0),
-                currency="CNY",
-                input_tokens=1_000_000,
-                output_tokens=500_000,
+                cost_amount=pytest.approx(1.0),
+                currency="USD",
+                input_tokens=200_000,
+                output_tokens=100_000,
             ),
         )
+
+    async def test_custom_model_without_an_entry_is_unpriced(self, acct: _AccountingDb) -> None:
+        provider_key = await self._seed_custom_model(acct, "my-private-llm")
+
+        await self._generate(acct, provider_key, "my-private-llm")
+
+        row = await acct.fetch_only_row()
+        assert (row["cost_amount"], row["unpriced_reason"]) == (None, "no_entry")
 
 
 class _PromptFallbackTextBackend(_FakeTextBackend):

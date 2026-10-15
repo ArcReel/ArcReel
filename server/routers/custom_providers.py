@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import asdict
@@ -22,6 +21,7 @@ from arcreel_market_core.video_backend_contract import ReferenceAudioMode, audio
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
+from lib.catalog.query import binding_key
 from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
@@ -47,7 +47,10 @@ from lib.custom_provider.endpoints import (
 )
 from lib.custom_provider.model_facts import (
     ALL_MODEL_FACT_OVERRIDE_KEYS,
+    COMFYUI_VIDEO_OVERRIDE_KEYS,
     MODEL_FACT_OVERRIDE_KEYS,
+    comfyui_duration_override,
+    matched_entry_summary,
     model_fact_overrides,
     model_fact_type_name,
     model_fact_value_matches,
@@ -95,6 +98,11 @@ _IMAGE_CAPABILITY_BY_OVERRIDE_KEY: dict[str, ImageCapability] = {
     "text_to_image": ImageCapability.TEXT_TO_IMAGE,
     "image_to_image": ImageCapability.IMAGE_TO_IMAGE,
 }
+
+
+def _comfyui_override_keys(media_type: str) -> frozenset[str]:
+    """ComfyUI 端点上接受的覆盖维度：只有视频行的可选时长（docs/adr/0104）。"""
+    return COMFYUI_VIDEO_OVERRIDE_KEYS if media_type == "video" else frozenset()
 
 
 def _narrow_to_allowlist(overrides: dict[str, object]) -> dict[str, object]:
@@ -160,17 +168,10 @@ class ModelInput(BaseModel):
     endpoint: EndpointType
     is_default: bool = False
     is_enabled: bool = True
-    price_unit: str | None = None
-    price_input: float | None = None
-    price_output: float | None = None
-    currency: str | None = None
-    supported_durations: list[int] | None = None
     resolution: str | None = None
-    # 稀疏覆盖字典，键名对齐 VideoCapabilities 字段名；None 或键缺席 = 跟随系统判定。
+    # 稀疏覆盖字典：模型事实维度与视频通道事实维度（docs/adr/0104）；None 或键缺席 = 跟随条目与通道声明。
     # 保存模型列表是整体替换语义，本字段必须随列表回传，否则存量覆盖被清空。
     capability_overrides: dict[str, object] | None = None
-    # 最大输出长度（单位 token），只对文本模型保存；None = 未登记，文本请求按 64000 封顶。
-    max_output_tokens: int | None = Field(default=None, gt=0)
     # 路径覆盖：请求名 → 整条替换的路径（docs/adr/0101），与 capability_overrides 一样须随列表回传。
     # 空字典收敛为 None。
     path_overrides: dict[str, str] | None = None
@@ -179,6 +180,21 @@ class ModelInput(BaseModel):
     @classmethod
     def _empty_path_overrides_to_none(cls, value: dict[str, str] | None) -> dict[str, str] | None:
         return value or None
+
+    # 供应商模型倍率（docs/adr/0100），与供应商倍率相乘后作用在整笔参考费用上。
+    multiplier: float = Field(default=1.0, ge=0, allow_inf_nan=False)
+    # 条目绑定（docs/adr/0105）：「模型厂商/官方模型名」；None = 按名字对应条目。与覆盖同理须随列表回传。
+    entry_binding: str | None = None
+
+    @field_validator("entry_binding")
+    @classmethod
+    def _entry_binding_shape(cls, value: str | None) -> str | None:
+        """条目绑定只校验形状「模型厂商/官方模型名」，不校验条目是否还在目录里：官方数据删掉条目后，存量绑定
+        随整表 PUT 回传时不能把与它无关的编辑堵在 422 上；读取侧对找不到的绑定回到按名字对应。"""
+        value = (value or "").strip() or None
+        if value is not None and binding_key(value, "text") is None:
+            raise ValueError("entry_binding must look like 'maker/name'")
+        return value
 
     @field_validator("capability_overrides")
     @classmethod
@@ -198,35 +214,27 @@ class ModelInput(BaseModel):
         return kept or None
 
     def to_db_dict(self, endpoint_spec: EndpointSpec) -> dict:
-        """返回适合写入数据库的字典（supported_durations 序列化为 JSON 字符串）。
+        """返回适合写入数据库的字典。
 
-        视频类 endpoint：supported_durations 缺省（None）或显式传 []（空列表）时存为缺省。缺省的可选时长
-        在运行时取对应条目，对应不上条目时取按名字推断的时长预设（``docs/adr/0105``），保存时不预填：
-        预设只用于新建模型条目时预填与运行时回落，写进模型行会让它冒充用户设过的值。
+        价格不在模型行上：模型按所对应条目的价目表计价（docs/adr/0106）。可选时长与最大输出 token 只以能力覆盖
+        的形式保存，保存时不预填：预设只用于新建模型条目时预填与运行时回落（``docs/adr/0105``）。
 
-        ComfyUI 端点不当空集为缺省：时长这一维由节点绑定决定（``docs/adr/0082``）。``frames`` 未绑定或
-        读不到帧率来源时这份 workflow 的时长根本不由 ArcReel 驱动，服务端把该模型行的档位钉死为空集——
-        用户在界面上改不动它，改了也无处生效；两者齐备时默认只含 workflow 的原生时长，用户可在模型行里
-        增删。模型名在这条通道上与 workflow 能出多长毫无关系。
+        ComfyUI 视频端点的可选时长默认只含 workflow 的原生时长，用户增删后的档位存为 ``durations`` 覆盖
+        （``docs/adr/0082``、``0104``）：与端点推导的档位相同时不存；端点驱动不了时长（档位为空集）时一律不存，
+        这一维由 workflow 固定。
 
         媒体类型读调用方已解析好的 spec：``ce-`` 端点的媒体类型写在它那份定义里，键前缀推不出来。
         """
-        from lib.custom_provider.comfyui.capabilities import default_supported_durations
-
         d = self.model_dump()
-        durations = self.supported_durations
-        is_video = endpoint_spec.media_type == "video"
-        definition = endpoint_spec.definition
-        if is_video and definition is not None and endpoint_spec.kind == COMFYUI_KIND:
-            # 默认集为空 = 这份 workflow 的时长不由 ArcReel 驱动，用户传什么都钉回空集。
-            default = default_supported_durations(definition)
-            durations = (durations or default) if default else default
-        elif is_video and not durations:
-            # 空列表与缺省同义：可选时长交给运行时（条目或名字预设），不落一个下游视为非法的空集。
-            durations = None
-        d["supported_durations"] = json.dumps(durations) if durations is not None else None
-        if endpoint_spec.media_type != "text":
-            d["max_output_tokens"] = None
+        overrides = d.get("capability_overrides")
+        if endpoint_spec.kind == COMFYUI_KIND and isinstance(overrides, dict) and "durations" in overrides:
+            endpoint_durations = endpoint_spec.endpoint_durations or []
+            durations = overrides.get("durations")
+            if not endpoint_durations or (
+                isinstance(durations, list) and sorted(set(durations)) == sorted(set(endpoint_durations))
+            ):
+                overrides = {k: v for k, v in overrides.items() if k != "durations"}
+            d["capability_overrides"] = overrides or None
         return d
 
 
@@ -285,22 +293,21 @@ class ModelResponse(BaseModel):
     endpoint: str
     is_default: bool
     is_enabled: bool
-    price_unit: str | None = None
-    price_input: float | None = None
-    price_output: float | None = None
-    currency: str | None = None
-    supported_durations: list[int] | None = None
     resolution: str | None = None
     # 系统判定值（四字段全量），video endpoint 才有；非 video 或 endpoint 声明异常时为 None。
     system_capabilities: dict[str, object] | None = None
     # 用户覆盖（稀疏字典），与 system_capabilities 平凡合并即为生效值。
     capability_overrides: dict[str, object] | None = None
-    # 最大输出长度（单位 token）；未登记为 None。
-    max_output_tokens: int | None = None
     # 生效的路径覆盖（docs/adr/0101）：端点定义里已不存在的请求名不回显，下次保存随之丢弃。
     path_overrides: dict[str, str] | None = None
     # 当前端点可覆盖路径的请求（请求名、显示名 key、默认路径），供界面渲染请求地址。
     requests: list[EndpointRequestDescriptor] = []
+    # 供应商模型倍率与条目绑定，原样回显供整表 PUT 回传。
+    multiplier: float = 1.0
+    entry_binding: str | None = None
+    # 对应到的条目摘要（maker / name / media_type / display_name / priced）；对应不上条目时为 None，
+    # 这个模型的调用记为未定价。
+    matched_entry: dict[str, object] | None = None
     # 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为
     # None。只查 DB 全局配置，不扫描项目文件（`docs/adr/0054`）；前端据此渲染非阻塞提示。
     global_bucket_refs: list[str] | None = None
@@ -429,7 +436,7 @@ def _effective_overrides_for_response(
     回显原值同样落进本函数要消灭的"界面显示已生效、执行其实忽略"。
 
     模型事实维度只回显该端点媒体类型的、值合法的那些；图片的文生图 / 图生图覆盖为开启而端点没实现时
-    同样隐去（写入侧拒绝同一组合）。ComfyUI 端点不接受覆盖，一律不回显。
+    同样隐去（写入侧拒绝同一组合）。ComfyUI 端点只回显视频行的可选时长覆盖，其余不接受、不回显。
     """
     if endpoint_spec is None:
         try:
@@ -437,7 +444,10 @@ def _effective_overrides_for_response(
         except ValueError:
             return None
     if endpoint_spec.kind == COMFYUI_KIND:
-        return None
+        if endpoint_spec.media_type != "video":
+            return None
+        durations = comfyui_duration_override(overrides, model_id=model_id)
+        return {"durations": durations} if durations else None
     media_type = endpoint_spec.media_type
     filtered: dict[str, object] = {}
     if media_type == "video":
@@ -509,8 +519,11 @@ def _model_to_response(
     global_bucket_refs: list[str] | None = None,
     endpoint_spec: EndpointSpec | None = None,
 ) -> ModelResponse:
-    durations = json.loads(m.supported_durations) if m.supported_durations else None
     requests = endpoint_spec.requests if endpoint_spec is not None else ()
+    try:
+        media_type = endpoint_spec.media_type if endpoint_spec is not None else static_media_type(m.endpoint)
+    except ValueError:
+        media_type = None
     return ModelResponse(
         path_overrides=effective_path_overrides(m.path_overrides, requests) or None,
         requests=[EndpointRequestDescriptor(**asdict(r)) for r in requests],
@@ -524,13 +537,12 @@ def _model_to_response(
         endpoint=m.endpoint,
         is_default=m.is_default,
         is_enabled=m.is_enabled,
-        price_unit=m.price_unit,
-        price_input=m.price_input,
-        price_output=m.price_output,
-        currency=m.currency,
-        supported_durations=durations,
         resolution=m.resolution,
-        max_output_tokens=m.max_output_tokens,
+        multiplier=m.multiplier,
+        entry_binding=m.entry_binding,
+        matched_entry=(
+            matched_entry_summary(m.model_id, media_type, m.entry_binding) if media_type is not None else None
+        ),
         global_bucket_refs=global_bucket_refs or None,
     )
 
@@ -603,15 +615,13 @@ def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
 
 
 def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str]) -> None:
-    """校验模型列表：无重复 model_id；启用模型有合法 model_id 和 endpoint；价格组合自洽。"""
+    """校验模型列表：同一供应商下 API 模型名唯一；启用模型有合法 model_id 和 endpoint。"""
     seen: set[str] = set()
     for m in models:
         if m.is_enabled and not m.model_id.strip():
             raise HTTPException(status_code=422, detail=_t("model_id_required"))
         if m.is_enabled and not m.endpoint:
             raise HTTPException(status_code=422, detail=_t("endpoint_required"))
-        if m.price_output is not None and m.price_input is None:
-            raise HTTPException(status_code=422, detail=_t("price_input_required"))
         if m.model_id in seen:
             raise HTTPException(status_code=422, detail=_t("duplicate_model_id", model_id=m.model_id))
         if m.model_id:
@@ -634,13 +644,26 @@ def _check_capability_overrides(
     if not overrides:
         return
     resolved_spec = spec or get_endpoint_spec(endpoint)
-    if resolved_spec.kind == COMFYUI_KIND:
-        # ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），覆盖值在执行层没有对应物。
-        raise HTTPException(
-            status_code=422,
-            detail=_t("capability_overrides_not_supported_for_comfyui", model_id=model_id),
-        )
     media_type = resolved_spec.media_type
+    if resolved_spec.kind == COMFYUI_KIND:
+        # ComfyUI 端点的能力只从节点绑定推导（docs/adr/0082），覆盖值在执行层没有对应物；唯一的例外是视频行的
+        # 可选时长，它是用户在 workflow 原生时长之外增删的偏好（docs/adr/0104）。
+        if not overrides.keys() <= _comfyui_override_keys(media_type):
+            raise HTTPException(
+                status_code=422,
+                detail=_t("capability_overrides_not_supported_for_comfyui", model_id=model_id),
+            )
+        if not model_fact_value_matches("durations", overrides["durations"]):
+            raise HTTPException(
+                status_code=422,
+                detail=_t(
+                    "capability_override_invalid_value",
+                    model_id=model_id,
+                    capability="durations",
+                    expected=model_fact_type_name("durations"),
+                ),
+            )
+        return
     applicable = MODEL_FACT_OVERRIDE_KEYS.get(media_type, frozenset()) | (
         CHANNEL_FACT_OVERRIDE_KEYS if media_type == "video" else frozenset()
     )
@@ -821,7 +844,13 @@ def _check_protocol_constraints(
                 else "comfyui_endpoint_requires_comfyui_provider"
             )
             raise HTTPException(status_code=422, detail=_t(key, model_id=m.model_id, endpoint=m.endpoint))
-        if comfyui_provider and m.capability_overrides:
+        if (
+            comfyui_provider
+            and m.capability_overrides
+            and not (
+                spec.kind == COMFYUI_KIND and m.capability_overrides.keys() <= _comfyui_override_keys(spec.media_type)
+            )
+        ):
             raise HTTPException(
                 status_code=422,
                 detail=_t("capability_overrides_not_supported_for_comfyui", model_id=m.model_id),

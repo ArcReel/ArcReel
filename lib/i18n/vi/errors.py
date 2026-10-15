@@ -322,7 +322,6 @@ MESSAGES = {
     "interface_offline": "Giao diện này đã ngừng hoạt động, vui lòng dùng giao diện được khuyến nghị",
     "answers_required": "answers không được để trống",
     # Custom Providers
-    "price_input_required": "price_input phải được đặt khi đặt price_output",
     "model_id_required": "Phải cung cấp model_id cho các mô hình đã bật",
     "duplicate_model_id": "model_id trùng lặp: {model_id}",
     "default_model_conflict": "Mỗi media_type chỉ có tối đa một mô hình mặc định. Xung đột: {conflict}",

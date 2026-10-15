@@ -27,6 +27,7 @@ def create_custom_backend(
     capability_overrides: object | None = None,
     path_overrides: object | None = None,
     endpoint_spec: EndpointSpec | None = None,
+    entry_binding: str | None = None,
 ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend:
     """按 endpoint 查 ENDPOINT_REGISTRY 并构造 Backend。
 
@@ -40,6 +41,7 @@ def create_custom_backend(
         endpoint: ENDPOINT_REGISTRY 的键
         capability_overrides: 该模型的 `capability_overrides` 原始值；None = 全部跟随系统判定
         path_overrides: 该模型的 `path_overrides` 原始值；端点已不声明的请求名忽略（docs/adr/0101）
+        entry_binding: 该模型的条目绑定（「模型厂商/官方模型名」）；None = 按名字对应条目
 
     Raises:
         ValueError: endpoint 不在 ENDPOINT_REGISTRY 中
@@ -59,6 +61,8 @@ def create_custom_backend(
         return backend.with_endpoint(endpoint, path_overrides=paths).with_video_capabilities(merged, overrides=applied)
     if isinstance(backend, CustomImageBackend):
         return backend.with_model_capabilities(
-            custom_image_model_capabilities(model_id, overrides=capability_overrides, endpoint_kind=spec.kind)
+            custom_image_model_capabilities(
+                model_id, overrides=capability_overrides, endpoint_kind=spec.kind, entry_binding=entry_binding
+            )
         )
     return backend

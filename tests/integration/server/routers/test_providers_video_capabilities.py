@@ -282,10 +282,9 @@ async def test_disabled_candidate_never_returns_default_model(
                     model_id=model_id,
                     display_name=model_id,
                     endpoint="newapi-video",
-                    supported_durations="[5]",
                     is_default=default,
                     is_enabled=default or disable_after_gate,
-                    capability_overrides={"first_frame": True, "max_reference_images": 4},
+                    capability_overrides={"durations": [5], "first_frame": True, "max_reference_images": 4},
                 )
             )
         await session.commit()

@@ -15,6 +15,7 @@ from arcreel_market_core.video_backend_contract import (
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.billing.metering import Usage
 from lib.custom_provider.backends import (
     CustomAudioBackend,
     CustomImageBackend,
@@ -139,6 +140,7 @@ class TestCustomImageBackend:
             image_path=output_path,
             provider="custom-img",
             model="flux-1",
+            usage=Usage(quantities={"output_tokens": 1290}),
         )
         delegate = AsyncMock()
         delegate.generate = AsyncMock(return_value=expected_result)
@@ -148,8 +150,26 @@ class TestCustomImageBackend:
         request = ImageGenerationRequest(prompt="A mountain landscape", output_path=output_path)
         result = await backend.generate(request)
 
-        assert result is expected_result
+        # 调用通道自己带的计量原样保留，补上张数供按张计价的条目查价
+        assert result.image_path == expected_result.image_path
+        assert result.usage == Usage(quantities={"output_images": 1, "input_images": 0, "output_tokens": 1290})
         delegate.generate.assert_awaited_once_with(request)
+
+    async def test_channel_without_usage_reports_one_output_and_the_reference_count(self, tmp_path: Path):
+        output_path = tmp_path / "output.png"
+        delegate = AsyncMock()
+        delegate.generate = AsyncMock(
+            return_value=ImageGenerationResult(image_path=output_path, provider="custom-img", model="wf")
+        )
+        delegate.capabilities = {ImageCapability.IMAGE_TO_IMAGE}
+
+        backend = CustomImageBackend(provider_id="custom-img", delegate=delegate, model="wf")
+        request = ImageGenerationRequest(
+            prompt="p", output_path=output_path, reference_images=[tmp_path / "a.png", tmp_path / "b.png"]
+        )
+        result = await backend.generate(request)
+
+        assert result.usage == Usage(quantities={"output_images": 1, "input_images": 2})
 
     async def test_generate_passes_request_unchanged(self, tmp_path: Path):
         output_path = tmp_path / "img.png"
@@ -173,6 +193,33 @@ class TestCustomImageBackend:
 
 
 class TestCustomVideoBackend:
+    def test_metered_usage_takes_the_channel_declaration(self, tmp_path: Path):
+        declared = Usage(quantities={"video_tokens": 1000})
+        delegate = SimpleNamespace(metered_usage=MagicMock(return_value=declared))
+        backend = CustomVideoBackend(provider_id="custom-vid", delegate=cast(Any, delegate), model="seedance")
+        request = VideoGenerationRequest(prompt="p", output_path=tmp_path / "v.mp4")
+
+        assert backend.metered_usage("seedance", request) is declared
+        delegate.metered_usage.assert_called_once_with("seedance", request, None)
+
+    def test_metered_usage_falls_back_when_the_channel_does_not_know_the_model(self, tmp_path: Path):
+        delegate = SimpleNamespace(metered_usage=MagicMock(side_effect=ValueError("unknown model")))
+        backend = CustomVideoBackend(provider_id="custom-vid", delegate=cast(Any, delegate), model="relay-x")
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "v.mp4", duration_seconds=8, resolution="720p", generate_audio=True
+        )
+
+        usage = backend.metered_usage("relay-x", request)
+
+        assert usage.quantities["output_seconds"] == 8
+        assert (usage.dimensions["resolution"], usage.dimensions["audio"]) == ("720p", True)
+
+    def test_metered_usage_without_a_declaration_reports_the_sent_duration(self, tmp_path: Path):
+        backend = CustomVideoBackend(provider_id="custom-vid", delegate=cast(Any, SimpleNamespace()), model="wf")
+        request = VideoGenerationRequest(prompt="p", output_path=tmp_path / "v.mp4", duration_seconds=5)
+
+        assert backend.metered_usage("wf", request).quantities["output_seconds"] == 5
+
     def test_properties(self):
         delegate = AsyncMock()
         backend = CustomVideoBackend(provider_id="custom-vid", delegate=delegate, model="wan-pro")

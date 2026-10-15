@@ -1023,7 +1023,7 @@ class TestCostEstimationService:
         """估算的宫格张数按 4K 门控走同一条阶梯：12 场景一组，4K 下一张 4×4 装下，
         非 4K 下封顶 3×3 要切两张，估算总价相应翻倍。
 
-        用按张定价（与分辨率无关）的自定义供应商，把张数变化与单价随档位变化的影响隔开。
+        用按张定价（与分辨率无关）的条目，把张数变化与单价随档位变化的影响隔开。
         """
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
         from server.services.admission import cost_estimation as ce
@@ -1039,9 +1039,8 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        "price_unit": "image",
-                        "price_input": 0.09,
-                        "currency": "USD",
+                        # 按张计价、与分辨率无关的条目：Grok Imagine Pro 每张 0.07 USD
+                        "entry_binding": "xai/grok-imagine-image-pro",
                     },
                 ],
             )
@@ -2017,9 +2016,8 @@ class TestCostEstimationService:
                         "display_name": "Disabled",
                         "endpoint": "openai-video",
                         "is_enabled": False,
-                        "price_unit": "second",
-                        "price_input": 9.0,
-                        "currency": "USD",
+                        "entry_binding": "kuaishou/kling-v2-6",
+                        "multiplier": 30.0,
                     },
                     {
                         "model_id": "runtime",
@@ -2027,9 +2025,7 @@ class TestCostEstimationService:
                         "endpoint": "openai-video",
                         "is_enabled": True,
                         "is_default": True,
-                        "price_unit": "second",
-                        "price_input": 0.1,
-                        "currency": "USD",
+                        "entry_binding": "kuaishou/kling-v2-6",
                     },
                 ],
             )
@@ -2048,11 +2044,11 @@ class TestCostEstimationService:
         )
 
         assert result["models"]["video"] == {"provider": "unknown", "model": "unknown"}
-        # 身份解析不出时退到通用目录价，既不按被禁用模型（9.0/s → 54.0）也不按该供应商默认
-        # 启用模型（0.1/s → 0.6）的 DB 单价出数
+        # 身份解析不出时退到通用目录价，既不按被禁用模型（可灵 2.6 720p 0.3/s × 6 秒 × 30 → 54.0）也不按该
+        # 供应商默认启用模型（0.3/s × 6 秒 → 1.8）的条目价出数
         video_estimate = result["episodes"][0]["segments"][0]["estimate"]["video"]
-        assert video_estimate.get("USD") != pytest.approx(0.6)
-        assert video_estimate.get("USD") != pytest.approx(54.0)
+        assert video_estimate.get("CNY") != pytest.approx(1.8)
+        assert video_estimate.get("CNY") != pytest.approx(54.0)
 
     @pytest.mark.parametrize(
         ("generation_mode", "expected_model"),
@@ -2224,8 +2220,8 @@ class TestCostEstimationService:
 
         assert priced_models == [expected_model]
 
-    async def test_custom_provider_estimates_use_db_prices(self, db_factory):
-        """自定义供应商预估：image/video/audio 单价来自 DB（与实际记账同源），估值按配置价格非零。"""
+    async def test_custom_provider_estimates_use_the_matched_entry_prices(self, db_factory):
+        """自定义供应商预估：image/video/audio 按所对应条目的价目表 × 倍率计价，与实际记账同源。"""
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
         async with db_factory() as session:
@@ -2239,26 +2235,20 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        "price_unit": "image",
-                        "price_input": 0.05,
-                        "currency": "USD",
+                        "entry_binding": "xai/grok-imagine-image-pro",
                     },
                     {
-                        "model_id": "vid",
+                        "model_id": "relay/kling-v2-6",
                         "display_name": "Vid",
                         "endpoint": "openai-video",
-                        "supported_durations": "[6]",
-                        "price_unit": "second",
-                        "price_input": 0.10,
-                        "currency": "USD",
+                        "capability_overrides": {"durations": [6]},
+                        "multiplier": 0.5,
                     },
                     {
                         "model_id": "aud",
                         "display_name": "Aud",
                         "endpoint": "openai-tts",
-                        "price_unit": "character",
-                        "price_input": 2.0,
-                        "currency": "CNY",
+                        "entry_binding": "minimax/speech-2.8-turbo",
                     },
                 ],
             )
@@ -2271,7 +2261,7 @@ class TestCostEstimationService:
             "title": "Test",
             "content_mode": "narration",
             "image_provider_t2i": "custom-1/img",
-            "video_backend": "custom-1/vid",
+            "video_backend": "custom-1/relay/kling-v2-6",
             "narration_delivery": "use_tts",
             "audio_backend": "custom-1/aud",
             "narration_voice": "alloy",
@@ -2285,17 +2275,17 @@ class TestCostEstimationService:
 
         assert result["models"]["image"] == {"provider": "custom-1", "model": "img"}
         seg = result["episodes"][0]["segments"][0]
-        # image：自定义供应商按张计费，flat 0.05 USD（不随 1K/2K 变化）
-        assert seg["estimate"]["image"]["USD"] == pytest.approx(0.05)
-        # video：时长 6s × 0.10 = 0.60 USD
-        assert seg["estimate"]["video"]["USD"] == pytest.approx(0.60)
-        # audio：10000 字符 / 10000 × 2.0 = 2.0 CNY
-        assert seg["estimate"]["audio"]["CNY"] == pytest.approx(2.0)
+        # image：绑定的条目按张计费，0.07 USD（不随 1K/2K 变化）
+        assert seg["estimate"]["image"]["USD"] == pytest.approx(0.07)
+        # video：名字对上可灵 2.6，720p 无声 0.3 CNY/秒 × 6 秒 × 模型倍率 0.5 = 0.9 CNY
+        assert seg["estimate"]["video"]["CNY"] == pytest.approx(0.9)
+        # audio：1 万个汉字按 2 计 → 2 万字符 / 1 万 × 2.0 = 4.0 CNY
+        assert seg["estimate"]["audio"]["CNY"] == pytest.approx(4.0)
         # 集/项目两级合计同步纳入
-        assert result["project_totals"]["estimate"]["video"]["USD"] == pytest.approx(0.60)
+        assert result["project_totals"]["estimate"]["video"]["CNY"] == pytest.approx(0.9)
 
-    async def test_custom_provider_grid_estimate_uses_db_price(self, db_factory):
-        """grid 模式下自定义供应商图片单价同样贯通（2K grid 单价 = DB flat 价）。"""
+    async def test_custom_provider_grid_estimate_uses_the_entry_price(self, db_factory):
+        """grid 模式下自定义供应商图片单价同样贯通（2K grid 单价 = 条目的每张价格）。"""
         from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 
         async with db_factory() as session:
@@ -2309,9 +2299,8 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        "price_unit": "image",
-                        "price_input": 0.09,
-                        "currency": "USD",
+                        # 按张计价、与分辨率无关的条目：Grok Imagine Pro 每张 0.07 USD
+                        "entry_binding": "xai/grok-imagine-image-pro",
                     },
                 ],
             )
@@ -2333,12 +2322,12 @@ class TestCostEstimationService:
 
         result = await service.compute(project_data, scripts, project_name="test-grid-custom")
 
-        # 9 格拼成 1 张 grid，flat 0.09 USD 摊到 9 格 → 每格 0.01 USD
+        # 9 格拼成 1 张 grid，每张 0.07 USD 摊到 9 格
         segments = result["episodes"][0]["segments"]
         for seg in segments:
-            assert seg["estimate"]["image"]["USD"] == pytest.approx(round(0.09 / 9, 6))
-        # 集合计 = 满张单价 0.09 USD
-        assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(0.09, abs=1e-4)
+            assert seg["estimate"]["image"]["USD"] == pytest.approx(round(0.07 / 9, 6))
+        # 集合计 = 满张单价 0.07 USD
+        assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(0.07, abs=1e-4)
 
     async def test_grid_estimate_counts_every_chunk_of_oversized_group(self, db_factory):
         """超过单张格数上限的分组按切块后的张数计价，与入队实际产出的宫格张数一致。"""
@@ -2356,9 +2345,8 @@ class TestCostEstimationService:
                         "model_id": "img",
                         "display_name": "Img",
                         "endpoint": "openai-images",
-                        "price_unit": "image",
-                        "price_input": 0.09,
-                        "currency": "USD",
+                        # 按张计价、与分辨率无关的条目：Grok Imagine Pro 每张 0.07 USD
+                        "entry_binding": "xai/grok-imagine-image-pro",
                     },
                 ],
             )
@@ -2384,7 +2372,7 @@ class TestCostEstimationService:
         expected_grids = len(plan_grid_chunks(seg_ids, "9:16", allow_large_grid=False))
         assert expected_grids == 2
         assert result["episodes"][0]["totals"]["estimate"]["image"]["USD"] == pytest.approx(
-            0.09 * expected_grids, abs=1e-4
+            0.07 * expected_grids, abs=1e-4
         )
 
     async def test_custom_provider_without_price_degrades_to_zero(self, db_factory):
@@ -2447,10 +2435,8 @@ class TestUnpricedCosts:
                         "model_id": "vid",
                         "display_name": "Vid",
                         "endpoint": "openai-video",
-                        "supported_durations": "[6]",
-                        "price_unit": "second",
-                        "price_input": 0.0,
-                        "currency": "USD",
+                        "capability_overrides": {"durations": [6]},
+                        "multiplier": 0.0,
                     },
                 ],
             )
@@ -2474,7 +2460,7 @@ class TestUnpricedCosts:
         )
 
         unpriced_img = {"call_type": "image", "provider": "custom-1", "provider_name": "Relay", "model": "img"}
-        # 价格设为 0 的视频模型是真实的 0，不算未计价
+        # 对应不上条目的图片模型记未定价；倍率设为 0 的视频模型是真实的 0，不算未计价
         assert result["unpriced"]["estimate"] == [{**unpriced_img, "count": 2}]
         assert result["unpriced"]["actual"] == [{**unpriced_img, "count": 1}]
         assert result["missing_local_calls"] is False
@@ -2493,7 +2479,7 @@ class TestUnpricedCosts:
                         "model_id": "vid",
                         "display_name": "Vid",
                         "endpoint": "openai-video",
-                        "supported_durations": "[6]",
+                        "capability_overrides": {"durations": [6]},
                     }
                 ],
             )
@@ -2517,7 +2503,16 @@ class TestUnpricedCosts:
 
     async def test_zero_cost_call_is_not_reported_as_unpriced(self, db_factory):
         """未计价看费用是否为 NULL：记为 0 的调用是真实的 0，模型有没有价格都不改变这一点。"""
-        await _seed_call(db_factory, "test-zero", "image", "img", provider="custom-1", segment_id="E1S001")
+        await _seed_call(
+            db_factory,
+            "test-zero",
+            "image",
+            "img",
+            provider="custom-1",
+            segment_id="E1S001",
+            cost_amount=0.0,
+            currency="USD",
+        )
         await _seed_call(
             db_factory, "test-zero", "video", "vid", provider="custom-1", segment_id="E1S001", unpriced=True
         )
