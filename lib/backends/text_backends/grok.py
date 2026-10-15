@@ -105,10 +105,16 @@ class GrokTextBackend:
         # Try to extract token usage from the response
         input_tokens = None
         output_tokens = None
+        cache_read_tokens = None
+        reasoning_tokens = None
         if hasattr(response, "usage"):
             usage = response.usage
             input_tokens = getattr(usage, "input_tokens", None) or getattr(usage, "prompt_tokens", None)
             output_tokens = getattr(usage, "output_tokens", None) or getattr(usage, "completion_tokens", None)
+            # prompt_tokens 是总输入，缓存命中的部分在 cached_prompt_text_tokens。
+            cache_read_tokens = getattr(usage, "cached_prompt_text_tokens", None)
+            # completion_tokens 不含推理 token；推理 token 另报在 reasoning_tokens，按输出价计费。
+            reasoning_tokens = getattr(usage, "reasoning_tokens", None)
 
         finish_reason = getattr(response, "finish_reason", None)
         if finish_reason is None:
@@ -131,8 +137,11 @@ class GrokTextBackend:
             provider=PROVIDER_GROK,
             model=self._model,
             input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            output_tokens=output_tokens + reasoning_tokens
+            if output_tokens is not None and reasoning_tokens
+            else output_tokens,
             truncated=truncated,
+            cache_read_tokens=cache_read_tokens,
         )
 
 

@@ -14,6 +14,7 @@ from anthropic import (
     APITimeoutError,
     AsyncAnthropic,
     BadRequestError,
+    DefaultAsyncHttpxClient,
     InternalServerError,
     RateLimitError,
     transform_schema,
@@ -27,12 +28,13 @@ from lib.backends.text_backends.base import (
     TextGenerationRequest,
     TextGenerationResult,
     check_truncation,
-    merge_billed_tokens,
+    merge_billed_usage,
     prompt_json_fallback,
     resolve_schema,
     structured_fallback_reason,
     truncate_for_log,
 )
+from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.config.url_utils import OFFICIAL_ANTHROPIC_BASE_URL
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -53,13 +55,18 @@ class AnthropicTextBackend:
     凭证只取自定义供应商自己的 api_key 与 base_url，与 Agent 的 Anthropic 凭证隔离（ADR 0017）。
     """
 
-    def __init__(self, *, api_key: str, model: str, base_url: str | None = None):
+    def __init__(
+        self, *, api_key: str, model: str, base_url: str | None = None, transport_layer: TransportLayer | None = None
+    ):
         # base_url 为空时显式回填官方地址，断掉 SDK 对 ANTHROPIC_BASE_URL 的环境回落；
         # 禁用 SDK 内置重试，由 _generate_native 统一管理。
         self._client = AsyncAnthropic(
             api_key=api_key,
             base_url=(base_url or "").strip() or OFFICIAL_ANTHROPIC_BASE_URL,
             max_retries=0,
+            http_client=(
+                layer_async_client(DefaultAsyncHttpxClient(), transport_layer) if transport_layer is not None else None
+            ),
         )
         self._model = model
 
@@ -106,8 +113,7 @@ class AnthropicTextBackend:
                 )
                 result = await self._prompt_json_fallback(request)
                 # 这次原生 200 调用已被计费，把它的 token 并入降级结果。
-                result.input_tokens = merge_billed_tokens(result.input_tokens, native.input_tokens)
-                result.output_tokens = merge_billed_tokens(result.output_tokens, native.output_tokens)
+                merge_billed_usage(result, native)
                 return result
 
         return native
@@ -153,10 +159,14 @@ class AnthropicTextBackend:
             raise
 
         usage = message.usage
-        # 现有字段只有总输入：Anthropic 的 input_tokens 不含缓存，缓存读写须加回。
-        input_tokens = (
-            usage.input_tokens + (usage.cache_read_input_tokens or 0) + (usage.cache_creation_input_tokens or 0)
-        )
+        # Anthropic 的 input_tokens 不含缓存读写：总输入须加回缓存读与缓存写。缓存写按 TTL 分两档上报；
+        # 没有分档明细时按默认的 5 分钟档计。
+        cache_read = usage.cache_read_input_tokens or 0
+        cache_write = usage.cache_creation_input_tokens or 0
+        breakdown = usage.cache_creation
+        cache_write_1h = breakdown.ephemeral_1h_input_tokens if breakdown is not None else 0
+        cache_write_5m = breakdown.ephemeral_5m_input_tokens if breakdown is not None else cache_write
+        input_tokens = usage.input_tokens + cache_read + cache_write
         text = "".join(block.text for block in message.content if block.type == "text").strip()
         truncated = check_truncation(
             message.stop_reason,
@@ -172,6 +182,9 @@ class AnthropicTextBackend:
             input_tokens=input_tokens,
             output_tokens=usage.output_tokens,
             truncated=truncated,
+            cache_read_tokens=cache_read,
+            cache_write_5m_tokens=cache_write_5m,
+            cache_write_1h_tokens=cache_write_1h,
         )
 
 

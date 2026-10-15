@@ -1,6 +1,6 @@
 # ArcReel
 
-AI 视频创作平台，将小说、剧本或创作构想转化为短视频。三层结构：`frontend/`（React SPA）→ `server/`（FastAPI，`agent_runtime/` 封装 Claude Agent SDK）→ `lib/`（核心库）。内嵌创作 Agent 的配置源在 `agent_runtime_profile/`，与开发态 `.claude/` 分离。市场源工具与端点定义校验器是 uv workspace 子包 `packages/arcreel-market-core/`（`arcreel_market_core`），位于 `lib/` 之下且不依赖主仓。
+AI 视频创作平台，将小说、剧本或创作构想转化为短视频。三层结构：`frontend/`（React SPA）→ `server/`（FastAPI，`agent_runtime/` 封装 Claude Agent SDK）→ `lib/`（核心库）。内嵌创作 Agent 的配置源在 `agent_runtime_profile/`，与开发态 `.claude/` 分离。uv workspace 子包位于 `lib/` 之下且不依赖主仓：市场源工具与端点定义校验器在 `packages/arcreel-market-core/`（`arcreel_market_core`），模型目录数据的格式与校验器在 `packages/arcreel-catalog-core/`（`arcreel_catalog_core`）。
 
 ## 工具链与校验
 

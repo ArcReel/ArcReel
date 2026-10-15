@@ -57,6 +57,10 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
         Step((*UV, "deptry", "src", "tests"), ROOT / "packages" / "arcreel-market-core"),
         Step((*UV, "python", "-m", "pytest"), ROOT / "packages" / "arcreel-market-core"),
     ),
+    "catalog-core": (
+        Step((*UV, "deptry", "src", "tests"), ROOT / "packages" / "arcreel-catalog-core"),
+        Step((*UV, "python", "-m", "pytest"), ROOT / "packages" / "arcreel-catalog-core"),
+    ),
     "tests": (Step((*UV, "python", "scripts/audit_tests.py", "--check")),),
     "conventions": (Step((*UV, "python", "scripts/audit_conventions.py", "--check")),),
     "workflows": (
@@ -68,7 +72,7 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
 }
 
 # 域 → 触发路径，fnmatch 通配（`*` 也跨目录分隔符）。与 CI 的 .github/actions/domain-filter/action.yml
-# 对照维护：CI 的 backend 域对应这里的 backend 与 market-core，workflow 域对应 workflows；
+# 对照维护：CI 的 backend 域对应这里的 backend、market-core 与 catalog-core，workflow 域对应 workflows；
 # CI 的 docker 域（Dockerfile、public/）没有本地闸门。tests 与 conventions 两个域是秒级的
 # 结构审计，触发条件含「新增豁免注释」这类看路径判断不了的情况，按改动选域时总是跑。
 TRIGGERS: dict[str, tuple[str, ...]] = {
@@ -91,6 +95,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "frontend/src/data/example-templates/*",
     ),
     "market-core": ("packages/arcreel-market-core/*",),
+    "catalog-core": ("packages/arcreel-catalog-core/*",),
     "workflows": (".github/*", ".pre-commit-config.yaml"),
     "frontend": ("frontend/*",),
     # website-checks 同时跑翻译 lockfile 的缺译与滞后报告，CONTRIBUTING 与两个 README 在其特例映射内

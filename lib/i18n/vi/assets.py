@@ -44,4 +44,12 @@ MESSAGES = {
     "voice_label_dashscope_bella": "Bella — Giọng bé gái đáng yêu",
     "voice_label_dashscope_eldric_sage": "Eldric Sage — Bậc trưởng lão thông thái (nam)",
     "voice_label_dashscope_vincent": "Vincent — Giọng khàn, dày dạn kinh nghiệm (nam)",
+    "voice_label_minimax_male_qn_qingse": "Chàng trai trẻ ngây ngô",
+    "voice_label_minimax_male_qn_jingying": "Chàng trai trẻ tinh anh",
+    "voice_label_minimax_male_qn_badao": "Chàng trai trẻ bá đạo",
+    "voice_label_minimax_male_qn_daxuesheng": "Nam sinh viên",
+    "voice_label_minimax_female_shaonv": "Thiếu nữ",
+    "voice_label_minimax_female_yujie": "Ngự tỷ",
+    "voice_label_minimax_female_chengshu": "Phụ nữ trưởng thành",
+    "voice_label_minimax_female_tianmei": "Phụ nữ ngọt ngào",
 }

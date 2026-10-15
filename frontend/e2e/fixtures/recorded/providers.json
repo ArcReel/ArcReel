@@ -7,9 +7,10 @@
       {
         "id": "gemini-aistudio",
         "display_name": "AI Studio",
-        "description": "Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
+        "description": "Google AI Studio 提供 Gemini 系列模型，支持图片、视频和语音生成，适合快速原型和个人项目。",
         "status": "unconfigured",
         "media_types": [
+          "audio",
           "image",
           "text",
           "video"
@@ -19,6 +20,7 @@
           "structured_output",
           "text_generation",
           "text_to_image",
+          "text_to_speech",
           "vision"
         ],
         "credential_count": 0,
@@ -68,7 +70,7 @@
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "gemini-3-pro-image-preview": {
+          "gemini-3-pro-image": {
             "display_name": "Gemini 3 Pro Image",
             "media_type": "image",
             "capabilities": [
@@ -86,7 +88,7 @@
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "gemini-3.1-flash-image-preview": {
+          "gemini-3.1-flash-image": {
             "display_name": "Gemini 3.1 Flash Image",
             "media_type": "image",
             "capabilities": [
@@ -159,6 +161,32 @@
             "audio_track": "always_on",
             "reference_route_audio_track": "always_on",
             "voice_consistency": "soft"
+          },
+          "gemini-3.8-flash-tts": {
+            "display_name": "Gemini 3.8 Flash TTS",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": true,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "gemini-3.8-flash-lite-tts": {
+            "display_name": "Gemini 3.8 Flash-Lite TTS",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
           }
         }
       },
@@ -168,6 +196,7 @@
         "description": "Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
         "status": "unconfigured",
         "media_types": [
+          "audio",
           "image",
           "text",
           "video"
@@ -177,6 +206,7 @@
           "structured_output",
           "text_generation",
           "text_to_image",
+          "text_to_speech",
           "vision"
         ],
         "credential_count": 0,
@@ -226,7 +256,7 @@
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "gemini-3-pro-image-preview": {
+          "gemini-3-pro-image": {
             "display_name": "Gemini 3 Pro Image",
             "media_type": "image",
             "capabilities": [
@@ -244,7 +274,7 @@
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "gemini-3.1-flash-image-preview": {
+          "gemini-3.1-flash-image": {
             "display_name": "Gemini 3.1 Flash Image",
             "media_type": "image",
             "capabilities": [
@@ -298,6 +328,32 @@
             "audio_track": "controllable",
             "reference_route_audio_track": "controllable",
             "voice_consistency": "soft"
+          },
+          "gemini-3.8-flash-tts": {
+            "display_name": "Gemini 3.8 Flash TTS",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": true,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "gemini-3.8-flash-lite-tts": {
+            "display_name": "Gemini 3.8 Flash-Lite TTS",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
           }
         }
       },
@@ -313,7 +369,6 @@
         ],
         "capabilities": [
           "image_to_image",
-          "structured_output",
           "text_generation",
           "text_to_image",
           "vision"
@@ -362,21 +417,6 @@
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "doubao-seed-1-8-251228": {
-            "display_name": "豆包 Seed 1.8",
-            "media_type": "text",
-            "capabilities": [
-              "text_generation",
-              "structured_output",
-              "vision"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
           "doubao-seedream-5-0-lite-260128": {
             "display_name": "Seedream 5.0 Lite",
             "media_type": "image",
@@ -392,7 +432,7 @@
             "voice_consistency": "none"
           },
           "doubao-seedream-5-0-260128": {
-            "display_name": "Seedream 5.0",
+            "display_name": "Seedream 5.0 Lite",
             "media_type": "image",
             "capabilities": [
               "text_to_image",
@@ -432,31 +472,6 @@
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
-          },
-          "doubao-seedance-1-5-pro-251215": {
-            "display_name": "Seedance 1.5 Pro",
-            "media_type": "video",
-            "capabilities": [],
-            "default": false,
-            "supported_durations": [
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10,
-              11,
-              12
-            ],
-            "resolutions": [
-              "480p",
-              "720p",
-              "1080p"
-            ],
-            "audio_track": "controllable",
-            "reference_route_audio_track": "controllable",
-            "voice_consistency": "soft"
           },
           "doubao-seedance-2-0-260128": {
             "display_name": "Seedance 2.0",
@@ -596,6 +611,7 @@
         ],
         "capabilities": [
           "image_to_image",
+          "structured_output",
           "text_generation",
           "text_to_image",
           "vision"
@@ -713,7 +729,8 @@
             "display_name": "MiniMax M2.7",
             "media_type": "text",
             "capabilities": [
-              "text_generation"
+              "text_generation",
+              "structured_output"
             ],
             "default": false,
             "supported_durations": [],
@@ -735,31 +752,6 @@
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
-          },
-          "doubao-seedance-1.5-pro": {
-            "display_name": "Seedance 1.5 Pro",
-            "media_type": "video",
-            "capabilities": [],
-            "default": false,
-            "supported_durations": [
-              4,
-              5,
-              6,
-              7,
-              8,
-              9,
-              10,
-              11,
-              12
-            ],
-            "resolutions": [
-              "480p",
-              "720p",
-              "1080p"
-            ],
-            "audio_track": "controllable",
-            "reference_route_audio_track": "controllable",
-            "voice_consistency": "soft"
           },
           "doubao-seedance-2.0": {
             "display_name": "Seedance 2.0",
@@ -924,23 +916,6 @@
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "grok-imagine-image-pro": {
-            "display_name": "Grok Imagine Image Pro",
-            "media_type": "image",
-            "capabilities": [
-              "text_to_image",
-              "image_to_image"
-            ],
-            "default": false,
-            "supported_durations": [],
-            "resolutions": [
-              "1K",
-              "2K"
-            ],
-            "audio_track": "always_off",
-            "reference_route_audio_track": "always_off",
-            "voice_consistency": "none"
-          },
           "grok-imagine-image": {
             "display_name": "Grok Imagine Image",
             "media_type": "image",
@@ -1055,12 +1030,11 @@
       {
         "id": "openai",
         "display_name": "OpenAI",
-        "description": "OpenAI 官方平台，支持 GPT-5.4 文本、GPT Image 图片和 Sora 视频生成。",
+        "description": "OpenAI 官方平台，支持 GPT-5.4 文本与 GPT Image 图片生成。",
         "status": "unconfigured",
         "media_types": [
           "image",
-          "text",
-          "video"
+          "text"
         ],
         "capabilities": [
           "image_to_image",
@@ -1131,6 +1105,51 @@
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
+          "gpt-5.5-pro": {
+            "display_name": "GPT-5.5 Pro",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation",
+              "structured_output",
+              "vision"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "gpt-5.3-codex": {
+            "display_name": "GPT-5.3-Codex",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation",
+              "structured_output",
+              "vision"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "o3-pro": {
+            "display_name": "o3-pro",
+            "media_type": "text",
+            "capabilities": [
+              "text_generation",
+              "structured_output",
+              "vision"
+            ],
+            "default": false,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
           "gpt-image-2": {
             "display_name": "GPT Image 2",
             "media_type": "image",
@@ -1148,41 +1167,6 @@
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
-          },
-          "sora-2": {
-            "display_name": "Sora 2",
-            "media_type": "video",
-            "capabilities": [],
-            "default": true,
-            "supported_durations": [
-              4,
-              8,
-              12
-            ],
-            "resolutions": [
-              "720p"
-            ],
-            "audio_track": "always_on",
-            "reference_route_audio_track": "always_on",
-            "voice_consistency": "soft"
-          },
-          "sora-2-pro": {
-            "display_name": "Sora 2 Pro",
-            "media_type": "video",
-            "capabilities": [],
-            "default": false,
-            "supported_durations": [
-              4,
-              8,
-              12
-            ],
-            "resolutions": [
-              "720p",
-              "1080p"
-            ],
-            "audio_track": "always_on",
-            "reference_route_audio_track": "always_on",
-            "voice_consistency": "soft"
           }
         }
       },
@@ -1888,9 +1872,10 @@
       {
         "id": "minimax",
         "display_name": "MiniMax",
-        "description": "MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
+        "description": "MiniMax（海螺）多模态平台，提供文本、图片、视频与语音生成。默认连接国内站，海外可将 base_url 切换到国际站。",
         "status": "unconfigured",
         "media_types": [
+          "audio",
           "image",
           "text",
           "video"
@@ -1900,6 +1885,7 @@
           "structured_output",
           "text_generation",
           "text_to_image",
+          "text_to_speech",
           "vision"
         ],
         "credential_count": 0,
@@ -2011,17 +1997,28 @@
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"
           },
-          "S2V-01": {
-            "display_name": "MiniMax S2V-01",
-            "media_type": "video",
-            "capabilities": [],
+          "speech-2.8-hd": {
+            "display_name": "MiniMax Speech 2.8 HD",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
+            "default": true,
+            "supported_durations": [],
+            "resolutions": [],
+            "audio_track": "always_off",
+            "reference_route_audio_track": "always_off",
+            "voice_consistency": "none"
+          },
+          "speech-2.8-turbo": {
+            "display_name": "MiniMax Speech 2.8 Turbo",
+            "media_type": "audio",
+            "capabilities": [
+              "text_to_speech"
+            ],
             "default": false,
-            "supported_durations": [
-              6
-            ],
-            "resolutions": [
-              "768p"
-            ],
+            "supported_durations": [],
+            "resolutions": [],
             "audio_track": "always_off",
             "reference_route_audio_track": "always_off",
             "voice_consistency": "none"

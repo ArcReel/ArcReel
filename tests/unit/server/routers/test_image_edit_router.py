@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.i18n import _ as i18n_message
 from lib.project.project_migrations.runner import migrate_project_dir
@@ -116,12 +117,14 @@ def _prepare_files(tmp_path: Path) -> Path:
     return project_path
 
 
-def _client(monkeypatch, fake_pm, fake_queue, *, i2i_ready=True):
+def _client(monkeypatch, fake_pm, fake_queue, *, i2i_ready=True, resolve_error: Exception | None = None):
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
 
     async def _resolve(self, project, payload, *, generation_type):
         assert generation_type == "i2i"
+        if resolve_error is not None:
+            raise resolve_error
         if not i2i_ready:
             raise ValueError("未找到可用的 image 供应商")
         return ProviderModel("gemini-aistudio", "gemini-image")
@@ -324,6 +327,23 @@ class TestEditImageValidation:
                 json={"resource_type": "character", "resource_id": "Alice", "instruction": "x"},
             )
             assert resp.status_code == 400, resp.text
+            assert fake_queue.calls == []
+
+    def test_model_not_in_catalog_asks_to_reselect(self, tmp_path, monkeypatch):
+        """项目引用的图片模型已不在供应商清单中：要求重新选择模型，不说成「i2i 不可用」，不创建任务。"""
+        project_path = _prepare_files(tmp_path)
+        fake_queue = _FakeQueue()
+        error = ModelNotInCatalogError(provider_id="openai", model_id="gpt-image-retired", media_type="image")
+        client = _client(monkeypatch, _FakePM(project_path), fake_queue, resolve_error=error)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/edit/image",
+                json={"resource_type": "character", "resource_id": "Alice", "instruction": "x"},
+                headers={"Accept-Language": "en"},
+            )
+            assert resp.status_code == 400, resp.text
+            assert "re-select a model" in resp.json()["detail"]
             assert fake_queue.calls == []
 
     def test_no_current_image_400(self, tmp_path, monkeypatch):

@@ -37,6 +37,7 @@ describe("StoryboardBatchDialog", () => {
         { unit_id: "E1S04", reason: "generating" },
       ],
       estimated_cost: { USD: 0.13 },
+      unpriced_count: 0,
     });
     const submit = vi.spyOn(API, "submitStoryboardBatch").mockResolvedValue({
       batch_id: "b1",
@@ -63,11 +64,40 @@ describe("StoryboardBatchDialog", () => {
     expect(isResourceBusy("storyboard", "demo", "E1S01")).toBe(true);
   });
 
+  it("shows the priced total and how many items are unpriced", async () => {
+    vi.spyOn(API, "previewStoryboardBatch").mockResolvedValue({
+      targets: [{ unit_id: "E1S01" }, { unit_id: "E1S02" }, { unit_id: "E1S03" }],
+      skipped: [],
+      estimated_cost: { USD: 0.13 },
+      unpriced_count: 2,
+    });
+
+    render(<StoryboardBatchDialog projectName="demo" episode={1} kind="videos" onClose={vi.fn()} />);
+
+    expect(await screen.findByText("预估费用：$0.13")).toBeInTheDocument();
+    expect(screen.getByText("另有 2 项未定价，未计入预估费用")).toBeInTheDocument();
+  });
+
+  it("says nothing is priced yet and still counts the unpriced items", async () => {
+    vi.spyOn(API, "previewStoryboardBatch").mockResolvedValue({
+      targets: [{ unit_id: "E1S01" }],
+      skipped: [],
+      estimated_cost: null,
+      unpriced_count: 1,
+    });
+
+    render(<StoryboardBatchDialog projectName="demo" episode={1} kind="videos" onClose={vi.fn()} />);
+
+    expect(await screen.findByText("这一批暂无法预估费用")).toBeInTheDocument();
+    expect(screen.getByText("另有 1 项未定价，未计入预估费用")).toBeInTheDocument();
+  });
+
   it("states why a blocked video batch is refused and does not allow submitting", async () => {
     vi.spyOn(API, "previewStoryboardBatch").mockResolvedValue({
       targets: [{ unit_id: "E1S01" }, { unit_id: "E1S02" }],
       skipped: [{ unit_id: "E1S03", reason: "missing_storyboard" }],
       estimated_cost: null,
+      unpriced_count: 0,
       admission: BLOCKED,
     });
     const submit = vi.spyOn(API, "submitStoryboardBatch");
@@ -85,6 +115,7 @@ describe("StoryboardBatchDialog", () => {
       targets: [{ unit_id: "E1S01" }, { unit_id: "E1S02" }],
       skipped: [],
       estimated_cost: { USD: 1.2 },
+      unpriced_count: 0,
       admission: { ...BLOCKED, decision: "admitted", units: [] },
     });
     vi.spyOn(API, "submitStoryboardBatch").mockResolvedValue({
@@ -107,7 +138,7 @@ describe("StoryboardBatchDialog", () => {
   });
 
   it("keeps the confirm disabled when nothing needs generating", async () => {
-    vi.spyOn(API, "previewStoryboardBatch").mockResolvedValue({ targets: [], skipped: [], estimated_cost: null });
+    vi.spyOn(API, "previewStoryboardBatch").mockResolvedValue({ targets: [], skipped: [], estimated_cost: null, unpriced_count: 0 });
 
     render(<StoryboardBatchDialog projectName="demo" episode={1} kind="videos" onClose={vi.fn()} />);
 

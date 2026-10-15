@@ -7,6 +7,7 @@ export * from "./system";
 export * from "./prompt-template";
 export * from "./api-key";
 export * from "./provider";
+export * from "./catalog";
 export * from "./usage-record";
 export * from "./custom-provider";
 export * from "./custom-endpoint";

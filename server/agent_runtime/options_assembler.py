@@ -26,6 +26,7 @@ from lib.agent.agent_session_store import (
     session_store_mode,
 )
 from lib.agent.agent_session_store.store import DbSessionStore
+from lib.agent.credential_tiers import AgentPricing
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
@@ -51,8 +52,26 @@ _EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS = 15 * 60
 CLI_STDOUT_MAX_BUFFER_BYTES = 32 * 1024 * 1024
 
 
+class AgentEnv(dict[str, str]):
+    """注入 ``ClaudeAgentOptions.env`` 的环境变量，并带着注入凭证的计价依据快照。
+
+    记账按会话连接时注入的凭证及其当时的倍率与档位绑定计价（docs/adr/0017、docs/adr/0102），快照随 env 一起交给
+    会话层；没有生效凭证、env 回退到系统设置时为默认值。
+    """
+
+    def __init__(self, env: dict[str, str], *, agent_pricing: AgentPricing) -> None:
+        super().__init__(env)
+        self.agent_pricing = agent_pricing
+
+
+def agent_pricing_of(options: object) -> AgentPricing:
+    """会话 options 注入的 Agent 凭证计价依据；env 不是 :class:`AgentEnv` 时取默认值。"""
+    env = getattr(options, "env", None)
+    return env.agent_pricing if isinstance(env, AgentEnv) else AgentPricing()
+
+
 async def load_provider_env_overrides() -> dict[str, str]:
-    """构造 options.env 注入字典。
+    """构造 options.env 注入字典，返回 :class:`AgentEnv`。
 
     - ANTHROPIC_* 从 DB active credential 取真值
     - 其他 provider env 全部空值覆盖（防御性兜底）
@@ -61,13 +80,13 @@ async def load_provider_env_overrides() -> dict[str, str]:
     又是外部输入，故真值注入与空值围堵是常驻机制而非技术债（见 ADR）。
     """
     from lib.config.env_keys import OTHER_PROVIDER_ENV_KEYS
-    from lib.config.service import build_anthropic_env_dict
+    from lib.config.service import build_anthropic_env
     from lib.db import async_session_factory
 
     async with async_session_factory() as session:
-        anthropic_env = await build_anthropic_env_dict(session)
+        anthropic = await build_anthropic_env(session)
 
-    result = dict(anthropic_env)
+    result = AgentEnv(anthropic.env, agent_pricing=anthropic.pricing)
     for key in OTHER_PROVIDER_ENV_KEYS:
         result[key] = ""
     return result

@@ -40,6 +40,7 @@ from arcreel_market_core.video_backend_contract import (
     ProviderJobStatus,
     ProviderResponseStage,
     ResumeExpiredError,
+    VideoAudioMode,
     VideoCapabilities,
     VideoGenerationRequest,
     VideoGenerationResult,
@@ -59,6 +60,9 @@ from lib.backends.backend_runtime import (
     with_artifact_retry,
 )
 from lib.backends.http_status_errors import redacted_status_error
+from lib.backends.video_backends.metering import video_usage
+from lib.billing.metering import Usage
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, raw_base_url
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import NonRetryableError, retry_async
@@ -155,6 +159,11 @@ def request_urls(definition: Mapping[str, Any]) -> list[str]:
     return urls
 
 
+def strips_base_url_version(definition: Mapping[str, Any]) -> bool:
+    """定义里有请求以 ``{{ base_url }}`` 加显式版本段起头时，配置末尾的版本段要剥掉。"""
+    return any(_VERSIONED_BASE_URL.match(url) for url in request_urls(definition))
+
+
 def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any]) -> str:
     """补协议 + 去尾斜杠；定义带显式版本路径时剥配置末尾版本段，避免拼成 ``/v1/v2``。
 
@@ -165,9 +174,25 @@ def normalize_declarative_base_url(base_url: str, definition: Mapping[str, Any])
     stripped = base_url.strip().rstrip("/")
     if stripped and "://" not in stripped:
         stripped = f"https://{stripped}"
-    if any(_VERSIONED_BASE_URL.match(url) for url in request_urls(definition)):
+    if strips_base_url_version(definition):
         return re.sub(r"/v\d+(?:\.\d+)?[a-zA-Z]*$", "", stripped)
     return stripped
+
+
+#: 有覆盖的节在模板里引用的域名变量：供应商填写的原样 base_url。
+OVERRIDE_BASE_URL = "override_base_url"
+
+
+def apply_path_overrides(definition: Mapping[str, Any], path_overrides: PathOverrides) -> Mapping[str, Any]:
+    """把有覆盖的请求节的 URL 换成「原样 base_url + 覆盖路径」，其余部分原样保留。"""
+    if not path_overrides:
+        return definition
+    rewritten = dict(definition)
+    for section, path in path_overrides.items():
+        node = definition.get(section)
+        if isinstance(node, Mapping):
+            rewritten[section] = {**node, "url": f"{{{{ {OVERRIDE_BASE_URL} }}}}{path}"}
+    return rewritten
 
 
 class DeclarativeRuntimeError(RuntimeError):
@@ -362,19 +387,24 @@ class DeclarativeJobEngine[StateT: JobState]:
         provider: str,
         read_state: StateReader[StateT],
         log_label: str,
+        path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     ) -> None:
         self._api_key = api_key
+        self._raw_base_url = raw_base_url(base_url)
         self._base_url = normalize_declarative_base_url(base_url, definition)
+        self._source_definition = definition
         self._model = model
-        self._definition = definition
+        # 有覆盖的节改写成相对原样 base_url 的地址，不经归一化（docs/adr/0101）；是否剥版本段
+        # 仍按原定义判定，没有覆盖的节行为不变。
+        self._definition = apply_path_overrides(definition, path_overrides)
         self._provider = provider
         self._read_state = read_state
         self._log_label = log_label
 
     @property
     def base_url(self) -> str:
-        """归一化后的配置域名。"""
-        return self._base_url
+        """供应商配置的域名（补协议、去尾斜杠，未归一化），提交后随任务落库供续跑回放。"""
+        return self._raw_base_url
 
     def request_context(
         self,
@@ -415,7 +445,12 @@ class DeclarativeJobEngine[StateT: JobState]:
                 {
                     "api_key": self._api_key,
                     # 续跑回放提交时的域名（提交路径恒 None）：域名是连接维度，不是协议维度。
-                    "base_url": submitted_base_url or self._base_url,
+                    "base_url": (
+                        normalize_declarative_base_url(submitted_base_url, self._source_definition)
+                        if submitted_base_url
+                        else self._base_url
+                    ),
+                    OVERRIDE_BASE_URL: raw_base_url(submitted_base_url) if submitted_base_url else self._raw_base_url,
                     "model": self._model,
                     **variables,
                 },
@@ -733,6 +768,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         model: str,
         definition: Mapping[str, Any],
         provider: str,
+        path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     ) -> None:
         self._engine = DeclarativeJobEngine(
             api_key=api_key,
@@ -742,6 +778,7 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             provider=provider,
             read_state=extract_provider_state,
             log_label="声明式视频请求",
+            path_overrides=path_overrides,
         )
         self._model = model
         self._definition = definition
@@ -761,6 +798,13 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         from lib.custom_provider.capabilities import video_capabilities_from_definition
 
         return video_capabilities_from_definition(self._definition)
+
+    def metered_usage(
+        self, model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量，见 :func:`declarative_video_usage`。"""
+        del model
+        return declarative_video_usage(self._definition, request, result)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         context = await asyncio.to_thread(self._request_context, request, require_declared_inputs=True)
@@ -841,6 +885,25 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             task_id=job_id,
             generate_audio=request.generate_audio,
         )
+
+
+def declarative_video_usage(
+    definition: Mapping[str, Any], request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+) -> Usage:
+    """声明式视频定义的一次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+    分辨率取请求档位，请求没给时取定义的 ``defaults.resolution``（与模板上下文同一个补缺规则）；是否有声按定义
+    声明的音轨形态判定，开关可控时取请求值。
+    """
+    # 延迟导入理由同 DeclarativeVideoBackend.video_capabilities。
+    from lib.custom_provider.capabilities import video_capabilities_from_definition
+
+    defaults = definition.get("defaults")
+    default_resolution = defaults.get("resolution") if isinstance(defaults, Mapping) else None
+    resolution = request.resolution or (default_resolution if isinstance(default_resolution, str) else None)
+    audio_track = video_capabilities_from_definition(definition).audio_track
+    audio = {VideoAudioMode.ALWAYS_OFF: False, VideoAudioMode.ALWAYS_ON: True}.get(audio_track, request.generate_audio)
+    return video_usage(request, result, seconds=request.duration_seconds, resolution=resolution, audio=audio)
 
 
 def _job_call(request: VideoGenerationRequest) -> JobCall:

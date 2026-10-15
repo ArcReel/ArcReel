@@ -37,6 +37,14 @@ ModelCapability = Literal[
 
 @dataclass(frozen=True)
 class ModelInfo:
+    """注册表中一个模型的登记。
+
+    目录查询（``lib.catalog.query``）的模型清单、能力、显示名与默认模型读出厂快照
+    ``lib/catalog/snapshot/``，这里除 ``pricing`` 外的字段不被生产代码读取，只与快照逐项核对
+    （``tests/unit/lib/catalog/test_factory_snapshot.py``）：增删改模型时两处同步修改，改完快照用
+    ``python -m arcreel_catalog_core write-manifest lib/catalog/snapshot`` 重写清单文件。``pricing`` 仍是计费的数据来源。
+    """
+
     display_name: str
     media_type: str
     # 能力 token（词汇表见 ModelCapability）。图片模型的 text_to_image / image_to_image 是
@@ -151,6 +159,27 @@ def _gemini_text_pricing(model_id: str, input_rate: float, output_rate: float) -
     )
 
 
+# Gemini TTS 费率（美元/百万 token）：input 为文本输入，output 为音频输出。
+# 音频结算只上报字符数，本表按 token 计价，因此算出的费用为 0。
+def _gemini_tts_models() -> dict[str, ModelInfo]:
+    """AI Studio 与 Vertex 同名同价的 TTS 模型（Vertex 只在 global 提供）。"""
+    return {
+        "gemini-3.8-flash-tts": ModelInfo(
+            display_name="Gemini 3.8 Flash TTS",
+            media_type="audio",
+            capabilities=["text_to_speech"],
+            default=True,
+            pricing=_gemini_text_pricing("gemini-3.8-flash-tts", 0.50, 9.00),
+        ),
+        "gemini-3.8-flash-lite-tts": ModelInfo(
+            display_name="Gemini 3.8 Flash-Lite TTS",
+            media_type="audio",
+            capabilities=["text_to_speech"],
+            pricing=_gemini_text_pricing("gemini-3.8-flash-lite-tts", 0.50, 6.00),
+        ),
+    }
+
+
 # Gemini 图片费率（美元/张），按分辨率档位。
 def _gemini_image_pricing(model_id: str, rates: dict[str, float]) -> PerImageByResolution:
     return PerImageByResolution(rates={model_id: rates}, default_model=model_id, currency="USD")
@@ -250,26 +279,11 @@ def _openai_text_pricing(model_id: str, input_rate: float, output_rate: float) -
     )
 
 
-# OpenAI 图片费率：token 主路径 + (quality, size) 兜底表。
-def _openai_image_pricing(
-    model_id: str,
-    token_rates: dict[str, float],
-    fallback_rates: dict[tuple[str, str], float],
-) -> PerImageOpenAIToken:
+# OpenAI 图片费率：按 token 计。
+def _openai_image_pricing(model_id: str, token_rates: dict[str, float]) -> PerImageOpenAIToken:
     return PerImageOpenAIToken(
         token_rates={model_id: token_rates},
-        fallback_rates={model_id: fallback_rates},
         default_model=model_id,
-        currency="USD",
-    )
-
-
-# Sora 视频费率（美元/秒），按分辨率。
-def _sora_video_pricing(model_id: str, rates: dict[str, float]) -> PerSecondMatrix:
-    return PerSecondMatrix(
-        rates={model_id: {(res, None): rate for res, rate in rates.items()}},
-        default_model=model_id,
-        dimensions="resolution_only",
         currency="USD",
     )
 
@@ -310,6 +324,12 @@ def _minimax_text_pricing(model_id: str, input_rate: float, output_rate: float) 
         default_model=model_id,
         currency="CNY",
     )
+
+
+# MiniMax 语音合成费率（元/万字符）。
+# 官方按中文 1 字计 2 字符计费；PerCharacter 按 len(text) 计，中文估价约为实际费用的一半。
+def _minimax_audio_pricing(model_id: str, per_10k_chars: float) -> PerCharacter:
+    return PerCharacter(rates={model_id: per_10k_chars}, default_model=model_id, currency="CNY")
 
 
 # MiniMax 图片费率（元/张），T2I 与 I2I 同价。
@@ -409,9 +429,17 @@ def _agnes_video_pricing_by_resolution(model_id: str, rates: dict[str, float]) -
 PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     "gemini-aistudio": ProviderMeta(
         display_name="AI Studio",
-        description="Google AI Studio 提供 Gemini 系列模型，支持图片和视频生成，适合快速原型和个人项目。",
+        description="Google AI Studio 提供 Gemini 系列模型，支持图片、视频和语音生成，适合快速原型和个人项目。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
+        optional_keys=[
+            "base_url",
+            "image_rpm",
+            "video_rpm",
+            "request_gap",
+            "image_max_workers",
+            "video_max_workers",
+            "audio_max_workers",
+        ],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -438,21 +466,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 max_output_tokens=65536,
             ),
             # --- image ---
-            "gemini-3-pro-image-preview": ModelInfo(
+            "gemini-3-pro-image": ModelInfo(
                 display_name="Gemini 3 Pro Image",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 resolutions=["1K", "2K", "4K"],
-                pricing=_gemini_image_pricing("gemini-3-pro-image-preview", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
+                pricing=_gemini_image_pricing("gemini-3-pro-image", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
             ),
-            "gemini-3.1-flash-image-preview": ModelInfo(
+            "gemini-3.1-flash-image": ModelInfo(
                 display_name="Gemini 3.1 Flash Image",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
                 resolutions=["1K", "2K", "4K"],
                 pricing=_gemini_image_pricing(
-                    "gemini-3.1-flash-image-preview",
+                    "gemini-3.1-flash-image",
                     {"512PX": 0.045, "1K": 0.067, "2K": 0.101, "4K": 0.151},
                 ),
             ),
@@ -492,13 +520,23 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["720p", "1080p"],
                 pricing=_veo_video_pricing("veo-3.1-lite-generate-preview", _VEO_LITE_RATES),
             ),
+            # --- audio ---
+            **_gemini_tts_models(),
         },
     ),
     "gemini-vertex": ProviderMeta(
         display_name="Vertex AI",
         description="Google Cloud Vertex AI 企业级平台，支持 Gemini 和 Imagen 模型，提供更高配额和音频生成能力。",
         required_keys=["credentials_path"],
-        optional_keys=["gcs_bucket", "image_rpm", "video_rpm", "request_gap", "image_max_workers", "video_max_workers"],
+        optional_keys=[
+            "gcs_bucket",
+            "image_rpm",
+            "video_rpm",
+            "request_gap",
+            "image_max_workers",
+            "video_max_workers",
+            "audio_max_workers",
+        ],
         secret_keys=[],
         models={
             # --- text ---
@@ -525,21 +563,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 max_output_tokens=65536,
             ),
             # --- image ---
-            "gemini-3-pro-image-preview": ModelInfo(
+            "gemini-3-pro-image": ModelInfo(
                 display_name="Gemini 3 Pro Image",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 resolutions=["1K", "2K", "4K"],
-                pricing=_gemini_image_pricing("gemini-3-pro-image-preview", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
+                pricing=_gemini_image_pricing("gemini-3-pro-image", {"1K": 0.134, "2K": 0.134, "4K": 0.24}),
             ),
-            "gemini-3.1-flash-image-preview": ModelInfo(
+            "gemini-3.1-flash-image": ModelInfo(
                 display_name="Gemini 3.1 Flash Image",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 default=True,
                 resolutions=["1K", "2K", "4K"],
                 pricing=_gemini_image_pricing(
-                    "gemini-3.1-flash-image-preview",
+                    "gemini-3.1-flash-image",
                     {"512PX": 0.045, "1K": 0.067, "2K": 0.101, "4K": 0.151},
                 ),
             ),
@@ -571,6 +609,8 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 resolutions=["720p", "1080p"],
                 pricing=_veo_video_pricing("veo-3.1-fast-generate-001", _VEO_FAST_RATES),
             ),
+            # --- audio ---
+            **_gemini_tts_models(),
         },
     ),
     "ark": ProviderMeta(
@@ -603,13 +643,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_ark_text_pricing("doubao-seed-2-0-mini-260215", 0.20, 2.00),
                 max_output_tokens=131072,
             ),
-            "doubao-seed-1-8-251228": ModelInfo(
-                display_name="豆包 Seed 1.8",
-                media_type="text",
-                capabilities=["text_generation", "structured_output", "vision"],
-                pricing=_ark_text_pricing("doubao-seed-1-8-251228", 0.80, 2.00),
-                max_output_tokens=32768,
-            ),
             # --- image ---
             "doubao-seedream-5-0-lite-260128": ModelInfo(
                 display_name="Seedream 5.0 Lite",
@@ -618,8 +651,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
                 pricing=_ark_image_pricing("doubao-seedream-5-0-lite-260128", 0.22),
             ),
+            # 与 doubao-seedream-5-0-lite-260128 是同一模型的两个 ID（方舟模型列表写作「同时支持」）。
             "doubao-seedream-5-0-260128": ModelInfo(
-                display_name="Seedream 5.0",
+                display_name="Seedream 5.0 Lite",
                 media_type="image",
                 capabilities=["text_to_image", "image_to_image"],
                 pricing=_ark_image_pricing("doubao-seedream-5-0-260128", 0.22),
@@ -637,22 +671,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 pricing=_ark_image_pricing("doubao-seedream-4-0-250828", 0.20),
             ),
             # --- video ---
-            "doubao-seedance-1-5-pro-251215": ModelInfo(
-                display_name="Seedance 1.5 Pro",
-                media_type="video",
-                capabilities=[],
-                supported_durations=list(range(4, 13)),
-                resolutions=["480p", "720p", "1080p"],
-                pricing=_ark_video_pricing(
-                    "doubao-seedance-1-5-pro-251215",
-                    {
-                        ("default", True): 16.00,
-                        ("default", False): 8.00,
-                        ("flex", True): 8.00,
-                        ("flex", False): 4.00,
-                    },
-                ),
-            ),
             "doubao-seedance-2-0-260128": ModelInfo(
                 display_name="Seedance 2.0",
                 media_type="video",
@@ -777,13 +795,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 default=True,
             ),
             # --- video ---
-            "doubao-seedance-1.5-pro": ModelInfo(
-                display_name="Seedance 1.5 Pro",
-                media_type="video",
-                capabilities=[],
-                supported_durations=list(range(4, 13)),
-                resolutions=["480p", "720p", "1080p"],
-            ),
             "doubao-seedance-2.0": ModelInfo(
                 display_name="Seedance 2.0",
                 media_type="video",
@@ -847,13 +858,6 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                 max_output_tokens=131072,
             ),
             # --- image ---
-            "grok-imagine-image-pro": ModelInfo(
-                display_name="Grok Imagine Image Pro",
-                media_type="image",
-                capabilities=["text_to_image", "image_to_image"],
-                resolutions=["1K", "2K"],
-                pricing=_grok_image_pricing("grok-imagine-image-pro", 0.07),
-            ),
             "grok-imagine-image": ModelInfo(
                 display_name="Grok Imagine Image",
                 media_type="image",
@@ -907,9 +911,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "openai": ProviderMeta(
         display_name="OpenAI",
-        description="OpenAI 官方平台，支持 GPT-5.5 / GPT-5.4 文本、GPT Image 2 图片和 Sora 视频生成。",
+        description="OpenAI 官方平台，支持 GPT-5.5 / GPT-5.4 文本与 GPT Image 2 图片生成。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        optional_keys=["base_url", "image_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -981,36 +985,7 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                         "text_cached_in": 1.25,
                         "text_out": 0.0,
                     },
-                    {
-                        ("low", "1024x1024"): 0.006,
-                        ("low", "1024x1792"): 0.012,
-                        ("low", "1792x1024"): 0.012,
-                        ("medium", "1024x1024"): 0.053,
-                        ("medium", "1024x1792"): 0.106,
-                        ("medium", "1792x1024"): 0.106,
-                        ("high", "1024x1024"): 0.211,
-                        ("high", "1024x1792"): 0.317,
-                        ("high", "1792x1024"): 0.317,
-                    },
                 ),
-            ),
-            # --- video ---
-            "sora-2": ModelInfo(
-                display_name="Sora 2",
-                media_type="video",
-                capabilities=[],
-                default=True,
-                supported_durations=[4, 8, 12],
-                resolutions=["720p"],
-                pricing=_sora_video_pricing("sora-2", {"720p": 0.10}),
-            ),
-            "sora-2-pro": ModelInfo(
-                display_name="Sora 2 Pro",
-                media_type="video",
-                capabilities=[],
-                supported_durations=[4, 8, 12],
-                resolutions=["720p", "1080p"],
-                pricing=_sora_video_pricing("sora-2-pro", {"720p": 0.30, "1024p": 0.50, "1080p": 0.70}),
             ),
         },
     ),
@@ -1287,9 +1262,9 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
     ),
     "minimax": ProviderMeta(
         display_name="MiniMax",
-        description="MiniMax（海螺）多模态平台，提供文本、图片、视频生成。默认连接国内站，海外可将 base_url 切换到国际站。",
+        description="MiniMax（海螺）多模态平台，提供文本、图片、视频与语音生成。默认连接国内站，海外可将 base_url 切换到国际站。",
         required_keys=["api_key"],
-        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers", "audio_max_workers"],
         secret_keys=["api_key"],
         models={
             # --- text ---
@@ -1362,18 +1337,20 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
                     {("768p", 6): 1.35, ("768p", 10): 2.25, ("1080p", 6): 2.31},
                 ),
             ),
-            # S2V-01：单张人脸驱动整段视频角色一致性（subject_reference 单脸 R2V）。固定输出
-            # 720P/6s，请求不接受 resolution/duration（声明式端点走专门的 subject_reference
-            # 路径，忽略这两项）；supported_durations=[6] 仅供编排层时长守卫与档价口径。
-            # 定价单档约 ¥3（资源包 1.5 积分近似，半核实）；键到 minimax 缺省档 768P/6s 求精确命中，
-            # 任意分辨率漂移由 per_video_bucket 最近档回落到唯一档。
-            "S2V-01": ModelInfo(
-                display_name="MiniMax S2V-01",
-                media_type="video",
-                capabilities=[],
-                supported_durations=[6],
-                resolutions=["768p"],
-                pricing=_minimax_video_pricing("S2V-01", {("768p", 6): 3.0}),
+            # --- audio ---
+            # 同步 t2a_v2 语音合成，按字符计费（元/万字符）。定价出处见 docs/api-docs/endpoints/minimax-tts.md。
+            "speech-2.8-hd": ModelInfo(
+                display_name="MiniMax Speech 2.8 HD",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                default=True,
+                pricing=_minimax_audio_pricing("speech-2.8-hd", 3.5),
+            ),
+            "speech-2.8-turbo": ModelInfo(
+                display_name="MiniMax Speech 2.8 Turbo",
+                media_type="audio",
+                capabilities=["text_to_speech"],
+                pricing=_minimax_audio_pricing("speech-2.8-turbo", 2.0),
             ),
         },
         default_base_url=MINIMAX_BASE_URL,
@@ -1564,26 +1541,3 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         default_concurrency={"video": 1},
     ),
 }
-
-
-def model_info_for(provider_id: str, model_id: str) -> ModelInfo | None:
-    """返回该 (provider, model) 的 ``ModelInfo``；provider 或 model 未登记时 None。
-
-    供 backend 读取本模型的能力/约束声明，把 registry 作为约束的单一真相源。未登记的
-    路径（自定义供应商包装、中转站、下线型号）返回 None，由调用方自行兜底。
-    """
-    meta = PROVIDER_REGISTRY.get(provider_id)
-    if meta is None:
-        return None
-    return meta.models.get(model_id)
-
-
-def default_model_for_provider(provider_id: str, media_type: str) -> str | None:
-    """返回该 provider 在 ``PROVIDER_REGISTRY`` 中指定 media_type 的默认 model_id；无则 None。"""
-    meta = PROVIDER_REGISTRY.get(provider_id)
-    if meta is None:
-        return None
-    for model_id, model_info in meta.models.items():
-        if model_info.media_type == media_type and model_info.default:
-            return model_id
-    return None

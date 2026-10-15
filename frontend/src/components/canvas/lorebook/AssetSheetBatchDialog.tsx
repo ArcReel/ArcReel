@@ -143,7 +143,10 @@ export function AssetSheetBatchDialog({
           </div>
         )}
         {preview.targets.length > 0 && (
-          <p>{cost ? t("sheet_batch_cost", { cost }) : t("sheet_batch_cost_unknown")}</p>
+          <>
+            <p>{cost ? t("sheet_batch_cost", { cost }) : t("sheet_batch_cost_unknown")}</p>
+            {preview.unpriced_count > 0 && <p>{t("sheet_batch_unpriced", { count: preview.unpriced_count })}</p>}
+          </>
         )}
       </div>
     );

@@ -42,7 +42,10 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     duration_ms: Mapped[int | None] = mapped_column(BigInteger)
     retry_count: Mapped[int] = mapped_column(Integer, server_default="0")
-    cost_amount: Mapped[float] = mapped_column(Float, server_default="0.0")
+    # NULL 表示未定价，与 0（定价为零）区分；汇总只计非 NULL 且大于 0 的行。服务端默认 0.0 保留给
+    # 刚发起的 pending 行；ORM 插入时 Python 侧的 None 会被默认值顶替，要写 NULL 用 sqlalchemy.null()，
+    # UPDATE 不受此限。
+    cost_amount: Mapped[float | None] = mapped_column(Float, nullable=True, server_default="0.0")
     currency: Mapped[str] = mapped_column(String, server_default="USD")
     provider: Mapped[str] = mapped_column(String, server_default="gemini")
     usage_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -53,6 +56,12 @@ class ApiCall(TimestampMixin, UserOwnedMixin, Base):
     text_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text_output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_provider_response: Mapped[object | None] = mapped_column(JSON, nullable=True)
+    # 未定价（cost_amount 为 NULL）的原因；已定价的行留空。
+    unpriced_reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    # input_tokens 仍记总输入（含缓存）；未缓存输入 = input_tokens - 缓存读 - 两档缓存写。
+    cache_read_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_write_5m_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_write_1h_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     __table_args__ = (
         Index("idx_api_calls_project_name", "project_name"),
         Index("idx_api_calls_call_type", "call_type"),

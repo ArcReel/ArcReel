@@ -120,7 +120,12 @@ export function StoryboardBatchDialog({
           <BatchAdmissionSummary admission={blockedAdmission} />
         ) : (
           preview.targets.length > 0 && (
-            <p>{cost ? t("storyboard_batch_cost", { cost }) : t("storyboard_batch_cost_unknown")}</p>
+            <>
+              <p>{cost ? t("storyboard_batch_cost", { cost }) : t("storyboard_batch_cost_unknown")}</p>
+              {preview.unpriced_count > 0 && (
+                <p>{t("storyboard_batch_unpriced", { count: preview.unpriced_count })}</p>
+              )}
+            </>
           )
         )}
         <p>{t(`storyboard_batch_stale_note.${kind}`)}</p>

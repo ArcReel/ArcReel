@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 import lib.project.project_manager as project_manager_module
 from lib.backends.audio_backends.base import VoiceOption
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.project.resource_paths import resource_relative_path
 from server.auth import CurrentUserInfo, get_current_user
@@ -61,11 +62,13 @@ class _FakePM:
         return project
 
 
-def _app(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True):
+def _app(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True, resolve_error: Exception | None = None):
     monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
     monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
 
     async def _resolve(self, project, payload):
+        if resolve_error is not None:
+            raise resolve_error
         if not audio_provider_ready:
             raise ValueError("未找到可用的 audio 供应商")
         return ProviderModel("dashscope", "qwen3-tts-flash")
@@ -213,6 +216,24 @@ class TestGenerateCharacterVoiceSample:
             )
 
         assert res.status_code == 400
+
+    def test_provider_without_audio_model_asks_to_reselect(self, tmp_path, monkeypatch):
+        """项目裸写的内置供应商没有语音模型：报该供应商不支持语音生成，不说成「未配置 audio 供应商」。"""
+        fake_pm = _FakePM(tmp_path / "projects" / "demo")
+        fake_queue = _FakeQueue()
+        error = ModelNotInCatalogError(provider_id="kling", model_id="", media_type="audio")
+        client = _client(monkeypatch, fake_pm, fake_queue, resolve_error=error)
+
+        with client:
+            res = client.post(
+                "/api/v1/projects/demo/characters/艾莉/voice-sample",
+                json={"text": "你好", "voice": "Cherry"},
+                headers={"Accept-Language": "en"},
+            )
+
+        assert res.status_code == 400
+        assert "does not support audio generation" in res.json()["detail"]
+        assert fake_queue.calls == []
 
     def test_empty_text_rejected(self, tmp_path, monkeypatch):
         fake_pm = _FakePM(tmp_path / "projects" / "demo")

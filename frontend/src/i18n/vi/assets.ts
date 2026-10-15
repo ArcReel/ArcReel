@@ -141,6 +141,8 @@ export default {
   "sheet_batch_skip.unavailable": "hiện không thể tạo",
   "sheet_batch_cost": "Chi phí ước tính: {{cost}}",
   "sheet_batch_cost_unknown": "Chưa thể ước tính chi phí cho đợt này",
+  "sheet_batch_unpriced_one": "Còn {{count}} mục chưa có giá, không tính vào chi phí ước tính",
+  "sheet_batch_unpriced_other": "Còn {{count}} mục chưa có giá, không tính vào chi phí ước tính",
   "sheet_batch_nothing": "Không có hình tài sản nào cần tạo",
   "sheet_batch_confirm": "Bắt đầu tạo",
   "sheet_batch_submitting": "Đang gửi…",

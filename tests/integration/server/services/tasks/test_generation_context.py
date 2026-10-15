@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
@@ -147,7 +146,7 @@ async def _seed_custom_video_provider(patched_session_factory) -> str:
                 is_default=True,
                 is_enabled=True,
                 resolution="540p",
-                supported_durations=json.dumps([4, 6, 8]),
+                capability_overrides={"durations": [4, 6, 8]},
             )
         )
         await session.commit()
@@ -472,7 +471,7 @@ class TestVideoRequestFacts:
             await session.execute(
                 update(CustomProviderModel)
                 .where(CustomProviderModel.model_id == "m-dead")
-                .values(is_enabled=True, supported_durations="[5]")
+                .values(is_enabled=True, capability_overrides={"durations": [5]})
             )
             await session.commit()
 

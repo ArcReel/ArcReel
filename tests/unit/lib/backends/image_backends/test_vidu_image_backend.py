@@ -10,7 +10,6 @@ import pytest
 from lib.backends.http_status_errors import ProviderRejectedError
 from lib.backends.image_backends.base import (
     ImageCapability,
-    ImageCapabilityError,
     ImageGenerationRequest,
     ReferenceImage,
 )
@@ -46,11 +45,6 @@ class TestViduImageBackendBasics:
         assert ImageCapability.TEXT_TO_IMAGE in backend.capabilities
         assert ImageCapability.IMAGE_TO_IMAGE in backend.capabilities
 
-    def test_q1_capability_only_i2i(self):
-        backend = ViduImageBackend(api_key="test-key", model="viduq1")
-        assert ImageCapability.IMAGE_TO_IMAGE in backend.capabilities
-        assert ImageCapability.TEXT_TO_IMAGE not in backend.capabilities
-
 
 class TestWhitelistConfig:
     """避免运行时调用，先把配置常量当 spec 钉死，防止误改。"""
@@ -79,13 +73,26 @@ class TestWhitelistConfig:
         assert _PROMPT_MAX_LEN == 2000
 
 
-class TestCapabilityMismatchRaises:
-    async def test_q1_without_refs_rejects_t2i(self, image_output_path: Path):
-        backend = ViduImageBackend(api_key="test-key", model="viduq1")
-        request = ImageGenerationRequest(prompt="hello", output_path=image_output_path)
-        with pytest.raises(ImageCapabilityError):
-            await backend.generate(request)
+class TestEstimateUsage:
+    """预估的分辨率维度与请求同源：只报白名单里会真正下发的值。"""
 
+    def test_whitelisted_resolution_is_reported(self):
+        from lib.backends.image_backends.base import ImageRequestFacts
+
+        usage = ViduImageBackend.estimate_usage(
+            ImageRequestFacts(model="viduq2", aspect_ratio="9:16", image_size="2K", reference_count=3)
+        )
+        assert usage.dimensions == {"resolution": "2K"}
+        assert usage.quantities == {"output_images": 1, "input_images": 3}
+
+    def test_resolution_outside_whitelist_is_not_sent(self):
+        from lib.backends.image_backends.base import ImageRequestFacts
+
+        usage = ViduImageBackend.estimate_usage(ImageRequestFacts(model="viduq1", aspect_ratio="9:16", image_size="2K"))
+        assert usage.dimensions == {}
+
+
+class TestCapabilityMismatchRaises:
     async def test_q2_with_refs_path_does_not_raise_capability(
         self, tmp_path: Path, image_output_path: Path, monkeypatch
     ):

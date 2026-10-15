@@ -103,6 +103,17 @@ def _assert_v25_core_body(body: dict, *, mode: str, seconds: str, size: str) -> 
 
 
 class TestV25RequestBodies:
+    async def test_duration_is_passed_through_without_backend_check(self, tmp_path: Path):
+        """时长不在 backend 另做检查，4–12 秒之外的值也原样下发，由上游判定。"""
+        with _agnes_api() as routes:
+            routes.submit.mock(return_value=_queued())
+            routes.query.mock(return_value=_completed(seconds="13"))
+            routes.download.mock(return_value=httpx.Response(200, content=b"mp4"))
+
+            await _backend().generate(_request(tmp_path, duration_seconds=13))
+
+        assert request_json(only_request(routes.submit))["seconds"] == "13"
+
     async def test_text_to_video_body_and_polling(self, tmp_path: Path):
         with _agnes_api() as routes:
             routes.submit.mock(return_value=_queued())
@@ -219,14 +230,6 @@ class TestV25RequestBodies:
 
 
 class TestV25PreSubmitValidation:
-    @pytest.mark.parametrize("duration", [3, 13])
-    async def test_duration_outside_4_to_12_is_rejected(self, tmp_path: Path, duration: int):
-        with _agnes_api() as routes, pytest.raises(VideoCapabilityError) as exc:
-            await _backend().generate(_request(tmp_path, duration_seconds=duration))
-
-        assert exc.value.code == "video_duration_not_supported"
-        assert routes.submit.call_count == 0
-
     @pytest.mark.parametrize("resolution", ["1080p", "2K"])
     async def test_flash_rejects_non_720p_resolution(self, tmp_path: Path, resolution: str):
         with _agnes_api() as routes, pytest.raises(VideoCapabilityError) as exc:

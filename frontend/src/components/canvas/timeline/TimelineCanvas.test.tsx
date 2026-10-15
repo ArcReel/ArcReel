@@ -198,7 +198,7 @@ describe("TimelineCanvas", () => {
   it("opens the batch preview for the storyboards that are still missing", async () => {
     const preview = vi
       .spyOn(API, "previewStoryboardBatch")
-      .mockResolvedValue({ targets: [{ unit_id: "SEG-1" }], skipped: [], estimated_cost: null });
+      .mockResolvedValue({ targets: [{ unit_id: "SEG-1" }], skipped: [], estimated_cost: null, unpriced_count: 0 });
     render(
       <TimelineCanvas
         {...BOARD}

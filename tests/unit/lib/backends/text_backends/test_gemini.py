@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from google.genai.types import GenerateContentResponseUsageMetadata
 from pydantic import BaseModel
 
 from lib.backends.text_backends.base import (
@@ -68,7 +69,7 @@ class TestGenerate:
     async def test_plain_text(self, backend):
         mock_resp = SimpleNamespace(
             text="  generated text  ",
-            usage_metadata=SimpleNamespace(prompt_token_count=10, candidates_token_count=5),
+            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=10, candidates_token_count=5),
         )
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
 
@@ -80,10 +81,27 @@ class TestGenerate:
         assert result.input_tokens == 10
         assert result.output_tokens == 5
 
+    async def test_cache_hits_and_thinking_tokens_are_reported(self, backend):
+        """prompt_token_count 含缓存命中，命中量另报；思考 token 按输出计入。"""
+        mock_resp = SimpleNamespace(
+            text="ok",
+            usage_metadata=GenerateContentResponseUsageMetadata(
+                prompt_token_count=1000,
+                cached_content_token_count=700,
+                candidates_token_count=50,
+                thoughts_token_count=30,
+            ),
+        )
+        backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
+
+        result = await backend.generate(TextGenerationRequest(prompt="hello"))
+
+        assert (result.input_tokens, result.cache_read_tokens, result.output_tokens) == (1000, 700, 80)
+
     async def test_structured_output_passes_schema(self, backend):
         mock_resp = SimpleNamespace(
             text='{"key": "value"}',
-            usage_metadata=SimpleNamespace(prompt_token_count=20, candidates_token_count=10),
+            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=20, candidates_token_count=10),
         )
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
 
@@ -103,7 +121,7 @@ class TestGenerate:
 
         mock_resp = SimpleNamespace(
             text='{"key": "value"}',
-            usage_metadata=SimpleNamespace(prompt_token_count=20, candidates_token_count=10),
+            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=20, candidates_token_count=10),
             candidates=[SimpleNamespace(finish_reason="MAX_TOKENS")],
         )
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
@@ -120,7 +138,7 @@ class TestGenerate:
 
         mock_resp = SimpleNamespace(
             text="partial",
-            usage_metadata=SimpleNamespace(prompt_token_count=20, candidates_token_count=10),
+            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=20, candidates_token_count=10),
             candidates=[SimpleNamespace(finish_reason="MAX_TOKENS")],
         )
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
@@ -146,7 +164,7 @@ class TestGenerate:
 
         mock_resp = SimpleNamespace(
             text='{"name": "test"}',
-            usage_metadata=SimpleNamespace(prompt_token_count=20, candidates_token_count=10),
+            usage_metadata=GenerateContentResponseUsageMetadata(prompt_token_count=20, candidates_token_count=10),
         )
         backend._test_client.aio.models.generate_content = AsyncMock(return_value=mock_resp)
 
@@ -303,7 +321,7 @@ class _OverviewModel(BaseModel):
 
 def _resp(text: str, input_tokens: int | None = None, output_tokens: int | None = None) -> SimpleNamespace:
     usage = (
-        SimpleNamespace(prompt_token_count=input_tokens, candidates_token_count=output_tokens)
+        GenerateContentResponseUsageMetadata(prompt_token_count=input_tokens, candidates_token_count=output_tokens)
         if input_tokens is not None or output_tokens is not None
         else None
     )

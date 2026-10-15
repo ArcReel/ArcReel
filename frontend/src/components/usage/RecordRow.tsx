@@ -87,8 +87,10 @@ function DurationLabel({ record }: { record: UsageRecordView }) {
   return record.status === "pending" ? <ElapsedCell record={record} /> : <>{formatDurationMs(record.durationMs, t)}</>;
 }
 
-function costText(record: UsageRecordView): string {
-  if (record.status === "pending" || record.costAmount <= 0) return "—";
+/** 进行中的调用还没结算，显示破折号；未定价与 0 元是两件事，分别显示「未定价」和 0。 */
+function costText(record: UsageRecordView, unpricedLabel: string): string {
+  if (record.status === "pending") return "—";
+  if (record.costAmount === null) return unpricedLabel;
   return formatCurrencyAmount(record.currency, record.costAmount, { maximumFractionDigits: 4 });
 }
 
@@ -180,7 +182,7 @@ export function RecordRow({
       <td className="num px-2 py-2 text-xs whitespace-nowrap text-muted-foreground">
         {formatShortDateTime(record.startedAt) ?? "—"}
       </td>
-      <td className="num px-2 py-2 text-right text-xs whitespace-nowrap">{costText(record)}</td>
+      <td className="num px-2 py-2 text-right text-xs whitespace-nowrap">{costText(record, t("usage_cost_unpriced"))}</td>
       <td className="py-2 pr-3 text-right">
         {trailing ??
           (canOpen && (

@@ -29,6 +29,10 @@ from lib.backends.backend_runtime import (
     should_retry_download,
 )
 from lib.backends.providers import PROVIDER_ARK
+from lib.backends.transport_layer import TransportLayer
+from lib.backends.video_backends.metering import video_usage
+from lib.backends.video_backends.name_family import capabilities_by_names
+from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -57,6 +61,47 @@ _SEEDANCE_2_5_MAX_REFERENCE_AUDIO_TOTAL_SECONDS = 30.0
 # 与 dashscope 侧的同名表刻意各存一份：mp3 在这里按官方示例写 audio/mp3，dashscope 走标准
 # 的 audio/mpeg——供应商各自的接受口径，合并成一张共享表会让其中一家收到没验证过的 MIME。
 _REFERENCE_AUDIO_MIME_TYPES = {".wav": "audio/wav", ".mp3": "audio/mp3"}
+
+# Seedance 视频 token 的官方估算公式（《模型价格》视频生成一节）：
+#   (输入视频时长 + 输出视频时长) × 输出视频的宽 × 高 × 帧率 / 1024
+# 帧率与各「分辨率 × 宽高比」的输出像素取自《创建视频生成任务 API》：输出帧率 24；2.5 与 2.0 系列只有 480p 的
+# 16:9 / 9:16 两格不同，2.5 没有 4k。分辨率不发送时 API 默认 720p。结算以供应商回报的 completion_tokens 为准。
+_SEEDANCE_FPS = 24
+_SEEDANCE_DEFAULT_RESOLUTION = "720p"
+_SEEDANCE_2_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
+    ("480p", "16:9"): (864, 496),
+    ("480p", "4:3"): (752, 560),
+    ("480p", "1:1"): (640, 640),
+    ("480p", "3:4"): (560, 752),
+    ("480p", "9:16"): (496, 864),
+    ("480p", "21:9"): (992, 432),
+    ("720p", "16:9"): (1280, 720),
+    ("720p", "4:3"): (1112, 834),
+    ("720p", "1:1"): (960, 960),
+    ("720p", "3:4"): (834, 1112),
+    ("720p", "9:16"): (720, 1280),
+    ("720p", "21:9"): (1470, 630),
+    ("1080p", "16:9"): (1920, 1080),
+    ("1080p", "4:3"): (1664, 1248),
+    ("1080p", "1:1"): (1440, 1440),
+    ("1080p", "3:4"): (1248, 1664),
+    ("1080p", "9:16"): (1080, 1920),
+    ("1080p", "21:9"): (2206, 946),
+    ("4k", "16:9"): (3840, 2160),
+    ("4k", "4:3"): (3326, 2494),
+    ("4k", "1:1"): (2880, 2880),
+    ("4k", "3:4"): (2494, 3326),
+    ("4k", "9:16"): (2160, 3840),
+    ("4k", "21:9"): (4398, 1886),
+}
+_SEEDANCE_2_5_PIXELS: dict[tuple[str, str], tuple[int, int]] = {
+    **{key: size for key, size in _SEEDANCE_2_PIXELS.items() if key[0] != "4k"},
+    ("480p", "16:9"): (854, 480),
+    ("480p", "9:16"): (480, 854),
+}
+
+# 请求的服务档取值 → 价目表的服务档取值：方舟请求里的 ``default`` 即标准档。
+_CATALOG_SERVICE_TIERS = {"default": "standard"}
 
 
 def _retry_ark_download(exc: Exception) -> bool:
@@ -100,21 +145,23 @@ def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]
 class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     """Ark (火山方舟) 视频生成后端。"""
 
-    DEFAULT_MODEL = "doubao-seedance-1-5-pro-251215"
-
     def __init__(
         self,
         *,
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        transport_layer: TransportLayer | None = None,
     ):
-        self._client = create_ark_client(api_key=api_key, base_url=base_url)
+        self._client = create_ark_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
+        self._transport_layer = transport_layer
         # 续跑回放提交域名时要按同一份凭据另建 client（SDK 在构造时绑定 base_url，没有换域名的公开方法）。
         self._api_key = api_key
         # 本实例请求实际发往的域名，与 create_ark_client 同一套归一化；提交时随 job_id 一并落库。
         self._base_url = ark_base_url(base_url)
-        self._model = model or self.DEFAULT_MODEL
+        if not model:
+            raise ValueError("ArkVideoBackend 需要指定模型")
+        self._model = model
         # service_tier 参数仅 seedance-1.x 等老模型支持；2.0 上游在 r2v 下会 400 拒绝该参数，
         # 必须不下传。2.5 按同代口径一并剔除，该口径系从 2.0 的拒绝行为推断，收窄判定
         # 只影响 2.5 一支。判定见 _is_seedance_2 / _is_seedance_2_5：用
@@ -123,7 +170,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         # 该参数是整代都不接受。逐型号的严格判定另走 _matches_known_model 白名单（尾帧与参考
         # 音频用），两者不可互换。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
         # 声明调用方需要据以取舍的输入路径。
-        self._supports_service_tier = not (self._is_seedance_2(self._model) or self._is_seedance_2_5(self._model))
+        self._supports_service_tier = self._accepts_service_tier(self._model)
 
     @property
     def name(self) -> str:
@@ -132,6 +179,60 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     @property
     def model(self) -> str:
         return self._model
+
+    @staticmethod
+    def _accepts_service_tier(model: str) -> bool:
+        """请求体是否带 ``service_tier``：Seedance 2.0 与 2.5 两代都不带。"""
+        return not (ArkVideoBackend._is_seedance_2(model) or ArkVideoBackend._is_seedance_2_5(model))
+
+    @staticmethod
+    def estimate_video_tokens(model: str, *, resolution: str | None, ratio: str, seconds: int) -> float | None:
+        """按官方公式估算一次 Seedance 2.x 请求的视频 token；宽高比为 ``adaptive``、档位或型号不在像素表里时为 ``None``。
+
+        内置调用通道不发送输入视频，输入视频时长恒为 0。
+        """
+        if ArkVideoBackend._is_seedance_2_5(model):
+            pixels = _SEEDANCE_2_5_PIXELS
+        elif ArkVideoBackend._is_seedance_2(model):
+            pixels = _SEEDANCE_2_PIXELS
+        else:
+            return None
+        size = pixels.get(((resolution or _SEEDANCE_DEFAULT_RESOLUTION).lower(), ratio))
+        if size is None:
+            return None
+        width, height = size
+        return seconds * width * height * _SEEDANCE_FPS / 1024
+
+    @staticmethod
+    def metered_usage(
+        model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
+
+        视频 token 结算取供应商回报的 ``completion_tokens``（``result.usage_tokens``），预估按
+        :meth:`estimate_video_tokens` 换算。服务档只在请求体带它的型号上上报。
+        """
+        tokens = (
+            result.usage_tokens
+            if result is not None
+            else ArkVideoBackend.estimate_video_tokens(
+                model, resolution=request.resolution, ratio=request.aspect_ratio, seconds=request.duration_seconds
+            )
+        )
+        tier = request.service_tier
+        return video_usage(
+            request,
+            result,
+            seconds=request.duration_seconds,
+            resolution=request.resolution,
+            audio=request.generate_audio,
+            video_tokens=tokens,
+            dimensions=(
+                {"service_tier": _CATALOG_SERVICE_TIERS.get(tier, tier)}
+                if ArkVideoBackend._accepts_service_tier(model)
+                else None
+            ),
+        )
 
     @staticmethod
     def _is_seedance_2(model: str) -> bool:
@@ -214,15 +315,27 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         return False
 
     @staticmethod
+    def _is_seedance_1(model: str) -> bool:
+        """按 model_id 子串识别 seedance-1-x / seedance-1.x 系列；系列内的逐型号能力另走各白名单。"""
+        model_lower = model.lower()
+        return "seedance-1-" in model_lower or "seedance-1." in model_lower
+
+    @staticmethod
     def video_capabilities_for_model(model: str) -> VideoCapabilities:
-        """按 model_id 纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
+        """按模型名纯计算参考图等 caps —— 不构造 SDK client（无需 api_key）。
 
         resolver 解析参考图上限时调本方法即可，不必构造整个 backend；instance property 委托至此，
-        保持 backend 为单一真相源。
+        保持 backend 为单一真相源。名字按 ``name_family`` 的规则取，Seedance 1.x / 2.0 / 2.5 三个
+        系列之外的名字统一回落。
 
         音轨形态全系取 ``VideoCapabilities`` 的默认值（开关可控）：``_build_payload`` 无条件把
         ``generate_audio`` 放进请求体，各档 Seedance 都认这个开关，故无需分支声明。
         """
+        return capabilities_by_names(model, ArkVideoBackend._match_video_capabilities)
+
+    @staticmethod
+    def _match_video_capabilities(model: str) -> VideoCapabilities | None:
+        """按名字族认定的能力；不属于已知 Seedance 系列时为 ``None``。"""
         if ArkVideoBackend._is_seedance_2_5(model):
             # 2.5 与 2.0 的差别不止数值：素材上限放宽到参考图 30 / 音频 10 段、总时长 30 秒，
             # 且首帧在场时比例必须交给上游按首帧自适应（见 first_frame_ratio_adaptive_only），
@@ -264,9 +377,11 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                     _SEEDANCE_2_MAX_REFERENCE_AUDIO_TOTAL_SECONDS if on_verified_allowlist else None
                 ),
             )
-        # 非 2.0 系列：DEFAULT_MODEL 1.5 pro 可正常下发 role="last_frame"（见
+        if not ArkVideoBackend._is_seedance_1(model):
+            return None
+        # 1.x 系列：1.5 pro 可正常下发 role="last_frame"（见
         # test_first_last_frame_role_fields）。白名单覆盖能力表已验证支持首尾帧的三个型号，
-        # 未命中白名单的一律 last_frame=False（含上游或自定义供应商的未知型号）。
+        # 未命中白名单的一律 last_frame=False（含系列内未上表的变体）。
         model_lower = model.lower()
         no_first_frame = any(sub in model_lower for sub in ArkVideoBackend._NO_FIRST_FRAME_SUBSTRINGS)
         allowed_last_frame = ArkVideoBackend._matches_known_model(
@@ -447,7 +562,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         if not submitted or ark_base_url(submitted) == self._base_url:
             yield self._client
             return
-        client = create_ark_client(api_key=self._api_key, base_url=submitted)
+        client = create_ark_client(api_key=self._api_key, base_url=submitted, transport_layer=self._transport_layer)
         try:
             yield client
         finally:

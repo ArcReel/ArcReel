@@ -91,7 +91,7 @@ class TestExtractProvider:
 
     async def test_project_level_video_backend(self, monkeypatch):
         """项目级 video_backend 优先于全局默认。"""
-        _patch_pm(monkeypatch, {"video_backend": "ark/doubao-seedance-1-5-pro-251215"})
+        _patch_pm(monkeypatch, {"video_backend": "ark/doubao-seedance-2-0-260128"})
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
         assert await _extract_provider(task) == "ark"
 
@@ -112,7 +112,7 @@ class TestExtractProvider:
         _patch_pm(
             monkeypatch,
             {
-                "video_backend": "ark/doubao-seedance-1-5-pro-251215",
+                "video_backend": "ark/doubao-seedance-2-0-260128",
                 "image_provider_t2i": "gemini-vertex/imagen-3",
             },
         )
@@ -124,20 +124,20 @@ class TestExtractProvider:
         _patch_pm(
             monkeypatch,
             {
-                "video_backend": "ark/doubao-seedance-1-5-pro-251215",
-                "video_provider_r2v": "minimax/S2V-01",
+                "video_backend": "ark/doubao-seedance-2-0-260128",
+                "video_provider_r2v": "dashscope/happyhorse-1.1-r2v",
             },
         )
         task = {
-            "payload": {"video_provider_r2v": "ark/doubao-seedance-1-5-pro-251215"},
+            "payload": {"video_provider_r2v": "ark/doubao-seedance-2-0-260128"},
             "project_name": "demo",
             "task_type": "reference_video",
         }
-        assert await _extract_provider(task) == "minimax"
+        assert await _extract_provider(task) == "dashscope"
 
     @pytest.mark.parametrize(
         ("text", "expected_provider"),
-        [("@[A] 走进房间", "minimax"), ("空镜头", "ark")],
+        [("@[A] 走进房间", "dashscope"), ("空镜头", "ark")],
     )
     async def test_reference_video_routes_by_hydrated_reference_bucket(
         self, tmp_path, monkeypatch, text, expected_provider
@@ -149,8 +149,8 @@ class TestExtractProvider:
         project = activate_reference_project(
             tmp_path,
             {
-                "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
-                "video_provider_r2v": "minimax/S2V-01",
+                "video_provider_i2v": "ark/doubao-seedance-2-0-260128",
+                "video_provider_r2v": "dashscope/happyhorse-1.1-r2v",
                 "video_generate_audio": True,
                 "characters": {"A": {"description": "x", "character_sheet": "characters/A.png"}},
             },
@@ -180,8 +180,8 @@ class TestExtractProvider:
 
     async def test_reference_video_claim_uses_frozen_task_script_locator(self, tmp_path, monkeypatch):
         project = {
-            "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
-            "video_provider_r2v": "minimax/S2V-01",
+            "video_provider_i2v": "ark/doubao-seedance-2-0-260128",
+            "video_provider_r2v": "dashscope/happyhorse-1.1-r2v",
             "video_generate_audio": True,
             "characters": {"A": {"character_sheet": "characters/A.png"}},
         }
@@ -213,7 +213,7 @@ class TestExtractProvider:
             "resource_id": "E1U1",
         }
 
-        assert await _extract_provider(task) == "minimax"
+        assert await _extract_provider(task) == "dashscope"
 
     async def test_reference_video_script_read_failure_falls_back_to_r2v(self, monkeypatch):
         """剧本读取失败时投影回退 r2v 代表桶，不冒泡阻断认领。"""
@@ -222,8 +222,8 @@ class TestExtractProvider:
             raise ScriptEditError("broken")
 
         project = {
-            "video_provider_i2v": "ark/doubao-seedance-1-5-pro-251215",
-            "video_provider_r2v": "minimax/S2V-01",
+            "video_provider_i2v": "ark/doubao-seedance-2-0-260128",
+            "video_provider_r2v": "dashscope/happyhorse-1.1-r2v",
         }
         pm_cls = type("PM", (), {"load_project": lambda self, name: project, "load_script": _load_script})
         for target in (
@@ -237,7 +237,7 @@ class TestExtractProvider:
             "task_type": "reference_video",
             "resource_id": "E1U1",
         }
-        assert await _extract_provider(task) == "minimax"
+        assert await _extract_provider(task) == "dashscope"
 
     async def test_deleted_project_load_failure_falls_back_not_raises(self, monkeypatch):
         """指向已删除/不可读项目的残留任务：load_project 抛错也须回退 DEFAULT_PROVIDER，
@@ -277,7 +277,7 @@ class TestExtractProviderAlignsWithExecution:
         from lib.config.resolver import ConfigResolver
         from lib.db import async_session_factory
 
-        project = {"video_backend": "ark/doubao-seedance-1-5-pro-251215"}
+        project = {"video_backend": "ark/doubao-seedance-2-0-260128"}
         _patch_pm(monkeypatch, project)
         task = {"payload": {}, "project_name": "demo", "task_type": "video"}
 

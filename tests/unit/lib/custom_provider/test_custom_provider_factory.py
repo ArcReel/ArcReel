@@ -28,6 +28,7 @@ _ENDPOINT_BACKEND_CLASSES = (
     "DashScopeImageBackend",
     "DashScopeVideoBackend",
     "DeclarativeVideoBackend",
+    "GeminiAudioBackend",
     "GeminiImageBackend",
     "GeminiTextBackend",
     "KlingImageBackend",
@@ -85,7 +86,12 @@ class TestEndpointDispatch:
         assert result.model == "gpt-4o"
         assert built == {
             "backend": "OpenAITextBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.example.com/v1", "model": "gpt-4o"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.example.com/v1",
+                "model": "gpt-4o",
+                "transport_layer": None,
+            },
         }
 
     def test_gemini_generate(self):
@@ -97,6 +103,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://generativelanguage.googleapis.com/",
                 "model": "gemini-2.5-flash",
+                "transport_layer": None,
             },
         }
 
@@ -105,7 +112,12 @@ class TestEndpointDispatch:
         assert isinstance(result, CustomImageBackend)
         assert built == {
             "backend": "OpenAIImageBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.example.com/v1", "model": "dall-e-3"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.example.com/v1",
+                "model": "dall-e-3",
+                "transport_layer": None,
+            },
         }
 
     def test_gemini_image(self):
@@ -117,6 +129,22 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://generativelanguage.googleapis.com/",
                 "image_model": "imagen-4",
+                "transport_layer": None,
+            },
+        }
+
+    def test_gemini_tts(self):
+        provider = _make_provider(base_url="https://generativelanguage.googleapis.com")
+        result, built = _built(provider, "gemini-3.8-flash-tts", "gemini-tts")
+        assert isinstance(result, CustomAudioBackend)
+        assert built == {
+            "backend": "GeminiAudioBackend",
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://generativelanguage.googleapis.com/",
+                "model": "gemini-3.8-flash-tts",
+                "provider_name": "custom-42",
+                "transport_layer": None,
             },
         }
 
@@ -125,7 +153,12 @@ class TestEndpointDispatch:
         assert isinstance(result, CustomVideoBackend)
         assert built == {
             "backend": "OpenAIVideoBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.example.com/v1", "model": "sora-2"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.example.com/v1",
+                "model": "sora-2",
+                "transport_layer": None,
+            },
         }
 
     def test_newapi_video(self):
@@ -153,6 +186,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/api/v3",
                 "model": "doubao-seedance-2-0",
+                "transport_layer": None,
             },
         }
 
@@ -167,6 +201,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/ent/v2",
                 "model": "viduq3-turbo",
+                "transport_layer": None,
             },
         }
 
@@ -183,6 +218,7 @@ class TestEndpointDispatch:
                 "base_url": "https://api.example.com/v1",
                 "model": "tts-1",
                 "provider_name": "custom-42",
+                "transport_layer": None,
             },
         }
 
@@ -199,7 +235,12 @@ class TestEndpointDispatch:
         # base_url 原样下传，归一化（host→{host}/v1）由 MiniMaxImageBackend 内部处理
         assert built == {
             "backend": "MiniMaxImageBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://api.minimaxi.com/v1", "model": "image-01"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://api.minimaxi.com/v1",
+                "model": "image-01",
+                "transport_layer": None,
+            },
         }
 
     def test_minimax_video(self):
@@ -223,6 +264,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/v1",
                 "model": "kling-image-o1",
+                "transport_layer": None,
             },
         }
 
@@ -244,6 +286,7 @@ class TestEndpointDispatch:
                 "api_key": "sk-test",
                 "base_url": "https://relay.example.com/v1",
                 "model": "kling-v2-5-turbo",
+                "transport_layer": None,
             },
         }
 
@@ -263,6 +306,7 @@ class TestEndpointDispatch:
                 "base_url": "https://api.example.com/v1",
                 "model": "dall-e-3",
                 "mode": "generations_only",
+                "transport_layer": None,
             },
         }
 
@@ -310,7 +354,12 @@ class TestUrlNormalization:
         assert isinstance(result, CustomTextBackend)
         assert built == {
             "backend": "AnthropicTextBackend",
-            "kwargs": {"api_key": "sk-test", "base_url": "https://relay.example.com/anthropic", "model": "claude-x"},
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://relay.example.com/anthropic",
+                "model": "claude-x",
+                "transport_layer": None,
+            },
         }
 
     def test_ark_empty_base_url_normalizes_to_none(self):

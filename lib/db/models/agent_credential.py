@@ -6,7 +6,7 @@ ProviderCredential 同模式)。
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Index, String, Text, text
+from sqlalchemy import JSON, Boolean, Float, Index, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import DEFAULT_USER_ID, Base, TimestampMixin
@@ -40,3 +40,8 @@ class AgentAnthropicCredential(TimestampMixin, Base):
     opus_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     subagent_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Agent 凭证倍率（docs/adr/0100、0102）：乘在经这条凭证的每次 Agent 调用的参考费用上，只此一级；为 0 时记 0。
+    multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=1.0, server_default=text("1"))
+    # 档位到条目绑定（「模型厂商/官方模型名」）的映射，档位见 lib.agent.credential_tiers.TIERS。NULL 或缺某个档位 =
+    # 按模型名现查；绑定的条目已不在目录里时同样回到按模型名现查。
+    tier_bindings: Mapped[dict[str, str] | None] = mapped_column(JSON, nullable=True)

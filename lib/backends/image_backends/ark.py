@@ -5,16 +5,21 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from lib.backends.ark_shared import create_ark_client
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     image_to_base64_data_uri,
+    per_image_usage,
     save_image_from_response_item,
 )
 from lib.backends.providers import PROVIDER_ARK
+from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -69,6 +74,8 @@ _MAX_REFERENCE_IMAGES = 14
 class ArkImageBackend:
     """Ark (火山方舟) Seedream 图片生成后端。"""
 
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+
     DEFAULT_MODEL = "doubao-seedream-5-0-lite-260128"
 
     def __init__(
@@ -80,10 +87,6 @@ class ArkImageBackend:
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url)
         self._model = model or self.DEFAULT_MODEL
-        self._capabilities: set[ImageCapability] = {
-            ImageCapability.TEXT_TO_IMAGE,
-            ImageCapability.IMAGE_TO_IMAGE,
-        }
 
     @property
     def name(self) -> str:
@@ -95,11 +98,24 @@ class ArkImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        return self._capabilities
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:
         return _MAX_REFERENCE_IMAGES
+
+    @staticmethod
+    def _size(model: str, image_size: str | None, aspect_ratio: str) -> str:
+        return image_size or _resolve_seedream_size(model, aspect_ratio)
+
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        refs = facts.reference_count
+        return per_image_usage(
+            output_images=1,
+            input_images=None if refs is None else min(refs, _MAX_REFERENCE_IMAGES),
+            dimensions={"resolution": ArkImageBackend._size(facts.model, facts.image_size, facts.aspect_ratio)},
+        )
 
     @with_retry_async()
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -113,7 +129,8 @@ class ArkImageBackend:
         # Seedream 不显式传 size 时默认输出 1:1（4.x/5.x: 2048x2048；3.0-t2i: 1024x1024），
         # 项目设置的 aspect_ratio 会被静默忽略。优先使用 caller 显式传入的 image_size
         # （如 grid 路径会传 "2K"/"4K"），否则按官方推荐表从 aspect_ratio 推导宽高。
-        kwargs["size"] = request.image_size or _resolve_seedream_size(self._model, request.aspect_ratio)
+        kwargs["size"] = self._size(self._model, request.image_size, request.aspect_ratio)
+        reference_count = 0
 
         # I2I: 读取参考图并转为 base64 data URI
         if request.reference_images:
@@ -125,6 +142,7 @@ class ArkImageBackend:
             data_uris = await asyncio.gather(
                 *[asyncio.to_thread(image_to_base64_data_uri, Path(ref.path)) for ref in refs]
             )
+            reference_count = len(data_uris)
             # 单张传字符串，多张传列表
             kwargs["image"] = data_uris[0] if len(data_uris) == 1 else data_uris
 
@@ -148,4 +166,8 @@ class ArkImageBackend:
             image_path=request.output_path,
             provider=PROVIDER_ARK,
             model=self._model,
+            # 按生成张数计费：响应里每张图一项。
+            usage=per_image_usage(
+                output_images=len(data), input_images=reference_count, dimensions={"resolution": kwargs["size"]}
+            ),
         )

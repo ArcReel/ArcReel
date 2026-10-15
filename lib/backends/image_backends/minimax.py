@@ -12,17 +12,21 @@ import asyncio
 import base64
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
+    BOTH_IMAGE_CAPABILITIES,
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     download_image_to_path,
     image_to_base64_data_uri,
+    per_image_usage,
 )
 from lib.backends.minimax_shared import (
     extract_image_base64,
@@ -34,6 +38,8 @@ from lib.backends.minimax_shared import (
     safe_body_for_log,
 )
 from lib.backends.providers import PROVIDER_MINIMAX
+from lib.backends.transport_layer import TransportLayer
+from lib.billing.metering import Usage
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -65,6 +71,8 @@ def _clamp_edge(value: int) -> int:
 class MiniMaxImageBackend:
     """MiniMax 图像后端（单步同步 image_generation 端点）。"""
 
+    CHANNEL_CAPABILITIES: ClassVar[frozenset[ImageCapability]] = BOTH_IMAGE_CAPABILITIES
+
     def __init__(
         self,
         *,
@@ -72,11 +80,13 @@ class MiniMaxImageBackend:
         model: str | None = None,
         base_url: str | None = None,
         http_timeout: float = 120.0,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         self._api_key = resolve_minimax_api_key(api_key)
         self._base_url = minimax_text_base_url(base_url)
         self._model = model or DEFAULT_MODEL
         self._http_timeout = http_timeout
+        self._transport_layer = transport_layer
 
     @property
     def name(self) -> str:
@@ -88,12 +98,18 @@ class MiniMaxImageBackend:
 
     @property
     def capabilities(self) -> set[ImageCapability]:
-        # image-01 文生图 + 图生图（subject_reference）同模型。
-        return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+        # 文生图 + 图生图（subject_reference）同一端点。
+        return set(self.CHANNEL_CAPABILITIES)
 
     @property
     def max_reference_images(self) -> int:
         return _SUBJECT_REF_LIMIT
+
+    @staticmethod
+    def estimate_usage(facts: ImageRequestFacts) -> Usage:
+        """预估只报张数：image-01 按张统一价，尺寸不影响费用。"""
+        refs = facts.reference_count
+        return per_image_usage(output_images=1, input_images=None if refs is None else min(refs, _SUBJECT_REF_LIMIT))
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         # 编排层不带重试：把非幂等的「建图 + 计费」submit 与幂等的结果下载隔离到各自的
@@ -126,6 +142,11 @@ class MiniMaxImageBackend:
             provider=PROVIDER_MINIMAX,
             model=self._model,
             image_uri=image_uri,
+            usage=per_image_usage(
+                output_images=1,
+                input_images=len(payload.get("subject_reference", [])),
+                dimensions={"resolution": f"{width}x{height}"},
+            ),
         )
 
     @with_retry_async(retry_if=should_retry_submit)
@@ -143,7 +164,7 @@ class MiniMaxImageBackend:
             self._model,
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
             resp = await submit_post(
                 lambda: client.post(
                     f"{self._base_url}{_IMAGE_ENDPOINT}",

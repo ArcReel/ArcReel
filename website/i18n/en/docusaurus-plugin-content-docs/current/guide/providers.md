@@ -51,18 +51,18 @@ Providers' specific models, parameters, regional availability, and pricing chang
 
 | Provider | Text | Image | Video | TTS | Typical Uses |
 |---|:---:|:---:|:---:|:---:|---|
-| Gemini | ✅ | ✅ | ✅ | — | Multimodal text, reference images, and video generation |
+| Gemini | ✅ | ✅ | ✅ | ✅ | Multimodal text, reference images, video generation, and TTS |
 | Volcengine Ark | ✅ | ✅ | ✅ | — | Text, image, and video generation in mainland China network environments |
 | Grok | ✅ | ✅ | ✅ | — | Text, image, and video generation |
-| OpenAI | ✅ | ✅ | ✅ | — | Text, image, and video generation |
+| OpenAI | ✅ | ✅ | — | — | Text and image generation |
 | Vidu | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
 | DashScope | ✅ | ✅ | ✅ | ✅ | Text, image, video, and voice-over TTS |
-| MiniMax | ✅ | ✅ | ✅ | — | Text, image, and video generation |
+| MiniMax | ✅ | ✅ | ✅ | ✅ | Text, image, video generation, and TTS |
 | Kling | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
 | Agnes | ✅ | ✅ | ✅ | — | Text, image, and video generation |
 | Custom Providers | Interface-dependent | Interface-dependent | Interface-dependent | Interface-dependent | Private gateways, local models, or third-party compatible services |
 
-The built-in OpenAI provider offers text, image, and video capabilities. OpenAI-compatible TTS is connected through a Custom Provider's TTS call endpoint.
+The built-in OpenAI provider offers text and image capabilities. OpenAI-compatible video and TTS are connected through a Custom Provider's call endpoints.
 
 ## 3. Configuration Layers {#configuration-layers}
 
@@ -292,7 +292,7 @@ High-reasoning models are not necessarily suitable for every task. Complex conte
 
 ## 9. TTS Configuration {#tts-providers}
 
-ArcReel's voice-over capability can use DashScope Qwen TTS or a compatible TTS interface.
+ArcReel's voice-over capability can use DashScope Qwen TTS, MiniMax Speech, Gemini TTS (AI Studio, Vertex), or a compatible TTS interface.
 
 After configuration, first validate:
 
@@ -335,6 +335,10 @@ The model discovery protocol only determines which type of model-listing interfa
 6. TTS;
 7. Error codes and rate-limiting behavior.
 
+Model names are mapped to known models in the model catalog, ignoring case, ignoring any namespace before the last `/`, and treating dots as hyphens. For a mapped model, selectable durations, resolutions, maximum output length, and price all come from the model catalog; an unmapped model still works, its video durations are inferred from the model name, and its cost is recorded as "Unpriced".
+
+Each video call endpoint decides first/last frame, reference image, and reference audio support from the model name. When the name maps to a known model in the model catalog, the endpoint uses that model's official name and aliases. A video model the endpoint does not recognize supports only text-to-video and first-frame generation; last frame, reference images, and reference audio are unavailable. For image models, text-to-image and image-to-image are available only where both the model catalog entry and the call endpoint support them; a model that maps to no known model follows the call endpoint alone.
+
 If someone has already adapted the call endpoint you need, you can install it directly from the [Market](./market.md) instead of writing the definition yourself.
 
 When a provider submits jobs as JSON and then polls JSON results by task ID, you can click "New endpoint" in the "Endpoints" section and write a declarative definition yourself.
@@ -344,6 +348,10 @@ Declarative definitions work for both video and image providers: a definition wi
 When creating an endpoint, you can pick the video or image "submit + poll" template under "Example template" as a starting point. Choosing a template replaces the current draft.
 
 For a self-hosted ComfyUI instance, you can import an API-format workflow and map prompts, assets, dimensions, duration, and output to its nodes. See [Connect a ComfyUI Workflow](./comfyui.md) for the complete setup and operational constraints.
+
+When a relay keeps an official protocol but changes the path (an added prefix, a different version segment, or a renamed path), you can change the "Request URL" in the model's edit area. Each request the endpoint sends gets its own row; the base URL part is greyed out, and you click the path to edit it. Press Enter or click elsewhere to save, or press Esc to cancel. A changed path is appended to the base URL exactly as the provider entered it, without adding `/v1` or stripping a version segment. To drop only what was added or stripped automatically, open the path and press Enter without changing it. The path can only use placeholders the request already has, such as `{{ model }}` and `{{ task_id }}`.
+
+Connection tests and real generation use the changed URLs; model discovery and connectivity checks still use the base URL. Changing the endpoint resets modified request URLs to their defaults. If you change a request URL after a video task is submitted, resuming that task after a service restart fails instead of submitting it again. Endpoints without a "Request URL" row in the model's edit area do not support this.
 
 ### 10.1 Three Endpoint Test Modes {#custom-endpoint-tests}
 
@@ -425,6 +433,38 @@ ArcReel can record costs by provider and media type, but keep in mind:
 - Providers may change their pricing;
 - Some failed tasks may still incur charges;
 - The provider's final invoice is authoritative.
+
+Costs of text, voiceover, image, and video calls on built-in providers are computed from each model's official prices:
+
+- Cache hits and cache writes are charged at their own prices, not as regular input;
+- For models priced by input length, the tier is chosen by the total input of the single request (including cache), and the whole request uses that tier's prices;
+- Voiceover models that officially count each Chinese character as 2 characters are counted the same way;
+- Images are priced by the resolution and quality actually sent to the provider; when the request carries no resolution, the provider's default tier applies;
+- For image models that officially charge for reference images (for example, beyond a number of free images), reference images are counted per image;
+- Videos are priced by the seconds actually generated and by the resolution, audio, and duration tier sent to the provider; Vidu reference-to-video uses its own prices;
+- Ark Seedance is billed by video tokens: settlement uses the token count the provider reports, and pre-submit estimates convert with the official formula (width × height × frame rate × seconds / 1024). When the aspect ratio is left to the provider (adaptive), the token count is unknown and the estimate is recorded as "Unpriced";
+- A call with no applicable price is recorded as "Unpriced" instead of being estimated with another model's or another tier's price.
+
+Models on a custom provider have no prices of their own. When a model name maps to a known model in the model catalog, its calls are charged at that model's official price, with the same rules as built-in providers;
+when it maps to nothing, its calls are recorded as "Unpriced". The model list on the settings page shows the known model each model maps to, or "Unpriced".
+
+Each provider can have a multiplier that applies to the cost of all its calls, to reflect top-up discounts or relay price differences.
+Each model on a custom provider can also have its own multiplier, so the final cost = official price × provider multiplier × model multiplier. For example, if a relay charges 80% of the official price across the board, set the provider multiplier to 0.8; if one model there costs 1.5× the official price, set that model's multiplier to 1.875 (0.8 × 1.875 = 1.5).
+The multiplier defaults to 1; Volcengine Ark Agent Plan is billed by subscription and ComfyUI providers run on your own hardware, so their multipliers default to 0 and no cost is computed. Changing a multiplier only affects later calls;
+costs already recorded are not recalculated.
+
+Agent session costs are computed from the same model catalog; the cost reported by the Claude Agent SDK is not used:
+
+- Each model request is priced by its own token usage and total input, and subagent requests are included.
+- Each model used in a conversation turn gets one record, named after the model that was actually called.
+- When a model name does not match any known model in the catalog, its tokens are still recorded and the cost is marked "Unpriced".
+- Calls that do not appear in the message stream, such as context compaction, are filled in from the cumulative usage the SDK reports. The first turn after a session is resumed has no baseline to compare against, so such calls are not counted in that turn.
+
+Each Agent provider can have a multiplier, applied to the cost of every Agent call made through that provider. It defaults to 1. Gateways billed by subscription can set the multiplier to 0 so that no cost is computed. A session is billed with the Agent provider that was active when the session started (or was resumed), using that provider's multiplier and manually selected models (described below) as they were at that moment. Switching the active provider, changing the multiplier, or changing a selected model mid-session does not affect sessions already in progress; sessions started (or resumed) afterwards use the new settings. Recorded costs are not recalculated.
+
+The Agent provider list in Settings shows the model actually called by the main model and by each of the four tiers (Haiku, Sonnet, Opus, and subagent), along with whether each tier is priced and which model in the catalog it matches. Tiers that match no model show "Unpriced", and their calls are recorded as unpriced. Tiers left empty in the official Anthropic preset are resolved by Claude Code, and their cost is computed from the model actually called.
+
+For an unpriced tier, choose "Select model" to pick a model from the catalog by hand; the tier's calls are then priced as the selected model, and "Unbind" returns it to automatic matching by model name. The selection is stored only on that Agent provider: it does not change the catalog entry or its official updates. If the selected model is later delisted from the catalog, the tier falls back to matching by model name and shows "Selected model delisted"; you can still unbind it.
 
 Use ArcReel's cost tracking for:
 

@@ -29,10 +29,17 @@ export interface UsageRecord {
   started_at: string;
   finished_at: string | null;
   duration_ms: number | null;
-  cost_amount: number;
+  /** null 表示未定价，原因见 `unpriced_reason`；0 是定价为零。 */
+  cost_amount: number | null;
+  /** 未定价的原因码（后端 `UnpricedReason`）；已定价的记录为 null。 */
+  unpriced_reason: string | null;
   currency: string;
+  /** 总输入，含缓存读写；未缓存输入 = input_tokens − 缓存读 − 两档缓存写。 */
   input_tokens: number | null;
   output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_5m_tokens: number | null;
+  cache_write_1h_tokens: number | null;
   usage_tokens: number | null;
   image_input_tokens: number | null;
   image_output_tokens: number | null;
@@ -81,7 +88,10 @@ export interface UsageStatsBlock {
   cancelled: number;
   /** 分母为 0 时为 null。 */
   success_rate: number | null;
+  /** 只合计已定价的调用。 */
   cost: Record<string, number>;
+  /** 未定价（费用为 null）的调用数，不计入 `cost`。 */
+  unpriced_calls: number;
 }
 
 /** 趋势覆盖的本地日区间，两端均含。 */
@@ -104,11 +114,15 @@ export interface UsageProjectRow extends UsageStatsBlock {
 
 export interface UsageProviderRow extends UsageStatsBlock {
   provider: string;
+  /** Agent 记录合并成的一项：`provider` 为空。 */
+  agent?: boolean;
 }
 
 export interface UsageModelRow extends UsageStatsBlock {
   provider: string;
   model: string;
+  /** Agent 记录按模型合并成的一项：`provider` 为空。 */
+  agent?: boolean;
 }
 
 /** 构成表列表外的余量：被合并的分组数与它们的合计。 */
@@ -167,4 +181,62 @@ export interface UsageSummary {
   breakdown: UsageBreakdown;
   attention: UsageAttention[];
   filter_options: UsageFilterOptions;
+}
+
+/** 使用记录的两个视图：「生成调用」不含 Agent 记录，「Agent 会话」只含 Agent 记录。 */
+export type UsageView = "generation" | "agent";
+
+/** Agent 会话列表里的一行；合计只含落在筛选内的记录。 */
+export interface UsageAgentSession {
+  /** SDK 会话 id。 */
+  session_id: string;
+  /** 会话标题；会话元数据已删除时为 null，空串表示尚未命名。 */
+  title: string | null;
+  session_deleted: boolean;
+  project_name: string;
+  project_title?: string | null;
+  /** 会话用到的模型，按首次出现的先后。 */
+  models: string[];
+  calls: number;
+  /** 总输入，含缓存读写。 */
+  input_tokens: number;
+  output_tokens: number;
+  /** 已定价记录的费用，按币种分别合计。 */
+  cost: Record<string, number>;
+  /** 未定价（费用为 null）的记录数，不计入 `cost`。 */
+  unpriced_calls: number;
+  first_started_at: string;
+  last_started_at: string;
+}
+
+export interface UsageAgentSessionPage {
+  items: UsageAgentSession[];
+  next_cursor: string | null;
+  total: number;
+}
+
+/** 会话明细里的一条记录：一轮里某个模型的用量与费用。 */
+export interface UsageAgentSessionRecord {
+  id: number;
+  started_at: string;
+  status: UsageRecordStatus;
+  /** 这一轮的用户消息，超长时已截断。 */
+  prompt: string | null;
+  provider: string;
+  model: string;
+  /** 总输入，含缓存读写。 */
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_5m_tokens: number | null;
+  cache_write_1h_tokens: number | null;
+  /** null 表示未定价，原因见 `unpriced_reason`。 */
+  cost_amount: number | null;
+  unpriced_reason: string | null;
+  currency: string;
+}
+
+export interface UsageAgentSessionDetail {
+  session_id: string;
+  items: UsageAgentSessionRecord[];
 }

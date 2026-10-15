@@ -17,6 +17,8 @@ const mockCred = (overrides: Partial<AgentCredential> = {}): AgentCredential => 
   sonnet_model: null,
   opus_model: null,
   subagent_model: null,
+  multiplier: 1,
+  tiers: [],
   is_active: false,
   created_at: "2026-05-11T00:00:00Z",
   ...overrides,
@@ -32,6 +34,8 @@ describe("CredentialList", () => {
         onTest={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
+        onBindTier={vi.fn()}
+        onUnbindTier={vi.fn()}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "设为生效" }));
@@ -46,6 +50,8 @@ describe("CredentialList", () => {
         onTest={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
+        onBindTier={vi.fn()}
+        onUnbindTier={vi.fn()}
       />,
     );
     const deleteBtn = screen.getByRole("button", { name: /delete|remove|删除|Xoá/i });
@@ -60,6 +66,8 @@ describe("CredentialList", () => {
         onTest={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
+        onBindTier={vi.fn()}
+        onUnbindTier={vi.fn()}
       />,
     );
     expect(screen.getByText(/还没有 Agent 供应商/)).toBeInTheDocument();
@@ -74,6 +82,8 @@ describe("CredentialList", () => {
         onTest={onTest}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
+        onBindTier={vi.fn()}
+        onUnbindTier={vi.fn()}
       />,
     );
     fireEvent.click(
@@ -92,6 +102,8 @@ describe("CredentialList", () => {
         onTest={vi.fn()}
         onEdit={onEdit}
         onDelete={vi.fn()}
+        onBindTier={vi.fn()}
+        onUnbindTier={vi.fn()}
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /edit|编辑|Chỉnh sửa/i }));

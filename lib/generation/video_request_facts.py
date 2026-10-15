@@ -16,10 +16,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
     ConfigResolver,
     DurationExclusionReason,
@@ -27,8 +30,7 @@ from lib.config.resolver import (
     VideoGenerationType,
     VideoSupportedDurationsError,
     VoiceConsistency,
-    builtin_video_audio_track,
-    constrain_durations,
+    apply_duration_constraints,
 )
 
 #: 视频路线：分镜（首帧驱动）与参考生视频。问题码按路线分族，已记录的码不改名。
@@ -139,10 +141,35 @@ class VideoRequestFacts:
 
 @dataclass(frozen=True, slots=True)
 class VideoRequestCostFacts:
-    """报价共用的供应商请求坐标：一份视频请求事实加上这次申请的秒数。"""
+    """报价共用的供应商请求坐标：一份视频请求事实，加上这次申请的秒数与请求形态。
+
+    ``aspect_ratio`` 是项目的视频宽高比；``has_first_frame`` 表示请求带首帧（分镜图生视频），
+    ``reference_image_count`` 是发出的参考图张数（参考生视频）。三者与执行时构造的请求同源，提交前预估据此
+    还原一份设想的供应商请求（:meth:`provider_request`），交给调用通道按用量契约给出计量。
+    """
 
     request_facts: VideoRequestFacts
     duration_seconds: int
+    aspect_ratio: str
+    has_first_frame: bool = False
+    reference_image_count: int = 0
+
+    def provider_request(self) -> VideoGenerationRequest:
+        """执行时会发给调用通道的请求的设想形态：图片只占位，不读文件，只用于求计量。
+
+        分镜图生视频的首帧是按项目宽高比生成的分镜图；要求首帧时宽高比交给上游自适应的通道
+        （``first_frame_ratio_adaptive_only``），成片宽高比即分镜图的宽高比，这里因此直接写项目宽高比。
+        """
+        return VideoGenerationRequest(
+            prompt="",
+            output_path=Path("estimate.mp4"),
+            aspect_ratio=self.aspect_ratio,
+            duration_seconds=self.duration_seconds,
+            resolution=self.request_facts.resolution,
+            start_image=Path("first-frame.png") if self.has_first_frame else None,
+            reference_images=[Path(f"reference-{index}.png") for index in range(self.reference_image_count)] or None,
+            generate_audio=self.request_facts.requested_generate_audio,
+        )
 
     @property
     def provider_id(self) -> str:
@@ -246,20 +273,14 @@ def audio_switch_conflict(facts: VideoRequestFacts) -> VideoRequestFactsFailure 
     return None
 
 
-def video_audio_model_facts(
-    provider_id: str,
-    model_id: str,
-    *,
-    voice_consistency: str,
-    generation_type: VideoGenerationType,
-) -> tuple[bool, bool]:
-    """返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
+def video_audio_model_facts(audio_track: str | None, *, voice_consistency: str) -> tuple[bool, bool]:
+    """按该桶的成片音轨形态返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
 
     音轨形态按执行子路径分叉，须按落入的桶取值（可灵 v3-omni 这类「图生可控、参考生无开关」的
-    型号）。自定义供应商与未登记模型没有逐模型声明，按无信号不收紧。
+    型号），见 :meth:`ConfigResolver.video_audio_track`。没有信号（``None``：未登记模型、没有覆盖音轨形态的
+    自定义供应商模型）时按无信号不收紧。
     """
 
-    audio_track = builtin_video_audio_track(provider_id, model_id, generation_type=generation_type)
     if audio_track is None:
         return voice_consistency != "none", True
     return audio_track != "always_off", audio_track == "controllable"
@@ -286,7 +307,7 @@ async def evaluate_video_request_facts(
     else:
         try:
             selected = await resolver.resolve_video_backend(project, None, generation_type=generation_type)
-        except VideoBucketCapabilityError as exc:
+        except (VideoBucketCapabilityError, ModelNotInCatalogError) as exc:
             return VideoRequestFactsFailure(exc.code, tuple(exc.params.items()))
         except (ValueError, SQLAlchemyError):
             return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type),))
@@ -331,11 +352,14 @@ async def evaluate_video_request_facts(
 
     # 参考图约束随桶生效：单元按可用参考图定桶，落 r2v 即带参考图、落 i2v 即不带。
     uses_reference_images = generation_type == "r2v"
+    try:
+        constraints = await resolver.video_duration_constraints(provider_id, model_id)
+    except SQLAlchemyError:
+        return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
     allowed = tuple(
-        constrain_durations(
-            provider_id,
-            model_id,
+        apply_duration_constraints(
             list(supported),
+            constraints,
             resolution=resolution,
             uses_reference_images=uses_reference_images,
         )
@@ -347,7 +371,7 @@ async def evaluate_video_request_facts(
         )
     # 两条约束都排除同一秒数时报参考图：改分辨率救不回它。
     reference_allowed = (
-        constrain_durations(provider_id, model_id, list(supported), uses_reference_images=True)
+        apply_duration_constraints(list(supported), constraints, uses_reference_images=True)
         if uses_reference_images
         else list(supported)
     )
@@ -356,11 +380,12 @@ async def evaluate_video_request_facts(
     )
 
     voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
+    try:
+        audio_track = await resolver.video_audio_track(provider_id, model_id, generation_type=generation_type)
+    except SQLAlchemyError:
+        return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
     has_audio_track, audio_switch_controllable = video_audio_model_facts(
-        provider_id,
-        model_id,
-        voice_consistency=voice_consistency,
-        generation_type=generation_type,
+        audio_track, voice_consistency=voice_consistency
     )
     max_reference_images = caps.get("max_reference_images")
     return VideoRequestFacts(

@@ -13,6 +13,7 @@ resolution-markers = [
 [manifest]
 members = [
     "arcreel",
+    "arcreel-catalog-core",
     "arcreel-market-core",
 ]
 
@@ -219,6 +220,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
     { name = "anthropic" },
+    { name = "arcreel-catalog-core" },
     { name = "arcreel-market-core" },
     { name = "asyncpg" },
     { name = "beautifulsoup4" },
@@ -285,6 +287,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "alembic", specifier = ">=1.18.4" },
     { name = "anthropic", specifier = ">=0.125.0,<1" },
+    { name = "arcreel-catalog-core", editable = "packages/arcreel-catalog-core" },
     { name = "arcreel-market-core", editable = "packages/arcreel-market-core" },
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
@@ -343,6 +346,21 @@ dev = [
     { name = "ruff", specifier = ">=0.16.0" },
 ]
 mutation = [{ name = "mutmut", specifier = "==3.7.0" }]
+
+[[package]]
+name = "arcreel-catalog-core"
+version = "0.1.0"
+source = { editable = "packages/arcreel-catalog-core" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.2" }]
 
 [[package]]
 name = "arcreel-market-core"

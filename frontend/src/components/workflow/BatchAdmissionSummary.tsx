@@ -78,6 +78,11 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
                       ? t("tier_cost", { cost: formatCurrencyAmount(tier.cost_currency, tier.cost_amount) })
                       : t("tier_cost_unknown")}
                   </span>
+                  {(tier.unpriced_count ?? 0) > 0 && (
+                    <span className="text-subtle-foreground tabular-nums">
+                      {t("tier_unpriced", { count: tier.unpriced_count })}
+                    </span>
+                  )}
                 </span>
                 <span className="flex flex-wrap gap-1">
                   {tier.unit_ids.map((unitId) => (

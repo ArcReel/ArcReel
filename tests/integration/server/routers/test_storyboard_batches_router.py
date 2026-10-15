@@ -58,17 +58,15 @@ async def board_client(
                     "model_id": "text-image",
                     "display_name": "Text image",
                     "endpoint": "openai-images-generations",
-                    "price_unit": "image",
-                    "price_input": 0.04,
-                    "currency": "USD",
+                    # 按条目计价：Grok Imagine Pro 每张 0.07 USD
+                    "entry_binding": "xai/grok-imagine-image-pro",
                 },
                 {
                     "model_id": "edit-image",
                     "display_name": "Edit image",
                     "endpoint": "openai-images-edits",
-                    "price_unit": "image",
-                    "price_input": 0.09,
-                    "currency": "USD",
+                    "entry_binding": "xai/grok-imagine-image-pro",
+                    "multiplier": 2.0,
                 },
             ],
         )
@@ -147,7 +145,8 @@ async def test_storyboard_preview_lists_targets_skips_and_cost_without_queueing(
     assert body["targets"] == [{"unit_id": "E1S01"}, {"unit_id": "E1S02"}]
     assert body["skipped"] == [{"unit_id": "E1S03", "reason": "missing_prompt"}]
     # 首张没有参考图走文生图（0.04），第二张接在上一张分镜图之后走图生图（0.09）。
-    assert body["estimated_cost"] == {"USD": pytest.approx(0.13)}
+    assert body["estimated_cost"] == {"USD": pytest.approx(0.07 + 0.07 * 2)}
+    assert body["unpriced_count"] == 0
     tasks = await board_queue.get_active_tasks_for_resources(
         project_name=PROJECT, task_type="storyboard", resource_ids=["E1S01", "E1S02"], user_id=DEFAULT_USER_ID
     )
@@ -191,7 +190,9 @@ async def test_video_batch_without_a_video_model_is_refused_whole_with_reasons(
     assert body["targets"] == [{"unit_id": "E1S01"}]
     assert body["skipped"] == [{"unit_id": "E1S02", "reason": "missing_storyboard"}]
     assert body["admission"]["decision"] == "blocked"
+    # 没有可用的视频模型，这一个目标报不出价：不给合计，列为一项未定价
     assert body["estimated_cost"] is None
+    assert body["unpriced_count"] == 1
     (unit,) = body["admission"]["units"]
     assert unit["unit_id"] == "E1S01"
     assert unit["problems"]

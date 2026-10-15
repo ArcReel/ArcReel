@@ -60,3 +60,18 @@ async def test_i2i_call_with_t2i_only_backend_raises(tmp_path):
     assert excinfo.value.code == "image_capability_missing_i2i"
     assert excinfo.value.params == {"provider": "fake", "model": "fake-1"}
     backend.generate.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_t2i_call_rejected_when_entry_only_accepts_i2i(tmp_path):
+    """通道两者都实现，模型条目只接受图生图（vidu/viduq1）：执行与任务类型桶同一个结果，文生图被拒。"""
+    from lib.backends.image_backends.base import BOTH_IMAGE_CAPABILITIES
+    from lib.generation.media_generator import MediaGenerator
+
+    backend = _make_backend(set(BOTH_IMAGE_CAPABILITIES))
+    backend.model = "viduq1"
+    g = MediaGenerator(project_path=tmp_path, image_backend=backend, image_provider_id="vidu")
+    with pytest.raises(ImageCapabilityError) as excinfo:
+        await g.generate_image_async(prompt="x", resource_type="characters", resource_id="A", reference_images=None)
+    assert excinfo.value.code == "image_capability_missing_t2i"
+    backend.generate.assert_not_called()

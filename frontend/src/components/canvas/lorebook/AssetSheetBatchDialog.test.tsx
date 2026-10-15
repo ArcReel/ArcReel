@@ -32,6 +32,7 @@ describe("AssetSheetBatchDialog", () => {
         { unit_id: "character/Bob/雨夜", asset_type: "character", name: "Bob", derivative: "雨夜", reason: "owner_sheet_missing" },
       ],
       estimated_cost: { USD: 0.12 },
+      unpriced_count: 0,
     });
     const submit = vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
       batch_id: "b1",
@@ -59,11 +60,29 @@ describe("AssetSheetBatchDialog", () => {
     expect(useAssetSheetBatchStore.getState().trackedTaskIds).toEqual(new Set(["t1", "t2"]));
   });
 
+  it("shows the priced total and how many sheets are unpriced", async () => {
+    vi.spyOn(API, "previewAssetSheetBatch").mockResolvedValue({
+      targets: [
+        { unit_id: "prop/玉佩", asset_type: "prop", name: "玉佩", derivative: null, depends_on: null },
+        { unit_id: "prop/折扇", asset_type: "prop", name: "折扇", derivative: null, depends_on: null },
+      ],
+      skipped: [],
+      estimated_cost: { USD: 0.06 },
+      unpriced_count: 1,
+    });
+
+    render(<AssetSheetBatchDialog projectName="demo" scope={{ asset_type: "prop" }} onClose={vi.fn()} />);
+
+    expect(await screen.findByText("预估费用：$0.06")).toBeInTheDocument();
+    expect(screen.getByText("另有 1 项未定价，未计入预估费用")).toBeInTheDocument();
+  });
+
   it("tracks an entirely unqueued failed batch without a success toast", async () => {
     vi.spyOn(API, "previewAssetSheetBatch").mockResolvedValue({
       targets: [{ unit_id: "prop/玉佩", asset_type: "prop", name: "玉佩", derivative: null, depends_on: null }],
       skipped: [],
       estimated_cost: null,
+      unpriced_count: 0,
     });
     vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
       batch_id: "failed-batch",
@@ -78,7 +97,7 @@ describe("AssetSheetBatchDialog", () => {
   });
 
   it("keeps the confirm disabled when nothing needs generating", async () => {
-    vi.spyOn(API, "previewAssetSheetBatch").mockResolvedValue({ targets: [], skipped: [], estimated_cost: null });
+    vi.spyOn(API, "previewAssetSheetBatch").mockResolvedValue({ targets: [], skipped: [], estimated_cost: null, unpriced_count: 0 });
 
     render(<AssetSheetBatchDialog projectName="demo" scope={{ asset_type: "prop" }} onClose={vi.fn()} />);
 
