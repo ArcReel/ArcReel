@@ -8,7 +8,14 @@ import { API } from "@/api";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import type { CustomProviderInfo, CustomProviderModelInfo, EndpointDescriptor } from "@/types";
+import type {
+  CustomProviderInfo,
+  CustomProviderModelInfo,
+  DiscoveredModel,
+  EndpointDescriptor,
+  ProviderModelDetail,
+  ProviderModelItem,
+} from "@/types";
 import { CustomProviderForm } from "./CustomProviderForm";
 
 const CHAT_ENDPOINT: EndpointDescriptor = {
@@ -100,6 +107,39 @@ function SavedStateProbe() {
   );
 }
 
+function listItem(modelId: string): ProviderModelItem {
+  return {
+    model_id: modelId,
+    api_model_name: modelId,
+    display_name: null,
+    media_type: "text",
+    enabled: true,
+    is_default: false,
+    official: false,
+    flags: ["unpriced"],
+    price: null,
+    endpoint: "openai-chat",
+  };
+}
+
+function detailOf(item: ProviderModelItem): ProviderModelDetail {
+  return {
+    model: item,
+    multiplier: 1,
+    provider_multiplier: 1,
+    entry: null,
+    capabilities: { media_type: "text", editable: [], base: {}, overrides: {}, effective: {} },
+    endpoint: "openai-chat",
+    resolution: null,
+    path_overrides: null,
+    requests: [],
+  };
+}
+
+function discovered(modelId: string, endpoint = "openai-chat"): DiscoveredModel {
+  return { model_id: modelId, display_name: modelId, endpoint, is_default: false, is_enabled: true, matched_entry: null };
+}
+
 /** 填满新建表单的全部必填项：名称、接口地址、密钥，以及一行启用的模型。 */
 function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的中转站" } });
@@ -117,6 +157,7 @@ describe("CustomProviderForm", () => {
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT, IMAGE_ENDPOINT] });
     vi.spyOn(API, "createCustomProvider").mockRejectedValue(new Error("unexpected create"));
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [] });
   });
 
   it("blocks the save and names the missing field in the save bar when the provider name is empty", async () => {
@@ -174,62 +215,55 @@ describe("CustomProviderForm", () => {
     expect(screen.getByRole("textbox", { name: "模型 ID" })).toHaveValue("gpt-4o");
   });
 
-  it("warns that modified request URLs go back to default when the endpoint changes, and saves without them", async () => {
-    const requests = [
-      { name: "submit", display_name_key: "cp_request_submit", default_path: "/videos", placeholders: ["model"], base_url_rule: "as_is" as const },
-    ];
-    const videoEndpoint: EndpointDescriptor = {
-      ...CHAT_ENDPOINT,
-      key: "openrouter-video",
-      media_type: "video",
-      kind: "declarative",
-      display_name: "OpenRouter Video",
-      requests,
-    };
-    vi.mocked(API.listEndpointCatalog).mockResolvedValue({
-      endpoints: [videoEndpoint, { ...videoEndpoint, key: "xai-video", display_name: "xAI Video" }],
-    });
+  it("saves an existing provider without its models, so toggles made in the model list are kept", async () => {
     vi.spyOn(API, "fullUpdateCustomProvider").mockResolvedValue(undefined as never);
     vi.spyOn(API, "getCustomProvider").mockRejectedValue(new Error("refetch skipped"));
-    const user = userEvent.setup();
-    const saved = { ...model(1, "veo-3", "openrouter-video"), path_overrides: { submit: "/api/videos" }, requests };
-    renderForm({ existing: provider([saved]), focusModelId: "veo-3" });
+    renderForm({ existing: provider([model(1, "gpt-4o")]) });
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
 
-    expect(await screen.findByRole("button", { name: "请求路径 /api/videos" })).toBeInTheDocument();
-    await user.click(screen.getByRole("combobox", { name: "调用端点" }));
-    await user.click(await screen.findByRole("option", { name: /xAI Video/ }));
-
-    expect(screen.getByText("更换调用端点后，修改过的请求地址会恢复默认。")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "请求路径 /videos" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "改过的名字" } });
     fireEvent.click(screen.getByRole("button", { name: "保存" }));
-    await waitFor(() =>
-      expect(API.fullUpdateCustomProvider).toHaveBeenCalledWith(
-        3,
-        expect.objectContaining({ models: [expect.objectContaining({ endpoint: "xai-video", path_overrides: null })] }),
-      ),
-    );
+
+    await waitFor(() => expect(API.fullUpdateCustomProvider).toHaveBeenCalled());
+    const payload = vi.mocked(API.fullUpdateCustomProvider).mock.calls[0][1];
+    expect(payload.display_name).toBe("改过的名字");
+    expect(payload).not.toHaveProperty("models");
   });
 
-  it("expands and edits the model named by the deep link", async () => {
+  it("lists the saved models and opens the Sheet of the model named by the deep link", async () => {
+    vi.mocked(API.listProviderModels).mockResolvedValue({
+      models: [listItem("gpt-4o"), listItem("gpt-4o-mini")],
+    });
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(detailOf(listItem("gpt-4o-mini")));
     renderForm({ existing: provider([model(1, "gpt-4o"), model(2, "gpt-4o-mini")]), focusModelId: "gpt-4o-mini" });
 
-    expect(await screen.findByRole("textbox", { name: "模型 ID" })).toHaveValue("gpt-4o-mini");
-    expect(screen.getByRole("button", { name: "编辑 gpt-4o-mini" })).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("button", { name: "编辑 gpt-4o" })).toHaveAttribute("aria-expanded", "false");
+    const sheet = await screen.findByRole("dialog");
+    expect(await within(sheet).findByRole("textbox", { name: "模型 ID" })).toHaveValue("gpt-4o-mini");
+    expect(API.getProviderModel).toHaveBeenCalledWith("custom-3", "gpt-4o-mini", expect.anything());
+    // 已保存的供应商不再有整表编辑的模型表
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  it("offers search and a type filter once there are more than five models", async () => {
+  it("offers search and a type filter once a new provider has more than five models", async () => {
     const user = userEvent.setup();
-    const many = [
-      model(1, "gpt-4o"),
-      model(2, "gpt-4o-mini"),
-      model(3, "claude-sonnet"),
-      model(4, "deepseek-chat"),
-      model(5, "qwen-max"),
-      model(6, "gpt-image-1", "openai-images"),
-    ];
-    renderForm({ existing: provider(many) });
+    vi.spyOn(API, "discoverModels").mockResolvedValue({
+      not_applicable: false,
+      reason: null,
+      models: [
+        discovered("gpt-4o"),
+        discovered("gpt-4o-mini"),
+        discovered("claude-sonnet"),
+        discovered("deepseek-chat"),
+        discovered("qwen-max"),
+        discovered("gpt-image-1", "openai-images"),
+      ],
+    });
+    renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://api.example.invalid" } });
+    fireEvent.change(screen.getByLabelText("密钥"), { target: { value: "sk-live" } });
+    fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+    await screen.findByRole("button", { name: "编辑 gpt-image-1" });
     const rowNames = () => screen.getAllByRole("button", { name: /^编辑 / }).map((b) => b.getAttribute("aria-label"));
 
     await user.type(screen.getByRole("searchbox", { name: "搜索模型…" }), "gpt");
@@ -240,54 +274,35 @@ describe("CustomProviderForm", () => {
   });
 
   it("shows no search or type filter for five models or fewer", () => {
-    renderForm({ existing: provider([model(1, "gpt-4o"), model(2, "gpt-4o-mini")]) });
+    renderForm();
+    fillRequiredFields();
 
     expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("group", { name: "按类型筛选" })).not.toBeInTheDocument();
   });
 
-  it("opens the model's endpoint with a way back to this provider", async () => {
-    const user = userEvent.setup();
-    const { location } = renderForm({ existing: provider([model(1, "gpt-4o")]), focusModelId: "gpt-4o" });
-
-    await user.click(await screen.findByRole("link", { name: "在调用端点中打开" }));
-
-    expect(location.history.at(-1)).toBe("/app/settings?section=endpoints&endpoint=openai-chat&from=3");
-  });
-
-  it("opens the market filtered to the media type of the model's endpoint", async () => {
-    const user = userEvent.setup();
-    const { location } = renderForm({
-      existing: provider([model(1, "gpt-image-1", "openai-images")]),
-      focusModelId: "gpt-image-1",
-    });
-
-    await user.click(await screen.findByRole("link", { name: "没有合适的端点？从市场获取" }));
-
-    expect(location.history.at(-1)).toBe("/app/settings?section=market&media=image");
-  });
-
-  it("opens the market unfiltered for a text model, since the market has no text filter", async () => {
-    const user = userEvent.setup();
-    const { location } = renderForm({ existing: provider([model(1, "gpt-4o")]), focusModelId: "gpt-4o" });
+  it("links to the market unfiltered for a text model, since the market has no text filter", async () => {
+    renderForm();
+    fillRequiredFields();
     await screen.findByRole("link", { name: "在调用端点中打开" });
 
-    await user.click(screen.getByRole("link", { name: "没有合适的端点？从市场获取" }));
-
-    expect(location.history.at(-1)).toBe("/app/settings?section=market");
+    expect(screen.getByRole("link", { name: "没有合适的端点？从市场获取" })).toHaveAttribute(
+      "href",
+      "/app/settings?section=market",
+    );
   });
 
-  it("asks before opening the endpoint while the provider has unsaved edits", async () => {
+  it("asks before opening the endpoint while the new provider has unsaved edits", async () => {
     const user = userEvent.setup();
-    const { location } = renderForm({ existing: provider([model(1, "gpt-4o")]), focusModelId: "gpt-4o" });
-    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "改过的名字" } });
+    const { location } = renderForm();
+    fillRequiredFields();
 
-    await user.click(screen.getByRole("link", { name: "在调用端点中打开" }));
+    await user.click(await screen.findByRole("link", { name: "在调用端点中打开" }));
     const dialog = await screen.findByRole("alertdialog");
     await user.click(within(dialog).getByRole("button", { name: "继续编辑" }));
 
     expect(location.history.at(-1)).toBe(SETTINGS_PATH);
-    expect(screen.getByLabelText("名称")).toHaveValue("改过的名字");
+    expect(screen.getByLabelText("名称")).toHaveValue("我的中转站");
   });
 
   it("states the model count and that deletion is permanent before deleting the provider", async () => {

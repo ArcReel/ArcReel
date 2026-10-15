@@ -15,7 +15,7 @@ from __future__ import annotations
 import functools
 import logging
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, assert_never, cast
 
@@ -176,6 +176,8 @@ class UserAddedModel:
 
     ``model_id`` 是 API 模型名，也是设置里引用它的模型键；``entry_binding`` 是「模型厂商/官方模型名」。
     ``fallback_durations`` 是对应不上条目的视频模型在运行时回落的可选时长（按名字推断的时长预设），由装入方给出。
+    ``capability_overrides`` 是用户的能力覆盖（docs/adr/0104），装入方已按媒体类型滤掉不合法的键值：模型事实维度
+    在这里整维替换目录信息，通道事实维度经 :func:`user_added_capability_overrides` 交给调用通道一侧合并。
     """
 
     provider_id: str
@@ -184,17 +186,23 @@ class UserAddedModel:
     multiplier: float = 1.0
     entry_binding: str | None = None
     fallback_durations: tuple[int, ...] = ()
+    capability_overrides: Mapping[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
 class _IndexedModel:
-    """索引里的一个供应商模型：对外的目录信息，加上它对应的条目（对应不上时为 ``None``）与供应商模型倍率。"""
+    """索引里的一个供应商模型：对外的目录信息，加上它对应的条目（对应不上时为 ``None``）与供应商模型倍率。
+
+    ``base_model`` 是未叠加能力覆盖的目录信息（条目的值或运行时回落）；只有用户添加的模型带覆盖，其余与 ``model`` 相同。
+    """
 
     model: CatalogModel
     entry: CatalogEntry | None
     multiplier: float
     api_model_name: str
     official: bool
+    base_model: CatalogModel | None = None
+    capability_overrides: Mapping[str, object] = field(default_factory=dict)
 
 
 def meets_min_app_version(required: str | None, current: str) -> bool:
@@ -238,15 +246,68 @@ def _official_models(data: CatalogData, provider_id: str, current_version: str) 
     return models
 
 
+def _toggle(capabilities: list[ModelCapability], capability: ModelCapability, value: object) -> list[ModelCapability]:
+    if not isinstance(value, bool):
+        return capabilities
+    kept: list[ModelCapability] = [c for c in capabilities if c != capability]
+    if value:
+        kept.append(capability)
+    return kept
+
+
+def _with_model_fact_overrides(model: CatalogModel, overrides: Mapping[str, object]) -> CatalogModel:
+    """把能力覆盖里的模型事实维度整维替换进目录信息（docs/adr/0104）。值已由装入方校验过形状。"""
+    capabilities = list(model.capabilities)
+    capabilities = _toggle(capabilities, "vision", overrides.get("image_input"))
+    capabilities = _toggle(capabilities, "structured_output", overrides.get("structured_output"))
+    capabilities = _toggle(capabilities, "text_to_image", overrides.get("text_to_image"))
+    capabilities = _toggle(capabilities, "image_to_image", overrides.get("image_to_image"))
+    max_output_tokens = overrides.get("max_output_tokens")
+    durations = overrides.get("durations")
+    resolutions = overrides.get("resolutions")
+    constraints = overrides.get("duration_constraints")
+    by_resolution = model.duration_resolution_constraints
+    reference_durations = model.reference_image_durations
+    if isinstance(constraints, Mapping):
+        raw_by_resolution = constraints.get("by_resolution")
+        raw_reference = constraints.get("with_reference_images")
+        by_resolution = (
+            {str(res).strip().lower(): [int(d) for d in allowed] for res, allowed in raw_by_resolution.items()}
+            if isinstance(raw_by_resolution, Mapping)
+            else {}
+        )
+        reference_durations = [int(d) for d in raw_reference] if isinstance(raw_reference, list) else []
+    return replace(
+        model,
+        capabilities=capabilities,
+        max_output_tokens=max_output_tokens if isinstance(max_output_tokens, int) else model.max_output_tokens,
+        supported_durations=(
+            sorted({int(d) for d in durations}) if isinstance(durations, list) else model.supported_durations
+        ),
+        resolutions=[str(r).strip() for r in resolutions] if isinstance(resolutions, list) else model.resolutions,
+        duration_resolution_constraints=by_resolution,
+        reference_image_durations=reference_durations,
+    )
+
+
 def _user_added_model(data: CatalogData, user: UserAddedModel) -> _IndexedModel:
     binding = binding_key(user.entry_binding, user.media_type)
     entry = match_entry(data.entries, user.model_id, media_type=user.media_type, binding=binding)
-    model = (
+    base = (
         _to_catalog_model(entry, user.model_id, user.model_id, default=False)
         if entry is not None
         else _unmatched_catalog_model(user)
     )
-    return _IndexedModel(model, entry, user.multiplier, user.model_id, official=False)
+    model = _with_model_fact_overrides(base, user.capability_overrides) if user.capability_overrides else base
+    return _IndexedModel(
+        model,
+        entry,
+        user.multiplier,
+        user.model_id,
+        official=False,
+        base_model=base,
+        capability_overrides=user.capability_overrides,
+    )
 
 
 def _build_index(
@@ -332,6 +393,10 @@ class ProviderModelView:
     official: bool
     #: 供应商模型倍率：官方收录的随官方数据下发，用户添加的由用户填写。
     multiplier: float
+    #: 未叠加能力覆盖的目录信息：条目的值，对应不上条目时为运行时回落的值。
+    base_model: CatalogModel | None = None
+    #: 用户添加的模型的能力覆盖（已滤掉不合法的键值）；官方收录的模型没有。
+    capability_overrides: Mapping[str, object] = field(default_factory=dict)
 
 
 def provider_models(provider_id: str) -> list[ProviderModelView]:
@@ -341,10 +406,27 @@ def provider_models(provider_id: str) -> list[ProviderModelView]:
     """
     return [
         ProviderModelView(
-            key, indexed.api_model_name, indexed.model, indexed.entry, indexed.official, indexed.multiplier
+            key,
+            indexed.api_model_name,
+            indexed.model,
+            indexed.entry,
+            indexed.official,
+            indexed.multiplier,
+            base_model=indexed.base_model or indexed.model,
+            capability_overrides=indexed.capability_overrides,
         )
         for key, indexed in _indexed_models(provider_id).items()
     ]
+
+
+def user_added_capability_overrides(provider_id: str, model_id: str) -> Mapping[str, object]:
+    """内置供应商下用户添加的模型的能力覆盖；官方收录的模型、不在目录中的模型为空。
+
+    模型事实维度已并进 :func:`get_model` 的目录信息；通道事实维度（输入模式、参考上限、音轨形态等）由调用通道
+    一侧的能力声明合并（``lib.backends.backend_assembly.specs.builtin_video_capabilities_for_model``）。
+    """
+    indexed = _indexed_models(provider_id).get(model_id)
+    return indexed.capability_overrides if indexed is not None else {}
 
 
 def default_model(provider_id: str, media_type: str) -> str | None:

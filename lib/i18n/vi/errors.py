@@ -333,6 +333,8 @@ MESSAGES = {
     "builtin_model_media_type_required": 'Không xác định được loại của mô hình "{model}". Hãy chọn loại mô hình rồi thử lại',
     "builtin_model_media_type_unsupported": "Nhà cung cấp này không hỗ trợ loại mô hình này ({media_type})",
     "builtin_model_binding_invalid": 'Mô hình tương ứng "{binding}" sai định dạng, cần có dạng "nhà-sản-xuất/tên-mô-hình"',
+    "builtin_model_official_settings": '"{model}" là mô hình được liệt kê chính thức, chỉ có thể bật hoặc tắt; các thiết lập khác do phía chính thức duy trì',
+    "provider_model_setting_not_applicable": 'Mô hình "{model}" của nhà cung cấp tích hợp không có thiết lập "{setting}"',
     "provider_multiplier_not_in_config": "Không thể đổi hệ số giá của nhà cung cấp qua giao diện cấu hình; hãy dùng giao diện hệ số giá",
     "custom_endpoint_not_found": "Endpoint không tồn tại",
     "custom_endpoint_definition_invalid": "Định nghĩa endpoint không qua được kiểm tra, hãy sửa các lỗi được báo rồi thử lại",

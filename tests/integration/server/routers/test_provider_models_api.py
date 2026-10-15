@@ -188,3 +188,209 @@ async def test_custom_provider_list_and_disable_clears_default(
     assert (row.is_enabled, row.is_default) == (False, False)
     # 自定义供应商的模型经自定义供应商接口增删
     assert models_client.post(f"/api/v1/providers/{provider_id}/models", json={"model_id": "x"}).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# 供应商模型 Sheet：读取单个、保存供应商设置、移除前查引用
+# ---------------------------------------------------------------------------
+
+
+def _add_user_model(client: TestClient, provider_id: str, model_id: str, media_type: str) -> None:
+    resp = client.post(f"/api/v1/providers/{provider_id}/models", json={"model_id": model_id, "media_type": media_type})
+    assert resp.status_code == 201
+
+
+def test_user_added_video_model_overrides_take_effect_at_runtime(models_client: TestClient) -> None:
+    from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
+
+    _add_user_model(models_client, "ark", "my-video-ep", "video")
+
+    detail = models_client.get("/api/v1/providers/ark/models/my-video-ep").json()
+    caps = detail["capabilities"]
+    # 对应不上条目：可选时长取按名字推断的预设，分辨率不加约束；通道事实取调用通道的声明
+    assert (caps["base"]["durations"], caps["base"]["resolutions"], caps["base"]["audio_track"]) == (
+        [4, 8],
+        None,
+        "controllable",
+    )
+    assert {"durations", "duration_constraints", "resolutions", "audio_track"} <= set(caps["editable"])
+    assert (detail["multiplier"], detail["entry"]) == (1.0, None)
+
+    resp = models_client.patch(
+        "/api/v1/providers/ark/models/my-video-ep",
+        json={
+            "multiplier": 0.5,
+            "capability_overrides": {
+                "durations": [10, 5],
+                "resolutions": ["720p", "1080p"],
+                "duration_constraints": {"by_resolution": {"1080P": [5]}},
+                "audio_track": "always_off",
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    saved = resp.json()
+    assert saved["multiplier"] == 0.5
+    assert saved["capabilities"]["effective"]["durations"] == [5, 10]
+    assert saved["capabilities"]["base"]["durations"] == [4, 8]
+    # 运行时：模型事实经目录查询、通道事实经调用通道一侧的能力声明、倍率经计价依据，都按覆盖生效
+    model = catalog.get_model("ark", "my-video-ep", media_type="video")
+    assert model is not None
+    assert (model.supported_durations, model.resolutions, model.duration_resolution_constraints) == (
+        [5, 10],
+        ["720p", "1080p"],
+        {"1080p": [5]},
+    )
+    assert builtin_video_capabilities_for_model("ark", "my-video-ep").audio_track.value == "always_off"
+    price = catalog.provider_model_price("ark", "my-video-ep", "video")
+    assert price is not None
+    assert price.multiplier == 0.5
+
+    # 清除覆盖即回到原值
+    models_client.patch("/api/v1/providers/ark/models/my-video-ep", json={"capability_overrides": None})
+    cleared = catalog.get_model("ark", "my-video-ep", media_type="video")
+    assert cleared is not None
+    assert cleared.supported_durations == [4, 8]
+
+
+def test_official_model_settings_only_enable(models_client: TestClient) -> None:
+    detail = models_client.get("/api/v1/providers/agnes/models/agnes-3.0-flash").json()
+    assert (detail["multiplier"], detail["capabilities"]["editable"]) == (None, [])
+    assert detail["entry"]["display_name"]
+
+    for body in ({"multiplier": 2}, {"capability_overrides": {"image_input": False}}, {"model_id": "renamed"}):
+        assert models_client.patch("/api/v1/providers/agnes/models/agnes-3.0-flash", json=body).status_code == 422
+    # 内置供应商没有默认与调用端点这类设置
+    resp = models_client.patch("/api/v1/providers/agnes/models/agnes-3.0-flash", json={"is_default": True})
+    assert resp.status_code == 422
+
+    resp = models_client.patch("/api/v1/providers/agnes/models/agnes-3.0-flash", json={"enabled": False})
+    assert (resp.status_code, resp.json()["model"]["enabled"]) == (200, False)
+
+
+def test_user_added_overrides_are_validated_by_media_type(models_client: TestClient) -> None:
+    _add_user_model(models_client, "ark", "my-text-ep", "text")
+    url = "/api/v1/providers/ark/models/my-text-ep"
+
+    assert models_client.patch(url, json={"capability_overrides": {"durations": [5]}}).status_code == 422
+    assert models_client.patch(url, json={"capability_overrides": {"max_output_tokens": 0}}).status_code == 422
+
+    resp = models_client.patch(url, json={"capability_overrides": {"image_input": True, "max_output_tokens": 4096}})
+    assert resp.status_code == 200
+    model = catalog.get_model("ark", "my-text-ep", media_type="text")
+    assert model is not None
+    assert ("vision" in model.capabilities, model.max_output_tokens) == (True, 4096)
+
+
+def test_user_added_model_rename(models_client: TestClient) -> None:
+    _add_user_model(models_client, "ark", "my-text-ep", "text")
+
+    resp = models_client.patch("/api/v1/providers/ark/models/my-text-ep", json={"model_id": "my-text-ep-v2"})
+
+    assert (resp.status_code, resp.json()["model"]["model_id"]) == (200, "my-text-ep-v2")
+    assert models_client.get("/api/v1/providers/ark/models/my-text-ep").status_code == 404
+    assert catalog.get_model("ark", "my-text-ep-v2", media_type="text") is not None
+    # 改成官方收录的模型名被拒绝
+    official = next(m for m in _models(models_client, "ark").values() if m["official"])
+    resp = models_client.patch(
+        "/api/v1/providers/ark/models/my-text-ep-v2", json={"model_id": official["api_model_name"]}
+    )
+    assert resp.status_code == 422
+
+
+async def _custom_provider(db_factory: async_sessionmaker[AsyncSession], models: list[dict]) -> int:
+    async with db_factory() as session:
+        provider = await CustomProviderRepository(session).create_provider(
+            display_name="中转站",
+            discovery_format="openai",
+            base_url="https://relay.example.com/v1",
+            api_key="k",
+            models=models,
+        )
+        await session.commit()
+        return provider.id
+
+
+async def test_custom_unmatched_video_model_detail_and_settings(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    db_id = await _custom_provider(
+        db_factory,
+        [
+            {"model_id": "house-video", "display_name": "house-video", "endpoint": "newapi-video", "is_enabled": True},
+            {
+                "model_id": "other-video",
+                "display_name": "other-video",
+                "endpoint": "newapi-video",
+                "is_enabled": True,
+                "is_default": True,
+            },
+        ],
+    )
+    url = f"/api/v1/providers/custom-{db_id}/models/house-video"
+
+    detail = models_client.get(url).json()
+    # 媒体类型取调用端点，原值为运行时回落的结果
+    caps = detail["capabilities"]
+    assert (caps["media_type"], caps["base"]["durations"], detail["endpoint"]) == ("video", [4, 8], "newapi-video")
+    assert "durations" in caps["editable"]
+    assert detail["requests"]
+
+    resp = models_client.patch(
+        url,
+        json={"is_default": True, "multiplier": 2, "capability_overrides": {"durations": [6, 12]}},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert (body["model"]["is_default"], body["multiplier"]) == (True, 2.0)
+    assert body["capabilities"]["effective"]["durations"] == [6, 12]
+    # 设为默认时，同一默认分组里原来的默认被取消
+    models = _models(models_client, f"custom-{db_id}")
+    assert models["other-video"]["is_default"] is False
+
+    resp = models_client.patch(url, json={"capability_overrides": {"image_input": True}})
+    assert resp.status_code == 422
+
+
+async def test_custom_model_rename_and_remove_clear_global_references(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    db_id = await _custom_provider(
+        db_factory,
+        [
+            {"model_id": "house-model", "display_name": "house-model", "endpoint": "openai-chat", "is_enabled": True},
+            {"model_id": "spare", "display_name": "spare", "endpoint": "openai-chat", "is_enabled": True},
+        ],
+    )
+    provider_id = f"custom-{db_id}"
+    async with db_factory() as session:
+        await ConfigService(session).set_setting("default_text_backend", f"{provider_id}/house-model")
+        await session.commit()
+    from lib.project.project_manager import get_project_manager
+
+    pm = get_project_manager()
+    pm.create_project("demo")
+    pm.create_project_metadata("demo", title="演示")
+    pm.update_project("demo", lambda p: p.update({"text_backend_simple": f"{provider_id}/house-model"}))
+
+    refs = models_client.get(f"/api/v1/providers/{provider_id}/model-references", params={"model_id": "house-model"})
+    assert refs.json() == {"settings": ["default_text_backend"], "projects": [{"name": "demo", "title": "演示"}]}
+
+    resp = models_client.patch(f"/api/v1/providers/{provider_id}/models/house-model", json={"model_id": "house-v2"})
+    # 显示名跟着模型 ID 走的行，改名后仍显示新的模型 ID
+    assert (resp.status_code, resp.json()["model"]["model_id"], resp.json()["model"]["display_name"]) == (
+        200,
+        "house-v2",
+        None,
+    )
+    assert (
+        models_client.patch(f"/api/v1/providers/{provider_id}/models/house-v2", json={"model_id": "spare"}).status_code
+        == 422
+    )
+    async with db_factory() as session:
+        assert await ConfigService(session).get_setting("default_text_backend", "") == ""
+
+    assert models_client.delete(f"/api/v1/providers/{provider_id}/models/spare").status_code == 204
+    assert set(_models(models_client, provider_id)) == {"house-v2"}

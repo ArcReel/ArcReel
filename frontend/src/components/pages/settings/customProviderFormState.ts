@@ -1,5 +1,5 @@
 import { uid } from "@/utils/id";
-import { compactRangeFormat, parseDurationInput } from "@/utils/duration_format";
+import { parseDurationInput } from "@/utils/duration_format";
 import { parseMultiplier } from "@/utils/multiplier";
 import type {
   CapabilityOverrides,
@@ -129,27 +129,6 @@ export function discoveredToRow(m: DiscoveredModel): ModelRow {
   });
 }
 
-function existingToRow(m: CustomProviderInfo["models"][number]): ModelRow {
-  return newModelRow({
-    // 行标识取模型 id：保存后重取的供应商与提交的内容逐行对得上，不会被当成未保存修改
-    key: `model-${m.id}`,
-    model_id: m.model_id,
-    display_name: m.display_name,
-    endpoint: m.endpoint,
-    is_default: m.is_default,
-    is_enabled: m.is_enabled,
-    resolution: m.resolution ?? "",
-    durations_text: m.capability_overrides?.durations?.length ? compactRangeFormat(m.capability_overrides.durations) : "",
-    multiplier_text: String(m.multiplier),
-    entry_binding: m.entry_binding,
-    matched_entry: m.matched_entry,
-    capability_overrides: m.capability_overrides,
-    path_overrides: m.path_overrides,
-    system_capabilities: m.system_capabilities,
-    global_bucket_refs: m.global_bucket_refs ?? [],
-  });
-}
-
 // 并发上限：number 输入用受控字符串存储；空串 = 未设置（null，走全局默认）。
 function workersToStr(n?: number | null): string {
   return n != null ? String(n) : "";
@@ -171,7 +150,7 @@ function providerMultiplierToStr(info: ProviderMultiplierInfo): string {
   return info.multiplier === info.default ? "" : String(info.multiplier);
 }
 
-/** 已保存的供应商对应的表单内容。 */
+/** 已保存的供应商对应的表单内容。已保存的模型在模型列表与模型 Sheet 里逐个保存，不进表单。 */
 export function formFromProvider(
   provider: CustomProviderInfo,
   multiplier: ProviderMultiplierInfo = DEFAULT_PROVIDER_MULTIPLIER,
@@ -182,7 +161,7 @@ export function formFromProvider(
     baseUrl: provider.base_url,
     apiKey: "",
     noApiKey: false,
-    models: provider.models.map(existingToRow),
+    models: [],
     imageMaxWorkers: workersToStr(provider.image_max_workers),
     videoMaxWorkers: workersToStr(provider.video_max_workers),
     audioMaxWorkers: workersToStr(provider.audio_max_workers),

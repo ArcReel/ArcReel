@@ -50,7 +50,7 @@ describe("ProviderModelList", () => {
   it("groups models by media type with default badge, status flags and price summary", async () => {
     vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS });
 
-    render(<ProviderModelList providerId="acme" />);
+    render(<ProviderModelList providerId="acme" providerName="Acme" />);
 
     const lists = await screen.findAllByRole("list");
     // 文本组在图片组之前
@@ -70,7 +70,7 @@ describe("ProviderModelList", () => {
   it("filters to enabled models", async () => {
     vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: MODELS });
 
-    render(<ProviderModelList providerId="acme" />);
+    render(<ProviderModelList providerId="acme" providerName="Acme" />);
     await screen.findByText("Chat One");
     fireEvent.click(screen.getByRole("button", { name: /已启用/ }));
 
@@ -84,7 +84,7 @@ describe("ProviderModelList", () => {
       .spyOn(API, "setProviderModelEnabled")
       .mockResolvedValue({ ...MODELS[1], enabled: false, is_default: false });
 
-    render(<ProviderModelList providerId="acme" />);
+    render(<ProviderModelList providerId="acme" providerName="Acme" />);
     const toggle = await screen.findByRole("switch", { name: "启用「Chat One」" });
     fireEvent.click(toggle);
 
@@ -98,7 +98,7 @@ describe("ProviderModelList", () => {
     vi.spyOn(API, "setProviderModelEnabled").mockRejectedValue(new Error("boom"));
     const pushToast = vi.spyOn(useAppStore.getState(), "pushToast");
 
-    render(<ProviderModelList providerId="acme" />);
+    render(<ProviderModelList providerId="acme" providerName="Acme" />);
     const toggle = await screen.findByRole("switch", { name: "启用「chat-legacy」" });
     fireEvent.click(toggle);
 
@@ -110,10 +110,43 @@ describe("ProviderModelList", () => {
     vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [] });
     const onAddModel = vi.fn();
 
-    render(<ProviderModelList providerId="acme" onAddModel={onAddModel} />);
+    render(<ProviderModelList providerId="acme" providerName="Acme" onAddModel={onAddModel} />);
     await screen.findByText("这个供应商还没有模型。");
     fireEvent.click(screen.getByRole("button", { name: /添加模型/ }));
 
     expect(onAddModel).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens a model's Sheet from its row and shows the renamed row after the Sheet saves", async () => {
+    const own = item({ model_id: "my-chat", official: false });
+    vi.spyOn(API, "listProviderModels")
+      .mockResolvedValueOnce({ models: [own] })
+      .mockResolvedValue({ models: [{ ...own, model_id: "my-chat-2", api_model_name: "my-chat-2" }] });
+    const detail = {
+      model: own,
+      multiplier: 1,
+      provider_multiplier: 1,
+      entry: null,
+      capabilities: { media_type: "text" as const, editable: [], base: {}, overrides: {}, effective: {} },
+      endpoint: null,
+      resolution: null,
+      path_overrides: null,
+      requests: [],
+    };
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(detail);
+    const update = vi
+      .spyOn(API, "updateProviderModel")
+      .mockResolvedValue({ ...detail, model: { ...own, model_id: "my-chat-2", api_model_name: "my-chat-2" } });
+    const onModelsChanged = vi.fn();
+
+    render(<ProviderModelList providerId="acme" providerName="Acme" onModelsChanged={onModelsChanged} />);
+    fireEvent.click(await screen.findByRole("button", { name: /my-chat/ }));
+    const sheet = await screen.findByRole("dialog");
+    fireEvent.change(await within(sheet).findByRole("textbox", { name: "模型 ID" }), { target: { value: "my-chat-2" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledWith("acme", "my-chat", { model_id: "my-chat-2" }));
+    expect(onModelsChanged).toHaveBeenCalled();
+    expect(await screen.findAllByText("my-chat-2")).not.toHaveLength(0);
   });
 });

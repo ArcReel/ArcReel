@@ -169,6 +169,8 @@ ignore_imports = [
     "lib.backends.backend_assembly.specs -> lib.custom_provider.builtin_definitions",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.declarative_backend",
     "lib.backends.backend_assembly.specs -> lib.custom_provider.endpoints",
+    # 内置供应商下用户添加的模型叠加通道事实的能力覆盖，与自定义供应商共用同一个合并点（docs/adr/0104）
+    "lib.backends.backend_assembly.specs -> lib.custom_provider.capabilities",
     "lib.project.project_manager -> lib.backends.text_backends.base",
     "lib.backends.text_generator -> lib.backends.text_backends.base",
     "lib.backends.text_generator -> lib.backends.text_backends.factory",

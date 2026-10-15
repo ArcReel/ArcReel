@@ -15,8 +15,8 @@ import { CustomProviderForm } from "./CustomProviderForm";
 // ---------------------------------------------------------------------------
 // CustomProviderForm —— 计费相关：模型对应的条目、模型倍率与供应商倍率
 // ---------------------------------------------------------------------------
-// 模型不带价格：计价取对应条目的价目表，乘供应商倍率与模型倍率。表单只显示对应结果、
-// 编辑两级倍率，并把条目绑定与能力覆盖原样回传（整表 PUT 省略即清空）。
+// 模型不带价格：计价取对应条目的价目表，乘供应商倍率与模型倍率。新建表单的模型表显示对应结果、
+// 编辑模型倍率；已保存的供应商只编辑供应商倍率，模型在模型列表与 Sheet 里逐个保存。
 
 const CHAT_ENDPOINT: EndpointDescriptor = {
   key: "openai-chat",
@@ -92,20 +92,24 @@ function provider(models: CustomProviderModelInfo[]): CustomProviderInfo {
 }
 
 /** 渲染已保存的供应商，并等端点目录就绪：目录未到时保存会被「端点目录还没加载完」拦下。 */
-async function renderExisting(
-  existing: CustomProviderInfo,
-  providerMultiplier?: ProviderMultiplierInfo,
-  focusModelId?: string,
-) {
-  render(
-    <CustomProviderForm
-      existing={existing}
-      providerMultiplier={providerMultiplier}
-      focusModelId={focusModelId}
-      onSaved={vi.fn()}
-    />,
-  );
+async function renderExisting(existing: CustomProviderInfo, providerMultiplier?: ProviderMultiplierInfo) {
+  render(<CustomProviderForm existing={existing} providerMultiplier={providerMultiplier} onSaved={vi.fn()} />);
   await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+}
+
+/** 新建表单：填好名称、接口地址与密钥。 */
+function renderNew(onSaved = vi.fn()) {
+  render(<CustomProviderForm onSaved={onSaved} />);
+  fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的中转站" } });
+  fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "https://api.example.invalid" } });
+  fireEvent.change(screen.getByLabelText("密钥"), { target: { value: "sk-live" } });
+  return onSaved;
+}
+
+/** 新建表单里手动添加一行模型并填上模型 ID；新加的行默认展开。 */
+function addModelRow(modelId: string) {
+  fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: modelId } });
 }
 
 function rowOf(modelId: string) {
@@ -121,9 +125,8 @@ describe("CustomProviderForm（计费）", () => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     useEndpointCatalogStore.setState(useEndpointCatalogStore.getInitialState(), true);
     vi.spyOn(API, "listEndpointCatalog").mockResolvedValue({ endpoints: [CHAT_ENDPOINT, VIDEO_ENDPOINT] });
-    vi.spyOn(API, "fullUpdateCustomProvider").mockImplementation((_, data) =>
-      Promise.resolve(provider(data.models.map((m, i) => model(i + 1, m.model_id)))),
-    );
+    vi.spyOn(API, "fullUpdateCustomProvider").mockResolvedValue(provider([]));
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [] });
     vi.spyOn(API, "getCustomProvider").mockRejectedValue(new Error("refetch not under test"));
     vi.spyOn(API, "setProviderMultiplier").mockImplementation((_, multiplier) =>
       Promise.resolve({ multiplier: multiplier ?? 1, default: 1 }),
@@ -132,39 +135,8 @@ describe("CustomProviderForm（计费）", () => {
   });
 
   describe("对应条目", () => {
-    it("names the matched entry, and shows unpriced when nothing matches or the entry has no price", async () => {
-      await renderExisting(
-        provider([
-          model(1, "gpt-4o", { matched_entry: GPT_4O }),
-          model(2, "my-finetune", { matched_entry: null }),
-          model(3, "gpt-4o-legacy", { matched_entry: { ...GPT_4O, name: "gpt-4o-legacy", priced: false } }),
-        ]),
-      );
-
-      expect(within(rowOf("gpt-4o")).getByText("GPT-4o")).toBeInTheDocument();
-      expect(within(rowOf("my-finetune")).getByText("未定价")).toBeInTheDocument();
-      expect(within(rowOf("gpt-4o-legacy")).getByText("未定价")).toBeInTheDocument();
-    });
-
-    it("explains in the editor that calls to an unmatched model are recorded as unpriced", async () => {
-      await renderExisting(provider([model(1, "my-finetune")]), undefined, "my-finetune");
-
-      expect(screen.getByText("没有对应的模型条目，这个模型的调用会记为未定价。")).toBeInTheDocument();
-    });
-
-    it("shows the entry identity in the editor and warns when its price table is missing", async () => {
-      await renderExisting(
-        provider([model(1, "gpt-4o", { matched_entry: { ...GPT_4O, priced: false } })]),
-        undefined,
-        "gpt-4o",
-      );
-
-      expect(screen.getByText("openai/gpt-4o")).toBeInTheDocument();
-      expect(screen.getByText(/对应的模型条目没有可用的价目表/)).toBeInTheDocument();
-    });
-
     it("waits for the save before naming an entry for a manually added row", async () => {
-      await renderExisting(provider([model(1, "gpt-4o", { matched_entry: GPT_4O })]));
+      renderNew();
 
       fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
@@ -172,19 +144,8 @@ describe("CustomProviderForm（计费）", () => {
       expect(within(rowOf("未填写模型 ID")).queryByText("未定价")).not.toBeInTheDocument();
     });
 
-    it("stops naming the old entry once the model ID is edited, and restores it when changed back", async () => {
-      await renderExisting(provider([model(1, "gpt-4o", { matched_entry: GPT_4O })]), undefined, "gpt-4o");
-      const modelId = screen.getByRole("textbox", { name: "模型 ID" });
-
-      fireEvent.change(modelId, { target: { value: "gpt-4o-mini" } });
-      expect(within(rowOf("gpt-4o-mini")).getByText("保存后显示")).toBeInTheDocument();
-
-      fireEvent.change(modelId, { target: { value: "gpt-4o" } });
-      expect(within(rowOf("gpt-4o")).getByText("GPT-4o")).toBeInTheDocument();
-    });
-
-    it("names the entry a discovered model maps to", async () => {
-      vi.spyOn(API, "discoverModelsForProvider").mockResolvedValue({
+    it("names the entry a discovered model maps to, and shows unpriced when nothing matches", async () => {
+      vi.spyOn(API, "discoverModels").mockResolvedValue({
         not_applicable: false,
         reason: null,
         models: [
@@ -206,7 +167,7 @@ describe("CustomProviderForm（计费）", () => {
           },
         ],
       });
-      await renderExisting(provider([]));
+      renderNew();
 
       fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
 
@@ -216,74 +177,25 @@ describe("CustomProviderForm（计费）", () => {
   });
 
   describe("模型倍率", () => {
-    it("shows a non-default multiplier next to the entry", async () => {
-      await renderExisting(provider([model(1, "gpt-4o", { matched_entry: GPT_4O, multiplier: 0.8 }), model(2, "gpt-4o-mini")]));
-
-      expect(within(rowOf("gpt-4o")).getByText("×0.8")).toBeInTheDocument();
-      expect(within(rowOf("gpt-4o-mini")).queryByText(/×/)).not.toBeInTheDocument();
-    });
-
-    it("round-trips the multiplier, entry binding and capability overrides it does not edit", async () => {
-      // 整表 PUT：省略条目绑定或覆盖即清空。升级迁移会把旧的可选时长与最大输出长度写进覆盖，
-      // 这些键在非 ComfyUI 行上已经没有输入框，保存时必须原封不动带回去。
-      const overrides = { durations: [5, 10], max_output_tokens: 8192 };
-      await renderExisting(
-        provider([
-          model(1, "gpt-4o", { multiplier: 0.8, entry_binding: "openai/gpt-4o", capability_overrides: overrides }),
-          model(2, "relay-video", { endpoint: "newapi-video", capability_overrides: { durations: [5, 10] } }),
-        ]),
-      );
-      fireEvent.change(screen.getByLabelText("名称"), { target: { value: "改过的名字" } });
-
-      save();
-
-      await waitFor(() => expect(API.fullUpdateCustomProvider).toHaveBeenCalled());
-      expect(vi.mocked(API.fullUpdateCustomProvider).mock.calls[0][1].models).toEqual([
-        expect.objectContaining({
-          model_id: "gpt-4o",
-          multiplier: 0.8,
-          entry_binding: "openai/gpt-4o",
-          capability_overrides: overrides,
-        }),
-        expect.objectContaining({
-          model_id: "relay-video",
-          multiplier: 1,
-          entry_binding: null,
-          capability_overrides: { durations: [5, 10] },
-        }),
-      ]);
-    });
-
-    it("has no price, max output length or duration inputs on a non-ComfyUI row", async () => {
-      await renderExisting(
-        provider([model(1, "relay-video", { endpoint: "newapi-video", capability_overrides: { durations: [5, 10] } })]),
-        undefined,
-        "relay-video",
-      );
-
-      expect(screen.queryByLabelText("支持秒数")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("最大输出长度")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("输入价格")).not.toBeInTheDocument();
-    });
-
-    it("saves an edited multiplier as a number", async () => {
-      await renderExisting(provider([model(1, "gpt-4o")]), undefined, "gpt-4o");
+    it("saves an edited multiplier of a new model as a number", async () => {
+      vi.mocked(API.createCustomProvider).mockResolvedValue({ ...provider([]), id: 12 });
+      const onSaved = renderNew();
+      addModelRow("gpt-4o");
       const input = screen.getByRole("textbox", { name: "模型倍率" });
       expect(input).toHaveValue("1");
 
       fireEvent.change(input, { target: { value: "1.5" } });
       save();
 
-      await waitFor(() =>
-        expect(API.fullUpdateCustomProvider).toHaveBeenCalledWith(
-          3,
-          expect.objectContaining({ models: [expect.objectContaining({ multiplier: 1.5 })] }),
-        ),
+      await waitFor(() => expect(onSaved).toHaveBeenCalled());
+      expect(API.createCustomProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ models: [expect.objectContaining({ model_id: "gpt-4o", multiplier: 1.5 })] }),
       );
     });
 
     it.each(["-1", "abc", "1e3", ""])("rejects %j as a multiplier and blocks the save", async (text) => {
-      await renderExisting(provider([model(1, "gpt-4o")]), undefined, "gpt-4o");
+      renderNew();
+      addModelRow("gpt-4o");
 
       fireEvent.change(screen.getByRole("textbox", { name: "模型倍率" }), { target: { value: text } });
 
@@ -291,20 +203,20 @@ describe("CustomProviderForm（计费）", () => {
       expect(screen.getByText("倍率须为不小于 0 的数。")).toBeInTheDocument();
       save();
       expect(await screen.findByRole("alert")).toHaveTextContent("模型倍率须为不小于 0 的数");
-      expect(API.fullUpdateCustomProvider).not.toHaveBeenCalled();
+      expect(API.createCustomProvider).not.toHaveBeenCalled();
     });
 
     it("accepts zero", async () => {
-      await renderExisting(provider([model(1, "gpt-4o")]), undefined, "gpt-4o");
+      vi.mocked(API.createCustomProvider).mockResolvedValue({ ...provider([]), id: 12 });
+      const onSaved = renderNew();
+      addModelRow("gpt-4o");
 
       fireEvent.change(screen.getByRole("textbox", { name: "模型倍率" }), { target: { value: "0" } });
       save();
 
-      await waitFor(() =>
-        expect(API.fullUpdateCustomProvider).toHaveBeenCalledWith(
-          3,
-          expect.objectContaining({ models: [expect.objectContaining({ multiplier: 0 })] }),
-        ),
+      await waitFor(() => expect(onSaved).toHaveBeenCalled());
+      expect(API.createCustomProvider).toHaveBeenCalledWith(
+        expect.objectContaining({ models: [expect.objectContaining({ multiplier: 0 })] }),
       );
     });
   });
@@ -375,7 +287,7 @@ describe("CustomProviderForm（计费）", () => {
       fireEvent.change(providerMultiplierInput(), { target: { value: "0.5" } });
       save();
 
-      expect(await screen.findByRole("alert")).toHaveTextContent("供应商与模型已保存，供应商倍率未保存：网关拒绝");
+      expect(await screen.findByRole("alert")).toHaveTextContent("供应商已保存，供应商倍率未保存：网关拒绝");
       // 未保存的只剩倍率：输入保留，保存按钮仍可用
       expect(providerMultiplierInput()).toHaveValue("0.5");
       expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();

@@ -333,6 +333,8 @@ MESSAGES = {
     "builtin_model_media_type_required": 'Can\'t tell the type of model "{model}". Choose a model type and try again',
     "builtin_model_media_type_unsupported": "This provider doesn't support this type of model ({media_type})",
     "builtin_model_binding_invalid": 'Matched model "{binding}" is malformed. Use "maker/model-name"',
+    "builtin_model_official_settings": '"{model}" is an officially listed model. You can only enable or disable it; its other settings are maintained officially',
+    "provider_model_setting_not_applicable": 'Built-in provider model "{model}" has no "{setting}" setting',
     "provider_multiplier_not_in_config": "The provider multiplier cannot be changed through the config endpoint; use the multiplier endpoint",
     "custom_endpoint_not_found": "Endpoint does not exist",
     "custom_endpoint_definition_invalid": "The endpoint definition failed validation. Fix the reported issues and try again",

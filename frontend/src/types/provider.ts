@@ -1,3 +1,5 @@
+import type { CapabilityOverrides, EndpointRequest, PathOverrides } from "./custom-provider";
+
 /**
  * 声音一致性三级标识，与 `lib/config/resolver.py::VoiceConsistency` 一一对应。
  * 档位值全部由服务端派生，前端只做渲染映射，不复制派生公式。
@@ -138,4 +140,65 @@ export interface ProviderModelItem {
   price: PriceSummary | null;
   /** 自定义供应商模型的调用端点键；内置供应商为 null。 */
   endpoint: string | null;
+}
+
+/** 能力覆盖的维度键。 */
+export type CapabilityKey = keyof CapabilityOverrides;
+
+/**
+ * 「这个供应商支持的参数」（GET /providers/{id}/models/{model}）：
+ * `base` 是没有能力覆盖时运行时采用的值（对应条目的值，对应不上时为运行时回落），`null` 表示不加约束；
+ * `overrides` 是生效的能力覆盖；`editable` 是可以修改的维度，按界面顺序，官方收录的模型为空。
+ */
+export interface ProviderModelCapabilities {
+  media_type: ProviderModelItem["media_type"];
+  editable: CapabilityKey[];
+  base: Partial<Record<CapabilityKey, unknown>>;
+  overrides: CapabilityOverrides;
+  effective: Partial<Record<CapabilityKey, unknown>>;
+}
+
+/** 供应商模型对应到的条目，Sheet 下段「模型信息」只读展示。 */
+export interface ProviderModelEntryInfo {
+  maker: string;
+  name: string;
+  display_name: string;
+  media_type: ProviderModelItem["media_type"];
+  aliases: string[];
+  discontinued: boolean;
+  context_length: number | null;
+  facts: Record<string, unknown>;
+}
+
+/** 供应商模型 Sheet 的内容。 */
+export interface ProviderModelDetail {
+  model: ProviderModelItem;
+  /** 供应商模型倍率；官方收录的模型为 null（界面不显示）。 */
+  multiplier: number | null;
+  provider_multiplier: number;
+  entry: ProviderModelEntryInfo | null;
+  capabilities: ProviderModelCapabilities;
+  /** 以下只有自定义供应商的模型有。 */
+  endpoint: string | null;
+  resolution: string | null;
+  path_overrides: PathOverrides | null;
+  requests: EndpointRequest[];
+}
+
+/** 保存供应商模型 Sheet 的供应商设置；没有传的字段不改。 */
+export interface ProviderModelSettingsUpdate {
+  enabled?: boolean;
+  is_default?: boolean;
+  model_id?: string;
+  multiplier?: number;
+  capability_overrides?: CapabilityOverrides | null;
+  endpoint?: string;
+  path_overrides?: PathOverrides | null;
+  resolution?: string | null;
+}
+
+/** 引用某个供应商模型的全局设置键与项目。 */
+export interface ProviderModelReferences {
+  settings: string[];
+  projects: { name: string; title: string | null }[];
 }

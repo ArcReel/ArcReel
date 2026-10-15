@@ -313,6 +313,8 @@ MESSAGES = {
     "builtin_model_media_type_required": "无法判断模型「{model}」的类型，请选择模型类型后重试",
     "builtin_model_media_type_unsupported": "这个供应商不支持这类模型（{media_type}）",
     "builtin_model_binding_invalid": "对应模型「{binding}」的格式不正确，应为「厂商/模型名」",
+    "builtin_model_official_settings": "「{model}」是官方收录的模型，只能启用或停用，其他设置由官方维护",
+    "provider_model_setting_not_applicable": "内置供应商的模型「{model}」没有「{setting}」这项设置",
     "provider_multiplier_not_in_config": "供应商倍率不能经配置接口修改，请用倍率设置接口",
     "custom_endpoint_not_found": "调用端点不存在",
     "custom_endpoint_definition_invalid": "调用端点定义未通过校验，请按诊断逐条修正后重试",

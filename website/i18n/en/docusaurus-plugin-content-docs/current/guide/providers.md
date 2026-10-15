@@ -101,6 +101,32 @@ Use "All / Enabled" to switch what is shown.
 The price summary shows the unit price range for each billing item; for models priced by tiers such as resolution or duration, it shows
 the lowest to the highest tier. Actual costs are further multiplied by the provider's multiplier, which is set higher up on the same page.
 
+### 3.2 Model Settings {#model-settings}
+
+Click a row in the model list to open that model's settings on the right; this works the same for Preset and custom providers. The upper
+part, "Provider settings", applies only to the current provider. The lower part, "Model info", is the model's record in the model catalog
+and is read-only for now. Both parts share the save bar at the bottom, and closing with unsaved changes asks first.
+
+- Officially listed built-in models can only be enabled or disabled; their other settings are maintained officially;
+- Models of custom providers, and models you added yourself under a built-in provider, also have:
+  - "Model ID": the model name sent to the provider with each call. After changing it, settings and projects that selected this model need to select it again;
+  - "Multiplier": this model's multiplier. When the provider multiplier is not 1, the final multiplier of the two is shown;
+  - "Parameters this provider supports": change these when what the provider actually supports differs from the model info, for example
+    when a relay only offers some durations or resolutions, or does not support the last frame. Each item shows its original value;
+    "Change" replaces the whole item and "Restore" goes back to the original value. Models that map to no known model can be changed too;
+    their original values are what ArcReel infers from the model name. For video models, "Durations by resolution" follows "Durations",
+    and removing a resolution also removes its duration restriction;
+  - "Remove from 'provider name'": removal asks for confirmation first. When settings or projects use the model, the dialog lists them,
+    and after removal you need to select another model for them;
+- Models of custom providers also have "Set as default", "Call endpoint", "Request URL", and a default resolution. Changing the endpoint
+  resets modified request URLs to their defaults and clears the changes under "Parameters this provider supports"; save first, then adjust
+  them for the new endpoint.
+
+The name, base URL, key, concurrency limits, and provider multiplier of a custom provider are still saved together in the provider details,
+and saving them does not change the models in the model list.
+
+In the details of a usage record, click the model name to open that model's settings.
+
 ## 4. Six Dimensions for Choosing a Provider {#six-selection-dimensions}
 
 Do not consider only the result of a single generation.
@@ -339,7 +365,7 @@ A typical configuration includes:
 - Media type;
 - Optional provider-specific parameters.
 
-The model discovery protocol only determines which type of model-listing interface ArcReel uses. How each model is actually called is determined by its bound call endpoint. ArcReel can infer the media type and call endpoint from the model name, but compatibility with a protocol does not mean that every capability and parameter is available. You can adjust these manually before saving, and you should validate each of the following after adding the provider:
+The model discovery protocol only determines which type of model-listing interface ArcReel uses. How each model is actually called is determined by its bound call endpoint. ArcReel can infer the media type and call endpoint from the model name, but compatibility with a protocol does not mean that every capability and parameter is available. You can adjust them in the [model settings](#model-settings) after adding models, and you should validate each of the following:
 
 1. Text connectivity;
 2. Structured output;
@@ -363,9 +389,9 @@ When creating an endpoint, you can pick the video or image "submit + poll" templ
 
 For a self-hosted ComfyUI instance, you can import an API-format workflow and map prompts, assets, dimensions, duration, and output to its nodes. See [Connect a ComfyUI Workflow](./comfyui.md) for the complete setup and operational constraints.
 
-When a relay keeps an official protocol but changes the path (an added prefix, a different version segment, or a renamed path), you can change the "Request URL" in the model's edit area. Each request the endpoint sends gets its own row; the base URL part is greyed out, and you click the path to edit it. Press Enter or click elsewhere to save, or press Esc to cancel. A changed path is appended to the base URL exactly as the provider entered it, without adding `/v1` or stripping a version segment. To drop only what was added or stripped automatically, open the path and press Enter without changing it. The path can only use placeholders the request already has, such as `{{ model }}` and `{{ task_id }}`.
+When a relay keeps an official protocol but changes the path (an added prefix, a different version segment, or a renamed path), you can change the "Request URL" in the [model settings](#model-settings). Each request the endpoint sends gets its own row; the base URL part is greyed out, and you click the path to edit it. Press Enter or click elsewhere to save, or press Esc to cancel. A changed path is appended to the base URL exactly as the provider entered it, without adding `/v1` or stripping a version segment. To drop only what was added or stripped automatically, open the path and press Enter without changing it. The path can only use placeholders the request already has, such as `{{ model }}` and `{{ task_id }}`.
 
-Connection tests and real generation use the changed URLs; model discovery and connectivity checks still use the base URL. Changing the endpoint resets modified request URLs to their defaults. If you change a request URL after a video task is submitted, resuming that task after a service restart fails instead of submitting it again. Endpoints without a "Request URL" row in the model's edit area do not support this.
+Connection tests and real generation use the changed URLs; model discovery and connectivity checks still use the base URL. Changing the endpoint resets modified request URLs to their defaults. If you change a request URL after a video task is submitted, resuming that task after a service restart fails instead of submitting it again. Endpoints without a "Request URL" row in the model settings do not support this.
 
 ### 10.1 Three Endpoint Test Modes {#custom-endpoint-tests}
 
@@ -463,7 +489,7 @@ Models on a custom provider have no prices of their own. When a model name maps 
 when it maps to nothing, its calls are recorded as "Unpriced". The model list on the settings page shows the known model each model maps to, or "Unpriced".
 
 Each provider can have a multiplier that applies to the cost of all its calls, to reflect top-up discounts or relay price differences.
-Each model on a custom provider can also have its own multiplier, so the final cost = official price × provider multiplier × model multiplier. For example, if a relay charges 80% of the official price across the board, set the provider multiplier to 0.8; if one model there costs 1.5× the official price, set that model's multiplier to 1.875 (0.8 × 1.875 = 1.5).
+Models of custom providers, and models you added yourself under a built-in provider, can also have their own multiplier, so the final cost = official price × provider multiplier × model multiplier. For example, if a relay charges 80% of the official price across the board, set the provider multiplier to 0.8; if one model there costs 1.5× the official price, set that model's multiplier to 1.875 (0.8 × 1.875 = 1.5).
 The multiplier defaults to 1; Volcengine Ark Agent Plan is billed by subscription and ComfyUI providers run on your own hardware, so their multipliers default to 0 and no cost is computed. Changing a multiplier only affects later calls;
 costs already recorded are not recalculated.
 

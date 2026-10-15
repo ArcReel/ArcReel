@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useId, useState } from "react";
-import { Loader2, Plus } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { ChevronRight, Loader2, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 import { cn } from "cn";
 import { API } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -9,71 +8,36 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import type { PriceSummary, ProviderModelFlag, ProviderModelItem } from "@/types";
+import type { ProviderModelItem } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
-import { formatCurrencyAmount } from "@/utils/cost-format";
+import { MEDIA_LABEL_KEY, ProviderModelFlags, priceSummaryText } from "./providerModelDisplay";
+import { ProviderModelSheet, type CustomProviderContext, type OpenProviderModel } from "./ProviderModelSheet";
 
 // 分组顺序：文本、图片、视频、音频。
 const MEDIA_ORDER = ["text", "image", "video", "audio"] as const;
-const MEDIA_LABEL_KEY: Record<ProviderModelItem["media_type"], string> = {
-  text: "media_type_text",
-  image: "media_type_image",
-  video: "media_type_video",
-  audio: "media_type_audio",
-};
 
 type Filter = "all" | "enabled";
-
-const FLAG_LABEL_KEY: Record<ProviderModelFlag, string> = {
-  discontinued: "pm_flag_discontinued",
-  unpriced: "pm_flag_unpriced",
-};
-
-const FLAG_TONE: Record<ProviderModelFlag, string> = {
-  discontinued: "border-destructive/50 text-destructive",
-  unpriced: "border-warn/50 text-warn",
-};
-
-// 价格摘要里各计费项的写法，如「$0.05/百万 token 输入」；没有登记的计费项不显示。
-const PRICE_ITEM_KEY: Record<string, string> = {
-  uncached_input_tokens: "pm_price_input_tokens",
-  output_tokens: "pm_price_output_tokens",
-  output_images: "pm_price_output_images",
-  image_output_tokens: "pm_price_image_output_tokens",
-  output_seconds: "pm_price_output_seconds",
-  video_tokens: "pm_price_video_tokens",
-  characters: "pm_price_characters",
-  audio_output_tokens: "pm_price_audio_output_tokens",
-  requests: "pm_price_requests",
-};
-
-const PRICE_DIGITS = { minimumFractionDigits: 0, maximumFractionDigits: 4 };
-
-function priceRange(currency: string, min: number, max: number): string {
-  const low = formatCurrencyAmount(currency, min, PRICE_DIGITS);
-  if (min === max) return low;
-  return `${low}–${max.toLocaleString("en", PRICE_DIGITS)}`;
-}
-
-function priceSummaryText(t: TFunction, price: PriceSummary): string {
-  return price.items
-    .filter((item) => PRICE_ITEM_KEY[item.meter])
-    .map((item) => t(PRICE_ITEM_KEY[item.meter], { price: priceRange(price.currency, item.min_price, item.max_price) }))
-    .join(t("pm_price_separator"));
-}
 
 interface Props {
   /** 内置供应商 ID，或自定义供应商的 `custom-<id>`。 */
   providerId: string;
+  /** 供应商名称，显示在模型 Sheet 的标题下与「从『X』移除」里。 */
+  providerName: string;
+  /** 自定义供应商的接口地址与模型发现协议：模型 Sheet 据此编辑调用端点与请求地址。 */
+  custom?: CustomProviderContext;
+  /** 深链里的模型 ID：打开时直接打开它的 Sheet。 */
+  initialModelId?: string;
   /** 「添加模型」入口；没有传入时按钮不可用。 */
   onAddModel?: () => void;
+  /** 模型 Sheet 保存或移除之后调用，供上层刷新依赖模型的内容。 */
+  onModelsChanged?: () => void;
 }
 
 /**
  * 供应商详情的模型列表：按文本、图片、视频、音频分组，筛选「全部 / 已启用」。行上的启用开关点击即生效，
  * 停用时同时取消默认。内置与自定义供应商共用；自定义供应商的行另显示调用端点。
  */
-export function ProviderModelList({ providerId, onAddModel }: Props) {
+export function ProviderModelList({ providerId, providerName, custom, initialModelId, onAddModel, onModelsChanged }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
   const endpoints = useEndpointCatalogStore((s) => s.endpoints);
@@ -83,6 +47,15 @@ export function ProviderModelList({ providerId, onAddModel }: Props) {
   const [filter, setFilter] = useState<Filter>("all");
   const [pending, setPending] = useState<ReadonlySet<string>>(new Set());
   const headingId = useId();
+  // 打开的模型 Sheet；每次打开换一个 key，关掉再打开同一个模型时重新读取
+  const sheetKeyRef = useRef(0);
+  const [openModel, setOpenModel] = useState<OpenProviderModel | null>(() =>
+    initialModelId ? { modelId: initialModelId, key: 0 } : null,
+  );
+  const openSheet = (modelId: string) => {
+    sheetKeyRef.current += 1;
+    setOpenModel({ modelId, key: sheetKeyRef.current });
+  };
 
   useEffect(() => {
     const controller = new AbortController();
@@ -127,6 +100,38 @@ export function ProviderModelList({ providerId, onAddModel }: Props) {
     [providerId, pushToast, t],
   );
 
+  // Sheet 保存后整表重取：设为默认会取消同组其他模型的默认，改名会换掉行的键
+  const handleSheetSaved = useCallback(
+    (model: ProviderModelItem, previousModelId: string) => {
+      setModels((prev) => prev?.map((m) => (m.model_id === previousModelId ? model : m)) ?? prev);
+      // 改了模型 ID：Sheet 继续显示同一个模型，不重新打开
+      setOpenModel((prev) => (prev && prev.modelId === previousModelId ? { ...prev, modelId: model.model_id } : prev));
+      setReloadKey((k) => k + 1);
+      onModelsChanged?.();
+    },
+    [onModelsChanged],
+  );
+  const handleSheetRemoved = useCallback(
+    (modelId: string) => {
+      setModels((prev) => prev?.filter((m) => m.model_id !== modelId) ?? prev);
+      onModelsChanged?.();
+    },
+    [onModelsChanged],
+  );
+  const closeSheet = useCallback(() => setOpenModel(null), []);
+
+  const sheet = (
+    <ProviderModelSheet
+      providerId={providerId}
+      providerName={providerName}
+      open={openModel}
+      custom={custom}
+      onClose={closeSheet}
+      onSaved={handleSheetSaved}
+      onRemoved={handleSheetRemoved}
+    />
+  );
+
   const endpointLabel = (key: string) => {
     const endpoint = endpoints.find((e) => e.key === key);
     if (!endpoint) return key;
@@ -145,8 +150,16 @@ export function ProviderModelList({ providerId, onAddModel }: Props) {
     </div>
   );
 
+  // Sheet 在三种状态里处于同一位置：列表加载完成时不会被重新挂载
+  const withSheet = (content: ReactNode) => (
+    <>
+      {content}
+      {sheet}
+    </>
+  );
+
   if (loadError) {
-    return (
+    return withSheet(
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {header}
         <div role="alert" className="flex flex-col items-start gap-2">
@@ -167,7 +180,7 @@ export function ProviderModelList({ providerId, onAddModel }: Props) {
   }
 
   if (!models) {
-    return (
+    return withSheet(
       <section aria-labelledby={headingId} className="flex flex-col gap-3">
         {header}
         <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -181,7 +194,7 @@ export function ProviderModelList({ providerId, onAddModel }: Props) {
   const enabledCount = models.filter((m) => m.enabled).length;
   const visible = filter === "enabled" ? models.filter((m) => m.enabled) : models;
 
-  return (
+  return withSheet(
     <section aria-labelledby={headingId} className="flex flex-col gap-3">
       {header}
       {models.length > 0 && (
@@ -226,7 +239,7 @@ export function ProviderModelList({ providerId, onAddModel }: Props) {
                 const name = model.display_name ?? model.model_id;
                 const price = model.price ? priceSummaryText(t, model.price) : "";
                 return (
-                  <li key={model.model_id} className="flex items-center gap-3 px-3 py-2">
+                  <li key={model.model_id} className="flex items-center gap-3 py-1 pr-1 pl-3">
                     <Switch
                       size="sm"
                       checked={model.enabled}
@@ -234,32 +247,30 @@ export function ProviderModelList({ providerId, onAddModel }: Props) {
                       aria-label={t("pm_enable_model", { name })}
                       onCheckedChange={(checked) => voidCall(setEnabled(model, checked))}
                     />
-                    <div className={cn("flex min-w-0 flex-1 flex-col gap-0.5", !model.enabled && "opacity-60")}>
-                      <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                        <span className="truncate text-sm">{name}</span>
-                        {model.is_default && (
-                          <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/15 px-1.5 text-xs text-primary">
-                            {t("pm_default_badge")}
-                          </span>
-                        )}
-                        {model.flags.map((flag) => (
-                          <span
-                            key={flag}
-                            className={cn(
-                              "inline-flex h-5 shrink-0 items-center rounded-full border px-1.5 text-xs whitespace-nowrap",
-                              FLAG_TONE[flag],
-                            )}
-                          >
-                            {t(FLAG_LABEL_KEY[flag])}
-                          </span>
-                        ))}
+                    <button
+                      type="button"
+                      aria-haspopup="dialog"
+                      onClick={() => openSheet(model.model_id)}
+                      className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left outline-none hover:bg-muted/60 focus-visible:ring-3 focus-visible:ring-ring/50"
+                    >
+                      <span className={cn("flex min-w-0 flex-1 flex-col gap-0.5", !model.enabled && "opacity-60")}>
+                        <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                          <span className="truncate text-sm">{name}</span>
+                          {model.is_default && (
+                            <span className="inline-flex h-5 shrink-0 items-center rounded-full bg-primary/15 px-1.5 text-xs text-primary">
+                              {t("pm_default_badge")}
+                            </span>
+                          )}
+                          <ProviderModelFlags flags={model.flags} />
+                        </span>
+                        <span className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
+                          <span className="truncate font-mono">{model.model_id}</span>
+                          {price && <span>{price}</span>}
+                          {model.endpoint && <span>{endpointLabel(model.endpoint)}</span>}
+                        </span>
                       </span>
-                      <span className="flex min-w-0 flex-wrap items-center gap-x-3 text-xs text-muted-foreground">
-                        <span className="truncate font-mono">{model.model_id}</span>
-                        {price && <span>{price}</span>}
-                        {model.endpoint && <span>{endpointLabel(model.endpoint)}</span>}
-                      </span>
-                    </div>
+                      <ChevronRight aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                    </button>
                   </li>
                 );
               })}

@@ -64,6 +64,9 @@ import type {
   CustomProviderFullUpdateRequest,
   ProviderMultiplierInfo,
   ProviderModelItem,
+  ProviderModelDetail,
+  ProviderModelReferences,
+  ProviderModelSettingsUpdate,
   DiscoverModelsResponse,
   EndpointDescriptor,
   ComfyuiInferResponse,
@@ -276,6 +279,11 @@ export const CHARACTER_DERIVATIVE_RESOURCE_TYPE = "character_derivatives";
 /** 衍生的复合资源 id：本体名与衍生名各占一段，与后端的落盘、队列与版本口径一致。 */
 export function derivativeResourceId(characterName: string, derivativeName: string): string {
   return `${characterName}/${derivativeName}`;
+}
+
+/** 路径参数里可能带 `/` 的值（如模型 ID）：逐段编码，保留分隔符，对应服务端的 `{name:path}`。 */
+function encodePath(value: string): string {
+  return value.split("/").map(encodeURIComponent).join("/");
 }
 
 /** 角色衍生子资源的路径前缀；衍生挂在角色条目下，两段名字各自编码。 */
@@ -3230,6 +3238,44 @@ class API {
       method: "PUT",
       body: JSON.stringify({ model_id: modelId, enabled }),
     });
+  }
+
+  /** 读取单个供应商模型：列表行、供应商设置、对应条目与「这个供应商支持的参数」。 */
+  static async getProviderModel(
+    id: string,
+    modelId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderModelDetail> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/${encodePath(modelId)}`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 保存供应商模型 Sheet 的供应商设置，返回保存后的 Sheet 内容。 */
+  static async updateProviderModel(
+    id: string,
+    modelId: string,
+    settings: ProviderModelSettingsUpdate
+  ): Promise<ProviderModelDetail> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/${encodePath(modelId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  /** 从供应商移除用户负责的模型。 */
+  static async removeProviderModel(id: string, modelId: string): Promise<void> {
+    await this.request(`/providers/${encodeURIComponent(id)}/models/${encodePath(modelId)}`, { method: "DELETE" });
+  }
+
+  /** 引用这个供应商模型的全局设置项与项目，移除前提示用。 */
+  static async getProviderModelReferences(
+    id: string,
+    modelId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderModelReferences> {
+    const params = new URLSearchParams({ model_id: modelId });
+    return this.request(`/providers/${encodeURIComponent(id)}/model-references?${params}`, { signal: options.signal });
   }
 
   /** 测试指定 provider 的连接。 */

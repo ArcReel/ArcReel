@@ -6,7 +6,7 @@ import { RECORDED_DIR, type RecordedResponse } from "../support/recorded.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
 // 「供应商」分区：全出血档的二级栏（预置 | 自定义 Tab、紧凑档图标栏）、预置供应商详情（密钥、高级配置、底部保存栏）
-// 与自定义供应商详情（连接、模型表格、并发上限、底部保存栏）。
+// 与自定义供应商详情（连接、模型列表、并发上限、底部保存栏），以及点开模型行打开的模型 Sheet。
 
 const PROVIDERS_PATH = "/app/settings?section=providers";
 
@@ -114,7 +114,7 @@ const MANY_CUSTOM_PROVIDERS: ApiOverrides = {
   },
 };
 
-// 压力变体：一个自定义供应商挂 9 个模型，名称、接口地址与模型 ID 都长；多于 5 个模型时出现搜索与类型筛选。
+// 压力变体：一个自定义供应商挂 9 个模型，名称、接口地址与模型 ID 都长。
 const CUSTOM_PROVIDER_ID = 7;
 const CUSTOM_PROVIDER_PATH = `${PROVIDERS_PATH}&custom=${CUSTOM_PROVIDER_ID}`;
 const CUSTOM_PROVIDER_NAME = "自建 OpenAI 兼容网关 · 华东二区备用线路（按量计费，月底结算）";
@@ -197,15 +197,136 @@ const customProvider = {
   audio_max_workers: null,
 };
 
+const ENDPOINT_MEDIA: Record<string, string> = {
+  "openai-chat": "text",
+  "gemini-image": "image",
+  "openai-images": "image",
+  "kling-video": "video",
+  "ark-seedance": "video",
+  "minimax-hailuo-v1": "video",
+  "openai-tts": "audio",
+  "dashscope-async-video": "video",
+};
+
+// 模型列表的行（GET /providers/custom-7/models）与已保存的模型一一对应
+const customListItems = customProvider.models.map((m) => ({
+  model_id: m.model_id,
+  api_model_name: m.model_id,
+  display_name: null,
+  media_type: ENDPOINT_MEDIA[m.endpoint],
+  enabled: m.is_enabled,
+  is_default: m.is_default,
+  official: false,
+  flags: m.matched_entry && (m.matched_entry as { priced: boolean }).priced ? [] : ["unpriced"],
+  price:
+    m.endpoint === "kling-video"
+      ? { currency: "CNY", items: [{ meter: "output_seconds", min_price: 0.5, max_price: 1, per: 1 }] }
+      : null,
+  endpoint: m.endpoint,
+}));
+
+const KLING_ID = "kling-v2-6-master-image-to-video-pro-1080p";
+
+// 模型 Sheet 的压力内容：视频模型的参数全部可改，其中两项已修改，下段带条目信息
+const klingDetail = {
+  model: customListItems.find((m) => m.model_id === KLING_ID),
+  multiplier: 1.25,
+  provider_multiplier: 0.9,
+  entry: {
+    maker: "kling",
+    name: "kling-v2-6-master",
+    display_name: "Kling v2.6 Master",
+    media_type: "video",
+    aliases: ["kling-v2.6-master", "kling-v2-6-master-image-to-video"],
+    discontinued: false,
+    context_length: null,
+    facts: {
+      durations: [5, 10],
+      resolutions: ["720p", "1080p"],
+      duration_constraints: { by_resolution: { "1080p": [5] }, with_reference_images: [5] },
+    },
+  },
+  capabilities: {
+    media_type: "video",
+    editable: [
+      "durations",
+      "duration_constraints",
+      "resolutions",
+      "text_to_video",
+      "first_frame",
+      "last_frame",
+      "max_reference_images",
+      "reference_audio_mode",
+      "max_reference_audio_count",
+      "max_reference_audio_total_seconds",
+      "max_prompt_chars",
+      "audio_track",
+      "reference_route_audio_track",
+    ],
+    base: {
+      durations: [5, 10],
+      duration_constraints: { by_resolution: { "1080p": [5] }, with_reference_images: [5] },
+      resolutions: ["720p", "1080p"],
+      text_to_video: true,
+      first_frame: true,
+      last_frame: true,
+      max_reference_images: 4,
+      reference_audio_mode: "none",
+      max_reference_audio_count: 0,
+      max_reference_audio_total_seconds: null,
+      max_prompt_chars: 2500,
+      audio_track: "controllable",
+      reference_route_audio_track: "always_off",
+    },
+    overrides: { last_frame: false, durations: [5, 10] },
+    effective: {},
+  },
+  endpoint: "kling-video",
+  resolution: "1080p",
+  path_overrides: null,
+  requests: [],
+};
+
+const gptImageDetail = {
+  model: customListItems.find((m) => m.model_id === "gpt-image-1"),
+  multiplier: 1,
+  provider_multiplier: 0.9,
+  entry: null,
+  capabilities: {
+    media_type: "image",
+    editable: ["text_to_image", "image_to_image", "resolutions"],
+    base: { text_to_image: true, image_to_image: true, resolutions: null },
+    overrides: {},
+    effective: {},
+  },
+  endpoint: "openai-images",
+  resolution: null,
+  path_overrides: null,
+  requests: [],
+};
+
 const CUSTOM_PROVIDER_DETAIL: ApiOverrides = {
   "GET /api/v1/custom-providers": { status: 200, body: { providers: [customProvider] } },
   [`GET /api/v1/custom-providers/${CUSTOM_PROVIDER_ID}`]: { status: 200, body: customProvider },
   [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/multiplier`]: { status: 200, body: { multiplier: 0.9, default: 1 } },
+  [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/models`]: { status: 200, body: { models: customListItems } },
+  [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/models/${KLING_ID}`]: { status: 200, body: klingDetail },
+  [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/models/gpt-image-1`]: { status: 200, body: gptImageDetail },
 };
 
 async function customDetailReady(page: Page) {
   await page.getByRole("heading", { name: CUSTOM_PROVIDER_NAME }).waitFor();
-  await page.getByRole("table").waitFor();
+  await page.getByRole("region", { name: "模型" }).getByRole("listitem").first().waitFor();
+}
+
+/** 点开模型列表里的一行，等模型 Sheet 读完。 */
+async function openModelSheet(page: Page, modelId: string) {
+  const row = page.getByRole("region", { name: "模型" }).getByRole("button", { name: new RegExp(modelId) });
+  await row.scrollIntoViewIfNeeded();
+  await row.click();
+  const sheet = page.getByRole("dialog");
+  await sheet.getByRole("heading", { name: "供应商设置" }).waitFor();
+  return sheet;
 }
 
 const rail = (page: Page) => page.getByRole("navigation", { name: "供应商列表" });
@@ -290,35 +411,16 @@ defineRegionScenarios("供应商", [
     screenshot: { name: "providers-add-key-dialog", target: (page) => page.getByRole("dialog") },
   },
   {
-    name: "自定义供应商详情：六列完整，展开两行后正文在详情栏里滚动，底部保存栏始终可见",
+    name: "自定义供应商详情：模型列表的长模型 ID 换行，正文在详情栏里滚动，底部保存栏始终可见",
     path: CUSTOM_PROVIDER_PATH,
     api: CUSTOM_PROVIDER_DETAIL,
     ready: customDetailReady,
     act: async (page) => {
       const main = page.getByRole("main");
-      await expect(main.getByRole("searchbox", { name: "搜索模型…" })).toBeVisible();
-      await expect(main.getByRole("group", { name: "按类型筛选" })).toBeVisible();
-      const viewport = page.viewportSize()!;
-      if (viewport.width >= 1440) {
-        // 「启用」列的表头是全选框
-        await expect(main.getByRole("checkbox", { name: "启用列表中的全部模型" })).toBeInViewport({ ratio: 1 });
-        for (const column of ["模型 ID", "类型", "调用端点", "对应条目", "默认"]) {
-          await expect(main.getByRole("columnheader", { name: column, exact: true })).toBeInViewport({ ratio: 1 });
-        }
-      }
-
-      await main.getByRole("button", { name: /^编辑 deepseek-ai/ }).click();
-      await main.getByRole("button", { name: /^编辑 kling-v2-6/ }).click();
-      const modelIds = main.getByRole("textbox", { name: "模型 ID" });
-      await expect(modelIds).toHaveCount(2);
-      if (viewport.width >= 1440) {
-        // 长模型 ID 在输入框里完整可见，不需要横向滚动才能编辑
-        const first = modelIds.first();
-        const fits = await first.evaluate((el: HTMLInputElement) => el.scrollWidth <= el.clientWidth);
-        expect(fits).toBe(true);
-      }
-
-      await modelIds.first().fill("deepseek-ai/DeepSeek-V3.2-Exp");
+      await main.getByLabel("名称").fill("自建网关");
+      const models = main.getByRole("region", { name: "模型" });
+      await models.scrollIntoViewIfNeeded();
+      await expect(models.getByRole("listitem")).toHaveCount(9);
       const save = page.getByRole("button", { name: "保存" });
       await expect(save).toBeInViewport({ ratio: 1 });
       await expect(save).toBeEnabled();
@@ -326,20 +428,70 @@ defineRegionScenarios("供应商", [
     screenshot: { name: "providers-custom-detail", target: (page) => page.getByRole("main") },
   },
   {
-    name: "自定义供应商详情：打开调用端点下拉，按媒体分组的选项留在视口内",
+    name: "自定义供应商的模型 Sheet：参数全部展开时正文在 Sheet 里滚动，保存栏始终可见",
     path: CUSTOM_PROVIDER_PATH,
     api: CUSTOM_PROVIDER_DETAIL,
     ready: customDetailReady,
     act: async (page) => {
-      const main = page.getByRole("main");
-      await main.getByRole("button", { name: /^编辑 gpt-image-1/ }).click();
-      await main.getByRole("combobox", { name: "调用端点" }).click();
+      const sheet = await openModelSheet(page, KLING_ID);
+      await expect(sheet.getByText("再乘供应商倍率 0.9，最终为 1.125。")).toBeVisible();
+      await sheet.getByRole("button", { name: "修改「按分辨率限定时长」" }).click();
+      await sheet.getByRole("button", { name: "修改「音轨形态」" }).click();
+      await sheet.getByRole("textbox", { name: "模型 ID" }).fill(`${KLING_ID}-relay`);
+      const info = sheet.getByRole("heading", { name: "模型信息" });
+      await info.scrollIntoViewIfNeeded();
+      await expect(info).toBeInViewport();
+      const save = sheet.getByRole("button", { name: "保存" });
+      await expect(save).toBeInViewport({ ratio: 1 });
+      await expect(save).toBeEnabled();
+    },
+    screenshot: { name: "providers-custom-model-sheet", target: (page) => page.getByRole("dialog") },
+  },
+  {
+    name: "自定义供应商的模型 Sheet：打开调用端点下拉，按媒体分组的选项留在视口内",
+    path: CUSTOM_PROVIDER_PATH,
+    api: CUSTOM_PROVIDER_DETAIL,
+    ready: customDetailReady,
+    act: async (page) => {
+      const sheet = await openModelSheet(page, "gpt-image-1");
+      // 用键盘打开：鼠标停在触发器上时它的悬停底色只是瞬时状态，不拿来判对比度
+      const trigger = sheet.getByRole("combobox", { name: "调用端点" });
+      await trigger.focus();
+      await trigger.press("Enter");
       const listbox = page.getByRole("listbox");
       await expect(listbox.getByRole("option", { name: /OpenAI 图片/ }).first()).toBeVisible();
       await expect(listbox).toBeInViewport();
     },
-    // 下拉渲染在弹层里，截详情栏连同盖在上面的下拉一起看
-    screenshot: { name: "providers-custom-endpoint-select", target: (page) => page.getByRole("main") },
+    // 下拉渲染在弹层里，截 Sheet 连同盖在上面的下拉一起看
+    screenshot: { name: "providers-custom-endpoint-select", target: (page) => page.getByRole("dialog") },
+  },
+  {
+    name: "模型 Sheet：「从『供应商』移除」的确认框列出在用的设置与项目",
+    path: CUSTOM_PROVIDER_PATH,
+    api: {
+      ...CUSTOM_PROVIDER_DETAIL,
+      [`GET /api/v1/providers/custom-${CUSTOM_PROVIDER_ID}/model-references?model_id=${KLING_ID}`]: {
+        status: 200,
+        body: {
+          settings: ["default_video_backend", "default_video_backend_i2v"],
+          projects: [
+            { name: "demo", title: "星海列车：一部关于远方与归途的长篇连载动画短片（第一季）" },
+            { name: "demo-2", title: null },
+          ],
+        },
+      },
+    },
+    ready: customDetailReady,
+    act: async (page) => {
+      const sheet = await openModelSheet(page, KLING_ID);
+      const remove = sheet.getByRole("button", { name: /^从「/ });
+      await remove.scrollIntoViewIfNeeded();
+      await remove.click();
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog.getByText("项目：demo-2")).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "移除" })).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "providers-model-remove-dialog", target: (page) => page.getByRole("alertdialog") },
   },
   {
     name: "自定义供应商详情：删除确认写明模型数量，操作按钮留在视口内",

@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import type { CustomProviderInfo, CustomProviderModelInfo, EndpointDescriptor } from "@/types";
+import type { EndpointDescriptor } from "@/types";
 import { CustomProviderForm } from "./CustomProviderForm";
 
 // ---------------------------------------------------------------------------
@@ -89,31 +89,6 @@ const CREATED = {
   video_max_workers: null,
   audio_max_workers: null,
 };
-
-function comfyuiModel(extra: Partial<CustomProviderModelInfo> = {}): CustomProviderModelInfo {
-  return {
-    id: 1,
-    model_id: "wan-t2v",
-    display_name: "wan-t2v",
-    endpoint: "ce-2",
-    is_default: false,
-    is_enabled: true,
-    resolution: null,
-    multiplier: 1,
-    entry_binding: null,
-    matched_entry: null,
-    capability_overrides: null,
-    path_overrides: null,
-    requests: [],
-    system_capabilities: null,
-    global_bucket_refs: [],
-    ...extra,
-  };
-}
-
-function existingComfyui(models: CustomProviderModelInfo[]): CustomProviderInfo {
-  return { ...CREATED, models };
-}
 
 function renderForm(initialEndpoint?: string) {
   render(<CustomProviderForm onSaved={vi.fn()} initialEndpoint={initialEndpoint} />);
@@ -542,32 +517,6 @@ describe("CustomProviderForm（comfyui 协议）", () => {
         expect.objectContaining({
           models: [expect.objectContaining({ endpoint: "ce-2", capability_overrides: { durations: [4, 8] } })],
         }),
-      ),
-    );
-  });
-
-  it("reads the duration override back and drops the key once the input is cleared", async () => {
-    // 留空 = 跟随 workflow 原生时长：去掉 durations 键，而不是写一个空集
-    vi.spyOn(API, "fullUpdateCustomProvider").mockResolvedValue(existingComfyui([comfyuiModel()]));
-    vi.spyOn(API, "getCustomProvider").mockResolvedValue(existingComfyui([comfyuiModel()]));
-    render(
-      <CustomProviderForm
-        existing={existingComfyui([comfyuiModel({ capability_overrides: { durations: [4, 5, 6, 8] } })])}
-        focusModelId="wan-t2v"
-        onSaved={vi.fn()}
-      />,
-    );
-    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
-    const durations = screen.getByLabelText("支持秒数");
-    expect(durations).toHaveValue("4-6, 8");
-
-    fireEvent.change(durations, { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "保存" }));
-
-    await waitFor(() =>
-      expect(API.fullUpdateCustomProvider).toHaveBeenCalledWith(
-        9,
-        expect.objectContaining({ models: [expect.objectContaining({ capability_overrides: null })] }),
       ),
     );
   });

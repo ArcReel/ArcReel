@@ -1,31 +1,52 @@
-"""供应商模型 API：按供应商列出供应商模型，启用与停用；内置供应商另可按 ID 添加与移除（docs/adr/0099）。
+"""供应商模型 API：按供应商列出、读取单个、保存供应商设置、启用与停用、移除；内置供应商另可按 ID 添加（docs/adr/0099）。
 
-列表与启停对内置与自定义供应商共用。自定义供应商模型的其余字段仍经自定义供应商接口整表保存。
+内置与自定义供应商共用。读取单个与保存对应供应商模型 Sheet 的「供应商设置」：官方收录的模型只有启用；用户负责的
+模型（自定义供应商的模型、内置供应商下用户添加的模型）另有模型 ID、供应商模型倍率与能力覆盖；自定义供应商的模型
+另有默认、调用端点、请求地址与默认分辨率。
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import Annotated, Literal, cast
+from typing import Annotated, Any, Literal, assert_never, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from arcreel_catalog_core import MEDIA_TYPES, CatalogEntry, MediaType
+from arcreel_catalog_core import MEDIA_TYPES, AudioFacts, CatalogEntry, ImageFacts, MediaType, TextFacts, VideoFacts
 from lib.billing.multipliers import get_provider_multiplier
 from lib.catalog import builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.price_summary import summarize_price
 from lib.config.registry import PROVIDER_REGISTRY
+from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS, PROJECT_MODEL_SETTING_KEYS
+from lib.config.service import ConfigService
 from lib.custom_provider import is_custom_provider, parse_provider_id
+from lib.custom_provider.capability_view import (
+    CapabilityView,
+    OverrideRejected,
+    builtin_capability_view,
+    check_user_added_overrides,
+    user_added_runtime_overrides,
+)
 from lib.custom_provider.duration_presets import infer_supported_durations
 from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+from lib.custom_provider.model_facts import model_entry
 from lib.db import get_async_session
 from lib.db.models.custom_provider import CustomProviderModel
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.i18n import Translator
+from server.routers.custom_providers import (
+    CUSTOM_MODEL_SETTING_FIELDS,
+    EndpointRequestDescriptor,
+    custom_model_settings,
+    invalidate_provider_caches,
+    remove_custom_model,
+    update_custom_model,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +119,82 @@ class AddProviderModelResponse(BaseModel):
     official: bool
 
 
+class CapabilityViewResponse(BaseModel):
+    """「这个供应商支持的参数」：每个维度的原值（没有能力覆盖时运行时采用的值，``null`` 表示不加约束）、生效的能力
+    覆盖与生效值。``editable`` 是可以修改的维度，按界面顺序；官方收录的模型为空。"""
+
+    media_type: str
+    editable: list[str]
+    base: dict[str, Any]
+    overrides: dict[str, Any]
+    effective: dict[str, Any]
+
+
+class EntryInfoResponse(BaseModel):
+    """供应商模型对应到的条目，供 Sheet 下段「模型信息」只读展示。"""
+
+    maker: str
+    name: str
+    display_name: str
+    media_type: str
+    aliases: list[str]
+    discontinued: bool
+    context_length: int | None
+    facts: dict[str, Any]
+
+
+class ProviderModelDetail(BaseModel):
+    """供应商模型 Sheet 的内容。
+
+    - ``multiplier``：供应商模型倍率；官方收录的模型随官方数据下发、界面不显示，为 ``null``。
+    - ``provider_multiplier``：供应商倍率，界面据此提示两级相乘后的最终倍率。
+    - ``entry``：对应到的条目；对应不上时为 ``null``，调用费用记为未定价。
+    - 自定义供应商的模型另有 ``endpoint``、``resolution``、``path_overrides`` 与 ``requests``（调用端点可覆盖路径的
+      请求）；内置供应商为空。
+    """
+
+    model: ProviderModelItem
+    multiplier: float | None
+    provider_multiplier: float
+    entry: EntryInfoResponse | None
+    capabilities: CapabilityViewResponse
+    endpoint: str | None = None
+    resolution: str | None = None
+    path_overrides: dict[str, str] | None = None
+    requests: list[EndpointRequestDescriptor] = []
+
+
+class ProviderModelSettingsUpdate(BaseModel):
+    """保存供应商模型 Sheet 的供应商设置；没有传的字段不改。
+
+    - 所有供应商模型：``enabled``。
+    - 用户负责的模型：``model_id``（改模型 ID）、``multiplier``、``capability_overrides``（整份替换，``null`` 或
+      空对象表示清除）。
+    - 自定义供应商的模型：``is_default``、``endpoint``、``path_overrides``、``resolution``。
+    """
+
+    enabled: bool | None = None
+    is_default: bool | None = None
+    model_id: Annotated[str, Field(min_length=1, max_length=128)] | None = None
+    multiplier: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    capability_overrides: dict[str, Any] | None = None
+    endpoint: str | None = None
+    path_overrides: dict[str, str] | None = None
+    resolution: str | None = None
+
+
+class ProjectReference(BaseModel):
+    name: str
+    title: str | None
+
+
+class ProviderModelReferences(BaseModel):
+    """引用这个供应商模型的全局设置键与项目；移除前提示用。"""
+
+    settings: list[str]
+    projects: list[ProjectReference]
+
+
 async def reload_user_added_models(session: AsyncSession) -> None:
     """从内置供应商模型表装入用户添加的模型，交给目录查询。应用启动时与每次写入提交之后调用。
 
@@ -111,6 +208,9 @@ async def reload_user_added_models(session: AsyncSession) -> None:
             multiplier=row.multiplier,
             entry_binding=row.entry_binding,
             fallback_durations=tuple(infer_supported_durations(row.model_id)) if row.media_type == "video" else (),
+            capability_overrides=user_added_runtime_overrides(
+                row.media_type, row.capability_overrides, model_id=row.model_id
+            ),
         )
         for row in await builtin_models.list_user_added_rows(session)
         if row.media_type in MEDIA_TYPES
@@ -295,10 +395,18 @@ async def add_provider_model(
 async def remove_provider_model(
     provider_id: str,
     model_id: str,
+    request: Request,
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    """移除内置供应商下用户添加的模型；官方收录的模型只能停用。"""
+    """移除用户负责的模型：自定义供应商的模型（同时清空全局设置里指向它的引用），或内置供应商下用户添加的模型。
+    官方收录的模型只能停用。"""
+    if is_custom_provider(provider_id):
+        db_id = await _custom_db_id(session, provider_id, _t)
+        await remove_custom_model(session, db_id, model_id, _t)
+        await session.commit()
+        await invalidate_provider_caches(request)
+        return Response(status_code=204)
     _require_builtin(provider_id, _t)
     try:
         await builtin_models.remove_builtin_model(session, provider_id, model_id)
@@ -306,4 +414,232 @@ async def remove_provider_model(
         raise _raise_for(exc, _t) from exc
     await session.commit()
     await reload_user_added_models(session)
+    await invalidate_provider_caches(request)
     return Response(status_code=204)
+
+
+def _capabilities_response(view: CapabilityView | None, media_type: str) -> CapabilityViewResponse:
+    if view is None:
+        return CapabilityViewResponse(media_type=media_type, editable=[], base={}, overrides={}, effective={})
+    return CapabilityViewResponse(
+        media_type=view.media_type,
+        editable=list(view.editable),
+        base=view.base,
+        overrides=view.overrides,
+        effective=view.effective,
+    )
+
+
+def _facts_json(entry: CatalogEntry) -> dict[str, Any]:
+    facts = entry.facts
+    match facts:
+        case TextFacts():
+            return {
+                "image_input": facts.image_input,
+                "structured_output": facts.structured_output,
+                "max_output_tokens": facts.max_output_tokens,
+            }
+        case ImageFacts():
+            return {
+                "text_to_image": facts.text_to_image,
+                "image_to_image": facts.image_to_image,
+                "resolutions": list(facts.resolutions),
+            }
+        case VideoFacts():
+            constraints = facts.duration_constraints
+            return {
+                "durations": list(facts.durations),
+                "resolutions": list(facts.resolutions),
+                "duration_constraints": {
+                    "by_resolution": {res: list(allowed) for res, allowed in constraints.by_resolution.items()},
+                    "with_reference_images": list(constraints.with_reference_images),
+                },
+            }
+        case AudioFacts():
+            return {}
+        case _:
+            assert_never(facts)
+
+
+def _entry_info(entry: CatalogEntry | None) -> EntryInfoResponse | None:
+    if entry is None:
+        return None
+    return EntryInfoResponse(
+        maker=entry.maker,
+        name=entry.name,
+        display_name=entry.display_name,
+        media_type=entry.media_type,
+        aliases=list(entry.aliases),
+        discontinued=entry.discontinued,
+        context_length=entry.context_length,
+        facts=_facts_json(entry),
+    )
+
+
+async def _builtin_detail(
+    session: AsyncSession, provider_id: str, model_id: str, _t: Translator
+) -> ProviderModelDetail:
+    provider_multiplier = await get_provider_multiplier(session, provider_id)
+    items = await builtin_models.list_builtin_models(session, provider_id)
+    item = next((i for i in items if i.view.model_id == model_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail=_t("provider_model_not_found", model=model_id))
+    view = item.view
+    capabilities = builtin_capability_view(
+        provider_id,
+        model_id,
+        base_model=view.base_model or view.model,
+        official=view.official,
+        overrides=view.capability_overrides,
+    )
+    return ProviderModelDetail(
+        model=_builtin_item(item, provider_multiplier),
+        multiplier=None if view.official else view.multiplier,
+        provider_multiplier=provider_multiplier,
+        entry=_entry_info(view.entry),
+        capabilities=_capabilities_response(capabilities, view.model.media_type),
+    )
+
+
+async def _custom_detail(
+    session: AsyncSession, provider_id: str, db_id: int, model_id: str, _t: Translator
+) -> ProviderModelDetail:
+    row = await CustomProviderRepository(session).get_model_by_ids(db_id, model_id)
+    item = next((i for i in await _custom_items(session, provider_id, db_id) if i.model_id == model_id), None)
+    if row is None or item is None:
+        raise HTTPException(status_code=404, detail=_t("provider_model_not_found", model=model_id))
+    settings = await custom_model_settings(session, row)
+    return ProviderModelDetail(
+        model=item,
+        multiplier=row.multiplier,
+        provider_multiplier=await get_provider_multiplier(session, provider_id),
+        entry=_entry_info(model_entry(row.model_id, item.media_type, row.entry_binding)),
+        capabilities=_capabilities_response(settings.capabilities, item.media_type),
+        endpoint=settings.endpoint,
+        resolution=settings.resolution,
+        path_overrides=settings.path_overrides,
+        requests=settings.requests,
+    )
+
+
+@router.get("/{provider_id}/models/{model_id:path}", response_model=ProviderModelDetail)
+async def get_provider_model(
+    provider_id: str,
+    model_id: str,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ProviderModelDetail:
+    """读取单个供应商模型：列表行、供应商设置、对应条目，以及「这个供应商支持的参数」的生效值与原值。"""
+    if is_custom_provider(provider_id):
+        db_id = await _custom_db_id(session, provider_id, _t)
+        return await _custom_detail(session, provider_id, db_id, model_id, _t)
+    _require_builtin(provider_id, _t)
+    return await _builtin_detail(session, provider_id, model_id, _t)
+
+
+_BUILTIN_SETTING_FIELDS = frozenset({"enabled", "model_id", "multiplier", "capability_overrides"})
+
+
+async def _save_builtin_settings(
+    session: AsyncSession, provider_id: str, model_id: str, body: ProviderModelSettingsUpdate, _t: Translator
+) -> str:
+    fields = body.model_fields_set
+    if unsupported := sorted(fields - _BUILTIN_SETTING_FIELDS):
+        raise HTTPException(
+            status_code=422,
+            detail=_t("provider_model_setting_not_applicable", model=model_id, setting=unsupported[0]),
+        )
+    kwargs: dict[str, Any] = {}
+    if "capability_overrides" in fields:
+        item = next(
+            (i for i in await builtin_models.list_builtin_models(session, provider_id) if i.view.model_id == model_id),
+            None,
+        )
+        if item is not None and not item.view.official:
+            try:
+                kwargs["capability_overrides"] = check_user_added_overrides(
+                    provider_id, model_id, item.view.model.media_type, body.capability_overrides
+                )
+            except OverrideRejected as exc:
+                raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
+        else:
+            kwargs["capability_overrides"] = body.capability_overrides
+    try:
+        return await builtin_models.update_builtin_model(
+            session,
+            provider_id,
+            model_id,
+            enabled=body.enabled,
+            new_model_id=body.model_id,
+            multiplier=body.multiplier,
+            **kwargs,
+        )
+    except builtin_models.BuiltinModelError as exc:
+        raise _raise_for(exc, _t) from exc
+
+
+@router.patch("/{provider_id}/models/{model_id:path}", response_model=ProviderModelDetail)
+async def update_provider_model(
+    provider_id: str,
+    model_id: str,
+    body: ProviderModelSettingsUpdate,
+    request: Request,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ProviderModelDetail:
+    """保存供应商模型 Sheet 的供应商设置，一次请求原子保存；返回保存后的 Sheet 内容。"""
+    if is_custom_provider(provider_id):
+        db_id = await _custom_db_id(session, provider_id, _t)
+        renames = {"enabled": "is_enabled"}
+        changes = {
+            renames.get(name, name): getattr(body, name)
+            for name in body.model_fields_set
+            if renames.get(name, name) in CUSTOM_MODEL_SETTING_FIELDS
+        }
+        row = await update_custom_model(session, db_id, model_id, changes, _t)
+        saved_model_id = row.model_id
+        await session.commit()
+        await invalidate_provider_caches(request)
+        return await _custom_detail(session, provider_id, db_id, saved_model_id, _t)
+    _require_builtin(provider_id, _t)
+    saved_model_id = await _save_builtin_settings(session, provider_id, model_id, body, _t)
+    await session.commit()
+    await reload_user_added_models(session)
+    await invalidate_provider_caches(request)
+    return await _builtin_detail(session, provider_id, saved_model_id, _t)
+
+
+def _project_references(reference: str) -> list[ProjectReference]:
+    """读每个项目的 project.json，挑出模型设置项引用了 ``reference`` 的项目；读不了的项目跳过。"""
+    from lib.config.resolver import get_project_manager
+
+    pm = get_project_manager()
+    found: list[ProjectReference] = []
+    for name in pm.list_projects():
+        try:
+            project = pm.load_project(name)
+        except (OSError, ValueError):
+            continue
+        if any(project.get(key) == reference for key in PROJECT_MODEL_SETTING_KEYS):
+            title = project.get("title")
+            found.append(ProjectReference(name=name, title=title if isinstance(title, str) and title else None))
+    return found
+
+
+@router.get("/{provider_id}/model-references", response_model=ProviderModelReferences)
+async def get_provider_model_references(
+    provider_id: str,
+    model_id: str,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ProviderModelReferences:
+    """引用这个供应商模型的全局设置项与项目，供「从供应商移除」的确认框提示。"""
+    if is_custom_provider(provider_id):
+        await _custom_db_id(session, provider_id, _t)
+    else:
+        _require_builtin(provider_id, _t)
+    reference = f"{provider_id}/{model_id}"
+    all_settings = await ConfigService(session).get_all_settings()
+    settings = [key for key in GLOBAL_MODEL_SETTING_KEYS if all_settings.get(key) == reference]
+    projects = await asyncio.to_thread(_project_references, reference)
+    return ProviderModelReferences(settings=settings, projects=projects)

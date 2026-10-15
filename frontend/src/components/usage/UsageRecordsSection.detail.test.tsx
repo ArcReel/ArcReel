@@ -72,6 +72,20 @@ describe("UsageRecordsSection detail", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("links the model to its Sheet in the provider settings", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, provider: "custom-7", model: "relay/veo-3" }),
+    );
+
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+
+    expect(dialog.getByRole("link", { name: "relay/veo-3" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("section=providers&custom=7&model=relay%2Fveo-3"),
+    );
+  });
+
   it("lists the four token counts with input excluding the cached parts", async () => {
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
       makeUsageRecordDetail({

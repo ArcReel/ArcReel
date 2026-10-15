@@ -195,7 +195,8 @@ export interface CustomProviderFullUpdateRequest {
   display_name: string;
   base_url: string;
   api_key?: string;
-  models: CustomProviderModelInput[];
+  /** 不传时不改模型：详情页的模型经供应商模型接口逐个保存，整表回传会覆盖其间单行的启停与设置。 */
+  models?: CustomProviderModelInput[];
   /** PUT 为并发上限权威来源：必填，null 即清除（走全局默认）。省略字段会被服务端当作
    *  清空，故类型上设为必填，防止调用方静默漏传意外清掉已有配置。 */
   image_max_workers: number | null;

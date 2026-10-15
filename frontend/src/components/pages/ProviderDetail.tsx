@@ -89,6 +89,8 @@ function isMultiplierValid(text: string): boolean {
 
 interface Props {
   providerId: string;
+  /** 深链里的模型 ID：打开时直接打开它的 Sheet。 */
+  initialModelId?: string;
   /** 高级配置或密钥改动入库之后调用，供上层刷新供应商目录（二级栏的密钥数量与状态）。 */
   onSaved?: () => void;
 }
@@ -97,7 +99,7 @@ interface Props {
  * 预置供应商详情。换供应商时由上层按 `providerId` 重建整栏，组件内只处理同一供应商的语言重取与重试。
  * 密钥区的增改删与切换、模型列表的启用开关立即生效；底部保存栏负责供应商倍率与高级配置（并发上限等）。
  */
-export function ProviderDetail({ providerId, onSaved }: Props) {
+export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
   const { t, i18n } = useTranslation(["dashboard", "common"]);
   const [detail, setDetail] = useState<ProviderConfigDetail | null>(null);
   const [multiplier, setMultiplier] = useState<ProviderMultiplierInfo | null>(null);
@@ -315,7 +317,12 @@ export function ProviderDetail({ providerId, onSaved }: Props) {
           {!multiplierValid && <FieldHint tone="warn">{t("cp_multiplier_invalid")}</FieldHint>}
         </section>
 
-        <ProviderModelList providerId={providerId} />
+        <ProviderModelList
+          providerId={providerId}
+          providerName={detail.display_name}
+          initialModelId={initialModelId}
+          onModelsChanged={onSaved}
+        />
 
         {detail.fields.length > 0 && (
           <section aria-labelledby={advancedHeadingId} className="flex flex-col gap-3">
