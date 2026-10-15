@@ -127,3 +127,47 @@ async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) 
 
     await build_anthropic_env_dict(session)
     assert dict(os.environ) == baseline, "build 函数禁止改 os.environ"
+
+
+def _patch_cred(monkeypatch: pytest.MonkeyPatch, **fields: str) -> None:
+    base = {
+        "api_key": "sk",
+        "base_url": "https://gw.example.com",
+        "model": "",
+        "haiku_model": "",
+        "sonnet_model": "",
+        "opus_model": "",
+        "subagent_model": "",
+        "preset_id": "deepseek",
+    }
+    base.update(fields)
+    cred = type("Cred", (), base)()
+    repo_mock = AsyncMock()
+    repo_mock.get_active = AsyncMock(return_value=cred)
+    setting_repo = AsyncMock()
+    setting_repo.get_all = AsyncMock(return_value={})
+    monkeypatch.setattr(
+        "lib.db.repositories.agent_credential_repo.AgentCredentialRepository",
+        lambda _s: repo_mock,
+    )
+    monkeypatch.setattr("lib.config.service.SystemSettingRepository", lambda _s: setting_repo)
+
+
+@pytest.mark.asyncio
+async def test_non_official_preset_fills_blank_tiers_with_main_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_cred(monkeypatch, model="deepseek-v4", sonnet_model="deepseek-v4-pro")
+    result = await build_anthropic_env_dict(AsyncMock())
+    assert result["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "deepseek-v4"
+    assert result["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "deepseek-v4-pro"
+    assert result["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "deepseek-v4"
+    assert result["CLAUDE_CODE_SUBAGENT_MODEL"] == "deepseek-v4"
+
+
+@pytest.mark.asyncio
+async def test_official_preset_leaves_blank_tiers_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_cred(monkeypatch, preset_id="anthropic-official", model="claude-opus-4-7", sonnet_model="claude-sonnet-4-6")
+    result = await build_anthropic_env_dict(AsyncMock())
+    assert result["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == ""
+    assert result["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "claude-sonnet-4-6"
+    assert result["ANTHROPIC_DEFAULT_OPUS_MODEL"] == ""
+    assert result["CLAUDE_CODE_SUBAGENT_MODEL"] == ""

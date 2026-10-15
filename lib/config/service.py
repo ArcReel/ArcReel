@@ -67,6 +67,16 @@ assert set(_ANTHROPIC_ENV_MAP.values()) == set(ANTHROPIC_ENV_KEYS), (
 )
 
 
+# Anthropic 官方预设：模型档位由 CLI 自行解析，不替用户填充。
+_OFFICIAL_PRESET_ID = "anthropic-official"
+_TIER_ENV_KEYS = (
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
+)
+
+
 async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
     """从 DB 读 active credential，返回 {ENV_KEY: value} dict，**不写 os.environ**。
 
@@ -83,7 +93,7 @@ async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
 
     if cred is not None:
         settings = await SystemSettingRepository(session).get_all()
-        return {
+        env = {
             "ANTHROPIC_API_KEY": cred.api_key or "",
             "ANTHROPIC_BASE_URL": cred.base_url or "",
             "ANTHROPIC_MODEL": cred.model or settings.get("anthropic_model", "").strip(),
@@ -94,6 +104,13 @@ async def build_anthropic_env_dict(session: AsyncSession) -> dict[str, str]:
             "ANTHROPIC_DEFAULT_OPUS_MODEL": cred.opus_model or settings.get("anthropic_default_opus_model", "").strip(),
             "CLAUDE_CODE_SUBAGENT_MODEL": cred.subagent_model or settings.get("claude_code_subagent_model", "").strip(),
         }
+        # 非 Anthropic 官方网关：留空的档位用主模型，避免 CLI 退回默认的 Claude 模型名。
+        main_model = env["ANTHROPIC_MODEL"]
+        if main_model and getattr(cred, "preset_id", None) != _OFFICIAL_PRESET_ID:
+            for key in _TIER_ENV_KEYS:
+                if not env[key]:
+                    env[key] = main_model
+        return env
 
     # 无 active credential — 回退 system_settings（双轨期兼容）
     settings = await SystemSettingRepository(session).get_all()
