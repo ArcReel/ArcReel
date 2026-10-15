@@ -173,7 +173,7 @@ export interface DiscoveredModel {
   endpoint: EndpointKey;
   is_default: boolean;
   is_enabled: boolean;
-  /** 发现接口给出的最大输出长度（目前只有 Google 协议的文本模型）；拿不到为 null。表单不再使用。 */
+  /** 发现接口给出的最大输出长度（目前只有 Google 协议的文本模型）；拿不到为 null。供应商表单不读它。 */
   max_output_tokens?: number | null;
   /** 按模型名对应到的模型条目；null = 对应不上，调用记为未定价。 */
   matched_entry?: MatchedCatalogEntry | null;

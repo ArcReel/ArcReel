@@ -17,7 +17,7 @@
 
 成功通道的 backend 结果对象 union 分发集中在 ``_settlement_from_result``：text 与 audio 的用量在此
 按用量契约转成计量项用量（结算时按模型目录的价目表计价），video 实际计费时长的语义转写也在此单点完成，
-调用点成功分支不再有逐字段提取胶水。video 的计量依赖发出的请求，由调用点向视频调用通道取得后随结果一并递交。
+调用点成功分支不做逐字段提取。video 的计量依赖发出的请求，由调用点向视频调用通道取得后随结果一并递交。
 
 结算落库后发一条 ``usage_record / recorded`` 项目变更（走 ``project_change_hints`` 的 batch 总线，
 与任务终态事件同一条 SSE），界面据此刷新用量而不必轮询；无项目名的调用（端点试跑）不发，pending
@@ -134,7 +134,7 @@ def _settlement_from_result(
             cache_read_tokens=result.cache_read_tokens,
             cache_write_5m_tokens=result.cache_write_5m_tokens,
             cache_write_1h_tokens=result.cache_write_1h_tokens,
-            # 没有任何计量（未追踪）时仍按一次零用量的请求计价，不落回旧计价。
+            # 没有任何计量（未追踪）时仍按一次零用量的请求计价。
             usage=tuple(
                 Usage(
                     quantities=token_usage(

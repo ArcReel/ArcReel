@@ -76,7 +76,7 @@ def backend_metered_usage(
     """调用通道实例按用量契约上报的这次请求的计量；通道没有声明 ``metered_usage`` 时为 ``None``。
 
     内置调用通道都声明了它（见 :mod:`lib.backends.video_backends.metering`），自定义供应商的包装层转交被包装
-    的通道或按通用口径上报（见 :mod:`lib.custom_provider.metering`）；没有声明的第三方通道沿用旧计价。
+    的通道或按通用口径上报（见 :mod:`lib.custom_provider.metering`）。
     """
     metered_usage = getattr(backend, "metered_usage", None)
     if metered_usage is None:

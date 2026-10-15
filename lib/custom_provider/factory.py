@@ -32,7 +32,7 @@ def create_custom_backend(
     """按 endpoint 查 ENDPOINT_REGISTRY 并构造 Backend。
 
     视频后端额外注入生效能力（endpoint spec 系统判定 ⊕ 模型级用户覆盖），执行层据此门控，
-    不再直接读被包装 backend 的声明。图片后端注入模型事实一侧的文生图 / 图生图（条目 ⊕ 能力覆盖，
+    不直接读被包装 backend 的声明。图片后端注入模型事实一侧的文生图 / 图生图（条目 ⊕ 能力覆盖，
     ComfyUI 端点不加约束），执行层取它与通道声明的交集。
 
     Args:

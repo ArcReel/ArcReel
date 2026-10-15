@@ -48,6 +48,7 @@ import {
   effectiveModelRows,
   formFromProvider,
   newModelRow,
+  newProviderDefaultMultiplier,
   newProviderForm,
   parseMultiplier,
   parseOptionalMultiplier,
@@ -254,7 +255,7 @@ export function CustomProviderForm({
       useCapabilitiesStore.getState().invalidate();
       // 倍率挂在供应商 id 上，只能在创建之后写。供应商已经建好，倍率写失败不回退：
       // 提示后照常切到新供应商，在那里重新填写即可
-      if (multiplier != null && multiplier !== DEFAULT_PROVIDER_MULTIPLIER.default) {
+      if (multiplier != null && multiplier !== newProviderDefaultMultiplier(isComfyuiProtocol(discoveryFormat))) {
         try {
           await API.setProviderMultiplier(customProviderKey(created.id), multiplier);
         } catch (e) {
@@ -737,7 +738,9 @@ export function CustomProviderForm({
               className="w-32"
               value={value.providerMultiplier}
               onChange={(e) => setField("providerMultiplier", e.target.value)}
-              placeholder={t("cp_provider_multiplier_placeholder", { value: savedMultiplier.default })}
+              placeholder={t("cp_provider_multiplier_placeholder", {
+                value: existing ? savedMultiplier.default : newProviderDefaultMultiplier(isComfyui),
+              })}
               aria-invalid={providerMultiplierInvalid}
             />
           </FieldRow>

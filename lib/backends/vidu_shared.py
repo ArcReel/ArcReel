@@ -171,11 +171,10 @@ def calculate_vidu_cost(
 ) -> tuple[float, str]:
     """Vidu 图片计费：优先用响应 ``credits``（=usage_tokens），否则按表估算。
 
-    视频不再按 credits 委托计价：内置 Vidu 视频由模型目录的价目表按输出秒数与分辨率计价，
-    视频调用传进来时直接拒绝，避免回到 credits 口径。
+    视频按模型目录的价目表按输出秒数与分辨率计价，不按 credits；视频调用传进来时直接拒绝。
     """
     if call_type == "video":
-        raise ValueError("Vidu 视频按模型目录的价目表计价，不再按 credits 委托计价")
+        raise ValueError("Vidu 视频按模型目录的价目表计价，不按 credits 计价")
     # credits=0 是合法值（如 off_peak / 平台促销），不能被当成"无 credits"。
     if usage_tokens is not None and usage_tokens >= 0:
         return usage_tokens * VIDU_CREDIT_TO_CNY, "CNY"

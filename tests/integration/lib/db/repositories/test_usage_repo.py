@@ -431,6 +431,19 @@ class TestMultiProviderUsage:
         assert item.currency == "USD"
         assert item.cost_amount == pytest.approx(3.2)
 
+    async def test_legacy_provider_video_without_duration_settles_unpriced(self, async_session):
+        # 供应商标识不在注册表里的存量行走注册表的定价声明；按秒计价缺时长时记为未定价，结算本身不报错
+        repo = UsageRepository(async_session)
+        call_id = await repo.start_call(
+            project_name="demo", call_type="video", model="veo-3.1-generate-001", resolution="1080p"
+        )
+        await repo.finish_call(call_id, status="success", settlement=SettlementInput())
+
+        item = (await stored_calls(async_session))[0]
+        assert item.status == "success"
+        assert item.cost_amount is None
+        assert item.unpriced_reason == "missing_rate"
+
     async def test_text_call_gemini_cost(self, async_session):
         repo = UsageRepository(async_session)
         call_id = await repo.start_call(

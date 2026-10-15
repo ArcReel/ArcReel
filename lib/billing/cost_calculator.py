@@ -21,9 +21,9 @@ class CostCalculator:
     def calculate_cost(self, provider: str, params: PricingParams) -> tuple[float, str]:
         """统一费用计算入口。调用方直接构造 ``PricingParams`` 传入，返回 ``(amount, currency)``。
 
-        内置供应商的调用已改由模型目录的价目表计价（``lib.billing.catalog_pricing``），自定义供应商同样按所对应
-        条目的价目表计价；这里只剩没有申报用量的旧路径，不再为它补「缺秒数按 8 秒」「每秒 60000 token」一类的
-        近似值，也不再按媒体类型硬算自定义模型的费用。
+        内置供应商与自定义供应商的调用按模型目录的价目表计价（``lib.billing.catalog_pricing``），这里只给没有申报
+        用量的其余调用计价（Agent 会话的回填、供应商标识已不在注册表里的存量行）。算不出时抛 ``ValueError``
+        （如按秒计价的视频缺时长），不补近似值。
         """
         # 文本无 token 数据时无从计费，保留早返回。
         if params.call_type == "text" and params.input_tokens is None:

@@ -16,11 +16,11 @@ from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 
 
 @pytest.fixture
-def multiplier_client(session_factory: async_sessionmaker[AsyncSession]) -> Generator[TestClient]:
+def multiplier_client(db_factory: async_sessionmaker[AsyncSession]) -> Generator[TestClient]:
     app = FastAPI()
 
     async def _override_session():
-        async with session_factory() as session:
+        async with db_factory() as session:
             yield session
 
     app.dependency_overrides[get_async_session] = _override_session
@@ -49,9 +49,9 @@ def test_builtin_multiplier_defaults_set_and_reset(multiplier_client: TestClient
 
 
 async def test_custom_provider_multiplier_requires_existing_provider_and_valid_value(
-    multiplier_client: TestClient, session_factory: async_sessionmaker[AsyncSession]
+    multiplier_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
-    async with session_factory() as session:
+    async with db_factory() as session:
         provider = CustomProvider(
             display_name="中转站", discovery_format="openai", base_url="http://localhost:9", api_key="k"
         )
@@ -82,10 +82,10 @@ def test_generic_config_patch_rejects_multiplier_key(multiplier_client: TestClie
 
 
 async def test_comfyui_provider_defaults_to_zero(
-    multiplier_client: TestClient, session_factory: async_sessionmaker[AsyncSession]
+    multiplier_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     """ComfyUI 协议的供应商跑在用户自己的机器上，默认倍率 0；按租用算力计价时可以改成非 0。"""
-    async with session_factory() as session:
+    async with db_factory() as session:
         provider = CustomProvider(
             display_name="ComfyUI", discovery_format="comfyui", base_url="http://localhost:8188", api_key=""
         )

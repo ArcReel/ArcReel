@@ -31,7 +31,6 @@ from lib.config.resolver import (
     VideoSupportedDurationsError,
     VoiceConsistency,
     apply_duration_constraints,
-    builtin_video_audio_track,
 )
 
 #: 视频路线：分镜（首帧驱动）与参考生视频。问题码按路线分族，已记录的码不改名。
@@ -274,20 +273,14 @@ def audio_switch_conflict(facts: VideoRequestFacts) -> VideoRequestFactsFailure 
     return None
 
 
-def video_audio_model_facts(
-    provider_id: str,
-    model_id: str,
-    *,
-    voice_consistency: str,
-    generation_type: VideoGenerationType,
-) -> tuple[bool, bool]:
-    """返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
+def video_audio_model_facts(audio_track: str | None, *, voice_consistency: str) -> tuple[bool, bool]:
+    """按该桶的成片音轨形态返回 ``(has_audio_track, audio_switch_controllable)`` 的模型级事实。
 
     音轨形态按执行子路径分叉，须按落入的桶取值（可灵 v3-omni 这类「图生可控、参考生无开关」的
-    型号）。自定义供应商与未登记模型没有逐模型声明，按无信号不收紧。
+    型号），见 :meth:`ConfigResolver.video_audio_track`。没有信号（``None``：未登记模型、没有覆盖音轨形态的
+    自定义供应商模型）时按无信号不收紧。
     """
 
-    audio_track = builtin_video_audio_track(provider_id, model_id, generation_type=generation_type)
     if audio_track is None:
         return voice_consistency != "none", True
     return audio_track != "always_off", audio_track == "controllable"
@@ -387,11 +380,12 @@ async def evaluate_video_request_facts(
     )
 
     voice_consistency: VoiceConsistency = caps.get("voice_consistency") or "soft"
+    try:
+        audio_track = await resolver.video_audio_track(provider_id, model_id, generation_type=generation_type)
+    except SQLAlchemyError:
+        return VideoRequestFactsFailure(codes["unavailable"], (("capability", generation_type), *identity_params))
     has_audio_track, audio_switch_controllable = video_audio_model_facts(
-        provider_id,
-        model_id,
-        voice_consistency=voice_consistency,
-        generation_type=generation_type,
+        audio_track, voice_consistency=voice_consistency
     )
     max_reference_images = caps.get("max_reference_images")
     return VideoRequestFacts(

@@ -23,7 +23,7 @@ export function isComfyuiEndpoint(endpoint: Pick<EndpointDescriptor, "kind">): b
 }
 
 /** 一个调用端点是否为 ComfyUI 视频端点：模型行上只有这种端点还留着「支持秒数」，写进能力覆盖的
- *  durations 键（docs/adr/0082、0104）。其余端点的可选时长由模型条目决定，界面不再编辑。 */
+ *  durations 键（docs/adr/0082、0104）。其余端点的可选时长由模型条目决定，本表单不编辑。 */
 export function isComfyuiVideoEndpoint(endpoint: Pick<EndpointDescriptor, "kind" | "media_type">): boolean {
   return isComfyuiEndpoint(endpoint) && endpoint.media_type === "video";
 }

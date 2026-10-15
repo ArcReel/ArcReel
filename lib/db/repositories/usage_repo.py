@@ -15,7 +15,7 @@ from lib.backends.providers import CALL_TYPE_VIDEO, PROVIDER_GEMINI, CallPurpose
 from lib.billing.call_failure import CallErrorCode
 from lib.billing.catalog_pricing import is_builtin_provider, price_builtin_call, price_custom_call
 from lib.billing.cost_calculator import cost_calculator
-from lib.billing.metering import Priced, Usage
+from lib.billing.metering import Priced, UnpricedReason, Usage
 from lib.billing.multipliers import get_provider_multiplier
 from lib.billing.pricing.strategies import PricingParams
 from lib.billing.usage_summary import UsageFilterOptions, UsageSummaryRow
@@ -83,7 +83,7 @@ class SettlementInput:
 
     ``usage`` 是按用量契约上报的计量项用量与选择维度，每次供应商请求一份（降级链上被丢弃的请求也已计费，各占
     一份）：给出时，内置供应商的这次调用按模型目录的价目表逐次计价后相加；自定义供应商的调用一律按所对应条目的
-    价目表计价；其余调用不给（Agent 会话补录）时沿用旧计价。内置供应商的视频调用不给时也走价目表，计量项全部
+    价目表计价；其余调用不给（Agent 会话补录）时按注册表的定价声明计价，算不出时记为未定价。内置供应商的视频调用不给时也走价目表，计量项全部
     落空，记为未定价。三项缓存 token 是各次请求之和，
     原样写入同名列。
     与 ``PricingParams``（结算后的生效定价输入）刻意分成两个对象，避免原始值与生效值
@@ -304,7 +304,7 @@ class UsageRepository(BaseRepository):
             and (settlement.usage or row.call_type == CALL_TYPE_VIDEO)
             and is_builtin_provider(effective_provider)
         ):
-            # 内置视频调用没有上报用量时也走价目表：计量项全部落空，记为未定价，不再回落旧计价去猜秒数。
+            # 内置视频调用没有上报用量时也走价目表：计量项全部落空，记为未定价，不按秒数猜。
             cost = price_builtin_call(
                 provider=effective_provider,
                 model=row.model or "",
@@ -333,7 +333,8 @@ class UsageRepository(BaseRepository):
             else:
                 cost_amount, unpriced_reason = None, str(cost.reason)
         elif auto_calc:
-            # 没有申报用量的其余调用（Agent 会话的回填等）沿用旧计价。
+            # 没有申报用量、又不是内置或自定义供应商的调用（Agent 会话的回填，以及供应商标识已不在注册表里的存量行）
+            # 按注册表的定价声明计价。
             params = PricingParams(
                 call_type=row.call_type,
                 model=row.model,
@@ -351,7 +352,12 @@ class UsageRepository(BaseRepository):
                 text_input_tokens=settlement.text_input_tokens,
                 text_output_tokens=settlement.text_output_tokens,
             )
-            cost_amount, currency = cost_calculator.calculate_cost(effective_provider, params)
+            try:
+                cost_amount, currency = cost_calculator.calculate_cost(effective_provider, params)
+            except ValueError:
+                # 定价声明算不出（如按秒计价的视频缺时长）：记为未定价。结算报错会让已经产出、已经计费的结果
+                # 被记账括号翻成失败。
+                cost_amount, unpriced_reason = None, str(UnpricedReason.MISSING_RATE)
 
         return _SettledCall(
             duration_ms=duration_ms,

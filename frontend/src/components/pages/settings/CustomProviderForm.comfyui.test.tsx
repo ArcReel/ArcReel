@@ -242,6 +242,25 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     expect(screen.queryByText(/有模型行还没选 ComfyUI 端点/)).not.toBeInTheDocument();
   });
 
+  it("writes a provider multiplier of 1 on create, since a ComfyUI provider defaults to 0", async () => {
+    vi.mocked(API.createCustomProvider).mockResolvedValue(CREATED);
+    vi.spyOn(API, "setProviderMultiplier").mockResolvedValue({ multiplier: 1, default: 0 });
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    await selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的 ComfyUI" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "http://comfy.invalid:8188" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "wan-t2v" } });
+    const multiplierInput = screen.getByRole("textbox", { name: "供应商倍率" });
+    expect(multiplierInput).toHaveAttribute("placeholder", "默认 0");
+    fireEvent.change(multiplierInput, { target: { value: "1" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(API.setProviderMultiplier).toHaveBeenCalledWith("custom-9", 1));
+  });
+
   it("drops the capability override when the row is re-pointed onto ComfyUI", async () => {
     // ComfyUI 端点的能力由节点绑定推导，该协议整个关闭覆盖（服务端 _check_protocol_constraints）。
     // 覆盖控件在这个协议下是藏起来的，留着旧值用户既看不见也改不掉，保存时才吃 422。
@@ -569,7 +588,7 @@ describe("CustomProviderForm（comfyui 协议）", () => {
   });
 
   it("offers no duration input on a declarative video row", async () => {
-    // 其余端点的可选时长由模型条目给出；存量的时长覆盖原样回传，界面不再编辑它
+    // 其余端点的可选时长由模型条目给出；存量的时长覆盖原样回传，表单不编辑它
     renderForm();
     await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));

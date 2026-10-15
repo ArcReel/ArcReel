@@ -22,6 +22,7 @@ from arcreel_market_core.endpoint_definition import COMFYUI_KIND, requires_image
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     VideoCapabilities,
+    VideoRoute,
     audio_capability_pair_is_coherent,
 )
 from lib.custom_provider.model_facts import ALL_MODEL_FACT_OVERRIDE_KEYS
@@ -58,8 +59,22 @@ CHANNEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset(
     }
 )
 
-#: 音轨形态两维。自定义供应商只在用户覆盖了它们时才按音轨形态派生（见 ``lib.config.resolver``）。
+#: 音轨形态两维。自定义供应商只在用户覆盖了它们时才按音轨形态派生（见 :func:`overridden_audio_track`）。
 AUDIO_TRACK_OVERRIDE_KEYS: frozenset[str] = frozenset({"audio_track", "reference_route_audio_track"})
+
+
+def overridden_audio_track(
+    caps: VideoCapabilities, applied_overrides: Mapping[str, object], route: VideoRoute
+) -> str | None:
+    """自定义供应商模型在该执行路径上的成片音轨形态；用户没有覆盖音轨形态时为 ``None``。
+
+    调用通道按模型名声明的音轨形态不参与派生：endpoint 背后的上游 model 由用户填写、无从核实，误判恒无声会把
+    合法配置挡在入队之外。没有覆盖时由调用方按「假定有声、开关可控」处理。返回值是 ``VideoAudioMode`` 的字面量。
+    """
+    if not AUDIO_TRACK_OVERRIDE_KEYS & applied_overrides.keys():
+        return None
+    return caps.audio_track_for_route(route).value
+
 
 if CHANNEL_FACT_OVERRIDE_KEYS - CAPABILITY_OVERRIDE_FIELDS.keys() or CHANNEL_FACT_OVERRIDE_KEYS & (
     ALL_MODEL_FACT_OVERRIDE_KEYS

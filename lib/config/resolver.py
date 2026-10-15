@@ -626,15 +626,15 @@ class VideoBucketCapabilityError(ValueError):
 
 
 class VideoSupportedDurationsError(ValueError):
-    """能力合成时模型行的时长档位声明缺失（``missing``）或无效（``invalid``）。
+    """能力合成时模型行的时长档位声明缺失（``missing``）。
 
     ``provider_id`` / ``model_id`` 是收敛后的有效身份。消费方按 ``kind`` 映射到各自路线的问题码，
     不解析 ``str(exc)``；消息文本保持原样，供 log 与仍按 ``ValueError`` 捕获的调用方使用。
     """
 
-    kind: Literal["missing", "invalid"]
+    kind: Literal["missing"]
 
-    def __init__(self, kind: Literal["missing", "invalid"], *, provider_id: str, model_id: str, message: str):
+    def __init__(self, kind: Literal["missing"], *, provider_id: str, model_id: str, message: str):
         self.kind = kind
         self.provider_id = provider_id
         self.model_id = model_id
@@ -974,6 +974,42 @@ class ConfigResolver:
             return video_model_facts(
                 model_id, model.capability_overrides, entry_binding=model.entry_binding
             ).duration_constraints
+
+    async def video_audio_track(
+        self, provider_id: str, model_id: str, *, generation_type: VideoGenerationType
+    ) -> str | None:
+        """视频模型在该任务类型桶上的成片音轨形态（``VideoAudioMode`` 的字面量）；没有信号时为 None。
+
+        内置模型见 :func:`builtin_video_audio_track`。自定义供应商的模型只认用户对音轨形态的能力覆盖，与
+        :meth:`video_capabilities_for_model` 派生声音一致性同一口径；没有覆盖、模型行或端点解析不出时为 None，
+        调用方按「无信号不收紧」处理，引用失效由能力解析报错，这里不重复。
+        """
+        if not is_custom_provider(provider_id):
+            return builtin_video_audio_track(provider_id, model_id, generation_type=generation_type)
+        from lib.custom_provider.capabilities import (
+            overridden_audio_track,
+            synthesize_video_capabilities_with_overrides,
+        )
+        from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
+        from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
+
+        async with self._open_session() as (session, _svc):
+            try:
+                model = await CustomProviderRepository(session).get_model_by_ids(
+                    parse_provider_id(provider_id), model_id
+                )
+                if model is None:
+                    return None
+                endpoint_spec = await resolve_endpoint_spec(model.endpoint, CustomEndpointRepository(session).get)
+                caps, applied_overrides = synthesize_video_capabilities_with_overrides(
+                    endpoint=model.endpoint,
+                    model_id=model_id,
+                    overrides=model.capability_overrides,
+                    endpoint_spec=endpoint_spec,
+                )
+            except ValueError:
+                return None
+        return overridden_audio_track(caps, applied_overrides, generation_type)
 
     async def video_capabilities_for_model(
         self,
@@ -1470,7 +1506,7 @@ class ConfigResolver:
             # 而该符号所在的装配层反过来依赖 lib.config，模块级导入会成环；注册表分支不用它，
             # 也就不必为此拉起整个装配层。
             from lib.custom_provider.capabilities import (
-                AUDIO_TRACK_OVERRIDE_KEYS,
+                overridden_audio_track,
                 synthesize_video_capabilities_with_overrides,
             )
             from lib.custom_provider.model_facts import comfyui_duration_override, video_model_facts
@@ -1511,15 +1547,10 @@ class ConfigResolver:
             reference_audio_per_image = caps.reference_audio_per_image
             # 自定义供应商没有执行档：计价参数不因默认执行档收窄，故沿用项目请求值。
             default_tier_generates_audio = True
-            # 自定义供应商的音轨形态只认用户的能力覆盖（docs/adr/0104）：调用通道按模型名声明的
-            # 音轨形态不参与派生——endpoint 背后的上游 model 由用户填写、无从核实，误判恒无声会把合法
-            # 配置挡在入队之外。与上一行 default_tier_generates_audio 同口径：没有覆盖时假定有声、
-            # 开关保持可控，不凭空判定为真无声模型。
-            has_audio = (
-                caps.audio_track_for_route(generation_type) != "always_off"
-                if AUDIO_TRACK_OVERRIDE_KEYS & applied_overrides.keys()
-                else True
-            )
+            # 自定义供应商的音轨形态只认用户的能力覆盖（docs/adr/0104）。与上一行 default_tier_generates_audio
+            # 同口径：没有覆盖时假定有声，不凭空判定为真无声模型。
+            audio_track = overridden_audio_track(caps, applied_overrides, generation_type)
+            has_audio = audio_track != "always_off" if audio_track is not None else True
             # ComfyUI 端点的时长可以整维不由 ArcReel 驱动（``docs/adr/0082``）：``frames`` 未绑定
             # 或读不到帧率来源时，该模型行的档位就是空集，提交时不下发时长、让 workflow 出它自己
             # 那一档。这是该协议的合法状态，不适用下面那条「空集即 fail loud」——ADR 0018 守的是

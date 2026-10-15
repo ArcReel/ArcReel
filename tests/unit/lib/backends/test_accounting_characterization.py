@@ -31,7 +31,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-from arcreel_catalog_core import CatalogEntry, Meter, PriceRow, PriceTable, TextFacts, VideoFacts
+from arcreel_catalog_core import CatalogEntry, ImageFacts, Meter, PriceRow, PriceTable, TextFacts, VideoFacts
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoCapabilities,
@@ -44,6 +44,7 @@ from lib.backends.image_backends.base import (
     ImageGenerationRequest,
     ImageGenerationResult,
     ImageRequestFacts,
+    per_image_usage,
 )
 from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.providers import CallPurpose
@@ -564,6 +565,56 @@ class TestImageChannel:
         row = await acct.fetch_only_row()
         assert row["cost_amount"] == pytest.approx((1_000 * 5 + 2_000 * 8 + 1_756 * 30) / 1_000_000)
         assert row["unpriced_reason"] is None
+
+    async def test_reference_images_absent_from_per_image_price_table_are_not_billed(
+        self, tmp_path: Path, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = CatalogEntry(
+            maker="acme",
+            name="pic",
+            media_type="image",
+            display_name="pic",
+            facts=ImageFacts(text_to_image=True, image_to_image=True),
+            price=PriceTable(currency="USD", meters=(_meter("output_images", ({}, 0.04)),)),
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/pic",)}))
+        gen = _media_generator(
+            tmp_path,
+            acct,
+            image_backend=_FakeImageBackend(
+                provider="openai",
+                model="pic",
+                usage_from_request=lambda _request: per_image_usage(output_images=1, input_images=3),
+            ),
+        )
+
+        await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="婉儿")
+
+        # 图生图如实上报了参考图张数，价目表没有参考图单价：厂商不按它收费，这一项不计，只按输出张数计价
+        row = await acct.fetch_only_row()
+        assert row["cost_amount"] == pytest.approx(0.04)
+        assert row["unpriced_reason"] is None
+
+    async def test_openai_without_usage_is_unpriced(self, tmp_path: Path, acct: _AccountingDb) -> None:
+        # OpenAI 图片通道拿不到 usage 时只报输出张数（OpenAIImageBackend._save_and_return 的回退）；gpt-image-2
+        # 按 token 计价，价目表的计量项一项用量都没有，整笔记为未定价，不按估算 token 记账
+        gen = _media_generator(
+            tmp_path,
+            acct,
+            image_backend=_FakeImageBackend(
+                provider="openai",
+                model="gpt-image-2",
+                usage_from_request=lambda _request: per_image_usage(
+                    output_images=1, input_images=None, dimensions={"resolution": "1024x1024", "quality": "medium"}
+                ),
+            ),
+        )
+
+        await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="婉儿", image_size="1K")
+
+        row = await acct.fetch_only_row()
+        assert row["cost_amount"] is None
+        assert row["unpriced_reason"] == "missing_rate"
 
     async def test_failure_flips_failed_with_truncated_error(self, tmp_path: Path, acct: _AccountingDb) -> None:
         gen = _media_generator(

@@ -157,6 +157,14 @@ function workersToStr(n?: number | null): string {
 /** 自定义供应商没有设置倍率时的值；新建表单还取不到服务端的默认值，按它显示。 */
 export const DEFAULT_PROVIDER_MULTIPLIER: ProviderMultiplierInfo = { multiplier: 1, default: 1 };
 
+/**
+ * 新建供应商还没有 id、取不到服务端的默认倍率，按协议给出同一份默认值：ComfyUI 协议为 0，其余为 1
+ * （与 lib/billing/multipliers.py 的 default_provider_multiplier 一致）。
+ */
+export function newProviderDefaultMultiplier(isComfyui: boolean): number {
+  return isComfyui ? 0 : DEFAULT_PROVIDER_MULTIPLIER.default;
+}
+
 // 供应商倍率：等于默认值时显示为空，表示「跟随默认」；保存空串即恢复默认。
 function providerMultiplierToStr(info: ProviderMultiplierInfo): string {
   return info.multiplier === info.default ? "" : String(info.multiplier);

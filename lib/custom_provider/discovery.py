@@ -135,7 +135,7 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
 def _build_result_list(entries: list[tuple[str, str]], *, output_limits: Mapping[str, int] | None = None) -> list[dict]:
     """每个推算 media_type 取首项为 default，并带上按名字对应到的条目摘要。
 
-    ``output_limits`` 是协议给出的模型最大输出长度，只预填到文本模型上；没有给出时为 None。
+    ``output_limits`` 是协议给出的模型最大输出长度，只对文本模型给出；没有给出时为 None。
     """
     seen_media: set[str] = set()
     result: list[dict] = []
