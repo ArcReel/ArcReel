@@ -660,6 +660,35 @@ describe("AddCredentialModal", () => {
     });
   });
 
+  it("the routing hint says blank tiers use the default model, except on the official Anthropic preset", () => {
+    const official: PresetProvider = {
+      ...presets[0],
+      id: "anthropic-official",
+      display_name: "Anthropic Official",
+      icon_key: "Anthropic",
+      default_model: "",
+      suggested_models: [],
+      is_recommended: false,
+    };
+    render(
+      <AddCredentialModal
+        open
+        presets={[...presets, official]}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "高级模型路由" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
+    expect(screen.getByText(/留空则统一使用上方的默认模型/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Anthropic Official/i }));
+    expect(screen.getByText(/留空的档位由 Claude Code 决定使用哪个模型/)).toBeInTheDocument();
+    expect(screen.queryByText(/留空则统一使用上方的默认模型/)).not.toBeInTheDocument();
+  });
+
   it("disables preset chips in edit mode", () => {
     render(
       <AddCredentialModal

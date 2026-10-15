@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import ColumnElement, and_, case, func, null, or_, select, update
 
+from lib.agent.credential_tiers import AgentPricing
 from lib.backends.providers import CALL_TYPE_TEXT, CALL_TYPE_VIDEO, PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallErrorCode
 from lib.billing.catalog_pricing import (
@@ -30,7 +31,6 @@ from lib.db.base import DEFAULT_USER_ID, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.session import AgentSession
 from lib.db.models.task import Task
-from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 from lib.db.repositories.base import BaseRepository, rowcount
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.display_names import provider_display_names
@@ -560,24 +560,22 @@ class UsageRepository(BaseRepository):
         prompt: str | None,
         user_id: str,
         provider: str,
-        credential_id: int | None,
+        pricing: AgentPricing,
         status: CallStatus,
         calls: list[AgentModelCall],
     ) -> list[int]:
         """Agent 会话的一轮：每个模型写一条终态行，返回各行 id（docs/adr/0102）。
 
-        同一轮的几行共用 ``session_id``、prompt 与写入时间。费用是该模型本轮各请求之和，按 ``credential_id``
-        （会话连接时注入的 Agent 凭证）的倍率与条目绑定计价，不随 ``status`` 归零：中断与失败的轮次里已完成的
+        同一轮的几行共用 ``session_id``、prompt 与写入时间。费用是该模型本轮各请求之和，按 ``pricing``（会话连接时
+        注入的 Agent 凭证及其当时的倍率与条目绑定）计价，不随 ``status`` 归零：中断与失败的轮次里已完成的
         请求同样产生了花费。对应不到条目时照常写入 token，费用记为未定价。
         """
         now = utc_now()
-        credentials = AgentCredentialRepository(self.session)
         rows: list[ApiCall] = []
         for call in calls:
-            pricing = await credentials.resolve_pricing(credential_id, call.model)
             cost = price_agent_call(
                 model=call.model,
-                entry_binding=pricing.entry_binding,
+                entry_binding=pricing.entry_binding_for(call.model),
                 requests=call.requests,
                 multiplier=pricing.multiplier,
             )

@@ -26,6 +26,7 @@ from lib.agent.agent_session_store import (
     session_store_mode,
 )
 from lib.agent.agent_session_store.store import DbSessionStore
+from lib.agent.credential_tiers import AgentPricing
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.engine import async_session_factory as default_async_session_factory
 from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
@@ -52,21 +53,21 @@ CLI_STDOUT_MAX_BUFFER_BYTES = 32 * 1024 * 1024
 
 
 class AgentEnv(dict[str, str]):
-    """注入 ``ClaudeAgentOptions.env`` 的环境变量，并带着注入的是哪一条 Agent 凭证。
+    """注入 ``ClaudeAgentOptions.env`` 的环境变量，并带着注入凭证的计价依据快照。
 
-    记账按会话连接时注入的凭证计价（docs/adr/0017、docs/adr/0102），凭证 id 随 env 一起交给会话层；
-    没有生效凭证、env 回退到系统设置时为 ``None``。
+    记账按会话连接时注入的凭证及其当时的倍率与档位绑定计价（docs/adr/0017、docs/adr/0102），快照随 env 一起交给
+    会话层；没有生效凭证、env 回退到系统设置时为默认值。
     """
 
-    def __init__(self, env: dict[str, str], *, agent_credential_id: int | None) -> None:
+    def __init__(self, env: dict[str, str], *, agent_pricing: AgentPricing) -> None:
         super().__init__(env)
-        self.agent_credential_id = agent_credential_id
+        self.agent_pricing = agent_pricing
 
 
-def agent_credential_id_of(options: object) -> int | None:
-    """会话 options 注入的 Agent 凭证 id；env 不是 :class:`AgentEnv` 时为 ``None``。"""
+def agent_pricing_of(options: object) -> AgentPricing:
+    """会话 options 注入的 Agent 凭证计价依据；env 不是 :class:`AgentEnv` 时取默认值。"""
     env = getattr(options, "env", None)
-    return env.agent_credential_id if isinstance(env, AgentEnv) else None
+    return env.agent_pricing if isinstance(env, AgentEnv) else AgentPricing()
 
 
 async def load_provider_env_overrides() -> dict[str, str]:
@@ -85,7 +86,7 @@ async def load_provider_env_overrides() -> dict[str, str]:
     async with async_session_factory() as session:
         anthropic = await build_anthropic_env(session)
 
-    result = AgentEnv(anthropic.env, agent_credential_id=anthropic.credential_id)
+    result = AgentEnv(anthropic.env, agent_pricing=anthropic.pricing)
     for key in OTHER_PROVIDER_ENV_KEYS:
         result[key] = ""
     return result

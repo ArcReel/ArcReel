@@ -12,7 +12,9 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
+from fastapi import FastAPI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -492,6 +494,31 @@ class TestSessionCredential:
         assert [row.cost_amount for row in rows] == pytest.approx([cost, cost, cost * 0.5])
 
     @pytest.mark.usefixtures("acme_catalog")
+    async def test_changing_the_multiplier_mid_session_keeps_the_rate_taken_when_the_session_connected(
+        self, harness: Any
+    ) -> None:
+        await harness.new_session(
+            "第一轮",
+            _request("msg-1", input_tokens=1_000, output=100),
+            _result("r-1", {"main-model": _totals(1_000, 100)}),
+        )
+        await harness.set_multiplier(harness.credential_id, 0.5)
+        await harness.turn(
+            "第二轮",
+            _request("msg-2", input_tokens=1_000, output=100),
+            _result("r-2", {"main-model": _totals(2_000, 200)}),
+        )
+        # 恢复会话的冷启动重新取下凭证，之后的轮次才按新倍率计价
+        await harness.resume(
+            "第三轮",
+            _request("msg-3", input_tokens=1_000, output=100),
+            _result("r-3", {"main-model": _totals(3_000, 300)}),
+        )
+
+        cost = (1_000 * 2 + 100 * 10) / 1e6
+        assert [row.cost_amount for row in await harness.rows()] == pytest.approx([cost, cost, cost * 0.5])
+
+    @pytest.mark.usefixtures("acme_catalog")
     async def test_a_credential_with_multiplier_zero_records_zero_without_looking_up_prices(self, harness: Any) -> None:
         await harness.set_multiplier(harness.credential_id, 0)
         await harness.new_session(
@@ -541,3 +568,61 @@ class TestSessionCredential:
             "USD",
         )
         assert rows["claude-haiku-4-5-20251001"].cost_amount == pytest.approx((1_000 * 1 + 100 * 5) / 1e6)
+
+
+class TestUsageRecordsView:
+    """记账写出的 Agent 行经使用记录接口读出：写侧与会话视图、汇总之间只靠 ``purpose`` 与 ``session_id`` 衔接。"""
+
+    @pytest.mark.usefixtures("acme_catalog")
+    async def test_billed_turns_read_back_as_one_session_with_priced_total_and_unpriced_flag(
+        self, harness: Any, usage_app: Callable[[async_sessionmaker[AsyncSession]], FastAPI]
+    ) -> None:
+        await harness.new_session(
+            "写分镜",
+            _request("msg-1", input_tokens=1_000, cache_read=2_000, write_5m=300, write_1h=200, output=100),
+            _request("msg-2", model="mystery-model", parent_tool_use_id="tu-1", input_tokens=400, output=50),
+            _result("r-1", {"main-model": _totals(1_000, 100, cache_read=2_000, cache_write=500)}),
+        )
+        await harness.turn(
+            "再改一版",
+            _request("msg-3", input_tokens=500, output=20),
+            _result("r-2", {"main-model": _totals(1_500, 120, cache_read=2_000, cache_write=500)}),
+        )
+
+        transport = httpx.ASGITransport(app=usage_app(harness.factory))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            generation = (await client.get("/api/v1/usage/records")).json()
+            sessions = (await client.get("/api/v1/usage/sessions")).json()
+            detail = (await client.get(f"/api/v1/usage/sessions/{SDK_ID}")).json()
+            summary = (await client.get("/api/v1/usage/summary")).json()
+            agent_options = (await client.get("/api/v1/usage/summary", params={"view": "agent"})).json()
+
+        assert generation["items"] == []
+        (row,) = sessions["items"]
+        main_turn_1 = (1_000 * 2 + 2_000 * 0.2 + 300 * 2.5 + 200 * 4 + 100 * 10) / 1e6
+        main_turn_2 = (500 * 2 + 20 * 10) / 1e6
+        assert (row["session_id"], row["session_deleted"], row["project_name"]) == (SDK_ID, False, "demo")
+        assert row["models"] == ["main-model", "mystery-model"]
+        assert (row["calls"], row["unpriced_calls"]) == (3, 1)
+        # 会话用量的输入是总输入：未缓存 + 缓存读 + 两档缓存写
+        assert (row["input_tokens"], row["output_tokens"]) == (3_500 + 400 + 500, 100 + 50 + 20)
+        assert row["cost"] == {"USD": pytest.approx(main_turn_1 + main_turn_2)}
+
+        items = detail["items"]
+        assert [(item["prompt"], item["model"]) for item in items] == [
+            ("写分镜", "main-model"),
+            ("写分镜", "mystery-model"),
+            ("再改一版", "main-model"),
+        ]
+        first = items[0]
+        assert (first["input_tokens"], first["cache_read_tokens"]) == (3_500, 2_000)
+        assert (first["cache_write_5m_tokens"], first["cache_write_1h_tokens"]) == (300, 200)
+        assert (items[1]["cost_amount"], items[1]["unpriced_reason"]) == (None, "no_entry")
+
+        # 合计含 Agent，构成里 Agent 会话合成一项；Agent 视图的供应商选项显示凭证名
+        assert summary["kpi"]["calls"] == 3
+        (agent_item,) = summary["breakdown"]["provider"]["rows"]
+        assert (agent_item["agent"], agent_item["calls"]) == (True, 3)
+        assert [(option["provider"], option["label"]) for option in agent_options["filter_options"]["providers"]] == [
+            (f"agent-{harness.credential_id}", "网关 A")
+        ]

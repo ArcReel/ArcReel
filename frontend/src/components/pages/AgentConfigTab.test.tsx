@@ -253,6 +253,34 @@ describe("AgentConfigTab", () => {
       await waitFor(() => expect(screen.getByRole("listitem", { name: "Haiku 模型" })).not.toHaveTextContent("已下架"));
       expect(within(screen.getByRole("listitem", { name: "Haiku 模型" })).queryByRole("button", { name: "解除绑定" })).not.toBeInTheDocument();
     });
+
+    it("两个 Agent 供应商的绑定同时在途时，先结束的一个不放开另一个的按钮", async () => {
+      const bound = { entry_display_name: "Claude Haiku 4.5", manually_bound: true, priced: true };
+      const first = { ...credentialWith(bound), id: 1, display_name: "网关 A" };
+      const second = { ...credentialWith(bound), id: 2, display_name: "网关 B", is_active: false };
+      setupBaseMocks({ credentials: [first, second] });
+      const pending = new Map<number, (cred: AgentCredential) => void>();
+      vi.spyOn(API, "unbindAgentCredentialTier").mockImplementation(
+        (id) => new Promise((resolve) => pending.set(id, resolve)),
+      );
+      renderSection();
+      const user = userEvent.setup();
+      const unbindIn = (name: string) =>
+        within(within(screen.getByRole("listitem", { name })).getByRole("listitem", { name: "Haiku 模型" })).getByRole(
+          "button",
+          { name: "解除绑定" },
+        );
+
+      await screen.findByRole("listitem", { name: "网关 B" });
+      await user.click(unbindIn("网关 A"));
+      await user.click(unbindIn("网关 B"));
+      expect(unbindIn("网关 A")).toBeDisabled();
+      expect(unbindIn("网关 B")).toBeDisabled();
+
+      pending.get(1)?.({ ...credentialWith(bound), id: 1, display_name: "网关 A" });
+      await waitFor(() => expect(unbindIn("网关 A")).toBeEnabled());
+      expect(unbindIn("网关 B")).toBeDisabled();
+    });
   });
 
   it("编辑 Agent 供应商时修改倍率，保存时一并提交", async () => {

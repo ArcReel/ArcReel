@@ -15,6 +15,7 @@ from typing import Any, ClassVar, Literal, Optional
 from uuid import uuid4
 
 from lib.agent.agent_memory_paths import project_memory_dir
+from lib.agent.credential_tiers import AgentPricing
 from lib.db.base import DEFAULT_USER_ID
 from lib.i18n import DEFAULT_LOCALE
 from lib.infra.data_root_layout import DataRootLayout
@@ -48,7 +49,7 @@ from server.agent_runtime.models import (
     SubscriptionReady,
     WithdrawalIntent,
 )
-from server.agent_runtime.options_assembler import OptionsAssembler, agent_credential_id_of
+from server.agent_runtime.options_assembler import OptionsAssembler, agent_pricing_of
 from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.sdk_frames import CommandLifecycle
 from server.agent_runtime.session_actor import SessionActor, SessionCommand
@@ -327,8 +328,9 @@ class ManagedSession:
     # 用量记账的 prompt：本轮 result 之前被接纳的消息并入同一轮，依次追加；result 之后被接纳的消息开新一轮。
     last_user_prompt: str = ""
     turn_usage_recorded: bool = True
-    # 会话连接时注入环境变量的 Agent 凭证：本会话的轮次按它计价（docs/adr/0017）。回退到系统设置时为空。
-    agent_credential_id: int | None = None
+    # 会话连接时注入环境变量的 Agent 凭证及其当时的倍率与档位绑定：本连接的轮次按它计价（docs/adr/0017、0102）。
+    # 回退到系统设置时为默认值（无凭证、倍率 1、没有绑定）。
+    agent_pricing: AgentPricing = field(default_factory=AgentPricing)
     # 本连接的用量计量：流内请求与 model_usage 的差分基线（docs/adr/0102）。
     usage_meter: TurnUsageMeter = field(default_factory=lambda: TurnUsageMeter(resumed=False))
     interrupt_requested: bool = False
@@ -905,7 +907,7 @@ class SessionManager:
             actor=actor,
             status="running",
             project_name=project_name,
-            agent_credential_id=agent_credential_id_of(options),
+            agent_pricing=agent_pricing_of(options),
         )
         if user_entry is not None:
             managed.pending_initial_user_entry = {"entry": user_entry, "client_key": client_key}
@@ -1305,7 +1307,7 @@ class SessionManager:
             actor=actor,
             status=resumed_status,
             project_name=meta.project_name,
-            agent_credential_id=agent_credential_id_of(options),
+            agent_pricing=agent_pricing_of(options),
             # 恢复会话的 CLI 带着此前的累计用量，差分以恢复后第一条结果为起点
             usage_meter=TurnUsageMeter(resumed=resumable),
             resolved_sdk_id=meta.id,  # 标记为已注册，防止重复创建 DB 记录
@@ -1868,7 +1870,7 @@ class SessionManager:
         result_msg: dict[str, Any],
         final_status: SessionStatus,
     ) -> None:
-        """一轮的用量：每个有用量的模型写一条供应商调用记录，按会话连接时注入的 Agent 凭证计价。"""
+        """一轮的用量：每个有用量的模型写一条供应商调用记录，按会话连接时注入的 Agent 凭证及其当时的倍率与绑定计价。"""
         usages = managed.usage_meter.close_turn(result_msg.get("model_usage"))
         if not usages:
             return
@@ -1882,14 +1884,15 @@ class SessionManager:
         else:
             status = CallStatus.FAILED
 
-        credential_id = managed.agent_credential_id
+        pricing = managed.agent_pricing
+        credential_id = pricing.credential_id
         await self.ledger.record_agent_turn(
             project_name=managed.project_name,
             session_id=managed.session_id,
             prompt=managed.last_user_prompt,
             user_id=getattr(self, "_user_id", DEFAULT_USER_ID),
             provider=agent_provider_id(credential_id) if credential_id is not None else PROVIDER_ANTHROPIC,
-            credential_id=credential_id,
+            pricing=pricing,
             status=status,
             calls=[_agent_model_call(usage) for usage in usages],
         )

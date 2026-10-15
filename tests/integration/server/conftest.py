@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_queue_client import wait_for_task
@@ -16,7 +17,7 @@ from lib.project.project_change_hints import register_project_change_batch_liste
 from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import assets
+from server.routers import assets, usage
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -35,6 +36,21 @@ def assets_env(db_factory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> d
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(assets.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return {"client": TestClient(app), "pm": pm}
+
+
+@pytest.fixture
+def usage_app(monkeypatch: pytest.MonkeyPatch) -> Callable[[async_sessionmaker[AsyncSession]], FastAPI]:
+    """使用记录路由的应用工厂：路由按传入的 session factory 读库，以管理员身份免鉴权。"""
+
+    def build(session_factory: async_sessionmaker[AsyncSession]) -> FastAPI:
+        monkeypatch.setattr(usage, "async_session_factory", session_factory)
+        app = FastAPI()
+        register_error_handlers(app)
+        app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
+        app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+        return app
+
+    return build
 
 
 def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolHarness:

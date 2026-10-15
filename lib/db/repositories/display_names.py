@@ -10,16 +10,17 @@ from collections.abc import Mapping
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.backends.providers import PROVIDER_GEMINI
+from lib.backends.providers import PROVIDER_ANTHROPIC, PROVIDER_GEMINI
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.i18n import DEFAULT_LOCALE, _, translate_or
 from lib.i18n.display_names import DisplayNames, agent_provider_id, is_agent_provider
 
-# 存量裸 provider 值的显示兜底：身份反转前，文本 gemini 调用以 backend.name 落账为裸
-# "gemini"（图像/视频侧已是 "gemini-aistudio"）。这些历史行不迁移，仅在显示时按此表补一个
-# 友好显示名；registry 只登记新格式 key（gemini-aistudio / gemini-vertex），故裸值查不到 meta。
-_LEGACY_PROVIDER_DISPLAY_NAMES = {PROVIDER_GEMINI: "Gemini"}
+# 注册表之外的裸 provider 值的显示兜底，这些行不迁移，仅在显示时补一个友好显示名：
+# - "gemini"：身份反转前，文本 gemini 调用以 backend.name 落账为裸 "gemini"（图像/视频侧已是
+#   "gemini-aistudio"）；registry 只登记新格式 key（gemini-aistudio / gemini-vertex），故裸值查不到 meta。
+# - "anthropic"：Agent 记录在按凭证记账之前一律记 "anthropic"；没有生效凭证、环境变量取自系统设置时仍记它。
+_LEGACY_PROVIDER_DISPLAY_NAMES = {PROVIDER_GEMINI: "Gemini", PROVIDER_ANTHROPIC: "Anthropic"}
 
 
 def _builtin_provider_name(provider_id: str) -> str | None:

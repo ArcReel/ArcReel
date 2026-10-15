@@ -17,6 +17,7 @@ from unittest.mock import patch
 import pytest
 
 from lib.agent.agent_memory_paths import project_memory_dir
+from lib.agent.credential_tiers import AgentPricing
 from lib.config.service import AnthropicEnv
 from lib.db.base import DEFAULT_USER_ID
 from lib.infra.data_root_layout import DataRootLayout
@@ -24,7 +25,7 @@ from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.options_assembler import (
     CLI_STDOUT_MAX_BUFFER_BYTES,
     OptionsAssembler,
-    agent_credential_id_of,
+    agent_pricing_of,
     load_provider_env_overrides,
 )
 from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
@@ -78,12 +79,12 @@ async def test_load_provider_env_overrides_injects_anthropic_and_empties() -> No
     }
 
     async def fake_build(_session):
-        return AnthropicEnv(credential_id=3, env=fake_dict)
+        return AnthropicEnv(env=fake_dict, pricing=AgentPricing(credential_id=3, multiplier=0.5))
 
     with patch("lib.config.service.build_anthropic_env", side_effect=fake_build):
         env = await load_provider_env_overrides()
 
-    assert agent_credential_id_of(SimpleNamespace(env=env)) == 3
+    assert agent_pricing_of(SimpleNamespace(env=env)) == AgentPricing(credential_id=3, multiplier=0.5)
 
     assert env["ANTHROPIC_API_KEY"] == "sk-from-db"
     assert env["ANTHROPIC_BASE_URL"] == "https://anthropic.example.com"

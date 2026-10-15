@@ -3,23 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 from sqlalchemy import delete, select, update
 
-from lib.agent.credential_tiers import Tier, tier_binding_for
-from lib.config.repository import SystemSettingRepository
+from lib.agent.credential_tiers import Tier
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.repositories.base import BaseRepository
-
-
-@dataclass(frozen=True)
-class AgentModelPricing:
-    """Agent 凭证上一个模型名的计价依据：模型所在档位的条目绑定（「模型厂商/官方模型名」）与 Agent 凭证倍率。"""
-
-    entry_binding: str | None = None
-    multiplier: float = 1.0
 
 
 class AgentCredentialRepository(BaseRepository):
@@ -84,24 +74,6 @@ class AgentCredentialRepository(BaseRepository):
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
-
-    async def resolve_pricing(self, cred_id: int | None, model: str) -> AgentModelPricing:
-        """记账时 Agent 凭证上模型名 ``model`` 的计价依据（docs/adr/0102）。
-
-        ``cred_id`` 是会话连接时注入环境变量的那条凭证，不是记账时的生效凭证；没有凭证（回退到系统设置的
-        环境变量）或凭证已删除时取默认值。倍率取凭证倍率；条目绑定取 ``model`` 所在档位的绑定，规则见
-        :func:`lib.agent.credential_tiers.tier_binding_for`，没有时为空，模型名按名字对应条目。
-        """
-        if cred_id is None:
-            return AgentModelPricing()
-        cred = await self.get(cred_id)
-        if cred is None:
-            return AgentModelPricing()
-        binding = None
-        if cred.tier_bindings:
-            settings = await SystemSettingRepository(self.session).get_all()
-            binding = tier_binding_for(cred, settings, model)
-        return AgentModelPricing(entry_binding=binding, multiplier=cred.multiplier)
 
     async def update(self, cred_id: int, **kwargs) -> AgentAnthropicCredential | None:
         cred = await self.get(cred_id)

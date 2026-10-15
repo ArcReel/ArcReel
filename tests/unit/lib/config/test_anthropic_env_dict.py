@@ -1,4 +1,4 @@
-"""build_anthropic_env 行为测试 — 只读 DB、返回环境变量与凭证 id、不写 environ。"""
+"""build_anthropic_env 行为测试 — 只读 DB、返回环境变量与计价依据快照、不写 environ。"""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from lib.agent.credential_tiers import AgentPricing
 from lib.config.service import build_anthropic_env
 
 
@@ -27,6 +28,8 @@ async def test_active_credential_returns_full_dict(monkeypatch: pytest.MonkeyPat
             "sonnet_model": "claude-sonnet-4-6",
             "opus_model": "claude-opus-4-7",
             "subagent_model": "claude-haiku-4-5",
+            "multiplier": 0.8,
+            "tier_bindings": None,
         },
     )()
     repo_mock.get_active = AsyncMock(return_value=cred)
@@ -42,7 +45,7 @@ async def test_active_credential_returns_full_dict(monkeypatch: pytest.MonkeyPat
 
     built = await build_anthropic_env(session)
     result = built.env
-    assert built.credential_id == 7
+    assert built.pricing == AgentPricing(credential_id=7, multiplier=0.8)
     assert result["ANTHROPIC_API_KEY"] == "sk-test"
     assert result["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
     assert result["ANTHROPIC_MODEL"] == "claude-opus-4-7"
@@ -63,9 +66,10 @@ async def test_no_active_credential_returns_empty_strings(monkeypatch: pytest.Mo
     )
     monkeypatch.setattr("lib.config.service.SystemSettingRepository", lambda _s: setting_repo)
 
-    result = (await build_anthropic_env(session)).env
-    assert result["ANTHROPIC_API_KEY"] == ""
-    assert result["ANTHROPIC_BASE_URL"] == ""
+    built = await build_anthropic_env(session)
+    assert built.pricing == AgentPricing()
+    assert built.env["ANTHROPIC_API_KEY"] == ""
+    assert built.env["ANTHROPIC_BASE_URL"] == ""
 
 
 @pytest.mark.asyncio
@@ -118,6 +122,8 @@ async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) 
             "sonnet_model": None,
             "opus_model": None,
             "subagent_model": None,
+            "multiplier": 1.0,
+            "tier_bindings": None,
         },
     )()
     repo_mock.get_active = AsyncMock(return_value=cred)
@@ -135,8 +141,8 @@ async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) 
     assert dict(os.environ) == baseline, "build 函数禁止改 os.environ"
 
 
-def _patch_cred(monkeypatch: pytest.MonkeyPatch, **fields: str) -> None:
-    base = {
+def _patch_cred(monkeypatch: pytest.MonkeyPatch, **fields: object) -> None:
+    base: dict[str, object] = {
         "id": 7,
         "api_key": "sk",
         "base_url": "https://gw.example.com",
@@ -146,6 +152,8 @@ def _patch_cred(monkeypatch: pytest.MonkeyPatch, **fields: str) -> None:
         "opus_model": "",
         "subagent_model": "",
         "preset_id": "deepseek",
+        "multiplier": 1.0,
+        "tier_bindings": None,
     }
     base.update(fields)
     cred = type("Cred", (), base)()
@@ -178,3 +186,25 @@ async def test_official_preset_leaves_blank_tiers_empty(monkeypatch: pytest.Monk
     assert result["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "claude-sonnet-4-6"
     assert result["ANTHROPIC_DEFAULT_OPUS_MODEL"] == ""
     assert result["CLAUDE_CODE_SUBAGENT_MODEL"] == ""
+
+
+@pytest.mark.asyncio
+async def test_pricing_snapshot_takes_the_multiplier_and_the_bindings_of_the_tiers_from_the_same_row(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """计价依据与环境变量取自同一行：倍率，以及带绑定的档位实际调用的模型名（留空档位按填充后的名字）。"""
+    _patch_cred(
+        monkeypatch,
+        model="gw-main",
+        haiku_model="GW/Fast.1",
+        multiplier=0.5,
+        tier_bindings={"haiku": "acme/fast-1", "opus": "acme/big", "sonnet": ""},
+    )
+    pricing = (await build_anthropic_env(AsyncMock())).pricing
+
+    assert pricing.credential_id == 7
+    assert pricing.multiplier == 0.5
+    # 模型名比较忽略大小写与命名空间；留空的 opus 档位填成主模型，主模型档位自己没有绑定时取 opus 的绑定
+    assert pricing.entry_binding_for("gw/fast-1") == "acme/fast-1"
+    assert pricing.entry_binding_for("gw-main") == "acme/big"
+    assert pricing.entry_binding_for("other") is None

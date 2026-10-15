@@ -12,7 +12,7 @@
    幂等守卫（``WHERE status='pending'``）由仓储承担；finalize 自身异常不吞、直接冒泡（交
    worker finally 兜底）。``resume_failed`` 收调用方手上的异常或失败原文，与记账括号同经
    :mod:`lib.billing.call_failure` 编码后落三元组。
-3. **Agent 轮次**（``record_agent_turn``）—— Agent 会话的一轮按模型各写一条终态行，费用由仓储按会话的
+3. **Agent 轮次**（``record_agent_turn``）—— Agent 会话的一轮按模型各写一条终态行，费用由仓储按会话连接时取下的
    Agent 凭证与模型目录计价，调用方不经 pending 中间态。
 
 成功通道的 backend 结果对象 union 分发集中在 ``_settlement_from_result``：text 与 audio 的用量在此
@@ -38,6 +38,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, assert_never
 
+from lib.agent.credential_tiers import AgentPricing
 from lib.backends.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallFailure, classify_call_failure
 from lib.billing.metering import Usage, token_usage
@@ -316,11 +317,11 @@ class Ledger:
         prompt: str | None,
         user_id: str,
         provider: str,
-        credential_id: int | None,
+        pricing: AgentPricing,
         status: CallStatus,
         calls: Sequence[AgentModelCall],
     ) -> None:
-        """Agent 会话的一轮：每个模型写一条终态行，按 Agent 凭证的倍率与条目绑定计价（docs/adr/0102）。
+        """Agent 会话的一轮：每个模型写一条终态行，按会话连接时取下的 Agent 凭证倍率与条目绑定计价（docs/adr/0102）。
 
         没有用量的轮次不写。写入整体不被取消打断：取消到达时先等这一轮的行落库、事件发出，再传播取消。
         """
@@ -333,7 +334,7 @@ class Ledger:
                 prompt=prompt,
                 user_id=user_id,
                 provider=provider,
-                credential_id=credential_id,
+                pricing=pricing,
                 status=status,
                 calls=list(calls),
             )

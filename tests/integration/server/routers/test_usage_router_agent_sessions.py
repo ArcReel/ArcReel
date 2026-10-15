@@ -3,7 +3,6 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import null
 
@@ -11,10 +10,6 @@ from lib.backends.providers import CallPurpose, CallStatus
 from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.models.api_call import ApiCall
 from lib.db.models.session import AgentSession
-from server.auth import CurrentUserInfo, get_current_user
-from server.error_handlers import register_error_handlers
-from server.routers import usage
-from tests.auth_deps import AUTH_DEPENDENCIES
 
 T0 = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 
@@ -63,17 +58,8 @@ def agent_call(session_id: str, minutes: int, model: str, provider: str, **overr
     return ApiCall(**fields)
 
 
-def build_client(db_factory, monkeypatch) -> TestClient:
-    monkeypatch.setattr(usage, "async_session_factory", db_factory)
-    app = FastAPI()
-    register_error_handlers(app)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    return TestClient(app)
-
-
 @pytest.fixture
-async def agent_client(db_factory, monkeypatch):
+async def agent_client(db_factory, usage_app):
     """同一时段内：生成调用、两个 Agent 会话（其中一个含未定价记录）、凭证已删除的会话、历史 anthropic 会话。"""
     async with db_factory() as session:
         credential = AgentAnthropicCredential(
@@ -119,7 +105,7 @@ async def agent_client(db_factory, monkeypatch):
         )
         await session.commit()
 
-    return build_client(db_factory, monkeypatch)
+    return TestClient(usage_app(db_factory))
 
 
 class TestViews:
@@ -260,7 +246,7 @@ class TestSummary:
         assert {row["provider"] for row in rows if not row["agent"]} == {"gemini-aistudio"}
         assert all(row["agent"] for row in summary["breakdown"]["model"]["rows"] if row["model"] != "imagen-4")
 
-    async def test_attention_counts_generation_calls_only(self, db_factory, monkeypatch):
+    async def test_attention_counts_generation_calls_only(self, db_factory, usage_app):
         async with db_factory() as session:
             session.add_all(
                 [
@@ -277,7 +263,7 @@ class TestSummary:
             )
             await session.commit()
 
-        summary = build_client(db_factory, monkeypatch).get("/api/v1/usage/summary").json()
+        summary = TestClient(usage_app(db_factory)).get("/api/v1/usage/summary").json()
 
         assert summary["kpi"]["failed"] == 6
         assert summary["attention"] == []
@@ -292,6 +278,7 @@ class TestSummary:
         labels = {option["provider"]: option["label"] for option in agent["providers"]}
         assert set(labels) == {live, deleted, "anthropic"}
         assert labels[live] == "我的 DeepSeek"
+        assert labels["anthropic"] == "Anthropic"
         assert {option["model"] for option in agent["models"]} >= {"deepseek-chat", "kimi-k2"}
         assert "imagen-4" not in {option["model"] for option in agent["models"]}
 

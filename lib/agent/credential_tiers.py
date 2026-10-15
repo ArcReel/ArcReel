@@ -1,7 +1,7 @@
 """Agent 凭证的模型档位：每个档位实际调用的模型名，以及它按模型目录对应到的条目（docs/adr/0102）。
 
 档位是主模型与 Claude Code 的四个模型路由：``haiku`` / ``sonnet`` / ``opus`` 三个能力等级与子智能体。环境变量组装、
-记账时取档位的条目绑定、设置页的档位定价状态共用这里的「档位实际调用的模型名」，三处对同一条凭证得到同样的名字。
+会话连接时的计价依据快照、设置页的档位定价状态共用这里的「档位实际调用的模型名」，三处对同一条凭证得到同样的名字。
 """
 
 from __future__ import annotations
@@ -60,18 +60,35 @@ def tier_models(credential: AgentAnthropicCredential, settings: Mapping[str, str
     return names
 
 
-def tier_binding_for(credential: AgentAnthropicCredential, settings: Mapping[str, str], model: str) -> str | None:
-    """API 模型名 ``model`` 所在档位的条目绑定；模型名比较忽略大小写与命名空间。没有带绑定的档位时为 ``None``。"""
+@dataclass(frozen=True)
+class AgentPricing:
+    """Agent 会话的计价依据：会话连接时注入环境变量的那条 Agent 凭证，以及它当时的倍率与档位条目绑定（docs/adr/0102）。
+
+    会话连接时与环境变量一起从同一行凭证取下，这段连接的轮次都按它计价：会话进行中修改凭证的倍率或档位绑定，已经开始的
+    会话不受影响，之后开始或恢复的会话才按新值计价。默认值对应没有生效凭证、环境变量回退到系统设置的情形。
+    """
+
+    credential_id: int | None = None
+    multiplier: float = 1.0
+    #: 带绑定的档位，按 :data:`TIERS` 的顺序：（档位实际调用的模型名，条目绑定「模型厂商/官方模型名」）。
+    tier_bindings: tuple[tuple[str, str], ...] = ()
+
+    def entry_binding_for(self, model: str) -> str | None:
+        """API 模型名 ``model`` 所在档位的条目绑定；模型名比较忽略大小写与命名空间。同一模型名在几个档位时取第一个
+        带绑定的档位，没有时为 ``None``，模型名按名字对应条目。"""
+        target = normalize_model_name(model)
+        return next((ref for name, ref in self.tier_bindings if normalize_model_name(name) == target), None)
+
+
+def agent_pricing(credential: AgentAnthropicCredential, settings: Mapping[str, str]) -> AgentPricing:
+    """凭证此刻的计价依据快照；档位模型名的规则同 :func:`tier_models`。"""
     bindings = credential.tier_bindings or {}
-    if not bindings:
-        return None
-    target = normalize_model_name(model)
     names = tier_models(credential, settings)
-    for tier in TIERS:
-        ref = bindings.get(tier)
-        if ref and names[tier] and normalize_model_name(names[tier]) == target:
-            return ref
-    return None
+    return AgentPricing(
+        credential_id=credential.id,
+        multiplier=credential.multiplier,
+        tier_bindings=tuple((names[tier], ref) for tier in TIERS if (ref := bindings.get(tier)) and names[tier]),
+    )
 
 
 @dataclass(frozen=True)

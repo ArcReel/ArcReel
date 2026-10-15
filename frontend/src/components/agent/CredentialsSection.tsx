@@ -41,7 +41,8 @@ export function CredentialsSection() {
   const [customSentinelId, setCustomSentinelId] = useState("__custom__");
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [busyCredId, setBusyCredId] = useState<number | null>(null);
-  const [tierBusyId, setTierBusyId] = useState<number | null>(null);
+  // 档位绑定按 Agent 供应商分桶：不同供应商上的请求可以同时在途，一个结束不放开另一个。
+  const [tierBusyIds, setTierBusyIds] = useState<ReadonlySet<number>>(() => new Set());
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
   const [testedCredId, setTestedCredId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AgentCredential | null>(null);
@@ -134,14 +135,18 @@ export function CredentialsSection() {
 
   // 绑定与解除绑定的响应是更新后的整条凭证，直接换进列表，不重新拉取。
   const changeTierBinding = useCallback(async (id: number, change: () => Promise<AgentCredential>) => {
-    setTierBusyId(id);
+    setTierBusyIds((prev) => new Set(prev).add(id));
     try {
       const updated = await change();
       setCredentials((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
-      setTierBusyId(null);
+      setTierBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     }
   }, []);
 
@@ -195,7 +200,7 @@ export function CredentialsSection() {
         onTest={(id) => void handleTest(id)}
         onEdit={setEditingCred}
         onDelete={setDeleteTarget}
-        tierBusyId={tierBusyId}
+        tierBusyIds={tierBusyIds}
         onBindTier={(id, tier, entry) => void handleBindTier(id, tier, entry)}
         onUnbindTier={(id, tier) => void handleUnbindTier(id, tier)}
       />

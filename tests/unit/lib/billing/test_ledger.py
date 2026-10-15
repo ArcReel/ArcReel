@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from arcreel_market_core.video_backend_contract import ResumeExpiredError
+from lib.agent.credential_tiers import AgentPricing
 from lib.backends.http_status_errors import ArtifactDownloadError
 from lib.backends.providers import CallPurpose, CallStatus
 from lib.backends.text_backends.base import TextGenerationResult, merge_billed_usage
@@ -596,7 +597,7 @@ class TestResumeAndAgentTurn:
                 prompt="u",
                 user_id="default",
                 provider="agent-1",
-                credential_id=1,
+                pricing=AgentPricing(credential_id=1),
                 status=CallStatus.CANCELLED,
                 calls=[_agent_call("claude-sonnet-4-6"), _agent_call("claude-haiku-4-5")],
             )

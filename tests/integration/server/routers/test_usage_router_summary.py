@@ -3,17 +3,12 @@
 from datetime import UTC, datetime
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import update
 
 from lib.backends.providers import CallStatus
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
-from server.auth import CurrentUserInfo, get_current_user
-from server.error_handlers import register_error_handlers
-from server.routers import usage
-from tests.auth_deps import AUTH_DEPENDENCIES
 
 DAY = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 
@@ -55,13 +50,8 @@ async def seed_call(
 
 
 @pytest.fixture
-def summary_client(db_factory, monkeypatch) -> TestClient:
-    monkeypatch.setattr(usage, "async_session_factory", db_factory)
-    app = FastAPI()
-    register_error_handlers(app)
-    app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    app.include_router(usage.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
-    return TestClient(app)
+def summary_client(db_factory, usage_app) -> TestClient:
+    return TestClient(usage_app(db_factory))
 
 
 class TestSummaryKpi:

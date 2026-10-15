@@ -7,7 +7,7 @@ from typing import Literal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_market_core.video_backend_contract import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
-from lib.agent.credential_tiers import TIERS, Tier, tier_models
+from lib.agent.credential_tiers import TIERS, AgentPricing, Tier, agent_pricing, tier_models
 from lib.catalog import query as catalog
 from lib.config.env_keys import ANTHROPIC_ENV_KEYS
 from lib.config.registry import PROVIDER_REGISTRY
@@ -80,17 +80,17 @@ _TIER_ENV_KEYS: dict[Tier, str] = {
 
 @dataclass(frozen=True)
 class AnthropicEnv:
-    """注入 Agent 会话的 ANTHROPIC_* 环境变量，以及它们取自哪条 Agent 凭证（没有生效凭证时为 ``None``）。"""
+    """注入 Agent 会话的 ANTHROPIC_* 环境变量，以及取自同一行凭证的计价依据（没有生效凭证时为默认值）。"""
 
-    credential_id: int | None
     env: dict[str, str]
+    pricing: AgentPricing
 
 
 async def build_anthropic_env(session: AsyncSession) -> AnthropicEnv:
-    """从 DB 读 active credential，返回 {ENV_KEY: value} 与凭证 id，**不写 os.environ**。
+    """从 DB 读 active credential，返回 {ENV_KEY: value} 与计价依据快照，**不写 os.environ**。
 
     返回值由 OptionsAssembler 的凭证注入（load_provider_env_overrides）注入到 ClaudeAgentOptions.env。凭证只读一次，
-    环境变量与凭证 id 取自同一行：记账按凭证 id 计价，二者必须是同一条凭证（docs/adr/0102）。
+    环境变量与计价依据（凭证 id、倍率、档位绑定）取自同一行：会话按连接时注入的凭证计价（docs/adr/0102）。
 
     双轨期 fallback：active credential 字段为空时从 system_settings 兜底。档位模型名的规则见
     :func:`lib.agent.credential_tiers.tier_models`。
@@ -108,12 +108,12 @@ async def build_anthropic_env(session: AsyncSession) -> AnthropicEnv:
             "ANTHROPIC_BASE_URL": cred.base_url or "",
             **{_TIER_ENV_KEYS[tier]: models[tier] for tier in TIERS},
         }
-        return AnthropicEnv(credential_id=cred.id, env=env)
+        return AnthropicEnv(env=env, pricing=agent_pricing(cred, settings))
 
     # 无 active credential — 回退 system_settings（双轨期兼容）
     return AnthropicEnv(
-        credential_id=None,
         env={env_key: settings.get(db_key, "").strip() for db_key, env_key in _ANTHROPIC_ENV_MAP.items()},
+        pricing=AgentPricing(),
     )
 
 

@@ -23,10 +23,12 @@ interface Props {
   onEdit: (cred: AgentCredential) => void;
   onDelete: (cred: AgentCredential) => void;
   /** 档位绑定或解除绑定请求在途的 Agent 供应商。 */
-  tierBusyId?: number | null;
+  tierBusyIds?: ReadonlySet<number>;
   onBindTier: (id: number, tier: AgentCredentialTier, entry: CatalogEntryHit) => void;
   onUnbindTier: (id: number, tier: AgentCredentialTier) => void;
 }
+
+const NO_BUSY_IDS: ReadonlySet<number> = new Set();
 
 export function CredentialList({
   credentials,
@@ -37,7 +39,7 @@ export function CredentialList({
   onTest,
   onEdit,
   onDelete,
-  tierBusyId = null,
+  tierBusyIds = NO_BUSY_IDS,
   onBindTier,
   onUnbindTier,
 }: Props) {
@@ -133,7 +135,7 @@ export function CredentialList({
             </dl>
             <CredentialTierPricing
               tiers={c.tiers}
-              busy={tierBusyId === c.id}
+              busy={tierBusyIds.has(c.id)}
               onBind={(tier, entry) => onBindTier(c.id, tier, entry)}
               onUnbind={(tier) => onUnbindTier(c.id, tier)}
             />
