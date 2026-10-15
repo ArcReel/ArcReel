@@ -44,6 +44,7 @@ class TestUsageRepository:
             project_name="demo",
             call_type="image",
             model="gemini-3.1-flash-image-preview",
+            provider="gemini",
             prompt="test prompt",
             resolution="1K",
         )
@@ -62,7 +63,7 @@ class TestUsageRepository:
 
     async def test_last_provider_response_is_bounded(self, async_session):
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
         await repo.update_last_provider_response(call_id, {"payload": "x" * (MAX_PROVIDER_RESPONSE_BYTES + 1)})
 
@@ -78,7 +79,7 @@ class TestUsageRepository:
         量体积，一段表情符号能量出 60 KiB 却写出 180 KiB，上限就形同虚设。
         """
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
         # 每个表情符号 4 字节 UTF-8，escape 成两个 \uXXXX 转义序列后是 12 字节。
         await repo.update_last_provider_response(call_id, {"payload": "🎬" * 15000})
@@ -96,7 +97,7 @@ class TestUsageRepository:
         assert len(json.dumps(body).encode()) <= MAX_PROVIDER_RESPONSE_BYTES
 
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
         await repo.update_last_provider_response(call_id, body)
 
         assert bound_provider_response(body) == body
@@ -120,7 +121,7 @@ class TestFinalizePendingByCallId:
 
     async def test_flips_pending_to_success(self, async_session):
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
         # 显式 cost_amount=0.0 维持单元测试的确定性，绕过 auto-calc 路径
         affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
@@ -230,8 +231,12 @@ class TestFinalizePendingByCallId:
 
     async def test_does_not_touch_other_pending_call(self, async_session):
         repo = UsageRepository(async_session)
-        cid_a = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
-        cid_b = await repo.start_call(project_name="demo", call_type="video", model="m", segment_id="E1S01")
+        cid_a = await repo.start_call(
+            project_name="demo", call_type="video", model="m", provider="gemini", segment_id="E1S01"
+        )
+        cid_b = await repo.start_call(
+            project_name="demo", call_type="video", model="m", provider="gemini", segment_id="E1S01"
+        )
 
         affected = await repo.finalize_pending_by_call_id(call_id=cid_a, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
@@ -244,7 +249,7 @@ class TestFinalizePendingByCallId:
 
     async def test_idempotent_when_already_success(self, async_session):
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
         await repo.finish_call(call_id, status="success", settlement=SettlementInput(cost_amount=5.0, currency="USD"))
 
         affected = await repo.finalize_pending_by_call_id(
@@ -257,7 +262,7 @@ class TestFinalizePendingByCallId:
 
     async def test_finalize_failed_status(self, async_session):
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
         affected = await repo.finalize_pending_by_call_id(
             call_id=call_id, settlement=SettlementInput(), status="failed"
@@ -275,7 +280,7 @@ class TestFinalizePendingByCallId:
 
     async def test_writes_the_failure_triple_when_given_one(self, async_session):
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
         affected = await repo.finalize_pending_by_call_id(
             call_id=call_id,
@@ -295,7 +300,7 @@ class TestFinalizePendingByCallId:
     async def test_truncates_the_raw_failure_message_at_500(self, async_session):
         """与 finish_call 同口径：原文列不因一段超长上游错误体撑爆。"""
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
         await repo.finalize_pending_by_call_id(
             call_id=call_id,
@@ -310,7 +315,7 @@ class TestFinalizePendingByCallId:
     async def test_leaves_the_failure_triple_untouched_without_one(self, async_session):
         """success / cancelled 出口不带失败信息，那三列不该被这次 finalize 写成任何值。"""
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
         await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
 
@@ -320,7 +325,7 @@ class TestFinalizePendingByCallId:
     async def test_writes_duration_ms(self, async_session):
         """resume 完成的调用必须回写 duration_ms，否则记录表的耗时列与详情都读不到这次调用的时长。"""
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
 
         affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
         assert affected == 1
@@ -334,7 +339,7 @@ class TestFinalizePendingByCallId:
     async def test_settles_call_pending_for_over_int32_milliseconds(self, async_session):
         """停机超过 24.8 天后续接：墙钟耗时超出 int4 毫秒上限，PostgreSQL 下也要写入真实耗时。"""
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
         await backdate_call(async_session, call_id, delta=timedelta(days=30))
 
         affected = await repo.finalize_pending_by_call_id(call_id=call_id, settlement=SettlementInput(cost_amount=0.0))
@@ -411,6 +416,7 @@ class TestMultiProviderUsage:
             project_name="demo",
             call_type="video",
             model="veo-3.1-generate-001",
+            provider="gemini",
             resolution="1080p",
             duration_seconds=8,
             generate_audio=True,
@@ -851,9 +857,9 @@ class TestSummaryQueriesRespectScope:
 
     async def test_pending_rows_stay_out_of_the_projection(self, async_session):
         repo = UsageRepository(async_session)
-        done = await repo.start_call(project_name="demo", call_type="image", model="m")
+        done = await repo.start_call(project_name="demo", call_type="image", model="m", provider="gemini")
         await repo.finish_call(done, status="success", settlement=SettlementInput())
-        await repo.start_call(project_name="demo", call_type="image", model="m")
+        await repo.start_call(project_name="demo", call_type="image", model="m", provider="gemini")
 
         rows = await repo.fetch_summary_rows()
         assert [row.id for row in rows] == [done]
@@ -940,7 +946,7 @@ class TestNullCostReadPaths:
     async def test_write_path_still_records_priced_cost(self, async_session):
         """现有写入路径不变：结算后的费用是数值（含 0），新列留空。"""
         repo = UsageRepository(async_session)
-        call_id = await repo.start_call(project_name="demo", call_type="image", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="image", model="m", provider="gemini")
         await repo.finish_call(call_id, status="success", settlement=SettlementInput(cost_amount=0.0))
 
         (row,) = await stored_calls(async_session)
@@ -973,6 +979,7 @@ class TestSettleInterruptedPendingCalls:
             project_name="demo",
             call_type="video",
             model="veo-3.1-generate-preview",
+            provider="gemini",
             duration_seconds=8,
             task_id=task_id,
         )

@@ -39,7 +39,7 @@ from datetime import datetime
 from typing import Any, assert_never
 
 from lib.agent.credential_tiers import AgentPricing
-from lib.backends.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.backends.providers import CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallFailure, classify_call_failure
 from lib.billing.metering import Usage, token_usage
 from lib.db import safe_session_factory
@@ -191,7 +191,7 @@ class Ledger:
         project_name: str,
         call_type: CallType,
         model: str,
-        provider: str = PROVIDER_GEMINI,
+        provider: str,
         prompt: str | None = None,
         resolution: str | None = None,
         duration_seconds: int | None = None,

@@ -118,7 +118,7 @@ class TestVideoResumeRunner:
 
         async with worker_db() as session:
             call_id = await UsageRepository(session).start_call(
-                project_name="demo", call_type="video", model="m", task_id="exp-row"
+                project_name="demo", call_type="video", model="m", provider="gemini", task_id="exp-row"
             )
 
         queue = FakeWorkerQueue(failed_rows=failed_rows)
@@ -247,10 +247,10 @@ class TestVideoResumeRunner:
 
         async with worker_db() as session:
             older_call_id = await UsageRepository(session).start_call(
-                project_name="demo", call_type="video", model="old", task_id="rc"
+                project_name="demo", call_type="video", model="old", provider="gemini", task_id="rc"
             )
             call_id = await UsageRepository(session).start_call(
-                project_name="demo", call_type="video", model="m", task_id="rc"
+                project_name="demo", call_type="video", model="m", provider="gemini", task_id="rc"
             )
         queue = FakeWorkerQueue()
         worker = GenerationWorker(
@@ -300,7 +300,7 @@ class TestVideoResumeRunner:
         deleted_name = "demo#deleted-20261002T034309Z"
         async with worker_db() as session:
             call_id = await UsageRepository(session).start_call(
-                project_name=deleted_name, call_type="video", model="m", task_id="gone"
+                project_name=deleted_name, call_type="video", model="m", provider="gemini", task_id="gone"
             )
         queue = FakeWorkerQueue()
         worker = GenerationWorker(

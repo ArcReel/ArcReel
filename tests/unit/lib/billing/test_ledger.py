@@ -727,7 +727,11 @@ class TestSettlementEvents:
             from lib.db.repositories.usage_repo import UsageRepository
 
             call_id = await UsageRepository(session).start_call(
-                project_name="demo", call_type="video", model="veo-3.1-generate-preview", duration_seconds=8
+                project_name="demo",
+                call_type="video",
+                model="veo-3.1-generate-preview",
+                provider="gemini",
+                duration_seconds=8,
             )
 
         assert await ledger.resume_success(call_id=call_id, result=_VideoResult()) == 1

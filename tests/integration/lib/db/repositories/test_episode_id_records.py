@@ -126,6 +126,7 @@ async def test_migration_reserves_ids_only_retained_in_task_payloads_and_call_in
         project_name=project_dir.name,
         call_type="video",
         model="m",
+        provider="gemini",
         segment_id="E1S01",
         inputs={"end_image": "storyboards/scene_E99S01.png", "parameters": {"prompt": "E999S01"}},
     )

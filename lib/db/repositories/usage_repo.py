@@ -13,7 +13,7 @@ from typing import Any
 from sqlalchemy import ColumnElement, and_, case, func, null, or_, select, update
 
 from lib.agent.credential_tiers import AgentPricing
-from lib.backends.providers import CALL_TYPE_TEXT, PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.backends.providers import CALL_TYPE_TEXT, CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallErrorCode
 from lib.billing.catalog_pricing import (
     is_builtin_provider,
@@ -212,7 +212,7 @@ class UsageRepository(BaseRepository):
         duration_seconds: int | None = None,
         aspect_ratio: str | None = None,
         generate_audio: bool | None = None,
-        provider: str = PROVIDER_GEMINI,
+        provider: str,
         user_id: str = DEFAULT_USER_ID,
         segment_id: str | None = None,
         task_id: str | None = None,
