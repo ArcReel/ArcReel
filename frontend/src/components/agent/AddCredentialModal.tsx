@@ -304,6 +304,7 @@ export function AddCredentialModal({
     (mode === "create" && !form.apiKey.trim() && !importSource) ||
     !form.baseUrl.trim() ||
     baseUrlRejected ||
+    form.multiplierInvalid ||
     (mode === "edit" && !form.isDirty(initial));
 
   const closeUnlessSubmitting = (nextOpen: boolean) => {
@@ -547,6 +548,25 @@ export function AddCredentialModal({
                 </CollapsibleContent>
               </Collapsible>
             </div>
+
+            <Field label={t("cred_multiplier_label")} htmlFor="cred-multiplier">
+              <Input
+                id="cred-multiplier"
+                inputMode="decimal"
+                autoComplete="off"
+                className="w-32"
+                value={form.multiplierText}
+                onChange={(e) => form.setMultiplierText(e.target.value)}
+                aria-invalid={form.multiplierInvalid}
+                aria-describedby="cred-multiplier-hint"
+              />
+              <p
+                id="cred-multiplier-hint"
+                className={form.multiplierInvalid ? "text-xs text-warn" : "text-xs text-muted-foreground"}
+              >
+                {form.multiplierInvalid ? t("cred_multiplier_invalid") : t("cred_multiplier_help")}
+              </p>
+            </Field>
 
             {selected?.notes && (
               <p className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-subtle-foreground">

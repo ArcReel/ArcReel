@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+from lib.db.repositories.agent_credential_repo import AgentCredentialRepository, AgentModelPricing
 
 
 @pytest.mark.asyncio
@@ -109,3 +109,33 @@ async def test_update_partial(async_session) -> None:
 async def test_get_active_when_none(async_session) -> None:
     repo = AgentCredentialRepository(async_session)
     assert await repo.get_active() is None
+
+
+class TestResolvePricing:
+    """记账时的计价依据：会话凭证的倍率，加上模型名所在档位的条目绑定。"""
+
+    async def test_takes_the_credential_multiplier_and_the_binding_of_the_tier_the_model_is_in(
+        self, async_session
+    ) -> None:
+        repo = AgentCredentialRepository(async_session)
+        cred = await repo.create(
+            preset_id="__custom__",
+            display_name="网关",
+            base_url="u",
+            api_key="k",
+            model="gw-main",
+            haiku_model="GW/Fast.1",
+            multiplier=0.5,
+        )
+        await repo.update(cred.id, tier_bindings={"haiku": "acme/fast-1", "opus": "acme/big"})
+
+        # 模型名比较忽略大小写与命名空间；留空的 opus 档位填成主模型，主模型档位自己没有绑定时取 opus 的绑定
+        assert await repo.resolve_pricing(cred.id, "gw/fast-1") == AgentModelPricing("acme/fast-1", 0.5)
+        assert await repo.resolve_pricing(cred.id, "gw-main") == AgentModelPricing("acme/big", 0.5)
+        assert await repo.resolve_pricing(cred.id, "other") == AgentModelPricing(None, 0.5)
+
+    async def test_falls_back_to_defaults_without_a_credential(self, async_session) -> None:
+        repo = AgentCredentialRepository(async_session)
+
+        assert await repo.resolve_pricing(None, "m") == AgentModelPricing()
+        assert await repo.resolve_pricing(404, "m") == AgentModelPricing()

@@ -12,6 +12,7 @@ import { AgentConfigTab } from "@/components/pages/AgentConfigTab";
 import type { GetSystemConfigResponse } from "@/types";
 import type {
   AgentCredential,
+  AgentCredentialTierStatus,
   PresetProvider,
 } from "@/types/agent-credential";
 
@@ -77,6 +78,8 @@ function makeCredential(overrides?: Partial<AgentCredential>): AgentCredential {
     sonnet_model: null,
     opus_model: null,
     subagent_model: null,
+    multiplier: 1,
+    tiers: [],
     is_active: true,
     created_at: "2026-04-21T00:00:00Z",
     ...overrides,
@@ -129,9 +132,27 @@ describe("AgentConfigTab", () => {
     expect(screen.getByText(/还没有 Agent 供应商/)).toBeInTheDocument();
   });
 
-  it("每个 Agent 供应商列出默认模型与单独设置过的模型路由", async () => {
+  it("每个 Agent 供应商列出密钥、倍率，以及各档位实际调用的模型与定价状态", async () => {
+    const tier = (overrides: Partial<AgentCredentialTierStatus> & Pick<AgentCredentialTierStatus, "tier">) => ({
+      model_name: "claude-sonnet-4",
+      entry_display_name: "Claude Sonnet 4",
+      manually_bound: false,
+      priced: true,
+      ...overrides,
+    });
     setupBaseMocks({
-      credentials: [makeCredential({ opus_model: "claude-opus-4", subagent_model: "claude-haiku-4-5" })],
+      credentials: [
+        makeCredential({
+          multiplier: 0,
+          tiers: [
+            tier({ tier: "model" }),
+            tier({ tier: "haiku", model_name: null, entry_display_name: null, priced: false }),
+            tier({ tier: "sonnet", manually_bound: true }),
+            tier({ tier: "opus", model_name: "gw-opus", entry_display_name: null, priced: false }),
+            tier({ tier: "subagent" }),
+          ],
+        }),
+      ],
     });
     useConfigStatusStore.setState({ initialized: true, isEmbeddedAgentConfigured: true });
     renderSection();
@@ -140,12 +161,32 @@ describe("AgentConfigTab", () => {
     expect(screen.queryByRole("note", { name: "ArcReel Agent 尚未配置" })).not.toBeInTheDocument();
     const terms = within(item).getAllByRole("term").map((el) => el.textContent);
     const values = within(item).getAllByRole("definition").map((el) => el.textContent);
-    expect(Object.fromEntries(terms.map((term, i) => [term, values[i]]))).toEqual({
-      默认模型: "claude-sonnet-4",
-      密钥: "sk-ant-***",
-      "Opus 模型": "claude-opus-4",
-      子智能体模型: "claude-haiku-4-5",
-    });
+    expect(Object.fromEntries(terms.map((term, i) => [term, values[i]]))).toEqual({ 密钥: "sk-ant-***", 倍率: "×0" });
+    const tiers = within(within(item).getByRole("region", { name: "模型档位与定价" })).getAllByRole("listitem");
+    expect(tiers.map((el) => el.textContent)).toEqual([
+      "默认模型claude-sonnet-4已定价Claude Sonnet 4",
+      "Haiku 模型由 Claude Code 决定",
+      "Sonnet 模型claude-sonnet-4已定价Claude Sonnet 4手动选择",
+      "Opus 模型gw-opus未定价",
+      "子智能体模型claude-sonnet-4已定价Claude Sonnet 4",
+    ]);
+  });
+
+  it("编辑 Agent 供应商时修改倍率，保存时一并提交", async () => {
+    setupBaseMocks({ credentials: [makeCredential({ multiplier: 1 })] });
+    const update = vi.spyOn(API, "updateAgentCredential").mockResolvedValue(makeCredential({ multiplier: 0 }));
+    renderSection();
+    const user = userEvent.setup();
+
+    const item = await screen.findByRole("listitem", { name: "Anthropic 主号" });
+    await user.click(within(item).getByRole("button", { name: "编辑" }));
+    const dialog = await screen.findByRole("dialog");
+    const multiplier = within(dialog).getByLabelText("倍率");
+    await user.clear(multiplier);
+    await user.type(multiplier, "0");
+    await user.click(within(dialog).getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledWith(1, expect.objectContaining({ multiplier: 0 })));
   });
 
   it("删除 Agent 供应商先经确认，确认后从列表移除", async () => {

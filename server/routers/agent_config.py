@@ -9,17 +9,19 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.agent.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset, list_presets
+from lib.agent.credential_tiers import Tier, tier_statuses
 from lib.config.anthropic_probe import DiagnosisCode, run_test
 from lib.config.anthropic_probe import ProbeResult as ProbeResultDC
 from lib.config.anthropic_probe import TestConnectionResponse as TestConnectionResponseDC
-from lib.config.repository import mask_secret
+from lib.config.repository import SystemSettingRepository, mask_secret
 from lib.config.url_utils import InvalidAnthropicBaseUrlError, validate_anthropic_base_url
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
+from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.infra.api_errors import UnprocessableError
@@ -83,6 +85,16 @@ async def list_preset_providers(_t: Translator) -> PresetProvidersResponse:
 # ── Credential models ──────────────────────────────────────────────
 
 
+class TierStatusResponse(BaseModel):
+    """一个档位的定价状态，按当前目录现查。``model_name`` 为 None 表示档位留空、由 CLI 决定调用的模型。"""
+
+    tier: Tier
+    model_name: str | None
+    entry_display_name: str | None
+    manually_bound: bool
+    priced: bool
+
+
 class CredentialResponse(BaseModel):
     id: int
     preset_id: str
@@ -95,6 +107,9 @@ class CredentialResponse(BaseModel):
     sonnet_model: str | None
     opus_model: str | None
     subagent_model: str | None
+    multiplier: float
+    # 主模型、haiku、sonnet、opus、子智能体五个档位实际调用的模型名与定价状态，顺序固定。
+    tiers: list[TierStatusResponse]
     is_active: bool
     created_at: str | None
 
@@ -115,6 +130,8 @@ class CreateCredentialRequest(BaseModel):
     sonnet_model: str | None = None
     opus_model: str | None = None
     subagent_model: str | None = None
+    # Agent 凭证倍率（docs/adr/0100）：订阅制网关可填 0，费用记 0。
+    multiplier: float = Field(default=1.0, ge=0, allow_inf_nan=False)
     activate: bool | None = None  # None = 自动 (无 active 时自动 set active)
 
 
@@ -127,9 +144,11 @@ class UpdateCredentialRequest(BaseModel):
     sonnet_model: str | None = None
     opus_model: str | None = None
     subagent_model: str | None = None
+    multiplier: float | None = Field(default=None, ge=0, allow_inf_nan=False)
 
 
-def _cred_to_response(cred) -> CredentialResponse:
+def _cred_to_response(cred: AgentAnthropicCredential, settings: dict[str, str]) -> CredentialResponse:
+    """``settings`` 是系统设置，凭证上留空的档位以其中的旧值兜底（与注入会话的环境变量一致）。"""
     preset = get_preset(cred.preset_id) if cred.preset_id != CUSTOM_SENTINEL_ID else None
     return CredentialResponse(
         id=cred.id,
@@ -143,6 +162,17 @@ def _cred_to_response(cred) -> CredentialResponse:
         sonnet_model=cred.sonnet_model,
         opus_model=cred.opus_model,
         subagent_model=cred.subagent_model,
+        multiplier=cred.multiplier,
+        tiers=[
+            TierStatusResponse(
+                tier=status.tier,
+                model_name=status.model_name,
+                entry_display_name=status.entry_display_name,
+                manually_bound=status.manually_bound,
+                priced=status.priced,
+            )
+            for status in tier_statuses(cred, settings)
+        ],
         is_active=cred.is_active,
         created_at=dt_to_iso(cred.created_at),
     )
@@ -191,7 +221,8 @@ async def list_credentials(
 ) -> CredentialListResponse:
     repo = AgentCredentialRepository(session)
     creds = await repo.list_for_user()
-    return CredentialListResponse(credentials=[_cred_to_response(c) for c in creds])
+    settings = await SystemSettingRepository(session).get_all()
+    return CredentialListResponse(credentials=[_cred_to_response(c, settings) for c in creds])
 
 
 @router.post("/credentials", response_model=CredentialResponse, status_code=201)
@@ -226,6 +257,7 @@ async def create_credential(
         sonnet_model=body.sonnet_model,
         opus_model=body.opus_model,
         subagent_model=body.subagent_model,
+        multiplier=body.multiplier,
     )
     # 自动 active 策略：activate=True，或 (activate=None 且当前无 active)
     should_activate = body.activate is True
@@ -237,7 +269,7 @@ async def create_credential(
         await repo.set_active(cred.id)
     await session.commit()
     await session.refresh(cred)
-    return _cred_to_response(cred)
+    return _cred_to_response(cred, await SystemSettingRepository(session).get_all())
 
 
 @router.patch("/credentials/{cred_id}", response_model=CredentialResponse)
@@ -249,9 +281,9 @@ async def update_credential(
 ) -> CredentialResponse:
     repo = AgentCredentialRepository(session)
     # exclude_unset 保留客户端显式传入的 None（用于清空 model/haiku_model 等可选覆盖项）
-    # 必需字段 (display_name/base_url/api_key) 仍过滤 None：传 null 给它们没有意义
+    # 必需字段 (display_name/base_url/api_key/multiplier) 仍过滤 None：传 null 给它们没有意义
     fields = body.model_dump(exclude_unset=True)
-    for required in ("display_name", "base_url", "api_key"):
+    for required in ("display_name", "base_url", "api_key", "multiplier"):
         if fields.get(required) is None:
             fields.pop(required, None)
     if "base_url" in fields:
@@ -262,7 +294,7 @@ async def update_credential(
     if cred is None:
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
     await session.commit()
-    return _cred_to_response(cred)
+    return _cred_to_response(cred, await SystemSettingRepository(session).get_all())
 
 
 @router.delete("/credentials/{cred_id}", status_code=204)

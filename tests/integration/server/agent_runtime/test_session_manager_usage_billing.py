@@ -212,6 +212,11 @@ class _Harness:
             await session.commit()
             return cred.id
 
+    async def set_multiplier(self, cred_id: int, multiplier: float) -> None:
+        async with self.factory() as session:
+            await AgentCredentialRepository(session).update(cred_id, multiplier=multiplier)
+            await session.commit()
+
     async def activate(self, cred_id: int) -> None:
         async with self.factory() as session:
             await AgentCredentialRepository(session).set_active(cred_id)
@@ -461,6 +466,7 @@ class TestSessionCredential:
     async def test_turns_are_billed_to_the_credential_injected_when_the_session_connected(self, harness: Any) -> None:
         first = harness.credential_id
         second = await harness.add_credential("网关 B")
+        await harness.set_multiplier(second, 0.5)
         await harness.new_session(
             "第一轮",
             _request("msg-1", input_tokens=1_000, output=100),
@@ -479,7 +485,28 @@ class TestSessionCredential:
             _result("r-3", {"main-model": _totals(3_000, 300)}),
         )
 
-        assert [row.provider for row in await harness.rows()] == [f"agent-{first}", f"agent-{first}", f"agent-{second}"]
+        rows = await harness.rows()
+        assert [row.provider for row in rows] == [f"agent-{first}", f"agent-{first}", f"agent-{second}"]
+        # 倍率同样取会话连接时注入的凭证
+        cost = (1_000 * 2 + 100 * 10) / 1e6
+        assert [row.cost_amount for row in rows] == pytest.approx([cost, cost, cost * 0.5])
+
+    @pytest.mark.usefixtures("acme_catalog")
+    async def test_a_credential_with_multiplier_zero_records_zero_without_looking_up_prices(self, harness: Any) -> None:
+        await harness.set_multiplier(harness.credential_id, 0)
+        await harness.new_session(
+            "写分镜",
+            _request("msg-1", input_tokens=1_000, output=100),
+            _request("msg-2", model="mystery-model", parent_tool_use_id="tu-1", input_tokens=1_000, output=100),
+            _result("r-1", {"main-model": _totals(1_000, 100), "mystery-model": _totals(1_000, 100)}),
+        )
+
+        rows = _by_model(await harness.rows())
+        # 对应不到条目的模型同样记 0，不记为未定价；token 照常记下
+        assert {model: (row.cost_amount, row.unpriced_reason, row.input_tokens) for model, row in rows.items()} == {
+            "main-model": (0, None, 1_000),
+            "mystery-model": (0, None, 1_000),
+        }
 
     async def test_claude_models_of_the_official_preset_are_priced_from_the_catalog(self, harness: Any) -> None:
         await harness.new_session(

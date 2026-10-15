@@ -79,15 +79,13 @@ async def load_provider_env_overrides() -> dict[str, str]:
     又是外部输入，故真值注入与空值围堵是常驻机制而非技术债（见 ADR）。
     """
     from lib.config.env_keys import OTHER_PROVIDER_ENV_KEYS
-    from lib.config.service import build_anthropic_env_dict
+    from lib.config.service import build_anthropic_env
     from lib.db import async_session_factory
-    from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 
     async with async_session_factory() as session:
-        active = await AgentCredentialRepository(session).get_active()
-        anthropic_env = await build_anthropic_env_dict(session)
+        anthropic = await build_anthropic_env(session)
 
-    result = AgentEnv(anthropic_env, agent_credential_id=active.id if active is not None else None)
+    result = AgentEnv(anthropic.env, agent_credential_id=anthropic.credential_id)
     for key in OTHER_PROVIDER_ENV_KEYS:
         result[key] = ""
     return result

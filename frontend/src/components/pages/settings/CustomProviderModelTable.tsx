@@ -16,6 +16,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type { DiscoveryFormat, MatchedCatalogEntry, MediaType } from "@/types";
 import { DurationParseError, parseDurationInput, type DurationParseErrorCode } from "@/utils/duration_format";
+import { parseMultiplier } from "@/utils/multiplier";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS, resolutionPlaceholder } from "@/utils/provider-models";
 import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
@@ -27,7 +28,7 @@ import {
   pathOverridesFor,
   withLastFrameOverride,
 } from "./customProviderHelpers";
-import { matchedEntryFor, parseMultiplier, type ModelRow } from "./customProviderFormState";
+import { matchedEntryFor, type ModelRow } from "./customProviderFormState";
 import { EndpointSelect } from "./EndpointSelect";
 import { RequestAddresses } from "./RequestAddresses";
 

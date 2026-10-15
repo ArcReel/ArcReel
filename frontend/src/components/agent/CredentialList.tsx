@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { AgentCredential, TestConnectionResponse } from "@/types/agent-credential";
 
+import { CredentialTierPricing } from "./CredentialTierPricing";
 import { PresetIcon } from "./PresetIcon";
 import { TestResultPanel } from "./TestResultPanel";
 
@@ -21,14 +22,6 @@ interface Props {
   onEdit: (cred: AgentCredential) => void;
   onDelete: (cred: AgentCredential) => void;
 }
-
-/** 按能力等级的模型路由；没有单独设置的等级沿用默认模型，不列出。 */
-const ROUTES = [
-  { key: "haiku_model", labelKey: "haiku_model" },
-  { key: "sonnet_model", labelKey: "sonnet_model" },
-  { key: "opus_model", labelKey: "opus_model" },
-  { key: "subagent_model", labelKey: "subagent_model" },
-] as const;
 
 export function CredentialList({
   credentials,
@@ -54,7 +47,6 @@ export function CredentialList({
     <ul className="flex flex-col gap-3">
       {credentials.map((c) => {
         const busy = busyId === c.id;
-        const routes = ROUTES.filter((r) => c[r.key]);
         return (
           <li
             key={c.id}
@@ -124,23 +116,14 @@ export function CredentialList({
               </div>
             </div>
             <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 border-t border-border pt-3 text-xs @md/page:grid-cols-[auto_minmax(0,1fr)_auto_minmax(0,1fr)]">
-              <dt className="text-muted-foreground">{t("default_model")}</dt>
-              <dd className="min-w-0">
-                <TruncatedText text={c.model || t("cred_model_preset_default")} className="font-mono" />
-              </dd>
               <dt className="text-muted-foreground">{t("cred_api_key")}</dt>
               <dd className="min-w-0">
                 <TruncatedText text={c.api_key_masked} className="font-mono" />
               </dd>
-              {routes.map((r) => (
-                <div key={r.key} className="contents">
-                  <dt className="text-muted-foreground">{t(r.labelKey)}</dt>
-                  <dd className="min-w-0">
-                    <TruncatedText text={c[r.key] ?? ""} className="font-mono" />
-                  </dd>
-                </div>
-              ))}
+              <dt className="text-muted-foreground">{t("cred_multiplier_label")}</dt>
+              <dd className="tabular-nums">×{c.multiplier}</dd>
             </dl>
+            <CredentialTierPricing tiers={c.tiers} />
             {testedId === c.id && testResult && <TestResultPanel result={testResult} />}
           </li>
         );

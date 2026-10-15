@@ -92,6 +92,7 @@ export function CredentialsSection() {
         sonnet_model: req.sonnet_model,
         opus_model: req.opus_model,
         subagent_model: req.subagent_model,
+        multiplier: req.multiplier,
       };
       if (req.api_key) patch.api_key = req.api_key;
       await API.updateAgentCredential(editingCred.id, patch);
@@ -193,6 +194,7 @@ export function CredentialsSection() {
                 sonnet_model: editingCred.sonnet_model ?? undefined,
                 opus_model: editingCred.opus_model ?? undefined,
                 subagent_model: editingCred.subagent_model ?? undefined,
+                multiplier: editingCred.multiplier,
               }
             : undefined
         }

@@ -327,6 +327,87 @@ async def test_patch_credential(agent_config_client) -> None:
     assert resp.json()["display_name"] == "Renamed"
 
 
+# ── 倍率与档位定价状态 ─────────────────────────────────────────
+
+
+def _tiers(cred: dict) -> dict[str, dict]:
+    return {tier.pop("tier"): tier for tier in cred["tiers"]}
+
+
+async def test_saved_credential_reports_multiplier_and_the_pricing_status_of_each_tier(agent_config_client) -> None:
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "deepseek", "api_key": "sk", "haiku_model": "my-private-llm", "multiplier": 0},
+    )
+    assert resp.status_code == 201
+
+    (cred,) = (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"]
+    assert cred["multiplier"] == 0
+    main = {
+        "model_name": "deepseek-v4-pro",
+        "entry_display_name": "DeepSeek V4 Pro",
+        "manually_bound": False,
+        "priced": True,
+    }
+    # 非官方预设留空的档位用主模型；对应不到条目的档位未定价
+    assert _tiers(cred) == {
+        "model": main,
+        "haiku": {"model_name": "my-private-llm", "entry_display_name": None, "manually_bound": False, "priced": False},
+        "sonnet": main,
+        "opus": main,
+        "subagent": main,
+    }
+
+
+async def test_official_preset_leaves_blank_tiers_to_the_cli(agent_config_client) -> None:
+    resp = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={"preset_id": "anthropic-official", "api_key": "sk", "model": "claude-sonnet-4-6"},
+    )
+
+    tiers = _tiers(resp.json())
+    assert tiers["model"]["entry_display_name"] == "Claude Sonnet 4.6"
+    assert tiers["haiku"] == {"model_name": None, "entry_display_name": None, "manually_bound": False, "priced": False}
+
+
+async def test_a_tier_binding_takes_precedence_over_the_model_name(agent_config_client, db_factory) -> None:
+    created = (
+        await agent_config_client.post(
+            "/api/v1/agent/credentials",
+            json={"preset_id": "__custom__", "base_url": "https://gw.example.com", "api_key": "sk", "model": "gw-llm"},
+        )
+    ).json()
+    async with db_factory() as session:
+        # 指向已不在目录里的条目的绑定不生效，回到按模型名对应
+        await AgentCredentialRepository(session).update(
+            created["id"], tier_bindings={"model": "anthropic/claude-haiku-4-5", "opus": "acme/gone"}
+        )
+        await session.commit()
+
+    (cred,) = (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"]
+    tiers = _tiers(cred)
+    assert tiers["model"] == {
+        "model_name": "gw-llm",
+        "entry_display_name": "Claude Haiku 4.5",
+        "manually_bound": True,
+        "priced": True,
+    }
+    assert tiers["opus"]["manually_bound"] is False
+
+
+async def test_patch_updates_the_multiplier_and_rejects_negative_values(agent_config_client) -> None:
+    cid = (
+        await agent_config_client.post("/api/v1/agent/credentials", json={"preset_id": "deepseek", "api_key": "sk"})
+    ).json()["id"]
+
+    assert (
+        await agent_config_client.patch(f"/api/v1/agent/credentials/{cid}", json={"multiplier": -1})
+    ).status_code == 422
+    resp = await agent_config_client.patch(f"/api/v1/agent/credentials/{cid}", json={"multiplier": 0.6})
+    assert resp.status_code == 200
+    assert resp.json()["multiplier"] == 0.6
+
+
 @pytest.mark.asyncio
 async def test_delete_active_blocked(agent_config_client) -> None:
     created = (

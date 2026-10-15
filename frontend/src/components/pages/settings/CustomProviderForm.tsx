@@ -31,6 +31,7 @@ import type { CustomProviderInfo, EndpointKey, ProviderMultiplierInfo } from "@/
 import { errMsg, voidCall } from "@/utils/async";
 import { DurationParseError } from "@/utils/duration_format";
 import { formatNameList } from "@/utils/list-format";
+import { parseMultiplier } from "@/utils/multiplier";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { DURATION_ERROR_KEY, ModelTable } from "./CustomProviderModelTable";
 import {
@@ -50,7 +51,6 @@ import {
   newModelRow,
   newProviderDefaultMultiplier,
   newProviderForm,
-  parseMultiplier,
   parseOptionalMultiplier,
   parsePositiveInt,
   rowToInput,

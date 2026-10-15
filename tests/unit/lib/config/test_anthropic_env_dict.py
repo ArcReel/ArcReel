@@ -1,4 +1,4 @@
-"""build_anthropic_env_dict 行为测试 — 只读 DB、返回 dict、不写 environ。"""
+"""build_anthropic_env 行为测试 — 只读 DB、返回环境变量与凭证 id、不写 environ。"""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from lib.config.service import build_anthropic_env_dict
+from lib.config.service import build_anthropic_env
 
 
 @pytest.mark.asyncio
@@ -18,6 +18,8 @@ async def test_active_credential_returns_full_dict(monkeypatch: pytest.MonkeyPat
         "Cred",
         (),
         {
+            "id": 7,
+            "preset_id": "anthropic-official",
             "api_key": "sk-test",
             "base_url": "https://api.anthropic.com",
             "model": "claude-opus-4-7",
@@ -38,7 +40,9 @@ async def test_active_credential_returns_full_dict(monkeypatch: pytest.MonkeyPat
     )
     monkeypatch.setattr("lib.config.service.SystemSettingRepository", lambda _s: setting_repo)
 
-    result = await build_anthropic_env_dict(session)
+    built = await build_anthropic_env(session)
+    result = built.env
+    assert built.credential_id == 7
     assert result["ANTHROPIC_API_KEY"] == "sk-test"
     assert result["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
     assert result["ANTHROPIC_MODEL"] == "claude-opus-4-7"
@@ -59,7 +63,7 @@ async def test_no_active_credential_returns_empty_strings(monkeypatch: pytest.Mo
     )
     monkeypatch.setattr("lib.config.service.SystemSettingRepository", lambda _s: setting_repo)
 
-    result = await build_anthropic_env_dict(session)
+    result = (await build_anthropic_env(session)).env
     assert result["ANTHROPIC_API_KEY"] == ""
     assert result["ANTHROPIC_BASE_URL"] == ""
 
@@ -85,7 +89,7 @@ async def test_no_active_credential_falls_back_to_system_settings(monkeypatch: p
     )
     monkeypatch.setattr("lib.config.service.SystemSettingRepository", lambda _s: setting_repo)
 
-    result = await build_anthropic_env_dict(session)
+    result = (await build_anthropic_env(session)).env
     assert result["ANTHROPIC_API_KEY"] == "legacy-sk"
     assert result["ANTHROPIC_BASE_URL"] == "https://legacy.anthropic.com"
     assert result["ANTHROPIC_MODEL"] == "claude-legacy-model"
@@ -105,6 +109,8 @@ async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) 
         "Cred",
         (),
         {
+            "id": 7,
+            "preset_id": "__custom__",
             "api_key": "sk-test",
             "base_url": "x",
             "model": "y",
@@ -125,12 +131,13 @@ async def test_function_does_not_touch_environ(monkeypatch: pytest.MonkeyPatch) 
     )
     monkeypatch.setattr("lib.config.service.SystemSettingRepository", lambda _s: setting_repo)
 
-    await build_anthropic_env_dict(session)
+    await build_anthropic_env(session)
     assert dict(os.environ) == baseline, "build 函数禁止改 os.environ"
 
 
 def _patch_cred(monkeypatch: pytest.MonkeyPatch, **fields: str) -> None:
     base = {
+        "id": 7,
         "api_key": "sk",
         "base_url": "https://gw.example.com",
         "model": "",
@@ -156,7 +163,7 @@ def _patch_cred(monkeypatch: pytest.MonkeyPatch, **fields: str) -> None:
 @pytest.mark.asyncio
 async def test_non_official_preset_fills_blank_tiers_with_main_model(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_cred(monkeypatch, model="deepseek-v4", sonnet_model="deepseek-v4-pro")
-    result = await build_anthropic_env_dict(AsyncMock())
+    result = (await build_anthropic_env(AsyncMock())).env
     assert result["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "deepseek-v4"
     assert result["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "deepseek-v4-pro"
     assert result["ANTHROPIC_DEFAULT_OPUS_MODEL"] == "deepseek-v4"
@@ -166,7 +173,7 @@ async def test_non_official_preset_fills_blank_tiers_with_main_model(monkeypatch
 @pytest.mark.asyncio
 async def test_official_preset_leaves_blank_tiers_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_cred(monkeypatch, preset_id="anthropic-official", model="claude-opus-4-7", sonnet_model="claude-sonnet-4-6")
-    result = await build_anthropic_env_dict(AsyncMock())
+    result = (await build_anthropic_env(AsyncMock())).env
     assert result["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == ""
     assert result["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "claude-sonnet-4-6"
     assert result["ANTHROPIC_DEFAULT_OPUS_MODEL"] == ""

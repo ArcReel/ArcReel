@@ -351,6 +351,37 @@ describe("AddCredentialModal", () => {
     expect(submitBtn).toBeDisabled();
   });
 
+  it("edits the multiplier: subscription gateways can save 0, invalid input blocks saving", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <AddCredentialModal
+        open
+        mode="edit"
+        presets={presets}
+        customSentinelId="__custom__"
+        initial={{
+          preset_id: "deepseek",
+          display_name: "DS Prod",
+          base_url: "https://api.deepseek.com/anthropic",
+          multiplier: 1,
+        }}
+        onSubmit={onSubmit}
+        onClose={vi.fn()}
+      />,
+    );
+    const multiplier = screen.getByLabelText("倍率");
+    const submitBtn = screen.getByRole("button", { name: "保存" });
+
+    fireEvent.change(multiplier, { target: { value: "-1" } });
+    expect(submitBtn).toBeDisabled();
+    expect(multiplier).toHaveAccessibleDescription("倍率须为不小于 0 的数。");
+
+    fireEvent.change(multiplier, { target: { value: "0" } });
+    expect(submitBtn).toBeEnabled();
+    fireEvent.click(submitBtn);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ multiplier: 0 })));
+  });
+
   describe("import from provider", () => {
     const sampleProvider: import("@/types/custom-provider").CustomProviderInfo = {
       id: 42,
