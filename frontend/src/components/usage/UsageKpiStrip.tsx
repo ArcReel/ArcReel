@@ -34,6 +34,12 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
   const costEntries = Object.entries(kpi?.cost ?? {}).filter(([, amount]) => amount > 0);
   const primaryAmount = primary ? (kpi?.cost[primary] ?? 0) : 0;
   const others = costEntries.filter(([currency]) => currency !== primary);
+  // 未定价的调用不计入金额，在副行单列次数，免得把「没算出来」读成「0 元」。
+  const costSub =
+    [
+      ...others.map(([currency, amount]) => `+ ${formatCurrencyAmount(currency, amount)}`),
+      ...(kpi && kpi.unpriced_calls > 0 ? [t("usage_kpi_unpriced_count", { count: kpi.unpriced_calls })] : []),
+    ].join("  ") || DASH;
 
   return (
     <dl className="grid grid-cols-2 divide-border rounded-xl border border-border bg-card @2xl/page:grid-cols-4 @2xl/page:divide-x">
@@ -60,11 +66,7 @@ export function UsageKpiStrip({ summary }: { summary: UsageSummary | null }) {
         // 多币种不折算：主币种进大字，其余在副行原样列出。
         label={primary ? `${t("usage_kpi_cost")} · ${primary}` : t("usage_kpi_cost")}
         value={primary ? formatCurrencyAmount(primary, primaryAmount) : DASH}
-        sub={
-          others.length > 0
-            ? others.map(([currency, amount]) => `+ ${formatCurrencyAmount(currency, amount)}`).join("  ")
-            : DASH
-        }
+        sub={costSub}
       />
     </dl>
   );

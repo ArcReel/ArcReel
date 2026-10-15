@@ -13,6 +13,7 @@ resolution-markers = [
 [manifest]
 members = [
     "arcreel",
+    "arcreel-catalog-core",
     "arcreel-market-core",
 ]
 
@@ -219,6 +220,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "alembic" },
     { name = "anthropic" },
+    { name = "arcreel-catalog-core" },
     { name = "arcreel-market-core" },
     { name = "asyncpg" },
     { name = "beautifulsoup4" },
@@ -285,6 +287,7 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "alembic", specifier = ">=1.18.4" },
     { name = "anthropic", specifier = ">=0.125.0,<1" },
+    { name = "arcreel-catalog-core", editable = "packages/arcreel-catalog-core" },
     { name = "arcreel-market-core", editable = "packages/arcreel-market-core" },
     { name = "asyncpg", specifier = ">=0.31.0" },
     { name = "beautifulsoup4", specifier = ">=4.14.3" },
@@ -343,6 +346,21 @@ dev = [
     { name = "ruff", specifier = ">=0.16.0" },
 ]
 mutation = [{ name = "mutmut", specifier = "==3.7.0" }]
+
+[[package]]
+name = "arcreel-catalog-core"
+version = "0.1.0"
+source = { editable = "packages/arcreel-catalog-core" }
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+
+[package.metadata]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = ">=9.0.2" }]
 
 [[package]]
 name = "arcreel-market-core"
@@ -1647,15 +1665,15 @@ wheels = [
 
 [[package]]
 name = "jsonpath-rfc9535"
-version = "1.0.0"
+version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "iregexp-check" },
     { name = "regex" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ad/62/42b1ee140903ced74b213590235915e41c5e6f8de029fd43b54aad081b1b/jsonpath_rfc9535-1.0.0.tar.gz", hash = "sha256:5312cbccb921d39af69ef3fef299a075c872259fa897f2126999a1c3bcb73d04", size = 27235, upload-time = "2025-11-30T09:09:31.705Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/06/8d/e3891ee43c1828805a28f16d09a91fd1bd5b76a30fbc93d55cc3343a4a50/jsonpath_rfc9535-1.0.1.tar.gz", hash = "sha256:9cab85a93f7ad6b2b8d9f31d9cb4216207a000de4eecdc4ac6cdfe2a79784c79", size = 27289, upload-time = "2026-10-09T06:50:53.906Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a9/8c/1d201eeabbc1922c74fa0ad2cdef561c393198d0610ab28ad606929d863f/jsonpath_rfc9535-1.0.0-py3-none-any.whl", hash = "sha256:713efa817d9c94e6b1372d52f00f5c9959bef2ab0fdf334de262dcf74166a2b1", size = 36493, upload-time = "2025-11-30T09:09:30.298Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/b5/33a308488c101300265f83aac0e85d1344fe59a43cb72763b450efe8245d/jsonpath_rfc9535-1.0.1-py3-none-any.whl", hash = "sha256:b1c2176532776fa1cd02d8e00efa1a0088d55f47bb5e54ff22875cdbccafcdbd", size = 36538, upload-time = "2026-10-09T06:50:52.878Z" },
 ]
 
 [[package]]
@@ -3519,7 +3537,7 @@ name = "uiautomation"
 version = "2.0.29"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "comtypes", marker = "sys_platform == 'win32'" },
+    { name = "comtypes" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/bc/23/8238b5cb73e54c3618ce4d443c1830a2749264a0d61a9b61637096b8dc7a/uiautomation-2.0.29.tar.gz", hash = "sha256:3c169112043ce21065aead1d79c3baebdafc9cf03bd24ded02b2db11d423d88d", size = 203970, upload-time = "2025-08-05T05:14:41.194Z" }
 wheels = [

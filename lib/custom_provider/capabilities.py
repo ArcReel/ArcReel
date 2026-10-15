@@ -4,6 +4,9 @@
 操作在执行期反悔」。执行层由工厂构建 backend 时注入。系统判定本身不落库，随注册表升级
 自动变化；用户覆盖是稀疏字典（`CustomProviderModel.capability_overrides`），键缺席即该
 维度跟随系统判定。
+
+同一个覆盖字典里还有模型事实维度（可选时长、文生图等，见 :mod:`lib.custom_provider.model_facts`），
+键名与通道事实不重叠，这里跳过它们。
 """
 
 from __future__ import annotations
@@ -19,8 +22,10 @@ from arcreel_market_core.endpoint_definition import COMFYUI_KIND, requires_image
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     VideoCapabilities,
+    VideoRoute,
     audio_capability_pair_is_coherent,
 )
+from lib.custom_provider.model_facts import ALL_MODEL_FACT_OVERRIDE_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,46 @@ _CAPABILITY_TYPE_HINTS = get_type_hints(VideoCapabilities)
 CAPABILITY_OVERRIDE_FIELDS: dict[str, object] = {
     f.name: _CAPABILITY_TYPE_HINTS[f.name] for f in fields(VideoCapabilities)
 }
+
+#: 开放给能力覆盖的通道事实维度（docs/adr/0104）：输入模式、参考图与参考音频上限、提示词长度上限、
+#: 音轨形态。``reference_audio_per_image``、``first_frame_ratio_adaptive_only`` 是请求构造的形态，
+#: 改了也不会让调用通道换一种请求，不开放。
+CHANNEL_FACT_OVERRIDE_KEYS: frozenset[str] = frozenset(
+    {
+        "text_to_video",
+        "first_frame",
+        "last_frame",
+        "max_reference_images",
+        "reference_audio_mode",
+        "max_reference_audio_count",
+        "max_reference_audio_total_seconds",
+        "max_prompt_chars",
+        "audio_track",
+        "reference_route_audio_track",
+    }
+)
+
+#: 音轨形态两维。自定义供应商只在用户覆盖了它们时才按音轨形态派生（见 :func:`overridden_audio_track`）。
+AUDIO_TRACK_OVERRIDE_KEYS: frozenset[str] = frozenset({"audio_track", "reference_route_audio_track"})
+
+
+def overridden_audio_track(
+    caps: VideoCapabilities, applied_overrides: Mapping[str, object], route: VideoRoute
+) -> str | None:
+    """自定义供应商模型在该执行路径上的成片音轨形态；用户没有覆盖音轨形态时为 ``None``。
+
+    调用通道按模型名声明的音轨形态不参与派生：endpoint 背后的上游 model 由用户填写、无从核实，误判恒无声会把
+    合法配置挡在入队之外。没有覆盖时由调用方按「假定有声、开关可控」处理。返回值是 ``VideoAudioMode`` 的字面量。
+    """
+    if not AUDIO_TRACK_OVERRIDE_KEYS & applied_overrides.keys():
+        return None
+    return caps.audio_track_for_route(route).value
+
+
+if CHANNEL_FACT_OVERRIDE_KEYS - CAPABILITY_OVERRIDE_FIELDS.keys() or CHANNEL_FACT_OVERRIDE_KEYS & (
+    ALL_MODEL_FACT_OVERRIDE_KEYS
+):
+    raise RuntimeError("通道事实覆盖键须是 VideoCapabilities 字段，且不与模型事实覆盖键重名")
 
 
 def _unwrap_optional(expected: object) -> tuple[object, bool]:
@@ -164,7 +209,8 @@ def filter_valid_overrides(
     for key, value in overrides.items():
         expected = CAPABILITY_OVERRIDE_FIELDS.get(key)
         if expected is None:
-            logger.warning("忽略 %s/%s 的未知能力覆盖键 %r", endpoint, model_id, key)
+            if key not in ALL_MODEL_FACT_OVERRIDE_KEYS:
+                logger.warning("忽略 %s/%s 的未知能力覆盖键 %r", endpoint, model_id, key)
             continue
         if not capability_value_matches(value, expected):
             logger.warning(

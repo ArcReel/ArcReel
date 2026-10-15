@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from sqlalchemy import update
 
 from lib.billing.ledger import Ledger
+from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService, read_video_poll_timeout_seconds
@@ -194,7 +195,7 @@ class CapacityTable:
         # 无用户配置的装载路径：每条 lane 取声明默认（若有）→ 否则全局默认
         limits = {
             pid: cls._lane_limits(
-                meta.media_types,
+                catalog.provider_media_types(pid),
                 cls._lane_default(meta, "image", image_max),
                 cls._lane_default(meta, "video", video_max),
                 cls._lane_default(meta, "audio", audio_max),
@@ -237,7 +238,9 @@ class CapacityTable:
                     config, "audio_max_workers", cls._lane_default(meta, "audio", default_audio), provider_id
                 )
                 # _lane_limits 统一负责"不支持的 lane → 0"，三个装载路径共用同一投影点
-                limits[provider_id] = cls._lane_limits(meta.media_types, image_max, video_max, audio_max)
+                limits[provider_id] = cls._lane_limits(
+                    catalog.provider_media_types(provider_id), image_max, video_max, audio_max
+                )
 
             repo = CustomProviderRepository(session)
             get_custom_endpoint = CustomEndpointRepository(session).get

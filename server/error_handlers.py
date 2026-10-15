@@ -19,8 +19,10 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.generation.generation_queue import ActiveTaskRequestConflict
 from lib.generation.generation_queue_client import TaskSpecValidationError
+from lib.generation.task_failure import FAILURE_CODE_KEYS
 from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError
 from lib.script.script_editor import ScriptEditError
@@ -116,6 +118,15 @@ def register_error_handlers(
         _t = get_translator(request)
         names = await request_display_names(request)
         detail = await present_request_diagnostics(render_message(exc.code, exc.params, _t, names), request, _t)
+        return JSONResponse(status_code=400, content={"detail": detail})
+
+    @app.exception_handler(ModelNotInCatalogError)
+    async def _handle_model_not_in_catalog(request: Request, exc: ModelNotInCatalogError) -> JSONResponse:
+        # 设置或项目里引用的内置模型已不在供应商的模型清单中（已下架）：提示用户重新选择，不当作服务器错误
+        _t = get_translator(request)
+        names = await request_display_names(request)
+        message = render_message(FAILURE_CODE_KEYS[exc.code], exc.params, _t, names)
+        detail = await present_request_diagnostics(message, request, _t)
         return JSONResponse(status_code=400, content={"detail": detail})
 
     @app.exception_handler(ActiveTaskRequestConflict)

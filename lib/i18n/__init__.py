@@ -151,9 +151,9 @@ def render_generation_input_error(
 def translate_or(key: str, fallback: str, locale: str = DEFAULT_LOCALE, **kwargs: Any) -> str:
     """Translate ``key``, falling back to ``fallback`` when no locale defines it.
 
-    目录类文案（模型名、供应商名）多数是各语言通用的专有名词，只有非拉丁写法的条目需要
+    目录类文案（供应商名）多数是各语言通用的专有名词，只有非拉丁写法的条目需要
     译名表。未登记的键返回数据源里的原名，而不是 ``_()`` 的裸键回退——后者会把
-    "Gemini 3 Pro" 变成 "model_name_gemini-aistudio_gemini-3-pro"。
+    "OpenAI" 变成 "provider_name_openai"。
     """
     if key not in MESSAGES[DEFAULT_LOCALE]:
         return fallback

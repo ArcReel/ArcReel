@@ -33,6 +33,8 @@ from lib.backends.generation_type_buckets import (
     custom_model_buckets,
 )
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
@@ -197,7 +199,7 @@ async def _enumerate_candidates(
         if provider_id not in ready_providers:
             continue
         provider_names[provider_id] = translate_or(f"provider_name_{provider_id}", meta.display_name, locale)
-        for model_id, model_info in meta.models.items():
+        for model_id, model_info in catalog.list_models(provider_id).items():
             if model_info.hidden:
                 continue
             candidates.append(
@@ -205,7 +207,7 @@ async def _enumerate_candidates(
                     option=f"{provider_id}/{model_id}",
                     media_type=model_info.media_type,
                     buckets=builtin_model_buckets(provider_id, model_id, model_info),
-                    display_name=translate_or(f"model_name_{provider_id}_{model_id}", model_info.display_name, locale),
+                    display_name=model_info.display_name,
                 )
             )
 
@@ -232,6 +234,7 @@ async def _enumerate_candidates(
                         model_id=model.model_id,
                         capability_overrides=model.capability_overrides,
                         endpoint_spec=endpoint_spec,
+                        entry_binding=model.entry_binding,
                     ),
                     display_name=model.display_name,
                 )
@@ -478,6 +481,9 @@ async def get_tts_model_capabilities(backend: str) -> TtsModelCapabilitiesRespon
         raise UnprocessableError("narration_tts_model_required")
     try:
         capabilities = await audio_backend_capabilities(*pair)
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
     except ValueError as exc:
         raise UnprocessableError("narration_tts_model_invalid") from exc
     return TtsModelCapabilitiesResponse(supports_speed=AudioCapability.SPEECH_SPEED in capabilities)

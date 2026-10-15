@@ -11,14 +11,15 @@ t2i+i2i、i2i-only 两类图片模型，一个 ready 供应商就能把四个桶
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from dataclasses import replace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.backends.generation_type_buckets import builtin_model_buckets, custom_model_buckets
+from lib.catalog import query as catalog
+from lib.catalog.query import factory_snapshot
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
@@ -28,6 +29,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.dependencies import get_config_service
 from server.routers import system_config as system_config_router
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.catalog_support import install_catalog, with_entry_changes
 
 CANDIDATES_URL = "/api/v1/system/config/model-candidates"
 
@@ -178,11 +180,10 @@ class TestBuiltinBucketFiltering:
         assert DS_R2V not in body["image"]["default"]
         assert DS_IMAGE_BOTH not in body["video"]["default"]
 
-    def test_hidden_models_absent_from_every_list(self, make_client):
-        meta = PROVIDER_REGISTRY["dashscope"]
+    def test_hidden_models_absent_from_every_list(self, make_client, monkeypatch):
         hidden_id = DS_R2V.split("/", 1)[1]
-        hidden_models = {**meta.models, hidden_id: replace(meta.models[hidden_id], hidden=True)}
-        with patch.dict(meta.models, hidden_models, clear=True), make_client(["dashscope"]) as client:
+        install_catalog(monkeypatch, with_entry_changes(factory_snapshot(), "dashscope", hidden_id, discontinued=True))
+        with make_client(["dashscope"]) as client:
             body = client.get(CANDIDATES_URL).json()
         assert DS_R2V not in body["video"]["default"]
         assert DS_R2V not in body["video"]["buckets"]["r2v"]
@@ -270,6 +271,31 @@ class TestCustomProviderBucketFiltering:
         assert option not in body["image"]["buckets"]["t2i"]
         assert option in body["image"]["default"]
 
+    @pytest.mark.parametrize(
+        ("endpoint", "model_id", "buckets"),
+        [
+            # 端点两者都实现，条目只接受图生图
+            ("dashscope-image", "qwen-image-edit-plus", {"i2i"}),
+            # 端点只实现文生图，条目只接受图生图：没有两者都满足的组合
+            ("openai-images-generations", "qwen-image-edit-plus", set()),
+            # 对应不上条目：模型事实不加约束，按端点声明
+            ("dashscope-image", "relay-image-x", {"t2i", "i2i"}),
+        ],
+    )
+    async def test_custom_image_buckets_need_both_entry_and_endpoint(
+        self, make_client, session_factory_and_engine, endpoint, model_id, buckets
+    ):
+        factory, _engine = session_factory_and_engine
+        with make_client([]) as client:
+            await _seed_custom_models(
+                factory,
+                [{"model_id": model_id, "display_name": model_id, "endpoint": endpoint, "is_enabled": True}],
+            )
+            body = client.get(CANDIDATES_URL).json()
+        option = _custom_option(body, model_id)
+        assert {bucket for bucket in ("t2i", "i2i") if option in body["image"]["buckets"][bucket]} == buckets
+        assert option in body["image"]["default"]
+
     async def test_disabled_custom_models_absent(self, make_client, session_factory_and_engine):
         factory, _engine = session_factory_and_engine
         with make_client([]) as client:
@@ -282,7 +308,7 @@ class TestCustomProviderBucketFiltering:
 
 
 # ---------------------------------------------------------------------------
-# 目录译名（与 /providers 同一条 translate_or 路径）
+# 目录名称：供应商名按语言翻译，模型名取目录条目
 # ---------------------------------------------------------------------------
 
 
@@ -293,8 +319,9 @@ class TestCatalogDisplayNames:
             en = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()
         assert zh["provider_names"]["ark"] == "火山方舟"
         assert en["provider_names"]["ark"] == "Volcengine Ark"
+        # 模型显示名取目录条目，不分语言
         assert zh["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "豆包 Seed 2.0 Pro"
-        assert en["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "Doubao Seed 2.0 Pro"
+        assert en["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "豆包 Seed 2.0 Pro"
 
     def test_model_names_cover_media_types_without_buckets(self, make_client):
         """model_names 不按 image/video 收窄——文本 / 音频下拉共用同一份译名表。"""
@@ -302,11 +329,12 @@ class TestCatalogDisplayNames:
             body = client.get(CANDIDATES_URL).json()
         assert DS_AUDIO in body["model_names"]
 
-    def test_unregistered_model_falls_back_to_registry_name(self, make_client):
-        """无译名条目的模型返回 registry 里的原名，而不是裸键。"""
+    def test_builtin_model_name_is_the_catalog_display_name(self, make_client):
         with make_client(["openai"]) as client:
             names = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()["model_names"]
-        assert names["openai/sora-2"] == PROVIDER_REGISTRY["openai"].models["sora-2"].display_name
+        model = catalog.get_model("openai", "gpt-image-2")
+        assert model is not None
+        assert names["openai/gpt-image-2"] == model.display_name
 
     async def test_custom_model_name_is_the_user_authored_one(self, make_client, session_factory_and_engine):
         factory, _engine = session_factory_and_engine
@@ -352,13 +380,12 @@ class TestBucketJudgement:
         [
             ("vidu", "viduq3"),  # 只在 /reference2video 白名单内，提交首帧会在构造请求时报错
             ("dashscope", "happyhorse-1.0-r2v"),
-            ("minimax", "S2V-01"),  # 单脸 subject_reference 驱动，不接受 first_frame_image
         ],
     )
     def test_builtin_video_i2v_reads_backend_declaration(self, provider_id: str, model_id: str):
         """i2v 归属只看 backend 的 first_frame，registry ModelInfo 不参与。
 
-        这三个 model 的 backend first_frame=False 与请求构造同源，执行期不接首帧——放进 i2v 桶
+        这两个 model 的 backend first_frame=False 与请求构造同源，执行期不接首帧——放进 i2v 桶
         就等于让用户配出必败的组合。
         """
         model_info = PROVIDER_REGISTRY[provider_id].models[model_id]

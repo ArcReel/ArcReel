@@ -39,6 +39,7 @@ async def model_buckets(session: AsyncSession, model: CustomProviderModel) -> fr
         model_id=model.model_id,
         capability_overrides=model.capability_overrides,
         endpoint_spec=endpoint_spec,
+        entry_binding=model.entry_binding,
     )
 
 

@@ -14,14 +14,18 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from urllib.parse import urlsplit
 
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, VIDEO_TIER_SHORT_EDGE, short_edge_to_resolution
 from arcreel_market_core.endpoint_definition.kinds import COMFYUI_KIND
 from arcreel_market_core.endpoint_definition.media_type import definition_media_type
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoCapabilities
+from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
+from lib.backends.audio_backends.gemini import GeminiAudioBackend
+from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
+from lib.backends.dashscope_shared import dashscope_native_base_url
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.backends.image_backends.gemini import GeminiImageBackend
@@ -29,12 +33,14 @@ from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
+from lib.backends.minimax_shared import minimax_text_base_url
 from lib.backends.text_backends.anthropic import AnthropicTextBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
 from lib.backends.text_backends.openai_responses import OpenAIResponsesTextBackend
 from lib.backends.video_backends.ark import ArkVideoBackend
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend, classify_wan_model
+from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.backends.video_backends.kling import KlingVideoBackend
 from lib.backends.video_backends.openai import OpenAIVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend
@@ -69,8 +75,22 @@ from lib.custom_provider.comfyui.capabilities import (
 from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend, binding_video_capabilities
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend, binding_image_capabilities
 from lib.custom_provider.comfyui.failures import ComfyuiError
-from lib.custom_provider.declarative_backend import DeclarativeVideoBackend, request_urls
+from lib.custom_provider.declarative_backend import (
+    REQUEST_SECTIONS,
+    DeclarativeVideoBackend,
+    request_urls,
+    strips_base_url_version,
+)
 from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend, image_capabilities_from_definition
+from lib.custom_provider.path_overrides import (
+    NO_PATH_OVERRIDES,
+    BaseUrlRule,
+    EndpointRequest,
+    PathOverrideLayer,
+    PathOverrides,
+    path_override_layer,
+    placeholder_names,
+)
 
 if TYPE_CHECKING:
     from lib.db.models.custom_provider import CustomProvider
@@ -82,6 +102,18 @@ CUSTOM_ENDPOINT_FAMILY = "custom"
 
 
 # ── EndpointSpec 数据类型 ───────────────────────────────────────────
+
+
+class BackendBuilder(Protocol):
+    """endpoint 的 backend 构造闭包。
+
+    ``path_overrides`` 是该模型生效的路径覆盖（``docs/adr/0101``），键都在
+    :attr:`EndpointSpec.requests` 里；没有声明请求的端点恒收到空映射。
+    """
+
+    def __call__(
+        self, provider: CustomProvider, model_id: str, path_overrides: PathOverrides = ..., /
+    ) -> CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend: ...
 
 
 @dataclass(frozen=True)
@@ -96,10 +128,7 @@ class EndpointSpec:
     display_name_key: str
     request_method: str  # "POST"
     request_path_template: str  # "/v1/chat/completions"，可含 {model} 等占位
-    build_backend: Callable[
-        [CustomProvider, str],
-        CustomTextBackend | CustomImageBackend | CustomVideoBackend | CustomAudioBackend,
-    ]
+    build_backend: BackendBuilder
     # 端点来源：内置（随版发布，不可编辑删除）或用户自定义（落 custom_endpoint 表）。
     source: Literal["builtin", "custom"] = "builtin"
     image_capabilities: frozenset[ImageCapability] | None = None  # image 类才填，非 image 类省略
@@ -124,6 +153,13 @@ class EndpointSpec:
     # Python 实现的 endpoint 为 None。非 None 即该 endpoint 的调用形态由这份定义描述，上面各字段
     # 都是从它派生出来的镜像，取值一律以本字段为准。
     definition: Mapping[str, Any] | None = None
+    # 可覆盖路径的请求（docs/adr/0101）：路径覆盖只接受这里列出的请求名。空元组 = 该端点不开放
+    # 路径覆盖（ComfyUI 端点，以及没有声明请求的 Python 端点）。
+    requests: tuple[EndpointRequest, ...] = ()
+    # 被包装的内置调用通道类（Python 实现的视频与图片端点才填）：计价读它类上的计量声明，视频取
+    # ``metered_usage``、图片预估取 ``estimate_usage``（见 :mod:`lib.custom_provider.metering`）。须与
+    # ``build_backend`` 构造的 delegate 同类，端点注册表测试守着。None = 按定义或通用口径计量。
+    metering_backend: type | None = None
 
     @property
     def kind(self) -> str:
@@ -224,77 +260,140 @@ class EndpointSpec:
 # ── 各 endpoint 的 build_backend 闭包 ──────────────────────────────
 
 
-def _build_openai_chat(provider, model_id: str) -> CustomTextBackend:
+def _build_openai_chat(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomTextBackend:
     base_url = ensure_openai_base_url(provider.base_url)
-    delegate = OpenAITextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = OpenAITextBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _OPENAI_CHAT_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_responses(provider, model_id: str) -> CustomTextBackend:
+def _build_openai_responses(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomTextBackend:
     base_url = ensure_openai_base_url(provider.base_url)
-    delegate = OpenAIResponsesTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = OpenAIResponsesTextBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _OPENAI_RESPONSES_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_gemini_generate(provider, model_id: str) -> CustomTextBackend:
+def _build_gemini_generate(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomTextBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
-    delegate = GeminiTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = GeminiTextBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=_google_path_layer(_GEMINI_GENERATE_REQUESTS, provider.base_url, model_id, path_overrides),
+    )
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_anthropic_messages(provider, model_id: str) -> CustomTextBackend:
+def _build_anthropic_messages(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomTextBackend:
     # SDK 自己在 base_url 后拼 /v1/messages，这里只剥掉用户整条复制进来的端点后缀，不补也不剥 /vN
     base_url = normalize_anthropic_base_url(provider.base_url or "") or None
-    delegate = AnthropicTextBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = AnthropicTextBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _ANTHROPIC_MESSAGES_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomTextBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_images(provider, model_id: str) -> CustomImageBackend:
+def _build_openai_images(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
-    delegate = OpenAIImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = OpenAIImageBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            (_OPENAI_IMAGES_GENERATE, _OPENAI_IMAGES_EDIT), path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_images_generations(provider, model_id: str) -> CustomImageBackend:
+def _build_openai_images_generations(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIImageBackend(
         api_key=provider.api_key,
         base_url=base_url,
         model=model_id,
         mode="generations_only",
+        transport_layer=path_override_layer(
+            (_OPENAI_IMAGES_GENERATE,), path_overrides, provider.base_url, base_url, model_id
+        ),
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_images_edits(provider, model_id: str) -> CustomImageBackend:
+def _build_openai_images_edits(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIImageBackend(
         api_key=provider.api_key,
         base_url=base_url,
         model=model_id,
         mode="edits_only",
+        transport_layer=path_override_layer(
+            (_OPENAI_IMAGES_EDIT,), path_overrides, provider.base_url, base_url, model_id
+        ),
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_chat_image(provider, model_id: str) -> CustomImageBackend:
+def _build_openai_chat_image(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     delegate = OpenAIChatImageBackend(
         api_key=provider.api_key,
         base_url=base_url,
         model=model_id,
         provider_name=provider.provider_id,
+        transport_layer=path_override_layer(
+            _OPENAI_CHAT_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
     )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_gemini_image(provider, model_id: str) -> CustomImageBackend:
+def _build_gemini_image(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     base_url = ensure_google_base_url(provider.base_url) or None
-    delegate = GeminiImageBackend(api_key=provider.api_key, base_url=base_url, image_model=model_id)
+    delegate = GeminiImageBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        image_model=model_id,
+        transport_layer=_google_path_layer(_GEMINI_GENERATE_REQUESTS, provider.base_url, model_id, path_overrides),
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_tts(provider, model_id: str) -> CustomAudioBackend:
+def _build_openai_tts(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomAudioBackend:
     base_url = ensure_openai_base_url(provider.base_url)
     # provider_name 让 delegate 日志与 AudioSynthesisResult.provider 归因到真实 provider，
     # 与包装层 .name 的记账身份一致，而非内置 openai。
@@ -303,14 +402,186 @@ def _build_openai_tts(provider, model_id: str) -> CustomAudioBackend:
         base_url=base_url,
         model=model_id,
         provider_name=provider.provider_id,
+        transport_layer=path_override_layer(
+            _OPENAI_TTS_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
     )
     return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_openai_video(provider, model_id: str) -> CustomVideoBackend:
+def _build_dashscope_tts(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomAudioBackend:
+    # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
+    layer = path_override_layer(
+        _DASHSCOPE_GENERATION_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        dashscope_native_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = DashScopeAudioBackend(
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
+    return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_minimax_tts(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomAudioBackend:
+    # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
+    delegate = MiniMaxAudioBackend(
+        api_key=provider.api_key,
+        base_url=provider.base_url,
+        model=model_id,
+        provider_name=provider.provider_id,
+        transport_layer=path_override_layer(
+            _MINIMAX_TTS_REQUESTS,
+            path_overrides,
+            provider.base_url,
+            minimax_text_base_url(provider.base_url),
+            model_id,
+        ),
+    )
+    return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_gemini_tts(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomAudioBackend:
+    base_url = ensure_google_base_url(provider.base_url) or None
+    delegate = GeminiAudioBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        provider_name=provider.provider_id,
+        transport_layer=_google_path_layer(_GEMINI_GENERATE_REQUESTS, provider.base_url, model_id, path_overrides),
+    )
+    return CustomAudioBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_openai_video(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
     base_url = ensure_openai_base_url(provider.base_url)
-    delegate = OpenAIVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = OpenAIVideoBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _OPENAI_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_gemini_video(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
+    # 自定义供应商只走 AI Studio 模式（Vertex 凭证不经 base_url）；SDK 自己拼 api_version
+    base_url = ensure_google_base_url(provider.base_url) or None
+    delegate = GeminiVideoBackend(
+        backend_type="aistudio",
+        api_key=provider.api_key,
+        base_url=base_url,
+        video_model=model_id,
+        transport_layer=_google_path_layer(_GEMINI_VIDEO_REQUESTS, provider.base_url, model_id, path_overrides),
+    )
+    return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _python_requests(rule: BaseUrlRule, *requests: tuple[str, str, str]) -> tuple[EndpointRequest, ...]:
+    """Python 端点的请求声明，每项为（请求名、显示名 key、默认路径）；占位符放行模型名与默认路径里已有的。"""
+    return tuple(
+        EndpointRequest(
+            name=name,
+            display_name_key=display_name_key,
+            default_path=path,
+            placeholders=tuple(sorted({"model", *placeholder_names(path)})),
+            base_url_rule=rule,
+        )
+        for name, display_name_key, path in requests
+    )
+
+
+# 直连 httpx 与方舟 SDK 的端点各自发出的请求；取自响应的下载地址不提供请求名（docs/adr/0101）。
+_ARK_SEEDANCE_REQUESTS = _python_requests(
+    "ensure_api_v3",
+    ("submit", "cp_request_submit", "/contents/generations/tasks"),
+    ("poll", "cp_request_poll", "/contents/generations/tasks/{{ task_id }}"),
+)
+_VIDU_VIDEO_REQUESTS = _python_requests(
+    "ensure_ent_v2",
+    ("submit_text2video", "cp_request_submit_text2video", "/text2video"),
+    ("submit_img2video", "cp_request_submit_img2video", "/img2video"),
+    ("submit_start_end2video", "cp_request_submit_start_end2video", "/start-end2video"),
+    ("submit_reference2video", "cp_request_submit_reference2video", "/reference2video"),
+    ("poll", "cp_request_poll", "/tasks/{{ task_id }}/creations"),
+)
+_KLING_IMAGE_REQUESTS = _python_requests(
+    "ensure_v1",
+    ("submit", "cp_request_submit", "/images/generations"),
+    ("poll", "cp_request_poll", "/images/generations/{{ task_id }}"),
+)
+_KLING_VIDEO_REQUESTS = _python_requests(
+    "ensure_v1",
+    ("submit_text2video", "cp_request_submit_text2video", "/videos/text2video"),
+    ("poll_text2video", "cp_request_poll_text2video", "/videos/text2video/{{ task_id }}"),
+    ("submit_image2video", "cp_request_submit_img2video", "/videos/image2video"),
+    ("poll_image2video", "cp_request_poll_img2video", "/videos/image2video/{{ task_id }}"),
+    ("submit_multi_image2video", "cp_request_submit_multi_image2video", "/videos/multi-image2video"),
+    ("poll_multi_image2video", "cp_request_poll_multi_image2video", "/videos/multi-image2video/{{ task_id }}"),
+)
+_DASHSCOPE_GENERATION_REQUESTS = _python_requests(
+    "dashscope_api_v1", ("generate", "cp_request_generate", "/services/aigc/multimodal-generation/generation")
+)
+_DASHSCOPE_ASYNC_VIDEO_REQUESTS = _python_requests(
+    "dashscope_api_v1",
+    ("submit", "cp_request_submit", "/services/aigc/video-generation/video-synthesis"),
+    ("poll", "cp_request_poll", "/tasks/{{ task_id }}"),
+)
+_MINIMAX_IMAGE_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_generate", "/image_generation"))
+_MINIMAX_TTS_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_generate", "/t2a_v2"))
+# SDK 在剥去 /vN 的 base_url 后自己拼 /v1beta
+_GEMINI_GENERATE_REQUESTS = _python_requests(
+    "strip_version", ("generate", "cp_request_generate", "/v1beta/models/{{ model }}:generateContent")
+)
+_GEMINI_VIDEO_REQUESTS = _python_requests(
+    "strip_version",
+    ("submit", "cp_request_submit", "/v1beta/models/{{ model }}:predictLongRunning"),
+    # operation name 形如 models/<model>/operations/<id>，含 /，原样展开为多级路径
+    ("poll", "cp_request_poll", "/v1beta/{{ task_id }}"),
+    # SDK 从产物 uri 取出文件 id，再按 base_url 拼下载地址，所以下载也相对 base_url
+    ("download", "cp_request_download", "/v1beta/files/{{ file_id }}:download"),
+)
+
+
+def _google_path_layer(
+    requests: tuple[EndpointRequest, ...], base_url: str | None, model_id: str, path_overrides: PathOverrides
+) -> PathOverrideLayer | None:
+    # 占位符不跨 ``:``：含 / 的 operation name 整段捕获，SDK 的方法后缀（:predictLongRunning、:download）仍区分得开
+    return path_override_layer(
+        requests, path_overrides, base_url, ensure_google_base_url(base_url), model_id, placeholder="[^:]+"
+    )
+
+
+# OpenAI SDK 一侧：默认路径相对 ensure_openai_base_url 补过 /v1 的 base_url
+_OPENAI_CHAT_REQUESTS = _python_requests("append_v1", ("generate", "cp_request_generate", "/chat/completions"))
+_OPENAI_RESPONSES_REQUESTS = _python_requests("append_v1", ("generate", "cp_request_generate", "/responses"))
+_OPENAI_IMAGES_GENERATE, _OPENAI_IMAGES_EDIT = _python_requests(
+    "append_v1",
+    ("generate", "cp_request_generate", "/images/generations"),
+    ("edit", "cp_request_edit", "/images/edits"),
+)
+_OPENAI_TTS_REQUESTS = _python_requests("append_v1", ("generate", "cp_request_generate", "/audio/speech"))
+_OPENAI_VIDEO_REQUESTS = _python_requests(
+    "append_v1",
+    ("submit", "cp_request_submit", "/videos"),
+    ("poll", "cp_request_poll", "/videos/{{ task_id }}"),
+    ("download", "cp_request_download", "/videos/{{ task_id }}/content"),
+)
+# anthropic SDK 自己在 base_url 后拼 /v1/messages，base_url 只去尾斜杠（和整条复制进来的 /v1/messages）
+_ANTHROPIC_MESSAGES_REQUESTS = _python_requests(
+    "strip_messages", ("generate", "cp_request_generate", ANTHROPIC_MESSAGES_PATH)
+)
 
 
 def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
@@ -329,47 +600,104 @@ def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     return normalized + suffix
 
 
-def _build_ark_seedance(provider, model_id: str) -> CustomVideoBackend:
+def _build_ark_seedance(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
-    delegate = ArkVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    layer = path_override_layer(_ARK_SEEDANCE_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
+    delegate = ArkVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_vidu_video(provider, model_id: str) -> CustomVideoBackend:
+def _build_vidu_video(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/ent/v2")
-    delegate = ViduVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id)
+    layer = path_override_layer(_VIDU_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
+    delegate = ViduVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_dashscope_image(provider, model_id: str) -> CustomImageBackend:
+def _build_dashscope_image(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     # backend 内部由 host 派生 /api/v1（容忍带/不带后缀），此处传原始 base_url 即可，不重复归一化
-    delegate = DashScopeImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    layer = path_override_layer(
+        _DASHSCOPE_GENERATION_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        dashscope_native_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = DashScopeImageBackend(
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_dashscope_async_video(provider, model_id: str) -> CustomVideoBackend:
-    delegate = DashScopeVideoBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+def _build_dashscope_async_video(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
+    layer = path_override_layer(
+        _DASHSCOPE_ASYNC_VIDEO_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        dashscope_native_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = DashScopeVideoBackend(
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_minimax_image(provider, model_id: str) -> CustomImageBackend:
+def _build_minimax_image(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     # backend 内部把 base_url 归一化为 {host}/v1（容忍 host 或带 /v1 后缀），此处传原始 base_url 即可
-    delegate = MiniMaxImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)
+    layer = path_override_layer(
+        _MINIMAX_IMAGE_REQUESTS,
+        path_overrides,
+        provider.base_url,
+        minimax_text_base_url(provider.base_url),
+        model_id,
+    )
+    delegate = MiniMaxImageBackend(
+        api_key=provider.api_key, base_url=provider.base_url, model=model_id, transport_layer=layer
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_kling_image(provider, model_id: str) -> CustomImageBackend:
+def _build_kling_image(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
     # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步图像端点。
     # 仅 host 时补全可灵协议挂载路径 /v1（含显式路径则原样信任）；原生 model_name 透传不解耦别名。
     base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
-    delegate = KlingImageBackend(auth_mode="bearer", api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = KlingImageBackend(
+        auth_mode="bearer",
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _KLING_IMAGE_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
-def _build_kling_video(provider, model_id: str) -> CustomVideoBackend:
+def _build_kling_video(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomVideoBackend:
     # 中转站「原样代理可灵」：bearer 模式旁路 JWT 管理器，用静态 api_key 直发可灵原生异步视频端点。
     base_url = _ensure_url_path_suffix(provider.base_url, "/v1")
-    delegate = KlingVideoBackend(auth_mode="bearer", api_key=provider.api_key, base_url=base_url, model=model_id)
+    delegate = KlingVideoBackend(
+        auth_mode="bearer",
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _KLING_VIDEO_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
@@ -385,6 +713,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/chat/completions",
         build_backend=_build_openai_chat,
+        requests=_OPENAI_CHAT_REQUESTS,
     ),
     "openai-responses": EndpointSpec(
         key="openai-responses",
@@ -394,6 +723,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/responses",
         build_backend=_build_openai_responses,
+        requests=_OPENAI_RESPONSES_REQUESTS,
     ),
     "gemini-generate": EndpointSpec(
         key="gemini-generate",
@@ -403,6 +733,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1beta/models/{model}:generateContent",
         build_backend=_build_gemini_generate,
+        requests=_GEMINI_GENERATE_REQUESTS,
     ),
     "anthropic-messages": EndpointSpec(
         key="anthropic-messages",
@@ -412,6 +743,7 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template=ANTHROPIC_MESSAGES_PATH,
         build_backend=_build_anthropic_messages,
+        requests=_ANTHROPIC_MESSAGES_REQUESTS,
     ),
     "openai-images": EndpointSpec(
         key="openai-images",
@@ -423,6 +755,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/{generations,edits}",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images,
+        requests=(_OPENAI_IMAGES_GENERATE, _OPENAI_IMAGES_EDIT),
+        metering_backend=OpenAIImageBackend,
     ),
     "openai-images-generations": EndpointSpec(
         key="openai-images-generations",
@@ -433,6 +767,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/generations",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE}),
         build_backend=_build_openai_images_generations,
+        requests=(_OPENAI_IMAGES_GENERATE,),
+        metering_backend=OpenAIImageBackend,
     ),
     "openai-images-edits": EndpointSpec(
         key="openai-images-edits",
@@ -443,6 +779,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/edits",
         image_capabilities=frozenset({ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_images_edits,
+        requests=(_OPENAI_IMAGES_EDIT,),
+        metering_backend=OpenAIImageBackend,
     ),
     "openai-chat-image": EndpointSpec(
         key="openai-chat-image",
@@ -454,6 +792,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/chat/completions",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_openai_chat_image,
+        requests=_OPENAI_CHAT_REQUESTS,
+        metering_backend=OpenAIChatImageBackend,
     ),
     "gemini-image": EndpointSpec(
         key="gemini-image",
@@ -464,6 +804,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1beta/models/{model}:generateContent",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_gemini_image,
+        requests=_GEMINI_GENERATE_REQUESTS,
+        metering_backend=GeminiImageBackend,
     ),
     "openai-video": EndpointSpec(
         key="openai-video",
@@ -473,6 +815,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/videos",
         build_backend=_build_openai_video,
+        requests=_OPENAI_VIDEO_REQUESTS,
+        metering_backend=OpenAIVideoBackend,
         # OpenAI Sora input_reference 为单张首帧图。
         video_max_reference_images=1,
     ),
@@ -484,6 +828,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/api/v3/contents/generations/tasks",
         build_backend=_build_ark_seedance,
+        requests=_ARK_SEEDANCE_REQUESTS,
+        metering_backend=ArkVideoBackend,
         video_caps_for_model=ArkVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
         # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
@@ -497,6 +843,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/ent/v2/img2video",
         build_backend=_build_vidu_video,
+        requests=_VIDU_VIDEO_REQUESTS,
+        metering_backend=ViduVideoBackend,
         video_caps_for_model=ViduVideoBackend.video_capabilities_for_model,
         end_image_capable=True,
     ),
@@ -509,6 +857,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_dashscope_image,
+        requests=_DASHSCOPE_GENERATION_REQUESTS,
+        metering_backend=DashScopeImageBackend,
     ),
     "openai-tts": EndpointSpec(
         key="openai-tts",
@@ -518,6 +868,52 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/v1/audio/speech",
         build_backend=_build_openai_tts,
+        requests=_OPENAI_TTS_REQUESTS,
+    ),
+    "dashscope-tts": EndpointSpec(
+        key="dashscope-tts",
+        media_type="audio",
+        family="dashscope",
+        display_name_key="endpoint_dashscope_tts_display",
+        request_method="POST",
+        request_path_template="/api/v1/services/aigc/multimodal-generation/generation",
+        build_backend=_build_dashscope_tts,
+        requests=_DASHSCOPE_GENERATION_REQUESTS,
+    ),
+    "gemini-video": EndpointSpec(
+        key="gemini-video",
+        media_type="video",
+        family="google",
+        display_name_key="endpoint_gemini_video_display",
+        request_method="POST",
+        request_path_template="/v1beta/models/{model}:predictLongRunning",
+        build_backend=_build_gemini_video,
+        requests=_GEMINI_VIDEO_REQUESTS,
+        metering_backend=GeminiVideoBackend,
+        # 参考图上限、音轨形态按 model 读 backend 纯 caps 函数（不构造 client）
+        video_caps_for_model=GeminiVideoBackend.video_capabilities_for_model,
+        # generate() 把 end_image 下传为 config.last_frame
+        end_image_capable=True,
+    ),
+    "minimax-tts": EndpointSpec(
+        key="minimax-tts",
+        media_type="audio",
+        family="minimax",
+        display_name_key="endpoint_minimax_tts_display",
+        request_method="POST",
+        request_path_template="/v1/t2a_v2",
+        build_backend=_build_minimax_tts,
+        requests=_MINIMAX_TTS_REQUESTS,
+    ),
+    "gemini-tts": EndpointSpec(
+        key="gemini-tts",
+        media_type="audio",
+        family="google",
+        display_name_key="endpoint_gemini_tts_display",
+        request_method="POST",
+        request_path_template="/v1beta/models/{model}:generateContent",
+        build_backend=_build_gemini_tts,
+        requests=_GEMINI_GENERATE_REQUESTS,
     ),
     "dashscope-async-video": EndpointSpec(
         key="dashscope-async-video",
@@ -527,6 +923,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_method="POST",
         request_path_template="/api/v1/services/aigc/video-generation/video-synthesis",
         build_backend=_build_dashscope_async_video,
+        requests=_DASHSCOPE_ASYNC_VIDEO_REQUESTS,
+        metering_backend=DashScopeVideoBackend,
         # 多 model（happyhorse-r2v=9 / wan2.7-r2v=5）容量不同 → endpoint 维度不声明 int cap，
         # 按 model 读 backend caps（不构造 client）。
         video_caps_for_model=DashScopeVideoBackend.video_capabilities_for_model,
@@ -542,6 +940,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/image_generation",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_minimax_image,
+        requests=_MINIMAX_IMAGE_REQUESTS,
+        metering_backend=MiniMaxImageBackend,
     ),
     "kling-image": EndpointSpec(
         key="kling-image",
@@ -552,6 +952,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         request_path_template="/v1/images/generations",
         image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
         build_backend=_build_kling_image,
+        requests=_KLING_IMAGE_REQUESTS,
+        metering_backend=KlingImageBackend,
     ),
     "kling-video": EndpointSpec(
         key="kling-video",
@@ -562,6 +964,8 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         # 无首帧走 text2video、有首帧走 image2video（含可选尾帧）、有多图主体走 multi-image2video（R2V）
         request_path_template="/v1/videos/{text2video,image2video,multi-image2video}",
         build_backend=_build_kling_video,
+        requests=_KLING_VIDEO_REQUESTS,
+        metering_backend=KlingVideoBackend,
         # 参考图上限随 model 异质（v3-omni / video-o1 多图主体 R2V max=4，其余首尾帧无参考为 0）→ 不在
         # endpoint 维度声明 int cap，按 model 读 backend 纯 caps 函数。
         video_caps_for_model=KlingVideoBackend.video_capabilities_for_model,
@@ -644,10 +1048,12 @@ def _require_declarative_base_url(definition: Mapping[str, Any], provider: Custo
 
 def _build_declarative_video(
     definition: Mapping[str, Any],
-) -> Callable[[CustomProvider, str], CustomVideoBackend]:
+) -> BackendBuilder:
     """声明式视频端点的 backend 构造闭包。"""
 
-    def build(provider: CustomProvider, model_id: str) -> CustomVideoBackend:
+    def build(
+        provider: CustomProvider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    ) -> CustomVideoBackend:
         _require_declarative_base_url(definition, provider)
         delegate = DeclarativeVideoBackend(
             api_key=provider.api_key,
@@ -655,6 +1061,7 @@ def _build_declarative_video(
             model=model_id,
             definition=definition,
             provider=provider.provider_id,
+            path_overrides=path_overrides,
         )
         return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
@@ -663,10 +1070,12 @@ def _build_declarative_video(
 
 def _build_declarative_image(
     definition: Mapping[str, Any],
-) -> Callable[[CustomProvider, str], CustomImageBackend]:
+) -> BackendBuilder:
     """声明式图片端点的 backend 构造闭包。"""
 
-    def build(provider: CustomProvider, model_id: str) -> CustomImageBackend:
+    def build(
+        provider: CustomProvider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    ) -> CustomImageBackend:
         _require_declarative_base_url(definition, provider)
         delegate = DeclarativeImageBackend(
             api_key=provider.api_key,
@@ -674,10 +1083,51 @@ def _build_declarative_image(
             model=model_id,
             definition=definition,
             provider=provider.provider_id,
+            path_overrides=path_overrides,
         )
         return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
     return build
+
+
+#: 声明式定义三节请求的显示名（前端 i18n key）与覆盖路径里可用的占位符：只限该请求本身
+#: 已有的值，提交只有模型名，轮询多一个任务 id，二次取件再多一个结果 id。
+_DECLARATIVE_REQUESTS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "submit": ("cp_request_submit", ("model",)),
+    "poll": ("cp_request_poll", ("model", "task_id")),
+    "result": ("cp_request_result", ("model", "result_id", "task_id")),
+}
+_BASE_URL_PREFIX = re.compile(r"^\s*\{\{\s*base_url\s*\}\}")
+
+
+def declarative_requests(definition: Mapping[str, Any]) -> tuple[EndpointRequest, ...]:
+    """声明式定义里可覆盖路径的请求：URL 以 ``{{ base_url }}`` 开头的那几节。
+
+    写死绝对地址的节没有可替换的路径，不提供请求名（``docs/adr/0101``）；从响应里取得的产物
+    地址不是定义里的请求节，本就不在其列。默认路径里已用到的占位符一并放行。
+    """
+    rule = "strip_version" if strips_base_url_version(definition) else "as_is"
+    requests: list[EndpointRequest] = []
+    for section in REQUEST_SECTIONS:
+        node = definition.get(section)
+        if not isinstance(node, Mapping):
+            continue
+        url = str(node.get("url", ""))
+        prefix = _BASE_URL_PREFIX.match(url)
+        if prefix is None:
+            continue
+        default_path = url[prefix.end() :]
+        display_name_key, placeholders = _DECLARATIVE_REQUESTS[section]
+        requests.append(
+            EndpointRequest(
+                name=section,
+                display_name_key=display_name_key,
+                default_path=default_path,
+                placeholders=tuple(sorted({*placeholders, *placeholder_names(default_path)})),
+                base_url_rule=rule,
+            )
+        )
+    return tuple(requests)
 
 
 def declarative_endpoint_spec(
@@ -717,6 +1167,7 @@ def declarative_endpoint_spec(
         end_image_capable=caps.last_frame if caps is not None else False,
         reference_audio_capable=caps is not None and caps.reference_audio_mode is not ReferenceAudioMode.NONE,
         definition=definition,
+        requests=declarative_requests(definition),
     )
     # 内置注册表在 import 期逐条过同一条不变式（见 _validate_registry）；用户定义现构造、没有
     # import 期可依托，故在构造处就过——两种来源的 spec 因此不必被能力判定层区分对待。
@@ -726,7 +1177,7 @@ def declarative_endpoint_spec(
 
 def _build_comfyui_runtime(
     definition: Mapping[str, Any],
-) -> Callable[[CustomProvider, str], CustomImageBackend | CustomVideoBackend]:
+) -> BackendBuilder:
     """ComfyUI 端点的 backend 构造闭包，按定义声明的 ``media_type`` 分叉。
 
     两种 kind 的同一件事：一份 workflow 产图还是产视频只有定义自己知道（键前缀推不出来），而两条
@@ -744,7 +1195,9 @@ def _build_comfyui_runtime(
     （``docs/adr/0081``），图像能力只从绑定表推导，没有可叠加的第二个来源。
     """
 
-    def build(provider: CustomProvider, model_id: str) -> CustomImageBackend | CustomVideoBackend:
+    def build(
+        provider: CustomProvider, model_id: str, _path_overrides: PathOverrides = NO_PATH_OVERRIDES
+    ) -> CustomImageBackend | CustomVideoBackend:
         media_type = str(definition.get("media_type"))
         if media_type not in ("image", "video"):
             raise ComfyuiError("provider_unsupported_media", provider_id=provider.provider_id, media_type=media_type)
@@ -894,6 +1347,7 @@ def endpoint_spec_to_dict(spec: EndpointSpec) -> dict:
     data = asdict(spec)
     data.pop("build_backend", None)
     data.pop("video_caps_for_model", None)  # 同 build_backend：callable 不可 JSON 化，剥掉
+    data.pop("metering_backend", None)  # 类对象，只供计价取计量口径
     # catalog 不内嵌定义：整份 JSON 由 GET /custom-providers/endpoints/{key}/definition 单独取。
     data.pop("definition", None)
     data["kind"] = spec.kind
@@ -923,6 +1377,11 @@ _VIDEO_PATTERN = re.compile(
 # TTS 模型 id 识别（tts-1 / gpt-4o-mini-tts / speech-1.5 / cosyvoice 等）。
 # 刻意不含裸 "audio"：gpt-4o-audio-preview 等 chat 音频模态模型会被误归 TTS。
 _AUDIO_PATTERN = re.compile(r"tts|speech|cosyvoice", re.IGNORECASE)
+# 通义 TTS 家族（qwen-tts / qwen3-tts-flash 等）走百炼原生同步端点，不是 /v1/audio/speech
+_QWEN_TTS_PATTERN = re.compile(r"qwen3?-tts", re.IGNORECASE)
+# MiniMax 语音型号（speech-2.8-hd / speech-02-turbo 等，剥离命名空间后整段比较）走 t2a_v2。
+# 必须带 -hd / -turbo 档位后缀：Fish Audio 的 speech-1.5 等同名前缀 id 仍是 /v1/audio/speech。
+_MINIMAX_TTS_PATTERN = re.compile(r"speech-[\d.]+-(?:hd|turbo)")
 # 裸 "speech" 会撞上 ASR（语音转文字）家族 id，按内容排除，避免把识别模型默认归到 TTS 端点
 _ASR_PATTERN = re.compile(r"transcribe|speech.?to.?text|recognition", re.IGNORECASE)
 
@@ -939,7 +1398,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     """根据模型 id 与 discovery_format 推默认 endpoint（content-first）。
 
     model id 内容优先于 discovery_format：中转站普遍 discovery_format="openai"，但模型
-    列表常夹带 gemini-*/imagen-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
+    列表常夹带 gemini-* 原生 id，必须按内容纠偏到 Google 端点，否则被错推到
     openai-chat/openai-images，每次都要手动改回。
 
     1) 阿里百炼视频 → happyhorse / wan2.7 / wan3 家族（含 wan-2.7-xxx / wan-3-xxx 连字符形态、
@@ -951,24 +1410,27 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
        的处理原则），按 classify_wan_model 的 is_image_to_video 精确挑出这一种形态，不对图像变体
        的命名形态（结尾 token 等）做任何假设。原生路由只认 2.7（含点号形态 "wan2.x"，见下方
        classify_wan_model 的说明）与 wan3；其余 2.x 连字符/下划线形态（wan-2.1、wan_2.2-s2v 等）
-       落到下方 5) 的通用视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现
+       落到下方 4) 的通用视频端点。2.7 家族内 videoedit 模态（wan2.7-videoedit）本后端未实现
        请求构造，同样排除出原生路由（见 classify_wan_model 的 is_videoedit 处的说明）。
     2) MiniMax 原生 token → 海螺（Fast 与非 Fast 各一键）/ S2V / H3 分别走各自声明式端点，
        image-01 走 "minimax-image"。先于通用
        is_video/is_image 拦截：s2v 不在 _VIDEO_PATTERN、image-01 含 "image" 否则会被推到通用图像家族。
        输入受限的 Fast / S2V 只认精确型号名（剥离中转命名空间前缀后比较），非精确海螺别名落
-       通用海螺键，其余 s2v 形态落 5) 的通用视频端点。
+       通用海螺键，其余 s2v 形态落 4) 的通用视频端点。
     2.5) 可灵 kling token → 含 video 语义优先归 "kling-video"（kling-image2video 等 i2v 含 image
        语义但本质是视频）；其余含 image 语义走 "kling-image"，否则走 "kling-video"。kling 同时命中
        _VIDEO_PATTERN，须先于通用 is_video 拦截，否则视频会落到 openai-video；v3-omni 图像/视频同名
        默认归视频、图像手动选。
-    3) imagen → "gemini-image"（图像，不论 discovery_format）
-    4) gemini 原生模型（非 video）→ image 形态走 "gemini-image"，否则文本走 "gemini-generate"
-    5) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、否则 "openai-video"
-    6) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"
-    7) TTS 家族（tts/speech/cosyvoice）→ "openai-tts"（audio 仅 OpenAI 兼容一条端点，
-       不分 discovery_format；precedence 在 text 默认之前）
-    8) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
+    3) gemini 原生模型（非 video）→ TTS 走 "gemini-tts"，image 形态走 "gemini-image"，否则文本走
+       "gemini-generate"（不分 discovery_format）
+    4) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、Veo 且 discovery_format=google→
+       "gemini-video"、否则 "openai-video"
+    5) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"（imagen 随图像家族
+       推断，不再单独拦截）
+    6) TTS 家族（tts/speech/cosyvoice）→ qwen-tts / qwen3-tts 走 "dashscope-tts"，MiniMax 的
+       speech-<版本>-hd|turbo 走 "minimax-tts"，其余 "openai-tts"
+       （不分 discovery_format；precedence 在 text 默认之前）
+    7) 默认（文本）→ discovery_format=google 走 "gemini-generate" 否则 "openai-chat"
     """
     lowered = model_id.lower()
     is_image = bool(_IMAGE_PATTERN.search(model_id))
@@ -1011,7 +1473,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     )
     wan_image_variant = contains_wan_token and is_image and not wan_video_continuation
     # 未实现请求构造的模态（wan2.7-videoedit / wan2.7-s2v / wan2.7-v2v 等）即便命中家族正则也不
-    # 走原生端点（见 classify_wan_model 的 has_known_modality 处的说明），落到下方 5) 的通用视频
+    # 走原生端点（见 classify_wan_model 的 has_known_modality 处的说明），落到下方 4) 的通用视频
     # 端点，避免本后端收到无法正确构造的请求。
     wan_unsupported_modality = is_wan_family and not classification.has_known_modality
 
@@ -1032,7 +1494,7 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 多层命名空间（"openrouter/minimax/MiniMax-Hailuo-2.3-Fast"）一并剥掉：命名空间只是
     # 转售包装，承担判定的是末段必须逐字等于官方型号 id。非精确的海螺别名落通用海螺键
     # （无输入要求），其余 s2v 形态（如
-    # "wan2.7-s2v"）不再被误吞成 MiniMax S2V 协议，落下方 5) 的通用视频端点。
+    # "wan2.7-s2v"）不再被误吞成 MiniMax S2V 协议，落下方 4) 的通用视频端点。
     canonical = re.split(r"[/:]", lowered)[-1]
     if "hailuo" in lowered:
         # Fast 只接受图生视频，端点级能力据此分居两键（见 backend_assembly.specs
@@ -1060,18 +1522,23 @@ def infer_endpoint(model_id: str, discovery_format: str) -> str:
     # 图像家族推断。复用上面的 wan_image_variant（排除 image-to-video 续接别名后的图像判定）。
     is_video = bool(_VIDEO_PATTERN.search(model_id)) and not wan_image_variant
 
-    if "imagen" in lowered:
-        return "gemini-image"
     if "gemini" in lowered and not is_video:
+        if "tts" in lowered:
+            return "gemini-tts"
         return "gemini-image" if is_image else "gemini-generate"
     if is_video:
         if "seedance" in lowered:
             return "ark-seedance"
         if "viduq3" in lowered:
             return "vidu-video"
+        # Veo 的 OpenAI 兼容层沿用 /v1/videos，只有 google 发现协议才是原生 predictLongRunning
+        if "veo" in lowered and discovery_format == "google":
+            return "gemini-video"
         return "openai-video"
     if is_image:
         return "gemini-image" if discovery_format == "google" else "openai-images"
     if _AUDIO_PATTERN.search(model_id) and not _ASR_PATTERN.search(model_id):
-        return "openai-tts"
+        if _QWEN_TTS_PATTERN.search(model_id):
+            return "dashscope-tts"
+        return "minimax-tts" if _MINIMAX_TTS_PATTERN.fullmatch(canonical) else "openai-tts"
     return "gemini-generate" if discovery_format == "google" else "openai-chat"

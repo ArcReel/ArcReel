@@ -780,6 +780,70 @@ class TestDeclarativeVideoBackend:
 
         assert persisted[-1]["base_url"] == "https://relay.test"
 
+    async def test_path_overrides_replace_submit_and_poll_paths(self, tmp_path: Path):
+        """覆盖的两条请求各按覆盖路径发出，相对原样 base_url 不剥版本段；取自响应的下载地址不受影响。"""
+        with capture_http() as router, bounded_poll_clock():
+            submit = router.post("https://relay.test/api/v1/v2/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            poll = router.get("https://relay.test/api/v1/v2/tasks/job-42", params={"model": "video-x"}).mock(
+                return_value=httpx.Response(
+                    200, json={"status": "completed", "video_url": "https://relay.test/files/job-42.mp4"}
+                )
+            )
+            download = router.get("https://relay.test/files/job-42.mp4").mock(
+                return_value=httpx.Response(200, content=b"video")
+            )
+
+            result = await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://relay.test/api/v1/",
+                model="video-x",
+                definition=_definition(),
+                provider="custom-1",
+                path_overrides={"submit": "/v2/create", "poll": "/v2/tasks/{{ task_id }}?model={{ model }}"},
+            ).generate(_request(tmp_path))
+
+        assert submit.call_count == 1
+        assert poll.call_count == 1
+        assert result.video_path.read_bytes() == b"video"
+        assert download.calls.last.request.headers["Authorization"] == "Bearer secret"
+
+    async def test_resume_replays_the_submitted_base_url_for_overridden_and_default_paths(self, tmp_path: Path):
+        """续跑回放提交时的原样域名：有覆盖的轮询相对原样值，没有覆盖的取件仍按归一化后的域名。"""
+        definition = _definition()
+        definition["poll"]["extract"] = {"status": ["$.status"], "result_id": ["$.result_id"]}
+        definition["result"] = {
+            "method": "GET",
+            "url": "{{ base_url }}/v1/video/result/{{ result_id }}",
+            "extract": {"video_url": ["$.video_url"]},
+        }
+        assert validate_definition(definition).valid
+
+        with capture_http() as router:
+            poll = router.get("https://old.relay.test/api/v1/v2/tasks/job-old").mock(
+                return_value=httpx.Response(200, json={"status": "completed", "result_id": "r-9"})
+            )
+            result = router.get("https://old.relay.test/api/v1/video/result/r-9").mock(
+                return_value=httpx.Response(200, json={"video_url": "https://old.relay.test/files/job-old.mp4"})
+            )
+            router.get("https://old.relay.test/files/job-old.mp4").mock(
+                return_value=httpx.Response(200, content=b"resumed")
+            )
+
+            outcome = await DeclarativeVideoBackend(
+                api_key="secret",
+                base_url="https://new.relay.test/api/v1",
+                model="video-x",
+                definition=definition,
+                provider="custom-1",
+                path_overrides={"poll": "/v2/tasks/{{ task_id }}"},
+            ).resume_video("job-old", _request(tmp_path, submitted_base_url="https://old.relay.test/api/v1"))
+
+        assert poll.call_count == 1
+        assert result.call_count == 1
+        assert outcome.video_path.read_bytes() == b"resumed"
+
     async def test_unreadable_input_asset_fails_with_the_stable_code(self, tmp_path: Path):
         """素材在任务准备与执行之间消失时也要落稳定错误码，而不是没有译文的裸 OSError 文本。"""
         with capture_http() as router:

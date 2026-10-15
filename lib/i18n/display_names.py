@@ -18,17 +18,32 @@ MODEL_PARAM = "model"
 DISPLAY_NAME_PARAMS = frozenset((*PROVIDER_PARAMS, MODEL_PARAM))
 
 
+#: Agent 供应商的供应商 ID 前缀：记账时 ``provider`` 记 ``agent-<凭证 id>``。
+AGENT_PROVIDER_PREFIX = "agent-"
+
+
+def is_agent_provider(provider_id: str) -> bool:
+    """``provider_id`` 是否为 Agent 供应商记账的形态（``agent-<凭证 id>``）。"""
+    return provider_id.startswith(AGENT_PROVIDER_PREFIX) and provider_id[len(AGENT_PROVIDER_PREFIX) :].isdecimal()
+
+
+def agent_provider_id(credential_id: int) -> str:
+    return f"{AGENT_PROVIDER_PREFIX}{credential_id}"
+
+
 @dataclass(frozen=True)
 class DisplayNames:
     """一次请求内按请求语言成文的供应商名与模型名。
 
     ``providers`` 以供应商 ID 为键；``models`` 以 ``(供应商 ID, 模型 ID)`` 为键。
-    ``deleted_provider`` 是目录里查不到的供应商的泛称。
+    ``deleted_provider`` 是目录里查不到的供应商的泛称；``deleted_agent_provider`` 是查不到的
+    Agent 供应商（``agent-<凭证 id>``，凭证已删除）的泛称，未提供时与 ``deleted_provider`` 相同。
     """
 
     providers: Mapping[str, str]
     models: Mapping[tuple[str, str], str]
     deleted_provider: str
+    deleted_agent_provider: str | None = None
     _models_by_id: Mapping[str, str] = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -41,8 +56,13 @@ class DisplayNames:
         object.__setattr__(self, "_models_by_id", unique)
 
     def provider(self, provider_id: str) -> str:
-        """供应商名；目录里查不到时返回「已删除的供应商」。"""
-        return self.providers.get(provider_id, self.deleted_provider)
+        """供应商名；目录里查不到时返回「已删除的供应商」，Agent 供应商返回「已删除的 Agent 供应商」。"""
+        name = self.providers.get(provider_id)
+        if name is not None:
+            return name
+        if self.deleted_agent_provider is not None and is_agent_provider(provider_id):
+            return self.deleted_agent_provider
+        return self.deleted_provider
 
     def model(self, model_id: str, *, provider_id: str | None = None) -> str:
         """模型名；目录里查不到时返回模型 ID。"""

@@ -6,7 +6,6 @@ import pytest
 
 from lib.backends.vidu_shared import (
     DEFAULT_VIDU_IMAGE_MODEL,
-    DEFAULT_VIDU_VIDEO_MODEL,
     VIDU_CREDIT_TO_CNY,
     calculate_vidu_cost,
 )
@@ -15,10 +14,10 @@ from lib.backends.vidu_shared import (
 class TestViduMainPath:
     """主路径：响应里有 credits（=usage_tokens），按 ¥0.03125/credit 折算。"""
 
-    def test_credits_to_cny(self):
-        amount, currency = calculate_vidu_cost(call_type="video", usage_tokens=120, model="viduq3-turbo")
-        assert amount == pytest.approx(120 * 0.03125)
-        assert currency == "CNY"
+    def test_video_is_not_priced_by_credits(self):
+        # 视频按模型目录的价目表计价，不再委托 credits
+        with pytest.raises(ValueError, match="价目表"):
+            calculate_vidu_cost(call_type="video", usage_tokens=120, model="viduq3-turbo")
 
     def test_image_credits_to_cny(self):
         amount, currency = calculate_vidu_cost(call_type="image", usage_tokens=8, model="viduq2")
@@ -32,40 +31,6 @@ class TestViduMainPath:
 
 
 class TestViduFallbackTable:
-    def test_video_q3_turbo_720p_5s(self):
-        # viduq3-turbo/720p = 12/sec
-        amount, currency = calculate_vidu_cost(
-            call_type="video",
-            usage_tokens=None,
-            model="viduq3-turbo",
-            resolution="720p",
-            duration_seconds=5,
-        )
-        assert amount == pytest.approx(5 * 12 * 0.03125)
-        assert currency == "CNY"
-
-    def test_video_unknown_model_falls_back_to_default(self):
-        # 未知模型 → 用 DEFAULT_VIDU_VIDEO_MODEL = "viduq3-turbo"
-        amount, _ = calculate_vidu_cost(
-            call_type="video",
-            usage_tokens=None,
-            model="some-future-model",
-            resolution="720p",
-            duration_seconds=5,
-        )
-        assert amount == pytest.approx(5 * 12 * 0.03125)
-
-    def test_video_unknown_resolution_falls_back_to_720p(self):
-        # resolution=8K 不在 viduq3-turbo 表里 → 退回 720p=12/sec
-        amount, _ = calculate_vidu_cost(
-            call_type="video",
-            usage_tokens=None,
-            model="viduq3-turbo",
-            resolution="8K",
-            duration_seconds=5,
-        )
-        assert amount == pytest.approx(5 * 12 * 0.03125)
-
     def test_image_q1_only_1080p(self):
         amount, _ = calculate_vidu_cost(
             call_type="image",
@@ -100,10 +65,6 @@ class TestViduUnknownCallType:
 
 
 class TestViduDefaultsConstants:
-    def test_default_video_model_matches_registry(self):
-        # 防止 vidu_shared 里的 default 与 registry 的 default 漂移
-        assert DEFAULT_VIDU_VIDEO_MODEL == "viduq3-turbo"
-
     def test_default_image_model_matches_registry(self):
         assert DEFAULT_VIDU_IMAGE_MODEL == "viduq2"
 

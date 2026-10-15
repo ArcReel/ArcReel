@@ -63,13 +63,6 @@ class TestCapabilities:
         assert b.name == PROVIDER_DASHSCOPE
         assert b.capabilities == {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
-    def test_edit_models_i2i_only(self):
-        from lib.backends.image_backends.dashscope import DashScopeImageBackend
-
-        for model in ("qwen-image-edit", "qwen-image-edit-plus", "qwen-image-edit-max"):
-            b = DashScopeImageBackend(api_key="sk", model=model)
-            assert b.capabilities == {ImageCapability.IMAGE_TO_IMAGE}
-
     def test_wan_image_t2i_and_i2i(self):
         from lib.backends.image_backends.dashscope import DashScopeImageBackend
 
@@ -259,14 +252,6 @@ class TestImageToImage:
 
 
 class TestCapabilityGating:
-    async def test_t2i_on_i2i_only_raises(self, tmp_path: Path):
-        from lib.backends.image_backends.dashscope import DashScopeImageBackend
-
-        b = DashScopeImageBackend(api_key="sk", model="qwen-image-edit-plus")
-        with pytest.raises(ImageCapabilityError) as ei:
-            await b.generate(ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png"))
-        assert ei.value.code == "image_endpoint_mismatch_no_t2i"
-
     async def test_wan_pro_4k_i2i_raises(self, tmp_path: Path):
         from lib.backends.image_backends.dashscope import DashScopeImageBackend
 

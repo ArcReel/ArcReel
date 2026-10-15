@@ -91,13 +91,10 @@ const MANY_ENDPOINTS: ApiOverrides = {
           endpoint: "ce-1",
           is_default: m === 0,
           is_enabled: true,
-          price_unit: null,
-          price_input: null,
-          price_output: null,
-          currency: null,
-          supported_durations: null,
           resolution: null,
-          max_output_tokens: null,
+          multiplier: 1,
+          entry_binding: null,
+          matched_entry: null,
           system_capabilities: null,
           capability_overrides: null,
           global_bucket_refs: null,
@@ -174,13 +171,15 @@ defineRegionScenarios("调用端点", [
     screenshot: { name: "endpoints-builtin-detail", target: (page) => page.getByRole("main") },
   },
   {
-    name: "自定义端点多且名称长：二级栏滚动到底，「新建端点」在视口内",
+    name: "自定义端点多且名称长：二级栏滚动到「新建端点」，它在视口内",
     path: `${ENDPOINTS_PATH}&endpoint=ce-1`,
     api: MANY_ENDPOINTS,
     ready: detailReady,
     act: async (page) => {
-      await rail(page).evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
-      await expect(rail(page).getByRole("link", { name: /新建端点/ }).filter({ visible: true })).toBeInViewport();
+      // 紧凑档多组上下叠放，「新建端点」是「我的」组的末尾，在内置组上方，滚到底并不会经过它。
+      const create = rail(page).getByRole("link", { name: /新建端点/ }).filter({ visible: true });
+      await create.scrollIntoViewIfNeeded();
+      await expect(create).toBeInViewport();
     },
     screenshot: { name: "endpoints-rail", target: rail },
   },

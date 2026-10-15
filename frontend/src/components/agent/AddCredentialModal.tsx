@@ -41,6 +41,9 @@ import { ModelIdField } from "./ModelIdField";
 import { PresetIcon } from "./PresetIcon";
 import { TestResultPanel } from "./TestResultPanel";
 
+// Anthropic 官方预设：留空的路由档位交给 Claude Code 决定，不填成默认模型（与后端 lib/agent/credential_tiers.py 一致）。
+const ANTHROPIC_OFFICIAL_PRESET_ID = "anthropic-official";
+
 interface Props {
   open: boolean;
   /** "create" (default) renders the new-credential form; "edit" locks the preset chips
@@ -304,6 +307,7 @@ export function AddCredentialModal({
     (mode === "create" && !form.apiKey.trim() && !importSource) ||
     !form.baseUrl.trim() ||
     baseUrlRejected ||
+    form.multiplierInvalid ||
     (mode === "edit" && !form.isDirty(initial));
 
   const closeUnlessSubmitting = (nextOpen: boolean) => {
@@ -506,7 +510,13 @@ export function AddCredentialModal({
                 </CollapsibleTrigger>
                 <CollapsibleContent>
                   <div className="flex flex-col gap-4 px-3 pt-2 pb-3">
-                    <p className="text-xs text-muted-foreground">{t("model_routing_hint")}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {t(
+                        form.presetId === ANTHROPIC_OFFICIAL_PRESET_ID
+                          ? "model_routing_hint_official"
+                          : "model_routing_hint",
+                      )}
+                    </p>
                     <RoutingField
                       id="cred-haiku"
                       label={t("haiku_model")}
@@ -547,6 +557,25 @@ export function AddCredentialModal({
                 </CollapsibleContent>
               </Collapsible>
             </div>
+
+            <Field label={t("cred_multiplier_label")} htmlFor="cred-multiplier">
+              <Input
+                id="cred-multiplier"
+                inputMode="decimal"
+                autoComplete="off"
+                className="w-32"
+                value={form.multiplierText}
+                onChange={(e) => form.setMultiplierText(e.target.value)}
+                aria-invalid={form.multiplierInvalid}
+                aria-describedby="cred-multiplier-hint"
+              />
+              <p
+                id="cred-multiplier-hint"
+                className={form.multiplierInvalid ? "text-xs text-warn" : "text-xs text-muted-foreground"}
+              >
+                {form.multiplierInvalid ? t("cred_multiplier_invalid") : t("cred_multiplier_help")}
+              </p>
+            </Field>
 
             {selected?.notes && (
               <p className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-sm text-subtle-foreground">

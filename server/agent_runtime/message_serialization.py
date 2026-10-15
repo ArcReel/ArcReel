@@ -21,6 +21,7 @@ MESSAGE_TYPE_MAP = {
     "TaskStartedMessage": "system",
     "TaskProgressMessage": "system",
     "TaskNotificationMessage": "system",
+    "ConversationResetMessage": "conversation_reset",
 }
 
 # Typed task message subtypes for precise classification

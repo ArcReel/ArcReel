@@ -322,11 +322,11 @@ MESSAGES = {
     "interface_offline": "Giao diện này đã ngừng hoạt động, vui lòng dùng giao diện được khuyến nghị",
     "answers_required": "answers không được để trống",
     # Custom Providers
-    "price_input_required": "price_input phải được đặt khi đặt price_output",
     "model_id_required": "Phải cung cấp model_id cho các mô hình đã bật",
     "duplicate_model_id": "model_id trùng lặp: {model_id}",
     "default_model_conflict": "Mỗi media_type chỉ có tối đa một mô hình mặc định. Xung đột: {conflict}",
     "provider_not_found": "Nhà cung cấp không tồn tại",
+    "provider_multiplier_not_in_config": "Không thể đổi hệ số giá của nhà cung cấp qua giao diện cấu hình; hãy dùng giao diện hệ số giá",
     "custom_endpoint_not_found": "Endpoint không tồn tại",
     "custom_endpoint_definition_invalid": "Định nghĩa endpoint không qua được kiểm tra, hãy sửa các lỗi được báo rồi thử lại",
     "custom_endpoint_referenced_by_models": "Endpoint này đang được {count} mô hình sử dụng, hãy gỡ các tham chiếu đó trước khi xóa",
@@ -371,6 +371,7 @@ MESSAGES = {
     "trial_run_already_running": "Đã có một lần chạy thử đang diễn ra, hãy đợi nó kết thúc hoặc hủy trước",
     "trial_run_not_found": "Không tìm thấy bản ghi chạy thử hoặc bản ghi đã hết hạn",
     "usage_record_not_found": "Không tìm thấy bản ghi sử dụng",
+    "usage_session_not_found": "Không tìm thấy phiên Agent",
     "usage_cursor_invalid": "Con trỏ phân trang không hợp lệ, hãy quay lại trang đầu và duyệt lại",
     "usage_range_too_wide": "Khoảng thời gian thống kê quá rộng, hãy thu hẹp mốc bắt đầu và kết thúc rồi thử lại",
     "usage_time_out_of_range": "Mốc bắt đầu hoặc kết thúc nằm ngoài phạm vi thời gian biểu diễn được, hãy kiểm tra lại rồi thử lại",
@@ -409,8 +410,11 @@ MESSAGES = {
     "capability_overrides_not_supported_for_comfyui": (
         "Mô hình {model_id} dùng endpoint ComfyUI, năng lực chỉ suy ra từ liên kết node; không hỗ trợ ghi đè năng lực"
     ),
-    "capability_overrides_video_only": (
-        "Endpoint {endpoint} của mô hình {model_id} không phải loại video; không hỗ trợ ghi đè năng lực"
+    "capability_override_not_applicable": (
+        "Endpoint {endpoint} của mô hình {model_id} thuộc loại {media_type}; năng lực {capability} không áp dụng"
+    ),
+    "capability_override_image_unsupported": (
+        "Endpoint {endpoint} của mô hình {model_id} không triển khai {capability}; không thể ghi đè thành true"
     ),
     "capability_override_invalid_value": (
         "Năng lực {capability} của mô hình {model_id} có kiểu giá trị không hợp lệ; cần {expected}"
@@ -423,6 +427,9 @@ MESSAGES = {
         "Mô hình {model_id} phải có max_reference_audio_count lớn hơn 0 khi hỗ trợ âm thanh tham chiếu; "
         "hãy ghi đè reference_audio_mode thành none để tắt tham chiếu giọng nói"
     ),
+    "path_override_unknown_request": "Endpoint của mô hình {model_id} không có yêu cầu {request} có thể đổi địa chỉ",
+    "path_override_invalid_path": "Địa chỉ yêu cầu {path} của mô hình {model_id} không hợp lệ: đường dẫn phải bắt đầu bằng /, không chứa khoảng trắng hay ký tự #, và chỉ dùng dấu ngoặc nhọn cho placeholder",
+    "path_override_placeholder_not_allowed": "Địa chỉ yêu cầu {path} của mô hình {model_id} dùng placeholder mà yêu cầu này không có; chỉ có thể dùng {allowed}",
     "capability_override_last_frame_unsupported": (
         "Endpoint {endpoint} của mô hình {model_id} không hỗ trợ tạo khung hình cuối; "
         "không thể ghi đè last_frame thành true"
@@ -641,11 +648,10 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} không hỗ trợ tạo video từ ảnh; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video từ ảnh trong Cài đặt, hoặc đổi mô hình video mặc định",
     "video_capability_missing_r2v": "{provider}/{model} không hỗ trợ tạo video theo tham chiếu; hãy chỉ định mô hình hỗ trợ tính năng này cho mục tạo video theo tham chiếu trong Cài đặt, hoặc đổi mô hình video mặc định",
     "video_capability_reference_unavailable": "Mô hình video đã cấu hình {provider}/{model} không còn khả dụng (mô hình bị xóa, năng lực đã thay đổi hoặc nhà cung cấp bị gỡ bỏ); hãy chọn lại mô hình video trong Cài đặt",
+    "model_not_in_provider_catalog": "{provider}/{model}: mô hình này không có trong danh sách mô hình của nhà cung cấp; hãy chọn lại mô hình trong Cài đặt",
     "video_resolution_not_supported": "Mô hình {model} không hỗ trợ độ phân giải {resolution} (chỉ hỗ trợ {supported}); hãy chọn một độ phân giải được hỗ trợ",
     "video_aspect_ratio_not_supported": "Mô hình {model} không hỗ trợ tỷ lệ khung hình {aspect_ratio} (chỉ hỗ trợ {supported}); hãy chọn một tỷ lệ được hỗ trợ",
-    "video_resolution_duration_unsupported": "Mô hình {model} không hỗ trợ {duration}s ở độ phân giải {resolution} (chỉ {supported}); hãy điều chỉnh độ phân giải hoặc thời lượng",
     "video_reference_resolution_unsupported": "Mô hình {model} chỉ hỗ trợ tối đa {max_resolution} khi dùng ảnh tham chiếu hoặc khung hình cuối, nhưng yêu cầu là {resolution}; hãy đổi độ phân giải thành {max_resolution}, hoặc bỏ ảnh tham chiếu và khung hình cuối",
-    "video_reference_images_duration_unsupported": "Mô hình {model} không hỗ trợ {duration}s khi dùng ảnh tham chiếu (chỉ {supported}); hãy đổi thời lượng sang {supported} hoặc bỏ ảnh tham chiếu",
     "video_reference_images_required": "Mô hình {model} cần ít nhất một ảnh tham chiếu; hãy cung cấp ảnh tham chiếu",
     "video_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
     "video_reference_images_unsupported": "Mô hình {model} không hỗ trợ ảnh tham chiếu đa chủ thể; hãy bỏ ảnh tham chiếu hoặc chuyển sang mô hình có hỗ trợ tạo video từ ảnh tham chiếu",
@@ -674,6 +680,7 @@ MESSAGES = {
     "agent_base_url_invalid": "Địa chỉ chứng thực Agent không hỗ trợ tham số truy vấn, fragment hay tên người dùng/mật khẩu; hãy dùng dạng https://host/path",
     "agent_no_fields_to_update": "Không có trường nào để cập nhật",
     "agent_credential_not_found": "Không tìm thấy xác thực",
+    "agent_tier_binding_invalid": "Mô hình gắn với bậc này không có trong danh mục mô hình",
     "agent_cannot_delete_active": "Không thể xóa xác thực đang hoạt động; hãy kích hoạt xác thực khác trước",
     "agent_test_validation_error": "Kiểm tra kết nối thất bại; vui lòng kiểm tra cấu hình và thử lại",
     "invalid_project_name": "Tên dự án '{name}' không hợp lệ",

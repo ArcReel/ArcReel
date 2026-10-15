@@ -466,17 +466,16 @@ def _with_frames(**frames_extra: Any) -> dict[str, Any]:
     return definition
 
 
+def _stored_durations(model, definition: dict[str, Any]) -> object:
+    overrides = model.to_db_dict(_comfyui_spec(definition))["capability_overrides"]
+    return None if overrides is None else overrides.get("durations")
+
+
 class TestComfyuiSupportedDurations:
-    """时长档位由节点绑定决定，不走模型名启发式（``docs/adr/0082``）。"""
+    """时长档位默认由节点绑定决定，不走模型名启发式；用户增删过的档位存为 ``durations`` 覆盖
+    （``docs/adr/0082``、``0104`` 的例外）。"""
 
-    def test_the_default_tier_is_the_workflow_native_duration(self):
-        from server.routers.custom_providers import ModelInput
-
-        model = ModelInput(model_id="my-wan-workflow", display_name="m", endpoint="ce-7")
-
-        assert model.to_db_dict(_comfyui_spec(_with_frames()))["supported_durations"] == "[5]"
-
-    def test_the_model_name_heuristic_never_runs_on_this_protocol(self):
+    def test_without_an_edit_nothing_is_stored_and_the_name_heuristic_never_runs(self):
         """``my-wan-workflow`` 在启发式预设表里会得到 ``[4, 8]``，与这份 workflow 毫无关系。"""
         from lib.custom_provider.duration_presets import infer_supported_durations
         from server.routers.custom_providers import ModelInput
@@ -484,45 +483,100 @@ class TestComfyuiSupportedDurations:
         model = ModelInput(model_id="my-wan-workflow", display_name="m", endpoint="ce-7")
 
         assert infer_supported_durations("my-wan-workflow") == [4, 8]
-        assert model.to_db_dict(_comfyui_spec(_with_frames()))["supported_durations"] == "[5]"
+        assert model.to_db_dict(_comfyui_spec(_with_frames()))["capability_overrides"] is None
 
     def test_a_user_edited_tier_is_kept_when_frames_are_drivable(self):
         from server.routers.custom_providers import ModelInput
 
-        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", supported_durations=[3, 5, 8])
+        model = ModelInput(
+            model_id="m", display_name="m", endpoint="ce-7", capability_overrides={"durations": [3, 5, 8]}
+        )
 
-        assert model.to_db_dict(_comfyui_spec(_with_frames()))["supported_durations"] == "[3, 5, 8]"
+        assert _stored_durations(model, _with_frames()) == [3, 5, 8]
 
-    def test_frames_unbound_pins_the_tier_to_the_empty_set(self):
-        """时长固定的 workflow 上用户改不动档位，传什么都钉回空集。"""
+    def test_a_tier_equal_to_the_native_duration_is_not_stored(self):
         from server.routers.custom_providers import ModelInput
 
-        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", supported_durations=[3, 5])
+        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", capability_overrides={"durations": [5]})
 
-        assert model.to_db_dict(_comfyui_spec(comfyui_endpoint_definition()))["supported_durations"] == "[]"
+        assert model.to_db_dict(_comfyui_spec(_with_frames()))["capability_overrides"] is None
 
-    def test_frames_bound_without_a_frame_rate_source_pins_it_too(self):
+    def test_frames_unbound_drops_the_edit(self):
+        """时长固定的 workflow 上用户改不动档位，传什么都不存。"""
+        from server.routers.custom_providers import ModelInput
+
+        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", capability_overrides={"durations": [3, 5]})
+
+        assert _stored_durations(model, comfyui_endpoint_definition()) is None
+
+    def test_frames_bound_without_a_frame_rate_source_drops_it_too(self):
         from server.routers.custom_providers import ModelInput
 
         definition = _with_frames()
         definition["bindings"].pop("fps")
-        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", supported_durations=[3, 5])
+        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", capability_overrides={"durations": [3, 5]})
 
-        assert model.to_db_dict(_comfyui_spec(definition))["supported_durations"] == "[]"
+        assert _stored_durations(model, definition) is None
 
-    def test_a_manual_frame_rate_on_the_entry_makes_the_tier_derivable_again(self):
+    def test_a_manual_frame_rate_on_the_entry_makes_the_tier_editable_again(self):
         from server.routers.custom_providers import ModelInput
 
         definition = _with_frames(fps=20)
         definition["bindings"].pop("fps")
-        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7")
+        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7", capability_overrides={"durations": [4, 8]})
 
-        assert model.to_db_dict(_comfyui_spec(definition))["supported_durations"] == "[4]"
+        assert _stored_durations(model, definition) == [4, 8]
 
-    def test_an_image_comfyui_endpoint_stores_no_tier_at_all(self):
-        from server.routers.custom_providers import ModelInput
 
-        definition = comfyui_endpoint_definition(media_type="image")
-        model = ModelInput(model_id="m", display_name="m", endpoint="ce-7")
+class TestComfyuiDurationsOverrideApi:
+    """ComfyUI 视频模型行只开放 ``durations`` 一维覆盖；其余维度与图片端点仍按协议拒绝。"""
 
-        assert model.to_db_dict(_comfyui_spec(definition))["supported_durations"] is None
+    @staticmethod
+    def _create(client: TestClient, key: str, overrides: dict[str, Any]):
+        return client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "我的 ComfyUI",
+                "discovery_format": "comfyui",
+                "base_url": _COMFY_URL,
+                "api_key": "",
+                "models": [_model(key, capability_overrides=overrides)],
+            },
+        )
+
+    async def test_a_video_row_accepts_and_echoes_its_durations(
+        self, comfyui_client, custom_providers_app_session_factory
+    ):
+        key = await _store_endpoint(custom_providers_app_session_factory, _with_frames())
+
+        resp = self._create(comfyui_client, key, {"durations": [5, 10]})
+
+        assert resp.status_code == 201, resp.text
+        read_back = comfyui_client.get(f"/api/v1/custom-providers/{resp.json()['id']}").json()
+        assert read_back["models"][0]["capability_overrides"] == {"durations": [5, 10]}
+
+    async def test_durations_with_another_dimension_is_refused(
+        self, comfyui_client, custom_providers_app_session_factory
+    ):
+        key = await _store_endpoint(custom_providers_app_session_factory, _with_frames())
+
+        resp = self._create(comfyui_client, key, {"durations": [5, 10], "last_frame": True})
+
+        assert resp.status_code == 422
+        assert "节点绑定" in resp.json()["detail"]
+
+    async def test_an_image_row_refuses_durations(self, comfyui_client, custom_providers_app_session_factory):
+        key = await _store_endpoint(
+            custom_providers_app_session_factory, comfyui_endpoint_definition(media_type="image")
+        )
+
+        resp = self._create(comfyui_client, key, {"durations": [5]})
+
+        assert resp.status_code == 422
+
+    async def test_invalid_durations_are_refused(self, comfyui_client, custom_providers_app_session_factory):
+        key = await _store_endpoint(custom_providers_app_session_factory, _with_frames())
+
+        resp = self._create(comfyui_client, key, {"durations": [0, 5]})
+
+        assert resp.status_code == 422

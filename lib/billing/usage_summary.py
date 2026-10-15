@@ -47,10 +47,13 @@ class UsageSummaryRow:
     model: str
     status: str
     started_at: datetime
-    cost_amount: float
+    # None 表示未定价：不计入任何金额合计。
+    cost_amount: float | None
     currency: str
     segment_id: str | None
     error_code: str | None
+    # Agent 会话的记录（来源 assistant_session）：计入合计与构成，不参与「需要关注」。
+    agent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +100,8 @@ class _StatsAccumulator:
     success: int = 0
     failed: int = 0
     cancelled: int = 0
+    # 未定价（cost_amount 为 NULL）的调用数：不进 cost，单独计数，避免被误读成「0 元」。
+    unpriced: int = 0
     cost: dict[str, float] = field(default_factory=dict)
 
     def add(self, row: UsageSummaryRow) -> None:
@@ -107,7 +112,10 @@ class _StatsAccumulator:
         elif row.status == CallStatus.CANCELLED:
             self.cancelled += 1
         # 参考费用汇总所有 cost_amount > 0 的终态行，不看状态——失败的调用一样可能被计费。
-        if row.cost_amount > 0:
+        # NULL 即未定价：不计金额，另记次数。
+        if row.cost_amount is None:
+            self.unpriced += 1
+        elif row.cost_amount > 0:
             self.cost[row.currency] = self.cost.get(row.currency, 0.0) + row.cost_amount
 
     @property
@@ -124,6 +132,7 @@ class _StatsAccumulator:
             # 成功率的分母只数已判定的调用；用户取消既不算成功也不算失败。
             "success_rate": round(self.success / decided, _ROUND_DIGITS) if decided else None,
             "cost": {currency: round(amount, _ROUND_DIGITS) for currency, amount in sorted(self.cost.items())},
+            "unpriced_calls": self.unpriced,
         }
 
 
@@ -183,7 +192,12 @@ def _daily_buckets(
         if row.status in counts[day]:
             counts[day][row.status] += 1
         # 堆叠柱只能落在一种币种上，取主币种；其余币种的金额不混进来，也不做汇率折算。
-        if row.cost_amount > 0 and row.currency == primary_currency and row.media_type in costs[day]:
+        if (
+            row.cost_amount is not None
+            and row.cost_amount > 0
+            and row.currency == primary_currency
+            and row.media_type in costs[day]
+        ):
             costs[day][row.media_type] += row.cost_amount
 
     first, last = window
@@ -229,6 +243,7 @@ def _breakdown_dimension(
             merged.success += stats.success
             merged.failed += stats.failed
             merged.cancelled += stats.cancelled
+            merged.unpriced += stats.unpriced
             for currency, amount in stats.cost.items():
                 merged.cost[currency] = merged.cost.get(currency, 0.0) + amount
         result["other"] = {"groups": len(overflow), **merged.to_dict()}
@@ -237,7 +252,17 @@ def _breakdown_dimension(
     return result
 
 
+_AGENT_MARK = "1"
+_GENERATION_MARK = "0"
+
+
 def _breakdown(rows: list[UsageSummaryRow]) -> dict[str, object]:
+    """三个维度的构成。
+
+    供应商与模型两个维度里，Agent 记录各合并成一项（``agent=True``，不带具体的供应商）：它们的
+    供应商是每条 Agent 凭证一个 ``agent-<凭证 id>``，逐个列出会与生成调用的供应商混在一起，而这里
+    关心的是 Agent 整体的占比；按凭证拆开看在「Agent 会话」视图里筛选。
+    """
     return {
         "project": _breakdown_dimension(
             rows,
@@ -246,13 +271,15 @@ def _breakdown(rows: list[UsageSummaryRow]) -> dict[str, object]:
         ),
         "provider": _breakdown_dimension(
             rows,
-            key_of=lambda row: (row.provider,),
-            fields_of=lambda key: {"provider": key[0]},
+            key_of=lambda row: (_AGENT_MARK, "") if row.agent else (_GENERATION_MARK, row.provider),
+            fields_of=lambda key: {"provider": key[1], "agent": key[0] == _AGENT_MARK},
         ),
         "model": _breakdown_dimension(
             rows,
-            key_of=lambda row: (row.provider, row.model),
-            fields_of=lambda key: {"provider": key[0], "model": key[1]},
+            key_of=lambda row: (
+                (_AGENT_MARK, "", row.model) if row.agent else (_GENERATION_MARK, row.provider, row.model)
+            ),
+            fields_of=lambda key: {"provider": key[1], "model": key[2], "agent": key[0] == _AGENT_MARK},
         ),
     }
 
@@ -355,6 +382,8 @@ def _failure_count(item: dict[str, object]) -> int:
 
 
 def _attention(rows: list[UsageSummaryRow]) -> list[dict[str, object]]:
+    # 失败率与连续失败只统计生成调用：Agent 的轮次不拉高或拉低失败率。
+    rows = [row for row in rows if not row.agent]
     items = _failure_rate_attention(rows) + _consecutive_failure_attention(rows)
 
     # 两类异常按各自的失败次数一起排序；并列时按条目内容定序，保证同一批数据的输出稳定。

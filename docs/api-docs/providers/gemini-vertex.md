@@ -3,6 +3,6 @@
 Google Vertex AI 上的 Gemini、Imagen 与 Veo 媒体 provider；与 AI Studio 共享部分模型文档，但认证、端点和计费独立。
 
 - 总入口：[Generative AI on Vertex AI](https://cloud.google.com/vertex-ai/generative-ai/docs)
-- 接口与能力：[Google Gen AI SDK `generate_content`](https://googleapis.github.io/python-genai/genai.html#genai.models.Models.generate_content)、[Generate images with Gemini (Vertex AI mode)](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/image-generation)、[Veo video generation API](https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/veo-video-generation)
+- 接口与能力：[Google Gen AI SDK `generate_content`](https://googleapis.github.io/python-genai/genai.html#genai.models.Models.generate_content)、[Generate images with Gemini (Vertex AI mode)](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/image-generation)、[Veo video generation API](https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/veo-video-generation)、[Gemini 3.8 Flash TTS](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-8-flash-tts)
 - 计费：[Vertex AI generative AI pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)
-- 代码：`lib/config/registry.py::PROVIDER_REGISTRY["gemini-vertex"]`、`lib/backends/text_backends/gemini.py::GeminiTextBackend`、`lib/backends/image_backends/gemini.py::GeminiImageBackend`、`lib/backends/video_backends/gemini.py::GeminiVideoBackend`
+- 代码：`lib/config/registry.py::PROVIDER_REGISTRY["gemini-vertex"]`、`lib/backends/text_backends/gemini.py::GeminiTextBackend`、`lib/backends/image_backends/gemini.py::GeminiImageBackend`、`lib/backends/video_backends/gemini.py::GeminiVideoBackend`、`lib/backends/audio_backends/gemini.py::GeminiAudioBackend`

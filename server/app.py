@@ -63,6 +63,7 @@ from server.routers import (
     asset_sheets,
     assets,
     assistant,
+    catalog,
     characters,
     cost_estimation,
     custom_endpoints,
@@ -461,6 +462,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("text tier settings migration failed (non-fatal): %s", exc)
 
+    # 设置里已改名的模型改写为后继模型（退役模型映射）。放在档位迁移之后：旧任务级键收编进档位键后一并改写
+    try:
+        from lib.config.migration import migrate_retired_model_settings
+
+        async with async_session_factory() as session:
+            await migrate_retired_model_settings(session)
+    except Exception as exc:
+        logger.warning("retired model settings migration failed (non-fatal): %s", exc)
+
     # 官方市场源 seed：不存在则插入，地址常量变了就同步；不抓取
     try:
         from lib.market.sources import seed_official_source
@@ -722,6 +732,7 @@ app.include_router(
 )
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
 app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
+app.include_router(catalog.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["模型目录"])
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
 app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
 app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])

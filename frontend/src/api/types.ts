@@ -165,6 +165,20 @@ export interface UsageRecordsQuery {
   limit?: number;
   /** 上一页返回的不透明游标。 */
   cursor?: string;
+  /** 视图；缺省为「生成调用」，不含 Agent 记录。 */
+  view?: "generation" | "agent";
+}
+
+/** {@link API.getUsageSessions} 的筛选：与记录列表同口径，不含状态、媒体类型与分镜。 */
+export interface UsageSessionsQuery {
+  /** 空串筛选端点试跑记录，`undefined` 表示不按项目筛。 */
+  projectName?: string;
+  providers?: readonly string[];
+  models?: readonly string[];
+  since?: string;
+  until?: string;
+  limit?: number;
+  cursor?: string;
 }
 
 /** {@link API.getUsageSummary} 的筛选；不收状态，pending 不进聚合。 */
@@ -178,6 +192,8 @@ export interface UsageSummaryQuery {
   until?: string;
   /** IANA 时区名，按此切天；缺省 UTC。 */
   tz?: string;
+  /** 决定筛选候选值列哪个视图的项目、供应商与模型；合计不分视图。 */
+  view?: "generation" | "agent";
 }
 
 /** Generic success response used by many endpoints. */

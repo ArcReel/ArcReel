@@ -152,13 +152,16 @@ export function UsageFilterBar({
           options={[...new Set(models.map((option) => option.model))].map((model) => ({ value: model, label: model }))}
           onChange={(model) => onChange({ model })}
         />
-        <FilterSelect
-          label={t("usage_filter_media_type")}
-          value={filters.mediaType}
-          allLabel={t("usage_filter_all_media_types")}
-          options={MEDIA_TYPES.map((type) => ({ value: type, label: t(MEDIA_META[type].labelKey) }))}
-          onChange={(value) => onChange({ mediaType: value as CallType | null })}
-        />
+        {/* Agent 记录的媒体类型都是文本，筛不出东西；这一维只属于「生成调用」 */}
+        {filters.view === "generation" && (
+          <FilterSelect
+            label={t("usage_filter_media_type")}
+            value={filters.mediaType}
+            allLabel={t("usage_filter_all_media_types")}
+            options={MEDIA_TYPES.map((type) => ({ value: type, label: t(MEDIA_META[type].labelKey) }))}
+            onChange={(value) => onChange({ mediaType: value as CallType | null })}
+          />
+        )}
 
         <Button size="sm" variant="ghost" className="ml-auto" onClick={onRefresh}>
           <RefreshCw aria-hidden="true" data-icon="inline-start" className={cn(refreshing && "animate-spin")} />

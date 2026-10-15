@@ -634,11 +634,12 @@ PRODUCTION_PACKAGES: Mapping[str, str] = {
     "lib": ".",
     "server": ".",
     "arcreel_market_core": "packages/arcreel-market-core/src",
+    "arcreel_catalog_core": "packages/arcreel-catalog-core/src",
 }
 PRODUCTION_PREFIXES = tuple(f"{name}." for name in PRODUCTION_PACKAGES)
 
 #: 缺省扫描的后端测试目录：主仓 `tests/` 之外，workspace 子包各有独立的测试目录。
-DEFAULT_TESTS_DIRS = ("tests", "packages/arcreel-market-core/tests")
+DEFAULT_TESTS_DIRS = ("tests", "packages/arcreel-market-core/tests", "packages/arcreel-catalog-core/tests")
 
 
 def tier_from_path(path: Path, tests_dir: Path) -> str | None:

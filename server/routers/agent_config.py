@@ -9,17 +9,20 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.agent.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset, list_presets
+from lib.agent.credential_tiers import Tier, tier_statuses
+from lib.catalog import query as catalog
 from lib.config.anthropic_probe import DiagnosisCode, run_test
 from lib.config.anthropic_probe import ProbeResult as ProbeResultDC
 from lib.config.anthropic_probe import TestConnectionResponse as TestConnectionResponseDC
-from lib.config.repository import mask_secret
+from lib.config.repository import SystemSettingRepository, mask_secret
 from lib.config.url_utils import InvalidAnthropicBaseUrlError, validate_anthropic_base_url
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
+from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.infra.api_errors import UnprocessableError
@@ -83,6 +86,18 @@ async def list_preset_providers(_t: Translator) -> PresetProvidersResponse:
 # ── Credential models ──────────────────────────────────────────────
 
 
+class TierStatusResponse(BaseModel):
+    """一个档位的定价状态，按当前目录现查。``model_name`` 为 None 表示档位留空、由 CLI 决定调用的模型。"""
+
+    tier: Tier
+    model_name: str | None
+    entry_display_name: str | None
+    manually_bound: bool
+    # 档位存着绑定、但所绑条目已不在目录里：对应关系已回到按模型名，界面仍须能解除这条绑定。
+    binding_stale: bool
+    priced: bool
+
+
 class CredentialResponse(BaseModel):
     id: int
     preset_id: str
@@ -95,6 +110,9 @@ class CredentialResponse(BaseModel):
     sonnet_model: str | None
     opus_model: str | None
     subagent_model: str | None
+    multiplier: float
+    # 主模型、haiku、sonnet、opus、子智能体五个档位实际调用的模型名与定价状态，顺序固定。
+    tiers: list[TierStatusResponse]
     is_active: bool
     created_at: str | None
 
@@ -115,6 +133,10 @@ class CreateCredentialRequest(BaseModel):
     sonnet_model: str | None = None
     opus_model: str | None = None
     subagent_model: str | None = None
+    # Agent 凭证倍率（docs/adr/0100）：订阅制网关可填 0，费用记 0。
+    multiplier: float = Field(default=1.0, ge=0, allow_inf_nan=False)
+    # 档位 → 条目绑定（「模型厂商/官方模型名」，docs/adr/0105）；值为 null 的档位忽略。
+    tier_bindings: dict[Tier, str | None] | None = None
     activate: bool | None = None  # None = 自动 (无 active 时自动 set active)
 
 
@@ -127,9 +149,19 @@ class UpdateCredentialRequest(BaseModel):
     sonnet_model: str | None = None
     opus_model: str | None = None
     subagent_model: str | None = None
+    multiplier: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    # 按档位合并：给出的档位设为该条目，值为 null 的档位解除绑定，没给出的档位保持不变。
+    tier_bindings: dict[Tier, str | None] | None = None
 
 
-def _cred_to_response(cred) -> CredentialResponse:
+class TierBindingRequest(BaseModel):
+    """给一个档位选择模型条目：「模型厂商/官方模型名」，须是目录里当前存在的文本模型条目。"""
+
+    entry_binding: str
+
+
+def _cred_to_response(cred: AgentAnthropicCredential, settings: dict[str, str]) -> CredentialResponse:
+    """``settings`` 是系统设置，凭证上留空的档位以其中的旧值兜底（与注入会话的环境变量一致）。"""
     preset = get_preset(cred.preset_id) if cred.preset_id != CUSTOM_SENTINEL_ID else None
     return CredentialResponse(
         id=cred.id,
@@ -143,9 +175,35 @@ def _cred_to_response(cred) -> CredentialResponse:
         sonnet_model=cred.sonnet_model,
         opus_model=cred.opus_model,
         subagent_model=cred.subagent_model,
+        multiplier=cred.multiplier,
+        tiers=[
+            TierStatusResponse(
+                tier=status.tier,
+                model_name=status.model_name,
+                entry_display_name=status.entry_display_name,
+                manually_bound=status.manually_bound,
+                binding_stale=status.binding_stale,
+                priced=status.priced,
+            )
+            for status in tier_statuses(cred, settings)
+        ],
         is_active=cred.is_active,
         created_at=dt_to_iso(cred.created_at),
     )
+
+
+def _validated_tier_bindings(bindings: dict[Tier, str | None] | None, _t: Translator) -> dict[Tier, str | None]:
+    """写入侧校验：新给出的绑定必须指向目录里现有的文本条目。
+
+    只校验这次提交的值；已存的绑定不会随保存回传（按档位合并），所绑条目下架后不会堵住与它无关的编辑。
+    """
+    validated: dict[Tier, str | None] = {}
+    for tier, ref in (bindings or {}).items():
+        ref = (ref or "").strip() or None
+        if ref is not None and catalog.find_bound_entry(ref, "text") is None:
+            raise HTTPException(status_code=422, detail=_t("agent_tier_binding_invalid"))
+        validated[tier] = ref
+    return validated
 
 
 def _normalized_base_url(raw: str, _t: Translator) -> str:
@@ -191,7 +249,8 @@ async def list_credentials(
 ) -> CredentialListResponse:
     repo = AgentCredentialRepository(session)
     creds = await repo.list_for_user()
-    return CredentialListResponse(credentials=[_cred_to_response(c) for c in creds])
+    settings = await SystemSettingRepository(session).get_all()
+    return CredentialListResponse(credentials=[_cred_to_response(c, settings) for c in creds])
 
 
 @router.post("/credentials", response_model=CredentialResponse, status_code=201)
@@ -215,6 +274,7 @@ async def create_credential(
         display_name = body.display_name or "Custom"
         model = body.model
 
+    bindings = _validated_tier_bindings(body.tier_bindings, _t)
     repo = AgentCredentialRepository(session)
     cred = await repo.create(
         preset_id=body.preset_id,
@@ -226,6 +286,8 @@ async def create_credential(
         sonnet_model=body.sonnet_model,
         opus_model=body.opus_model,
         subagent_model=body.subagent_model,
+        multiplier=body.multiplier,
+        tier_bindings={tier: ref for tier, ref in bindings.items() if ref is not None},
     )
     # 自动 active 策略：activate=True，或 (activate=None 且当前无 active)
     should_activate = body.activate is True
@@ -237,7 +299,7 @@ async def create_credential(
         await repo.set_active(cred.id)
     await session.commit()
     await session.refresh(cred)
-    return _cred_to_response(cred)
+    return _cred_to_response(cred, await SystemSettingRepository(session).get_all())
 
 
 @router.patch("/credentials/{cred_id}", response_model=CredentialResponse)
@@ -249,20 +311,57 @@ async def update_credential(
 ) -> CredentialResponse:
     repo = AgentCredentialRepository(session)
     # exclude_unset 保留客户端显式传入的 None（用于清空 model/haiku_model 等可选覆盖项）
-    # 必需字段 (display_name/base_url/api_key) 仍过滤 None：传 null 给它们没有意义
+    # 必需字段 (display_name/base_url/api_key/multiplier) 仍过滤 None：传 null 给它们没有意义
     fields = body.model_dump(exclude_unset=True)
-    for required in ("display_name", "base_url", "api_key"):
+    for required in ("display_name", "base_url", "api_key", "multiplier"):
         if fields.get(required) is None:
             fields.pop(required, None)
+    binding_changes = _validated_tier_bindings(fields.pop("tier_bindings", None), _t)
     if "base_url" in fields:
         fields["base_url"] = _normalized_base_url(fields["base_url"], _t)
-    if not fields:
+    if not fields and not binding_changes:
         raise HTTPException(status_code=400, detail=_t("agent_no_fields_to_update"))
     cred = await repo.update(cred_id, **fields)
+    if cred is not None and binding_changes:
+        cred = await repo.merge_tier_bindings(cred_id, binding_changes)
     if cred is None:
         raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
     await session.commit()
-    return _cred_to_response(cred)
+    return _cred_to_response(cred, await SystemSettingRepository(session).get_all())
+
+
+@router.put("/credentials/{cred_id}/tiers/{tier}/binding", response_model=CredentialResponse)
+async def bind_tier(
+    cred_id: int,
+    tier: Tier,
+    body: TierBindingRequest,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> CredentialResponse:
+    """为单个档位选择模型条目。绑定只存在凭证上，不修改条目，也不影响条目的官方同步。"""
+    changes = _validated_tier_bindings({tier: body.entry_binding}, _t)
+    if changes[tier] is None:
+        raise HTTPException(status_code=422, detail=_t("agent_tier_binding_invalid"))
+    cred = await AgentCredentialRepository(session).merge_tier_bindings(cred_id, changes)
+    if cred is None:
+        raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
+    await session.commit()
+    return _cred_to_response(cred, await SystemSettingRepository(session).get_all())
+
+
+@router.delete("/credentials/{cred_id}/tiers/{tier}/binding", response_model=CredentialResponse)
+async def unbind_tier(
+    cred_id: int,
+    tier: Tier,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> CredentialResponse:
+    """解除单个档位的绑定，回到按模型名自动对应；档位本来没有绑定时也成功。"""
+    cred = await AgentCredentialRepository(session).merge_tier_bindings(cred_id, {tier: None})
+    if cred is None:
+        raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
+    await session.commit()
+    return _cred_to_response(cred, await SystemSettingRepository(session).get_all())
 
 
 @router.delete("/credentials/{cred_id}", status_code=204)

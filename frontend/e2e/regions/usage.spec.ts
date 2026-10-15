@@ -183,6 +183,71 @@ const POPOVER_STRESS: ApiOverrides = {
   },
 };
 
+// 「Agent 会话」视图：每个会话一行，可展开按时间列出的明细；会话名称、模型名与提示词都很长。
+const AGENT_USAGE = `${USAGE}&u_view=agent`;
+const AGENT_SUMMARY_KEY = `${SUMMARY_KEY}&view=agent`;
+const SESSIONS_KEY = "GET /api/v1/usage/sessions?limit=20&since=2025-12-02T16:00:00.000Z";
+const AGENT_MODELS = ["deepseek-v4-pro", "claude-haiku-4-5-20251001", "glm-5.1-long-context-preview-gateway-alias"];
+
+function agentSession(index: number) {
+  return {
+    session_id: `sess-${index}`,
+    title: index % 4 === 3 ? null : `${LONG_TITLE}：第 ${index + 1} 次分镜讨论与台词润色`,
+    session_deleted: index % 4 === 3,
+    project_name: `rain-detective-${index % 3}`,
+    project_title: index % 3 === 2 ? null : `${LONG_TITLE} ${index % 3}`,
+    models: AGENT_MODELS.slice(0, 1 + (index % 3)),
+    calls: 12 + index,
+    input_tokens: 1_234_567 + index * 10_000,
+    output_tokens: 45_678,
+    cost: index % 2 === 0 ? { CNY: 12.34 + index, USD: 0.56 } : { CNY: 3.21 },
+    unpriced_calls: index % 3 === 1 ? 2 : 0,
+    first_started_at: FIXED_NOW,
+    last_started_at: FIXED_NOW,
+  };
+}
+
+function agentRecord(index: number) {
+  return {
+    id: 500 + index,
+    started_at: FIXED_NOW,
+    status: index % 7 === 6 ? "cancelled" : "success",
+    prompt: `第 ${Math.floor(index / 2) + 1} 轮：把第三场码头夜戏的分镜重排一遍，镜头从灯塔推近到渡轮甲板，台词再收紧一些……`,
+    provider: "agent-3",
+    model: AGENT_MODELS[index % AGENT_MODELS.length],
+    input_tokens: 182_345 + index * 1_000,
+    output_tokens: 3_456,
+    cache_read_tokens: 150_000,
+    cache_write_5m_tokens: 12_000,
+    cache_write_1h_tokens: index % 2 === 0 ? 4_000 : 0,
+    cost_amount: index % 3 === 2 ? null : 1.2345,
+    unpriced_reason: index % 3 === 2 ? "no_entry" : null,
+    currency: "CNY",
+  };
+}
+
+const AGENT_STRESS: ApiOverrides = {
+  [AGENT_SUMMARY_KEY]: {
+    status: 200,
+    body: {
+      ...SUMMARY,
+      filter_options: {
+        ...SUMMARY.filter_options,
+        providers: [{ provider: "agent-3", label: "火山方舟 Coding Plan · 华东二区备用网关" }],
+        models: AGENT_MODELS.map((model) => ({ provider: "agent-3", model })),
+      },
+    },
+  },
+  [SESSIONS_KEY]: {
+    status: 200,
+    body: { items: Array.from({ length: 20 }, (_, i) => agentSession(i)), next_cursor: "next", total: 41 },
+  },
+  "GET /api/v1/usage/sessions/sess-0": {
+    status: 200,
+    body: { session_id: "sess-0", items: Array.from({ length: 12 }, (_, i) => agentRecord(i)) },
+  },
+};
+
 async function usageReady(page: Page) {
   await page.getByRole("heading", { name: "使用记录", level: 2 }).waitFor();
 }
@@ -252,6 +317,26 @@ defineRegionScenarios("使用记录", [
       await expect(listbox).toBeInViewport();
       await expect(listbox.getByRole("option", { name: `${LONG_TITLE} 0` })).toBeVisible();
     },
+  },
+  {
+    name: "Agent 会话满一页且名称很长，展开一个会话的明细后滚到底，分页可见",
+    path: AGENT_USAGE,
+    api: AGENT_STRESS,
+    ready: async (page) => {
+      await usageReady(page);
+      await page.getByRole("button", { name: /^展开「.*第 1 次分镜讨论/ }).waitFor();
+    },
+    act: async (page) => {
+      await page.getByRole("button", { name: /^展开「.*第 1 次分镜讨论/ }).click();
+      await page.getByRole("table", { name: /第 1 次分镜讨论/ }).getByText("第 6 轮", { exact: false }).first().waitFor();
+      // 指针移出表格：停在截断的会话名上会弹出完整名称的悬停提示。
+      await page.mouse.move(0, 0);
+      const main = page.getByRole("main");
+      await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
+      await expect(page.getByRole("button", { name: "下一页" })).toBeInViewport();
+    },
+    // 截展开的明细表：栏宽最紧的是这一张。
+    screenshot: { name: "usage-agent-session-detail", target: (page) => page.getByRole("table", { name: /第 1 次分镜讨论/ }) },
   },
   {
     name: "顶栏使用记录弹层在进行中与已结束都很多时，两栏各自滚动、底部链接可见",

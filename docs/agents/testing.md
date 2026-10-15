@@ -14,6 +14,7 @@
 - **前端页面级套件（`frontend/e2e/`）变更、改动布局或滚动相关的组件、改变调用的接口集合或流连接（含 SSE）的建立时机**：在 `frontend/` 运行 `pnpm e2e`。页面级套件只回放录制替身与场景 `api` 覆盖，未录制的请求直接失败；本机渲染与 CI 不一致时以容器内结果为准，运行方式见 `CONTRIBUTING.md`「前端页面级测试」。改动后端接口的响应形状时，同时运行 `pnpm e2e:record` 重录接口替身。
 - **需要前端完整测试（`pnpm check`）的改动**：`package.json`、`pnpm-lock.yaml`、`vitest.config.*`、测试 setup、i18n 或 branding。
 - **子包 `packages/arcreel-market-core/` 源码变更**：运行子包全部测试（`cd packages/arcreel-market-core && uv run python -m pytest`，子包自带 pytest 配置，与主仓分开收集），并按主仓的导入方选择相关测试；子包的消息键增删时同时运行 `tests/unit/lib/i18n/`。
+- **子包 `packages/arcreel-catalog-core/` 源码变更**：运行子包全部测试（`cd packages/arcreel-catalog-core && uv run python -m pytest`），并按主仓的导入方选择相关测试。
 
 ## 在 worktree 里运行
 

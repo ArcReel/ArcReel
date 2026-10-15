@@ -89,6 +89,7 @@ class BatchConfirmationTier:
     unit_ids: tuple[str, ...]
     cost_amount: float | None
     cost_currency: str | None
+    unpriced_count: int = 0
 
     @property
     def unit_count(self) -> int:
@@ -101,6 +102,7 @@ class BatchConfirmationTier:
             "unit_ids": list(self.unit_ids),
             "cost_amount": self.cost_amount,
             "cost_currency": self.cost_currency,
+            "unpriced_count": self.unpriced_count,
         }
 
 
@@ -162,22 +164,21 @@ class BatchAdmission:
             grouped.setdefault(ticket.request_duration_seconds, []).append(ticket)
         tiers: list[BatchConfirmationTier] = []
         for seconds, members in sorted(grouped.items(), key=lambda pair: (pair[0] is None, pair[0])):
-            amounts = [_cost_amount(member.request_cost) for member in members]
-            currencies = {_cost_currency(member.request_cost) for member in members} - {None}
-            # A tier whose members are not all quoted in one currency has no honest
-            # total: a partial sum understates what the user is agreeing to pay, and
-            # amounts of different currencies do not add up to a number at all.
-            total = (
-                sum(amount for amount in amounts if amount is not None)
-                if all(a is not None for a in amounts) and len(currencies) == 1
-                else None
-            )
+            quoted = [(_cost_amount(member.request_cost), _cost_currency(member.request_cost)) for member in members]
+            priced = [(amount, currency) for amount, currency in quoted if amount is not None and currency is not None]
+            currencies = {currency for _, currency in priced}
+            # The total covers the priced members only; those the price list cannot quote
+            # are counted in ``unpriced_count`` so the user sees the sum is a floor.
+            # Amounts of different currencies do not add up to a number at all, so a tier
+            # priced in more than one currency has no total.
+            total = sum(amount for amount, _ in priced) if len(currencies) == 1 else None
             tiers.append(
                 BatchConfirmationTier(
                     request_duration_seconds=seconds,
                     unit_ids=tuple(member.unit_id for member in members),
                     cost_amount=total,
                     cost_currency=next(iter(currencies)) if len(currencies) == 1 else None,
+                    unpriced_count=len(quoted) - len(priced),
                 )
             )
         return tuple(tiers)

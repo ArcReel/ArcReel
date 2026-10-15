@@ -168,6 +168,13 @@ async def test_tier_migration_idempotent_on_rerun(db_session: AsyncSession):
     assert await repo.get("text_backend_complex") == "gemini-aistudio/user-changed"
 
 
+# ---------------------------------------------------------------------------
+# 退役模型映射：设置里已改名的模型改写为后继模型
+# ---------------------------------------------------------------------------
+
+from lib.config.migration import migrate_retired_model_settings
+
+
 @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
 @pytest.mark.parametrize(
     "setting_key",
@@ -179,19 +186,34 @@ async def test_retired_flash_lite_model_setting_migrates_to_formal_id(
     repo = SystemSettingRepository(db_session)
     await repo.set(setting_key, f"{provider_id}/gemini-3.1-flash-lite-preview")
 
-    await migrate_text_tier_settings(db_session)
+    await migrate_retired_model_settings(db_session)
 
     assert await repo.get(setting_key) == f"{provider_id}/gemini-3.1-flash-lite"
 
 
-async def test_retired_flash_lite_migration_leaves_other_preview_models_unchanged(db_session: AsyncSession):
+@pytest.mark.parametrize(
+    "setting_key", ["default_image_backend", "default_image_backend_t2i", "default_image_backend_i2i"]
+)
+async def test_renamed_image_model_setting_migrates_to_successor(db_session: AsyncSession, setting_key: str):
+    repo = SystemSettingRepository(db_session)
+    await repo.set(setting_key, "gemini-aistudio/gemini-3.1-flash-image-preview")
+
+    await migrate_retired_model_settings(db_session)
+
+    assert await repo.get(setting_key) == "gemini-aistudio/gemini-3.1-flash-image"
+
+
+async def test_retired_model_migration_leaves_unrenamed_references_unchanged(db_session: AsyncSession):
     repo = SystemSettingRepository(db_session)
     await repo.set("default_text_backend", "gemini-aistudio/gemini-3-flash-preview")
     await repo.set("text_backend_simple", "gemini-vertex/gemini-3.1-pro-preview")
     await repo.set("text_backend_complex", "gemini-aistudio/gemini-3.1-flash-lite-preview-extra")
+    # 已下架而没有后继的模型原样保留，运行时报错由用户重选
+    await repo.set("default_video_backend", "openai/sora-2")
 
-    await migrate_text_tier_settings(db_session)
+    await migrate_retired_model_settings(db_session)
 
     assert await repo.get("default_text_backend") == "gemini-aistudio/gemini-3-flash-preview"
     assert await repo.get("text_backend_simple") == "gemini-vertex/gemini-3.1-pro-preview"
     assert await repo.get("text_backend_complex") == "gemini-aistudio/gemini-3.1-flash-lite-preview-extra"
+    assert await repo.get("default_video_backend") == "openai/sora-2"

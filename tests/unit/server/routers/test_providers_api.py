@@ -219,7 +219,7 @@ class TestListProviders:
         assert models["imagen-4.0-generate-001"]["voice_consistency"] == "none"
 
     def _mock_svc_with_catalog_names(self) -> ConfigService:
-        """一个有译名的模型（可灵 v3）与一个纯品牌名模型（Kling 2.1），校验两条解析路径。"""
+        """一个中文显示名的模型（可灵 v3）与一个纯品牌名模型（Kling 2.1）。"""
         svc = MagicMock(spec=ConfigService)
         svc.get_all_providers_status = AsyncMock(
             return_value=[
@@ -257,21 +257,13 @@ class TestListProviders:
         )
         return svc
 
-    @pytest.mark.parametrize(
-        ("accept_language", "expected"),
-        [("zh", "可灵 v3"), ("en", "Kling v3"), ("vi", "Kling v3")],
-    )
-    def test_model_display_name_follows_request_locale(self, accept_language: str, expected: str):
-        with _make_client(self._mock_svc_with_catalog_names()) as client:
-            resp = client.get("/api/v1/providers", headers={"accept-language": accept_language})
-        assert resp.json()["providers"][0]["models"]["kling-v3"]["display_name"] == expected
-
     @pytest.mark.parametrize("accept_language", ["zh", "en", "vi"])
-    def test_model_without_translation_keeps_registry_name(self, accept_language: str):
-        """未入译名表的纯品牌名原样返回，而不是回落成裸 key。"""
+    def test_model_display_name_is_the_catalog_name_in_every_locale(self, accept_language: str):
+        """模型显示名只来自目录条目，不随请求语言翻译。"""
         with _make_client(self._mock_svc_with_catalog_names()) as client:
             resp = client.get("/api/v1/providers", headers={"accept-language": accept_language})
-        assert resp.json()["providers"][0]["models"]["kling-v2-1"]["display_name"] == "Kling 2.1"
+        models = resp.json()["providers"][0]["models"]
+        assert (models["kling-v3"]["display_name"], models["kling-v2-1"]["display_name"]) == ("可灵 v3", "Kling 2.1")
 
     def test_unknown_mocked_model_id_defaults_safely(self):
         """mock 里的 model_id 若不在真实 PROVIDER_REGISTRY 中（如本测试的 imagen-4.0-generate-001），

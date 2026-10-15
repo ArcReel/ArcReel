@@ -830,10 +830,46 @@ class TestTrialRuns:
         assert fetched["request"]["url"] == "https://relay.test/v1/video/create"
         assert fetched["extractions"]["submit"]["task_id"] == "job-42"
 
+    def test_a_model_ref_run_sends_and_records_the_overridden_path(
+        self, client: TestClient, trial_runs: TrialRunManager, stored_model_row_with_submit_override: dict[str, Any]
+    ):
+        row = stored_model_row_with_submit_override
+        with capture_http() as router, bounded_poll_clock():
+            submit = router.post("https://relay.test/v2/create").mock(
+                return_value=httpx.Response(200, json={"task_id": "job-42"})
+            )
+            _mock_successful_run(router)
+            created = _post(
+                client,
+                "trial-runs",
+                {
+                    "model_ref": {"provider_id": row["provider_id"], "model_id": row["model_id"]},
+                    "parameters": PARAMETERS,
+                },
+            )
+            assert created.status_code == 201, created.text
+            run_id = created.json()["id"]
+            _drain(client, trial_runs, run_id)
+
+        fetched = client.get(f"/api/v1/custom-endpoints/trial-runs/{run_id}").json()
+        assert fetched["status"] == "succeeded", fetched["error"]
+        assert submit.call_count == 1
+        assert fetched["request"]["url"] == "https://relay.test/v2/create"
+
 
 @pytest.fixture
 async def stored_model_row(db_engine) -> dict[str, Any]:
     """一条挂着自定义调用端点的视频模型行，供 ``model_ref`` 用例引用。"""
+    return await _store_model_row(db_engine)
+
+
+@pytest.fixture
+async def stored_model_row_with_submit_override(db_engine) -> dict[str, Any]:
+    """同 ``stored_model_row``，提交请求的路径被覆盖为 ``/v2/create``。"""
+    return await _store_model_row(db_engine, path_overrides={"submit": "/v2/create"})
+
+
+async def _store_model_row(db_engine, *, path_overrides: dict[str, str] | None = None) -> dict[str, Any]:
     session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
     async with session_factory() as session:
         endpoint = await CustomEndpointRepository(session).create(
@@ -855,6 +891,7 @@ async def stored_model_row(db_engine) -> dict[str, Any]:
                     "endpoint": make_endpoint_key(endpoint.id),
                     "is_enabled": True,
                     "is_default": True,
+                    "path_overrides": path_overrides,
                 }
             ],
         )

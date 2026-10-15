@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError
 from lib.custom_provider import make_provider_id
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
@@ -76,6 +77,19 @@ class TestGetModelVideoCapabilities:
         assert "model not found" not in detail
         assert detail == zh_errors.MESSAGES["video_model_capabilities_unresolved"].format(value="grok/unknown")
 
+    def test_model_not_in_catalog_returns_reselect_400(self, monkeypatch):
+        """模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400，不被通用 422 吞掉。"""
+        resolver_instance = MagicMock()
+        resolver_instance.video_capabilities_for_model = AsyncMock(
+            side_effect=ModelNotInCatalogError(provider_id="grok", model_id="grok-retired", media_type="video")
+        )
+        with _client(monkeypatch, resolver_instance) as client:
+            resp = client.get("/api/v1/providers/video-capabilities", params={"video_backend": "grok/grok-retired"})
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == zh_errors.MESSAGES["model_not_in_provider_catalog"].format(
+            **make_display_names().apply({"provider": "grok", "model": "grok-retired"})
+        )
+
     def test_capability_bucket_error_returns_localized_400(self, monkeypatch):
         resolver_instance = MagicMock()
         resolver_instance.video_capabilities_for_model = AsyncMock(
@@ -121,14 +135,14 @@ class TestRealResolverResponse:
             "excluded": {"4": "resolution", "6": "resolution"},
         }
 
-    def test_candidate_missing_from_registry_reports_bucket_failure(self, real_resolver_client):
+    def test_candidate_missing_from_catalog_asks_to_reselect(self, real_resolver_client):
         with real_resolver_client as client:
             resp = client.get(
                 "/api/v1/providers/video-capabilities",
                 params={"video_backend": "gemini-aistudio/deleted-model"},
             )
         assert resp.status_code == 400
-        assert resp.json()["detail"] == zh_errors.MESSAGES["video_capability_reference_unavailable"].format(
+        assert resp.json()["detail"] == zh_errors.MESSAGES["model_not_in_provider_catalog"].format(
             **make_display_names().apply({"provider": "gemini-aistudio", "model": "deleted-model"})
         )
 
@@ -183,14 +197,14 @@ class TestRealResolverResponse:
         assert body["generation_mode"] is None
         assert body["duration_constraints"]["resolution"] is None
 
-    @pytest.mark.parametrize("candidate", ["openai/sora-2", "openai"])
+    @pytest.mark.parametrize("candidate", ["grok/grok-imagine-video", "grok"])
     def test_candidate_identity_and_default_constraints(self, real_resolver_client, candidate):
         with real_resolver_client as client:
             response = client.get("/api/v1/providers/video-capabilities", params={"video_backend": candidate})
         assert response.status_code == 200
         body = response.json()
-        assert body["provider_id"] == "openai"
-        assert body["model"] == "sora-2"
+        assert body["provider_id"] == "grok"
+        assert body["model"] == "grok-imagine-video"
         constraints = body["duration_constraints"]
         assert constraints["resolution"] is None
         assert constraints["uses_reference_images"] is False
@@ -268,10 +282,9 @@ async def test_disabled_candidate_never_returns_default_model(
                     model_id=model_id,
                     display_name=model_id,
                     endpoint="newapi-video",
-                    supported_durations="[5]",
                     is_default=default,
                     is_enabled=default or disable_after_gate,
-                    capability_overrides={"first_frame": True, "max_reference_images": 4},
+                    capability_overrides={"durations": [5], "first_frame": True, "max_reference_images": 4},
                 )
             )
         await session.commit()

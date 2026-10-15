@@ -27,6 +27,9 @@ from lib.backends.image_backends.base import (
     ImageGenerationResult,
 )
 from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.billing.metering import Usage
+from lib.custom_provider.metering import custom_video_usage, with_image_counts
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, endpoint_guard
 
 
 class CustomTextBackend:
@@ -54,12 +57,34 @@ class CustomTextBackend:
 
 
 class CustomImageBackend:
-    """自定义供应商图片生成后端包装类。"""
+    """自定义供应商图片生成后端包装类。
 
-    def __init__(self, *, provider_id: str, delegate: ImageBackend, model: str) -> None:
+    ``capabilities`` 是调用通道声明（被包装 backend 实现了什么）。``model_capabilities`` 是模型事实一侧
+    允许的部分（能力覆盖整维替换条目的值，``None`` 即不加约束），由工厂按模型行注入；执行层的能力校验
+    取两者的交集（:attr:`effective_capabilities`），与任务类型桶的候选同一个结果。
+    """
+
+    def __init__(
+        self,
+        *,
+        provider_id: str,
+        delegate: ImageBackend,
+        model: str,
+        model_capabilities: frozenset[ImageCapability] | None = None,
+    ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
         self._model = model
+        self._model_capabilities = model_capabilities
+
+    def with_model_capabilities(self, model_capabilities: frozenset[ImageCapability] | None) -> CustomImageBackend:
+        """返回注入了模型事实一侧能力的新实例（工厂按模型行的条目与能力覆盖算出）。"""
+        return CustomImageBackend(
+            provider_id=self._provider_id,
+            delegate=self._delegate,
+            model=self._model,
+            model_capabilities=model_capabilities,
+        )
 
     @property
     def name(self) -> str:
@@ -74,12 +99,25 @@ class CustomImageBackend:
         return self._delegate.capabilities
 
     @property
+    def model_capabilities(self) -> frozenset[ImageCapability] | None:
+        return self._model_capabilities
+
+    @property
+    def effective_capabilities(self) -> frozenset[ImageCapability]:
+        """调用通道实现了、且模型事实一侧允许的文生图 / 图生图。"""
+        implemented = frozenset(self.capabilities)
+        return implemented if self._model_capabilities is None else implemented & self._model_capabilities
+
+    @property
     def max_reference_images(self) -> int:
         # 自定义供应商的参考图截断发生在被包装的 backend 内，上限即它声明的那一个。
         return self._delegate.max_reference_images
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        return await self._delegate.generate(request)
+        result = await self._delegate.generate(request)
+        # 没有声明计量的通道（ComfyUI、声明式图片、OpenAI Chat 出图）按通用口径上报张数；内置调用通道自己带的
+        # 计量原样保留并补上张数，计价交给对应条目的价目表（docs/adr/0100）。
+        return replace(result, usage=with_image_counts(result.usage, len(request.reference_images)))
 
 
 class CustomAudioBackend:
@@ -126,6 +164,7 @@ class CustomVideoBackend:
         video_capabilities: VideoCapabilities | None = None,
         capability_overrides: dict[str, object] | None = None,
         endpoint: str | None = None,
+        path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     ) -> None:
         self._provider_id = provider_id
         self._delegate = delegate
@@ -133,6 +172,7 @@ class CustomVideoBackend:
         self._video_capabilities = video_capabilities
         self._capability_overrides = capability_overrides or {}
         self._endpoint = endpoint
+        self._path_overrides = path_overrides
 
     @property
     def endpoint(self) -> str | None:
@@ -143,6 +183,14 @@ class CustomVideoBackend:
         绕过工厂直接构造时为 None，此时续跑不比对、行为与未持久化 endpoint 的存量任务一致。
         """
         return self._endpoint
+
+    @property
+    def endpoint_guard(self) -> str | None:
+        """冻结进执行检查点的协议标识：endpoint 连同构造所用的路径覆盖（``docs/adr/0101``）。
+
+        续跑时覆盖已被修改，与「调用端点已更换」一样按协议漂移失败（``docs/adr/0007``）。
+        """
+        return None if self._endpoint is None else endpoint_guard(self._endpoint, self._path_overrides)
 
     def with_video_capabilities(
         self, capabilities: VideoCapabilities, *, overrides: dict[str, object] | None = None
@@ -161,10 +209,11 @@ class CustomVideoBackend:
             video_capabilities=capabilities,
             capability_overrides=overrides,
             endpoint=self._endpoint,
+            path_overrides=self._path_overrides,
         )
 
-    def with_endpoint(self, endpoint: str) -> CustomVideoBackend:
-        """返回记住构造 endpoint 的新实例（不就地改写，包装器保持构造后不可变）。"""
+    def with_endpoint(self, endpoint: str, *, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomVideoBackend:
+        """返回记住构造 endpoint 与路径覆盖的新实例（不就地改写，包装器保持构造后不可变）。"""
         return CustomVideoBackend(
             provider_id=self._provider_id,
             delegate=self._delegate,
@@ -172,6 +221,7 @@ class CustomVideoBackend:
             video_capabilities=self._video_capabilities,
             capability_overrides=self._capability_overrides,
             endpoint=endpoint,
+            path_overrides=path_overrides,
         )
 
     @property
@@ -223,6 +273,15 @@ class CustomVideoBackend:
         if self._endpoint is not None:
             request = replace(request, execution_endpoint=self._endpoint)
         return await self._delegate.generate(request)
+
+    def metered_usage(
+        self, model: str, request: VideoGenerationRequest, result: VideoGenerationResult | None = None
+    ) -> Usage:
+        """这次请求的计量：被包装的调用通道有声明时取它，认不得这个模型或没有声明时按通用口径上报。
+
+        见 :mod:`lib.custom_provider.metering`；结算经 ``backend_metered_usage`` 调用。
+        """
+        return custom_video_usage(getattr(self._delegate, "metered_usage", None), model, request, result)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 透传到下游 backend；下游不支持 resume 时抛 NotImplementedError，

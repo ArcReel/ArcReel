@@ -351,6 +351,37 @@ describe("AddCredentialModal", () => {
     expect(submitBtn).toBeDisabled();
   });
 
+  it("edits the multiplier: subscription gateways can save 0, invalid input blocks saving", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(
+      <AddCredentialModal
+        open
+        mode="edit"
+        presets={presets}
+        customSentinelId="__custom__"
+        initial={{
+          preset_id: "deepseek",
+          display_name: "DS Prod",
+          base_url: "https://api.deepseek.com/anthropic",
+          multiplier: 1,
+        }}
+        onSubmit={onSubmit}
+        onClose={vi.fn()}
+      />,
+    );
+    const multiplier = screen.getByLabelText("倍率");
+    const submitBtn = screen.getByRole("button", { name: "保存" });
+
+    fireEvent.change(multiplier, { target: { value: "-1" } });
+    expect(submitBtn).toBeDisabled();
+    expect(multiplier).toHaveAccessibleDescription("倍率须为不小于 0 的数。");
+
+    fireEvent.change(multiplier, { target: { value: "0" } });
+    expect(submitBtn).toBeEnabled();
+    fireEvent.click(submitBtn);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ multiplier: 0 })));
+  });
+
   describe("import from provider", () => {
     const sampleProvider: import("@/types/custom-provider").CustomProviderInfo = {
       id: 42,
@@ -627,6 +658,35 @@ describe("AddCredentialModal", () => {
       expect(testSpy).not.toHaveBeenCalled();
       expect(onSubmit).not.toHaveBeenCalled();
     });
+  });
+
+  it("the routing hint says blank tiers use the default model, except on the official Anthropic preset", () => {
+    const official: PresetProvider = {
+      ...presets[0],
+      id: "anthropic-official",
+      display_name: "Anthropic Official",
+      icon_key: "Anthropic",
+      default_model: "",
+      suggested_models: [],
+      is_recommended: false,
+    };
+    render(
+      <AddCredentialModal
+        open
+        presets={[...presets, official]}
+        customSentinelId="__custom__"
+        onSubmit={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "高级模型路由" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
+    expect(screen.getByText(/留空则统一使用上方的默认模型/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Anthropic Official/i }));
+    expect(screen.getByText(/留空的档位由 Claude Code 决定使用哪个模型/)).toBeInTheDocument();
+    expect(screen.queryByText(/留空则统一使用上方的默认模型/)).not.toBeInTheDocument();
   });
 
   it("disables preset chips in edit mode", () => {

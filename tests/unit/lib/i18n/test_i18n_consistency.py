@@ -268,36 +268,27 @@ _NON_LATIN_RANGES = (
 )
 
 
-def test_non_latin_registry_display_names_are_translated():
-    """registry 里用非拉丁文字写的名字必须三语都有译名，否则 en/vi 目录会漏出原文。
+def test_non_latin_provider_display_names_are_translated():
+    """registry 里用非拉丁文字写的供应商名必须三语都有译名，否则 en/vi 目录会漏出原文。
 
-    纯品牌名（"Gemini 3 Pro"）不入译名表：``translate_or`` 回退到 registry 的
-    display_name，三份相同的条目只是重复。
+    纯品牌名（"OpenAI"）不入译名表：``translate_or`` 回退到 registry 的 display_name，三份相同的条目只是重复。
     """
 
     def is_non_latin(text: str) -> bool:
         return any(low <= ch <= high for ch in text for low, high in _NON_LATIN_RANGES)
 
-    required: set[str] = set()
-    for provider_id, meta in PROVIDER_REGISTRY.items():
-        if is_non_latin(meta.display_name):
-            required.add(f"provider_name_{provider_id}")
-        for model_id, model in meta.models.items():
-            if is_non_latin(model.display_name):
-                required.add(f"model_name_{provider_id}_{model_id}")
-
+    required = {
+        f"provider_name_{provider_id}"
+        for provider_id, meta in PROVIDER_REGISTRY.items()
+        if is_non_latin(meta.display_name)
+    }
     for locale in SUPPORTED_LOCALES:
         missing = required - set(MESSAGES[locale])
         assert not missing, f"{locale} 缺少目录译名: {sorted(missing)}"
 
 
-def test_no_orphan_model_name_keys():
-    """译名表里不留 registry 已删除的模型条目。"""
-    known = {
-        f"model_name_{provider_id}_{model_id}"
-        for provider_id, meta in PROVIDER_REGISTRY.items()
-        for model_id in meta.models
-    }
+def test_model_display_names_have_no_translation_keys():
+    """模型显示名只来自模型目录的条目，不分语言，译名表里不收模型名。"""
     for locale in SUPPORTED_LOCALES:
-        orphans = {key for key in MESSAGES[locale] if key.startswith("model_name_")} - known
-        assert not orphans, f"{locale} 有 registry 里不存在的模型译名: {sorted(orphans)}"
+        model_keys = sorted(key for key in MESSAGES[locale] if key.startswith("model_name_"))
+        assert not model_keys, f"{locale} 仍有模型译名: {model_keys}"

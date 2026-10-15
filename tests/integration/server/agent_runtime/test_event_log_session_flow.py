@@ -69,6 +69,16 @@ def _idle_frame() -> dict[str, Any]:
     return _session_state_frame("idle")
 
 
+def _billed_assistant_frame(message_id: str) -> dict[str, Any]:
+    """带用量的一次 API 请求：所在的轮次收尾时会写一条用量记录。"""
+    return assistant_frame(
+        {"type": "text", "text": "好的"},
+        session_id=SDK_ID,
+        message_id=message_id,
+        usage={"input_tokens": 10, "output_tokens": 5},
+    )
+
+
 @pytest.fixture
 async def manager(tmp_path, file_db_factory):
     return SessionManager(
@@ -1123,22 +1133,23 @@ class TestQueuedMessages:
         self, service: AssistantService, monkeypatch
     ):
         prompts: list[str] = []
-        backfill = service.session_manager.ledger.backfill
+        record_turn = service.session_manager.ledger.record_agent_turn
 
         async def _capture(**kwargs: Any) -> Any:
             prompts.append(kwargs["prompt"])
-            return await backfill(**kwargs)
+            return await record_turn(**kwargs)
 
-        monkeypatch.setattr(service.session_manager.ledger, "backfill", _capture)
+        monkeypatch.setattr(service.session_manager.ledger, "record_agent_turn", _capture)
         client = self._running_turn_client()
         await self._start_running_turn(service, client)
         try:
             await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
             # 第一轮先结束，排队消息随后开始新的一轮
-            usage = {"input_tokens": 10, "output_tokens": 5}
-            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1", usage=usage))
+            client.push_frame(_billed_assistant_frame("msg-1"))
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
             client.push_frame(started_frame(session_id=SDK_ID))
-            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-2", usage=usage))
+            client.push_frame(_billed_assistant_frame("msg-2"))
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-2"))
             client.push_frame(_idle_frame())
             await _wait_for_status(service.session_manager, SDK_ID, "completed")
 
@@ -1150,26 +1161,27 @@ class TestQueuedMessages:
         self, service: AssistantService, monkeypatch
     ):
         prompts: list[str] = []
-        backfill = service.session_manager.ledger.backfill
+        record_turn = service.session_manager.ledger.record_agent_turn
 
         async def _capture(**kwargs: Any) -> Any:
             prompts.append(kwargs["prompt"])
-            return await backfill(**kwargs)
+            return await record_turn(**kwargs)
 
-        monkeypatch.setattr(service.session_manager.ledger, "backfill", _capture)
+        monkeypatch.setattr(service.session_manager.ledger, "record_agent_turn", _capture)
         client = self._running_turn_client()
         await self._start_running_turn(service, client)
         try:
             # CLI 在工具边界把排队消息并入进行中的轮次：两次 started 之后只有一个 result
-            usage = {"input_tokens": 10, "output_tokens": 5}
             await service.send_or_create("demo", "加一段旁白", session_id=SDK_ID)
             client.push_frame(started_frame(1, session_id=SDK_ID))
             await service.send_or_create("demo", "结尾再加一个空镜", session_id=SDK_ID)
             client.push_frame(started_frame(2, session_id=SDK_ID))
-            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1", usage=usage))
+            client.push_frame(_billed_assistant_frame("msg-1"))
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
             await service.send_or_create("demo", "第 5 镜删掉", session_id=SDK_ID)
             client.push_frame(started_frame(3, session_id=SDK_ID))
-            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-2", usage=usage))
+            client.push_frame(_billed_assistant_frame("msg-2"))
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-2"))
             client.push_frame(_idle_frame())
             await _wait_for_status(service.session_manager, SDK_ID, "completed")
 
@@ -1259,19 +1271,19 @@ class TestQueuedMessages:
         await self._start_running_turn(service, client)
         manager = service.session_manager
         inbox_released, replay_linked = asyncio.Event(), asyncio.Event()
-        backfill = manager.ledger.backfill
+        record_turn = manager.ledger.record_agent_turn
         record_link = service.event_log_store.record_user_message_link
 
-        async def _blocked_backfill(**kwargs: Any) -> Any:
+        async def _blocked_record_turn(**kwargs: Any) -> Any:
             await inbox_released.wait()
-            return await backfill(**kwargs)
+            return await record_turn(**kwargs)
 
         async def _observed_link(*args: Any, **kwargs: Any) -> Any:
             result = await record_link(*args, **kwargs)
             replay_linked.set()
             return result
 
-        monkeypatch.setattr(manager.ledger, "backfill", _blocked_backfill)
+        monkeypatch.setattr(manager.ledger, "record_agent_turn", _blocked_record_turn)
         monkeypatch.setattr(service.event_log_store, "record_user_message_link", _observed_link)
         update_status = service.meta_store.update_status
         try:
@@ -1294,7 +1306,8 @@ class TestQueuedMessages:
                     raise RuntimeError("db down")
 
                 # 用量记账卡住 result，其后的帧都排在 inbox 里
-                client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1", usage={"input_tokens": 10}))
+                client.push_frame(_billed_assistant_frame("msg-1"))
+                client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
                 if idle_timing != "read_during_write":
                     client.push_frame(_idle_frame())
                     client.push_frame(replay_frame(0, session_id=SDK_ID))
