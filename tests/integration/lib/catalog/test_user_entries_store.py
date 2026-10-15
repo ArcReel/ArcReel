@@ -19,6 +19,22 @@ async def test_unreadable_or_mismatched_copies_are_skipped(db_factory: async_ses
         await repo.put(EntryKey("acme", "elsewhere", "text"), _GOOD)
         await session.commit()
 
-        entries = await load_user_entries(session)
+        loaded = await load_user_entries(session)
 
-    assert [(entry.key, entry.display_name) for entry in entries] == [(EntryKey("acme", "chat", "text"), "Mine")]
+    assert [(entry.key, entry.display_name) for entry in loaded.entries] == [(EntryKey("acme", "chat", "text"), "Mine")]
+    assert loaded.created == frozenset()
+
+
+async def test_created_flag_is_kept_on_replace_and_loaded(db_factory: async_sessionmaker[AsyncSession]) -> None:
+    key = EntryKey("acme", "chat", "text")
+    async with db_factory() as session:
+        repo = CatalogUserEntryRepository(session)
+        await repo.put(key, _GOOD, user_created=True)
+        # 后续对副本的修改整条替换，不改变条目由用户新建这件事
+        await repo.put(key, {**_GOOD, "display_name": "Renamed"})
+        await session.commit()
+
+        loaded = await load_user_entries(session)
+
+    assert [entry.display_name for entry in loaded.entries] == ["Renamed"]
+    assert loaded.created == {key}

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Integer, String, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lib.db.base import Base, TimestampMixin
@@ -13,7 +13,8 @@ class CatalogUserEntry(TimestampMixin, Base):
 
     有行即这个条目停止跟随官方，只用这份副本；恢复官方数据即删除这一行。官方数据里没有同一身份的条目时，
     这一行是用户新建的条目。``entry`` 是目录数据格式的条目 JSON（``arcreel_catalog_core.dump_entry``），
-    含价目表；读入时过实例侧校验。
+    含价目表；读入时过实例侧校验。``user_created`` 标明条目是用户在目录里找不到模型时新建的：日后官方数据收录同一
+    身份的条目时，它提示「改用官方数据」，而不是用户改过官方条目时的「恢复官方数据」。
     """
 
     __tablename__ = "catalog_user_entry"
@@ -24,3 +25,4 @@ class CatalogUserEntry(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     media_type: Mapped[str] = mapped_column(String(16), nullable=False)
     entry: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    user_created: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default=false())

@@ -24,11 +24,15 @@ class CatalogUserEntryRepository(BaseRepository):
         )
         return (await self.session.execute(stmt)).scalar_one_or_none()
 
-    async def put(self, key: EntryKey, entry: dict[str, object]) -> None:
-        """写入这个条目的副本：已有副本时整条替换。"""
+    async def put(self, key: EntryKey, entry: dict[str, object], *, user_created: bool = False) -> None:
+        """写入这个条目的副本：已有副本时整条替换，条目是否由用户新建保持不变。"""
         row = await self.get(key)
         if row is None:
-            self.session.add(CatalogUserEntry(maker=key.maker, name=key.name, media_type=key.media_type, entry=entry))
+            self.session.add(
+                CatalogUserEntry(
+                    maker=key.maker, name=key.name, media_type=key.media_type, entry=entry, user_created=user_created
+                )
+            )
         else:
             row.entry = entry
         await self.session.flush()

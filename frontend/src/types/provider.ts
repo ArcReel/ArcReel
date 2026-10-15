@@ -261,6 +261,16 @@ export interface CatalogEntryUpdate extends CatalogEntryKey {
   price?: CatalogPriceTable | null;
 }
 
+/**
+ * 手动填写的新条目（目录里找不到的模型）：`facts` 缺省的字段取该媒体类型的默认值，`display_name` 不填用模型名称，
+ * `price` 是目录数据格式的价目表、不填即调用费用记为未定价。
+ */
+export interface NewCatalogEntry extends CatalogEntryKey {
+  display_name?: string;
+  facts?: Record<string, unknown>;
+  price?: CatalogPriceTable;
+}
+
 /** 供应商模型 Sheet 的内容。 */
 export interface ProviderModelDetail {
   model: ProviderModelItem;
@@ -268,6 +278,8 @@ export interface ProviderModelDetail {
   multiplier: number | null;
   provider_multiplier: number;
   entry: ProviderModelEntryInfo | null;
+  /** 用户指定的条目绑定（「模型厂商/官方模型名」）；按名字对应或官方收录的模型为 null。 */
+  entry_binding: string | null;
   capabilities: ProviderModelCapabilities;
   /** 以下只有自定义供应商的模型有。 */
   endpoint: string | null;
@@ -288,6 +300,10 @@ export interface ProviderModelSettingsUpdate {
   resolution?: string | null;
   /** 修改对应的模型信息，存为用户副本，这个模型从此不再随官方更新。 */
   entry?: CatalogEntryUpdate;
+  /** 关联到目录里同媒体类型的另一个条目（「模型厂商/官方模型名」）；`null` 解除，改回按名字对应。 */
+  entry_binding?: string | null;
+  /** 手动填写：新建条目并绑定到它，随这次保存写入。与 `entry_binding` 同传时以它为准。 */
+  new_entry?: NewCatalogEntry;
 }
 
 /** 引用某个供应商模型的全局设置键与项目。 */

@@ -320,6 +320,8 @@ MESSAGES = {
     "provider_model_entry_mismatch": "「{model}」对应的模型信息已经变化，请重新打开后再修改",
     "catalog_entry_invalid": "模型信息里「{field}」的取值不合法，请修改后再保存",
     "catalog_entry_no_official": "官方数据里没有这个模型的信息，无法恢复",
+    "catalog_entry_exists": "模型目录中已有这个模型，请直接选择。",
+    "provider_model_binding_not_found": "模型目录里没有「{binding}」这个模型，请重新选择",
     "provider_multiplier_not_in_config": "供应商倍率不能经配置接口修改，请用倍率设置接口",
     "custom_endpoint_not_found": "调用端点不存在",
     "custom_endpoint_definition_invalid": "调用端点定义未通过校验，请按诊断逐条修正后重试",

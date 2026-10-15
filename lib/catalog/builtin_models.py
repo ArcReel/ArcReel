@@ -198,17 +198,24 @@ async def update_builtin_model(
     new_model_id: str | None = None,
     multiplier: float | None = None,
     capability_overrides: object = _UNCHANGED,
+    entry_binding: object = _UNCHANGED,
 ) -> str:
     """保存供应商模型 Sheet 上的供应商设置，返回保存后的模型键。
 
     官方收录的模型只能启用、停用，其余设置由官方维护；用户添加的模型另可修改模型 ID、供应商模型倍率与能力覆盖。
     ``capability_overrides`` 不传时不改，传 ``None`` 时清除；值须已经过写入校验
-    （``lib.custom_provider.capability_view.check_user_added_overrides``）。
+    （``lib.custom_provider.capability_view.check_user_added_overrides``）。``entry_binding`` 同理：传
+    「模型厂商/官方模型名」关联到目录里的条目，传 ``None`` 解除，改回按名字对应；条目是否存在由调用方核对。
     """
     item = _find_item(await list_builtin_models(session, provider_id), model_id)
     renamed = new_model_id is not None and new_model_id.strip() != model_id
     if item.view.official:
-        if renamed or multiplier is not None or capability_overrides is not _UNCHANGED:
+        if (
+            renamed
+            or multiplier is not None
+            or capability_overrides is not _UNCHANGED
+            or entry_binding is not _UNCHANGED
+        ):
             raise BuiltinModelError("builtin_model_official_settings", model=model_id)
         if enabled is not None:
             await BuiltinProviderModelRepository(session).set_enabled(provider_id, model_id, enabled)
@@ -235,5 +242,10 @@ async def update_builtin_model(
         row.multiplier = multiplier
     if capability_overrides is not _UNCHANGED:
         row.capability_overrides = capability_overrides if isinstance(capability_overrides, dict) else None
+    if entry_binding is not _UNCHANGED:
+        binding = entry_binding.strip() if isinstance(entry_binding, str) else ""
+        if binding and catalog.binding_key(binding, row.media_type or "") is None:
+            raise BuiltinModelError("builtin_model_binding_invalid", binding=binding)
+        row.entry_binding = binding or None
     await session.flush()
     return target

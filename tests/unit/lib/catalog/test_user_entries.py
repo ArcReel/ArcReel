@@ -3,7 +3,7 @@
 import pytest
 
 from arcreel_catalog_core import DurationConstraints, TextFacts, VideoFacts, dump_entry, parse_entry
-from lib.catalog.user_entries import EntryEditRejected, edited_entry
+from lib.catalog.user_entries import EntryEditRejected, edited_entry, new_entry
 
 _VIDEO = {
     "maker": "acme",
@@ -127,3 +127,56 @@ def test_invalid_edits_are_rejected_with_the_field(changes, field):
 
     assert excinfo.value.code == "catalog_entry_invalid"
     assert excinfo.value.params == {"field": field}
+
+
+class TestNewEntry:
+    def test_fills_media_type_defaults_and_uses_the_name_as_display_name(self):
+        entry = new_entry(maker=" acme ", name=" flux-x ", media_type="image", facts={"text_to_image": True})
+
+        assert (entry.key.ref, entry.display_name, entry.price) == ("acme/flux-x", "flux-x", None)
+        assert entry.facts.text_to_image is True
+        assert entry.facts.resolutions == ()
+
+    def test_video_needs_durations_and_accepts_a_price(self):
+        with pytest.raises(EntryEditRejected) as excinfo:
+            new_entry(maker="acme", name="clip-x", media_type="video")
+        assert excinfo.value.params == {"field": "facts.durations"}
+
+        entry = new_entry(
+            maker="acme",
+            name="clip-x",
+            media_type="video",
+            display_name="Clip X",
+            facts={"durations": [5, 10]},
+            price=_VIDEO["price"],
+        )
+        assert entry.display_name == "Clip X"
+        assert entry.price is not None
+
+    @pytest.mark.parametrize(
+        ("changes", "field"),
+        [
+            ({"maker": " "}, "maker"),
+            ({"name": ""}, "name"),
+            ({"maker": "a/b"}, "maker"),
+            ({"media_type": "pdf"}, "media_type"),
+        ],
+    )
+    def test_blank_or_malformed_identity_is_rejected(self, changes, field):
+        args = {"maker": "acme", "name": "chat-x", "media_type": "text", **changes}
+        with pytest.raises(EntryEditRejected) as excinfo:
+            new_entry(**args)
+
+        assert (excinfo.value.code, excinfo.value.params) == ("catalog_entry_invalid", {"field": field})
+
+    @pytest.mark.parametrize(
+        "name", ["gemini-3-flash-preview", "Google/Gemini-3-Flash-Preview", "gemini-3.flash-preview"]
+    )
+    def test_name_already_in_the_catalog_is_rejected_even_from_another_maker(self, name):
+        with pytest.raises(EntryEditRejected) as excinfo:
+            new_entry(maker="my-relay", name=name, media_type="text")
+
+        assert excinfo.value.code == "catalog_entry_exists"
+
+    def test_same_name_of_another_media_type_is_allowed(self):
+        assert new_entry(maker="acme", name="gemini-3-flash-preview", media_type="audio").media_type == "audio"

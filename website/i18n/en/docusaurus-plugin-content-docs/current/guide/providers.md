@@ -131,7 +131,18 @@ length; the model maker, official model name, type, and aliases are read-only. A
 - Modified by you: official updates do not overwrite your changes, and the row is marked "Modified" in the model list. Each changed field
   shows the official value below it, and "Use" takes that one value back. "Restore official data", after confirmation, discards all your
   changes and returns to official data. It takes effect immediately without the save bar and cannot be undone;
-- No official information, filled in by you: the model catalog had no information for this model.
+- No official information, filled in by you: the model catalog had no information for this model, and it does not follow official
+  updates. If the official data later adds the same model, "Use official data" appears here: after confirmation, the information you
+  entered is replaced by the official data. It takes effect immediately and cannot be undone.
+
+When a relay renames a model so it no longer matches the model catalog by name, models you added yourself and models of custom providers
+can be linked to a catalog model by hand. "Link to another model" at the top right of the lower half opens the model catalog picker
+(it lists models of the same type by default); after you choose one, capabilities, price, and call-channel capabilities all come from
+that model. A linked model is no longer matched by name; click "Unlink" to go back. For a model that is not in the catalog, click
+"Fill in manually" to enter the model maker, model name, display name, type, and capabilities; the durations of a video model are
+prefilled from the model name. The price is optional, and calls are recorded as unpriced without it. If the catalog already has a model
+with the same name, you cannot fill it in; select that model instead. All of this only changes the draft, takes effect with the save bar
+at the bottom, and leaves nothing behind if you cancel.
 
 The "Pricing" part of "Model info" is edited as one card per billing item, and you can use it to add prices the catalog does not have:
 

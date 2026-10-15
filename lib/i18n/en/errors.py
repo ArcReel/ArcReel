@@ -340,6 +340,8 @@ MESSAGES = {
     "provider_model_entry_mismatch": 'The model information for "{model}" has changed. Reopen it and try again',
     "catalog_entry_invalid": 'The value of "{field}" in the model information is invalid. Fix it and save again',
     "catalog_entry_no_official": "There is no official information for this model to restore",
+    "catalog_entry_exists": "The model catalog already has this model. Select it instead.",
+    "provider_model_binding_not_found": 'The model catalog has no model "{binding}" of this type. Choose another model',
     "provider_multiplier_not_in_config": "The provider multiplier cannot be changed through the config endpoint; use the multiplier endpoint",
     "custom_endpoint_not_found": "Endpoint does not exist",
     "custom_endpoint_definition_invalid": "The endpoint definition failed validation. Fix the reported issues and try again",

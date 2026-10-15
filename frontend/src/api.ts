@@ -49,7 +49,10 @@ import type {
   ApiKeyInfo,
   CreateApiKeyResponse,
   ProviderInfo,
+  CatalogEntryHit,
   CatalogSearchResponse,
+  NewCatalogEntry,
+  NewEntryHints,
   MediaType,
   ProviderConfigDetail,
   ConnectivityCheckResult,
@@ -3183,6 +3186,20 @@ class API {
     if (query.mediaType) params.set("media_type", query.mediaType);
     const qs = params.toString();
     return this.request(`/catalog/entries${qs ? `?${qs}` : ""}`, { signal: options.signal });
+  }
+
+  /** 手动填写新条目前的提示：目录里是否已有同名模型，以及视频模型按名字预设预填的可选时长。 */
+  static async getNewEntryHints(
+    query: { name: string; mediaType: MediaType },
+    options: { signal?: AbortSignal } = {}
+  ): Promise<NewEntryHints> {
+    const params = new URLSearchParams({ name: query.name, media_type: query.mediaType });
+    return this.request(`/catalog/new-entry-hints?${params}`, { signal: options.signal });
+  }
+
+  /** 目录中找不到的模型，手动填写新建条目并立即写入；Sheet 里的「手动填写」随保存写入，不走这个接口。 */
+  static async createCatalogEntry(entry: NewCatalogEntry): Promise<CatalogEntryHit> {
+    return this.request("/catalog/entries", { method: "POST", body: JSON.stringify(entry) });
   }
 
   // ==================== Provider 管理 API ====================

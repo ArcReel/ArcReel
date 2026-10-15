@@ -28,6 +28,7 @@ function detailOf(model: ProviderModelItem): ProviderModelDetail {
     multiplier: 1,
     provider_multiplier: 1,
     entry: null,
+    entry_binding: null,
     capabilities: { media_type: model.media_type, editable: [], base: {}, overrides: {}, effective: {} },
     endpoint: null,
     resolution: null,
@@ -160,6 +161,52 @@ describe("ProviderModelList", () => {
     expect(onModelsChanged).toHaveBeenCalled();
   });
 
+  it("fills in a model the catalog does not have from the add dialog: writes the entry, then adds the model bound to it", async () => {
+    const user = userEvent.setup();
+    const added = item({ model_id: "relay-flux", official: false, media_type: "image" });
+    vi.spyOn(API, "listProviderModels")
+      .mockResolvedValueOnce({ models: [], discoverable: false })
+      .mockResolvedValue({ models: [added], discoverable: false });
+    vi.spyOn(API, "searchCatalogEntries").mockResolvedValue({ entries: [] });
+    vi.spyOn(API, "getNewEntryHints").mockResolvedValue({ existing: null, durations: null });
+    const create = vi
+      .spyOn(API, "createCatalogEntry")
+      .mockResolvedValue({ maker: "bfl", name: "flux-x", media_type: "image", display_name: "flux-x", discontinued: false });
+    const add = vi.spyOn(API, "addProviderModel").mockResolvedValue({ model: added, official: false });
+    vi.spyOn(API, "getProviderModel").mockResolvedValue(detailOf(added));
+
+    render(<ProviderModelList providerId="acme" providerName="Acme" />);
+    await screen.findByText("这个供应商还没有模型。");
+    await user.click(screen.getByRole("button", { name: "添加模型" }));
+    await user.type(await screen.findByPlaceholderText("搜索模型名称，或输入模型 ID"), "relay-flux");
+    await user.click(await screen.findByRole("button", { name: "手动填写" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "手动填写模型信息" });
+    // 模型名称取搜索词；添加模型时类型由用户选
+    expect(within(dialog).getByLabelText("模型名称")).toHaveValue("relay-flux");
+    await user.type(within(dialog).getByLabelText("模型厂商"), "bfl");
+    await user.clear(within(dialog).getByLabelText("模型名称"));
+    await user.type(within(dialog).getByLabelText("模型名称"), "flux-x");
+    await user.click(within(dialog).getByRole("button", { name: "图片" }));
+    await user.click(within(dialog).getByRole("button", { name: "确定" }));
+
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith({
+        maker: "bfl",
+        name: "flux-x",
+        media_type: "image",
+        facts: { text_to_image: true, image_to_image: false, resolutions: [] },
+      }),
+    );
+    await waitFor(() =>
+      expect(add).toHaveBeenCalledWith("acme", {
+        model_id: "relay-flux",
+        media_type: "image",
+        entry_binding: "bfl/flux-x",
+      }),
+    );
+  });
+
   it("fetches models and adds a disabled official model by enabling it", async () => {
     const user = userEvent.setup();
     const disabled = item({ model_id: "chat-2", enabled: false });
@@ -198,6 +245,7 @@ describe("ProviderModelList", () => {
       multiplier: 1,
       provider_multiplier: 1,
       entry: null,
+      entry_binding: null,
       capabilities: { media_type: "text" as const, editable: [], base: {}, overrides: {}, effective: {} },
       endpoint: null,
       resolution: null,

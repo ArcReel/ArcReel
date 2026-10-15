@@ -42,7 +42,14 @@ import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { EndpointSelect } from "./EndpointSelect";
 import { ProviderCapabilityOverrides } from "./ProviderCapabilityOverrides";
 import { priceForSave, samePrice } from "./price-editor/priceTable";
-import { ENTRY_INVALID_PREFIX, ProviderModelEntryInfo, entryDraftOf, providerNames, type EntryDraft } from "./ProviderModelEntryInfo";
+import {
+  ENTRY_INVALID_PREFIX,
+  ProviderModelEntryInfo,
+  entryDraftOf,
+  providerNames,
+  type EntryDraft,
+  type PendingEntryChange,
+} from "./ProviderModelEntryInfo";
 import { ProviderModelFlags } from "./providerModelDisplay";
 import { RequestAddresses } from "./RequestAddresses";
 
@@ -194,7 +201,7 @@ function ModelSheetLoader({ modelId, providerId, providerName, requestCloseRef, 
   );
 }
 
-/** Sheet 的草稿：上段的供应商设置与下段的模型信息。倍率保留输入原文，保存时才解析。 */
+/** Sheet 的草稿：上段的供应商设置与下段的模型信息。倍率保留输入原文，保存时才解析。`pending` 是还没保存的条目改动。 */
 interface Draft {
   enabled: boolean;
   isDefault: boolean;
@@ -205,6 +212,7 @@ interface Draft {
   pathOverrides: PathOverrides | null;
   resolution: string;
   entry: EntryDraft | null;
+  pending: PendingEntryChange | null;
 }
 
 function draftOf(detail: ProviderModelDetail): Draft {
@@ -218,6 +226,7 @@ function draftOf(detail: ProviderModelDetail): Draft {
     pathOverrides: detail.path_overrides,
     resolution: detail.resolution ?? "",
     entry: entryDraftOf(detail.entry),
+    pending: null,
   };
 }
 
@@ -305,8 +314,15 @@ function ModelSheetForm({
         if (!sameJson(value.pathOverrides, saved.pathOverrides)) patch.path_overrides = value.pathOverrides;
         if (value.resolution !== saved.resolution) patch.resolution = value.resolution || null;
       }
+      // 关联、解除关联或手动填写与修改原条目互斥：有条目改动时，原条目的草稿修改不再写入
+      if (userOwned && value.pending) {
+        const { pending } = value;
+        if (pending.kind === "link") patch.entry_binding = `${pending.entry.maker}/${pending.entry.name}`;
+        else if (pending.kind === "unlink") patch.entry_binding = null;
+        else patch.new_entry = pending.entry;
+      }
       const entry = detail.entry;
-      if (entry && value.entry && saved.entry && !sameEntryDraft(value.entry, saved.entry)) {
+      if (!value.pending && entry && value.entry && saved.entry && !sameEntryDraft(value.entry, saved.entry)) {
         if (entryInvalid || !value.entry.display_name.trim()) throw new Error(t("pm_sheet_entry_invalid"));
         const facts = Object.fromEntries(
           Object.entries(value.entry.facts).filter(([key, fact]) => !sameJson(fact, saved.entry?.facts[key])),
@@ -350,7 +366,7 @@ function ModelSheetForm({
   const name = detail.model.display_name ?? detail.model.model_id;
   // 「已修改」在下段的维护说明里讲，标题旁只留影响调用的标记
   const titleFlags = detail.model.flags.filter((flag) => flag !== "modified");
-  const entryDirty = !sameEntryDraft(draft.entry, unit.savedValue.entry);
+  const entryDirty = !draft.pending && !sameEntryDraft(draft.entry, unit.savedValue.entry);
   const stopsFollowing = entryDirty && detail.entry?.source === "official";
 
   // 恢复官方数据立即生效、不经保存栏：重读 Sheet 内容，只把下段的草稿换成官方值，上段未保存的修改保留
@@ -557,6 +573,14 @@ function ModelSheetForm({
           detail={detail}
           value={draft.entry}
           onChange={(entry) => setDraft({ entry })}
+          userOwned={userOwned}
+          mediaType={media}
+          pending={draft.pending}
+          onPendingChange={(pending) => {
+            // 与修改原条目互斥：原条目的草稿修改连同没填对的标记一起放下
+            setInvalidKeys((prev) => new Set([...prev].filter((key) => !key.startsWith(ENTRY_INVALID_PREFIX))));
+            setDraft({ pending, entry: unit.savedValue.entry });
+          }}
           onValidityChange={setValidity}
           onRestored={handleRestored}
         />

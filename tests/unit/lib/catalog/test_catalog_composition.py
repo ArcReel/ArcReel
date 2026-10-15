@@ -86,3 +86,17 @@ class TestComposeCatalog:
 
         assert composed.data.entries == (mine,)
         assert composed.official_entry(mine.key) == _text("chat", "Chat v2")
+
+    def test_user_created_entry_stays_user_created_once_official_data_adds_it(self):
+        # 用户新建的条目日后被官方数据收录：仍是用户新建、不跟随官方，同时能看到官方的值（可改用官方数据）
+        official = _official("2026-10-20T00:00:00Z", _text("homebrew", "Official Homebrew"))
+        mine = _text("homebrew", "My Homebrew")
+
+        created = compose_catalog(official, (mine,), created=(mine.key,))
+        modified = compose_catalog(official, (mine,))
+
+        assert created.data.entries == (mine,)
+        assert created.source_of(mine.key) == "user_created"
+        assert created.official_entry(mine.key) == _text("homebrew", "Official Homebrew")
+        # 同一份副本没有新建的标记时，是用户改过官方条目
+        assert modified.source_of(mine.key) == "modified"

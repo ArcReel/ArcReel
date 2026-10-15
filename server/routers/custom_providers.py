@@ -943,6 +943,7 @@ CUSTOM_MODEL_SETTING_FIELDS = frozenset(
         "capability_overrides",
         "path_overrides",
         "multiplier",
+        "entry_binding",
     }
 )
 

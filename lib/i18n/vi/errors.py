@@ -340,6 +340,8 @@ MESSAGES = {
     "provider_model_entry_mismatch": 'Thông tin mô hình của "{model}" đã thay đổi. Hãy mở lại rồi thử lại',
     "catalog_entry_invalid": 'Giá trị "{field}" trong thông tin mô hình không hợp lệ. Hãy sửa rồi lưu lại',
     "catalog_entry_no_official": "Dữ liệu chính thức không có thông tin của mô hình này nên không thể khôi phục",
+    "catalog_entry_exists": "Danh mục mô hình đã có mô hình này, hãy chọn trực tiếp.",
+    "provider_model_binding_not_found": 'Danh mục mô hình không có mô hình "{binding}" thuộc loại này. Hãy chọn mô hình khác',
     "provider_multiplier_not_in_config": "Không thể đổi hệ số giá của nhà cung cấp qua giao diện cấu hình; hãy dùng giao diện hệ số giá",
     "custom_endpoint_not_found": "Endpoint không tồn tại",
     "custom_endpoint_definition_invalid": "Định nghĩa endpoint không qua được kiểm tra, hãy sửa các lỗi được báo rồi thử lại",

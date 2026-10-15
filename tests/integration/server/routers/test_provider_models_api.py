@@ -714,3 +714,223 @@ async def test_custom_add_by_id_infers_endpoint_and_takes_default(
         ).status_code
         == 422
     )
+
+
+# 供应商模型 Sheet：关联其他模型、手动填写模型信息
+# ---------------------------------------------------------------------------
+
+_HOUSE_IMAGE = {"model_id": "house-flux", "display_name": "house-flux", "endpoint": "openai-images", "is_enabled": True}
+_NEW_IMAGE = {
+    "maker": "acme",
+    "name": "house-flux",
+    "media_type": "image",
+    "display_name": "House Flux",
+    "facts": {"text_to_image": True, "resolutions": ["1K", "2K"]},
+}
+
+
+async def _house_model(db_factory: async_sessionmaker[AsyncSession], **extra: object) -> tuple[str, str]:
+    db_id = await _custom_provider(db_factory, [{**_HOUSE_IMAGE, **extra}])
+    return f"custom-{db_id}", f"/api/v1/providers/custom-{db_id}/models/house-flux"
+
+
+async def test_manual_entry_is_created_with_the_sheet_save_and_bound(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    provider_id, url = await _house_model(db_factory)
+    detail = models_client.get(url).json()
+    assert (detail["entry"], detail["entry_binding"]) == (None, None)
+    assert detail["model"]["flags"] == ["unpriced"]
+
+    resp = models_client.patch(url, json={"multiplier": 2, "new_entry": _NEW_IMAGE})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert (body["entry_binding"], body["multiplier"]) == ("acme/house-flux", 2.0)
+    entry = body["entry"]
+    assert (entry["source"], entry["official"], entry["display_name"]) == ("user_created", None, "House Flux")
+    assert entry["facts"]["resolutions"] == ["1K", "2K"]
+    # 不填价格：调用费用记为未定价
+    assert body["model"]["flags"] == ["unpriced"]
+    # 写入即生效，目录搜索也能找到它
+    assert [
+        h["name"] for h in models_client.get("/api/v1/catalog/entries", params={"q": "house-flux"}).json()["entries"]
+    ] == ["house-flux"]
+    assert _models(models_client, provider_id)["house-flux"]["display_name"] == "House Flux"
+
+
+async def test_manual_entry_can_carry_a_price_table(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    _, url = await _house_model(db_factory)
+    price = {
+        "currency": "USD",
+        "meters": [{"meter": "output_images", "dims": [], "rows": [{"when": {}, "price": 0.04}]}],
+    }
+
+    resp = models_client.patch(url, json={"new_entry": {**_NEW_IMAGE, "price": price}})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["entry"]["price"] == price
+    # 填了价格，调用费用不再是未定价
+    assert body["model"]["flags"] == []
+    assert (
+        models_client.patch(
+            url, json={"new_entry": {**_NEW_IMAGE, "name": "other", "price": {"currency": "XXX"}}}
+        ).status_code
+        == 422
+    )
+
+
+async def test_manual_entry_is_not_left_behind_when_the_save_is_rejected(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    _, url = await _house_model(db_factory)
+
+    # 同一请求里别的设置被拒：条目也不写入
+    assert models_client.patch(url, json={"multiplier": -1, "new_entry": _NEW_IMAGE}).status_code == 422
+    # 媒体类型与模型的调用端点不一致
+    wrong = {**_NEW_IMAGE, "media_type": "video", "facts": {"durations": [5]}}
+    resp = models_client.patch(url, json={"new_entry": wrong})
+    assert resp.status_code == 422
+    assert "acme/house-flux" in resp.json()["detail"]
+
+    assert models_client.get("/api/v1/catalog/entries", params={"q": "house-flux"}).json()["entries"] == []
+    assert models_client.get(url).json()["entry_binding"] is None
+
+
+async def test_manual_entry_rejects_a_name_the_catalog_already_has(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    _, url = await _house_model(db_factory)
+    clash = {**_NEW_IMAGE, "maker": "my-relay", "name": "gemini-3.1-flash-image-preview"}
+    assert catalog.find_entry(clash["name"], media_type="image") is not None
+
+    resp = models_client.patch(url, json={"new_entry": clash})
+
+    assert resp.status_code == 422
+    assert resp.json()["detail"] == "模型目录中已有这个模型，请直接选择。"
+    assert (
+        models_client.patch(url, json={"new_entry": {**_NEW_IMAGE, "facts": {"text_to_image": "x"}}}).status_code == 422
+    )
+
+
+async def test_link_to_another_entry_then_unlink(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    _, url = await _house_model(db_factory)
+    target = catalog.find_entry("gemini-3.1-flash-image-preview", media_type="image")
+    assert target is not None
+
+    resp = models_client.patch(url, json={"entry_binding": target.key.ref})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["entry_binding"] == target.key.ref
+    assert (body["entry"]["name"], body["entry"]["source"]) == (target.name, "official")
+    assert (body["model"]["display_name"], body["model"]["flags"]) == (target.display_name, [])
+    assert body["model"]["price"] is not None
+
+    # 解除绑定：改回按名字对应，名字对应不上就没有条目
+    body = models_client.patch(url, json={"entry_binding": None}).json()
+    assert (body["entry_binding"], body["entry"]) == (None, None)
+
+
+async def test_link_is_validated_against_the_catalog_and_the_media_type(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    _, url = await _house_model(db_factory)
+    text_entry = catalog.find_entry("gemini-3-flash-preview", media_type="text")
+    assert text_entry is not None
+
+    assert models_client.patch(url, json={"entry_binding": "acme/nope"}).status_code == 422
+    # 条目存在，但媒体类型与模型的调用端点不一致
+    assert models_client.patch(url, json={"entry_binding": text_entry.key.ref}).status_code == 422
+    assert models_client.patch(url, json={"entry_binding": "no-slash"}).status_code == 422
+    assert models_client.get(url).json()["entry_binding"] is None
+
+
+def test_builtin_user_added_model_can_link_or_fill_in_but_official_cannot(models_client: TestClient) -> None:
+    _add_user_model(models_client, "ark", "my-private-ep", "text")
+    url = "/api/v1/providers/ark/models/my-private-ep"
+    assert models_client.get(url).json()["entry_binding"] is None
+
+    linked = models_client.patch(url, json={"entry_binding": "google/gemini-3-flash-preview"})
+    assert linked.status_code == 200
+    assert (linked.json()["entry_binding"], linked.json()["entry"]["name"]) == (
+        "google/gemini-3-flash-preview",
+        "gemini-3-flash-preview",
+    )
+    # 内置供应商的运行时索引读到同一个绑定
+    runtime = catalog.get_model("ark", "my-private-ep", media_type="text")
+    assert runtime is not None
+    assert "vision" in runtime.capabilities
+
+    manual = {"maker": "acme", "name": "private-chat", "media_type": "text", "display_name": "Private Chat"}
+    body = models_client.patch(url, json={"new_entry": manual}).json()
+    assert (body["entry_binding"], body["entry"]["source"]) == ("acme/private-chat", "user_created")
+
+    # 官方收录的模型由官方维护，不能改绑定
+    official = "/api/v1/providers/gemini-aistudio/models/gemini-3-flash-preview"
+    assert models_client.patch(official, json={"entry_binding": "acme/private-chat"}).status_code == 422
+    assert models_client.patch(official, json={"new_entry": manual}).status_code == 422
+
+
+async def test_user_created_entry_switches_to_official_data_once_it_appears(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, url = await _house_model(db_factory)
+    models_client.patch(url, json={"new_entry": _NEW_IMAGE})
+    key = {"maker": "acme", "name": "house-flux", "media_type": "image"}
+    # 官方数据还没有它：不能改用官方数据
+    resp = models_client.post("/api/v1/catalog/entries/restore-official", json=key)
+    assert resp.status_code == 422
+    assert models_client.get(url).json()["entry"]["source"] == "user_created"
+
+    # 日后官方数据收录了同一身份的条目
+    snapshot = catalog.factory_snapshot()
+    official = replace(
+        next(e for e in snapshot.entries if e.media_type == "image"),
+        maker="acme",
+        name="house-flux",
+        display_name="Official Flux",
+        aliases=(),
+    )
+    install_catalog(monkeypatch, replace(snapshot, entries=(*snapshot.entries, official)))
+
+    entry = models_client.get(url).json()["entry"]
+    # 仍是用户新建、不跟随官方，同时给出官方的值
+    assert (entry["source"], entry["display_name"], entry["official"]["display_name"]) == (
+        "user_created",
+        "House Flux",
+        "Official Flux",
+    )
+    assert "modified" not in models_client.get(url).json()["model"]["flags"]
+
+    assert models_client.post("/api/v1/catalog/entries/restore-official", json=key).status_code == 204
+
+    entry = models_client.get(url).json()["entry"]
+    assert (entry["source"], entry["display_name"], entry["official"]) == ("official", "Official Flux", None)
+    assert [
+        h["display_name"]
+        for h in models_client.get("/api/v1/catalog/entries", params={"q": "house-flux"}).json()["entries"]
+    ] == ["Official Flux"]
+
+
+def test_create_entry_endpoint_and_new_entry_hints(models_client: TestClient) -> None:
+    hints = models_client.get("/api/v1/catalog/new-entry-hints", params={"name": "kling-v2-pro", "media_type": "video"})
+    assert hints.json() == {"existing": None, "durations": [5, 10]}
+    hints = models_client.get(
+        "/api/v1/catalog/new-entry-hints", params={"name": "Google/Gemini-3-Flash-Preview", "media_type": "text"}
+    ).json()
+    assert (hints["existing"]["name"], hints["durations"]) == ("gemini-3-flash-preview", None)
+
+    created = models_client.post("/api/v1/catalog/entries", json=_NEW_IMAGE)
+
+    assert created.status_code == 201
+    assert (created.json()["name"], created.json()["display_name"]) == ("house-flux", "House Flux")
+    assert models_client.post("/api/v1/catalog/entries", json=_NEW_IMAGE).status_code == 422
+    entry = catalog.find_entry("house-flux", media_type="image")
+    assert entry is not None
+    assert catalog.entry_source(entry.key) == "user_created"

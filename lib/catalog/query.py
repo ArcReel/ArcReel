@@ -338,7 +338,7 @@ _user_added: list[tuple[UserAddedModel, ...]] = [()]
 _index_cache: list[tuple[CatalogData, dict[str, dict[str, _IndexedModel]]]] = []
 
 # 用户修改的条目副本：由用户条目表装入，见 install_user_entries。单元素列表当信箱。
-_user_entries: list[tuple[CatalogEntry, ...]] = [()]
+_user_entries: list[tuple[tuple[CatalogEntry, ...], frozenset[EntryKey]]] = [((), frozenset())]
 
 # 按官方数据对象缓存的合成结果；用户副本变化时清空重建。
 _composed_cache: list[tuple[CatalogData, ComposedCatalog]] = []
@@ -354,13 +354,13 @@ def install_user_added_models(models: Iterable[UserAddedModel]) -> None:
     _index_cache.clear()
 
 
-def install_user_entries(entries: Iterable[CatalogEntry]) -> None:
+def install_user_entries(entries: Iterable[CatalogEntry], created: Iterable[EntryKey] = ()) -> None:
     """换上用户修改的条目副本，之后的查询（门面、能力、计价、按名字对应条目、搜索）都读合成后的条目。
 
     应用启动时与每次写入用户条目表之后由写入方调用；与 :func:`install_user_added_models` 同理，全部读点都在
-    应用进程里，进程内替换即对全部读点生效。
+    应用进程里，进程内替换即对全部读点生效。``created`` 是其中用户新建的条目身份。
     """
-    _user_entries[0] = tuple(entries)
+    _user_entries[0] = (tuple(entries), frozenset(created))
     _composed_cache.clear()
     _index_cache.clear()
 
@@ -369,7 +369,7 @@ def composed_catalog() -> ComposedCatalog:
     """合成后的目录：官方数据加上用户修改的条目副本。"""
     official = official_data()
     if not _composed_cache or _composed_cache[0][0] is not official:
-        _composed_cache[:] = [(official, compose_catalog(official, _user_entries[0]))]
+        _composed_cache[:] = [(official, compose_catalog(official, *_user_entries[0]))]
     return _composed_cache[0][1]
 
 
@@ -408,7 +408,7 @@ def reset_for_tests() -> None:
     """清空出厂快照、索引、用户添加模型与用户条目副本的进程级状态，下次查询重新读取快照。"""
     factory_snapshot.cache_clear()
     _user_added[0] = ()
-    _user_entries[0] = ()
+    _user_entries[0] = ((), frozenset())
     _composed_cache.clear()
     _index_cache.clear()
 

@@ -5,13 +5,15 @@
 另有默认、调用端点、请求地址与默认分辨率。
 
 Sheet 下段「模型信息」是对应到的模型条目，由所有使用它的供应商共用：读取时带上条目由谁维护、官方值与共用它的
-其他供应商；保存时与供应商设置在同一个请求里原子写入，修改存为整个条目的用户副本（docs/adr/0099）。
+其他供应商；保存时与供应商设置在同一个请求里原子写入，修改存为整个条目的用户副本（docs/adr/0099）。用户负责的模型
+另可「关联其他模型」（存为条目绑定，docs/adr/0105），或手动填写目录里没有的模型的信息（新建条目并绑定）。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Annotated, Any, Literal, assert_never, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -33,7 +35,14 @@ from lib.catalog import builtin_discovery, builtin_models
 from lib.catalog import query as catalog
 from lib.catalog.composition import EntrySource
 from lib.catalog.price_summary import summarize_price
-from lib.catalog.user_entries import UNSET, EntryEditRejected, edited_entry, reload_user_entries, save_user_entry
+from lib.catalog.user_entries import (
+    UNSET,
+    EntryEditRejected,
+    create_user_entry,
+    edited_entry,
+    reload_user_entries,
+    save_user_entry,
+)
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS, PROJECT_MODEL_SETTING_KEYS
 from lib.config.service import ConfigService
@@ -51,10 +60,12 @@ from lib.custom_provider.endpoint_resolution import resolve_endpoint_spec
 from lib.custom_provider.model_facts import entry_summary, model_entry
 from lib.db import get_async_session
 from lib.db.models.custom_provider import CustomProviderModel
+from lib.db.repositories.builtin_provider_model_repo import BuiltinProviderModelRepository
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.i18n import Translator
+from server.routers.catalog import NewEntryBody, build_new_entry
 from server.routers.custom_providers import (
     CUSTOM_MODEL_SETTING_FIELDS,
     EndpointRequestDescriptor,
@@ -202,8 +213,9 @@ class EntryInfoResponse(BaseModel):
     """供应商模型对应到的条目（合成后），供 Sheet 下段「模型信息」。
 
     - ``price``：价目表（目录数据的格式，可直接作为 ``EntryUpdate.price`` 回写）；没有价目表时为 ``null``。
-    - ``source``：``official`` 跟随官方；``modified`` 用户改过，不再随官方更新；``user_created`` 官方没有、由用户填写。
-    - ``official``：用户改过时官方数据里的值；其余情况为 ``null``。
+    - ``source``：``official`` 跟随官方；``modified`` 用户改过，不再随官方更新；``user_created`` 用户新建、由用户填写。
+    - ``official``：用户改过、或用户新建的条目日后被官方数据收录时，官方数据里的值（可「恢复官方数据」「改用官方数据」）；
+      其余情况为 ``null``。
     - ``shared_with``：同样使用这个条目的其他供应商（已配置密钥的内置供应商与自定义供应商中启用的模型），
       修改与恢复官方数据会一起影响它们。
     """
@@ -228,6 +240,8 @@ class ProviderModelDetail(BaseModel):
     - ``multiplier``：供应商模型倍率；官方收录的模型随官方数据下发、界面不显示，为 ``null``。
     - ``provider_multiplier``：供应商倍率，界面据此提示两级相乘后的最终倍率。
     - ``entry``：对应到的条目；对应不上时为 ``null``，调用费用记为未定价。
+    - ``entry_binding``：用户指定的条目绑定（「模型厂商/官方模型名」）；没有绑定、按名字对应时为 ``null``。官方收录的
+      模型没有绑定。
     - 自定义供应商的模型另有 ``endpoint``、``resolution``、``path_overrides`` 与 ``requests``（调用端点可覆盖路径的
       请求）；内置供应商为空。
     """
@@ -236,6 +250,7 @@ class ProviderModelDetail(BaseModel):
     multiplier: float | None
     provider_multiplier: float
     entry: EntryInfoResponse | None
+    entry_binding: str | None = None
     capabilities: CapabilityViewResponse
     endpoint: str | None = None
     resolution: str | None = None
@@ -261,7 +276,9 @@ class ProviderModelSettingsUpdate(BaseModel):
 
     - 所有供应商模型：``enabled``，以及 ``entry``（修改对应的条目，存为用户副本，条目从此不再随官方更新）。
     - 用户负责的模型：``model_id``（改模型 ID）、``multiplier``、``capability_overrides``（整份替换，``null`` 或
-      空对象表示清除）。
+      空对象表示清除）、``entry_binding``（关联到目录里的另一个模型，须是同媒体类型的现有条目；``null`` 解除，改回
+      按名字对应）、``new_entry``（目录里找不到时手动填写：新建条目并绑定到它，目录里已有同名模型时 422；与
+      ``entry_binding`` 同传时以 ``new_entry`` 为准）。条目与绑定都随这一次保存写入，任一步被拒则都不落库。
     - 自定义供应商的模型：``is_default``、``endpoint``、``path_overrides``、``resolution``。
     """
 
@@ -274,6 +291,8 @@ class ProviderModelSettingsUpdate(BaseModel):
     path_overrides: dict[str, str] | None = None
     resolution: str | None = None
     entry: EntryUpdate | None = None
+    entry_binding: str | None = None
+    new_entry: NewEntryBody | None = None
 
 
 class ProjectReference(BaseModel):
@@ -707,7 +726,7 @@ async def _entry_info(session: AsyncSession, entry: CatalogEntry | None, provide
     if entry is None:
         return None
     source = catalog.entry_source(entry.key)
-    official = catalog.official_entry(entry.key) if source == "modified" else None
+    official = catalog.official_entry(entry.key) if source != "official" else None
     return EntryInfoResponse(
         maker=entry.maker,
         name=entry.name,
@@ -728,6 +747,14 @@ async def _entry_info(session: AsyncSession, entry: CatalogEntry | None, provide
         ),
         shared_with=await _providers_sharing(session, entry, provider_id),
     )
+
+
+async def _builtin_binding(session: AsyncSession, provider_id: str, model_id: str, *, official: bool) -> str | None:
+    """内置供应商下用户添加的模型的条目绑定；官方收录的模型没有。"""
+    if official:
+        return None
+    row = await BuiltinProviderModelRepository(session).get(provider_id, model_id)
+    return row.entry_binding if row is not None else None
 
 
 async def _builtin_detail(
@@ -751,6 +778,7 @@ async def _builtin_detail(
         multiplier=None if view.official else view.multiplier,
         provider_multiplier=provider_multiplier,
         entry=await _entry_info(session, view.entry, provider_id),
+        entry_binding=await _builtin_binding(session, provider_id, model_id, official=view.official),
         capabilities=_capabilities_response(capabilities, view.model.media_type),
     )
 
@@ -768,6 +796,7 @@ async def _custom_detail(
         multiplier=row.multiplier,
         provider_multiplier=await get_provider_multiplier(session, provider_id),
         entry=await _entry_info(session, model_entry(row.model_id, item.media_type, row.entry_binding), provider_id),
+        entry_binding=row.entry_binding,
         capabilities=_capabilities_response(settings.capabilities, item.media_type),
         endpoint=settings.endpoint,
         resolution=settings.resolution,
@@ -791,7 +820,9 @@ async def get_provider_model(
     return await _builtin_detail(session, provider_id, model_id, _t)
 
 
-_BUILTIN_SETTING_FIELDS = frozenset({"enabled", "model_id", "multiplier", "capability_overrides", "entry"})
+_BUILTIN_SETTING_FIELDS = frozenset(
+    {"enabled", "model_id", "multiplier", "capability_overrides", "entry", "entry_binding", "new_entry"}
+)
 
 
 async def _current_entry(session: AsyncSession, provider_id: str, model_id: str, _t: Translator) -> CatalogEntry | None:
@@ -835,8 +866,43 @@ async def _save_entry(
     return True
 
 
+@dataclass(frozen=True)
+class _BindingChange:
+    """这次保存对条目绑定的修改：``ref`` 是新的绑定（``None`` 为解除），``created`` 是随之新建的条目。"""
+
+    ref: str | None
+    created: CatalogEntry | None
+
+
+def _plan_binding(body: ProviderModelSettingsUpdate, _t: Translator) -> _BindingChange | None:
+    """请求里的「关联其他模型」或「手动填写」；没有传时为 ``None``。新条目在这里校验，写入见 :func:`_apply_binding`。"""
+    if body.new_entry is not None:
+        created = build_new_entry(body.new_entry, _t)
+        return _BindingChange(created.key.ref, created)
+    if "entry_binding" in body.model_fields_set:
+        return _BindingChange((body.entry_binding or "").strip() or None, None)
+    return None
+
+
+async def _apply_binding(session: AsyncSession, change: _BindingChange, media_type: str, _t: Translator) -> None:
+    """按保存后的媒体类型核对绑定：绑定到现有条目要求条目存在且同媒体类型，新条目要求媒体类型一致；通过后写入新条目。"""
+    if change.created is not None:
+        if change.created.media_type != media_type:
+            raise HTTPException(
+                status_code=422, detail=_t("provider_model_binding_not_found", binding=change.created.key.ref)
+            )
+        await create_user_entry(session, change.created)
+    elif change.ref is not None and catalog.find_bound_entry(change.ref, media_type) is None:
+        raise HTTPException(status_code=422, detail=_t("provider_model_binding_not_found", binding=change.ref))
+
+
 async def _save_builtin_settings(
-    session: AsyncSession, provider_id: str, model_id: str, body: ProviderModelSettingsUpdate, _t: Translator
+    session: AsyncSession,
+    provider_id: str,
+    model_id: str,
+    body: ProviderModelSettingsUpdate,
+    binding: _BindingChange | None,
+    _t: Translator,
 ) -> str:
     fields = body.model_fields_set
     if unsupported := sorted(fields - _BUILTIN_SETTING_FIELDS):
@@ -859,8 +925,10 @@ async def _save_builtin_settings(
                 raise HTTPException(status_code=422, detail=_t(exc.code, **exc.params)) from exc
         else:
             kwargs["capability_overrides"] = body.capability_overrides
+    if binding is not None:
+        kwargs["entry_binding"] = binding.ref
     try:
-        return await builtin_models.update_builtin_model(
+        saved = await builtin_models.update_builtin_model(
             session,
             provider_id,
             model_id,
@@ -871,6 +939,11 @@ async def _save_builtin_settings(
         )
     except builtin_models.BuiltinModelError as exc:
         raise _raise_for(exc, _t) from exc
+    if binding is not None:
+        row = await BuiltinProviderModelRepository(session).get(provider_id, saved)
+        if row is not None and row.media_type is not None:
+            await _apply_binding(session, binding, row.media_type, _t)
+    return saved
 
 
 @router.patch("/{provider_id}/models/{model_id:path}", response_model=ProviderModelDetail)
@@ -887,6 +960,7 @@ async def update_provider_model(
         _require_builtin(provider_id, _t)
     # 先按保存前的对应关系写条目副本：Sheet 读到的就是这个条目，同一请求里改模型 ID 不影响改哪个条目
     entry_saved = body.entry is not None and await _save_entry(session, provider_id, model_id, body.entry, _t)
+    binding = _plan_binding(body, _t)
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         renames = {"enabled": "is_enabled"}
@@ -895,16 +969,21 @@ async def update_provider_model(
             for name in body.model_fields_set
             if renames.get(name, name) in CUSTOM_MODEL_SETTING_FIELDS
         }
+        if binding is not None:
+            changes["entry_binding"] = binding.ref
         row = await update_custom_model(session, db_id, model_id, changes, _t)
         saved_model_id = row.model_id
+        if binding is not None:
+            media_type = (await resolve_endpoint_spec(row.endpoint, CustomEndpointRepository(session).get)).media_type
+            await _apply_binding(session, binding, media_type, _t)
         await session.commit()
-        if entry_saved:
+        if entry_saved or (binding is not None and binding.created is not None):
             await reload_user_entries(session)
         await invalidate_provider_caches(request)
         return await _custom_detail(session, provider_id, db_id, saved_model_id, _t)
-    saved_model_id = await _save_builtin_settings(session, provider_id, model_id, body, _t)
+    saved_model_id = await _save_builtin_settings(session, provider_id, model_id, body, binding, _t)
     await session.commit()
-    if entry_saved:
+    if entry_saved or (binding is not None and binding.created is not None):
         await reload_user_entries(session)
     await reload_user_added_models(session)
     await invalidate_provider_caches(request)

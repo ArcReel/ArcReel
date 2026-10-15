@@ -284,6 +284,7 @@ const klingDetail = {
       { provider_id: "custom-8", display_name: "海外备用中转站（按量计费，晚高峰限流）" },
     ],
   },
+  entry_binding: "kling/kling-v2-6-master-image-to-video-pro-1080p-with-a-long-binding-name",
   capabilities: {
     media_type: "video",
     editable: [
@@ -330,6 +331,7 @@ const gptImageDetail = {
   multiplier: 1,
   provider_multiplier: 0.9,
   entry: null,
+  entry_binding: null,
   capabilities: {
     media_type: "image",
     editable: ["text_to_image", "image_to_image", "resolutions"],
@@ -652,6 +654,28 @@ defineRegionScenarios("供应商", [
       await expect(dialog.getByRole("button", { name: "恢复官方数据" })).toBeInViewport({ ratio: 1 });
     },
     screenshot: { name: "providers-model-restore-dialog", target: (page) => page.getByRole("alertdialog") },
+  },
+  {
+    name: "模型 Sheet：「手动填写模型信息」对话框的字段随类型展开，正文在对话框里滚动，确定按钮留在视口内",
+    path: CUSTOM_PROVIDER_PATH,
+    api: {
+      ...CUSTOM_PROVIDER_DETAIL,
+      "GET /api/v1/catalog/new-entry-hints?name=gpt-image-1&media_type=image": {
+        status: 200,
+        body: { existing: null, durations: null },
+      },
+    },
+    ready: customDetailReady,
+    act: async (page) => {
+      const sheet = await openModelSheet(page, "gpt-image-1");
+      await sheet.getByRole("button", { name: "手动填写" }).click();
+      const dialog = page.getByRole("dialog", { name: "手动填写模型信息" });
+      await dialog.getByLabel("模型厂商").fill("openai-relay");
+      await expect(dialog.getByText("不填价格时，调用费用记为未定价。")).toBeAttached();
+      await expect(dialog.getByRole("button", { name: "确定" })).toBeInViewport({ ratio: 1 });
+      await expect(dialog.getByRole("button", { name: "确定" })).toBeEnabled();
+    },
+    screenshot: { name: "providers-manual-entry-dialog", target: (page) => page.getByRole("dialog", { name: "手动填写模型信息" }) },
   },
   {
     name: "自定义供应商详情：删除确认写明模型数量，操作按钮留在视口内",

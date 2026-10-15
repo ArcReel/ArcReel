@@ -8,10 +8,17 @@ import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useAppStore } from "@/stores/app-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import type { AddProviderModelRequest, FetchedProviderModel, ProviderModelItem } from "@/types";
+import type {
+  AddProviderModelRequest,
+  CatalogEntryHit,
+  FetchedProviderModel,
+  NewCatalogEntry,
+  ProviderModelItem,
+} from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 import { AddModelDialog } from "./AddModelDialog";
 import { FetchModelsDialog, type FetchSelection } from "./FetchModelsDialog";
+import { ManualEntryDialog } from "./ManualEntryDialog";
 import { MEDIA_LABEL_KEY, ProviderModelFlags, priceSummaryText } from "./providerModelDisplay";
 import { ProviderModelSheet, type CustomProviderContext, type OpenProviderModel } from "./ProviderModelSheet";
 
@@ -56,6 +63,8 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
   const [discoverable, setDiscoverable] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [fetchOpen, setFetchOpen] = useState(false);
+  // 「添加模型」里的「手动填写」：带当时的搜索词，作为新模型的 ID 与模型名称的初值
+  const [manual, setManual] = useState<{ query: string } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [filter, setFilter] = useState<Filter>("all");
@@ -190,6 +199,24 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
     [providerId, custom, onModelsChanged, pushToast, t],
   );
 
+  // 手动填写（或选中填写时发现的同名条目）：先写入条目，再按它添加模型；模型 ID 取搜索词，没有时取模型名称
+  const addWithEntry = useCallback(
+    async (query: string, entry: Pick<NewCatalogEntry, "maker" | "name" | "media_type">, create?: NewCatalogEntry) => {
+      try {
+        if (create) await API.createCatalogEntry(create);
+        const res = await API.addProviderModel(providerId, {
+          model_id: query || entry.name,
+          media_type: entry.media_type,
+          entry_binding: `${entry.maker}/${entry.name}`,
+        });
+        handleAdded(res.model);
+      } catch (err) {
+        pushToast(t("pm_add_failed", { message: errMsg(err) }), "error");
+      }
+    },
+    [providerId, handleAdded, pushToast, t],
+  );
+
   const sheet = (
     <>
       <AddModelDialog
@@ -200,7 +227,20 @@ export function ProviderModelList({ providerId, providerName, custom, initialMod
         builtin={!custom}
         models={models ?? []}
         onAdded={handleAdded}
+        onManualEntry={(query) => {
+          setAddOpen(false);
+          setManual({ query });
+        }}
       />
+      {manual && (
+        <ManualEntryDialog
+          open
+          onOpenChange={(open) => !open && setManual(null)}
+          initialName={manual.query}
+          onConfirm={(entry) => voidCall(addWithEntry(manual.query, entry, entry))}
+          onUseExisting={(hit: CatalogEntryHit) => voidCall(addWithEntry(manual.query, hit))}
+        />
+      )}
       <FetchModelsDialog
         open={fetchOpen}
         onOpenChange={setFetchOpen}
