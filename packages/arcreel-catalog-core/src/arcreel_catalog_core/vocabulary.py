@@ -111,6 +111,22 @@ DIMENSIONS: Final[Mapping[str, DimensionKind]] = MappingProxyType(
     }
 )
 
+#: 选择维度适用的媒体类型：编辑价目表时「按条件分价」只列出条目媒体类型可用的维度。维度的取值来自真正发给
+#: 供应商的请求字段，所以哪种媒体类型有这个字段，就适用于哪种媒体类型。这是编辑时的引导，不是格式约束：构建侧
+#: 与实例侧读入不按它拒收。
+DIMENSION_MEDIA_TYPES: Final[Mapping[str, frozenset[MediaType]]] = MappingProxyType(
+    {
+        "context_tier": frozenset({"text", "image", "audio"}),
+        "resolution": frozenset({"image", "video"}),
+        "quality": frozenset({"image"}),
+        "audio": frozenset({"video"}),
+        "service_tier": frozenset({"text", "image", "video"}),
+        "duration": frozenset({"video"}),
+        "input_video": frozenset({"video"}),
+        "reference_to_video": frozenset({"video"}),
+    }
+)
+
 
 def is_valid_dimension_value(dimension: str, value: object) -> bool:
     """``value`` 是否是已知选择维度 ``dimension`` 的合法取值。"""

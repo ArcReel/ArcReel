@@ -5,8 +5,6 @@ import type {
   EndpointKey,
   ImageCap,
   MediaType,
-  PathOverrides,
-  VideoCapabilityFlags,
 } from "@/types";
 
 export type { DiscoveryFormat };
@@ -110,20 +108,15 @@ function defaultSlotsFor(
 
 export type MergeRow = { model_id: string; endpoint: EndpointKey; is_default: boolean };
 
-/** 合并「获取模型」结果到当前表单行，并消解默认冲突。
+/** 把「获取模型」勾选的模型并入新建表单的模型行，并消解默认冲突。
  *
- *  create 模式（prev 为空）：直接返回 discovery 响应的浅拷贝，不做消解——无既存默认需
- *  保护，且发现接口对每个 media_type 至多标一个默认（见后端 discovery _build_result_list），
- *  响应本身无冲突。保持「create 模式原样透传 discovery」的约束。
+ *  表单还没有行时原样返回新行（调用方已按媒体类型给每类只标一个默认）。否则按新行顺序并入：模型 ID 与已有行
+ *  相同的保留已有行（含其默认与倍率等编辑），其余追加；未填模型 ID 的手动行（model_id 同为空串）不进 Map
+ *  去重，否则键冲突会静默丢行，单独按原顺序补在末尾。
  *
- *  合并（编辑模式）：按 discovered 顺序保留已有行（含其 is_default 与倍率等编辑态），新发现行
- *  追加在对应位置，未被发现响应覆盖的既存行保留在末尾。未填 model_id 的手动行（model_id 同为
- *  空串）不进 Map 去重，否则键冲突会静默丢行；单独按原顺序补在末尾。
- *
- *  默认消解：编辑模式下若某槽位已有用户既存默认，朴素合并会得到「同一 media_type 两个默认」，
- *  保存时被后端 _check_unique_defaults 拒绝（default_model_conflict）。故合并后做一次消解：
- *  既存行优先占据其槽位，新发现行命中已占槽位时让出（is_default→false）；空槽位仍允许新发现行
- *  补默认。endpoint 未知 / catalog 未加载的行不占槽也不让出。 */
+ *  默认消解：已有行先占据其默认槽位，新行命中已占槽位时让出（is_default→false），空槽位仍允许新行补默认；
+ *  否则保存时被后端 _check_unique_defaults 拒绝（default_model_conflict）。endpoint 未知或端点目录未加载的
+ *  行不占槽也不让出。 */
 export function mergeDiscoveredModels<T extends MergeRow>(
   prev: T[],
   discovered: T[],
@@ -189,15 +182,6 @@ export function mergeDiscoveredModels<T extends MergeRow>(
 // 能力覆盖（模型级，首批仅 last_frame）
 // ---------------------------------------------------------------------------
 
-/** 覆盖、系统判定与全局桶引用的行内快照：加载时拍一次，之后不变。 */
-export interface CapabilitySnapshotRow {
-  original_model_id: string;
-  original_endpoint: EndpointKey;
-  original_capability_overrides: CapabilityOverrides | null;
-  original_system_capabilities: VideoCapabilityFlags | null;
-  original_global_bucket_refs: string[];
-}
-
 /** 稀疏覆盖字典的唯一写入点：next === undefined 表示回到「跟随判定」，此时把该键从字典移除
  *  而不是写 false——键缺席与显式 false 在后端是两种语义（跟随判定 vs 强制关）。移除后字典为空
  *  则整体收敛回 null，避免把 {} 存进去让「有无覆盖」多出一种等价表示。 */
@@ -227,38 +211,4 @@ export function withDurationsOverride(
     merged.durations = durations;
   }
   return Object.keys(merged).length > 0 ? merged : null;
-}
-
-/** 覆盖与系统判定都绑定 (endpoint, model_id) 组合：任一维度偏离加载时的快照就一并作废，
- *  两者同时改回快照值才原样取回——对齐快照而非上一次中间态，否则逐字符编辑 model_id 时
- *  第一次改动就丢掉覆盖，再改回原值也找不回来。判定值不跟着作废的话，改过 model_id 的行
- *  会拿旧 model 的判定当作新 model 的判定展示，控件上就是一个看不出错的错值。 */
-export function capabilityFieldsFor(
-  row: CapabilitySnapshotRow,
-  nextModelId: string,
-  nextEndpoint: EndpointKey,
-): { capability_overrides: CapabilityOverrides | null; system_capabilities: VideoCapabilityFlags | null } {
-  const matchesSnapshot = nextModelId === row.original_model_id && nextEndpoint === row.original_endpoint;
-  return matchesSnapshot
-    ? {
-        capability_overrides: row.original_capability_overrides,
-        system_capabilities: row.original_system_capabilities,
-      }
-    : { capability_overrides: null, system_capabilities: null };
-}
-
-/** 请求地址修改只绑定 endpoint（模型名占位符随 model_id 展开）：换了端点即恢复默认（服务端同样
- *  丢弃原有修改，docs/adr/0101），改回加载时的端点原样取回。 */
-export function pathOverridesFor(
-  row: { original_endpoint: EndpointKey; original_path_overrides: PathOverrides | null },
-  nextEndpoint: EndpointKey,
-): PathOverrides | null {
-  return nextEndpoint === row.original_endpoint ? row.original_path_overrides : null;
-}
-
-/** 全局桶引用只绑定 model_id：桶值形如 `custom-<id>/<model_id>`，与 endpoint 无关，切换 endpoint
- *  不改变引用事实。model_id 偏离加载时的快照即作废——改后的 model 是否被引用要后端算，前端不猜，
- *  留着旧提示会让新 model_id 顶着上一个模型的影响面；改回快照值原样取回。 */
-export function globalBucketRefsFor(row: CapabilitySnapshotRow, nextModelId: string): string[] {
-  return nextModelId === row.original_model_id ? row.original_global_bucket_refs : [];
 }

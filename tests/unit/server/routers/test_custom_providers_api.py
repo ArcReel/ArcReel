@@ -1069,6 +1069,21 @@ class TestFullUpdateProvider:
         )
         assert resp.status_code == 422
 
+    def test_full_update_without_models_keeps_models(self, custom_providers_client: TestClient):
+        """详情页的模型经供应商模型接口逐个保存；保存供应商设置时不回传模型，已有模型原样保留。"""
+        create_resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
+        pid = create_resp.json()["id"]
+        before = [(m["model_id"], m["is_enabled"]) for m in create_resp.json()["models"]]
+
+        resp = custom_providers_client.put(
+            f"/api/v1/custom-providers/{pid}",
+            json={"display_name": "Renamed", "base_url": "https://new-api.example.com/v1"},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["display_name"] == "Renamed"
+        assert [(m["model_id"], m["is_enabled"]) for m in resp.json()["models"]] == before
+
     def test_full_update_404_for_nonexistent(self, custom_providers_client: TestClient):
         resp = custom_providers_client.put(
             "/api/v1/custom-providers/9999",

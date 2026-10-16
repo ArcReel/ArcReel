@@ -1,3 +1,5 @@
+import type { CapabilityOverrides, EndpointRequest, MatchedCatalogEntry, PathOverrides } from "./custom-provider";
+
 /**
  * 声音一致性三级标识，与 `lib/config/resolver.py::VoiceConsistency` 一一对应。
  * 档位值全部由服务端派生，前端只做渲染映射，不复制派生公式。
@@ -105,3 +107,207 @@ export interface ProviderCredential {
 
 export type CallType = "image" | "video" | "text" | "audio";
 
+
+/** 价格摘要里一个计费项的单价范围；`per` 是单价对应的计数量（每百万 token 为 1000000，每张、每秒为 1）。 */
+export interface PriceSummaryItem {
+  meter: string;
+  min_price: number;
+  max_price: number;
+  per: number;
+}
+
+export interface PriceSummary {
+  currency: string;
+  items: PriceSummaryItem[];
+}
+
+/**
+ * 供应商模型的状态标记：`discontinued` 已下架；`unpriced` 调用费用会记为未定价；
+ * `modified` 用户改过对应的模型信息，不再随官方更新。
+ */
+export type ProviderModelFlag = "discontinued" | "unpriced" | "modified";
+
+/** 供应商详情模型列表的一行（GET /providers/{id}/models），内置与自定义供应商共用。 */
+export interface ProviderModelItem {
+  /** 设置与项目里引用这个模型的模型键。 */
+  model_id: string;
+  api_model_name: string;
+  /** 没有显示名时界面显示模型 ID。 */
+  display_name: string | null;
+  media_type: "text" | "image" | "video" | "audio";
+  enabled: boolean;
+  is_default: boolean;
+  /** 内置供应商官方收录的模型，只能启用、停用。 */
+  official: boolean;
+  flags: ProviderModelFlag[];
+  price: PriceSummary | null;
+  /** 自定义供应商模型的调用端点键；内置供应商为 null。 */
+  endpoint: string | null;
+}
+
+/** 供应商模型列表（GET /providers/{id}/models）；`discoverable` 为真时可以「获取模型」。 */
+export interface ProviderModelsResponse {
+  models: ProviderModelItem[];
+  discoverable: boolean;
+}
+
+/**
+ * 「获取模型」获取到的一个模型（POST /providers/{id}/models/discover）。
+ * - `recognized`：自定义供应商为名字对应上了条目；内置供应商为对上了清单里官方收录的模型，`model_key` 是它的模型键。
+ * - `media_type`：对应上的取条目的，对应不上的按名字推断。
+ * - `endpoint`、`endpoint_by_media_type`：自定义供应商的默认调用端点，以及改为对应其他媒体类型的条目时各媒体类型下的
+ *   默认端点；内置供应商为 null。
+ */
+export interface FetchedProviderModel {
+  model_id: string;
+  display_name: string;
+  media_type: ProviderModelItem["media_type"];
+  recognized: boolean;
+  model_key: string | null;
+  matched_entry: MatchedCatalogEntry | null;
+  endpoint: string | null;
+  endpoint_by_media_type: Partial<Record<ProviderModelItem["media_type"], string>> | null;
+  is_default: boolean;
+}
+
+/** 获取模型的结果；`not_applicable` 为真时这个供应商没有模型列表接口，`reason` 是可直接展示的说明。 */
+export interface FetchProviderModelsResponse {
+  models: FetchedProviderModel[];
+  not_applicable: boolean;
+  reason: string | null;
+}
+
+/** 按 ID 添加模型（POST /providers/{id}/models）。`endpoint` 只用于自定义供应商，不给时按名字推断。 */
+export interface AddProviderModelRequest {
+  model_id: string;
+  media_type?: ProviderModelItem["media_type"];
+  entry_binding?: string | null;
+  endpoint?: string | null;
+}
+
+export interface AddProviderModelResponse {
+  model: ProviderModelItem;
+  /** 对上了官方收录的模型，添加即启用它。 */
+  official: boolean;
+}
+
+/** 能力覆盖的维度键。 */
+export type CapabilityKey = keyof CapabilityOverrides;
+
+/**
+ * 「这个供应商支持的参数」（GET /providers/{id}/models/{model}）：
+ * `base` 是没有能力覆盖时运行时采用的值（对应条目的值，对应不上时为运行时回落），`null` 表示不加约束；
+ * `overrides` 是生效的能力覆盖；`editable` 是可以修改的维度，按界面顺序，官方收录的模型为空。
+ */
+export interface ProviderModelCapabilities {
+  media_type: ProviderModelItem["media_type"];
+  editable: CapabilityKey[];
+  base: Partial<Record<CapabilityKey, unknown>>;
+  overrides: CapabilityOverrides;
+  effective: Partial<Record<CapabilityKey, unknown>>;
+}
+
+/** 价目表里一个选择维度的取值：上下文档的下界与时长秒数是数字，是否有声等是布尔，分辨率、服务档是文字。 */
+export type PriceDimensionValue = string | number | boolean;
+
+/**
+ * 模型条目的价目表（目录数据的格式）：单币种，由若干计费项组成，每个计费项按选择维度分档，
+ * 每档一行「条件 → 单价」。`defaults` 是请求缺少某个维度取值时使用的取值；`free_allowance` 是单请求免费额度。
+ */
+export interface CatalogPriceTable {
+  currency: string;
+  meters: {
+    meter: string;
+    dims: string[];
+    rows: { when: Record<string, PriceDimensionValue>; price: number }[];
+    defaults?: Record<string, PriceDimensionValue>;
+    free_allowance?: number;
+    cjk_double?: boolean;
+  }[];
+}
+
+/** 模型信息由谁维护：跟随官方、用户改过、官方没有由用户填写。 */
+export type CatalogEntrySource = "official" | "modified" | "user_created";
+
+/** 条目身份：「模型厂商/官方模型名」，两栖模型再以媒体类型区分。 */
+export interface CatalogEntryKey {
+  maker: string;
+  name: string;
+  media_type: ProviderModelItem["media_type"];
+}
+
+/**
+ * 供应商模型对应到的条目（合成后），Sheet 下段「模型信息」。
+ * `official` 是用户改过时官方数据里的值；`shared_with` 是同样使用这个条目的其他供应商。
+ */
+export interface ProviderModelEntryInfo extends CatalogEntryKey {
+  display_name: string;
+  aliases: string[];
+  discontinued: boolean;
+  context_length: number | null;
+  facts: Record<string, unknown>;
+  /** 价目表；没有价目表时调用费用记为未定价。 */
+  price: CatalogPriceTable | null;
+  source: CatalogEntrySource;
+  official: { display_name: string; facts: Record<string, unknown>; price: CatalogPriceTable | null } | null;
+  shared_with: { provider_id: string; display_name: string }[];
+}
+
+/** 「模型信息」的修改：身份是 Sheet 读到的条目，`facts` 只给要改的模型事实。 */
+export interface CatalogEntryUpdate extends CatalogEntryKey {
+  display_name?: string;
+  facts?: Record<string, unknown>;
+  /** 整份价目表，整份替换；`null` 清除价目表。没有这个键表示不改。 */
+  price?: CatalogPriceTable | null;
+}
+
+/**
+ * 手动填写的新条目（目录里找不到的模型）：`facts` 缺省的字段取该媒体类型的默认值，`display_name` 不填用模型名称，
+ * `price` 是目录数据格式的价目表、不填即调用费用记为未定价。
+ */
+export interface NewCatalogEntry extends CatalogEntryKey {
+  display_name?: string;
+  facts?: Record<string, unknown>;
+  price?: CatalogPriceTable;
+}
+
+/** 供应商模型 Sheet 的内容。 */
+export interface ProviderModelDetail {
+  model: ProviderModelItem;
+  /** 供应商模型倍率；官方收录的模型为 null（界面不显示）。 */
+  multiplier: number | null;
+  provider_multiplier: number;
+  entry: ProviderModelEntryInfo | null;
+  /** 用户指定的条目绑定（「模型厂商/官方模型名」）；按名字对应或官方收录的模型为 null。 */
+  entry_binding: string | null;
+  capabilities: ProviderModelCapabilities;
+  /** 以下只有自定义供应商的模型有。 */
+  endpoint: string | null;
+  resolution: string | null;
+  path_overrides: PathOverrides | null;
+  requests: EndpointRequest[];
+}
+
+/** 保存供应商模型 Sheet 的供应商设置与模型信息；没有传的字段不改。 */
+export interface ProviderModelSettingsUpdate {
+  enabled?: boolean;
+  is_default?: boolean;
+  model_id?: string;
+  multiplier?: number;
+  capability_overrides?: CapabilityOverrides | null;
+  endpoint?: string;
+  path_overrides?: PathOverrides | null;
+  resolution?: string | null;
+  /** 修改对应的模型信息，存为用户副本，这个模型从此不再随官方更新。 */
+  entry?: CatalogEntryUpdate;
+  /** 关联到目录里同媒体类型的另一个条目（「模型厂商/官方模型名」）；`null` 解除，改回按名字对应。 */
+  entry_binding?: string | null;
+  /** 手动填写：新建条目并绑定到它，随这次保存写入。与 `entry_binding` 同传时以它为准。 */
+  new_entry?: NewCatalogEntry;
+}
+
+/** 引用某个供应商模型的全局设置键与项目。 */
+export interface ProviderModelReferences {
+  settings: string[];
+  projects: { name: string; title: string | null }[];
+}

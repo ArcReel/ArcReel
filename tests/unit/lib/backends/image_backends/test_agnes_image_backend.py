@@ -392,15 +392,10 @@ class TestRetryScope:
 
 class TestPricing:
     def test_legacy_image_by_resolution_usd(self):
-        from lib.billing.pricing.lookup import lookup_pricing
-        from lib.billing.pricing.strategies import PricingParams, calculate_pricing
-        from lib.billing.pricing.types import PerImageByResolution
+        from tests.catalog_support import builtin_price
 
-        pricing = lookup_pricing(PROVIDER_AGNES, "agnes-image-2.1-flash", "image")
-        assert isinstance(pricing, PerImageByResolution)
-        amount, currency = calculate_pricing(
-            pricing,
-            PricingParams(call_type="image", model="agnes-image-2.1-flash", resolution="1K"),
+        amount, currency = builtin_price(
+            PROVIDER_AGNES, "agnes-image-2.1-flash", "image", {"output_images": 1}, {"resolution": "1K"}
         )
         assert amount == pytest.approx(0.010)
         assert currency == "USD"

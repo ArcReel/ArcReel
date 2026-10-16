@@ -38,6 +38,18 @@ def test_provider_listing_referencing_missing_entry_is_rejected():
     assert _codes(data) == [("builtin_providers.gemini-aistudio.models[1].entry", "unknown_entry")]
 
 
+def test_context_tiers_must_start_at_zero_in_every_tiered_meter():
+    """首档不是 0 时，比它短的请求不属于任何一档；分界相同也要拦下。"""
+    data = catalog()
+    for meter in data["entries"][0]["price"]["meters"][:2]:
+        meter["rows"][0]["when"]["context_tier"] = 100000
+
+    assert _codes(data) == [
+        ("entries[0].price.meters[0]", "context_tier_not_from_zero"),
+        ("entries[0].price.meters[1]", "context_tier_not_from_zero"),
+    ]
+
+
 def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
     """按 ``a.b[0].c`` 形式的路径写入一个值。"""
 
@@ -86,6 +98,11 @@ def _mutate(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
             _mutate("entries[1].price.meters[0].rows[2].when", {"resolution": "720p"}),
             ("entries[1].price.meters[0].rows[2]", "overlapping_rows"),
             id="同一请求能命中两行单价",
+        ),
+        pytest.param(
+            _mutate("entries[0].price.meters[1].rows[1].when", {"context_tier": 128000}),
+            ("entries[0].price.meters[1]", "context_tier_mismatch"),
+            id="各计量项的上下文档分界不同",
         ),
         pytest.param(
             _mutate("entries[1].price.meters[0].rows[0].when", {"resolution": "720p", "audio": "no"}),

@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { CapabilityOverrides, ImageCap, MediaType, VideoCapabilityFlags } from "@/types";
+import type { CapabilityOverrides, ImageCap, MediaType } from "@/types";
 import {
   urlPreviewFor,
   toggleDefaultReducer,
   mergeDiscoveredModels,
   withLastFrameOverride,
   withDurationsOverride,
-  capabilityFieldsFor,
-  globalBucketRefsFor,
-  type CapabilitySnapshotRow,
 } from "./customProviderHelpers";
 
 // 测试 fixture：模拟从 endpoint-catalog-store 派生的 endpoint→media map。
@@ -308,71 +305,5 @@ describe("withDurationsOverride", () => {
   it("移除（undefined）后字典为空即收敛回 null，回到跟随 workflow 原生时长", () => {
     expect(withDurationsOverride({ durations: [4, 8] }, undefined)).toBeNull();
     expect(withDurationsOverride(null, undefined)).toBeNull();
-  });
-});
-
-describe("capabilityFieldsFor", () => {
-  const SYSTEM: VideoCapabilityFlags = {
-    first_frame: true,
-    last_frame: false,
-    max_reference_images: 0,
-    reference_audio_mode: "none",
-    max_reference_audio_count: 0,
-  };
-  const snapshot: CapabilitySnapshotRow = {
-    original_model_id: "kling-v2",
-    original_endpoint: "newapi-video",
-    original_capability_overrides: { last_frame: true },
-    original_system_capabilities: SYSTEM,
-    original_global_bucket_refs: ["default_video_backend_i2v"],
-  };
-
-  it("两个维度都等于快照时原样取回覆盖与判定", () => {
-    expect(capabilityFieldsFor(snapshot, "kling-v2", "newapi-video")).toEqual({
-      capability_overrides: { last_frame: true },
-      system_capabilities: SYSTEM,
-    });
-  });
-
-  it("model_id 偏离快照时覆盖与判定一并作废", () => {
-    expect(capabilityFieldsFor(snapshot, "kling-v2-pro", "newapi-video")).toEqual({
-      capability_overrides: null,
-      system_capabilities: null,
-    });
-  });
-
-  it("endpoint 偏离快照时覆盖与判定一并作废", () => {
-    expect(capabilityFieldsFor(snapshot, "kling-v2", "openai-video")).toEqual({
-      capability_overrides: null,
-      system_capabilities: null,
-    });
-  });
-
-  it("另一维度仍偏离时不恢复——覆盖只对原 (endpoint, model_id) 组合成立", () => {
-    // 先改 model_id 再把 endpoint 切回原值：endpoint 匹配但 model_id 不匹配，不能恢复
-    const row = { ...snapshot };
-    expect(capabilityFieldsFor(row, "other-model", "newapi-video").capability_overrides).toBeNull();
-  });
-
-  it("逐字符改回原 model_id 后能取回覆盖", () => {
-    expect(capabilityFieldsFor(snapshot, "kling-v", "newapi-video").capability_overrides).toBeNull();
-    expect(capabilityFieldsFor(snapshot, "kling-v2", "newapi-video").capability_overrides).toEqual({
-      last_frame: true,
-    });
-  });
-
-  describe("globalBucketRefsFor", () => {
-    it("model_id 等于快照时原样取回引用", () => {
-      expect(globalBucketRefsFor(snapshot, "kling-v2")).toEqual(["default_video_backend_i2v"]);
-    });
-
-    it("model_id 偏离快照时引用作废——新 model 是否被引用要后端算", () => {
-      expect(globalBucketRefsFor(snapshot, "kling-v2-pro")).toEqual([]);
-    });
-
-    it("逐字符改回原 model_id 后能取回引用", () => {
-      expect(globalBucketRefsFor(snapshot, "kling-v")).toEqual([]);
-      expect(globalBucketRefsFor(snapshot, "kling-v2")).toEqual(["default_video_backend_i2v"]);
-    });
   });
 });

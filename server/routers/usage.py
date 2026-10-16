@@ -12,10 +12,14 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.backends.providers import CallStatus, CallType
 from lib.billing.usage_summary import UsageFilterOptions, UsageWindowTooWideError, build_summary
+from lib.config.registry import PROVIDER_REGISTRY
+from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db import async_session_factory
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.db.repositories.usage_repo import (
     UsageCursor,
     UsageCursorError,
@@ -109,6 +113,9 @@ class UsageRecordDetail(UsageRecord):
     prompt: str | None = None
     inputs: Any = None
     last_provider_response: Any = None
+    #: 调用的供应商仍在供应商设置里（内置供应商，或没有删除的自定义供应商），详情据此链接到供应商模型的设置。
+    #: Agent 凭证、已删除的自定义供应商与已不再内置的旧值为 ``False``。
+    provider_in_settings: bool = False
 
 
 class UsageRecordPage(BaseModel):
@@ -219,10 +226,24 @@ def _present_records(items: list[dict[str, Any]], translate: Callable[..., str] 
 async def get_usage_record(record_id: int, _t: Translator) -> UsageRecordDetail:
     async with async_session_factory() as session:
         record = await UsageRepository(session).get_record(record_id)
-    if record is None:
-        raise NotFoundError("usage_record_not_found")
+        if record is None:
+            raise NotFoundError("usage_record_not_found")
+        in_settings = await _provider_in_settings(session, record.get("provider") or "")
     [record] = await asyncio.to_thread(_present_records, [record], _t)
-    return UsageRecordDetail.model_validate(record)
+    return UsageRecordDetail.model_validate({**record, "provider_in_settings": in_settings})
+
+
+async def _provider_in_settings(session: AsyncSession, provider_id: str) -> bool:
+    """供应商设置里还有这个供应商：内置供应商恒在；自定义供应商要求没有删除。"""
+    if provider_id in PROVIDER_REGISTRY:
+        return True
+    if not is_custom_provider(provider_id):
+        return False
+    try:
+        db_id = parse_provider_id(provider_id)
+    except ValueError:
+        return False
+    return await CustomProviderRepository(session).get_provider(db_id) is not None
 
 
 # --- Agent 会话视图 ---------------------------------------------------------------------

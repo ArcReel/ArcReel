@@ -1394,7 +1394,49 @@ _MINIMAX_FAST_MODELS = frozenset({"minimax-hailuo-2.3-fast"})
 _MINIMAX_S2V_MODELS = frozenset({"s2v-01", "minimax-s2v-01"})
 
 
-def infer_endpoint(model_id: str, discovery_format: str) -> str:
+#: 已知媒体类型时按名字族选端点（docs/adr/0105）：名字含厂商 token 时取这个厂商在该媒体类型下的端点。
+#: 只收一个名字可能落在多种媒体类型上的厂商（两栖模型、名字不带媒体语义的型号），其余厂商的名字规则
+#: 本身已经给出唯一的媒体类型。
+_FAMILY_ENDPOINTS: tuple[tuple[str, Mapping[str, str]], ...] = (
+    ("kling", {"image": "kling-image", "video": "kling-video"}),
+    ("gemini", {"text": "gemini-generate", "image": "gemini-image", "audio": "gemini-tts"}),
+    ("seedance", {"video": "ark-seedance"}),
+    ("viduq3", {"video": "vidu-video"}),
+    ("hailuo", {"video": "minimax-hailuo-v1"}),
+)
+
+#: 各媒体类型在模型发现协议下的默认端点：google 协议取 Gemini 原生端点，其余取 OpenAI 兼容端点。
+_DEFAULT_ENDPOINTS: Mapping[str, tuple[str, str]] = {
+    "text": ("gemini-generate", "openai-chat"),
+    "image": ("gemini-image", "openai-images"),
+    "video": ("gemini-video", "openai-video"),
+    "audio": ("gemini-tts", "openai-tts"),
+}
+
+
+def infer_endpoint(model_id: str, discovery_format: str, media_type: str | None = None) -> str:
+    """推默认调用端点；``media_type`` 是模型已知的媒体类型（对应上的条目给出），不给时按名字一并推断。
+
+    给了媒体类型时，名字规则推出的端点属于这个媒体类型就用它；否则在这个媒体类型内按名字族选
+    （见 :data:`_FAMILY_ENDPOINTS`），选不到时取该媒体类型在当前模型发现协议下的默认端点（docs/adr/0105）。
+    """
+    by_name = _infer_endpoint_by_name(model_id, discovery_format)
+    if media_type is None or endpoint_to_media_type(by_name) == media_type:
+        return by_name
+    lowered = model_id.lower()
+    for token, endpoints in _FAMILY_ENDPOINTS:
+        if token in lowered and media_type in endpoints:
+            return endpoints[media_type]
+    google_default, other_default = _DEFAULT_ENDPOINTS[media_type]
+    return google_default if discovery_format == "google" else other_default
+
+
+def infer_media_type(model_id: str, discovery_format: str) -> str:
+    """按名字推断的媒体类型，即名字规则推出的端点的媒体类型。"""
+    return endpoint_to_media_type(_infer_endpoint_by_name(model_id, discovery_format))
+
+
+def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
     """根据模型 id 与 discovery_format 推默认 endpoint（content-first）。
 
     model id 内容优先于 discovery_format：中转站普遍 discovery_format="openai"，但模型

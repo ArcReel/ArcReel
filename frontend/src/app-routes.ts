@@ -55,19 +55,24 @@ export function marketSettingsPath(tab: MarketTab = "browse", options: { media?:
 
 /**
  * 「供应商」分区里要定位的对象，对应的地址参数：
- * - `{ preset }` → `provider=<预置供应商 id>`；
- * - `{ custom, model? }` → `custom=<自定义供应商 id>`，带 `model=<模型 ID>` 时展开并定位到这个模型；
+ * - `{ preset, model? }` → `provider=<预置供应商 id>`；
+ * - `{ custom, model? }` → `custom=<自定义供应商 id>`；
+ *   两者带 `model=<模型 ID>` 时打开这个模型的 Sheet；
  * - `{ newCustom }` → `custom=new`，可带 `endpoint=<端点 key>` 与 `base_url=<接口地址>` 预填新建表单
  *   （调用端点的「新建供应商并使用」）。
  */
 export type ProviderTarget =
-  | { preset: string }
+  | { preset: string; model?: string }
   | { custom: number; model?: string }
   | { newCustom: { endpoint?: string; baseUrl?: string } };
 
 /** 全局设置「供应商」分区中某个供应商（或某个自定义模型）的地址。 */
 export function providerSettingsPath(target: ProviderTarget): string {
-  if ("preset" in target) return settingsSectionPath("providers", { provider: target.preset });
+  if ("preset" in target) {
+    const params: Record<string, string> = { provider: target.preset };
+    if (target.model) params.model = target.model;
+    return settingsSectionPath("providers", params);
+  }
   if ("custom" in target) {
     const params: Record<string, string> = { custom: String(target.custom) };
     if (target.model) params.model = target.model;

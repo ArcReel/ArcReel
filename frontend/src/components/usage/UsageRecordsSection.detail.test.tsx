@@ -72,6 +72,35 @@ describe("UsageRecordsSection detail", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("links the model to its Sheet in the provider settings", async () => {
+    vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+      makeUsageRecordDetail({ id: 42, provider: "custom-7", model: "relay/veo-3" }),
+    );
+
+    renderUsageRecordsSection("section=usage&record=42");
+    const dialog = within(await screen.findByRole("dialog"));
+
+    expect(await dialog.findByRole("link", { name: "relay/veo-3" })).toHaveAttribute(
+      "href",
+      expect.stringContaining("section=providers&custom=7&model=relay%2Fveo-3"),
+    );
+  });
+
+  it.each(["custom-7", "agent-3", "gemini"])(
+    "shows the model as plain text when provider %s is no longer in the provider settings",
+    async (provider) => {
+      vi.spyOn(API, "getUsageRecord").mockResolvedValue(
+        makeUsageRecordDetail({ id: 42, provider, model: "relay/veo-3", provider_in_settings: false }),
+      );
+
+      renderUsageRecordsSection("section=usage&record=42");
+      const dialog = within(await screen.findByRole("dialog"));
+
+      expect(await dialog.findByText("relay/veo-3")).toBeInTheDocument();
+      expect(dialog.queryByRole("link", { name: "relay/veo-3" })).not.toBeInTheDocument();
+    },
+  );
+
   it("lists the four token counts with input excluding the cached parts", async () => {
     vi.spyOn(API, "getUsageRecord").mockResolvedValue(
       makeUsageRecordDetail({

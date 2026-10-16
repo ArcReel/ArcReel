@@ -9,11 +9,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import asdict
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from dataclasses import asdict, dataclass
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import AfterValidator, BaseModel, Field, field_validator
+from pydantic import AfterValidator, BaseModel, Field, ValidationError, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
@@ -21,7 +21,7 @@ from arcreel_market_core.video_backend_contract import ReferenceAudioMode, audio
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
-from lib.catalog.query import binding_key
+from lib.catalog.query import binding_key, find_bound_entry
 from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
@@ -36,6 +36,7 @@ from lib.custom_provider.capabilities import (
     strip_incoherent_audio_overrides,
     system_video_capabilities,
 )
+from lib.custom_provider.capability_view import CapabilityView, custom_capability_view
 from lib.custom_provider.discovery_formats import endpoint_attachment_holds, is_comfyui_protocol
 from lib.custom_provider.endpoint_resolution import endpoint_spec_from_row, resolve_endpoint_spec
 from lib.custom_provider.endpoints import (
@@ -43,6 +44,7 @@ from lib.custom_provider.endpoints import (
     EndpointSpec,
     endpoint_spec_to_dict,
     get_endpoint_spec,
+    infer_endpoint,
     static_media_type,
 )
 from lib.custom_provider.model_facts import (
@@ -58,14 +60,12 @@ from lib.custom_provider.model_facts import (
 from lib.custom_provider.path_overrides import BaseUrlRule, effective_path_overrides, path_problem
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
+from lib.db.models.custom_provider import CustomProviderModel
 from lib.db.repositories.custom_endpoint_repo import CustomEndpointRepository
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.infra.api_errors import BadRequestError
 from lib.infra.async_thread import run_sync_transaction
 from server.i18n import Translator
-
-if TYPE_CHECKING:
-    from lib.db.models.custom_provider import CustomProviderModel
 
 
 def _validate_endpoint(value: str) -> str:
@@ -256,12 +256,16 @@ class UpdateProviderRequest(BaseModel):
 
 
 class FullUpdateProviderRequest(BaseModel):
-    """PUT 全量更新：provider 元数据与模型列表。"""
+    """PUT 全量更新：provider 元数据，以及可选的模型列表。
+
+    ``models`` 不传（``None``）时不改模型：供应商详情的模型经供应商模型接口逐个保存，整表回传会覆盖其间单行的
+    启停与设置。传列表时整体替换。
+    """
 
     display_name: str
     base_url: str
     api_key: str | None = None  # None = 不修改
-    models: list[ModelInput]
+    models: list[ModelInput] | None = None
     # 并发上限随 PUT 全量提交（空输入 → None → 全局默认）；None 即清除，非"不修改"。
     image_max_workers: MaxWorkers
     video_max_workers: MaxWorkers
@@ -914,7 +918,7 @@ def _check_unique_defaults(models: list[ModelInput], specs: dict[str, EndpointSp
         )
 
 
-async def _invalidate_caches(request: Request) -> None:
+async def invalidate_provider_caches(request: Request) -> None:
     """清空 backend 实例缓存 + 刷新 worker 限流配置。"""
     from server.services.tasks.generation_context import invalidate_backend_cache
 
@@ -922,6 +926,269 @@ async def _invalidate_caches(request: Request) -> None:
     worker = getattr(request.app.state, "generation_worker", None)
     if worker:
         await worker.reload_limits()
+
+
+# ---------------------------------------------------------------------------
+# 单个模型（供应商模型 Sheet 经 server/routers/provider_models.py 调用）
+# ---------------------------------------------------------------------------
+
+#: 供应商模型 Sheet 可以保存的自定义供应商模型字段。
+CUSTOM_MODEL_SETTING_FIELDS = frozenset(
+    {
+        "model_id",
+        "endpoint",
+        "is_default",
+        "is_enabled",
+        "resolution",
+        "capability_overrides",
+        "path_overrides",
+        "multiplier",
+        "entry_binding",
+    }
+)
+
+
+def _row_to_input(row: CustomProviderModel, changes: Mapping[str, object] | None = None) -> ModelInput:
+    data: dict[str, object] = {
+        "model_id": row.model_id,
+        "display_name": row.display_name,
+        "endpoint": row.endpoint,
+        "is_default": row.is_default,
+        "is_enabled": row.is_enabled,
+        "resolution": row.resolution,
+        "capability_overrides": row.capability_overrides,
+        "path_overrides": row.path_overrides,
+        "multiplier": row.multiplier,
+        "entry_binding": row.entry_binding,
+    }
+    data.update(changes or {})
+    return ModelInput.model_validate(data)
+
+
+def _default_group_conflicts(target: ModelInput, other: ModelInput, specs: Mapping[str, EndpointSpec]) -> bool:
+    """两个默认模型是否落在同一个默认分组里（规则同 :func:`_check_unique_defaults`）。"""
+    target_spec, other_spec = specs[target.endpoint], specs[other.endpoint]
+    if target_spec.media_type != other_spec.media_type:
+        return False
+    if target_spec.media_type != "image":
+        return True
+    target_caps = target_spec.image_capabilities or frozenset()
+    other_caps = other_spec.image_capabilities or frozenset()
+    return not target_caps or not other_caps or bool(target_caps & other_caps)
+
+
+async def update_custom_model(
+    session: AsyncSession,
+    provider_id: int,
+    model_id: str,
+    changes: Mapping[str, object],
+    _t: Callable[..., str],
+) -> CustomProviderModel:
+    """保存一个自定义供应商模型的供应商设置，不提交事务；返回保存后的模型行。
+
+    ``changes`` 只含要改的字段（见 :data:`CUSTOM_MODEL_SETTING_FIELDS`），校验规则与整表保存相同。停用时同时
+    取消默认；设为默认时同时启用，并取消同一默认分组里其他模型的默认。改了模型 ID 时，全局设置里指向旧 ID 的
+    引用随之清空，与整表保存删掉一个模型同一口径。
+
+    条目绑定只校验形状；是否在目录里、是否与保存后的调用端点同媒体类型，由调用方在提交前核对（见
+    ``server/routers/provider_models.py`` 的 ``_apply_binding``），因为同一次保存新建的条目这时还不在目录里。
+    """
+    repo = CustomProviderRepository(session)
+    provider = await repo.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    rows = await repo.list_models(provider_id)
+    row = next((r for r in rows if r.model_id == model_id), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail=_t("provider_model_not_found", model=model_id))
+    patch = dict(changes)
+    if isinstance(patch.get("model_id"), str):
+        patch["model_id"] = str(patch["model_id"]).strip()
+    if patch.get("is_enabled") is False:
+        patch["is_default"] = False
+    elif patch.get("is_default") is True:
+        patch["is_enabled"] = True
+    try:
+        target = _row_to_input(row, patch)
+    except ValidationError as exc:
+        # 请求模型已校验倍率等取值，这里只剩调用端点与条目绑定的形状会被拒
+        raise _model_input_rejected(exc, patch.get("endpoint"), patch.get("entry_binding"), _t) from exc
+    if not target.model_id:
+        raise HTTPException(status_code=422, detail=_t("model_id_required"))
+    if target.model_id != row.model_id and row.display_name in ("", row.model_id):
+        target = target.model_copy(update={"display_name": target.model_id})
+    others = [r for r in rows if r is not row]
+    if any(r.model_id == target.model_id for r in others):
+        raise HTTPException(status_code=422, detail=_t("duplicate_model_id", model_id=target.model_id))
+
+    specs = await _resolve_model_endpoint_specs(session, [target], _t)
+    target = _drop_rebound_path_overrides(target, row)
+    _check_protocol_constraints([target], provider.discovery_format, specs, _t)
+    _check_model_capability_overrides([target], _t, specs)
+    _check_model_path_overrides([target], specs, _t)
+    if target.is_default:
+        default_rows = [r for r in others if r.is_default]
+        default_specs = await _read_endpoint_specs(session, default_rows)
+        for other in default_rows:
+            other_spec = default_specs.get(other.endpoint)
+            if other_spec is None:
+                continue
+            if _default_group_conflicts(
+                target, _row_to_input(other), {target.endpoint: specs[target.endpoint], other.endpoint: other_spec}
+            ):
+                other.is_default = False
+
+    old_model_id = row.model_id
+    for key, value in target.to_db_dict(specs[target.endpoint]).items():
+        setattr(row, key, value)
+    await session.flush()
+    if target.model_id != old_model_id:
+        await _clear_global_provider_refs(session, provider_id, {old_model_id})
+    return row
+
+
+def _model_input_rejected(
+    exc: ValidationError, endpoint: object, entry_binding: object, _t: Callable[..., str]
+) -> HTTPException:
+    """单个模型的调用端点或条目绑定形状不对时的 422：说清是哪一个被拒。"""
+    if any(error["loc"][:1] == ("entry_binding",) for error in exc.errors()):
+        return HTTPException(status_code=422, detail=_t("provider_model_binding_not_found", binding=entry_binding))
+    return HTTPException(status_code=422, detail=_t("unknown_endpoint", endpoint=endpoint))
+
+
+async def remove_custom_model(session: AsyncSession, provider_id: int, model_id: str, _t: Callable[..., str]) -> None:
+    """从自定义供应商移除一个模型，并清空全局设置里指向它的引用；不提交事务。"""
+    repo = CustomProviderRepository(session)
+    row = await repo.get_model_by_ids(provider_id, model_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail=_t("provider_model_not_found", model=model_id))
+    await repo.delete_model(row.id)
+    await _clear_global_provider_refs(session, provider_id, {model_id})
+
+
+async def _comfyui_default_endpoint(session: AsyncSession, media_type: str | None) -> str | None:
+    """ComfyUI 供应商添加模型时的默认调用端点：媒体类型一致的 ComfyUI 端点优先，否则取第一个 ComfyUI 端点。"""
+    specs: list[EndpointSpec] = []
+    for row in await CustomEndpointRepository(session).list_all():
+        try:
+            spec = endpoint_spec_from_row(row)
+        except ValueError:
+            continue
+        if spec.kind == COMFYUI_KIND:
+            specs.append(spec)
+    preferred = next((spec for spec in specs if spec.media_type == media_type), None)
+    chosen = preferred or (specs[0] if specs else None)
+    return chosen.key if chosen is not None else None
+
+
+async def add_custom_model(
+    session: AsyncSession,
+    provider_id: int,
+    model_id: str,
+    *,
+    endpoint: str | None,
+    media_type: str | None,
+    entry_binding: str | None,
+    _t: Callable[..., str],
+) -> CustomProviderModel:
+    """向自定义供应商添加一个模型，不提交事务；返回新的模型行。
+
+    没给调用端点时按 docs/adr/0105 推断：有条目绑定或名字对应上条目的，在条目的媒体类型内选（两栖模型按
+    ``media_type`` 取条目）；都没有时，``media_type`` 给了就在这个媒体类型内选，否则按名字一并推断。ComfyUI 供应商取已导入的 ComfyUI 端点。
+    这个媒体类型还没有默认模型时，新模型成为默认。校验规则与整表保存相同。
+    """
+    from lib.custom_provider.discovery import match_discovered_model
+
+    repo = CustomProviderRepository(session)
+    provider = await repo.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+    model_id = model_id.strip()
+    if not model_id:
+        raise HTTPException(status_code=422, detail=_t("builtin_model_id_required"))
+    rows = await repo.list_models(provider_id)
+    if any(r.model_id == model_id for r in rows):
+        raise HTTPException(status_code=422, detail=_t("builtin_model_duplicate", model=model_id))
+
+    bound = find_bound_entry(entry_binding, media_type) if entry_binding and media_type else None
+    if endpoint is None:
+        if is_comfyui_protocol(provider.discovery_format):
+            endpoint = await _comfyui_default_endpoint(session, bound.media_type if bound else media_type)
+            if endpoint is None:
+                raise HTTPException(status_code=422, detail=_t("comfyui_model_endpoint_missing"))
+        elif bound is not None:
+            endpoint = infer_endpoint(model_id, provider.discovery_format, bound.media_type)
+        else:
+            entry, by_name = match_discovered_model(model_id, provider.discovery_format, media_type)
+            endpoint = (
+                infer_endpoint(model_id, provider.discovery_format, media_type)
+                if entry is None and media_type is not None
+                else by_name
+            )
+    try:
+        target = ModelInput(
+            model_id=model_id, display_name=model_id, endpoint=endpoint, is_enabled=True, entry_binding=entry_binding
+        )
+    except ValidationError as exc:
+        raise _model_input_rejected(exc, endpoint, entry_binding, _t) from exc
+
+    specs = await _resolve_model_endpoint_specs(session, [target], _t)
+    _check_protocol_constraints([target], provider.discovery_format, specs, _t)
+    # 关联的条目要在目录里、且与调用端点同媒体类型；对不上的关联读取与计费时都会被忽略
+    if entry_binding and find_bound_entry(entry_binding, specs[target.endpoint].media_type) is None:
+        raise HTTPException(status_code=422, detail=_t("provider_model_binding_not_found", binding=entry_binding))
+    default_rows = [r for r in rows if r.is_default]
+    default_specs = await _read_endpoint_specs(session, default_rows)
+    taken = any(
+        other.endpoint in default_specs
+        and _default_group_conflicts(
+            target,
+            _row_to_input(other),
+            {target.endpoint: specs[target.endpoint], other.endpoint: default_specs[other.endpoint]},
+        )
+        for other in default_rows
+    )
+    if not taken:
+        target = target.model_copy(update={"is_default": True})
+    row = CustomProviderModel(provider_id=provider_id, **target.to_db_dict(specs[target.endpoint]))
+    session.add(row)
+    await session.flush()
+    return row
+
+
+@dataclass(frozen=True)
+class CustomModelSettings:
+    """Sheet 上自定义供应商模型独有的设置：调用端点、请求地址与默认分辨率，以及「这个供应商支持的参数」。"""
+
+    endpoint: str
+    resolution: str | None
+    path_overrides: dict[str, str] | None
+    requests: list[EndpointRequestDescriptor]
+    capabilities: CapabilityView | None
+
+
+async def custom_model_settings(session: AsyncSession, row: CustomProviderModel) -> CustomModelSettings:
+    """读一个自定义供应商模型的 Sheet 设置；调用端点解析不出时请求地址与参数视图为空。"""
+    specs = await _read_endpoint_specs(session, [row])
+    spec = specs.get(row.endpoint)
+    if spec is None:
+        return CustomModelSettings(row.endpoint, row.resolution, None, [], None)
+    return CustomModelSettings(
+        endpoint=row.endpoint,
+        resolution=row.resolution,
+        path_overrides=effective_path_overrides(row.path_overrides, spec.requests) or None,
+        requests=[EndpointRequestDescriptor(**asdict(r)) for r in spec.requests],
+        capabilities=custom_capability_view(
+            model_id=row.model_id,
+            endpoint=row.endpoint,
+            spec=spec,
+            raw_overrides=row.capability_overrides,
+            applied_overrides=_effective_overrides_for_response(
+                row.endpoint, row.model_id, row.capability_overrides, spec
+            ),
+            entry_binding=row.entry_binding,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1017,7 +1284,7 @@ async def create_provider(
         audio_max_workers=body.audio_max_workers,
     )
     await session.commit()
-    await _invalidate_caches(request)
+    await invalidate_provider_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider.id)
     return _provider_to_response(
@@ -1074,7 +1341,7 @@ async def update_provider(
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
 
     await session.commit()
-    await _invalidate_caches(request)
+    await invalidate_provider_caches(request)
     await session.refresh(provider)
     models = await repo.list_models(provider_id)
     return _provider_to_response(
@@ -1093,22 +1360,28 @@ async def full_update_provider(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ):
-    """原子更新供应商元数据 + 模型列表（单一事务），并清理全局默认中指向被删模型的引用。"""
-    _check_duplicate_model_ids(body.models, _t)
-    specs = await _resolve_model_endpoint_specs(session, body.models, _t)
-    _check_unique_defaults(body.models, specs, _t)
+    """原子更新供应商元数据与模型列表（单一事务），并清理全局默认中指向被删模型的引用。
+
+    ``models`` 不传时只更新元数据与并发上限，模型原样不动。
+    """
     repo = CustomProviderRepository(session)
-    stored_models = {m.model_id: m for m in await repo.list_models(provider_id)}
-    models = [_drop_rebound_path_overrides(m, stored_models.get(m.model_id)) for m in body.models]
     # 协议是创建时定下、之后不可改的，故读库里这一行而非请求体。取行排在写入之前：协议约束要
     # 先于覆盖校验判定，comfyui 行才拿得到「该协议不支持覆盖」这条专用文案，而不是被通用的
     # 「endpoint 不支持尾帧」抢先拒掉。
     provider = await repo.get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    _check_protocol_constraints(models, provider.discovery_format, specs, _t)
-    _check_model_capability_overrides(models, _t, specs)
-    _check_model_path_overrides(models, specs, _t)
+    stored_models = {m.model_id: m for m in await repo.list_models(provider_id)}
+    models: list[ModelInput] | None = None
+    specs: dict[str, EndpointSpec] = {}
+    if body.models is not None:
+        _check_duplicate_model_ids(body.models, _t)
+        specs = await _resolve_model_endpoint_specs(session, body.models, _t)
+        _check_unique_defaults(body.models, specs, _t)
+        models = [_drop_rebound_path_overrides(m, stored_models.get(m.model_id)) for m in body.models]
+        _check_protocol_constraints(models, provider.discovery_format, specs, _t)
+        _check_model_capability_overrides(models, _t, specs)
+        _check_model_path_overrides(models, specs, _t)
     kwargs: dict = {
         "display_name": body.display_name,
         "base_url": body.base_url,
@@ -1122,18 +1395,18 @@ async def full_update_provider(
     provider = await repo.update_provider(provider_id, **kwargs)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
-    model_dicts = [m.to_db_dict(specs[m.endpoint]) for m in models]
-    await repo.replace_models(provider_id, model_dicts)
-    await _clear_global_provider_refs(session, provider_id, stored_models.keys() - {m.model_id for m in models})
+    if models is not None:
+        await repo.replace_models(provider_id, [m.to_db_dict(specs[m.endpoint]) for m in models])
+        await _clear_global_provider_refs(session, provider_id, stored_models.keys() - {m.model_id for m in models})
     await session.commit()
-    await _invalidate_caches(request)
+    await invalidate_provider_caches(request)
     await session.refresh(provider)
-    models = await repo.list_models(provider_id)
+    saved_models = await repo.list_models(provider_id)
     return _provider_to_response(
         provider,
-        models,
+        saved_models,
         await _global_bucket_refs_for_provider(session, provider_id),
-        await _read_endpoint_specs(session, models),
+        await _read_endpoint_specs(session, saved_models),
     )
 
 
@@ -1153,7 +1426,7 @@ async def delete_provider(
     await repo.delete_provider(provider_id)
     await _clear_global_provider_refs(session, provider_id)
     await session.commit()
-    await _invalidate_caches(request)
+    await invalidate_provider_caches(request)
     # 清理引用该 provider 的项目级配置（同步文件 I/O，放到线程池避免阻塞事件循环）
     await run_sync_transaction(_cleanup_project_refs, prefix, _PROJECT_BACKEND_KEYS)
 
@@ -1216,8 +1489,14 @@ async def discover_models_by_id(
     session: AsyncSession = Depends(get_async_session),
 ):
     """使用已存储凭证发现指定供应商的可用模型。"""
-    repo = CustomProviderRepository(session)
-    provider = await repo.get_provider(provider_id)
+    return await discover_custom_provider_models(session, provider_id, _t)
+
+
+async def discover_custom_provider_models(
+    session: AsyncSession, provider_id: int, _t: Callable[..., str]
+) -> DiscoverResponse:
+    """用已存储凭证获取自定义供应商的模型，每个模型带对应条目与默认调用端点。"""
+    provider = await CustomProviderRepository(session).get_provider(provider_id)
     if provider is None:
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     return await _run_discover(provider.discovery_format, provider.base_url, provider.api_key, _t)

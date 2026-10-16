@@ -526,7 +526,26 @@ def get_provider_spec(provider_id: str, media_type: str) -> ProviderSpec:
 
 
 def builtin_video_capabilities_for_model(provider_id: str, model_id: str) -> VideoCapabilities:
-    """读取内置视频能力；声明式供应商从随版定义读，其余沿用 backend registry。"""
+    """读取内置视频能力：调用通道的声明，用户添加的模型再叠加通道事实的能力覆盖（docs/adr/0104）。
+
+    覆盖整维替换、优先级最高；音频两维合起来无意义时按不支持参考音频处理，与自定义供应商同一口径。
+    """
+    caps = declared_builtin_video_capabilities(provider_id, model_id)
+    overrides = catalog.user_added_capability_overrides(provider_id, model_id)
+    if not overrides:
+        return caps
+    from lib.custom_provider.capabilities import (
+        CHANNEL_FACT_OVERRIDE_KEYS,
+        enforce_audio_capability_invariant,
+        merge_overrides,
+    )
+
+    channel = {key: value for key, value in overrides.items() if key in CHANNEL_FACT_OVERRIDE_KEYS}
+    return enforce_audio_capability_invariant(merge_overrides(caps, channel), endpoint=provider_id, model_id=model_id)
+
+
+def declared_builtin_video_capabilities(provider_id: str, model_id: str) -> VideoCapabilities:
+    """内置视频调用通道对模型声明的能力，不含用户的能力覆盖；声明式供应商从随版定义读，其余沿用 backend registry。"""
     spec = get_provider_spec(provider_id, "video")
     if spec.registry_backend == "declarative":
         from lib.custom_provider.builtin_definitions import declarative_video_capabilities

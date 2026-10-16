@@ -4,6 +4,8 @@ from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.models.api_call import ApiCall
 from lib.db.models.api_key import ApiKey
 from lib.db.models.asset import Asset, AssetDerivative
+from lib.db.models.builtin_provider_model import BuiltinProviderModelState
+from lib.db.models.catalog_user_entry import CatalogUserEntry
 from lib.db.models.config import ProviderConfig, SystemSetting
 from lib.db.models.credential import ProviderCredential
 from lib.db.models.custom_endpoint import CustomEndpoint
@@ -27,6 +29,8 @@ __all__ = [
     "Asset",
     "AssetDerivative",
     "BatchTask",
+    "BuiltinProviderModelState",
+    "CatalogUserEntry",
     "CustomEndpoint",
     "CustomProvider",
     "CustomProviderModel",

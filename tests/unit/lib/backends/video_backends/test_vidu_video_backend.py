@@ -20,7 +20,7 @@ from lib.backends.video_backends.vidu import (
     _coerce_duration,
     _coerce_resolution,
 )
-from lib.config.registry import PROVIDER_REGISTRY
+from lib.catalog import query as catalog
 from tests.fakes import bounded_poll_clock
 
 
@@ -371,10 +371,12 @@ class TestDurationRulesSpec:
 
 
 class TestRegistryBackendConsistency:
-    """registry 的 vidu2.0 声明与 backend 执行期白名单须无分歧（两侧同一份官方文档核实）。"""
+    """目录里 vidu2.0 的模型事实与 backend 执行期白名单须无分歧（两侧同一份官方文档核实）。"""
 
-    def _vidu2_model_info(self):
-        return PROVIDER_REGISTRY["vidu"].models["vidu2.0"]
+    def _vidu2_model_info(self) -> catalog.CatalogModel:
+        model = catalog.get_model("vidu", "vidu2.0")
+        assert model is not None
+        return model
 
     def test_reference_image_durations_matches_reference2video_rule(self):
         model_info = self._vidu2_model_info()

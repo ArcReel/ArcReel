@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING
 import httpx
 
 from lib.backends.transport_layer import TransportLayer, layer_async_client, layer_sync_client
-from lib.billing.cost_calculator import cost_calculator
 from lib.infra.retry import BASE_RETRYABLE_ERRORS, with_retry_async
 
 if TYPE_CHECKING:
@@ -33,6 +32,8 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BASE_RETRYABLE_ERRORS",
+    "GEMINI_DEFAULT_IMAGE_MODEL",
+    "GEMINI_DEFAULT_VIDEO_MODEL",
     "RETRYABLE_ERRORS",
     "VERTEX_SCOPES",
     "RateLimiter",
@@ -178,8 +179,9 @@ class RateLimiter:
                 await asyncio.sleep(0.1)  # 短暂让出控制权
 
 
-_SHARED_IMAGE_MODEL_NAME = cost_calculator.DEFAULT_IMAGE_MODEL
-_SHARED_VIDEO_MODEL_NAME = cost_calculator.DEFAULT_VIDEO_MODEL
+# 共享限流器按模型名记 RPM；调用方没给模型名时，限额记在这两个模型名下。视频 backend 没给模型时也用它。
+GEMINI_DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
+GEMINI_DEFAULT_VIDEO_MODEL = "veo-3.1-lite-generate-preview"
 
 
 def resolve_gemini_api_key(api_key: str | None = None) -> str:
@@ -223,9 +225,9 @@ def _rate_limiter_limits_from_env(
     if video_rpm is None:
         video_rpm = 10
     if image_model is None:
-        image_model = _SHARED_IMAGE_MODEL_NAME
+        image_model = GEMINI_DEFAULT_IMAGE_MODEL
     if video_model is None:
-        video_model = _SHARED_VIDEO_MODEL_NAME
+        video_model = GEMINI_DEFAULT_VIDEO_MODEL
 
     limits: dict[str, int] = {}
     if image_rpm > 0:

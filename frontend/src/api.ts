@@ -49,7 +49,10 @@ import type {
   ApiKeyInfo,
   CreateApiKeyResponse,
   ProviderInfo,
+  CatalogEntryHit,
   CatalogSearchResponse,
+  NewCatalogEntry,
+  NewEntryHints,
   MediaType,
   ProviderConfigDetail,
   ConnectivityCheckResult,
@@ -63,6 +66,15 @@ import type {
   CustomProviderCreateRequest,
   CustomProviderFullUpdateRequest,
   ProviderMultiplierInfo,
+  ProviderModelItem,
+  ProviderModelsResponse,
+  FetchProviderModelsResponse,
+  AddProviderModelRequest,
+  AddProviderModelResponse,
+  ProviderModelDetail,
+  ProviderModelReferences,
+  ProviderModelSettingsUpdate,
+  CatalogEntryKey,
   DiscoverModelsResponse,
   EndpointDescriptor,
   ComfyuiInferResponse,
@@ -275,6 +287,11 @@ export const CHARACTER_DERIVATIVE_RESOURCE_TYPE = "character_derivatives";
 /** 衍生的复合资源 id：本体名与衍生名各占一段，与后端的落盘、队列与版本口径一致。 */
 export function derivativeResourceId(characterName: string, derivativeName: string): string {
   return `${characterName}/${derivativeName}`;
+}
+
+/** 路径参数里可能带 `/` 的值（如模型 ID）：逐段编码，保留分隔符，对应服务端的 `{name:path}`。 */
+function encodePath(value: string): string {
+  return value.split("/").map(encodeURIComponent).join("/");
 }
 
 /** 角色衍生子资源的路径前缀；衍生挂在角色条目下，两段名字各自编码。 */
@@ -3171,6 +3188,20 @@ class API {
     return this.request(`/catalog/entries${qs ? `?${qs}` : ""}`, { signal: options.signal });
   }
 
+  /** 手动填写新条目前的提示：目录里是否已有同名模型，以及视频模型按名字预设预填的可选时长。 */
+  static async getNewEntryHints(
+    query: { name: string; mediaType: MediaType },
+    options: { signal?: AbortSignal } = {}
+  ): Promise<NewEntryHints> {
+    const params = new URLSearchParams({ name: query.name, media_type: query.mediaType });
+    return this.request(`/catalog/new-entry-hints?${params}`, { signal: options.signal });
+  }
+
+  /** 目录中找不到的模型，手动填写新建条目并立即写入；Sheet 里的「手动填写」随保存写入，不走这个接口。 */
+  static async createCatalogEntry(entry: NewCatalogEntry): Promise<CatalogEntryHit> {
+    return this.request("/catalog/entries", { method: "POST", body: JSON.stringify(entry) });
+  }
+
   // ==================== Provider 管理 API ====================
 
   /** 获取所有 provider 列表及状态。 */
@@ -3213,6 +3244,84 @@ class API {
       method: "PUT",
       body: JSON.stringify({ multiplier }),
     });
+  }
+
+  /** 供应商的全部供应商模型，带启用状态、状态标记与价格摘要；内置与自定义供应商共用。 */
+  static async listProviderModels(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderModelsResponse> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models`, { signal: options.signal });
+  }
+
+  /** 获取模型：调用供应商的模型列表接口，返回全部模型与对应结果；已添加的模型由界面排除。 */
+  static async discoverProviderModels(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<FetchProviderModelsResponse> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/discover`, {
+      method: "POST",
+      signal: options.signal,
+    });
+  }
+
+  /** 按 ID 添加模型：内置供应商对上官方收录的模型即启用它，对不上的作为用户添加的模型。 */
+  static async addProviderModel(id: string, body: AddProviderModelRequest): Promise<AddProviderModelResponse> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** 启用或停用一个供应商模型，立即生效；停用时同时取消默认。 */
+  static async setProviderModelEnabled(id: string, modelId: string, enabled: boolean): Promise<ProviderModelItem> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/enabled`, {
+      method: "PUT",
+      body: JSON.stringify({ model_id: modelId, enabled }),
+    });
+  }
+
+  /** 读取单个供应商模型：列表行、供应商设置、对应条目与「这个供应商支持的参数」。 */
+  static async getProviderModel(
+    id: string,
+    modelId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderModelDetail> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/${encodePath(modelId)}`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 保存供应商模型 Sheet 的供应商设置，返回保存后的 Sheet 内容。 */
+  static async updateProviderModel(
+    id: string,
+    modelId: string,
+    settings: ProviderModelSettingsUpdate
+  ): Promise<ProviderModelDetail> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/${encodePath(modelId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  /** 恢复官方数据：丢弃模型信息的用户修改，所有使用这个模型的供应商一起生效，不能撤销。 */
+  static async restoreCatalogEntry(key: CatalogEntryKey): Promise<void> {
+    await this.request("/catalog/entries/restore-official", { method: "POST", body: JSON.stringify(key) });
+  }
+
+  /** 从供应商移除用户负责的模型。 */
+  static async removeProviderModel(id: string, modelId: string): Promise<void> {
+    await this.request(`/providers/${encodeURIComponent(id)}/models/${encodePath(modelId)}`, { method: "DELETE" });
+  }
+
+  /** 引用这个供应商模型的全局设置项与项目，移除前提示用。 */
+  static async getProviderModelReferences(
+    id: string,
+    modelId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderModelReferences> {
+    const params = new URLSearchParams({ model_id: modelId });
+    return this.request(`/providers/${encodeURIComponent(id)}/model-references?${params}`, { signal: options.signal });
   }
 
   /** 测试指定 provider 的连接。 */
@@ -3375,12 +3484,15 @@ class API {
     return this.request(`/custom-providers/${id}`, { method: "DELETE" });
   }
 
-  static async discoverModels(data: { discovery_format: string; base_url: string; api_key: string }): Promise<DiscoverModelsResponse> {
-    return this.request("/custom-providers/discover", { method: "POST", body: JSON.stringify(data) });
-  }
-
-  static async discoverModelsForProvider(id: number): Promise<DiscoverModelsResponse> {
-    return this.request(`/custom-providers/${id}/discover`, { method: "POST" });
+  static async discoverModels(
+    data: { discovery_format: string; base_url: string; api_key: string },
+    options: { signal?: AbortSignal } = {}
+  ): Promise<DiscoverModelsResponse> {
+    return this.request("/custom-providers/discover", {
+      method: "POST",
+      body: JSON.stringify(data),
+      signal: options.signal,
+    });
   }
 
   static async checkCustomConnectivity(data: { discovery_format: string; base_url: string; api_key: string }): Promise<{ success: boolean; message: string }> {

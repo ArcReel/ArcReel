@@ -1,4 +1,4 @@
-"""DashScope 跨层集成测试：文本记账 provider、定价查表、自定义 endpoint 派发、能力 fallthrough。"""
+"""DashScope 跨层集成测试：文本记账 provider、目录计价、自定义 endpoint 派发、能力 fallthrough。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from lib.backends.providers import PROVIDER_DASHSCOPE, PROVIDER_OPENAI
-from lib.billing.pricing.lookup import lookup_pricing
-from lib.billing.pricing.strategies import PricingParams, calculate_pricing
+from tests.catalog_support import builtin_price
 from tests.fakes import captured_openai_clients
 
 
@@ -56,59 +55,49 @@ class TestTextProviderBilling:
             assert OpenAITextBackend(api_key="k").name == PROVIDER_OPENAI
 
 
-class TestLookupPricing:
+class TestCatalogPricing:
     def test_text_cny(self):
-        p = lookup_pricing(PROVIDER_DASHSCOPE, "qwen-plus", "text")
-        amount, cur = calculate_pricing(
-            p, PricingParams(call_type="text", model="qwen-plus", input_tokens=1_000_000, output_tokens=1_000_000)
+        # qwen-plus 按单次请求的输入量分档，10 万输入落在首档：输入 0.8、输出 2 元/百万 token。
+        amount, cur = builtin_price(
+            PROVIDER_DASHSCOPE,
+            "qwen-plus",
+            "text",
+            {"uncached_input_tokens": 100_000, "output_tokens": 100_000},
         )
         assert cur == "CNY"
-        assert amount == pytest.approx(2.8)
+        assert amount == pytest.approx(0.28)
 
     def test_image_cny(self):
-        p = lookup_pricing(PROVIDER_DASHSCOPE, "qwen-image-2.0", "image")
-        amount, cur = calculate_pricing(p, PricingParams(call_type="image", model="qwen-image-2.0", n=1))
+        amount, cur = builtin_price(PROVIDER_DASHSCOPE, "qwen-image-2.0", "image", {"output_images": 1})
         assert cur == "CNY"
         assert amount == pytest.approx(0.2)
 
     def test_video_resolution_matrix(self):
-        p = lookup_pricing(PROVIDER_DASHSCOPE, "happyhorse-1.0-i2v", "video")
-        a720, _ = calculate_pricing(
-            p, PricingParams(call_type="video", model="happyhorse-1.0-i2v", resolution="720p", duration_seconds=5)
+        a720, _ = builtin_price(
+            PROVIDER_DASHSCOPE, "happyhorse-1.0-i2v", "video", {"output_seconds": 5}, {"resolution": "720p"}
         )
-        a1080, _ = calculate_pricing(
-            p, PricingParams(call_type="video", model="happyhorse-1.0-i2v", resolution="1080p", duration_seconds=5)
+        a1080, _ = builtin_price(
+            PROVIDER_DASHSCOPE, "happyhorse-1.0-i2v", "video", {"output_seconds": 5}, {"resolution": "1080p"}
         )
         assert a720 == pytest.approx(4.5)
         assert a1080 == pytest.approx(8.0)
 
     @pytest.mark.parametrize("model", ["happyhorse-1.1-t2v", "happyhorse-1.1-i2v", "happyhorse-1.1-r2v"])
     def test_happyhorse_11_pricing_covers_three_resolutions(self, model: str):
-        """三档分辨率都要有价：任一档缺键会让该档的用量记账断链。"""
-        p = lookup_pricing(PROVIDER_DASHSCOPE, model, "video")
+        """三档分辨率都要有价：任一档缺价会让该档的调用记为未定价。"""
         for resolution, expected in (("480p", 4.5), ("720p", 9.0), ("1080p", 12.0)):
-            amount, cur = calculate_pricing(
-                p,
-                PricingParams(call_type="video", model=model, resolution=resolution, duration_seconds=10),
+            amount, cur = builtin_price(
+                PROVIDER_DASHSCOPE, model, "video", {"output_seconds": 10}, {"resolution": resolution}
             )
             assert cur == "CNY"
             assert amount == pytest.approx(expected)
 
     def test_wan_video_cny(self):
-        p = lookup_pricing(PROVIDER_DASHSCOPE, "wan2.7-r2v", "video")
-        amount, cur = calculate_pricing(
-            p, PricingParams(call_type="video", model="wan2.7-r2v", resolution="1080p", duration_seconds=10)
+        amount, cur = builtin_price(
+            PROVIDER_DASHSCOPE, "wan2.7-r2v", "video", {"output_seconds": 10}, {"resolution": "1080p"}
         )
         assert cur == "CNY"
         assert amount == pytest.approx(10.0)
-
-    def test_unknown_model_falls_back_to_dashscope_cny(self):
-        # 隐患 2 配套：未知 dashscope model 回落自身默认 CNY，而非 Gemini USD
-        p = lookup_pricing(PROVIDER_DASHSCOPE, "qwen-unknown-xyz", "text")
-        _, cur = calculate_pricing(
-            p, PricingParams(call_type="text", model="qwen-unknown-xyz", input_tokens=1000, output_tokens=0)
-        )
-        assert cur == "CNY"
 
 
 class TestCustomEndpointDispatch:

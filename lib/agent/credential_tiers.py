@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from arcreel_catalog_core import normalize_model_name
+from lib.catalog import query as catalog
 
 if TYPE_CHECKING:
     from lib.db.models.agent_credential import AgentAnthropicCredential
@@ -111,9 +112,6 @@ class TierStatus:
 
 def tier_statuses(credential: AgentAnthropicCredential, settings: Mapping[str, str]) -> list[TierStatus]:
     """凭证全部档位的定价状态，按 :data:`TIERS` 的顺序。"""
-    # 目录查询导入放函数内：它经注册表拉起 dashscope_shared→usage_repo→agent_credential_repo→本模块，模块级导入会成环。
-    from lib.catalog import query as catalog
-
     bindings = credential.tier_bindings or {}
     statuses: list[TierStatus] = []
     for tier, name in tier_models(credential, settings).items():

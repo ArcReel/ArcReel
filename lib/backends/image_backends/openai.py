@@ -290,7 +290,6 @@ class OpenAIImageBackend:
             )
         await save_image_from_response_item(data[0], request.output_path)
         logger.info("OpenAI 图片生成完成: %s", request.output_path)
-        quality = params.get("quality")
 
         img_in = img_out = txt_in = txt_out = None
         usage = getattr(response, "usage", None)
@@ -336,7 +335,6 @@ class OpenAIImageBackend:
             provider=PROVIDER_OPENAI,
             model=self._model,
             usage=usage,
-            quality=quality,
             image_input_tokens=img_in,
             image_output_tokens=img_out,
             text_input_tokens=txt_in,

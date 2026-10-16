@@ -18,7 +18,7 @@ from sqlalchemy import update
 from arcreel_market_core.video_backend_contract import VideoCapabilities
 from lib.backends.audio_backends.base import VoiceOption
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
-from lib.config.registry import PROVIDER_REGISTRY
+from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver, ProviderModel, VideoBucketCapabilityError, VoiceConsistency
 from lib.custom_provider import make_provider_id
 from lib.db.models.config import SystemSetting
@@ -46,13 +46,12 @@ from tests.factories import make_video_request_facts
 
 
 def _registry_video_model(provider_id: str) -> str:
-    """从 registry 取该 provider 的任一视频 model id，避免硬编码供应商数据。"""
-    meta = PROVIDER_REGISTRY[provider_id]
-    return next(mid for mid, mi in meta.models.items() if mi.media_type == "video")
+    """从目录取该 provider 的任一视频 model id，避免硬编码供应商数据。"""
+    return next(mid for mid, mi in catalog.list_models(provider_id).items() if mi.media_type == "video")
 
 
 def _backend_video_caps(provider_id: str, model_id: str) -> VideoCapabilities:
-    """视频能力位与参考图上限的唯一声明处是 backend，registry ModelInfo 不带这些字段。"""
+    """视频能力位与参考图上限的唯一声明处是 backend，目录的模型信息不带这些字段。"""
     return builtin_video_capabilities_for_model(provider_id, model_id)
 
 
@@ -234,7 +233,8 @@ class TestVideoLane:
         self, patched_session_factory, project_env, fake_assemble
     ):
         video_model = _registry_video_model("ark")
-        expected = PROVIDER_REGISTRY["ark"].models[video_model]
+        expected = catalog.get_model("ark", video_model)
+        assert expected is not None
         ctx = await resolve_generation_context(
             "demo", None, project={"video_backend": f"ark/{video_model}"}, video=VideoLaneRequest(route="storyboard")
         )

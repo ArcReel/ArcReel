@@ -2,9 +2,11 @@ import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "wouter";
 import { cn } from "cn";
 
 import { API } from "@/api";
+import { providerSettingsPath } from "@/app-routes";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -40,6 +42,32 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
       <h3 className="text-xs font-medium text-muted-foreground">{title}</h3>
       {children}
     </section>
+  );
+}
+
+/** 供应商模型 Sheet 的地址：自定义供应商的记录写的是 `custom-<id>`。 */
+function providerModelPath(provider: string, model: string): string {
+  const custom = /^custom-(\d+)$/.exec(provider);
+  return custom
+    ? providerSettingsPath({ custom: Number(custom[1]), model })
+    : providerSettingsPath({ preset: provider, model });
+}
+
+/**
+ * 调用的模型：供应商还在供应商设置里时打开它的 Sheet；Agent 凭证、已删除的自定义供应商、不再内置的旧值与没有供应商的
+ * 旧记录只显示模型名。
+ */
+function ProviderModelLink({ provider, model, linkable }: { provider: string; model: string; linkable: boolean }) {
+  const { t } = useTranslation("dashboard");
+  if (!linkable) return model;
+  return (
+    <Link
+      href={providerModelPath(provider, model)}
+      title={t("usage_open_provider_model")}
+      className="text-primary underline-offset-4 hover:underline focus-visible:underline"
+    >
+      {model}
+    </Link>
   );
 }
 
@@ -338,7 +366,20 @@ export function UsageRecordDetailModal({
                 <Group title={t("dashboard:usage_detail_group_call")}>
                   <div>
                     <Field label={t("dashboard:usage_col_provider")} value={providerLabel(detail.provider)} />
-                    <Field label={t("dashboard:usage_col_model")} value={detail.model || "—"} />
+                    <Field
+                      label={t("dashboard:usage_col_model")}
+                      value={
+                        detail.model ? (
+                          <ProviderModelLink
+                            provider={detail.provider}
+                            model={detail.model}
+                            linkable={detail.provider_in_settings}
+                          />
+                        ) : (
+                          "—"
+                        )
+                      }
+                    />
                     <Field
                       label={t("dashboard:usage_field_purpose")}
                       value={purpose ? t(`dashboard:${purpose}`) : "—"}

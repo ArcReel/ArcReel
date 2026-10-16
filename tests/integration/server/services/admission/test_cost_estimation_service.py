@@ -47,8 +47,9 @@ async def _seed_call(
 ) -> None:
     """直连 UsageRepository 写入一条已完成调用记录（等价于旧 UsageTracker 的种子写法）。
 
-    ``cost_amount`` 非空时绕过按 model 定价表的自动计算，直接结算为该值——用于不依赖
-    具体供应商定价配置、只关心分摊/聚合逻辑的用例（如 unit 费用按镜头摊回）。
+    ``cost_amount`` 非空时绕过按价目表的自动计算，直接结算为该值——用于不依赖
+    具体供应商定价配置、只关心分摊/聚合逻辑的用例（如 unit 费用按镜头摊回）。种子行不带上报用量，
+    不给 ``cost_amount`` 时按结算规则记为未定价。
     """
     async with db_factory() as session:
         repo = UsageRepository(session)
@@ -515,6 +516,8 @@ class TestCostEstimationService:
             "image",
             "gemini-3.1-flash-image-preview",
             resolution="1K",
+            cost_amount=0.067,
+            currency="USD",
             segment_id="E1S001",
             output_path="a.png",
         )
@@ -757,6 +760,8 @@ class TestCostEstimationService:
             "image",
             "gemini-3.1-flash-image-preview",
             resolution="2K",
+            cost_amount=0.101,
+            currency="USD",
             segment_id=grid_id,
             output_path="g.png",
         )
@@ -959,6 +964,8 @@ class TestCostEstimationService:
             "image",
             "gemini-3.1-flash-image-preview",
             resolution="2K",
+            cost_amount=0.101,
+            currency="USD",
             segment_id=grid_id,
             output_path="g.png",
         )
@@ -1000,6 +1007,8 @@ class TestCostEstimationService:
             "image",
             "gemini-3.1-flash-image-preview",
             resolution="1K",
+            cost_amount=0.067,
+            currency="USD",
             segment_id="E1S001",
             output_path="a.png",
         )
@@ -1184,6 +1193,8 @@ class TestCostEstimationService:
                 "image",
                 "gemini-3.1-flash-image-preview",
                 resolution="1K",
+                cost_amount=0.067,
+                currency="USD",
                 output_path=f"projects/proj/{sub}/a.png",
             )
 
@@ -1317,6 +1328,8 @@ class TestCostEstimationService:
             segment_id="E1S001",
             output_path="a.wav",
             usage_tokens=100,
+            cost_amount=0.008,
+            currency="CNY",
         )
 
         project_data = {
@@ -1847,8 +1860,8 @@ class TestCostEstimationService:
     async def test_narration_reference_video_estimate_handles_token_priced_video_model(self, db_factory):
         """按 token 计费的视频模型（Ark/Seedance）也要能算出非零视频预估。
 
-        参考生视频的视频估值只传 ``duration_seconds``，若不换算 usage_tokens，
-        ``PerTokenVideo`` 定价形状会因 ``usage_tokens`` 缺失恒算出 0。
+        参考生视频的视频估值只传 ``duration_seconds``，若不按通道公式估出视频 token，
+        按 token 计价的价目表会因缺少用量算不出。
         """
         resolver = ConfigResolver(db_factory)
         service = CostEstimationService(resolver, db_factory)

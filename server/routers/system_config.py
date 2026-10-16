@@ -10,12 +10,10 @@ from __future__ import annotations
 
 import logging
 import math
-import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
-from pathlib import Path
 from typing import Annotated, Any, TypedDict
 from urllib.parse import urlsplit
 
@@ -25,6 +23,7 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lib.app_version import PYPROJECT_PATH, load_app_version
 from lib.backends.audio_backends.base import AudioCapability
 from lib.backends.generation_type_buckets import (
     BUCKETS_BY_MEDIA_TYPE,
@@ -53,8 +52,6 @@ from server.services.tasks.generation_context import audio_backend_capabilities
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-_PYPROJECT_PATH = _PROJECT_ROOT / "pyproject.toml"
 _GITHUB_RELEASE_LATEST_URL = "https://api.github.com/repos/ArcReel/ArcReel/releases/latest"
 _GITHUB_USER_AGENT = "ArcReel"
 _VERSION_CACHE_TTL_SECONDS = 300
@@ -86,20 +83,9 @@ _MEDIA_TO_OPTION_LIST = {
 }
 
 
-def _load_app_version(pyproject_path: Path) -> str:
-    """从给定 pyproject 读版本号；不缓存，缓存由 :func:`_read_app_version` 负责。"""
-    with pyproject_path.open("rb") as f:
-        data = tomllib.load(f)
-
-    version = str(data["project"]["version"]).strip()
-    if not version:
-        raise RuntimeError("project.version is empty")
-    return version
-
-
 @lru_cache(maxsize=1)
 def _read_app_version() -> str:
-    return _load_app_version(_PYPROJECT_PATH)
+    return load_app_version(PYPROJECT_PATH)
 
 
 def get_app_version_reader() -> Callable[[], str]:
@@ -181,16 +167,16 @@ class _ModelCandidate:
 async def _enumerate_candidates(
     svc: ConfigService, session: AsyncSession, locale: str = DEFAULT_LOCALE
 ) -> tuple[list[_ModelCandidate], dict[str, str]]:
-    """列出所有可选模型（内置 ready 供应商 + 已启用的自定义模型），并附任务类型桶归属。
+    """列出所有可选模型（内置 ready 供应商与自定义供应商下已启用的供应商模型），并附任务类型桶归属。
 
-    hidden 模型在这里统一剔除：registry 声明 hidden 的语义就是「从 UI 下拉剔除、条目仍保留
-    供算价」，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。
+    候选只来自已启用的供应商模型，默认层与任务类型桶层同受此约束（能力过滤只加在桶层）。内置供应商的启用状态
+    取自供应商状态的 ``disabled_models``（见 :mod:`lib.catalog.builtin_models`）。
 
     供应商名与模型名走 ``translate_or``，与 ``/providers`` 目录同一条路径：有译名表的按请求
     语言成文，没有的（纯品牌名、自定义供应商用户自填的名字）原样返回 registry / DB 里的原名。
     """
     statuses = await svc.get_all_providers_status()
-    ready_providers = {s.name for s in statuses if s.status == "ready"}
+    ready_providers = {s.name: s for s in statuses if s.status == "ready"}
 
     candidates: list[_ModelCandidate] = []
     provider_names: dict[str, str] = {}
@@ -200,7 +186,7 @@ async def _enumerate_candidates(
             continue
         provider_names[provider_id] = translate_or(f"provider_name_{provider_id}", meta.display_name, locale)
         for model_id, model_info in catalog.list_models(provider_id).items():
-            if model_info.hidden:
+            if model_id in ready_providers[provider_id].disabled_models:
                 continue
             candidates.append(
                 _ModelCandidate(

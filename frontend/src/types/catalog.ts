@@ -12,3 +12,9 @@ export interface CatalogEntryHit {
 export interface CatalogSearchResponse {
   entries: CatalogEntryHit[];
 }
+
+/** 手动填写新条目时随名字给出的提示：目录里已有的同名模型（有就应直接选择），视频模型按名字预设预填的可选时长。 */
+export interface NewEntryHints {
+  existing: CatalogEntryHit | null;
+  durations: number[] | null;
+}

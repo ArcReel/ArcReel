@@ -1,0 +1,9 @@
+{
+  "method": "GET",
+  "path": "/api/v1/providers/gemini-aistudio/multiplier",
+  "status": 200,
+  "body": {
+    "multiplier": 1,
+    "default": 1
+  }
+}

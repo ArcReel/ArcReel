@@ -16,6 +16,7 @@ from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifest
 from lib.backends.text_backends.base import TextGenerationResult as BackendTextGenerationResult
 from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.backends.text_generator import TextGenerator
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.db.base import DEFAULT_USER_ID
@@ -388,6 +389,39 @@ async def test_truncated_draft_repair_fails_with_the_way_out_and_keeps_the_draft
     assert draft_revision(draft) == revision
 
 
+@pytest.mark.usefixtures("video_request_facts")
+@pytest.mark.parametrize("stage", ["revalidate", "generator"])
+async def test_draft_repair_with_a_retired_model_fails_with_a_reselectable_problem(
+    monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    """AI 修复时引用的模型已不在供应商清单：任务以稳定码失败并带「去配置供应商」，不归为 draft_repair_failed，草稿不变。"""
+    projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
+    retired = ModelNotInCatalogError(provider_id="gemini-aistudio", model_id="retired-model", media_type="text")
+
+    async def raise_retired(*_args, **_kwargs):
+        raise retired
+
+    if stage == "revalidate":
+        monkeypatch.setattr(draft_repair_module, "revalidate_script_plan_draft", raise_retired)
+    else:
+        monkeypatch.setattr(TextGenerator, "create", raise_retired)
+    payload = {"episode_id": 1, "doc_type": "narration_script_plan", "base_revision": revision, "instructions": None}
+    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "model_not_in_provider_catalog",
+        GenerationAction.CONFIGURE_PROVIDER,
+        {"provider": "gemini-aistudio", "model": "retired-model"},
+    )
+    draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
+    assert draft is not None
+    assert draft_revision(draft) == revision
+
+
 async def test_draft_repair_blocked_by_the_video_model_fails_with_the_real_problem(set_video_request_facts) -> None:
     """AI 修复重判被视频模型配置挡下：任务失败带真实问题码与「去配置供应商」，草稿不变。"""
     projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
@@ -680,6 +714,42 @@ async def test_queued_plan_failure_carries_the_way_out(
     assert (problem.code, problem.action, problem.params) == (code, action, params)
     if code == "text_output_truncated":
         assert problem.detail == str(failure)
+
+
+@pytest.mark.usefixtures("video_request_facts")
+@pytest.mark.parametrize(
+    ("content_mode", "task_type"),
+    [
+        ("ad", "text_episode_script"),
+        ("drama", "text_drama_script_plan"),
+        ("narration", "text_narration_script_plan"),
+        ("narration", "text_episode_plan"),
+    ],
+)
+async def test_queued_text_task_with_a_retired_text_model_fails_with_a_reselectable_problem(
+    monkeypatch: pytest.MonkeyPatch, content_mode: str, task_type: str
+) -> None:
+    """项目引用的文本模型已不在供应商清单：剧本、规划与分集规划任务都以稳定码失败并带「去配置供应商」，不归为通用失败。"""
+    projects = ProjectManager(DataRootLayout.current().root)
+    projects.create_project("retired", content_mode=content_mode)
+    projects.create_project_metadata("retired", "Retired", "", content_mode)
+    _admit_text_operations(projects, "retired")
+
+    async def raise_retired(*_args, **_kwargs):
+        raise ModelNotInCatalogError(provider_id="gemini-aistudio", model_id="retired-model", media_type="text")
+
+    monkeypatch.setattr(TextGenerator, "create", raise_retired)
+    task = {"task_id": "task-retired", "project_name": "retired", "task_type": task_type, "payload": {"episode": 1}}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "model_not_in_provider_catalog",
+        GenerationAction.CONFIGURE_PROVIDER,
+        {"provider": "gemini-aistudio", "model": "retired-model"},
+    )
 
 
 async def test_queued_reference_plan_fails_with_the_real_video_model_problem(set_video_request_facts) -> None:

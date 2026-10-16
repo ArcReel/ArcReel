@@ -17,8 +17,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
-from lib.backends.gemini_shared import VERTEX_SCOPES
-from lib.billing.cost_calculator import cost_calculator
+from lib.backends.gemini_shared import GEMINI_DEFAULT_VIDEO_MODEL, VERTEX_SCOPES
 from tests.fakes import bounded_poll_clock, captured_provider_job_ids
 from tests.http_capture import PathPrefixRewrite, capture_http
 
@@ -108,7 +107,7 @@ class TestGeminiVideoBackendProperties:
         assert caps.last_frame is True
         assert caps.max_reference_images == 3
         # 未传 video_model 时落到默认视频型号
-        assert gemini_backend.model == cost_calculator.DEFAULT_VIDEO_MODEL
+        assert gemini_backend.model == GEMINI_DEFAULT_VIDEO_MODEL
 
     def test_vertex_backend_constructs_from_credentials_file(self, mock_rate_limiter, tmp_path):
         # 准备 mock vertex 凭证文件

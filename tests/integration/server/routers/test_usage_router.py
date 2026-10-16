@@ -7,8 +7,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import null
 
 from lib.backends.providers import CallStatus
+from lib.custom_provider import make_provider_id
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import Task
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project.project_manager import ProjectManager
 from server.routers import usage
 
@@ -351,6 +353,36 @@ class TestUsageRecordProjectTitles:
 
         assert client.get(f"/api/v1/usage/records/{record_id}").json()["project_title"] == "雨夜行舟"
         assert client.get("/api/v1/usage/summary").json()["filter_options"]["project_titles"] == {"demo": "雨夜行舟"}
+
+
+class TestProviderInSettings:
+    """详情说明供应商是否还在供应商设置里，界面据此决定模型名是否链接到供应商模型的设置。"""
+
+    async def test_only_builtin_and_existing_custom_providers_are_in_settings(self, db_factory, usage_app):
+        async with db_factory() as session:
+            relay = await CustomProviderRepository(session).create_provider("中转站", "openai", "https://relay", "k")
+            await session.flush()
+            providers = ["ark", relay_id := make_provider_id(relay.id), "custom-999", "gemini", "agent-3", ""]
+            session.add_all(
+                make_call(segment_id=provider or "none", provider=provider, started_at=BASE_TIME + timedelta(minutes=i))
+                for i, provider in enumerate(providers)
+            )
+            await session.commit()
+        client = TestClient(usage_app(db_factory))
+
+        details = {
+            item["provider"]: client.get(f"/api/v1/usage/records/{item['id']}").json()["provider_in_settings"]
+            for item in client.get("/api/v1/usage/records").json()["items"]
+        }
+
+        assert details == {
+            "ark": True,
+            relay_id: True,
+            "custom-999": False,
+            "gemini": False,
+            "agent-3": False,
+            "": False,
+        }
 
 
 class TestUsageRecordDetail:

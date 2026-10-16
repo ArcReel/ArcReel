@@ -45,7 +45,7 @@ def _write_artifact(projects: ProjectManager, relative: str) -> None:
 async def _record_call(session_factory: async_sessionmaker[AsyncSession], output_path: str) -> int:
     async with session_factory() as session:
         repo = UsageRepository(session)
-        call_id = await repo.start_call(project_name="demo", call_type="image", model="m")
+        call_id = await repo.start_call(project_name="demo", call_type="image", model="m", provider="gemini")
         await repo.finish_call(
             call_id, status="success", settlement=SettlementInput(cost_amount=0.0), output_path=output_path
         )

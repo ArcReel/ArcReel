@@ -56,6 +56,7 @@ export function makeUsageRecordDetail(
     prompt: null,
     inputs: null,
     last_provider_response: null,
+    provider_in_settings: true,
     ...overrides,
   };
 }

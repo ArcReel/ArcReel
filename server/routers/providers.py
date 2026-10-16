@@ -387,7 +387,7 @@ def _build_field(
 def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
     """该视频 model 的参考音频运输形态；非视频 provider / 未声明一律 "none"。
 
-    `VideoCapabilities` 是 backend 侧声明（唯一真相源），registry `ModelInfo` 不复制第二份——
+    `VideoCapabilities` 是 backend 侧声明（唯一真相源），目录的模型信息不复制第二份——
     与 `lib/config/resolver.py::_resolve_video_caps_for_model` 的做法一致。router 层（非
     lib 包）不受 lib.config 分层契约约束，可直接读 backend 声明。
     """

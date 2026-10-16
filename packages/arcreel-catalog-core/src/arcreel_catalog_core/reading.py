@@ -47,6 +47,7 @@ from .vocabulary import (
 #: 数据集版本是 UTC 时间戳，定长，字符串顺序即时间顺序。
 DATASET_VERSION_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 _APP_VERSION = re.compile(r"\d+(\.\d+){0,2}")
+_CONTEXT_TIER = "context_tier"
 
 
 @dataclass(frozen=True)
@@ -330,7 +331,25 @@ class CatalogReader:
             meters.append(meter)
         if not meters:
             self.flag(_at(path, "meters"), "empty_price_table", "价目表至少要有一个计量项；没有价格时省略 price")
+        self.check_context_tiers(meters, path)
         return PriceTable(currency=currency, meters=tuple(meters))
+
+    def check_context_tiers(self, meters: list[Meter], path: str) -> None:
+        """上下文档首档写 0，且各计量项分界相同：整个请求只落入一档，各计量项都按这一档取单价。"""
+        grid: frozenset[int] | None = None
+        for index, meter in enumerate(meters):
+            tiers = frozenset(
+                value for row in meter.rows if type(value := row.when.get(_CONTEXT_TIER)) is int and value >= 0
+            )
+            if not tiers:
+                continue
+            meter_path = _at(path, f"meters[{index}]")
+            if 0 not in tiers:
+                self.flag(meter_path, "context_tier_not_from_zero", "上下文档的首档要写 0")
+            if grid is None:
+                grid = tiers
+            elif tiers != grid:
+                self.flag(meter_path, "context_tier_mismatch", "各计量项的上下文档分界要相同")
 
     def meter(self, raw: object, media_type: MediaType, path: str) -> Meter:
         data = self.obj(raw, path)

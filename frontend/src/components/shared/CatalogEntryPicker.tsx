@@ -1,6 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { API } from "@/api";
 import { Button } from "@/components/ui/button";
 import {
   Command,
@@ -12,13 +11,12 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import type { CatalogEntryHit, MediaType } from "@/types";
-import { errMsg } from "@/utils/async";
+import { useCatalogEntrySearch } from "./useCatalogEntrySearch";
 
 const MEDIA_TYPES: readonly MediaType[] = ["text", "image", "video", "audio"];
 
-type MediaFilter = MediaType | "all";
+export type MediaFilter = MediaType | "all";
 
 interface Props {
   open: boolean;
@@ -51,10 +49,6 @@ export function CatalogEntryPicker({ open, onOpenChange, mediaType, onSelect, ti
   );
 }
 
-type SearchState =
-  | { status: "ready"; key: string; entries: CatalogEntryHit[] }
-  | { status: "error"; key: string; message: string };
-
 function PickerBody({
   initialFilter,
   onSelect,
@@ -65,32 +59,8 @@ function PickerBody({
   const { t } = useTranslation(["dashboard", "common"]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<MediaFilter>(initialFilter);
-  const [attempt, setAttempt] = useState(0);
-  const [result, setResult] = useState<SearchState | null>(null);
-  const debouncedQuery = useDebouncedValue(query.trim(), 200);
-  const requestKey = `${attempt}|${filter}|${debouncedQuery}`;
-
-  useEffect(() => {
-    const controller = new AbortController();
-    API.searchCatalogEntries(
-      { q: debouncedQuery, mediaType: filter === "all" ? undefined : filter },
-      { signal: controller.signal },
-    )
-      .then((response) => {
-        if (controller.signal.aborted) return;
-        setResult({ status: "ready", key: requestKey, entries: response.entries });
-      })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
-        setResult({ status: "error", key: requestKey, message: errMsg(err) });
-      });
-    return () => controller.abort();
-  }, [debouncedQuery, filter, attempt, requestKey]);
-
-  // 结果对应当前输入才算就绪：防抖未到期或请求未返回时，列表里仍是上一次的结果
-  const settled = result !== null && result.key === requestKey && debouncedQuery === query.trim();
-  const makerLabel = (maker: string) => t(`dashboard:catalog_maker_${maker}`, { defaultValue: maker });
-
+  const search = useCatalogEntrySearch(query, filter === "all" ? undefined : filter);
+  const settled = search.settled;
   return (
     <Command shouldFilter={false} loop>
       <CommandInput
@@ -99,63 +69,33 @@ function PickerBody({
         placeholder={t("dashboard:catalog_picker_search")}
         aria-label={t("dashboard:catalog_picker_search")}
       />
-      <div className="px-1 py-2">
-        <ToggleGroup
-          aria-label={t("dashboard:catalog_picker_media_filter")}
-          variant="outline"
-          size="sm"
-          value={[filter]}
-          onValueChange={(next: string[]) => {
-            // 再点已选中的一项不取消选择，筛选总有一项生效
-            if (next[0]) setFilter(next[0] as MediaFilter);
-          }}
-        >
-          <ToggleGroupItem value="all">{t("dashboard:catalog_picker_media_all")}</ToggleGroupItem>
-          {MEDIA_TYPES.map((type) => (
-            <ToggleGroupItem key={type} value={type}>
-              {t(`dashboard:media_type_${type}`)}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-      </div>
-      {result?.status === "error" && settled ? (
+      <CatalogMediaFilter value={filter} onChange={setFilter} />
+      {search.error !== null ? (
         <div role="alert" className="flex flex-col items-start gap-2 px-2 py-4 text-sm">
           <p>{t("dashboard:catalog_picker_load_failed")}</p>
           <details className="text-xs text-muted-foreground">
             <summary>{t("dashboard:catalog_picker_error_details")}</summary>
-            {result.message}
+            {search.error}
           </details>
-          <Button variant="outline" size="sm" onClick={() => setAttempt((n) => n + 1)}>
+          <Button variant="outline" size="sm" onClick={search.retry}>
             {t("common:retry")}
           </Button>
         </div>
       ) : (
         // 结果就绪前，上一次的结果仍显示但不可选，避免选中与当前搜索词或筛选不符的条目
         <CommandList label={t("dashboard:catalog_picker_list")} className="max-h-[50dvh]" aria-busy={!settled}>
-          {result?.status === "ready" && (
+          {search.entries !== null && (
             <>
               {settled && <CommandEmpty>{t("dashboard:catalog_picker_empty")}</CommandEmpty>}
               <CommandGroup heading={t("dashboard:catalog_picker_list")}>
-                {result.entries.map((entry) => (
+                {search.entries.map((entry) => (
                   <CommandItem
                     key={`${entry.maker}/${entry.name}/${entry.media_type}`}
                     value={`${entry.maker}/${entry.name}/${entry.media_type}`}
                     disabled={!settled}
                     onSelect={() => onSelect(entry)}
                   >
-                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate">{entry.display_name}</span>
-                        {entry.discontinued && (
-                          <span className="shrink-0 text-xs text-destructive">
-                            {t("dashboard:catalog_picker_discontinued")}
-                          </span>
-                        )}
-                      </span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {makerLabel(entry.maker)} · {t(`dashboard:media_type_${entry.media_type}`)}
-                      </span>
-                    </span>
+                    <CatalogEntryLabel entry={entry} />
                   </CommandItem>
                 ))}
               </CommandGroup>
@@ -164,5 +104,49 @@ function PickerBody({
         </CommandList>
       )}
     </Command>
+  );
+}
+
+/** 目录条目在列表里的两行：显示名（已下架另标），厂商与媒体类型。 */
+export function CatalogEntryLabel({ entry }: { entry: CatalogEntryHit }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <span className="flex min-w-0 items-center gap-2">
+        <span className="truncate">{entry.display_name}</span>
+        {entry.discontinued && (
+          <span className="shrink-0 text-xs text-destructive">{t("catalog_picker_discontinued")}</span>
+        )}
+      </span>
+      <span className="truncate text-xs text-muted-foreground">
+        {t(`catalog_maker_${entry.maker}`, { defaultValue: entry.maker })} · {t(`media_type_${entry.media_type}`)}
+      </span>
+    </span>
+  );
+}
+
+/** 按媒体类型筛选：全部、文本、图片、视频、音频，总有一项选中。 */
+export function CatalogMediaFilter({ value, onChange }: { value: MediaFilter; onChange: (next: MediaFilter) => void }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <div className="px-1 py-2">
+      <ToggleGroup
+        aria-label={t("catalog_picker_media_filter")}
+        variant="outline"
+        size="sm"
+        value={[value]}
+        onValueChange={(next: string[]) => {
+          // 再点已选中的一项不取消选择，筛选总有一项生效
+          if (next[0]) onChange(next[0] as MediaFilter);
+        }}
+      >
+        <ToggleGroupItem value="all">{t("catalog_picker_media_all")}</ToggleGroupItem>
+        {MEDIA_TYPES.map((type) => (
+          <ToggleGroupItem key={type} value={type}>
+            {t(`media_type_${type}`)}
+          </ToggleGroupItem>
+        ))}
+      </ToggleGroup>
+    </div>
   );
 }

@@ -72,6 +72,8 @@ const RECORDINGS: Recording[] = [
   // 全局设置：默认落地的供应商详情（列表第一项）与默认模型的候选。
   { file: "provider-gemini-aistudio-config", method: "GET", path: "/api/v1/providers/gemini-aistudio/config" },
   { file: "provider-gemini-aistudio-credentials", method: "GET", path: "/api/v1/providers/gemini-aistudio/credentials" },
+  { file: "provider-gemini-aistudio-multiplier", method: "GET", path: "/api/v1/providers/gemini-aistudio/multiplier" },
+  { file: "provider-gemini-aistudio-models", method: "GET", path: "/api/v1/providers/gemini-aistudio/models" },
   { file: "system-config-model-candidates", method: "GET", path: "/api/v1/system/config/model-candidates" },
   // 全局设置：访问令牌列表（录制环境没有令牌，多条目由场景替换）。
   { file: "api-keys", method: "GET", path: "/api/v1/api-keys" },

@@ -25,6 +25,7 @@ from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextOutputTruncatedError, TextTaskType
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
 from lib.backends.text_generator import TextGenerator
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.episode.episode_ids import describe_episode_for_agent
 from lib.episode.episode_paths import (
@@ -1015,7 +1016,7 @@ async def generate_drama_script_plan(
                 ) from exc
 
         return TextGenerationResult(_drama_script_plan_result_text(script_plan_path, raw_scenes, action="生成"))
-    except (TextGenerationError, TextOutputTruncatedError):
+    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
@@ -1761,7 +1762,7 @@ async def generate_reference_script_plan(
                 action="拆分",
             )
         )
-    except (TextGenerationError, TextOutputTruncatedError):
+    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
@@ -1906,7 +1907,7 @@ async def generate_narration_script_plan(
                 ) from exc
 
         return TextGenerationResult(_narration_script_plan_result_text(script_plan_path, raw_segments, action="拆分"))
-    except (TextGenerationError, TextOutputTruncatedError):
+    except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
         raise
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc

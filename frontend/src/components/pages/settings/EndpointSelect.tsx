@@ -24,6 +24,8 @@ function imageCapabilityKey(caps: ImageCap[]): string {
 interface EndpointSelectProps {
   /** 触发按钮的 id，供字段标签用 `htmlFor` 关联。 */
   id?: string;
+  /** 没有可见字段标签时（如列表行内）触发按钮的无障碍名称。 */
+  "aria-label"?: string;
   value: EndpointKey;
   onChange: (next: EndpointKey) => void;
   /**
@@ -33,13 +35,23 @@ interface EndpointSelectProps {
    */
   protocol: DiscoveryFormat;
   disabled?: boolean;
+  /** 窄位置（列表行内）：触发按钮只显示端点名称，请求路径留在下拉选项里。 */
+  compact?: boolean;
 }
 
 /**
  * 自定义供应商模型的「调用端点」选择器：按媒体类型分组，每项显示端点名称、请求方法与路径，
  * 图片端点另标文生图 / 图生图能力。选项全部来自端点目录（后端单一真相源）。
  */
-export function EndpointSelect({ id, value, onChange, protocol, disabled }: EndpointSelectProps) {
+export function EndpointSelect({
+  id,
+  "aria-label": ariaLabel,
+  value,
+  onChange,
+  protocol,
+  disabled,
+  compact = false,
+}: EndpointSelectProps) {
   const { t } = useTranslation("dashboard");
   const endpoints = useEndpointCatalogStore((s) => s.endpoints);
   const initialized = useEndpointCatalogStore((s) => s.initialized);
@@ -75,7 +87,7 @@ export function EndpointSelect({ id, value, onChange, protocol, disabled }: Endp
         }}
         disabled={disabled || groups.length === 0}
       >
-        <SelectTrigger id={id} className="w-full">
+        <SelectTrigger id={id} aria-label={ariaLabel} className="w-full">
           <SelectValue>
             {() =>
               value === "" ? (
@@ -85,9 +97,11 @@ export function EndpointSelect({ id, value, onChange, protocol, disabled }: Endp
               ) : selected ? (
                 <span className="flex min-w-0 items-baseline gap-2">
                   <span className="truncate">{label(selected)}</span>
-                  <span className="truncate font-mono text-xs text-muted-foreground">
-                    {selected.request_path_template}
-                  </span>
+                  {!compact && (
+                    <span className="truncate font-mono text-xs text-muted-foreground">
+                      {selected.request_path_template}
+                    </span>
+                  )}
                 </span>
               ) : (
                 // 已存的端点不在当前目录里（数据漂移或后端临时移除）：显示原始 key，不冒充第一项

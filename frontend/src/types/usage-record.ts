@@ -58,7 +58,7 @@ export interface UsageRecordInputImage {
   role?: string | null;
 }
 
-/** 详情比列表多三项重载荷。 */
+/** 详情比列表多三项重载荷，以及供应商是否还在供应商设置里。 */
 export interface UsageRecordDetail extends UsageRecord {
   prompt: string | null;
   inputs: {
@@ -70,6 +70,8 @@ export interface UsageRecordDetail extends UsageRecord {
     parameters?: Record<string, unknown>;
   } | null;
   last_provider_response: unknown;
+  /** 调用的供应商还在供应商设置里（内置供应商，或没有删除的自定义供应商）；为真时模型名链接到供应商模型的设置。 */
+  provider_in_settings: boolean;
 }
 
 /** keyset 分页的一页；`next_cursor` 为空表示已到末页。 */

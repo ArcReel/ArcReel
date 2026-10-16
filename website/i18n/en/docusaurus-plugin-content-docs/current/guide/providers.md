@@ -87,6 +87,119 @@ Project-level overrides are suitable when:
 - You need to compare results from two providers;
 - Only some services are accessible in a particular region.
 
+### 3.1 Enabling and Disabling Models {#enable-models}
+
+The detail page of a Preset Provider lists all of its models grouped into text, image, video, and audio. Each row shows the model name,
+model ID, and a price summary; models that are discontinued, or whose calls will be recorded as "Unpriced", are flagged.
+Use "All / Enabled" to switch what is shown.
+
+- Turning off a model's switch disables it immediately: disabled models no longer appear among the global and project default model
+  candidates, and when a provider's default model is disabled, automatic selection skips it;
+- A model already selected in settings or a project keeps working after it is disabled; to replace it, pick another one in the default model settings;
+- The old Agnes models that were hidden in earlier versions appear as disabled after upgrading, and can be re-enabled if needed.
+
+The price summary shows the unit price range for each billing item; for models priced by tiers such as resolution or duration, it shows
+the lowest to the highest tier. Actual costs are further multiplied by the provider's multiplier, which is set higher up on the same page.
+
+### 3.2 Model Settings {#model-settings}
+
+Click a row in the model list to open that model's settings on the right; this works the same for Preset and custom providers. The upper
+part, "Provider settings", applies only to the current provider. The lower part, "Model info", is the model's record in the model catalog
+and is shared by every provider that uses the model. Both parts share the save bar at the bottom and are saved together, and closing with
+unsaved changes asks first.
+
+- Officially listed built-in models can only be enabled or disabled; their other settings are maintained officially;
+- Models of custom providers, and models you added yourself under a built-in provider, also have:
+  - "Model ID": the model name sent to the provider with each call. After changing it, settings and projects that selected this model need to select it again;
+  - "Multiplier": this model's multiplier. When the provider multiplier is not 1, the final multiplier of the two is shown;
+  - "Parameters this provider supports": change these when what the provider actually supports differs from the model info, for example
+    when a relay only offers some durations or resolutions, or does not support the last frame. Each item shows its original value;
+    "Change" replaces the whole item and "Restore" goes back to the original value. Models that map to no known model can be changed too;
+    their original values are what ArcReel infers from the model name. For video models, "Durations by resolution" follows "Durations",
+    and removing a resolution also removes its duration restriction;
+  - "Remove from 'provider name'": removal asks for confirmation first. When settings or projects use the model, the dialog lists them,
+    and after removal you need to select another model for them;
+- Models of custom providers also have "Set as default", "Call endpoint", "Request URL", and a default resolution. Changing the endpoint
+  resets modified request URLs to their defaults and clears the changes under "Parameters this provider supports"; save first, then adjust
+  them for the new endpoint.
+
+In "Model info" you can change the display name, capabilities, durations, durations by resolution, resolutions, and the maximum output
+length; the model maker, official model name, type, and aliases are read-only. A line at the top says who maintains the information:
+
+- Maintained officially: it is updated with official data. Before you save a change, a note above the save bar says that after saving,
+  this model uses your information and no longer follows official updates;
+- Modified by you: official updates do not overwrite your changes, and the row is marked "Modified" in the model list. Each changed field
+  shows the official value below it, and "Use" takes that one value back. "Restore official data", after confirmation, discards all your
+  changes and returns to official data. It takes effect immediately without the save bar and cannot be undone;
+- No official information, filled in by you: the model catalog had no information for this model, and it does not follow official
+  updates. If the official data later adds the same model, "Use official data" appears here: after confirmation, the information you
+  entered is replaced by the official data. It takes effect immediately and cannot be undone.
+
+When a relay renames a model so it no longer matches the model catalog by name, models you added yourself and models of custom providers
+can be linked to a catalog model by hand. "Link to another model" at the top right of the lower half opens the model catalog picker
+(it lists models of the same type by default); after you choose one, capabilities, price, and call-channel capabilities all come from
+that model. A linked model is no longer matched by name; click "Unlink" to go back. For a model that is not in the catalog, click
+"Fill in manually" to enter the model maker, model name, display name, type, and capabilities; the durations of a video model are
+prefilled from the model name. The price is optional, and calls are recorded as unpriced without it. If the catalog already has a model
+with the same name, you cannot fill it in; select that model instead. All of this only changes the draft, takes effect with the save bar
+at the bottom, and leaves nothing behind if you cancel.
+
+The "Pricing" part of "Model info" is edited as one card per billing item, and you can use it to add prices the catalog does not have:
+
+- Choose the currency first (US dollar or Chinese yuan). A price table uses the currency of the model maker's main site, with no
+  exchange-rate conversion;
+- "Add billing item" lists only the items available for this type of model, such as "Input", "Cache hit", and "Output" for text, or
+  "Video duration" for video. An item without conditions has one price line. After "Price by condition" adds a condition such as
+  resolution, audio, or service tier (Standard, Flex, Fast), each tier gets a "condition → price" line; click a condition tag to change
+  its value, and "Add tier" adds a line. A condition cannot be removed once added: to change conditions, delete the whole card and add
+  the item again;
+- When a request gives no value for a condition, the line below the card, "When a request gives no condition, use", supplies it. A
+  condition without a value cannot be priced, so the call is recorded as unpriced;
+- Items such as reference images can have a free allowance: only the part of a request beyond it is charged;
+- Without a price, call costs are recorded as unpriced. When the entry has been modified, the official pricing is shown below the
+  prices and "Use the official pricing" takes it back; it is not shown when the currency differs from the official one.
+
+When other providers use the same model, "Model info" lists them: changes and restoring official data apply to them as well. If only one
+provider differs from the model info (for example, a relay offers only some durations), change "Parameters this provider supports"
+instead of the model info.
+
+The name, base URL, key, concurrency limits, and provider multiplier of a custom provider are still saved together in the provider details,
+and saving them does not change the models in the model list.
+
+In the details of a usage record, click the model name to open that model's settings; when the provider has been deleted or is an Agent credential, only the model name is shown.
+
+### 3.3 Adding and Fetching Models {#add-models}
+
+Above the model list are two entries, "Add model" and "Fetch models", for both Preset and custom providers.
+
+"Add model" lets you search model names or type a model ID directly, and filter by media type:
+
+- "Disabled models": shown only for Preset Providers. It lists the officially listed models that are disabled; selecting one enables it;
+- "Add by model ID": adds the model ID you typed. Its media type comes from the model catalog when the name maps to a known model;
+  otherwise it is inferred from the model name, or taken from the media type filter when one is selected;
+- "Model catalog": adds a model picked from the model catalog; its price and model info follow the selected entry. Entries already in the
+  list are marked "Added"; when a Preset Provider already lists the model (its API model name may differ from the catalog name),
+  selecting it enables that listed model.
+
+After adding, the new model's settings open right away so you can adjust its call endpoint and other settings.
+
+"Fetch models" calls the provider's model-listing interface and lists only the models not yet added; already-added models are shown as a
+count. The results are split into two groups:
+
+- "Recognized": models that map to a known model in the model catalog, checked by default;
+- "Unrecognized": unchecked by default. A model whose name maps to an entry in the model catalog shows the matching model name on its row
+  and is priced as that entry once added; a model that maps to no entry, or to an entry without a price, is flagged on its row as
+  recorded as "Unpriced". For each row you can click "Match model" to pick one from the model catalog, and the model is then priced as
+  the selected one.
+
+For custom providers each row also has a call endpoint dropdown. Its default is inferred from the model name, or from the media type of the
+matching model once you pick one. When fetching fails, the reason is shown, and you can check the base URL and key and try again.
+
+Among Preset Providers, AI Studio, Vertex AI, OpenAI, Grok, DashScope, MiniMax, and Agnes support fetching models, which
+requires adding a key first. A model ID returned by the provider counts as "Recognized" only when it exactly matches the API model name of an
+officially listed model. A provider listing a model does not mean your account or region can call it; likewise, officially listed models
+that are not returned stay in the list as usual.
+
 ## 4. Six Dimensions for Choosing a Provider {#six-selection-dimensions}
 
 Do not consider only the result of a single generation.
@@ -325,7 +438,7 @@ A typical configuration includes:
 - Media type;
 - Optional provider-specific parameters.
 
-The model discovery protocol only determines which type of model-listing interface ArcReel uses. How each model is actually called is determined by its bound call endpoint. ArcReel can infer the media type and call endpoint from the model name, but compatibility with a protocol does not mean that every capability and parameter is available. You can adjust these manually before saving, and you should validate each of the following after adding the provider:
+The model discovery protocol only determines which type of model-listing interface ArcReel uses. How each model is actually called is determined by its bound call endpoint. ArcReel can infer the media type and call endpoint from the model name, but compatibility with a protocol does not mean that every capability and parameter is available. You can adjust them in the [model settings](#model-settings) after adding models, and you should validate each of the following:
 
 1. Text connectivity;
 2. Structured output;
@@ -349,9 +462,9 @@ When creating an endpoint, you can pick the video or image "submit + poll" templ
 
 For a self-hosted ComfyUI instance, you can import an API-format workflow and map prompts, assets, dimensions, duration, and output to its nodes. See [Connect a ComfyUI Workflow](./comfyui.md) for the complete setup and operational constraints.
 
-When a relay keeps an official protocol but changes the path (an added prefix, a different version segment, or a renamed path), you can change the "Request URL" in the model's edit area. Each request the endpoint sends gets its own row; the base URL part is greyed out, and you click the path to edit it. Press Enter or click elsewhere to save, or press Esc to cancel. A changed path is appended to the base URL exactly as the provider entered it, without adding `/v1` or stripping a version segment. To drop only what was added or stripped automatically, open the path and press Enter without changing it. The path can only use placeholders the request already has, such as `{{ model }}` and `{{ task_id }}`.
+When a relay keeps an official protocol but changes the path (an added prefix, a different version segment, or a renamed path), you can change the "Request URL" in the [model settings](#model-settings). Each request the endpoint sends gets its own row; the base URL part is greyed out, and you click the path to edit it. Press Enter or click elsewhere to save, or press Esc to cancel. A changed path is appended to the base URL exactly as the provider entered it, without adding `/v1` or stripping a version segment. To drop only what was added or stripped automatically, open the path and press Enter without changing it. The path can only use placeholders the request already has, such as `{{ model }}` and `{{ task_id }}`.
 
-Connection tests and real generation use the changed URLs; model discovery and connectivity checks still use the base URL. Changing the endpoint resets modified request URLs to their defaults. If you change a request URL after a video task is submitted, resuming that task after a service restart fails instead of submitting it again. Endpoints without a "Request URL" row in the model's edit area do not support this.
+Connection tests and real generation use the changed URLs; model discovery and connectivity checks still use the base URL. Changing the endpoint resets modified request URLs to their defaults. If you change a request URL after a video task is submitted, resuming that task after a service restart fails instead of submitting it again. Endpoints without a "Request URL" row in the model settings do not support this.
 
 ### 10.1 Three Endpoint Test Modes {#custom-endpoint-tests}
 
@@ -449,7 +562,7 @@ Models on a custom provider have no prices of their own. When a model name maps 
 when it maps to nothing, its calls are recorded as "Unpriced". The model list on the settings page shows the known model each model maps to, or "Unpriced".
 
 Each provider can have a multiplier that applies to the cost of all its calls, to reflect top-up discounts or relay price differences.
-Each model on a custom provider can also have its own multiplier, so the final cost = official price × provider multiplier × model multiplier. For example, if a relay charges 80% of the official price across the board, set the provider multiplier to 0.8; if one model there costs 1.5× the official price, set that model's multiplier to 1.875 (0.8 × 1.875 = 1.5).
+Models of custom providers, and models you added yourself under a built-in provider, can also have their own multiplier, so the final cost = official price × provider multiplier × model multiplier. For example, if a relay charges 80% of the official price across the board, set the provider multiplier to 0.8; if one model there costs 1.5× the official price, set that model's multiplier to 1.875 (0.8 × 1.875 = 1.5).
 The multiplier defaults to 1; Volcengine Ark Agent Plan is billed by subscription and ComfyUI providers run on your own hardware, so their multipliers default to 0 and no cost is computed. Changing a multiplier only affects later calls;
 costs already recorded are not recalculated.
 

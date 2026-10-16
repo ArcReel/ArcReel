@@ -242,8 +242,11 @@ def matched_entry_summary(model_id: str, media_type: str, entry_binding: str | N
     ``priced`` 表示条目有当前代码认得的价目表：为假时这个模型的调用同样记为未定价。
     """
     entry = model_entry(model_id, media_type, entry_binding)
-    if entry is None:
-        return None
+    return entry_summary(entry) if entry is not None else None
+
+
+def entry_summary(entry: CatalogEntry) -> dict[str, object]:
+    """条目摘要：厂商、官方模型名、媒体类型、显示名与是否有价格（见 :func:`matched_entry_summary`）。"""
     return {
         "maker": entry.maker,
         "name": entry.name,
