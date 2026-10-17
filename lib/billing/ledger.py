@@ -12,11 +12,12 @@
    幂等守卫（``WHERE status='pending'``）由仓储承担；finalize 自身异常不吞、直接冒泡（交
    worker finally 兜底）。``resume_failed`` 收调用方手上的异常或失败原文，与记账括号同经
    :mod:`lib.billing.call_failure` 编码后落三元组。
-3. **事后补录**（``backfill``）—— agent 会话用量一次调用写入终态行（含 SDK 直报费用），对调用
-   方省掉需要自行管理的 pending 中间态。
+3. **Agent 轮次**（``record_agent_turn``）—— Agent 会话的一轮按模型各写一条终态行，费用由仓储按会话连接时取下的
+   Agent 凭证与模型目录计价，调用方不经 pending 中间态。
 
-成功通道的 backend 结果对象 union 分发集中在 ``_settlement_from_result``：audio 合成字符数、
-video 实际计费时长两处语义转写在此单点完成，调用点成功分支不再有逐字段提取胶水。
+成功通道的 backend 结果对象 union 分发集中在 ``_settlement_from_result``：text 与 audio 的用量在此
+按用量契约转成计量项用量（结算时按模型目录的价目表计价），video 实际计费时长的语义转写也在此单点完成，
+调用点成功分支不做逐字段提取。video 的计量依赖发出的请求，由调用点向视频调用通道取得后随结果一并递交。
 
 结算落库后发一条 ``usage_record / recorded`` 项目变更（走 ``project_change_hints`` 的 batch 总线，
 与任务终态事件同一条 SSE），界面据此刷新用量而不必轮询；无项目名的调用（端点试跑）不发，pending
@@ -37,11 +38,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, assert_never
 
-from lib.backends.providers import PROVIDER_GEMINI, CallPurpose, CallStatus, CallType
+from lib.agent.credential_tiers import AgentPricing
+from lib.backends.providers import CallPurpose, CallStatus, CallType
 from lib.billing.call_failure import CallFailure, classify_call_failure
+from lib.billing.metering import Usage, token_usage
 from lib.db import safe_session_factory
 from lib.db.base import DEFAULT_USER_ID
-from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
+from lib.db.repositories.usage_repo import AgentModelCall, SettlementInput, UsageRepository
 from lib.project.project_change_hints import emit_project_change_batch
 
 logger = logging.getLogger(__name__)
@@ -73,38 +76,75 @@ def build_usage_record_change(call_id: int, status: CallStatus) -> dict[str, Any
     }
 
 
-def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: str = "default") -> SettlementInput:
+def _settlement_from_result(call_type: CallType, result: Any, *, usage: Usage | None = None) -> SettlementInput:
     """成功通道 union 分发：按 call_type 从 backend 结果对象提取计费维度。
 
-    两处语义转写的唯一落点：
-    - audio 的 ``characters``（合成字符数）→ ``usage_tokens``（驱动 per-character 计费）；
+    语义转写的唯一落点：
+    - image 的调用通道已按用量契约上报计量项与选择维度，原样转交；
+    - text 的总输入与三项缓存 → 互不重叠的 token 计量项（未缓存输入 = 总输入 − 缓存读 − 两档缓存写），
+      降级链上的多次请求各出一份，计费时逐次落上下文档；
+    - audio 的原始文本 → 计量用的 ``text``（字符数由计算器按价目表统计），另把字符数记进 ``usage_tokens``；
+      按 token 计价的 TTS 再带输入 token 与输出音频 token；
     - video 的 ``duration_seconds``（backend 回报的实际计费/生成时长）→
-      ``billed_duration_seconds``（覆盖 start_call 时的请求时长）。
+      ``billed_duration_seconds``（覆盖 start_call 时的请求时长）；``usage`` 是视频调用通道按用量契约上报的
+      这次请求的计量。
 
     四种 backend 结果对象结构独立、无共同基类，按调用点已知的 ``call_type`` 显式分发。
     """
     if call_type == "image":
         return SettlementInput(
             usage_tokens=result.usage_tokens,
-            quality=result.quality,
             image_input_tokens=result.image_input_tokens,
             image_output_tokens=result.image_output_tokens,
             text_input_tokens=result.text_input_tokens,
             text_output_tokens=result.text_output_tokens,
+            # 调用通道按用量契约上报（自定义供应商的包装层在被包装的通道不报时按通用口径补上）。
+            usage=(result.usage,) if result.usage is not None else (),
         )
     if call_type == "audio":
-        return SettlementInput(usage_tokens=result.characters)
+        return SettlementInput(
+            usage_tokens=len(result.text),
+            input_tokens=result.input_tokens,
+            output_tokens=result.audio_output_tokens,
+            usage=(
+                Usage(
+                    quantities=token_usage(
+                        input_tokens=result.input_tokens,
+                        output_tokens=result.audio_output_tokens,
+                        output_meter="audio_output_tokens",
+                    ),
+                    text=result.text,
+                ),
+            ),
+        )
     if call_type == "video":
         return SettlementInput(
             usage_tokens=result.usage_tokens,
             generate_audio=result.generate_audio,
             billed_duration_seconds=result.duration_seconds,
-            service_tier=service_tier,
+            usage=(usage,) if usage is not None else (),
         )
     if call_type == "text":
         return SettlementInput(
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
+            cache_read_tokens=result.cache_read_tokens,
+            cache_write_5m_tokens=result.cache_write_5m_tokens,
+            cache_write_1h_tokens=result.cache_write_1h_tokens,
+            # 没有任何计量（未追踪）时仍按一次零用量的请求计价。
+            usage=tuple(
+                Usage(
+                    quantities=token_usage(
+                        input_tokens=request.input_tokens,
+                        output_tokens=request.output_tokens,
+                        cache_read_tokens=request.cache_read_tokens,
+                        cache_write_5m_tokens=request.cache_write_5m_tokens,
+                        cache_write_1h_tokens=request.cache_write_1h_tokens,
+                    )
+                )
+                for request in result.request_tokens()
+            )
+            or (Usage(),),
         )
     assert_never(call_type)
 
@@ -112,15 +152,17 @@ def _settlement_from_result(call_type: CallType, result: Any, *, service_tier: s
 class LedgerCall:
     """记账括号句柄：块内暴露 ``call_id``，``success(result)`` 递交 backend 结果对象。"""
 
-    def __init__(self, call_id: int, *, call_type: CallType, service_tier: str) -> None:
+    def __init__(self, call_id: int, *, call_type: CallType) -> None:
         self.call_id = call_id
         self._call_type: CallType = call_type
-        self._service_tier = service_tier
         self._settlement: SettlementInput | None = None
 
-    def success(self, result: Any) -> None:
-        """声明成功并递交 backend 结果对象；union 分发在此完成，结算在括号退出时执行。"""
-        self._settlement = _settlement_from_result(self._call_type, result, service_tier=self._service_tier)
+    def success(self, result: Any, *, usage: Usage | None = None) -> None:
+        """声明成功并递交 backend 结果对象；union 分发在此完成，结算在括号退出时执行。
+
+        ``usage`` 只用于 video：调用通道按用量契约上报的这次请求的计量。
+        """
+        self._settlement = _settlement_from_result(self._call_type, result, usage=usage)
 
 
 class Ledger:
@@ -149,7 +191,7 @@ class Ledger:
         project_name: str,
         call_type: CallType,
         model: str,
-        provider: str = PROVIDER_GEMINI,
+        provider: str,
         prompt: str | None = None,
         resolution: str | None = None,
         duration_seconds: int | None = None,
@@ -157,7 +199,6 @@ class Ledger:
         generate_audio: bool | None = None,
         user_id: str = DEFAULT_USER_ID,
         segment_id: str | None = None,
-        service_tier: str = "default",
         output_path: str | None = None,
         task_id: str | None = None,
         purpose: CallPurpose | None = None,
@@ -187,7 +228,7 @@ class Ledger:
             session_id=session_id,
             inputs=inputs,
         )
-        call = LedgerCall(call_id, call_type=call_type, service_tier=service_tier)
+        call = LedgerCall(call_id, call_type=call_type)
         try:
             yield call
         except asyncio.CancelledError:
@@ -224,12 +265,13 @@ class Ledger:
         async with self._session_factory() as session:
             return await UsageRepository(session).find_pending_call_id_by_task_id(task_id)
 
-    async def resume_success(self, *, call_id: int, result: Any, service_tier: str = "default") -> int:
+    async def resume_success(self, *, call_id: int, result: Any, usage: Usage | None = None) -> int:
         """resume 成功补账：按 call_id 精准翻 pending → success，返回受影响行数（幂等 0/1）。
 
-        finalize 自身异常不吞、直接冒泡（交 worker finally 兜底），避免 ApiCall 永久卡 pending。
+        ``usage`` 是视频调用通道按续跑请求上报的计量。finalize 自身异常不吞、直接冒泡（交 worker finally
+        兜底），避免 ApiCall 永久卡 pending。
         """
-        settlement = _settlement_from_result("video", result, service_tier=service_tier)
+        settlement = _settlement_from_result("video", result, usage=usage)
         return await self._finalize(call_id=call_id, status=CallStatus.SUCCESS, settlement=settlement)
 
     async def resume_failed(self, *, call_id: int, failure: BaseException | str | None = None) -> int:
@@ -257,66 +299,43 @@ class Ledger:
         async with self._session_factory() as session:
             await UsageRepository(session).update_last_provider_response(call_id, body)
 
-    async def backfill(
+    async def record_agent_turn(
         self,
         *,
         project_name: str,
-        call_type: CallType,
-        model: str,
-        provider: str,
+        session_id: str,
         prompt: str | None,
         user_id: str,
+        provider: str,
+        pricing: AgentPricing,
         status: CallStatus,
-        input_tokens: int | None = None,
-        output_tokens: int | None = None,
-        usage_tokens: int | None = None,
-        cost_amount: float | None = None,
-        currency: str | None = None,
-        task_id: str | None = None,
-        purpose: CallPurpose | None = None,
-        session_id: str | None = None,
-        inputs: object | None = None,
+        calls: Sequence[AgentModelCall],
     ) -> None:
-        """事后补录：一次调用写入终态行（agent 会话用量含 SDK 直报费用）。
+        """Agent 会话的一轮：每个模型写一条终态行，按会话连接时取下的 Agent 凭证倍率与条目绑定计价（docs/adr/0102）。
 
-        无 backend 结果对象 union —— 用量与 SDK 直报费用由调用方显式给出。内部经 start_call +
-        finish_call 复用结算口径（含 SQLite 跨 session 的 duration_ms 兜底语义），调用方不需自行
-        管理 pending 中间态。两步写入整体不被取消打断：取消到达时先等终态行落库、事件发出，再传播取消。
+        没有用量的轮次不写。写入整体不被取消打断：取消到达时先等这一轮的行落库、事件发出，再传播取消。
         """
-        if status is CallStatus.PENDING:
-            raise ValueError("backfill 只写终态行：status 不能是 pending")
-        settlement = SettlementInput(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            usage_tokens=usage_tokens,
-            cost_amount=cost_amount,
-            currency=currency,
-        )
+        if not calls:
+            return
         await self._settle(
-            self._write_backfill(
-                status=status,
-                settlement=settlement,
+            self._write_agent_turn(
                 project_name=project_name,
-                call_type=call_type,
-                model=model,
-                prompt=prompt,
-                provider=provider,
-                user_id=user_id,
-                task_id=task_id,
-                purpose=purpose,
                 session_id=session_id,
-                inputs=inputs,
+                prompt=prompt,
+                user_id=user_id,
+                provider=provider,
+                pricing=pricing,
+                status=status,
+                calls=list(calls),
             )
         )
 
-    async def _write_backfill(
-        self, *, status: CallStatus, settlement: SettlementInput, project_name: str, **kwargs: Any
-    ) -> None:
-        """补录的开账与结算是一次写入：两步之间被打断会留下 pending 行，SDK 直报费用也随之丢失。"""
-        call_id = await self._start_call(project_name=project_name, **kwargs)
+    async def _write_agent_turn(self, *, project_name: str, status: CallStatus, **kwargs: Any) -> None:
         async with self._session_factory() as session:
-            await UsageRepository(session).finish_call(call_id, status=status, settlement=settlement)
-        self._emit_recorded(project_name, call_id, status)
+            call_ids = await UsageRepository(session).record_agent_turn(
+                project_name=project_name, status=status, **kwargs
+            )
+        self._publish(project_name, [build_usage_record_change(call_id, status) for call_id in call_ids])
 
     async def settle_interrupted_calls(self, *, taskless_started_before: datetime | None) -> int:
         """服务启动收口：把没有存活任务的 pending 调用行翻成终态，返回翻掉的行数。

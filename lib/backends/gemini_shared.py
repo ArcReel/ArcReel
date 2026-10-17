@@ -10,20 +10,30 @@ providers / media_generator 等模块复用，避免循环依赖。
 - RateLimiter — 多模型滑动窗口限流器
 - _rate_limiter_limits_from_env / get_shared_rate_limiter / refresh_shared_rate_limiter
 - with_retry_async — 从 lib.infra.retry re-export 的通用重试装饰器
+- gemini_http_options — AI Studio 客户端的 http_options（base_url 与 transport 注入）
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import threading
 import time
 from collections import deque
-from typing import Optional
+from typing import TYPE_CHECKING
 
-from lib.billing.cost_calculator import cost_calculator
+import httpx
+
+from lib.backends.transport_layer import TransportLayer, layer_async_client, layer_sync_client
 from lib.infra.retry import BASE_RETRYABLE_ERRORS, with_retry_async
+
+if TYPE_CHECKING:
+    from google.genai.types import HttpOptions, HttpOptionsDict
 
 __all__ = [
     "BASE_RETRYABLE_ERRORS",
+    "GEMINI_DEFAULT_IMAGE_MODEL",
+    "GEMINI_DEFAULT_VIDEO_MODEL",
     "RETRYABLE_ERRORS",
     "VERTEX_SCOPES",
     "RateLimiter",
@@ -64,7 +74,7 @@ class RateLimiter:
     def __init__(self, limits_dict: dict[str, int] | None = None, *, request_gap: float = 3.1):
         """
         Args:
-            limits_dict: {model_name: rpm} 字典。例如 {"gemini-3-pro-image-preview": 20}
+            limits_dict: {model_name: rpm} 字典。例如 {"gemini-3-pro-image": 20}
             request_gap: 最小请求间隔（秒），默认 3.1
         """
         self.limits = limits_dict or {}
@@ -169,8 +179,9 @@ class RateLimiter:
                 await asyncio.sleep(0.1)  # 短暂让出控制权
 
 
-_SHARED_IMAGE_MODEL_NAME = cost_calculator.DEFAULT_IMAGE_MODEL
-_SHARED_VIDEO_MODEL_NAME = cost_calculator.DEFAULT_VIDEO_MODEL
+# 共享限流器按模型名记 RPM；调用方没给模型名时，限额记在这两个模型名下。视频 backend 没给模型时也用它。
+GEMINI_DEFAULT_IMAGE_MODEL = "gemini-3.1-flash-image"
+GEMINI_DEFAULT_VIDEO_MODEL = "veo-3.1-lite-generate-preview"
 
 
 def resolve_gemini_api_key(api_key: str | None = None) -> str:
@@ -179,7 +190,26 @@ def resolve_gemini_api_key(api_key: str | None = None) -> str:
     return api_key.strip()
 
 
-_shared_rate_limiter: Optional["RateLimiter"] = None
+def gemini_http_options(
+    base_url: str | None, transport_layer: TransportLayer | None
+) -> HttpOptions | HttpOptionsDict | None:
+    """AI Studio 客户端的 http_options；未注入时只带非空的 ``base_url``。
+
+    注入的 ``transport_layer`` 叠在同步与异步两条 httpx 通道上。异步通道必须显式交给 SDK：未传
+    ``httpx_async_client`` 时，装有 aiohttp 的环境里异步请求走 aiohttp，注入层看不到。SDK 不关闭外部传入的客户端。
+    """
+    if transport_layer is None:
+        return {"base_url": base_url} if base_url else None
+    from google.genai.types import HttpOptions
+
+    return HttpOptions(
+        base_url=base_url or None,
+        httpx_client=layer_sync_client(httpx.Client(follow_redirects=True), transport_layer),
+        httpx_async_client=layer_async_client(httpx.AsyncClient(follow_redirects=True), transport_layer),
+    )
+
+
+_shared_rate_limiter: RateLimiter | None = None
 _shared_rate_limiter_lock = threading.Lock()
 
 
@@ -195,9 +225,9 @@ def _rate_limiter_limits_from_env(
     if video_rpm is None:
         video_rpm = 10
     if image_model is None:
-        image_model = _SHARED_IMAGE_MODEL_NAME
+        image_model = GEMINI_DEFAULT_IMAGE_MODEL
     if video_model is None:
-        video_model = _SHARED_VIDEO_MODEL_NAME
+        video_model = GEMINI_DEFAULT_VIDEO_MODEL
 
     limits: dict[str, int] = {}
     if image_rpm > 0:
@@ -214,7 +244,7 @@ def get_shared_rate_limiter(
     image_model: str | None = None,
     video_model: str | None = None,
     request_gap: float | None = None,
-) -> "RateLimiter":
+) -> RateLimiter:
     """
     获取进程内共享的 RateLimiter
 
@@ -247,7 +277,7 @@ def refresh_shared_rate_limiter(
     image_model: str | None = None,
     video_model: str | None = None,
     request_gap: float | None = None,
-) -> "RateLimiter":
+) -> RateLimiter:
     """
     Refresh the process-wide shared RateLimiter in-place.
 

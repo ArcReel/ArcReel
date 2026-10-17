@@ -1340,6 +1340,7 @@ describe("dimensions a ComfyUI workflow fixes", () => {
     duration_frame_rate_missing: false,
     duration_tier_empty: false,
     native_resolution: null,
+    requests: [],
   };
 
   const COMFY_PROVIDER: CustomProviderInfo = {
@@ -1360,16 +1361,15 @@ describe("dimensions a ComfyUI workflow fixes", () => {
         endpoint: "ce-2",
         is_default: true,
         is_enabled: true,
-        price_unit: null,
-        price_input: null,
-        price_output: null,
-        currency: null,
-        supported_durations: null,
         resolution: null,
-        max_output_tokens: null,
+        multiplier: 1,
+        entry_binding: null,
+        matched_entry: null,
         system_capabilities: null,
         capability_overrides: null,
         global_bucket_refs: [],
+        path_overrides: null,
+        requests: [],
       },
     ],
   };

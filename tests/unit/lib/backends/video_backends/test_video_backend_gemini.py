@@ -17,9 +17,9 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
-from lib.backends.gemini_shared import VERTEX_SCOPES
-from lib.billing.cost_calculator import cost_calculator
-from tests.fakes import bounded_poll_clock
+from lib.backends.gemini_shared import GEMINI_DEFAULT_VIDEO_MODEL, VERTEX_SCOPES
+from tests.fakes import bounded_poll_clock, captured_provider_job_ids
+from tests.http_capture import PathPrefixRewrite, capture_http
 
 
 class _RecordingRateLimiter:
@@ -107,7 +107,7 @@ class TestGeminiVideoBackendProperties:
         assert caps.last_frame is True
         assert caps.max_reference_images == 3
         # 未传 video_model 时落到默认视频型号
-        assert gemini_backend.model == cost_calculator.DEFAULT_VIDEO_MODEL
+        assert gemini_backend.model == GEMINI_DEFAULT_VIDEO_MODEL
 
     def test_vertex_backend_constructs_from_credentials_file(self, mock_rate_limiter, tmp_path):
         # 准备 mock vertex 凭证文件
@@ -745,3 +745,60 @@ class TestGeminiResumeVideo:
             await gemini_backend.resume_video("op-xyz", request)
 
         assert ei.value is not_found
+
+
+class TestGeminiSubmittedBaseUrlReplay:
+    """AI Studio 的 operation 只在提交它的域名上可查：提交时落下实际请求域名，续跑按它轮询与取件。"""
+
+    async def test_generate_persists_request_base_url(self, gemini_backend, tmp_path):
+        gemini_backend._client.aio.models.generate_videos = AsyncMock(return_value=_make_done_operation())
+        request = VideoGenerationRequest(prompt="p", output_path=tmp_path / "out.mp4", task_id="db-task")
+
+        with captured_provider_job_ids() as persisted:
+            await gemini_backend.generate(request)
+
+        # 未配置 base_url：落 SDK 缺省域名，之后改配中转站时续跑仍回到官方域名
+        assert persisted[0]["base_url"] == "https://generativelanguage.googleapis.com/"
+
+    async def test_resume_polls_and_downloads_from_submitted_base_url(self, gemini_backend, tmp_path):
+        # 提交时域名为中转站 A，续跑前配置已改回缺省：凭据沿用当下这套，轮询与取件都走 A
+        replay_client = MagicMock()
+        replay_client.aio.operations.get = AsyncMock(return_value=_make_done_operation())
+        replay_client.aio.aclose = AsyncMock()
+        replay_client.files.download.side_effect = _stream_to_destination(b"from-relay-a")
+        gemini_backend._client.aio.operations.get = AsyncMock(side_effect=AssertionError("不应按当下域名查询"))
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "out.mp4", submitted_base_url="https://relay-a.example.com"
+        )
+
+        with patch("google.genai") as genai_mock:
+            genai_mock.Client.return_value = replay_client
+            await gemini_backend.resume_video("op-a", request)
+
+        genai_mock.Client.assert_called_once_with(
+            api_key="test-key", http_options={"base_url": "https://relay-a.example.com/"}
+        )
+        assert request.output_path.read_bytes() == b"from-relay-a"
+        gemini_backend._client.files.download.assert_not_called()
+        replay_client.aio.aclose.assert_awaited_once()
+        replay_client.close.assert_called_once()
+
+    async def test_resume_on_submitted_base_url_carries_and_closes_the_injected_layer(self, tmp_path):
+        from lib.backends.video_backends.gemini import GeminiVideoBackend
+
+        layer = PathPrefixRewrite("/", "/")
+        backend = GeminiVideoBackend(api_key="k", base_url="https://relay-b.example.com", transport_layer=layer)
+        request = VideoGenerationRequest(
+            prompt="p", output_path=tmp_path / "out.mp4", submitted_base_url="https://relay-a.example.com"
+        )
+        gone = {"error": {"code": 404, "message": "gone", "status": "NOT_FOUND"}}
+
+        with capture_http() as router:
+            router.route(host="relay-a.example.com").respond(404, json=gone)
+            with pytest.raises(ResumeExpiredError):
+                await backend.resume_video("operations/op-a", request)
+
+        assert layer.seen
+        assert all(url.startswith("https://relay-a.example.com/") for url in layer.seen)
+        # 回放实例的同步与异步通道各关一次；SDK 不关外部传入的客户端
+        assert layer.closed == 2

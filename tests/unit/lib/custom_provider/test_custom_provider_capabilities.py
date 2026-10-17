@@ -50,22 +50,32 @@ class TestOverrideFieldSchema:
         assert CAPABILITY_OVERRIDE_FIELDS["audio_track"] is VideoAudioMode
         assert CAPABILITY_OVERRIDE_FIELDS["reference_route_audio_track"] == (VideoAudioMode | None)
 
-    def test_audio_track_dimensions_are_not_open_to_users(self):
-        """音轨形态不对用户开放覆盖（``docs/adr/0054``）。
-
-        自定义供应商的音轨口径按「无信号不收紧」处理：设置界面拿不到自定义模型的逐模型音轨
-        目录，服务端单方面派生会让界面与入队预检各说一套；endpoint 背后的上游 model 又由用户
-        填写、无从核实。开放覆盖等于把一份没有执行侧对应物的手写声明请回来——正是收编音轨真相源
-        要消除的分裂。
-        """
+    def test_open_dimensions_cover_both_kinds(self):
+        """能力覆盖开放模型事实与通道事实两类维度，通道事实含音轨形态（``docs/adr/0104``）。"""
         from server.routers.custom_providers import CAPABILITY_OVERRIDE_ALLOWLIST
 
-        assert not CAPABILITY_OVERRIDE_ALLOWLIST & {"audio_track", "reference_route_audio_track"}
-
-    def test_text_to_video_is_not_open_to_users(self):
-        from server.routers.custom_providers import CAPABILITY_OVERRIDE_ALLOWLIST
-
-        assert "text_to_video" not in CAPABILITY_OVERRIDE_ALLOWLIST
+        assert {
+            # 模型事实
+            "image_input",
+            "structured_output",
+            "max_output_tokens",
+            "text_to_image",
+            "image_to_image",
+            "durations",
+            "resolutions",
+            "duration_constraints",
+            # 通道事实
+            "text_to_video",
+            "first_frame",
+            "last_frame",
+            "max_reference_images",
+            "reference_audio_mode",
+            "max_reference_audio_count",
+            "max_reference_audio_total_seconds",
+            "max_prompt_chars",
+            "audio_track",
+            "reference_route_audio_track",
+        } == CAPABILITY_OVERRIDE_ALLOWLIST
 
 
 class TestCapabilitiesFromDefinition:

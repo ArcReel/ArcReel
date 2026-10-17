@@ -345,7 +345,7 @@ class TestProjectsRouter:
         with client:
             rejected = client.patch(
                 "/api/v1/projects/ready",
-                json={"video_provider_i2v": "gemini-aistudio/gemini-3.1-flash-image-preview"},
+                json={"video_provider_i2v": "gemini-aistudio/gemini-3.1-flash-image"},
             )
             assert rejected.status_code == 400
 

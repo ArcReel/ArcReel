@@ -38,6 +38,7 @@ from lib.backends.kling_shared import (
     resolve_kling_jwt_credentials,
 )
 from lib.backends.providers import PROVIDER_KLING
+from lib.backends.transport_layer import TransportLayer
 from lib.config.url_utils import normalize_base_url
 from lib.infra.retry import (
     DEFAULT_BACKOFF_SECONDS,
@@ -73,11 +74,13 @@ class KlingBackendBase:
         model: str,
         base_url: str | None,
         http_timeout: float,
+        transport_layer: TransportLayer | None = None,
     ) -> None:
         self._auth_mode = auth_mode
         self._model = model
         self._base_url = (normalize_base_url(base_url) or KLING_BASE_URL).rstrip("/")
         self._http_timeout = http_timeout
+        self._transport_layer = transport_layer
 
         if auth_mode == "jwt":
             ak, sk = resolve_kling_jwt_credentials(access_key, secret_key)

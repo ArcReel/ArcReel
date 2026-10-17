@@ -20,16 +20,18 @@ async def test_get_all_providers_status_empty(config_service: ConfigService):
         assert s.status == "unconfigured"
 
 
-async def test_provider_status_models_isolated_from_registry(config_service: ConfigService):
-    # models 返回值须与全局 PROVIDER_REGISTRY 隔离：改写其可变容器不应污染注册表。
-    from lib.config.registry import PROVIDER_REGISTRY
+async def test_provider_status_models_isolated_from_catalog(config_service: ConfigService):
+    # models 返回值须与目录查询的进程级索引隔离：改写其可变容器不应污染目录。
+    from lib.catalog import query as catalog
 
     statuses = await config_service.get_all_providers_status()
     target = next(s for s in statuses if s.models)
     mid, model_dict = next(iter(target.models.items()))
-    before = list(PROVIDER_REGISTRY[target.name].models[mid].capabilities)
+    model = catalog.get_model(target.name, mid)
+    assert model is not None
+    before = list(model.capabilities)
     model_dict["capabilities"].append("__mutation_probe__")
-    assert PROVIDER_REGISTRY[target.name].models[mid].capabilities == before
+    assert model.capabilities == before
 
 
 async def test_provider_becomes_ready(config_service: ConfigService, db_session: AsyncSession):

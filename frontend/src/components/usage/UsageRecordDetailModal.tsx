@@ -2,10 +2,13 @@ import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "wouter";
 import { cn } from "cn";
 
 import { API } from "@/api";
+import { providerSettingsPath } from "@/app-routes";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { UsageRecordDetail } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
@@ -20,6 +23,7 @@ import {
   providerLabelResolver,
   purposeKey,
   targetParts,
+  unpricedReasonKey,
   usageProjectLabel,
 } from "./usage-record-format";
 
@@ -41,10 +45,64 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Field({ label, value }: { label: string; value: ReactNode }) {
+/** 供应商模型 Sheet 的地址：自定义供应商的记录写的是 `custom-<id>`。 */
+function providerModelPath(provider: string, model: string): string {
+  const custom = /^custom-(\d+)$/.exec(provider);
+  return custom
+    ? providerSettingsPath({ custom: Number(custom[1]), model })
+    : providerSettingsPath({ preset: provider, model });
+}
+
+/**
+ * 调用的模型：供应商还在供应商设置里时打开它的 Sheet；Agent 凭证、已删除的自定义供应商、不再内置的旧值与没有供应商的
+ * 旧记录只显示模型名。
+ */
+function ProviderModelLink({ provider, model, linkable }: { provider: string; model: string; linkable: boolean }) {
+  const { t } = useTranslation("dashboard");
+  if (!linkable) return model;
+  return (
+    <Link
+      href={providerModelPath(provider, model)}
+      title={t("usage_open_provider_model")}
+      className="text-primary underline-offset-4 hover:underline focus-visible:underline"
+    >
+      {model}
+    </Link>
+  );
+}
+
+function Field({
+  label,
+  value,
+  hint,
+  indent = false,
+}: {
+  label: string;
+  value: ReactNode;
+  /** 悬停或聚焦标签时显示的说明。 */
+  hint?: string;
+  /** 从属于上一行的明细（如缓存写入的两档）。 */
+  indent?: boolean;
+}) {
   return (
     <div className="flex gap-3 py-0.5 text-sm">
-      <span className="w-24 shrink-0 text-muted-foreground">{label}</span>
+      <span className={cn("w-24 shrink-0 text-muted-foreground", indent && "pl-3")}>
+        {hint ? (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 说明只靠悬停无法被键盘与读屏获知，标签须可聚焦；它没有可执行的动作，不渲染为 button
+                <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-4" />
+              }
+            >
+              {label}
+            </TooltipTrigger>
+            <TooltipContent>{hint}</TooltipContent>
+          </Tooltip>
+        ) : (
+          label
+        )}
+      </span>
       <span className="num min-w-0 flex-1 text-xs break-words whitespace-pre-wrap text-subtle-foreground">{value}</span>
     </div>
   );
@@ -168,21 +226,50 @@ function InputsGroup({ detail }: { detail: UsageRecordDetail }) {
   );
 }
 
+const formatTokens = (value: number) => value.toLocaleString();
+
 function UsageGroup({ detail }: { detail: UsageRecordDetail }) {
   const { t } = useTranslation("dashboard");
-  const rows: [string, number | null][] = [
-    [t("usage_field_input_tokens"), detail.input_tokens],
-    [t("usage_field_output_tokens"), detail.output_tokens],
-    [t("usage_field_total_tokens"), detail.usage_tokens],
-  ].filter(([, value]) => value !== null) as [string, number][];
-  if (rows.length === 0) {
+  const {
+    input_tokens: input,
+    output_tokens: output,
+    usage_tokens: total,
+    cache_read_tokens: cacheRead,
+    cache_write_5m_tokens: write5m,
+    cache_write_1h_tokens: write1h,
+  } = detail;
+  if (input === null && output === null && total === null) {
     return <p className="text-sm text-muted-foreground">{t("usage_detail_empty")}</p>;
   }
+  const hasWrite = write5m !== null || write1h !== null;
+  // 记录里的总输入含缓存读写；对外的「输入」只指没有命中也没有写入缓存的那部分。
+  const uncachedInput =
+    input === null ? null : Math.max(0, input - (cacheRead ?? 0) - (write5m ?? 0) - (write1h ?? 0));
+  const show = (value: number | null) => (value === null ? "—" : formatTokens(value));
   return (
     <div>
-      {rows.map(([label, value]) => (
-        <Field key={label} label={label} value={(value as number).toLocaleString()} />
-      ))}
+      {input !== null && (
+        <>
+          <Field
+            label={t("usage_field_input_tokens")}
+            hint={t("usage_field_input_tokens_hint")}
+            value={show(uncachedInput)}
+          />
+          <Field label={t("usage_field_cache_read_tokens")} value={show(cacheRead)} />
+          <Field
+            label={t("usage_field_cache_write_tokens")}
+            value={hasWrite ? formatTokens((write5m ?? 0) + (write1h ?? 0)) : "—"}
+          />
+          {hasWrite && (
+            <>
+              <Field indent label={t("usage_field_cache_write_5m_tokens")} value={show(write5m)} />
+              <Field indent label={t("usage_field_cache_write_1h_tokens")} value={show(write1h)} />
+            </>
+          )}
+        </>
+      )}
+      {output !== null && <Field label={t("usage_field_output_tokens")} value={formatTokens(output)} />}
+      {total !== null && <Field label={t("usage_field_total_tokens")} value={formatTokens(total)} />}
     </div>
   );
 }
@@ -279,7 +366,20 @@ export function UsageRecordDetailModal({
                 <Group title={t("dashboard:usage_detail_group_call")}>
                   <div>
                     <Field label={t("dashboard:usage_col_provider")} value={providerLabel(detail.provider)} />
-                    <Field label={t("dashboard:usage_col_model")} value={detail.model || "—"} />
+                    <Field
+                      label={t("dashboard:usage_col_model")}
+                      value={
+                        detail.model ? (
+                          <ProviderModelLink
+                            provider={detail.provider}
+                            model={detail.model}
+                            linkable={detail.provider_in_settings}
+                          />
+                        ) : (
+                          "—"
+                        )
+                      }
+                    />
                     <Field
                       label={t("dashboard:usage_field_purpose")}
                       value={purpose ? t(`dashboard:${purpose}`) : "—"}
@@ -317,11 +417,23 @@ export function UsageRecordDetailModal({
                 )}
 
                 <Group title={t("dashboard:usage_col_cost")}>
-                  <p className="num text-xl text-foreground">
-                    {formatCurrencyAmount(detail.currency, detail.cost_amount, { maximumFractionDigits: 4 })}
-                    <span className="ml-1.5 text-xs text-muted-foreground">{detail.currency}</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">{t("dashboard:usage_detail_cost_hint")}</p>
+                  {detail.cost_amount === null ? (
+                    <>
+                      <p className="text-xl text-foreground">{t("dashboard:usage_cost_unpriced")}</p>
+                      <Field
+                        label={t("dashboard:usage_field_unpriced_reason")}
+                        value={t(`dashboard:${unpricedReasonKey(detail.unpriced_reason)}`)}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <p className="num text-xl text-foreground">
+                        {formatCurrencyAmount(detail.currency, detail.cost_amount, { maximumFractionDigits: 4 })}
+                        <span className="ml-1.5 text-xs text-muted-foreground">{detail.currency}</span>
+                      </p>
+                      <p className="text-xs text-muted-foreground">{t("dashboard:usage_detail_cost_hint")}</p>
+                    </>
+                  )}
                 </Group>
 
                 <section className="flex flex-col gap-2 border-t border-border pt-3">

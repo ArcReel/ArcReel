@@ -24,6 +24,23 @@ export interface PresetProvidersResponse {
   custom_sentinel_id: string;
 }
 
+/** Agent 凭证的模型档位：主模型与 haiku、sonnet、opus、子智能体四个路由。 */
+export type AgentCredentialTier = "model" | "haiku" | "sonnet" | "opus" | "subagent";
+
+/** 一个档位的定价状态，由服务端按当前模型目录现查。 */
+export interface AgentCredentialTierStatus {
+  tier: AgentCredentialTier;
+  /** 档位实际调用的模型名；null 表示档位留空，由 Claude Code 决定调用哪个模型。 */
+  model_name: string | null;
+  /** 对应到的模型条目显示名；对应不上条目时为 null。 */
+  entry_display_name: string | null;
+  /** 对应关系取自用户为档位选择的模型条目，而不是按模型名自动对应。 */
+  manually_bound: boolean;
+  /** 档位存着绑定、但所绑条目已不在模型目录里：对应关系已回到按模型名，绑定仍可解除。 */
+  binding_stale: boolean;
+  priced: boolean;
+}
+
 export interface AgentCredential {
   id: number;
   preset_id: string;
@@ -36,6 +53,10 @@ export interface AgentCredential {
   sonnet_model: string | null;
   opus_model: string | null;
   subagent_model: string | null;
+  /** Agent 凭证倍率，乘在这条凭证每次调用的参考费用上；0 表示不计费用。 */
+  multiplier: number;
+  /** 五个档位的定价状态，顺序固定：主模型、haiku、sonnet、opus、子智能体。 */
+  tiers: AgentCredentialTierStatus[];
   is_active: boolean;
   created_at: string | null;
 }
@@ -53,6 +74,9 @@ export interface CreateAgentCredentialRequest {
   sonnet_model?: string | null;
   opus_model?: string | null;
   subagent_model?: string | null;
+  multiplier?: number;
+  /** 档位 → 模型条目（「模型厂商/官方模型名」）；更新时按档位合并，null 解除该档位的绑定。 */
+  tier_bindings?: Partial<Record<AgentCredentialTier, string | null>>;
   activate?: boolean | null;
 }
 

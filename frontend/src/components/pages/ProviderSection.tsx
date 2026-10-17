@@ -155,10 +155,16 @@ export function ProviderSection() {
 
       {selection?.kind === "preset" && (
         // 换供应商时整栏重建：未保存的高级配置、在途保存与加载状态都属于上一个供应商
-        <ProviderDetail key={selection.id} providerId={selection.id} onSaved={refreshAfterSave} />
+        // 深链换了要打开的模型时同样重建
+        <ProviderDetail
+          key={`${selection.id}:${modelId ?? ""}`}
+          providerId={selection.id}
+          initialModelId={modelId}
+          onSaved={refreshAfterSave}
+        />
       )}
       {selection?.kind === "custom" && (
-        // 深链换了要定位的模型时同样重建，按新的模型展开
+        // 深链换了要打开的模型时同样重建
         <CustomProviderDetail
           key={`${selection.id}:${modelId ?? ""}`}
           providerId={selection.id}

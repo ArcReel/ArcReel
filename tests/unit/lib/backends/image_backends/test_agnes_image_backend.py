@@ -140,6 +140,22 @@ class TestTextToImage:
             "ratio": "16:9",
         }
         assert result.model == "agnes-image-2.5-flash"
+        assert result.usage is not None
+        assert result.usage.dimensions == {"resolution": "2K"}
+        assert result.usage.quantities == {"output_images": 1, "input_images": 0}
+
+    def test_v21_bills_by_short_edge_tier_of_sent_size(self):
+        from lib.backends.image_backends.agnes import AgnesImageBackend
+        from lib.backends.image_backends.base import ImageRequestFacts
+
+        def resolution(image_size: str | None) -> object:
+            facts = ImageRequestFacts(model="agnes-image-2.1-flash", aspect_ratio="9:16", image_size=image_size)
+            return AgnesImageBackend.estimate_usage(facts).dimensions["resolution"]
+
+        assert resolution("1K") == "1K"
+        # 4K 档经长边 2048 收口，实际发出的宽高落在 2K 档
+        assert resolution("4K") == "2K"
+        assert resolution(None) == "2K"
 
     async def test_v25_default_size_is_1k(self, tmp_path: Path):
         download = AsyncMock()
@@ -376,15 +392,10 @@ class TestRetryScope:
 
 class TestPricing:
     def test_legacy_image_by_resolution_usd(self):
-        from lib.billing.pricing.lookup import lookup_pricing
-        from lib.billing.pricing.strategies import PricingParams, calculate_pricing
-        from lib.billing.pricing.types import PerImageByResolution
+        from tests.catalog_support import builtin_price
 
-        pricing = lookup_pricing(PROVIDER_AGNES, "agnes-image-2.1-flash", "image")
-        assert isinstance(pricing, PerImageByResolution)
-        amount, currency = calculate_pricing(
-            pricing,
-            PricingParams(call_type="image", model="agnes-image-2.1-flash", resolution="1K"),
+        amount, currency = builtin_price(
+            PROVIDER_AGNES, "agnes-image-2.1-flash", "image", {"output_images": 1}, {"resolution": "1K"}
         )
         assert amount == pytest.approx(0.010)
         assert currency == "USD"

@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 from lib.agent.profile_manifest import ContentMode
 from lib.backends.text_backends.base import TextOutputTruncatedError
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
     ConfigResolver,
     VideoBucketCapabilityError,
@@ -832,6 +833,9 @@ async def get_video_capabilities(
     except VideoRequestFactsError as exc:
         # 视频请求事实的问题码即 errors 目录 key（ValueError 子类，须先于其捕获）
         raise UnprocessableError(exc.code, **exc.params) from exc
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
     except ValueError as exc:
         # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
         logger.warning("项目 '%s' 视频模型能力解析失败: %s", name, exc)
@@ -2011,13 +2015,13 @@ async def generate_overview(name: str, _t: Translator):
         return BadRequestError("text_provider_not_configured")
 
     try:
-        # EmptySourceError / PydanticValidationError 都是 ValueError 子类，须放行给下方各自的
-        # 专属 except 分支，不能被 domain_error_on_value_error 的通用 ValueError 处理误判为「未配置供应商」
+        # EmptySourceError / PydanticValidationError / ModelNotInCatalogError 都是 ValueError 子类，须放行给
+        # 下方各自的处理，不能被 domain_error_on_value_error 的通用 ValueError 处理误判为「未配置供应商」
         with (
             project_change_source("webui"),
             domain_error_on_value_error(
                 _provider_not_configured,
-                extra_passthrough=(EmptySourceError, PydanticValidationError),
+                extra_passthrough=(EmptySourceError, PydanticValidationError, ModelNotInCatalogError),
             ),
         ):
             overview = await get_project_manager().generate_overview(name)
@@ -2042,7 +2046,8 @@ async def generate_overview(name: str, _t: Translator):
         # 供应商解析链路内部会重新 load_project，project.json 损坏时不能误判为「未配置供应商」
         logger.exception("生成概述失败：项目数据损坏 name=%s", name)
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
-    except (HTTPException, ApiError):
+    except (HTTPException, ApiError, ModelNotInCatalogError):
+        # ModelNotInCatalogError：项目引用的文本模型已不在供应商清单中，交 app 级 handler 返回要求重新选择模型的 400
         raise
     except Exception as exc:
         logger.exception("请求处理失败")

@@ -662,7 +662,7 @@ class TestDispatcherFailFastAndPendingTracking:
                 api_key="k",
             )
             call_id = await UsageRepository(session).start_call(
-                project_name="demo", call_type="video", model="m", task_id="retry-1"
+                project_name="demo", call_type="video", model="m", provider="gemini", task_id="retry-1"
             )
             await session.commit()
         provider_key = f"custom-{provider.id}"

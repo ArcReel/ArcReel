@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
 import { Button } from "@/components/ui/button";
-import type { CustomProviderInfo } from "@/types";
+import type { CustomProviderInfo, ProviderMultiplierInfo } from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 import { CustomProviderForm } from "./CustomProviderForm";
 
@@ -17,20 +17,27 @@ interface CustomProviderDetailProps {
 }
 
 /**
- * 自定义供应商的详情栏：取回供应商后交给表单。换供应商时由上层按 `providerId` 重建整栏。
+ * 自定义供应商的详情栏：取回供应商与它的供应商倍率后交给表单。换供应商时由上层按 `providerId` 重建整栏。
+ * 倍率与供应商一起取齐再渲染表单：倍率后到时，用户已开始的编辑会把它当成外部更新，保存时把旧值写回。
  */
 export function CustomProviderDetail({ providerId, initialModelId, onDeleted, onSaved }: CustomProviderDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [provider, setProvider] = useState<CustomProviderInfo | null>(null);
+  const [multiplier, setMultiplier] = useState<ProviderMultiplierInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
     voidCall(
-      API.getCustomProvider(providerId, { signal: controller.signal })
-        .then((data) => {
-          if (!controller.signal.aborted) setProvider(data);
+      Promise.all([
+        API.getCustomProvider(providerId, { signal: controller.signal }),
+        API.getProviderMultiplier(`custom-${providerId}`, { signal: controller.signal }),
+      ])
+        .then(([data, multiplierInfo]) => {
+          if (controller.signal.aborted) return;
+          setProvider(data);
+          setMultiplier(multiplierInfo);
         })
         .catch((err: unknown) => {
           if (!controller.signal.aborted) setLoadError(errMsg(err));
@@ -70,7 +77,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
     );
   }
 
-  if (!provider) {
+  if (!provider || !multiplier) {
     return (
       <DetailPane>
         <p className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
@@ -84,6 +91,7 @@ export function CustomProviderDetail({ providerId, initialModelId, onDeleted, on
   return (
     <CustomProviderForm
       existing={provider}
+      providerMultiplier={multiplier}
       focusModelId={initialModelId}
       onSaved={handleSaved}
       onDeleted={onDeleted}

@@ -322,11 +322,27 @@ MESSAGES = {
     "interface_offline": "This interface is offline, please use the recommended interface",
     "answers_required": "answers cannot be empty",
     # Custom Providers
-    "price_input_required": "price_input must be set when setting price_output",
     "model_id_required": "model_id must be provided for enabled models",
     "duplicate_model_id": "Duplicate model_id: {model_id}",
     "default_model_conflict": "Each media_type can have at most one default model. Conflict: {conflict}",
     "provider_not_found": "Provider does not exist",
+    "provider_model_not_found": 'This provider has no model "{model}"',
+    "builtin_model_not_removable": '"{model}" is an officially listed model. It can be disabled but not removed',
+    "builtin_model_duplicate": 'Model "{model}" is already in this provider\'s model list',
+    "builtin_model_id_required": "Enter a model ID",
+    "builtin_model_media_type_required": 'Can\'t tell the type of model "{model}". Choose a model type and try again',
+    "builtin_model_media_type_unsupported": "This provider doesn't support this type of model ({media_type})",
+    "builtin_model_binding_invalid": 'Matched model "{binding}" is malformed. Use "maker/model-name"',
+    "comfyui_model_endpoint_missing": "There are no ComfyUI endpoints yet. Import a ComfyUI endpoint, then add the model",
+    "discovery_not_applicable_builtin": "This provider has no model list API. Add models by model ID instead",
+    "builtin_model_official_settings": '"{model}" is an officially listed model. You can only enable or disable it; its other settings are maintained officially',
+    "provider_model_setting_not_applicable": 'Built-in provider model "{model}" has no "{setting}" setting',
+    "provider_model_entry_mismatch": 'The model information for "{model}" has changed. Reopen it and try again',
+    "catalog_entry_invalid": 'The value of "{field}" in the model information is invalid. Fix it and save again',
+    "catalog_entry_no_official": "There is no official information for this model to restore",
+    "catalog_entry_exists": "The model catalog already has this model. Select it instead.",
+    "provider_model_binding_not_found": 'The model catalog has no model "{binding}" of this type. Choose another model',
+    "provider_multiplier_not_in_config": "The provider multiplier cannot be changed through the config endpoint; use the multiplier endpoint",
     "custom_endpoint_not_found": "Endpoint does not exist",
     "custom_endpoint_definition_invalid": "The endpoint definition failed validation. Fix the reported issues and try again",
     "custom_endpoint_referenced_by_models": "This endpoint is used by {count} model(s). Remove those references before deleting it",
@@ -371,6 +387,7 @@ MESSAGES = {
     "trial_run_already_running": "A trial run is already in progress. Wait for it to finish or cancel it first",
     "trial_run_not_found": "Trial run not found or expired",
     "usage_record_not_found": "Usage record not found",
+    "usage_session_not_found": "Agent session not found",
     "usage_cursor_invalid": "Invalid pagination cursor; go back to the first page and browse again",
     "usage_range_too_wide": "The requested time range is too wide; narrow the start and end and try again",
     "usage_time_out_of_range": "The start or end time is outside the representable range; check it and try again",
@@ -410,8 +427,11 @@ MESSAGES = {
         "Model {model_id} uses a ComfyUI endpoint, whose capabilities are derived from node bindings alone; "
         "capability overrides are not supported"
     ),
-    "capability_overrides_video_only": (
-        "Endpoint {endpoint} of model {model_id} is not a video endpoint; capability overrides are not supported"
+    "capability_override_not_applicable": (
+        "Endpoint {endpoint} of model {model_id} is a {media_type} endpoint; capability {capability} does not apply"
+    ),
+    "capability_override_image_unsupported": (
+        "Endpoint {endpoint} of model {model_id} does not implement {capability}; it cannot be overridden to true"
     ),
     "capability_override_invalid_value": (
         "Capability {capability} of model {model_id} has an invalid value type; expected {expected}"
@@ -428,6 +448,9 @@ MESSAGES = {
         "Model {model_id} must have max_reference_audio_count greater than 0 when reference audio is supported; "
         "override reference_audio_mode to none to turn voice reference off"
     ),
+    "path_override_unknown_request": "The endpoint of model {model_id} has no request {request} whose URL can be changed",
+    "path_override_invalid_path": "Request URL {path} of model {model_id} is invalid: the path must start with /, contain no whitespace or #, and use braces only for placeholders",
+    "path_override_placeholder_not_allowed": "Request URL {path} of model {model_id} uses a placeholder this request does not have; only {allowed} are available",
     # Projects
     "unknown_style_template": "Unknown style template: {template_id}",
     "ad_only_field": "{field} is only available for ad/short-video projects (content_mode=ad)",
@@ -639,11 +662,10 @@ MESSAGES = {
     "video_capability_missing_i2v": "{provider}/{model} does not support image-to-video generation; assign a model that supports it for image-to-video in Settings, or change the default video model",
     "video_capability_missing_r2v": "{provider}/{model} does not support reference-to-video generation; assign a model that supports it for reference-to-video in Settings, or change the default video model",
     "video_capability_reference_unavailable": "The configured video model {provider}/{model} is no longer available (model deleted, capabilities changed, or provider removed); re-select a video model in Settings",
+    "model_not_in_provider_catalog": "{provider}/{model}: this model is not in the provider's model list; re-select a model in Settings",
     "video_resolution_not_supported": "Model {model} does not support {resolution} resolution (only {supported}); choose a supported resolution",
     "video_aspect_ratio_not_supported": "Model {model} does not support aspect ratio {aspect_ratio} (only {supported}); choose a supported aspect ratio",
-    "video_resolution_duration_unsupported": "Model {model} does not support {duration}s at {resolution} resolution (only {supported}); adjust the resolution or duration",
     "video_reference_resolution_unsupported": "Model {model} supports at most {max_resolution} when reference images or a last frame are used, but {resolution} was requested; change the resolution to {max_resolution}, or remove the reference images and last frame",
-    "video_reference_images_duration_unsupported": "Model {model} does not support {duration}s with reference images (only {supported}); change the duration to {supported} or remove the reference images",
     "video_reference_images_required": "Model {model} requires at least one reference image; please provide reference images",
     "video_reference_images_unreadable": "Model {model} has reference images that are missing or unreadable; generation aborted: {names}; check the reference image paths",
     "video_reference_images_unsupported": "Model {model} does not support multi-subject reference images; remove the reference images or switch to a model that supports reference-to-video",
@@ -672,6 +694,7 @@ MESSAGES = {
     "agent_base_url_invalid": "Agent credential URLs cannot carry query strings, fragments or userinfo; use a plain https://host/path address",
     "agent_no_fields_to_update": "No fields to update",
     "agent_credential_not_found": "Credential not found",
+    "agent_tier_binding_invalid": "The model bound to this tier is not in the model catalog",
     "agent_cannot_delete_active": "Cannot delete the active credential; activate another first",
     "agent_test_validation_error": "Test connection failed; please check the configuration and retry",
     "invalid_project_name": "Invalid project name '{name}'",

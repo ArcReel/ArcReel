@@ -10,8 +10,9 @@ import { CustomProviderForm } from "./CustomProviderForm";
 // ---------------------------------------------------------------------------
 // CustomProviderForm —— discovery_format = comfyui 下的表单行为
 // ---------------------------------------------------------------------------
-// 该协议下表单有四处与别的协议不同：密钥可留空、「发现模型」被说明取代、端点选择器只列
-// ComfyUI 端点、模型行不给能力覆盖入口。四条各一例，并各配一条其他协议不受影响的对照。
+// 该协议下表单有五处与别的协议不同：密钥可留空、「发现模型」被说明取代、端点选择器只列
+// ComfyUI 端点、模型行不给尾帧覆盖入口、视频行保留「支持秒数」并写进时长覆盖。各一例，并各配一条
+// 其他协议不受影响的对照。
 // 另收一例接线：从某个端点跳过来新建供应商时，协议由那个端点定。
 
 const CHAT_ENDPOINT: EndpointDescriptor = {
@@ -31,6 +32,7 @@ const CHAT_ENDPOINT: EndpointDescriptor = {
   duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
+  requests: [],
 };
 
 const DECLARATIVE_VIDEO_ENDPOINT: EndpointDescriptor = {
@@ -50,6 +52,7 @@ const DECLARATIVE_VIDEO_ENDPOINT: EndpointDescriptor = {
   duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
+  requests: [],
 };
 
 const COMFYUI_VIDEO_ENDPOINT: EndpointDescriptor = {
@@ -69,6 +72,7 @@ const COMFYUI_VIDEO_ENDPOINT: EndpointDescriptor = {
   duration_frame_rate_missing: false,
   duration_tier_empty: false,
   native_resolution: null,
+  requests: [],
 };
 
 const ALL_ENDPOINTS = [CHAT_ENDPOINT, DECLARATIVE_VIDEO_ENDPOINT, COMFYUI_VIDEO_ENDPOINT];
@@ -213,6 +217,25 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     expect(screen.queryByText(/有模型行还没选 ComfyUI 端点/)).not.toBeInTheDocument();
   });
 
+  it("writes a provider multiplier of 1 on create, since a ComfyUI provider defaults to 0", async () => {
+    vi.mocked(API.createCustomProvider).mockResolvedValue(CREATED);
+    vi.spyOn(API, "setProviderMultiplier").mockResolvedValue({ multiplier: 1, default: 0 });
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    await selectProtocol("comfyui");
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的 ComfyUI" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "http://comfy.invalid:8188" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "wan-t2v" } });
+    const multiplierInput = screen.getByRole("textbox", { name: "供应商倍率" });
+    expect(multiplierInput).toHaveAttribute("placeholder", "默认 0");
+    fireEvent.change(multiplierInput, { target: { value: "1" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(API.setProviderMultiplier).toHaveBeenCalledWith("custom-9", 1));
+  });
+
   it("drops the capability override when the row is re-pointed onto ComfyUI", async () => {
     // ComfyUI 端点的能力由节点绑定推导，该协议整个关闭覆盖（服务端 _check_protocol_constraints）。
     // 覆盖控件在这个协议下是藏起来的，留着旧值用户既看不见也改不掉，保存时才吃 422。
@@ -298,12 +321,12 @@ describe("CustomProviderForm（comfyui 协议）", () => {
 
   it("replaces the discover button with an explanation", async () => {
     renderForm();
-    expect(screen.getByRole("button", { name: "获取模型列表" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "获取模型" })).toBeInTheDocument();
 
     await selectProtocol("comfyui");
 
-    expect(screen.queryByRole("button", { name: "获取模型列表" })).not.toBeInTheDocument();
-    expect(screen.getByText(/「获取模型列表」对 ComfyUI 不适用/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "获取模型" })).not.toBeInTheDocument();
+    expect(screen.getByText(/「获取模型」对 ComfyUI 不适用/)).toBeInTheDocument();
     await waitFor(() => expect(API.listEndpointCatalog).toHaveBeenCalled());
   });
 
@@ -474,6 +497,56 @@ describe("CustomProviderForm（comfyui 协议）", () => {
     fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
 
     expect(screen.getByLabelText("支持秒数")).toBeEnabled();
+  });
+
+  it("writes the durations of a ComfyUI video row into the duration override", async () => {
+    vi.mocked(API.createCustomProvider).mockResolvedValue(CREATED);
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    await selectProtocol("comfyui");
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的 ComfyUI" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "http://comfy.invalid:8188" } });
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "wan-t2v" } });
+
+    fireEvent.change(screen.getByLabelText("支持秒数"), { target: { value: "4, 8" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() =>
+      expect(API.createCustomProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          models: [expect.objectContaining({ endpoint: "ce-2", capability_overrides: { durations: [4, 8] } })],
+        }),
+      ),
+    );
+  });
+
+  it("blocks the save on a malformed duration list", async () => {
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    await selectProtocol("comfyui");
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "我的 ComfyUI" } });
+    fireEvent.change(screen.getByLabelText("接口地址"), { target: { value: "http://comfy.invalid:8188" } });
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "模型 ID" }), { target: { value: "wan-t2v" } });
+
+    fireEvent.change(screen.getByLabelText("支持秒数"), { target: { value: "8-4" } });
+
+    expect(await saveError()).toHaveTextContent("格式无效");
+    expect(API.createCustomProvider).not.toHaveBeenCalled();
+  });
+
+  it("offers no duration input on a declarative video row", async () => {
+    // 其余端点的可选时长由模型条目给出；存量的时长覆盖原样回传，表单不编辑它
+    renderForm();
+    await waitFor(() => expect(useEndpointCatalogStore.getState().initialized).toBe(true));
+    fireEvent.click(screen.getByRole("button", { name: "手动添加模型" }));
+
+    const listbox = await openEndpointPicker();
+    await userEvent.setup().click(within(listbox).getByRole("option", { name: /我的声明式端点/ }));
+
+    expect(await screen.findByRole("radiogroup", { name: "尾帧能力覆盖" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("支持秒数")).not.toBeInTheDocument();
   });
 
   it("disables the resolution picker and names the native tier when the size is fixed", async () => {

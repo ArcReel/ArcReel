@@ -22,7 +22,12 @@ from arcreel_market_core.endpoint_definition import (
 )
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio
 from lib.custom_provider.builtin_definitions import declarative_video_capabilities
-from lib.custom_provider.declarative_backend import normalize_declarative_base_url
+from lib.custom_provider.declarative_backend import (
+    OVERRIDE_BASE_URL,
+    apply_path_overrides,
+    normalize_declarative_base_url,
+)
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, raw_base_url
 
 from .errors import EndpointTestDefinitionError
 from .inputs import ASSET_SOURCES, EndpointTestAssets, EndpointTestCredentials, EndpointTestParameters
@@ -73,8 +78,11 @@ def preview_request(
     credentials: EndpointTestCredentials | None = None,
     assets: EndpointTestAssets | None = None,
     placeholder_missing_assets: bool = True,
+    path_overrides: PathOverrides = NO_PATH_OVERRIDES,
 ) -> RequestPreview:
     """渲染 submit / poll / result 三节请求。定义须已过共享校验器。
+
+    ``path_overrides`` 是模型行的路径覆盖（``docs/adr/0101``），与真发同样相对原样 base_url。
 
     ``placeholder_missing_assets`` 只在独立预览为 True：那里未上传的素材按声明生成占位摘要，
     好让用户对照文档核字段。测试连接的结果体传 False——记录的必须是真发出去的形状，运行时对
@@ -82,6 +90,7 @@ def preview_request(
     """
     api_key = masked_api_key(credentials.api_key) if credentials else UNRESOLVED_API_KEY
     base_url = _preview_base_url(definition, credentials)
+    definition = apply_path_overrides(definition, path_overrides)
     inputs = asset_summaries(definition.get("inputs") or {}, assets, placeholder_missing=placeholder_missing_assets)
     media_type = definition_media_type(definition)
     generation = (
@@ -98,6 +107,7 @@ def preview_request(
         {
             "api_key": api_key,
             "base_url": base_url,
+            OVERRIDE_BASE_URL: raw_base_url(credentials.base_url) if credentials else base_url,
             "model": parameters.model,
             **generation,
             "task_id": UNRESOLVED_TASK_ID,

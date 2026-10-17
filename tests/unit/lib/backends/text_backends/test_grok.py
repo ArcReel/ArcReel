@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from xai_sdk.proto import usage_pb2
 
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
 from tests.unit.lib.backends.text_backends.response_schema_support import (
@@ -80,6 +81,19 @@ class TestGenerate:
         assert isinstance(result, TextGenerationResult)
         assert result.text == "grok output"
         assert result.provider == "grok"
+
+    async def test_usage_deducts_cache_hits_and_bills_reasoning_as_output(self, backend):
+        # xAI 的 completion_tokens 不含推理 token，推理 token 另报且按输出价计费
+        usage = usage_pb2.SamplingUsage(
+            prompt_tokens=1_000, cached_prompt_text_tokens=600, completion_tokens=50, reasoning_tokens=200
+        )
+        mock_chat = MagicMock()
+        mock_chat.sample = AsyncMock(return_value=SimpleNamespace(content="x", usage=usage))
+        backend._test_client.chat.create.return_value = mock_chat
+
+        result = await backend.generate(TextGenerationRequest(prompt="hello"))
+
+        assert (result.input_tokens, result.cache_read_tokens, result.output_tokens) == (1_000, 600, 250)
 
     async def test_structured_output(self, backend):
         mock_chat = MagicMock()

@@ -121,7 +121,7 @@ async def test_video_capabilities_endpoint_mismatch_raises(db_session: AsyncSess
         endpoint="openai-chat",  # text endpoint, not video
         is_default=True,
         is_enabled=True,
-        supported_durations="[5, 10]",
+        capability_overrides={"durations": [5, 10]},
     )
     db_session.add(model)
     await db_session.flush()
@@ -192,7 +192,7 @@ async def test_custom_video_max_reference_images_from_endpoint(
         endpoint=endpoint,
         is_default=True,
         is_enabled=True,
-        supported_durations="[5, 10]",
+        capability_overrides={"durations": [5, 10]},
     )
     db_session.add(model)
     await db_session.flush()
@@ -237,7 +237,7 @@ async def test_custom_video_caps_resolved_without_api_key(db_session: AsyncSessi
         endpoint="ark-seedance",
         is_default=True,
         is_enabled=True,
-        supported_durations="[5, 10]",
+        capability_overrides={"durations": [5, 10]},
     )
     db_session.add(model)
     await db_session.flush()
@@ -287,7 +287,7 @@ async def test_custom_video_max_refs_missing_caps_fn_raises(db_session: AsyncSes
         endpoint="ark-seedance",
         is_default=True,
         is_enabled=True,
-        supported_durations="[5, 10]",
+        capability_overrides={"durations": [5, 10]},
     )
     db_session.add(model)
     await db_session.flush()
@@ -339,7 +339,7 @@ async def test_custom_video_max_refs_negative_caps_raises(db_session: AsyncSessi
         endpoint="ark-seedance",
         is_default=True,
         is_enabled=True,
-        supported_durations="[5, 10]",
+        capability_overrides={"durations": [5, 10]},
     )
     db_session.add(model)
     await db_session.flush()

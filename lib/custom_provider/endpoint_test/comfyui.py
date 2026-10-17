@@ -26,6 +26,7 @@ from lib.custom_provider.comfyui.comfyui_backend import ComfyuiVideoBackend
 from lib.custom_provider.comfyui.comfyui_client import client_id_for, normalize_comfyui_base_url
 from lib.custom_provider.comfyui.comfyui_image_backend import ComfyuiImageBackend
 from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInputs, build_workflow
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides
 
 from .inputs import EndpointTestAssets, EndpointTestCredentials, EndpointTestParameters
 from .preview import (
@@ -107,6 +108,7 @@ def preview_comfyui_request(
     credentials: EndpointTestCredentials | None = None,
     assets: EndpointTestAssets | None = None,
     placeholder_missing_assets: bool = True,
+    path_overrides: PathOverrides = NO_PATH_OVERRIDES,
     rng: Random | None = None,
 ) -> RequestPreview:
     """渲染 ``POST /prompt`` 的请求体与随它的换算说明。定义须已过共享校验器。
@@ -114,6 +116,8 @@ def preview_comfyui_request(
     轮询那一节一并给出（``GET /history/{prompt_id}``）：它与提交带的是同一份凭据，而 ComfyUI
     多半套在反向代理后面，用户要核的正是「这组头会不会原样发到每一条路由上」。产物下载那一节
     不给——``/view`` 的查询参数要到产物条目回来之后才知道，凭空编一个文件名不是预览。
+
+    ComfyUI 端点不开放路径覆盖（``docs/adr/0101``），``path_overrides`` 恒为空。
 
     ``rng`` 是随机种子的注入点，与 :func:`build_workflow` 同一个缝；``policy: random`` 的条目每次
     预览都会给出一个新的种子，那正是真提交时会发生的事。

@@ -1,14 +1,13 @@
-"""记账特征化测试矩阵：六通道落库行为锁。
+"""记账特征化测试矩阵：五通道落库行为锁。
 
 以生成器公开方法驱动 + 假 backend（Protocol 实现，返回可控结果/抛可控异常）+ 真内存
 SQLite 落库 + 冻结时钟，把记账链路（Ledger → UsageRepository → 结算 →
-CostCalculator → 定价策略）的落库行为逐字段锁定：链路内部不 mock，断言 ApiCall 整行，
+目录价目表计价）的落库行为逐字段锁定：链路内部不 mock，断言 ApiCall 整行，
 任何记账落库行为的意外变化都会在此当场失败。
 
-六条通道：
+五条通道（Agent 会话的轮次记账见 ``tests/integration/server/agent_runtime/test_session_manager_usage_billing.py``）：
 - image / audio / video / text 生成括号（MediaGenerator / TextGenerator 公开方法）
 - resume 补账（MediaGenerator.resume_video_async：成功与过期失败两分支 + pending 幂等守卫）
-- agent 会话事后补录（SessionManager._record_assistant_usage）
 
 时间字段口径：usage_repo 的 utc_now 被替换为步进时钟（每读一次前进 5 秒），
 started_at / finished_at 可精确断言。SQLite 回读 DateTime(timezone=True) 为 naive
@@ -21,7 +20,8 @@ aware(finished_at) 相减，duration_ms 按真实步进（单次 start→finish 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
@@ -30,6 +30,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from arcreel_catalog_core import CatalogEntry, ImageFacts, Meter, PriceRow, PriceTable, TextFacts, VideoFacts
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoCapabilities,
@@ -37,19 +38,32 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisRequest, AudioSynthesisResult
-from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ImageGenerationResult
+from lib.backends.image_backends.base import (
+    ImageCapability,
+    ImageGenerationRequest,
+    ImageGenerationResult,
+    ImageRequestFacts,
+    per_image_usage,
+)
+from lib.backends.image_backends.gemini import GeminiImageBackend
 from lib.backends.providers import CallPurpose
-from lib.backends.text_backends.base import TextCapability, TextGenerationRequest, TextGenerationResult
+from lib.backends.text_backends.base import (
+    TextCapability,
+    TextGenerationRequest,
+    TextGenerationResult,
+    prompt_json_fallback,
+)
 from lib.backends.text_generator import TextGenerator
+from lib.backends.video_backends.gemini import GeminiVideoBackend
 from lib.billing.ledger import Ledger
+from lib.billing.metering import Usage
+from lib.billing.multipliers import set_provider_multiplier
 from lib.config.resolver import ConfigResolver
 from lib.db.models.api_call import ApiCall
 from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation.media_generator import MediaGenerator
-from server.agent_runtime.session_actor import SessionActor
-from server.agent_runtime.session_manager import ManagedSession, SessionManager
-from server.agent_runtime.session_store import SessionMetaStore
+from tests.catalog_support import catalog_of, install_catalog
 from tests.fakes import FakeConfigResolver, write_backend_output
 
 # ---------------------------------------------------------------------------
@@ -164,6 +178,10 @@ def _expected_row(**overrides: Any) -> dict[str, Any]:
         "text_input_tokens": None,
         "text_output_tokens": None,
         "last_provider_response": None,
+        "unpriced_reason": None,
+        "cache_read_tokens": None,
+        "cache_write_5m_tokens": None,
+        "cache_write_1h_tokens": None,
     }
     row.update(overrides)
     return row
@@ -194,11 +212,13 @@ class _FakeImageBackend:
         model: str,
         result_fields: dict[str, Any] | None = None,
         error: BaseException | None = None,
+        usage_from_request: Callable[[ImageGenerationRequest], Usage] | None = None,
     ) -> None:
         self._provider = provider
         self._model = model
         self._result_fields = result_fields or {}
         self._error = error
+        self._usage_from_request = usage_from_request
 
     @property
     def name(self) -> str:
@@ -216,10 +236,12 @@ class _FakeImageBackend:
         if self._error is not None:
             raise self._error
         await write_backend_output(request.output_path, _PNG_BYTES)
+        usage = self._usage_from_request(request) if self._usage_from_request is not None else None
         return ImageGenerationResult(
             image_path=request.output_path,
             provider=self._provider,
             model=self._model,
+            usage=usage,
             **self._result_fields,
         )
 
@@ -230,12 +252,14 @@ class _FakeAudioBackend:
         *,
         provider: str,
         model: str,
-        characters: int = 0,
         error: BaseException | None = None,
+        input_tokens: int | None = None,
+        audio_output_tokens: int | None = None,
     ) -> None:
         self._provider = provider
         self._model = model
-        self._characters = characters
+        self._input_tokens = input_tokens
+        self._audio_output_tokens = audio_output_tokens
         self._error = error
 
     @property
@@ -257,8 +281,10 @@ class _FakeAudioBackend:
         return AudioSynthesisResult(
             provider=self._provider,
             model=self._model,
-            characters=self._characters,
+            text=request.text,
             output_path=request.output_path,
+            input_tokens=self._input_tokens,
+            audio_output_tokens=self._audio_output_tokens,
         )
 
 
@@ -271,6 +297,7 @@ class _FakeVideoBackend:
         result_fields: dict[str, Any] | None = None,
         error: BaseException | None = None,
         resume_error: BaseException | None = None,
+        metered: Callable[[VideoGenerationRequest, VideoGenerationResult | None], Usage] | None = None,
     ) -> None:
         self._provider = provider
         self._model = model
@@ -279,6 +306,9 @@ class _FakeVideoBackend:
         self._result_fields = result_fields or {}
         self._error = error
         self._resume_error = resume_error
+        # 内置调用通道按用量契约上报计量（``metered_usage``）；不给时模拟没有声明它的通道。
+        if metered is not None:
+            self.metered_usage = lambda _model, request, result=None: metered(request, result)
 
     @property
     def name(self) -> str:
@@ -328,11 +358,13 @@ class _FakeTextBackend:
         input_tokens: int | None = None,
         output_tokens: int | None = None,
         error: BaseException | None = None,
+        **cache_tokens: int,
     ) -> None:
         self._provider = provider
         self._model = model
         self._input_tokens = input_tokens
         self._output_tokens = output_tokens
+        self._cache_tokens = cache_tokens
         self._error = error
 
     @property
@@ -356,6 +388,7 @@ class _FakeTextBackend:
             model=self._model,
             input_tokens=self._input_tokens,
             output_tokens=self._output_tokens,
+            **self._cache_tokens,
         )
 
 
@@ -401,9 +434,14 @@ class TestImageChannel:
             tmp_path,
             acct,
             image_backend=_FakeImageBackend(
-                provider="gemini",
-                model="gemini-3-pro-image-preview",
+                provider="gemini-aistudio",
+                model="gemini-3-pro-image",
                 result_fields={"usage_tokens": 8},
+                usage_from_request=lambda request: GeminiImageBackend.estimate_usage(
+                    ImageRequestFacts(
+                        model="gemini-3-pro-image", aspect_ratio=request.aspect_ratio, image_size=request.image_size
+                    )
+                ),
             ),
         )
 
@@ -416,7 +454,8 @@ class TestImageChannel:
             _expected_row(
                 purpose="generation_task",
                 call_type="image",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
+                provider="gemini-aistudio",
                 prompt="图" * 700,
                 task_id="T-1",
                 resolution="2K",
@@ -440,6 +479,15 @@ class TestImageChannel:
                     "text_input_tokens": 50_000,
                     "text_output_tokens": 10_000,
                 },
+                usage_from_request=lambda _request: Usage(
+                    quantities={
+                        "uncached_input_tokens": 50_000,
+                        "uncached_image_input_tokens": 100_000,
+                        "image_output_tokens": 200_000,
+                        "output_tokens": 10_000,
+                    },
+                    dimensions={"resolution": "1024x1536", "quality": "medium"},
+                ),
             ),
         )
 
@@ -467,13 +515,126 @@ class TestImageChannel:
             ),
         )
 
+    @pytest.mark.parametrize(("image_size", "expected_cost"), [("4K", 0.24), ("2K", 0.134), (None, 0.134)])
+    async def test_builtin_call_priced_by_resolution_sent_in_request(
+        self, tmp_path: Path, acct: _AccountingDb, image_size: str | None, expected_cost: float
+    ) -> None:
+        # 调用通道按请求里的 image_size 上报分辨率（与 GeminiImageBackend 同一函数），单价按它落档；
+        # 没发分辨率时按价目表的默认档（1K）计
+        gen = _media_generator(
+            tmp_path,
+            acct,
+            image_backend=_FakeImageBackend(
+                provider="gemini-aistudio",
+                model="gemini-3-pro-image",
+                usage_from_request=lambda request: GeminiImageBackend.estimate_usage(
+                    ImageRequestFacts(
+                        model="gemini-3-pro-image", aspect_ratio=request.aspect_ratio, image_size=request.image_size
+                    )
+                ),
+            ),
+        )
+
+        await gen.generate_image_async(
+            prompt="p", resource_type="characters", resource_id="婉儿", image_size=image_size
+        )
+
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="generation_task",
+                call_type="image",
+                model="gemini-3-pro-image",
+                provider="gemini-aistudio",
+                prompt="p",
+                resolution=image_size,
+                aspect_ratio="9:16",
+                output_path="characters/婉儿.png",
+                cost_amount=pytest.approx(expected_cost),
+            ),
+        )
+
+    async def test_builtin_openai_tokens_priced_from_catalog(self, tmp_path: Path, acct: _AccountingDb) -> None:
+        gen = _media_generator(
+            tmp_path,
+            acct,
+            image_backend=_FakeImageBackend(
+                provider="openai",
+                model="gpt-image-2",
+                usage_from_request=lambda _request: Usage(
+                    quantities={
+                        "uncached_input_tokens": 1_000,
+                        "uncached_image_input_tokens": 2_000,
+                        "image_output_tokens": 1_756,
+                    },
+                    dimensions={"resolution": "1024x1024", "quality": "medium"},
+                ),
+            ),
+        )
+
+        await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="婉儿", image_size="1K")
+
+        row = await acct.fetch_only_row()
+        assert row["cost_amount"] == pytest.approx((1_000 * 5 + 2_000 * 8 + 1_756 * 30) / 1_000_000)
+        assert row["unpriced_reason"] is None
+
+    async def test_reference_images_absent_from_per_image_price_table_are_not_billed(
+        self, tmp_path: Path, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = CatalogEntry(
+            maker="acme",
+            name="pic",
+            media_type="image",
+            display_name="pic",
+            facts=ImageFacts(text_to_image=True, image_to_image=True),
+            price=PriceTable(currency="USD", meters=(_meter("output_images", ({}, 0.04)),)),
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/pic",)}))
+        gen = _media_generator(
+            tmp_path,
+            acct,
+            image_backend=_FakeImageBackend(
+                provider="openai",
+                model="pic",
+                usage_from_request=lambda _request: per_image_usage(output_images=1, input_images=3),
+            ),
+        )
+
+        await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="婉儿")
+
+        # 图生图如实上报了参考图张数，价目表没有参考图单价：厂商不按它收费，这一项不计，只按输出张数计价
+        row = await acct.fetch_only_row()
+        assert row["cost_amount"] == pytest.approx(0.04)
+        assert row["unpriced_reason"] is None
+
+    async def test_openai_without_usage_is_unpriced(self, tmp_path: Path, acct: _AccountingDb) -> None:
+        # OpenAI 图片通道拿不到 usage 时只报输出张数（OpenAIImageBackend._save_and_return 的回退）；gpt-image-2
+        # 按 token 计价，价目表的计量项一项用量都没有，整笔记为未定价，不按估算 token 记账
+        gen = _media_generator(
+            tmp_path,
+            acct,
+            image_backend=_FakeImageBackend(
+                provider="openai",
+                model="gpt-image-2",
+                usage_from_request=lambda _request: per_image_usage(
+                    output_images=1, input_images=None, dimensions={"resolution": "1024x1024", "quality": "medium"}
+                ),
+            ),
+        )
+
+        await gen.generate_image_async(prompt="p", resource_type="characters", resource_id="婉儿", image_size="1K")
+
+        row = await acct.fetch_only_row()
+        assert row["cost_amount"] is None
+        assert row["unpriced_reason"] == "missing_rate"
+
     async def test_failure_flips_failed_with_truncated_error(self, tmp_path: Path, acct: _AccountingDb) -> None:
         gen = _media_generator(
             tmp_path,
             acct,
             image_backend=_FakeImageBackend(
                 provider="gemini",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 error=ValueError("x" * 600),
             ),
         )
@@ -486,7 +647,7 @@ class TestImageChannel:
             _expected_row(
                 purpose="generation_task",
                 call_type="image",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 prompt="p",
                 aspect_ratio="9:16",
                 status="failed",
@@ -500,7 +661,7 @@ class TestImageChannel:
             acct,
             image_backend=_FakeImageBackend(
                 provider="gemini",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 error=asyncio.CancelledError(),
             ),
         )
@@ -514,7 +675,7 @@ class TestImageChannel:
             _expected_row(
                 purpose="generation_task",
                 call_type="image",
-                model="gemini-3-pro-image-preview",
+                model="gemini-3-pro-image",
                 prompt="p",
                 aspect_ratio="9:16",
                 status="cancelled",
@@ -528,16 +689,18 @@ class TestImageChannel:
 
 
 class TestAudioChannel:
-    async def test_success_per_character_billing_full_row(self, tmp_path: Path, acct: _AccountingDb) -> None:
+    async def test_chinese_tts_counts_each_han_character_twice(self, tmp_path: Path, acct: _AccountingDb) -> None:
         gen = _media_generator(
             tmp_path,
             acct,
-            audio_backend=_FakeAudioBackend(provider="dashscope", model="qwen3-tts-flash", characters=25_000),
+            audio_backend=_FakeAudioBackend(provider="dashscope", model="qwen3-tts-flash"),
         )
+        text = "念" * 6000 + "a" * 3000
 
-        await gen.generate_audio_async(text="念" * 700, resource_id="E1S01", voice="Cherry", task_id="T-1")
+        await gen.generate_audio_async(text=text, resource_id="E1S01", voice="Cherry", task_id="T-1")
 
-        # usage_tokens 承载合成字符数，按每万字符 0.8 CNY 计费
+        # 条目的字符数计量项带「汉字计 2」：6000 × 2 + 3000 = 15000 字符，按每万字符 0.8 CNY 计 1.2；
+        # usage_tokens 记原文字符数
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
@@ -545,14 +708,14 @@ class TestAudioChannel:
                 call_type="audio",
                 model="qwen3-tts-flash",
                 provider="dashscope",
-                prompt="念" * 700,
+                prompt=text,
                 task_id="T-1",
                 segment_id="E1S01",
                 inputs={"voice": "Cherry", "parameters": {"language_type": "Chinese"}},
                 output_path="audio/segment_E1S01.wav",
-                cost_amount=pytest.approx(2.0),
+                cost_amount=pytest.approx(1.2),
                 currency="CNY",
-                usage_tokens=25_000,
+                usage_tokens=9000,
             ),
         )
 
@@ -590,7 +753,13 @@ class TestAudioChannel:
 
 
 def _veo_backend(**result_fields: Any) -> _FakeVideoBackend:
-    return _FakeVideoBackend(provider="gemini", model="veo-3.1-generate-preview", result_fields=result_fields)
+    """AI Studio 的 Veo 3.1：按 GeminiVideoBackend 的用量契约上报计量，价目表按输出秒数 × 分辨率 × 有声计价。"""
+    return _FakeVideoBackend(
+        provider="gemini-aistudio",
+        model="veo-3.1-generate-preview",
+        result_fields=result_fields,
+        metered=lambda request, result: GeminiVideoBackend.metered_usage("veo-3.1-generate-preview", request, result),
+    )
 
 
 async def _generate_video(gen: MediaGenerator) -> None:
@@ -629,7 +798,7 @@ class TestVideoChannel:
         # (720p, 有声) 0.40 USD/s × 8s
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(cost_amount=pytest.approx(3.2), usage_tokens=0),
+            _expected_video_row(provider="gemini-aistudio", cost_amount=pytest.approx(3.2), usage_tokens=0),
         )
 
     async def test_backend_reported_audio_flag_overrides_request(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -640,7 +809,9 @@ class TestVideoChannel:
         # provider 回报无声覆盖请求有声：行落 False，按 (720p, 无声) 0.20 USD/s 计费
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(generate_audio=False, cost_amount=pytest.approx(1.6), usage_tokens=0),
+            _expected_video_row(
+                provider="gemini-aistudio", generate_audio=False, cost_amount=pytest.approx(1.6), usage_tokens=0
+            ),
         )
 
     async def test_billed_duration_overrides_requested_duration(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -651,7 +822,9 @@ class TestVideoChannel:
         # 实际计费时长 6s 覆盖请求 8s，账本与自动费用同口径
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(duration_seconds=6, cost_amount=pytest.approx(2.4), usage_tokens=0),
+            _expected_video_row(
+                provider="gemini-aistudio", duration_seconds=6, cost_amount=pytest.approx(2.4), usage_tokens=0
+            ),
         )
 
     async def test_billed_duration_over_limit_falls_back_to_request(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -662,7 +835,9 @@ class TestVideoChannel:
         # 超出 24h 上限的计费时长视同未提供，回落请求时长
         _assert_full_row(
             await acct.fetch_only_row(),
-            _expected_video_row(duration_seconds=8, cost_amount=pytest.approx(3.2), usage_tokens=0),
+            _expected_video_row(
+                provider="gemini-aistudio", duration_seconds=8, cost_amount=pytest.approx(3.2), usage_tokens=0
+            ),
         )
 
     async def test_ark_per_token_billing(self, tmp_path: Path, acct: _AccountingDb) -> None:
@@ -671,20 +846,24 @@ class TestVideoChannel:
             acct,
             video_backend=_FakeVideoBackend(
                 provider="ark",
-                model="doubao-seedance-1-5-pro-251215",
+                model="doubao-seedance-2-0-260128",
                 result_fields={"usage_tokens": 1_000_000},
+                metered=lambda request, result: Usage(
+                    quantities={"video_tokens": result.usage_tokens if result is not None else 0},
+                    dimensions={"resolution": request.resolution, "input_video": False},
+                ),
             ),
         )
 
         await _generate_video(gen)
 
-        # (default, 有声) 16.00 CNY/百万 token × 1M token
+        # 46.00 CNY/百万 token × 1M token
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_video_row(
-                model="doubao-seedance-1-5-pro-251215",
+                model="doubao-seedance-2-0-260128",
                 provider="ark",
-                cost_amount=pytest.approx(16.0),
+                cost_amount=pytest.approx(46.0),
                 currency="CNY",
                 usage_tokens=1_000_000,
             ),
@@ -733,6 +912,102 @@ class TestVideoChannel:
         )
 
 
+def _clip_entry() -> CatalogEntry:
+    """测试用视频条目：输出秒数按分辨率 × 有声分档，输入视频按秒计，参考图每请求免费 2 张。"""
+    return CatalogEntry(
+        maker="acme",
+        name="clip",
+        media_type="video",
+        display_name="clip",
+        facts=VideoFacts(durations=(8,), resolutions=("720p", "1080p")),
+        price=PriceTable(
+            currency="USD",
+            meters=(
+                _meter(
+                    "output_seconds",
+                    ({"resolution": "720p", "audio": True}, 0.4),
+                    ({"resolution": "720p", "audio": False}, 0.2),
+                    ({"resolution": "1080p", "audio": True}, 0.6),
+                    ({"resolution": "1080p", "audio": False}, 0.3),
+                    dims=("resolution", "audio"),
+                ),
+                _meter("input_video_seconds", ({}, 0.1)),
+                replace(_meter("input_images", ({}, 0.05)), free_allowance=2),
+            ),
+        ),
+    )
+
+
+def _clip_usage(request: VideoGenerationRequest, result: VideoGenerationResult | None) -> Usage:
+    """模拟内置调用通道的上报：输出秒数与是否有声取结果，带 4 秒输入视频与 5 张参考图；调用次数价目表不计。"""
+    assert result is not None
+    return Usage(
+        quantities={
+            "output_seconds": result.duration_seconds or request.duration_seconds,
+            "input_video_seconds": 4,
+            "input_images": 5,
+            "requests": 1,
+        },
+        dimensions={"resolution": request.resolution, "audio": result.generate_audio, "input_video": True},
+    )
+
+
+class TestCatalogPricedVideo:
+    """视频按模型目录的价目表结算：调用通道上报的计量项与选择维度，免费额度与计数类计量项。"""
+
+    @pytest.mark.parametrize(
+        ("resolution", "audio", "per_second"),
+        [("720p", True, 0.4), ("720p", False, 0.2), ("1080p", True, 0.6), ("1080p", False, 0.3)],
+    )
+    async def test_resolution_audio_matrix_with_input_video_and_extra_reference_images(
+        self,
+        tmp_path: Path,
+        acct: _AccountingDb,
+        monkeypatch: pytest.MonkeyPatch,
+        resolution: str,
+        audio: bool,
+        per_second: float,
+    ) -> None:
+        install_catalog(monkeypatch, catalog_of((_clip_entry(),), {"openai": ("acme/clip",)}))
+        backend = _FakeVideoBackend(
+            provider="openai",
+            model="clip",
+            result_fields={"generate_audio": audio},
+            metered=_clip_usage,
+        )
+        gen = _media_generator(tmp_path, acct, video_backend=backend)
+
+        await gen.generate_video_async(
+            prompt="p", resource_type="videos", resource_id="E1S01", duration_seconds="8", resolution=resolution
+        )
+
+        # 8 秒 × 档位单价 + 输入视频 4 秒 × 0.1 + 超出免费 2 张的 3 张参考图 × 0.05；调用次数不在价目表里，不计费
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_video_row(
+                model="clip",
+                provider="openai",
+                resolution=resolution,
+                generate_audio=audio,
+                cost_amount=pytest.approx(8 * per_second + 4 * 0.1 + 3 * 0.05),
+            ),
+        )
+
+    async def test_channel_without_metered_usage_is_unpriced(
+        self, tmp_path: Path, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        install_catalog(monkeypatch, catalog_of((_clip_entry(),), {"openai": ("acme/clip",)}))
+        gen = _media_generator(tmp_path, acct, video_backend=_FakeVideoBackend(provider="openai", model="clip"))
+
+        await _generate_video(gen)
+
+        # 内置调用通道没有上报计量：价目表的计量项全部落空，记为未定价，不按秒数猜
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_video_row(model="clip", provider="openai", cost_amount=None, unpriced_reason="missing_rate"),
+        )
+
+
 # ---------------------------------------------------------------------------
 # 通道四：text 生成括号
 # ---------------------------------------------------------------------------
@@ -769,7 +1044,7 @@ class TestTextChannel:
             ),
         )
 
-    async def test_no_tokens_and_no_project_yields_zero_cost(self, acct: _AccountingDb) -> None:
+    async def test_no_tokens_and_no_project_is_unpriced(self, acct: _AccountingDb) -> None:
         gen = TextGenerator(
             _FakeTextBackend(provider="gemini", model="gemini-3-flash-preview"),
             Ledger(session_factory=acct.factory),
@@ -779,7 +1054,7 @@ class TestTextChannel:
 
         await gen.generate(TextGenerationRequest(prompt="p"))
 
-        # 无 token 数据无从计费（成功仍 0 费用）；project_name 缺省落空串
+        # 价目表的计量项一项用量都没拿到：费用无从得知，记为未定价，不静默记 0；project_name 缺省落空串
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
@@ -789,6 +1064,8 @@ class TestTextChannel:
                 project_name="",
                 prompt="p",
                 provider="gemini-aistudio",
+                cost_amount=None,
+                unpriced_reason="missing_rate",
             ),
         )
 
@@ -816,7 +1093,7 @@ class TestTextChannel:
             ),
         )
 
-    async def test_custom_provider_priced_from_db(self, acct: _AccountingDb) -> None:
+    async def _seed_custom_model(self, acct: _AccountingDb, model_id: str, *, multiplier: float = 1.0) -> str:
         async with acct.factory() as session:
             provider = CustomProvider(
                 display_name="自定供应商",
@@ -829,45 +1106,300 @@ class TestTextChannel:
             session.add(
                 CustomProviderModel(
                     provider_id=provider.id,
-                    model_id="my-model",
+                    model_id=model_id,
                     display_name="My Model",
                     endpoint="openai-chat",
-                    price_unit="token",
-                    price_input=2.0,
-                    price_output=4.0,
-                    currency="CNY",
+                    multiplier=multiplier,
                 )
             )
             await session.commit()
-            provider_key = f"custom-{provider.id}"
+            return f"custom-{provider.id}"
 
+    async def _generate(self, acct: _AccountingDb, provider_key: str, model_id: str) -> None:
         gen = TextGenerator(
-            _FakeTextBackend(
-                provider=provider_key,
-                model="my-model",
-                input_tokens=1_000_000,
-                output_tokens=500_000,
-            ),
+            _FakeTextBackend(provider=provider_key, model=model_id, input_tokens=200_000, output_tokens=100_000),
             Ledger(session_factory=acct.factory),
             provider_key,
             purpose=CallPurpose.SCRIPT_GENERATION,
         )
-
         await gen.generate(TextGenerationRequest(prompt="p"), project_name="demo")
 
-        # (1M × 2.0 + 0.5M × 4.0) / 1M = 4.0，币种取模型行声明
+    async def test_custom_provider_priced_from_the_matched_entry(self, acct: _AccountingDb) -> None:
+        provider_key = await self._seed_custom_model(acct, "relay/GPT-5.4", multiplier=0.5)
+
+        await self._generate(acct, provider_key, "relay/GPT-5.4")
+
+        # 名字对上 gpt-5.4：(0.2M × 2.5 + 0.1M × 15) / 1M = 2.0 USD，再乘模型倍率 0.5
         _assert_full_row(
             await acct.fetch_only_row(),
             _expected_row(
                 purpose="script_generation",
                 call_type="text",
-                model="my-model",
+                model="relay/GPT-5.4",
                 provider=provider_key,
                 prompt="p",
+                cost_amount=pytest.approx(1.0),
+                currency="USD",
+                input_tokens=200_000,
+                output_tokens=100_000,
+            ),
+        )
+
+    async def test_custom_model_without_an_entry_is_unpriced(self, acct: _AccountingDb) -> None:
+        provider_key = await self._seed_custom_model(acct, "my-private-llm")
+
+        await self._generate(acct, provider_key, "my-private-llm")
+
+        row = await acct.fetch_only_row()
+        assert (row["cost_amount"], row["unpriced_reason"]) == (None, "no_entry")
+
+
+class _PromptFallbackTextBackend(_FakeTextBackend):
+    """结构化输出走 prompt 注入降级：按 ``replies`` 依次回复 (文本, 输入 token, 输出 token)，每次请求都已计费。"""
+
+    def __init__(self, *, provider: str, model: str, replies: list[tuple[str, int, int]]) -> None:
+        super().__init__(provider=provider, model=model)
+        self._replies = replies
+
+    async def generate(self, request: TextGenerationRequest) -> TextGenerationResult:
+        replies = iter(self._replies)
+
+        async def generate_once(_request: TextGenerationRequest) -> TextGenerationResult:
+            text, input_tokens, output_tokens = next(replies)
+            return TextGenerationResult(
+                text=text,
+                provider=self._provider,
+                model=self._model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+            )
+
+        return await prompt_json_fallback(request, generate_once, provider=self._provider, model=self._model)
+
+
+def _text_entry(name: str, *meters: Meter) -> CatalogEntry:
+    return CatalogEntry(
+        maker="acme",
+        name=name,
+        media_type="text",
+        display_name=name,
+        facts=TextFacts(),
+        price=PriceTable(currency="USD", meters=meters),
+    )
+
+
+def _meter(meter: str, *rows: tuple[dict[str, object], float], dims: tuple[str, ...] = ()) -> Meter:
+    return Meter(meter=meter, dims=dims, rows=tuple(PriceRow(when=when, price=price) for when, price in rows))
+
+
+def _text_generator(acct: _AccountingDb, provider_id: str, model: str, **usage: int) -> TextGenerator:
+    return TextGenerator(
+        _FakeTextBackend(provider=provider_id, model=model, **usage),
+        Ledger(session_factory=acct.factory),
+        provider_id,
+        purpose=CallPurpose.SCRIPT_GENERATION,
+    )
+
+
+async def _set_provider_multiplier(acct: _AccountingDb, provider_id: str, value: float) -> None:
+    async with acct.factory() as session:
+        await set_provider_multiplier(session, provider_id, value)
+        await session.commit()
+
+
+class TestCatalogPricedText:
+    """文本按模型目录的价目表结算：计量项互不重叠、上下文档、未定价与两级倍率。"""
+
+    async def test_context_tier_and_cache_meters_priced_separately(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        tiered = ("context_tier",)
+        entry = _text_entry(
+            "tiered",
+            _meter("uncached_input_tokens", ({"context_tier": 0}, 2.0), ({"context_tier": 200_000}, 4.0), dims=tiered),
+            _meter("cache_read_tokens", ({"context_tier": 0}, 0.2), ({"context_tier": 200_000}, 0.4), dims=tiered),
+            _meter("cache_write_5m_tokens", ({"context_tier": 0}, 2.5), ({"context_tier": 200_000}, 5.0), dims=tiered),
+            _meter("cache_write_1h_tokens", ({}, 4.0)),
+            _meter("output_tokens", ({"context_tier": 0}, 10.0), ({"context_tier": 200_000}, 15.0), dims=tiered),
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/tiered",)}))
+
+        await _text_generator(
+            acct,
+            "openai",
+            "tiered",
+            input_tokens=300_000,
+            output_tokens=20_000,
+            cache_read_tokens=100_000,
+            cache_write_5m_tokens=40_000,
+            cache_write_1h_tokens=10_000,
+        ).generate(TextGenerationRequest(prompt="p"), project_name="demo")
+
+        # 总输入 30 万（含缓存读写）超过 20 万，整个请求落入第二档：未缓存输入 15 万 × 4 + 缓存读 10 万 × 0.4
+        # + 5 分钟缓存写 4 万 × 5 + 1 小时缓存写 1 万 × 4（不分档）+ 输出 2 万 × 15，按每百万 token 计 = 1.18
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="tiered",
+                prompt="p",
+                provider="openai",
+                cost_amount=pytest.approx(1.18),
+                input_tokens=300_000,
+                output_tokens=20_000,
+                cache_read_tokens=100_000,
+                cache_write_5m_tokens=40_000,
+                cache_write_1h_tokens=10_000,
+            ),
+        )
+
+    async def test_fallback_requests_each_fall_into_their_own_context_tier(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        tiered = ("context_tier",)
+        entry = _text_entry(
+            "tiered",
+            _meter("uncached_input_tokens", ({"context_tier": 0}, 1.0), ({"context_tier": 200_000}, 2.0), dims=tiered),
+            _meter("output_tokens", ({"context_tier": 0}, 10.0), ({"context_tier": 200_000}, 20.0), dims=tiered),
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/tiered",)}))
+        backend = _PromptFallbackTextBackend(
+            provider="openai",
+            model="tiered",
+            replies=[("不是 JSON", 150_000, 1_000), ('{"ok": true}', 150_000, 1_000)],
+        )
+
+        await TextGenerator(
+            backend, Ledger(session_factory=acct.factory), "openai", purpose=CallPurpose.SCRIPT_GENERATION
+        ).generate(TextGenerationRequest(prompt="p", response_schema={"type": "object"}), project_name="demo")
+
+        # 两次请求各 15 万输入，合计 30 万超过 20 万，但每次单独看都在首档：
+        # 2 × (15 万 × 1 + 1000 × 10) / 百万 = 0.32；按合计落档会是 0.64
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="tiered",
+                prompt="p",
+                provider="openai",
+                cost_amount=pytest.approx(0.32),
+                input_tokens=300_000,
+                output_tokens=2_000,
+            ),
+        )
+
+    async def test_usage_on_meter_missing_from_price_table_is_unpriced(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = _text_entry(
+            "no-cache-price", _meter("uncached_input_tokens", ({}, 1.0)), _meter("output_tokens", ({}, 5.0))
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/no-cache-price",)}))
+
+        await _text_generator(
+            acct, "openai", "no-cache-price", input_tokens=10_000, output_tokens=1_000, cache_read_tokens=8_000
+        ).generate(TextGenerationRequest(prompt="p"), project_name="demo")
+
+        # 供应商回报了缓存命中，价目表却没有缓存读价：这部分查不到单价，整笔记为未定价，不按 0 计
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="no-cache-price",
+                prompt="p",
+                provider="openai",
+                cost_amount=None,
+                unpriced_reason="missing_rate",
+                input_tokens=10_000,
+                output_tokens=1_000,
+                cache_read_tokens=8_000,
+            ),
+        )
+
+    async def test_missing_rate_without_default_is_unpriced(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = _text_entry(
+            "tiered-only",
+            _meter("uncached_input_tokens", ({}, 1.0)),
+            _meter("output_tokens", ({"service_tier": "flex"}, 5.0), dims=("service_tier",)),
+        )
+        install_catalog(monkeypatch, catalog_of((entry,), {"openai": ("acme/tiered-only",)}))
+
+        await _text_generator(acct, "openai", "tiered-only", input_tokens=1_000, output_tokens=1_000).generate(
+            TextGenerationRequest(prompt="p"), project_name="demo"
+        )
+
+        # 请求没有发送服务档、计量项也没有默认值：不回落到 flex 档，记为未定价并带原因
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="tiered-only",
+                prompt="p",
+                provider="openai",
+                cost_amount=None,
+                unpriced_reason="missing_rate",
+                input_tokens=1_000,
+                output_tokens=1_000,
+            ),
+        )
+
+    async def test_provider_and_model_multipliers_multiply(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = _text_entry("flat", _meter("uncached_input_tokens", ({}, 2.0)), _meter("output_tokens", ({}, 8.0)))
+        data = catalog_of((entry,), {"openai": ("acme/flat",)})
+        listing = data.builtin_providers["openai"]
+        discounted = replace(listing, models=(replace(listing.models[0], multiplier=0.8),))
+        install_catalog(monkeypatch, replace(data, builtin_providers={"openai": discounted}))
+        await _set_provider_multiplier(acct, "openai", 0.5)
+
+        await _text_generator(acct, "openai", "flat", input_tokens=1_000_000, output_tokens=1_000_000).generate(
+            TextGenerationRequest(prompt="p"), project_name="demo"
+        )
+
+        # (2 + 8) USD × 供应商倍率 0.5 × 供应商模型倍率 0.8 = 4.0
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="flat",
+                prompt="p",
+                provider="openai",
                 cost_amount=pytest.approx(4.0),
-                currency="CNY",
                 input_tokens=1_000_000,
-                output_tokens=500_000,
+                output_tokens=1_000_000,
+            ),
+        )
+
+    async def test_zero_multiplier_records_zero_without_pricing(
+        self, acct: _AccountingDb, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # 条目没有价目表：倍率不为 0 时会是未定价；ark-agent-plan 的供应商倍率默认 0，直接记 0
+        entry = replace(_text_entry("subscription"), price=None)
+        install_catalog(monkeypatch, catalog_of((entry,), {"ark-agent-plan": ("acme/subscription",)}))
+
+        await _text_generator(acct, "ark-agent-plan", "subscription", input_tokens=1_000, output_tokens=1_000).generate(
+            TextGenerationRequest(prompt="p"), project_name="demo"
+        )
+
+        _assert_full_row(
+            await acct.fetch_only_row(),
+            _expected_row(
+                purpose="script_generation",
+                call_type="text",
+                model="subscription",
+                prompt="p",
+                provider="ark-agent-plan",
+                cost_amount=0.0,
+                input_tokens=1_000,
+                output_tokens=1_000,
             ),
         )
 
@@ -885,7 +1417,7 @@ class TestIdentityInvariant:
         gen = _media_generator(
             tmp_path,
             acct,
-            image_backend=_FakeImageBackend(provider="gemini", model="gemini-3-pro-image-preview"),
+            image_backend=_FakeImageBackend(provider="gemini", model="gemini-3-pro-image"),
             image_provider_id="gemini-aistudio",
         )
 
@@ -943,7 +1475,7 @@ async def _pending_video_call(acct: _AccountingDb, *, task_id: str | None = _RES
             duration_seconds=8,
             aspect_ratio="9:16",
             generate_audio=True,
-            provider="gemini",
+            provider="gemini-aistudio",
             segment_id="E1S01",
             task_id=task_id,
             purpose=CallPurpose.GENERATION_TASK,
@@ -967,6 +1499,7 @@ def _expected_resume_row(**overrides: Any) -> dict[str, Any]:
     # resume 补账不回写 output_path：finalize 只翻状态与费用口径字段
     defaults: dict[str, Any] = {
         "purpose": "generation_task",
+        "provider": "gemini-aistudio",
         "task_id": _RESUME_TASK_ID,
         "call_type": "video",
         "model": "veo-3.1-generate-preview",
@@ -1075,6 +1608,7 @@ class TestResumeChannel:
             await acct.fetch_only_row(),
             _expected_pending_row(
                 purpose="generation_task",
+                provider="gemini-aistudio",
                 call_type="video",
                 model="veo-3.1-generate-preview",
                 prompt="p",
@@ -1085,114 +1619,3 @@ class TestResumeChannel:
                 segment_id="E1S01",
             ),
         )
-
-
-# ---------------------------------------------------------------------------
-# 通道六：agent 会话事后补录
-# ---------------------------------------------------------------------------
-
-
-def _managed_session() -> ManagedSession:
-    managed = ManagedSession(session_id="s1", actor=cast(SessionActor, None), status="idle", project_name="demo")
-    managed.last_user_prompt = "u" * 700
-    return managed
-
-
-_AGENT_USAGE = {
-    "input_tokens": 400_000,
-    "cache_creation_input_tokens": 100_000,
-    "cache_read_input_tokens": 500_000,
-    "output_tokens": 200_000,
-}
-
-
-class TestAgentBackfillChannel:
-    @pytest.fixture
-    async def manager(self, tmp_path: Path, acct: _AccountingDb) -> SessionManager:
-        mgr = SessionManager(
-            project_root=tmp_path,
-            meta_store=SessionMetaStore(session_factory=acct.factory),
-        )
-        mgr.ledger = Ledger(session_factory=acct.factory)
-        return mgr
-
-    async def test_completed_turn_prefers_reported_cost(self, manager: SessionManager, acct: _AccountingDb) -> None:
-        result_msg = {"model": "claude-sonnet-4", "usage": dict(_AGENT_USAGE), "total_cost_usd": 0.123}
-
-        await manager._record_assistant_usage(_managed_session(), result_msg, "completed")
-
-        # SDK 直报费用优先于按 token 自动计算（自动口径为 6.0 USD）；cache token 并入 input
-        _assert_full_row(
-            await acct.fetch_only_row(),
-            _expected_row(
-                purpose="assistant_session",
-                session_id="s1",
-                call_type="text",
-                model="claude-sonnet-4",
-                provider="anthropic",
-                prompt="u" * 700,
-                cost_amount=pytest.approx(0.123),
-                usage_tokens=1_200_000,
-                input_tokens=1_000_000,
-                output_tokens=200_000,
-            ),
-        )
-
-    async def test_non_completed_turn_records_failed_but_keeps_reported_cost(
-        self, manager: SessionManager, acct: _AccountingDb
-    ) -> None:
-        result_msg = {"model": "claude-sonnet-4", "usage": dict(_AGENT_USAGE), "total_cost_usd": 0.123}
-
-        await manager._record_assistant_usage(_managed_session(), result_msg, "error")
-
-        # 非 completed 终态翻 failed，但直报费用仍入账（provider 已实际扣费）
-        _assert_full_row(
-            await acct.fetch_only_row(),
-            _expected_row(
-                purpose="assistant_session",
-                session_id="s1",
-                call_type="text",
-                model="claude-sonnet-4",
-                provider="anthropic",
-                prompt="u" * 700,
-                status="failed",
-                cost_amount=pytest.approx(0.123),
-                usage_tokens=1_200_000,
-                input_tokens=1_000_000,
-                output_tokens=200_000,
-            ),
-        )
-
-    async def test_token_only_turn_auto_bills_from_anthropic_rates(
-        self, manager: SessionManager, acct: _AccountingDb
-    ) -> None:
-        result_msg = {
-            "model": "claude-sonnet-4",
-            "usage": {"input_tokens": 1_000_000, "output_tokens": 200_000},
-        }
-
-        await manager._record_assistant_usage(_managed_session(), result_msg, "completed")
-
-        # 无直报费用时按 3.00/15.00 USD 每百万 token 兜底：3.0 + 3.0
-        _assert_full_row(
-            await acct.fetch_only_row(),
-            _expected_row(
-                purpose="assistant_session",
-                session_id="s1",
-                call_type="text",
-                model="claude-sonnet-4",
-                provider="anthropic",
-                prompt="u" * 700,
-                cost_amount=pytest.approx(6.0),
-                usage_tokens=1_200_000,
-                input_tokens=1_000_000,
-                output_tokens=200_000,
-            ),
-        )
-
-    async def test_turn_without_usage_or_cost_writes_nothing(
-        self, manager: SessionManager, acct: _AccountingDb
-    ) -> None:
-        await manager._record_assistant_usage(_managed_session(), {"model": "claude-sonnet-4"}, "completed")
-
-        assert await acct.fetch_rows() == []

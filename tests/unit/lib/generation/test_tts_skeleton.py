@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from lib.artifacts.version_manager import VersionManager
 from lib.backends.audio_backends.base import AudioCapability, AudioSynthesisResult
+from lib.billing.metering import Usage
 from lib.db.base import Base
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
@@ -89,7 +90,7 @@ class _FakeAudioBackend:
         self.calls.append(request)
         await write_backend_output(request.output_path, b"RIFFfakewav")
         return AudioSynthesisResult(
-            provider=self.name, model=self.model, characters=len(request.text), output_path=request.output_path
+            provider=self.name, model=self.model, text=request.text, output_path=request.output_path
         )
 
 
@@ -199,11 +200,11 @@ class TestGenerateAudioAsync:
         assert gen._audio_backend.calls[0].output_path != output_path
         assert not gen._audio_backend.calls[0].output_path.exists()
         assert version == 1
-        # 记账括号用 call_type=audio；合成字符数由真 Ledger union 分发从 result.characters 转写
+        # 记账括号用 call_type=audio；backend 上报原始文本，由真 Ledger union 分发转成计量用量
         assert gen.ledger.started[0]["call_type"] == "audio"
         assert gen.ledger.started[0]["model"] == "tts-model"
         assert gen.ledger.outcomes[0]["status"] == "success"
-        assert gen.ledger.outcomes[0]["result"].characters == len("你好世界")
+        assert gen.ledger.outcomes[0]["result"].text == "你好世界"
         assert gen.versions.add_calls[0]["resource_type"] == "audio"
 
     async def test_before_submit_failure_prevents_audio_backend_call(self, tmp_path: Path):
@@ -373,11 +374,16 @@ class TestAudioCallSettlement:
                 call_id = await repo.start_call(
                     project_name="demo", call_type="audio", model="qwen3-tts-flash", provider="dashscope"
                 )
-                await repo.finish_call(call_id, status="success", settlement=SettlementInput(usage_tokens=1500))
+                await repo.finish_call(
+                    call_id,
+                    status="success",
+                    settlement=SettlementInput(usage_tokens=1500, usage=(Usage(text="念" * 1500),)),
+                )
                 stored = (await session.execute(select(ApiCall))).scalars().all()
                 assert [row.call_type for row in stored] == ["audio"]
                 # audio 按字符冻结费用（非 0）
                 assert stored[0].currency == "CNY"
+                assert stored[0].cost_amount is not None
                 assert stored[0].cost_amount > 0
         finally:
             await engine.dispose()

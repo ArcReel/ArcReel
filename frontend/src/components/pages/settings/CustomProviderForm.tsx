@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Eye, EyeOff, Loader2, MoreHorizontal, Plus, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, CloudDownload, Eye, EyeOff, Loader2, MoreHorizontal, Plus, Trash2, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
-import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
+import { PartialSaveError, useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -27,31 +27,50 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useAppStore } from "@/stores/app-store";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
-import type { CustomProviderInfo, EndpointKey } from "@/types";
+import type {
+  CustomProviderInfo,
+  EndpointKey,
+  FetchedProviderModel,
+  FetchProviderModelsResponse,
+  ProviderMultiplierInfo,
+} from "@/types";
 import { errMsg, voidCall } from "@/utils/async";
 import { DurationParseError } from "@/utils/duration_format";
 import { formatNameList } from "@/utils/list-format";
+import { parseMultiplier } from "@/utils/multiplier";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { DURATION_ERROR_KEY, ModelTable } from "./CustomProviderModelTable";
+import { FetchModelsDialog, type FetchSelection } from "./FetchModelsDialog";
+import { ProviderModelList } from "./ProviderModelList";
 import {
   isComfyuiEndpoint,
   isComfyuiProtocol,
+  isComfyuiVideoEndpoint,
   mergeDiscoveredModels,
   toggleDefaultReducer,
   urlPreviewFor,
   type DiscoveryFormat,
 } from "./customProviderHelpers";
 import {
-  discoveredToRow,
+  DEFAULT_PROVIDER_MULTIPLIER,
+  discoveredToFetched,
   effectiveModelRows,
+  fetchedToRow,
   formFromProvider,
   newModelRow,
+  newProviderDefaultMultiplier,
   newProviderForm,
+  parseOptionalMultiplier,
   parsePositiveInt,
   rowToInput,
   type CustomProviderFormValue,
   type ModelRow,
 } from "./customProviderFormState";
+
+/** 供应商配置接口里自定义供应商的 id。 */
+function customProviderKey(id: number): string {
+  return `custom-${id}`;
+}
 
 const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] = [
   { value: "openai", labelKey: "discovery_format_openai" },
@@ -62,11 +81,13 @@ const DISCOVERY_FORMAT_OPTIONS: { value: DiscoveryFormat; labelKey: string }[] =
 interface CustomProviderFormProps {
   /** 已保存的供应商；不传时是新建表单。 */
   existing?: CustomProviderInfo | null;
+  /** 已保存的供应商倍率，与 `existing` 一起取回；新建表单与未传时按默认值 1。 */
+  providerMultiplier?: ProviderMultiplierInfo;
   /** 从「调用端点」接线过来的预填接口地址（定义里的 meta.hints.base_url）。 */
   initialBaseUrl?: string;
   /** 接线时预选的调用端点：新建表单据此起一行模型。 */
   initialEndpoint?: EndpointKey;
-  /** 深链里的模型 ID：打开时展开并定位到这一行。 */
+  /** 深链里的模型 ID：打开时直接打开它的 Sheet。 */
   focusModelId?: string;
   /** 保存成功后调用，带回保存后的供应商（新建时是刚创建的供应商，调用方据此选中它）。 */
   onSaved: (provider?: CustomProviderInfo) => void;
@@ -76,10 +97,13 @@ interface CustomProviderFormProps {
 
 /**
  * 自定义供应商详情：打开即是表单，没有只读态。页头显示协议与接口地址，「删除供应商」在更多操作菜单；
- * 名称、接口地址、密钥、模型与并发上限是一个编辑单元，由详情栏底部的保存栏统一提交。
+ * 名称、接口地址、密钥、并发上限与供应商倍率是一个编辑单元，由详情栏底部的保存栏统一提交。
+ * 已保存的供应商的模型是模型列表：启用开关立即生效，其余设置在模型 Sheet 里逐个保存，不随这个编辑单元提交，
+ * 因此整份保存不会覆盖在列表里做的修改。新建表单里模型随供应商一起创建。
  */
 export function CustomProviderForm({
   existing,
+  providerMultiplier,
   initialBaseUrl,
   initialEndpoint,
   focusModelId,
@@ -100,7 +124,12 @@ export function CustomProviderForm({
 
   // 已保存的内容：新建表单在挂载时定下，此后保持同一个引用
   const [newForm] = useState(() => newProviderForm(initialBaseUrl, initialEndpoint));
-  const source = useMemo(() => (existing ? formFromProvider(existing) : newForm), [existing, newForm]);
+  // 供应商倍率不在供应商详情里，单独读写：保存后以 PUT 的回显为准，供应商重取不会带回它
+  const [savedMultiplier, setSavedMultiplier] = useState(providerMultiplier ?? DEFAULT_PROVIDER_MULTIPLIER);
+  const source = useMemo(
+    () => (existing ? formFromProvider(existing, savedMultiplier) : newForm),
+    [existing, savedMultiplier, newForm],
+  );
 
   // 接线过来的端点定协议：ComfyUI 端点只挂得上 ComfyUI 供应商（docs/adr/0081 的双向配对），
   // 让用户自己去把协议改过来就是先让他撞一次保存失败。端点目录是异步取的，因此这里取派生值：
@@ -129,7 +158,10 @@ export function CustomProviderForm({
   const allowNavigation = useCallback(() => deletedRef.current, []);
 
   const save = useCallback(
-    async (value: CustomProviderFormValue): Promise<CustomProviderFormValue | void> => {
+    async (
+      value: CustomProviderFormValue,
+      savedValue: CustomProviderFormValue,
+    ): Promise<CustomProviderFormValue | void> => {
       const discoveryFormat = formatOf(value);
       const keyOptional = value.noApiKey || isComfyuiProtocol(discoveryFormat);
       const models = deriveModels(value);
@@ -141,7 +173,8 @@ export function CustomProviderForm({
       if (!value.displayName.trim()) fail(t("fill_provider_name"));
       if (!value.baseUrl.trim()) fail(t("fill_base_url"));
       if (!existing && !keyOptional && !value.apiKey.trim()) fail(t("fill_api_key"));
-      if (enabledModels.length === 0) fail(t("enable_one_model"));
+      // 已保存的供应商不在表单里编辑模型（value.models 恒为空），以下模型校验只对新建表单起作用
+      if (!existing && enabledModels.length === 0) fail(t("enable_one_model"));
       if (enabledModels.some((m) => !m.model_id.trim())) fail(t("enabled_model_needs_id"));
       // 目录没取回来时行挂不挂得住当前协议判不了：接线端点还没解析出来，协议就回退成了 openai，
       // 那一行照样吃 422。两种情形都没有时表单停在默认协议与默认端点上，本来就不用查目录。
@@ -152,16 +185,15 @@ export function CustomProviderForm({
       if (catalogPending) fail(t("cp_endpoint_catalog_pending"));
       // 停在未选择端点上的行：服务端按行校验协议配对，一行没有端点整份配置都落不了库
       if (models.some((m) => !m.endpoint)) fail(t("cp_model_endpoint_unselected"));
-      if (
-        models.some(
-          (m) => endpointToMediaType[m.endpoint] === "text" && parsePositiveInt(m.max_output_tokens_text) === undefined,
-        )
-      ) {
-        fail(t("max_output_tokens_invalid"));
-      }
+      if (models.some((m) => parseMultiplier(m.multiplier_text) === undefined)) fail(t("cp_model_multiplier_invalid"));
+      // 可选时长只在 ComfyUI 视频行上编辑，且档位给得出来时才写回覆盖；其余行的覆盖原样回传
+      const durationsEditable = (endpoint: EndpointKey) => {
+        const descriptor = catalogEndpoints.find((item) => item.key === endpoint);
+        return descriptor !== undefined && isComfyuiVideoEndpoint(descriptor) && !descriptor.duration_tier_empty;
+      };
       let payloadModels;
       try {
-        payloadModels = models.map(rowToInput);
+        payloadModels = models.map((m) => rowToInput(m, { durationsEditable: durationsEditable(m.endpoint) }));
       } catch (e) {
         if (e instanceof DurationParseError) {
           fail(t("supported_durations_invalid", { message: t(DURATION_ERROR_KEY[e.code], e.params) }));
@@ -172,29 +204,53 @@ export function CustomProviderForm({
       const videoMax = parsePositiveInt(value.videoMaxWorkers);
       const audioMax = parsePositiveInt(value.audioMaxWorkers);
       if (imageMax === undefined || videoMax === undefined || audioMax === undefined) fail(t("max_workers_invalid"));
+      const multiplier = parseOptionalMultiplier(value.providerMultiplier);
+      if (multiplier === undefined) fail(t("cp_provider_multiplier_invalid"));
 
       const workers = { image_max_workers: imageMax ?? null, video_max_workers: videoMax ?? null, audio_max_workers: audioMax ?? null };
       if (existing) {
-        // 单个事务原子更新 provider + models
+        // 只更新供应商本身：不带 models，模型保持在列表与 Sheet 里保存的样子
         await API.fullUpdateCustomProvider(existing.id, {
           display_name: value.displayName,
           base_url: value.baseUrl,
           ...(value.noApiKey ? { api_key: "" } : value.apiKey ? { api_key: value.apiKey } : {}),
-          models: payloadModels,
           ...workers,
         });
-        // 能力覆盖随本次保存落库，但它不落任何项目字段，在用的能力查询不会因 props 变化而重取；
-        // 显式作废，让常驻的能力警告无需重新挂载组件即随新覆盖增减。
-        useCapabilitiesStore.getState().invalidate();
-        // 入库内容以重取结果为准（能力判定、全局引用由后端算出）；重取失败不算保存失败
+        // 供应商倍率是另一份配置，改了才写；失败时供应商已经落库，按部分保存报告
+        let multiplierInfo = savedMultiplier;
+        let multiplierError: unknown = null;
+        if (value.providerMultiplier !== savedValue.providerMultiplier) {
+          try {
+            multiplierInfo = await API.setProviderMultiplier(customProviderKey(existing.id), multiplier ?? null);
+          } catch (e) {
+            multiplierError = e;
+          }
+        }
+        // 入库内容以重取结果为准；重取失败不算保存失败
         let updated: CustomProviderInfo | undefined;
         try {
           updated = await API.getCustomProvider(existing.id);
         } catch {
           updated = undefined;
         }
+        // 与供应商一起交出去，两份已保存内容在同一次渲染里更新，不会先拼出一份新倍率配旧供应商的中间态
+        setSavedMultiplier(multiplierInfo);
         onSaved(updated);
-        return updated ? formFromProvider(updated) : { ...value, apiKey: "", models };
+        const savedForm = updated
+          ? formFromProvider(updated, multiplierInfo)
+          : {
+              ...value,
+              apiKey: "",
+              models,
+              providerMultiplier: multiplierError ? savedValue.providerMultiplier : value.providerMultiplier,
+            };
+        if (multiplierError) {
+          throw new PartialSaveError(t("cp_provider_multiplier_save_failed", { message: errMsg(multiplierError) }), {
+            saved: savedForm,
+            cause: multiplierError,
+          });
+        }
+        return savedForm;
       }
       const created = await API.createCustomProvider({
         display_name: value.displayName,
@@ -205,9 +261,19 @@ export function CustomProviderForm({
         ...workers,
       });
       useCapabilitiesStore.getState().invalidate();
+      // 倍率挂在供应商 id 上，只能在创建之后写。供应商已经建好，倍率写失败不回退：
+      // 提示后照常切到新供应商，在那里重新填写即可
+      if (multiplier != null && multiplier !== newProviderDefaultMultiplier(isComfyuiProtocol(discoveryFormat))) {
+        try {
+          await API.setProviderMultiplier(customProviderKey(created.id), multiplier);
+        } catch (e) {
+          const message = t("cp_provider_multiplier_create_failed", { message: errMsg(e) });
+          useAppStore.getState().pushToast(message, "error");
+        }
+      }
       onSaved(created);
     },
-    [formatOf, deriveModels, t, existing, catalogInitialized, initialEndpoint, endpointToMediaType, onSaved],
+    [formatOf, deriveModels, t, existing, catalogInitialized, catalogEndpoints, initialEndpoint, savedMultiplier, onSaved],
   );
 
   const unit = useEditUnit({ source, save, allowNavigation });
@@ -231,12 +297,8 @@ export function CustomProviderForm({
     [setValue, deriveModels],
   );
 
-  // 展开的模型行：深链定位的模型默认展开；新建表单接线带来的行还没填模型 ID，也展开
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => {
-    if (!existing) return new Set(source.models.map((m) => m.key));
-    const focused = source.models.find((m) => m.model_id === focusModelId);
-    return new Set(focused ? [focused.key] : []);
-  });
+  // 展开的模型行（只有新建表单有）：接线带来的行还没填模型 ID，默认展开
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(source.models.map((m) => m.key)));
   const toggleExpanded = useCallback((key: string) => {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -245,11 +307,6 @@ export function CustomProviderForm({
       return next;
     });
   }, []);
-  const tableRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!focusModelId) return;
-    tableRef.current?.querySelector("[aria-expanded=true]")?.scrollIntoView({ block: "center" });
-  }, [focusModelId]);
 
   const comfyuiEndpoints = useMemo(() => catalogEndpoints.filter(isComfyuiEndpoint), [catalogEndpoints]);
   // ComfyUI 协议下新行必须挂 ComfyUI 端点：没有可挂的端点时按钮禁用并给出去处
@@ -261,8 +318,7 @@ export function CustomProviderForm({
     setExpanded((prev) => new Set(prev).add(row.key));
   };
 
-  // --- 测试连接与获取模型列表：用表单当前内容，不经保存 ---
-  const [discovering, setDiscovering] = useState(false);
+  // --- 测试连接与获取模型：用表单当前内容，不经保存 ---
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const showError = useCallback((msg: string) => useAppStore.getState().pushToast(msg, "error"), []);
@@ -289,30 +345,47 @@ export function CustomProviderForm({
     return true;
   };
 
-  const handleDiscover = async () => {
+  // 获取模型：连接信息在打开对话框时定下，对话框里的列表不随表单之后的输入重取
+  const [fetchConnection, setFetchConnection] = useState<{
+    discovery_format: DiscoveryFormat;
+    base_url: string;
+    api_key: string;
+  } | null>(null);
+  const openFetch = () => {
     if (!checkConnectionInputs()) return;
-    setDiscovering(true);
-    try {
-      const res =
-        useStoredCredential && existing
-          ? await API.discoverModelsForProvider(existing.id)
-          : await API.discoverModels({ discovery_format: discoveryFormat, base_url: value.baseUrl, api_key: value.apiKey });
-      if (res.not_applicable) {
-        showError(res.reason ?? t("discovery_not_applicable"));
-        return;
-      }
-      const discovered = res.models.map(discoveredToRow);
-      // 用 getState 读最新目录映射：目录在挂载时异步拉取，就绪前点「获取模型列表」时闭包里仍是空表，
-      // 合并会跳过默认消解，保存时可能 default_model_conflict。
+    setFetchConnection({ discovery_format: discoveryFormat, base_url: value.baseUrl, api_key: value.apiKey });
+  };
+  const loadFetched = useCallback(
+    async (signal: AbortSignal): Promise<FetchProviderModelsResponse> => {
+      if (!fetchConnection) return { models: [], not_applicable: false, reason: null };
+      const res = await API.discoverModels(fetchConnection, { signal });
+      // 用 getState 读最新目录映射：目录在挂载时异步拉取，打开对话框时可能还没到
+      const mediaMap = useEndpointCatalogStore.getState().endpointToMediaType;
+      return { ...res, models: res.models.map((m) => discoveredToFetched(m, (endpoint) => mediaMap[endpoint])) };
+    },
+    [fetchConnection],
+  );
+  const isFetchedAdded = useCallback(
+    (fetched: FetchedProviderModel) => models.some((m) => m.model_id.trim() === fetched.model_id),
+    [models],
+  );
+  const addFetched = useCallback(
+    (selections: FetchSelection[]) => {
       const { endpointToMediaType: mediaMap, endpointToImageCapabilities: capsMap } =
         useEndpointCatalogStore.getState();
-      updateModels((rows) => mergeDiscoveredModels(rows, discovered, mediaMap, capsMap));
-    } catch (e) {
-      showError(errMsg(e, t("fetch_models_failed")));
-    } finally {
-      setDiscovering(false);
-    }
-  };
+      // 每种媒体类型勾选的第一个模型标为默认，与已有行的默认冲突时由合并让出
+      const seenMedia = new Set<string>();
+      const rows = selections.map((selection) => {
+        const media = selection.endpoint ? mediaMap[selection.endpoint] : undefined;
+        const isDefault = media !== undefined && !seenMedia.has(media);
+        if (media !== undefined) seenMedia.add(media);
+        return fetchedToRow(selection, isDefault);
+      });
+      updateModels((prev) => mergeDiscoveredModels(prev, rows, mediaMap, capsMap));
+      return Promise.resolve(selections.map(() => null));
+    },
+    [updateModels],
+  );
 
   const handleTest = async () => {
     // 先清空上一次结果：校验失败直接返回时也不残留旧的成功或失败提示
@@ -367,9 +440,19 @@ export function CustomProviderForm({
   const keyRequiringModels =
     authFreeEndpoints === null
       ? []
-      : models
+      : (existing?.models ?? models)
           .filter((m) => m.is_enabled && m.model_id.trim() && !authFreeEndpoints.has(m.endpoint))
           .map((m) => m.model_id);
+
+  // 模型 Sheet 保存或移除之后重取供应商：删除确认里的模型数与「无需密钥」的冲突提示都读它
+  const refreshAfterModelChange = useCallback(() => {
+    if (!existing) return;
+    voidCall(
+      API.getCustomProvider(existing.id)
+        .then((updated) => onSaved(updated))
+        .catch(() => onSaved()),
+    );
+  }, [existing, onSaved]);
 
   // --- 删除供应商 ---
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -401,6 +484,8 @@ export function CustomProviderForm({
   const modelsHeadingId = useId();
   const connectionHeadingId = useId();
   const concurrencyHeadingId = useId();
+  const billingHeadingId = useId();
+  const providerMultiplierInvalid = parseOptionalMultiplier(value.providerMultiplier) === undefined;
   const urlPreview = urlPreviewFor(discoveryFormat, value.baseUrl);
   const hasUnsetEndpoint = models.some((m) => !m.endpoint);
   const workersPlaceholder = isComfyui ? t("cp_max_workers_placeholder_comfyui") : t("cp_max_workers_placeholder");
@@ -570,32 +655,75 @@ export function CustomProviderForm({
           )}
         </section>
 
-        <section aria-labelledby={modelsHeadingId} className="flex max-w-6xl flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 id={modelsHeadingId} className="mr-auto text-base font-medium">
-              {t("model_list")}
-              {models.length > 0 && <span className="ml-2 text-muted-foreground tabular-nums">{models.length}</span>}
+        {/* 供应商设置在模型列表之上：接口地址与倍率经页面保存栏保存 */}
+        <section aria-labelledby={billingHeadingId} className="flex max-w-178 flex-col gap-4">
+          <div className="flex flex-col gap-1">
+            <h3 id={billingHeadingId} className="text-base font-medium">
+              {t("cp_billing_heading")}
             </h3>
-            {!isComfyui && (
-              <Button variant="outline" size="sm" disabled={discovering} onClick={() => void handleDiscover()}>
-                {discovering && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
-                {discovering ? t("discovering_models") : t("discover_models")}
-              </Button>
-            )}
-            <Button variant="outline" size="sm" disabled={noComfyuiEndpointYet} onClick={addModel}>
-              <Plus aria-hidden data-icon="inline-start" />
-              {t("add_model_manually")}
-            </Button>
+            <p className="text-sm text-muted-foreground">{t("cp_provider_multiplier_help")}</p>
           </div>
-          {/* comfyui 没有模型发现，用说明替代按钮 */}
-          {isComfyui && <p className="text-sm text-muted-foreground">{t("discovery_not_applicable")}</p>}
-          {hasUnsetEndpoint && <p className="text-sm text-warn">{t("cp_model_endpoint_unselected")}</p>}
-          {models.length > 0 ? (
-            <div ref={tableRef}>
+          <FieldRow
+            label={t("cp_provider_multiplier_label")}
+            htmlFor={`${billingHeadingId}-input`}
+            hint={
+              providerMultiplierInvalid ? (
+                <FieldHint tone="warn">{t("cp_multiplier_invalid")}</FieldHint>
+              ) : undefined
+            }
+          >
+            <Input
+              id={`${billingHeadingId}-input`}
+              inputMode="decimal"
+              autoComplete="off"
+              className="w-32"
+              value={value.providerMultiplier}
+              onChange={(e) => setField("providerMultiplier", e.target.value)}
+              placeholder={t("cp_provider_multiplier_placeholder", {
+                value: existing ? savedMultiplier.default : newProviderDefaultMultiplier(isComfyui),
+              })}
+              aria-invalid={providerMultiplierInvalid}
+            />
+          </FieldRow>
+        </section>
+
+        {existing ? (
+          <div className="max-w-178">
+            <ProviderModelList
+              providerId={customProviderKey(existing.id)}
+              providerName={existing.display_name}
+              custom={{ id: existing.id, baseUrl: existing.base_url, protocol: existing.discovery_format }}
+              initialModelId={focusModelId}
+              onModelsChanged={refreshAfterModelChange}
+              providerMultiplier={savedMultiplier.multiplier}
+            />
+          </div>
+        ) : (
+          <section aria-labelledby={modelsHeadingId} className="flex max-w-6xl flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 id={modelsHeadingId} className="mr-auto text-base font-medium">
+                {t("model_list")}
+                {models.length > 0 && <span className="ml-2 text-muted-foreground tabular-nums">{models.length}</span>}
+              </h3>
+              {!isComfyui && (
+                <Button variant="outline" size="sm" onClick={openFetch}>
+                  <CloudDownload aria-hidden data-icon="inline-start" />
+                  {t("pm_fetch_models")}
+                </Button>
+              )}
+              <Button variant="outline" size="sm" disabled={noComfyuiEndpointYet} onClick={addModel}>
+                <Plus aria-hidden data-icon="inline-start" />
+                {t("add_model_manually")}
+              </Button>
+            </div>
+            {/* comfyui 没有模型发现，用说明替代按钮 */}
+            {isComfyui && <p className="text-sm text-muted-foreground">{t("discovery_not_applicable")}</p>}
+            {hasUnsetEndpoint && <p className="text-sm text-warn">{t("cp_model_endpoint_unselected")}</p>}
+            {models.length > 0 ? (
               <ModelTable
                 rows={models}
                 protocol={discoveryFormat}
-                providerId={existing?.id}
+                baseUrl={value.baseUrl}
                 expanded={expanded}
                 onToggleExpanded={toggleExpanded}
                 onUpdate={(key, patch) =>
@@ -609,17 +737,28 @@ export function CustomProviderForm({
                   updateModels((rows) => rows.map((m) => (keys.includes(m.key) ? { ...m, is_enabled: enabled } : m)))
                 }
               />
-            </div>
-          ) : (
-            <p className="rounded-lg border border-dashed border-input px-4 py-6 text-center text-sm text-muted-foreground">
-              {noComfyuiEndpointYet
-                ? t("cp_comfyui_no_endpoint_hint")
-                : isComfyui
-                  ? t("cp_comfyui_add_model_hint")
-                  : t("cp_models_empty_hint")}
-            </p>
-          )}
-        </section>
+            ) : (
+              <p className="rounded-lg border border-dashed border-input px-4 py-6 text-center text-sm text-muted-foreground">
+                {noComfyuiEndpointYet
+                  ? t("cp_comfyui_no_endpoint_hint")
+                  : isComfyui
+                    ? t("cp_comfyui_add_model_hint")
+                    : t("cp_models_empty_hint")}
+              </p>
+            )}
+            <FetchModelsDialog
+              open={fetchConnection !== null}
+              onOpenChange={(open) => {
+                if (!open) setFetchConnection(null);
+              }}
+              providerName={value.displayName.trim() || t("add_custom_provider_title")}
+              load={loadFetched}
+              isAdded={isFetchedAdded}
+              protocol={discoveryFormat}
+              onAdd={addFetched}
+            />
+          </section>
+        )}
 
         <section aria-labelledby={concurrencyHeadingId} className="flex max-w-178 flex-col gap-4">
           <div className="flex flex-col gap-1">

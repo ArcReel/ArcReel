@@ -13,6 +13,7 @@ import pytest
 from lib.backends.providers import CallStatus
 from lib.billing.usage_summary import (
     MAX_ATTENTION_ITEMS,
+    MAX_BREAKDOWN_ROWS,
     MAX_DAILY_BUCKETS,
     UsageFilterOptions,
     UsageSummaryRow,
@@ -34,7 +35,7 @@ def row(
     media_type: str = "image",
     provider: str = "gemini",
     model: str = "flash",
-    cost_amount: float = 0.0,
+    cost_amount: float | None = 0.0,
     currency: str = "USD",
     segment_id: str | None = None,
 ) -> UsageSummaryRow:
@@ -142,3 +143,53 @@ class TestAttentionOrdering:
             row(index=3, status=CallStatus.CANCELLED, cost_amount=0.0),
         ]
         assert summarize(rows)["kpi"]["cost"] == {"USD": 0.123457}
+
+    def test_unpriced_rows_stay_out_of_every_cost_total(self):
+        """费用为 NULL（未定价）的行不报错，也不进合计、构成与日桶金额；混合 NULL、0 与正数。"""
+        rows = [
+            row(index=1, cost_amount=None, provider="ark", model="a"),
+            row(index=2, cost_amount=0.0, provider="ark", model="a"),
+            row(index=3, cost_amount=0.5, provider="ark", model="a"),
+            row(index=4, cost_amount=None, provider="gemini", model="b"),
+        ]
+        body = summarize(rows)
+
+        assert body["kpi"]["calls"] == 4
+        assert body["kpi"]["cost"] == {"USD": 0.5}
+        assert body["primary_currency"] == "USD"
+        assert body["daily"][0]["cost_by_media_type"]["image"] == 0.5
+        by_provider = {item["provider"]: item for item in body["breakdown"]["provider"]["rows"]}
+        assert by_provider["ark"]["cost"] == {"USD": 0.5}
+        assert by_provider["gemini"]["calls"] == 1
+        assert by_provider["gemini"]["cost"] == {}
+
+    def test_unpriced_calls_are_counted_apart_from_zero_cost_calls(self):
+        """未定价的调用另计次数：0 元的调用已定价，不在其中；构成表与列表外的余量同口径。"""
+        rows = [
+            row(index=1, cost_amount=None, provider="ark", model="a"),
+            row(index=2, cost_amount=None, provider="ark", model="a", status=CallStatus.FAILED),
+            row(index=3, cost_amount=0.0, provider="ark", model="a"),
+            row(index=4, cost_amount=0.5, provider="gemini", model="b"),
+        ]
+        body = summarize(rows)
+
+        assert body["kpi"]["unpriced_calls"] == 2
+        by_provider = {item["provider"]: item for item in body["breakdown"]["provider"]["rows"]}
+        assert by_provider["ark"]["unpriced_calls"] == 2
+        assert by_provider["gemini"]["unpriced_calls"] == 0
+
+    def test_overflow_group_carries_the_unpriced_count(self):
+        rows = [
+            row(index=index, project_name=f"p{index:03d}", cost_amount=None if index % 2 else 1.0)
+            for index in range(MAX_BREAKDOWN_ROWS + 4)
+        ]
+        other = summarize(rows)["breakdown"]["project"]["other"]
+
+        assert other["groups"] == 4
+        # 并入余量的是排在最后的四个项目（index 50..53）：其中两个未定价。
+        assert other["unpriced_calls"] == 2
+
+    def test_only_unpriced_rows_have_no_primary_currency(self):
+        body = summarize([row(index=1, cost_amount=None), row(index=2, cost_amount=None)])
+        assert body["primary_currency"] is None
+        assert body["kpi"]["cost"] == {}

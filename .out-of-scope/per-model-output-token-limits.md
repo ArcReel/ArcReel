@@ -1,6 +1,6 @@
 # Per-Model Output Token Limits
 
-ArcReel 不维护「按模型的输出 token 上限表」，也不在运行期把请求的 `max_tokens` clamp 到该表的值。
+ArcReel 不维护独立的「按模型的输出 token 上限表」，也不在运行期把请求的 `max_tokens` clamp 到模型条目登记的最大输出 token。
 
 ## Why this is out of scope
 
@@ -11,7 +11,7 @@ ADR 0044（`docs/adr/0044-text-output-token-nonbinding-ceiling.md`）已选定�
 - **按模型上限表**：要为所有内置与自定义供应商补外部数据并持续维护，是一个易过时的第二真相源。#1847 正文（2026-08）记录了一个实例：火山方舟官方文档对 `doubao-seed-1-8-251228` 的最大输出声明已从旧版约 8192 更新为 64K，而 PR #405 写死的正是 `8192`——合入即把该模型正常长输出砍掉 8 倍。
 - **截断即自适应降级**：静默缩批量与「显式失败、用户做主」相悖。
 
-`lib/config/registry.py::ModelInfo` 至今没有 `max_output_tokens` 字段，这是刻意的。
+模型条目的 `max_output_tokens` 是可选的能力事实，现在只用于分集规划按它定批次（见 `docs/adr/0044` 文末修订），不作为请求 `max_tokens` 的约束，这是刻意的。
 
 重开条件（来自 #1847 关闭意见）：某个当前可选模型出现**真实、可复现**的不兼容，此时按具体 provider/model 单独开票，而非引入通用表。
 

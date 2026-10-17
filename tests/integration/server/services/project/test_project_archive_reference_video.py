@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.config.registry import PROVIDER_REGISTRY
+from lib.catalog import query as catalog
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.resource_paths import resource_relative_path
@@ -23,6 +23,12 @@ REMOTE_VIDEO_URI = "https://cdn.example.com/v/E1U1.mp4"
 
 # 区分"未传 generated_assets（用默认）"与"显式传 None（不写该字段）"
 _DEFAULT_ASSETS = object()
+
+
+def _durations(provider_id: str, model_id: str) -> list[int]:
+    model = catalog.get_model(provider_id, model_id)
+    assert model is not None
+    return model.supported_durations
 
 
 def _write_bytes(path: Path, content: bytes) -> None:
@@ -222,8 +228,8 @@ class TestProjectArchiveReferenceVideo:
         payload["video_provider_i2v"] = "gemini-aistudio/veo-3.1-generate-preview"
         payload.pop("schema_version", None)
         project_file.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        assert PROVIDER_REGISTRY["minimax"].models["MiniMax-Hailuo-2.3"].supported_durations == [6, 10]
-        assert PROVIDER_REGISTRY["gemini-aistudio"].models["veo-3.1-generate-preview"].supported_durations == [4, 6, 8]
+        assert _durations("minimax", "MiniMax-Hailuo-2.3") == [6, 10]
+        assert _durations("gemini-aistudio", "veo-3.1-generate-preview") == [4, 6, 8]
 
         service = ProjectArchiveService(pm)
         archive_path = tmp_path / "legacy-two-buckets.zip"
@@ -278,7 +284,7 @@ class TestProjectArchiveReferenceVideo:
             (pm.get_project_path(result.project_name) / "scripts" / "episode_1.json").read_text(encoding="utf-8")
         )
         # 求和 10s 不是该型号档位成员，取档后落盘的秒数必是成员。
-        veo_tiers = PROVIDER_REGISTRY["gemini-aistudio"].models["veo-3.1-generate-preview"].supported_durations
+        veo_tiers = _durations("gemini-aistudio", "veo-3.1-generate-preview")
         assert imported["video_units"][0]["duration_seconds"] in veo_tiers
 
     def test_import_restores_video_clip_from_version(self, tmp_path):

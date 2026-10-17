@@ -354,8 +354,11 @@ Usage tracking spans:
 
 Design principles:
 
-- provider adapters report raw usage;
-- cost policies perform conversions;
+- provider adapters report raw usage under the usage contract: non-overlapping meter quantities (uncached input, cache read, and the two cache-write tiers add up to the total input)
+  plus the pricing dimensions actually sent to the provider; each provider's usage quirks are handled in the adapter; when one call contains several billed requests (such as fallback retries), each request is reported separately;
+- the calculator sums over the model catalog's price table, placing each request in its own context tier, then applies the provider multiplier and the provider-model multiplier; when no price applies, the call is recorded as unpriced. Meters are either token meters or count meters (seconds, images, requests, and so on): a token meter with reported usage that is missing from the price table means no price applies; a count meter missing from the price table means the vendor does not charge for it. When none of the price table's meters receives any usage, the cost is unknown and the call is also recorded as unpriced (`docs/adr/0100`);
+- video adapters report output seconds, video tokens, input video seconds, and reference image count; resolution, audio, duration tier, and input mode come from the request fields. Meters that need conversion (such as Ark video tokens) get an estimator from the adapter for pre-submit estimates; without an estimator that estimate is recorded as unpriced instead of guessed;
+- costs are computed and frozen when a call completes; catalog changes do not recompute historical costs;
 - different currencies are totaled separately by default;
 - whether failed tasks are billed follows the provider's semantics;
 - ArcReel's records do not replace official provider invoices.
@@ -496,13 +499,13 @@ Security principles:
 
 A complete integration of a new provider usually requires:
 
-1. defining capability and configuration models;
+1. declaring the provider's credentials, call channels and default URL in the registry, and adding model entries and the built-in provider listing to the factory snapshot `lib/catalog/snapshot/`;
 2. implementing the corresponding Backend protocol;
 3. standardizing error types;
 4. implementing a synchronous or asynchronous task lifecycle;
 5. saving remote task IDs;
 6. parsing outputs and usage;
-7. implementing cost policies;
+7. reporting meters and selection dimensions from the call channel under the usage contract, and recording price tables on the entries (see [Usage and cost](#usage-and-cost));
 8. integrating with the Settings page;
 9. adding unit and integration tests;
 10. updating provider documentation;

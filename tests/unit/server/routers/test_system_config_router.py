@@ -13,6 +13,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from lib.catalog import query as catalog
+from lib.catalog.builtin_models import disabled_without_state
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.service import ConfigService, ProviderStatus
 from lib.db import get_async_session
 from lib.db.base import Base
@@ -96,10 +99,12 @@ def _make_mock_svc(
                     display_name=meta.display_name,
                     description=meta.description,
                     status=status,
-                    media_types=list(meta.media_types),
-                    capabilities=list(meta.capabilities),
+                    media_types=catalog.provider_media_types(name),
+                    capabilities=catalog.provider_capabilities(name),
                     required_keys=list(meta.required_keys),
                     credential_count=1 if name in ready else 0,
+                    # 没有内置供应商模型状态行的实例：条目已下架的模型为停用
+                    disabled_models=disabled_without_state(name),
                 )
             )
         return statuses
@@ -180,7 +185,7 @@ class TestGetSystemConfig:
         assert "video_backends" in options
         assert "image_backends" in options
         assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
-        assert "gemini-aistudio/gemini-3.1-flash-image-preview" in options["image_backends"]
+        assert "gemini-aistudio/gemini-3.1-flash-image" in options["image_backends"]
 
     def test_options_exclude_unconfigured_providers(self):
         mock_svc = _make_mock_svc(ready_providers=[])
@@ -191,18 +196,15 @@ class TestGetSystemConfig:
         assert options["image_backends"] == []
         assert options["audio_backends"] == []
 
-    def test_options_exclude_hidden_models(self):
-        """registry 的 hidden 语义是「从下拉剔除、条目保留供算价」，options 是那个下拉。"""
-        from dataclasses import replace
-        from unittest.mock import patch
+    def test_options_exclude_hidden_models(self, monkeypatch):
+        """已下架条目的模型「从下拉剔除、条目保留供算价」，options 是那个下拉。"""
+        from lib.catalog.query import factory_snapshot
+        from tests.catalog_support import install_catalog, with_entry_changes
 
-        from lib.config.registry import PROVIDER_REGISTRY
-
-        meta = PROVIDER_REGISTRY["gemini-aistudio"]
-        hidden_id = "veo-3.1-generate-preview"
-        patched = {**meta.models, hidden_id: replace(meta.models[hidden_id], hidden=True)}
+        data = with_entry_changes(factory_snapshot(), "gemini-aistudio", "veo-3.1-generate-preview", discontinued=True)
+        install_catalog(monkeypatch, data)
         mock_svc = _make_mock_svc(ready_providers=["gemini-aistudio"])
-        with patch.dict(meta.models, patched, clear=True), TestClient(_make_app_with_mock(mock_svc)) as client:
+        with TestClient(_make_app_with_mock(mock_svc)) as client:
             options = client.get("/api/v1/system/config").json()["options"]
         assert "gemini-aistudio/veo-3.1-generate-preview" not in options["video_backends"]
         assert "gemini-aistudio/veo-3.1-fast-generate-preview" in options["video_backends"]
@@ -213,7 +215,7 @@ class TestGetSystemConfig:
             res = client.get("/api/v1/system/config")
         options = res.json()["options"]
         assert "gemini-aistudio/veo-3.1-generate-preview" in options["video_backends"]
-        assert "ark/doubao-seedance-1-5-pro-251215" in options["video_backends"]
+        assert "ark/doubao-seedance-2-0-260128" in options["video_backends"]
 
     def test_anthropic_key_masked(self):
         mock_svc = _make_mock_svc(settings={"anthropic_api_key": "sk-ant-test-secret-123456"})
@@ -339,11 +341,11 @@ class TestPatchSystemConfig:
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
-                json={"default_video_backend": "ark/doubao-seedance-1-5-pro-251215"},
+                json={"default_video_backend": "ark/doubao-seedance-2-0-260128"},
             )
         assert res.status_code == 200
         settings = res.json()["settings"]
-        assert settings["default_video_backend"] == "ark/doubao-seedance-1-5-pro-251215"
+        assert settings["default_video_backend"] == "ark/doubao-seedance-2-0-260128"
 
     def test_patch_sets_video_bucket_backends(self):
         mock_svc = _make_mock_svc()
@@ -352,17 +354,17 @@ class TestPatchSystemConfig:
                 "/api/v1/system/config",
                 json={
                     "default_video_backend_i2v": "minimax/MiniMax-Hailuo-2.3",
-                    "default_video_backend_r2v": "minimax/S2V-01",
+                    "default_video_backend_r2v": "ark/doubao-seedance-2-0-260128",
                 },
             )
         assert res.status_code == 200
         settings = res.json()["settings"]
         assert settings["default_video_backend_i2v"] == "minimax/MiniMax-Hailuo-2.3"
-        assert settings["default_video_backend_r2v"] == "minimax/S2V-01"
+        assert settings["default_video_backend_r2v"] == "ark/doubao-seedance-2-0-260128"
 
     def test_patch_clears_video_bucket_backend(self):
         """空串 = 清空桶键；解析层按空桶回退默认层处理（docs/adr/0054）。"""
-        mock_svc = _make_mock_svc(settings={"default_video_backend_r2v": "minimax/S2V-01"})
+        mock_svc = _make_mock_svc(settings={"default_video_backend_r2v": "ark/doubao-seedance-2-0-260128"})
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
@@ -376,7 +378,7 @@ class TestPatchSystemConfig:
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
-                json={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image-preview"},
+                json={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image"},
             )
         assert res.status_code == 400
 
@@ -654,3 +656,18 @@ class TestTtsModelCapabilities:
         with TestClient(app) as client:
             resp = client.get("/api/v1/system/tts-model-capabilities", params={"backend": "dashscope"})
         assert resp.status_code == 422
+
+    def test_model_not_in_catalog_asks_to_reselect(self, monkeypatch):
+        """所选语音模型已不在供应商清单中：返回要求重新选择模型的 400，不说成「语音模型无效」。"""
+        error = ModelNotInCatalogError(provider_id="minimax", model_id="speech-retired", media_type="audio")
+        monkeypatch.setattr(system_config_router, "audio_backend_capabilities", AsyncMock(side_effect=error))
+        app = _make_app_with_mock(_make_mock_svc())
+        register_error_handlers(app)
+        with TestClient(app) as client:
+            resp = client.get(
+                "/api/v1/system/tts-model-capabilities",
+                params={"backend": "minimax/speech-retired"},
+                headers={"Accept-Language": "en"},
+            )
+        assert resp.status_code == 400
+        assert "re-select a model" in resp.json()["detail"]

@@ -133,7 +133,7 @@ class TestCapabilities:
 class TestNumFramesAndSize:
     @pytest.mark.parametrize(
         ("duration", "expected_frames"),
-        [(1, 25), (3, 73), (5, 121), (10, 241), (18, 433)],
+        [(1, 25), (3, 73), (5, 121), (10, 241), (18, 433), (30, 721)],
     )
     def test_duration_to_num_frames_aligns_to_8n_plus_1(self, duration: int, expected_frames: int):
         from lib.backends.video_backends.agnes import _duration_to_num_frames
@@ -141,7 +141,6 @@ class TestNumFramesAndSize:
         frames = _duration_to_num_frames(duration)
         assert frames == expected_frames
         assert (frames - 1) % 8 == 0  # 形如 8n+1
-        assert frames <= 441
 
     def test_resolve_size_portrait_explicit_hw(self):
         from lib.backends.video_backends.agnes import _resolve_size
@@ -767,17 +766,18 @@ class TestResume:
             assert routes.poll.call_count == 1
 
 
-class TestDurationValidation:
-    @pytest.mark.parametrize("duration", [0, 19, 30])
-    async def test_out_of_range_duration_fails_loud_without_submit(self, tmp_path: Path, duration: int):
-        """越界时长（< 1 或 > 18）在建单前 fail-loud，不静默截帧到 441、不 POST、不错记计费时长。"""
+class TestDurationPassthrough:
+    async def test_duration_beyond_frame_limit_is_submitted_unclamped(self, tmp_path: Path):
+        """时长不在 backend 另做检查：超出上游帧数上限的请求按原秒数换算帧数下发，由上游判定。"""
         with _agnes_api() as routes:
-            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
-            with pytest.raises(VideoCapabilityError) as ei:
-                await backend.generate(_request(tmp_path, duration_seconds=duration))
+            routes.submit.mock(return_value=_queued("task-30"))
+            routes.poll.mock(return_value=_json(_completed("task-30", seconds="30.0")))
+            routes.download.mock(return_value=httpx.Response(200, content=b"mp4"))
 
-            assert ei.value.code == "video_duration_not_supported"
-            assert routes.submit.call_count == 0
+            backend = AgnesVideoBackend(api_key="k", model="agnes-video-v2.0", base_url=_BASE_URL)
+            await backend.generate(_request(tmp_path, duration_seconds=30))
+
+        assert request_json(only_request(routes.submit))["num_frames"] == 721
 
 
 class TestProviderJobIdPersistence:

@@ -18,6 +18,7 @@ function stats(overrides: Partial<UsageStatsBlock> = {}): UsageStatsBlock {
     cancelled: 0,
     success_rate: 0.9,
     cost: { CNY: 12 },
+    unpriced_calls: 0,
     ...overrides,
   };
 }
@@ -74,6 +75,25 @@ describe("UsageRecordsSection breakdown", () => {
 
   afterEach(async () => {
     await i18n.changeLanguage("zh");
+  });
+
+  it("notes how many calls in a breakdown row were left out of its cost as unpriced", async () => {
+    vi.spyOn(API, "getUsageSummary").mockResolvedValue(
+      makeUsageSummary({
+        breakdown: {
+          project: { rows: [{ project_name: "星海列车", ...stats({ unpriced_calls: 3 }) }], other: null },
+          provider: { rows: [{ provider: "google", ...stats({ unpriced_calls: 3 }) }], other: null },
+          model: {
+            rows: [{ provider: "google", model: "imagen-4", ...stats({ unpriced_calls: 3 }) }],
+            other: null,
+          },
+        },
+      }),
+    );
+    renderUsageRecordsSection();
+
+    const section = (await screen.findByRole("heading", { name: "构成" })).closest("section");
+    expect(await within(section as HTMLElement).findByText("3 次未定价")).toBeInTheDocument();
   });
 
   it("renders the success rate in the same format as the KPI strip above it", async () => {

@@ -271,7 +271,7 @@ Built-in speech from the video model, character reference audio, and voice-over 
 
 The project cost panel displays image, video, text, and audio calls, along with estimated and actual costs. Settings provides call statistics by time range and provider.
 
-Estimates are based on the current model's declared prices and the project structure; they are not the provider's final bill. Costs may be incomplete or display as 0 when a custom provider has no configured prices, a provider returns no usage, or pricing is not registered. Review different currencies separately instead of adding them together. The provider bill is the source of truth for the final amount.
+Estimates are based on the current model's declared prices and the project structure; they are not the provider's final bill. When a model maps to no known model in the model catalog, a provider returns no usage, or the model catalog has no applicable unit price, the call is recorded as "Unpriced" and left out of the totals. Review different currencies separately instead of adding them together. The provider bill is the source of truth for the final amount.
 
 Validate the model, prompts, and reference-image results with a few shots before batch generation. Review each stage before proceeding to prevent an asset error from causing widespread rework. After a generation timeout, check the provider console for an existing task before retrying repeatedly.
 

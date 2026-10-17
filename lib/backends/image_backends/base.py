@@ -13,6 +13,7 @@ from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES, Provide
 from lib.backends.artifact_download_guard import IMAGE_ARTIFACT_MAX_BYTES, artifact_http_client
 from lib.backends.backend_runtime import stream_to_file
 from lib.backends.data_uri import image_to_data_uri as _image_to_data_uri
+from lib.billing.metering import Usage
 from lib.infra.async_thread import run_sync_transaction
 
 
@@ -57,6 +58,14 @@ class ImageCapability(StrEnum):
     IMAGE_TO_IMAGE = "image_to_image"
 
 
+#: 文生图与图生图都实现了的调用通道的通道事实。内置调用通道在类属性 ``CHANNEL_CAPABILITIES`` 上声明
+#: 自己实现了哪些（不构造实例即可读，见 ``registry.channel_capabilities``）；模型接不接受由模型条目说明，
+#: 生效能力取两者都满足的部分（见 ``lib.backends.image_capabilities``）。
+BOTH_IMAGE_CAPABILITIES: frozenset[ImageCapability] = frozenset(
+    {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
+)
+
+
 @dataclass
 class ReferenceImage:
     """参考图片。参考图在 prompt 里按数组序位以「图N」指认，传输链只携带路径。"""
@@ -80,9 +89,30 @@ class ImageGenerationRequest:
     on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]] | None = None
 
 
+@dataclass(frozen=True)
+class ImageRequestFacts:
+    """提交前可知的请求事实，供调用通道推出预估用量（见各内置调用通道的 ``estimate_usage``）。
+
+    ``reference_count`` 是参考图张数；整批预估只知道走图生图、不知道几张时为 ``None``。
+    """
+
+    model: str
+    aspect_ratio: str
+    image_size: str | None = None
+    reference_count: int | None = 0
+
+
+#: 内置调用通道的预估函数：按请求事实推出会发送的请求字段与用量，与 ``generate`` 构造请求用同一套变换。
+ImageUsageEstimator = Callable[[ImageRequestFacts], Usage]
+
+
 @dataclass
 class ImageGenerationResult:
-    """通用图片生成结果。"""
+    """通用图片生成结果。
+
+    ``usage`` 是调用通道按用量契约上报的这次请求的计量项与选择维度（docs/adr/0100）：选择维度取自真正发给供应商
+    的请求字段，计量项只报实际发生的。内置调用通道都上报；自定义供应商的包装层在被包装的通道不报时按通用口径补上（见 :mod:`lib.custom_provider.metering`）。
+    """
 
     image_path: Path
     provider: str
@@ -90,12 +120,30 @@ class ImageGenerationResult:
     image_uri: str | None = None
     seed: int | None = None
     usage_tokens: int | None = None
-    quality: str | None = None
     # OpenAI GPT Image 系列的 token 用量拆分（其它 backend 默认 None）
     image_input_tokens: int | None = None
     image_output_tokens: int | None = None
     text_input_tokens: int | None = None
     text_output_tokens: int | None = None
+    usage: Usage | None = None
+
+
+def per_image_usage(
+    *,
+    output_images: int | None,
+    input_images: int | None,
+    dimensions: dict[str, object] | None = None,
+) -> Usage:
+    """按张计价的调用通道上报的用量：输出张数、参考图张数与选择维度。
+
+    参考图张数为 0 也照报：预估时缺一项用量就无从估算。``None`` 表示不知道几张（只出现在预估中），不报。
+    """
+    quantities: dict[str, float] = {}
+    if output_images is not None:
+        quantities["output_images"] = output_images
+    if input_images is not None:
+        quantities["input_images"] = input_images
+    return Usage(quantities=quantities, dimensions=dict(dimensions or {}))
 
 
 class ImageBackend(Protocol):
@@ -106,7 +154,10 @@ class ImageBackend(Protocol):
     @property
     def model(self) -> str: ...
     @property
-    def capabilities(self) -> set[ImageCapability]: ...
+    def capabilities(self) -> set[ImageCapability]:
+        """这条调用通道实现了文生图还是图生图（通道事实，不含模型事实）。"""
+        ...
+
     @property
     def max_reference_images(self) -> int:
         """单请求可携带的参考图上限；``0`` = 该后端不按数量裁剪。

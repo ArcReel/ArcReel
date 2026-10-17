@@ -6,6 +6,7 @@
 
 import pytest
 
+from lib.catalog import query as catalog
 from lib.generation.generation_worker import CapacityTable
 from tests.fakes import bind_safe_session_factory
 
@@ -46,7 +47,7 @@ class TestCapacityTable:
         for pid, meta in PROVIDER_REGISTRY.items():
             assert pid in table._limits
             for lane, global_default in (("image", 5), ("video", 3), ("audio", 10)):
-                if lane not in meta.media_types:
+                if lane not in catalog.provider_media_types(pid):
                     assert table.get(pid, lane) == 0  # 不支持的 lane → 投影为 0
                 elif lane not in meta.default_concurrency:
                     # 未声明出厂默认的 lane 必须落到硬编码全局默认。这条断言不读
@@ -72,11 +73,11 @@ class TestCapacityTable:
         from lib.config.registry import PROVIDER_REGISTRY
 
         table = await CapacityTable.from_db()
-        for pid, meta in PROVIDER_REGISTRY.items():
+        for pid in PROVIDER_REGISTRY:
             assert pid in table._limits
-            if "image" not in meta.media_types:
+            if "image" not in catalog.provider_media_types(pid):
                 assert table.get(pid, "image") == 0
-            if "video" not in meta.media_types:
+            if "video" not in catalog.provider_media_types(pid):
                 assert table.get(pid, "video") == 0
 
     @staticmethod
@@ -384,41 +385,32 @@ class TestCapacityTable:
         - ``plain-video``：支持 video，无声明 → 走全局默认。
         - ``declared-unsupported``：仅支持 video，却声明 image 默认 → 该 lane 仍投影为 0。
         """
-        from lib.config.registry import ModelInfo, ProviderMeta
+        from arcreel_catalog_core import AudioFacts, CatalogEntry, ImageFacts, VideoFacts
+        from lib.config.registry import ProviderMeta
+        from tests.catalog_support import catalog_of, install_catalog
 
-        def _model(media_type: str) -> ModelInfo:
-            return ModelInfo(display_name="M", media_type=media_type, capabilities=[])
+        def _meta(**kwargs) -> ProviderMeta:
+            return ProviderMeta(display_name="t", description="", required_keys=[], **kwargs)
 
         registry = {
-            "declared-video": ProviderMeta(
-                display_name="t",
-                description="",
-                required_keys=[],
-                models={"img": _model("image"), "vid": _model("video")},
-                default_concurrency={"video": 1},
-            ),
-            "declared-audio": ProviderMeta(
-                display_name="t",
-                description="",
-                required_keys=[],
-                models={"aud": _model("audio")},
-                default_concurrency={"audio": 12},
-            ),
-            "plain-video": ProviderMeta(
-                display_name="t",
-                description="",
-                required_keys=[],
-                models={"vid": _model("video")},
-            ),
-            "declared-unsupported": ProviderMeta(
-                display_name="t",
-                description="",
-                required_keys=[],
-                models={"vid": _model("video")},
-                default_concurrency={"image": 2},
-            ),
+            "declared-video": _meta(default_concurrency={"video": 1}),
+            "declared-audio": _meta(default_concurrency={"audio": 12}),
+            "plain-video": _meta(),
+            "declared-unsupported": _meta(default_concurrency={"image": 2}),
+        }
+        entries = (
+            CatalogEntry(maker="t", name="img", media_type="image", display_name="M", facts=ImageFacts()),
+            CatalogEntry(maker="t", name="vid", media_type="video", display_name="M", facts=VideoFacts(durations=(5,))),
+            CatalogEntry(maker="t", name="aud", media_type="audio", display_name="M", facts=AudioFacts()),
+        )
+        providers = {
+            "declared-video": ("t/img", "t/vid"),
+            "declared-audio": ("t/aud",),
+            "plain-video": ("t/vid",),
+            "declared-unsupported": ("t/vid",),
         }
         monkeypatch.setattr("lib.generation.generation_worker.PROVIDER_REGISTRY", registry)
+        install_catalog(monkeypatch, catalog_of(entries, providers))
 
     def test_from_env_uses_registry_declared_default(self, monkeypatch):
         self._registry_with_declared_defaults(monkeypatch)

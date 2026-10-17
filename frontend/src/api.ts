@@ -49,15 +49,32 @@ import type {
   ApiKeyInfo,
   CreateApiKeyResponse,
   ProviderInfo,
+  CatalogEntryHit,
+  CatalogSearchResponse,
+  NewCatalogEntry,
+  NewEntryHints,
+  MediaType,
   ProviderConfigDetail,
   ConnectivityCheckResult,
   ProviderCredential,
+  UsageAgentSessionDetail,
+  UsageAgentSessionPage,
   UsageRecordDetail,
   UsageRecordPage,
   UsageSummary,
   CustomProviderInfo,
   CustomProviderCreateRequest,
   CustomProviderFullUpdateRequest,
+  ProviderMultiplierInfo,
+  ProviderModelItem,
+  ProviderModelsResponse,
+  FetchProviderModelsResponse,
+  AddProviderModelRequest,
+  AddProviderModelResponse,
+  ProviderModelDetail,
+  ProviderModelReferences,
+  ProviderModelSettingsUpdate,
+  CatalogEntryKey,
   DiscoverModelsResponse,
   EndpointDescriptor,
   ComfyuiInferResponse,
@@ -172,6 +189,7 @@ import type {
 } from "@/types/storyboard-batch";
 import type {
   AgentCredential,
+  AgentCredentialTier,
   CreateAgentCredentialRequest,
   PresetProvidersResponse,
   TestConnectionRequest,
@@ -211,6 +229,7 @@ import type {
   SuccessResponse,
   TaskListFilters,
   UsageRecordsQuery,
+  UsageSessionsQuery,
   UsageSummaryQuery,
   VersionInfo,
   VideoCapabilitiesQuery,
@@ -237,6 +256,7 @@ export type {
   ProjectAssetType,
   ProjectEventStreamOptions,
   UsageRecordsQuery,
+  UsageSessionsQuery,
   UsageSummaryQuery,
   VersionInfo,
   VideoCapabilitiesQuery,
@@ -267,6 +287,11 @@ export const CHARACTER_DERIVATIVE_RESOURCE_TYPE = "character_derivatives";
 /** 衍生的复合资源 id：本体名与衍生名各占一段，与后端的落盘、队列与版本口径一致。 */
 export function derivativeResourceId(characterName: string, derivativeName: string): string {
   return `${characterName}/${derivativeName}`;
+}
+
+/** 路径参数里可能带 `/` 的值（如模型 ID）：逐段编码，保留分隔符，对应服务端的 `{name:path}`。 */
+function encodePath(value: string): string {
+  return value.split("/").map(encodeURIComponent).join("/");
 }
 
 /** 角色衍生子资源的路径前缀；衍生挂在角色条目下，两段名字各自编码。 */
@@ -3062,8 +3087,41 @@ class API {
     if (query.until) params.append("until", query.until);
     if (query.limit !== undefined) params.append("limit", String(query.limit));
     if (query.cursor) params.append("cursor", query.cursor);
+    if (query.view) params.append("view", query.view);
     const search = params.toString();
     return this.request(`/usage/records${search ? "?" + search : ""}`, {
+      signal: options.signal,
+    });
+  }
+
+  /**
+   * 获取 Agent 会话列表的一页（keyset 分页）：按 session_id 聚合，每个会话一行，
+   * 按最近一轮的时间倒序。
+   */
+  static async getUsageSessions(
+    query: UsageSessionsQuery = {},
+    options: { signal?: AbortSignal } = {}
+  ): Promise<UsageAgentSessionPage> {
+    const params = new URLSearchParams();
+    if (query.projectName !== undefined) params.append("project_name", query.projectName);
+    if (query.providers?.length) params.append("provider", query.providers.join(","));
+    if (query.models?.length) params.append("model", query.models.join(","));
+    if (query.since) params.append("since", query.since);
+    if (query.until) params.append("until", query.until);
+    if (query.limit !== undefined) params.append("limit", String(query.limit));
+    if (query.cursor) params.append("cursor", query.cursor);
+    const search = params.toString();
+    return this.request(`/usage/sessions${search ? "?" + search : ""}`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 获取一个 Agent 会话的明细：按时间每条记录一行。 */
+  static async getUsageSession(
+    sessionId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<UsageAgentSessionDetail> {
+    return this.request(`/usage/sessions/${encodeURIComponent(sessionId)}`, {
       signal: options.signal,
     });
   }
@@ -3089,6 +3147,7 @@ class API {
     if (query.since) params.append("since", query.since);
     if (query.until) params.append("until", query.until);
     if (query.tz) params.append("tz", query.tz);
+    if (query.view) params.append("view", query.view);
     const search = params.toString();
     return this.request(`/usage/summary${search ? "?" + search : ""}`, {
       signal: options.signal,
@@ -3113,6 +3172,34 @@ class API {
   /** 删除（吊销）指定 API Key。 */
   static async deleteApiKey(keyId: number): Promise<void> {
     return this.request(`/api-keys/${keyId}`, { method: "DELETE" });
+  }
+
+  // ==================== 模型目录 API ====================
+
+  /** 按名称与媒体类型搜索模型目录中的条目；名称留空列出全部。 */
+  static async searchCatalogEntries(
+    query: { q?: string; mediaType?: MediaType } = {},
+    options: { signal?: AbortSignal } = {}
+  ): Promise<CatalogSearchResponse> {
+    const params = new URLSearchParams();
+    if (query.q) params.set("q", query.q);
+    if (query.mediaType) params.set("media_type", query.mediaType);
+    const qs = params.toString();
+    return this.request(`/catalog/entries${qs ? `?${qs}` : ""}`, { signal: options.signal });
+  }
+
+  /** 手动填写新条目前的提示：目录里是否已有同名模型，以及视频模型按名字预设预填的可选时长。 */
+  static async getNewEntryHints(
+    query: { name: string; mediaType: MediaType },
+    options: { signal?: AbortSignal } = {}
+  ): Promise<NewEntryHints> {
+    const params = new URLSearchParams({ name: query.name, media_type: query.mediaType });
+    return this.request(`/catalog/new-entry-hints?${params}`, { signal: options.signal });
+  }
+
+  /** 目录中找不到的模型，手动填写新建条目并立即写入；Sheet 里的「手动填写」随保存写入，不走这个接口。 */
+  static async createCatalogEntry(entry: NewCatalogEntry): Promise<CatalogEntryHit> {
+    return this.request("/catalog/entries", { method: "POST", body: JSON.stringify(entry) });
   }
 
   // ==================== Provider 管理 API ====================
@@ -3141,6 +3228,100 @@ class API {
       method: "PATCH",
       body: JSON.stringify(patch),
     });
+  }
+
+  /** 读取供应商倍率。自定义供应商的 id 写作 `custom-<数据库 id>`。 */
+  static async getProviderMultiplier(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderMultiplierInfo> {
+    return this.request(`/providers/${encodeURIComponent(id)}/multiplier`, { signal: options.signal });
+  }
+
+  /** 设置供应商倍率；null 表示恢复默认值。只影响之后结算的调用。 */
+  static async setProviderMultiplier(id: string, multiplier: number | null): Promise<ProviderMultiplierInfo> {
+    return this.request(`/providers/${encodeURIComponent(id)}/multiplier`, {
+      method: "PUT",
+      body: JSON.stringify({ multiplier }),
+    });
+  }
+
+  /** 供应商的全部供应商模型，带启用状态、状态标记与价格摘要；内置与自定义供应商共用。 */
+  static async listProviderModels(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderModelsResponse> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models`, { signal: options.signal });
+  }
+
+  /** 获取模型：调用供应商的模型列表接口，返回全部模型与对应结果；已添加的模型由界面排除。 */
+  static async discoverProviderModels(
+    id: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<FetchProviderModelsResponse> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/discover`, {
+      method: "POST",
+      signal: options.signal,
+    });
+  }
+
+  /** 按 ID 添加模型：内置供应商对上官方收录的模型即启用它，对不上的作为用户添加的模型。 */
+  static async addProviderModel(id: string, body: AddProviderModelRequest): Promise<AddProviderModelResponse> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** 启用或停用一个供应商模型，立即生效；停用时同时取消默认。 */
+  static async setProviderModelEnabled(id: string, modelId: string, enabled: boolean): Promise<ProviderModelItem> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/enabled`, {
+      method: "PUT",
+      body: JSON.stringify({ model_id: modelId, enabled }),
+    });
+  }
+
+  /** 读取单个供应商模型：列表行、供应商设置、对应条目与「这个供应商支持的参数」。 */
+  static async getProviderModel(
+    id: string,
+    modelId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderModelDetail> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/${encodePath(modelId)}`, {
+      signal: options.signal,
+    });
+  }
+
+  /** 保存供应商模型 Sheet 的供应商设置，返回保存后的 Sheet 内容。 */
+  static async updateProviderModel(
+    id: string,
+    modelId: string,
+    settings: ProviderModelSettingsUpdate
+  ): Promise<ProviderModelDetail> {
+    return this.request(`/providers/${encodeURIComponent(id)}/models/${encodePath(modelId)}`, {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    });
+  }
+
+  /** 恢复官方数据：丢弃模型信息的用户修改，所有使用这个模型的供应商一起生效，不能撤销。 */
+  static async restoreCatalogEntry(key: CatalogEntryKey): Promise<void> {
+    await this.request("/catalog/entries/restore-official", { method: "POST", body: JSON.stringify(key) });
+  }
+
+  /** 从供应商移除用户负责的模型。 */
+  static async removeProviderModel(id: string, modelId: string): Promise<void> {
+    await this.request(`/providers/${encodeURIComponent(id)}/models/${encodePath(modelId)}`, { method: "DELETE" });
+  }
+
+  /** 引用这个供应商模型的全局设置项与项目，移除前提示用。 */
+  static async getProviderModelReferences(
+    id: string,
+    modelId: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<ProviderModelReferences> {
+    const params = new URLSearchParams({ model_id: modelId });
+    return this.request(`/providers/${encodeURIComponent(id)}/model-references?${params}`, { signal: options.signal });
   }
 
   /** 测试指定 provider 的连接。 */
@@ -3233,6 +3414,23 @@ class API {
     });
   }
 
+  /** 为单个档位选择模型条目（`entryBinding` 为「模型厂商/官方模型名」）；返回更新后的凭证。 */
+  static async bindAgentCredentialTier(
+    id: number,
+    tier: AgentCredentialTier,
+    entryBinding: string,
+  ): Promise<AgentCredential> {
+    return this.request(`/agent/credentials/${id}/tiers/${tier}/binding`, {
+      method: "PUT",
+      body: JSON.stringify({ entry_binding: entryBinding }),
+    });
+  }
+
+  /** 解除单个档位的绑定，回到按模型名自动对应；返回更新后的凭证。 */
+  static async unbindAgentCredentialTier(id: number, tier: AgentCredentialTier): Promise<AgentCredential> {
+    return this.request(`/agent/credentials/${id}/tiers/${tier}/binding`, { method: "DELETE" });
+  }
+
   static async deleteAgentCredential(id: number): Promise<void> {
     return this.request(`/agent/credentials/${id}`, { method: "DELETE" });
   }
@@ -3286,12 +3484,15 @@ class API {
     return this.request(`/custom-providers/${id}`, { method: "DELETE" });
   }
 
-  static async discoverModels(data: { discovery_format: string; base_url: string; api_key: string }): Promise<DiscoverModelsResponse> {
-    return this.request("/custom-providers/discover", { method: "POST", body: JSON.stringify(data) });
-  }
-
-  static async discoverModelsForProvider(id: number): Promise<DiscoverModelsResponse> {
-    return this.request(`/custom-providers/${id}/discover`, { method: "POST" });
+  static async discoverModels(
+    data: { discovery_format: string; base_url: string; api_key: string },
+    options: { signal?: AbortSignal } = {}
+  ): Promise<DiscoverModelsResponse> {
+    return this.request("/custom-providers/discover", {
+      method: "POST",
+      body: JSON.stringify(data),
+      signal: options.signal,
+    });
   }
 
   static async checkCustomConnectivity(data: { discovery_format: string; base_url: string; api_key: string }): Promise<{ success: boolean; message: string }> {

@@ -22,6 +22,7 @@ from lib.artifacts.artifact_activation import (
     resolve_usable_storyboard_video_inputs,
 )
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver, video_bucket_for_generation_mode
 from lib.generation.generation_queue import get_generation_queue
 from lib.generation.generation_queue_client import TaskSpec
@@ -305,6 +306,9 @@ async def _require_audio_provider_configured(project: dict) -> str:
 
     try:
         resolved = await ConfigResolver(async_session_factory).resolve_audio_backend(project, None)
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
     except ValueError as exc:
         raise BadRequestError("audio_provider_not_configured") from exc
     return resolved.provider_id
@@ -864,6 +868,9 @@ async def _require_i2i_image_provider_configured(project: dict) -> str:
         resolved = await ConfigResolver(async_session_factory).resolve_image_backend(
             project, None, generation_type="i2i"
         )
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
     except ValueError as exc:
         raise BadRequestError("image_edit_i2i_unavailable") from exc
     return resolved.provider_id

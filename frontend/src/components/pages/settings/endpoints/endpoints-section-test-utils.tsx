@@ -91,6 +91,7 @@ export function descriptor(overrides: Partial<EndpointDescriptor>): EndpointDesc
     duration_frame_rate_missing: false,
     duration_tier_empty: false,
     native_resolution: null,
+    requests: [],
     ...overrides,
   };
 }

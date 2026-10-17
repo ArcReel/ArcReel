@@ -27,7 +27,6 @@ MODULES = [
     "lib.backends.backend_runtime",
     "arcreel_market_core.video_backend_contract",
     "lib.project.asset_fingerprints",
-    "lib.billing.cost_calculator",
     "lib.project.data_validator",
     "lib.backends.gemini_shared",
     "lib.generation.generation_queue",

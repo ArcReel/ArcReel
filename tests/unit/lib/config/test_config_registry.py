@@ -1,8 +1,8 @@
 import pytest
 
+from lib.catalog import query as catalog
 from lib.config.registry import (
     PROVIDER_REGISTRY,
-    ModelInfo,
     ProviderMeta,
 )
 
@@ -27,19 +27,8 @@ def test_provider_meta_fields():
     meta = PROVIDER_REGISTRY["gemini-aistudio"]
     assert isinstance(meta, ProviderMeta)
     assert meta.display_name == "AI Studio"
-    assert "video" in meta.media_types
-    assert "image" in meta.media_types
     assert "api_key" in meta.required_keys
     assert "api_key" in meta.secret_keys
-    # 视频模型的输入模式与音轨形态都不进 token 表，真相源是 backend 的 VideoCapabilities
-    # （守卫见 tests/test_video_backend_capabilities.py）。
-    assert "generate_audio" not in meta.capabilities
-
-
-def test_ark_supports_video_and_image():
-    meta = PROVIDER_REGISTRY["ark"]
-    assert "video" in meta.media_types
-    assert "image" in meta.media_types
 
 
 def test_required_keys_are_subset_of_all_keys():
@@ -56,7 +45,7 @@ def test_secret_keys_are_subset_of_required_or_optional():
             assert sk in all_keys, f"{name}: secret key {sk} not in all keys"
 
 
-# 媒体 lane → 并发上限可选键：凡 provider 模型覆盖某条 lane，设置页就应能配该 lane 的并发。
+# 媒体 lane → 并发上限可选键：凡 provider 在目录里的模型覆盖某条 lane，设置页就应能配该 lane 的并发。
 _LANE_WORKER_KEY = {
     "image": "image_max_workers",
     "video": "video_max_workers",
@@ -68,7 +57,7 @@ def test_optional_keys_cover_every_supported_lane_worker():
     """每个 provider 支持的每条媒体 lane 都须在 optional_keys 声明对应 *_max_workers。"""
     for name, meta in PROVIDER_REGISTRY.items():
         optional = set(meta.optional_keys)
-        for media_type in meta.media_types:
+        for media_type in catalog.provider_media_types(name):
             worker_key = _LANE_WORKER_KEY.get(media_type)
             if worker_key is None:
                 continue
@@ -78,71 +67,12 @@ def test_optional_keys_cover_every_supported_lane_worker():
 def test_optional_keys_have_no_worker_for_unsupported_lane():
     """provider 不支持的 lane 不应声明其 *_max_workers，避免设置页渲染无效字段。"""
     for name, meta in PROVIDER_REGISTRY.items():
-        supported_worker_keys = {_LANE_WORKER_KEY[m] for m in meta.media_types if m in _LANE_WORKER_KEY}
+        supported_worker_keys = {
+            _LANE_WORKER_KEY[m] for m in catalog.provider_media_types(name) if m in _LANE_WORKER_KEY
+        }
         for key in meta.optional_keys:
             if key in _LANE_WORKER_KEY.values():
                 assert key in supported_worker_keys, f"{name}: optional_keys 含 {key} 但 provider 不支持对应 lane"
-
-
-class TestModelInfoDurations:
-    def test_video_models_have_supported_durations(self):
-        """所有预置视频模型必须声明 supported_durations。"""
-        for provider_id, meta in PROVIDER_REGISTRY.items():
-            for model_id, model_info in meta.models.items():
-                if model_info.media_type == "video":
-                    assert len(model_info.supported_durations) > 0, (
-                        f"{provider_id}/{model_id} 是视频模型但未声明 supported_durations"
-                    )
-
-    def test_non_video_models_have_empty_durations(self):
-        """非视频模型的 supported_durations 应为空列表。"""
-        for provider_id, meta in PROVIDER_REGISTRY.items():
-            for model_id, model_info in meta.models.items():
-                if model_info.media_type != "video":
-                    assert model_info.supported_durations == [], (
-                        f"{provider_id}/{model_id} 不是视频模型但有 supported_durations"
-                    )
-
-    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
-    def test_veo_declares_high_resolution_constraints(self, provider_id):
-        """两侧 Veo 模型每个可选高分辨率档都声明「仅 8s」，UI 才能据此收窄时长选项。"""
-        meta = PROVIDER_REGISTRY[provider_id]
-        for model_id, model_info in meta.models.items():
-            if model_info.media_type != "video":
-                continue
-            for resolution in model_info.resolutions:
-                if resolution in ("1080p", "4k"):
-                    assert model_info.duration_resolution_constraints.get(resolution) == [8], (
-                        f"{provider_id}/{model_id} 的 {resolution} 未声明仅 8s"
-                    )
-
-    @pytest.mark.parametrize("provider_id", ["gemini-aistudio", "gemini-vertex"])
-    def test_veo_declares_reference_image_durations(self, provider_id):
-        """Veo 带参考图时只接受 8s，两侧全系声明，与 backend 的执行期拒绝对齐。"""
-        meta = PROVIDER_REGISTRY[provider_id]
-        for model_id, model_info in meta.models.items():
-            if model_info.media_type == "video":
-                assert model_info.reference_image_durations == [8], f"{provider_id}/{model_id} 参考图时长约束缺失"
-
-    def test_veo_4k_only_where_officially_supported(self):
-        """4k 仅 Veo 3.1 Standard 两侧 + AI Studio 的 Fast 支持；Lite 与 Vertex Fast 不支持。"""
-        expected_4k = {
-            ("gemini-aistudio", "veo-3.1-generate-preview"): True,
-            ("gemini-aistudio", "veo-3.1-fast-generate-preview"): True,
-            ("gemini-aistudio", "veo-3.1-lite-generate-preview"): False,
-            ("gemini-vertex", "veo-3.1-generate-001"): True,
-            ("gemini-vertex", "veo-3.1-fast-generate-001"): False,
-        }
-        for (provider_id, model_id), supported in expected_4k.items():
-            resolutions = PROVIDER_REGISTRY[provider_id].models[model_id].resolutions
-            assert ("4k" in resolutions) is supported, f"{provider_id}/{model_id} 的 4k 支持性与官方文档不符"
-
-    def test_model_info_default_values(self):
-        """ModelInfo 新字段的默认值。"""
-        mi = ModelInfo(display_name="test", media_type="text", capabilities=[])
-        assert mi.supported_durations == []
-        assert mi.duration_resolution_constraints == {}
-        assert mi.reference_image_durations == []
 
 
 class TestCredentialGroups:
@@ -243,3 +173,47 @@ class TestFullyCoveredCredentialGroups:
     def test_nothing_submitted(self):
         meta = self._kling_meta()
         assert meta.fully_covered_credential_groups({}) == []
+
+
+class TestDefaultConcurrency:
+    def test_valid_declaration(self):
+        meta = ProviderMeta(
+            display_name="T",
+            description="T",
+            required_keys=[],
+            default_concurrency={"video": 1, "image": 5},
+        )
+        assert meta.default_concurrency == {"video": 1, "image": 5}
+
+    def test_lane_the_provider_does_not_cover_is_allowed(self):
+        # 声明合法 lane 名即便该 provider 的模型不覆盖该 media_type 也无害（投影期再归零），不报错
+        meta = ProviderMeta(display_name="T", description="T", required_keys=[], default_concurrency={"image": 2})
+        assert meta.default_concurrency == {"image": 2}
+
+    def test_unknown_lane_raises(self):
+        with pytest.raises(ValueError, match="未知 lane"):
+            ProviderMeta(
+                display_name="T",
+                description="T",
+                required_keys=[],
+                default_concurrency={"vidoe": 1},
+            )
+
+    # True 是 int 子类、值等于 1，须显式拦截，否则配置笔误 default_concurrency={"video": True}
+    # 会被静默当成并发 1。
+    @pytest.mark.parametrize("bad_limit", [0, -1, "1", 3.0, True])
+    def test_non_positive_int_raises(self, bad_limit):
+        with pytest.raises(ValueError, match=">=1 的整数"):
+            ProviderMeta(
+                display_name="T",
+                description="T",
+                required_keys=[],
+                default_concurrency={"video": bad_limit},
+            )
+
+
+def test_dashscope_declares_wan3_base_url_key():
+    # wan3 专用 maas 域名单列一键：并进通用 base_url 会让其余型号也跟着改域名
+    meta = PROVIDER_REGISTRY["dashscope"]
+    assert "wan3_base_url" in meta.optional_keys
+    assert "base_url" in meta.optional_keys

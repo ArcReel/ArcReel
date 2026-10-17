@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from lib.backends.image_backends.base import ImageCapability
 from lib.custom_provider import make_provider_id
 from lib.custom_provider.backends import CustomImageBackend
 from lib.custom_provider.capabilities import system_video_capabilities
@@ -43,7 +44,9 @@ class TestLoadCustomBackend:
         result = await load_custom_backend(session=db_session, provider_id=pid, model_id="dall-e-3", media_type="image")
         assert isinstance(result, CustomImageBackend)
         assert result.model == "dall-e-3"
-        mock_cls.assert_called_once_with(api_key="sk-relay", base_url="https://relay.test/v1", model="dall-e-3")
+        mock_cls.assert_called_once_with(
+            api_key="sk-relay", base_url="https://relay.test/v1", model="dall-e-3", transport_layer=None
+        )
 
     @patch("lib.custom_provider.endpoints.OpenAIImageBackend")
     async def test_falls_back_to_default_when_model_disabled(self, mock_cls, db_session):
@@ -214,7 +217,12 @@ class TestCustomModelMaxOutputTokens:
         pid = await _seed(
             async_session,
             models=[
-                {"model_id": "my-llm", "endpoint": "openai-chat", "is_enabled": True, "max_output_tokens": 8192},
+                {
+                    "model_id": "my-llm",
+                    "endpoint": "openai-chat",
+                    "is_enabled": True,
+                    "capability_overrides": {"max_output_tokens": 8192},
+                },
                 {"model_id": "bare-llm", "endpoint": "openai-chat", "is_enabled": True},
             ],
         )
@@ -224,3 +232,59 @@ class TestCustomModelMaxOutputTokens:
         missing = await custom_model_max_output_tokens(session=async_session, provider_id=pid, model_id="gone")
 
         assert (registered, bare, missing) == (8192, None, None)
+
+    async def test_override_beats_the_entry_and_the_binding_picks_the_entry(self, async_session):
+        """能力覆盖 > 对应条目：没有覆盖时取条目的值，条目绑定优先于按名字对应。"""
+        pid = await _seed(
+            async_session,
+            models=[
+                {
+                    "model_id": "overridden-llm",
+                    "endpoint": "openai-chat",
+                    "is_enabled": True,
+                    "entry_binding": "google/gemini-3-flash-preview",
+                    "capability_overrides": {"max_output_tokens": 2048},
+                },
+                {"model_id": "vendor/gemini-3-flash-preview", "endpoint": "openai-chat", "is_enabled": True},
+                {
+                    "model_id": "relay-alias",
+                    "endpoint": "openai-chat",
+                    "is_enabled": True,
+                    "entry_binding": "google/gemini-3-flash-preview",
+                },
+            ],
+        )
+
+        overridden = await custom_model_max_output_tokens(
+            session=async_session, provider_id=pid, model_id="overridden-llm"
+        )
+        from_entry = await custom_model_max_output_tokens(
+            session=async_session, provider_id=pid, model_id="vendor/gemini-3-flash-preview"
+        )
+
+        bound = await custom_model_max_output_tokens(session=async_session, provider_id=pid, model_id="relay-alias")
+
+        assert (overridden, from_entry, bound) == (2048, 65536, 65536)
+
+
+class TestCustomImageModelCapabilities:
+    async def test_factory_injects_model_side_from_overrides(self, async_session):
+        """图片后端带上模型事实一侧：能力覆盖关掉文生图后，执行层的生效能力只剩图生图。"""
+        pid = await _seed(
+            async_session,
+            models=[
+                {
+                    "model_id": "relay-image",
+                    "endpoint": "openai-images",
+                    "is_enabled": True,
+                    "capability_overrides": {"text_to_image": False},
+                }
+            ],
+        )
+
+        backend = await load_custom_backend(
+            session=async_session, provider_id=pid, model_id="relay-image", media_type="image"
+        )
+
+        assert isinstance(backend, CustomImageBackend)
+        assert backend.effective_capabilities == {ImageCapability.IMAGE_TO_IMAGE}

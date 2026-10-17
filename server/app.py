@@ -63,6 +63,7 @@ from server.routers import (
     asset_sheets,
     assets,
     assistant,
+    catalog,
     characters,
     cost_estimation,
     custom_endpoints,
@@ -88,6 +89,7 @@ from server.routers import (
     prompt_authoring,
     prompt_templates,
     props,
+    provider_models,
     providers,
     reference_videos,
     scenes,
@@ -461,6 +463,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("text tier settings migration failed (non-fatal): %s", exc)
 
+    # 设置里已改名的模型改写为后继模型（退役模型映射）。放在档位迁移之后：旧任务级键收编进档位键后一并改写
+    try:
+        from lib.config.migration import migrate_retired_model_settings
+
+        async with async_session_factory() as session:
+            await migrate_retired_model_settings(session)
+    except Exception as exc:
+        logger.warning("retired model settings migration failed (non-fatal): %s", exc)
+
     # 官方市场源 seed：不存在则插入，地址常量变了就同步；不抓取
     try:
         from lib.market.sources import seed_official_source
@@ -469,6 +480,24 @@ async def lifespan(app: FastAPI):
             await seed_official_source(session)
     except Exception as exc:
         logger.warning("official market source seed failed (non-fatal): %s", exc)
+
+    # 用户修改的模型条目副本并进目录查询；读不到时这些条目暂按官方数据，其余照常
+    try:
+        from lib.catalog.user_entries import reload_user_entries
+
+        async with async_session_factory() as session:
+            await reload_user_entries(session)
+    except Exception:
+        logger.exception("loading user-modified catalog entries failed (non-fatal)")
+
+    # 内置供应商下用户添加的模型并进目录查询；读不到时这些模型暂不可用，其余模型照常
+    try:
+        from server.routers.provider_models import reload_user_added_models
+
+        async with async_session_factory() as session:
+            await reload_user_added_models(session)
+    except Exception:
+        logger.exception("loading user-added built-in provider models failed (non-fatal)")
 
     # 把 agent_runtime_profile 物化到存量项目（文件 I/O → worker 线程）
     from lib.project.project_manager import get_project_manager
@@ -722,6 +751,10 @@ app.include_router(
 )
 app.include_router(tasks.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["任务队列"])
 app.include_router(providers.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"])
+app.include_router(
+    provider_models.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["供应商管理"]
+)
+app.include_router(catalog.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["模型目录"])
 app.include_router(system_config.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统配置"])
 app.include_router(system.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["系统"])
 app.include_router(api_keys.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["API Key 管理"])

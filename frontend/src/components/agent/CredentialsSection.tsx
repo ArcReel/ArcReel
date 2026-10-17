@@ -18,8 +18,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAppStore } from "@/stores/app-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
+import type { CatalogEntryHit } from "@/types";
 import type {
   AgentCredential,
+  AgentCredentialTier,
   CreateAgentCredentialRequest,
   PresetProvider,
   TestConnectionResponse,
@@ -39,6 +41,8 @@ export function CredentialsSection() {
   const [customSentinelId, setCustomSentinelId] = useState("__custom__");
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [busyCredId, setBusyCredId] = useState<number | null>(null);
+  // 档位绑定按 Agent 供应商分桶：不同供应商上的请求可以同时在途，一个结束不放开另一个。
+  const [tierBusyIds, setTierBusyIds] = useState<ReadonlySet<number>>(() => new Set());
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
   const [testedCredId, setTestedCredId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AgentCredential | null>(null);
@@ -92,6 +96,7 @@ export function CredentialsSection() {
         sonnet_model: req.sonnet_model,
         opus_model: req.opus_model,
         subagent_model: req.subagent_model,
+        multiplier: req.multiplier,
       };
       if (req.api_key) patch.api_key = req.api_key;
       await API.updateAgentCredential(editingCred.id, patch);
@@ -127,6 +132,35 @@ export function CredentialsSection() {
       setBusyCredId(null);
     }
   }, []);
+
+  // 绑定与解除绑定的响应是更新后的整条凭证，直接换进列表，不重新拉取。
+  const changeTierBinding = useCallback(async (id: number, change: () => Promise<AgentCredential>) => {
+    setTierBusyIds((prev) => new Set(prev).add(id));
+    try {
+      const updated = await change();
+      setCredentials((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setTierBusyIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, []);
+
+  const handleBindTier = useCallback(
+    (id: number, tier: AgentCredentialTier, entry: CatalogEntryHit) =>
+      changeTierBinding(id, () => API.bindAgentCredentialTier(id, tier, `${entry.maker}/${entry.name}`)),
+    [changeTierBinding],
+  );
+
+  const handleUnbindTier = useCallback(
+    (id: number, tier: AgentCredentialTier) =>
+      changeTierBinding(id, () => API.unbindAgentCredentialTier(id, tier)),
+    [changeTierBinding],
+  );
 
   const confirmDelete = useCallback(async () => {
     if (deleteTarget == null) return;
@@ -166,6 +200,9 @@ export function CredentialsSection() {
         onTest={(id) => void handleTest(id)}
         onEdit={setEditingCred}
         onDelete={setDeleteTarget}
+        tierBusyIds={tierBusyIds}
+        onBindTier={(id, tier, entry) => void handleBindTier(id, tier, entry)}
+        onUnbindTier={(id, tier) => void handleUnbindTier(id, tier)}
       />
 
       <AddCredentialModal
@@ -193,6 +230,7 @@ export function CredentialsSection() {
                 sonnet_model: editingCred.sonnet_model ?? undefined,
                 opus_model: editingCred.opus_model ?? undefined,
                 subagent_model: editingCred.subagent_model ?? undefined,
+                multiplier: editingCred.multiplier,
               }
             : undefined
         }

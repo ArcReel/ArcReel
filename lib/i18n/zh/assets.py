@@ -45,4 +45,13 @@ MESSAGES = {
     "voice_label_dashscope_bella": "萌宝 · 可爱小女孩",
     "voice_label_dashscope_eldric_sage": "沧明子 · 智慧长者（男）",
     "voice_label_dashscope_vincent": "田叔 · 沙哑老练（男）",
+    # MiniMax 音色目录展示文案，出处见 lib/backends/audio_backends/minimax.py 顶部注释。
+    "voice_label_minimax_male_qn_qingse": "青涩青年音色",
+    "voice_label_minimax_male_qn_jingying": "精英青年音色",
+    "voice_label_minimax_male_qn_badao": "霸道青年音色",
+    "voice_label_minimax_male_qn_daxuesheng": "青年大学生音色",
+    "voice_label_minimax_female_shaonv": "少女音色",
+    "voice_label_minimax_female_yujie": "御姐音色",
+    "voice_label_minimax_female_chengshu": "成熟女性音色",
+    "voice_label_minimax_female_tianmei": "甜美女性音色",
 }

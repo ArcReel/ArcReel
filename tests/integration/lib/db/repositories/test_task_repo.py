@@ -40,7 +40,7 @@ class TestTaskRepository:
             provider_id="custom-1",
         )
         older_call_id = await usage.start_call(
-            project_name="demo", call_type="video", model="old", task_id=task["task_id"]
+            project_name="demo", call_type="video", model="old", provider="gemini", task_id=task["task_id"]
         )
         await usage.finish_call(
             older_call_id,
@@ -48,7 +48,9 @@ class TestTaskRepository:
             settlement=SettlementInput(cost_amount=0),
             error_message="older download failed",
         )
-        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", task_id=task["task_id"])
+        call_id = await usage.start_call(
+            project_name="demo", call_type="video", model="m", provider="gemini", task_id=task["task_id"]
+        )
         await usage.finish_call(
             call_id,
             status="failed",
@@ -94,7 +96,9 @@ class TestTaskRepository:
             payload={},
             provider_id="custom-1",
         )
-        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", task_id=task["task_id"])
+        call_id = await usage.start_call(
+            project_name="demo", call_type="video", model="m", provider="gemini", task_id=task["task_id"]
+        )
         await repo.claim_next("video")
         await repo.persist_provider_job_id(task["task_id"], "job-44", endpoint="ce-1")
         await repo.mark_failed(task["task_id"], encode_failure("artifact_download_failed", detail="403"))
@@ -116,7 +120,9 @@ class TestTaskRepository:
             resource_id="E1S02",
             payload={},
         )
-        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", task_id=task["task_id"])
+        call_id = await usage.start_call(
+            project_name="demo", call_type="video", model="m", provider="gemini", task_id=task["task_id"]
+        )
         await usage.finish_call(call_id, status="failed", settlement=SettlementInput(cost_amount=0))
         await repo.claim_next("video")
         await repo.persist_provider_job_id(task["task_id"], "job-43", endpoint="ce-1")
@@ -140,7 +146,7 @@ class TestTaskRepository:
             payload={},
             provider_id="custom-1",
         )
-        call_id = await usage.start_call(project_name="demo", call_type="video", model="m")
+        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", provider="gemini")
         await usage.finish_call(call_id, status="failed", settlement=SettlementInput(cost_amount=0))
         await repo.claim_next("video")
         await repo.persist_provider_job_id(task["task_id"], "job-45", endpoint="ce-1")
@@ -805,7 +811,9 @@ class TestRetryDownloadRespectsScope:
             payload={},
             provider_id="custom-1",
         )
-        call_id = await usage.start_call(project_name="demo", call_type="video", model="m", task_id=task["task_id"])
+        call_id = await usage.start_call(
+            project_name="demo", call_type="video", model="m", provider="gemini", task_id=task["task_id"]
+        )
         await usage.finish_call(
             call_id,
             status="failed",

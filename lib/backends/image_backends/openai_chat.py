@@ -29,6 +29,7 @@ from lib.backends.image_backends.base import (
 )
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
@@ -86,9 +87,10 @@ class OpenAIChatImageBackend:
         api_key: str | None = None,
         model: str,
         base_url: str | None = None,
+        transport_layer: TransportLayer | None = None,
         provider_name: str = PROVIDER_OPENAI,
     ):
-        self._client = create_openai_client(api_key=api_key, base_url=base_url)
+        self._client = create_openai_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
         self._model = model
         self._provider_name = provider_name
 

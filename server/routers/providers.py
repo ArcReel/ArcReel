@@ -15,13 +15,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile
-from pydantic import AfterValidator, BaseModel
+from pydantic import AfterValidator, BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_market_core.video_backend_contract import VideoAudioMode
 from lib.backends.backend_assembly.specs import builtin_video_capabilities_for_model
 from lib.backends.gemini_shared import VERTEX_SCOPES
 from lib.backends.http_status_errors import raise_for_status_redacted
+from lib.billing.multipliers import (
+    PROVIDER_MULTIPLIER_KEY,
+    get_default_provider_multiplier,
+    get_provider_multiplier,
+    set_provider_multiplier,
+)
+from lib.catalog import query as catalog
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import (
@@ -33,9 +41,11 @@ from lib.config.resolver import (
 )
 from lib.config.service import ConfigService, ProviderConfigValueError
 from lib.config.url_utils import normalize_base_url
+from lib.custom_provider import is_custom_provider, parse_provider_id
 from lib.db import async_session_factory, get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.repositories.credential_repository import CredentialRepository
+from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError
 from lib.i18n import render_message, translate_or
 from lib.infra.api_errors import BadRequestError, UnprocessableError
@@ -205,6 +215,19 @@ _StrippedStr = Annotated[str, AfterValidator(_stripped)]
 _StrippedOptStr = Annotated[str | None, AfterValidator(_stripped)]
 
 
+class ProviderMultiplierResponse(BaseModel):
+    """供应商倍率：``multiplier`` 是生效值，``default`` 是没有设置时的值。"""
+
+    multiplier: float
+    default: float
+
+
+class ProviderMultiplierUpdate(BaseModel):
+    """设置供应商倍率；``null`` 表示恢复默认值。"""
+
+    multiplier: Annotated[float, Field(ge=0, allow_inf_nan=False)] | None
+
+
 class CreateCredentialRequest(BaseModel):
     name: _StrippedStr
     api_key: _StrippedOptStr = None
@@ -364,7 +387,7 @@ def _build_field(
 def _video_reference_audio_mode(provider_id: str, model_id: str) -> str:
     """该视频 model 的参考音频运输形态；非视频 provider / 未声明一律 "none"。
 
-    `VideoCapabilities` 是 backend 侧声明（唯一真相源），registry `ModelInfo` 不复制第二份——
+    `VideoCapabilities` 是 backend 侧声明（唯一真相源），目录的模型信息不复制第二份——
     与 `lib/config/resolver.py::_resolve_video_caps_for_model` 的做法一致。router 层（非
     lib 包）不受 lib.config 分层契约约束，可直接读 backend 声明。
     """
@@ -394,12 +417,7 @@ async def list_providers(
                 _video_reference_audio_mode(s.name, mid) if minfo.get("media_type") == "video" else "none"
             )
             models[mid] = ModelInfoResponse(
-                **{
-                    **minfo,
-                    # registry 的 display_name 是默认语言下的名字；有译名表的条目按请求语言成文，
-                    # 没有的（纯品牌名）原样返回。
-                    "display_name": translate_or(f"model_name_{s.name}_{mid}", minfo["display_name"], locale),
-                },
+                **minfo,
                 audio_track=audio_track,
                 reference_route_audio_track=reference_route_audio_track,
                 # generation_mode / character_voice_binding 均为 None：目录端点无项目上下文，按非
@@ -467,6 +485,9 @@ async def get_model_video_capabilities(
     except VideoRequestFactsError as exc:
         # 视频请求事实的问题码即 errors 目录 key（ValueError 子类，须先于其捕获）
         raise UnprocessableError(exc.code, **exc.params) from exc
+    except ModelNotInCatalogError:
+        # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）
+        raise
     except ValueError as exc:
         # 异常原文只进日志：str(exc) 混英文技术细节，直接插进翻译文案会让 en/vi 界面混入未译原文
         logger.warning("视频模型 '%s' 能力解析失败: %s", video_backend, exc)
@@ -528,7 +549,7 @@ async def get_provider_config(
         display_name=translate_or(f"provider_name_{provider_id}", meta.display_name, locale),
         description=_t(f"provider_desc_{provider_id}"),
         status=status,
-        media_types=list(meta.media_types),
+        media_types=catalog.provider_media_types(provider_id),
         fields=fields,
         supports_base_url="base_url" in meta.optional_keys,
         secret_fields=secret_fields,
@@ -544,8 +565,10 @@ async def patch_provider_config(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    """更新供应商配置。值为 null 表示删除该键。"""
+    """更新供应商配置。值为 null 表示删除该键。供应商倍率只经 ``PUT /{provider_id}/multiplier`` 修改。"""
     _validate_provider(provider_id, _t)
+    if PROVIDER_MULTIPLIER_KEY in body:
+        raise HTTPException(status_code=422, detail=_t("provider_multiplier_not_in_config"))
 
     svc = ConfigService(session)
     for key, value in body.items():
@@ -568,6 +591,55 @@ async def patch_provider_config(
     await _invalidate_caches(request)
 
     return Response(status_code=204)
+
+
+# ---------------------------------------------------------------------------
+# 供应商倍率
+# ---------------------------------------------------------------------------
+
+
+async def _validate_priced_provider(provider_id: str, session: AsyncSession, _t: Callable[..., str]) -> None:
+    """倍率对内置供应商与已存在的自定义供应商开放，其余抛 404。"""
+    if is_custom_provider(provider_id):
+        try:
+            db_id = parse_provider_id(provider_id)
+        except ValueError:
+            db_id = None
+        if db_id is None or await CustomProviderRepository(session).get_provider(db_id) is None:
+            raise HTTPException(status_code=404, detail=_t("provider_not_found"))
+        return
+    _validate_provider(provider_id, _t)
+
+
+@router.get("/{provider_id}/multiplier", response_model=ProviderMultiplierResponse)
+async def get_provider_multiplier_setting(
+    provider_id: str,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ProviderMultiplierResponse:
+    """供应商倍率：乘在这个供应商全部调用的参考费用上。"""
+    await _validate_priced_provider(provider_id, session, _t)
+    return ProviderMultiplierResponse(
+        multiplier=await get_provider_multiplier(session, provider_id),
+        default=await get_default_provider_multiplier(session, provider_id),
+    )
+
+
+@router.put("/{provider_id}/multiplier", response_model=ProviderMultiplierResponse)
+async def put_provider_multiplier_setting(
+    provider_id: str,
+    body: ProviderMultiplierUpdate,
+    _t: Translator,
+    session: AsyncSession = Depends(get_async_session),
+) -> ProviderMultiplierResponse:
+    """设置供应商倍率，只影响之后结算的调用；已记下的费用不重算。"""
+    await _validate_priced_provider(provider_id, session, _t)
+    await set_provider_multiplier(session, provider_id, body.multiplier)
+    await session.commit()
+    return ProviderMultiplierResponse(
+        multiplier=await get_provider_multiplier(session, provider_id),
+        default=await get_default_provider_multiplier(session, provider_id),
+    )
 
 
 # ---------------------------------------------------------------------------

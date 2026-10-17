@@ -150,11 +150,13 @@ describe("usage-header-store", () => {
       prompt: null;
       inputs: null;
       last_provider_response: null;
+      provider_in_settings: boolean;
     }>();
     const second = createDeferred<ReturnType<typeof makeUsageRecord> & {
       prompt: null;
       inputs: null;
       last_provider_response: null;
+      provider_in_settings: boolean;
     }>();
     vi.spyOn(API, "getUsageRecord").mockImplementation((recordId) =>
       recordId === 7 ? first.promise : second.promise,
@@ -167,6 +169,7 @@ describe("usage-header-store", () => {
       prompt: null,
       inputs: null,
       last_provider_response: null,
+      provider_in_settings: true,
     });
     await secondRequest;
     first.resolve({
@@ -174,6 +177,7 @@ describe("usage-header-store", () => {
       prompt: null,
       inputs: null,
       last_provider_response: null,
+      provider_in_settings: true,
     });
     await firstRequest;
 

@@ -53,6 +53,13 @@ describe("UsageKpiStrip", () => {
     }
   });
 
+  it("lists the unpriced call count apart from the cost total", () => {
+    const summary = makeUsageSummary();
+    render(<UsageKpiStrip summary={{ ...summary, kpi: { ...summary.kpi, unpriced_calls: 3 } }} />);
+
+    expect(screen.getByText(/另 3 次未定价/)).toBeInTheDocument();
+  });
+
   it("falls back to dashes with no summary", () => {
     render(<UsageKpiStrip summary={null} />);
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);

@@ -22,6 +22,7 @@ from lib.backends.providers import CallPurpose
 from lib.backends.text_backends.base import DEFAULT_MAX_OUTPUT_TOKENS, TextOutputTruncatedError, TextTaskType
 from lib.backends.text_backends.base import TextGenerationRequest as BackendTextGenerationRequest
 from lib.backends.text_generator import TextGenerator
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.generation.video_request_facts import VideoRequestFactsError
 from lib.infra.text_utils import strip_json_code_fences
 from lib.prompts.prompt_templates.builtin import builtin_templates
@@ -203,7 +204,8 @@ class DraftRepair:
         """
         try:
             content = await self._repaired_content(episode, doc_type, base_revision, instructions)
-        except (DraftWorkflowError, TextOutputTruncatedError):
+        except (DraftWorkflowError, TextOutputTruncatedError, ModelNotInCatalogError):
+            # 引用的模型已不在供应商清单中是可重选的配置问题：原样抛出，由调用方带「去配置供应商」呈现
             raise
         except Exception as exc:
             raise DraftWorkflowError("draft_repair_failed", f"AI 修复未完成：{exc}") from exc
@@ -248,6 +250,8 @@ class DraftRepair:
             )
         except VideoRequestFactsError as exc:
             raise DraftWorkflowError.video_facts(exc.failure) from exc
+        except ModelNotInCatalogError:
+            raise
         except ValueError as exc:
             raise DraftWorkflowError("draft_repair_failed", f"草稿无法重新校验：{exc}") from exc
         return violation_entries(revalidation.violations)

@@ -1,12 +1,14 @@
 import { create } from "zustand";
 
 import { API } from "@/api";
-import type { UsageRecordsQuery, UsageSummaryQuery } from "@/api";
+import type { UsageRecordsQuery, UsageSessionsQuery, UsageSummaryQuery } from "@/api";
 import type {
   CallType,
+  UsageAgentSession,
   UsageRecord,
   UsageRecordDetail,
   UsageSummary,
+  UsageView,
 } from "@/types";
 
 /** 时间范围分段；`all` 不传 since，由服务端取最早记录日。 */
@@ -22,6 +24,8 @@ export type UsageStatusFilter =
 
 /** 一屏筛选；`status` 之外的维度同时作用于 summary 与记录请求。 */
 export interface UsageRecordsFilters {
+  /** 「生成调用」不含 Agent 记录，「Agent 会话」按会话聚合 Agent 记录。 */
+  view: UsageView;
   range: UsageTimeRange;
   /** 空串筛选端点试跑记录，null 表示不按项目筛。 */
   project: string | null;
@@ -36,6 +40,7 @@ export interface UsageRecordsFilters {
 export const USAGE_PAGE_SIZE = 20;
 
 export const DEFAULT_USAGE_FILTERS: UsageRecordsFilters = {
+  view: "generation",
   range: "30d",
   project: null,
   provider: null,
@@ -44,6 +49,14 @@ export const DEFAULT_USAGE_FILTERS: UsageRecordsFilters = {
   segment: null,
   status: "all",
 };
+
+/**
+ * 切换视图的筛选补丁：两个视图的供应商、模型候选不同，媒体类型、分镜与状态只属于「生成调用」，
+ * 带过去只会筛出空结果，一并清掉。
+ */
+export function viewPatch(view: UsageView): Partial<UsageRecordsFilters> {
+  return { view, provider: null, model: null, mediaType: null, segment: null, status: "all" };
+}
 
 const RANGE_DAYS: Record<Exclude<UsageTimeRange, "all">, number> = {
   "7d": 7,
@@ -77,6 +90,7 @@ export function parseUsageFilters(search: string): UsageRecordsFilters {
   const status = get("status");
   const project = get("project");
   return {
+    view: get("view") === "agent" ? "agent" : DEFAULT_USAGE_FILTERS.view,
     range: isRange(range) ? range : DEFAULT_USAGE_FILTERS.range,
     // 端点试跑记录的项目名是空串，它与「不筛项目」是两回事，故按是否有该键区分。
     project: project === null ? null : project,
@@ -102,6 +116,7 @@ export function writeUsageFilters(
     if (value === null) params.delete(`${QUERY_PREFIX}${key}`);
     else params.set(`${QUERY_PREFIX}${key}`, value);
   };
+  set("view", filters.view === DEFAULT_USAGE_FILTERS.view ? null : filters.view);
   set("range", filters.range === DEFAULT_USAGE_FILTERS.range ? null : filters.range);
   set("project", filters.project);
   set("provider", filters.provider);
@@ -140,6 +155,11 @@ export function browserTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
+/** 「生成调用」是服务端的默认视图，不带参数：请求串保持与既有的一致。 */
+function viewParam(filters: UsageRecordsFilters): "agent" | undefined {
+  return filters.view === "agent" ? "agent" : undefined;
+}
+
 function statusesFor(status: UsageStatusFilter): readonly string[] {
   if (status === "all") return ["success", "failed", "cancelled"];
   if (status === "pending") return ["pending"];
@@ -149,6 +169,8 @@ function statusesFor(status: UsageStatusFilter): readonly string[] {
 /** summary 与记录共用的维度；比较它是否变化，决定要不要重取 summary。 */
 function sharedDimensions(filters: UsageRecordsFilters): string {
   return [
+    // 视图决定筛选候选值列哪些项目、供应商与模型。
+    filters.view,
     filters.range,
     // null（不筛项目）与空串（端点试跑）是两回事，键里要能分开。
     filters.project === null ? "-" : `p:${filters.project}`,
@@ -167,9 +189,11 @@ interface UsageRecordsState {
   summaryFailed: boolean;
 
   records: UsageRecord[];
+  /** 「Agent 会话」视图的当前页；与 `records` 共用加载、失败、总数与分页状态。 */
+  sessions: UsageAgentSession[];
   recordsLoading: boolean;
   recordsFailed: boolean;
-  /** 筛选后的总数，与当前页无关。 */
+  /** 筛选后的总数（记录数或会话数，随视图），与当前页无关。 */
   total: number;
   /** 已翻过的页游标，`[0]` 恒为 null（第一页）。 */
   cursors: (string | null)[];
@@ -209,6 +233,7 @@ const INITIAL = {
   summaryLoading: false,
   summaryFailed: false,
   records: [],
+  sessions: [],
   recordsLoading: false,
   recordsFailed: false,
   total: 0,
@@ -294,6 +319,16 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
     since: rangeSince(filters.range, new Date()),
     limit: USAGE_PAGE_SIZE,
     cursor: cursor ?? undefined,
+    view: viewParam(filters),
+  });
+
+  const sessionQuery = (filters: UsageRecordsFilters, cursor: string | null): UsageSessionsQuery => ({
+    projectName: filters.project ?? undefined,
+    providers: filters.provider ? [filters.provider] : undefined,
+    models: filters.model ? [filters.model] : undefined,
+    since: rangeSince(filters.range, new Date()),
+    limit: USAGE_PAGE_SIZE,
+    cursor: cursor ?? undefined,
   });
 
   const runSummary = async (query: UsageSummaryQuery, signal: AbortSignal) => {
@@ -318,6 +353,7 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
       mediaType: filters.mediaType ?? undefined,
       since: rangeSince(filters.range, new Date()),
       tz: browserTimeZone(),
+      view: viewParam(filters),
     };
     return scheduleSummary(JSON.stringify(query), query);
   };
@@ -355,6 +391,51 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
     return scheduleRecords(JSON.stringify({ query, pageIndex }), target);
   };
 
+  interface SessionsTarget {
+    query: UsageSessionsQuery;
+    pageIndex: number;
+    cursors: (string | null)[];
+  }
+  const runSessions = async ({ query, pageIndex, cursors }: SessionsTarget, signal: AbortSignal) => {
+    set({ recordsLoading: true, recordsFailed: false });
+    try {
+      const page = await API.getUsageSessions(query, { signal });
+      if (signal.aborted) return;
+      set({
+        sessions: page.items,
+        total: page.total,
+        nextCursor: page.next_cursor,
+        pageIndex,
+        cursors,
+        recordsLoading: false,
+      });
+    } catch {
+      if (signal.aborted) return;
+      set({ sessions: [], total: 0, nextCursor: null, recordsLoading: false, recordsFailed: true });
+    }
+  };
+  const scheduleSessions = createRefreshCoordinator(runSessions);
+  const fetchSessions = (
+    filters: UsageRecordsFilters,
+    cursor: string | null,
+    pageIndex: number,
+    cursors: (string | null)[],
+  ) => {
+    const query = sessionQuery(filters, cursor);
+    return scheduleSessions(JSON.stringify({ query, pageIndex }), { query, pageIndex, cursors });
+  };
+
+  /** 当前视图的列表页：「生成调用」取记录，「Agent 会话」取会话。 */
+  const fetchPage = (
+    filters: UsageRecordsFilters,
+    cursor: string | null,
+    pageIndex: number,
+    cursors: (string | null)[],
+  ) =>
+    filters.view === "agent"
+      ? fetchSessions(filters, cursor, pageIndex, cursors)
+      : fetchRecords(filters, cursor, pageIndex, cursors);
+
   const runPending = async (query: UsageRecordsQuery, signal: AbortSignal) => {
     try {
       const page = await API.getUsageRecords(query, { signal });
@@ -376,6 +457,7 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
       segmentIds: filters.segment ? [filters.segment] : undefined,
       statuses: ["pending"],
       limit: USAGE_PAGE_SIZE,
+      view: viewParam(filters),
     };
     return schedulePending(JSON.stringify(query), query);
   };
@@ -389,14 +471,20 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
       const previous = get().filters;
       const summaryStale = sharedDimensions(previous) !== sharedDimensions(filters);
       const first = get().summary === null && !get().summaryLoading;
-      set({ filters });
+      // 换视图时旧视图的列表与总数不再适用：先清空，免得新视图加载期间显示旧内容。
+      if (previous.view !== filters.view) {
+        set({ filters, records: [], sessions: [], total: 0, nextCursor: null, pendingRecords: [] });
+      } else {
+        set({ filters });
+      }
       await Promise.all([
         summaryStale || first || options.refetchSummary
           ? fetchSummary(filters)
           : Promise.resolve(),
         // 筛选变化一律回第一页：停在旧游标上会翻到一个已经不存在的位置。
-        fetchRecords(filters, null, 0, [null]),
-        fetchPending(filters),
+        fetchPage(filters, null, 0, [null]),
+        // Agent 记录是事后补录的终态行，没有进行中的调用。
+        filters.view === "agent" ? Promise.resolve() : fetchPending(filters),
       ]);
     },
 
@@ -404,8 +492,8 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
       const filters = get().filters;
       await Promise.all([
         fetchSummary(filters),
-        fetchRecords(filters, get().cursors[get().pageIndex] ?? null, get().pageIndex, get().cursors),
-        fetchPending(filters),
+        fetchPage(filters, get().cursors[get().pageIndex] ?? null, get().pageIndex, get().cursors),
+        filters.view === "agent" ? Promise.resolve() : fetchPending(filters),
       ]);
     },
 
@@ -414,6 +502,7 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
     },
 
     refreshPending: async () => {
+      if (get().filters.view === "agent") return;
       await fetchPending(get().filters);
     },
 
@@ -421,12 +510,12 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
       const { filters, cursors, pageIndex, nextCursor } = get();
       if (direction === "prev") {
         if (pageIndex === 0) return;
-        await fetchRecords(filters, cursors[pageIndex - 1] ?? null, pageIndex - 1, cursors);
+        await fetchPage(filters, cursors[pageIndex - 1] ?? null, pageIndex - 1, cursors);
         return;
       }
       if (nextCursor === null) return;
       const grown = cursors.slice(0, pageIndex + 1).concat(nextCursor);
-      await fetchRecords(filters, nextCursor, pageIndex + 1, grown);
+      await fetchPage(filters, nextCursor, pageIndex + 1, grown);
     },
 
     openDetail: async (recordId) => {

@@ -44,4 +44,12 @@ MESSAGES = {
     "voice_label_dashscope_bella": "Bella — Cute little girl voice",
     "voice_label_dashscope_eldric_sage": "Eldric Sage — Wise elder (male)",
     "voice_label_dashscope_vincent": "Vincent — Raspy and seasoned (male)",
+    "voice_label_minimax_male_qn_qingse": "Shy young man",
+    "voice_label_minimax_male_qn_jingying": "Elite young man",
+    "voice_label_minimax_male_qn_badao": "Domineering young man",
+    "voice_label_minimax_male_qn_daxuesheng": "College student (male)",
+    "voice_label_minimax_female_shaonv": "Young girl",
+    "voice_label_minimax_female_yujie": "Mature confident woman",
+    "voice_label_minimax_female_chengshu": "Mature woman",
+    "voice_label_minimax_female_tianmei": "Sweet woman",
 }
