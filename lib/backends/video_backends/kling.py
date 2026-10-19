@@ -201,6 +201,11 @@ def _has_start_image(request: VideoGenerationRequest) -> bool:
     return isinstance(start_image, (str, Path)) and bool(str(start_image))
 
 
+def _has_end_image(request: VideoGenerationRequest) -> bool:
+    end_image = request.end_image
+    return isinstance(end_image, (str, Path)) and bool(str(end_image))
+
+
 def _subpath_for(request: VideoGenerationRequest) -> str:
     """请求走哪个子路径：有参考图 → 多图主体；有首帧 → 图生视频；都没有 → 文生视频。"""
     if _valid_frames(request.reference_images):
@@ -425,9 +430,16 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             "aspect_ratio": request.aspect_ratio,
         }
 
+        # 可灵请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
+        if request.reference_audio_files:
+            raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
+
         subpath = _subpath_for(request)
         if subpath == _MULTI_IMAGE2VIDEO:
             reference_images = _valid_frames(request.reference_images)
+            # 多图主体请求体没有首尾帧字段，带帧的请求拒绝而不是只发参考图。
+            if _has_start_image(request) or _has_end_image(request):
+                raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
             # 生成时防御（fail-loud）：未声明多图主体能力的 model 不得升级到 R2V 子路径，
             # 超上限的参考图数同样拦截——否则会把必然报错的请求发出去且照常计费。
             if not self._caps.reference_images:
@@ -447,15 +459,19 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
             # 无首帧/无参考 = 文生视频意图；不支持 t2v 的 model（如 kling-video-o1）即拒绝。
             if not self._caps.text_to_video:
                 raise VideoCapabilityError("video_capability_missing_t2v", provider=self.name, model=self._model)
+            # 尾帧只能随首帧走 image2video 的 image_tail；单独的尾帧拒绝而不是按文生视频丢掉。
+            if _has_end_image(request):
+                raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
         else:
             payload["image"] = self._encode_frame(Path(cast(Path, request.start_image)))
-            end_image = request.end_image
-            if isinstance(end_image, (str, Path)) and str(end_image):
+            if _has_end_image(request):
+                if not self._caps.last_frame:
+                    raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
                 # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
                 # 尾帧约束却不生效——fail loud 拒绝而非放行一个调用方以为已生效实则被忽略的请求。
                 if self._caps.last_frame_requires_pro and self._resolve_mode(request) != "pro":
                     raise VideoCapabilityError("video_last_frame_requires_pro", provider=self.name, model=self._model)
-                payload["image_tail"] = self._encode_frame(Path(end_image))
+                payload["image_tail"] = self._encode_frame(Path(cast(Path, request.end_image)))
 
         # 音频开关 sound（官方参数，取 "on"/"off"，各档默认 off）仅 text2video / image2video 子路径
         # 携带（multi-image2video 原生 schema 不含）；无音频能力的 model 不发该字段，避免向不支持的

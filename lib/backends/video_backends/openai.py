@@ -17,6 +17,7 @@ from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
     normalize_provider_status,
@@ -219,6 +220,11 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         )
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # Sora 请求体没有尾帧与参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
+        if request.end_image:
+            raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
+        if request.reference_audio_files:
+            raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         kwargs: dict = {
             "prompt": request.prompt,
             "model": self._model,

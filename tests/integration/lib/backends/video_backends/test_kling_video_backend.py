@@ -344,15 +344,15 @@ class TestMultiImageSubpath:
         assert caps.audio_track_for_route("i2v") is VideoAudioMode.CONTROLLABLE
         assert caps.audio_track_for_route("r2v") is VideoAudioMode.ALWAYS_OFF
 
-    def test_reference_images_take_precedence_over_start_image(self, tmp_path):
+    @pytest.mark.parametrize("frame", ["start_image", "end_image"])
+    def test_reference_images_with_frames_rejected(self, tmp_path, frame):
+        """多图主体请求体没有首尾帧字段，带帧的请求拒绝而不是只发参考图。"""
         refs = self._refs(tmp_path, 1)
-        start = tmp_path / "start.png"
-        start.write_bytes(b"\x89PNG\r\n")
-        subpath, payload = _jwt_backend("kling-video-o1")._build_payload(
-            _request(tmp_path, reference_images=refs, start_image=start)
-        )
-        assert subpath == "multi-image2video"
-        assert "image_list" in payload
+        image = tmp_path / "frame.png"
+        image.write_bytes(b"\x89PNG\r\n")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-video-o1")._build_payload(_request(tmp_path, reference_images=refs, **{frame: image}))
+        assert exc.value.code == "video_reference_images_with_frames_unsupported"
 
     def test_empty_reference_images_falls_through(self, tmp_path):
         subpath, _ = _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, reference_images=[]))
@@ -491,6 +491,31 @@ class TestPayloadBuilding:
         assert subpath == "image2video"
         assert "image" in payload
         assert "image_tail" not in payload
+
+    def test_end_frame_without_start_frame_rejected(self, tmp_path):
+        """单独的尾帧发不进文生视频请求体，拒绝而不是丢掉尾帧。"""
+        last = tmp_path / "last.png"
+        last.write_bytes(b"\x89PNG\r\n2")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-v3")._build_payload(_request(tmp_path, end_image=last))
+        assert exc.value.code == "video_end_image_requires_start_image"
+
+    def test_end_frame_on_model_without_last_frame_rejected(self, tmp_path):
+        first = tmp_path / "first.png"
+        last = tmp_path / "last.png"
+        first.write_bytes(b"\x89PNG\r\n1")
+        last.write_bytes(b"\x89PNG\r\n2")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-unlisted-model")._build_payload(_request(tmp_path, start_image=first, end_image=last))
+        assert exc.value.code == "video_last_frame_unsupported"
+
+    def test_reference_audio_rejected(self, tmp_path):
+        """可灵请求体没有参考音频字段，带参考音频的请求拒绝而不是忽略。"""
+        audio = tmp_path / "voice.mp3"
+        audio.write_bytes(b"ID3")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-v3")._build_payload(_request(tmp_path, reference_audio_files=[audio]))
+        assert exc.value.code == "video_reference_audio_unsupported"
 
     def test_unreadable_start_image_raises(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:

@@ -577,6 +577,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         # 取默认的 CONTROLLABLE），改一侧须同改另一侧。
         if _is_wan3(self._model):
             parameters["audio"] = request.generate_audio
+        elif not request.generate_audio:
+            # 恒有声型号发不出静音请求；执行期能力被用户覆盖放宽时才会走到这里，付费前拒绝而不是照常出有声成片。
+            raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         return {
             "model": self._model,
@@ -595,7 +598,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             if uri is None:
                 raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=p.name)
             media.append({"type": "first_frame", "url": uri})
-        if caps.last_frame and request.end_image:
+        if request.end_image and not caps.last_frame:
+            raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
+        if request.end_image:
             p = Path(request.end_image)
             uri = _read_image_or_none(p)
             # 与首帧同为 fail-loud：声明了尾帧却读不到就中止，不静默产出一个没用上尾帧的结果。
@@ -603,6 +608,8 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 raise VideoCapabilityError("video_end_image_unreadable", model=self._model, name=p.name)
             media.append({"type": "last_frame", "url": uri})
         reference_items: list[dict] = []
+        if caps.max_reference_images <= 0 and any(request.reference_images or []):
+            raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
         if caps.max_reference_images > 0:
             # r2v 必须有参考图。fail-loud：未提供 → required；任一声明的参考图缺失/不可读（is_file 不过
             # 或 read_bytes 抛 OSError）→ 报错列出文件名中止。不静默退化为无参考/子集生成（会产出错误
@@ -625,13 +632,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 )
             limit = caps.max_reference_images
             if len(data_uris) > limit:
-                logger.warning(
-                    "DashScope 参考图数量 %d 超过 model=%s 上限 %d，截断",
-                    len(data_uris),
-                    self._model,
-                    limit,
+                raise VideoCapabilityError(
+                    "video_reference_images_exceeded", model=self._model, limit=limit, count=len(data_uris)
                 )
-                data_uris = data_uris[:limit]
             reference_items = [{"type": "reference_image", "url": uri} for uri in data_uris]
         # 音频判定在参考素材循环之外：无参考素材可挂时也要走一遍，否则 wan2.7-i2v 这类无参考图
         # 能力的 model 收到音频会静默丢弃、照常扣费。自定义供应商可把 endpoint 级的

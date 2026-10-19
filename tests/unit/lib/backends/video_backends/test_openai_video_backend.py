@@ -12,7 +12,7 @@ import pytest
 from openai import InternalServerError
 from openai.types.video_create_error import VideoCreateError
 
-from arcreel_market_core.video_backend_contract import VideoGenerationRequest
+from arcreel_market_core.video_backend_contract import VideoCapabilityError, VideoGenerationRequest
 from lib.backends.providers import PROVIDER_OPENAI
 from tests.fakes import (
     blocking_file_read_gate,
@@ -71,6 +71,29 @@ class TestOpenAIVideoBackend:
 
             backend = OpenAIVideoBackend(api_key="test-key", model="sora-2")
             assert backend.video_capabilities.max_reference_images == 1
+
+    @pytest.mark.parametrize(
+        ("field", "code"),
+        [("end_image", "video_last_frame_unsupported"), ("reference_audio_files", "video_reference_audio_unsupported")],
+    )
+    async def test_unsendable_input_rejected_before_submit(self, tmp_path: Path, field: str, code: str):
+        """Sora 请求体没有尾帧与参考音频字段，拒绝而不是丢弃后照常提交。"""
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client)
+        source = tmp_path / "input.bin"
+        source.write_bytes(b"x")
+        value = [source] if field == "reference_audio_files" else source
+
+        with captured_openai_clients(mock_client):
+            from lib.backends.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key", model="sora-2")
+            with pytest.raises(VideoCapabilityError) as exc:
+                await backend.generate(
+                    VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", **{field: value})
+                )
+        assert exc.value.code == code
+        mock_client.videos.create.assert_not_awaited()
 
     async def test_text_to_video(self, tmp_path: Path):
         video_data = b"mp4-video-content"

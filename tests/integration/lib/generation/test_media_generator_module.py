@@ -1167,6 +1167,85 @@ class TestMediaGenerator:
         call = gen._video_backend.calls[0]
         assert call.end_image == end_image
 
+    @pytest.fixture
+    def user_added_video_model(self):
+        """在内置供应商下装入一个用户添加的视频模型（模型键与 _FakeVideoBackend.model 一致），按参数给能力覆盖。"""
+        from lib.catalog import query as catalog
+
+        def install(provider_id: str, overrides: dict[str, object]) -> None:
+            catalog.install_user_added_models(
+                [catalog.UserAddedModel(provider_id, _FakeVideoBackend.model, "video", capability_overrides=overrides)]
+            )
+
+        yield install
+        catalog.install_user_added_models(())
+
+    async def test_user_override_relaxes_execution_gate(self, tmp_path, user_added_video_model):
+        """内置供应商下用户放宽尾帧：执行闸门按叠加后的能力放行，请求真实发出。"""
+        from arcreel_market_core.video_backend_contract import VideoCapabilities
+
+        user_added_video_model("ark", {"last_frame": True})
+        gen = _build_generator(tmp_path)
+        gen._video_provider_id = "ark"
+        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
+        end_image = tmp_path / "end.png"
+        end_image.write_bytes(b"fake-end-image")
+
+        await gen.generate_video_async(prompt="p", resource_type="videos", resource_id="E1S08", end_image=end_image)
+
+        assert gen._video_backend.calls[0].end_image == end_image
+
+    async def test_user_override_narrows_execution_gate(self, tmp_path, user_added_video_model):
+        """内置供应商下用户关掉尾帧：执行期也挡住，不调用后端、不开记账。"""
+        from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
+
+        user_added_video_model("ark", {"last_frame": False})
+        gen = _build_generator(tmp_path)
+        gen._video_provider_id = "ark"
+        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=True))
+        end_image = tmp_path / "end.png"
+        end_image.write_bytes(b"fake-end-image")
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(prompt="p", resource_type="videos", resource_id="E1S09", end_image=end_image)
+
+        assert exc.value.code == "video_last_frame_unsupported"
+        assert gen._video_backend.calls == []
+        assert gen.ledger.started == []
+
+    async def test_user_override_keeps_tier_aware_base(self, tmp_path, user_added_video_model):
+        """覆盖叠在按档位解析的能力上：未覆盖的尾帧仍随档位放行，覆盖的参考图上限同时生效。"""
+        from arcreel_market_core.video_backend_contract import VideoCapabilities
+
+        class _TierAwareVideoBackend(_FakeVideoBackend):
+            def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None):
+                return VideoCapabilities(last_frame=service_tier == "pro")
+
+        user_added_video_model("kling", {"max_reference_images": 2})
+        gen = _build_generator(tmp_path)
+        gen._video_provider_id = "kling"
+        gen._video_backend = _TierAwareVideoBackend(video_capabilities=VideoCapabilities())
+        end_image = tmp_path / "end.png"
+        end_image.write_bytes(b"fake-end-image")
+        refs = []
+        for i in range(2):
+            ref = tmp_path / f"ref{i}.png"
+            Image.new("RGB", (8, 8)).save(ref)
+            refs.append(ref)
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S10",
+            end_image=end_image,
+            reference_images=refs,
+            service_tier="pro",
+        )
+
+        call = gen._video_backend.calls[0]
+        assert call.end_image == end_image
+        assert len(call.reference_images) == 2
+
     @pytest.mark.asyncio
     async def test_end_image_rejected_when_tier_aware_backend_reports_std_tier(self, tmp_path):
         """同一后端，std 档时仍按能力收窄硬失败——覆盖 pro/std 两条分支。"""

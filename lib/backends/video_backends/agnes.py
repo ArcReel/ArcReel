@@ -331,6 +331,9 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
         return self.video_capabilities_for_model(self._model)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
+        # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
+        if request.reference_audio_files:
+            raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         # 读盘 + 编码（首尾帧最多 2 张、参考图最多 8 张，可能数 MB）offload 到线程，
         # 避免阻塞共享 worker 事件循环（与 image 后端及 grok/gemini 视频后端一致）。
         payload = await asyncio.to_thread(self._build_payload, request)

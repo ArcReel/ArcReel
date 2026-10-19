@@ -22,6 +22,7 @@ from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
     VideoCapabilities,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -207,6 +208,9 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
+        # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
+        if request.reference_audio_files:
+            raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._video_model)
         operation = await self._create_task(request)
         op_name = getattr(operation, "name", None)
         if not op_name:

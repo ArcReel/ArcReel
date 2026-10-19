@@ -232,8 +232,8 @@ class ViduVideoBackend:
             first_frame=first_frame,
             last_frame=last_frame,
             max_reference_images=_MAX_REFERENCE_IMAGES if reference_images else 0,
-            # 参考图与首帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，
-            # start_image 不进请求体（首帧被丢弃）。
+            # 参考图与首尾帧在 Vidu 上是互斥模式：_select_endpoint 见参考图即切 /reference2video，
+            # 该端点不收首尾帧，_build_request 拒绝两者同带的请求。
             #
             # prompt 上限按端点分档（/reference2video 更窄），而本函数无端点上下文，只能声明
             # 「该 model 无论走哪条端点都成立」的值，不在此处按最窄值误拒多端点 model 合法的
@@ -311,6 +311,20 @@ class ViduVideoBackend:
 
     def _build_request(self, request: VideoGenerationRequest) -> tuple[str, dict]:
         endpoint = self._select_endpoint(request)
+
+        # 0) 端点发不出的输入付费前拒绝，不静默丢弃：能力被用户覆盖放宽时 gate 会放行它们。
+        if request.reference_audio_files:
+            raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
+        if endpoint == "/reference2video":
+            if request.start_image is not None or request.end_image is not None:
+                raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
+            count = len(_reference_images(request))
+            if count > _MAX_REFERENCE_IMAGES:
+                raise VideoCapabilityError(
+                    "video_reference_images_exceeded", model=self._model, limit=_MAX_REFERENCE_IMAGES, count=count
+                )
+        if endpoint == "/text2video" and request.end_image is not None:
+            raise VideoCapabilityError("video_end_image_requires_start_image", model=self._model)
 
         # 1) 校验认得的型号 × 端点（提前失败比 400 含义更清晰）；认不得的模型由上游判定
         endpoint_models = _ENDPOINT_MODELS.get(endpoint, frozenset())
@@ -450,12 +464,8 @@ def _endpoint_for(request: VideoGenerationRequest) -> str:
 
 
 def _reference_images(request: VideoGenerationRequest) -> list[Path]:
-    """参考生视频实际发出的参考图：超过上限的部分截断。"""
-    refs = [Path(p) for p in (request.reference_images or []) if p]
-    if len(refs) > _MAX_REFERENCE_IMAGES:
-        logger.warning("Vidu 参考图数量 %d 超过上限 %d，截断", len(refs), _MAX_REFERENCE_IMAGES)
-        refs = refs[:_MAX_REFERENCE_IMAGES]
-    return refs
+    """参考生视频发出的参考图（张数上限由 ``_build_request`` 校验）。"""
+    return [Path(p) for p in (request.reference_images or []) if p]
 
 
 def _coerce_duration(model: str, endpoint: str, requested: int | None) -> int:

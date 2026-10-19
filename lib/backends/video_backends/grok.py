@@ -116,6 +116,9 @@ class GrokVideoBackend:
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频；黑盒生成不重试，只有已取得 URL 后的下载可以独立重试。"""
+        # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
+        if request.reference_audio_files:
+            raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         self._check_reference_route_resolution(request)
         self._check_classic_first_frame_with_references(request)
         # The SDK combines submit and provider-side waiting in one opaque call. Once it starts, an exception

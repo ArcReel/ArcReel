@@ -197,7 +197,7 @@ class TestKlingMetering:
 
 class TestViduMetering:
     def test_reference_to_video_is_its_own_price_tier(self) -> None:
-        references = [Path(f"ref-{index}.png") for index in range(9)]
+        references = [Path(f"ref-{index}.png") for index in range(7)]
         reference = ViduVideoBackend.metered_usage(
             "viduq3-turbo", _request(duration_seconds=5, resolution="720p", reference_images=references)
         )
@@ -206,7 +206,6 @@ class TestViduMetering:
         )
 
         assert reference.dimensions["reference_to_video"] is True
-        # Vidu 参考生视频最多发 7 张，多余的截掉不发
         assert reference.quantities["input_images"] == 7
         assert first_frame.dimensions["reference_to_video"] is False
         assert first_frame.quantities["input_images"] == 0

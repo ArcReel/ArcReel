@@ -530,7 +530,16 @@ def builtin_video_capabilities_for_model(provider_id: str, model_id: str) -> Vid
 
     覆盖整维替换、优先级最高；音频两维合起来无意义时按不支持参考音频处理，与自定义供应商同一口径。
     """
-    caps = declared_builtin_video_capabilities(provider_id, model_id)
+    return apply_user_added_video_overrides(
+        declared_builtin_video_capabilities(provider_id, model_id), provider_id, model_id
+    )
+
+
+def apply_user_added_video_overrides(caps: VideoCapabilities, provider_id: str, model_id: str) -> VideoCapabilities:
+    """在调用通道给出的能力上叠加内置供应商下用户添加的模型的通道事实覆盖（docs/adr/0104）。
+
+    基底由调用方给定：规划层传无请求上下文的声明，执行闸门传按档位解析的能力，两边叠加口径相同。
+    """
     overrides = catalog.user_added_capability_overrides(provider_id, model_id)
     if not overrides:
         return caps

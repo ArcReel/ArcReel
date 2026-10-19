@@ -14,6 +14,7 @@ from google.genai import errors as genai_errors
 
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
+    VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
 )
@@ -163,6 +164,19 @@ def _make_done_operation(video_uri="gs://bucket/video.mp4"):
 
 
 class TestGeminiVideoBackendGenerate:
+    async def test_reference_audio_rejected_before_submit(self, gemini_backend, tmp_path):
+        """请求体没有参考音频字段，拒绝而不是丢弃后照常提交。"""
+        gemini_backend._client.aio.models.generate_videos = AsyncMock()
+        audio = tmp_path / "voice.mp3"
+        audio.write_bytes(b"ID3")
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gemini_backend.generate(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", reference_audio_files=[audio])
+            )
+        assert exc.value.code == "video_reference_audio_unsupported"
+        gemini_backend._client.aio.models.generate_videos.assert_not_awaited()
+
     async def test_generate_text_to_video(self, gemini_backend, tmp_path):
         output = tmp_path / "out.mp4"
 

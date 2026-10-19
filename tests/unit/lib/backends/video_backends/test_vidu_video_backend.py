@@ -290,6 +290,52 @@ class TestBuildRequest:
             backend._build_request(req)
 
 
+class TestUnsendableInputsRejected:
+    """端点发不出的输入在组装请求时拒绝，不静默丢弃。"""
+
+    @staticmethod
+    def _image(tmp_path: Path, name: str) -> Path:
+        p = tmp_path / name
+        p.write_bytes(b"x")
+        return p
+
+    @pytest.mark.parametrize("frame", ["start_image", "end_image"])
+    def test_reference_images_with_frame(self, tmp_path: Path, video_output_path: Path, frame: str):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=[self._image(tmp_path, "r.png")],
+            **{frame: self._image(tmp_path, "f.png")},
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            ViduVideoBackend(api_key="test-key", model="viduq3-turbo")._build_request(req)
+        assert exc.value.code == "video_reference_images_with_frames_unsupported"
+
+    def test_reference_images_over_limit(self, tmp_path: Path, video_output_path: Path):
+        refs = [self._image(tmp_path, f"r{i}.png") for i in range(8)]
+        req = VideoGenerationRequest(prompt="x", output_path=video_output_path, reference_images=refs)
+        with pytest.raises(VideoCapabilityError) as exc:
+            ViduVideoBackend(api_key="test-key", model="viduq3-turbo")._build_request(req)
+        assert exc.value.code == "video_reference_images_exceeded"
+        assert exc.value.params == {"model": "viduq3-turbo", "limit": 7, "count": 8}
+
+    def test_end_frame_without_start_frame(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x", output_path=video_output_path, end_image=self._image(tmp_path, "e.png")
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            ViduVideoBackend(api_key="test-key", model="viduq3-turbo")._build_request(req)
+        assert exc.value.code == "video_end_image_requires_start_image"
+
+    def test_reference_audio(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x", output_path=video_output_path, reference_audio_files=[self._image(tmp_path, "a.mp3")]
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            ViduVideoBackend(api_key="test-key", model="viduq3-turbo")._build_request(req)
+        assert exc.value.code == "video_reference_audio_unsupported"
+
+
 class TestPromptLength:
     """prompt 超限一律拒绝，不再客户端静默截断。"""
 
