@@ -1,0 +1,551 @@
+"""大项目性能基准的共享部分：环境、合成项目构建器、进程内 ASGI 应用与计数探针。
+
+调用 :func:`configure` 之前不要 import ``lib`` / ``server``：数据目录与数据库地址在模块导入时就会被读取，
+所以本模块的 lib / server 导入一律放在函数体内。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import builtins
+import contextvars
+import functools
+import importlib
+import inspect
+import io
+import itertools
+import os
+import random
+import shutil
+import sys
+import threading
+import time
+from collections import defaultdict
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PROJECT = "demo"
+API = "/api/v1"
+# 合成项目里角色 / 场景 / 道具的比例（12:10:8）。
+ASSET_MIX = (12, 10, 8)
+# 被测聚合接口；名字同时是 --only 的取值。
+ENDPOINTS = ("project", "cost", "wf_status", "wf_plan", "units")
+# 「同一份聚合计算同时在算的份数」按真正做计算的函数计数，与请求是否合流无关。
+# 只有项目详情与费用估算会合流；其余接口一次请求就是一份计算，按在途请求数统计。
+# 函数改名或挪动时同步改这里，找不到时 install 会直接报错。
+COMPUTE_MARKERS = {
+    "project": ("lib.workflow.workflow_state", "WorkflowStateService", "get_project_summary"),
+    "cost": ("server.services.admission.cost_estimation", "CostEstimationService", "compute"),
+}
+# 与 lib.infra.content_digest.FILE_DIGEST_RACY_WINDOW_NS 对齐，多留半秒余量。
+FILE_DIGEST_RACY_WINDOW_S = 3.5
+MEDIA_SUFFIXES = (".mp4", ".mov", ".webm", ".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac")
+
+
+def configure(data_root: Path) -> None:
+    """把数据目录、profile、数据库与鉴权密钥指向基准自己的目录。必须先于任何 lib / server 导入。"""
+
+    data_root.mkdir(parents=True, exist_ok=True)
+    profile = data_root / "profile"
+    profile.mkdir(exist_ok=True)
+    (profile / "CLAUDE.md").touch()
+    os.environ["ARCREEL_DATA_DIR"] = str(data_root)
+    os.environ["ARCREEL_PROFILE_DIR"] = str(profile)
+    os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{data_root / 'perf.db'}"
+    os.environ["AUTH_ENABLED"] = "true"
+    os.environ["AUTH_TOKEN_SECRET"] = "perf-bench-synthetic-secret-0123456789abcdef"
+    if str(REPO_ROOT) not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT))
+
+
+def data_root() -> Path:
+    return Path(os.environ["ARCREEL_DATA_DIR"])
+
+
+def project_path() -> Path:
+    return data_root() / "projects" / PROJECT
+
+
+# ---------------------------------------------------------------- 合成项目
+def _unit_text(rnd: random.Random, chars: list[str], scenes: list[str], props: list[str]) -> str:
+    c1, c2, s, p = rnd.choice(chars), rnd.choice(chars), rnd.choice(scenes), rnd.choice(props)
+    return (
+        f"中景，@[{c1}]站在@[{s}]的屋檐下，雨水顺着瓦片滴落，镜头缓慢推近。\n"
+        f"@[{c1}]：{{你终于来了。}}\n@[{c2}]握紧@[{p}]，沉默片刻后转身，远处传来钟声。"
+    )
+
+
+def commit_video(unit_id: str, video_kb: int, script_file: str, *, register: bool = True) -> None:
+    """按上传路径的形状提交一条参考生视频：版本激活与产物清单登记在同一次提交里完成。
+
+    ``register=False`` 只提交版本，留给构建末尾一次性补录：逐条登记每次都重写整份清单，构建会变成平方级。
+    """
+
+    from lib.artifacts.artifact_registration import register_current_resource_artifact
+    from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+
+    path = project_path()
+    current = path / "reference_videos" / f"{unit_id}.mp4"
+    current.parent.mkdir(parents=True, exist_ok=True)
+    staged = current.parent / f".{unit_id}.upload.mp4"
+    staged.write_bytes(os.urandom(video_kb * 1024))
+    VersionManager(path).commit_staged_version(
+        "reference_videos",
+        unit_id,
+        "",
+        staged_file=staged,
+        current_file=current,
+        on_commit=functools.partial(
+            register_current_resource_artifact,
+            path,
+            resource_type="reference_videos",
+            resource_id=unit_id,
+            script_file=script_file,
+        )
+        if register
+        else None,
+        source=MANUAL_UPLOAD_VERSION_SOURCE,
+    )
+
+
+def build(*, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: int, video_ratio: float) -> None:
+    """构建参考生视频合成项目：整本源文、每集已确认的单元规划与剧本、按比例已出片的视频。"""
+
+    from lib.artifacts.artifact_activation import activate_artifact_target_state
+    from lib.artifacts.artifact_manifest import ArtifactKey
+    from lib.artifacts.artifact_registration import register_current_artifact, register_current_artifact_if_provable
+    from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
+    from lib.episode.episode_source_commands import register_whole_source_file
+    from lib.episode.episode_sources import discover_sources
+    from lib.infra.json_io import atomic_write_json
+    from lib.project.project_manager import ProjectManager
+    from lib.script import script_review
+
+    rnd = random.Random(7)
+    pm = ProjectManager(data_root())
+    pm.create_project(PROJECT)
+    pm.create_project_metadata(
+        PROJECT, "Perf", "", "drama", extras={"generation_mode": "reference_video", "grid_storyboard": False}
+    )
+    path = pm.get_project_path(PROJECT)
+    novel = "".join(f"第{n}集正文。" + "他走进雨夜的长街，灯火摇曳。" * 214 for n in range(1, episodes + 1))
+    with pm.locked_source_registration(PROJECT) as (source_dir, project, _undo):
+        (source_dir / "novel.txt").write_text(novel, encoding="utf-8")
+        register_whole_source_file(project, "source/novel.txt")
+    per = len(novel) // episodes
+
+    total = sum(ASSET_MIX)
+    n_char = max(1, assets * ASSET_MIX[0] // total)
+    n_scene = max(1, assets * ASSET_MIX[1] // total)
+    n_prop = max(1, assets - n_char - n_scene)
+    buckets = {
+        ("character", "characters", "character_sheet"): {f"角色{i}": "黑发红衣" for i in range(1, n_char + 1)},
+        ("scene", "scenes", "scene_sheet"): {f"场景{i}": "雨夜长街" for i in range(1, n_scene + 1)},
+        ("prop", "props", "prop_sheet"): {f"道具{i}": "古铜色" for i in range(1, n_prop + 1)},
+    }
+    specs: dict[str, dict[str, dict[str, str]]] = {}
+    for (_kind, folder, sheet_key), names in buckets.items():
+        specs[folder] = {}
+        for name, desc in names.items():
+            rel = f"{folder}/{name}.png"
+            (path / folder).mkdir(parents=True, exist_ok=True)
+            (path / rel).write_bytes(os.urandom(sheet_kb * 1024))
+            specs[folder][name] = {"description": f"{name}，{desc}" * 4, sheet_key: rel}
+
+    def _plan(project: dict[str, Any]) -> None:
+        project.update(specs)
+        project["episodes"] = [
+            {
+                "episode": n,
+                "title": f"第{n}集",
+                "script_file": f"scripts/episode_{n}.json",
+                "ledger_status": "consumed",
+                "source_range": {
+                    "source_file": "source/novel.txt",
+                    "start": per * (n - 1),
+                    "end": per * n if n < episodes else len(novel),
+                },
+            }
+            for n in range(1, episodes + 1)
+        ]
+        project[SOURCE_FINGERPRINTS_KEY] = compute_source_fingerprints(discover_sources(path, project))
+
+    pm.update_project(PROJECT, _plan)
+    for (kind, _folder, _key), names in buckets.items():
+        for name in names:
+            register_current_artifact(path, ArtifactKey.asset_sheet(kind, name))
+
+    chars, scenes, props = (list(names) for names in buckets.values())
+    t0 = time.perf_counter()
+    for n in range(1, episodes + 1):
+        draft = path / "drafts" / f"episode_{n}"
+        draft.mkdir(parents=True, exist_ok=True)
+        (path / "source" / f"episode_{n}.txt").write_text(novel[per * (n - 1) : per * n], encoding="utf-8")
+        plan_units, video_units, filmed = [], [], []
+        for u in range(1, units + 1):
+            uid = f"E{n}U{u}"
+            text = _unit_text(rnd, chars, scenes, props)
+            plan_units.append({"unit_id": uid, "text": text, "duration_seconds": 8})
+            assets_done: dict[str, str] = {}
+            if rnd.random() < video_ratio:
+                filmed.append(uid)
+                assets_done = {
+                    "video_clip": f"reference_videos/{uid}.mp4",
+                    "video_generated_at": "2026-10-01T00:00:00+00:00",
+                    "status": "completed",
+                }
+            video_units.append(
+                {
+                    "unit_id": uid,
+                    "text": text,
+                    "duration_seconds": 8,
+                    "source_text": "",
+                    "generated_assets": assets_done,
+                }
+            )
+        atomic_write_json(draft / "script_plan_reference_units.json", {"units": plan_units})
+        script = {"episode": n, "title": f"第{n}集", "content_mode": "drama", "video_units": video_units}
+        atomic_write_json(path / "scripts" / f"episode_{n}.json", script)
+        register_current_artifact_if_provable(path, ArtifactKey.episode_script_plan(n))
+        register_current_artifact(path, ArtifactKey.episode_script(n))
+        for uid in filmed:
+            commit_video(uid, video_kb, f"scripts/episode_{n}.json", register=False)
+        if n % 10 == 0:
+            print(f"  built episode {n}/{episodes} ({time.perf_counter() - t0:.0f}s)", flush=True)
+
+    revisions = {
+        n: script_review.content_fingerprint(path / "drafts" / f"episode_{n}" / "script_plan_reference_units.json")
+        for n in range(1, episodes + 1)
+    }
+
+    def _confirm(project: dict[str, Any]) -> None:
+        for n, rev in revisions.items():
+            script_review.apply_confirmation(project, n, rev, "2026-10-01T00:00:00Z")
+
+    pm.update_project(PROJECT, _confirm)
+    activate_artifact_target_state(path, bump_schema=False)
+
+
+def ensure_project(
+    *, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: int, video_ratio: float, rebuild: bool
+) -> None:
+    """参数与上次构建一致就复用已有项目，否则清掉重建。"""
+
+    marker = data_root() / f"built-{episodes}x{units}x{assets}-v{video_kb}-s{sheet_kb}-r{video_ratio}.ok"
+    if rebuild or not marker.exists():
+        shutil.rmtree(data_root() / "projects", ignore_errors=True)
+        for old in data_root().glob("built-*.ok"):
+            old.unlink()
+        t = time.perf_counter()
+        print(f"building {episodes} episodes x {units} units ...", flush=True)
+        build(
+            episodes=episodes,
+            units=units,
+            assets=assets,
+            video_kb=video_kb,
+            sheet_kb=sheet_kb,
+            video_ratio=video_ratio,
+        )
+        marker.write_text("ok")
+        # 刚写完的文件落在内容指纹缓存的 racy 窗口里不入缓存，等窗口过去再测，热态才是真热态。
+        time.sleep(FILE_DIGEST_RACY_WINDOW_S)
+        print(f"built project in {time.perf_counter() - t:.0f}s", flush=True)
+    videos = sum(1 for p in project_path().rglob("*.mp4") if not p.name.startswith("."))
+    print(f"project={project_path()} mp4 files (formal + version snapshots)={videos}", flush=True)
+
+
+async def ensure_db() -> None:
+    """建表，并给真实内置供应商配一份假凭证：让报价与能力求值走真实路径（不会发出请求）。"""
+
+    from lib.agent.agent_session_store.models import register_models as register_agent_models
+    from lib.db import async_session_factory
+    from lib.db.base import Base
+    from lib.db.engine import async_engine
+    from lib.db.models import register_models
+    from lib.db.repositories.credential_repository import CredentialRepository
+
+    register_agent_models()
+    register_models()
+    async with async_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with async_session_factory() as session:
+        repo = CredentialRepository(session)
+        for provider in ("ark", "gemini-aistudio"):
+            if not await repo.list_by_provider(provider):
+                await repo.create(provider, "default", api_key="perf-fake-key")
+        await session.commit()
+
+
+def clear_caches() -> None:
+    """清掉进程内的读缓存，模拟冷态（不含模块导入与首次初始化，那部分用新进程测）。"""
+
+    from lib.artifacts.artifact_manifest import reset_manifest_read_cache_for_tests
+    from lib.infra.content_digest import reset_file_digest_cache_for_tests
+
+    reset_file_digest_cache_for_tests()
+    reset_manifest_read_cache_for_tests()
+
+
+# ---------------------------------------------------------------- 应用
+def build_app():
+    """按生产注册方式挂载被测路由（真实鉴权依赖），不跑应用的 lifespan。"""
+
+    from fastapi import Depends, FastAPI
+
+    from server.auth import get_current_user
+    from server.error_handlers import register_error_handlers
+    from server.routers import auth, cost_estimation, files, projects, reference_videos
+
+    app = FastAPI()
+    register_error_handlers(app)
+    guarded = [Depends(get_current_user)]
+    for router in (projects.router, cost_estimation.router, reference_videos.router, auth.router):
+        app.include_router(router, prefix=API, dependencies=guarded)
+    app.include_router(files.public_router, prefix=API)
+    return app
+
+
+def auth_headers() -> dict[str, str]:
+    from server.auth import create_token
+
+    return {"Authorization": f"Bearer {create_token('perf')}"}
+
+
+def endpoint(name: str, episode: int) -> tuple[str, str, dict[str, Any] | None]:
+    base = f"{API}/projects/{PROJECT}"
+    return {
+        "project": ("GET", base, None),
+        "cost": ("GET", f"{base}/cost-estimate", None),
+        "wf_status": ("GET", f"{base}/workflow-status", None),
+        "wf_plan": ("POST", f"{base}/workflow-plan", {}),
+        "units": ("GET", f"{base}/reference-videos/episodes/{episode}/units", None),
+    }[name]
+
+
+def pct(xs: list[float], p: float) -> float:
+    if not xs:
+        return float("nan")
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(p / 100 * len(xs)))]
+
+
+# ---------------------------------------------------------------- 计数探针
+REQ: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar("perf_req", default=None)
+
+
+class Probe:
+    """进程内计数：线程跳数与排队、清单锁、同时在算的计算份数、媒体文件内容读取。"""
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.computing: dict[str, int] = defaultdict(int)
+        self.computing_max: dict[str, int] = defaultdict(int)
+        self.lock_fail = 0
+        self.media_bytes: dict[str, int] = defaultdict(int)  # 每次打开一个键：<路径>#<序号>
+        self._media_fds: dict[int, str] = {}
+
+    def reset_media(self) -> None:
+        with self.lock:
+            self.media_bytes.clear()
+
+    def media_read(self) -> dict[str, int]:
+        """读出了内容的媒体文件打开次数与字节数。只读 1 字节的打开是可读性探测，不算读取内容。"""
+
+        with self.lock:
+            reads = [b for b in self.media_bytes.values() if b > 1]
+        return {"reads": len(reads), "bytes": sum(reads)}
+
+    def reset_compute_max(self) -> None:
+        with self.lock:
+            self.computing_max = defaultdict(int, self.computing)
+
+    # -- 安装
+    def install(self) -> None:
+        self._install_to_thread()
+        self._install_manifest_lock()
+        self._install_compute_markers()
+        self._install_media_reads()
+
+    def _install_to_thread(self) -> None:
+        orig = asyncio.to_thread
+
+        async def to_thread(func, /, *args, **kwargs):
+            req = REQ.get()
+            submit = time.perf_counter()
+            box: dict[str, float] = {}
+
+            def run():
+                box["start"] = time.perf_counter()
+                cpu = time.thread_time()
+                try:
+                    return func(*args, **kwargs)
+                finally:
+                    box["run"] = time.perf_counter() - box["start"]
+                    box["cpu"] = time.thread_time() - cpu
+
+            try:
+                return await orig(run)
+            finally:
+                if req is not None and "run" in box:
+                    req["hops"] += 1
+                    req["qwait"] += box["start"] - submit
+                    req["run"] += box["run"]
+                    req["cpu"] += box["cpu"]
+
+        asyncio.to_thread = to_thread
+
+    def _install_manifest_lock(self) -> None:
+        import lib.artifacts.artifact_manifest as am
+
+        adapter = getattr(am, "ProjectArtifactManifestAdapter", None)
+        orig_locked = getattr(adapter, "_locked", None)
+        if adapter is not None and orig_locked is not None:
+
+            @contextmanager
+            def _locked(self_):
+                req = REQ.get()
+                t0 = time.perf_counter()
+                with orig_locked(self_) as fd:
+                    if req is not None:
+                        req["lock_acq"] += 1
+                        req["lock_wait"] += time.perf_counter() - t0
+                    yield fd
+
+            adapter._locked = _locked
+        portalocker = getattr(am, "portalocker", None)
+        if portalocker is not None:
+            real_lock = portalocker.lock
+            probe = self
+
+            class _Counting:
+                def __getattr__(self, name):
+                    return getattr(portalocker, name)
+
+                def lock(self, handle, flags):
+                    try:
+                        real_lock(handle, flags)
+                    except Exception:
+                        with probe.lock:
+                            probe.lock_fail += 1
+                        raise
+
+            am.portalocker = _Counting()
+
+    def _enter(self, name: str) -> None:
+        with self.lock:
+            self.computing[name] += 1
+            self.computing_max[name] = max(self.computing_max[name], self.computing[name])
+
+    def _leave(self, name: str) -> None:
+        with self.lock:
+            self.computing[name] -= 1
+
+    def _wrap_compute(self, name: str, orig):
+        if inspect.iscoroutinefunction(orig):
+
+            async def awrapped(*args, **kwargs):
+                self._enter(name)
+                try:
+                    return await orig(*args, **kwargs)
+                finally:
+                    self._leave(name)
+
+            return functools.wraps(orig)(awrapped)
+
+        def wrapped(*args, **kwargs):
+            self._enter(name)
+            try:
+                return orig(*args, **kwargs)
+            finally:
+                self._leave(name)
+
+        return functools.wraps(orig)(wrapped)
+
+    def _install_compute_markers(self) -> None:
+        for name, (module, cls_name, attr) in COMPUTE_MARKERS.items():
+            cls = getattr(importlib.import_module(module), cls_name)
+            setattr(cls, attr, self._wrap_compute(name, getattr(cls, attr)))
+
+    def _install_media_reads(self) -> None:
+        """统计媒体文件被读出的字节：覆盖 ``os.open``/``os.read`` 与 ``open``/``io.open`` 两条读取途径。"""
+
+        probe = self
+        seq = itertools.count()
+        real_os_open, real_os_read, real_os_close = os.open, os.read, os.close
+        real_open = builtins.open
+
+        def is_media(path: object) -> bool:
+            name = os.fsdecode(path) if isinstance(path, (str, bytes, os.PathLike)) else ""
+            return name.lower().endswith(MEDIA_SUFFIXES)
+
+        def os_open(path, flags, *args, **kwargs):
+            fd = real_os_open(path, flags, *args, **kwargs)
+            if not flags & (os.O_WRONLY | os.O_RDWR) and is_media(path):
+                with probe.lock:
+                    probe._media_fds[fd] = f"{os.fsdecode(path)}#{next(seq)}"
+            return fd
+
+        def os_read(fd, n):
+            data = real_os_read(fd, n)
+            key = probe._media_fds.get(fd)
+            if key is not None:
+                with probe.lock:
+                    probe.media_bytes[key] += len(data)
+            return data
+
+        def os_close(fd):
+            with probe.lock:
+                probe._media_fds.pop(fd, None)
+            return real_os_close(fd)
+
+        class _CountingFile:
+            def __init__(self, handle, name):
+                self._handle, self._key = handle, f"{name}#{next(seq)}"
+
+            def _count(self, n):
+                with probe.lock:
+                    probe.media_bytes[self._key] += n or 0
+
+            def read(self, *args):
+                data = self._handle.read(*args)
+                self._count(len(data))
+                return data
+
+            def readinto(self, buffer):
+                n = self._handle.readinto(buffer)
+                self._count(n)
+                return n
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return self._handle.__exit__(*exc)
+
+            def __getattr__(self, name):
+                return getattr(self._handle, name)
+
+        def counting_open(file, mode="r", *args, **kwargs):
+            handle = real_open(file, mode, *args, **kwargs)
+            if "b" in mode and not set(mode) & set("wax+") and is_media(file):
+                return _CountingFile(handle, os.fsdecode(file))
+            return handle
+
+        os.open, os.read, os.close = os_open, os_read, os_close
+        builtins.open = io.open = counting_open
+
+
+def new_request(name: str, started: float) -> dict[str, Any]:
+    return {
+        "ep": name,
+        "t_start": started,
+        "hops": 0,
+        "qwait": 0.0,
+        "run": 0.0,
+        "cpu": 0.0,
+        "lock_acq": 0,
+        "lock_wait": 0.0,
+        "abandoned": False,
+    }
