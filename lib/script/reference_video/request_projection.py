@@ -697,11 +697,13 @@ async def project_reference_unit_request(
     options: ReferenceRequestOptions | None = None,
     resolver: ConfigResolver | None = None,
     request_facts_lookup: ReferenceRequestFactsLookup | None = None,
+    shared_assets: Callable[[], ReferenceAssetAvailability] | None = None,
 ) -> ReferenceUnitRequestProjection:
     """生产入口：从当前项目文件与配置直接构造一次 advisory 投影。
 
     资产可用性与执行侧同判据（文件存在且产物清单认领），准入、单条入队、提示词预览与限流
-    路由因此不会把执行时落 i2v 的单元判成 r2v。
+    路由因此不会把执行时落 i2v 的单元判成 r2v。批量调用方传入 ``shared_assets``，在工作线程里
+    取整批共用的判定，一批单元在同一份清单快照上判定；不传时按本单元现场构造。
     """
 
     # artifact_selection 依赖本模块，延迟导入避免循环。
@@ -715,12 +717,13 @@ async def project_reference_unit_request(
             resolver = ConfigResolver(async_session_factory)
         request_facts_lookup = configured_reference_request_facts(project, resolver)
 
-    def current_assets() -> tuple[CurrentReferenceAssets, tuple[ResolvedReferenceAsset, ...]]:
+    def current_assets() -> tuple[ReferenceAssetAvailability, tuple[ResolvedReferenceAsset, ...]]:
         # 构造清单感知的可用性判定、展开候选路径都会碰文件系统，放进工作线程。
-        return CurrentReferenceAssets(project_path, project), resolve_reference_assets(project, project_path, unit)
+        availability = CurrentReferenceAssets(project_path, project) if shared_assets is None else shared_assets()
+        return availability, resolve_reference_assets(project, project_path, unit)
 
-    assets, resolved_assets = await asyncio.to_thread(current_assets)
-    projector = ReferenceUnitRequestProjector(request_facts_lookup, assets)
+    availability, resolved_assets = await asyncio.to_thread(current_assets)
+    projector = ReferenceUnitRequestProjector(request_facts_lookup, availability)
     return await projector.project_current(
         project=project,
         script=script,

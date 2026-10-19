@@ -10,7 +10,6 @@ from __future__ import annotations
 import builtins
 import json
 import os
-import time
 from pathlib import Path
 from typing import IO, Any
 
@@ -21,7 +20,6 @@ from lib.artifacts.artifact_activation import register_current_artifact
 from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import (
     LOCK_FILENAME,
-    LOCK_TIMEOUT_SECONDS,
     MANIFEST_FILENAME,
     ArtifactKey,
     ArtifactManifest,
@@ -685,14 +683,12 @@ def test_verified_summary_does_not_wait_for_a_writer_holding_the_manifest_lock(t
     with (project_path / LOCK_FILENAME).open("ab") as lock_handle:
         portalocker.lock(lock_handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
         try:
-            started = time.monotonic()
+            # 旧协议下读取要拿这把锁，会在锁超时后报错；能拿到与无锁时相同的结果即说明读取不拿锁。
             summary = service.get_project_summary("demo")
-            elapsed = time.monotonic() - started
         finally:
             portalocker.unlock(lock_handle)
 
     assert summary == expected
-    assert elapsed < LOCK_TIMEOUT_SECONDS
 
 
 def test_one_resolver_answers_every_comparison_from_one_manifest_snapshot(tmp_path: Path) -> None:

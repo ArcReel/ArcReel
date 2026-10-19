@@ -48,6 +48,12 @@ def configure(data_root: Path) -> None:
     """把数据目录、profile、数据库与鉴权密钥指向基准自己的目录。必须先于任何 lib / server 导入。"""
 
     data_root.mkdir(parents=True, exist_ok=True)
+    # 重建会删掉整个 projects 目录：只接受空目录或带基准标记的目录，防止误指真实数据目录。
+    sentinel = data_root / ".arcreel-perf-bench"
+    if not sentinel.exists():
+        if any(data_root.iterdir()):
+            raise SystemExit(f"--data-root {data_root} 不是空目录，也不是基准建的目录，拒绝使用")
+        sentinel.touch()
     profile = data_root / "profile"
     profile.mkdir(exist_ok=True)
     (profile / "CLAUDE.md").touch()

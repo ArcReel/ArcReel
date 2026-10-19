@@ -340,8 +340,12 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 flush=True,
             )
         stop.set()
-        await asyncio.gather(*bg, return_exceptions=True)
         t_stop = time.perf_counter()
+        await asyncio.gather(*bg, return_exceptions=True)
+        # 最后一次写入触发的费用估算还在防抖里，等它发出后再判断是否有在途请求。
+        await asyncio.gather(*(cl.cost_timer for cl in clients if cl.cost_timer), return_exceptions=True)
+        # 防抖期间在途请求可能一度清零、提前置位 drained，而防抖随后发出的请求还没完成。
+        drained.clear()
         if any(inflight.values()):
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(drained.wait(), a.drain)
@@ -398,7 +402,8 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
 
 def cmd_peak(a: argparse.Namespace) -> dict[str, Any]:
     _ensure(a)
-    result = asyncio.run(_peak(a))
+    # 不用 asyncio.run：它收尾时会等默认线程池里被放弃的计算（最多 300 秒），结果文件写入随之推迟。
+    result = asyncio.new_event_loop().run_until_complete(_peak(a))
     print(
         f"\n=== peak {a.duration:.0f}s: writes={result['writes']} drain_after_stop={result['drain_s']:.1f}s"
         f"{' (capped, leftover=' + str(result['leftover']) + ')' if result['drain_capped'] else ''} "
@@ -471,9 +476,13 @@ def cmd_all(a: argparse.Namespace) -> None:
     ]  # fmt: skip
     if a.only:
         passthrough += ["--only", *a.only]
+    peak_args = [
+        "--duration", str(a.duration), "--drain", str(a.drain), "--interval", *map(str, a.interval),
+        "--clients", str(a.clients),
+    ]  # fmt: skip
     for sub, extra in (
         ("idle", ["--reps", str(a.reps)]),
-        ("peak", ["--duration", str(a.duration), "--drain", str(a.drain), "--interval", *map(str, a.interval)]),
+        ("peak", peak_args),
     ):
         subprocess.run(
             [sys.executable, "-m", "scripts.perf.bench", sub, *passthrough, *extra], cwd=h.REPO_ROOT, check=True

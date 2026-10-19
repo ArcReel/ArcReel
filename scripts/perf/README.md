@@ -18,7 +18,7 @@ uv run python -m scripts.perf.bench all
 
 最后打印汇总表，并写入 `<数据目录>/out/summary-<tag>.md`。在 8 核 Apple M3 上，一次完整运行约需 11 分钟：构建约 40 秒，空闲测量约 1 分钟，高峰模拟固定 4 分钟，再加上排空时间。改动前的基线排空会达到 5 分钟上限。
 
-数据目录默认为 `$TMPDIR/arcreel-perf-bench`，可以用 `--data-root` 指定。多个 worktree 同时跑基准时，每个 worktree 使用各自的数据目录。基准在进程内驱动 ASGI 应用，不监听端口。
+数据目录默认为 `$TMPDIR/arcreel-perf-bench`，可以用 `--data-root` 指定；重建会清空其中的 `projects`，所以只接受空目录或基准建过的目录。多个 worktree 同时跑基准时，每个 worktree 使用各自的数据目录。基准在进程内驱动 ASGI 应用，不监听端口。
 
 ## 只测某个接口或某一步
 
