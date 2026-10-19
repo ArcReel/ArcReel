@@ -14,10 +14,12 @@ from typing import Any, Protocol
 from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
     ArtifactComparison,
+    ArtifactContentFacts,
     ArtifactKey,
     ArtifactManifest,
     ArtifactManifestEntry,
     ArtifactManifestError,
+    ArtifactObservation,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
@@ -38,6 +40,35 @@ def read_artifact_content_digest(
 ) -> str:
     """Hash one safely admitted formal path without requiring an active Manifest."""
 
+    observation = _admitted_artifact_content(adapter, artifact_path, chunk_observer=chunk_observer)
+    assert observation.content_digest is not None
+    return observation.content_digest
+
+
+def read_artifact_content_facts(
+    adapter: ProjectArtifactManifestAdapter,
+    artifact_path: str,
+    *,
+    chunk_observer: Callable[[bytes], None] | None = None,
+) -> ArtifactContentFacts:
+    """Hash one safely admitted formal path, with the size and mtime of the version read."""
+
+    observation = _admitted_artifact_content(adapter, artifact_path, chunk_observer=chunk_observer)
+    assert observation.content_digest is not None
+    assert observation.file_stat is not None
+    return ArtifactContentFacts(
+        digest=observation.content_digest,
+        size=observation.file_stat.st_size,
+        mtime_ns=observation.file_stat.st_mtime_ns,
+    )
+
+
+def _admitted_artifact_content(
+    adapter: ProjectArtifactManifestAdapter,
+    artifact_path: str,
+    *,
+    chunk_observer: Callable[[bytes], None] | None,
+) -> ArtifactObservation:
     observation = adapter.inspect_artifact_content(artifact_path, chunk_observer=chunk_observer)
     if observation.blocker is not None:
         raise ArtifactManifestError(observation.blocker.detail)
@@ -45,7 +76,7 @@ def read_artifact_content_digest(
         raise ValueError(f"formal artifact input is no longer registered: {observation.artifact_path}")
     if observation.content_digest is None:
         raise ArtifactManifestError(f"formal artifact input has no content digest: {observation.artifact_path}")
-    return observation.content_digest
+    return observation
 
 
 def read_artifact_content_snapshot(

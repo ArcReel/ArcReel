@@ -1192,7 +1192,20 @@ class TestProjectArchiveService:
         shutil.rmtree(project_dir)
         service.import_project_archive(archive_path, uploaded_filename="demo.zip")
         imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
-        assert imported_manifest["entries"][key] == startup_manifest["entries"][key]
+        imported_entry = imported_manifest["entries"][key]
+        assert {field: imported_entry[field] for field in ("artifact_path", "basis_digest")} == startup_manifest[
+            "entries"
+        ][key]
+        imported_audio = pm.get_project_path("demo") / "audio" / "segment_E1S01.wav"
+        assert (
+            imported_entry["content_digest"],
+            imported_entry["content_size"],
+            imported_entry["content_mtime_ns"],
+        ) == (
+            hashlib.sha256(imported_audio.read_bytes()).hexdigest(),
+            imported_audio.stat().st_size,
+            imported_audio.stat().st_mtime_ns,
+        )
 
     def test_official_round_trip_preserves_a_stale_typed_audio_claim(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")

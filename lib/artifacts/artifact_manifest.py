@@ -22,7 +22,7 @@ import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
@@ -134,10 +134,36 @@ class ArtifactComparison:
         return self.status in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}
 
 
+CONTENT_FACT_ARTIFACT_KINDS = frozenset({ArtifactKind.EPISODE_VIDEO, ArtifactKind.EPISODE_AUDIO})
+"""登记时记下正式文件自身内容事实的产物种类。"""
+
+
+@dataclass(frozen=True, slots=True)
+class ArtifactContentFacts:
+    """登记那一刻正式文件自身的内容事实：裸 sha256 hexdigest、字节数与纳秒 mtime。"""
+
+    digest: str
+    size: int
+    mtime_ns: int
+
+    def __post_init__(self) -> None:
+        if not is_str(self.digest) or CONTENT_DIGEST_RE.fullmatch(self.digest) is None:
+            raise ValueError("artifact content digest must be a lowercase SHA-256 digest")
+        if type(self.size) is not int or self.size < 0 or type(self.mtime_ns) is not int:
+            raise ValueError("artifact content size and mtime_ns must be integers")
+
+
 @dataclass(frozen=True, slots=True)
 class ArtifactManifestEntry:
+    """一件正式产物的登记：身份由键给出，相等只看路径与生成依据摘要。
+
+    ``content`` 是写入时记下的文件事实，可选（旧条目与无法证明一致的条目没有），
+    不参与相等比较：时效比对、写入方 CAS、回滚判断都只认路径与依据。
+    """
+
     artifact_path: str
     basis_digest: str
+    content: ArtifactContentFacts | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,12 +204,19 @@ class ArtifactObservation:
     blocker: ArtifactBlocker | None = None
     content_digest: str | None = None
     content_bytes: bytes | None = None
+    file_stat: os.stat_result | None = None
+    """读取内容摘要时打开的那个文件版本的 stat；只在算了摘要时给出。"""
 
 
 class ArtifactManifestAdapter(Protocol):
     """Storage seam used by the artifact manifest domain module."""
 
     def inspect_artifact(self, artifact_path: str) -> ArtifactObservation:
+        raise NotImplementedError
+
+    def inspect_artifact_content(self, artifact_path: str) -> ArtifactObservation:
+        """Inspect like ``inspect_artifact`` and also hash the bytes when the storage holds them."""
+
         raise NotImplementedError
 
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
@@ -291,17 +324,10 @@ class ArtifactManifest:
         guessing the original input payload during resume and restore.
         """
 
-        observation = self._adapter.inspect_artifact(artifact_path)
-        if observation.blocker is not None:
-            raise ArtifactRegistrationError(observation.blocker.detail)
-        if not observation.present:
-            raise ArtifactRegistrationError(f"artifact is not present: {observation.artifact_path}")
+        normalized_path, content = observe_registered_artifact(self._adapter, key, artifact_path)
         return self._adapter.put_entry(
             key,
-            ArtifactManifestEntry(
-                artifact_path=observation.artifact_path,
-                basis_digest=basis.digest,
-            ),
+            ArtifactManifestEntry(artifact_path=normalized_path, basis_digest=basis.digest, content=content),
         )
 
     def register_descriptor_transactionally(
@@ -347,14 +373,9 @@ class ArtifactManifest:
         """
 
         _encode_target_entries({key: entry})
-        observation = self._adapter.inspect_artifact(entry.artifact_path)
-        if observation.blocker is not None:
-            raise ArtifactRegistrationError(observation.blocker.detail)
-        if not observation.present:
-            raise ArtifactRegistrationError(f"artifact is not present: {observation.artifact_path}")
+        normalized_path, content = observe_registered_artifact(self._adapter, key, entry.artifact_path)
         expected = ArtifactManifestEntry(
-            artifact_path=observation.artifact_path,
-            basis_digest=entry.basis_digest,
+            artifact_path=normalized_path, basis_digest=entry.basis_digest, content=content
         )
         previous = self._adapter.get_entry(key)
         try:
@@ -426,9 +447,8 @@ class ArtifactManifest:
         if source_key == target_key:
             if source_entry is None:
                 return ArtifactEntryRekeyPlan(self._adapter, {}, {}, False)
-            replacement = ArtifactManifestEntry(
-                artifact_path=rewrites.get(source_entry.artifact_path, source_entry.artifact_path),
-                basis_digest=source_entry.basis_digest,
+            replacement = replace(
+                source_entry, artifact_path=rewrites.get(source_entry.artifact_path, source_entry.artifact_path)
             )
             if replacement == source_entry:
                 return ArtifactEntryRekeyPlan(self._adapter, {}, {}, False)
@@ -444,9 +464,8 @@ class ArtifactManifest:
             raise ArtifactManifestError(f"artifact claim already exists for target key: {target_key.encode()}")
         if source_entry is None:
             return ArtifactEntryRekeyPlan(self._adapter, {}, {}, False)
-        replacement = ArtifactManifestEntry(
-            artifact_path=rewrites.get(source_entry.artifact_path, source_entry.artifact_path),
-            basis_digest=source_entry.basis_digest,
+        replacement = replace(
+            source_entry, artifact_path=rewrites.get(source_entry.artifact_path, source_entry.artifact_path)
         )
         return ArtifactEntryRekeyPlan(
             self._adapter,
@@ -520,6 +539,33 @@ class ArtifactManifest:
         return ArtifactComparison(status=status, artifact_path=observation.artifact_path)
 
 
+def observe_registered_artifact(
+    adapter: ArtifactManifestAdapter,
+    key: ArtifactKey,
+    artifact_path: str,
+) -> tuple[str, ArtifactContentFacts | None]:
+    """Admit one formal file for registration and read its content facts when its kind records them.
+
+    Every registration entry point goes through here, so video and audio claims
+    carry the facts of the exact file version that was admitted.
+    """
+
+    records_content = key.kind in CONTENT_FACT_ARTIFACT_KINDS
+    observation = (adapter.inspect_artifact_content if records_content else adapter.inspect_artifact)(artifact_path)
+    if observation.blocker is not None:
+        raise ArtifactRegistrationError(observation.blocker.detail)
+    if not observation.present:
+        raise ArtifactRegistrationError(f"artifact is not present: {observation.artifact_path}")
+    content = None
+    if observation.content_digest is not None and observation.file_stat is not None:
+        content = ArtifactContentFacts(
+            digest=observation.content_digest,
+            size=observation.file_stat.st_size,
+            mtime_ns=observation.file_stat.st_mtime_ns,
+        )
+    return observation.artifact_path, content
+
+
 class InMemoryArtifactManifestAdapter:
     """Thread-safe in-memory adapter for isolated domain tests and ephemeral callers."""
 
@@ -537,6 +583,10 @@ class InMemoryArtifactManifestAdapter:
         with self._lock:
             return ArtifactObservation(artifact_path=normalized, present=normalized in self._artifacts)
 
+    def inspect_artifact_content(self, artifact_path: str) -> ArtifactObservation:
+        # In-memory artifacts have no bytes, so their claims carry no content facts.
+        return self.inspect_artifact(artifact_path)
+
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
         with self._lock:
             return self._entries.get(key.encode())
@@ -548,7 +598,7 @@ class InMemoryArtifactManifestAdapter:
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
         with self._lock:
             encoded = key.encode()
-            if self._entries.get(encoded) == entry:
+            if same_entry_records({encoded: self._entries.get(encoded)}, {encoded: entry}):
                 return False
             updated = {**self._entries, encoded: entry}
             _assert_unique_artifact_paths(updated)
@@ -576,7 +626,7 @@ class InMemoryArtifactManifestAdapter:
                     updated.pop(key, None)
                 else:
                     updated[key] = entry
-            if updated == self._entries:
+            if same_entry_records(updated, self._entries):
                 return False
             _assert_unique_artifact_paths(updated)
             self._entries = updated
@@ -604,7 +654,7 @@ class InMemoryArtifactManifestAdapter:
         encoded = _encode_target_entries(entries)
         _assert_unique_artifact_paths(encoded)
         with self._lock:
-            if self._entries == encoded:
+            if same_entry_records(self._entries, encoded):
                 return False
             self._entries = encoded
             return True
@@ -1047,6 +1097,7 @@ class ProjectArtifactManifestAdapter:
             present=True,
             content_digest=content_digest,
             content_bytes=content_bytes,
+            file_stat=opened_file_stat if content_digest is not None else None,
         )
 
     def _inspect_artifact_portable(
@@ -1167,6 +1218,7 @@ class ProjectArtifactManifestAdapter:
             present=True,
             content_digest=content_digest,
             content_bytes=content_bytes,
+            file_stat=opened_stat if content_digest is not None else None,
         )
 
     @staticmethod
@@ -1209,10 +1261,7 @@ class ProjectArtifactManifestAdapter:
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
         with self._locked() as root_fd:
             entries, original_bytes = self._load_unlocked(root_fd)
-            encoded = key.encode()
-            if entries.get(encoded) == entry and original_bytes is not None:
-                return False
-            entries[encoded] = entry
+            entries[key.encode()] = entry
             new_bytes = _serialize_manifest(entries)
             if original_bytes == new_bytes:
                 return False
@@ -1349,7 +1398,7 @@ class ProjectArtifactManifestAdapter:
             current, original_bytes = self._load_unlocked(root_fd)
             if current != encoded_expected:
                 return False
-            if current == encoded_replacement:
+            if same_entry_records(current, encoded_replacement):
                 return True
             if not encoded_replacement:
                 self._remove_manifest_unlocked(root_fd)
@@ -2199,17 +2248,40 @@ def _entries_match(
 def _serialize_manifest(entries: Mapping[str, ArtifactManifestEntry]) -> bytes:
     _assert_unique_artifact_paths(entries)
     payload = {
-        "entries": {
-            key: {
-                "artifact_path": entry.artifact_path,
-                "basis_digest": entry.basis_digest,
-            }
-            for key, entry in sorted(entries.items())
-        },
+        "entries": {key: _entry_record(entry) for key, entry in sorted(entries.items())},
         "hash_algorithm": HASH_ALGORITHM,
         "schema_version": MANIFEST_SCHEMA_VERSION,
     }
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8") + b"\n"
+
+
+_ENTRY_FIELDS = frozenset({"artifact_path", "basis_digest"})
+_CONTENT_FACT_FIELDS = frozenset({"content_digest", "content_size", "content_mtime_ns"})
+
+
+def _entry_record(entry: ArtifactManifestEntry) -> dict[str, object]:
+    """条目落盘的完整字段，含内容事实；判断「写入是否改变了清单」按它比，不按条目相等。"""
+
+    record: dict[str, object] = {"artifact_path": entry.artifact_path, "basis_digest": entry.basis_digest}
+    if entry.content is not None:
+        record |= {
+            "content_digest": entry.content.digest,
+            "content_size": entry.content.size,
+            "content_mtime_ns": entry.content.mtime_ns,
+        }
+    return record
+
+
+def same_entry_records[K](
+    left: Mapping[K, ArtifactManifestEntry | None],
+    right: Mapping[K, ArtifactManifestEntry | None],
+) -> bool:
+    """Whether two claim sets would persist identically, content facts included."""
+
+    def records(entries: Mapping[K, ArtifactManifestEntry | None]) -> dict[K, object]:
+        return {key: None if entry is None else _entry_record(entry) for key, entry in entries.items()}
+
+    return records(left) == records(right)
 
 
 def _assert_unique_artifact_paths(entries: Mapping[str, ArtifactManifestEntry]) -> None:
@@ -2343,7 +2415,10 @@ def _parse_manifest(raw: bytes, *, validate_path_ownership: bool = True) -> dict
             ArtifactKey.decode(encoded_key)
         except ValueError as exc:
             raise ArtifactManifestError(f"artifact manifest contains an invalid key: {encoded_key!r}") from exc
-        if not isinstance(raw_entry, dict) or set(raw_entry) != {"artifact_path", "basis_digest"}:
+        if not isinstance(raw_entry, dict) or set(raw_entry) not in {
+            _ENTRY_FIELDS,
+            _ENTRY_FIELDS | _CONTENT_FACT_FIELDS,
+        }:
             raise ArtifactManifestError(f"artifact manifest entry has an invalid schema: {encoded_key}")
         artifact_path = raw_entry["artifact_path"]
         basis_digest = raw_entry["basis_digest"]
@@ -2355,9 +2430,22 @@ def _parse_manifest(raw: bytes, *, validate_path_ownership: bool = True) -> dict
             raise ArtifactManifestError(f"artifact manifest entry path is not canonical: {encoded_key}")
         if not isinstance(basis_digest, str) or PREFIXED_DIGEST_RE.fullmatch(basis_digest) is None:
             raise ArtifactManifestError(f"artifact manifest entry has an invalid basis digest: {encoded_key}")
+        content = None
+        if "content_digest" in raw_entry:
+            try:
+                content = ArtifactContentFacts(
+                    digest=raw_entry["content_digest"],
+                    size=raw_entry["content_size"],
+                    mtime_ns=raw_entry["content_mtime_ns"],
+                )
+            except ValueError as exc:
+                raise ArtifactManifestError(
+                    f"artifact manifest entry has invalid content facts: {encoded_key}"
+                ) from exc
         entries[encoded_key] = ArtifactManifestEntry(
             artifact_path=normalized_path,
             basis_digest=basis_digest,
+            content=content,
         )
     if validate_path_ownership:
         _assert_unique_artifact_paths(entries)
