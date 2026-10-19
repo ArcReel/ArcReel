@@ -1154,6 +1154,15 @@ class TestWan3:
             )
         assert ei.value.code == "video_audio_switch_not_supported"
 
+    def test_silent_request_on_unrecognized_model_not_rejected(self, tmp_path):
+        """认不得的型号声明可控，静音请求照常组装、不下发开关。"""
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        payload = DashScopeVideoBackend(api_key="sk", model="proxy-custom-video")._build_payload(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
+        )
+        assert "audio" not in payload["parameters"]
+
     def test_end_frame_on_model_without_last_frame_rejected(self, tmp_path):
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 

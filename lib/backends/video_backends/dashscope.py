@@ -577,8 +577,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         # 取默认的 CONTROLLABLE），改一侧须同改另一侧。
         if _is_wan3(self._model):
             parameters["audio"] = request.generate_audio
-        elif not request.generate_audio:
+        elif not request.generate_audio and self._video_capabilities.audio_track is VideoAudioMode.ALWAYS_ON:
             # 恒有声型号发不出静音请求；执行期能力被用户覆盖放宽时才会走到这里，付费前拒绝而不是照常出有声成片。
+            # 认不得的型号按「无信号不收紧」声明可控，这里同样不收紧，沿用不下发开关。
             raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         return {
