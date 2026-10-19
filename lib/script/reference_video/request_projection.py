@@ -540,9 +540,21 @@ class ReferenceUnitRequestProjector:
         """投影调用瞬间状态；``script`` 显式入参锁定公共缝的完整上下文契约。"""
 
         del script
-        options = options or ReferenceRequestOptions()
         # 资产可用性要读产物清单、对设计图算摘要，整段水合放进工作线程。
         hydration = await asyncio.to_thread(hydrate_unit_references, project, unit, resolved_assets, self._assets)
+        return await self.project_hydrated(project=project, unit=unit, hydration=hydration, options=options)
+
+    async def project_hydrated(
+        self,
+        *,
+        project: dict,
+        unit: dict,
+        hydration: ReferenceUnitHydration,
+        options: ReferenceRequestOptions | None = None,
+    ) -> ReferenceUnitRequestProjection:
+        """在调用方已完成的水合结论上投影；批量调用方可整批水合，只进一次工作线程。"""
+
+        options = options or ReferenceRequestOptions()
         canonical = hydration.declared_references
         available = hydration.available_assets
         declared_generation_type = hydration.declared_generation_type
