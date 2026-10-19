@@ -415,30 +415,31 @@ export function useProjectEventsSSE(projectName?: string | null): void {
           useAppStore.getState().invalidateReferenceVideoUnits();
         }
 
-        // 每个批次都重拉，纯任务终态批次也不例外：后端每次广播都会把项目快照 rebase
-        // 到最新，与之并发的文件变更来不及被扫描 diff 出来就失去基线；refreshProject
-        // 是这类漏广播的兜底，不能因为「本批次只有任务事件」就跳过。
+        // 只在含实体变更时重拉项目：任务终态与记账结算是刷新信号，不改项目快照里的内容；
+        // 重建窗口内落盘、却未被任何在途批次描述的变更，后端会补扫后单独广播（#1450）。
         // 通知里的集标题与播出位置取刷新后的账本：Agent 新建、改名或调序的集在事件到达时
         // 还不在本地账本里，按旧账本成文会显示成未命名集或旧标题，推出后无法再改。
-        void refreshProject().finally(() => {
-          if (disposed || !notifyChanges) return;
-          const episodeLedger = useProjectsStore.getState().currentProjectData?.episodes ?? [];
-          for (const group of groupedChanges) {
-            if (!hasImportantChanges(group)) {
-              continue;
+        if (entityChanges.length > 0) {
+          void refreshProject().finally(() => {
+            if (disposed || !notifyChanges) return;
+            const episodeLedger = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+            for (const group of groupedChanges) {
+              if (!hasImportantChanges(group)) {
+                continue;
+              }
+              pushNotification(
+                formatGroupedNotificationText(group, tEventsRef.current, episodeLedger),
+                "success",
+              );
             }
-            pushNotification(
-              formatGroupedNotificationText(group, tEventsRef.current, episodeLedger),
-              "success",
-            );
-          }
-          for (const { group, target } of workspaceNotifications) {
-            pushWorkspaceNotification({
-              text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger),
-              target,
-            });
-          }
-        });
+            for (const { group, target } of workspaceNotifications) {
+              pushWorkspaceNotification({
+                text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger),
+                target,
+              });
+            }
+          });
+        }
 
         // Refresh cost data when generation completes
         const hasCompletionEvent = entityChanges.some((c) =>
