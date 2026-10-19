@@ -42,6 +42,8 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   /** 给了就固定媒体类型（供应商模型的调用端点已决定类型）；不给则让用户选择。 */
   mediaType?: MediaType;
+  /** 可选的媒体类型（供应商支持的类型）；不给或为空则四种都可选，默认选第一个。 */
+  mediaTypes?: readonly string[];
   /** 模型名称的初值，一般是正在设置的模型 ID。 */
   initialName?: string;
   /** 再次编辑一个还没保存的新条目。 */
@@ -74,6 +76,7 @@ export function ManualEntryDialog({ open, onOpenChange, ...rest }: Props) {
 
 function ManualEntryForm({
   mediaType,
+  mediaTypes,
   initialName = "",
   initial,
   onConfirm,
@@ -85,7 +88,8 @@ function ManualEntryForm({
   const [maker, setMaker] = useState(initial?.maker ?? "");
   const [name, setName] = useState(initial?.name ?? initialName);
   const [displayName, setDisplayName] = useState(initial?.display_name ?? "");
-  const [media, setMedia] = useState<MediaType>(initial?.media_type ?? mediaType ?? "text");
+  const options = MEDIA_TYPES.filter((type) => !mediaTypes?.length || mediaTypes.includes(type));
+  const [media, setMedia] = useState<MediaType>(initial?.media_type ?? mediaType ?? options[0] ?? "text");
   const [facts, setFacts] = useState<Record<string, unknown>>(initial?.facts ?? defaultFacts(media));
   const [price, setPrice] = useState<PriceTable>(() => priceTableOf(initial?.price));
   // 用户自己改过可选时长之后，不再随名字预填
@@ -223,7 +227,7 @@ function ManualEntryForm({
                   if (next[0] && next[0] !== media) switchMedia(next[0] as MediaType);
                 }}
               >
-                {MEDIA_TYPES.map((type) => (
+                {options.map((type) => (
                   <ToggleGroupItem key={type} value={type}>
                     {t(MEDIA_LABEL_KEY[type])}
                   </ToggleGroupItem>
