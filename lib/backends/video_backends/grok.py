@@ -204,7 +204,11 @@ class GrokVideoBackend:
     def _encode_image_inputs(self, request: VideoGenerationRequest) -> dict[str, Any]:
         """首帧 / 尾帧 / 参考图 → SDK 的 data URI 参数（同步：读本地图片，调用方放线程里跑）。"""
         kwargs: dict[str, Any] = {}
-        if request.start_image and (image_path := Path(request.start_image)).exists():
+        if request.start_image:
+            image_path = Path(request.start_image)
+            # 首帧缺失不静默跳过：跳过后照常出片计费，成片却没用上首帧。
+            if not image_path.is_file():
+                raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=image_path.name)
             kwargs["image_url"] = image_to_data_uri(image_path, IMAGE_MIME_TYPES)
 
         if request.end_image:
@@ -218,7 +222,10 @@ class GrokVideoBackend:
             kwargs["last_frame_url"] = image_to_data_uri(end_path, IMAGE_MIME_TYPES)
 
         if request.reference_images:
-            ref_urls = [image_to_data_uri(p, IMAGE_MIME_TYPES) for p in request.reference_images if p.exists()]
-            if ref_urls:
-                kwargs["reference_image_urls"] = ref_urls
+            missing = [p.name for p in request.reference_images if not p.is_file()]
+            if missing:
+                raise VideoCapabilityError(
+                    "video_reference_images_unreadable", model=self._model, names=", ".join(missing)
+                )
+            kwargs["reference_image_urls"] = [image_to_data_uri(p, IMAGE_MIME_TYPES) for p in request.reference_images]
         return kwargs

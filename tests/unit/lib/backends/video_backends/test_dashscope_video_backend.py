@@ -327,6 +327,22 @@ class TestReferenceToVideo:
             )
         assert ei.value.code == "video_reference_images_unsupported"
 
+    async def test_start_image_rejected_when_model_has_no_first_frame(self, tmp_path: Path):
+        # 型号档案声明 first_frame=False 时带首帧不静默丢弃：否则照常计费，成片没用上首帧
+        post = AsyncMock(return_value=_resp(_submit()))
+        client = _client(post=post, get=AsyncMock())
+        p1, p2, p3 = _patches(client, AsyncMock())
+        start = tmp_path / "start.png"
+        start.write_bytes(b"\x89PNG")
+        with p1, p2, p3:
+            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
+            with pytest.raises(VideoCapabilityError) as ei:
+                await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", start_image=start))
+        assert ei.value.code == "video_first_frame_unsupported"
+        post.assert_not_awaited()
+
     async def test_r2v_all_refs_missing_fail_loud(self, tmp_path: Path):
         # r2v 参考图缺失/不可读（含空串过滤后仍有声明项）须 fail-loud 报错列名，不静默退化
         post = AsyncMock(return_value=_resp(_submit()))

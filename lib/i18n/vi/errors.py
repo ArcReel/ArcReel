@@ -678,6 +678,7 @@ MESSAGES = {
     "video_end_image_unreadable": "Ảnh khung hình cuối của mô hình {model} không đọc được; đã hủy tạo: {name}; hãy kiểm tra đường dẫn ảnh khung hình cuối",
     "video_end_image_requires_start_image": "Mô hình {model} không hỗ trợ khung hình cuối độc lập; hãy cung cấp thêm khung hình đầu (chế độ khung đầu+cuối) hoặc bỏ khung hình cuối",
     "video_last_frame_requires_pro": "{provider}/{model} chỉ hỗ trợ khung đầu+cuối ở gói pro; hãy chuyển sang gói pro hoặc bỏ khung hình cuối",
+    "video_first_frame_unsupported": "{provider}/{model} không hỗ trợ khung hình đầu với cấu hình hiện tại; đã hủy tạo. Hãy bỏ khung hình đầu của cảnh quay này, hoặc chuyển sang mô hình hoặc gói có hỗ trợ",
     "video_last_frame_unsupported": "{provider}/{model} không hỗ trợ khung hình cuối với cấu hình hiện tại; đã hủy tạo. Hãy bỏ khung hình cuối của cảnh quay này, hoặc chuyển sang mô hình hoặc gói có hỗ trợ",
     "video_reference_audio_unsupported": "{provider}/{model} không hỗ trợ âm thanh tham chiếu; đã hủy tạo. Hãy bỏ âm thanh tham chiếu của nhân vật, hoặc chuyển sang mô hình có hỗ trợ tham chiếu giọng nói",
     "video_reference_audio_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} đoạn âm thanh tham chiếu nhưng nhận được {count}; hãy giảm số nhân vật có âm thanh tham chiếu",

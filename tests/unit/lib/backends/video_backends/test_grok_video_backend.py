@@ -380,6 +380,33 @@ class TestGrokVideo15Models:
         assert kwargs["last_frame_url"].startswith("data:image/png;base64,")
         assert kwargs["resolution"] == "720p"
 
+    @pytest.mark.parametrize(
+        ("field", "code"),
+        [("start_image", "video_start_image_unreadable"), ("reference_images", "video_reference_images_unreadable")],
+    )
+    async def test_missing_start_or_reference_image_fails_before_provider_call(
+        self, video_output_path: Path, tmp_path: Path, field: str, code: str
+    ):
+        """首帧 / 参考图读不到不静默跳过：否则照常计费，成片却没用上用户给的图。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        missing = tmp_path / "missing.png"
+        value = [missing] if field == "reference_images" else missing
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-1.5")
+            with pytest.raises(VideoCapabilityError) as exc:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="Dolly to the window",
+                        output_path=video_output_path,
+                        duration_seconds=8,
+                        **{field: value},
+                    )
+                )
+
+        assert exc.value.code == code
+        generate.assert_not_awaited()
+
     async def test_missing_end_image_fails_before_provider_call(self, video_output_path: Path, tmp_path: Path):
         """尾帧读不到不静默跳过：否则照常计费，成片却落不到分镜要求的结尾画面。"""
         from lib.backends.video_backends.grok import GrokVideoBackend

@@ -197,6 +197,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_supported_durations_incompatible": GenerationAction.CONFIGURE_PROVIDER,
     "video_capability_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "video_last_frame_requires_pro": GenerationAction.CONFIGURE_PROVIDER,
+    "video_first_frame_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     "video_last_frame_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     "video_reference_images_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     "video_reference_images_with_frames_unsupported": GenerationAction.CONFIGURE_PROVIDER,

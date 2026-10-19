@@ -95,6 +95,38 @@ class TestOpenAIVideoBackend:
         assert exc.value.code == code
         mock_client.videos.create.assert_not_awaited()
 
+    @pytest.mark.parametrize(
+        ("kind", "code"),
+        [
+            ("missing_start", "video_start_image_unreadable"),
+            ("missing_ref", "video_reference_images_unreadable"),
+            ("two_inputs", "video_reference_images_exceeded"),
+        ],
+    )
+    async def test_unusable_image_inputs_rejected_before_submit(self, tmp_path: Path, kind: str, code: str):
+        """缺失的图与超出单槽位的图不静默跳过 / 丢弃：照常提交会出片计费却没用上用户给的图。"""
+        mock_client = AsyncMock()
+        _stub_client_completed(mock_client)
+        real = tmp_path / "real.png"
+        real.write_bytes(b"\x89PNG")
+        extra = tmp_path / "extra.png"
+        extra.write_bytes(b"\x89PNG")
+        missing = tmp_path / "missing.png"
+        inputs = {
+            "missing_start": {"start_image": missing},
+            "missing_ref": {"reference_images": [missing]},
+            "two_inputs": {"start_image": real, "reference_images": [extra]},
+        }[kind]
+
+        with captured_openai_clients(mock_client):
+            from lib.backends.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key", model="sora-2")
+            with pytest.raises(VideoCapabilityError) as exc:
+                await backend.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", **inputs))
+        assert exc.value.code == code
+        mock_client.videos.create.assert_not_awaited()
+
     async def test_text_to_video(self, tmp_path: Path):
         video_data = b"mp4-video-content"
         mock_client = AsyncMock()

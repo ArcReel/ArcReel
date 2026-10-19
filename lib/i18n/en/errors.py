@@ -676,6 +676,7 @@ MESSAGES = {
     "video_end_image_unreadable": "The last-frame image for model {model} is unreadable; generation aborted: {name}; check the last-frame image path",
     "video_end_image_requires_start_image": "Model {model} does not support a standalone last frame; also provide a first frame (first+last keyframes) or remove the last frame",
     "video_last_frame_requires_pro": "{provider}/{model} only supports first+last frame at the pro tier; switch to the pro tier or remove the last frame",
+    "video_first_frame_unsupported": "{provider}/{model} does not support a first frame under the current configuration; generation aborted. Remove the shot's first frame, or switch to a model or tier that supports it",
     "video_last_frame_unsupported": "{provider}/{model} does not support a last frame under the current configuration; generation aborted. Remove the shot's last frame, or switch to a model or tier that supports it",
     "video_reference_audio_unsupported": "{provider}/{model} does not support reference audio; generation aborted. Remove the character's reference audio, or switch to a model that supports voice reference",
     "video_reference_audio_exceeded": "Model {model} supports at most {limit} reference audio clips but received {count}; reduce the number of characters with reference audio",

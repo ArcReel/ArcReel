@@ -591,7 +591,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
     def _build_media(self, request: VideoGenerationRequest) -> list[dict]:
         caps = self._video_capabilities
         media: list[dict] = []
-        if caps.first_frame and request.start_image:
+        if request.start_image and not caps.first_frame:
+            raise VideoCapabilityError("video_first_frame_unsupported", provider=self.name, model=self._model)
+        if request.start_image:
             p = Path(request.start_image)
             # fail-loud：声明了首帧图却缺失（目录/非常规文件，含空串解析出的 "."）或读取失败即中止，
             # 不静默忽略 —— 否则用户拿到一个没用上首帧的结果却不知情。
