@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
 from lib.speech.narration_config import NarrationConfigError
+from server.services.project import narration_settings
 from server.services.project.narration_settings import NarrationSettingsInput, new_project_narration_fields
 
 
@@ -97,3 +100,26 @@ async def test_non_positive_speed_is_rejected(db_factory):
             resolver=ConfigResolver(db_factory),
         )
     assert caught.value.code == "narration_tts_speed_invalid"
+
+
+async def test_tts_project_prefills_a_voice_the_default_model_supports(db_factory, monkeypatch):
+    """全局音色不在默认内置模型的音色表中（缺省 Cherry 只属于 DashScope）：预填表中第一个音色。"""
+    monkeypatch.setattr(narration_settings, "audio_backend_voice_ids", AsyncMock(return_value=("Zephyr", "Puck")))
+    await _set_globals(db_factory, default_audio_backend="gemini-aistudio/gemini-3.8-flash-tts")
+    fields = await new_project_narration_fields(
+        NarrationSettingsInput(delivery="use_tts"), resolver=ConfigResolver(db_factory)
+    )
+    assert fields["audio_backend"] == "gemini-aistudio/gemini-3.8-flash-tts"
+    assert fields["narration_voice"] == "Zephyr"
+
+
+async def test_custom_provider_default_keeps_the_global_voice(db_factory, monkeypatch):
+    """自定义供应商的音色表不一定完整：不按音色表改写全局音色。"""
+    voice_ids = AsyncMock(return_value=("alloy",))
+    monkeypatch.setattr(narration_settings, "audio_backend_voice_ids", voice_ids)
+    await _set_globals(db_factory, default_audio_backend="custom-3/relay-tts", narration_voice="relay-voice")
+    fields = await new_project_narration_fields(
+        NarrationSettingsInput(delivery="use_tts"), resolver=ConfigResolver(db_factory)
+    )
+    assert fields["narration_voice"] == "relay-voice"
+    voice_ids.assert_not_awaited()

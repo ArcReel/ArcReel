@@ -171,16 +171,22 @@ async def _get_or_create_audio_backend(
     return await _get_or_create_backend("audio", provider_name, provider_settings, resolver, default_audio_model)
 
 
-async def audio_backend_capabilities(provider_id: str, model_id: str) -> frozenset[AudioCapability]:
-    """构造（或取缓存的）指定音频 backend 并返回它声明的能力，供设置页判断配音语速是否生效。
-
-    供应商未配置或模型不可用时原样抛出构造错误。
-    """
+async def _audio_backend_for(provider_id: str, model_id: str):
+    """构造（或取缓存的）指定音频 backend。供应商未配置或模型不可用时原样抛出构造错误。"""
     from lib.db import async_session_factory
 
     async with ConfigResolver(async_session_factory).session() as r:
-        backend = await _get_or_create_audio_backend(provider_id, {}, r, default_audio_model=model_id)
-    return frozenset(backend.capabilities)
+        return await _get_or_create_audio_backend(provider_id, {}, r, default_audio_model=model_id)
+
+
+async def audio_backend_capabilities(provider_id: str, model_id: str) -> frozenset[AudioCapability]:
+    """指定音频 backend 声明的能力，供设置页判断配音语速是否生效。"""
+    return frozenset((await _audio_backend_for(provider_id, model_id)).capabilities)
+
+
+async def audio_backend_voice_ids(provider_id: str, model_id: str) -> tuple[str, ...]:
+    """指定音频 backend 的音色 id，按 backend 给出的顺序，供新建项目预填与模型相符的音色。"""
+    return tuple(v.id for v in (await _audio_backend_for(provider_id, model_id)).list_voices())
 
 
 @dataclass(frozen=True)

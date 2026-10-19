@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.custom_provider import is_custom_provider
 from lib.speech.narration_config import (
     NARRATION_DELIVERY_FIELD,
@@ -25,6 +25,7 @@ from lib.speech.narration_config import (
     parse_tts_speed,
     validate_project_narration_config,
 )
+from server.services.tasks.generation_context import audio_backend_voice_ids
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +63,26 @@ def validate_tts_speed(value: float) -> float:
     return speed
 
 
+async def default_narration_tts(resolver: ConfigResolver) -> tuple[ProviderModel, str, float | None]:
+    """新建 TTS 项目的预填值：全局默认音频模型、旁白音色与配音语速。
+
+    全局音色只有一份，默认音频模型却可能按注册表顺序自动推断到另一家供应商（缺省音色 Cherry
+    只属于 DashScope）。音色不在所选内置模型的音色表中时，改用表中第一个音色。自定义供应商的
+    音色表不一定完整，音色原样保留；模型构造失败时同样原样保留，合成时照常报错。
+    未配置任何音频供应商时抛 ValueError。
+    """
+    backend, voice, speed = await resolver.default_narration_tts()
+    if is_custom_provider(backend.provider_id):
+        return backend, voice, speed
+    try:
+        voice_ids = await audio_backend_voice_ids(backend.provider_id, backend.model_id)
+    except ValueError:
+        return backend, voice, speed
+    if voice_ids and voice not in voice_ids:
+        voice = voice_ids[0]
+    return backend, voice, speed
+
+
 async def new_project_narration_fields(
     value: NarrationSettingsInput,
     *,
@@ -78,7 +99,7 @@ async def new_project_narration_fields(
         omitted = {TTS_BACKEND_FIELD, TTS_VOICE_FIELD, TTS_SPEED_FIELD} - value.provided
         if omitted:
             try:
-                default_backend, default_voice, default_speed = await resolver.default_narration_tts()
+                default_backend, default_voice, default_speed = await default_narration_tts(resolver)
             except ValueError:
                 default_backend, default_voice, default_speed = None, None, None
             if TTS_BACKEND_FIELD in omitted and default_backend is not None:
