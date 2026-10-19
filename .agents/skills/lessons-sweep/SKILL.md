@@ -10,8 +10,8 @@ disable-model-invocation: true
 
 ## 1. 开工检查
 
-1. fetch `origin`，用 `gh pr list --state open` 查找 head 分支以 `lessons-sweep/` 开头的 PR。
-2. 存在这样的 PR 时接手它，本次巡检只处理它；新窗口留给下一次巡检，这样窗口首尾相接，同一时间只有一份台账改动。先读 PR 上的阻塞评论，并用 `gh pr view --json isDraft,autoMergeRequest,mergeStateStatus,statusCheckRollup` 查看状态：
+1. fetch `origin`，用 `gh pr list --state open --limit 1000 --json number,headRefName` 列出全部 open PR（默认只返回 30 条），找出 head 分支以 `lessons-sweep/` 开头的 PR。
+2. 存在这样的 PR 时接手它，本次巡检只处理它；新窗口留给下一次巡检，这样窗口首尾相接，同一时间只有一份台账改动。接手路径上的 `gh pr` 命令都显式传入它的 PR 号，改动在其 head 分支的工作树中进行。先读 PR 上的阻塞评论，并用 `gh pr view <PR 号> --json isDraft,autoMergeRequest,mergeStateStatus,statusCheckRollup` 查看状态：
    - 已开启 auto-merge、没有冲突、required checks 没有失败的：确认后结束。
    - 阻塞原因与上一次接手时相同：对应的 `needs-triage` issue 仍 open 时补一条评论后结束，没有就开一个；issue 已关闭的，按其中的裁决处理后转下一项。
    - 其余：rebase 到最新 `origin/main`，按第 6 步第 2 项跑闸门，用 `--force-with-lease` push，更新 PR 正文；PR 为 draft 时用 `gh pr ready` 转为 ready，再执行第 6 步第 4 项。
@@ -51,7 +51,7 @@ disable-model-invocation: true
 
 ## 6. 产出 PR
 
-第 3–5 步没有产生任何改动时，丢弃分支与工作树，报告窗口范围后结束，reviewed-through 标记留给下一次巡检推进。否则依次执行：
+第 3–5 步没有产生任何改动时，PR 只推进 reviewed-through 标记，下一次巡检就不必重扫同一窗口。依次执行：
 
 1. 把 reviewed-through 标记更新为窗口终点的 SHA 与日期，提交本次全部改动。
 2. 运行 `uv run python scripts/gate.py --changed` 直到通过。
