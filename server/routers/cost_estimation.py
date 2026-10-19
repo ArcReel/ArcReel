@@ -11,7 +11,6 @@ from lib.db import async_session_factory
 from lib.infra.api_errors import NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import get_project_manager
-from lib.script.reference_video import find_reference_unit
 from server.i18n import Translator
 from server.routers._validators import reject_retired_query_params
 from server.services.admission.cost_estimation import CostEstimationService
@@ -25,11 +24,10 @@ async def get_cost_estimate(
     project_name: str,
     request: Request,
     _t: Translator,
-    reference_unit_id: str | None = None,
 ):
     """获取项目费用估算（预估 + 实际）。"""
 
-    reject_retired_query_params(request, "narration_delivery")
+    reject_retired_query_params(request, "narration_delivery", "reference_unit_id")
 
     def _sync():
         pm = get_project_manager()
@@ -62,8 +60,6 @@ async def get_cost_estimate(
         project_path=project_path,
     )
 
-    if reference_unit_id and not any(find_reference_unit(script, reference_unit_id) for script in scripts.values()):
-        raise HTTPException(status_code=404, detail=_t("ref_unit_not_found", unit_id=reference_unit_id))
     try:
         return await service.compute(
             project_data,

@@ -68,14 +68,18 @@ class TestCostEstimationRouter:
         assert "project_totals" in body
 
     @pytest.mark.parametrize(
-        "params",
+        ("params", "rejected"),
         [
-            {"reference_unit_id": "E1U1", "narration_delivery": "use_tts"},
-            {"narration_delivery": "post_production"},
+            (
+                {"reference_unit_id": "E1U1", "narration_delivery": "use_tts"},
+                ["narration_delivery", "reference_unit_id"],
+            ),
+            ({"narration_delivery": "post_production"}, ["narration_delivery"]),
+            ({"reference_unit_id": "missing"}, ["reference_unit_id"]),
         ],
     )
-    def test_rejects_the_retired_narration_delivery_query(self, params):
-        """旁白交付方式不影响视频报价：旧客户端仍带着它查询时拒收，不计算估价。"""
+    def test_rejects_the_retired_query_params(self, params, rejected):
+        """旁白交付方式与单元参数都不参与估价：旧客户端仍带着它们查询时拒收，不计算估价。"""
         mock_pm = _mock_pm(
             project_exists=True,
             load_project={"episodes": [{"script_file": "ep1.json"}]},
@@ -92,24 +96,9 @@ class TestCostEstimationRouter:
 
         assert response.status_code == 422, response.text
         assert [(item["type"], item["loc"]) for item in response.json()["detail"]] == [
-            ("extra_forbidden", ["query", "narration_delivery"])
+            ("extra_forbidden", ["query", name]) for name in rejected
         ]
         mock_service.return_value.compute.assert_not_awaited()
-
-    def test_unit_quote_rejects_unknown_unit(self):
-        mock_pm = _mock_pm(
-            project_exists=True,
-            load_project={"episodes": [{"script_file": "ep1.json"}]},
-            load_script={"video_units": []},
-        )
-
-        with patch.object(cost_estimation, "get_project_manager", lambda: mock_pm), TestClient(_make_app()) as client:
-            response = client.get(
-                "/api/v1/projects/demo/cost-estimate",
-                params={"reference_unit_id": "missing"},
-            )
-
-        assert response.status_code == 404
 
     def test_no_auth_returns_401(self, monkeypatch):
         # AUTH_ENABLED=false 时 get_current_user 直接返回匿名 admin，这里就测不到拒绝。
