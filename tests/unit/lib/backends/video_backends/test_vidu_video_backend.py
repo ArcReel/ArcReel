@@ -374,8 +374,7 @@ class TestDurationRulesSpec:
 class TestRegistryBackendConsistency:
     """目录里 vidu 视频条目的模型事实与 backend 执行期表须无分歧（两侧同一份官方文档核实）。
 
-    时长表是 docs/adr/0018 允许的端点级例外；_RESOLUTION_WHITELIST 是 docs/adr/0104 下待删除的过渡期副本，
-    删除前由这里锁定两份数据。
+    时长表是 docs/adr/0018 允许的端点级例外，两侧只要求子集。
     """
 
     def _vidu2_model_info(self) -> catalog.CatalogModel:

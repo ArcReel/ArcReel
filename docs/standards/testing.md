@@ -22,7 +22,7 @@ paths:
 | `integration` | 真实 DB、文件系统、随包 ffmpeg 子进程 |
 | `e2e` | 真实外部服务（远程 API、大模型调用）；CI 默认跳过 |
 
-档位目录缺失、unit 档触达真实 DB，`tests/conftest.py` 在收集期就会拒绝；子进程和网络没有机械校验，由审查判断。unit 档的用例拉起子进程（git、ffmpeg）或访问网络时，`-m unit` 快速循环会变慢，还会开始依赖本机环境；反过来，什么都不触达的用例放在 integration 档，会被挤出快速循环，也会落进错误的 CI 分片。
+档位目录缺失，或者 unit 档用例使用了 `tests/conftest.py` 的数据库 fixture（被注入 `uses_db`），收集期就会拒绝；不经这些 fixture 自行连接真实 DB、拉起子进程和访问网络都没有机械校验，由审查判断。unit 档的用例拉起子进程（git、ffmpeg）或访问网络时，`-m unit` 快速循环会变慢，还会开始依赖本机环境；反过来，什么都不触达的用例放在 integration 档，会被挤出快速循环，也会落进错误的 CI 分片。
 
 位置约定：alembic 迁移测试每个迁移脚本一个文件，放在 `tests/integration/lib/db/migrations/`，继续用 SQLite；workspace 子包的测试放在 `packages/<子包>/tests/`，按子包源码的目录结构排布、不分档位；断言子包输出渲染成自然语言之后的结果的用例，放在主仓 `tests/unit/lib/i18n/`。
 
@@ -60,7 +60,7 @@ respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的
 
 `frontend/e2e/fixtures/recorded/` 下的响应只由 `pnpm e2e:record` 对真实后端录制生成，不手写协议桩，也不手改录制文件；改动接口形状的后端 PR 要同时重录，让形状变化体现在替身文件的 diff 里。手写的替身只反映作者对接口的理解：后端实际的字段、帧序或查询形状变了，页面级套件仍然通过，回归要到运行时才暴露。长文本、多条目等压力变体写在场景的 `api` 字段里。
 
-放行条件：录制文件的改动来自一次 `pnpm e2e:record` 重录，或者 PR 没有改动接口形状。
+放行条件：没有改动接口形状的 PR 不必重录。录制文件只要有改动，仍须来自 `pnpm e2e:record`。
 
 ## 断言价值
 

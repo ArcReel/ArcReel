@@ -56,6 +56,6 @@ paths:
 
 `O_NOFOLLOW` 这类 POSIX 常量经 `getattr(os, "<常量名>", 0)` 取值（由 ruff TID251 强制），在 Windows 上取到 0，`os.open()` 不再拒绝符号链接。这时只能靠 `is_symlink()` 预检，可预检与随后的 `os.open()` 之间有 TOCTOU 窗口：路径在窗口内被换成指向数据根外的链接，就会越权读写，属于安全边界问题。
 
-不可信路径（用户或 Agent 能影响其中目录项的路径）打开后，用 `os.fstat` 与 `os.lstat` 比对 `st_dev` / `st_ino`，参考 `lib/artifacts/artifact_manifest.py` 与 `server/tool_runtime.py` 的 `_read_business_file`；做不到时在该平台拒绝操作。
+不可信路径（用户或 Agent 能影响其中目录项的路径）分两步校验。打开前逐级拒绝符号链接，并把路径约束在数据根内，因为 `os.lstat` 会跟随中间目录的链接；打开后再用 `os.fstat` 与 `os.lstat` 比对 `st_dev` / `st_ino`。参考 `server/tool_runtime.py` 的 `_resolve_business_file` 与 `_read_business_file`，以及 `lib/artifacts/artifact_manifest.py` 对父目录身份的校验。做不到时在该平台拒绝操作。
 
 放行条件：路径由服务端自行生成，目录内不会出现外部写入的符号链接，例如 `lib/agent/profile_manifest.py` 的项目锁、服务端自己原子落盘的产物。这类路径只做预检即可。

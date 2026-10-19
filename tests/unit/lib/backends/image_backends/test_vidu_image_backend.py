@@ -75,10 +75,7 @@ class TestWhitelistConfig:
 
 
 class TestRegistryBackendConsistency:
-    """目录声明的分辨率须在执行期白名单内，否则 UI 给出的选项会被 backend 静默丢弃。
-
-    _RESOLUTION_WHITELIST 是 docs/adr/0104 下待删除的过渡期副本，删除前由这里锁定两份数据。
-    """
+    """目录声明的分辨率须在执行期白名单内，否则 UI 给出的选项会被 backend 静默丢弃。"""
 
     @pytest.mark.parametrize("name", list(_RESOLUTION_WHITELIST))
     def test_resolutions_within_backend_whitelist(self, name: str):
