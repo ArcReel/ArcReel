@@ -187,8 +187,8 @@ const RESTRICT_RAW_TEXTAREA = {
 };
 
 const RESTRICT_TOAST_PRIMITIVE = {
-  // 匹配别名与相对写法（@/components/ui/toast、../ui/toast）。
-  selector: String.raw`ImportDeclaration[source.value=/(^|\/)ui\/toast$/]`,
+  // 匹配导入与转导出，以及别名与相对写法（@/components/ui/toast、../ui/toast）。
+  selector: String.raw`:matches(ImportDeclaration, ExportNamedDeclaration, ExportAllDeclaration)[source.value=/(^|\/)ui\/toast$/]`,
   message:
     "全局提示统一用 useAppStore 的 pushToast：ToastOverlay 负责把 store 中的提示按到达顺序转交 Base UI 队列，直接调用 toast.add 会绕过它，也绕过提示、工作区通知与持久告警的分流（见 src/stores/app-store.ts 中 pushToast 的说明）。",
 };

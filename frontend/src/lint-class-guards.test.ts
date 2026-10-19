@@ -57,6 +57,10 @@ const LAYOUT_GUARDS = {
     code: `import { toast } from "../ui/toast";\nexport const t = toast;\n`,
     message: "全局提示统一用 useAppStore 的 pushToast",
   },
+  toastPrimitiveReexport: {
+    code: `export { toast } from "@/components/ui/toast";\n`,
+    message: "全局提示统一用 useAppStore 的 pushToast",
+  },
 };
 type LayoutGuard = keyof typeof LAYOUT_GUARDS;
 const ALL_LAYOUT_GUARDS = Object.keys(LAYOUT_GUARDS) as LayoutGuard[];
@@ -67,11 +71,17 @@ const except = (...skipped: LayoutGuard[]) => ALL_LAYOUT_GUARDS.filter((g) => !s
 // 白名单放过视口断点，ToastOverlay 放过 toast 原语导入。
 const LAYOUT_ENFORCED: Record<string, LayoutGuard[]> = {
   "src/lint-fixture/Fixture.tsx": ALL_LAYOUT_GUARDS,
-  "src/components/ui/fixture.tsx": ["viewportHeight", "backdropBlur", "toastPrimitive", "toastPrimitiveRelative"],
+  "src/components/ui/fixture.tsx": [
+    "viewportHeight",
+    "backdropBlur",
+    "toastPrimitive",
+    "toastPrimitiveRelative",
+    "toastPrimitiveReexport",
+  ],
   "src/components/shared/page-shell/PageShell.tsx": except("breakpoint"),
   "src/actions/fixture.tsx": ALL_LAYOUT_GUARDS,
   "src/hooks/useModelCapabilities.ts": ALL_LAYOUT_GUARDS,
-  "src/components/layout/ToastOverlay.tsx": except("toastPrimitive", "toastPrimitiveRelative"),
+  "src/components/layout/ToastOverlay.tsx": except("toastPrimitive", "toastPrimitiveRelative", "toastPrimitiveReexport"),
 };
 
 const VIOLATIONS: Array<[keyof typeof GUARD_MESSAGE, string]> = [

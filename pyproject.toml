@@ -358,8 +358,6 @@ explicit-preview-rules = true
 "tests/**" = ["S108", "S607"]
 # 子包测试与主仓 tests/ 同一口径。
 "packages/*/tests/**" = ["S108", "S607"]
-# 开发脚本调用 git 依赖 PATH。
-"scripts/**" = ["S607"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI 依赖注入以「参数默认值处调用」为惯用法，B008 对其属误报；登记后无需逐处 noqa。
