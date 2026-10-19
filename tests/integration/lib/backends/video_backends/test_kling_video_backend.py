@@ -235,12 +235,24 @@ class TestAudioGating:
         assert payload["sound"] == "on"
 
     def test_v2_6_std_audio_forced_off(self, tmp_path):
-        # v2-6 有声官方限 1080P，而可灵只能经 mode 请求该档位：std 档拿不到 1080P，
-        # 即使 request.resolution 写 1080p 也压制为无声——否则拿到无声片却按有声价出账
+        # v2-6 有声官方限 1080P，而可灵只能经 mode 请求该档位：720p 落 std 档拿不到 1080P，
+        # 压制为无声——否则拿到无声片却按有声价出账
+        _, payload = _jwt_backend("kling-v2-6")._build_payload(
+            _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
+        )
+        assert payload["sound"] == "off"
+
+    def test_1080p_resolves_pro_mode_and_enables_v2_6_audio(self, tmp_path):
+        # 选 1080p 即 pro 档，不依赖 service_tier（生产路径从不写入它）
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
         )
-        assert payload["sound"] == "off"
+        assert payload["mode"] == "pro"
+        assert payload["sound"] == "on"
+
+    def test_1080p_metered_as_pro_tier(self, tmp_path):
+        usage = KlingVideoBackend.metered_usage("kling-v2-6", _request(tmp_path, resolution="1080p"))
+        assert usage.dimensions["resolution"] == "1080p"
 
     def test_v2_6_audio_gate_ignores_request_resolution(self, tmp_path):
         # request.resolution 不进 payload（4k 档除外），不能作为成片是否 1080P 的判据：
@@ -788,14 +800,22 @@ class TestAudioGatingResult:
         assert result.generate_audio is True
 
     async def test_v2_6_std_audio_result_false(self, tmp_path):
-        # std 档拿不到 1080P：即使 request.resolution 写 1080p，结果也必须记为无声，
+        # 720p 落 std 档拿不到 1080P：结果必须记为无声，
         # 否则拿到无声片却按有声价（¥1.0/s vs ¥0.8/s）出账
         with self._succeeding("task-a2"):
             result = await _jwt_backend("kling-v2-6").generate(
-                _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
+                _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
             )
 
         assert result.generate_audio is False
+
+    async def test_v2_6_1080p_audio_result_true(self, tmp_path):
+        with self._succeeding("task-a3"):
+            result = await _jwt_backend("kling-v2-6").generate(
+                _request(tmp_path, resolution="1080p", generate_audio=True)
+            )
+
+        assert result.generate_audio is True
 
     async def test_v3_audio_result_true(self, tmp_path):
         # v3 支持音画同出且无分辨率约束：请求有声 → result.generate_audio=True

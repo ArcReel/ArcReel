@@ -340,7 +340,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
 
     @staticmethod
     def _resolve_mode_from(resolution: str | None, service_tier: str | None) -> str:
-        """质量档 → mode：resolution=4k 独立成 ``4k`` 档（仅 v3/v3-omni 可达），否则 service_tier→std/pro。
+        """质量档 → mode：resolution=4k 独立成 ``4k`` 档（仅 v3/v3-omni 可达），1080p→``pro``，否则 service_tier→std/pro。
 
         与 per_second_tiered 定价的档位派生一致（4k 优先于 std/pro），保证请求档与计费档同源。
         `_resolve_mode` 与 `video_capabilities_for_tier` 共用此同一派生规则，避免两处独立实现
@@ -348,6 +348,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         """
         if (resolution or "").lower() == "4k":
             return "4k"
+        if (resolution or "").lower() == "1080p":
+            return "pro"  # 可灵无分辨率字段，1080p 只能靠 pro 档
         return "pro" if (service_tier or "").lower() == "pro" else "std"
 
     def _resolve_mode(self, request: VideoGenerationRequest) -> str:
