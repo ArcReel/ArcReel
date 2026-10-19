@@ -202,10 +202,10 @@ const RESTRICT_UI_PRIMITIVE_IMPORTS = {
       message:
         "components/ui/ 只放 shadcn CLI 安装的原语：调用 API、读写 store 或依赖业务类型的组件放进使用它的业务目录，多处共用的放 components/shared/。knip 对 components/ui 的未使用导出整体豁免，业务组件混进来后，它真正未使用的导出也会被放过。",
     },
-    // 原语目录没有子目录，../ 必然离开 components/ui；统一走 @/ 别名，上面的边界才查得到。
+    // 原语目录没有子目录，路径里出现 .. 段就会离开 components/ui；统一走不含 .. 的 @/ 别名，上面的边界才查得到。
     {
-      regex: String.raw`^\.\./`,
-      message: "components/ui/ 内跨目录导入用 @/ 别名：相对路径绕过原语依赖边界的检查。",
+      regex: String.raw`(^|/)\.\.(/|$)`,
+      message: "components/ui/ 内跨目录导入用不含 .. 的 @/ 别名：带 .. 的路径绕过原语依赖边界的检查。",
     },
   ],
 };

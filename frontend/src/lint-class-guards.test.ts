@@ -167,12 +167,14 @@ describe("类名守卫", () => {
       `import { Dialog } from "./dialog";`,
       `import { useConfigStore } from "../../stores/config-store";`,
       `import { DetailPane } from "../shared/master-detail/DetailPane";`,
-      `export const all = [API, useAppStore, PageShell, Button, useTranslation, Dialog, useConfigStore, DetailPane];`,
+      `import { useProjectsStore } from "./../../stores/projects-store";`,
+      `import { useTasksStore } from "@/components/ui/../../stores/tasks-store";`,
+      `export const all = [API, useAppStore, PageShell, Button, useTranslation, Dialog, useConfigStore, DetailPane, useProjectsStore, useTasksStore];`,
       "",
     ].join("\n");
     const [result] = await eslint.lintText(code, { filePath: "src/components/ui/fixture.tsx" });
     const restricted = result.messages.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.line);
-    expect(restricted).toEqual([1, 2, 3, 7, 8]);
+    expect(restricted).toEqual([1, 2, 3, 7, 8, 9, 10]);
   });
 
   it("测试文件不受布局守卫与 @shadcn/lint 约束", async () => {
