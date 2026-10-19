@@ -13,6 +13,7 @@ from lib.backends.video_backends.vidu import (
     _DURATION_RULES,
     _ENDPOINT_MODELS,
     _ENDPOINTS_WITH_ASPECT_RATIO,
+    _KNOWN_MODELS,
     _Q3_MODELS,
     _RESOLUTION_WHITELIST,
     DEFAULT_MODEL,
@@ -371,7 +372,11 @@ class TestDurationRulesSpec:
 
 
 class TestRegistryBackendConsistency:
-    """目录里 vidu2.0 的模型事实与 backend 执行期白名单须无分歧（两侧同一份官方文档核实）。"""
+    """目录里 vidu 视频条目的模型事实与 backend 执行期表须无分歧（两侧同一份官方文档核实）。
+
+    时长表是 docs/adr/0018 允许的端点级例外；_RESOLUTION_WHITELIST 是 docs/adr/0104 下待删除的过渡期副本，
+    删除前由这里锁定两份数据。
+    """
 
     def _vidu2_model_info(self) -> catalog.CatalogModel:
         model = catalog.get_model("vidu", "vidu2.0")
@@ -394,9 +399,40 @@ class TestRegistryBackendConsistency:
         model_info = self._vidu2_model_info()
         assert model_info.duration_resolution_constraints == {"360p": [4], "1080p": [4]}
 
-    def test_resolutions_matches_backend_whitelist(self):
-        model_info = self._vidu2_model_info()
-        assert set(model_info.resolutions) == set(_RESOLUTION_WHITELIST["vidu2.0"])
+    @pytest.mark.parametrize("name", list(_RESOLUTION_WHITELIST))
+    def test_resolutions_within_backend_whitelist(self, name: str):
+        """目录声明的分辨率须在执行期白名单内，否则 UI 给出的选项会被 backend 静默降级。"""
+        model_info = catalog.get_model("vidu", name)
+        # 同名型号（viduq1、viduq2）在目录里登记的是图片条目，视频侧只核对视频条目。
+        if model_info is None or model_info.media_type != "video":
+            pytest.skip(f"目录未登记视频型号 {name}")
+        extra = set(model_info.resolutions) - set(_RESOLUTION_WHITELIST[name])
+        assert not extra, (
+            f"目录 vidu/{name} 的 resolutions 含 backend 白名单外的 {sorted(extra)}："
+            "按官方文档核对后，改模型目录数据或 lib/backends/video_backends/vidu.py 的 _RESOLUTION_WHITELIST"
+        )
+
+    @pytest.mark.parametrize("name", sorted(_KNOWN_MODELS))
+    def test_durations_within_endpoint_rules(self, name: str):
+        """目录时长须落在端点级时长表内，否则 _coerce_duration 会把用户选的时长静默改成最近值。
+
+        端点级校正是 docs/adr/0018 允许的例外，两侧只要求子集，不要求相等。
+        """
+        model_info = catalog.get_model("vidu", name, media_type="video")
+        if model_info is None:
+            pytest.skip(f"目录未登记视频型号 {name}")
+        non_reference = {
+            d for (m, ep), ds in _DURATION_RULES.items() if m == name and ep != "/reference2video" for d in ds
+        }
+        reference = set(_DURATION_RULES.get((name, "/reference2video"), []))
+        # 只走参考生视频的型号，可选时长就是参考生视频端点的时长。
+        allowed = non_reference or reference
+        extra = set(model_info.supported_durations) - allowed
+        assert not extra, f"目录 vidu/{name} 的 supported_durations 含端点时长表外的 {sorted(extra)}"
+        extra_ref = set(model_info.reference_image_durations or []) - reference
+        assert not extra_ref, (
+            f"目录 vidu/{name} 的 reference_image_durations 含 /reference2video 时长表外的 {sorted(extra_ref)}"
+        )
 
 
 class TestCreateTask413:

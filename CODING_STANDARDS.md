@@ -11,15 +11,12 @@ ArcReel 的代码规范：审查 diff 时需要判断、工具替代不了的项
 <!-- standards-index:start -->
 | 规范 | 适用路径 |
 |---|---|
-| [`docs/standards/agent-runtime.md`](docs/standards/agent-runtime.md) | `server/agent_runtime/**`, `server/agent_toolset/**`, `lib/agent/**`, `agent_runtime_profile/**` |
 | [`docs/standards/backend.md`](docs/standards/backend.md) | `lib/**`, `server/**`, `scripts/**`, `alembic/**`, `packages/**` |
 | [`docs/standards/docs.md`](docs/standards/docs.md) | `website/docs/**`, `README.md`, `README.en.md`, `CONTRIBUTING.md` |
-| [`docs/standards/frontend-async.md`](docs/standards/frontend-async.md) | `frontend/src/**` |
-| [`docs/standards/frontend-ui.md`](docs/standards/frontend-ui.md) | `frontend/src/**` |
+| [`docs/standards/frontend.md`](docs/standards/frontend.md) | `frontend/src/**` |
 | [`docs/standards/general.md`](docs/standards/general.md) | `**` |
 | [`docs/standards/providers.md`](docs/standards/providers.md) | `lib/backends/**`, `lib/custom_provider/**`, `lib/config/**`, `lib/billing/**`, `lib/agent/agent_provider_catalog.py`, `lib/prompts/prompt_builders*.py`, `agent_runtime_profile/**`, `docs/api-docs/**` |
 | [`docs/standards/testing.md`](docs/standards/testing.md) | `tests/**`, `packages/*/tests/**`, `frontend/src/**/*.test.*`, `frontend/src/test/**`, `frontend/src/__mocks__/**`, `frontend/e2e/**` |
-| [`docs/standards/windows.md`](docs/standards/windows.md) | `lib/**`, `server/**`, `packages/*/src/**` |
 <!-- standards-index:end -->
 
 ## 维护

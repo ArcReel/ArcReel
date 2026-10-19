@@ -1,3 +1,8 @@
+/**
+ * 全局设置的配置问题。每条问题带所属分区，由 `useSectionConfigIssues(section)` 按分区取用：
+ * 侧栏只在该分区的条目上显示警告标记，分区内用 `settings/ConfigIssueNotice` 提示，不做全局横幅。
+ * 「内嵌 Agent 未配置」只在「ArcReel Agent」分区提示，不计入 `isComplete`，大厅与顶栏的红点不因它亮起。
+ */
 import { useMemo } from "react";
 import { create } from "zustand";
 import { API } from "@/api";

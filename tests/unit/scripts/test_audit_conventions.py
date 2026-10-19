@@ -312,3 +312,23 @@ def test_dependency_and_build_directories_are_not_scanned(repo: Path) -> None:
     _write(repo, ".venv/lib/site.py", "import os  # noqa: F401\n")
 
     assert _suppression_lines(repo) == []
+
+
+def _ffmpeg_hits(root: Path) -> list[tuple[str, int]]:
+    return [(v.path.as_posix(), v.line) for v in audit(root) if v.rule == "BUNDLED-FFMPEG"]
+
+
+def test_bare_ffmpeg_executable_name_in_product_code_is_reported(repo: Path) -> None:
+    _write(
+        repo, "server/render.py", 'import subprocess\nsubprocess.run(["ffmpeg", "-i", "a.mp4"])\nNOTE = "ffmpeg 渲染"\n'
+    )
+    _write(repo, "packages/demo/src/demo/probe.py", 'CMD = ("ffprobe", "-v")\n')
+
+    assert _ffmpeg_hits(repo) == [("packages/demo/src/demo/probe.py", 1), ("server/render.py", 2)]
+
+
+def test_ffmpeg_finder_module_and_tests_are_not_scanned(repo: Path) -> None:
+    _write(repo, "lib/infra/ffmpeg.py", 'NAME = "ffmpeg"\n')
+    _write(repo, "tests/unit/test_render.py", 'CMD = ["ffmpeg"]\n')
+
+    assert _ffmpeg_hits(repo) == []

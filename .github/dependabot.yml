@@ -194,7 +194,7 @@ updates:
           - "minor"
           - "patch"
       # shadcn 原语的运行时与 CLI。major 不进分组、单独开 PR：在该 PR 中对已安装组件
-      # 运行 `pnpm exec shadcn add <组件> --diff` 并手动合并（流程见 docs/standards/frontend-ui.md）。
+      # 运行 `pnpm exec shadcn add <组件> --diff` 并手动合并（流程见 docs/agents/dependencies.md）。
       shadcn-stack:
         patterns:
           - "@base-ui/react"

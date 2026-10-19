@@ -193,7 +193,7 @@ export function VersionTimeMachine({
       <ChevronDown
         aria-hidden
         data-icon="inline-end"
-        className="transition-transform duration-150 group-aria-expanded/version:rotate-180"
+        className="transition-transform duration-fast group-aria-expanded/version:rotate-180"
       />
     </PopoverTrigger>
   );
