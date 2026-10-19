@@ -187,7 +187,8 @@ const RESTRICT_RAW_TEXTAREA = {
 };
 
 const RESTRICT_TOAST_PRIMITIVE = {
-  selector: "ImportDeclaration[source.value='@/components/ui/toast']",
+  // 匹配别名与相对写法（@/components/ui/toast、../ui/toast）。
+  selector: String.raw`ImportDeclaration[source.value=/(^|\/)ui\/toast$/]`,
   message:
     "全局提示统一用 useAppStore 的 pushToast：ToastOverlay 负责把 store 中的提示按到达顺序转交 Base UI 队列，直接调用 toast.add 会绕过它，也绕过提示、工作区通知与持久告警的分流（见 src/stores/app-store.ts 中 pushToast 的说明）。",
 };
@@ -200,6 +201,11 @@ const RESTRICT_UI_PRIMITIVE_IMPORTS = {
       group: ["@/api", "@/api/*", "@/stores/*", "@/types", "@/types/*", "@/hooks/*", "@/actions/*", "@/components/*", "!@/components/ui", "!@/components/ui/*"],
       message:
         "components/ui/ 只放 shadcn CLI 安装的原语：调用 API、读写 store 或依赖业务类型的组件放进使用它的业务目录，多处共用的放 components/shared/。knip 对 components/ui 的未使用导出整体豁免，业务组件混进来后，它真正未使用的导出也会被放过。",
+    },
+    // 原语目录没有子目录，../ 必然离开 components/ui；统一走 @/ 别名，上面的边界才查得到。
+    {
+      regex: String.raw`^\.\./`,
+      message: "components/ui/ 内跨目录导入用 @/ 别名：相对路径绕过原语依赖边界的检查。",
     },
   ],
 };

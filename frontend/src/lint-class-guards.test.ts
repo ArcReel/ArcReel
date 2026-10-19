@@ -53,6 +53,10 @@ const LAYOUT_GUARDS = {
     code: `import { toast } from "@/components/ui/toast";\nexport const t = toast;\n`,
     message: "全局提示统一用 useAppStore 的 pushToast",
   },
+  toastPrimitiveRelative: {
+    code: `import { toast } from "../ui/toast";\nexport const t = toast;\n`,
+    message: "全局提示统一用 useAppStore 的 pushToast",
+  },
 };
 type LayoutGuard = keyof typeof LAYOUT_GUARDS;
 const ALL_LAYOUT_GUARDS = Object.keys(LAYOUT_GUARDS) as LayoutGuard[];
@@ -63,11 +67,11 @@ const except = (...skipped: LayoutGuard[]) => ALL_LAYOUT_GUARDS.filter((g) => !s
 // 白名单放过视口断点，ToastOverlay 放过 toast 原语导入。
 const LAYOUT_ENFORCED: Record<string, LayoutGuard[]> = {
   "src/lint-fixture/Fixture.tsx": ALL_LAYOUT_GUARDS,
-  "src/components/ui/fixture.tsx": ["viewportHeight", "backdropBlur", "toastPrimitive"],
+  "src/components/ui/fixture.tsx": ["viewportHeight", "backdropBlur", "toastPrimitive", "toastPrimitiveRelative"],
   "src/components/shared/page-shell/PageShell.tsx": except("breakpoint"),
   "src/actions/fixture.tsx": ALL_LAYOUT_GUARDS,
   "src/hooks/useModelCapabilities.ts": ALL_LAYOUT_GUARDS,
-  "src/components/layout/ToastOverlay.tsx": except("toastPrimitive"),
+  "src/components/layout/ToastOverlay.tsx": except("toastPrimitive", "toastPrimitiveRelative"),
 };
 
 const VIOLATIONS: Array<[keyof typeof GUARD_MESSAGE, string]> = [
@@ -160,12 +164,15 @@ describe("类名守卫", () => {
       `import { PageShell } from "@/components/shared/page-shell/PageShell";`,
       `import { Button } from "@/components/ui/button";`,
       `import { useTranslation } from "react-i18next";`,
-      `export const all = [API, useAppStore, PageShell, Button, useTranslation];`,
+      `import { Dialog } from "./dialog";`,
+      `import { useConfigStore } from "../../stores/config-store";`,
+      `import { DetailPane } from "../shared/master-detail/DetailPane";`,
+      `export const all = [API, useAppStore, PageShell, Button, useTranslation, Dialog, useConfigStore, DetailPane];`,
       "",
     ].join("\n");
     const [result] = await eslint.lintText(code, { filePath: "src/components/ui/fixture.tsx" });
     const restricted = result.messages.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.line);
-    expect(restricted).toEqual([1, 2, 3]);
+    expect(restricted).toEqual([1, 2, 3, 7, 8]);
   });
 
   it("测试文件不受布局守卫与 @shadcn/lint 约束", async () => {
