@@ -172,15 +172,6 @@ def _manifest_entries(project_dir: Path) -> dict[str, Any]:
     return _read_json(project_dir / MANIFEST_FILENAME)["entries"]
 
 
-def _manifest_claims(project_dir: Path) -> dict[str, Any]:
-    """清单条目的路径与依据，不含这一步补录的内容事实。"""
-
-    return {
-        key: {field: entry[field] for field in ("artifact_path", "basis_digest")}
-        for key, entry in _manifest_entries(project_dir).items()
-    }
-
-
 def test_artifacts_skipped_for_generation_input_gaps_are_backfilled_without_touching_registered_entries(
     tmp_path: Path,
 ) -> None:
@@ -193,7 +184,7 @@ def test_artifacts_skipped_for_generation_input_gaps_are_backfilled_without_touc
 
     assert migrate_project_dir(project_dir) is True
 
-    after = _manifest_claims(project_dir)
+    after = _manifest_entries(project_dir)
     assert {key: after[key] for key in before} == before
     assert after[scene_key]["artifact_path"] == "scenes/祠堂.png"
     resolver = ArtifactCurrencyResolver(project_dir)
@@ -326,7 +317,7 @@ def test_projects_without_generation_input_gaps_plan_identically_under_both_gap_
 
     assert recorded.entries == refused.entries
     assert migrate_project_dir(project_dir) is True
-    assert _manifest_claims(project_dir) == before
+    assert _manifest_entries(project_dir) == before
 
 
 def test_a_grid_whose_reference_sheet_is_gone_is_backfilled_with_the_reference_recorded_absent(tmp_path: Path) -> None:
@@ -457,16 +448,20 @@ def _strip_content_digests(project_dir: Path) -> None:
 
 
 def test_media_that_cannot_be_proven_identical_to_its_selected_snapshot_is_not_backfilled(tmp_path: Path) -> None:
-    """正式视频被换掉、配音快照损坏：两者都不补录；有没有补录，用户看到的时效判定都一样。"""
+    """正式视频被换掉、配音快照损坏：两者都不补录，判 stale，与按「正式文件 = 选中快照」比对的结论相同。
+
+    v17 项目由不记内容事实的旧版本写成，迁移前先抹掉夹具在激活时记下的事实。
+    """
     project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=17)
+    _strip_content_digests(project_dir)
     (project_dir / "videos" / "scene_E1S2.mp4").write_bytes(b"replaced outside ArcReel")
     snapshot = project_dir / _selected_record(project_dir, "audio", "E1S1")["file"]
     snapshot.write_bytes(b"corrupted snapshot")
 
     assert migrate_project_dir(project_dir) is True
 
-    backfilled = _media_currency(project_dir)
+    videos, groups = _media_currency(project_dir)
     entries = _manifest_entries(project_dir)
     for key, resource_type in (
         (ArtifactKey.episode_video(1, "E1S2"), "videos"),
@@ -476,8 +471,8 @@ def test_media_that_cannot_be_proven_identical_to_its_selected_snapshot_is_not_b
         assert "content_digest" not in _selected_record(project_dir, resource_type, str(key.components[1])), key
     _assert_content_recorded(project_dir, ArtifactKey.episode_video(1, "E1S1"), "videos")
     _assert_content_recorded(project_dir, ArtifactKey.episode_audio(1, "E1S2"), "audio")
-    _strip_content_digests(project_dir)
-    assert _media_currency(project_dir) == backfilled
+    assert (videos.total, videos.available, videos.stale) == (2, 2, 1)
+    assert groups == {"videos": (["E1S1"], ["E1S2"], []), "audio": (["E1S2"], ["E1S1"], [])}
 
 
 def test_a_step_that_fails_after_the_backfill_committed_reruns_to_completion(

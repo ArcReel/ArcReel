@@ -10,6 +10,8 @@ from __future__ import annotations
 import builtins
 import json
 import os
+import shutil
+import zipfile
 from pathlib import Path
 from typing import IO, Any
 
@@ -27,8 +29,10 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     reset_manifest_read_cache_for_tests,
 )
+from lib.artifacts.version_manager import VersionManager
 from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
 from lib.episode.episode_sources import discover_sources
+from lib.infra.content_digest import reset_file_digest_cache_for_tests
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_with_verdict
@@ -36,7 +40,9 @@ from lib.project.resource_paths import resource_relative_path
 from lib.project.source_revision import SourceRevisionResult, compute_source_revision
 from lib.script import script_review
 from lib.workflow.workflow_state import WorkflowStateService
+from server.services.project.project_archive import ARCHIVE_MANIFEST_NAME, ProjectArchiveService
 from tests.factories import register_project_sources
+from tests.integration.lib.artifacts.test_content_digest_currency import _age, _count_content_reads
 from tests.integration.lib.episode_media_support import episodes_with_media
 from tests.integration.lib.manifest_parse_support import count_manifest_parses, count_versions_parses
 from tests.integration.lib.workflow.test_workflow_state import (
@@ -782,3 +788,127 @@ def test_ad_project_never_reports_remaining_source(tmp_path: Path) -> None:
     pm, _project_path = _make_project(tmp_path, "ad")
 
     assert WorkflowStateService(pm).get_project_summary("demo", currency="registered").source_remaining is False
+
+
+def _registered_video_files(pm: ProjectManager, project_path: Path) -> tuple[Path, Path]:
+    """一集一个视频的项目，返回正式视频与它选中版本的快照。
+
+    两者的 mtime 都拨到很久以前再重新登记：登记的内容事实早于清单文件自身的修改时间，不在粗粒度
+    时间戳的 racy 窗口里。
+    """
+
+    source_text = "完整原文"
+    _write_source(pm, project_path, source_text)
+    _episode_with_media(pm, project_path, source_text)
+    # 导入校验要求集有标题。
+    pm.update_project("demo", lambda project: project["episodes"][0].update(title="第一集"))
+    video = project_path / resource_relative_path("videos", "E1S01")
+    versions = VersionManager(project_path).get_versions("videos", "E1S01")
+    record = next(item for item in versions["versions"] if item["version"] == versions["current_version"])
+    snapshot = project_path / record["file"]
+    _age(video)
+    _age(snapshot)
+    _register_produced_artifacts(project_path)
+    return video, snapshot
+
+
+def _video_counts(pm: ProjectManager, name: str = "demo") -> dict[str, int]:
+    return WorkflowStateService(pm).get_project_summary(name).episodes[0].videos.model_dump()
+
+
+def test_unchanged_video_is_current_without_reading_any_video_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """字节数与修改时间都和登记时一致，就认定是登记的那个版本：重启后（摘要缓存为空）也不读正式视频与版本快照。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    video, snapshot = _registered_video_files(pm, project_path)
+    reset_file_digest_cache_for_tests()
+
+    reads = _count_content_reads(monkeypatch, video, snapshot)
+    counts = _video_counts(pm)
+
+    assert counts == {"total": 1, "available": 1, "stale": 0}
+    assert reads["content_reads"] == 0
+
+
+def test_a_copied_video_with_a_new_mtime_stays_current(tmp_path: Path) -> None:
+    """复制、导入会换 inode 和 mtime：重新取指纹，与登记的一致就仍是 current。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    video, _snapshot = _registered_video_files(pm, project_path)
+
+    duplicate = video.with_name("copy.mp4")
+    shutil.copyfile(video, duplicate)
+    _age(duplicate, seconds=1800)
+    duplicate.replace(video)
+
+    assert _video_counts(pm) == {"total": 1, "available": 1, "stale": 0}
+
+
+def test_a_same_size_rewrite_within_the_manifest_timestamp_is_still_caught(tmp_path: Path) -> None:
+    """mtime 不早于清单自身的 mtime 时，同一时间戳下的改写可能 stat 全同：退化为完整比对，照样判 stale。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    video, _snapshot = _registered_video_files(pm, project_path)
+    recorded = video.stat()
+    # 摘要缓存不收刚写过的文件；这里把 mtime 拨回旧值来模拟同一时间戳，先清掉夹具留下的缓存。
+    reset_file_digest_cache_for_tests()
+    os.utime(project_path / MANIFEST_FILENAME, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
+
+    video.write_bytes(b"X" * recorded.st_size)
+    os.utime(video, ns=(recorded.st_atime_ns, recorded.st_mtime_ns))
+
+    assert _video_counts(pm) == {"total": 1, "available": 1, "stale": 1}
+
+
+def _without_artifact_envelope(archive_path: Path, rewritten: Path) -> Path:
+    """把官方导出改写成没有清单信封的旧归档。"""
+
+    with zipfile.ZipFile(archive_path) as source, zipfile.ZipFile(rewritten, "w") as target:
+        for info in source.infolist():
+            data = source.read(info)
+            if info.filename.endswith(f"/{ARCHIVE_MANIFEST_NAME}"):
+                manifest = json.loads(data)
+                manifest.pop("artifact_manifest")
+                data = json.dumps(manifest).encode()
+            target.writestr(info, data)
+    return rewritten
+
+
+def _drop_selected_video_record_digest(project_path: Path) -> None:
+    """把选中的视频版本记录改成没有内容指纹的旧记录（早于版本记录指纹的版本被切回选中）。"""
+
+    path = project_path / "versions" / "versions.json"
+    versions = json.loads(path.read_text(encoding="utf-8"))
+    history = versions["videos"]["E1S01"]
+    for record in history["versions"]:
+        if record["version"] == history["current_version"]:
+            del record["content_digest"]
+    atomic_write_json(path, versions)
+
+
+@pytest.mark.parametrize(
+    ("envelope", "legacy_version_record"),
+    [(True, False), (False, False), (True, True)],
+    ids=["official-export", "legacy-archive", "legacy-version-record"],
+)
+def test_an_unchanged_video_stays_current_after_export_and_import(
+    tmp_path: Path, envelope: bool, legacy_version_record: bool
+) -> None:
+    """导入换了 inode 与 mtime：内容没变的视频导入后仍是 current，不论归档带不带清单信封、选中版本记录有没有指纹。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _registered_video_files(pm, project_path)
+    if legacy_version_record:
+        _drop_selected_video_record_digest(project_path)
+    assert _video_counts(pm) == {"total": 1, "available": 1, "stale": 0}
+
+    service = ProjectArchiveService(pm)
+    archive_path, _ = service.export_project("demo")
+    if not envelope:
+        archive_path = _without_artifact_envelope(archive_path, tmp_path / "legacy.zip")
+    shutil.rmtree(project_path)
+    imported = service.import_project_archive(archive_path, uploaded_filename="demo.zip", confirm_report=True)
+
+    assert _video_counts(pm, imported.project_name) == {"total": 1, "available": 1, "stale": 0}

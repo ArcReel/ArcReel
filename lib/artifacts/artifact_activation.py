@@ -26,7 +26,6 @@ from lib.artifacts.artifact_currency import (
     active_artifact_currency_resolver,
     artifact_is_usable,
     read_artifact_content_digest,
-    read_artifact_content_facts,
     resolve_artifact_episode,
     resolve_current_artifact_basis,
     resolve_current_artifact_target,
@@ -44,11 +43,9 @@ from lib.artifacts.artifact_input_claims import (
     snapshot_usable_artifact_input_claim,
 )
 from lib.artifacts.artifact_manifest import (
-    CONTENT_FACT_ARTIFACT_KINDS,
     MANIFEST_FILENAME,
     ArtifactBasis,
     ArtifactBasisDescriptor,
-    ArtifactContentFacts,
     ArtifactInputClaim,
     ArtifactKey,
     ArtifactKind,
@@ -212,13 +209,16 @@ def ensure_imported_artifact_target_state(
             restored: dict[ArtifactKey, ArtifactManifestEntry] = {}
             replaced: list[str] = []
             for key, entry in preserved_entries.items():
-                evidence, content = _archived_content_evidence(
-                    adapter, entry.artifact_path, preserved_content_digests[key]
-                )
+                evidence = _archived_content_evidence(adapter, entry.artifact_path, preserved_content_digests[key])
                 if evidence == "exact":
-                    # 归档摘要已与导入的字节逐字节比对过，视频与音频条目直接带上这次读取的内容事实。
+                    # 视频与音频只在激活证明「正式文件 = 选中快照」成立、且证明的就是这份字节时带上内容事实；
+                    # 证明不成立的条目不带事实，导入后照常判 stale，与源项目一致。
+                    projected = plan.entries.get(key)
+                    content = projected.content if projected is not None else None
                     restored[key] = (
-                        replace(entry, content=content) if key.kind in CONTENT_FACT_ARTIFACT_KINDS else entry
+                        replace(entry, content=content)
+                        if content is not None and content.digest == preserved_content_digests[key]
+                        else entry
                     )
                 elif evidence == "text_mode":
                     # 文本模式摘要丢了字节，绑不住整份产物：这条 claim 按无信封归档的口径，
@@ -265,7 +265,7 @@ def _archived_content_evidence(
     adapter: ProjectArtifactManifestAdapter,
     artifact_path: str,
     archived_digest: str,
-) -> tuple[Literal["exact", "text_mode", "mismatch"], ArtifactContentFacts]:
+) -> Literal["exact", "text_mode", "mismatch"]:
     """Classify whether the archived content digest binds a claim to the imported bytes.
 
     Archives exported through a text-mode descriptor hashed CRLF folded to LF and stopped at
@@ -275,10 +275,9 @@ def _archived_content_evidence(
     """
 
     text_mode = TextModeDigest()
-    content = read_artifact_content_facts(adapter, artifact_path, chunk_observer=text_mode.update)
-    if content.digest == archived_digest:
-        return "exact", content
-    return ("text_mode" if text_mode.hexdigest() == archived_digest else "mismatch"), content
+    if read_artifact_content_digest(adapter, artifact_path, chunk_observer=text_mode.update) == archived_digest:
+        return "exact"
+    return "text_mode" if text_mode.hexdigest() == archived_digest else "mismatch"
 
 
 def _plan_preserved_artifact_target_state(project_dir: Path) -> ArtifactTargetStatePlan:

@@ -19,6 +19,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactBlocker,
+    ArtifactContentFacts,
     ArtifactKey,
     ArtifactKind,
     ArtifactManifestEntry,
@@ -268,7 +269,9 @@ class TargetStatePlanner:
         self.pending_renames = dict(pending_renames or {})
         self.pending_entries = dict(pending_entries or {})
         self.legacy_audio_entries = legacy_audio_entries
-        #: Request-scoped Manifest read that answers committed claims instead of storage reads.
+        #: Request-scoped Manifest read that answers committed claims instead of storage reads.  A planner
+        #: given one judges currency: video and audio prove their formal file against the claim's recorded
+        #: content facts and never read the version snapshot.
         self.manifest_snapshot = manifest_snapshot
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
@@ -1125,11 +1128,15 @@ class TargetStatePlanner:
             return
         record = selected[0]
         if resource_type != "audio":
-            uploaded = self._selected_upload_digest(resource, resource_type, artifact_path)
+            if self.manifest_snapshot is None:
+                uploaded = self._selected_upload_digest(resource, resource_type, artifact_path)
+            elif selected_manual_upload_snapshot(resource, resource_type) is not None:
+                uploaded = self._registered_media_digest(key, artifact_path)
+            else:
+                uploaded = None
             if uploaded is not None:
-                self.entries[key] = ArtifactManifestEntry(
-                    artifact_path=artifact_path,
-                    basis_digest=build_uploaded_video_basis(content_digest=uploaded).digest,
+                self.entries[key] = self._media_entry(
+                    artifact_path, build_uploaded_video_basis(content_digest=uploaded).digest, uploaded
                 )
                 return
         try:
@@ -1150,39 +1157,15 @@ class TargetStatePlanner:
         if not VersionManager.is_managed_snapshot_path(resource_type, snapshot_rel):
             self._skip(key, artifact_path, "selected version snapshot is not a managed history path")
             return
-        observation = self.adapter.inspect_artifact(artifact_path)
-        if observation.blocker is not None:
-            # 当前媒体文件打不开：只有读不出才进「未能带入」，符号链接、非普通文件只记账。
-            self._skip_blocked(key, artifact_path, observation.blocker)
-            return
-        snapshot_observation = self.adapter.inspect_artifact(cast(str, snapshot_rel))
-        if snapshot_observation.blocker is not None and snapshot_observation.blocker.code == "artifact_unreadable":
-            # 选中版本的快照打不开，当前媒体无从对证：同样算读不出。
-            self._skip(key, artifact_path, "selected version snapshot cannot be read", category="unreadable")
-            return
-        artifact = self._safe_present_path(artifact_path)
-        snapshot = self._safe_present_path(cast(str, snapshot_rel))
-        if artifact is None or snapshot is None:
-            self._skip(key, artifact_path, "current media file or its version snapshot is missing")
-            return
-        try:
-            if artifact.samefile(snapshot):
-                self._skip(key, artifact_path, "current media file is the version snapshot itself")
+        if self.manifest_snapshot is not None:
+            artifact_digest = self._registered_media_digest(key, artifact_path)
+            if artifact_digest is None:
+                self._skip(key, artifact_path, "current media file is not the registered version")
                 return
-            artifact_digest = visual_file_digest(artifact)
-        except OSError:
-            self._skip(key, artifact_path, "current media file cannot be read", category="unreadable")
-            return
-        try:
-            snapshot_digest = visual_file_digest(snapshot)
-        except OSError:
-            self._skip(key, artifact_path, "selected version snapshot cannot be read", category="unreadable")
-            return
-        if artifact_digest != snapshot_digest:
-            self._skip(key, artifact_path, "current media file differs from the selected version snapshot")
-            return
-        self._remember_dependency_digest(artifact, artifact_digest)
-        self._remember_dependency_digest(snapshot, snapshot_digest)
+        else:
+            artifact_digest = self._prove_media_snapshot(key, artifact_path, cast(str, snapshot_rel))
+            if artifact_digest is None:
+                return
         try:
             if resource_type == "audio":
                 current_basis = build_current_audio_artifact_basis(
@@ -1210,9 +1193,89 @@ class TargetStatePlanner:
         if self._activation_mode and not self.allow_stale_formal_targets and current_basis != target.basis:
             self._skip(key, artifact_path, "selected version was generated from content that is no longer current")
             return
-        self.entries[key] = ArtifactManifestEntry(
-            artifact_path=artifact_path,
-            basis_digest=current_basis.digest,
+        self.entries[key] = self._media_entry(artifact_path, current_basis.digest, artifact_digest)
+
+    def _prove_media_snapshot(self, key: ArtifactKey, artifact_path: str, snapshot_rel: str) -> str | None:
+        """激活与登记前的证明：正式文件与选中版本快照字节一致时返回其内容指纹；不成立时记账并返回 ``None``。"""
+
+        observation = self.adapter.inspect_artifact(artifact_path)
+        if observation.blocker is not None:
+            # 当前媒体文件打不开：只有读不出才进「未能带入」，符号链接、非普通文件只记账。
+            self._skip_blocked(key, artifact_path, observation.blocker)
+            return None
+        snapshot_observation = self.adapter.inspect_artifact(snapshot_rel)
+        if snapshot_observation.blocker is not None and snapshot_observation.blocker.code == "artifact_unreadable":
+            # 选中版本的快照打不开，当前媒体无从对证：同样算读不出。
+            self._skip(key, artifact_path, "selected version snapshot cannot be read", category="unreadable")
+            return None
+        artifact = self._safe_present_path(artifact_path)
+        snapshot = self._safe_present_path(snapshot_rel)
+        if artifact is None or snapshot is None:
+            self._skip(key, artifact_path, "current media file or its version snapshot is missing")
+            return None
+        try:
+            if artifact.samefile(snapshot):
+                self._skip(key, artifact_path, "current media file is the version snapshot itself")
+                return None
+            artifact_digest = visual_file_digest(artifact)
+        except OSError:
+            self._skip(key, artifact_path, "current media file cannot be read", category="unreadable")
+            return None
+        try:
+            snapshot_digest = visual_file_digest(snapshot)
+        except OSError:
+            self._skip(key, artifact_path, "selected version snapshot cannot be read", category="unreadable")
+            return None
+        if artifact_digest != snapshot_digest:
+            self._skip(key, artifact_path, "current media file differs from the selected version snapshot")
+            return None
+        self._remember_dependency_digest(artifact, artifact_digest)
+        self._remember_dependency_digest(snapshot, snapshot_digest)
+        return artifact_digest
+
+    def _registered_media_digest(self, key: ArtifactKey, artifact_path: str) -> str | None:
+        """时效判定：正式文件就是清单登记的那个版本时返回登记的内容指纹，否则 ``None``。
+
+        字节数与纳秒 mtime 都与登记的内容事实一致就认定没变，不读文件内容；任一项不一致才完整取指纹
+        与登记的比对。登记的 mtime 不早于清单文件自身的 mtime 时，同一时间戳内的改写可能不改变任何
+        stat 项，按 racy 处理，退化为完整比对（同 git 以 index 文件为参照的做法）。没有内容事实的
+        条目无从证明，返回 ``None``。
+        """
+
+        assert self.manifest_snapshot is not None
+        entry = self.manifest_snapshot.entries.get(key)
+        facts = entry.content if entry is not None and entry.artifact_path == artifact_path else None
+        artifact = self._safe_present_path(artifact_path) if facts is not None else None
+        if facts is None or artifact is None:
+            return None
+        manifest_stat = self.manifest_snapshot.file_stat
+        racy = manifest_stat is None or facts.mtime_ns >= manifest_stat.st_mtime_ns
+        try:
+            file_stat = artifact.stat()
+            if not racy and (file_stat.st_size, file_stat.st_mtime_ns) == (facts.size, facts.mtime_ns):
+                return facts.digest
+            digest = visual_file_digest(artifact)
+        except OSError:
+            return None
+        return facts.digest if digest == facts.digest else None
+
+    def _media_entry(self, artifact_path: str, basis_digest: str, proven_digest: str) -> ArtifactManifestEntry:
+        """视频与音频的规划条目。激活模式下证明成立时顺带记下正式文件的内容事实（与 v18 补录同一条规则）：
+        size 与 mtime 取自重新取指纹的同一描述符，指纹须与证明时一致。"""
+
+        entry = ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=basis_digest)
+        if not self._activation_mode:
+            return entry
+        observation = self.adapter.inspect_artifact_content(artifact_path)
+        if observation.content_digest != proven_digest or observation.file_stat is None:
+            return entry
+        return replace(
+            entry,
+            content=ArtifactContentFacts(
+                digest=proven_digest,
+                size=observation.file_stat.st_size,
+                mtime_ns=observation.file_stat.st_mtime_ns,
+            ),
         )
 
     def _plan_persisted_presentations(self) -> None:
