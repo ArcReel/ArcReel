@@ -30,6 +30,22 @@ def test_arcreel_is_only_recommended() -> None:
     assert [p.id for p in recommended] == ["arcreel"]
 
 
+@pytest.mark.parametrize(
+    ("preset_id", "host", "platform"),
+    [
+        ("minimax-cn", "api.minimax.cn", "platform.minimaxi.com"),
+        ("minimax-intl", "api.minimax.io", "platform.minimax.io"),
+    ],
+)
+def test_minimax_mplan_presets_only_suggest_verified_subscription_model(preset_id, host, platform):
+    preset = get_preset(preset_id)
+    assert preset is not None
+    assert preset.messages_url == f"https://{host}/anthropic"
+    assert preset.suggested_models == ("MiniMax-M3.1-Flash",)
+    assert preset.api_key_url == f"https://{platform}/console/plan"
+    assert preset.docs_url == f"https://{platform}/docs/m-plan/other-tools"
+
+
 def test_get_preset_unknown_returns_none() -> None:
     assert get_preset("does-not-exist") is None
 
@@ -81,8 +97,8 @@ def test_default_models_match_table() -> None:
         "glm-intl": "glm-5.1",
         "xiaomi-mimo": "mimo-v2.5-pro",
         "deepseek": "deepseek-v4-pro",
-        "minimax-cn": "MiniMax-M3",
-        "minimax-intl": "MiniMax-M3",
+        "minimax-cn": "MiniMax-M3.1-Flash",
+        "minimax-intl": "MiniMax-M3.1-Flash",
         "kimi": "",
         "ark-coding-plan": "doubao-seed-evolving",
         "ark-agent-plan": "doubao-seed-evolving",

@@ -372,7 +372,7 @@ class OptionsAssembler:
         # 通配符让后续新增 tool 不必同步改 allowed_tools。
         allowed_tools.append("mcp__arcreel__*")
 
-        return ClaudeAgentOptions(
+        options = ClaudeAgentOptions(
             cwd=str(project_cwd),
             setting_sources=self._setting_sources,
             # 项目记忆：把原生 auto memory 的目录从「按 git 仓库根派生」重定向到项目目录内，
@@ -408,6 +408,13 @@ class OptionsAssembler:
             env=provider_env,
             stderr=stderr,
         )
+        model = (provider_env.get("ANTHROPIC_MODEL") or "sonnet").removesuffix("[1m]")
+        if model in {"sonnet", "opus", "haiku"}:
+            model = provider_env.get(f"ANTHROPIC_DEFAULT_{model.upper()}_MODEL", "")
+        if model.removesuffix("[1m]") == "MiniMax-M3.1-Flash":
+            options.thinking = {"type": "adaptive"}
+            options.effort = "max"
+        return options
 
     @staticmethod
     async def _keep_stream_open_hook(

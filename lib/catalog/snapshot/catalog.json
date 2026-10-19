@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-15T19:00:00Z",
+  "dataset_version": "2026-10-19T00:00:00Z",
   "entries": [
     {
       "maker": "google",
@@ -1851,6 +1851,7 @@
       "name": "MiniMax-M2.7",
       "media_type": "text",
       "display_name": "MiniMax M2.7",
+      "discontinued": true,
       "facts": {
         "structured_output": true,
         "max_output_tokens": 204800
@@ -5055,6 +5056,52 @@
     },
     {
       "maker": "minimax",
+      "name": "MiniMax-M3.1-Flash",
+      "media_type": "text",
+      "display_name": "MiniMax M3.1 Flash",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 524288
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.15
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.015
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.6
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "minimax",
       "name": "MiniMax-M3",
       "media_type": "text",
       "display_name": "MiniMax M3",
@@ -7583,6 +7630,10 @@
     "minimax": {
       "models": [
         {
+          "api_model_name": "MiniMax-M3.1-Flash",
+          "entry": "minimax/MiniMax-M3.1-Flash"
+        },
+        {
           "api_model_name": "MiniMax-M3",
           "entry": "minimax/MiniMax-M3"
         },
@@ -7616,7 +7667,7 @@
         }
       ],
       "defaults": {
-        "text": "MiniMax-M3",
+        "text": "MiniMax-M3.1-Flash",
         "image": "image-01",
         "video": "MiniMax-H3",
         "audio": "speech-2.8-hd"

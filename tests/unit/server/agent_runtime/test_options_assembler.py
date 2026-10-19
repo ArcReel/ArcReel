@@ -137,6 +137,35 @@ async def test_build_threads_injected_deps_into_options(tmp_path: Path) -> None:
     assert options.env["CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS"] == "1"
 
 
+@pytest.mark.parametrize("model", ["MiniMax-M3.1-Flash", "MiniMax-M3.1-Flash[1m]", "sonnet", "sonnet[1m]", ""])
+async def test_flash_options_force_adaptive_max_without_rewriting_saved_models(tmp_path: Path, model: str):
+    saved = {
+        "ANTHROPIC_MODEL": model,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "MiniMax-M3.1-Flash",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "saved-custom-model",
+        "MAX_THINKING_TOKENS": "0",
+    }
+
+    async def loader():
+        return saved.copy()
+
+    options = await _make_assembler(tmp_path, provider_env_loader=loader).build("demo")
+    assert options.thinking == {"type": "adaptive"}
+    assert options.effort == "max"
+    assert all(options.env[key] == value for key, value in saved.items())
+
+
+@pytest.mark.parametrize("model", ["MiniMax-M3", "MiniMax-M2.7", "custom-flash", "claude-sonnet-4-6"])
+async def test_other_saved_models_keep_sdk_thinking_defaults(tmp_path: Path, model: str):
+    async def loader():
+        return {"ANTHROPIC_MODEL": model}
+
+    options = await _make_assembler(tmp_path, provider_env_loader=loader).build("demo")
+    assert options.thinking is None
+    assert options.effort is None
+    assert options.env["ANTHROPIC_MODEL"] == model
+
+
 @pytest.mark.asyncio
 async def test_build_injects_short_lived_arcreel_api_credentials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -38,7 +38,9 @@ class TestRegistry:
         assert "base_url" in meta.optional_keys
         assert meta.default_base_url == "https://api.minimaxi.com/v1"
         models = catalog.list_models(PROVIDER_MINIMAX)
-        assert models["MiniMax-M3"].default is True
+        assert models["MiniMax-M3.1-Flash"].default is True
+        assert models["MiniMax-M3"].default is False
+        assert models["MiniMax-M2.7"].hidden is True
         assert "vision" in models["MiniMax-M3"].capabilities
         assert models["MiniMax-M2.7"].default is False
         # image-01：默认图像模型，T2I + I2I

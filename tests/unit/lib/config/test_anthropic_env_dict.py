@@ -178,6 +178,23 @@ async def test_non_official_preset_fills_blank_tiers_with_main_model(monkeypatch
     assert result["CLAUDE_CODE_SUBAGENT_MODEL"] == "deepseek-v4"
 
 
+@pytest.mark.parametrize("preset_id", ["minimax-cn", "minimax-intl", "__custom__"])
+@pytest.mark.parametrize("model", ["MiniMax-M3", "MiniMax-M2.7", "saved-custom-model"])
+async def test_minimax_refresh_preserves_saved_credential_models(monkeypatch, preset_id, model):
+    _patch_cred(
+        monkeypatch,
+        preset_id=preset_id,
+        model=model,
+        base_url="https://api.minimaxi.com/anthropic",
+        sonnet_model="saved-sonnet",
+    )
+    result = (await build_anthropic_env(AsyncMock())).env
+    assert result["ANTHROPIC_MODEL"] == model
+    assert result["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == model
+    assert result["ANTHROPIC_DEFAULT_SONNET_MODEL"] == "saved-sonnet"
+    assert result["ANTHROPIC_BASE_URL"] == "https://api.minimaxi.com/anthropic"
+
+
 @pytest.mark.asyncio
 async def test_official_preset_leaves_blank_tiers_empty(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_cred(monkeypatch, preset_id="anthropic-official", model="claude-opus-4-7", sonnet_model="claude-sonnet-4-6")

@@ -1,4 +1,4 @@
-"""Alembic 迁移：新建内置供应商模型表，迁移后非隐藏的官方收录模型为启用，原先隐藏的 3 个 Agnes 旧模型为停用。"""
+"""Builtin-model migration preserves explicit state and honors catalog visibility."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ async def _disabled(db_path: Path) -> dict[str, frozenset[str]]:
         await engine.dispose()
 
 
-def test_hidden_agnes_models_disabled_and_others_enabled(
+def test_migrated_and_catalog_hidden_models_disabled(
     alembic_cfg: tuple[Config, Path], migration_revisions: Callable[[str], tuple[str, str]]
 ):
     cfg, db_path = alembic_cfg
@@ -39,8 +39,10 @@ def test_hidden_agnes_models_disabled_and_others_enabled(
     disabled = asyncio.run(_disabled(db_path))
 
     assert disabled["agnes"] == _HIDDEN
-    assert {pid for pid, models in disabled.items() if models} == {"agnes"}
-    # 其余官方收录模型都是启用：agnes 只停用这 3 个
+    assert disabled["minimax"] == {"MiniMax-M2.7"}
+    assert disabled["ark-agent-plan"] == {"minimax-m2.7"}
+    assert {pid for pid, models in disabled.items() if models} == {"agnes", "minimax", "ark-agent-plan"}
+    # agnes 只停用迁移登记的这 3 个模型。
     agnes_models = {view.model_id for view in catalog.provider_models("agnes")}
     assert agnes_models - _HIDDEN
     assert disabled["agnes"] < agnes_models

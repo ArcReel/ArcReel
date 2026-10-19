@@ -58,6 +58,19 @@ class TestListings:
 
 
 class TestTextModels:
+    def test_current_minimax_defaults_and_legacy_lookup(self):
+        models = _models_of("minimax", "text")
+        assert [mid for mid, model in models.items() if not model.hidden] == [
+            "MiniMax-M3.1-Flash",
+            "MiniMax-M3",
+        ]
+        assert catalog.default_model("minimax", "text") == "MiniMax-M3.1-Flash"
+        for model_id in ("MiniMax-M3.1-Flash", "MiniMax-M3"):
+            assert models[model_id].max_output_tokens == 524288
+            assert "vision" in models[model_id].capabilities
+        assert _model("minimax", "MiniMax-M2.7").hidden
+        assert _model("ark-agent-plan", "minimax-m2.7").hidden
+
     @pytest.mark.parametrize(
         ("provider_id", "model_id"),
         [

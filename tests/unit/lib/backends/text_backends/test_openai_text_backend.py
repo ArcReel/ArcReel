@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+import respx
 from instructor import Mode
 from openai import BadRequestError
 from openai.types.completion_usage import CompletionUsage, PromptTokensDetails
@@ -51,6 +52,50 @@ def _make_mock_response(content="Hello", input_tokens=10, output_tokens=5, cache
 def _make_instructor_client() -> AsyncMock:
     """instructor patched client 替身：create_with_completion 是协程，钩子注册（on）是同步调用。"""
     return AsyncMock(on=MagicMock())
+
+
+@pytest.mark.parametrize("host", ["api.minimax.io", "api.minimax.cn", "api.minimaxi.com"])
+@pytest.mark.parametrize("model", ["MiniMax-M3.1-Flash", "MiniMax-M3"])
+@pytest.mark.parametrize("structured", [False, True])
+async def test_current_minimax_real_sdk_request_defaults(host: str, model: str, structured: bool):
+    from lib.backends.text_backends.openai import OpenAITextBackend
+
+    schema = {"type": "object", "properties": {"answer": {"type": "string"}}, "required": ["answer"]}
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post(f"https://{host}/v1/chat/completions").respond(
+            200,
+            json={
+                "id": "fixture",
+                "object": "chat.completion",
+                "created": 0,
+                "model": model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": '{"answer":"OK"}'},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+        backend = OpenAITextBackend(
+            api_key="fixture", base_url=f"https://{host}/v1", model=model, provider_name="minimax"
+        )
+        result = await backend.generate(
+            TextGenerationRequest(
+                prompt="Reply OK",
+                max_output_tokens=524288,
+                response_schema=schema if structured else None,
+            )
+        )
+        body = json.loads(route.calls[0].request.content)
+    assert result.model == body["model"] == model
+    assert body["max_tokens"] == 524288
+    assert "thinking" not in body
+    assert "reasoning_effort" not in body
+    assert "service_tier" not in body
+    assert ("response_format" in body) is structured
 
 
 class TestOpenAITextBackend:
