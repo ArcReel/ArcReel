@@ -310,6 +310,7 @@ MESSAGES = {
     "builtin_model_not_removable": "「{model}」是官方收录的模型，不能移除，只能停用",
     "builtin_model_duplicate": "模型「{model}」已在这个供应商的模型列表中",
     "builtin_model_id_required": "请填写模型 ID",
+    "model_id_dot_segment": "模型 ID 的每一段都不能是 . 或 ..：{model}",
     "builtin_model_media_type_required": "无法判断模型「{model}」的类型，请选择模型类型后重试",
     "builtin_model_media_type_unsupported": "这个供应商不支持这类模型（{media_type}）",
     "builtin_model_binding_invalid": "对应模型「{binding}」的格式不正确，应为「厂商/模型名」",

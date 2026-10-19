@@ -330,6 +330,7 @@ MESSAGES = {
     "builtin_model_not_removable": '"{model}" is an officially listed model. It can be disabled but not removed',
     "builtin_model_duplicate": 'Model "{model}" is already in this provider\'s model list',
     "builtin_model_id_required": "Enter a model ID",
+    "model_id_dot_segment": "No segment of a model ID may be . or ..: {model}",
     "builtin_model_media_type_required": 'Can\'t tell the type of model "{model}". Choose a model type and try again',
     "builtin_model_media_type_unsupported": "This provider doesn't support this type of model ({media_type})",
     "builtin_model_binding_invalid": 'Matched model "{binding}" is malformed. Use "maker/model-name"',
