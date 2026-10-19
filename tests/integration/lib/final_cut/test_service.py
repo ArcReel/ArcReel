@@ -298,6 +298,30 @@ async def test_a_unit_without_usable_video_blocks_rendering(render_project: Proj
 
 
 @pytest.mark.usefixtures("media")
+async def test_a_corrupted_video_snapshot_blocks_rendering_and_names_the_version(
+    render_project: ProjectManager,
+) -> None:
+    project_dir = render_project.get_project_path("demo")
+    record = VersionManager(project_dir).get_versions("reference_videos", "E1U2")["versions"][-1]
+    (project_dir / record["file"]).write_bytes(b"corrupted")
+    timeline_id = await _create_timeline(render_project)
+
+    with pytest.raises(FinalCutError) as caught:
+        await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
+
+    assert caught.value.code == "final_cut_blocked"
+    assert caught.value.params["issues"] == [
+        {
+            "code": "version_snapshot_corrupted",
+            "unit_id": "E1U2",
+            "resource_type": "reference_videos",
+            "version": record["version"],
+        }
+    ]
+    assert not (project_dir / "renders").exists()
+
+
+@pytest.mark.usefixtures("media")
 async def test_transitions_render_without_changing_the_timeline_duration(render_project: ProjectManager) -> None:
     timeline_id = await _create_timeline(render_project)
     edited = await EditTimelineService(render_project).edit(

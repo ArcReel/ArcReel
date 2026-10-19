@@ -709,6 +709,7 @@ MESSAGES = {
     "version_not_found": "Phiên bản {version} không tồn tại",
     "version_resource_not_found": "Tài nguyên '{resource_type}/{resource_id}' không tồn tại",
     "version_snapshot_path_unmanaged": "Bản ghi phiên bản '{resource_type}' trỏ tới đường dẫn ảnh chụp không được quản lý; thao tác đã bị từ chối",
+    "version_snapshot_corrupted": "Ảnh chụp của phiên bản {version} thuộc '{resource_type}/{resource_id}' đã bị hỏng: nội dung không còn khớp với dấu vân tay được ghi khi tạo phiên bản, nên đã không được sử dụng",
     "session_capacity_exceeded": "Đã đạt giới hạn phiên đồng thời, vui lòng thử lại sau",
     "session_question_unavailable": "Phiên chưa chạy hoặc không có câu hỏi đang chờ",
     "rewrite_anchor_invalid": "Tin nhắn bạn muốn sửa không thuộc cuộc trò chuyện này, hãy tải lại rồi thử lại",
