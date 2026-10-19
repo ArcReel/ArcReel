@@ -147,6 +147,19 @@ class ArtifactInputClaim:
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactManifestSnapshot:
+    """One complete Manifest version read without the lock, for one request's comparisons.
+
+    ``file_stat`` is the stat of the Manifest file the entries were parsed from
+    (``None`` when the project has no Manifest yet).  ``entries`` is shared and
+    read-only.
+    """
+
+    entries: Mapping[ArtifactKey, ArtifactManifestEntry]
+    file_stat: os.stat_result | None
+
+
+@dataclass(frozen=True, slots=True)
 class ArtifactManifestArchiveSnapshot:
     """Complete portable claims bound to the exported formal artifact bytes."""
 
@@ -454,8 +467,13 @@ class ArtifactManifest:
         *,
         artifact_path: str,
         expected: ArtifactManifestEntry | None,
+        entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
     ) -> ArtifactComparison:
-        """Compare against a canonical target that may carry only a frozen digest."""
+        """Compare against a canonical target that may carry only a frozen digest.
+
+        ``entries`` is a Manifest snapshot already read for the whole request; without
+        it the claim is read from storage.
+        """
 
         observation = self._adapter.inspect_artifact(artifact_path)
         if observation.blocker is not None:
@@ -467,7 +485,7 @@ class ArtifactManifest:
         if not observation.present:
             return ArtifactComparison(status=ArtifactStatus.MISSING, artifact_path=observation.artifact_path)
         try:
-            entry = self._adapter.get_entry(key)
+            entry = self._adapter.get_entry(key) if entries is None else entries.get(key)
         except ArtifactManifestError as exc:
             blocker = ArtifactBlocker(
                 code="manifest_unreadable",
@@ -685,6 +703,28 @@ def reset_manifest_read_cache_for_tests() -> None:
     _MANIFEST_READ_CACHE.clear()
 
 
+MANIFEST_REPLACE_RETRY_DELAYS_SECONDS = (0.01, 0.02, 0.05, 0.1, 0.2, 0.4)
+"""Waits between Manifest replace attempts refused with ``PermissionError``."""
+
+
+def _replace_with_retry(replace: Callable[[], None], sleep: Callable[[float], None]) -> None:
+    """Run one atomic replace, retrying briefly while the target is held open.
+
+    Readers open the Manifest without the lock.  On Windows a reader's open
+    handle (opened without delete sharing) makes the replace fail with a sharing
+    violation, surfaced as ``PermissionError``, until the reader closes it a
+    moment later.  Exhausted retries re-raise the last error.
+    """
+
+    for delay in MANIFEST_REPLACE_RETRY_DELAYS_SECONDS:
+        try:
+            replace()
+            return
+        except PermissionError:
+            sleep(delay)
+    replace()
+
+
 class ProjectArtifactManifestAdapter:
     """Safe project-directory adapter backed by a versioned JSON manifest."""
 
@@ -694,9 +734,11 @@ class ProjectArtifactManifestAdapter:
         *,
         nofollow_supported: bool = True,
         clock_ns: Callable[[], int] = time.time_ns,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._nofollow_supported = nofollow_supported
         self._clock_ns = clock_ns
+        self._sleep = sleep
         root_fd: int | None = None
         windows_handle: int | None = None
         try:
@@ -1130,41 +1172,32 @@ class ProjectArtifactManifestAdapter:
 
     def get_entry(self, key: ArtifactKey) -> ArtifactManifestEntry | None:
         read = self._load_readonly()
-        return None if read is None else read.entries.get(key.encode())
+        return None if read is None else read[0].entries.get(key.encode())
 
     def snapshot_entries(self) -> Mapping[ArtifactKey, ArtifactManifestEntry]:
         read = self._load_readonly()
-        return {} if read is None else dict(read.decoded())
+        return {} if read is None else dict(read[0].decoded())
 
-    def _load_readonly(self) -> _ParsedManifest | None:
-        """Read one consistent snapshot without creating runtime state.
+    def read_snapshot(self) -> ArtifactManifestSnapshot:
+        """Read one complete Manifest version for a whole request's comparisons."""
 
-        Once a writer has created the durable lock file, readers serialize with
-        that lock exactly as before.  A project that has never needed a manifest
-        write has no lock file; in that state two identical guarded reads provide
-        a stable snapshot without turning a status query into a filesystem write.
-        A legitimate writer creates the lock before replacing the manifest, so a
-        lock appearing during either read sends the reader back through the
-        serialized path.
+        read = self._load_readonly()
+        if read is None:
+            return ArtifactManifestSnapshot(entries=MappingProxyType({}), file_stat=None)
+        return ArtifactManifestSnapshot(entries=read[0].decoded(), file_stat=read[1])
+
+    def _load_readonly(self) -> tuple[_ParsedManifest, os.stat_result] | None:
+        """Read one complete Manifest version without the lock or any runtime state.
+
+        Every writer publishes a whole Manifest through temp file, fsync and atomic
+        replace, so one descriptor always reads one complete version.  Readers
+        therefore never wait on, or time out behind, a writer holding the lock.
+        A tampered lock file (symlink, junction, FIFO) still refuses the read.
         """
 
-        lock_path = self._project_dir / LOCK_FILENAME
-        if self._runtime_file_identity(lock_path, "manifest lock") is not None:
-            with self._locked() as root_fd:
-                return self._load_cached(root_fd)
-
-        with self._guard_portable_project_root():
-            original = self._load_cached(None)
-            if self._runtime_file_identity(lock_path, "manifest lock") is not None:
-                with self._locked() as root_fd:
-                    return self._load_cached(root_fd)
-            repeated = self._load_cached(None)
-            if self._runtime_file_identity(lock_path, "manifest lock") is not None:
-                with self._locked() as root_fd:
-                    return self._load_cached(root_fd)
-        if original is not repeated and (original is None or repeated is None or original.raw != repeated.raw):
-            raise ArtifactManifestError("artifact manifest changed during an unlocked read")
-        return original
+        with self._opened_project_root() as root_fd:
+            self._runtime_file_identity(self._project_dir / LOCK_FILENAME, "manifest lock")
+            return self._load_cached(root_fd)
 
     def put_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> bool:
         with self._locked() as root_fd:
@@ -1372,74 +1405,79 @@ class ProjectArtifactManifestAdapter:
             return True
 
     @contextmanager
+    def _opened_project_root(self) -> Generator[int | None]:
+        """Yield an identity-checked project root descriptor (POSIX) or ``None`` inside the portable guard."""
+
+        if os.name != "posix":
+            with self._guard_portable_project_root():
+                yield None
+            return
+        root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | self._nofollow_flag
+        if not self._nofollow_flag and _is_linkish(self._project_dir):
+            raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
+        try:
+            root_fd = os.open(self._project_dir, root_flags)
+        except OSError as exc:
+            raise ArtifactManifestError(
+                f"project directory cannot be opened safely: {self._project_dir}: {exc}"
+            ) from exc
+        try:
+            self._assert_open_project_root_identity(root_fd)
+            yield root_fd
+        finally:
+            os.close(root_fd)
+
+    @contextmanager
     def _locked(self) -> Generator[int | None]:
         lock_path = self._project_dir / LOCK_FILENAME
-        with contextlib.ExitStack() as root_stack:
-            root_fd: int | None = None
+        with self._opened_project_root() as root_fd:
             checked_lock_identity: tuple[int, int] | None = None
+            if root_fd is None or not self._nofollow_flag:
+                checked_lock_identity = self._runtime_file_identity(lock_path, "manifest lock")
+            flags = os.O_WRONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0)
             try:
-                if os.name == "posix":
-                    root_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | self._nofollow_flag
-                    if not self._nofollow_flag and _is_linkish(self._project_dir):
-                        raise ArtifactManifestError(f"project directory is a symlink or junction: {self._project_dir}")
-                    try:
-                        root_fd = os.open(self._project_dir, root_flags)
-                    except OSError as exc:
-                        raise ArtifactManifestError(
-                            f"project directory cannot be opened safely: {self._project_dir}: {exc}"
-                        ) from exc
-                    self._assert_open_project_root_identity(root_fd)
-                else:
-                    root_stack.enter_context(self._guard_portable_project_root())
-                if root_fd is None or not self._nofollow_flag:
-                    checked_lock_identity = self._runtime_file_identity(lock_path, "manifest lock")
-                flags = os.O_WRONLY | self._nofollow_flag | getattr(os, "O_NONBLOCK", 0)
-                try:
-                    if root_fd is not None:
-                        try:
-                            fd = os.open(LOCK_FILENAME, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=root_fd)
-                        except FileExistsError:
-                            fd = os.open(LOCK_FILENAME, flags, dir_fd=root_fd)
-                    else:
-                        fd = os.open(lock_path, flags | os.O_CREAT, 0o600)
-                except OSError as exc:
-                    if exc.errno == errno.ELOOP:
-                        raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
-                    raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
-                try:
-                    if root_fd is None or not self._nofollow_flag:
-                        self._assert_open_runtime_file_identity(
-                            lock_path,
-                            fd,
-                            checked_lock_identity,
-                            "manifest lock",
-                        )
-                    elif not stat.S_ISREG(os.fstat(fd).st_mode):
-                        raise ArtifactManifestError(f"manifest lock is not a regular file: {lock_path}")
-                    handle = os.fdopen(fd, "wb")
-                except BaseException:
-                    with contextlib.suppress(OSError):
-                        os.close(fd)
-                    raise
-                deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
-                try:
-                    while True:
-                        try:
-                            portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
-                            break
-                        except (portalocker.AlreadyLocked, portalocker.LockException) as exc:
-                            if time.monotonic() >= deadline:
-                                raise ArtifactManifestError(f"timed out acquiring manifest lock: {lock_path}") from exc
-                            time.sleep(0.05)
-                    try:
-                        yield root_fd
-                    finally:
-                        portalocker.unlock(handle)
-                finally:
-                    handle.close()
-            finally:
                 if root_fd is not None:
-                    os.close(root_fd)
+                    try:
+                        fd = os.open(LOCK_FILENAME, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=root_fd)
+                    except FileExistsError:
+                        fd = os.open(LOCK_FILENAME, flags, dir_fd=root_fd)
+                else:
+                    fd = os.open(lock_path, flags | os.O_CREAT, 0o600)
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise ArtifactManifestError(f"manifest lock is a symlink: {lock_path}") from exc
+                raise ArtifactManifestError(f"cannot open manifest lock: {lock_path}: {exc}") from exc
+            try:
+                if root_fd is None or not self._nofollow_flag:
+                    self._assert_open_runtime_file_identity(
+                        lock_path,
+                        fd,
+                        checked_lock_identity,
+                        "manifest lock",
+                    )
+                elif not stat.S_ISREG(os.fstat(fd).st_mode):
+                    raise ArtifactManifestError(f"manifest lock is not a regular file: {lock_path}")
+                handle = os.fdopen(fd, "wb")
+            except BaseException:
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+                raise
+            deadline = time.monotonic() + LOCK_TIMEOUT_SECONDS
+            try:
+                while True:
+                    try:
+                        portalocker.lock(handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
+                        break
+                    except (portalocker.AlreadyLocked, portalocker.LockException) as exc:
+                        if time.monotonic() >= deadline:
+                            raise ArtifactManifestError(f"timed out acquiring manifest lock: {lock_path}") from exc
+                        time.sleep(0.05)
+                try:
+                    yield root_fd
+                finally:
+                    portalocker.unlock(handle)
+            finally:
+                handle.close()
 
     @contextmanager
     def _guard_portable_project_root(self) -> Generator[None]:
@@ -1561,7 +1599,7 @@ class ProjectArtifactManifestAdapter:
             raw = self._read_open_manifest(handle)
         return _parse_manifest(raw, validate_path_ownership=validate_path_ownership), raw
 
-    def _load_cached(self, root_fd: int | None) -> _ParsedManifest | None:
+    def _load_cached(self, root_fd: int | None) -> tuple[_ParsedManifest, os.stat_result] | None:
         """Read-only load that parses each Manifest version once per process.
 
         Opening and every safety check still happen on each call; the cache key is
@@ -1575,12 +1613,14 @@ class ProjectArtifactManifestAdapter:
             _MANIFEST_READ_CACHE.discard(self._project_identity)
             return None
         with handle:
-            identity = _ManifestFileIdentity.of(self._fstat_open_manifest(handle))
+            file_stat = self._fstat_open_manifest(handle)
+            identity = _ManifestFileIdentity.of(file_stat)
             slot = None if identity is None else _MANIFEST_READ_CACHE.get(self._project_identity)
             if slot is not None and slot.settled and slot.identity == identity:
-                return slot.parsed
+                return slot.parsed, file_stat
             raw = self._read_open_manifest(handle)
-            if identity is not None and _ManifestFileIdentity.of(self._fstat_open_manifest(handle)) != identity:
+            file_stat = self._fstat_open_manifest(handle)
+            if identity is not None and _ManifestFileIdentity.of(file_stat) != identity:
                 identity = None
         if slot is not None and slot.parsed.raw == raw:
             parsed = slot.parsed
@@ -1589,7 +1629,7 @@ class ProjectArtifactManifestAdapter:
         if identity is not None:
             settled = self._clock_ns() - identity.last_change_ns > _MANIFEST_SETTLED_AGE_NS
             _MANIFEST_READ_CACHE.put(self._project_identity, _ManifestCacheSlot(identity, settled, parsed))
-        return parsed
+        return parsed, file_stat
 
     def _fstat_open_manifest(self, handle: BinaryIO) -> os.stat_result:
         try:
@@ -1624,9 +1664,12 @@ class ProjectArtifactManifestAdapter:
                 handle.flush()
                 os.fsync(handle.fileno())
             if root_fd is None:
-                os.replace(tmp_name, self._project_dir / MANIFEST_FILENAME)
+                _replace_with_retry(lambda: os.replace(tmp_name, self._project_dir / MANIFEST_FILENAME), self._sleep)
             else:
-                os.replace(tmp_name, MANIFEST_FILENAME, src_dir_fd=root_fd, dst_dir_fd=root_fd)
+                _replace_with_retry(
+                    lambda: os.replace(tmp_name, MANIFEST_FILENAME, src_dir_fd=root_fd, dst_dir_fd=root_fd),
+                    self._sleep,
+                )
         except OSError as exc:
             with contextlib.suppress(OSError):
                 _unlink_temporary_file(tmp_name, root_fd)

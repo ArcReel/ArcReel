@@ -23,6 +23,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactKind,
     ArtifactManifestEntry,
     ArtifactManifestError,
+    ArtifactManifestSnapshot,
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.artifact_provenance import (
@@ -212,7 +213,8 @@ class _PlannerInputObservation:
         if key in planner.pending_entries:
             return planner.pending_entries[key]
         if self._committed is None:
-            self._committed = planner.adapter.snapshot_entries()
+            snapshot = planner.manifest_snapshot
+            self._committed = planner.adapter.snapshot_entries() if snapshot is None else snapshot.entries
         return self._committed.get(key)
 
 
@@ -258,6 +260,7 @@ class TargetStatePlanner:
         pending_entries: Mapping[ArtifactKey, ArtifactManifestEntry | None] | None = None,
         legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
         shared_versions: SharedVersionMetadata | None = None,
+        manifest_snapshot: ArtifactManifestSnapshot | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
@@ -265,6 +268,8 @@ class TargetStatePlanner:
         self.pending_renames = dict(pending_renames or {})
         self.pending_entries = dict(pending_entries or {})
         self.legacy_audio_entries = legacy_audio_entries
+        #: Request-scoped Manifest read that answers committed claims instead of storage reads.
+        self.manifest_snapshot = manifest_snapshot
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
         self.episode_scope = episode_scope
@@ -298,6 +303,15 @@ class TargetStatePlanner:
         #: 生成缺口记为缺席、照常投影（ADR 0098）；schema < 18 沿用缺口即投影不出的口径。
         self._records_gaps = project_basis_records_gaps(self.project)
         self._unreadable_grid_ids: set[str] = set()
+
+    def _legacy_audio_entries(self) -> Mapping[ArtifactKey, ArtifactManifestEntry] | None:
+        """Audio claims for legacy narrated durations; ``None`` reads them from storage."""
+
+        if self.legacy_audio_entries is not None:
+            return self.legacy_audio_entries
+        if self._activation_mode:
+            return self.entries
+        return None if self.manifest_snapshot is None else self.manifest_snapshot.entries
 
     def plan(self) -> ArtifactTargetStatePlan:
         schema = parse_project_schema_version(self.project)
@@ -1185,11 +1199,7 @@ class TargetStatePlanner:
                     resource_type=resource_type,
                     resource_id=resource_id,
                     version_metadata=record,
-                    legacy_audio_entries=(
-                        self.legacy_audio_entries
-                        if self.legacy_audio_entries is not None
-                        else (self.entries if self._activation_mode else None)
-                    ),
+                    legacy_audio_entries=self._legacy_audio_entries(),
                 )
         except (KeyError, OSError, TypeError, ValueError):
             self._skip(key, artifact_path, "current basis cannot be projected from the script")

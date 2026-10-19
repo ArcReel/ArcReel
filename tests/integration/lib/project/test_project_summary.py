@@ -10,16 +10,23 @@ from __future__ import annotations
 import builtins
 import json
 import os
+import time
 from pathlib import Path
 from typing import IO, Any
 
+import portalocker
 import pytest
 
 from lib.artifacts.artifact_activation import register_current_artifact
+from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import (
     LOCK_FILENAME,
+    LOCK_TIMEOUT_SECONDS,
     MANIFEST_FILENAME,
     ArtifactKey,
+    ArtifactManifest,
+    ArtifactStatus,
+    ProjectArtifactManifestAdapter,
     reset_manifest_read_cache_for_tests,
 )
 from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
@@ -611,8 +618,7 @@ def test_registered_currency_never_reads_artifact_content(tmp_path: Path, monkey
     assert verified_parses["parses"] == 1
     assert registered_counts["artifact_bytes"] == 0
     assert registered_counts["artifact_max_read"] <= 1
-    # 无锁读取为保证一致性读两遍同一份清单，算作一次读入。
-    assert registered_counts["manifest_opens"] <= 2
+    assert registered_counts["manifest_opens"] == 1
 
 
 def _episode_with_storyboards(pm: ProjectManager, project_path: Path, count: int) -> None:
@@ -641,7 +647,7 @@ def test_verified_manifest_parses_do_not_grow_with_the_artifact_count(
 ) -> None:
     """完整口径逐件比对产物，但清单整份解析的次数与产物件数无关：分镜数翻倍，解析次数不变。
 
-    有锁文件时读取经清单锁串行；从未有写入方建锁的项目走无锁双读，两条读取路径都要成立。
+    读取不拿清单锁；写入方建过锁文件的项目与从未建锁的项目都要成立。
     """
 
     parses: dict[int, int] = {}
@@ -665,6 +671,45 @@ def test_verified_manifest_parses_do_not_grow_with_the_artifact_count(
         parses[count] = manifest_parses["parses"]
 
     assert parses[8] == parses[4] == 1
+
+
+def test_verified_summary_does_not_wait_for_a_writer_holding_the_manifest_lock(tmp_path: Path) -> None:
+    """写入方持有清单锁期间，项目摘要照常返回：读取不拿清单锁，不等待也不失败。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _episode_with_storyboards(pm, project_path, 2)
+    service = WorkflowStateService(pm)
+    expected = service.get_project_summary("demo")
+    assert expected.episodes[0].videos.available == 2
+
+    with (project_path / LOCK_FILENAME).open("ab") as lock_handle:
+        portalocker.lock(lock_handle, portalocker.LOCK_EX | portalocker.LOCK_NB)
+        try:
+            started = time.monotonic()
+            summary = service.get_project_summary("demo")
+            elapsed = time.monotonic() - started
+        finally:
+            portalocker.unlock(lock_handle)
+
+    assert summary == expected
+    assert elapsed < LOCK_TIMEOUT_SECONDS
+
+
+def test_one_resolver_answers_every_comparison_from_one_manifest_snapshot(tmp_path: Path) -> None:
+    """一次请求只读一份清单快照：请求中途清单被替换，不影响这次请求的判定结果。"""
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _episode_with_storyboards(pm, project_path, 1)
+    key = ArtifactKey.episode_video(1, "E1S01")
+    video_path = resource_relative_path("videos", "E1S01")
+    resolver = ArtifactCurrencyResolver(project_path)
+
+    assert ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).forget_entry_transactionally(key)
+
+    assert resolver.compare(key, artifact_path=video_path).status is ArtifactStatus.CURRENT
+    assert ArtifactCurrencyResolver(project_path).compare(key, artifact_path=video_path).status is (
+        ArtifactStatus.MISSING
+    )
 
 
 def test_verified_versions_parses_do_not_grow_with_the_episode_count(
