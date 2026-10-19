@@ -123,14 +123,14 @@ class TestAssembleBuiltinEndToEnd:
         resolver = ConfigResolver(db_factory)
         with captured_backend_construction() as built:
             await assemble_backend(
-                provider_id="ark", media_type="text", model_id="doubao-seed-2-0-lite-260215", resolver=resolver
+                provider_id="ark", media_type="text", model_id="doubao-seed-2-1-lite-260915", resolver=resolver
             )
         assert built == [
             {
                 "media": "text",
                 "backend": "ark",
                 "kwargs": {
-                    "model": "doubao-seed-2-0-lite-260215",
+                    "model": "doubao-seed-2-1-lite-260915",
                     "api_key": "ark-secret",
                     "base_url": "https://ark.cn-beijing.volces.com/api/v3",
                 },

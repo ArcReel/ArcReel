@@ -12,6 +12,11 @@ RETIRED_MODEL_REFERENCES: dict[str, str] = {
     # 文本
     "gemini-aistudio/gemini-3.1-flash-lite-preview": "gemini-aistudio/gemini-3.1-flash-lite",
     "gemini-vertex/gemini-3.1-flash-lite-preview": "gemini-vertex/gemini-3.1-flash-lite",
+    # 方舟 2026-10-22 关停 Seed 2.0 Lite/Mini 的 260215 版本；xAI 2026-05-15 退役 Grok 4.1 Fast
+    "ark/doubao-seed-2-0-lite-260215": "ark/doubao-seed-2-1-lite-260915",
+    "ark/doubao-seed-2-0-mini-260215": "ark/doubao-seed-2-0-mini-260428",
+    "grok/grok-4-1-fast-reasoning": "grok/grok-4.3",
+    "grok/grok-4-1-fast-non-reasoning": "grok/grok-4.3",
     # 图片：Gemini 图片模型正式发布，AI Studio 与 Vertex 都改用不带 -preview 的名字
     "gemini-aistudio/gemini-3-pro-image-preview": "gemini-aistudio/gemini-3-pro-image",
     "gemini-aistudio/gemini-3.1-flash-image-preview": "gemini-aistudio/gemini-3.1-flash-image",

@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-15T19:00:00Z",
+  "dataset_version": "2026-10-19T15:00:00Z",
   "entries": [
     {
       "maker": "google",
@@ -796,6 +796,54 @@
     },
     {
       "maker": "bytedance",
+      "name": "doubao-seed-2.1-lite",
+      "media_type": "text",
+      "display_name": "\u8c46\u5305 Seed 2.1 Lite",
+      "aliases": [
+        "doubao-seed-2-1-lite-260915"
+      ],
+      "facts": {
+        "image_input": true,
+        "max_output_tokens": 262144
+      },
+      "price": {
+        "currency": "CNY",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.8
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.16
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 2.7
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "bytedance",
       "name": "doubao-seed-2.0-lite",
       "media_type": "text",
       "display_name": "\u8c46\u5305 Seed 2.0 Lite",
@@ -896,7 +944,8 @@
       "media_type": "text",
       "display_name": "\u8c46\u5305 Seed 2.0 Mini",
       "aliases": [
-        "doubao-seed-2-0-mini-260215"
+        "doubao-seed-2-0-mini-260215",
+        "doubao-seed-2-0-mini-260428"
       ],
       "facts": {
         "image_input": true,
@@ -1903,6 +1952,82 @@
     },
     {
       "maker": "xai",
+      "name": "grok-4.3",
+      "media_type": "text",
+      "display_name": "Grok 4.3",
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 131072
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.2
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 0.4
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 2.5
+              },
+              {
+                "when": {
+                  "context_tier": 199999
+                },
+                "price": 5.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "xai",
       "name": "grok-4.20-0309-reasoning",
       "media_type": "text",
       "display_name": "Grok 4.20 Reasoning",
@@ -2058,6 +2183,7 @@
       "name": "grok-4-1-fast-reasoning",
       "media_type": "text",
       "display_name": "Grok 4.1 Fast Reasoning",
+      "discontinued": true,
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -2134,6 +2260,7 @@
       "name": "grok-4-1-fast-non-reasoning",
       "media_type": "text",
       "display_name": "Grok 4.1 Fast (Non-Reasoning)",
+      "discontinued": true,
       "facts": {
         "image_input": true,
         "structured_output": true,
@@ -7258,11 +7385,11 @@
           "entry": "bytedance/doubao-seed-2.0-pro"
         },
         {
-          "api_model_name": "doubao-seed-2-0-lite-260215",
-          "entry": "bytedance/doubao-seed-2.0-lite"
+          "api_model_name": "doubao-seed-2-1-lite-260915",
+          "entry": "bytedance/doubao-seed-2.1-lite"
         },
         {
-          "api_model_name": "doubao-seed-2-0-mini-260215",
+          "api_model_name": "doubao-seed-2-0-mini-260428",
           "entry": "bytedance/doubao-seed-2.0-mini"
         },
         {
@@ -7299,7 +7426,7 @@
         }
       ],
       "defaults": {
-        "text": "doubao-seed-2-0-lite-260215",
+        "text": "doubao-seed-2-1-lite-260915",
         "image": "doubao-seedream-5-0-lite-260128",
         "video": "doubao-seedance-2-0-mini-260615"
       }
@@ -7368,20 +7495,16 @@
     "grok": {
       "models": [
         {
+          "api_model_name": "grok-4.3",
+          "entry": "xai/grok-4.3"
+        },
+        {
           "api_model_name": "grok-4.20-0309-reasoning",
           "entry": "xai/grok-4.20-0309-reasoning"
         },
         {
           "api_model_name": "grok-4.20-0309-non-reasoning",
           "entry": "xai/grok-4.20-0309-non-reasoning"
-        },
-        {
-          "api_model_name": "grok-4-1-fast-reasoning",
-          "entry": "xai/grok-4-1-fast-reasoning"
-        },
-        {
-          "api_model_name": "grok-4-1-fast-non-reasoning",
-          "entry": "xai/grok-4-1-fast-non-reasoning"
         },
         {
           "api_model_name": "grok-imagine-image",
@@ -7401,7 +7524,7 @@
         }
       ],
       "defaults": {
-        "text": "grok-4-1-fast-reasoning",
+        "text": "grok-4.3",
         "image": "grok-imagine-image",
         "video": "grok-imagine-video"
       }
