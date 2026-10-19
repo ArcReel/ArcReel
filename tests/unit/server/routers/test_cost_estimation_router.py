@@ -1,6 +1,7 @@
 """Tests for cost estimation router."""
 
 import asyncio
+import gc
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -243,3 +244,25 @@ class TestCostEstimationCoalescing:
 
         assert kept_resp.json() == {"version": "v2"}
         assert estimates.finished == ["v1", "v2"]
+
+    async def test_failure_after_every_request_disconnected_logs_no_unretrieved_exception(self, caplog):
+        coalescer = RequestCoalescer()
+        gate, started = asyncio.Event(), asyncio.Event()
+
+        async def boom():
+            started.set()
+            await gate.wait()
+            raise RuntimeError("boom")
+
+        waiter = asyncio.create_task(coalescer.run("k", boom))
+        await started.wait()
+        waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
+        (task,) = coalescer._running.values()
+        gate.set()
+        await asyncio.wait([task])
+        del task, waiter
+        gc.collect()
+
+        assert "never retrieved" not in caplog.text
+        assert await coalescer.run("k", AsyncMock(return_value="again")) == "again"

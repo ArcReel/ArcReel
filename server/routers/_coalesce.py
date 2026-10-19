@@ -28,6 +28,8 @@ class RequestCoalescer:
         if task is None:
             previous = self._running.get(key)
             task = asyncio.create_task(self._compute(key, previous, compute))
+            # 请求可能已全部断开而无人取走异常；取走一次以免任务回收时记 "never retrieved"。
+            task.add_done_callback(lambda t: t.cancelled() or t.exception())
             (self._running if previous is None else self._waiting)[key] = task
         return await asyncio.shield(task)
 
