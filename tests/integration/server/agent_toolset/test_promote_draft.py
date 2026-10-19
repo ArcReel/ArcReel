@@ -737,6 +737,34 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolH
     assert seen["project_name"] == fake_ctx.project_name
 
 
+async def test_promote_draft_surfaces_model_not_in_catalog_with_reselect_guidance(
+    fake_ctx: ToolHarness, monkeypatch
+) -> None:
+    """晋升时文本模型已下架：不被包成 draft_promote_failed，给出重新选择模型的指引。"""
+    from lib.backends.text_generator import TextGenerator
+    from lib.catalog.errors import ModelNotInCatalogError
+
+    rv_project(fake_ctx)
+    baseline = _write_rv_formal_script(fake_ctx, "@[张三] 在 @[村口] 等候")
+    write_quarantine(
+        fake_ctx.project_path,
+        1,
+        QUARANTINE_KIND_PROMPT_AUTHORING,
+        content={"title": "第1集", "units": [{"text": "镜头1：中景，平视。@[张三] 在 @[村口] 等候。"}]},
+        violations=[],
+        meta={"base_fingerprint": baseline, "unit_ids": ["E1U01"]},
+    )
+
+    async def retired(*_args, **_kwargs):
+        raise ModelNotInCatalogError(provider_id="ark", model_id="old-text", media_type="text")
+
+    monkeypatch.setattr(TextGenerator, "create", retired)
+    out = await promote_reference_draft(fake_ctx)
+    assert out.problem is not None
+    assert out.problem.code == "model_not_in_provider_catalog"
+    assert out.problem.action == "configure_provider"
+
+
 async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:

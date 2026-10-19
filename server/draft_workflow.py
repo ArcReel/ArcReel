@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.artifacts.artifact_manifest import ArtifactBasis
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.episode.episode_ids import episode_title
 from lib.episode.episode_paths import SCRIPT_PLAN_FILENAMES, episode_drafts_dir, episode_script_filename
@@ -1418,7 +1419,8 @@ class DraftWorkflow:
                         **promote_kwargs,
                     )
                     message = f"✅ 提示词编写晋升（正式剧本）已保存: {result_path}"
-            except DraftWorkflowError:
+            except (DraftWorkflowError, ModelNotInCatalogError):
+                # ModelNotInCatalogError 原样上抛：调用方据此给出「重新选择模型」指引
                 raise
             except ScriptWriteConflict as exc:
                 raise DraftWorkflowError(

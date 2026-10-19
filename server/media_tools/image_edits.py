@@ -22,6 +22,7 @@ from lib.artifacts.artifact_activation import (
     resolve_artifact_episode,
 )
 from lib.artifacts.artifact_manifest import ArtifactManifestError
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.generation.generation_queue_client import TaskSpec
 from lib.generation.generation_result import (
@@ -66,16 +67,29 @@ if get_args(EditableResourceType) != EDITABLE_RESOURCE_TYPES:
     raise RuntimeError("EditableResourceType 须与 EDITABLE_RESOURCE_TYPES 逐项一致")
 
 
-async def _i2i_provider_available(project: dict[str, Any], *, config_resolver: ConfigResolver) -> bool:
-    """项目 i2i 槽解析不出可用供应商时返回 False——与 HTTP 端点入队前 fail-fast 同一判断点
-    （见 ``server/routers/generate.py::_require_i2i_image_provider_configured``），批量编辑
-    只需要一次「是否可用」的项目级判断，不像端点那样需要拿到 provider_id 传给入队。
+async def _i2i_unavailable_problem(
+    project: dict[str, Any], *, config_resolver: ConfigResolver
+) -> GenerationProblem | None:
+    """项目 i2i 槽解析不出可用供应商时返回阻塞问题，可用时返回 None——与 HTTP 端点入队前 fail-fast
+    同一判断点（见 ``server/routers/generate.py::_require_i2i_image_provider_configured``），
+    批量编辑只需要一次项目级判断，不像端点那样需要拿到 provider_id 传给入队。
+    引用的模型已不在供应商清单中时，问题带「重新选择模型」指引，而非「换支持 i2i 的供应商」。
     """
     try:
         await config_resolver.resolve_image_backend(project, None, generation_type="i2i")
+    except ModelNotInCatalogError as exc:
+        return GenerationProblem(
+            code=exc.code, detail=str(exc), action=GenerationAction.CONFIGURE_PROVIDER, params=dict(exc.params)
+        )
     except ValueError:
-        return False
-    return True
+        # 复用 lib.generation.task_failure 已登记的 i2i 缺能力码（同一失败在
+        # HTTP 端点的执行期路径下就是这个码），不新造未登记码。
+        return GenerationProblem(
+            code="image_capability_missing_i2i",
+            detail="当前项目图片供应商不支持图生图（i2i），无法执行编辑；请提示用户前往设置更换支持 i2i 的供应商",
+            action=GenerationAction.CONFIGURE_PROVIDER,
+        )
+    return None
 
 
 def _build_specs(
@@ -250,7 +264,8 @@ async def edit_images(
         builder = GenerationResultBuilder(_OPERATION, GenerationSelectionMode.EXPLICIT)
         states: dict[str, GenerationTargetState] = {}
 
-        if not await _i2i_provider_available(project, config_resolver=services.capabilities):
+        i2i_problem = await _i2i_unavailable_problem(project, config_resolver=services.capabilities)
+        if i2i_problem is not None:
             # 拦截在入队前：不是某个 ID 的产物问题，是整批共享的前置条件不满足，
             # 但调用方仍按逐 ID 契约读结果，因此每个请求到的 ID 各记一条 blocked，
             # 而不是只回一段无法编程消费的文本。
@@ -260,16 +275,7 @@ async def edit_images(
                 if not resource_id or resource_id in seen:
                     continue
                 seen.add(resource_id)
-                builder.block(
-                    resource_id,
-                    # 复用 lib.generation.task_failure 已登记的 i2i 缺能力码（同一失败在
-                    # HTTP 端点的执行期路径下就是这个码），不新造未登记码。
-                    problem=GenerationProblem(
-                        code="image_capability_missing_i2i",
-                        detail="当前项目图片供应商不支持图生图（i2i），无法执行编辑；请提示用户前往设置更换支持 i2i 的供应商",
-                        action=GenerationAction.CONFIGURE_PROVIDER,
-                    ),
-                )
+                builder.block(resource_id, problem=i2i_problem)
             specs = []
         else:
             specs = await asyncio.to_thread(
