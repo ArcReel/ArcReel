@@ -1,7 +1,9 @@
 """Tests for cost estimation router."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -9,6 +11,7 @@ from fastapi.testclient import TestClient
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import cost_estimation
+from server.routers._coalesce import RequestCoalescer
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 
@@ -111,3 +114,132 @@ class TestCostEstimationRouter:
         with TestClient(app, raise_server_exceptions=False) as client:
             resp = client.get("/api/v1/projects/demo/cost-estimate")
         assert resp.status_code == 401
+
+
+class _ArrivalSpy(RequestCoalescer):
+    """登记每个已挂上合流的请求，测试据此确认请求已到达，再放行计算。"""
+
+    def __init__(self):
+        super().__init__()
+        self.arrivals: asyncio.Queue[None] = asyncio.Queue()
+
+    async def run(self, key, compute):
+        self.arrivals.put_nowait(None)
+        return await super().run(key, compute)
+
+    async def wait_arrivals(self, count):
+        for _ in range(count):
+            await self.arrivals.get()
+
+
+class _GatedEstimates:
+    """费用估算替身：开算时记下输入版本，等测试开闸后返回该版本；版本为 boom 时出错。"""
+
+    def __init__(self):
+        self.gate = asyncio.Event()
+        self.started: asyncio.Queue[str] = asyncio.Queue()
+        self.finished: list[str] = []
+        self.active = 0
+        self.peak = 0
+
+    async def compute(self, project_data, scripts, *, project_name):
+        version = project_data["version"]
+        self.active += 1
+        self.peak = max(self.peak, self.active)
+        self.started.put_nowait(version)
+        try:
+            await self.gate.wait()
+            if version == "boom":
+                raise RuntimeError("boom")
+            self.finished.append(version)
+            return {"version": version}
+        finally:
+            self.active -= 1
+
+
+class TestCostEstimationCoalescing:
+    """同一项目的并发估算请求合流：同时最多 1 份在算、1 份等待，结果不早于请求到达时刻。"""
+
+    @pytest.fixture
+    def harness(self):
+        inputs = {"version": "v1", "episodes": []}
+        pm = _mock_pm(project_exists=True)
+        pm.load_project = MagicMock(side_effect=lambda _name: dict(inputs))
+        estimates = _GatedEstimates()
+        spy = _ArrivalSpy()
+        with (
+            patch.object(cost_estimation, "get_project_manager", lambda: pm),
+            patch.object(cost_estimation, "CostEstimationService") as service,
+        ):
+            service.return_value.compute = estimates.compute
+            app = _make_app()
+            app.dependency_overrides[cost_estimation.get_cost_estimate_coalescer] = lambda: spy
+            client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
+            yield inputs, estimates, spy, client
+
+    @staticmethod
+    def _get(client):
+        return asyncio.create_task(client.get("/api/v1/projects/demo/cost-estimate"))
+
+    async def test_concurrent_requests_run_at_most_two_computations(self, harness):
+        _inputs, estimates, spy, client = harness
+        async with client:
+            first = self._get(client)
+            await estimates.started.get()
+            rest = [self._get(client) for _ in range(7)]
+            await spy.wait_arrivals(8)
+            estimates.gate.set()
+            responses = await asyncio.gather(first, *rest)
+
+        assert [r.status_code for r in responses] == [200] * 8
+        assert estimates.peak <= 2
+        assert len(estimates.finished) == 2
+
+    async def test_request_arriving_mid_computation_sees_the_newer_input(self, harness):
+        inputs, estimates, spy, client = harness
+        async with client:
+            first = self._get(client)
+            await estimates.started.get()
+            inputs["version"] = "v2"
+            second = self._get(client)
+            await spy.wait_arrivals(2)
+            estimates.gate.set()
+            first_resp, second_resp = await asyncio.gather(first, second)
+
+        assert first_resp.json() == {"version": "v1"}
+        assert second_resp.json() == {"version": "v2"}
+
+    async def test_failed_computation_fails_every_sharer_and_next_request_recomputes(self, harness):
+        inputs, estimates, spy, client = harness
+        async with client:
+            first = self._get(client)
+            await estimates.started.get()
+            inputs["version"] = "boom"
+            sharers = [self._get(client) for _ in range(2)]
+            await spy.wait_arrivals(3)
+            estimates.gate.set()
+            first_resp, *sharer_resps = await asyncio.gather(first, *sharers)
+            inputs["version"] = "v3"
+            retry = await client.get("/api/v1/projects/demo/cost-estimate")
+
+        assert first_resp.status_code == 200
+        assert [(r.status_code, r.json()["detail"]) for r in sharer_resps] == [(500, "费用估算失败，请稍后重试")] * 2
+        assert retry.json() == {"version": "v3"}
+
+    async def test_abandoned_requests_do_not_cancel_the_shared_computation(self, harness):
+        inputs, estimates, spy, client = harness
+        async with client:
+            running = self._get(client)
+            await estimates.started.get()
+            inputs["version"] = "v2"
+            abandoned = self._get(client)
+            kept = self._get(client)
+            await spy.wait_arrivals(3)
+            for task in (running, abandoned):
+                task.cancel()
+            await asyncio.gather(running, abandoned, return_exceptions=True)
+            estimates.gate.set()
+            kept_resp = await kept
+
+        assert kept_resp.json() == {"version": "v2"}
+        assert estimates.finished == ["v1", "v2"]

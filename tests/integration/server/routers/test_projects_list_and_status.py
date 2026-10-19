@@ -1,10 +1,46 @@
 """Tests for projects_list_and_status."""
 
+import asyncio
+import threading
+
+import httpx
+
+from lib.i18n import _
+from server.routers import projects
+from server.routers._coalesce import RequestCoalescer
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     _FakeSummaries,
     build_projects_client,
+    override,
 )
+
+
+class _ArrivalSpy(RequestCoalescer):
+    """登记每个已挂上合流的请求，测试据此确认请求已到达，再放行计算。"""
+
+    def __init__(self):
+        super().__init__()
+        self.arrivals: asyncio.Queue[None] = asyncio.Queue()
+
+    async def run(self, key, compute):
+        self.arrivals.put_nowait(None)
+        return await super().run(key, compute)
+
+
+class _GatedSummaries(_FakeSummaries):
+    """第一次摘要计算停在闸门前；修复原因引用剧本文件，呈现时按请求语言成文。"""
+
+    def __init__(self):
+        super().__init__()
+        self.started = threading.Event()
+        self.gate = threading.Event()
+
+    def get_project_summary(self, name, **kwargs):
+        self.started.set()
+        assert self.gate.wait(timeout=10)
+        summary = super().get_project_summary(name, **kwargs)
+        return summary.model_copy(update={"needs_repair": True, "repair_reason": "scripts/episode_1.json"})
 
 
 class TestProjectsRouter:
@@ -145,3 +181,31 @@ class TestProjectsRouter:
             assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
     # ---------------------------------------------------------------------------
+
+    async def test_get_project_does_not_share_results_across_languages(self, tmp_path, monkeypatch):
+        """合流按语言分开：中文计算在跑、中文请求已占等待位时到达的英文请求，拿到英文文案。"""
+        summaries = _GatedSummaries()
+        spy = _ArrivalSpy()
+        sync_client = build_projects_client(monkeypatch, _FakePM(tmp_path), summaries)
+        override(sync_client, projects.get_project_detail_coalescer, lambda: spy)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=sync_client.app), base_url="http://test"
+        ) as client:
+
+            def get(locale):
+                return asyncio.create_task(client.get("/api/v1/projects/ready", headers={"Accept-Language": locale}))
+
+            running = get("zh")
+            await asyncio.to_thread(summaries.started.wait, 10)
+            waiting, english = get("zh"), get("en")
+            for _arrival in range(3):
+                await spy.arrivals.get()
+            summaries.gate.set()
+            responses = await asyncio.gather(running, waiting, english)
+
+        def expected(locale):
+            episode = _("episode_position_name", locale=locale, position=1)
+            return _("episode_script_name", locale=locale, name=episode)
+
+        reasons = [r.json()["project"]["status"]["repair_reason"] for r in responses]
+        assert reasons == [expected("zh"), expected("zh"), expected("en")]
