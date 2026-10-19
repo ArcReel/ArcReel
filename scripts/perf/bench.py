@@ -255,8 +255,11 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 rec["server_s"] = time.perf_counter() - t0 - rec["t_start"]
 
         class Client:
-            """前端的重拉习惯：每个变更批次重拉项目详情、制作状态、工作流规划与当前集的单元列表，
-            费用估算防抖 0.5 秒；同一接口的新请求取代旧请求，旧请求被放弃但服务端照常算完。"""
+            """前端的重拉习惯（useProjectEventsSSE）：一条视频完成先到实体变更批次，再到任务终态批次。
+
+            实体批次重拉项目详情与单元列表，制作状态与工作流规划随项目快照重拉，费用估算防抖 0.5 秒；
+            任务终态批次不重拉项目详情，只作废单元列表，制作状态与工作流规划随任务指纹重拉。
+            同一接口的新请求取代旧请求，旧请求被放弃但服务端照常算完。"""
 
             def __init__(self) -> None:
                 self.pending: dict[str, dict[str, Any]] = {}
@@ -273,9 +276,12 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 tasks.add(task)
                 task.add_done_callback(tasks.discard)
 
-            def on_change(self, episode: int) -> None:
-                for name in names:
-                    if name != "cost":
+            def on_video_done(self, episode: int) -> None:
+                for name in ("project", "units", "wf_status", "wf_plan"):  # 实体变更批次
+                    if name in names:
+                        self.fire(name, episode)
+                for name in ("units", "wf_status", "wf_plan"):  # 任务终态批次
+                    if name in names:
                         self.fire(name, episode)
                 if "cost" in names:
                     if self.cost_timer is not None and not self.cost_timer.done():
@@ -300,7 +306,7 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
                 await asyncio.to_thread(_complete_video, unit, episode, a.video_kb)
                 writes.append(time.perf_counter() - t)
                 for cl in clients:
-                    cl.on_change(episode)
+                    cl.on_video_done(episode)
 
         async def light(name: str, method: str, url: str, headers: dict[str, str], ok: int):
             while not stop.is_set():
@@ -390,6 +396,8 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         "drain_capped": bool(leftover),
         "leftover": leftover,
         "manifest_lock_nb_failures": probe.lock_fail,
+        # 写入方登记后清单条目应都带内容指纹，否则热态判定会退回读视频内容。
+        "video_facts_after": h.video_fact_coverage(),
         "thread_queue_max": max((s["qsize"] for s in samples), default=0),
         "loop_lag_max_s": max((s["loop_lag"] for s in samples), default=0),
         "endpoints": endpoints,
@@ -407,7 +415,8 @@ def cmd_peak(a: argparse.Namespace) -> dict[str, Any]:
     print(
         f"\n=== peak {a.duration:.0f}s: writes={result['writes']} drain_after_stop={result['drain_s']:.1f}s"
         f"{' (capped, leftover=' + str(result['leftover']) + ')' if result['drain_capped'] else ''} "
-        f"thread_queue_max={result['thread_queue_max']} manifest_lock_nb_failures={result['manifest_lock_nb_failures']}"
+        f"thread_queue_max={result['thread_queue_max']} manifest_lock_nb_failures={result['manifest_lock_nb_failures']} "
+        f"video_facts_after={result['video_facts_after']}"
     )
     for name, e in result["endpoints"].items():
         print(
@@ -459,6 +468,13 @@ def summarize(idle: dict[str, Any], peak: dict[str, Any]) -> str:
         lines.append(
             f"- 热态打开项目详情读取媒体内容（次数与字节）：{idle['project']['warm_media']}；"
             f"重启后首开：{idle['project']['first_open_media']}"
+        )
+    migration = h.data_root() / "migration.json"
+    if migration.exists():
+        m = json.loads(migration.read_text())
+        lines.append(
+            f"- 启动迁移（v17→v18，构建时测）：{m['startup_migration_s']:.1f}s；"
+            f"迁移后带内容指纹的视频条目 {m['with_facts']}/{m['videos']}"
         )
     lines.append(
         f"- 高峰期清单锁非阻塞加锁失败（重试）次数：{peak['manifest_lock_nb_failures']}；线程池队列最大长度：{peak['thread_queue_max']}"

@@ -14,6 +14,7 @@ import importlib
 import inspect
 import io
 import itertools
+import json
 import os
 import random
 import shutil
@@ -234,6 +235,63 @@ def build(*, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: in
     activate_artifact_target_state(path, bump_schema=False)
 
 
+CONTENT_FACT_FIELDS = ("content_digest", "content_size", "content_mtime_ns")
+
+
+def downgrade_to_v17() -> None:
+    """把构建好的项目退回 schema 17 的形态：抹掉清单条目与版本记录上的内容指纹。
+
+    存量项目升级时，内容指纹由启动迁移的 v17→v18 补录写入；基准据此让存量视频走生产补录拿到指纹，
+    并测出这一步的耗时。
+    """
+
+    from lib.artifacts.artifact_manifest import MANIFEST_FILENAME
+    from lib.artifacts.version_manager import VERSION_CONTENT_DIGEST, VersionManager
+    from lib.infra.json_io import atomic_write_json
+
+    path = project_path()
+    manifest = json.loads((path / MANIFEST_FILENAME).read_text(encoding="utf-8"))
+    for entry in manifest["entries"].values():
+        for field in CONTENT_FACT_FIELDS:
+            entry.pop(field, None)
+    atomic_write_json(path / MANIFEST_FILENAME, manifest)
+    versions_file = VersionManager(path).versions_file
+    versions = json.loads(versions_file.read_text(encoding="utf-8"))
+    for bucket in versions.values():
+        for resource in bucket.values():
+            for record in resource["versions"]:
+                record.pop(VERSION_CONTENT_DIGEST, None)
+    atomic_write_json(versions_file, versions)
+    project = json.loads((path / "project.json").read_text(encoding="utf-8"))
+    project["schema_version"] = 17
+    atomic_write_json(path / "project.json", project)
+
+
+def video_fact_coverage() -> dict[str, int]:
+    """清单里已登记的视频条目中，带内容指纹与不带的条数。"""
+
+    from lib.artifacts.artifact_manifest import MANIFEST_FILENAME
+
+    entries = json.loads((project_path() / MANIFEST_FILENAME).read_text(encoding="utf-8"))["entries"]
+    videos = [e for e in entries.values() if str(e.get("artifact_path", "")).endswith(".mp4")]
+    with_facts = sum(1 for e in videos if "content_digest" in e)
+    return {"videos": len(videos), "with_facts": with_facts}
+
+
+def run_startup_migration() -> dict[str, Any]:
+    """按服务启动的方式跑一遍项目迁移并计时。先清进程内缓存，模拟新进程；操作系统页缓存仍是热的。"""
+
+    from lib.project.project_migrations import run_project_migrations
+
+    clear_caches()
+    t = time.perf_counter()
+    summary = run_project_migrations(data_root() / "projects")
+    elapsed = time.perf_counter() - t
+    if summary.migrated != [PROJECT]:
+        raise SystemExit(f"startup migration did not migrate {PROJECT}: {summary}")
+    return {"startup_migration_s": elapsed, **video_fact_coverage()}
+
+
 def ensure_project(
     *, episodes: int, units: int, assets: int, video_kb: int, sheet_kb: int, video_ratio: float, rebuild: bool
 ) -> None:
@@ -254,6 +312,14 @@ def ensure_project(
             sheet_kb=sheet_kb,
             video_ratio=video_ratio,
         )
+        downgrade_to_v17()
+        migration = run_startup_migration()
+        print(
+            f"startup migration v17->v18: {migration['startup_migration_s']:.1f}s, "
+            f"video entries with content facts {migration['with_facts']}/{migration['videos']}",
+            flush=True,
+        )
+        (data_root() / "migration.json").write_text(json.dumps(migration))
         marker.write_text("ok")
         # 刚写完的文件落在内容指纹缓存的 racy 窗口里不入缓存，等窗口过去再测，热态才是真热态。
         time.sleep(FILE_DIGEST_RACY_WINDOW_S)
