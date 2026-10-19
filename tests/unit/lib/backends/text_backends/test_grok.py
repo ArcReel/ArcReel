@@ -38,7 +38,7 @@ class TestProperties:
             from lib.backends.text_backends.grok import GrokTextBackend
 
             b = GrokTextBackend(api_key="k")
-        assert b.model == "grok-4-1-fast-reasoning"
+        assert b.model == "grok-4.3"
 
     def test_capabilities(self, mock_xai):
         with patch("lib.backends.text_backends.grok.create_grok_client"):

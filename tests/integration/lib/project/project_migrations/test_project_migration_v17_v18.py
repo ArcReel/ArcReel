@@ -17,6 +17,7 @@ from lib.artifacts.artifact_currency import (
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey, ProjectArtifactManifestAdapter
 from lib.artifacts.artifact_planner import plan_artifact_target_state_by_gap_rule
 from lib.config.resolver import ConfigResolver
+from lib.config.retired_model_ids import TEXT_BACKEND_SETTING_KEYS
 from lib.edit_timeline import EditTimelineService
 from lib.infra.app_data_dir import app_data_dir
 from lib.project.project_manager import ProjectManager
@@ -70,6 +71,33 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
     assert (i2i.provider_id, i2i.model_id) == ("gemini-vertex", "gemini-3-pro-image")
     assert await resolver.resolve_resolution(migrated, t2i.provider_id, t2i.model_id) == "4K"
     assert await resolver.resolve_resolution(migrated, i2i.provider_id, i2i.model_id) == "1K"
+
+
+@pytest.mark.parametrize(
+    ("retired", "successor"),
+    [
+        ("ark/doubao-seed-2-0-lite-260215", "ark/doubao-seed-2-1-lite-260915"),
+        ("ark/doubao-seed-2-0-mini-260215", "ark/doubao-seed-2-0-mini-260428"),
+        ("grok/grok-4-1-fast-reasoning", "grok/grok-4.3"),
+        ("grok/grok-4-1-fast-non-reasoning", "grok/grok-4.3"),
+    ],
+)
+def test_schema_17_retired_text_model_references_resolve_to_successors(
+    tmp_path: Path, retired: str, successor: str
+) -> None:
+    project_dir = write_legacy_storyboard_project(tmp_path, name="legacy-retired-text-models")
+    advance_project_schema(project_dir, to_version=17)
+    project_path = project_dir / "project.json"
+    project = {**_read_json(project_path), **dict.fromkeys(TEXT_BACKEND_SETTING_KEYS, retired)}
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+
+    assert migrate_project_dir(project_dir) is True
+
+    assert _read_json(project_path) == {
+        **project,
+        **dict.fromkeys(TEXT_BACKEND_SETTING_KEYS, successor),
+        "schema_version": CURRENT_SCHEMA_VERSION,
+    }
 
 
 async def test_schema_17_timeline_with_agent_turn_reads_after_migration(tmp_path: Path) -> None:

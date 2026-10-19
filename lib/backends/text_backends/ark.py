@@ -20,7 +20,7 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MODEL = "doubao-seed-2-0-lite-260215"
+DEFAULT_MODEL = "doubao-seed-2-1-lite-260915"
 
 
 class ArkTextBackend:
