@@ -1193,9 +1193,11 @@ class TestProjectArchiveService:
         service.import_project_archive(archive_path, uploaded_filename="demo.zip")
         imported_manifest = json.loads((pm.get_project_path("demo") / MANIFEST_FILENAME).read_text(encoding="utf-8"))
         imported_entry = imported_manifest["entries"][key]
-        assert {field: imported_entry[field] for field in ("artifact_path", "basis_digest")} == startup_manifest[
-            "entries"
-        ][key]
+        claim_fields = ("artifact_path", "basis_digest")
+        startup_entry = startup_manifest["entries"][key]
+        assert {field: imported_entry[field] for field in claim_fields} == {
+            field: startup_entry[field] for field in claim_fields
+        }
         imported_audio = pm.get_project_path("demo") / "audio" / "segment_E1S01.wav"
         assert (
             imported_entry["content_digest"],

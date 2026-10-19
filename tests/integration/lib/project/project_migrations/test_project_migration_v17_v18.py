@@ -20,19 +20,24 @@ from lib.config.resolver import ConfigResolver
 from lib.config.retired_model_ids import TEXT_BACKEND_SETTING_KEYS
 from lib.edit_timeline import EditTimelineService
 from lib.infra.app_data_dir import app_data_dir
+from lib.infra.content_digest import sha256_file
+from lib.infra.json_io import atomic_write_json
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report, skipped_artifact_identity
-from lib.project.project_migrations import CURRENT_SCHEMA_VERSION
+from lib.project.project_migrations import CURRENT_SCHEMA_VERSION, v17_to_v18_timeline_agent_turn
 from lib.project.project_migrations.runner import cleanup_stale_backups, migrate_project_dir
 from lib.speech.speech_composition import SpeechProblemCode, admit_script_unit
+from lib.workflow.workflow_state import WorkflowStateService
 from tests.legacy_project_shapes import (
     advance_project_schema,
+    without_version_content_digests,
     write_legacy_drama_storyboard_project,
     write_legacy_presentation_project,
     write_legacy_reference_video_project,
     write_legacy_retired_model_references_project,
     write_legacy_storyboard_project,
     write_legacy_timeline_agent_turn_project,
+    write_legacy_tts_narration_project,
     write_legacy_unregistrable_asset_sheet_project,
     write_undescribed_style_bases_project,
 )
@@ -167,6 +172,15 @@ def _manifest_entries(project_dir: Path) -> dict[str, Any]:
     return _read_json(project_dir / MANIFEST_FILENAME)["entries"]
 
 
+def _manifest_claims(project_dir: Path) -> dict[str, Any]:
+    """清单条目的路径与依据，不含这一步补录的内容事实。"""
+
+    return {
+        key: {field: entry[field] for field in ("artifact_path", "basis_digest")}
+        for key, entry in _manifest_entries(project_dir).items()
+    }
+
+
 def test_artifacts_skipped_for_generation_input_gaps_are_backfilled_without_touching_registered_entries(
     tmp_path: Path,
 ) -> None:
@@ -179,7 +193,7 @@ def test_artifacts_skipped_for_generation_input_gaps_are_backfilled_without_touc
 
     assert migrate_project_dir(project_dir) is True
 
-    after = _manifest_entries(project_dir)
+    after = _manifest_claims(project_dir)
     assert {key: after[key] for key in before} == before
     assert after[scene_key]["artifact_path"] == "scenes/祠堂.png"
     resolver = ArtifactCurrencyResolver(project_dir)
@@ -312,7 +326,7 @@ def test_projects_without_generation_input_gaps_plan_identically_under_both_gap_
 
     assert recorded.entries == refused.entries
     assert migrate_project_dir(project_dir) is True
-    assert _manifest_entries(project_dir) == before
+    assert _manifest_claims(project_dir) == before
 
 
 def test_a_grid_whose_reference_sheet_is_gone_is_backfilled_with_the_reference_recorded_absent(tmp_path: Path) -> None:
@@ -374,3 +388,142 @@ def test_turning_a_presented_unit_into_mixed_speech_reads_its_media_layers_stale
         target = resolve_current_artifact_target(project_dir, key)
         assert target is not None, key
         assert target.basis_digest != entries[key.encode()]["basis_digest"]
+
+
+_CONTENT_FACT_FIELDS = ("content_digest", "content_size", "content_mtime_ns")
+
+
+def _media_currency(project_dir: Path) -> tuple[Any, ...]:
+    """用户看到的视频与配音时效：项目摘要的视频计数，加上制作状态里视频与配音的分组。"""
+
+    projects = ProjectManager(project_dir.parent.parent)
+    service = WorkflowStateService(projects)
+    summary = service.get_project_summary(project_dir.name)
+    artifacts = service.get_status(project_dir.name, 1).artifacts
+    groups = ("current_ids", "stale_ids", "missing_ids")
+    return (
+        summary.episodes[0].videos,
+        {name: tuple(artifacts[name][group] for group in groups) for name in ("videos", "audio")},
+    )
+
+
+def _selected_record(project_dir: Path, resource_type: str, resource_id: str) -> dict[str, Any]:
+    resource = _read_json(project_dir / "versions" / "versions.json")[resource_type][resource_id]
+    (record,) = [record for record in resource["versions"] if record["version"] == resource["current_version"]]
+    return record
+
+
+def _assert_content_recorded(project_dir: Path, key: ArtifactKey, resource_type: str) -> None:
+    entry = _manifest_entries(project_dir)[key.encode()]
+    formal = project_dir / entry["artifact_path"]
+    digest = sha256_file(formal)
+    stat = formal.stat()
+    assert (entry["content_digest"], entry["content_size"], entry["content_mtime_ns"]) == (
+        digest,
+        stat.st_size,
+        stat.st_mtime_ns,
+    ), key
+    assert _selected_record(project_dir, resource_type, str(key.components[1]))["content_digest"] == digest, key
+
+
+def test_stock_videos_and_narration_audio_get_content_digests_across_the_whole_chain(tmp_path: Path) -> None:
+    """v7 存量项目一路迁到当前版本：正式文件与选中快照一致的视频和配音，清单条目与版本记录都补上内容指纹。"""
+    project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
+
+    assert migrate_project_dir(project_dir) is True
+
+    for unit_id in ("E1S1", "E1S2"):
+        _assert_content_recorded(project_dir, ArtifactKey.episode_video(1, unit_id), "videos")
+        _assert_content_recorded(project_dir, ArtifactKey.episode_audio(1, unit_id), "audio")
+    videos, groups = _media_currency(project_dir)
+    assert (videos.total, videos.available, videos.stale) == (2, 2, 0)
+    # 项目 TTS 设置取最后一条配音的设置，第一条配音本就 stale，补录不改变它。
+    assert groups["audio"] == (["E1S2"], ["E1S1"], [])
+
+
+def _strip_content_digests(project_dir: Path) -> None:
+    """抹掉这一步补录的内容指纹，把项目还原成没有补录时的样子。"""
+
+    manifest_path = project_dir / MANIFEST_FILENAME
+    manifest = _read_json(manifest_path)
+    for entry in manifest["entries"].values():
+        for field in _CONTENT_FACT_FIELDS:
+            entry.pop(field, None)
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    versions_path = project_dir / "versions" / "versions.json"
+    versions_path.write_text(
+        json.dumps(without_version_content_digests(_read_json(versions_path)), ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def test_media_that_cannot_be_proven_identical_to_its_selected_snapshot_is_not_backfilled(tmp_path: Path) -> None:
+    """正式视频被换掉、配音快照损坏：两者都不补录；有没有补录，用户看到的时效判定都一样。"""
+    project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
+    advance_project_schema(project_dir, to_version=17)
+    (project_dir / "videos" / "scene_E1S2.mp4").write_bytes(b"replaced outside ArcReel")
+    snapshot = project_dir / _selected_record(project_dir, "audio", "E1S1")["file"]
+    snapshot.write_bytes(b"corrupted snapshot")
+
+    assert migrate_project_dir(project_dir) is True
+
+    backfilled = _media_currency(project_dir)
+    entries = _manifest_entries(project_dir)
+    for key, resource_type in (
+        (ArtifactKey.episode_video(1, "E1S2"), "videos"),
+        (ArtifactKey.episode_audio(1, "E1S1"), "audio"),
+    ):
+        assert not set(_CONTENT_FACT_FIELDS) & set(entries[key.encode()]), key
+        assert "content_digest" not in _selected_record(project_dir, resource_type, str(key.components[1])), key
+    _assert_content_recorded(project_dir, ArtifactKey.episode_video(1, "E1S1"), "videos")
+    _assert_content_recorded(project_dir, ArtifactKey.episode_audio(1, "E1S2"), "audio")
+    _strip_content_digests(project_dir)
+    assert _media_currency(project_dir) == backfilled
+
+
+def test_a_step_that_fails_after_the_backfill_committed_reruns_to_completion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """补录已提交、提升 schema 时写盘失败：重跑认得已写好的指纹，迁移照常完成。"""
+    project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
+    advance_project_schema(project_dir, to_version=17)
+
+    def full_disk(path: Path, payload: object) -> None:
+        if path.name == "project.json":
+            raise OSError("disk full")
+        atomic_write_json(path, payload)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(v17_to_v18_timeline_agent_turn, "atomic_write_json", full_disk)
+        with pytest.raises(OSError, match="disk full"):
+            migrate_project_dir(project_dir)
+    _assert_content_recorded(project_dir, ArtifactKey.episode_video(1, "E1S1"), "videos")
+
+    assert migrate_project_dir(project_dir) is True
+    assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_SCHEMA_VERSION
+    _assert_content_recorded(project_dir, ArtifactKey.episode_audio(1, "E1S2"), "audio")
+
+
+def test_a_failed_content_digest_backfill_leaves_nothing_half_written_and_reruns(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """清单提交失败：版本记录回到改写前、项目停在 17；重跑补录完整。"""
+    project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
+    advance_project_schema(project_dir, to_version=17)
+    versions_before = (project_dir / "versions" / "versions.json").read_bytes()
+    manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
+
+    def refuse(*_args: object, **_kwargs: object) -> bool:
+        raise OSError("disk full")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(ProjectArtifactManifestAdapter, "replace_entries_if_matches_atomically", refuse)
+        with pytest.raises(OSError, match="disk full"):
+            migrate_project_dir(project_dir)
+
+    assert _read_json(project_dir / "project.json")["schema_version"] == 17
+    assert (project_dir / "versions" / "versions.json").read_bytes() == versions_before
+    assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest_before
+
+    assert migrate_project_dir(project_dir) is True
+    _assert_content_recorded(project_dir, ArtifactKey.episode_video(1, "E1S1"), "videos")
+    _assert_content_recorded(project_dir, ArtifactKey.episode_audio(1, "E1S2"), "audio")

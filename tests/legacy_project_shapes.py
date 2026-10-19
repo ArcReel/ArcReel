@@ -21,7 +21,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import VERSION_CONTENT_DIGEST, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
 from lib.project.project_migrations.runner import MIGRATORS
@@ -444,6 +444,8 @@ def write_legacy_tts_narration_project(
         metadata_path = project_dir / "versions" / "versions.json"
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         metadata["audio"][unit_id]["versions"][-1]["created_at"] = f"2026-04-0{index}T10:00:00Z"
+        # 0.33 及更早的版本记录没有内容指纹（v17→v18 补录）。
+        metadata["audio"][unit_id]["versions"][-1].pop(VERSION_CONTENT_DIGEST)
         _write_json(metadata_path, metadata)
     _write_json(script_path, script)
     if raised_video_duration_seconds is not None:
@@ -1438,6 +1440,24 @@ def add_legacy_manual_uploads(
     )
 
 
+def without_version_content_digests(versions: dict[str, Any]) -> dict[str, Any]:
+    """去掉 v17→v18 补录在版本记录上的内容指纹，用来断言更早的迁移步没有改写其余字段。"""
+
+    return {
+        resource_type: {
+            resource_id: {
+                **resource,
+                "versions": [
+                    {key: value for key, value in record.items() if key != VERSION_CONTENT_DIGEST}
+                    for record in resource["versions"]
+                ],
+            }
+            for resource_id, resource in bucket.items()
+        }
+        for resource_type, bucket in versions.items()
+    }
+
+
 def advance_project_schema(project_dir: Path, *, to_version: int) -> None:
     """按迁移链把项目从当前 ``schema_version`` 逐级推进到 ``to_version``。"""
 
@@ -1457,6 +1477,7 @@ __all__ = [
     "bind_episode_script_to_filename",
     "legacy_transition_presentation_basis",
     "refer_to_asset_in_episode",
+    "without_version_content_digests",
     "write_legacy_ad_reference_video_project",
     "write_legacy_drama_storyboard_project",
     "write_legacy_episode_id_remnants_project",
