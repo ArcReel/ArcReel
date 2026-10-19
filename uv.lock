@@ -1665,15 +1665,15 @@ wheels = [
 
 [[package]]
 name = "jsonpath-rfc9535"
-version = "1.0.1"
+version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "iregexp-check" },
     { name = "regex" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/06/8d/e3891ee43c1828805a28f16d09a91fd1bd5b76a30fbc93d55cc3343a4a50/jsonpath_rfc9535-1.0.1.tar.gz", hash = "sha256:9cab85a93f7ad6b2b8d9f31d9cb4216207a000de4eecdc4ac6cdfe2a79784c79", size = 27289, upload-time = "2026-10-09T06:50:53.906Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9b/1e/77a5b855f63c52e5e295a55bc4592bf7cf36186ae009587ec80fa743e417/jsonpath_rfc9535-2.0.0.tar.gz", hash = "sha256:42eb669ba7c270723011306c07ee5620fd4f6def42e22c22710778a3b4dc4e35", size = 146067, upload-time = "2026-10-03T08:09:06.002Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8a/b5/33a308488c101300265f83aac0e85d1344fe59a43cb72763b450efe8245d/jsonpath_rfc9535-1.0.1-py3-none-any.whl", hash = "sha256:b1c2176532776fa1cd02d8e00efa1a0088d55f47bb5e54ff22875cdbccafcdbd", size = 36538, upload-time = "2026-10-09T06:50:52.878Z" },
+    { url = "https://files.pythonhosted.org/packages/c0/1c/fb696ba39c62e566641b84be05104b2ee68a063f70d15ab621864b87acff/jsonpath_rfc9535-2.0.0-py3-none-any.whl", hash = "sha256:245ff25d8e8d134a969a37d207369371fdba96d8968316a1dfe0f4806b0af63b", size = 32411, upload-time = "2026-10-03T08:09:04.251Z" },
 ]
 
 [[package]]
