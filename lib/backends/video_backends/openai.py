@@ -40,6 +40,9 @@ from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
 
+# Sora 的 input_reference 只收单个文件，首帧与参考图共用这一槽位；能力声明与提交前检查都读它。
+_INPUT_REFERENCE_SLOTS = 1
+
 
 # sora 合法 size 按 model 能力 + 分辨率档分级（OpenAI 官方 changelog / 模型页）：
 # - sora-2（base）：仅 720p —— 9:16 720x1280 / 16:9 1280x720。
@@ -174,7 +177,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         return capabilities_by_names(
             model,
             lambda name: (
-                VideoCapabilities(max_reference_images=1, audio_track=VideoAudioMode.ALWAYS_ON)
+                VideoCapabilities(max_reference_images=_INPUT_REFERENCE_SLOTS, audio_track=VideoAudioMode.ALWAYS_ON)
                 if name.startswith("sora-2")
                 else None
             ),
@@ -225,11 +228,15 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
             raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
-        # input_reference 只收单个文件，首帧与参考图共用这一槽位；多张时超出部分会被丢弃或被上游拒绝，付费前拒绝。
+        # 首帧与参考图合计超过槽位时，超出部分会被丢弃或被上游拒绝，付费前拒绝。
         input_count = bool(request.start_image) + len(request.reference_images or [])
-        if input_count > 1:
+        if input_count > _INPUT_REFERENCE_SLOTS:
             raise VideoCapabilityError(
-                "video_reference_images_exceeded", provider=self.name, model=self._model, limit=1, count=input_count
+                "video_reference_images_exceeded",
+                provider=self.name,
+                model=self._model,
+                limit=_INPUT_REFERENCE_SLOTS,
+                count=input_count,
             )
         kwargs: dict = {
             "prompt": request.prompt,
@@ -242,7 +249,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
         # 收集所有参考图（start_image + reference_images）：存在性检查与读图都是阻塞 I/O，整体卸载到线程
         refs = await asyncio.to_thread(_encode_input_references, request, self._model)
         if refs:
-            kwargs["input_reference"] = refs[0]
+            (kwargs["input_reference"],) = refs
 
         logger.info("OpenAI 视频生成开始: model=%s, seconds=%s", self._model, kwargs["seconds"])
         logger.info("调用 %s 视频 SDK kwargs=%s", self.name, format_kwargs_for_log(kwargs))
