@@ -16,7 +16,7 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Pull requests as a triage surface
 
-**PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
+**PRs as a request surface: yes.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_ The daily unattended triage sweep follows `docs/agents/triage-sweep.md`.
 
 When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
 

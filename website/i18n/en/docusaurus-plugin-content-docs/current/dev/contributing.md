@@ -11,6 +11,10 @@ Contributions of code, bug reports, and feature proposals are welcome.
 
 Contributions whose main purpose is to promote a commercial service (for example, adding an integration for one particular service, or adding service recommendations and links to the docs) do not go through the PR process, and such PRs will be closed. For collaboration, contact support@arc-reel.com.
 
+Before developing a new feature or making a large-scale change, open an issue to discuss the direction first.
+
+Before a PR can be merged, its author must sign the CLA. CLA Assistant posts the signing link as a PR comment.
+
 ArcReel assumes that contributors develop with a coding Agent. `AGENTS.md` at the repository root (`CLAUDE.md` is a link to it) is the Agent's entry point; gate commands, test selection, and coding standards are all linked from there. This page covers only what contributors themselves need to know.
 
 ## Local Development Environment {#local-development}
