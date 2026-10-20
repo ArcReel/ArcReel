@@ -21,7 +21,7 @@ ArcReel 的代码规范：审查 diff 时需要判断、工具替代不了的项
 
 ## 维护
 
-规范和检查没拦住的错，经收尾自查提交为教训候选，由周巡检记入 `docs/LESSONS.md` 并按阈值晋升；记录、计数、晋升与退出规则见 [`docs/agents/lessons.md`](docs/agents/lessons.md)。新增、修改或删除规则时按以下判据：
+规范和检查没拦住的错，经收尾自查提交为教训候选，由巡检记入 `docs/LESSONS.md` 并按阈值晋升；记录、计数、晋升与退出规则见 [`docs/agents/lessons.md`](docs/agents/lessons.md)。新增、修改或删除规则时按以下判据：
 
 - **放在哪里**：按 [retro](.agents/skills/retro/SKILL.md) 的分类决定载体，机械可判的做成 lint 规则、测试或 `scripts/audit_conventions.py` 中的检查。按返工代价划分实现期与审查期：做错后返工代价高的知识（选错层或结构，例如会话调用经 SessionActor 串行、写入后刷新经 `refreshAfterWrite`、可编辑内容接入 `useEditUnit`）写进架构或参考文档，由导航指针在实现期读到；返工代价低的写进规范，在审查期读到。
 - **该不该存在**：反事实检验。只有去掉这条规则后 reviewer 会漏掉一类真实发生、并且会再发生的问题，这条规则才有存在的理由。

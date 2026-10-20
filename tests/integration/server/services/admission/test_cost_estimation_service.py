@@ -449,6 +449,28 @@ class TestCostEstimationService:
             "unpriced_reason": None,
         }
 
+    @pytest.mark.parametrize(
+        ("has_audio_track", "controllable", "requested", "expected"),
+        [
+            (True, False, False, True),  # 恒有声（AI Studio 目录型号）：上游照常出有声成片
+            (True, True, False, False),  # 开关可控（Vertex，含放宽了音轨的用户添加型号）：跟随开关
+            (False, False, True, True),  # 恒无声：原样带出开关，由调用通道按型号计量
+            (True, True, True, True),
+        ],
+    )
+    def test_provider_request_audio_is_what_execution_sends(self, has_audio_track, controllable, requested, expected):
+        """预估还原的请求带执行时实际发出的音频开关，调用通道按请求中的开关计量。"""
+        facts = make_video_request_facts(
+            provider_id="gemini-vertex",
+            requested_generate_audio=requested,
+            has_audio_track=has_audio_track,
+            audio_switch_controllable=controllable,
+        )
+
+        request = VideoRequestCostFacts(facts, 8, aspect_ratio="16:9").provider_request()
+
+        assert request.generate_audio is expected
+
     async def test_ark_video_tokens_are_estimated_by_the_official_formula(self, db_factory):
         """Seedance 2.0 按 (输入视频秒数 + 输出秒数) × 宽 × 高 × 24 / 1024 估算视频 token，再按价目表计价。"""
         quote = await quote_video_request(

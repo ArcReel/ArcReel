@@ -308,6 +308,8 @@ def test_selected_video_compensation_restores_media_manifest_and_only_video_asse
         artifact_path="videos/scene_E1S01.mp4",
         basis=old_basis,
     )
+    old_content = adapter.get_entry(ArtifactKey.episode_video(1, "E1S01")).content
+    assert old_content is not None
     script = {
         "episode": 1,
         "content_mode": "narration",
@@ -385,6 +387,7 @@ def test_selected_video_compensation_restores_media_manifest_and_only_video_asse
     manifest_entry = adapter.get_entry(ArtifactKey.episode_video(1, "E1S01"))
     assert manifest_entry is not None
     assert manifest_entry.basis_digest == old_basis.digest
+    assert manifest_entry.content == old_content
     assert thumbnail.read_bytes() == b"old-thumbnail"
     if script_change in {"none", "legacy"}:
         assert assets == {

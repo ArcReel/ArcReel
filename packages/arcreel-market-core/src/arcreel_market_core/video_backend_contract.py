@@ -329,6 +329,11 @@ class VideoGenerationRequest:
     # 用户在途改配置后按新域名轮旧 job 会查无（404）而被误判成过期。提交路径恒 None。
     submitted_base_url: str | None = None
 
+    # 执行闸门判定所依据的能力（档位感知基底已叠加用户能力覆盖），由跑执行闸门的调用方（MediaGenerator、测试连接）填入。
+    # 按型号档案判定可发输入的 backend 读它而不是自身档案，让用户放宽的维度真实发出、由上游裁定；
+    # None（直接构造请求的调用方）时回落 backend 自身档案。
+    video_capabilities: VideoCapabilities | None = None
+
     # Seedance 特有
     service_tier: str = "default"
     seed: int | None = None

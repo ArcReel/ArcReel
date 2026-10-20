@@ -62,8 +62,8 @@ _DOWNLOAD_CHUNK_BYTES = 1024 * 1024
 #: 未配置 base_url 时 google-genai 发往的 AI Studio 域名（SDK 缺省值），续跑回放据此比对提交域名。
 _AISTUDIO_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
-# 请求里带得动音轨开关的 Veo 型号（即 Vertex 目录）：`_create_task` 只在 backend_type == "vertex"
-# 时下发 generate_audio，AI Studio 的请求没有这个字段。两家目录的 model 命名不重叠，一致性由
+# 官方声明音轨可控的 Veo 型号（即 Vertex 目录）：`_create_task` 只在 backend_type == "vertex"
+# 时下发 generate_audio，AI Studio 的请求没有这个字段。只决定能力声明，计费跟随实际请求。两家目录的 model 命名不重叠，一致性由
 # tests/unit/lib/backends/video_backends/test_video_backend_capabilities.py 的音轨立场守卫锁定（新增型号漏登记会在那里暴露）。
 _AUDIO_SWITCH_MODELS: frozenset[str] = frozenset(
     {
@@ -160,15 +160,17 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
-        音轨开关只在 Vertex 目录的型号上下发，其余型号的成片恒有声（与 ``video_capabilities_for_model`` 的
-        音轨形态同一判据）。
+        有声与否跟随实际请求：Vertex 按下发的 ``generate_audio``（含用户添加、放宽了音轨的型号）；AI Studio
+        发不出静音请求，``generate_audio=False`` 在提交前即被拒绝（见 ``generate``），能提交的都是有声请求。
+        提交前预估的请求由调用方按执行时会发出的开关构造（音轨不可控的型号按有声，见 ``VideoRequestCostFacts``）。
+        结算时以 ``result.generate_audio`` 为准（见 ``_collect_video``）。
         """
         return video_usage(
             request,
             result,
             seconds=request.duration_seconds,
             resolution=request.resolution,
-            audio=request.generate_audio if model in _AUDIO_SWITCH_MODELS else True,
+            audio=request.generate_audio,
         )
 
     @staticmethod
@@ -211,6 +213,9 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         # 请求体没有参考音频字段；能力被用户覆盖放宽时也发不出，付费前拒绝而不是静默丢弃。
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._video_model)
+        # AI Studio 请求体没有音轨开关，同理拒绝静音请求；续跑（resume_video）的任务已提交，不在此列。
+        if not request.generate_audio and self._backend_type != "vertex":
+            raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._video_model)
         operation = await self._create_task(request)
         op_name = getattr(operation, "name", None)
         if not op_name:

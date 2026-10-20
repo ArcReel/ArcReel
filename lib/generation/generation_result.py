@@ -202,6 +202,7 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_reference_images_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     "video_reference_images_with_frames_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     "video_reference_audio_unsupported": GenerationAction.CONFIGURE_PROVIDER,
+    "video_reference_route_audio_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     # 请求本身不合法（超限、缺配套字段、档位不匹配）：改请求。
     "ref_payload_floor_exceeded": GenerationAction.FIX_INPUT,
     "video_duration_invalid": GenerationAction.FIX_INPUT,

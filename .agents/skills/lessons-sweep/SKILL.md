@@ -1,10 +1,10 @@
 ---
 name: lessons-sweep
-description: 每周巡检合并记录，更新教训台账，按阈值晋升或退出规范，产出一个自动合并的巡检 PR。
+description: 定期巡检合并记录，更新教训台账，按阈值晋升或退出规范，产出一个自动合并的巡检 PR。
 disable-model-invocation: true
 ---
 
-# 教训周巡检
+# 教训巡检
 
 你是 `docs/LESSONS.md` 的唯一写入者：核验并计数上次巡检以来的教训候选，按阈值晋升，清理过期条目与失效规则，产出一个巡检 PR。记录与晋升规则以 [lessons.md](../../../docs/agents/lessons.md) 为准，开工前通读；本文只写步骤。是否找用户、范围外的缺陷是否开 issue，按 [escalation.md](../../../docs/agents/escalation.md) 判断。巡检通常无人值守运行，需要用户的事项开 `needs-triage` issue，其余部分照常推进。
 
@@ -55,8 +55,8 @@ disable-model-invocation: true
 
 1. 把 reviewed-through 标记更新为窗口终点的 SHA 与日期，提交本次全部改动。
 2. 运行 `uv run python scripts/gate.py --changed` 直到通过。
-3. 创建 PR，标题为 `chore(lessons): <YYYY-MM-DD> 教训周巡检`。正文列出：新增教训、计数变化、清理掉的教训、晋升及去向、退出的规则、agent 自行裁决的事项（各附一行理由）、本周 agent 新开的 issue 数（窗口时间内新建、带 `ready-for-agent` 或 `needs-triage` 标签的 issue，两类分开计数）。
-4. 使用 Skill 工具调用 `pr-ai-review-loop`，由你担任委派方：需要用户的事项开 `needs-triage` issue，从本 PR 撤下相关改动（条目留在台账，注明 issue 号），其余改动照常收敛；follow-up 按 escalation.md 分流。收敛后用 `gh pr merge --auto --squash` 开启 auto-merge。
+3. 创建 PR，标题为 `chore(lessons): <YYYY-MM-DD> 教训巡检`。正文列出：新增教训、计数变化、清理掉的教训、晋升及去向、退出的规则、agent 自行裁决的事项（各附一行理由）、窗口内 agent 新开的 issue 数（带 `ready-for-agent` 或 `needs-triage` 标签，两类分开计数）。
+4. PR 只推进标记时，直接用 `gh pr merge --auto --squash` 开启 auto-merge。其余情况使用 Skill 工具调用 `pr-ai-review-loop`，由你担任委派方：需要用户的事项开 `needs-triage` issue，从本 PR 撤下相关改动（条目留在台账，注明 issue 号），其余改动照常收敛；follow-up 按 escalation.md 分流。收敛后用 `gh pr merge --auto --squash` 开启 auto-merge。
 
 ## 失败与停止
 
