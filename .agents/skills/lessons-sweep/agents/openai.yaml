@@ -1,5 +1,5 @@
 interface:
-  display_name: "教训周巡检"
+  display_name: "教训巡检"
   short_description: "更新教训台账，按阈值晋升或退出规范，产出巡检 PR"
   default_prompt: "使用 $lessons-sweep 巡检上次标记以来的合并记录，更新 docs/LESSONS.md 并提交巡检 PR。"
 policy:
