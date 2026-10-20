@@ -7,7 +7,6 @@
 | Reviewer | GraphQL login | REST login | 自动审查 | 手动触发 |
 |---|---|---|---|---|
 | CodeRabbit | `coderabbitai` | `coderabbitai[bot]` | PR opened、后续 push | `@coderabbitai resume` / `@coderabbitai review` |
-| Gemini | `gemini-code-assist` | `gemini-code-assist[bot]` | PR opened | `/gemini review` |
 | Codex | `chatgpt-codex-connector` | `chatgpt-codex-connector[bot]` | PR opened、修复 push 后续审 | `@codex review`，仅首次未启动时兜底 |
 | CodeQL | — | `github-advanced-security[bot]` | 每次 push 后分析 | 无 |
 
@@ -17,9 +16,7 @@
 
 CodeRabbit、Codex 自动跟随 push，核对其当前 HEAD 的完成信号。仅回复、不改 HEAD 时，已确认的覆盖仍有效。
 
-Gemini 手动重审消耗有限配额，默认沿用最近一次已完成且发现已处置的审查。沿用前检查从**最近已审 commit**到当前 HEAD 的全部变更：处置 reviewer 发现的修复、格式、拼写和局部小改动都可沿用；引入新行为、新接口、触及未审过的文件或改变安全边界时才重审。
-
-`classify_commits.sh` 可帮助定位提交，不能单凭提交名或改动大小决定沿用。需查看提交范围时按其 header 使用；出现 `SINCE_SHA ... is not on PR`，或无法确认覆盖连续性时，重新审查。沿用依据（已审 SHA、当前 SHA）写进 `round.sh mark` 的 `--note`，便于接力核对。
+ArcReel 已停用 Gemini Code Assist，PR 上不再等待或触发它。
 
 ## 读取与处置记录
 
@@ -34,14 +31,6 @@ Gemini 手动重审消耗有限配额，默认沿用最近一次已完成且发�
 **覆盖完成。** `reviewed_current_head == true`，且 `is_in_progress == false`、`is_paused == false`。限流时的 walkthrough 更新时间不算审查，脚本已通过 `is_rate_limited` 排除。
 
 **发现入口。** 读取新 inline 和新 review body；`has_outside_diff` 提示正文含 diff 外发现，无 inline id 时在 PR 顶层回复。`is_ok`、`actionable_count` 是 bot 的摘要，不能替代这些正文。增量审查返回 `Already reviewed` 时，两者可能残留上一轮值，以本轮正文和实际处置为准。所有实质发现已处置即可收敛，不要求 `actionable_count` 归零。
-
-## Gemini
-
-**触发。** PR 创建不足 5 分钟且从无 review 时等待；超过 5 分钟仍无 review，才发送 `/gemini review`。已有审查但不覆盖当前 HEAD、且不满足沿用条件时，再触发。发送后等待，避免同一 HEAD 重复请求。
-
-**覆盖完成。** 有 `reviewed_current_head == true` 的已提交 review，或满足上述沿用条件。
-
-**发现入口。** 同时检查 inline 和最新 review summary。`has_pass_marker == false` 时用 `query.sh ... gemini-latest-body` 读取，区分真实 finding 与没有采用固定通过措辞。inline 全部处置不代表 summary 已处置；反之，缺少 pass marker 也不等于存在待修复问题。
 
 ## Codex
 
