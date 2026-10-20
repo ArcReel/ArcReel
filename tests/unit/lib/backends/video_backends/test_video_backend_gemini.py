@@ -6,6 +6,7 @@ import threading
 import time
 import urllib.error
 from email.message import Message
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -176,6 +177,45 @@ class TestGeminiVideoBackendGenerate:
             )
         assert exc.value.code == "video_reference_audio_unsupported"
         gemini_backend._client.aio.models.generate_videos.assert_not_awaited()
+
+    async def test_aistudio_mute_rejected_before_submit(self, gemini_backend, tmp_path):
+        """AI Studio 请求体没有音轨开关：用户放宽为可控并关音频时，付费前拒绝而不是照常出有声成片。"""
+        gemini_backend._client.aio.models.generate_videos = AsyncMock()
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gemini_backend.generate(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
+            )
+        assert exc.value.code == "video_audio_switch_not_supported"
+        gemini_backend._client.aio.models.generate_videos.assert_not_awaited()
+
+    @pytest.mark.parametrize("model", ["veo-3.1-generate-001", "veo-user-added"])
+    async def test_vertex_mute_sent_and_billed_silent(self, gemini_backend, tmp_path, model):
+        """Vertex 下发 generate_audio：已登记与用户添加的型号，预估、结果与结算都跟随实际请求。"""
+        from lib.backends.video_backends.gemini import GeminiVideoBackend
+
+        gemini_backend._backend_type = "vertex"
+        gemini_backend._video_model = model
+        gemini_backend._client.aio.models.generate_videos = AsyncMock(return_value=_make_done_operation())
+        request = VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
+
+        assert GeminiVideoBackend.metered_usage(model, request).dimensions["audio"] is False
+        result = await gemini_backend.generate(request)
+
+        assert gemini_backend._types.GenerateVideosConfig.call_args.kwargs["generate_audio"] is False
+        assert result.generate_audio is False
+        assert GeminiVideoBackend.metered_usage(model, request, result).dimensions["audio"] is False
+
+    def test_aistudio_catalog_models_estimate_with_audio(self):
+        """目录守卫：AI Studio 目录的每个视频型号关音频时预估仍按有声，与上游恒含音出账一致。"""
+        from lib.backends.video_backends.gemini import GeminiVideoBackend
+        from lib.catalog import query as catalog
+
+        models = [m for m, info in catalog.list_models("gemini-aistudio").items() if info.media_type == "video"]
+        assert models
+        request = VideoGenerationRequest(prompt="p", output_path=Path("o.mp4"), generate_audio=False)
+        for model in models:
+            assert GeminiVideoBackend.metered_usage(model, request).dimensions["audio"] is True, model
 
     async def test_generate_text_to_video(self, gemini_backend, tmp_path):
         output = tmp_path / "out.mp4"
@@ -676,6 +716,20 @@ class TestGeminiResumeVideo:
         with bounded_poll_clock(), pytest.raises(ResumeExpiredError):
             await gemini_backend.resume_video("op-digits", request)
         assert get_calls["n"] == 2
+
+    async def test_aistudio_resume_of_mute_request_bills_audio(self, gemini_backend, tmp_path):
+        """已提交的任务续跑不再拒绝（费用已发生），AI Studio 成片按有声结算，与提交时的实际请求一致。"""
+        from lib.backends.video_backends.gemini import GeminiVideoBackend
+
+        done_op = _make_done_operation()
+        gemini_backend._client.aio.operations.get = AsyncMock(return_value=done_op)
+        gemini_backend._types.GenerateVideosOperation.model_validate = MagicMock(return_value=done_op)
+
+        request = VideoGenerationRequest(prompt="x", output_path=tmp_path / "out.mp4", generate_audio=False)
+        result = await gemini_backend.resume_video("op-mute", request)
+
+        assert result.generate_audio is True
+        assert GeminiVideoBackend.metered_usage(gemini_backend.model, request, result).dimensions["audio"] is True
 
     async def test_initial_get_not_found_classified_as_resume_expired(self, gemini_backend, tmp_path):
         gemini_backend._client.aio.operations.get = AsyncMock(
