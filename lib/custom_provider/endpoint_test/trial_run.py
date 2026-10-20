@@ -38,6 +38,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoCapabilityError,
     VideoGenerationRequest,
 )
+from lib.backends.backend_assembly.specs import apply_user_added_video_overrides
 from lib.backends.container_sniff import CONTAINER_HEAD_BYTES, sniff_container
 from lib.backends.image_backends.base import (
     ImageCapability,
@@ -49,6 +50,7 @@ from lib.backends.providers import CALL_TYPE_IMAGE, CALL_TYPE_VIDEO, CallPurpose
 from lib.backends.video_frame_slots import resolve_first_frame_aspect_ratio, resolve_video_capabilities
 from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver
+from lib.custom_provider import is_custom_provider
 from lib.custom_provider.comfyui.failures import ComfyuiError
 from lib.custom_provider.declarative_backend import DeclarativeRuntimeError, DeclarativeVideoBackend
 from lib.custom_provider.declarative_image_backend import DeclarativeImageBackend
@@ -115,6 +117,9 @@ class TrialRunTarget:
     #: 固定 0，且能力由节点绑定推导而内联定义这条入口拿不到推导结果，跑闸只会把「绑定漏了首帧」
     #: 说成一条能力拒绝——而用户点测试连接正是为了看 ComfyUI 自己怎么说。
     gate_capabilities: bool = True
+    #: 解析出的视频能力上要不要叠加内置供应商下用户添加的模型的能力覆盖（docs/adr/0104）。
+    #: 只有内置供应商的模型行为真；自定义供应商的覆盖由 CustomVideoBackend 自己叠加，内联定义没有模型行。
+    user_added_overrides: bool = False
 
 
 def _as_float(value: object) -> float | None:
@@ -442,6 +447,9 @@ class TrialRunManager:
             # ``video_capabilities_for_tier`` 的端点按分辨率收窄，读未收窄的属性会比生产放得更宽。
             # 测试请求不带 ``service_tier``，下发的就是请求缺省档，解析也取缺省档。
             video_caps = resolve_video_capabilities(backend, resolution=parameters.resolution) if is_video else None
+            # 与生产执行闸门同一口径：叠加后的能力既过闸，也随请求带给后端。
+            if video_caps is not None and target.user_added_overrides:
+                video_caps = apply_user_added_video_overrides(video_caps, target.provider, target.model)
             # 生产路径在记账括号前跑同一道能力闸（声明的违约在付费前拒绝，不发给供应商）；
             # 测试连接跑的是生产那条路，闸也一致。免闸的目标见 ``TrialRunTarget.gate_capabilities``。
             if target.gate_capabilities:
@@ -792,6 +800,7 @@ def model_ref_target(
         build_backend=build,
         definition=definition,
         media_type=media_type,
+        user_added_overrides=not is_custom_provider(provider_id),
     )
 
 
