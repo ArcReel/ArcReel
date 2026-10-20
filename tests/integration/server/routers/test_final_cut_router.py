@@ -195,3 +195,18 @@ async def test_unavailable_ffmpeg_answers_503() -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"]
+
+
+@pytest.mark.usefixtures("timeline_project")
+async def test_a_corrupted_version_answers_409_naming_the_unit_and_version() -> None:
+    error = FinalCutError(
+        "final_cut_video_version_corrupted", "诊断原文", unit_id="E1U2", resource_type="reference_videos", version=3
+    )
+    app = _app(_RefusingService(error), queue=None)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as http:
+        response = await http.post("/api/v1/projects/demo/edit-timelines/tl-0000abcd/final-cut")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "视频单元 未命名集 · U2 当前使用的第 3 版视频文件已损坏，无法出成片。你可以为此单元选择其他版本，或重新生成。"
+    )

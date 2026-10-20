@@ -24,7 +24,7 @@ from typing import Any, Literal
 
 from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey
 from lib.artifacts.rendered_artifact import timeline_renders_dir
-from lib.artifacts.version_manager import UnmanagedSnapshotPathError, VersionManager
+from lib.artifacts.version_manager import VERSION_CONTENT_DIGEST, UnmanagedSnapshotPathError, VersionManager
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.bgm.library import BgmSource
 from lib.edit_timeline.bgm import bgm_sources_input
@@ -127,8 +127,9 @@ def current_video(
 ) -> CurrentVideo | None:
     """可用视频：current 版本 > 0、正式文件与该版本快照都在场；stale 视频同样可用。
 
-    渲染读取版本快照而不是正式文件：正式文件会被新生成或版本恢复替换，快照不会。内容指纹也取自快照，
-    依据描述的就是渲染实际读取的字节。
+    渲染读取版本快照而不是正式文件：正式文件会被新生成或版本恢复替换，快照不会。内容指纹是快照的：
+    版本记录写入时记下了快照指纹就直接用它，不读快照（快照在渲染使用前对照记录校验）；没有记录指纹的
+    旧版本才用 ``digest`` 现取。
     """
     version = versions.get_current_version(resource_type, unit_id)
     artifact_path = resource_relative_path(resource_type, unit_id)
@@ -143,7 +144,7 @@ def current_video(
         unit_id=unit_id,
         version=version,
         artifact_path=artifact_path,
-        content_digest=digest(snapshot.relative_to(project_dir).as_posix()),
+        content_digest=record.get(VERSION_CONTENT_DIGEST) or digest(snapshot.relative_to(project_dir).as_posix()),
         snapshot=snapshot,
         provider_audio=provider_audio_recorded(record),
     )

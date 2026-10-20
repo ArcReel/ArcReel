@@ -18,6 +18,7 @@ from lib.artifacts.artifact_manifest import (
     LOCK_FILENAME,
     MANIFEST_FILENAME,
     MANIFEST_READ_CACHE_PROJECT_LIMIT,
+    MANIFEST_REPLACE_RETRY_DELAYS_SECONDS,
     ArtifactBasis,
     ArtifactKey,
     ArtifactManifest,
@@ -522,6 +523,8 @@ def test_project_adapter_creates_lock_file_exclusively(tmp_path: Path, monkeypat
 
     lock_open_flags.clear()
     assert adapter.get_entry(key) is not None
+    assert lock_open_flags == []
+    assert adapter.delete_entry(key)
     assert len(lock_open_flags) == 2
     assert lock_open_flags[0] & os.O_EXCL
     assert not lock_open_flags[1] & os.O_CREAT
@@ -577,6 +580,112 @@ def test_project_adapter_replace_failure_preserves_manifest_and_cleans_temp_file
         manifest.compare(second_key, artifact_path="scripts/episode_2.json", basis=basis).status
         is ArtifactStatus.MISSING
     )
+
+
+@pytest.mark.parametrize("refusals", [2, None], ids=("released", "held"))
+def test_project_adapter_retries_a_replace_refused_while_a_reader_holds_the_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    refusals: int | None,
+) -> None:
+    """Windows refuses replacing a file a lock-free reader holds open; the writer retries briefly.
+
+    ``refusals=None`` keeps refusing: the writer gives up and the formal Manifest stays intact.
+    """
+
+    project, _writer = _registered_script_project(tmp_path)
+    manifest = ArtifactManifest(ProjectArtifactManifestAdapter(project, sleep=lambda _seconds: None))
+    manifest_path = project / MANIFEST_FILENAME
+    original_bytes = manifest_path.read_bytes()
+    original_replace = os.replace
+    attempts: list[int] = []
+
+    def refuse_replace(source: Any, destination: Any, **dir_fds: Any) -> None:
+        if os.fsdecode(destination) in {MANIFEST_FILENAME, os.fsdecode(manifest_path)}:
+            attempts.append(1)
+            if refusals is None or len(attempts) <= refusals:
+                raise PermissionError(13, "sharing violation", os.fsdecode(destination))
+        original_replace(source, destination, **dir_fds)
+
+    monkeypatch.setattr("lib.artifacts.artifact_manifest.os.replace", refuse_replace)
+    key = ArtifactKey.episode_script(2)
+    basis = ArtifactBasis.build("test/script", kind_version=1, inputs={"revision": 2})
+
+    if refusals is None:
+        with pytest.raises(ArtifactManifestError, match="replace artifact manifest"):
+            manifest.register(key, artifact_path="episode_2.json", basis=basis)
+        assert len(attempts) == len(MANIFEST_REPLACE_RETRY_DELAYS_SECONDS) + 1
+        assert manifest_path.read_bytes() == original_bytes
+        assert list(project.glob(f"{MANIFEST_FILENAME}.*.tmp")) == []
+    else:
+        assert manifest.register(key, artifact_path="episode_2.json", basis=basis)
+        assert len(attempts) == refusals + 1
+        assert manifest.compare(key, artifact_path="episode_2.json", basis=basis).status is ArtifactStatus.CURRENT
+
+
+@pytest.mark.parametrize("refusals", [2, None], ids=("released", "held"))
+def test_project_adapter_retries_removing_the_emptied_manifest_while_a_reader_holds_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    refusals: int | None,
+) -> None:
+    """Deleting the last entry removes the Manifest, which Windows refuses the same way as a replace."""
+
+    project, _writer = _registered_script_project(tmp_path)
+    adapter = ProjectArtifactManifestAdapter(project, sleep=lambda _seconds: None)
+    manifest_path = project / MANIFEST_FILENAME
+    original_unlink = os.unlink
+    attempts: list[int] = []
+
+    def refuse_unlink(path: Any, **dir_fd: Any) -> None:
+        if os.fsdecode(path) in {MANIFEST_FILENAME, os.fsdecode(manifest_path)}:
+            attempts.append(1)
+            if refusals is None or len(attempts) <= refusals:
+                raise PermissionError(13, "sharing violation", os.fsdecode(path))
+        original_unlink(path, **dir_fd)
+
+    monkeypatch.setattr("lib.artifacts.artifact_manifest.os.unlink", refuse_unlink)
+    key = ArtifactKey.episode_script(1)
+
+    if refusals is None:
+        with pytest.raises(ArtifactManifestError, match="remove empty artifact manifest"):
+            adapter.delete_entry(key)
+        assert len(attempts) == len(MANIFEST_REPLACE_RETRY_DELAYS_SECONDS) + 1
+        assert manifest_path.exists()
+    else:
+        assert adapter.delete_entry(key)
+        assert len(attempts) == refusals + 1
+        assert not manifest_path.exists()
+
+
+def test_lock_free_read_retries_when_a_writer_replaces_the_manifest_mid_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without O_NOFOLLOW the open is bracketed by identity checks; a writer's replace in between is not a swap."""
+
+    project, _writer = _registered_script_project(tmp_path)
+    manifest_path = project / MANIFEST_FILENAME
+    reader = ProjectArtifactManifestAdapter(project, nofollow_supported=False)
+    reset_manifest_read_cache_for_tests()
+    original_open = os.open
+    replaced = False
+
+    def replace_then_open(path: Any, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
+        nonlocal replaced
+        if not replaced and os.fsdecode(path) in {MANIFEST_FILENAME, os.fsdecode(manifest_path)}:
+            replaced = True
+            fresh = project / "fresh.tmp"
+            fresh.write_bytes(manifest_path.read_bytes())
+            os.replace(fresh, manifest_path)
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr("lib.artifacts.artifact_manifest.os.open", replace_then_open)
+
+    entry = reader.get_entry(ArtifactKey.episode_script(1))
+
+    assert replaced
+    assert entry is not None
 
 
 @pytest.mark.parametrize("force_python_link_fallback", [False, True])
@@ -1243,9 +1352,12 @@ def test_project_adapter_rejects_lock_symlink_swap_without_no_follow(
 
     monkeypatch.setattr("lib.artifacts.artifact_manifest.os.open", swap_lock_then_open)
 
-    comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
+    with pytest.raises(ArtifactManifestError, match="manifest lock"):
+        adapter.delete_entry(key)
 
     assert swapped
+    assert outside.read_bytes() == b""
+    comparison = manifest.compare(key, artifact_path="episode.json", basis=basis)
     assert comparison.status is ArtifactStatus.BLOCKED
     assert comparison.blocker is not None
     assert comparison.blocker.code == "manifest_unreadable"

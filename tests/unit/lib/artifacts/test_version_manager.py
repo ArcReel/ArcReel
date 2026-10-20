@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 import shutil
 from pathlib import Path
@@ -8,6 +10,7 @@ from lib.artifacts.version_manager import (
     InstalledVersionCommit,
     StagedVersionCommit,
     VersionManager,
+    VersionSnapshotCorruptedError,
     _get_versions_file_lock,
 )
 from lib.infra.api_errors import BadRequestError, NotFoundError
@@ -669,3 +672,136 @@ def test_failed_batch_rejection_keeps_activity_recorded_by_other_writers(tmp_pat
     assert before is not None
     assert after is not None
     assert after > before
+
+
+def _digest(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def _record(vm: VersionManager, resource_type: str, resource_id: str, version: int) -> dict:
+    return next(v for v in vm.get_versions(resource_type, resource_id)["versions"] if v["version"] == version)
+
+
+@pytest.mark.parametrize("operation", ["add", "staged", "batch", "paid", "installed"])
+@pytest.mark.parametrize(
+    ("resource_type", "resource_id", "relative"),
+    [
+        ("videos", "E1S01", "videos/scene_E1S01.mp4"),
+        ("reference_videos", "E1U1", "reference_videos/E1U1.mp4"),
+        ("audio", "E1S01", "audio/segment_E1S01.wav"),
+    ],
+)
+def test_every_new_media_version_records_its_output_content_digest(
+    tmp_path, operation, resource_type, resource_id, relative
+):
+    vm = VersionManager(tmp_path)
+    current = tmp_path / relative
+    current.parent.mkdir(parents=True)
+    staged = current.with_name(".staged" + current.suffix)
+    staged.write_bytes(b"new-media")
+    if operation == "add":
+        version = vm.add_version(resource_type, resource_id, "p", source_file=staged)
+    elif operation == "staged":
+        version = vm.commit_staged_version(resource_type, resource_id, "p", staged_file=staged, current_file=current)
+    elif operation == "batch":
+        commit = StagedVersionCommit(resource_type, resource_id, "p", staged, current, {})
+        version = vm.commit_staged_versions((commit,))[(resource_type, resource_id)]
+    elif operation == "paid":
+        version = vm.commit_staged_paid_version(
+            resource_type, resource_id, "p", staged_file=staged, current_file=current, select_current=False
+        ).version
+    else:
+        staged.replace(current)
+        version = vm.commit_installed_version(resource_type, resource_id, "p", current_file=current)
+
+    assert _record(vm, resource_type, resource_id, version)["content_digest"] == _digest(b"new-media")
+
+
+def test_image_versions_do_not_record_a_content_digest(tmp_path):
+    vm = VersionManager(tmp_path)
+    current = tmp_path / "characters" / "Alice.png"
+    current.parent.mkdir()
+    current.write_bytes(b"png")
+    version = vm.add_version("characters", "Alice", "p", source_file=current)
+
+    assert "content_digest" not in _record(vm, "characters", "Alice", version)
+
+
+def _two_audio_versions(tmp_path):
+    vm = VersionManager(tmp_path)
+    current = tmp_path / "audio" / "segment_E1S01.wav"
+    current.parent.mkdir()
+    current.write_bytes(b"audio-v1")
+    v1 = vm.add_version("audio", "E1S01", "v1", source_file=current)
+    current.write_bytes(b"audio-v2")
+    v2 = vm.add_version("audio", "E1S01", "v2", source_file=current)
+    return vm, current, v1, v2
+
+
+def test_restoring_a_tampered_snapshot_fails_and_keeps_the_formal_file(tmp_path):
+    vm, current, v1, v2 = _two_audio_versions(tmp_path)
+    (tmp_path / _record(vm, "audio", "E1S01", v1)["file"]).write_bytes(b"tampered")
+
+    with pytest.raises(VersionSnapshotCorruptedError) as caught:
+        vm.restore_version("audio", "E1S01", v1, current)
+
+    assert caught.value.key == "version_snapshot_corrupted"
+    assert caught.value.params == {"resource_type": "audio", "resource_id": "E1S01", "version": v1}
+    assert current.read_bytes() == b"audio-v2"
+    assert vm.get_current_version("audio", "E1S01") == v2
+
+
+def test_restore_replace_failure_leaves_the_complete_prior_formal_file(tmp_path, monkeypatch):
+    vm, current, v1, v2 = _two_audio_versions(tmp_path)
+    original_replace = os.replace
+
+    def _fail_install(source, destination):
+        if Path(destination) == current and Path(source).suffix != ".rollback":
+            raise OSError("power lost")
+        return original_replace(source, destination)
+
+    monkeypatch.setattr("lib.artifacts.version_manager.os.replace", _fail_install)
+
+    with pytest.raises(OSError, match="power lost"):
+        vm.restore_version("audio", "E1S01", v1, current)
+
+    assert current.read_bytes() == b"audio-v2"
+    assert vm.get_current_version("audio", "E1S01") == v2
+    assert sorted(p.name for p in current.parent.iterdir()) == [current.name]
+
+
+def test_legacy_version_without_a_content_digest_still_restores(tmp_path):
+    vm, current, v1, _v2 = _two_audio_versions(tmp_path)
+    data = json.loads(vm.versions_file.read_text(encoding="utf-8"))
+    for record in data["audio"]["E1S01"]["versions"]:
+        del record["content_digest"]
+    vm.versions_file.write_text(json.dumps(data), encoding="utf-8")
+
+    vm.restore_version("audio", "E1S01", v1, current)
+
+    assert current.read_bytes() == b"audio-v1"
+    assert vm.get_current_version("audio", "E1S01") == v1
+
+
+def test_rejection_refuses_to_reinstall_a_tampered_prior_snapshot(tmp_path):
+    vm, current, v1, v2 = _two_audio_versions(tmp_path)
+    (tmp_path / _record(vm, "audio", "E1S01", v1)["file"]).write_bytes(b"tampered")
+
+    with pytest.raises(VersionSnapshotCorruptedError):
+        vm.reject_current_version("audio", "E1S01", rejected_version=v2, current_file=current)
+
+    assert current.read_bytes() == b"audio-v2"
+    assert vm.get_current_version("audio", "E1S01") == v2
+
+
+def test_verify_snapshots_finds_the_record_by_snapshot_path(tmp_path):
+    vm, _current, v1, v2 = _two_audio_versions(tmp_path)
+    v1_file = _record(vm, "audio", "E1S01", v1)["file"]
+    v2_file = _record(vm, "audio", "E1S01", v2)["file"]
+    (tmp_path / v1_file).write_bytes(b"tampered")
+
+    vm.verify_snapshots("audio", {v2_file, "audio/unrecorded.wav"})
+    with pytest.raises(VersionSnapshotCorruptedError) as caught:
+        vm.verify_snapshots("audio", {v1_file, v2_file})
+
+    assert caught.value.params == {"resource_type": "audio", "resource_id": "E1S01", "version": v1}

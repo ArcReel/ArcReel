@@ -2,7 +2,7 @@
 
 [`docs/LESSONS.md`](../LESSONS.md) 是环境改进的候选池：agent 出过、而现有规范和检查都没拦住的错先记在这里，同类问题重复到阈值再晋升。台账收录所有环境问题，编码与流程问题都算在内；记录时不预判去向。
 
-台账在实现与审查阶段都不读。唯一写入者是 [`lessons-sweep`](../../.agents/skills/lessons-sweep/SKILL.md) 周巡检；用户手动运行 `/retro` 时也可以直接修改。其余 agent 只经下面的收尾自查提交候选。
+台账在实现与审查阶段都不读。唯一写入者是 [`lessons-sweep`](../../.agents/skills/lessons-sweep/SKILL.md) 巡检；用户手动运行 `/retro` 时也可以直接修改。其余 agent 只经下面的收尾自查提交候选。
 
 ## 收尾自查
 

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifest, ProjectArtifactManifestAdapter
 from lib.generation.batch_admission import BatchAdmissionDecision
 from lib.generation.generation_result import GenerationAction, GenerationProblemCode, GenerationSelectionMode
 from lib.generation.video_request_facts import VideoRequestFactsFailure
@@ -359,6 +361,53 @@ async def test_admission_buckets_an_unclaimed_sheet_like_the_canvas_and_blocks(
         "reference_capability_changed",
     ]
     assert [capability.generation_type for capability in capabilities] == ["r2v", "i2v"]
+
+
+async def test_reference_admission_judges_the_whole_batch_on_one_manifest_snapshot(
+    monkeypatch, tmp_path: Path, set_video_request_facts
+):
+    """一批单元在同一份清单快照上判定：中途清单被替换（认领被撤），后面的单元仍按批开始时的结论。"""
+    _stub_state(monkeypatch)
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="r2v", supported_durations=(9,), allowed_durations=(9,)
+        )
+    )
+    project = _activated_project_with_unclaimed_sheet(tmp_path)
+    units = [
+        {"unit_id": "E1U1", "text": "镜头1：@[张三] 推门", "duration_seconds": 9},
+        {"unit_id": "E1U2", "text": "镜头2：@[张三] 回头", "duration_seconds": 9},
+    ]
+    project_unit = admission_mod.project_reference_unit_request
+
+    async def _project_then_replace_manifest(**kwargs):
+        projection = await project_unit(**kwargs)
+        await asyncio.to_thread(
+            lambda: ArtifactManifest(ProjectArtifactManifestAdapter(tmp_path)).forget_entry_transactionally(
+                ArtifactKey.asset_sheet("character", "张三")
+            )
+        )
+        return projection
+
+    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project_then_replace_manifest)
+
+    admission = await admit_reference_video_batch(
+        project_name="demo",
+        project=project,
+        project_path=tmp_path,
+        script={"episode": 1, "generation_mode": "reference_video", "video_units": units},
+        script_file="scripts/episode_1.json",
+        units=units,
+        request_options=ReferenceRequestOptions(),
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        confirmed_request_durations={"E1U1": 9, "E1U2": 9},
+    )
+
+    assert [(ticket.projection["hydrated_capability"], ticket.problems) for ticket in admission.tickets] == [
+        ("r2v", ()),
+        ("r2v", ()),
+    ]
 
 
 async def test_reference_admission_is_identical_for_tts_and_post_production_projects(

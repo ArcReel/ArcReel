@@ -254,7 +254,8 @@ class VideoArtifactCommitter:
                 artifact_path=artifact_path,
                 basis_digest=basis.digest,
             )
-            if adapter.get_entry(key) != expected:
+            selected_entry = adapter.get_entry(key)
+            if selected_entry is None or selected_entry != expected:
                 raise _SelectionChanged("video artifact selection changed before compensation")
             thumbnail_path, prior_thumbnail_present, prior_thumbnail_bytes = prior_thumbnail
             selected_thumbnail_present, selected_thumbnail_bytes = _snapshot_file(thumbnail_path)
@@ -272,7 +273,7 @@ class VideoArtifactCommitter:
                     rollback_failures.append(exc)
                 try:
                     if adapter.get_entry(key) != expected:
-                        adapter.put_entry(key, expected)
+                        adapter.put_entry(key, selected_entry)
                 except BaseException as exc:
                     rollback_failures.append(exc)
                 if rollback_failures:

@@ -44,11 +44,14 @@ from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed,
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.request_projection import (
     ProjectionProblem,
+    ReferenceAssetAvailability,
     ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
+    ReferenceUnitHydration,
     ReferenceUnitRequestProjector,
     ResolvedReferenceAsset,
     configured_reference_request_facts,
+    hydrate_unit_references,
     resolve_reference_assets,
     unit_reference_declarations,
 )
@@ -360,6 +363,22 @@ class _AssumeResolvedAssetsAvailable:
         return True
 
 
+class _MemoizedAvailability:
+    """一次估算内按图片记住可用性：成本随设计图数量增长，而不是随被引用次数增长。"""
+
+    def __init__(self, inner: ReferenceAssetAvailability) -> None:
+        self._inner = inner
+        self._known: dict[tuple[Path, str, str, str], bool] = {}
+
+    def is_available(self, asset: ResolvedReferenceAsset) -> bool:
+        # 判定依赖路径、候选种类与认领键（引用类型 + 名称），四者共同决定一张图。
+        key = (asset.path, asset.kind, asset.reference.type, asset.reference.name)
+        known = self._known.get(key)
+        if known is None:
+            known = self._known[key] = self._inner.is_available(asset)
+        return known
+
+
 class CostEstimationService:
     def __init__(
         self,
@@ -570,6 +589,12 @@ class CostEstimationService:
         #
         # 生成路径以项目生成模式为唯一真相源，整个项目同一种生成模式、逐集不变（剧本不携带生成模式信息）；
         # 参考生视频内的定桶再由 request projection 按当前资产逐 unit 分流。
+        availability: ReferenceAssetAvailability = _AssumeResolvedAssetsAvailable()
+        if is_reference_video and self._project_path is not None:
+            # 整次估算共用一份判定：构造时读一份清单快照，只读，放进工作线程。
+            current = await asyncio.to_thread(CurrentReferenceAssets, self._project_path, project_data)
+            availability = _MemoizedAvailability(current)
+
         for ep_meta in episodes_meta:
             script_file = ep_meta.get("script_file", "")
             script = scripts.get(script_file)
@@ -584,9 +609,9 @@ class CostEstimationService:
                 segments_result, ep_est, ep_act = await self._estimate_unit_reference_video_episode(
                     project_name=project_name,
                     project=project_data,
-                    script=script,
                     script_file=script_file,
                     units=video_units,
+                    availability=availability,
                     request_facts_lookup=request_facts_lookup,
                     video_prices=video_prices,
                     actual_by_segment=actual_by_segment,
@@ -858,9 +883,9 @@ class CostEstimationService:
         *,
         project_name: str,
         project: dict[str, Any],
-        script: dict[str, Any],
         script_file: str,
         units: list[Any],
+        availability: ReferenceAssetAvailability,
         request_facts_lookup: ReferenceRequestFactsLookup,
         video_prices: dict[tuple[str, str], VideoPriceSource],
         actual_by_segment: ActualBySegment,
@@ -897,13 +922,10 @@ class CostEstimationService:
         ep_est: dict[str, CostBreakdown] = {}
         ep_act: dict[str, CostBreakdown] = {}
 
-        if self._project_path is None:
-            availability = _AssumeResolvedAssetsAvailable()
-        else:
-            # 构造时读产物清单（含等清单锁），只读，放进工作线程。
-            availability = await asyncio.to_thread(CurrentReferenceAssets, self._project_path, project)
         projector = ReferenceUnitRequestProjector(request_facts_lookup, availability)
 
+        # (unit, unit_id, 可入队)；先筛出有效 unit，水合只对可入队的做。
+        candidates: list[tuple[dict[str, Any], str, bool]] = []
         for unit in units:
             if not isinstance(unit, dict):
                 continue
@@ -913,23 +935,26 @@ class CostEstimationService:
             raw_unit_id = unit.get("unit_id")
             if not isinstance(raw_unit_id, str) or not raw_unit_id:
                 continue
-            unit_id = raw_unit_id
-
             # text 非字符串（如裸写 "text": true/1）同样不能让单条脏数据中断整次估算。
             text = unit.get("text")
             enqueueable = isinstance(text, str) and bool(text.strip()) and not video_unit_replan_problems(unit)
+            candidates.append((unit, raw_unit_id, enqueueable))
 
-            est_video: CostBreakdown = {}
-            projection_problems: list[dict[str, Any]] = []
-            projection = None
-            if enqueueable:
-                # Agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
-                # 单个 unit 的无效内容不应让整个项目估算失败，因此资产解析与 request projection
-                # 的 ValueError/TypeError 只跳过该 unit。能力解析错误由 projector 转为结构化 blocker，
-                # 正常保留在该 unit 的报价结果中。
+        # Agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
+        # 单个 unit 的无效内容不应让整个项目估算失败，因此资产解析、水合与 request projection
+        # 的 ValueError/TypeError 只跳过该 unit。能力解析错误由 projector 转为结构化 blocker，
+        # 正常保留在该 unit 的报价结果中。
+        def _hydrate_episode() -> list[ReferenceUnitHydration | None]:
+            # 与 candidates 逐项对齐；不可入队或水合失败的位置为 None。
+            hydrations: list[ReferenceUnitHydration | None] = []
+            for unit, unit_id, enqueueable in candidates:
+                hydration = None
+                if not enqueueable:
+                    hydrations.append(hydration)
+                    continue
                 try:
                     if self._project_path is None:
-                        resolved_assets = [
+                        resolved_assets: Sequence[ResolvedReferenceAsset] = [
                             ResolvedReferenceAsset(
                                 path=Path(f"{reference.type}/{reference.name}.png"),
                                 reference=reference,
@@ -937,19 +962,32 @@ class CostEstimationService:
                             for reference in unit_reference_declarations(project, unit)
                         ]
                     else:
-                        resolved_assets = await asyncio.to_thread(
-                            resolve_reference_assets, project, self._project_path, unit
-                        )
-                    projection = await projector.project_current(
-                        project=project,
-                        script=script,
-                        unit=unit,
-                        resolved_assets=resolved_assets,
-                        options=ReferenceRequestOptions(),
-                    )
+                        resolved_assets = resolve_reference_assets(project, self._project_path, unit)
+                    hydration = hydrate_unit_references(project, unit, resolved_assets, availability)
                 except (ValueError, TypeError):
                     logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
-                    projection = None
+                hydrations.append(hydration)
+            return hydrations
+
+        # 展开候选与可用性判定都碰文件系统；整集一次进工作线程，不按 unit 逐个排队。
+        hydrations = await asyncio.to_thread(_hydrate_episode)
+
+        for (unit, unit_id, enqueueable), hydration in zip(candidates, hydrations, strict=True):
+            est_video: CostBreakdown = {}
+            projection_problems: list[dict[str, Any]] = []
+            projection = None
+            if enqueueable:
+                if hydration is not None:
+                    try:
+                        projection = await projector.project_hydrated(
+                            project=project,
+                            unit=unit,
+                            hydration=hydration,
+                            options=ReferenceRequestOptions(),
+                        )
+                    except (ValueError, TypeError):
+                        logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
+                        projection = None
                 if projection is not None:
                     projection_problems = projection.problem_payloads()
                     blockers = [
