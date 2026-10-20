@@ -66,9 +66,9 @@ class VersionSnapshotCorruptedError(ConflictError):
 def verify_version_snapshot(resource_type: str, resource_id: str, record: Mapping[str, Any], snapshot: Path) -> None:
     """Check a version snapshot against its recorded content digest before the snapshot is used.
 
-    shortcut: records without a digest (created before digests were recorded, and not the
-    selected version when the project was migrated) are trusted unverified; the gap closes as
-    new versions all carry one.
+    shortcut: a record without a digest is used unverified. Every version write records one and
+    the schema 18 migration backfills selected versions, so only older unselected versions lack it;
+    verify those too if they ever need protection.
     """
 
     expected = record.get(VERSION_CONTENT_DIGEST)

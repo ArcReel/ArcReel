@@ -309,15 +309,8 @@ async def test_a_corrupted_video_snapshot_blocks_rendering_and_names_the_version
     with pytest.raises(FinalCutError) as caught:
         await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
 
-    assert caught.value.code == "final_cut_blocked"
-    assert caught.value.params["issues"] == [
-        {
-            "code": "version_snapshot_corrupted",
-            "unit_id": "E1U2",
-            "resource_type": "reference_videos",
-            "version": record["version"],
-        }
-    ]
+    assert caught.value.code == "final_cut_video_version_corrupted"
+    assert caught.value.params == {"unit_id": "E1U2", "resource_type": "reference_videos", "version": record["version"]}
     assert not (project_dir / "renders").exists()
 
 
