@@ -618,6 +618,7 @@ MESSAGES = {
     "video_first_frame_unsupported": "{provider}/{model} 当前配置不支持首帧，已中止生成；请移除该分镜的首帧，或改用支持首帧的模型/档位",
     "video_last_frame_unsupported": "{provider}/{model} 当前配置不支持尾帧，已中止生成；请移除该分镜的尾帧，或改用支持尾帧的模型/档位",
     "video_reference_audio_unsupported": "{provider}/{model} 不支持参考音频，已中止生成；请移除角色的参考音频，或改用支持音色参考的模型",
+    "video_reference_route_audio_unsupported": "{provider}/{model} 用参考图生成时请求里发不出音频开关，成片只能无声，已中止生成；请关闭音频开关、撤销参考图路径的音轨覆盖，或去掉参考图后重试",
     "video_reference_audio_exceeded": "模型 {model} 最多支持 {limit} 段参考音频，收到 {count} 段；请减少带参考音频的角色数量",
     "video_reference_audio_duration_exceeded": "模型 {model} 参考音频总时长最多 {limit:g} 秒，当前合计 {total:.1f} 秒；请减少参考音频段数或换用更短的音频",
     "video_reference_audio_slots_insufficient": "模型 {model} 的参考音频需逐段挂在参考素材上，当前只有 {slots} 个参考素材却收到 {count} 段音频；请为这些角色补齐参考图，或减少带参考音频的角色数量",

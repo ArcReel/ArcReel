@@ -72,17 +72,6 @@ _AUDIO_SWITCH_MODELS: frozenset[str] = frozenset(
     }
 )
 
-# AI Studio 目录的 Veo 型号：请求发不出静音，计费恒按有声（提交前预估也按有声，与上游出账一致）。
-# 其余型号（Vertex 目录与用户添加的型号）计费跟随请求的 generate_audio。目录新增型号漏登记会在
-# tests/unit/lib/backends/video_backends/test_video_backend_gemini.py 的目录守卫暴露。
-_AISTUDIO_MODELS: frozenset[str] = frozenset(
-    {
-        "veo-3.1-generate-preview",
-        "veo-3.1-fast-generate-preview",
-        "veo-3.1-lite-generate-preview",
-    }
-)
-
 
 def _is_veo_3_1(name: str) -> bool:
     """名字属于 Veo 3.1 系列（含 fast / lite 与日期、preview 变体）；中转命名空间与点号写法一并认。"""
@@ -173,8 +162,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
         有声与否跟随实际请求：Vertex 按下发的 ``generate_audio``（含用户添加、放宽了音轨的型号）；AI Studio
         发不出静音请求，``generate_audio=False`` 在提交前即被拒绝（见 ``generate``），能提交的都是有声请求。
-        静态查询只拿得到 model：AI Studio 目录型号恒按有声（项目开关关闭时的预估仍落含音价），其余型号按
-        ``request.generate_audio``。用户在 AI Studio 上添加的型号关音频时预估落无声价，但请求会在提交前被拒、零费用。
+        提交前预估的请求由调用方按执行时会发出的开关构造（音轨不可控的型号按有声，见 ``VideoRequestCostFacts``）。
         结算时以 ``result.generate_audio`` 为准（见 ``_collect_video``）。
         """
         return video_usage(
@@ -182,7 +170,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
             result,
             seconds=request.duration_seconds,
             resolution=request.resolution,
-            audio=True if model in _AISTUDIO_MODELS else request.generate_audio,
+            audio=request.generate_audio,
         )
 
     @staticmethod

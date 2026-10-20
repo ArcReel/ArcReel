@@ -159,7 +159,9 @@ class VideoRequestCostFacts:
 
         分镜图生视频的首帧是按项目宽高比生成的分镜图；要求首帧时宽高比交给上游自适应的通道
         （``first_frame_ratio_adaptive_only``），成片宽高比即分镜图的宽高比，这里因此直接写项目宽高比。
+        成片有音轨而开关不可控时，上游恒出有声成片，音频开关按开着写。
         """
+        facts = self.request_facts
         return VideoGenerationRequest(
             prompt="",
             output_path=Path("estimate.mp4"),
@@ -168,7 +170,8 @@ class VideoRequestCostFacts:
             resolution=self.request_facts.resolution,
             start_image=Path("first-frame.png") if self.has_first_frame else None,
             reference_images=[Path(f"reference-{index}.png") for index in range(self.reference_image_count)] or None,
-            generate_audio=self.request_facts.requested_generate_audio,
+            generate_audio=facts.requested_generate_audio
+            or (facts.has_audio_track and not facts.audio_switch_controllable),
         )
 
     @property

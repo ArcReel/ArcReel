@@ -514,7 +514,7 @@ class TestFirstFrameAndTextOnly:
 
 
 class TestUserRelaxedCapabilities:
-    """请求带上执行闸门那份已叠加用户覆盖的能力时，放宽的维度照常发出，不再按型号档案拒绝。"""
+    """请求带上执行闸门那份已叠加用户覆盖的能力时，放宽的维度照常发出，不按型号档案拒绝。"""
 
     @staticmethod
     def _build(tmp_path: Path, model: str, **request_fields) -> dict:
@@ -568,6 +568,15 @@ class TestUserRelaxedCapabilities:
         # 放宽参考图上限不把 i2v 型号变成「必须带参考图」：只带首帧的请求照旧发出
         frame_only = self._build(tmp_path, "wan2.7-i2v", start_image=_ref(tmp_path, "s.png"), video_capabilities=caps)
         assert [m["type"] for m in frame_only["input"]["media"]] == ["first_frame"]
+
+    def test_narrowed_reference_limit_still_requires_reference_on_r2v_model(self, tmp_path: Path):
+        with pytest.raises(VideoCapabilityError) as ei:
+            self._build(
+                tmp_path,
+                "happyhorse-1.0-r2v",
+                video_capabilities=self._caps("happyhorse-1.0-r2v", max_reference_images=0),
+            )
+        assert ei.value.code == "video_reference_images_required"
 
     def test_metered_reference_count_follows_relaxed_limit(self, tmp_path: Path):
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend

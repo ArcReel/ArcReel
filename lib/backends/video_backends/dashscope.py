@@ -612,17 +612,16 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 raise VideoCapabilityError("video_end_image_unreadable", model=self._model, name=p.name)
             media.append({"type": "last_frame", "url": uri})
         reference_items: list[dict] = []
-        if caps.max_reference_images <= 0 and any(request.reference_images or []):
+        provided = [r for r in (request.reference_images or []) if r]
+        # r2v 必须有参考图：这是型号档案的事实，不随用户放宽参考图上限转移到 i2v 型号上，也不因用户把上限
+        # 收窄为 0 而放行无参考图的请求。
+        if not provided and self._video_capabilities.max_reference_images > 0 and not _is_wan3(self._model):
+            raise VideoCapabilityError("video_reference_images_required", model=self._model)
+        if caps.max_reference_images <= 0 and provided:
             raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
         if caps.max_reference_images > 0:
-            # r2v 必须有参考图。fail-loud：未提供 → required；任一声明的参考图缺失/不可读（is_file 不过
-            # 或 read_bytes 抛 OSError）→ 报错列出文件名中止。不静默退化为无参考/子集生成（会产出错误
-            # 结果且照常计费），让用户感知到有图未被使用。
-            provided = [r for r in (request.reference_images or []) if r]
-            # 「必须带参考图」是型号档案的 r2v 事实，不随用户放宽参考图上限转移到 i2v 型号上。
-            r2v_model = self._video_capabilities.max_reference_images > 0
-            if not provided and r2v_model and not _is_wan3(self._model):
-                raise VideoCapabilityError("video_reference_images_required", model=self._model)
+            # fail-loud：任一声明的参考图缺失/不可读（is_file 不过或 read_bytes 抛 OSError）→ 报错列出文件名
+            # 中止。不静默退化为无参考/子集生成（会产出错误结果且照常计费），让用户感知到有图未被使用。
             data_uris: list[str] = []
             unreadable: list[str] = []
             for r in provided:

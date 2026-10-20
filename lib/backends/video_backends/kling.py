@@ -34,7 +34,6 @@ from arcreel_market_core.video_backend_contract import (
     VideoCapabilityError,
     VideoGenerationRequest,
     VideoGenerationResult,
-    VideoRoute,
 )
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import (
@@ -380,7 +379,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
     @staticmethod
     def _effective_audio_for(model: str, request: VideoGenerationRequest, *, subpath: str) -> bool:
         """实际是否产出视频内人声：请求要 + model 有 generate_audio 能力 + 走得到音频开关的子路径
-        + 满足该 model 的分辨率约束。
+        + 满足该 model 的分辨率约束；用户把音轨覆盖为恒有声时不套分辨率约束。
 
         无能力的 model 恒 False——不被错配有声价（下游 pricing 取 ``result.generate_audio``）。
 
@@ -388,17 +387,20 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         （见 ``media_generator.resume_video_async``），按参考图推断会把旧格式 job_id 的多图主体
         任务判成有声。generate 侧由 ``_build_payload`` 给出，resume 侧由 job_id 解码得出。
 
-        「该子路径有没有音轨开关」不在此处二次实现，直接读 ``video_capabilities_for_model`` 的
-        逐路径声明——那份声明就是展示层与入队预检读到的同一份（multi-image2video 原生 schema 不
-        含 sound，故参考生视频声明为恒无声）。两处各写一遍的话，界面会继续放行一个执行期必然丢弃
-        的开关，也会让该请求因标志进 ledger 而按有声价出账。
+        音轨形态读执行闸门那份能力（``request.video_capabilities``，含用户放宽），直接构造的请求
+        回落 ``video_capabilities_for_model`` 的声明——与展示层、入队预检同一份。multi-image2video 原生
+        schema 不含 sound，这条子路径恒无声，与 ``_build_payload`` 不在多图主体请求体里带 sound 一致；
+        这条路径被覆盖为要求有声时，``_build_payload`` 在提交前拒绝。
         """
-        route: VideoRoute = "r2v" if subpath == _MULTI_IMAGE2VIDEO else "i2v"
-        if (
-            KlingVideoBackend.video_capabilities_for_model(model).audio_track_for_route(route)
-            != VideoAudioMode.CONTROLLABLE
-        ):
+        if subpath == _MULTI_IMAGE2VIDEO:
             return False
+        audio_track = (request.video_capabilities or KlingVideoBackend.video_capabilities_for_model(model)).audio_track
+        if audio_track is VideoAudioMode.ALWAYS_OFF:
+            return False
+        if audio_track is VideoAudioMode.ALWAYS_ON:
+            # 可灵各型号声明的音轨只有可控与恒无声两种，恒有声必是用户覆盖：放宽照常发 sound="on"、由上游裁定，
+            # 不套用下面的 1080P 约束。
+            return True
         if not request.generate_audio:
             return False
         if _lookup_video_caps(model).audio_requires_1080p:
@@ -449,6 +451,14 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
                     count=len(reference_images),
                     limit=caps.max_reference_images,
                 )
+            # 多图主体请求体没有 sound 字段；用户把这条路径的音轨覆盖为有声时发不出，付费前拒绝而不是静默出无声成片。
+            route_audio = caps.audio_track_for_route("r2v")
+            if route_audio is VideoAudioMode.ALWAYS_ON or (
+                route_audio is VideoAudioMode.CONTROLLABLE and request.generate_audio
+            ):
+                raise VideoCapabilityError(
+                    "video_reference_route_audio_unsupported", provider=self.name, model=self._model
+                )
             # 多图主体：image_list 为 [{"image": <base64>}]（可灵原生 schema），无单首帧概念。
             payload["image_list"] = [{"image": self._encode_frame(p)} for p in reference_images]
             return _MULTI_IMAGE2VIDEO, payload
@@ -466,7 +476,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
                 if not caps.last_frame:
                     # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
                     # 尾帧约束却不生效——档位感知声明已按档收窄，这里报出档位这一卡点，而非放行一个
-                    # 调用方以为已生效实则被忽略的请求。用户放宽了尾帧时 caps.last_frame 为真，不再按档拦截。
+                    # 调用方以为已生效实则被忽略的请求。按档拦截只在尾帧未被用户放宽时生效。
                     if (
                         self._caps.last_frame
                         and self._caps.last_frame_requires_pro
@@ -479,9 +489,9 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
                 payload["image_tail"] = self._encode_frame(Path(cast(Path, request.end_image)))
 
         # 音频开关 sound（官方参数，取 "on"/"off"，各档默认 off）仅 text2video / image2video 子路径
-        # 携带（multi-image2video 原生 schema 不含）；无音频能力的 model 不发该字段，避免向不支持的
-        # 端点递未知参数。
-        if self._caps.generate_audio:
+        # 携带（multi-image2video 原生 schema 不含）；音轨恒无声（含用户收窄）时不发该字段，避免向不支持的
+        # 端点递未知参数；用户放宽为可控或恒有声时照常发出。
+        if caps.audio_track is not VideoAudioMode.ALWAYS_OFF:
             payload["sound"] = "on" if self._effective_audio(request, subpath=subpath) else "off"
         return subpath, payload
 

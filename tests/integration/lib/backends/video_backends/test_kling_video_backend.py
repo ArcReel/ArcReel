@@ -410,7 +410,7 @@ class TestCapabilityValidation:
 
 
 class TestUserRelaxedCapabilities:
-    """请求带上执行闸门那份已叠加用户覆盖的能力时，放宽的维度照常发出，不再按型号档案拒绝。"""
+    """请求带上执行闸门那份已叠加用户覆盖的能力时，放宽的维度照常发出，不按型号档案拒绝。"""
 
     @staticmethod
     def _caps(model: str, service_tier: str = "default", **changes) -> VideoCapabilities:
@@ -454,6 +454,80 @@ class TestUserRelaxedCapabilities:
             _request(tmp_path, video_capabilities=self._caps("kling-video-o1", text_to_video=True))
         )
         assert subpath == "text2video"
+
+    def test_relaxed_audio_track_sends_sound_and_meters_audio(self, tmp_path):
+        request = _request(
+            tmp_path,
+            generate_audio=True,
+            video_capabilities=self._caps("kling-v2-5-turbo", audio_track=VideoAudioMode.CONTROLLABLE),
+        )
+        _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(request)
+        assert payload["sound"] == "on"
+        assert KlingVideoBackend.metered_usage("kling-v2-5-turbo", request).dimensions["audio"] is True
+
+    def test_always_on_audio_track_sends_sound_on_and_meters_audio(self, tmp_path):
+        request = _request(
+            tmp_path,
+            generate_audio=False,
+            video_capabilities=self._caps("kling-v2-5-turbo", audio_track=VideoAudioMode.ALWAYS_ON),
+        )
+        _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(request)
+        assert payload["sound"] == "on"
+        assert KlingVideoBackend.metered_usage("kling-v2-5-turbo", request).dimensions["audio"] is True
+
+    def test_narrowed_audio_track_omits_sound_and_meters_silent(self, tmp_path):
+        request = _request(
+            tmp_path,
+            generate_audio=True,
+            video_capabilities=self._caps("kling-v3", audio_track=VideoAudioMode.ALWAYS_OFF),
+        )
+        _, payload = _jwt_backend("kling-v3")._build_payload(request)
+        assert "sound" not in payload
+        assert KlingVideoBackend.metered_usage("kling-v3", request).dimensions["audio"] is False
+
+    def test_always_on_override_bypasses_1080p_constraint(self, tmp_path):
+        """v2-6 std 档：用户覆盖为恒有声时照常发 sound="on" 并按有声计量，由上游裁定。"""
+        request = _request(
+            tmp_path,
+            resolution="720p",
+            service_tier="std",
+            generate_audio=True,
+            video_capabilities=self._caps("kling-v2-6", "std", audio_track=VideoAudioMode.ALWAYS_ON),
+        )
+        _, payload = _jwt_backend("kling-v2-6")._build_payload(request)
+        assert payload["mode"] == "std"
+        assert payload["sound"] == "on"
+        assert KlingVideoBackend.metered_usage("kling-v2-6", request).dimensions["audio"] is True
+
+    @pytest.mark.parametrize(
+        ("route_audio", "generate_audio"),
+        [(VideoAudioMode.ALWAYS_ON, False), (VideoAudioMode.CONTROLLABLE, True)],
+    )
+    def test_audible_reference_route_override_rejected_before_submit(self, tmp_path, route_audio, generate_audio):
+        """多图主体请求体没有 sound 字段：覆盖为要求有声时提交前拒绝，不静默出无声成片。"""
+        refs = TestCapabilityValidation._refs(tmp_path, 1)
+        request = _request(
+            tmp_path,
+            reference_images=refs,
+            generate_audio=generate_audio,
+            video_capabilities=self._caps("kling-v3-omni", reference_route_audio_track=route_audio),
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-v3-omni")._build_payload(request)
+        assert exc.value.code == "video_reference_route_audio_unsupported"
+
+    def test_controllable_reference_route_override_with_audio_off_sent(self, tmp_path):
+        refs = TestCapabilityValidation._refs(tmp_path, 1)
+        subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(
+            _request(
+                tmp_path,
+                reference_images=refs,
+                generate_audio=False,
+                video_capabilities=self._caps("kling-v3-omni", reference_route_audio_track=VideoAudioMode.CONTROLLABLE),
+            )
+        )
+        assert subpath == "multi-image2video"
+        assert "sound" not in payload
 
 
 class TestAuthHeaders:

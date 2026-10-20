@@ -42,6 +42,8 @@ class CustomModelPricing(NamedTuple):
     multiplier: float = 1.0
     entry_binding: str | None = None
     endpoint: str | None = None
+    # 模型的能力覆盖原始值：提交前预估据此补上执行时注入的那份能力，放宽的维度按实际发出的请求计量。
+    capability_overrides: object | None = None
 
 
 _DEFAULT_PRICING = CustomModelPricing()
@@ -221,7 +223,7 @@ class CustomProviderRepository(BaseRepository):
             return _DEFAULT_PRICING
         if row is None:
             return _DEFAULT_PRICING
-        return CustomModelPricing(row.multiplier, row.entry_binding, row.endpoint)
+        return CustomModelPricing(row.multiplier, row.entry_binding, row.endpoint, row.capability_overrides)
 
     async def list_default_models(self, provider_id: int, media_type: str) -> list[CustomProviderModel]:
         """指定供应商 + 媒体类型的全部默认已启用模型，按 id 升序。

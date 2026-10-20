@@ -6,7 +6,6 @@ import threading
 import time
 import urllib.error
 from email.message import Message
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -205,17 +204,6 @@ class TestGeminiVideoBackendGenerate:
         assert gemini_backend._types.GenerateVideosConfig.call_args.kwargs["generate_audio"] is False
         assert result.generate_audio is False
         assert GeminiVideoBackend.metered_usage(model, request, result).dimensions["audio"] is False
-
-    def test_aistudio_catalog_models_estimate_with_audio(self):
-        """目录守卫：AI Studio 目录的每个视频型号关音频时预估仍按有声，与上游恒含音出账一致。"""
-        from lib.backends.video_backends.gemini import GeminiVideoBackend
-        from lib.catalog import query as catalog
-
-        models = [m for m, info in catalog.list_models("gemini-aistudio").items() if info.media_type == "video"]
-        assert models
-        request = VideoGenerationRequest(prompt="p", output_path=Path("o.mp4"), generate_audio=False)
-        for model in models:
-            assert GeminiVideoBackend.metered_usage(model, request).dimensions["audio"] is True, model
 
     async def test_generate_text_to_video(self, gemini_backend, tmp_path):
         output = tmp_path / "out.mp4"
@@ -718,7 +706,7 @@ class TestGeminiResumeVideo:
         assert get_calls["n"] == 2
 
     async def test_aistudio_resume_of_mute_request_bills_audio(self, gemini_backend, tmp_path):
-        """已提交的任务续跑不再拒绝（费用已发生），AI Studio 成片按有声结算，与提交时的实际请求一致。"""
+        """已提交的任务续跑照常放行（费用已发生），AI Studio 成片按有声结算，与提交时的实际请求一致。"""
         from lib.backends.video_backends.gemini import GeminiVideoBackend
 
         done_op = _make_done_operation()
