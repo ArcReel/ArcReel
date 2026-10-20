@@ -153,11 +153,62 @@ const RESTRICT_SCROLLBAR_STYLE = classGuards(
   "禁止在组件里写滚动条样式（scrollbar-none、no-scrollbar、[scrollbar-width:*]、::-webkit-scrollbar 等）：滚动条始终可见，样式只在 index.css 定义。",
 );
 
+// 层级由原语自带的 z-overlay、z-toast、z-onboarding 负责；原语目录豁免。
+const RESTRICT_RAW_Z_INDEX = classGuards(
+  String.raw`/(^|[\s:])-?z-(\d+|\[)/`,
+  "调用处不写数值层级（z-10、z-[…]）：弹层、提示、引导分别由原语自带的 z-overlay、z-toast、z-onboarding 负责；#app-root 是独立层叠上下文（isolation: isolate），挂在 body 上的 Portal 总在应用之上。应用内吸顶的工具栏用 z-sticky。",
+);
+
+// 对全部源码生效，原语目录也不豁免；backdrop-blur-0 用于取消模糊，放过。
+const RESTRICT_BACKDROP_BLUR = classGuards(
+  String.raw`/(^|[\s:])backdrop-blur(?![\w-]*-0\b)/`,
+  "不使用背景模糊（backdrop-blur-*）：弹层遮罩用 bg-scrim，表面用 bg-popover 加 shadow-overlay。半透明表面的文字对比度会随背后画面变化，背景模糊在大面积重绘时开销也大。",
+);
+
+// 原语目录豁免：它们自带的进出场动效定义了这些 token。
+const RESTRICT_RAW_MOTION_TOKEN = classGuards(
+  String.raw`/(^|[\s:])(duration-\d+|ease-(linear|in|out|in-out))(?![\w-])/`,
+  "时长与缓动只用 token：duration-fast（150ms）、duration-base（200ms）、ease-emphasized。动效不超过 300ms；弹层进出场用原语自带的 animate-in、animate-out，持续运行的状态指示用 animate-breath。",
+);
+
 const SOURCE_CLASS_GUARDS = [
   ...RESTRICT_MOTION_VARIANT,
   ...RESTRICT_UNPOSITIONED_SCROLL,
   ...RESTRICT_SCROLLBAR_STYLE,
+  ...RESTRICT_RAW_Z_INDEX,
+  ...RESTRICT_BACKDROP_BLUR,
+  ...RESTRICT_RAW_MOTION_TOKEN,
 ];
+
+const RESTRICT_RAW_TEXTAREA = {
+  selector: "JSXOpeningElement[name.name='textarea']",
+  message:
+    "多行输入用 components/ui/textarea 的 Textarea：随内容撑高、超过上限后框内滚动、variant 与 mono 都由原语提供。必须使用原生 textarea 的场景（如与着色镜像层同步滚动的编辑器），行内 eslint-disable-next-line 并写明理由。",
+};
+
+const RESTRICT_TOAST_PRIMITIVE = {
+  // 匹配导入与转导出，以及别名与相对写法（@/components/ui/toast、../ui/toast）。
+  selector: String.raw`:matches(ImportDeclaration, ExportNamedDeclaration, ExportAllDeclaration)[source.value=/(^|\/)ui\/toast$/]`,
+  message:
+    "全局提示统一用 useAppStore 的 pushToast：ToastOverlay 负责把 store 中的提示按到达顺序转交 Base UI 队列，直接调用 toast.add 会绕过它，也绕过提示、工作区通知与持久告警的分流（见 src/stores/app-store.ts 中 pushToast 的说明）。",
+};
+
+// components/ui/ 只放 shadcn 原语：不依赖 API、store、业务类型与业务组件。
+// 不禁用 react-i18next：dialog、sheet、toast、message-scroller 用它取关闭按钮等文案。
+const RESTRICT_UI_PRIMITIVE_IMPORTS = {
+  patterns: [
+    {
+      group: ["@/api", "@/api/*", "@/stores/*", "@/types", "@/types/*", "@/hooks/*", "@/actions/*", "@/components/*", "!@/components/ui", "!@/components/ui/*"],
+      message:
+        "components/ui/ 只放 shadcn CLI 安装的原语：调用 API、读写 store 或依赖业务类型的组件放进使用它的业务目录，多处共用的放 components/shared/。knip 对 components/ui 的未使用导出整体豁免，业务组件混进来后，它真正未使用的导出也会被放过。",
+    },
+    // 原语目录没有子目录，路径里出现 .. 段就会离开 components/ui；统一走不含 .. 的 @/ 别名，上面的边界才查得到。
+    {
+      regex: String.raw`(^|/)\.\.(/|$)`,
+      message: "components/ui/ 内跨目录导入用不含 .. 的 @/ 别名：带 .. 的路径绕过原语依赖边界的检查。",
+    },
+  ],
+};
 
 // @shadcn/lint 规则：components/ui 内的原语自身负责样式，关闭 restyle、任意值与静态 class 三条（见下方原语块）。
 const SHADCN_RULES = {
@@ -170,8 +221,9 @@ const SHADCN_RULES = {
 };
 
 // 源码应受的全部 no-restricted-syntax 约束。豁免块用 restrictSyntax(要豁免的约束…) 少列几条，
-// 其余照列（替换语义见文件上方说明）：原语放过 fixed inset-0、scrollHeight 与视口断点，
-// 视口断点白名单放过视口断点，入队动作层与 useModelCapabilities 各放过自己实现的那条。
+// 其余照列（替换语义见文件上方说明）：原语放过 fixed inset-0、scrollHeight、视口断点、原生 textarea、
+// 数值层级与原始动效 token，视口断点白名单放过视口断点，入队动作层、useModelCapabilities 与 ToastOverlay
+// 各放过自己实现的那条。
 const SOURCE_RESTRICTIONS = [
   RESTRICT_ENQUEUE,
   RESTRICT_CAPABILITIES,
@@ -181,6 +233,8 @@ const SOURCE_RESTRICTIONS = [
   ...RESTRICT_FIXED_OVERLAY,
   RESTRICT_SCROLL_HEIGHT,
   ...RESTRICT_VIEWPORT_BREAKPOINT,
+  RESTRICT_RAW_TEXTAREA,
+  RESTRICT_TOAST_PRIMITIVE,
   ...SOURCE_CLASS_GUARDS,
 ];
 const restrictSyntax = (...exempt) => {
@@ -354,7 +408,12 @@ export default tseslint.config(
     files: ["src/hooks/useModelCapabilities.ts"],
     rules: { "no-restricted-syntax": restrictSyntax(RESTRICT_CAPABILITIES) },
   },
-  // 原语自身负责样式与浮层定位：关闭 restyle、任意值与静态 class 三条，放过 fixed inset-0、scrollHeight 与视口断点。
+  {
+    files: ["src/components/layout/ToastOverlay.tsx"],
+    rules: { "no-restricted-syntax": restrictSyntax(RESTRICT_TOAST_PRIMITIVE) },
+  },
+  // 原语自身负责样式与浮层定位：关闭 restyle、任意值与静态 class 三条，放过 fixed inset-0、scrollHeight、视口断点、
+  // 原生 textarea、数值层级与原始动效 token；另禁止依赖业务模块。
   {
     files: [UI_PRIMITIVES],
     ignores: TEST_FILES,
@@ -362,7 +421,15 @@ export default tseslint.config(
       "shadcn/no-restyle": "off",
       "shadcn/no-arbitrary-values": "off",
       "shadcn/require-static-classes": "off",
-      "no-restricted-syntax": restrictSyntax(RESTRICT_FIXED_OVERLAY, RESTRICT_SCROLL_HEIGHT, RESTRICT_VIEWPORT_BREAKPOINT),
+      "no-restricted-syntax": restrictSyntax(
+        RESTRICT_FIXED_OVERLAY,
+        RESTRICT_SCROLL_HEIGHT,
+        RESTRICT_VIEWPORT_BREAKPOINT,
+        RESTRICT_RAW_TEXTAREA,
+        RESTRICT_RAW_Z_INDEX,
+        RESTRICT_RAW_MOTION_TOKEN,
+      ),
+      "no-restricted-imports": ["error", RESTRICT_UI_PRIMITIVE_IMPORTS],
     },
   },
   {

@@ -131,6 +131,8 @@ def edit_timeline_api_error(exc: EditTimelineError) -> ApiError:
 _FINAL_CUT_STATUS: dict[str, int] = {
     "final_cut_narration_unavailable": 422,
     "final_cut_blocked": 409,
+    "final_cut_video_version_corrupted": 409,
+    "final_cut_narration_version_corrupted": 409,
     "final_cut_empty": 422,
     "final_cut_ffmpeg_unavailable": 503,
     "final_cut_render_failed": 500,
@@ -143,7 +145,8 @@ def final_cut_api_error(exc: FinalCutError) -> ApiError:
     params = exc.params
     issues = params.get("issues") or []
     units = "、".join(dict.fromkeys(str(issue.get("unit_id")) for issue in issues if issue.get("unit_id")))
-    error = ApiError(exc.code, status_code=_FINAL_CUT_STATUS[exc.code], units=units)
+    values = {key: value for key, value in params.items() if key != "issues"}
+    error = ApiError(exc.code, status_code=_FINAL_CUT_STATUS[exc.code], **values, units=units)
     if params:
         error.with_diagnostic(params)
     return error

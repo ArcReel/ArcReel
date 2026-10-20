@@ -1022,3 +1022,59 @@ def test_create_entry_endpoint_and_new_entry_hints(models_client: TestClient) ->
     entry = catalog.find_entry("house-flux", media_type="image")
     assert entry is not None
     assert catalog.entry_source(entry.key) == "user_created"
+
+
+_DOT_SEGMENT_IDS = [".", "..", "a/../b", "a/./b"]
+_PLAIN_IDS = ["a.b", "gpt-4.1", "x/y"]
+
+
+@pytest.mark.parametrize("model_id", _DOT_SEGMENT_IDS)
+async def test_model_id_with_dot_segment_is_rejected_on_every_entry(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession], model_id: str
+) -> None:
+    custom = await _create_relay(db_factory)
+    for provider_id in ("ark", custom):
+        added = models_client.post(f"/api/v1/providers/{provider_id}/models", json={"model_id": model_id})
+        assert added.status_code == 422
+        assert model_id in added.json()["detail"]
+    _add_user_model(models_client, "ark", "keep-me", "text")
+    renamed = models_client.patch("/api/v1/providers/ark/models/keep-me", json={"model_id": model_id})
+    assert renamed.status_code == 422
+    assert "keep-me" in _models(models_client, "ark")
+
+    models_client.post(f"/api/v1/providers/{custom}/models", json={"model_id": "house-chat"})
+    renamed = models_client.patch(f"/api/v1/providers/{custom}/models/house-chat", json={"model_id": model_id})
+    assert renamed.status_code == 422
+    assert "house-chat" in _models(models_client, custom)
+
+
+@pytest.mark.parametrize("model_id", _PLAIN_IDS)
+async def test_model_id_without_dot_segment_is_accepted(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession], model_id: str
+) -> None:
+    custom = await _create_relay(db_factory)
+    for provider_id in ("ark", custom):
+        resp = models_client.post(
+            f"/api/v1/providers/{provider_id}/models", json={"model_id": model_id, "media_type": "text"}
+        )
+        assert resp.status_code == 201
+
+
+async def test_discovery_drops_model_ids_with_dot_segment(
+    models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    ids = ("a/../b", "a/./b", "..", "gpt-4.1", "x/y")
+    provider_id = await _create_relay(db_factory)
+    with capture_http() as http:
+        http.get("https://relay.example.com/v1/models").respond(json=_model_list(*ids))
+        custom = models_client.post(f"/api/v1/providers/{provider_id}/models/discover")
+    async with db_factory() as session:
+        await CredentialRepository(session).create(provider="dashscope", name="k", api_key="sk-test")
+        await session.commit()
+    with capture_http() as http:
+        http.get("https://dashscope.aliyuncs.com/compatible-mode/v1/models").respond(json=_model_list(*ids))
+        builtin = models_client.post("/api/v1/providers/dashscope/models/discover")
+
+    for resp in (custom, builtin):
+        assert resp.status_code == 200
+        assert sorted(m["model_id"] for m in resp.json()["models"]) == ["gpt-4.1", "x/y"]

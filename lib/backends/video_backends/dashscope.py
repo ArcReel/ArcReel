@@ -539,9 +539,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
         分辨率取实际下发的档位（未指定时下发 720P）；结算的输出秒数取 ``usage.duration``。音轨开关只对 wan3.0
-        下发，其余型号恒有声。参考图张数按型号上限截断后计。
+        下发，其余型号恒有声。参考图张数按执行闸门那份能力（缺省时型号档案）的上限截断后计。
         """
-        caps = DashScopeVideoBackend.video_capabilities_for_model(model)
+        caps = request.video_capabilities or DashScopeVideoBackend.video_capabilities_for_model(model)
         provided = [r for r in (request.reference_images or []) if r] if caps.max_reference_images > 0 else []
         return video_usage(
             request,
@@ -577,6 +577,10 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         # 取默认的 CONTROLLABLE），改一侧须同改另一侧。
         if _is_wan3(self._model):
             parameters["audio"] = request.generate_audio
+        elif not request.generate_audio and self._video_capabilities.audio_track is VideoAudioMode.ALWAYS_ON:
+            # 恒有声型号发不出静音请求；执行期能力被用户覆盖放宽时才会走到这里，付费前拒绝而不是照常出有声成片。
+            # 认不得的型号按「无信号不收紧」声明可控，这里同样不收紧，沿用不下发开关。
+            raise VideoCapabilityError("video_audio_switch_not_supported", provider=self.name, model=self._model)
 
         return {
             "model": self._model,
@@ -585,9 +589,12 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         }
 
     def _build_media(self, request: VideoGenerationRequest) -> list[dict]:
-        caps = self._video_capabilities
+        # 可发与否按执行闸门那份能力判定：用户放宽的维度照常发出、由上游裁定；直接构造的请求回落型号档案。
+        caps = request.video_capabilities or self._video_capabilities
         media: list[dict] = []
-        if caps.first_frame and request.start_image:
+        if request.start_image and not caps.first_frame:
+            raise VideoCapabilityError("video_first_frame_unsupported", provider=self.name, model=self._model)
+        if request.start_image:
             p = Path(request.start_image)
             # fail-loud：声明了首帧图却缺失（目录/非常规文件，含空串解析出的 "."）或读取失败即中止，
             # 不静默忽略 —— 否则用户拿到一个没用上首帧的结果却不知情。
@@ -595,7 +602,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             if uri is None:
                 raise VideoCapabilityError("video_start_image_unreadable", model=self._model, name=p.name)
             media.append({"type": "first_frame", "url": uri})
-        if caps.last_frame and request.end_image:
+        if request.end_image and not caps.last_frame:
+            raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
+        if request.end_image:
             p = Path(request.end_image)
             uri = _read_image_or_none(p)
             # 与首帧同为 fail-loud：声明了尾帧却读不到就中止，不静默产出一个没用上尾帧的结果。
@@ -603,13 +612,16 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 raise VideoCapabilityError("video_end_image_unreadable", model=self._model, name=p.name)
             media.append({"type": "last_frame", "url": uri})
         reference_items: list[dict] = []
+        provided = [r for r in (request.reference_images or []) if r]
+        # r2v 必须有参考图：这是型号档案的事实，不随用户放宽参考图上限转移到 i2v 型号上，也不因用户把上限
+        # 收窄为 0 而放行无参考图的请求。
+        if not provided and self._video_capabilities.max_reference_images > 0 and not _is_wan3(self._model):
+            raise VideoCapabilityError("video_reference_images_required", model=self._model)
+        if caps.max_reference_images <= 0 and provided:
+            raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
         if caps.max_reference_images > 0:
-            # r2v 必须有参考图。fail-loud：未提供 → required；任一声明的参考图缺失/不可读（is_file 不过
-            # 或 read_bytes 抛 OSError）→ 报错列出文件名中止。不静默退化为无参考/子集生成（会产出错误
-            # 结果且照常计费），让用户感知到有图未被使用。
-            provided = [r for r in (request.reference_images or []) if r]
-            if not provided and not _is_wan3(self._model):
-                raise VideoCapabilityError("video_reference_images_required", model=self._model)
+            # fail-loud：任一声明的参考图缺失/不可读（is_file 不过或 read_bytes 抛 OSError）→ 报错列出文件名
+            # 中止。不静默退化为无参考/子集生成（会产出错误结果且照常计费），让用户感知到有图未被使用。
             data_uris: list[str] = []
             unreadable: list[str] = []
             for r in provided:
@@ -625,18 +637,13 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
                 )
             limit = caps.max_reference_images
             if len(data_uris) > limit:
-                logger.warning(
-                    "DashScope 参考图数量 %d 超过 model=%s 上限 %d，截断",
-                    len(data_uris),
-                    self._model,
-                    limit,
+                raise VideoCapabilityError(
+                    "video_reference_images_exceeded", model=self._model, limit=limit, count=len(data_uris)
                 )
-                data_uris = data_uris[:limit]
             reference_items = [{"type": "reference_image", "url": uri} for uri in data_uris]
         # 音频判定在参考素材循环之外：无参考素材可挂时也要走一遍，否则 wan2.7-i2v 这类无参考图
-        # 能力的 model 收到音频会静默丢弃、照常扣费。自定义供应商可把 endpoint 级的
-        # reference_audio_mode 覆盖成 direct，而 delegate 的 model profile 仍是真相源，故这条
-        # 路径实际可达。两种挂载形态：per_image 的挂在参考素材项上（wan2.7-r2v），其余走 media
+        # 能力的 model 收到音频会静默丢弃、照常扣费。用户把 reference_audio_mode 放宽成 direct 时
+        # 音频照常发出、由上游裁定；未放宽的能力档带音频在下方 fail-loud。两种挂载形态：per_image 的挂在参考素材项上（wan2.7-r2v），其余走 media
         # 数组里的独立 reference_audio 条目（wan3.0）。
         standalone_audio_items: list[dict] = []
         if caps.reference_audio_per_image:
@@ -666,7 +673,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         audio_files = list(request.reference_audio_files or [])
         if not audio_files:
             return []
-        if self._video_capabilities.reference_audio_mode == ReferenceAudioMode.NONE:
+        if (request.video_capabilities or self._video_capabilities).reference_audio_mode == ReferenceAudioMode.NONE:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
         uris: list[str] = []
         unreadable: list[str] = []
@@ -707,7 +714,7 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
         audio_files = list(request.reference_audio_files or [])
         if not audio_files:
             return
-        if self._video_capabilities.reference_audio_mode == ReferenceAudioMode.NONE:
+        if (request.video_capabilities or self._video_capabilities).reference_audio_mode == ReferenceAudioMode.NONE:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
 
         targets = request.reference_audio_targets

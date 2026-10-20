@@ -41,6 +41,8 @@ interface Props {
   onModelsChanged?: () => void;
   /** 已保存的供应商倍率。行上的「未定价」标记随倍率是否为 0 变化，倍率保存后整表重取。 */
   providerMultiplier?: number;
+  /** 供应商支持的媒体类型：手动填写模型时只提供这些类型；不给则不限。 */
+  mediaTypes?: readonly string[];
 }
 
 /** 获取到的模型添加时的请求：内置供应商对上官方收录的模型即启用它，自定义供应商带调用端点。 */
@@ -65,6 +67,7 @@ export function ProviderModelList({
   initialModelId,
   onModelsChanged,
   providerMultiplier,
+  mediaTypes,
 }: Props) {
   const { t } = useTranslation(["dashboard", "common"]);
   const pushToast = useAppStore((s) => s.pushToast);
@@ -254,6 +257,7 @@ export function ProviderModelList({
         <ManualEntryDialog
           open
           onOpenChange={(open) => !open && setManual(null)}
+          mediaTypes={mediaTypes}
           initialName={manual.query}
           onConfirm={(entry) => voidCall(addWithEntry(manual.query, entry, entry))}
           onUseExisting={(hit: CatalogEntryHit) => voidCall(addWithEntry(manual.query, hit))}

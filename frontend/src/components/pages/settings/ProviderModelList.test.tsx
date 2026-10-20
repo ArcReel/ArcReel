@@ -222,6 +222,26 @@ describe("ProviderModelList", () => {
     );
   });
 
+  it("offers only the media types the provider supports when filling in a model by hand", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "listProviderModels").mockResolvedValue({ models: [], discoverable: false });
+    vi.spyOn(API, "searchCatalogEntries").mockResolvedValue({ entries: [] });
+    vi.spyOn(API, "getNewEntryHints").mockResolvedValue({ existing: null, durations: null });
+
+    render(<ProviderModelList providerId="kling" providerName="可灵" mediaTypes={["video", "image"]} />);
+    await screen.findByText("这个供应商还没有模型。");
+    await user.click(screen.getByRole("button", { name: "添加模型" }));
+    await user.type(await screen.findByPlaceholderText("搜索模型名称，或输入模型 ID"), "kling-x");
+    await user.click(await screen.findByRole("button", { name: "手动填写" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "手动填写模型信息" });
+    expect(within(dialog).queryByRole("button", { name: "文本" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "音频" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "视频" })).toBeInTheDocument();
+    // 默认选中第一个受支持的类型
+    expect(within(dialog).getByRole("button", { name: "图片" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("leaves the output limit of a hand-filled text model unset unless the user gives one", async () => {
     // 预填一个常见值会作为模型事实写入，文本请求随之被压到这个上限；不填时按未登记处理
     const user = userEvent.setup();

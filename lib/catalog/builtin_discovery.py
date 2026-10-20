@@ -14,6 +14,7 @@ from typing import Literal
 
 from arcreel_catalog_core import CatalogEntry
 from lib.catalog import query as catalog
+from lib.catalog.model_id import has_dot_segment
 from lib.custom_provider.endpoints import infer_media_type
 
 DiscoveryForm = Literal["google", "openai"]
@@ -88,7 +89,8 @@ def classify_model_ids(provider_id: str, model_ids: list[str]) -> list[Discovere
         if view.official:
             official.setdefault(view.api_model_name, []).append(view)
     result: list[DiscoveredBuiltinModel] = []
-    for model_id in sorted(set(model_ids)):
+    # 含点段的 ID 添加会被拒（见 model_id.py），不放进可添加列表
+    for model_id in sorted({m for m in model_ids if not has_dot_segment(m)}):
         views = official.get(model_id)
         if views:
             result.extend(

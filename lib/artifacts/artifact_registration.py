@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 from lib.artifacts.artifact_currency import resolve_current_artifact_basis, resolve_current_artifact_target
@@ -20,7 +21,10 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestAdapter,
     ArtifactManifestEntry,
     ArtifactManifestError,
+    ArtifactRegistrationError,
     ProjectArtifactManifestAdapter,
+    observe_registered_artifact,
+    same_entry_records,
 )
 from lib.artifacts.artifact_planner import TargetStatePlanner, normalize_script_binding
 from lib.project.asset_derivatives import DERIVATIVE_ASSET_TYPE
@@ -227,17 +231,15 @@ def register_artifact_entries_atomically(
     expected = dict(guarded)
     for key, entry in replacements.items():
         if entry is not None:
-            observation = storage.inspect_artifact(entry.artifact_path)
-            if observation.blocker is not None:
-                raise ArtifactManifestError(
-                    f"cannot register blocked formal artifact {entry.artifact_path}: {observation.blocker.detail}"
-                )
-            if not observation.present:
-                raise ArtifactManifestError(f"cannot register missing formal artifact: {entry.artifact_path}")
+            try:
+                _path, content = observe_registered_artifact(storage, key, entry.artifact_path)
+            except ArtifactRegistrationError as exc:
+                raise ArtifactManifestError(f"cannot register formal artifact {entry.artifact_path}: {exc}") from exc
+            replacements[key] = replace(entry, content=content)
         expected.setdefault(key, observed[key])
     if any(observed[key] != value for key, value in expected.items()):
         raise ArtifactManifestError("artifact manifest changed during batch registration")
-    if all(observed[key] == value for key, value in replacements.items()):
+    if same_entry_records({key: observed[key] for key in replacements}, replacements):
         return False
     after = dict(observed)
     after.update(replacements)

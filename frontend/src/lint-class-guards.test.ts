@@ -33,6 +33,7 @@ const SOURCE_FILES = [
   "src/components/shared/page-shell/PageShell.tsx", // 视口断点白名单
   "src/actions/fixture.tsx", // 入队动作层
   "src/hooks/useModelCapabilities.ts", // 模型能力真相源
+  "src/components/layout/ToastOverlay.tsx", // 提示队列的唯一转交点
 ];
 
 const LAYOUT_GUARDS = {
@@ -43,17 +44,44 @@ const LAYOUT_GUARDS = {
     message: "禁止读写 scrollHeight",
   },
   breakpoint: { code: literalFixture("flex md:grid"), message: "业务组件禁用视口断点前缀" },
+  rawZIndex: { code: literalFixture("relative z-10"), message: "调用处不写数值层级" },
+  arbitraryZIndex: { code: literalFixture("hover:z-[60]"), message: "调用处不写数值层级" },
+  backdropBlur: { code: literalFixture("bg-popover/80 backdrop-blur-sm"), message: "不使用背景模糊" },
+  rawDuration: { code: literalFixture("transition-colors duration-150"), message: "时长与缓动只用 token" },
+  rawEase: { code: literalFixture("transition-opacity ease-in-out"), message: "时长与缓动只用 token" },
+  toastPrimitive: {
+    code: `import { toast } from "@/components/ui/toast";\nexport const t = toast;\n`,
+    message: "全局提示统一用 useAppStore 的 pushToast",
+  },
+  toastPrimitiveRelative: {
+    code: `import { toast } from "../ui/toast";\nexport const t = toast;\n`,
+    message: "全局提示统一用 useAppStore 的 pushToast",
+  },
+  toastPrimitiveReexport: {
+    code: `export { toast } from "@/components/ui/toast";\n`,
+    message: "全局提示统一用 useAppStore 的 pushToast",
+  },
 };
 type LayoutGuard = keyof typeof LAYOUT_GUARDS;
 const ALL_LAYOUT_GUARDS = Object.keys(LAYOUT_GUARDS) as LayoutGuard[];
 
-// 布局守卫对全部源码生效：原语放过 fixed inset-0、scrollHeight 与视口断点，白名单放过视口断点。
+const except = (...skipped: LayoutGuard[]) => ALL_LAYOUT_GUARDS.filter((g) => !skipped.includes(g));
+
+// 布局守卫对全部源码生效：原语放过 fixed inset-0、scrollHeight、视口断点、数值层级与原始动效 token（背景模糊不放过），
+// 白名单放过视口断点，ToastOverlay 放过 toast 原语导入。
 const LAYOUT_ENFORCED: Record<string, LayoutGuard[]> = {
   "src/lint-fixture/Fixture.tsx": ALL_LAYOUT_GUARDS,
-  "src/components/ui/fixture.tsx": ["viewportHeight"],
-  "src/components/shared/page-shell/PageShell.tsx": ["viewportHeight", "fixedOverlay", "scrollHeight"],
+  "src/components/ui/fixture.tsx": [
+    "viewportHeight",
+    "backdropBlur",
+    "toastPrimitive",
+    "toastPrimitiveRelative",
+    "toastPrimitiveReexport",
+  ],
+  "src/components/shared/page-shell/PageShell.tsx": except("breakpoint"),
   "src/actions/fixture.tsx": ALL_LAYOUT_GUARDS,
   "src/hooks/useModelCapabilities.ts": ALL_LAYOUT_GUARDS,
+  "src/components/layout/ToastOverlay.tsx": except("toastPrimitive", "toastPrimitiveRelative", "toastPrimitiveReexport"),
 };
 
 const VIOLATIONS: Array<[keyof typeof GUARD_MESSAGE, string]> = [
@@ -81,6 +109,9 @@ const ALLOWED = [
   "relative overflow-y-auto [scrollbar-gutter:stable]",
   "relative overflow-y-auto scrollbar-gutter-stable",
   "motion-path-fixture",
+  "relative z-sticky",
+  "transition-colors duration-fast ease-emphasized",
+  "backdrop-blur-0",
 ];
 
 describe("类名守卫", () => {
@@ -126,6 +157,34 @@ describe("类名守卫", () => {
       const [result] = await eslint.lintText(code, { filePath });
       expect(result.messages.map((m) => m.ruleId)).toContain("shadcn/no-raw-colors");
     });
+  });
+
+  it("原生 textarea 只在原语目录放行", async () => {
+    const code = "export const Editor = () => <textarea aria-label=\"x\" />;\n";
+    expect(await guardReports(code, "src/lint-fixture/Fixture.tsx")).toEqual([
+      expect.stringContaining("多行输入用 components/ui/textarea 的 Textarea"),
+    ]);
+    expect(await guardReports(code, "src/components/ui/fixture.tsx")).toEqual([]);
+  });
+
+  it("原语目录不得依赖业务模块", async () => {
+    const code = [
+      `import { API } from "@/api";`,
+      `import { useAppStore } from "@/stores/app-store";`,
+      `import { PageShell } from "@/components/shared/page-shell/PageShell";`,
+      `import { Button } from "@/components/ui/button";`,
+      `import { useTranslation } from "react-i18next";`,
+      `import { Dialog } from "./dialog";`,
+      `import { useConfigStore } from "../../stores/config-store";`,
+      `import { DetailPane } from "../shared/master-detail/DetailPane";`,
+      `import { useProjectsStore } from "./../../stores/projects-store";`,
+      `import { useTasksStore } from "@/components/ui/../../stores/tasks-store";`,
+      `export const all = [API, useAppStore, PageShell, Button, useTranslation, Dialog, useConfigStore, DetailPane, useProjectsStore, useTasksStore];`,
+      "",
+    ].join("\n");
+    const [result] = await eslint.lintText(code, { filePath: "src/components/ui/fixture.tsx" });
+    const restricted = result.messages.filter((m) => m.ruleId === "no-restricted-imports").map((m) => m.line);
+    expect(restricted).toEqual([1, 2, 3, 7, 8, 9, 10]);
   });
 
   it("测试文件不受布局守卫与 @shadcn/lint 约束", async () => {

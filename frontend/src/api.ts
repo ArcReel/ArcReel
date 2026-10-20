@@ -3794,12 +3794,9 @@ class API {
    */
   static async getCostEstimate(
     projectName: string,
-    options: { referenceUnitId?: string; signal?: AbortSignal } = {}
+    options: { signal?: AbortSignal } = {}
   ): Promise<CostEstimateResponse> {
-    const suffix = options.referenceUnitId
-      ? `?${new URLSearchParams({ reference_unit_id: options.referenceUnitId }).toString()}`
-      : "";
-    return this.request(`/projects/${encodeURIComponent(projectName)}/cost-estimate${suffix}`, {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/cost-estimate`, {
       signal: options.signal,
     });
   }

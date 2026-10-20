@@ -40,6 +40,7 @@ from tests.legacy_project_shapes import (
     add_legacy_manual_uploads,
     advance_project_schema,
     legacy_transition_presentation_basis,
+    without_version_content_digests,
     write_legacy_ad_reference_video_project,
     write_legacy_episode_id_remnants_project,
     write_legacy_episode_sources_project,
@@ -345,7 +346,7 @@ async def test_upgrade_preserves_paid_videos_raised_by_tts_but_does_not_refresh_
     assert status.artifacts["videos"]["current_ids"] == ["E1S1"]
     assert status.artifacts["videos"]["stale_ids"] == ["E1S2"]
     assert adapter.get_entry(ArtifactKey.episode_video(1, "E1S2")) == stale_entry
-    after = _read_json(versions_path)
+    after = without_version_content_digests(_read_json(versions_path))
     selected = after["videos"]["E1S1"]["versions"][0]
     assert selected == {**before["videos"]["E1S1"]["versions"][0], VIDEO_CURRENCY_DURATION_FIELD: 4}
     assert after["videos"]["E1S2"] == before["videos"]["E1S2"]
@@ -427,7 +428,7 @@ def test_upgrade_does_not_refresh_a_raised_video_whose_narration_is_not_current(
     migrate_project_dir(project_dir)
 
     assert adapter.get_entry(key) == entry
-    assert _read_json(versions_path)["videos"] == versions["videos"]
+    assert without_version_content_digests(_read_json(versions_path))["videos"] == versions["videos"]
     status = WorkflowStateService(ProjectManager(tmp_path)).get_status(project_dir.name, 1)
     assert status.artifacts["videos"]["stale_ids"] == ["E1S1"]
     assert status.artifacts["videos"]["current_ids"] == []

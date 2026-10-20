@@ -47,6 +47,7 @@ interface SecondaryRailProps {
  * - 紧凑档：56px 图标栏，悬停或聚焦显示名称与第二行，多组上下叠放。
  *
  * 两种形态都在 DOM 里，靠容器查询只显示一种；被隐藏的那份是 `display: none`，不进入可访问树。
+ * jsdom 不计算样式，Vitest 中两份都可见：按条目查询时限定在 `getByRole("tabpanel")` 内，或用 `getAllBy*`。
  */
 export function SecondaryRail({ label, groups, activeId, replace }: SecondaryRailProps) {
   const [chosenTab, setChosenTab] = useState<string | null>(null);

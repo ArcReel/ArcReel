@@ -55,6 +55,7 @@ from lib.episode.episode_target_duration import (
     is_valid_episode_target_duration,
 )
 from lib.episode.source_kinds import SourceKind
+from lib.generation.task_failure import FAILURE_CODE_KEYS
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
 from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
@@ -92,7 +93,8 @@ from lib.workflow.workflow_state import (
 )
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.dependencies import require_project_migration_ok
-from server.i18n import DisplayNamesCatalog, Translator
+from server.i18n import DisplayNamesCatalog, Locale, Translator
+from server.routers._coalesce import RequestCoalescer
 from server.routers._episode_source_errors import episode_source_http_error
 from server.routers._script_edits import (
     execute_current_script_edit,
@@ -127,6 +129,12 @@ router = APIRouter()
 # 自带认证端点：浏览器原生下载导航带不了 Authorization header，
 # 端点内 verify_download_token 校验短时效下载 token，注册时不挂 Bearer 依赖。
 self_auth_router = APIRouter()
+
+_project_detail_coalescer = RequestCoalescer()
+
+
+def get_project_detail_coalescer() -> RequestCoalescer:
+    return _project_detail_coalescer
 
 
 def get_workflow_state_service() -> WorkflowStateService:
@@ -909,9 +917,11 @@ async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_use
 async def get_project(
     name: str,
     _t: Translator,
+    locale: Locale,
     summaries: WorkflowStateServiceDep,
+    coalescer: Annotated[RequestCoalescer, Depends(get_project_detail_coalescer)],
 ):
-    """获取项目详情（含实时计算字段）"""
+    """获取项目详情（含实时计算字段）。同一项目、同一语言的并发请求合流计算。"""
     try:
 
         def _sync():
@@ -955,7 +965,7 @@ async def get_project(
                 "asset_fingerprints": fingerprints,
             }
 
-        return await run_sync_transaction(_sync)
+        return await coalescer.run((name, locale), lambda: run_sync_transaction(_sync))
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):
@@ -1897,6 +1907,7 @@ async def update_episode_source(name: str, episode: int, req: UpdateEpisodeSourc
 async def set_project_source(
     name: Annotated[str, FastAPIPath(pattern=r"^[a-zA-Z0-9_-]+$")],
     _t: Translator,
+    names: DisplayNamesCatalog,
     generate_overview: Annotated[bool, Form()] = True,
     content: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
@@ -1967,6 +1978,11 @@ async def set_project_source(
                 with project_change_source("webui"):
                     overview = await manager.generate_overview(name)
                 result["overview"] = overview
+            except ModelNotInCatalogError as ov_err:
+                # 文本模型已不在供应商清单中：回传「重新选择模型」指引，而非笼统的生成失败
+                logger.warning("上传后概览生成失败：模型不在清单中 (%s)", ov_err)
+                result["overview"] = None
+                result["overview_error"] = render_message(FAILURE_CODE_KEYS[ov_err.code], ov_err.params, _t, names)
             except Exception as ov_err:
                 # 概览生成是上传的可选后续步骤，失败仅降级回传提示、不影响上传成功。
                 # 裸 str(ov_err) 可能携带服务器路径等内部细节，回传翻译后的通用文案。

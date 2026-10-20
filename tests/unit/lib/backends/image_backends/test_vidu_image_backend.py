@@ -22,6 +22,7 @@ from lib.backends.image_backends.vidu import (
     ViduImageBackend,
 )
 from lib.backends.providers import PROVIDER_VIDU
+from lib.catalog import query as catalog
 from tests.http_capture import capture_http
 
 
@@ -71,6 +72,32 @@ class TestWhitelistConfig:
 
     def test_prompt_truncation_limit(self):
         assert _PROMPT_MAX_LEN == 2000
+
+
+class TestRegistryBackendConsistency:
+    """目录声明的分辨率须在执行期白名单内，否则 UI 给出的选项会被 backend 静默丢弃。"""
+
+    def test_catalog_image_models_registered_in_whitelist(self):
+        """没有白名单的型号一律不发 resolution，目录里声明了分辨率的图片型号必须登记。"""
+        unregistered = sorted(
+            name
+            for name, model in catalog.list_models("vidu").items()
+            if model.media_type == "image" and model.resolutions and name not in _RESOLUTION_WHITELIST
+        )
+        assert not unregistered, (
+            f"目录 vidu 图片型号 {unregistered} 声明了分辨率，但不在 backend 的 _RESOLUTION_WHITELIST 中"
+        )
+
+    @pytest.mark.parametrize("name", list(_RESOLUTION_WHITELIST))
+    def test_resolutions_within_backend_whitelist(self, name: str):
+        model_info = catalog.get_model("vidu", name)
+        if model_info is None or model_info.media_type != "image":
+            pytest.skip(f"目录未登记图片型号 {name}")
+        extra = set(model_info.resolutions) - set(_RESOLUTION_WHITELIST[name])
+        assert not extra, (
+            f"目录 vidu/{name} 的 resolutions 含 backend 白名单外的 {sorted(extra)}："
+            "按官方文档核对后，改模型目录数据或 lib/backends/image_backends/vidu.py 的 _RESOLUTION_WHITELIST"
+        )
 
 
 class TestEstimateUsage:

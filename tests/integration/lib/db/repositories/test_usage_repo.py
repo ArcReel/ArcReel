@@ -477,7 +477,7 @@ class TestMultiProviderUsage:
         call_id = await repo.start_call(
             project_name="demo",
             call_type="text",
-            model="doubao-seed-2-0-lite-260215",
+            model="doubao-seed-2-1-lite-260915",
             prompt="分析小说内容",
             provider="ark",
         )
@@ -495,8 +495,8 @@ class TestMultiProviderUsage:
         calls = await stored_calls(async_session)
         item = calls[0]
         assert item.currency == "CNY"
-        # cost = (2000 * 0.60 + 1000 * 3.60) / 1_000_000 = 0.0048
-        assert item.cost_amount == pytest.approx((2000 * 0.60 + 1000 * 3.60) / 1_000_000)
+        # cost = (2000 * 0.80 + 1000 * 2.70) / 1_000_000 = 0.0043
+        assert item.cost_amount == pytest.approx((2000 * 0.80 + 1000 * 2.70) / 1_000_000)
 
     async def test_text_call_failed_zero_cost(self, async_session):
         repo = UsageRepository(async_session)

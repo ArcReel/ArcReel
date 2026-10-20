@@ -71,7 +71,7 @@ class TestProperties:
 
     def test_default_model(self, mock_ark):
         b = ArkTextBackend(api_key="k")
-        assert b.model == "doubao-seed-2-0-lite-260215"
+        assert b.model == "doubao-seed-2-1-lite-260915"
 
     def test_capabilities(self, mock_ark):
         b = ArkTextBackend(api_key="k")
@@ -175,8 +175,7 @@ class TestCapabilityAwareStructured:
     def backend_no_structured(self, mock_ark):
         """创建一个模型不支持原生 structured_output 的 backend。"""
         _, mock_client = mock_ark
-        # 使用默认模型 doubao-seed-2-0-lite-260215，registry 中已移除 structured_output
-        b = ArkTextBackend(api_key="k")
+        b = ArkTextBackend(api_key="k", model="doubao-seed-2-0-mini-260428")
         b._test_client = mock_client
         return b
 
@@ -190,8 +189,8 @@ class TestCapabilityAwareStructured:
         b._capabilities.add(TextCapability.STRUCTURED_OUTPUT)
         return b
 
-    async def test_default_model_does_not_support_native_structured(self, backend_no_structured):
-        """默认豆包模型不支持原生结构化输出。"""
+    async def test_model_without_structured_output_lacks_native_capability(self, backend_no_structured):
+        """目录未声明 structured_output 的豆包模型不支持原生结构化输出。"""
         assert TextCapability.STRUCTURED_OUTPUT not in backend_no_structured.capabilities
 
     async def test_fallback_uses_instructor(self, backend_no_structured, sync_to_thread):

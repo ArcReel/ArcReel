@@ -23,3 +23,4 @@ status: accepted
 
 - 参考生视频未设分辨率的项目改为不下发后，执行指纹随之改变，已选视频不再命中同档免费复用；产物时效不受影响（`docs/adr/0062`）。
 - `docs/adr/0049` 中 video lane 的兜底分辨率与时长这一维的空值放行由本 ADR 取代；`docs/adr/0019` 对参考生视频路线不再有例外。
+- 测试：报价、预检、执行等消费方的测试用 `tests/factories.py` 的 `make_video_request_facts` 构造结果、直接构造 `VideoRequestFactsFailure` 作失败对象，不在能力解析器层造假，也不手搭能力 dict；能力求值本身用真实 `ConfigResolver` 加测试数据库测。

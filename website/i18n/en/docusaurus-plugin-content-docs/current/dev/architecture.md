@@ -70,6 +70,58 @@ The frontend uses React 19 and TypeScript. Its primary responsibilities include:
 
 The frontend must not handle provider credentials directly or bypass the backend to call models.
 
+### 3.1 Page Shell and Tiers {#page-shell}
+
+Page-level views such as Global Settings, Project Settings, the project lobby, and the asset library are composed by `PageShell` from `components/shared/page-shell`: `PageHeader` is the top bar, with "Back | Title | Subtitle" on the left and page-level actions on the right; `PageSidebar` is the grouped navigation docked on the left. The shell is the only place that switches tiers by viewport: at the `xl` boundary it adjusts the sidebar width and content padding between the standard and compact tiers. The content column is a size container named `page`, and sections respond to width with container queries such as `@md/page:`; ESLint's `RESTRICT_VIEWPORT_BREAKPOINT` blocks viewport breakpoint prefixes in business components.
+
+The shell's `tier` is chosen by content, and different sections of the same page may use different tiers:
+
+- `constrained`: the content column has a maximum width and sits flush against the sidebar; the shell body scrolls and provides padding. Used for forms and settings.
+- `full`: no maximum width; otherwise the same as constrained. Used for lists, grids, and tables.
+- `bleed`: the shell body neither scrolls nor adds padding; the section fills the remaining height, lays out its own columns, and each column scrolls independently. Used for master-detail layouts and editors.
+
+The tier provides the page-level maximum width, centering, and outer padding, so sections do not write their own `max-w-*`, `mx-auto`, or outer padding.
+
+Where the save bar goes depends on the tier. The constrained and full tiers have a fixed footer row below the shell body that covers only the content area and does not scroll with the body; a section renders its save bar into it with `<PageShellFooter><SaveBar unit={unit} /></PageShellFooter>`, and the row is hidden when the section renders no save bar. The bleed tier has no such row: the save bar sits at the bottom of the section's detail pane, outside the scroll area.
+
+Bleed "list + detail" sections (such as providers, endpoints, and Agent memory) use `components/shared/master-detail`: `SecondaryRail` on the left lists entries by `groups`, and selection goes through each entry's `href` route; `DetailPane` on the right has header, body, and footer parts, only the body scrolls, and the `SaveBar` of a settings detail goes into the footer. When the selected item changes, pass a `key` to the detail component so the whole pane is rebuilt and the previous item's unsaved changes, in-flight requests, and loading state do not carry over. When a constrained page has no room for a secondary rail (such as "Project Memory" in Project Settings), use `SecondaryRailList` to list the same group of entries on its own. See each component's TSDoc for its props and form switching.
+
+### 3.2 Project Workspace Layout {#studio-layout}
+
+The project workspace is composed by `components/layout/StudioLayout`: a top bar spans the full width, with three columns below it, "sidebar | canvas | Agent panel". The handles between columns can be dragged or adjusted with the arrow keys. The shell switches tiers at the `xl` boundary: in the standard tier the Agent panel squeezes the canvas; in the compact tier the Agent panel overlays the right side of the canvas and the sidebar collapses to an icon rail. The canvas `main` is a width container named `canvas`, and views inside the canvas respond to width with container queries such as `@md/canvas:`. The Agent panel is a size container named `agent`, so height limits set in `cqh` inside the panel are computed from the panel height. The shell has no entry points floating over the canvas, and elements in the canvas do not reserve right-side space for the Agent panel.
+
+The Agent panel's open state lives in `useAppStore`. Opening the panel programmatically (for example, when prefilling an instruction into the input) calls `setAssistantPanelOpen(true)`, which affects only the current session and is not remembered; only the top-bar "Agent" toggle and drag-to-collapse remember the user's choice through `toggleAssistantPanel`. Content stays mounted while the panel is collapsed, so prefilled input is not lost.
+
+### 3.3 Frontend Routing and Deep Links {#frontend-routing}
+
+The page "Back" behavior comes from `components/shared/page-shell/return-to.ts`. `useTrackReturnTo` at the router root records the most recently visited app page (including the query string) in `sessionStorage`; moving between Global Settings and the asset library does not change the return target, and redirect-only entries are not recorded. A "Back" button calls the callback returned by `useReturnTo()` to go back to the page visited before; when nothing is recorded it goes to the project lobby. Entry buttons and deep links therefore do not record their own origin. `useReturnTo` is only for pages on top-level routes: `navigate` inside a nested route resolves against the nested path.
+
+Links to a Global Settings section are generated with `settingsSectionPath(section, params)` from `app-routes.ts`. The section name is checked by the `SettingsSection` type, so renaming a section makes typecheck report every stale link. When navigating from inside a nested route, prefix the path with `~`, for example `` `~${settingsSectionPath("usage")}` ``.
+
+Navigation between providers and endpoints uses `providerSettingsPath(target)` and `endpointSettingsPath(endpointKey, { fromCustomProvider })` instead of hand-built query parameters. When jumping from a custom provider to an endpoint, pass `fromCustomProvider`, and the endpoint page shows a link back to that provider at the top. See each function's TSDoc for how it maps to query parameters.
+
+### 3.4 Project Data Refresh {#project-data-refresh}
+
+Project data refresh converges on `refreshProject` in `frontend/src/stores/projects-store.ts`. Edit writes, project event SSE, route loading, and other entry points all call this one action, which coalesces in-flight work internally: while a refresh is in flight, new calls queue and one more round runs after it finishes, and each caller receives its own settled result; when a queued target project is superseded by another project, the superseded caller settles immediately as `cancelled` and does not share the new project's result. When adding data that needs refreshing from multiple entry points, follow the same structure instead of letting each caller send its own request; otherwise concurrent refreshes interleave their write-backs. Use a store action to coalesce multi-entry refreshes and an AbortSignal to cancel loading of a piece of data; the two complement each other.
+
+Every refresh after a successful write goes through `frontend/src/components/canvas/shared/refreshAfterWrite`. `refreshProject` reports failure through its settled result instead of rejecting; when a write has committed but the refresh fails, the UI stays on stale data, looks as if the write did not take effect, and creators tend to repeat the operation. refreshAfterWrite shows `common:write_refresh_failed` when the result is `failed`, stays silent on `cancelled` (the project has been switched away), and returns the settled result unchanged so callers can decide on follow-up actions that depend on the new data; the review rule for those follow-ups is in the [frontend standards](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/frontend.md), and the call sites that may skip it are listed in its TSDoc. Load and sync paths such as the first route load and project event SSE are not post-write refreshes; they should pass `onError` or handle the settled result. ESLint's `RESTRICT_DISCARDED_REFRESH` blocks calls that discard the settled result without passing `onError`. Reference: `frontend/src/components/canvas/episodes/CreateEpisodeDialog.tsx` (navigates to the new episode only after the refresh succeeds).
+
+### 3.5 Edit Units and the Leave Guard {#edit-unit-and-leave-guard}
+
+A settings view or a block of canvas content is one [edit unit](https://github.com/ArcReel/ArcReel/blob/main/GLOSSARY.md), and `components/shared/edit-unit/useEditUnit` holds its saved content and unsaved changes. Fields (descriptions, prompts, durations, references, and toggles and selects in settings forms) are written through `unit.setValue` and saved or discarded together by the unit; actions such as upload, generate, rename, delete, and reorder do not enter unsaved changes and run immediately.
+
+- Saved content comes in through `source`, both the load result and later pushes, instead of an effect that resets local state to server data. Without unsaved changes the hook adopts the new content directly; with changes it keeps them and marks on the save bar or notice bar that the content has been updated by the Agent.
+- `save(value, savedValue)` submits the changes, returns the saved content, and throws on failure; the error appears on the save bar or notice bar. When one save commits in several steps and earlier steps have already been persisted, it throws `PartialSaveError` with the persisted content, and both discarding changes and the next save use it as the baseline; otherwise old values would be written back.
+- Settings forms use a persistent `SaveBar`, placed as described in [Page Shell and Tiers](#page-shell); canvas content uses `UnsavedChangesBar`, placed below the content it belongs to.
+- With unsaved changes, generation goes through `unit.saveAndGenerate`, which saves before generating; the review rules are in the [frontend standards](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/frontend.md).
+- UI copy and code names do not use "draft" on its own; in Chinese that word already refers to drafts to repair and editable drafts.
+
+`LeaveGuardProvider` at the root of `AppRoutes` is the only leave guard. It intercepts in-app navigation (`navigate`, `Link`, `Redirect`) through wouter's `aroundNav`, catches browser back and forward, and requests the browser's native prompt when the tab is closed or refreshed. Its dialog has three buttons, "Keep editing / Discard changes / Save and leave"; if saving fails it stays in place, and the edit unit shows the error itself. `useEditUnit` registers automatically while mounted, and pages that manage their own form state register with `useLeaveGuard`. The integration obligations for switches that do not go through routing, actions that require a second confirmation, and similar cases are in the frontend standards under "离开与切换交给离开拦截" (leave and switch go through the leave guard).
+
+### 3.6 Configuration Issues in Settings {#settings-config-issues}
+
+Global Settings configuration issues belong to sections: each issue in `stores/config-status-store` carries its section, and `useSectionConfigIssues(section)` returns the issues a section should show. The sidebar shows a warning marker only on the entry of the corresponding section. Inside a section, `settings/ConfigIssueNotice` shows the issues: for bleed sections the settings page places it at the top of the section, and constrained sections place it after their own header description. Empty states in other sections that relate to an issue link to the owning section with `settingsSectionPath` instead of listing the issue again. Configuration issues do not use a global banner.
+
 ## 4. API and Realtime State {#api-and-realtime}
 
 FastAPI provides:
@@ -147,6 +199,16 @@ Deterministic operations are better handled by tools or Skills, for example:
 - exporting archives.
 
 These operations should not be repeatedly delegated to a language model for free-form generation.
+
+Agent tools are declared once, in `server/agent_toolset/`: embedded sessions build an in-process MCP server through `server/agent_runtime/arcreel_mcp.py`, external Agents use the remote MCP, and both project from the same declarations ([ADR 0087](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0087-agent-toolset-single-declaration.md)). `tests/integration/server/agent_toolset/test_host_consistency.py` checks that both hosts register exactly the declared tool set.
+
+### 5.4 Session Serialization {#session-actor}
+
+Each session's `ClaudeSDKClient` is owned exclusively by that session's dedicated `SessionActor` task. Query, interrupt, withdrawing queued messages, and disconnect are all delivered through a command queue and executed serially inside the actor. New session operations also go through the command queue instead of holding the client directly ([ADR 0028](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0028-session-actor-single-task-serialization.md)).
+
+### 5.5 Embedded Agent Profile Source {#agent-profile}
+
+The embedded Agent's configuration source is `agent_runtime_profile/`: `.claude/skills/`, `.claude/agents/`, and `CLAUDE.*.md` split by `content_mode`. `lib/agent/profile_manifest.py` materializes them into each user project's `.claude/` and CLAUDE.md, using a manifest plus sha256 to detect and preserve project-side files the user has modified. To change the embedded Agent's behavior, change the configuration source; editing only one project's materialized files has no effect on other projects or new projects.
 
 ## 6. Application Service Layer {#service-layer}
 
@@ -257,6 +319,19 @@ Task creation and retries should avoid:
 - creating identical generation tasks after repeated clicks.
 
 Task identity, persistent state, and provider task IDs are essential to handling these problems.
+
+### 8.3 Sources of Cancellation and Interruption {#cancellation-sources}
+
+User cancellation only applies to queued tasks ([ADR 0006](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0006-cancel-only-queued-tasks.md)). Once a task starts running, provider calls already sent run to completion and their results become artifacts as usual.
+
+While generation tasks and non-streaming requests are being processed, only two sources interrupt a running coroutine:
+
+- Timeouts inside the task: an `asyncio.timeout` block cancels the current task, and `asyncio.wait_for` cancels the coroutine it awaits; both surface as `TimeoutError`.
+- A second Ctrl-C during shutdown to force exit: event loop teardown cancels all tasks. Interrupted generation tasks are marked `interrupted` by the cancellation branch in `GenerationWorker`, and tasks that could not be marked are settled by restart recovery.
+
+These three things do not interrupt a running coroutine: during normal shutdown, `GenerationWorker.stop()` waits for in-flight tasks to finish; user cancellation only applies to queued tasks; a client disconnect only sets a flag.
+
+Outside this scope, some scenarios initiate cancellation themselves: SSE streaming responses cancel the event-producing coroutine when the client disconnects, `TrialRunManager.cancel()` cancels an in-progress provider trial run, and `SessionManager` cancels the inbox processing task when a session is evicted or fails to start. Before writing cancellation-sensitive code in these scenarios, find every cancellation source in the code first. For how thread calls guard against cancellation, see the [backend standards](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/backend.md) entries "线程里写入正式文件或创建临时产物时，用 `run_sync_transaction`" (use `run_sync_transaction` when a thread writes official files or creates temporary artifacts) and "供应商返回之后的落账段不可中断" (the bookkeeping segment after a provider returns must not be interrupted).
 
 ## 9. Project and Asset Model {#project-and-asset-model}
 
@@ -487,13 +562,17 @@ ArcReel uses mechanisms such as `bwrap` to restrict these capabilities in suppor
 Security principles:
 
 - least privilege by default;
-- file and network allowlists;
+- file access allowed by policy, with no domain allowlist for outbound network access ([ADR 0069](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0069-embedded-agent-http-api-access.md));
 - do not mount the Docker Socket;
 - do not mount unnecessary host paths;
 - expose only the reverse proxy externally;
 - use HTTPS;
 - update regularly;
 - treat unknown project input as untrusted data.
+
+What the Agent can access is defined in one place, `AgentAccessPolicy` in `server/agent_runtime/agent_access_policy.py`, and projected onto two layers: the kernel sandbox (macOS sandbox-exec, Linux bwrap) constrains reads, writes, and network access by Bash and its subprocesses, and a PreToolUse hook constrains the SDK built-in Read, Write, Edit, Glob, and Grep tools ([ADR 0026](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0026-agent-file-guard-two-layers.md)). When the sandbox is unavailable the server refuses to start; only Windows falls back to a Bash prefix allowlist ([ADR 0025](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0025-sandbox-unavailable-startup-hard-fail.md)). When adding an Agent capability that depends on files or the network, allow the required paths in `AgentAccessPolicy` instead of bypassing it at the call site.
+
+An Agent tool that relies on sandbox-specific isolation (file system, network, or subprocesses) must either provide a Windows fallback path or explicitly refuse to run when the sandbox is unavailable; otherwise it runs without isolation on Windows.
 
 ## 16. Extending ArcReel with a New Provider {#extend-provider}
 

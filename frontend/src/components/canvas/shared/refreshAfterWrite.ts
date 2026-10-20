@@ -8,6 +8,9 @@ import { useProjectsStore, type RefreshProjectResult } from "@/stores/projects-s
  * 写入已提交，刷新是独立的后续步骤：`refreshProject` 以结算值报告失败而不 reject。
  * 不提示的话界面停在旧数据上，看着像这次写入没生效，创作者容易重复操作。
  * `cancelled` 是项目已切走，静默。结算值原样返回，调用方据此决定后续动作是否仍可靠。
+ *
+ * 已有专属提示的写入可以不经本函数，直接消费 `refreshProject` 的结算值并自行提示：
+ * 分镜保存（经 `PartialSaveError`），以及时间线的增删分镜、改名、合并、删除。
  */
 export async function refreshAfterWrite(
   projectName: string,

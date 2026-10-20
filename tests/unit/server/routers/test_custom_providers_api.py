@@ -75,6 +75,20 @@ class TestCreateProvider:
         )
         assert resp.status_code == 201
 
+    @pytest.mark.parametrize("model_id", [".", "..", "a/../b", "a/./b"])
+    def test_rejects_model_id_with_dot_segment(self, custom_providers_client: TestClient, model_id: str):
+        resp = custom_providers_client.post(
+            "/api/v1/custom-providers",
+            json={
+                "display_name": "Test Provider",
+                "discovery_format": "openai",
+                "base_url": "https://api.example.com/v1",
+                "api_key": "sk-test-key-12345678",
+                "models": [{"model_id": model_id, "display_name": "x", "endpoint": "openai-chat"}],
+            },
+        )
+        assert resp.status_code == 422
+
     def test_response_structure(self, custom_providers_client: TestClient):
         resp = custom_providers_client.post(
             "/api/v1/custom-providers",

@@ -13,13 +13,14 @@ import os
 import time
 from dataclasses import replace
 from pathlib import Path
+from typing import ClassVar
 
 import httpx
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from arcreel_market_core.video_backend_contract import VideoCapabilities
+from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoGenerationRequest
 from lib.billing.ledger import Ledger
 from lib.custom_provider.declarative_backend import DeclarativeVideoBackend
 from lib.custom_provider.endpoint_test import (
@@ -31,6 +32,7 @@ from lib.custom_provider.endpoint_test import (
     TrialRunStatus,
     TrialRunTarget,
     declarative_target,
+    model_ref_target,
     provider_from_base_url,
 )
 from lib.db.models.api_call import ApiCall
@@ -496,6 +498,89 @@ class TestTrialRun:
 
         assert run.status is TrialRunStatus.FAILED
         assert run.api_call_id is None
+        async with db_factory() as session:
+            assert (await session.execute(select(ApiCall))).scalars().all() == []
+
+
+class _RecordingBackend(DeclarativeVideoBackend):
+    """记下后端实际收到的请求，出站仍走声明式端点的真实路径。"""
+
+    requests: ClassVar[list[VideoGenerationRequest]] = []
+
+    async def generate(self, request: VideoGenerationRequest):
+        type(self).requests.append(request)
+        return await super().generate(request)
+
+
+class TestBuiltinUserAddedOverrides:
+    """内置供应商下用户添加的模型：测试连接与生产执行闸门同样叠加用户的能力覆盖（docs/adr/0104）。"""
+
+    @pytest.fixture
+    def builtin_target(self):
+        from lib.catalog import query as catalog
+
+        def install(overrides: dict[str, object], *, declared_last_frame: bool) -> TrialRunTarget:
+            catalog.install_user_added_models(
+                [catalog.UserAddedModel("ark", PARAMETERS.model, "video", capability_overrides=overrides)]
+            )
+            definition = custom_endpoint_definition(
+                inputs={
+                    "first_frame": {"source": "start_image", "encoding": "data_uri"},
+                    "last_frame": {"source": "end_image", "encoding": "data_uri"},
+                },
+                capabilities={"first_frame": True, "last_frame": declared_last_frame},
+            )
+            definition["submit"]["body"]["last_image"] = "{{ inputs.last_frame }}"
+            _RecordingBackend.requests = []
+
+            async def build() -> _RecordingBackend:
+                return _RecordingBackend(
+                    api_key=CREDENTIALS.api_key,
+                    base_url=CREDENTIALS.base_url,
+                    model=PARAMETERS.model,
+                    definition=definition,
+                    provider="ark",
+                )
+
+            return replace(model_ref_target("ark", PARAMETERS.model, resolver=None), build_backend=build)
+
+        yield install
+        catalog.install_user_added_models(())
+
+    def _frames(self, tmp_path: Path) -> dict[str, Path]:
+        frame = tmp_path / "frame.png"
+        frame.write_bytes(b"png")
+        last = tmp_path / "last.png"
+        last.write_bytes(b"png")
+        return {"start_image": frame, "end_image": last}
+
+    async def test_relaxed_override_passes_and_rides_the_request(
+        self, tmp_path: Path, trial_runs: TrialRunManager, builtin_target
+    ):
+        target = builtin_target({"last_frame": True, "max_reference_images": 4}, declared_last_frame=False)
+
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_run(router)
+            started = await trial_runs.start(target, PARAMETERS, assets=self._frames(tmp_path))
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.SUCCEEDED, run.error
+        caps = _RecordingBackend.requests[0].video_capabilities
+        assert caps.last_frame is True
+        assert caps.max_reference_images == 4
+
+    async def test_narrowed_override_is_rejected_before_billing(
+        self, tmp_path: Path, trial_runs: TrialRunManager, db_factory: async_sessionmaker, builtin_target
+    ):
+        target = builtin_target({"last_frame": False}, declared_last_frame=True)
+
+        with capture_http() as router, bounded_poll_clock():
+            started = await trial_runs.start(target, PARAMETERS, assets=self._frames(tmp_path))
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.FAILED
+        assert (run.error or "").startswith("[video_last_frame_unsupported]")
+        assert router.calls.call_count == 0
         async with db_factory() as session:
             assert (await session.execute(select(ApiCall))).scalars().all() == []
 

@@ -8,6 +8,8 @@
 - TOOL-VERSION：actionlint / zizmor 在 pre-commit 与 CI workflow 中的版本一致。
 - SUPPRESSION-REASON：行内豁免注释（`noqa`、`pyright: ignore`、`type: ignore`、`deptry: ignore`、
   `zizmor: ignore`、`eslint-disable`、knip 的 `@public`）在同一行写明理由。
+- BUNDLED-FFMPEG：产品代码不出现值恰为 `"ffmpeg"`/`"ffprobe"` 的字符串常量。ffmpeg 随包分发、不查 PATH
+  （ADR 0095），只经 `lib/infra/ffmpeg.py` 查找。
 
 `--check` 以 `规则号 file:line 修复指引` 列出全部命中，非零即退出码 1；
 `--fix` 重新生成索引表与 CodeRabbit 映射后再检查其余规则。
@@ -16,6 +18,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import io
 import json
 import os
@@ -423,6 +426,32 @@ def check_suppression_reasons(root: Path, out: list[Violation]) -> None:
             _text_suppressions(rel, source, out)
 
 
+# ---------------------------------------------------------------- 随包 ffmpeg
+
+FFMPEG_SCAN_GLOBS = ("lib/**/*.py", "server/**/*.py", "packages/*/src/**/*.py", "agent_runtime_profile/**/*.py")
+FFMPEG_FINDERS = frozenset({Path("lib/infra/ffmpeg.py")})
+_FFMPEG_NAMES = frozenset({"ffmpeg", "ffprobe"})
+
+
+def check_bundled_ffmpeg(root: Path, out: list[Violation]) -> None:
+    files = sorted({p for pattern in FFMPEG_SCAN_GLOBS for p in root.glob(pattern)})
+    for path in files:
+        rel = path.relative_to(root)
+        if rel in FFMPEG_FINDERS:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and node.value in _FFMPEG_NAMES:
+                guidance = (
+                    f"不按名字 {node.value!r} 查找可执行文件：ffmpeg 随包分发、不查 PATH（ADR 0095），"
+                    "调用 ffmpeg 用 lib.infra.ffmpeg 的 ffmpeg_executable()；ffprobe 不随包，媒体探测用 lib.infra.media_probe"
+                )
+                out.append(Violation("BUNDLED-FFMPEG", rel, node.lineno, guidance))
+
+
 # ---------------------------------------------------------------- 入口
 
 
@@ -433,6 +462,7 @@ def audit(root: Path = ROOT, *, fix: bool = False) -> list[Violation]:
     check_dependabot_groups(root, out)
     check_tool_versions(root, out)
     check_suppression_reasons(root, out)
+    check_bundled_ffmpeg(root, out)
     return out
 
 

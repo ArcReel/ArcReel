@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
@@ -21,6 +22,7 @@ import respx
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
+    VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
@@ -235,12 +237,24 @@ class TestAudioGating:
         assert payload["sound"] == "on"
 
     def test_v2_6_std_audio_forced_off(self, tmp_path):
-        # v2-6 有声官方限 1080P，而可灵只能经 mode 请求该档位：std 档拿不到 1080P，
-        # 即使 request.resolution 写 1080p 也压制为无声——否则拿到无声片却按有声价出账
+        # v2-6 有声官方限 1080P，而可灵只能经 mode 请求该档位：720p 落 std 档拿不到 1080P，
+        # 压制为无声——否则拿到无声片却按有声价出账
+        _, payload = _jwt_backend("kling-v2-6")._build_payload(
+            _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
+        )
+        assert payload["sound"] == "off"
+
+    def test_1080p_resolves_pro_mode_and_enables_v2_6_audio(self, tmp_path):
+        # 选 1080p 即 pro 档，不依赖 service_tier（生产路径从不写入它）
         _, payload = _jwt_backend("kling-v2-6")._build_payload(
             _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
         )
-        assert payload["sound"] == "off"
+        assert payload["mode"] == "pro"
+        assert payload["sound"] == "on"
+
+    def test_1080p_metered_as_pro_tier(self, tmp_path):
+        usage = KlingVideoBackend.metered_usage("kling-v2-6", _request(tmp_path, resolution="1080p"))
+        assert usage.dimensions["resolution"] == "1080p"
 
     def test_v2_6_audio_gate_ignores_request_resolution(self, tmp_path):
         # request.resolution 不进 payload（4k 档除外），不能作为成片是否 1080P 的判据：
@@ -332,15 +346,15 @@ class TestMultiImageSubpath:
         assert caps.audio_track_for_route("i2v") is VideoAudioMode.CONTROLLABLE
         assert caps.audio_track_for_route("r2v") is VideoAudioMode.ALWAYS_OFF
 
-    def test_reference_images_take_precedence_over_start_image(self, tmp_path):
+    @pytest.mark.parametrize("frame", ["start_image", "end_image"])
+    def test_reference_images_with_frames_rejected(self, tmp_path, frame):
+        """多图主体请求体没有首尾帧字段，带帧的请求拒绝而不是只发参考图。"""
         refs = self._refs(tmp_path, 1)
-        start = tmp_path / "start.png"
-        start.write_bytes(b"\x89PNG\r\n")
-        subpath, payload = _jwt_backend("kling-video-o1")._build_payload(
-            _request(tmp_path, reference_images=refs, start_image=start)
-        )
-        assert subpath == "multi-image2video"
-        assert "image_list" in payload
+        image = tmp_path / "frame.png"
+        image.write_bytes(b"\x89PNG\r\n")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-video-o1")._build_payload(_request(tmp_path, reference_images=refs, **{frame: image}))
+        assert exc.value.code == "video_reference_images_with_frames_unsupported"
 
     def test_empty_reference_images_falls_through(self, tmp_path):
         subpath, _ = _jwt_backend("kling-v3-omni")._build_payload(_request(tmp_path, reference_images=[]))
@@ -393,6 +407,127 @@ class TestCapabilityValidation:
         )
         assert subpath == "multi-image2video"
         assert len(payload["image_list"]) == 4
+
+
+class TestUserRelaxedCapabilities:
+    """请求带上执行闸门那份已叠加用户覆盖的能力时，放宽的维度照常发出，不按型号档案拒绝。"""
+
+    @staticmethod
+    def _caps(model: str, service_tier: str = "default", **changes) -> VideoCapabilities:
+        return replace(_jwt_backend(model).video_capabilities_for_tier(service_tier), **changes)
+
+    def test_relaxed_reference_images_sent_on_model_without_reference(self, tmp_path):
+        refs = TestCapabilityValidation._refs(tmp_path, 2)
+        subpath, payload = _jwt_backend("kling-v3")._build_payload(
+            _request(tmp_path, reference_images=refs, video_capabilities=self._caps("kling-v3", max_reference_images=2))
+        )
+        assert subpath == "multi-image2video"
+        assert len(payload["image_list"]) == 2
+
+    def test_relaxed_reference_limit_sends_all_references(self, tmp_path):
+        refs = TestCapabilityValidation._refs(tmp_path, 6)
+        _, payload = _jwt_backend("kling-v3-omni")._build_payload(
+            _request(
+                tmp_path, reference_images=refs, video_capabilities=self._caps("kling-v3-omni", max_reference_images=6)
+            )
+        )
+        assert len(payload["image_list"]) == 6
+
+    def test_relaxed_last_frame_sent_at_std_tier_on_pro_only_model(self, tmp_path):
+        first = tmp_path / "first.png"
+        last = tmp_path / "last.png"
+        first.write_bytes(b"\x89PNG\r\n1")
+        last.write_bytes(b"\x89PNG\r\n2")
+        _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(
+            _request(
+                tmp_path,
+                start_image=first,
+                end_image=last,
+                video_capabilities=self._caps("kling-v2-5-turbo", last_frame=True),
+            )
+        )
+        assert payload["mode"] == "std"
+        assert "image_tail" in payload
+
+    def test_relaxed_text_to_video_sent(self, tmp_path):
+        subpath, _ = _jwt_backend("kling-video-o1")._build_payload(
+            _request(tmp_path, video_capabilities=self._caps("kling-video-o1", text_to_video=True))
+        )
+        assert subpath == "text2video"
+
+    def test_relaxed_audio_track_sends_sound_and_meters_audio(self, tmp_path):
+        request = _request(
+            tmp_path,
+            generate_audio=True,
+            video_capabilities=self._caps("kling-v2-5-turbo", audio_track=VideoAudioMode.CONTROLLABLE),
+        )
+        _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(request)
+        assert payload["sound"] == "on"
+        assert KlingVideoBackend.metered_usage("kling-v2-5-turbo", request).dimensions["audio"] is True
+
+    def test_always_on_audio_track_sends_sound_on_and_meters_audio(self, tmp_path):
+        request = _request(
+            tmp_path,
+            generate_audio=False,
+            video_capabilities=self._caps("kling-v2-5-turbo", audio_track=VideoAudioMode.ALWAYS_ON),
+        )
+        _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(request)
+        assert payload["sound"] == "on"
+        assert KlingVideoBackend.metered_usage("kling-v2-5-turbo", request).dimensions["audio"] is True
+
+    def test_narrowed_audio_track_omits_sound_and_meters_silent(self, tmp_path):
+        request = _request(
+            tmp_path,
+            generate_audio=True,
+            video_capabilities=self._caps("kling-v3", audio_track=VideoAudioMode.ALWAYS_OFF),
+        )
+        _, payload = _jwt_backend("kling-v3")._build_payload(request)
+        assert "sound" not in payload
+        assert KlingVideoBackend.metered_usage("kling-v3", request).dimensions["audio"] is False
+
+    def test_always_on_override_bypasses_1080p_constraint(self, tmp_path):
+        """v2-6 std 档：用户覆盖为恒有声时照常发 sound="on" 并按有声计量，由上游裁定。"""
+        request = _request(
+            tmp_path,
+            resolution="720p",
+            service_tier="std",
+            generate_audio=True,
+            video_capabilities=self._caps("kling-v2-6", "std", audio_track=VideoAudioMode.ALWAYS_ON),
+        )
+        _, payload = _jwt_backend("kling-v2-6")._build_payload(request)
+        assert payload["mode"] == "std"
+        assert payload["sound"] == "on"
+        assert KlingVideoBackend.metered_usage("kling-v2-6", request).dimensions["audio"] is True
+
+    @pytest.mark.parametrize(
+        ("route_audio", "generate_audio"),
+        [(VideoAudioMode.ALWAYS_ON, False), (VideoAudioMode.CONTROLLABLE, True)],
+    )
+    def test_audible_reference_route_override_rejected_before_submit(self, tmp_path, route_audio, generate_audio):
+        """多图主体请求体没有 sound 字段：覆盖为要求有声时提交前拒绝，不静默出无声成片。"""
+        refs = TestCapabilityValidation._refs(tmp_path, 1)
+        request = _request(
+            tmp_path,
+            reference_images=refs,
+            generate_audio=generate_audio,
+            video_capabilities=self._caps("kling-v3-omni", reference_route_audio_track=route_audio),
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-v3-omni")._build_payload(request)
+        assert exc.value.code == "video_reference_route_audio_unsupported"
+
+    def test_controllable_reference_route_override_with_audio_off_sent(self, tmp_path):
+        refs = TestCapabilityValidation._refs(tmp_path, 1)
+        subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(
+            _request(
+                tmp_path,
+                reference_images=refs,
+                generate_audio=False,
+                video_capabilities=self._caps("kling-v3-omni", reference_route_audio_track=VideoAudioMode.CONTROLLABLE),
+            )
+        )
+        assert subpath == "multi-image2video"
+        assert "sound" not in payload
 
 
 class TestAuthHeaders:
@@ -479,6 +614,31 @@ class TestPayloadBuilding:
         assert subpath == "image2video"
         assert "image" in payload
         assert "image_tail" not in payload
+
+    def test_end_frame_without_start_frame_rejected(self, tmp_path):
+        """单独的尾帧发不进文生视频请求体，拒绝而不是丢掉尾帧。"""
+        last = tmp_path / "last.png"
+        last.write_bytes(b"\x89PNG\r\n2")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-v3")._build_payload(_request(tmp_path, end_image=last))
+        assert exc.value.code == "video_end_image_requires_start_image"
+
+    def test_end_frame_on_model_without_last_frame_rejected(self, tmp_path):
+        first = tmp_path / "first.png"
+        last = tmp_path / "last.png"
+        first.write_bytes(b"\x89PNG\r\n1")
+        last.write_bytes(b"\x89PNG\r\n2")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-unlisted-model")._build_payload(_request(tmp_path, start_image=first, end_image=last))
+        assert exc.value.code == "video_last_frame_unsupported"
+
+    def test_reference_audio_rejected(self, tmp_path):
+        """可灵请求体没有参考音频字段，带参考音频的请求拒绝而不是忽略。"""
+        audio = tmp_path / "voice.mp3"
+        audio.write_bytes(b"ID3")
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-v3")._build_payload(_request(tmp_path, reference_audio_files=[audio]))
+        assert exc.value.code == "video_reference_audio_unsupported"
 
     def test_unreadable_start_image_raises(self, tmp_path):
         with pytest.raises(VideoCapabilityError) as exc:
@@ -788,14 +948,22 @@ class TestAudioGatingResult:
         assert result.generate_audio is True
 
     async def test_v2_6_std_audio_result_false(self, tmp_path):
-        # std 档拿不到 1080P：即使 request.resolution 写 1080p，结果也必须记为无声，
+        # 720p 落 std 档拿不到 1080P：结果必须记为无声，
         # 否则拿到无声片却按有声价（¥1.0/s vs ¥0.8/s）出账
         with self._succeeding("task-a2"):
             result = await _jwt_backend("kling-v2-6").generate(
-                _request(tmp_path, resolution="1080p", service_tier="std", generate_audio=True)
+                _request(tmp_path, resolution="720p", service_tier="std", generate_audio=True)
             )
 
         assert result.generate_audio is False
+
+    async def test_v2_6_1080p_audio_result_true(self, tmp_path):
+        with self._succeeding("task-a3"):
+            result = await _jwt_backend("kling-v2-6").generate(
+                _request(tmp_path, resolution="1080p", generate_audio=True)
+            )
+
+        assert result.generate_audio is True
 
     async def test_v3_audio_result_true(self, tmp_path):
         # v3 支持音画同出且无分辨率约束：请求有声 → result.generate_audio=True

@@ -345,17 +345,33 @@ async def test_edit_images_unexpected_exception(fake_ctx: ToolHarness) -> None:
     assert out.problem.code == "internal_error"
 
 
-async def test_i2i_provider_available_true() -> None:
+async def test_i2i_unavailable_problem_none_when_available() -> None:
     from server.media_tools import image_edits as mod
 
     resolver = fake_caps_resolver()
-    assert await mod._i2i_provider_available({}, config_resolver=resolver) is True
+    assert await mod._i2i_unavailable_problem({}, config_resolver=resolver) is None
     # 判的是 i2i 槽位，不是项目默认图像槽
     assert resolver.image_generation_type_calls == ["i2i"]
 
 
-async def test_i2i_provider_available_false_on_value_error() -> None:
+async def test_i2i_unavailable_problem_on_value_error() -> None:
     from server.media_tools import image_edits as mod
 
     resolver = fake_caps_resolver(image_backend_error=ValueError("未找到可用的 image 供应商"))
-    assert await mod._i2i_provider_available({}, config_resolver=resolver) is False
+    problem = await mod._i2i_unavailable_problem({}, config_resolver=resolver)
+    assert problem is not None
+    assert problem.code == "image_capability_missing_i2i"
+
+
+async def test_i2i_unavailable_problem_model_not_in_catalog_guides_reselect() -> None:
+    from lib.catalog.errors import ModelNotInCatalogError
+    from server.media_tools import image_edits as mod
+
+    resolver = fake_caps_resolver(
+        image_backend_error=ModelNotInCatalogError(provider_id="ark", model_id="old-img", media_type="image")
+    )
+    problem = await mod._i2i_unavailable_problem({}, config_resolver=resolver)
+    assert problem is not None
+    assert problem.code == "model_not_in_provider_catalog"
+    assert problem.action == "configure_provider"
+    assert problem.params == {"provider": "ark", "model": "old-img"}

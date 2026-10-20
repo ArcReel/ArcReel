@@ -189,6 +189,17 @@ class TestDurationCoercion:
 
 
 class TestTextToVideo:
+    async def test_reference_audio_rejected_before_submit(self, tmp_path: Path):
+        """请求体没有参考音频字段，拒绝而不是丢弃后照常提交。"""
+        audio = tmp_path / "voice.mp3"
+        audio.write_bytes(b"ID3")
+        with _agnes_api(base_url=_GATEWAY_BASE_URL) as routes:
+            backend = AgnesVideoBackend(api_key="sk-test", model="agnes-video-v2.0", base_url=_GATEWAY_BASE_URL)
+            with pytest.raises(VideoCapabilityError) as exc:
+                await backend.generate(_request(tmp_path, reference_audio_files=[audio]))
+        assert exc.value.code == "video_reference_audio_unsupported"
+        assert not routes.submit.called
+
     async def test_happy_path_submits_and_polls(self, tmp_path: Path):
         with _agnes_api(base_url=_GATEWAY_BASE_URL) as routes:
             routes.submit.mock(return_value=_queued("task-42"))

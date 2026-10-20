@@ -101,12 +101,13 @@ class _FakePM:
         (self.base / "retired-model").mkdir(parents=True, exist_ok=True)
         # 上传后概览生成失败的软降级路径：项目存在，但 generate_overview 抛带路径异常
         (self.base / "leaky").mkdir(parents=True, exist_ok=True)
+        (self.base / "retired-upload").mkdir(parents=True, exist_ok=True)
 
     def list_projects(self):
         return ["ready", "empty", "broken"]
 
     def project_exists(self, name):
-        return name in {"ready", "broken", "leaky"}
+        return name in {"ready", "broken", "leaky", "retired-upload"}
 
     def load_project(self, name):
         if name == "broken":
@@ -278,6 +279,8 @@ class _FakePM:
             raise RuntimeError("open failed: /Users/secret/projects/leaky/source/novel.txt")
         if name == "no-provider":
             raise ValueError("未找到可用的 text 供应商")
+        if name == "retired-upload":
+            raise ModelNotInCatalogError(provider_id="ark", model_id="old-text", media_type="text")
         if name == "corrupted":
             # 模拟供应商解析链路内部重新 load_project 时命中损坏的 project.json：
             # JSONDecodeError 是 ValueError 子类，不该被误判为「未配置供应商」

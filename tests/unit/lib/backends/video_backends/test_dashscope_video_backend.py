@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,6 +14,7 @@ import pytest
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
+    VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
@@ -283,7 +285,7 @@ class TestReferenceToVideo:
         post = AsyncMock(return_value=_resp(_submit()))
         get = AsyncMock(return_value=_resp(_succeeded()))
         client = _client(post=post, get=get)
-        refs = [_ref(tmp_path, f"r{i}.png") for i in range(12)]
+        refs = [_ref(tmp_path, f"r{i}.png") for i in range(9)]
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
             from lib.backends.video_backends.dashscope import DashScopeVideoBackend
@@ -296,22 +298,52 @@ class TestReferenceToVideo:
             )
         assert len(client.posts[-1]["json"]["input"]["media"]) == 9
 
-    async def test_r2v_ref_limit_wan_5(self, tmp_path: Path):
+    async def test_r2v_refs_over_limit_rejected_before_submit(self, tmp_path: Path):
+        """超出型号上限的参考图不截断，提交前拒绝。"""
         post = AsyncMock(return_value=_resp(_submit()))
-        get = AsyncMock(return_value=_resp(_succeeded()))
-        client = _client(post=post, get=get)
-        refs = [_ref(tmp_path, f"r{i}.png") for i in range(8)]
+        client = _client(post=post, get=AsyncMock())
+        refs = [_ref(tmp_path, f"r{i}.png") for i in range(6)]
         p1, p2, p3 = _patches(client, AsyncMock())
         with p1, p2, p3:
             from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
             b = DashScopeVideoBackend(api_key="sk", model="wan2.7-r2v")
-            await b.generate(
+            with pytest.raises(VideoCapabilityError) as ei:
+                await b.generate(
+                    VideoGenerationRequest(
+                        prompt="p", output_path=tmp_path / "o.mp4", reference_images=refs, resolution="1080p"
+                    )
+                )
+        assert ei.value.code == "video_reference_images_exceeded"
+        assert ei.value.params == {"model": "wan2.7-r2v", "limit": 5, "count": 6}
+        post.assert_not_awaited()
+
+    def test_refs_on_model_without_reference_capability_rejected(self, tmp_path: Path):
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        with pytest.raises(VideoCapabilityError) as ei:
+            DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")._build_payload(
                 VideoGenerationRequest(
-                    prompt="p", output_path=tmp_path / "o.mp4", reference_images=refs, resolution="1080p"
+                    prompt="p", output_path=tmp_path / "o.mp4", reference_images=[_ref(tmp_path, "r.png")]
                 )
             )
-        assert len(client.posts[-1]["json"]["input"]["media"]) == 5
+        assert ei.value.code == "video_reference_images_unsupported"
+
+    async def test_start_image_rejected_when_model_has_no_first_frame(self, tmp_path: Path):
+        # 型号档案声明 first_frame=False 时带首帧不静默丢弃：否则照常计费，成片没用上首帧
+        post = AsyncMock(return_value=_resp(_submit()))
+        client = _client(post=post, get=AsyncMock())
+        p1, p2, p3 = _patches(client, AsyncMock())
+        start = tmp_path / "start.png"
+        start.write_bytes(b"\x89PNG")
+        with p1, p2, p3:
+            from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+            b = DashScopeVideoBackend(api_key="sk", model="wan2.7-t2v")
+            with pytest.raises(VideoCapabilityError) as ei:
+                await b.generate(VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", start_image=start))
+        assert ei.value.code == "video_first_frame_unsupported"
+        post.assert_not_awaited()
 
     async def test_r2v_all_refs_missing_fail_loud(self, tmp_path: Path):
         # r2v 参考图缺失/不可读（含空串过滤后仍有声明项）须 fail-loud 报错列名，不静默退化
@@ -479,6 +511,84 @@ class TestFirstFrameAndTextOnly:
         assert params["watermark"] is False
         assert params["resolution"] == "480P"
         assert client.posts[-1]["json"]["input"]["media"][0]["type"] == "first_frame"
+
+
+class TestUserRelaxedCapabilities:
+    """请求带上执行闸门那份已叠加用户覆盖的能力时，放宽的维度照常发出，不按型号档案拒绝。"""
+
+    @staticmethod
+    def _build(tmp_path: Path, model: str, **request_fields) -> dict:
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        return DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", **request_fields)
+        )
+
+    @staticmethod
+    def _caps(model: str, **changes) -> VideoCapabilities:
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        return replace(DashScopeVideoBackend.video_capabilities_for_model(model), **changes)
+
+    def test_relaxed_last_frame_sent(self, tmp_path: Path):
+        payload = self._build(
+            tmp_path,
+            "wan2.7-i2v",
+            start_image=_ref(tmp_path, "s.png"),
+            end_image=_ref(tmp_path, "e.png"),
+            video_capabilities=self._caps("wan2.7-i2v", last_frame=True),
+        )
+        assert [m["type"] for m in payload["input"]["media"]] == ["first_frame", "last_frame"]
+
+    def test_relaxed_first_frame_sent(self, tmp_path: Path):
+        payload = self._build(
+            tmp_path,
+            "wan2.7-t2v",
+            start_image=_ref(tmp_path, "s.png"),
+            video_capabilities=self._caps("wan2.7-t2v", first_frame=True),
+        )
+        assert [m["type"] for m in payload["input"]["media"]] == ["first_frame"]
+
+    def test_relaxed_reference_limit_sends_all_references(self, tmp_path: Path):
+        refs = [_ref(tmp_path, f"r{i}.png") for i in range(6)]
+        payload = self._build(
+            tmp_path,
+            "wan2.7-r2v",
+            reference_images=refs,
+            video_capabilities=self._caps("wan2.7-r2v", max_reference_images=6),
+        )
+        assert [m["type"] for m in payload["input"]["media"]] == ["reference_image"] * 6
+
+    def test_relaxed_references_on_i2v_model_sent_and_not_required(self, tmp_path: Path):
+        caps = self._caps("wan2.7-i2v", max_reference_images=2)
+        with_refs = self._build(
+            tmp_path, "wan2.7-i2v", reference_images=[_ref(tmp_path, "r.png")], video_capabilities=caps
+        )
+        assert [m["type"] for m in with_refs["input"]["media"]] == ["reference_image"]
+        # 放宽参考图上限不把 i2v 型号变成「必须带参考图」：只带首帧的请求照旧发出
+        frame_only = self._build(tmp_path, "wan2.7-i2v", start_image=_ref(tmp_path, "s.png"), video_capabilities=caps)
+        assert [m["type"] for m in frame_only["input"]["media"]] == ["first_frame"]
+
+    def test_narrowed_reference_limit_still_requires_reference_on_r2v_model(self, tmp_path: Path):
+        with pytest.raises(VideoCapabilityError) as ei:
+            self._build(
+                tmp_path,
+                "happyhorse-1.0-r2v",
+                video_capabilities=self._caps("happyhorse-1.0-r2v", max_reference_images=0),
+            )
+        assert ei.value.code == "video_reference_images_required"
+
+    def test_metered_reference_count_follows_relaxed_limit(self, tmp_path: Path):
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        refs = [_ref(tmp_path, f"r{i}.png") for i in range(6)]
+        request = VideoGenerationRequest(
+            prompt="p",
+            output_path=tmp_path / "o.mp4",
+            reference_images=refs,
+            video_capabilities=self._caps("wan2.7-r2v", max_reference_images=6),
+        )
+        assert DashScopeVideoBackend.metered_usage("wan2.7-r2v", request).quantities["input_images"] == 6
 
 
 class TestPollingAndFailures:
@@ -1125,9 +1235,43 @@ class TestWan3:
         from lib.backends.video_backends.dashscope import DashScopeVideoBackend
 
         payload = DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=True)
+        )
+        assert "audio" not in payload["parameters"]
+
+    @pytest.mark.parametrize("model", ["wan2.7-i2v", "happyhorse-1.1-i2v"])
+    def test_silent_request_on_always_on_model_rejected(self, tmp_path, model):
+        """恒有声型号发不出静音请求，拒绝而不是照常出有声成片。"""
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        with pytest.raises(VideoCapabilityError) as ei:
+            DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+                VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
+            )
+        assert ei.value.code == "video_audio_switch_not_supported"
+
+    def test_silent_request_on_unrecognized_model_not_rejected(self, tmp_path):
+        """认不得的型号声明可控，静音请求照常组装、不下发开关。"""
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        payload = DashScopeVideoBackend(api_key="sk", model="proxy-custom-video")._build_payload(
             VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", generate_audio=False)
         )
         assert "audio" not in payload["parameters"]
+
+    def test_end_frame_on_model_without_last_frame_rejected(self, tmp_path):
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        with pytest.raises(VideoCapabilityError) as ei:
+            DashScopeVideoBackend(api_key="sk", model="wan2.7-i2v")._build_payload(
+                VideoGenerationRequest(
+                    prompt="p",
+                    output_path=tmp_path / "o.mp4",
+                    start_image=self._file(tmp_path, "s.png"),
+                    end_image=self._file(tmp_path, "e.png"),
+                )
+            )
+        assert ei.value.code == "video_last_frame_unsupported"
 
     @pytest.mark.parametrize("model", ["wan-3-turbo", "wan3-turbo", "wan_3-turbo", "wan_3_turbo"])
     def test_audio_switch_is_sent_for_alias_forms(self, tmp_path, model):

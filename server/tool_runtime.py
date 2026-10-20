@@ -1185,14 +1185,14 @@ def _read_business_file(project_dir: Path, relative: str) -> tuple[bytes, Path]:
                 raise ValueError("path 在安全校验后发生变化")
             raw = handle.read(BUSINESS_FILE_MAX_BYTES + 1)
     else:
-        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW  # noqa: TID251 -- 仅在支持 dir_fd 的 POSIX 分支执行，常量必然存在
         directory_fd = os.open(project_dir, directory_flags)
         try:
             for part in parts[:-1]:
                 child_fd = os.open(part, directory_flags, dir_fd=directory_fd)
                 os.close(directory_fd)
                 directory_fd = child_fd
-            file_fd = os.open(parts[-1], os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory_fd)
+            file_fd = os.open(parts[-1], os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory_fd)  # noqa: TID251 -- 仅在支持 dir_fd 的 POSIX 分支执行，常量必然存在
             try:
                 if not stat.S_ISREG(os.fstat(file_fd).st_mode):
                     raise ValueError("path 必须指向普通文件")
@@ -2167,6 +2167,8 @@ async def get_video_capabilities(
                 params=failure.parameters(),
             )
         )
+    except ModelNotInCatalogError as exc:
+        return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except ValueError as exc:
         return ToolOutcome(problem=ToolProblem("capabilities_unresolved", f"无法解析视频模型能力: {exc}"))
     except Exception as exc:

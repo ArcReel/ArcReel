@@ -25,7 +25,12 @@ export const SETTINGS_SECTIONS = [
 ] as const;
 export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
 
-/** 全局设置某个分区的地址；`params` 是该分区自己的定位参数，如使用记录的 `record`。 */
+/**
+ * 全局设置某个分区的地址；`params` 是该分区自己的定位参数，如使用记录的 `record`。
+ * 分区名由 `SettingsSection` 校验，分区改名时 typecheck 报出全部旧链接。
+ * 在嵌套路由里跳转时在前面加 `~`：`` `~${settingsSectionPath("usage")}` ``。
+ * 供应商与调用端点的地址用 `providerSettingsPath` 与 `endpointSettingsPath`，不手拼查询参数。
+ */
 export function settingsSectionPath(section: SettingsSection, params: Record<string, string> = {}): string {
   return `${ROUTE_APP_SETTINGS}?${new URLSearchParams({ section, ...params }).toString()}`;
 }
