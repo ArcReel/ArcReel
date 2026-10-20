@@ -480,6 +480,7 @@ class TrialRunManager:
                         assets,
                         poll_timeout,
                         aspect_ratio=request_aspect_ratio,
+                        video_capabilities=video_caps,
                         on_provider_response=on_response,
                     )
                     if is_video
@@ -536,6 +537,7 @@ class TrialRunManager:
         poll_timeout: int,
         *,
         aspect_ratio: str,
+        video_capabilities: VideoCapabilities | None,
         on_provider_response: Callable[[ProviderResponseStage, object], Awaitable[None]],
     ) -> VideoGenerationRequest:
         reference_images = assets.get("reference_images")
@@ -553,6 +555,7 @@ class TrialRunManager:
             generate_audio=parameters.generate_audio,
             poll_timeout_seconds=poll_timeout,
             on_provider_response=on_provider_response,
+            video_capabilities=video_capabilities,
         )
 
     def _image_request(
@@ -694,6 +697,7 @@ async def _gate_trial_video_request(
         model=target.model,
         prompt=parameters.prompt,
         has_image=bool(slot_plan.specs),
+        has_first_frame=slot_plan.start_index is not None,
         end_image=end_image,
         reference_images=images,
         reference_audio_files=audio_files,

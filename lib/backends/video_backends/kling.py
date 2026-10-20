@@ -78,10 +78,10 @@ class _KlingVideoModelCaps:
     last_frame: bool
     # last_frame=True 但仅 pro 档可用（官方文档：kling-v2-5-turbo、kling-v2-6 首尾帧均标"仅 pro"）；
     # std 档提交 image_tail 请求体虽会
-    # 被受理，尾帧约束却不生效——_build_payload 按此位在 std 档拒绝 image_tail，而非放行一个
-    # 调用方以为已生效实则被忽略的请求。
+    # 被受理，尾帧约束却不生效——video_capabilities_for_tier 按此位在 std/4k 档收窄 last_frame，
+    # _build_payload 据此拒绝 image_tail，而非放行一个调用方以为已生效实则被忽略的请求；
+    # 用户放宽了尾帧时以用户为准。
     last_frame_requires_pro: bool
-    reference_images: bool
     max_reference_images: int
     # 能产出视频内人声（官方能力地图的「音画同出」列）：v2-6 / v3 / v3-omni ✅。该位同时决定请求体
     # 是否携带音频开关 sound——官方各档默认 off，无此能力的 model 不发该字段而非发 "off" 压制。
@@ -100,7 +100,6 @@ _UNRECOGNIZED_VIDEO_CAPS = _KlingVideoModelCaps(
     text_to_video=True,
     last_frame=False,
     last_frame_requires_pro=False,
-    reference_images=False,
     max_reference_images=0,
     generate_audio=False,
     audio_requires_1080p=False,
@@ -112,7 +111,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         last_frame=True,
         last_frame_requires_pro=True,
-        reference_images=False,
         max_reference_images=0,
         generate_audio=False,
         audio_requires_1080p=False,
@@ -121,7 +119,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         last_frame=True,
         last_frame_requires_pro=False,
-        reference_images=False,
         max_reference_images=0,
         generate_audio=True,
         audio_requires_1080p=False,
@@ -130,7 +127,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         last_frame=True,
         last_frame_requires_pro=False,
-        reference_images=True,
         max_reference_images=_R2V_MAX_REFERENCE_IMAGES,
         generate_audio=True,
         audio_requires_1080p=False,
@@ -139,7 +135,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=True,
         last_frame=True,
         last_frame_requires_pro=True,
-        reference_images=False,
         max_reference_images=0,
         generate_audio=True,
         audio_requires_1080p=True,
@@ -148,7 +143,6 @@ _KLING_VIDEO_CAPS: dict[str, _KlingVideoModelCaps] = {
         text_to_video=False,
         last_frame=True,
         last_frame_requires_pro=False,
-        reference_images=True,
         max_reference_images=_R2V_MAX_REFERENCE_IMAGES,
         generate_audio=False,
         audio_requires_1080p=False,
@@ -287,8 +281,8 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         # last_frame_requires_pro 为真的 model（kling-v2-5-turbo、kling-v2-6）：该位不按 service_tier
         # 分档——service_tier 是逐请求字段（generation_tasks 入队时选定），本函数只按 model 声明、
         # 无从得知调用方将选哪档。std/4k 档提交尾帧会被拒绝——有 tier 上下文的调用方走
-        # video_capabilities_for_tier 在 media_generator 处拒，能力被用户覆盖放行时由
-        # _build_payload 的 fail-loud 护栏兜底。declare 一个仅在少数档位成立的 True 会让无 tier
+        # video_capabilities_for_tier 在 media_generator 处拒；用户覆盖放宽尾帧时，_build_payload
+        # 按执行闸门那份能力照常发出。declare 一个仅在少数档位成立的 True 会让无 tier
         # 上下文的调用方按此位放行 end_image、多数请求撞硬失败；保守声明 False 更贴近默认档的
         # 真实执行结果，与认不得的 model 取保守回落同一原则。
         caps = _lookup_video_caps(model)
@@ -434,6 +428,10 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         if request.reference_audio_files:
             raise VideoCapabilityError("video_reference_audio_unsupported", provider=self.name, model=self._model)
 
+        # 可发与否按执行闸门那份能力判定：用户放宽的维度照常发出、由上游裁定；直接构造的请求回落档位感知声明。
+        caps = request.video_capabilities or self.video_capabilities_for_tier(
+            request.service_tier, resolution=request.resolution
+        )
         subpath = _subpath_for(request)
         if subpath == _MULTI_IMAGE2VIDEO:
             reference_images = _valid_frames(request.reference_images)
@@ -442,14 +440,14 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
                 raise VideoCapabilityError("video_reference_images_with_frames_unsupported", model=self._model)
             # 生成时防御（fail-loud）：未声明多图主体能力的 model 不得升级到 R2V 子路径，
             # 超上限的参考图数同样拦截——否则会把必然报错的请求发出去且照常计费。
-            if not self._caps.reference_images:
+            if caps.max_reference_images <= 0:
                 raise VideoCapabilityError("video_reference_images_unsupported", model=self._model)
-            if len(reference_images) > self._caps.max_reference_images:
+            if len(reference_images) > caps.max_reference_images:
                 raise VideoCapabilityError(
                     "video_reference_images_exceeded",
                     model=self._model,
                     count=len(reference_images),
-                    limit=self._caps.max_reference_images,
+                    limit=caps.max_reference_images,
                 )
             # 多图主体：image_list 为 [{"image": <base64>}]（可灵原生 schema），无单首帧概念。
             payload["image_list"] = [{"image": self._encode_frame(p)} for p in reference_images]
@@ -457,7 +455,7 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
 
         if subpath == _TEXT2VIDEO:
             # 无首帧/无参考 = 文生视频意图；不支持 t2v 的 model（如 kling-video-o1）即拒绝。
-            if not self._caps.text_to_video:
+            if not caps.text_to_video:
                 raise VideoCapabilityError("video_capability_missing_t2v", provider=self.name, model=self._model)
             # 尾帧只能随首帧走 image2video 的 image_tail；单独的尾帧拒绝而不是按文生视频丢掉。
             if _has_end_image(request):
@@ -465,12 +463,19 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         else:
             payload["image"] = self._encode_frame(Path(cast(Path, request.start_image)))
             if _has_end_image(request):
-                if not self._caps.last_frame:
+                if not caps.last_frame:
+                    # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
+                    # 尾帧约束却不生效——档位感知声明已按档收窄，这里报出档位这一卡点，而非放行一个
+                    # 调用方以为已生效实则被忽略的请求。用户放宽了尾帧时 caps.last_frame 为真，不再按档拦截。
+                    if (
+                        self._caps.last_frame
+                        and self._caps.last_frame_requires_pro
+                        and self._resolve_mode(request) != "pro"
+                    ):
+                        raise VideoCapabilityError(
+                            "video_last_frame_requires_pro", provider=self.name, model=self._model
+                        )
                     raise VideoCapabilityError("video_last_frame_unsupported", provider=self.name, model=self._model)
-                # 该 model 的首尾帧仅 pro 档生效时，std/4k 档提交 image_tail 虽会被官方接口受理，
-                # 尾帧约束却不生效——fail loud 拒绝而非放行一个调用方以为已生效实则被忽略的请求。
-                if self._caps.last_frame_requires_pro and self._resolve_mode(request) != "pro":
-                    raise VideoCapabilityError("video_last_frame_requires_pro", provider=self.name, model=self._model)
                 payload["image_tail"] = self._encode_frame(Path(cast(Path, request.end_image)))
 
         # 音频开关 sound（官方参数，取 "on"/"off"，各档默认 off）仅 text2video / image2video 子路径

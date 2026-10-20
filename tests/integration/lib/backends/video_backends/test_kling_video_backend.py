@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
@@ -21,6 +22,7 @@ import respx
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
+    VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
@@ -405,6 +407,53 @@ class TestCapabilityValidation:
         )
         assert subpath == "multi-image2video"
         assert len(payload["image_list"]) == 4
+
+
+class TestUserRelaxedCapabilities:
+    """请求带上执行闸门那份已叠加用户覆盖的能力时，放宽的维度照常发出，不再按型号档案拒绝。"""
+
+    @staticmethod
+    def _caps(model: str, service_tier: str = "default", **changes) -> VideoCapabilities:
+        return replace(_jwt_backend(model).video_capabilities_for_tier(service_tier), **changes)
+
+    def test_relaxed_reference_images_sent_on_model_without_reference(self, tmp_path):
+        refs = TestCapabilityValidation._refs(tmp_path, 2)
+        subpath, payload = _jwt_backend("kling-v3")._build_payload(
+            _request(tmp_path, reference_images=refs, video_capabilities=self._caps("kling-v3", max_reference_images=2))
+        )
+        assert subpath == "multi-image2video"
+        assert len(payload["image_list"]) == 2
+
+    def test_relaxed_reference_limit_sends_all_references(self, tmp_path):
+        refs = TestCapabilityValidation._refs(tmp_path, 6)
+        _, payload = _jwt_backend("kling-v3-omni")._build_payload(
+            _request(
+                tmp_path, reference_images=refs, video_capabilities=self._caps("kling-v3-omni", max_reference_images=6)
+            )
+        )
+        assert len(payload["image_list"]) == 6
+
+    def test_relaxed_last_frame_sent_at_std_tier_on_pro_only_model(self, tmp_path):
+        first = tmp_path / "first.png"
+        last = tmp_path / "last.png"
+        first.write_bytes(b"\x89PNG\r\n1")
+        last.write_bytes(b"\x89PNG\r\n2")
+        _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(
+            _request(
+                tmp_path,
+                start_image=first,
+                end_image=last,
+                video_capabilities=self._caps("kling-v2-5-turbo", last_frame=True),
+            )
+        )
+        assert payload["mode"] == "std"
+        assert "image_tail" in payload
+
+    def test_relaxed_text_to_video_sent(self, tmp_path):
+        subpath, _ = _jwt_backend("kling-video-o1")._build_payload(
+            _request(tmp_path, video_capabilities=self._caps("kling-video-o1", text_to_video=True))
+        )
+        assert subpath == "text2video"
 
 
 class TestAuthHeaders:

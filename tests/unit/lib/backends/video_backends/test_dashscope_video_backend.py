@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -13,6 +14,7 @@ import pytest
 from arcreel_market_core.video_backend_contract import (
     ReferenceAudioMode,
     ResumeExpiredError,
+    VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
@@ -509,6 +511,75 @@ class TestFirstFrameAndTextOnly:
         assert params["watermark"] is False
         assert params["resolution"] == "480P"
         assert client.posts[-1]["json"]["input"]["media"][0]["type"] == "first_frame"
+
+
+class TestUserRelaxedCapabilities:
+    """请求带上执行闸门那份已叠加用户覆盖的能力时，放宽的维度照常发出，不再按型号档案拒绝。"""
+
+    @staticmethod
+    def _build(tmp_path: Path, model: str, **request_fields) -> dict:
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        return DashScopeVideoBackend(api_key="sk", model=model)._build_payload(
+            VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", **request_fields)
+        )
+
+    @staticmethod
+    def _caps(model: str, **changes) -> VideoCapabilities:
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        return replace(DashScopeVideoBackend.video_capabilities_for_model(model), **changes)
+
+    def test_relaxed_last_frame_sent(self, tmp_path: Path):
+        payload = self._build(
+            tmp_path,
+            "wan2.7-i2v",
+            start_image=_ref(tmp_path, "s.png"),
+            end_image=_ref(tmp_path, "e.png"),
+            video_capabilities=self._caps("wan2.7-i2v", last_frame=True),
+        )
+        assert [m["type"] for m in payload["input"]["media"]] == ["first_frame", "last_frame"]
+
+    def test_relaxed_first_frame_sent(self, tmp_path: Path):
+        payload = self._build(
+            tmp_path,
+            "wan2.7-t2v",
+            start_image=_ref(tmp_path, "s.png"),
+            video_capabilities=self._caps("wan2.7-t2v", first_frame=True),
+        )
+        assert [m["type"] for m in payload["input"]["media"]] == ["first_frame"]
+
+    def test_relaxed_reference_limit_sends_all_references(self, tmp_path: Path):
+        refs = [_ref(tmp_path, f"r{i}.png") for i in range(6)]
+        payload = self._build(
+            tmp_path,
+            "wan2.7-r2v",
+            reference_images=refs,
+            video_capabilities=self._caps("wan2.7-r2v", max_reference_images=6),
+        )
+        assert [m["type"] for m in payload["input"]["media"]] == ["reference_image"] * 6
+
+    def test_relaxed_references_on_i2v_model_sent_and_not_required(self, tmp_path: Path):
+        caps = self._caps("wan2.7-i2v", max_reference_images=2)
+        with_refs = self._build(
+            tmp_path, "wan2.7-i2v", reference_images=[_ref(tmp_path, "r.png")], video_capabilities=caps
+        )
+        assert [m["type"] for m in with_refs["input"]["media"]] == ["reference_image"]
+        # 放宽参考图上限不把 i2v 型号变成「必须带参考图」：只带首帧的请求照旧发出
+        frame_only = self._build(tmp_path, "wan2.7-i2v", start_image=_ref(tmp_path, "s.png"), video_capabilities=caps)
+        assert [m["type"] for m in frame_only["input"]["media"]] == ["first_frame"]
+
+    def test_metered_reference_count_follows_relaxed_limit(self, tmp_path: Path):
+        from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+
+        refs = [_ref(tmp_path, f"r{i}.png") for i in range(6)]
+        request = VideoGenerationRequest(
+            prompt="p",
+            output_path=tmp_path / "o.mp4",
+            reference_images=refs,
+            video_capabilities=self._caps("wan2.7-r2v", max_reference_images=6),
+        )
+        assert DashScopeVideoBackend.metered_usage("wan2.7-r2v", request).quantities["input_images"] == 6
 
 
 class TestPollingAndFailures:
