@@ -1382,18 +1382,26 @@ def scan_shared_facilities(root: Path, parsed: list[tuple[Path, ast.Module]]) ->
 
 
 PATCH_SPREAD_THRESHOLD = 3
-PATCH_SPREAD_KINDS = {"patch", "patch.object"}
+PATCH_SPREAD_KINDS = {"patch", "patch.object", "monkeypatch.setattr"}
+#: 文件系统边界上逐文件替换的目标：每个用例注入的失败或探针形状各不相同，收编成共享替身只会是一层透传。
+#: 值写明豁免理由；新增条目前先确认确实提不出共享 helper 或 seam。
+PATCH_SPREAD_ALLOWED: Mapping[str, str] = {
+    "pathlib.Path.mkdir": "建目录失败注入（磁盘满、权限）与并发屏障，各用例的触发路径与失败形状不同",
+    "pathlib.Path.open": "读次数计数、锁文件打开闸门、分块读取探针，各用例观察的行为不同",
+    "pathlib.Path.read_bytes": "读次数计数、线程卸载阻塞闸门、权限失败与交错暂停，各用例观察的行为不同",
+    "pathlib.Path.unlink": "删除失败注入（设备忙、文件占用、权限）与持锁探针，各用例的失败条件不同",
+}
 
 
 def scan_patch_spread(patches: Sequence[PatchSite]) -> list[StructureFinding]:
-    """同一 `patch` / `patch.object` 目标出现在 ≥3 个测试文件：缺一个共享替身或 seam。
+    """同一 `patch` / `patch.object` / `monkeypatch.setattr` 目标出现在 ≥3 个测试文件：缺一个共享替身或 seam。
 
-    每个文件只报该目标的第一处。`monkeypatch.setattr` 不在本规则内，归 review；根部是局部
-    对象的 `patch.object` 目标只在文件内有意义，不跨文件聚合。
+    每个文件只报该目标的第一处。根部是局部对象的 `patch.object` / `monkeypatch.setattr` 目标只在文件内
+    有意义，不跨文件聚合；`PATCH_SPREAD_ALLOWED` 里的文件系统边界目标豁免。
     """
     first_site: dict[str, dict[str, int]] = defaultdict(dict)
     for site in patches:
-        if site.kind not in PATCH_SPREAD_KINDS or not site.import_rooted:
+        if site.kind not in PATCH_SPREAD_KINDS or not site.import_rooted or site.target in PATCH_SPREAD_ALLOWED:
             continue
         lines = first_site[site.target]
         lines[site.path] = min(lines.get(site.path, site.line), site.line)

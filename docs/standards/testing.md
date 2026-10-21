@@ -48,10 +48,6 @@ seam 是构造参数或关键字参数，带生产默认值，不改变生产行
 
 respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的流量同样被捕获），断言的是真实序列化后的请求。路由依赖用 `app.dependency_overrides` 替换，不 patch。
 
-### 同一个 `monkeypatch.setattr` 目标出现在至少 3 个测试文件时，提取为共享 fixture 或 seam
-
-`patch` / `patch.object` 的散落由 `audit_tests` 判定，`monkeypatch.setattr` 按同一标准在审查时判断：同一目标被多个文件各自替换，说明缺一个共享 fixture 或 seam。
-
 ### 前端页面级套件的接口替身从真实后端录制
 
 `frontend/e2e/fixtures/recorded/` 下的响应只由 `pnpm e2e:record` 对真实后端录制生成，不手写协议桩，也不手改录制文件；改动接口形状的后端 PR 要同时重录，让形状变化体现在替身文件的 diff 里。手写的替身只反映作者对接口的理解：后端实际的字段、帧序或查询形状变了，页面级套件仍然通过，回归要到运行时才暴露。长文本、多条目等压力变体写在场景的 `api` 字段里。

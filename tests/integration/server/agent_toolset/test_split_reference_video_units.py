@@ -11,6 +11,7 @@ from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequ
 from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
 from server.services.tasks.video_caps import reference_request_facts_lookup
 from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
+from tests.fakes import use_text_generator
 from tests.integration.server.agent_tool_support import (
     _RV_NOVEL,
     ToolHarness,
@@ -301,7 +302,7 @@ async def test_split_reference_video_units_happy_derives_structure(
     captured: dict[str, Any] = {}
     text = "@[张三] 走向 @[村口]\n@[张三] 停下脚步"
     units = [rv_unit(text)]
-    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units, captured))
+    use_text_generator(monkeypatch, rv_generator_returning(units, captured))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is None, out

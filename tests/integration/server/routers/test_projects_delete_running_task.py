@@ -14,7 +14,7 @@ from lib.generation.task_failure import encode_failure
 from lib.project.project_manager import ProjectManager, get_project_manager
 from server.services.project.project_archive import ProjectArchiveService
 from server.services.tasks import generation_tasks
-from tests.fakes import refuse_resume_execution
+from tests.fakes import refuse_resume_execution, use_generation_context
 from tests.http_capture import capture_http
 from tests.integration.lib.generation.worker_support import db_queue
 from tests.integration.server.derivative_sheet_support import (
@@ -48,7 +48,7 @@ async def test_task_running_when_project_replaced_leaves_no_trace(monkeypatch, d
     project_dir = manager.get_project_path("demo")
     archive_path, _ = ProjectArchiveService(manager).export_project("demo")
     generator = build_generator(project_dir, DashScopeImageBackend(api_key="sk", model="qwen-image-2.0"))
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
 
     async with db_factory() as session:
         repo = TaskRepository(session)

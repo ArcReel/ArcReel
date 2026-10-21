@@ -518,3 +518,10 @@ def ad_pm(project_path: Path, *, with_sheet: bool) -> _FakePM:
     }
     register_asset_sheet_claims(pm)
     return pm
+
+
+def skip_artifact_registration(monkeypatch) -> None:
+    """正式图提交跳过产物清单登记（视作登记成功），用例只看提交与项目写回。"""
+    monkeypatch.setattr(
+        "server.services.tasks.formal_image_commit.register_current_resource_artifact", lambda *_a, **_kw: True
+    )

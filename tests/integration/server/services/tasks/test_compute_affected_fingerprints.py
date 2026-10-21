@@ -1,6 +1,7 @@
 """Tests for compute_affected_fingerprints."""
 
 from server.services.tasks import generation_tasks
+from tests.fakes import use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import (
     _FakePM,
     prepare_files,
@@ -61,7 +62,7 @@ class TestGenerationTasks:
         GridManager(project_path).save(grid)
 
         fake_pm = _FakePM(project_path)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         fps = generation_tasks.compute_affected_fingerprints("demo", "grid", "grid_0123456789ab")
 
@@ -75,7 +76,7 @@ class TestGenerationTasks:
         project_path = prepare_files(tmp_path)
         (project_path / "products" / "保温杯.png").write_bytes(b"png")
         fake_pm = _FakePM(project_path)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         fps = generation_tasks.compute_affected_fingerprints("demo", "product", "保温杯")
         assert "products/保温杯.png" in fps

@@ -16,7 +16,7 @@ from lib.artifacts.generation_input import FrozenGenerationInput
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.tasks import formal_image_commit, generation_tasks
-from tests.fakes import hook_claim_recheck
+from tests.fakes import hook_claim_recheck, use_generation_context, use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -26,6 +26,7 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
     prepare_files,
     register_asset_sheet_claims,
     register_stale_visual_claim,
+    skip_artifact_registration,
 )
 
 
@@ -40,8 +41,8 @@ class TestGenerationTasks:
                 raise RuntimeError("injected version lookup failure")
 
         fake_generator = _BrokenVersionLookup()
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(
             formal_image_commit,
             "register_current_resource_artifact",
@@ -62,8 +63,8 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator()
         registered: list[tuple[tuple[object, ...], dict[str, object]]] = []
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(
             formal_image_commit,
             "register_current_resource_artifact",
@@ -94,8 +95,8 @@ class TestGenerationTasks:
         persist_active_fake_project(fake_pm)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(BadRequestError) as refused:
             await generation_tasks.execute_storyboard_task(
@@ -119,8 +120,8 @@ class TestGenerationTasks:
         persist_active_fake_project(fake_pm, register_script=False)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="episode script is not registered"):
             await generation_tasks.execute_storyboard_task(
@@ -143,8 +144,8 @@ class TestGenerationTasks:
         )
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="episode script is not registered"):
             await generation_tasks.execute_video_task(
@@ -282,8 +283,8 @@ class TestGenerationTasks:
         register_stale_visual_claim(project_path, key, "characters/Alice.png")
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
         # 参考图冻结之后、发给供应商之前登记被删：提交前的复核须在此拦下。
         hook_claim_recheck(monkeypatch, before=lambda: ProjectArtifactManifestAdapter(project_path).delete_entry(key))
 
@@ -307,8 +308,8 @@ class TestGenerationTasks:
         register_stale_visual_claim(project_path, key, artifact_path)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
         # 参考图冻结之后、发给供应商之前字节被换：提交前的复核须在此拦下。
         hook_claim_recheck(monkeypatch, before=lambda: (project_path / artifact_path).write_bytes(b"replacement"))
 
@@ -336,8 +337,8 @@ class TestGenerationTasks:
         fake_generator = _SubmittingGenerator(project_path)
         character_path = project_path / "characters" / "Alice.png"
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
         # 首次复核（提交前）通过后才换字节：第二道复核（进供应商调用前的 checkpoint）须拦下。
         hook_claim_recheck(monkeypatch, after_first_pass=lambda: character_path.write_bytes(b"replacement"))
 
@@ -420,8 +421,8 @@ class TestGenerationTasks:
                 return await super().generate_image_async(**kwargs)
 
         fake_generator = _RacingGenerator()
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         def _register(*_args, **kwargs):
             captured_basis.append(kwargs["basis"])
@@ -463,13 +464,9 @@ class TestGenerationTasks:
             def get_versions(self, resource_type, resource_id):
                 return {"versions": [{"version": 1, "created_at": "2026-01-01T00:00:00Z"}]}
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(_IncompleteVersions()),
-        )
-        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(_IncompleteVersions()))
+        skip_artifact_registration(monkeypatch)
 
         with pytest.raises(RuntimeError, match="creation timestamp"):
             await generation_tasks.execute_character_task(
@@ -497,8 +494,8 @@ class TestGenerationTasks:
             return result
 
         fake_generator.generate_image_async = _generate
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
@@ -557,8 +554,8 @@ class TestGenerationTasks:
             return result
 
         fake_generator.generate_image_async = _generate
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         def _register(*_args, **kwargs):
             captured.append(kwargs["basis"])
@@ -629,9 +626,9 @@ class TestGenerationTasks:
                 )
                 return current, version
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
-        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_args, **_kwargs: True)
+        use_project_manager(monkeypatch, pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(_Generator()))
+        skip_artifact_registration(monkeypatch)
 
         result = await generation_tasks.execute_character_task(
             "demo",
@@ -683,8 +680,8 @@ class TestGenerationTasks:
                 )
                 return current, version
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_Generator()))
+        use_project_manager(monkeypatch, pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(_Generator()))
         monkeypatch.setattr(
             formal_image_commit,
             "register_task_current_resource_artifact",

@@ -16,6 +16,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import generate
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_generation_queue, use_project_manager
 
 
 class _FakeQueue:
@@ -118,8 +119,8 @@ def _prepare_files(tmp_path: Path) -> Path:
 
 
 def _client(monkeypatch, fake_pm, fake_queue, *, i2i_ready=True, resolve_error: Exception | None = None):
-    monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
+    use_project_manager(monkeypatch, fake_pm)
+    use_generation_queue(monkeypatch, fake_queue)
 
     async def _resolve(self, project, payload, *, generation_type):
         assert generation_type == "i2i"

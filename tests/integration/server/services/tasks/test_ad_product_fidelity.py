@@ -1,6 +1,7 @@
 """Tests for ad_product_fidelity."""
 
-from server.services.tasks import formal_image_commit, generation_tasks
+from server.services.tasks import generation_tasks
+from tests.fakes import use_generation_context, use_project_manager, use_video_thumbnail_extractor
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     ad_pm,
@@ -8,6 +9,7 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
     fake_resolve_ctx,
     prepare_files,
     seed_current_storyboard,
+    skip_artifact_registration,
 )
 
 
@@ -19,9 +21,9 @@ class TestAdProductFidelityStoryboard:
     """商品保真注入二元化——分镜层。"""
 
     def _patch(self, monkeypatch, pm, generator):
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
-        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_a, **_kw: True)
+        use_project_manager(monkeypatch, pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(generator))
+        skip_artifact_registration(monkeypatch)
 
     async def test_product_shot_injects_sheet_then_originals_before_other_sheets(self, tmp_path, monkeypatch):
         """有确认 sheet 的商品分镜：注入集为「sheet 多角度 + 原图压阵」，排序绝对优先于角色/场景 sheet。"""
@@ -118,11 +120,10 @@ class TestAdProductFidelityStoryboard:
 
 
 def _patch_video_path(monkeypatch, pm, generator):
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
-    monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_a, **_kw: True)
-    monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-    monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
+    skip_artifact_registration(monkeypatch)
+    use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
 
 class TestAdProductVideoRequest:

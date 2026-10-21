@@ -33,9 +33,11 @@ from tests.fakes import (
     FakeSDKClient,
     ScriptedFrame,
     assistant_frame,
+    bind_session_factory,
     command_lifecycle_frame,
     result_frame,
     system_frame,
+    use_sdk_client,
 )
 
 SDK_ID = "sdk-billing-1"
@@ -169,7 +171,7 @@ class _Harness:
             return SimpleNamespace(env=await load_provider_env_overrides())
 
         monkeypatch.setattr(self.manager, "_build_options", _build_options)
-        monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: self.client)
+        use_sdk_client(monkeypatch, lambda options: self.client)
 
     async def new_session(self, prompt: str, *frames: ScriptedFrame) -> None:
         """新建会话并跑完第一轮。"""
@@ -228,7 +230,7 @@ class _Harness:
 @pytest.fixture
 async def harness(tmp_path, file_db_factory, monkeypatch: pytest.MonkeyPatch) -> Any:
     # 生产的凭证注入经 lib.db 的全局工厂读凭证，这里换成用例的数据库。
-    monkeypatch.setattr("lib.db.async_session_factory", file_db_factory)
+    bind_session_factory(monkeypatch, file_db_factory)
     manager = SessionManager(
         project_root=tmp_path,
         meta_store=SessionMetaStore(session_factory=file_db_factory),

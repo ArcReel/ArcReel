@@ -19,7 +19,8 @@ from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.workflow.workflow_state import WorkflowStateService
 from server.routers import assets, versions
 from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
-from server.services.tasks import formal_image_commit, generation_tasks
+from server.services.tasks import generation_tasks
+from tests.fakes import use_generation_context, use_project_manager
 from tests.integration.server.asset_library_support import (
     LIBRARY_SHEETS_ALL_CURRENT,
     character_sheet_statuses,
@@ -161,9 +162,8 @@ async def test_regenerating_the_owner_sheet_returns_it_to_its_generation_basis(l
     _apply(client, store_character_with_derivatives(client, pm, owner_description="白衣少年"))
     project_dir = pm.get_project_path("demo")
     resolve_ctx = fake_resolve_ctx(SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", resolve_ctx)
-    monkeypatch.setattr(formal_image_commit, "resolve_generation_context", resolve_ctx)
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, resolve_ctx)
 
     await generation_tasks.execute_character_task("demo", "王", {})
     assert character_sheet_statuses(pm, "demo", "王") == _ALL_CURRENT
@@ -400,7 +400,7 @@ async def test_restoring_the_applied_derivative_version_claims_it_by_the_image_a
     project_dir = pm.get_project_path("demo")
     applied = (project_dir / derivative_sheet_relative_path("王", "战斗装")).read_bytes()
     await asyncio.to_thread(run_derivative_generation, pm, project_dir, monkeypatch, owner="王", derivative="战斗装")
-    monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
 
     restored = await versions.restore_derivative_version("demo", "王", "战斗装", 1)
 

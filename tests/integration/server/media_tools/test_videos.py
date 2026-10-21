@@ -18,7 +18,12 @@ from server.media_tools import videos as enqueue_videos_mod
 from server.media_tools.context import generation_is_error
 from server.tool_runtime import ToolOutcome
 from tests.factories import make_video_request_facts
-from tests.fakes import fake_reference_request_facts, write_backend_output
+from tests.fakes import (
+    fake_reference_request_facts,
+    use_active_tasks_lookup,
+    use_reference_projection,
+    write_backend_output,
+)
 from tests.integration.server.agent_tool_support import (
     _CLAIMED_BASIS_DIGEST,
     ToolHarness,
@@ -569,9 +574,7 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_on_mixed_sp
         },
     ]
     enqueued: list[Any] = []
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
-    )
+    use_active_tasks_lookup(monkeypatch, AsyncMock(return_value=[]))
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
 
@@ -606,9 +609,7 @@ async def test_generate_videos_episode_scope_storyboard_batch_blocks_when_a_vide
         },
     ]
     enqueued: list[Any] = []
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", AsyncMock(return_value=[])
-    )
+    use_active_tasks_lookup(monkeypatch, AsyncMock(return_value=[]))
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
 
@@ -758,13 +759,8 @@ async def test_generate_videos_episode_scope_reference_duration_needs_confirmati
     async def fake_active_tasks(**_kwargs):
         return []
 
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(fake_precheck),
-    )
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", fake_active_tasks
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(fake_precheck))
+    use_active_tasks_lookup(monkeypatch, fake_active_tasks)
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
 
@@ -808,10 +804,7 @@ async def test_generate_videos_episode_scope_reference_duration_confirm_enqueues
             for spec in specs
         ], []
 
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(fake_precheck),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(fake_precheck))
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, confirmed_request_duration_seconds=8, batch_waiter=fake_batch)
 
@@ -847,10 +840,7 @@ async def test_generate_videos_episode_scope_confirms_two_tiers_in_one_batch(
         return DurationSlot(seconds=seconds, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(fake_precheck),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(fake_precheck))
 
     out = await run_generate_videos(
         fake_ctx,
@@ -938,10 +928,7 @@ async def test_generate_videos_episode_scope_reference_duration_repeat_without_c
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(fake_precheck),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(fake_precheck))
 
     await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
@@ -977,10 +964,7 @@ async def test_generate_videos_episode_scope_reference_duration_exact_enqueues_d
             for spec in specs
         ], []
 
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(fake_precheck),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(fake_precheck))
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=fake_batch)
 
@@ -1018,10 +1002,7 @@ async def test_generate_videos_episode_scope_reference_duration_resolves_project
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(fake_precheck, calls=context_calls),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(fake_precheck, calls=context_calls))
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
 
@@ -1043,10 +1024,7 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
     fake_ctx.pm.script_payload = script
 
     projection_calls: list[str] = []
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(calls=projection_calls),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(calls=projection_calls))
 
     await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch([]))
 
@@ -1065,10 +1043,7 @@ async def test_generate_videos_episode_scope_reference_skips_duration_context_wh
     fake_ctx.pm.script_payload = script
 
     projection_calls: list[str] = []
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(calls=projection_calls),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(calls=projection_calls))
 
     out = await run_generate_videos(fake_ctx, _EPISODE_1, batch_waiter=_recording_batch([]))
 
@@ -1089,10 +1064,7 @@ async def test_generate_videos_episode_scope_ad_reference_duration_needs_confirm
         return DurationSlot(seconds=8, total_seconds=5, adjustment=UP)
 
     enqueued: list[Any] = []
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(fake_precheck),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(fake_precheck))
 
     out = await run_generate_videos(ad_reference_ctx, _EPISODE_1, batch_waiter=_recording_batch(enqueued))
 
@@ -1127,13 +1099,8 @@ async def test_generate_video_reference_duration_confirmation_across_entries(
     async def fake_active_tasks(**_kwargs):
         return []
 
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(fake_precheck),
-    )
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", fake_active_tasks
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection(fake_precheck))
+    use_active_tasks_lookup(monkeypatch, fake_active_tasks)
     extra: dict[str, Any] = {} if force is None else {"force": force}
 
     pending = await run_generate_videos(fake_ctx, target, batch_waiter=_recording_batch(enqueued), **extra)

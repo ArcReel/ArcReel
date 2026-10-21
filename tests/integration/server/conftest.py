@@ -26,6 +26,7 @@ from server.routers import assets, usage
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import bind_session_factory
 from tests.integration.server.agent_tool_support import _CLAIMED_BASIS_DIGEST, ToolHarness, fake_caps_resolver
 
 
@@ -216,7 +217,7 @@ def usage_app(monkeypatch: pytest.MonkeyPatch) -> Callable[[async_sessionmaker[A
 
 
 def _build_fake_ctx(tmp_path: Path, session_factory, monkeypatch: pytest.MonkeyPatch) -> ToolHarness:
-    monkeypatch.setattr("lib.db.async_session_factory", session_factory)
+    bind_session_factory(monkeypatch, session_factory)
     monkeypatch.setattr("server.services.admission.video_batch_admission.async_session_factory", session_factory)
     monkeypatch.setattr("server.services.tasks.video_caps.async_session_factory", session_factory)
     monkeypatch.setattr("server.services.admission.video_quote.async_session_factory", session_factory)

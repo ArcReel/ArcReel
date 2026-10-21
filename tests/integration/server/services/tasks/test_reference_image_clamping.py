@@ -17,7 +17,13 @@ from lib.artifacts.visual_artifact_provenance import VisualReference, build_stor
 from lib.backends.image_backends.grok import GrokImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from server.services.tasks import generation_context, generation_tasks
-from tests.fakes import hook_claim_recheck
+from tests.fakes import (
+    bind_session_factory,
+    hook_claim_recheck,
+    use_backend_assembler,
+    use_generation_context,
+    use_project_manager,
+)
 from tests.http_capture import capture_http
 from tests.integration.server.services.tasks.generation_tasks_support import (
     EIGHT_REFERENCE_CHARACTERS,
@@ -84,13 +90,8 @@ def _expected_basis(project_path: Path, pm: _FakePM):
 
 
 def _patch_execution(monkeypatch, pm: _FakePM, generator: FakeGenerator, *, limit: int) -> None:
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(
-        generation_tasks,
-        "resolve_generation_context",
-        fake_resolve_ctx(generator, image_max_reference_images=limit),
-    )
-    monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *_a, **_kw: None)
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator, image_max_reference_images=limit))
 
 
 async def _run_storyboard(generator: FakeGenerator) -> tuple[dict, dict]:
@@ -207,7 +208,7 @@ class TestLimitComesFromTheResolvedBackend:
 
     @pytest.fixture
     async def vidu_lane(self, db_factory, monkeypatch):
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
         generation_context.invalidate_backend_cache()
         generation_context._backend_cache._locks.clear()
 
@@ -215,7 +216,7 @@ class TestLimitComesFromTheResolvedBackend:
             assert (provider_id, media_type) == ("vidu", "image")
             return ViduImageBackend(api_key="k", model=model_id, base_url="https://api.vidu.com/ent/v2")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         yield
         generation_context.invalidate_backend_cache()
         generation_context._backend_cache._locks.clear()
@@ -228,9 +229,7 @@ class TestLimitComesFromTheResolvedBackend:
         pm = pm_with_eight_references(project_path)
         pm.project["image_provider_i2i"] = "vidu/viduq2"
         (project_path / "project.json").write_text(json.dumps(pm.project, ensure_ascii=False), encoding="utf-8")
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_context, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *_a, **_kw: None)
+        use_project_manager(monkeypatch, pm)
 
         with capture_http() as router:
             route = router.post("https://api.vidu.com/ent/v2/reference2image").mock(
@@ -252,7 +251,7 @@ class TestGrokLaneClampsToFive:
 
     @pytest.fixture
     async def grok_lane(self, db_factory, monkeypatch):
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
         generation_context.invalidate_backend_cache()
         generation_context._backend_cache._locks.clear()
         client = MagicMock()
@@ -265,7 +264,7 @@ class TestGrokLaneClampsToFive:
             with patch("lib.backends.image_backends.grok.create_grok_client", return_value=client):
                 return GrokImageBackend(api_key="k", model=model_id)
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         yield client
         generation_context.invalidate_backend_cache()
         generation_context._backend_cache._locks.clear()
@@ -275,9 +274,7 @@ class TestGrokLaneClampsToFive:
         pm = pm_with_eight_references(project_path)
         pm.project["image_provider_i2i"] = "grok/grok-imagine-image"
         (project_path / "project.json").write_text(json.dumps(pm.project, ensure_ascii=False), encoding="utf-8")
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_context, "get_project_manager", lambda: pm)
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *_a, **_kw: None)
+        use_project_manager(monkeypatch, pm)
         buffer = io.BytesIO()
         Image.new("RGB", (8, 8), "red").save(buffer, format="PNG")
 

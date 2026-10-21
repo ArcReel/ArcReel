@@ -8,6 +8,7 @@ import unicodedata
 from typing import Any
 
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from tests.fakes import use_text_generator
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
     nr_generator_returning,
@@ -91,7 +92,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
         nr_segment("E1S01", 4, "张三走向村口。", characters_in_segment=["张三"], scenes=["村口"]),
         nr_segment("E1S02", 6, "他停下脚步，久久凝望。", segment_break=True),
     ]
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments, captured))
+    use_text_generator(monkeypatch, nr_generator_returning(segments, captured))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is None, out
@@ -112,7 +113,6 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
 ) -> None:
     from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
     from lib.artifacts.artifact_provenance import build_script_plan_basis
-    from server import text_generation as mod
 
     project = {
         **fake_ctx.pm.project_payload,
@@ -152,7 +152,7 @@ async def test_split_narration_segments_registers_the_frozen_default_source_basi
     async def fake_create(_task_type, project_name=None, **_kwargs):
         return _Generator()
 
-    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    use_text_generator(monkeypatch, fake_create)
 
     result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
@@ -166,11 +166,10 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """静态分镜 schema 的 duration 是开区间，超出 supported_durations 的时长由工具后校验拦截，不落盘。"""
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 5)]
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
+    use_text_generator(monkeypatch, nr_generator_returning(segments))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
@@ -181,11 +180,10 @@ async def test_split_narration_segments_rejects_out_of_enum_duration(
 async def test_split_narration_segments_rejects_duplicate_segment_ids(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 4), nr_segment("E1S01", 6)]
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
+    use_text_generator(monkeypatch, nr_generator_returning(segments))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
@@ -197,11 +195,10 @@ async def test_split_narration_segments_rejects_blank_novel_text(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """novel_text 为纯空白（如单个空格）满足 schema min_length=1 却无实际旁白内容，须被后校验拦截，不落盘。"""
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 4, "张三在村口等人"), nr_segment("E1S02", 4, novel_text=" ")]
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
+    use_text_generator(monkeypatch, nr_generator_returning(segments))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
@@ -213,10 +210,9 @@ async def test_split_narration_segments_rejects_blank_novel_text(
 async def test_split_narration_segments_rejects_empty_segments(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([]))
+    use_text_generator(monkeypatch, nr_generator_returning([]))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
@@ -227,11 +223,10 @@ async def test_split_narration_segments_rejects_missing_field(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """缺资产字段（characters_in_segment 等）由既有分镜 schema（NarrationScriptPlanSegment strict）拦截。"""
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     bad = {"segment_id": "E1S01", "novel_text": "缺字段", "duration_seconds": 4, "segment_break": False}
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([bad]))
+    use_text_generator(monkeypatch, nr_generator_returning([bad]))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
@@ -243,11 +238,10 @@ async def test_split_narration_segments_rejects_unregistered_asset_reference(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
     """characters_in_segment / scenes / props 引用了 project.json 未登记的名称须被拦截，不落盘。"""
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["王五"])]
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
+    use_text_generator(monkeypatch, nr_generator_returning(segments))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None
@@ -264,7 +258,6 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
     与 rv 侧 ``validate_unit_text`` 同一比对坐标系：两侧都归一到 ``asset_name_comparison_key``
     再判等，否则一个登记过的越南语角色名会被拦在拆分之外，且 Agent 从报告上看不出差别在哪。
     """
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     nfc_name = unicodedata.normalize("NFC", "Hiếu")
@@ -272,7 +265,7 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
     segments = [
         nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=[unicodedata.normalize("NFD", nfc_name)])
     ]
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
+    use_text_generator(monkeypatch, nr_generator_returning(segments))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
@@ -281,13 +274,12 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
 
 
 async def _nr_source_and_call(fake_ctx: ToolHarness, monkeypatch, source_text: str, segments: list[dict]):
-    from server import text_generation as mod
 
     rv_project(fake_ctx, generation_mode="storyboard")
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(source_text, encoding="utf-8")
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
+    use_text_generator(monkeypatch, nr_generator_returning(segments))
 
     return await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 

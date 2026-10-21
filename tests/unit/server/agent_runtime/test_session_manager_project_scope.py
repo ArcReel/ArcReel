@@ -7,6 +7,7 @@ import pytest
 
 from lib.infra.data_root_layout import DataRootLayout
 from server.agent_runtime.session_manager import SessionManager
+from tests.fakes import use_provider_env
 
 
 class _FakeOptions:
@@ -34,7 +35,7 @@ class TestSessionManagerProjectScope:
             project_root=tmp_path,
             meta_store=meta_store,
         )
-        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
+        use_provider_env(monkeypatch, _fake_provider_env)
 
         with (
             patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True),
@@ -54,7 +55,7 @@ class TestSessionManagerProjectScope:
             project_root=tmp_path,
             meta_store=meta_store,
         )
-        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
+        use_provider_env(monkeypatch, _fake_provider_env)
 
         with (
             patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True),
@@ -75,7 +76,7 @@ class TestSessionManagerProjectScope:
             project_root=tmp_path,
             meta_store=meta_store,
         )
-        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
+        use_provider_env(monkeypatch, _fake_provider_env)
 
         with (
             patch("server.agent_runtime.options_assembler.SDK_AVAILABLE", True),
@@ -107,7 +108,7 @@ class TestSessionManagerProjectScope:
             project_root=tmp_path,
             meta_store=meta_store,
         )
-        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
+        use_provider_env(monkeypatch, _fake_provider_env)
 
         async def _can_use_tool(_tool_name, _input_data, _context):
             return None

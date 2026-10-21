@@ -2,6 +2,7 @@
 
 from server.routers.grids import router
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_project_manager
 
 
 class TestGridRouterExists:
@@ -49,7 +50,7 @@ class TestAdProjectRejected:
             def load_project(self, name):
                 return {"content_mode": "ad", "title": "Ad", "episodes": []}
 
-        monkeypatch.setattr(grids, "get_project_manager", lambda: _AdPM())
+        use_project_manager(monkeypatch, _AdPM())
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -75,7 +76,7 @@ class TestAdProjectRejected:
             def load_project(self, name):
                 return {"content_mode": "ad", "title": "Ad", "episodes": []}
 
-        monkeypatch.setattr(grids, "get_project_manager", lambda: _AdPM())
+        use_project_manager(monkeypatch, _AdPM())
 
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

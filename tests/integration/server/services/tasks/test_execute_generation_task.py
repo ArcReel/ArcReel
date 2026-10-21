@@ -8,7 +8,8 @@ from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifest
 from lib.generation.generation_queue import DispatchProviderChanged
 from lib.infra.api_errors import BadRequestError
 from lib.script.storyboard_sequence import StoryboardImageBindingRequired
-from server.services.tasks import formal_image_commit, generation_tasks
+from server.services.tasks import generation_tasks
+from tests.fakes import use_generation_context, use_project_manager, use_video_thumbnail_extractor
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -30,9 +31,8 @@ class TestGenerationTasks:
         emitted_batches = []
 
         resolve_ctx = fake_resolve_ctx(fake_generator)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", resolve_ctx)
-        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", resolve_ctx)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, resolve_ctx)
         monkeypatch.setattr(
             generation_tasks,
             "emit_project_change_batch",
@@ -156,10 +156,8 @@ class TestGenerationTasks:
         seed_current_storyboard(fake_pm)
         fake_generator = FakeGenerator(project_path)
         resolve_ctx = fake_resolve_ctx(fake_generator, image_provider=("openai", "gpt-image-2"))
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", resolve_ctx)
-        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", resolve_ctx)
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, resolve_ctx)
         task = {
             "task_id": "task-image",
             "task_type": task_type,
@@ -190,7 +188,7 @@ class TestGenerationTasks:
             return reused
 
         emitted: list[dict] = []
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: _FakePM(prepare_files(tmp_path)))
+        use_project_manager(monkeypatch, _FakePM(prepare_files(tmp_path)))
         monkeypatch.setitem(generation_tasks._TASK_EXECUTORS, "video", _executor)
         monkeypatch.setattr(
             generation_tasks,
@@ -230,8 +228,8 @@ class TestGenerationTasks:
             emit_attempts.append(project_name)
             raise failure
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(generation_tasks, "emit_project_change_batch", _fail_emit)
         task = {
             "task_id": "storyboard-task",
@@ -260,8 +258,8 @@ class TestGenerationTasks:
     async def test_execute_task_validation_errors(self, tmp_path, monkeypatch):
         project_path = prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(FakeGenerator()))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(FakeGenerator()))
 
         with pytest.raises(ValueError, match=r"script_file is required for storyboard task"):
             await generation_tasks.execute_storyboard_task("demo", "E1S01", {"prompt": "x"})
@@ -296,12 +294,10 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator(project_path)
         seen: list[dict] = []
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
         resolve_ctx = fake_resolve_ctx(fake_generator, seen_lane_requests=seen)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", resolve_ctx)
-        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", resolve_ctx)
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_generation_context(monkeypatch, resolve_ctx)
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         # E1S02 引用角色/场景/道具 sheet → 带参考图 → i2i；character 带 reference_image → i2i
         await generation_tasks.execute_storyboard_task(

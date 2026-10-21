@@ -35,6 +35,7 @@ from server.services.currency import typed_media_restore
 from server.services.currency.artifact_version_restore import TypedMediaRestoreTarget
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import add_typed_video_version
+from tests.fakes import use_project_manager
 
 # 产物清单是读取已生成产物的唯一口径，还原路径要落到真实的 v8 项目目录才有意义。
 _MINIMAL_PROJECT = {
@@ -170,7 +171,7 @@ def test_non_typed_storyboard_restore_enters_version_commit_from_metadata_transa
             )
 
     pm = _OrderedPM(tmp_path)
-    monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     monkeypatch.setattr(versions, "register_current_resource_artifact", lambda *_args, **_kwargs: False)
     project_path = pm.get_project_path("demo")
     current_file = project_path / "storyboards" / "scene_E1S01.png"
@@ -285,7 +286,7 @@ def _typed_audio_project(tmp_path: Path) -> tuple[object, Path, VersionManager]:
 
 def _client(monkeypatch, tmp_path):
     fake_pm = _FakePM(tmp_path)
-    monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+    use_project_manager(monkeypatch, fake_pm)
     monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
     app = FastAPI()
@@ -344,7 +345,7 @@ class TestVersionsRouter:
         script = pm.load_script("demo", "episode_1.json")
         script["segments"][0]["image_prompt"] = "new prompt"
         pm.save_script("demo", script, "episode_1.json", validate=False)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         versions._restore_non_typed_version(
             versions=manager,
@@ -397,7 +398,7 @@ class TestVersionsRouter:
             basis=ArtifactBasis.build("artifact-visual/asset-sheet", kind_version=1, inputs={"new": True}),
         )
         pm = ProjectManager(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         versions._restore_non_typed_version(
             versions=manager,
@@ -445,7 +446,7 @@ class TestVersionsRouter:
         current.write_bytes(b"new")
         manager.add_version("characters", "Alice", "new", source_file=current)
         pm = ProjectManager(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         versions._restore_non_typed_version(
             versions=manager,
@@ -487,7 +488,7 @@ class TestVersionsRouter:
         project_before = (project_path / "project.json").read_bytes()
         versions_before = manager.versions_file.read_bytes()
         pm = ProjectManager(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         monkeypatch.setattr(
             versions,
             "forget_current_resource_artifact",
@@ -561,7 +562,7 @@ class TestVersionsRouter:
             for path in (project_path / "project.json", *sorted(scripts_dir.glob("*.json")), manager.versions_file)
         }
         pm = ProjectManager(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         with pytest.raises(ValueError, match="exactly one episode binding"):
             versions._restore_non_typed_version(
@@ -624,7 +625,7 @@ class TestVersionsRouter:
             assert release_registration.wait(timeout=5)
             raise RuntimeError("manifest commit failed")
 
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         monkeypatch.setattr(versions, "forget_current_resource_artifact", _fail_registration)
 
         def _restore() -> None:
@@ -775,7 +776,7 @@ class TestVersionsRouter:
             assert guard_active
             return {"restored_version": 1, "current_version": 1, "prompt": "p"}
 
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda _project_name: _FakeVM(project_path))
         monkeypatch.setattr(typed_media_restore, "get_typed_media_restore_target", lambda *_args, **_kwargs: target)
         monkeypatch.setattr(typed_media_restore, "restore_typed_media_version", _restore)
@@ -794,7 +795,7 @@ class TestVersionsRouter:
 
     def test_audio_restore_is_enabled_for_typed_history(self, tmp_path, monkeypatch):
         pm, _project_path, manager = _typed_audio_project(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
         monkeypatch.setattr(typed_media_restore, "active_tts_resource_ids", AsyncMock(return_value=frozenset()))
 
@@ -811,7 +812,7 @@ class TestVersionsRouter:
     def test_audio_restore_is_blocked_while_tts_is_active(self, tmp_path, monkeypatch):
         pm, project_path, manager = _typed_audio_project(tmp_path)
         before = (project_path / "audio" / "segment_E1S01.wav").read_bytes()
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: manager)
         monkeypatch.setattr(
             typed_media_restore,
@@ -869,7 +870,7 @@ class TestVersionsRouter:
         (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"restored-bytes")
 
         fake_pm = _GridPM(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -955,7 +956,7 @@ class TestVersionsRouter:
         )
         adapter = ProjectArtifactManifestAdapter(tmp_path)
         fake_pm = _GridPM(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -1005,7 +1006,7 @@ class TestVersionsRouter:
         (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"original-bytes")
 
         grid_pm = _GridPM(tmp_path, project=project)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: grid_pm)
+        use_project_manager(monkeypatch, grid_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -1056,7 +1057,7 @@ class TestVersionsRouter:
         (tmp_path / "grids" / f"{grid.id}.png").write_bytes(b"restored-bytes")
 
         grid_pm = _GridPM(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: grid_pm)
+        use_project_manager(monkeypatch, grid_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -1109,7 +1110,7 @@ class TestVersionsRouter:
         thumb.write_bytes(b"jpg")
         vm = _typed_video_versions(project_path, "reference_videos", "E1U1")
 
-        monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
+        use_project_manager(monkeypatch, real_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: vm)
 
         app = FastAPI()
@@ -1164,7 +1165,7 @@ class TestVersionsRouter:
         project_path = real_pm.get_project_path("demo")
         vm = _typed_video_versions(project_path, "reference_videos", "E1U1")
 
-        monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
+        use_project_manager(monkeypatch, real_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: vm)
 
         app = FastAPI()
@@ -1216,7 +1217,7 @@ class TestVersionsRouter:
         thumb.write_bytes(b"jpg")
         vm = _typed_video_versions(project_path, "videos", "E1S01")
 
-        monkeypatch.setattr(versions, "get_project_manager", lambda: real_pm)
+        use_project_manager(monkeypatch, real_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: vm)
 
         app = FastAPI()
@@ -1280,7 +1281,7 @@ class TestVersionsRouter:
 
     @staticmethod
     def _restore_client(monkeypatch, pm) -> TestClient:
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -1367,7 +1368,7 @@ class TestVersionsRouter:
                 raise RuntimeError("unexpected crash")
 
         fake_pm = _CrashingPM(project_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -1394,7 +1395,7 @@ class TestVersionsRouter:
             artifact_path="storyboards/scene_ORPHAN.png",
             basis=ArtifactBasis.build("test/orphan-storyboard", kind_version=1, inputs={}),
         )
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -1442,7 +1443,7 @@ class TestVersionsRouter:
         script_path = project_path / "scripts" / "episode_1.json"
         before = script_path.read_bytes()
         pm.fail_writes = True
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         with pytest.raises(OSError, match="disk full"):
             versions._restore_non_typed_version(
@@ -1500,7 +1501,7 @@ class TestVersionsRouter:
             }
             (scripts_dir / f"episode_{episode}.json").write_text(json.dumps(payload), encoding="utf-8")
 
-        monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda project_name: _FakeVM())
 
         app = FastAPI()
@@ -1524,7 +1525,7 @@ class TestVersionsRouter:
         (tmp_path / "storyboards").mkdir()
         (tmp_path / "storyboards" / "scene_E1S01.png").write_bytes(b"restored")
 
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
         monkeypatch.setattr(versions, "get_version_manager", lambda name: _FakeVM())
 
         app = FastAPI()
@@ -1541,7 +1542,7 @@ class TestVersionsRouter:
 
     def test_get_versions_unexpected_error_maps_to_500(self, monkeypatch, tmp_path):
         fake_pm = _FakePM(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
         monkeypatch.setattr(
             versions,
             "get_version_manager",
@@ -1560,7 +1561,7 @@ class TestVersionsRouter:
 
     def test_restore_version_unexpected_error_maps_to_500(self, monkeypatch, tmp_path):
         fake_pm = _FakePM(tmp_path)
-        monkeypatch.setattr(versions, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
         monkeypatch.setattr(
             versions,
             "get_version_manager",

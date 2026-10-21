@@ -899,16 +899,40 @@ def test_patch_object_on_imported_module_counts_toward_patch_spread(tmp_path: Pa
     assert [rule for rule, _path in _rules(_audit(tmp_path))] == ["PATCH-SPREAD"] * 3
 
 
-def test_monkeypatch_setattr_does_not_count_toward_patch_spread(tmp_path: Path) -> None:
+def _monkeypatching_test(target: str) -> str:
+    return (
+        "from pathlib import Path\n\n\n"
+        "def test_a(monkeypatch):\n"
+        f"    monkeypatch.setattr({target}, object)\n"
+        "    value = 1\n"
+        "    assert value == 1\n"
+    )
+
+
+def test_monkeypatch_setattr_counts_toward_patch_spread(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    for name in ("test_a.py", "test_b.py"):
+        (tests / name).write_text(_monkeypatching_test('"sdk.client.Client"'), encoding="utf-8")
+    (tests / "test_c.py").write_text(
+        "import sdk.client\n\n\n"
+        "def test_a(monkeypatch):\n"
+        '    monkeypatch.setattr(sdk.client, "Client", object)\n'
+        "    value = 1\n"
+        "    assert value == 1\n",
+        encoding="utf-8",
+    )
+
+    assert [(rule, path) for rule, path in _rules(_audit(tmp_path))] == [
+        ("PATCH-SPREAD", "tests/test_a.py"),
+        ("PATCH-SPREAD", "tests/test_b.py"),
+        ("PATCH-SPREAD", "tests/test_c.py"),
+    ]
+
+
+def test_allowed_filesystem_boundary_target_is_not_reported(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
     for name in ("test_a.py", "test_b.py", "test_c.py"):
-        (tests / name).write_text(
-            "def test_a(monkeypatch):\n"
-            '    monkeypatch.setattr("sdk.client.Client", object)\n'
-            "    value = 1\n"
-            "    assert value == 1\n",
-            encoding="utf-8",
-        )
+        (tests / name).write_text(_monkeypatching_test('Path, "unlink"'), encoding="utf-8")
 
     assert _rules(_audit(tmp_path)) == []
 

@@ -22,7 +22,7 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.generation.media_generator import MediaGenerator
 from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
-from tests.fakes import FakeConfigResolver
+from tests.fakes import FakeConfigResolver, use_generation_context, use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import register_stale_visual_claim
 
 #: 本体资产图的可辨识内容：左右两半各一个纯色块，压缩后仍能按像素认出来。
@@ -171,14 +171,14 @@ def run_derivative_generation(
 ) -> bytes:
     """跑一次真实的衍生资产图生成（出站请求由 respx 应答），返回落盘的图片字节。"""
     from lib.backends.image_backends.dashscope import DashScopeImageBackend
-    from server.services.tasks import derivative_sheet_tasks, formal_image_commit, generation_tasks
+    from server.services.tasks import derivative_sheet_tasks
     from tests.http_capture import capture_http
     from tests.integration.server.services.tasks.generation_tasks_support import fake_resolve_ctx
 
     generator = build_generator(project_path, DashScopeImageBackend(api_key="sk", model="qwen-image-2.0"))
     monkeypatch.setattr(derivative_sheet_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(generator))
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
     monkeypatch.setattr(derivative_sheet_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
 
     result_bytes = solid_png_bytes(result_rgb)

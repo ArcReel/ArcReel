@@ -8,6 +8,7 @@ from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
 from lib.project.project_manager import ProjectManager
 from server.services.tasks import generation_tasks
+from tests.fakes import use_generation_context, use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -49,9 +50,8 @@ async def test_generated_storyboard_is_current_against_the_target_state(
     register_asset_sheet_claims(fixture)
     pm = ProjectManager(tmp_path)
     generator = FakeGenerator(project_path)
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
-    monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *_a, **_kw: None)
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
 
     await generation_tasks.execute_storyboard_task(
         "demo", ITEM_ID, {"script_file": "episode_1.json", "prompt": "queued prompt"}

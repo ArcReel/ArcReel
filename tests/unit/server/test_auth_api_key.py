@@ -13,6 +13,7 @@ import pytest
 from fastapi import HTTPException
 
 import server.auth as auth_module
+from tests.fakes import bind_session_factory
 
 
 @pytest.fixture(autouse=True)
@@ -30,7 +31,7 @@ def api_key_db(db_factory, monkeypatch):
     ``verify_api_key`` 在函数内 import ``lib.db.async_session_factory``，缓存未命中时
     真的落库查询；绑内存库后过期判定与缓存写入这两步都按真实数据跑。
     """
-    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+    bind_session_factory(monkeypatch, db_factory)
     return db_factory
 
 

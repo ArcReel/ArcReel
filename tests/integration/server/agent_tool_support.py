@@ -39,7 +39,7 @@ from server.tool_runtime import (
     ToolProblem,
 )
 from tests.factories import make_video_request_facts
-from tests.fakes import FakeConfigResolver
+from tests.fakes import FakeConfigResolver, use_text_generator
 
 # ---------------------------------------------------------------------------
 # Generation result contract helpers
@@ -370,10 +370,9 @@ def rv_script_plan_path(fake_ctx: ToolHarness):
 async def run_rv_split(
     fake_ctx: ToolHarness, monkeypatch, units: list[dict], *, new_assets: list[dict] | None = None, **caps_kwargs
 ) -> ToolOutcome[Any]:
-    from server import text_generation as mod
 
     use_fake_caps(fake_ctx, **caps_kwargs)
-    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning(units, new_assets=new_assets))
+    use_text_generator(monkeypatch, rv_generator_returning(units, new_assets=new_assets))
     return await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
 
