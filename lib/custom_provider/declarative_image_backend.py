@@ -172,23 +172,29 @@ class DeclarativeImageBackend:
         references = request.reference_images
         if self.max_reference_images:
             references = references[: self.max_reference_images]
-        context = await asyncio.to_thread(
-            self._engine.request_context,
-            {
-                "prompt": request.prompt,
-                "aspect_ratio": request.aspect_ratio,
-                "resolution": request.image_size,
-                "seed": request.seed,
-            },
-            {"reference_images": [Path(ref.path) for ref in references]},
-            require_declared_inputs=True,
-        )
         call = JobCall(
             poll_timeout_seconds=IMAGE_POLL_TIMEOUT_SECONDS,
             on_provider_response=request.on_provider_response,
             label=None,
         )
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            assets = {
+                "reference_images": [Path(ref.path) for ref in references],
+                "first_reference_image": Path(references[0].path) if references else None,
+                "second_reference_image": Path(references[1].path) if len(references) > 1 else None,
+            }
+            assets = await self._engine.prepare_asset_urls(client, assets)
+            context = await asyncio.to_thread(
+                self._engine.request_context,
+                {
+                    "prompt": request.prompt,
+                    "aspect_ratio": request.aspect_ratio,
+                    "resolution": request.image_size,
+                    "seed": request.seed,
+                },
+                assets,
+                require_declared_inputs=True,
+            )
             job_id = await self._engine.submit(client, context, call)
             try:
                 return await self._collect(client, job_id, call, context, request)

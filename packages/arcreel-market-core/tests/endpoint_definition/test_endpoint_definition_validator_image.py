@@ -178,6 +178,54 @@ def test_image_to_image_only_definition_is_accepted():
     assert validate_definition(definition).valid
 
 
+def test_image_to_image_may_use_a_single_first_reference_image_input():
+    definition = image_endpoint_definition(
+        capabilities={"image_to_image": True, "max_reference_images": 1},
+        inputs={"image": {"source": "first_reference_image", "encoding": "dreamapi_url", "required": True}},
+    )
+    definition["submit"]["body"]["image"] = "{{ inputs.image }}"
+
+    assert validate_definition(definition).valid
+
+
+def test_image_to_image_may_use_first_and_second_reference_image_inputs():
+    definition = image_endpoint_definition(
+        capabilities={"image_to_image": True, "max_reference_images": 2},
+        inputs={
+            "first": {"source": "first_reference_image", "encoding": "dreamapi_url", "required": True},
+            "second": {"source": "second_reference_image", "encoding": "dreamapi_url", "required": True},
+        },
+    )
+    definition["submit"]["body"]["first"] = "{{ inputs.first }}"
+    definition["submit"]["body"]["second"] = "{{ inputs.second }}"
+
+    assert validate_definition(definition).valid
+
+
+def test_second_reference_requires_a_declared_first_reference():
+    definition = image_endpoint_definition(
+        capabilities={"image_to_image": True, "max_reference_images": 2},
+        inputs={"second": {"source": "second_reference_image", "encoding": "dreamapi_url", "required": True}},
+    )
+    definition["submit"]["body"]["second"] = "{{ inputs.second }}"
+
+    assert ("capabilities.image_to_image", "capability_incoherent") in _codes(validate_definition(definition))
+
+
+def test_second_reference_requires_a_two_image_limit():
+    definition = image_endpoint_definition(
+        capabilities={"image_to_image": True, "max_reference_images": 1},
+        inputs={
+            "first": {"source": "first_reference_image", "encoding": "dreamapi_url", "required": True},
+            "second": {"source": "second_reference_image", "encoding": "dreamapi_url", "required": True},
+        },
+    )
+    definition["submit"]["body"]["first"] = "{{ inputs.first }}"
+    definition["submit"]["body"]["second"] = "{{ inputs.second }}"
+
+    assert ("capabilities.max_reference_images", "capability_incoherent") in _codes(validate_definition(definition))
+
+
 def test_image_to_image_without_a_reference_image_input_is_rejected():
     definition = image_endpoint_definition(
         capabilities={"text_to_image": True, "image_to_image": True, "max_reference_images": 4}

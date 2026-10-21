@@ -1,0 +1,13 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.2.0",
+  "meta": {"name": "DreamAPI DreamVideo 3.0 Reference to Video", "author": "ArcReel", "version": "1.0.0", "description": "Animate one or two reference images with DreamVideo 3.0.", "hints": {"base_url": "https://api.newportai.com", "suggested_models": [{"id": "dreamvideo-3.0"}] }},
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {"refs": {"source": "reference_images", "encoding": "dreamapi_url", "required": true}},
+  "enum_maps": {"resolution": {"480p": "480P", "720p": "720P"}, "aspect_ratio": {"auto": "auto", "9:16": "9:16", "3:4": "3:4", "1:1": "1:1", "4:3": "4:3", "16:9": "16:9"}},
+  "defaults": {"duration": 5, "resolution": "480p"},
+  "submit": {"method": "POST", "url": "{{ base_url }}/api/async/dreamvideo_3.0/image_to_video", "body": {"prompt": "{{ prompt }}", "images": [{"$when": "refs", "$each": {"in": "inputs.refs", "as": "image", "item": "{{ image }}"}}], "duration": "{{ duration }}", "resolution": "{{ resolution }}", "aspectRatio": "{{ aspect_ratio }}", "seed": "{{ seed }}"}, "extract": {"task_id": ["$.data.taskId"], "error": ["$.message", "$.data.message"]}},
+  "poll": {"method": "POST", "url": "{{ base_url }}/api/getAsyncResult", "body": {"taskId": "{{ task_id }}"}, "extract": {"status": {"paths": ["$.data.task.status"], "accept": "scalar"}, "video_url": ["$.data.videos[0].videoUrl"], "error": ["$.data.task.reason", "$.data.task.error", "$.message"]}},
+  "status_map": {"0": "queued", "1": "running", "2": "running", "3": "succeeded", "4": "failed"},
+  "capabilities": {"max_reference_images": 2, "audio_track": "always_on"}
+}

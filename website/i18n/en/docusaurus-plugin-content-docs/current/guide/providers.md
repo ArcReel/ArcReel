@@ -64,6 +64,14 @@ Providers' specific models, parameters, regional availability, and pricing chang
 
 The built-in OpenAI provider offers text and image capabilities. OpenAI-compatible video and TTS are connected through a Custom Provider's call endpoints.
 
+### 2.1 DreamAPI (Bring Your Own Key) {#dreamapi-byok}
+
+DreamAPI can be used as a custom media provider. In Settings, add a Custom Provider, enter the DreamAPI API URL `https://api.newportai.com` and an API key created in your own DreamAPI account, then select the matching DreamAPI call endpoint for each image or video model. The key is your account credential; do not put it in project files, screenshots, or commits.
+
+The current built-in endpoints cover text-to-image, image-to-image, image enhancement and processing, video generation, and talking-avatar workflows. Check the endpoints and parameters available in Settings; DreamAPI account, region, and upstream model policies may also affect availability.
+
+Because of ArcReel's current generation request contract, the built-in endpoints do not include translation, editing, or face swap of an existing video, or a standalone audio-only TTS endpoint. The try-on endpoint currently maps a person image and an upper-garment reference image; it does not imply support for lower-body, full-body, or footwear try-on. DreamAvatar 3.0 Fast generates a talking-avatar video from an image and audio; it is not general-purpose lip-sync for an existing video.
+
 ## 3. Configuration Layers {#configuration-layers}
 
 ArcReel supports:

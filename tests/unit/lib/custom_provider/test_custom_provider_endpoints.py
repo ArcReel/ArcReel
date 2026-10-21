@@ -83,6 +83,30 @@ class TestRegistry:
             "dashscope-tts",
             "minimax-tts",
             "gemini-tts",
+            "dreamapi-colorize",
+            "dreamapi-dreamavatar-3-fast",
+            "dreamapi-dreamimage",
+            "dreamapi-dreamvideo-3-reference-to-video",
+            "dreamapi-dreamvideo-3-text-to-video",
+            "dreamapi-enhance",
+            "dreamapi-flux-image-to-image",
+            "dreamapi-flux-text-to-image",
+            "dreamapi-google-image",
+            "dreamapi-gpt-image-2",
+            "dreamapi-gpt-image-25-flare-image-to-image",
+            "dreamapi-gpt-image-25-flare-text-to-image",
+            "dreamapi-gpt-image-25-sunburst-image-to-image",
+            "dreamapi-gpt-image-25-sunburst-text-to-image",
+            "dreamapi-remove-background",
+            "dreamapi-seedance-2-mini",
+            "dreamapi-seedance-2",
+            "dreamapi-seedance-25",
+            "dreamapi-seedream",
+            "dreamapi-swap-face",
+            "dreamapi-try-on-upper",
+            "dreamapi-wan-21-first-last-frame",
+            "dreamapi-wan-21-image-to-video",
+            "dreamapi-wan-21-text-to-video",
         }
 
     def test_each_spec_has_required_fields(self):
@@ -102,6 +126,7 @@ class TestRegistry:
                 "kling",
                 "openrouter",
                 "xai",
+                "dreamapi",
             }
             # 注册表里的都是内置端点，来源恒为 builtin；用户端点不进注册表，由 ce- 键现构造。
             assert spec.source == "builtin"
@@ -279,7 +304,14 @@ class TestRegistry:
     def test_audio_capable_endpoints_match_backends_that_send_audio(self):
         """运输声明与 backend 实现同步：声明 True 的 endpoint 必须真的组装参考音频。"""
         audio_capable = {k for k, s in ENDPOINT_REGISTRY.items() if s.reference_audio_capable}
-        assert audio_capable == {"ark-seedance", "dashscope-async-video", "minimax-h3"}
+        assert audio_capable == {
+            "ark-seedance",
+            "dashscope-async-video",
+            "minimax-h3",
+            "dreamapi-dreamavatar-3-fast",
+            "dreamapi-seedance-2",
+            "dreamapi-seedance-25",
+        }
 
     def test_audio_endpoint_spec(self):
         spec = ENDPOINT_REGISTRY["openai-tts"]
@@ -307,6 +339,21 @@ class TestRegistry:
             "dashscope-image",
             "minimax-image",
             "kling-image",
+            "dreamapi-colorize",
+            "dreamapi-dreamimage",
+            "dreamapi-enhance",
+            "dreamapi-flux-image-to-image",
+            "dreamapi-flux-text-to-image",
+            "dreamapi-google-image",
+            "dreamapi-gpt-image-2",
+            "dreamapi-gpt-image-25-flare-image-to-image",
+            "dreamapi-gpt-image-25-flare-text-to-image",
+            "dreamapi-gpt-image-25-sunburst-image-to-image",
+            "dreamapi-gpt-image-25-sunburst-text-to-image",
+            "dreamapi-remove-background",
+            "dreamapi-seedream",
+            "dreamapi-swap-face",
+            "dreamapi-try-on-upper",
         }
         assert video_keys == {
             "openai-video",
@@ -323,6 +370,15 @@ class TestRegistry:
             "minimax-h3",
             "kling-video",
             "gemini-video",
+            "dreamapi-dreamavatar-3-fast",
+            "dreamapi-dreamvideo-3-reference-to-video",
+            "dreamapi-dreamvideo-3-text-to-video",
+            "dreamapi-seedance-2-mini",
+            "dreamapi-seedance-2",
+            "dreamapi-seedance-25",
+            "dreamapi-wan-21-first-last-frame",
+            "dreamapi-wan-21-image-to-video",
+            "dreamapi-wan-21-text-to-video",
         }
 
 
@@ -652,6 +708,21 @@ def test_image_endpoint_registry_entries():
         "dashscope-image",
         "minimax-image",
         "kling-image",
+        "dreamapi-colorize",
+        "dreamapi-dreamimage",
+        "dreamapi-enhance",
+        "dreamapi-flux-image-to-image",
+        "dreamapi-flux-text-to-image",
+        "dreamapi-google-image",
+        "dreamapi-gpt-image-2",
+        "dreamapi-gpt-image-25-flare-image-to-image",
+        "dreamapi-gpt-image-25-flare-text-to-image",
+        "dreamapi-gpt-image-25-sunburst-image-to-image",
+        "dreamapi-gpt-image-25-sunburst-text-to-image",
+        "dreamapi-remove-background",
+        "dreamapi-seedream",
+        "dreamapi-swap-face",
+        "dreamapi-try-on-upper",
     }
 
 

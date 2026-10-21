@@ -37,7 +37,13 @@ const variable = (name: string, descKey = `ce_var_${name}`) => ({ name, descKey 
 
 export const MEDIA_TYPE_FORM_PROFILES: Record<EndpointMediaType, MediaTypeFormProfile> = {
   video: {
-    inputSources: ["start_image", "end_image", "reference_images", "reference_audio_files"],
+    inputSources: [
+      "start_image",
+      "end_image",
+      "reference_images",
+      "reference_audio_files",
+      "first_reference_audio",
+    ],
     artifactKeys: ["video_url"],
     generationVariables: [
       variable("prompt"),
@@ -51,7 +57,7 @@ export const MEDIA_TYPE_FORM_PROFILES: Record<EndpointMediaType, MediaTypeFormPr
     ],
   },
   image: {
-    inputSources: ["reference_images"],
+    inputSources: ["reference_images", "first_reference_image", "second_reference_image"],
     artifactKeys: ["image_url", "image_b64"],
     generationVariables: [
       variable("prompt"),
@@ -65,7 +71,7 @@ export const MEDIA_TYPE_FORM_PROFILES: Record<EndpointMediaType, MediaTypeFormPr
   },
 };
 
-export const INPUT_ENCODINGS: EndpointInputEncoding[] = ["data_uri", "base64"];
+export const INPUT_ENCODINGS: EndpointInputEncoding[] = ["data_uri", "base64", "dreamapi_url"];
 
 export const STANDARD_STATUSES: EndpointStandardStatus[] = [
   "queued",

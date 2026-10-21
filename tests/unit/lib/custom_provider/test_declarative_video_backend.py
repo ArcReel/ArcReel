@@ -51,6 +51,39 @@ def _request(tmp_path: Path, **overrides) -> VideoGenerationRequest:
 
 
 class TestDeclarativeVideoBackend:
+    async def test_prepare_asset_urls_preserves_preuploaded_url_lists(self):
+        definition = _definition()
+        definition["inputs"] = {"images": {"source": "reference_images", "encoding": "dreamapi_url"}}
+        backend = DeclarativeVideoBackend(
+            api_key="secret",
+            base_url="https://relay.test",
+            model="video-x",
+            definition=definition,
+            provider="custom-1",
+        )
+        requests = []
+
+        def unexpected_request(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(500, request=request)
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(unexpected_request)) as client:
+            prepared = await backend._engine.prepare_asset_urls(
+                client,
+                {
+                    "reference_images": [
+                        "https://storage.example/first.png",
+                        "https://storage.example/second.png",
+                    ]
+                },
+            )
+
+        assert prepared["reference_images"] == [
+            "https://storage.example/first.png",
+            "https://storage.example/second.png",
+        ]
+        assert requests == []
+
     async def test_definition_drives_submit_poll_download_and_usage(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock():
             submit = router.post("https://relay.test/v1/video/create").mock(

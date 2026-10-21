@@ -128,6 +128,53 @@ def test_unknown_asset_encoding_has_a_specific_failure_code():
     assert exc_info.value.code is DefinitionErrorCode.UNKNOWN_ASSET_ENCODING
 
 
+def test_first_reference_image_source_encodes_a_single_asset():
+    encoded = encode_inputs(
+        {"image": {"source": "first_reference_image", "encoding": "dreamapi_url"}},
+        {"first_reference_image": "https://storage.example/image.png"},
+    )
+
+    assert encoded == {"image": "https://storage.example/image.png"}
+
+
+def test_second_reference_image_source_encodes_a_single_asset():
+    encoded = encode_inputs(
+        {"image": {"source": "second_reference_image", "encoding": "dreamapi_url"}},
+        {"second_reference_image": "https://storage.example/image.png"},
+    )
+
+    assert encoded == {"image": "https://storage.example/image.png"}
+
+
+def test_reference_image_list_preserves_prepared_urls_in_order():
+    encoded = encode_inputs(
+        {"images": {"source": "reference_images", "encoding": "dreamapi_url"}},
+        {
+            "reference_images": [
+                "https://storage.example/first.png",
+                "https://storage.example/second.png",
+            ]
+        },
+    )
+
+    assert encoded == {
+        "images": [
+            "https://storage.example/first.png",
+            "https://storage.example/second.png",
+        ]
+    }
+
+
+def test_string_in_asset_list_requires_dreamapi_url_encoding():
+    with pytest.raises(TemplateRenderError) as exc_info:
+        encode_inputs(
+            {"images": {"source": "reference_images", "encoding": "base64"}},
+            {"reference_images": ["https://storage.example/first.png"]},
+        )
+
+    assert exc_info.value.code is DefinitionErrorCode.UNKNOWN_ASSET_ENCODING
+
+
 def test_each_runtime_value_that_is_not_a_list_has_a_specific_failure_code():
     with pytest.raises(TemplateRenderError) as exc_info:
         render_request(
@@ -271,3 +318,11 @@ def test_width_and_height_follow_the_resolution_tiers_of_the_media_type(
     context = build_context({"aspect_ratio": "1:1", "resolution": resolution}, {}, media_type=media_type)
 
     assert (context["width"], context["height"]) == size
+
+
+@pytest.mark.parametrize("aspect_ratio", ["1:1", "3:4", "9:16", "16:9"])
+def test_image_dimensions_are_aligned_to_sixteen_pixels_for_image_apis(aspect_ratio: str):
+    context = build_context({"aspect_ratio": aspect_ratio, "resolution": "1K"}, {}, media_type="image")
+
+    assert context["width"] % 16 == 0
+    assert context["height"] % 16 == 0

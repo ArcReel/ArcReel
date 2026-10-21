@@ -42,6 +42,14 @@ class TestEncodeFailure:
             {"media_type": "image", "provider_id": "grok"},
         )
 
+    @pytest.mark.parametrize("locale", ["zh", "en", "vi"])
+    def test_dreamapi_upload_failure_is_registered_and_localized(self, locale: str):
+        encoded = encode_failure("dreamapi_upload_failed", detail="policy rejected")
+
+        assert render_failure(encoded, _translator(locale), make_display_names(locale)) == translate_message(
+            "task_fail_dreamapi_upload_failed", locale=locale, detail="policy rejected"
+        )
+
     @pytest.mark.parametrize("raw", [None, "", "provider failed", '[unknown] {"x": 1}'])
     def test_parse_rejects_non_machine_failures(self, raw: str | None):
         assert parse_failure(raw) is None

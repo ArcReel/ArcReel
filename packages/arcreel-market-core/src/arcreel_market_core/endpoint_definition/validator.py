@@ -130,7 +130,9 @@ MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
         variables=BASE_VARIABLES,
         enum_map_variables=ENUM_MAP_VARIABLES,
         default_value_types=DEFAULT_VALUE_TYPES,
-        input_sources=frozenset({"start_image", "end_image", "reference_images", "reference_audio_files"}),
+        input_sources=frozenset(
+            {"start_image", "end_image", "reference_images", "reference_audio_files", "first_reference_audio"}
+        ),
         capabilities=VIDEO_CAPABILITY_FIELDS,
         artifact_keys=("video_url",),
         usage_extract=True,
@@ -140,7 +142,7 @@ MEDIA_TYPE_RULES: Mapping[str, MediaTypeRules] = {
         variables=frozenset({"base_url", "model", "prompt", "aspect_ratio", "resolution", "seed", "width", "height"}),
         enum_map_variables=frozenset({"aspect_ratio", "resolution"}),
         default_value_types={"aspect_ratio": str, "resolution": str, "seed": int},
-        input_sources=frozenset({"reference_images"}),
+        input_sources=frozenset({"reference_images", "first_reference_image", "second_reference_image"}),
         capabilities=frozenset({"text_to_image", "image_to_image", "max_reference_images"}),
         artifact_keys=("image_url", "image_b64"),
         usage_extract=False,
@@ -161,7 +163,9 @@ LIST_INPUT_SOURCES = frozenset({"reference_images", "reference_audio_files"})
 #: 请求形状必须带图，``capabilities.text_to_video`` 由这份集合推导；校验器与
 #: :mod:`lib.custom_provider.capabilities` 的合成共用同一份，两处不得各存一份——集合漂移会让
 #: 保存期放行的声明在合成期得出相反的 ``text_to_video``。
-IMAGE_INPUT_SOURCES = frozenset({"start_image", "end_image", "reference_images"})
+IMAGE_INPUT_SOURCES = frozenset(
+    {"start_image", "end_image", "reference_images", "first_reference_image", "second_reference_image"}
+)
 
 
 def requires_image_input(inputs: Mapping[str, Any] | None) -> bool:
@@ -657,20 +661,21 @@ class _SemanticChecker:
         """图片能力显式声明，不从输入推导；声明与请求形状、参考图上限三者须互相一致。"""
         image_to_image = capabilities.get("image_to_image") is True
         path = "capabilities.image_to_image"
-        uses_reference_images = "reference_images" in self._used_sources()
-        if image_to_image and not uses_reference_images:
+        used_sources = self._used_sources()
+        image_sources = used_sources & {"reference_images", "first_reference_image", "second_reference_image"}
+        if image_to_image and not image_sources:
             self._error(
                 path,
                 DefinitionErrorCode.CAPABILITY_DECLARED_WITHOUT_INPUT,
                 capability="image_to_image",
-                source="reference_images",
+                source="reference_images, first_reference_image, or second_reference_image",
             )
-        elif not image_to_image and uses_reference_images:
+        elif not image_to_image and image_sources:
             self._error(
                 path,
                 DefinitionErrorCode.CAPABILITY_INPUT_WITHOUT_DECLARATION,
                 capability="image_to_image",
-                source="reference_images",
+                source=" / ".join(sorted(str(source) for source in image_sources)),
             )
 
         # 参考图上限是 i2i 的一部分：编排层按它裁剪参考图，缺了它 i2i 请求带几张图就没有边界。
@@ -690,6 +695,30 @@ class _SemanticChecker:
                 requirement="image_to_image = true",
             )
 
+        # The second positional source cannot exist without a first slot, and the shared
+        # ImageGenerationRequest carries references as an ordered list. Requiring both
+        # declarations prevents a definition from silently binding its second input as #1.
+        if "second_reference_image" in image_sources:
+            first_is_required = any(
+                declaration.get("source") == "first_reference_image" and declaration.get("required") is True
+                for declaration in self._inputs.values()
+            )
+            if not first_is_required:
+                self._error(
+                    path,
+                    DefinitionErrorCode.CAPABILITY_INCOHERENT,
+                    capability="second_reference_image",
+                    requirement="a required first_reference_image input",
+                )
+            limit = capabilities.get("max_reference_images")
+            if isinstance(limit, int) and not isinstance(limit, bool) and limit < 2:
+                self._error(
+                    "capabilities.max_reference_images",
+                    DefinitionErrorCode.CAPABILITY_INCOHERENT,
+                    capability="second_reference_image",
+                    requirement="max_reference_images >= 2",
+                )
+
         # 文生图请求不带参考图：必需的参考图输入会让每一次文生图在提交前就判缺素材失败。
         if capabilities.get("text_to_image") is True and requires_image_input(self._inputs):
             self._error(
@@ -704,19 +733,23 @@ class _SemanticChecker:
         for capability, source in CAPABILITY_SOURCE_PAIRS:
             declared = _capability_is_on(capability, capabilities.get(capability))
             path = join_path("capabilities", capability)
-            if declared and source not in used_sources:
+            sources = (
+                {"reference_audio_files", "first_reference_audio"} if capability == "reference_audio_mode" else {source}
+            )
+            source_label = "reference_audio_files or first_reference_audio" if len(sources) > 1 else source
+            if declared and not (sources & used_sources):
                 self._error(
                     path,
                     DefinitionErrorCode.CAPABILITY_DECLARED_WITHOUT_INPUT,
                     capability=capability,
-                    source=source,
+                    source=source_label,
                 )
-            elif not declared and source in used_sources:
+            elif not declared and sources & used_sources:
                 self._error(
                     path,
                     DefinitionErrorCode.CAPABILITY_INPUT_WITHOUT_DECLARATION,
                     capability=capability,
-                    source=source,
+                    source=source_label,
                 )
 
         mode = capabilities.get("reference_audio_mode", ReferenceAudioMode.NONE.value)

@@ -189,6 +189,66 @@ class TestImageDefinitionTrialRun:
             rows = (await session.execute(select(ApiCall))).scalars().all()
         assert [row.call_type for row in rows] == ["image"]
 
+    async def test_image_trial_maps_scalar_first_and_second_reference_sources(
+        self, trial_runs: TrialRunManager, tmp_path: Path
+    ):
+        definition = image_endpoint_definition(
+            inputs={
+                "target": {"source": "first_reference_image", "encoding": "data_uri", "required": True},
+                "face": {"source": "second_reference_image", "encoding": "data_uri", "required": True},
+            },
+            capabilities={"image_to_image": True, "max_reference_images": 2},
+        )
+        definition["submit"]["body"]["target"] = "{{ inputs.target }}"
+        definition["submit"]["body"]["face"] = "{{ inputs.face }}"
+        target_image = tmp_path / "target.png"
+        face_image = tmp_path / "face.png"
+        target_image.write_bytes(PNG_BYTES)
+        face_image.write_bytes(PNG_BYTES)
+
+        with capture_http() as router, bounded_poll_clock():
+            submit = router.post("https://relay.test/v1/images/generations").mock(
+                return_value=httpx.Response(
+                    200, json={"code": 200, "data": [{"status": "submitted", "task_id": "task_9"}]}
+                )
+            )
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_image_task("completed", result={"images": [{"url": ["https://cdn.test/a.png"]}]})
+            )
+            router.get("https://cdn.test/a.png").mock(return_value=httpx.Response(200, content=PNG_BYTES))
+            started = await trial_runs.start(
+                declarative_target(definition, CREDENTIALS, IMAGE_PARAMETERS),
+                IMAGE_PARAMETERS,
+                assets={"first_reference_image": target_image, "second_reference_image": face_image},
+            )
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.SUCCEEDED, run.error
+        body = json.loads(submit.calls.last.request.content)
+        assert body["target"].startswith("data:image/png;base64,")
+        assert body["face"].startswith("data:image/png;base64,")
+
+    def test_video_trial_request_keeps_the_first_reference_audio_source(
+        self, trial_runs: TrialRunManager, tmp_path: Path
+    ):
+        audio = tmp_path / "drive.wav"
+        audio.write_bytes(b"audio")
+
+        async def on_response(_stage, _body):
+            return None
+
+        request = trial_runs._video_request(
+            tmp_path,
+            PARAMETERS,
+            {"first_reference_audio": audio},
+            600,
+            aspect_ratio="9:16",
+            video_capabilities=None,
+            on_provider_response=on_response,
+        )
+
+        assert request.reference_audio_files == [audio]
+
     async def test_a_base64_image_lands_as_the_artifact_and_is_reported_by_size(self, trial_runs: TrialRunManager):
         definition = image_endpoint_definition()
         definition["poll"]["extract"]["image_b64"] = ["$.data.result.images[0].b64_json"]

@@ -121,6 +121,24 @@ describe("EndpointTestSection", () => {
     ));
   });
 
+  it("renders a scalar reference-audio source as an audio file input", () => {
+    const { container } = render(
+      <EndpointTestSection
+        definition={{
+          ...DEFINITION,
+          inputs: {
+            audio: { source: "first_reference_audio", encoding: "dreamapi_url", required: true },
+          },
+        }}
+        providers={[]}
+      />,
+    );
+
+    const fileInput = container.querySelector('input[type="file"]');
+    expect(fileInput).toHaveAttribute("accept", "audio/*");
+    expect(fileInput).not.toHaveAttribute("multiple");
+  });
+
   it("summarizes a base64 image hit by its size instead of echoing it", async () => {
     vi.spyOn(API, "checkEndpointResponse").mockResolvedValue({
       stage: "poll",

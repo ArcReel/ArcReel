@@ -62,7 +62,7 @@ class RenderedRequest:
 
 def encode_inputs(
     declarations: Mapping[str, Mapping[str, str]],
-    assets: Mapping[str, AssetData | Sequence[AssetData] | None],
+    assets: Mapping[str, AssetData | str | Sequence[AssetData | str] | None],
 ) -> dict[str, str | list[str] | None]:
     """按 inputs 声明把素材编码为 data URI 或裸 base64。"""
     encoded: dict[str, str | list[str] | None] = {}
@@ -70,10 +70,24 @@ def encode_inputs(
         raw = assets.get(declaration["source"])
         if raw is None:
             encoded[name] = None
+        elif isinstance(raw, str):
+            if declaration["encoding"] != "dreamapi_url":
+                raise TemplateRenderError(DefinitionErrorCode.UNKNOWN_ASSET_ENCODING, encoding=declaration["encoding"])
+            encoded[name] = raw
         elif isinstance(raw, AssetData):
             encoded[name] = _encode_asset(raw, declaration["encoding"])
         else:
-            encoded[name] = [_encode_asset(asset, declaration["encoding"]) for asset in raw]
+            values: list[str] = []
+            for asset in raw:
+                if isinstance(asset, str):
+                    if declaration["encoding"] != "dreamapi_url":
+                        raise TemplateRenderError(
+                            DefinitionErrorCode.UNKNOWN_ASSET_ENCODING, encoding=declaration["encoding"]
+                        )
+                    values.append(asset)
+                else:
+                    values.append(_encode_asset(asset, declaration["encoding"]))
+            encoded[name] = values
     return encoded
 
 
@@ -103,7 +117,7 @@ def build_context(
                 resolution if isinstance(resolution, str) else None,
                 tier_map=_TIER_SHORT_EDGE_BY_MEDIA_TYPE[media_type],
             ),
-            round_to=8,
+            round_to=16 if media_type == "image" else 8,
         )
         context["width"] = width
         context["height"] = height

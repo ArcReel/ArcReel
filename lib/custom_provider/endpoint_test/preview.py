@@ -247,12 +247,19 @@ def _placeholder_summary(encoding: str, source: str) -> str:
 
 
 def _encoding_label(encoding: str, mime_type: str) -> str:
-    return f"data:{mime_type};base64" if encoding == "data_uri" else "base64"
+    if encoding == "data_uri":
+        return f"data:{mime_type};base64"
+    if encoding == "dreamapi_url":
+        return "DreamAPI Storage URL"
+    return "base64"
 
 
 _PLACEHOLDER_MIME_TYPES = {
     "start_image": "image/png",
     "end_image": "image/png",
     "reference_images": "image/png",
+    "first_reference_image": "image/png",
+    "second_reference_image": "image/png",
     "reference_audio_files": "audio/mpeg",
+    "first_reference_audio": "audio/mpeg",
 }

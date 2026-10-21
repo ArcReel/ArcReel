@@ -17,7 +17,10 @@ ASSET_SOURCES: Mapping[str, bool] = {
     "start_image": False,
     "end_image": False,
     "reference_images": True,
+    "first_reference_image": False,
+    "second_reference_image": False,
     "reference_audio_files": True,
+    "first_reference_audio": False,
 }
 
 

@@ -350,7 +350,7 @@ export function EndpointTestSection({ definition, providers }: EndpointTestSecti
                     <Input
                       id={id}
                       type="file"
-                      accept={source === "reference_audio_files" ? "audio/*" : "image/*"}
+                      accept={source === "reference_audio_files" || source === "first_reference_audio" ? "audio/*" : "image/*"}
                       multiple={source === "reference_images" || source === "reference_audio_files"}
                       required={required}
                       onChange={(e) => {

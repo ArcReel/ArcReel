@@ -12,10 +12,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from arcreel_market_core.endpoint_definition import validate_definition
-from arcreel_market_core.video_backend_contract import ReferenceAudioMode, VideoAudioMode
+from arcreel_market_core.video_backend_contract import ProviderJobStatus, ReferenceAudioMode, VideoAudioMode
 from lib.custom_provider import CUSTOM_ENDPOINT_KEY_PREFIX
 from lib.custom_provider.builtin_definitions import (
     BUILTIN_DEFINITION_AUTHOR,
@@ -26,6 +27,13 @@ from lib.custom_provider.builtin_definitions import (
     declarative_video_capabilities,
     load_builtin_definitions,
 )
+from lib.custom_provider.declarative_backend import (
+    DeclarativeJobEngine,
+    JobCall,
+    extract_job_status,
+    extract_provider_state,
+)
+from lib.custom_provider.declarative_image_backend import extract_image_state
 from lib.custom_provider.endpoints import (
     ENDPOINT_REGISTRY,
     EndpointSpec,
@@ -76,6 +84,163 @@ def test_shipped_builtin_definitions_are_registered_as_declarative_endpoints():
         spec = ENDPOINT_REGISTRY[key]
         assert spec.kind == "declarative"
         assert spec.definition is not None
+
+
+def test_dreamapi_image_and_video_routes_are_shipped_and_suggest_dreamapi_models():
+    definitions = load_builtin_definitions()
+    dreamapi = {key: value for key, value in definitions.items() if key.startswith("dreamapi-")}
+
+    assert {
+        "dreamapi-seedream",
+        "dreamapi-google-image",
+        "dreamapi-flux-text-to-image",
+        "dreamapi-flux-image-to-image",
+        "dreamapi-dreamimage",
+        "dreamapi-gpt-image-2",
+        "dreamapi-gpt-image-25-flare-text-to-image",
+        "dreamapi-gpt-image-25-flare-image-to-image",
+        "dreamapi-gpt-image-25-sunburst-text-to-image",
+        "dreamapi-gpt-image-25-sunburst-image-to-image",
+        "dreamapi-colorize",
+        "dreamapi-enhance",
+        "dreamapi-remove-background",
+        "dreamapi-swap-face",
+        "dreamapi-try-on-upper",
+        "dreamapi-dreamvideo-3-text-to-video",
+        "dreamapi-dreamvideo-3-reference-to-video",
+        "dreamapi-seedance-2",
+        "dreamapi-seedance-2-mini",
+        "dreamapi-seedance-25",
+        "dreamapi-wan-21-text-to-video",
+        "dreamapi-wan-21-image-to-video",
+        "dreamapi-wan-21-first-last-frame",
+        "dreamapi-dreamavatar-3-fast",
+    } <= dreamapi.keys()
+
+    assert all(value["meta"]["name"].startswith("DreamAPI") for value in dreamapi.values())
+    assert all(value["meta"]["hints"]["base_url"] == "https://api.newportai.com" for value in dreamapi.values())
+
+
+@pytest.mark.parametrize(
+    "key",
+    sorted(key for key in load_builtin_definitions() if key.startswith("dreamapi-")),
+)
+def test_dreamapi_numeric_poll_status_marks_completed_jobs_succeeded(key: str):
+    definition = load_builtin_definitions()[key]
+    response = {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "task": {"taskId": "task-1", "status": 3},
+            "images": [{"imageUrl": "https://cdn.example/image.png"}],
+            "videos": [{"videoUrl": "https://cdn.example/video.mp4"}],
+        },
+    }
+
+    status, provider_status = extract_job_status(
+        response,
+        definition["poll"]["extract"],
+        status_map=definition["status_map"],
+    )
+
+    assert status is ProviderJobStatus.SUCCEEDED
+    assert provider_status == "3"
+
+
+def _dreamapi_test_assets(definition: dict[str, Any]) -> dict[str, str | list[str]]:
+    assets: dict[str, str | list[str]] = {}
+    for declaration in (definition.get("inputs") or {}).values():
+        source = declaration["source"]
+        url = f"https://storage.example/{source}.bin"
+        if source in {"reference_images", "reference_audio_files"}:
+            assets[source] = [url]
+        else:
+            assets[source] = url
+    return assets
+
+
+@pytest.mark.parametrize(
+    "key",
+    sorted(key for key in load_builtin_definitions() if key.startswith("dreamapi-")),
+)
+async def test_dreamapi_builtin_definition_emits_and_parses_its_mocked_http_contract(key: str):
+    definition = load_builtin_definitions()[key]
+    media_type = definition.get("media_type", "video")
+    model = definition["meta"]["hints"]["suggested_models"][0]["id"]
+    reader = extract_image_state if media_type == "image" else extract_provider_state
+    resolution = (definition.get("defaults") or {}).get("resolution")
+    if resolution is None:
+        resolution_values = (definition.get("enum_maps") or {}).get("resolution") or {}
+        resolution = next(iter(resolution_values), "720p")
+    engine = DeclarativeJobEngine(
+        api_key="test-api-key-never-committed",
+        base_url="https://api.newportai.com",
+        model=model,
+        definition=definition,
+        provider="dreamapi",
+        read_state=reader,
+        log_label="DreamAPI contract test",
+    )
+    context = engine.request_context(
+        {
+            "model": model,
+            "prompt": "offline contract test",
+            "duration": 5,
+            "duration_seconds": 5,
+            "aspect_ratio": "16:9",
+            "resolution": resolution,
+            "generate_audio": True,
+            "seed": 17,
+        },
+        _dreamapi_test_assets(definition),
+        require_declared_inputs=True,
+    )
+    requests: list[httpx.Request] = []
+    image_url = "https://cdn.example/result.png"
+    video_url = "https://cdn.example/result.mp4"
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/api/getAsyncResult"):
+            payload = {
+                "code": 0,
+                "message": "success",
+                "data": {
+                    "task": {"taskId": "contract-task", "status": 3},
+                    "images": [{"imageUrl": image_url}],
+                    "videos": [{"videoUrl": video_url}],
+                },
+            }
+        else:
+            payload = {"code": 0, "message": "success", "data": {"taskId": "contract-task"}}
+        return httpx.Response(200, json=payload, request=request)
+
+    call = JobCall(poll_timeout_seconds=5, on_provider_response=None, label=key)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        job_id = await engine.submit(client, context, call)
+        outcome = await engine.poll(client, job_id, call, context=context, is_resume=False)
+
+    assert job_id == "contract-task"
+    assert len(requests) == 2
+    submit = engine._render(definition["submit"], context)
+    poll = engine._render(definition["poll"], {**context, "task_id": job_id})
+    assert requests[0].method == submit.method
+    assert str(requests[0].url) == submit.url
+    assert requests[0].headers["Authorization"] == "Bearer test-api-key-never-committed"
+    assert json.loads(requests[0].content) == submit.body
+    assert requests[1].method == poll.method
+    assert str(requests[1].url) == poll.url
+    assert json.loads(requests[1].content) == poll.body
+    assert outcome.poll_state.status is ProviderJobStatus.SUCCEEDED
+    if media_type == "image":
+        assert outcome.poll_state.image_url == image_url
+    else:
+        assert outcome.poll_state.video_url == video_url
+    failed_state = engine._extract_state(
+        {"data": {"task": {"status": 4, "reason": "mock failure"}}},
+        definition["poll"]["extract"],
+    )
+    assert failed_state.status is ProviderJobStatus.FAILED
 
 
 # ---------------------------------------------------------------- fail-fast

@@ -1,0 +1,12 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.2.0",
+  "media_type": "image",
+  "meta": {"name": "DreamAPI Try-On Upper Garment", "author": "ArcReel", "version": "1.0.0", "description": "Virtual try-on for a model image and an optional upper-garment image. Reference order: person first, garment second.", "hints": {"base_url": "https://api.newportai.com", "suggested_models": [{"id": "try-on-upper"}] }},
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {"person": {"source": "first_reference_image", "encoding": "dreamapi_url", "required": true}, "upper": {"source": "second_reference_image", "encoding": "dreamapi_url"}},
+  "submit": {"method": "POST", "url": "{{ base_url }}/api/async/tryon_clothes", "body": {"modelImage": "{{ inputs.person }}", "upperClothes": "{{ inputs.upper }}", "prompt": "{{ prompt }}"}, "extract": {"task_id": ["$.data.taskId"], "error": ["$.message", "$.data.message"]}},
+  "poll": {"method": "POST", "url": "{{ base_url }}/api/getAsyncResult", "body": {"taskId": "{{ task_id }}"}, "extract": {"status": {"paths": ["$.data.task.status"], "accept": "scalar"}, "image_url": ["$.data.images[0].imageUrl"], "error": ["$.data.task.reason", "$.data.task.error", "$.message"]}},
+  "status_map": {"0": "queued", "1": "running", "2": "running", "3": "succeeded", "4": "failed"},
+  "capabilities": {"image_to_image": true, "max_reference_images": 2}
+}

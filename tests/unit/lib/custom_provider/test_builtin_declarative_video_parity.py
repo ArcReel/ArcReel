@@ -25,6 +25,17 @@ REF2_URI = "data:image/png;base64,iVBORw0KGgpSRUYy"
 AUDIO_URI = "data:audio/x-wav;base64,UklGRgAAAABXQVZFQQ=="
 
 
+def test_request_assets_projects_the_first_reference_audio_for_single_file_apis(tmp_path: Path):
+    audio = tmp_path / "voice.wav"
+    request = VideoGenerationRequest(
+        prompt="a talking portrait",
+        output_path=tmp_path / "out.mp4",
+        reference_audio_files=[audio, tmp_path / "other.wav"],
+    )
+
+    assert DeclarativeVideoBackend._request_assets(request)["first_reference_audio"] == audio
+
+
 def _hailuo_body(*, model: str = "MiniMax-Hailuo-2.3", resolution: str = "768P", image: str | None = None) -> dict:
     body = {"model": model, "prompt": "a cat", "duration": 6, "resolution": resolution}
     if image:

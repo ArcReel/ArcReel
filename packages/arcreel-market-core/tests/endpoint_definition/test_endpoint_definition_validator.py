@@ -99,6 +99,20 @@ class TestAcceptedDefinitions:
         definition["auth"] = {}
         assert validate_definition(definition).valid
 
+    def test_video_definition_may_project_the_first_reference_audio_as_a_scalar(self):
+        definition = custom_endpoint_definition()
+        definition["inputs"]["drive_audio"] = {
+            "source": "first_reference_audio",
+            "encoding": "dreamapi_url",
+            "required": True,
+        }
+        definition["submit"]["body"]["audio"] = "{{ inputs.drive_audio }}"
+        definition["capabilities"].update({"reference_audio_mode": "direct", "max_reference_audio_count": 1})
+
+        diagnostics = validate_definition(definition)
+
+        assert diagnostics.valid, _codes(diagnostics)
+
     def test_response_body_itself_may_be_the_value(self):
         definition = custom_endpoint_definition()
         definition["submit"]["extract"]["task_id"] = ["$"]

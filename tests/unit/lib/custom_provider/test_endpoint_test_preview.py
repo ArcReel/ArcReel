@@ -138,6 +138,48 @@ class TestPreviewRequest:
         assert isinstance(preview.submit.body, dict)
         assert "start_image" in preview.submit.body["image"]
 
+    @pytest.mark.parametrize(
+        ("definition", "field", "source"),
+        [
+            (
+                image_endpoint_definition(
+                    inputs={
+                        "face": {
+                            "source": "second_reference_image",
+                            "encoding": "dreamapi_url",
+                            "required": True,
+                        }
+                    }
+                ),
+                "image",
+                "second_reference_image",
+            ),
+            (
+                custom_endpoint_definition(
+                    inputs={
+                        "audio": {
+                            "source": "first_reference_audio",
+                            "encoding": "dreamapi_url",
+                            "required": True,
+                        }
+                    }
+                ),
+                "audio",
+                "first_reference_audio",
+            ),
+        ],
+        ids=["second-image", "first-audio"],
+    )
+    def test_preview_has_placeholders_for_all_dreamapi_scalar_sources(self, definition, field: str, source: str):
+        if source == "second_reference_image":
+            definition["submit"]["body"][field] = "{{ inputs.face }}"
+        else:
+            definition["submit"]["body"] = {field: "{{ inputs.audio }}"}
+        preview = preview_request(definition, PARAMETERS, credentials=CREDENTIALS)
+
+        assert isinstance(preview.submit.body, dict)
+        assert source in preview.submit.body[field]
+
     def test_render_failure_reports_a_diagnostic_on_the_failing_section(self):
         definition = custom_endpoint_definition()
         definition["enum_maps"] = {"duration": {"10": 10}}

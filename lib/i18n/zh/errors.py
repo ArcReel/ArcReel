@@ -96,6 +96,7 @@ MESSAGES = {
     "task_fail_declarative_template_render_failed": "调用端点请求渲染失败：{detail}",
     "task_fail_declarative_response_extract_failed": "调用端点响应提取失败：{detail}",
     "task_fail_declarative_image_save_failed": "供应商已生成图片，但没能取回到本地；重新生成会再次计费：{detail}",
+    "task_fail_dreamapi_upload_failed": "上传输入素材到 DreamAPI Storage 失败；生成任务尚未提交，可以重试：{detail}",
     "task_fail_comfyui_image_drop_unsupported": "这份 workflow 的成片链路依赖节点 {node} 读入的图，参考图或首尾帧不足时无法改图，请补齐图片或改用别的 workflow",
     "task_fail_comfyui_upload_failed": "素材上传到 ComfyUI 失败：{detail}",
     "task_fail_comfyui_node_errors": "ComfyUI 拒收这份 workflow，共 {nodes} 个节点报错，首条：{summary}",

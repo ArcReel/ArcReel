@@ -1,0 +1,13 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.2.0",
+  "meta": {"name": "DreamAPI DreamAvatar 3.0 Fast", "author": "ArcReel", "version": "1.0.0", "description": "Create a talking-avatar video from a portrait and one driving audio track.", "hints": {"base_url": "https://api.newportai.com", "suggested_models": [{"id": "dreamavatar-3.0-fast"}] }},
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {"portrait": {"source": "start_image", "encoding": "dreamapi_url", "required": true}, "drive_audio": {"source": "first_reference_audio", "encoding": "dreamapi_url", "required": true}},
+  "enum_maps": {"resolution": {"480p": "480p", "720p": "720p"}},
+  "defaults": {"resolution": "480p"},
+  "submit": {"method": "POST", "url": "{{ base_url }}/api/async/dreamavatar/image_to_video/3.0fast", "body": {"image": "{{ inputs.portrait }}", "audio": "{{ inputs.drive_audio }}", "prompt": "{{ prompt }}", "resolution": "{{ resolution }}"}, "extract": {"task_id": ["$.data.taskId"], "error": ["$.message", "$.data.message"]}},
+  "poll": {"method": "POST", "url": "{{ base_url }}/api/getAsyncResult", "body": {"taskId": "{{ task_id }}"}, "extract": {"status": {"paths": ["$.data.task.status"], "accept": "scalar"}, "video_url": ["$.data.videos[0].videoUrl"], "error": ["$.data.task.reason", "$.data.task.error", "$.message"]}},
+  "status_map": {"0": "queued", "1": "running", "2": "running", "3": "succeeded", "4": "failed"},
+  "capabilities": {"first_frame": true, "reference_audio_mode": "direct", "max_reference_audio_count": 1, "audio_track": "always_on"}
+}

@@ -128,6 +128,153 @@ class TestDeclarativeImageBackend:
 
         assert "image_urls" not in request_json(only_request(submit))
 
+    async def test_single_image_source_sends_the_first_reference_as_a_scalar(self, tmp_path: Path):
+        definition = image_endpoint_definition(
+            capabilities={"image_to_image": True, "max_reference_images": 1},
+            inputs={"image": {"source": "first_reference_image", "encoding": "dreamapi_url", "required": True}},
+        )
+        definition["submit"]["body"]["image"] = "{{ inputs.image }}"
+        references = _reference_files(tmp_path, 2)
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/api/file/v1/get_policy").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "code": 0,
+                        "data": {
+                            "host": "https://dreamapi-oss.oss-cn-hongkong.aliyuncs.com",
+                            "key": "tmp/ref.png",
+                            "OSSAccessKeyId": "upload-access",
+                            "policy": "upload-policy",
+                            "signature": "upload-signature",
+                            "callback": "upload-callback",
+                        },
+                    },
+                )
+            )
+            router.post("https://dreamapi-oss.oss-cn-hongkong.aliyuncs.com").mock(
+                return_value=httpx.Response(200, json={"code": 0, "data": {"reqId": "req-1"}})
+            )
+            router.post("https://relay.test/api/file/v1/policy_upload_finish").mock(
+                return_value=httpx.Response(200, json={"code": 0, "data": {"url": "https://cdn.test/ref.png"}})
+            )
+            submit = router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(return_value=_completed())
+            router.get("https://cdn.test/img/first.png").mock(return_value=httpx.Response(200, content=PNG_BYTES))
+
+            await _backend(definition).generate(_request(tmp_path, reference_images=references))
+
+        assert request_json(only_request(submit))["image"] == "https://cdn.test/ref.png"
+
+    async def test_two_image_sources_keep_their_order_and_send_each_reference(self, tmp_path: Path):
+        definition = image_endpoint_definition(
+            capabilities={"image_to_image": True, "max_reference_images": 2},
+            inputs={
+                "person": {"source": "first_reference_image", "encoding": "dreamapi_url", "required": True},
+                "garment": {"source": "second_reference_image", "encoding": "dreamapi_url", "required": True},
+            },
+        )
+        definition["submit"]["body"]["person"] = "{{ inputs.person }}"
+        definition["submit"]["body"]["garment"] = "{{ inputs.garment }}"
+        references = _reference_files(tmp_path, 2)
+
+        with capture_http() as router, bounded_poll_clock():
+            router.post("https://relay.test/api/file/v1/get_policy").mock(
+                side_effect=[
+                    httpx.Response(
+                        200,
+                        json={
+                            "code": 0,
+                            "data": {
+                                "host": "https://dreamapi-oss.oss-cn-hongkong.aliyuncs.com",
+                                "key": "tmp/first.png",
+                                "OSSAccessKeyId": "upload-access",
+                                "policy": "policy",
+                                "signature": "signature",
+                                "callback": "callback",
+                            },
+                        },
+                    ),
+                    httpx.Response(
+                        200,
+                        json={
+                            "code": 0,
+                            "data": {
+                                "host": "https://dreamapi-oss.oss-cn-hongkong.aliyuncs.com",
+                                "key": "tmp/second.png",
+                                "OSSAccessKeyId": "upload-access",
+                                "policy": "policy",
+                                "signature": "signature",
+                                "callback": "callback",
+                            },
+                        },
+                    ),
+                ]
+            )
+            router.post("https://dreamapi-oss.oss-cn-hongkong.aliyuncs.com").mock(
+                side_effect=[
+                    httpx.Response(200, json={"code": 0, "data": {"reqId": "req-first"}}),
+                    httpx.Response(200, json={"code": 0, "data": {"reqId": "req-second"}}),
+                ]
+            )
+            router.post("https://relay.test/api/file/v1/policy_upload_finish").mock(
+                side_effect=[
+                    httpx.Response(200, json={"code": 0, "data": {"url": "https://cdn.test/person.png"}}),
+                    httpx.Response(200, json={"code": 0, "data": {"url": "https://cdn.test/garment.png"}}),
+                ]
+            )
+            submit = router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())
+            router.get("https://relay.test/v1/tasks/task_9").mock(return_value=_completed())
+            router.get("https://cdn.test/img/first.png").mock(return_value=httpx.Response(200, content=PNG_BYTES))
+
+            await _backend(definition).generate(_request(tmp_path, reference_images=references))
+
+        body = request_json(only_request(submit))
+        assert body["person"] == "https://cdn.test/person.png"
+        assert body["garment"] == "https://cdn.test/garment.png"
+
+    async def test_missing_required_second_image_fails_before_uploading_any_input(self, tmp_path: Path):
+        definition = image_endpoint_definition(
+            capabilities={"image_to_image": True, "max_reference_images": 2},
+            inputs={
+                "person": {"source": "first_reference_image", "encoding": "dreamapi_url", "required": True},
+                "garment": {"source": "second_reference_image", "encoding": "dreamapi_url", "required": True},
+            },
+        )
+        definition["submit"]["body"]["person"] = "{{ inputs.person }}"
+        definition["submit"]["body"]["garment"] = "{{ inputs.garment }}"
+
+        with capture_http() as router, bounded_poll_clock():
+            policy = router.post("https://relay.test/api/file/v1/get_policy").mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "code": 0,
+                        "data": {
+                            "host": "https://dreamapi-oss.oss-cn-hongkong.aliyuncs.com",
+                            "key": "tmp/person.png",
+                            "OSSAccessKeyId": "upload-access",
+                            "policy": "policy",
+                            "signature": "signature",
+                            "callback": "callback",
+                        },
+                    },
+                )
+            )
+            router.post("https://dreamapi-oss.oss-cn-hongkong.aliyuncs.com").mock(
+                return_value=httpx.Response(200, json={"code": 0, "data": {"reqId": "req-person"}})
+            )
+            router.post("https://relay.test/api/file/v1/policy_upload_finish").mock(
+                return_value=httpx.Response(200, json={"code": 0, "data": {"url": "https://cdn.test/person.png"}})
+            )
+
+            with pytest.raises(DeclarativeRuntimeError) as caught:
+                await _backend(definition).generate(_request(tmp_path, reference_images=_reference_files(tmp_path, 1)))
+
+        assert caught.value.code == "declarative_template_render_failed"
+        assert policy.call_count == 0
+
     async def test_definition_drives_submit_poll_and_image_download(self, tmp_path: Path):
         with capture_http() as router, bounded_poll_clock():
             submit = router.post("https://relay.test/v1/images/generations").mock(return_value=_submitted())

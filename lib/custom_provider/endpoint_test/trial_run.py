@@ -550,6 +550,12 @@ class TrialRunManager:
     ) -> VideoGenerationRequest:
         reference_images = assets.get("reference_images")
         reference_audio = assets.get("reference_audio_files")
+        first_audio = _single(assets.get("first_reference_audio"))
+        audio_files = (
+            list(reference_audio)
+            if isinstance(reference_audio, list)
+            else ([first_audio] if first_audio is not None else None)
+        )
         return VideoGenerationRequest(
             prompt=parameters.prompt,
             output_path=_artifact_file(run_dir, "video"),
@@ -559,7 +565,7 @@ class TrialRunManager:
             start_image=_single(assets.get("start_image")),
             end_image=_single(assets.get("end_image")),
             reference_images=list(reference_images) if isinstance(reference_images, list) else None,
-            reference_audio_files=list(reference_audio) if isinstance(reference_audio, list) else None,
+            reference_audio_files=audio_files,
             generate_audio=parameters.generate_audio,
             poll_timeout_seconds=poll_timeout,
             on_provider_response=on_provider_response,
@@ -577,18 +583,24 @@ class TrialRunManager:
     ) -> ImageGenerationRequest:
         """图像端点这一笔的请求。
 
-        首尾帧与参考音频落不进这个形状：图像端点没有这几个语义键（见 ``comfyui.bindings``），
-        界面也不为它渲这几个格子。轮询上限同样不在请求里——图像通道用自己的定值
+        首尾帧与参考音频不属于图像请求；单图与双图来源会按 first/second 顺序投影到
+        ``reference_images``。轮询上限同样不在请求里——图像通道用自己的定值
         （``comfyui_image_backend.IMAGE_POLL_TIMEOUT_SECONDS``），不读视频那个设置项。
         """
         reference_images = assets.get("reference_images")
+        if not isinstance(reference_images, list):
+            reference_images = [
+                path
+                for path in (
+                    _single(assets.get("first_reference_image")),
+                    _single(assets.get("second_reference_image")),
+                )
+                if path is not None
+            ]
         return ImageGenerationRequest(
             prompt=parameters.prompt,
             output_path=_artifact_file(run_dir, "image"),
-            reference_images=[
-                ReferenceImage(path=str(path))
-                for path in (reference_images if isinstance(reference_images, list) else [])
-            ],
+            reference_images=[ReferenceImage(path=str(path)) for path in reference_images],
             aspect_ratio=aspect_ratio,
             image_size=parameters.resolution,
             on_provider_response=on_provider_response,
@@ -682,7 +694,12 @@ async def _gate_trial_video_request(
 
     reference_images = assets.get("reference_images")
     reference_audio = assets.get("reference_audio_files")
-    audio_files = list(reference_audio) if isinstance(reference_audio, list) else None
+    first_audio = _single(assets.get("first_reference_audio"))
+    audio_files = (
+        list(reference_audio)
+        if isinstance(reference_audio, list)
+        else ([first_audio] if first_audio is not None else None)
+    )
     # 与生产路径同一探测：只在能力声明了总时长约束时探；探不出（随包 ffmpeg 不可用）传 None，
     # 闸按未知跳过该项而非拒绝。
     total_seconds = (
@@ -726,7 +743,15 @@ def _gate_trial_image_request(
     带参考图的测试连接都会被判成 ``video_reference_images_unsupported``。
     """
     reference_images = assets.get("reference_images")
-    has_references = bool(reference_images) if isinstance(reference_images, list) else False
+    scalar_references = (
+        _single(assets.get("first_reference_image")),
+        _single(assets.get("second_reference_image")),
+    )
+    has_references = (
+        bool(reference_images)
+        if isinstance(reference_images, list)
+        else any(reference is not None for reference in scalar_references)
+    )
     needed = ImageCapability.IMAGE_TO_IMAGE if has_references else ImageCapability.TEXT_TO_IMAGE
     if needed not in backend.capabilities:
         raise ImageCapabilityError(

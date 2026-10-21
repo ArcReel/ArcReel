@@ -1,0 +1,14 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.2.0",
+  "media_type": "image",
+  "meta": {"name": "DreamAPI Flux Image to Image", "author": "ArcReel", "version": "1.0.0", "description": "Flux image editing. The endpoint is capped to the 512px tier because DreamAPI Flux limits each output edge to 1600px.", "hints": {"base_url": "https://api.newportai.com", "suggested_models": [{"id": "flux"}] }},
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {"image": {"source": "first_reference_image", "encoding": "dreamapi_url", "required": true}},
+  "enum_maps": {"resolution": {"512px": "512px"}},
+  "defaults": {"resolution": "512px"},
+  "submit": {"method": "POST", "url": "{{ base_url }}/api/async/flux_image2image", "body": {"imageUrl": "{{ inputs.image }}", "prompt": "{{ prompt }}", "width": "{{ width }}", "height": "{{ height }}", "num": 1, "seed": "{{ seed }}"}, "extract": {"task_id": ["$.data.taskId"], "error": ["$.message", "$.data.message"]}},
+  "poll": {"method": "POST", "url": "{{ base_url }}/api/getAsyncResult", "body": {"taskId": "{{ task_id }}"}, "extract": {"status": {"paths": ["$.data.task.status"], "accept": "scalar"}, "image_url": ["$.data.images[0].imageUrl"], "error": ["$.data.task.reason", "$.data.task.error", "$.message"]}},
+  "status_map": {"0": "queued", "1": "running", "2": "running", "3": "succeeded", "4": "failed"},
+  "capabilities": {"image_to_image": true, "max_reference_images": 1}
+}

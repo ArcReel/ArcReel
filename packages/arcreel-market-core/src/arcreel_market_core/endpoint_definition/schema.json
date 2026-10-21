@@ -207,12 +207,12 @@
       "additionalProperties": false,
       "properties": {
         "source": {
-          "description": "对应生成请求的素材字段。图片定义只接受 reference_images。",
-          "enum": ["start_image", "end_image", "reference_images", "reference_audio_files"]
+          "description": "对应生成请求的素材字段；first_reference_image 与 second_reference_image 分别是 reference_images 的前两张单图投影。",
+          "enum": ["start_image", "end_image", "reference_images", "first_reference_image", "second_reference_image", "reference_audio_files", "first_reference_audio"]
         },
         "encoding": {
-          "description": "素材编码方式：data_uri 或裸 base64。素材格式不做白名单，由供应商在提交时拒绝。",
-          "enum": ["data_uri", "base64"]
+          "description": "素材编码方式：data_uri、裸 base64，或 dreamapi_url（先上传到 DreamAPI Storage，再向模型传公网 URL）。",
+          "enum": ["data_uri", "base64", "dreamapi_url"]
         },
         "required": {
           "description": "该素材是否是此请求形状的必需输入。缺省 false 表示可选；必需图输入会让 text_to_video 推导为 false。",

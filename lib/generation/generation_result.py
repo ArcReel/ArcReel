@@ -169,6 +169,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
     # 图片已出但没取回：图片不续跑，「重试下载」接不回原任务，重新生成是唯一的一步。
     "declarative_image_save_failed": GenerationAction.RETRY,
+    # DreamAPI Storage 上传发生在生成提交之前，重试不会重复触发已计费的模型任务。
+    "dreamapi_upload_failed": GenerationAction.RETRY,
     "comfyui_image_drop_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     # 传不上去多半是地址、凭据或磁盘的一次性问题，重发同一请求可能就好了。
     "comfyui_upload_failed": GenerationAction.RETRY,

@@ -1,0 +1,13 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.2.0",
+  "meta": {"name": "DreamAPI Wan 2.1 Image to Video", "author": "ArcReel", "version": "1.0.0", "description": "Wan 2.1 image-to-video. DreamAPI's documented request does not accept a duration parameter; the provider determines output length.", "hints": {"base_url": "https://api.newportai.com", "suggested_models": [{"id": "wan-2.1"}] }},
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {"first_frame": {"source": "start_image", "encoding": "dreamapi_url", "required": true}},
+  "enum_maps": {"resolution": {"480p": "480p", "720p": "720p"}},
+  "defaults": {"resolution": "480p"},
+  "submit": {"method": "POST", "url": "{{ base_url }}/api/async/wan/image_to_video/2.1", "body": {"image": "{{ inputs.first_frame }}", "prompt": "{{ prompt }}", "resolution": "{{ resolution }}"}, "extract": {"task_id": ["$.data.taskId"], "error": ["$.message", "$.data.message"]}},
+  "poll": {"method": "POST", "url": "{{ base_url }}/api/getAsyncResult", "body": {"taskId": "{{ task_id }}"}, "extract": {"status": {"paths": ["$.data.task.status"], "accept": "scalar"}, "video_url": ["$.data.videos[0].videoUrl"], "error": ["$.data.task.reason", "$.data.task.error", "$.message"]}},
+  "status_map": {"0": "queued", "1": "running", "2": "running", "3": "succeeded", "4": "failed"},
+  "capabilities": {"first_frame": true, "audio_track": "always_off"}
+}

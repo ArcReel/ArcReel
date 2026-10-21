@@ -1,0 +1,13 @@
+{
+  "kind": "declarative",
+  "schema_version": "1.2.0",
+  "meta": {"name": "DreamAPI Seedance 2.5", "author": "ArcReel", "version": "1.0.0", "description": "Seedance 2.5 text/image/audio-conditioned video generation. Video-reference input is not exposed by ArcReel.", "hints": {"base_url": "https://api.newportai.com", "suggested_models": [{"id": "seedance-2.5"}] }},
+  "auth": {"headers": {"Authorization": "Bearer {{ api_key }}"}},
+  "inputs": {"first_frame": {"source": "start_image", "encoding": "dreamapi_url"}, "last_frame": {"source": "end_image", "encoding": "dreamapi_url"}, "refs": {"source": "reference_images", "encoding": "dreamapi_url"}, "audios": {"source": "reference_audio_files", "encoding": "dreamapi_url"}},
+  "enum_maps": {"resolution": {"480p": "480p", "720p": "720p", "1080p": "1080p"}},
+  "defaults": {"resolution": "720p", "duration": 5},
+  "submit": {"method": "POST", "url": "{{ base_url }}/api/async/seedance_2.5", "body": {"model": "{{ model }}", "prompt": "{{ prompt }}", "resolution": "{{ resolution }}", "duration": "{{ duration }}", "ratio": "{{ aspect_ratio }}", "imageUrl": "{{ inputs.first_frame }}", "endImageUrl": "{{ inputs.last_frame }}", "images": [{"$when": "refs", "$each": {"in": "inputs.refs", "as": "image", "item": "{{ image }}"}}], "audios": [{"$when": "audios", "$each": {"in": "inputs.audios", "as": "audio", "item": "{{ audio }}"}}], "seed": "{{ seed }}", "generateAudio": "{{ generate_audio }}"}, "extract": {"task_id": ["$.data.taskId"], "error": ["$.message", "$.data.message"]}},
+  "poll": {"method": "POST", "url": "{{ base_url }}/api/getAsyncResult", "body": {"taskId": "{{ task_id }}"}, "extract": {"status": {"paths": ["$.data.task.status"], "accept": "scalar"}, "video_url": ["$.data.videos[0].videoUrl"], "error": ["$.data.task.reason", "$.data.task.error", "$.message"]}},
+  "status_map": {"0": "queued", "1": "running", "2": "running", "3": "succeeded", "4": "failed"},
+  "capabilities": {"first_frame": true, "last_frame": true, "max_reference_images": 9, "reference_audio_mode": "direct", "max_reference_audio_count": 3, "max_prompt_chars": 1500, "audio_track": "controllable"}
+}

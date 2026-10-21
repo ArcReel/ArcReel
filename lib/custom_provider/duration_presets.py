@@ -60,6 +60,9 @@ PRESETS: list[tuple[re.Pattern[str], list[int]]] = [
     (re.compile(r"minimax-h3", re.I), list(range(4, 16))),
     # MiniMax Hailuo（固定 6）
     (re.compile(r"hailuo", re.I), [6]),
+    # DreamAPI Wan 2.1 API routes produce fixed five-second clips; keep the exact upstream model id out of
+    # the generic Wan fallback so ArcReel does not offer a duration the request cannot transmit.
+    (re.compile(r"^wan[-_.]?2\.1$", re.I), [5]),
     # Wan（classify_wan_model 未归类到 wan3/wan2.7 的其余系列，含万相 2.x 中 2.7 以外的小版本）。
     # 分隔符接受连字符与下划线，不加标识符边界：本条是兜底启发式，"swan3"/"wan20" 一类含 wan
     # 子串的第三方型号名落到这条比落 DEFAULT_FALLBACK 更接近常见值，且预设本就要求用户在输入框

@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from urllib.parse import quote
 
 import httpx
@@ -62,6 +62,7 @@ from lib.backends.backend_runtime import (
 from lib.backends.http_status_errors import redacted_status_error
 from lib.backends.video_backends.metering import video_usage
 from lib.billing.metering import Usage
+from lib.custom_provider.dreamapi_upload import DreamAPIUploadError, upload_asset
 from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, raw_base_url
 from lib.db.repositories.usage_repo import MAX_BILLED_DURATION_SECONDS
 from lib.infra.logging_utils import format_kwargs_for_log
@@ -344,7 +345,7 @@ class StateReader[StateT: JobState](Protocol):
 #: 一次请求地址的源：``(scheme, host, port)``，见 :func:`url_origin`。
 Origin = tuple[str, str, int | None]
 #: 模板素材输入：单个文件、文件列表或缺席。
-AssetPaths = Path | list[Path] | None
+AssetPaths = Path | list[Path] | str | list[str] | None
 
 
 @dataclass(frozen=True)
@@ -424,10 +425,7 @@ class DeclarativeJobEngine[StateT: JobState]:
         try:
             # 素材读盘也在守卫内：文件在任务准备与执行之间被删掉时抛的是 OSError，落在守卫外
             # 就会绕过稳定错误码，让 worker 存下一段没有译文的裸文本。
-            loaded = {
-                name: self._assets(paths) if isinstance(paths, list) else self._asset(paths)
-                for name, paths in assets.items()
-            }
+            loaded = {name: self._load_asset_input(paths) for name, paths in assets.items()}
             encoded = encode_inputs(declarations, loaded)
             # 声明为必需的素材缺席时就地失败：模板会把整串占位符的键直接删掉，请求照样发得出去，
             # 于是供应商收到一个残缺请求、照常建任务照常计费。
@@ -463,6 +461,60 @@ class DeclarativeJobEngine[StateT: JobState]:
         except OSError as exc:
             raise DeclarativeRuntimeError("declarative_template_render_failed", detail=str(exc)) from exc
 
+    async def prepare_asset_urls(
+        self,
+        client: httpx.AsyncClient,
+        assets: Mapping[str, AssetPaths],
+    ) -> dict[str, AssetPaths]:
+        """为声明了 ``dreamapi_url`` 的素材输入上传文件，并返回 URL 形态的输入映射。"""
+        declarations = self._definition.get("inputs") or {}
+        missing = [
+            name
+            for name, declaration in declarations.items()
+            if declaration.get("required") and not assets.get(declaration.get("source"))
+        ]
+        if missing:
+            raise DeclarativeRuntimeError(
+                "declarative_template_render_failed",
+                detail=f"required inputs are missing: {', '.join(sorted(missing))}",
+            )
+        remote_sources = list(
+            dict.fromkeys(
+                declaration.get("source")
+                for declaration in declarations.values()
+                if declaration.get("encoding") == "dreamapi_url"
+            )
+        )
+        prepared = dict(assets)
+        for source in remote_sources:
+            paths = prepared.get(source)
+            try:
+                if isinstance(paths, Path):
+                    prepared[source] = await upload_asset(
+                        client,
+                        base_url=self._base_url,
+                        api_key=self._api_key,
+                        file_path=paths,
+                    )
+                elif isinstance(paths, list):
+                    uploaded: list[str] = []
+                    for path in paths:
+                        if isinstance(path, Path):
+                            uploaded.append(
+                                await upload_asset(
+                                    client,
+                                    base_url=self._base_url,
+                                    api_key=self._api_key,
+                                    file_path=path,
+                                )
+                            )
+                        else:
+                            uploaded.append(path)
+                    prepared[source] = uploaded
+            except DreamAPIUploadError as exc:
+                raise DeclarativeRuntimeError("dreamapi_upload_failed", detail=str(exc)) from exc
+        return prepared
+
     @staticmethod
     def _asset(path: Path | None) -> AssetData | None:
         if path is None:
@@ -477,6 +529,17 @@ class DeclarativeJobEngine[StateT: JobState]:
     @classmethod
     def _assets(cls, paths: list[Path] | None) -> list[AssetData] | None:
         return [asset for path in paths or [] if (asset := cls._asset(path)) is not None] or None
+
+    @classmethod
+    def _load_asset_input(cls, paths: AssetPaths) -> AssetData | list[AssetData] | str | list[str] | None:
+        if isinstance(paths, str):
+            return paths
+        if isinstance(paths, list):
+            if all(isinstance(path, str) for path in paths):
+                return cast(list[str], paths)
+            asset_paths = cast(list[Path], [path for path in paths if isinstance(path, Path)])
+            return cls._assets(asset_paths)
+        return cls._asset(paths)
 
     def _render(self, section: Mapping[str, Any], context: Mapping[str, object]):
         try:
@@ -807,8 +870,14 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
         return declarative_video_usage(self._definition, request, result)
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
-        context = await asyncio.to_thread(self._request_context, request, require_declared_inputs=True)
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            assets = await self._engine.prepare_asset_urls(client, self._request_assets(request))
+            context = await asyncio.to_thread(
+                self._request_context,
+                request,
+                require_declared_inputs=True,
+                assets=assets,
+            )
             job_id = await self._engine.submit(client, context, _job_call(request))
             # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
             # 把一笔已付费的任务误判成过期丢掉。
@@ -818,13 +887,19 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
             return await self._poll_download(client, job_id, request, context=context, is_resume=False)
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
-        context = await asyncio.to_thread(self._request_context, request)
+        # 续跑的 poll/result 定义不能引用输入素材；避免重传原素材，也避免在任务已提交后依赖上传凭证。
+        context = await asyncio.to_thread(self._request_context, request, assets={})
         async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
             return await self._poll_download(client, job_id, request, context=context, is_resume=True)
 
     def _request_context(
-        self, request: VideoGenerationRequest, *, require_declared_inputs: bool = False
+        self,
+        request: VideoGenerationRequest,
+        *,
+        require_declared_inputs: bool = False,
+        assets: Mapping[str, AssetPaths] | None = None,
     ) -> dict[str, object]:
+        request_assets = assets if assets is not None else self._request_assets(request)
         return self._engine.request_context(
             {
                 "prompt": request.prompt,
@@ -835,15 +910,20 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
                 "generate_audio": request.generate_audio,
                 "seed": request.seed,
             },
-            {
-                "start_image": request.start_image,
-                "end_image": request.end_image,
-                "reference_images": request.reference_images,
-                "reference_audio_files": request.reference_audio_files,
-            },
+            request_assets,
             submitted_base_url=request.submitted_base_url,
             require_declared_inputs=require_declared_inputs,
         )
+
+    @staticmethod
+    def _request_assets(request: VideoGenerationRequest) -> dict[str, AssetPaths]:
+        return {
+            "start_image": request.start_image,
+            "end_image": request.end_image,
+            "reference_images": request.reference_images,
+            "reference_audio_files": request.reference_audio_files,
+            "first_reference_audio": (request.reference_audio_files or [None])[0],
+        }
 
     async def _poll_download(
         self,

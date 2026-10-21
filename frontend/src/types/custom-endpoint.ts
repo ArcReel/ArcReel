@@ -10,10 +10,13 @@ export type EndpointInputSource =
   | "start_image"
   | "end_image"
   | "reference_images"
-  | "reference_audio_files";
+  | "first_reference_image"
+  | "second_reference_image"
+  | "reference_audio_files"
+  | "first_reference_audio";
 
 /** 素材发送到供应商时的编码形态。 */
-export type EndpointInputEncoding = "data_uri" | "base64";
+export type EndpointInputEncoding = "data_uri" | "base64" | "dreamapi_url";
 
 /** 标准状态四档，与后端 ProviderJobStatus 同名。 */
 export type EndpointStandardStatus = "queued" | "running" | "succeeded" | "failed";
