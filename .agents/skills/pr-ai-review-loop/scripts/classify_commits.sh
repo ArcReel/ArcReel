@@ -10,8 +10,8 @@
 # A SINCE_SHA that is not on the PR's commit list (typical cause: a rebase rewrote every SHA)
 # returns ALL commits and warns on stderr (`WARNING: SINCE_SHA ... is not on PR`). Treat that
 # output as unusable for shape judgement: the rebase refreshed every committedDate too, so
-# batch boundaries cannot be rebuilt. Fall back to re-triggering the manual-review reviewer per reviewers.md and
-# re-anchor SINCE_SHA on the last `oid` of the index's commits_since_pr_created for next time.
+# batch boundaries cannot be rebuilt. Re-anchor SINCE_SHA on the last `oid` of the index's
+# commits_since_pr_created for next time.
 #
 # OUTPUT: JSON array, one object per commit:
 # [
@@ -29,10 +29,9 @@
 # ]
 #
 # WHY
-# Skill needs to judge whether the latest push is "fix-up only" (nit/format/typo/small bug) so it can:
-#   (a) skip a manual re-trigger of a reviewer that only auto-reviews on PR open (Gemini today), and
-#   (b) show what the last batches actually changed when reporting progress at the evaluation
-#       point (SKILL.md「预算与交接」). Metadata only; read the diff by SHA when unclear.
+# Skill needs to judge whether the latest push is "fix-up only" (nit/format/typo/small bug) so it can
+# show what the last batches actually changed when reporting progress at the evaluation point
+# (SKILL.md「预算与交接」). Metadata only; read the diff by SHA when unclear.
 # Output is raw metadata (file count, line stats, message text); the orchestrating agent makes the final call —
 # scripting "is this nit?" would miss semantic cues like "fix typo in error message
 # (1 line, 1 file)" being clearly nit vs "fix race in lock release (1 line, 1 file)" being NOT nit.
