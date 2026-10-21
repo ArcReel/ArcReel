@@ -52,10 +52,6 @@ respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的
 
 `patch` / `patch.object` 的散落由 `audit_tests` 判定，`monkeypatch.setattr` 按同一标准在审查时判断：同一目标被多个文件各自替换，说明缺一个共享 fixture 或 seam。
 
-### 专题共享模块只放被多个测试文件使用的 helper
-
-专题共享模块（如 `tests/auth_deps.py`、各目录的 `*_support.py`）的公开符号应被至少 2 个测试文件使用；只服务一个文件的 helper 放回该文件。`tests/legacy_project_shapes.py` 是旧版项目形态的样本目录（见 `docs/agents/project-migrations.md`），不受此限。
-
 ### 前端页面级套件的接口替身从真实后端录制
 
 `frontend/e2e/fixtures/recorded/` 下的响应只由 `pnpm e2e:record` 对真实后端录制生成，不手写协议桩，也不手改录制文件；改动接口形状的后端 PR 要同时重录，让形状变化体现在替身文件的 diff 里。手写的替身只反映作者对接口的理解：后端实际的字段、帧序或查询形状变了，页面级套件仍然通过，回归要到运行时才暴露。长文本、多条目等压力变体写在场景的 `api` 字段里。

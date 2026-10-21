@@ -270,7 +270,7 @@ class _FakePM:
         return self.project
 
 
-async def stage_and_commit(commit_formal_output, staged: Path, current: Path, content: bytes, metadata: dict) -> int:
+async def _stage_and_commit(commit_formal_output, staged: Path, current: Path, content: bytes, metadata: dict) -> int:
     """替身生成器落盘产出并提交正式版本。
 
     与 MediaGenerator 一样在工作线程里写 staging 产物、调正式提交回调：后端在线程里落盘，
@@ -295,7 +295,7 @@ class SheetGenerator:
     async def generate_image_async(self, *, resource_type, resource_id, commit_formal_output, **_kwargs):
         current = self._project_dir / resource_type / f"{resource_id}.png"
         staged = self._project_dir / resource_type / f".{resource_id}.staged.png"
-        return current, await stage_and_commit(commit_formal_output, staged, current, self._content, {})
+        return current, await _stage_and_commit(commit_formal_output, staged, current, self._content, {})
 
 
 class FakeGenerator:
@@ -472,15 +472,6 @@ def register_asset_sheet_claims(fake_pm: _FakePM) -> None:
                     ArtifactKey.asset_sheet(asset_type, name),
                     sheet,
                 )
-
-
-def build_currency_resolver(project_path: Path, project: dict):
-    """Persist the project and build the resolver production hands the reference collectors."""
-
-    from lib.artifacts.artifact_activation import active_artifact_currency_resolver
-
-    (project_path / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
-    return active_artifact_currency_resolver(project_path, project)
 
 
 def register_stale_visual_claim(project_path: Path, key: ArtifactKey, artifact_path: str) -> None:

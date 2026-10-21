@@ -50,7 +50,7 @@ def narration_segment(segment_id: str, text: str) -> dict[str, Any]:
     }
 
 
-def install_video(project_path: Path, item: dict[str, Any], seconds: float) -> None:
+def _install_video(project_path: Path, item: dict[str, Any], seconds: float) -> None:
     segment_id = item["segment_id"]
     storyboard = project_path / "storyboards" / f"scene_{segment_id}.png"
     storyboard.parent.mkdir(parents=True, exist_ok=True)
@@ -99,7 +99,7 @@ def install_video(project_path: Path, item: dict[str, Any], seconds: float) -> N
     )
 
 
-def install_narration(project_path: Path, item: dict[str, Any], seconds: float) -> None:
+def _install_narration(project_path: Path, item: dict[str, Any], seconds: float) -> None:
     segment_id = item["segment_id"]
     audio = project_path / "audio" / f"segment_{segment_id}.wav"
     audio.parent.mkdir(parents=True, exist_ok=True)
@@ -157,14 +157,14 @@ def setup_project(tmp_path: Path, *, narration_delivery: str = "use_tts") -> tup
         project_path / "scripts" / "episode_1.json",
         {"episode": 1, "content_mode": "narration", "segments": [first, second]},
     )
-    install_video(project_path, first, 2.0)
-    install_video(project_path, second, 1.5)
-    install_narration(project_path, first, 1.2)
-    install_narration(project_path, second, 2.0)
+    _install_video(project_path, first, 2.0)
+    _install_video(project_path, second, 1.5)
+    _install_narration(project_path, first, 1.2)
+    _install_narration(project_path, second, 2.0)
     return ProjectManager(tmp_path), project_path
 
 
-def append_revision(pm: ProjectManager, timeline_id: str, content: EditTimelineContent) -> None:
+def _append_revision(pm: ProjectManager, timeline_id: str, content: EditTimelineContent) -> None:
     store = EditTimelineStore(pm, "demo")
     document = store.find(timeline_id)
     with store.locked_episode(document.episode):
@@ -192,5 +192,5 @@ async def edited_timeline(pm: ProjectManager) -> str:
             "hold_us": 500_000,
         }
     )
-    append_revision(pm, created.timeline.id, EditTimelineContent(clips=(edited, second)))
+    _append_revision(pm, created.timeline.id, EditTimelineContent(clips=(edited, second)))
     return created.timeline.id

@@ -77,7 +77,7 @@ def _model_field_descriptions(model: type[BaseModel]) -> set[str]:
     return found
 
 
-def class_docstring_texts(model: type[BaseModel]) -> set[str]:
+def _class_docstring_texts(model: type[BaseModel]) -> set[str]:
     """``model`` 的默认 schema 里由类 docstring 生成的说明，即发给模型的内容不应带的文本。
 
     取顶层与各 ``$defs`` 定义上的 ``description``。与字段说明同文的除外（如 ``Composition`` 的「构图信息」）：
@@ -93,5 +93,5 @@ def leaked_class_docstrings(model: type[BaseModel], wire_json: str) -> list[str]
 
     Instructor 的工具说明只取 docstring 的首段，按首行匹配才能同时覆盖整段说明与摘取的首段。
     """
-    first_lines = (inspect.cleandoc(text).splitlines()[0] for text in class_docstring_texts(model))
+    first_lines = (inspect.cleandoc(text).splitlines()[0] for text in _class_docstring_texts(model))
     return [line for line in first_lines if json.dumps(line, ensure_ascii=False)[1:-1] in wire_json]

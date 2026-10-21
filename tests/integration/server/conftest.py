@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
+import re
+import threading
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
@@ -15,13 +19,171 @@ from lib.generation.generation_queue_client import wait_for_task
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
 from lib.project.project_change_hints import register_project_change_batch_listener
 from lib.project.project_manager import ProjectManager
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import assets, usage
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.integration.server.agent_tool_support import FakePM, ToolHarness, fake_caps_resolver
+from tests.integration.server.agent_tool_support import _CLAIMED_BASIS_DIGEST, ToolHarness, fake_caps_resolver
+
+
+class FakePM:
+    def __init__(self, project_name: str, project_dir: Path):
+        self._project_name = project_name
+        self._project_dir = project_dir
+        self.project_payload: dict[str, Any] = {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "content_mode": "drama",
+            "generation_mode": "storyboard",
+            "source_kind": "novel",
+            "source_language": "中文",
+            "overview": {},
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json", "source_origin": "own"}],
+            "characters": {"张三": {"description": "主角"}, "李四": {"description": ""}},
+            "scenes": {"村口": {"description": "黄昏的村口"}},
+            "props": {},
+            "products": {"保温杯": {"description": "不锈钢保温杯", "reference_images": [], "selling_points": []}},
+            "style": "anime",
+            "style_description": "soft pastel",
+        }
+        self.project_load_threads: list[int] = []
+        self.script_payload: dict[str, Any] = {
+            "content_mode": "narration",
+            "episode": 1,
+            "segments": [
+                {
+                    "segment_id": "E1S01",
+                    "image_prompt": "村口黄昏",
+                    "novel_text": "黄昏时分，风吹过村口。",
+                    "video_prompt": {"action": "镜头平移", "camera_motion": "Pan", "ambiance_audio": "风声"},
+                    "duration_seconds": 4,
+                    "generated_assets": {"storyboard_image": "storyboards/scene_E1S01.png"},
+                },
+            ],
+        }
+
+    def get_project_path(self, _name: str) -> Path:
+        return self._project_dir
+
+    def mirror_to_disk(self, script_filename: str | None = None) -> None:
+        """把内存态落盘并重建产物清单：清单是读取已生成产物的唯一口径。
+
+        ``load_script`` 每次读取都会先调用本方法；``load_project`` 与生产一样只读不写，只经它
+        读项目、随后又从盘上读产物的工具，由用例在调用前显式调用本方法。
+
+        清单按当下的项目与剧本重新激活（生产的补录路径），随后补回那些夹具不重建来源凭据的
+        产物声明。用例故意构造的畸形条目激活不了，留空清单即可——工具侧本来就该按「产物不
+        可用」逐条拒收。
+        """
+
+        (self._project_dir / "project.json").write_text(
+            json.dumps(self.project_payload, ensure_ascii=False), encoding="utf-8"
+        )
+        filename = script_filename or self._canonical_script_filename()
+        if filename is not None:
+            scripts_dir = self._project_dir / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            (scripts_dir / Path(filename).name).write_text(
+                json.dumps(self.script_payload, ensure_ascii=False), encoding="utf-8"
+            )
+        from lib.artifacts.artifact_activation import activate_artifact_target_state
+
+        # 用例故意构造的畸形项目/剧本激活不了；此处吞掉异常让清单留空，
+        # 被测工具随后按「产物不可用」逐条拒收，这正是这些用例要断言的路径。
+        with contextlib.suppress(Exception):
+            activate_artifact_target_state(self._project_dir, bump_schema=False)
+        self._register_claims(filename)
+
+    def _canonical_script_filename(self) -> str | None:
+        episode = self.script_payload.get("episode")
+        return f"episode_{episode}.json" if isinstance(episode, bool) is False and isinstance(episode, int) else None
+
+    def _script_episode(self, script_filename: str | None) -> int | None:
+        """剧本身份取自身字段，缺字段时按规范文件名兜底——与生产的解析口径一致。"""
+
+        episode = self.script_payload.get("episode")
+        if isinstance(episode, int) and not isinstance(episode, bool) and episode >= 1:
+            return episode
+        match = re.fullmatch(r"episode_(\d+)\.json", Path(script_filename).name) if script_filename else None
+        return int(match.group(1)) if match else None
+
+    def _register_claims(self, script_filename: str | None = None) -> None:
+        """把剧本已登记的产物补进清单：生产里它们在产出那一刻就登记过。
+
+        激活能从来源凭据重建的条目以激活结果为准，这里只兜住夹具不重建凭据的那些
+        （付费媒体的版本记录、缺 image_prompt 的历史分镜）。
+        """
+
+        from lib.artifacts.artifact_manifest import (
+            ArtifactKey,
+            ArtifactManifest,
+            ArtifactManifestEntry,
+            ProjectArtifactManifestAdapter,
+        )
+
+        adapter = ProjectArtifactManifestAdapter(self._project_dir)
+        manifest = ArtifactManifest(adapter)
+        recorded: dict[Any, str] = {}
+        episode = self._script_episode(script_filename)
+        if episode is not None:
+            items = next(
+                (
+                    self.script_payload[field]
+                    for field in ("segments", "scenes", "video_units")
+                    if field in self.script_payload
+                ),
+                [],
+            )
+            for item in items if isinstance(items, list) else []:
+                if not isinstance(item, dict) or item.get("needs_replan") is True:
+                    continue
+                resource_id = next(
+                    (
+                        str(item[field])
+                        for field in ("segment_id", "scene_id", "unit_id")
+                        if isinstance(item.get(field), str) and item.get(field)
+                    ),
+                    "",
+                )
+                assets = item.get("generated_assets")
+                if not resource_id or not isinstance(assets, dict):
+                    continue
+                for field, key_factory in (
+                    ("storyboard_image", ArtifactKey.episode_storyboard),
+                    ("narration_audio", ArtifactKey.episode_audio),
+                    ("video_clip", ArtifactKey.episode_video),
+                ):
+                    artifact_path = assets.get(field)
+                    if not isinstance(artifact_path, str) or not artifact_path:
+                        continue
+                    absolute = (self._project_dir / artifact_path).resolve()
+                    if not absolute.is_file() or not absolute.is_relative_to(self._project_dir.resolve()):
+                        continue
+                    recorded[key_factory(episode, resource_id)] = artifact_path
+        known = set(adapter.snapshot_entries())
+        for key, artifact_path in recorded.items():
+            if key in known:
+                continue
+            manifest.register_entry_transactionally(
+                key,
+                ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=_CLAIMED_BASIS_DIGEST),
+            )
+
+    def load_project(self, _name: str) -> dict[str, Any]:
+        self.project_load_threads.append(threading.get_ident())
+        return self.project_payload
+
+    def load_script(self, _name: str, filename: str) -> dict[str, Any]:
+        self.mirror_to_disk(filename)
+        return self.script_payload
+
+    def load_script_readonly(self, _name: str, _filename: str) -> dict[str, Any]:
+        return self.script_payload
+
+    def project_exists(self, _name: str) -> bool:
+        return True
 
 
 @pytest.fixture

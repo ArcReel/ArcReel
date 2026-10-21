@@ -936,3 +936,14 @@ def test_shared_symbol_used_by_fewer_than_two_files_is_reported(tmp_path: Path) 
     assert [(v.path, v.line) for v in violations] == [("tests/fakes.py", 5), ("tests/fakes.py", 9)]
     assert "`used_once` 只被 1 个测试文件使用" in violations[0].guidance
     assert "`Unused` 只被 0 个测试文件使用" in violations[1].guidance
+
+
+def test_shared_symbol_usage_covers_auth_deps_and_support_modules_but_not_test_files(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "auth_deps.py").write_text("def only_here():\n    return 1\n", encoding="utf-8")
+    (tests / "topic_support.py").write_text("def only_here():\n    return 1\n", encoding="utf-8")
+    (tests / "test_topic_support.py").write_text("def helper():\n    return 1\n", encoding="utf-8")
+
+    violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "SHARED-SYMBOL-USAGE"]
+
+    assert [v.path for v in violations] == ["tests/auth_deps.py", "tests/topic_support.py"]

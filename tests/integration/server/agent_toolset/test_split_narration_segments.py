@@ -11,10 +11,10 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
     nr_generator_returning,
-    nr_project,
     nr_segment,
     nr_source,
     run_declared_tool,
+    rv_project,
     said,
 )
 
@@ -82,7 +82,7 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
     """happy path：结构化分镜 script_plan 落盘；模型经文本管道按 SCRIPT 任务解析并携带 project_name 入账。"""
     from server import text_generation as mod
 
-    nr_project(fake_ctx)
+    rv_project(fake_ctx, generation_mode="storyboard")
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text("张三走向村口。他停下脚步，久久凝望。", encoding="utf-8")
@@ -283,7 +283,7 @@ async def test_split_narration_segments_accepts_asset_name_in_other_unicode_form
 async def _nr_source_and_call(fake_ctx: ToolHarness, monkeypatch, source_text: str, segments: list[dict]):
     from server import text_generation as mod
 
-    nr_project(fake_ctx)
+    rv_project(fake_ctx, generation_mode="storyboard")
     src = fake_ctx.project_path / "source"
     src.mkdir(parents=True)
     (src / "episode_1.txt").write_text(source_text, encoding="utf-8")
@@ -429,6 +429,6 @@ async def test_split_narration_segments_rejects_dropped_space_after_punctuation(
 
 
 async def test_split_narration_segments_no_source(fake_ctx: ToolHarness) -> None:
-    nr_project(fake_ctx)
+    rv_project(fake_ctx, generation_mode="storyboard")
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is not None

@@ -25,7 +25,6 @@ from tests.integration.server.agent_tool_support import (
     activate_unbound_project,
     fake_caps_resolver,
     fake_reference_projection,
-    fake_scene_batch,
     read_generation_result,
     reference_video_script,
     run_declared_tool,
@@ -38,6 +37,22 @@ from tests.integration.server.agent_tool_support import (
 def storyboard_request_facts(set_admission_video_request_facts) -> None:
     facts = make_video_request_facts(provider_id="fake", model_id="fake-video", audio_switch_controllable=True)
     set_admission_video_request_facts(facts)
+
+
+async def fake_scene_batch(*, project_name, specs, on_success=None, on_failure=None, **_batch_kwargs):
+    """Stand in for the queue: every scene spec lands its canonical mp4."""
+
+    from lib.generation.generation_queue_client import BatchTaskResult
+
+    return [
+        BatchTaskResult(
+            resource_id=spec.resource_id,
+            task_id="t1",
+            status="succeeded",
+            result={"file_path": f"videos/scene_{spec.resource_id}.mp4"},
+        )
+        for spec in specs
+    ], []
 
 
 _EPISODE_1: dict[str, Any] = {"scope": "episode", "episode_id": 1}

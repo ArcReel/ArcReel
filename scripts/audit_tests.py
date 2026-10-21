@@ -1414,7 +1414,8 @@ def scan_patch_spread(patches: Sequence[PatchSite]) -> list[StructureFinding]:
     return findings
 
 
-SHARED_SYMBOL_MODULES = ("tests/fakes.py", "tests/factories.py")
+SHARED_SYMBOL_MODULES = ("tests/fakes.py", "tests/factories.py", "tests/auth_deps.py")
+SHARED_SYMBOL_SUPPORT_SUFFIX = "_support.py"
 SHARED_SYMBOL_MIN_USERS = 2
 
 
@@ -1439,13 +1440,20 @@ def shared_symbol_users(tree: ast.Module, module: str) -> set[str]:
 
 
 def scan_shared_symbol_usage(root: Path, parsed: Sequence[tuple[Path, ast.Module]]) -> list[StructureFinding]:
-    """`tests/fakes.py` 与 `tests/factories.py` 的公开顶层符号须被 ≥2 个其他测试文件使用。
+    """`tests/fakes.py`、`tests/factories.py`、`tests/auth_deps.py` 与 `tests/**/*_support.py`（非 `test_` 开头）的公开顶层符号须被 ≥2 个其他测试文件使用。
 
     只被一个文件用的移回该文件，模块内部自用的改下划线名，无人使用的删除。
     """
     trees = {path.relative_to(root).as_posix(): tree for path, tree in parsed}
     findings: list[StructureFinding] = []
-    for rel in SHARED_SYMBOL_MODULES:
+    support = [
+        rel
+        for rel in trees
+        if rel.startswith("tests/")
+        and rel.endswith(SHARED_SYMBOL_SUPPORT_SUFFIX)
+        and not Path(rel).name.startswith("test_")
+    ]
+    for rel in (*SHARED_SYMBOL_MODULES, *sorted(support)):
         tree = trees.get(rel)
         if tree is None:
             continue

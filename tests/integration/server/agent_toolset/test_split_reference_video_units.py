@@ -18,13 +18,27 @@ from tests.integration.server.agent_tool_support import (
     read_rv_quarantine,
     run_declared_tool,
     run_rv_split,
-    rv_character_sheet,
     rv_generator_returning,
     rv_script_plan_path,
     rv_source,
     rv_unit,
     said,
 )
+
+
+def rv_character_sheet(fake_ctx: ToolHarness, name: str, *, claimed: bool) -> None:
+    """给已登记角色落一张资产图；``claimed`` 时经产物激活让清单认领它，单元据此才按 r2v 定桶。"""
+    from lib.artifacts.artifact_activation import activate_artifact_target_state
+
+    sheet = fake_ctx.project_path / "characters" / f"{name}.png"
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    sheet.write_bytes(b"png")
+    fake_ctx.pm.project_payload["characters"][name]["character_sheet"] = f"characters/{name}.png"
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False), encoding="utf-8"
+    )
+    if claimed:
+        activate_artifact_target_state(fake_ctx.project_path, bump_schema=False)
 
 
 def _reference_facts(generation_type: str, **overrides: Any):

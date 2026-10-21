@@ -115,7 +115,7 @@ class _FakeLedgerCall:
         self.result = result
 
 
-class FakeLedger:
+class _FakeLedger:
     """记账括号替身：语义与真账本一致，但不落库。
 
     取消穿透、异常记 failed 后重抛、正常退出未声明成功即报错——生成路径依赖这三条，
@@ -156,7 +156,7 @@ def build_generator(project_path: Path, backend: Any, *, provider_id: str = "das
         image_provider_id=provider_id,
         config_resolver=FakeConfigResolver(),
     )
-    generator.ledger = FakeLedger()
+    generator.ledger = _FakeLedger()
     return generator
 
 
