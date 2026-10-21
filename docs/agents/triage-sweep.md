@@ -15,6 +15,8 @@
 
 `needs-triage` 是维护者的待决队列：巡检把对象转交进去，由维护者换标签做出决定。
 
+同时带有多个状态标签的对象只列入巡检摘要，由维护者处理冲突。
+
 完成标准：对象清单已列出，每个对象标明属于哪一类。
 
 ## 2. 外部 PR 的前置检查
@@ -26,7 +28,7 @@
 
 ## 3. 检查
 
-按 skill「Triage a specific issue or PR」第 1 步与第 3 步收集上下文：读完整正文与评论，查是否已有实现，对照 `.out-of-scope/`，复现 bug 或验证 PR 的 diff。复现不了时，在记录中写明原因。外部 PR 另用 `code-review` skill 审查 diff。
+按 skill「Triage a specific issue or PR」第 1 步与第 3 步收集上下文：读完整正文与评论，查是否已有实现，对照 `.out-of-scope/`，复现 bug 或验证 PR 的 diff。复现不了时，在记录中写明原因。外部 PR 另用 `code-review` skill 审查 diff：固定点取 PR 的 base 分支，spec 取关联 issue，没有关联 issue 时以 PR 正文作为 spec。
 
 ## 4. 分流
 
@@ -35,9 +37,9 @@
 | 情况 | 处理 |
 | --- | --- |
 | 请求的行为已经实现 | 评论指出实现位置，打 `wontfix` 并关闭 |
+| `needs-info` 超过 14 天，提问者或作者没有回复或提交 | 评论说明补充信息后可以重开，然后关闭 |
 | 信息不足，或按提供的步骤复现不了 | 按 skill 的 needs-info 模板发 Triage Notes，打 `needs-info` |
 | `needs-info` 期间提问者或作者有了新回复或提交 | 回到第 3 步重新检查 |
-| `needs-info` 超过 14 天，提问者或作者没有回复或提交 | 评论说明补充信息后可以重开，然后关闭 |
 | 外部 PR 满足「可直接合并」的全部条件 | 打 `ready-for-human` 与 `merge-ready`，评论写明「建议合并」及依据 |
 | 其他 | 转交维护者 |
 
@@ -50,7 +52,7 @@
 - 只改 Markdown 文档，或是增删合计不超过 50 行的 bug 修复。
 - `license/cla`、`ci-required`、`codeql-required` 均为 success。
 - `code-review` 与验证均未发现需要修改的问题。
-- 改动不涉及敏感路径：定价与计费（`lib/config/`、`lib/billing/`）、模型目录与预设（`lib/catalog/`）、界面文案（`lib/i18n/`、`frontend/src/i18n/`）、提示词（`lib/prompts/`、`agent_runtime_profile/`）、数据库与项目迁移（`alembic/`、`lib/project/project_migrations/`）、CI（`.github/`）、依赖清单与锁文件。
+- 改动不涉及敏感路径：定价与计费（`lib/config/`、`lib/billing/`）、模型目录与预设（`lib/catalog/`、`packages/arcreel-catalog-core/`）、界面文案（`lib/i18n/`、`frontend/src/i18n/`）、提示词（`lib/prompts/`、`agent_runtime_profile/`）、数据库与项目迁移（`alembic/`、`lib/project/project_migrations/`）、CI（`.github/`）、依赖清单与锁文件。
 - 主要目的不是推广商业服务（见 `CONTRIBUTING.md`）。
 
 `merge-ready` 表示巡检已审查并验证通过，合并由维护者执行。PR 出现新提交或必需检查失败时，摘掉 `merge-ready`，回到第 3 步。
@@ -83,4 +85,4 @@
 
 完成标准：第 1 步清单中的每个对象，都已处于本文某一条规则规定的状态。
 
-结束时用中文输出摘要：自主处理的对象与动作、新转交到 `needs-triage` 的对象、执行的维护者决定、接手中的外部 PR 进度，以及建议补录到 `.out-of-scope/` 的拒绝理由。
+结束时用中文输出摘要：自主处理的对象与动作、状态标签冲突的对象、新转交到 `needs-triage` 的对象、执行的维护者决定、接手中的外部 PR 进度，以及建议补录到 `.out-of-scope/` 的拒绝理由。
