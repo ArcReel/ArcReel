@@ -398,8 +398,9 @@ The same upgrade moves the source type of drama projects (novel or screenplay) f
 One class of migration first copies the whole project next to its directory, rewrites the copy, and then swaps the directories. What that means for disk space and recovery:
 
 - Free space is checked before the migration starts. If it cannot hold the copy, that project fails with a "disk space is insufficient" error and its directory is left untouched; free up space and restart to continue.
-- If the process is killed during the swap (power loss, `kill -9`, an OOM-killed container), the project directory can be missing for a moment and a hidden directory starting with `.<project-name>.v6-` is left alongside it. The next startup reclaims it and brings the project back, so do not delete these directories by hand, and do not rush to recreate a project that disappeared from the list.
-- Once the project is back in place, those hidden directories are cleaned up automatically under the same retention window as the backups above.
+- If the process is killed during the swap (power loss, `kill -9`, an OOM-killed container), the project directory can be missing, the project disappears from the list, and hidden directories starting with `.<project-name>.v6-` are left alongside it. ArcReel does not recover from this automatically. These hidden directories hold project data: do not delete them by hand, and do not rush to recreate a project with the same name.
+- To recover by hand, stop the service, rename the directory starting with `.<project-name>.v6-rollback-` to `<project-name>` (if there are several, take the most recently modified one), and start the service again. That directory is the original project from before the migration, and the migration runs again on startup.
+- While the project directory is in place, those hidden directories are cleaned up automatically under the same retention window as the backups above; they are never cleaned up while the project directory is missing.
 
 If a project migration fails, preserve the files and inspect the startup logs. Do not manually change the schema version or delete backup files or kept copies. Repair the damaged project files or permissions, then restart the service.
 
