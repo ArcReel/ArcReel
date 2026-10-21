@@ -3,7 +3,7 @@ import { translate } from "@docusaurus/Translate";
 import { BECOME_SPONSOR_URL, getSponsors, type Sponsor } from "../../data/sponsors";
 import styles from "./styles.module.css";
 
-// 导航栏赞助位，形式参照 Ant Design 官网页头：头像一排，悬停或聚焦弹出赞助商卡片。
+// 导航栏赞助位：头像一排，悬停或聚焦弹出赞助商卡片。
 
 function useLabels() {
   return {
