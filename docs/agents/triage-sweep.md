@@ -23,7 +23,9 @@
 
 ## 2. 外部 PR 的前置检查
 
-审查外部 PR 前依次检查以下两项。未通过的 PR 停在这一步，打 `needs-info`：
+外部 PR 的请求明显命中 `.out-of-scope/` 条目时，评论引用该条目，打 `wontfix` 并关闭，不再做以下检查。
+
+其余外部 PR 在审查前依次检查以下两项。未通过的 PR 停在这一步，打 `needs-info`：
 
 1. **CLA**：`license/cla` 状态为 success。未通过时发一条签署提醒；同一 PR 只提醒一次。
 2. **先讨论方向**：新功能、新供应商、新端点，或增删合计超过 200 行的改动，需要有关联 issue。没有时，请作者先开 issue 讨论方向；只因增删行数超限时，也可以把 PR 拆小。
@@ -57,6 +59,7 @@
 - `license/cla`、`ci-required`、`codeql-required` 均为 success。
 - `code-review` 与验证均未发现需要修改的问题。
 - 改动不涉及敏感路径：定价与计费（`lib/config/`、`lib/billing/`）、模型目录与预设（`lib/catalog/`、`packages/arcreel-catalog-core/`）、界面文案（`lib/i18n/`、`frontend/src/i18n/`）、提示词（`lib/prompts/`、`agent_runtime_profile/`）、数据库与项目迁移（`alembic/`、`lib/project/project_migrations/`）、CI（`.github/`）、依赖清单与锁文件。
+- PR 不是草稿。
 - 主要目的不是推广商业服务（见 `CONTRIBUTING.md`）。
 
 `merge-ready` 表示巡检已审查并验证通过，合并由维护者执行。PR 出现新提交或必需检查失败时，摘掉 `merge-ready`，回到第 3 步。
@@ -83,7 +86,7 @@
 
 关闭理由取自维护者在该对象上的评论；没有评论时，沿用巡检此前建议中的理由，命中 `.out-of-scope/` 条目时引用该条目。新出现的拒绝理由列入巡检摘要，由维护者决定是否补录到 `.out-of-scope/`。
 
-**接手**：`ready-for-agent` 的外部 PR 在修改意见发出 7 天后，作者没有回复或提交时，由巡检接手。作者允许维护者编辑时，在原 PR 分支上追加提交；否则从最新 `main` 另开 PR，提交中保留 `Co-authored-by` 署名，在原 PR 评论链接新 PR 后关闭原 PR。补改完成后运行 `pr-ai-review-loop`，收敛后把 PR 改为 `ready-for-human`，再按「可直接合并」的条件判断是否打 `merge-ready`，敏感路径条件对接手的 PR 不适用。作者在 7 天内有回应时，由作者继续修改，巡检在作者更新后回到第 3 步。
+**接手**：`ready-for-agent` 的外部 PR，从修改意见发出或作者最后一次回复（取较晚者）起 7 天内没有新提交时，由巡检接手。作者允许维护者编辑时，在原 PR 分支上追加提交；否则从最新 `main` 另开 PR，提交中保留 `Co-authored-by` 署名，在原 PR 评论链接新 PR 后关闭原 PR。补改完成后运行 `pr-ai-review-loop`，收敛后把 PR 改为 `ready-for-human`，再按「可直接合并」的条件判断是否打 `merge-ready`，敏感路径条件对接手的 PR 不适用。作者在期限内推送新提交时，由作者继续修改，巡检回到第 3 步。
 
 ## 6. 巡检摘要
 
