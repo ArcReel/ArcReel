@@ -481,6 +481,15 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.warning("official market source seed failed (non-fatal): %s", exc)
 
+    # 官方同步取回的目录数据装入目录查询；读不到时暂用出厂快照，等下一轮同步
+    try:
+        from lib.catalog.official_sync import load_synced_data
+
+        async with async_session_factory() as session:
+            await load_synced_data(session)
+    except Exception:
+        logger.exception("loading synced catalog data failed (non-fatal)")
+
     # 用户修改的模型条目副本并进目录查询；读不到时这些条目暂按官方数据，其余照常
     try:
         from lib.catalog.user_entries import reload_user_entries
@@ -530,10 +539,15 @@ async def lifespan(app: FastAPI):
 
     # 卡顿探针放在启动步骤之后：迁移等启动期同步工作不算线上卡顿，避免误报。
     stall_probe = start_loop_stall_probe()
+    # 模型目录的官方同步：启动时检查一次，之后每天一次；随应用关停取消
+    from lib.catalog.official_sync import start_official_sync, stop_official_sync
+
+    catalog_sync = start_official_sync(async_session_factory)
     try:
         async with remote_mcp_host.run():
             yield
     finally:
+        await stop_official_sync(catalog_sync)
         # 运行期异常或关停被取消时同样撤销延时转储，免得收尾阶段误写调用栈。
         await stop_loop_stall_probe(stall_probe)
 
