@@ -13,8 +13,9 @@ import { plugin as shadcn } from "@shadcn/lint";
 
 const TEST_FILES = ["src/**/*.test.{ts,tsx}"];
 
-// 入队类 API 方法清单：新增入队方法时在数组里加一行（按字母序）。
-const ENQUEUE_METHODS = [
+// 入队类 API 方法清单（按字母序）。新增入队方法时在 api.ts 的方法上加 JSDoc @enqueue，并在此加一行；
+// api.enqueue-methods.test.ts 校验两边集合一致，漏登记会让该测试失败。
+export const ENQUEUE_METHODS = [
   "authorPrompts",
   "continueEpisodeReplan",
   "editImage",
@@ -362,8 +363,8 @@ export default tseslint.config(
 
   // API 直调约束。两条纪律：
   // - 入队类 API 方法只能经 src/actions/ 的入队动作层调用——乐观占用打标、去重提示与返回值
-  //   归一化由动作层统一封装，组件直调会绕过这些副作用。新增入队类 API 方法时同步把方法名
-  //   登记进 RESTRICT_ENQUEUE 的清单。
+  //   归一化由动作层统一封装，组件直调会绕过这些副作用。新增入队类 API 方法时在 api.ts 加
+  //   @enqueue 标记并登记进 ENQUEUE_METHODS（由 api.enqueue-methods.test.ts 校验一致）。
   // - 模型能力只能经 src/hooks/useModelCapabilities 消费——各能力维度的真相源、失效时机与
   //   「未知不谎报不支持」的降级规则都收在那里，组件直调会让目录侧与服务端侧重新分叉。
   // - 测试不得整模块 mock `@/api`（含其 `@/api/*` 子模块）与 `react-i18next`，该条对全部文件生效、无豁免。

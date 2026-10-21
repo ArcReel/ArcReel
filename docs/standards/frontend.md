@@ -19,10 +19,6 @@ paths:
 
 确认框打开后占用发生变化时，一键破坏性确认（删除、合并、改名的确认按钮）实时禁用；输入表单保持可编辑，由提交时的复核说明原因。
 
-### 新增入队类 API 方法时，把方法名登记进 `frontend/eslint.config.js` 的 `RESTRICT_ENQUEUE`
-
-生成类入队统一经 `frontend/src/actions/` 的动作函数，由它们封装 API 调用、乐观标记占用与去重提示；组件直接调用入队类 API 会漏掉占用标记，用户可以对同一资源重复入队。ESLint 的 `no-restricted-syntax` 只按 `RESTRICT_ENQUEUE` 中登记的方法名拦截直接调用，未登记的新方法不受拦截。
-
 ## 首次使用引导
 
 ### 改动带 `data-onboarding` 的元素，引导链路随之核对
