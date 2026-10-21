@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import AsyncGenerator, Iterable
@@ -213,3 +214,18 @@ async def test_fetch_goes_through_the_market_github_proxy_prefix(db_factory, htt
         await official_sync.sync_once(db_factory, lambda: http_client)
     request = only_request(route)
     assert not any(name.lower().startswith("x-arcreel") for name in request.headers)
+
+
+async def test_unexpected_failure_still_shows_in_sync_status() -> None:
+    def broken_session_factory() -> AsyncSession:
+        raise RuntimeError("database is locked")
+
+    task = official_sync.start_official_sync(broken_session_factory)
+    try:
+        for _ in range(10):
+            await asyncio.sleep(0)
+            if official_sync.sync_status().last_error:
+                break
+    finally:
+        await official_sync.stop_official_sync(task)
+    assert official_sync.sync_status().last_error == "database is locked"

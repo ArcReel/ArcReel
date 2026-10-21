@@ -15,7 +15,7 @@ import contextlib
 import json
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
 import httpx
@@ -48,7 +48,7 @@ CATALOG_URL = f"{_REPO_RAW}/{CATALOG_FILENAME}"
 
 SYNC_INTERVAL_SECONDS = 24 * 60 * 60
 _MANIFEST_MAX_BYTES = 64 * 1024
-#: 数据文件目前约 340 KB，留出十倍以上余量。
+#: 远高于数据文件的实际体积，给数据增长留足余量；发版工作流抓取出厂快照用同一上限。
 _CATALOG_MAX_BYTES = 8 * 1024 * 1024
 _FETCH_DEADLINE_SECONDS = 60.0
 _ERROR_MAX_CHARS = 1000
@@ -169,8 +169,10 @@ async def _sync_loop(session_factory: async_sessionmaker[AsyncSession]) -> None:
     while True:
         try:
             await sync_once(session_factory)
-        except Exception:
+        except Exception as exc:
             logger.warning("官方同步异常，等下一轮", exc_info=True)
+            # 只更新进程内状态：异常可能就出在数据库上。诊断信息照样能看到这次失败
+            _status[0] = replace(_status[0], last_error=(str(exc) or type(exc).__name__)[:_ERROR_MAX_CHARS])
         await asyncio.sleep(SYNC_INTERVAL_SECONDS)
 
 

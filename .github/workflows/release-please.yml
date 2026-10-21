@@ -79,12 +79,12 @@ jobs:
         run: |
           snapshot=lib/catalog/snapshot
           fetched="$(mktemp -d)"
-          # 仅 https（含重定向）、限体积与耗时；当前数据约 340 KB，上限留足增长空间
+          # 仅 https（含重定向）、限体积与耗时；体积上限与实例官方同步（lib/catalog/official_sync.py）一致
           fetch() { # $1 文件名 $2 体积上限（字节）
             curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
               --max-filesize "$2" --max-time 30 --retry 2 -o "$fetched/$1" "$CATALOG_BASE_URL/$1"
           }
-          if ! fetch manifest.json 16384 || ! fetch catalog.json 5242880; then
+          if ! fetch manifest.json 65536 || ! fetch catalog.json 8388608; then
             echo "::warning title=目录快照未更新::抓取目录数据失败，出厂快照保持不变"
             exit 0
           fi
