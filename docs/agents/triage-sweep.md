@@ -26,13 +26,15 @@
 1. **CLA**：`license/cla` 状态为 success。未通过时发一条签署提醒；同一 PR 只提醒一次。
 2. **先讨论方向**：新功能、新供应商、新端点，或增删合计超过 200 行的改动，需要有关联 issue。没有时，请作者先开 issue 讨论方向，或把 PR 拆小。
 
+曾因前置检查打上 `needs-info` 的 PR 通过两项检查后，摘掉 `needs-info`，继续第 3 步。
+
 ## 3. 检查
 
-按 skill「Triage a specific issue or PR」第 1 步与第 3 步收集上下文：读完整正文与评论，查是否已有实现，对照 `.out-of-scope/`，复现 bug 或验证 PR 的 diff。复现不了时，在记录中写明原因。外部 PR 另用 `code-review` skill 审查 diff：固定点取 PR 的 base 分支，spec 取关联 issue，没有关联 issue 时以 PR 正文作为 spec。
+按 skill「Triage a specific issue or PR」第 1 步与第 3 步收集上下文：读完整正文与评论，查是否已有实现，对照 `.out-of-scope/`，复现 bug 或验证 PR 的 diff。外部 PR 的代码只在不含巡检凭证的隔离环境中运行；没有这样的环境时，以 PR 的 CI 结果作为验证依据。复现不了时，在记录中写明原因。外部 PR 另用 `code-review` skill 审查 diff：固定点取 PR 的 base 分支，spec 取关联 issue，没有关联 issue 时以 PR 正文作为 spec。
 
 ## 4. 分流
 
-每个对象按下表取第一条匹配的结果。
+第 1 步中维护者已换上状态标签的对象，直接按第 5 步执行。其余对象按下表取第一条匹配的结果。
 
 | 情况 | 处理 |
 | --- | --- |
