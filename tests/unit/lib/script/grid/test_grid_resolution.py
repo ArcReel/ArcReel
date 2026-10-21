@@ -5,8 +5,8 @@ from typing import Any, cast
 import pytest
 
 from lib.config.resolver import ConfigResolver
-from lib.script.grid.grid_resolution import resolve_image_resolution
-from lib.script.grid.layout import large_grid_allowed
+from lib.script.grid.grid_resolution import grid_image_size, resolve_image_resolution
+from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed
 
 
 class _FakeResolver:
@@ -54,3 +54,20 @@ async def test_resolution_failure_blocks_large_grid():
     resolved = await resolve_image_resolution(_as_resolver(resolver), {})
     assert resolved is None
     assert large_grid_allowed(resolved) is False
+
+
+@pytest.mark.parametrize(
+    ("provider_id", "model_id", "expected"),
+    [
+        ("vidu", "viduq1", None),  # 目录只声明 1080p：不发保底档，交上游默认
+        ("vidu", "viduq2", GRID_FALLBACK_RESOLUTION),  # 目录含保底档
+        ("ark", "doubao-seedream-4-5", GRID_FALLBACK_RESOLUTION),  # 目录未声明档位
+        ("custom-1", "any-model", GRID_FALLBACK_RESOLUTION),  # 不在目录中
+    ],
+)
+def test_unset_grid_size_follows_catalog(provider_id: str, model_id: str, expected: str | None):
+    assert grid_image_size(None, provider_id, model_id) == expected
+
+
+def test_configured_grid_size_is_sent_as_is():
+    assert grid_image_size("4K", "vidu", "viduq1") == "4K"

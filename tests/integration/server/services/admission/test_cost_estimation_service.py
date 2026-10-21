@@ -1143,6 +1143,30 @@ class TestCostEstimationService:
             await _estimated_image_total(GRID_FALLBACK_RESOLUTION)
         )
 
+    async def test_grid_estimate_without_fallback_tier_in_catalog_is_priced(self, db_factory, monkeypatch):
+        """目录不含保底档的型号（viduq1 只声明 1080p），未配置分辨率时宫格不下发档位，按价目表默认档计价。"""
+        from server.services.admission import cost_estimation as ce
+
+        async def _unset(_r, _project):
+            return None
+
+        monkeypatch.setattr(ce, "resolve_image_resolution", _unset)
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "image_provider_t2i": "vidu/viduq1",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, [f"E1S{i:03d}" for i in range(1, 10)], [6] * 9)}
+
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        result = await service.compute(project_data, scripts, project_name="proj")
+
+        segments = result["episodes"][0]["segments"]
+        assert sum(seg["estimate"]["image"].get("CNY", 0) for seg in segments) == pytest.approx(0.625, rel=1e-4)
+
     async def test_plain_storyboard_estimate_prices_at_resolved_resolution(self, db_factory, monkeypatch):
         """普通（非宫格）分镜图同样按执行期生效的分辨率档计价；未配置时不下发分辨率，按价目表的默认档计。"""
         from server.services.admission import cost_estimation as ce

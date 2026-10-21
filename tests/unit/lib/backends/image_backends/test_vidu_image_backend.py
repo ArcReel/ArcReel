@@ -65,7 +65,7 @@ class TestWhitelistConfig:
 
 
 class TestEstimateUsage:
-    """预估的分辨率维度与请求同源：请求带什么档位就报什么，不另判白名单。"""
+    """预估的分辨率维度与请求同源：请求带什么档位就报什么。"""
 
     def test_requested_resolution_is_reported(self):
         from lib.backends.image_backends.base import ImageRequestFacts
