@@ -87,7 +87,7 @@ describe("EndpointsSection", () => {
 
     // 原始 workflow 没有 kind，送去校验的是它本身；回来的包装结果接手成为待保存的定义。
     expect(await screen.findByText(/已包装成 ComfyUI 端点定义/)).toBeInTheDocument();
-    // 编辑区对默认定义的防抖校验可能先占掉第一次调用，故不取 calls[0]，只确认原始 workflow 曾被送检。
+    // 编辑区对默认定义的防抖校验可能先于它发生，调用次序不定，只确认原始 workflow 曾被送检。
     expect(validate.mock.calls.map(([definition]) => definition)).toContainEqual(workflow);
     expect(screen.getByText(/workflow_api\.json · ComfyUI workflow · v1\.0\.0/)).toBeInTheDocument();
   });
