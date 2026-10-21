@@ -9,7 +9,7 @@ export interface Sponsor {
   description: string;
 }
 
-// 图形取自 https://apimart.ai/supplier/apimart.svg，viewBox 收紧并留出圆形头像的内边距。
+// viewBox 比图形外框大一圈，在圆形头像里留出内边距。
 function ApimartLogo(props: SVGProps<SVGSVGElement>) {
   return (
     <svg viewBox="280 271 1500 1500" fill="currentColor" aria-hidden="true" {...props}>
