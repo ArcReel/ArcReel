@@ -162,7 +162,7 @@ def test_user_added_model_matches_entry_by_name(models_client: TestClient) -> No
 
     assert resp.status_code == 201
     model = resp.json()["model"]
-    assert (model["media_type"], model["display_name"], model["flags"]) == ("text", "Gemini 3 Flash", [])
+    assert (model["media_type"], model["display_name"], model["flags"]) == ("text", _flash_name(), [])
     assert model["price"]["currency"] == "USD"
 
 
@@ -209,7 +209,7 @@ async def test_custom_provider_list_and_disable_clears_default(
     models = _models(models_client, provider_id)
     matched = models["anthropic/gemini-3-flash-preview"]
     assert (matched["display_name"], matched["is_default"], matched["endpoint"], matched["flags"]) == (
-        "Gemini 3 Flash",
+        _flash_name(),
         True,
         "openai-chat",
         [],
@@ -446,6 +446,17 @@ _FLASH = {"maker": "google", "name": "gemini-3-flash-preview", "media_type": "te
 _FLASH_URL = "/api/v1/providers/gemini-aistudio/models/gemini-3-flash-preview"
 
 
+def _flash():
+    """官方数据里的 Gemini 3 Flash 条目。期望值从它读，出厂快照随目录数据更新时测试不必改。"""
+    entry = catalog.get_entry(EntryKey("google", "gemini-3-flash-preview", "text"))
+    assert entry is not None
+    return entry
+
+
+def _flash_name() -> str:
+    return _flash().display_name
+
+
 async def _share_flash(db_factory: async_sessionmaker[AsyncSession]) -> str:
     """让 Vertex AI（配好密钥）与一个中转站也使用 Gemini 3 Flash 的条目，返回中转站的供应商 ID。"""
     async with db_factory() as session:
@@ -469,9 +480,10 @@ async def test_modify_official_entry_then_restore_official_data(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     relay = await _share_flash(db_factory)
+    official = _flash()  # 修改之后目录查询读到的是修改层，先取官方值
 
     entry = models_client.get(_FLASH_URL).json()["entry"]
-    assert (entry["source"], entry["official"], entry["display_name"]) == ("official", None, "Gemini 3 Flash")
+    assert (entry["source"], entry["official"], entry["display_name"]) == ("official", None, official.display_name)
     assert entry["shared_with"] == [
         {"provider_id": "gemini-vertex", "display_name": "Vertex AI"},
         {"provider_id": relay, "display_name": "中转站"},
@@ -493,8 +505,12 @@ async def test_modify_official_entry_then_restore_official_data(
     assert body["entry"]["source"] == "modified"
     assert body["entry"]["facts"]["max_output_tokens"] == 1000
     assert body["entry"]["official"] == {
-        "display_name": "Gemini 3 Flash",
-        "facts": {"image_input": True, "structured_output": True, "max_output_tokens": 65536},
+        "display_name": official.display_name,
+        "facts": {
+            "image_input": official.facts.image_input,
+            "structured_output": official.facts.structured_output,
+            "max_output_tokens": official.facts.max_output_tokens,
+        },
         "price": entry["price"],
     }
     # 停止跟随官方：共用这个条目的供应商一起变化，运行时读到的也是修改后的信息
@@ -512,14 +528,14 @@ async def test_modify_official_entry_then_restore_official_data(
     entry = models_client.get(_FLASH_URL).json()["entry"]
     assert (entry["source"], entry["display_name"], entry["facts"]["max_output_tokens"]) == (
         "official",
-        "Gemini 3 Flash",
-        65536,
+        official.display_name,
+        official.facts.max_output_tokens,
     )
     vertex = _models(models_client, "gemini-vertex")["gemini-3-flash-preview"]
-    assert (vertex["display_name"], "modified" in vertex["flags"]) == ("Gemini 3 Flash", False)
+    assert (vertex["display_name"], "modified" in vertex["flags"]) == (official.display_name, False)
     runtime = catalog.get_model("gemini-vertex", "gemini-3-flash-preview")
     assert runtime is not None
-    assert runtime.max_output_tokens == 65536
+    assert runtime.max_output_tokens == official.facts.max_output_tokens
 
 
 def test_entry_change_is_saved_atomically_with_provider_settings(models_client: TestClient) -> None:
@@ -528,7 +544,7 @@ def test_entry_change_is_saved_atomically_with_provider_settings(models_client: 
 
     assert resp.status_code == 422
     entry = models_client.get(_FLASH_URL).json()["entry"]
-    assert (entry["source"], entry["display_name"]) == ("official", "Gemini 3 Flash")
+    assert (entry["source"], entry["display_name"]) == ("official", _flash_name())
 
 
 def test_entry_edit_is_validated_and_must_target_the_mapped_entry(models_client: TestClient) -> None:
@@ -540,7 +556,7 @@ def test_entry_edit_is_validated_and_must_target_the_mapped_entry(models_client:
     assert resp.status_code == 409
 
     # 与当前条目相同的修改不写副本，条目照旧跟随官方
-    resp = models_client.patch(_FLASH_URL, json={"entry": {**_FLASH, "display_name": "Gemini 3 Flash"}})
+    resp = models_client.patch(_FLASH_URL, json={"entry": {**_FLASH, "display_name": _flash_name()}})
     assert resp.status_code == 200
     assert resp.json()["entry"]["source"] == "official"
 

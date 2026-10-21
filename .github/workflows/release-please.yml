@@ -66,3 +66,39 @@ jobs:
             git commit -m "chore: sync uv.lock with pyproject.toml version"
             git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${PR_BRANCH}"
           fi
+
+      # 发版 PR 带上目录数据仓库的最新数据作为出厂快照。这一步只当数据读：不执行抓取来的
+      # 任何内容，校验器用的是本 release 分支上已有的代码。抓取失败或数据未通过校验时只给
+      # 出提示、不改快照，也不让发版 PR 流程失败；内容与现有快照一致时不提交。
+      - name: Refresh catalog snapshot
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          PUSH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_BRANCH: ${{ steps.release.outputs.pr && fromJson(steps.release.outputs.pr).headBranchName }}
+          CATALOG_BASE_URL: https://raw.githubusercontent.com/ArcReel/arcreel-catalog/main
+        run: |
+          snapshot=lib/catalog/snapshot
+          fetched="$(mktemp -d)"
+          # 仅 https（含重定向）、限体积与耗时；当前数据约 340 KB，上限留足增长空间
+          fetch() { # $1 文件名 $2 体积上限（字节）
+            curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
+              --max-filesize "$2" --max-time 30 --retry 2 -o "$fetched/$1" "$CATALOG_BASE_URL/$1"
+          }
+          if ! fetch manifest.json 16384 || ! fetch catalog.json 5242880; then
+            echo "::warning title=目录快照未更新::抓取目录数据失败，出厂快照保持不变"
+            exit 0
+          fi
+          if ! PYTHONPATH=packages/arcreel-catalog-core/src uv run --no-project python -P -m arcreel_catalog_core check "$fetched"; then
+            echo "::warning title=目录快照未更新::目录数据未通过校验器，出厂快照保持不变"
+            exit 0
+          fi
+          if cmp -s "$fetched/manifest.json" "$snapshot/manifest.json" && cmp -s "$fetched/catalog.json" "$snapshot/catalog.json"; then
+            echo "::notice title=目录快照::出厂快照已是最新"
+            exit 0
+          fi
+          cp "$fetched/manifest.json" "$fetched/catalog.json" "$snapshot/"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$snapshot"
+          git commit -m "chore(catalog): 更新出厂快照"
+          git push "https://x-access-token:${PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${PR_BRANCH}"
