@@ -71,7 +71,7 @@ async def test_fetch_reference_split_caps_returns_declared_slots(set_video_reque
         )
     )
 
-    caps = await mod._fetch_reference_split_caps({"default_duration": 16})
+    caps = await mod.fetch_reference_split_caps({"default_duration": 16})
 
     assert caps.durations == [1, 8, 16, 18]
     assert caps.reference_durations == [1, 8, 16, 18]
@@ -91,7 +91,7 @@ async def test_fetch_reference_split_caps_splits_tiers_by_bucket(set_video_reque
 
     _veo_720p_facts(set_video_request_facts)
 
-    caps = await mod._fetch_reference_split_caps({})
+    caps = await mod.fetch_reference_split_caps({})
     assert caps.reference_durations == [8]
     assert caps.text_durations == [4, 6, 8]
     assert caps.durations == [4, 6, 8]
@@ -109,7 +109,7 @@ async def test_fetch_reference_split_caps_narrows_unit_duration_cap(set_video_re
 
     set_video_request_facts(_reference_facts("r2v", supported_durations=(6, 10), allowed_durations=(6,)))
 
-    caps = await mod._fetch_reference_split_caps({})
+    caps = await mod.fetch_reference_split_caps({})
     assert caps.durations == [6]
     assert caps.max_duration == 6
 
@@ -120,8 +120,8 @@ async def test_fetch_reference_split_caps_drops_out_of_range_default(set_video_r
 
     set_video_request_facts(_reference_facts("r2v", supported_durations=(4, 6, 8), allowed_durations=(8,)))
 
-    assert (await mod._fetch_reference_split_caps({"default_duration": 4})).default_duration is None
-    assert (await mod._fetch_reference_split_caps({"default_duration": 8})).default_duration == 8
+    assert (await mod.fetch_reference_split_caps({"default_duration": 4})).default_duration is None
+    assert (await mod.fetch_reference_split_caps({"default_duration": 8})).default_duration == 8
 
 
 async def test_fetch_reference_split_caps_reports_unavailable_i2v_as_text_problem(set_video_request_facts) -> None:
@@ -135,7 +135,7 @@ async def test_fetch_reference_split_caps_reports_unavailable_i2v_as_text_proble
         }
     )
 
-    caps = await mod._fetch_reference_split_caps({})
+    caps = await mod.fetch_reference_split_caps({})
     assert caps.reference_durations == [6, 10]
     assert caps.text_durations == []
     assert caps.durations == [6, 10]
@@ -156,7 +156,7 @@ async def test_fetch_reference_split_caps_raises_typed_code_when_r2v_facts_fail(
     )
 
     with pytest.raises(VideoRequestFactsError) as exc:
-        await mod._fetch_reference_split_caps({})
+        await mod.fetch_reference_split_caps({})
 
     assert exc.value.code == "reference_capability_unavailable"
     assert exc.value.params == {"capability": "r2v"}
@@ -177,7 +177,7 @@ async def test_fetch_reference_split_caps_takes_voice_settings_from_r2v_facts(se
         )
     )
 
-    voice = (await mod._fetch_reference_split_caps({"video_generate_audio": False})).voice
+    voice = (await mod.fetch_reference_split_caps({"video_generate_audio": False})).voice
     assert voice.voice_consistency == "native"
     assert voice.requested_generate_audio is False
     assert voice.max_reference_audio == 2
@@ -192,7 +192,7 @@ async def test_reference_split_planning_reports_empty_intersection_as_incompatib
     from arcreel_catalog_core import DurationConstraints
     from lib.catalog.query import factory_snapshot
     from lib.config.resolver import ConfigResolver
-    from server.text_generation import _fetch_reference_split_caps
+    from server.text_generation import fetch_reference_split_caps
     from tests.catalog_support import install_catalog, with_entry_facts
 
     provider_id, model_id = "gemini-aistudio", "veo-3.1-generate-preview"
@@ -208,7 +208,7 @@ async def test_reference_split_planning_reports_empty_intersection_as_incompatib
     }
 
     with pytest.raises(VideoRequestFactsError) as exc:
-        await _fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
+        await fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
 
     assert exc.value.code == "reference_supported_durations_incompatible"
     assert exc.value.params["capability"] == "r2v"
@@ -217,10 +217,10 @@ async def test_reference_split_planning_reports_empty_intersection_as_incompatib
 async def test_reference_split_planning_reports_unavailable_i2v_instead_of_r2v_fallback(db_factory) -> None:
     """只配了 r2v 模型的项目：无图 unit 执行期落 i2v 桶，规划侧不用 r2v 档位顶替，原样报 i2v 不可用。"""
     from lib.config.resolver import ConfigResolver
-    from server.text_generation import _fetch_reference_split_caps
+    from server.text_generation import fetch_reference_split_caps
 
     project = {"generation_mode": "reference_video", "video_provider_r2v": "dashscope/happyhorse-1.1-r2v"}
-    caps = await _fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
+    caps = await fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
 
     assert caps.reference_durations == list(range(3, 16))
     assert caps.text_durations == []
@@ -234,14 +234,14 @@ async def test_reference_split_planning_accepts_five_seconds_from_i2v_facts(db_f
     """不带图档位按 i2v 桶模型求值：无引用 unit 执行期落 i2v 桶，创作侧放行的秒数须与该桶模型的
     声明一致，否则会放行 r2v 独有档位、漏掉 i2v 独有档位。"""
     from lib.config.resolver import ConfigResolver
-    from server.text_generation import _fetch_reference_split_caps
+    from server.text_generation import fetch_reference_split_caps
 
     project = {
         "generation_mode": "reference_video",
         "video_provider_r2v": "gemini-aistudio/veo-3.1-generate-preview",
         "video_provider_i2v": "ark/doubao-seedance-2-0-260128",
     }
-    caps = await _fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
+    caps = await fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
 
     assert caps.reference_durations == [8]
     assert 5 in caps.text_durations
@@ -256,7 +256,7 @@ async def test_reference_split_planning_borrows_planning_tiers_for_endpoint_fixe
     """端点固定的桶没有档位可借，拆分仍按共享的规划档位出篇幅；另一桶照常按自己的事实收窄。"""
     from lib.config.resolver import ConfigResolver
     from lib.generation.video_request_facts import ENDPOINT_FIXED_PLANNING_DURATIONS
-    from server.text_generation import _fetch_reference_split_caps
+    from server.text_generation import fetch_reference_split_caps
 
     fixed_model = await seed_endpoint_fixed_video_model(db_factory, reference_images=True)
     veo = "gemini-aistudio/veo-3.1-generate-preview"
@@ -267,7 +267,7 @@ async def test_reference_split_planning_borrows_planning_tiers_for_endpoint_fixe
         "model_settings": {veo: {"resolution": "720p"}},
     }
 
-    caps = await _fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
+    caps = await fetch_reference_split_caps(project, config_resolver=ConfigResolver(db_factory))
 
     assert caps.reference_durations == (ENDPOINT_FIXED_PLANNING_DURATIONS if "r2v" in fixed_buckets else [8])
     assert caps.text_durations == (ENDPOINT_FIXED_PLANNING_DURATIONS if "i2v" in fixed_buckets else [4, 6, 8])

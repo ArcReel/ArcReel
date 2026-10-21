@@ -10,6 +10,8 @@
   `zizmor: ignore`、`eslint-disable`、knip 的 `@public`）在同一行写明理由。
 - BUNDLED-FFMPEG：产品代码不出现值恰为 `"ffmpeg"`/`"ffprobe"` 的字符串常量。ffmpeg 随包分发、不查 PATH
   （ADR 0095），只经 `lib/infra/ffmpeg.py` 查找。
+- PRIVATE-IMPORT：`from <本仓模块> import _name` 不允许，被别的模块用到的符号取公开名。`from m import 公开名 as _别名`、
+  gettext 的 `_` 与 dunder 不算。
 
 `--check` 以 `规则号 file:line 修复指引` 列出全部命中，非零即退出码 1；
 `--fix` 重新生成索引表与 CodeRabbit 映射后再检查其余规则。
@@ -452,6 +454,47 @@ def check_bundled_ffmpeg(root: Path, out: list[Violation]) -> None:
                 out.append(Violation("BUNDLED-FFMPEG", rel, node.lineno, guidance))
 
 
+# ---------------------------------------------------------------- 跨模块私有导入
+
+PRIVATE_IMPORT_SCAN_GLOBS = ("lib/**/*.py", "server/**/*.py", "scripts/**/*.py", "packages/*/src/**/*.py")
+
+
+def _is_private_name(name: str) -> bool:
+    return name.startswith("_") and name != "_" and not (name.startswith("__") and name.endswith("__"))
+
+
+def check_private_imports(root: Path, out: list[Violation]) -> None:
+    source_roots = [root, *sorted(root.glob("packages/*/src"))]
+
+    def is_local_module(dotted: str) -> bool:
+        parts = dotted.replace(".", "/")
+        return any((r / f"{parts}.py").is_file() or (r / parts / "__init__.py").is_file() for r in source_roots)
+
+    for path in sorted({p for pattern in PRIVATE_IMPORT_SCAN_GLOBS for p in root.glob(pattern)}):
+        rel = path.relative_to(root)
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        source_root = next(r for r in source_roots[::-1] if path.is_relative_to(r))
+        package = list(path.relative_to(source_root).parent.parts)
+        for node in ast.walk(tree):
+            # shortcut: `from . import _x` 不查，仓库里没有这种写法；出现时再补。
+            if not isinstance(node, ast.ImportFrom) or (node.module is None and node.level):
+                continue
+            base = package[: len(package) - (node.level - 1)] if node.level else []
+            module = ".".join([*base, *([node.module] if node.module else [])])
+            if not module or not is_local_module(module):
+                continue
+            for alias in node.names:
+                if _is_private_name(alias.name):
+                    guidance = (
+                        f"`{alias.name}` 是 `{module}` 的私有名：把它在定义处改成公开名 `{alias.name.lstrip('_')}`，"
+                        "同步更新调用点与 tests 里的引用和 patch 目标"
+                    )
+                    out.append(Violation("PRIVATE-IMPORT", rel, node.lineno, guidance))
+
+
 # ---------------------------------------------------------------- 入口
 
 
@@ -463,6 +506,7 @@ def audit(root: Path = ROOT, *, fix: bool = False) -> list[Violation]:
     check_tool_versions(root, out)
     check_suppression_reasons(root, out)
     check_bundled_ffmpeg(root, out)
+    check_private_imports(root, out)
     return out
 
 

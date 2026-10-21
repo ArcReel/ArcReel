@@ -735,11 +735,11 @@ class FakeConfigResolver:
         if self._reference_payload_limits is not None:
             return self._reference_payload_limits
         from lib.config.service import (
-            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
-            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+            DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
         )
 
-        return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
     def _resolve(self, generation_type: str | None) -> dict[str, Any]:
         self.generation_type_calls.append(generation_type)

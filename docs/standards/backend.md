@@ -9,12 +9,6 @@ paths:
 
 # 后端 Python
 
-## 类型
-
-### 跨模块使用的符号取公开名
-
-模块级 `_` 前缀函数被别的模块 import 时，改成公开名，不加豁免。下划线表示「只在本模块内使用」，被外部 import 的符号已不符合这层含义。
-
 ## 并发
 
 生成任务与请求处理中有哪些取消与中断来源，见 `website/docs/dev/architecture.md`「取消与中断的来源」（`#cancellation-sources`）。

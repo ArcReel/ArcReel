@@ -27,7 +27,7 @@ def clear_cache():
 def api_key_db(db_factory, monkeypatch):
     """把 API Key 查库路径绑到内存库。
 
-    ``_verify_api_key`` 在函数内 import ``lib.db.async_session_factory``，缓存未命中时
+    ``verify_api_key`` 在函数内 import ``lib.db.async_session_factory``，缓存未命中时
     真的落库查询；绑内存库后过期判定与缓存写入这两步都按真实数据跑。
     """
     monkeypatch.setattr("lib.db.async_session_factory", db_factory)
@@ -41,7 +41,7 @@ async def _seed_api_key(factory, name: str, key: str, *, expires_at: datetime | 
         session.add(
             ApiKey(
                 name=name,
-                key_hash=auth_module._hash_api_key(key),
+                key_hash=auth_module.hash_api_key(key),
                 key_prefix=key[:8],
                 expires_at=expires_at,
             )
@@ -52,12 +52,12 @@ async def _seed_api_key(factory, name: str, key: str, *, expires_at: datetime | 
 class TestHashApiKey:
     def test_deterministic(self):
         key = "arc-testapikey1234"
-        assert auth_module._hash_api_key(key) == auth_module._hash_api_key(key)
+        assert auth_module.hash_api_key(key) == auth_module.hash_api_key(key)
 
     def test_sha256_output(self):
         key = "arc-abc"
         expected = hashlib.sha256(key.encode()).hexdigest()
-        assert auth_module._hash_api_key(key) == expected
+        assert auth_module.hash_api_key(key) == expected
 
 
 class TestApiKeyCache:
@@ -90,9 +90,9 @@ class TestApiKeyCache:
         assert not hit
 
     def test_cache_hit_skips_db(self):
-        """缓存命中时不应查询数据库（通过 _verify_api_key 的分支逻辑验证）。"""
+        """缓存命中时不应查询数据库（通过 verify_api_key 的分支逻辑验证）。"""
         key = "arc-cached-key"
-        key_hash = auth_module._hash_api_key(key)
+        key_hash = auth_module.hash_api_key(key)
         auth_module._set_api_key_cache(key_hash, {"sub": "apikey:cached", "via": "apikey"})
         # 若命中缓存则返回缓存值；True means hit
         hit, payload = auth_module._get_cached_api_key_payload(key_hash)
@@ -123,7 +123,7 @@ class TestVerifyAndGetPayloadAsync:
 
         assert result["via"] == "apikey"
         assert result["sub"] == "apikey:mykey"
-        hit, cached = auth_module._get_cached_api_key_payload(auth_module._hash_api_key("arc-validkey"))
+        hit, cached = auth_module._get_cached_api_key_payload(auth_module.hash_api_key("arc-validkey"))
         assert hit
         assert cached == result
 
@@ -146,6 +146,6 @@ class TestVerifyAndGetPayloadAsync:
             await auth_module._verify_and_get_payload_async("arc-expiredkey")
 
         assert exc_info.value.status_code == 401
-        hit, cached = auth_module._get_cached_api_key_payload(auth_module._hash_api_key("arc-expiredkey"))
+        hit, cached = auth_module._get_cached_api_key_payload(auth_module.hash_api_key("arc-expiredkey"))
         assert hit
         assert cached is None

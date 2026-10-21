@@ -29,7 +29,7 @@ from server.agent_runtime.failure_observation import build_turn_failure_observat
 from server.agent_runtime.keyed_locks import KeyedLocks
 from server.agent_runtime.message_serialization import utc_now_iso
 from server.agent_runtime.result_status import result_indicates_error
-from server.agent_runtime.turn_schema import _stringify_content, normalize_content
+from server.agent_runtime.turn_schema import normalize_content, stringify_content
 
 logger = logging.getLogger(__name__)
 
@@ -432,7 +432,7 @@ class SdkMessageNormalizer:
                         "type": ENTRY_TYPE_USER,
                         "subtype": ENTRY_SUBTYPE_QUESTION_ANSWER,
                         "tool_use_id": tool_use_id,
-                        "content": _stringify_content(block.get("content", "")),
+                        "content": stringify_content(block.get("content", "")),
                         "is_error": bool(block.get("is_error", False)),
                         "answers": _extract_structured_answers(message) if question_result_count == 1 else None,
                         "uuid": f"{base_uuid}-tr{tool_result_index}" if base_uuid else f"entry-{uuid4().hex}",

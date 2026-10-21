@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from lib.infra.data_root_layout import DataRootLayout
-from lib.infra.logging_utils import _redact_value
+from lib.infra.logging_utils import redact_value
 
 _UNAVAILABLE = "<unavailable: {exc}>"
 
@@ -78,7 +78,7 @@ def _db_url() -> str:
         parsed = urlparse(raw)
         netloc = parsed.netloc
         if parsed.username or parsed.password:
-            user = _redact_value(parsed.username) if parsed.username else ""
+            user = redact_value(parsed.username) if parsed.username else ""
             host = parsed.hostname or ""
             port = f":{parsed.port}" if parsed.port else ""
             netloc = f"{user}:••@{host}{port}" if parsed.password else f"{user}@{host}{port}"

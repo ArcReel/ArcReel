@@ -140,7 +140,7 @@ def sanitize_diagnostic_payload(
     return redact_text(value)
 
 
-def _redact_value(value: str) -> str:
+def redact_value(value: str) -> str:
     """返回凭证的遮蔽显示值：仅保留首尾各 4 字符供人工识别，短值整体替换。
 
     命名刻意不含 secret/key 等敏感词：返回值是脱敏产物，避免日志静态分析
@@ -180,7 +180,7 @@ def _to_safe(obj: Any, key_hint: str | None = None) -> Any:
         if obj is None:
             return None
         if isinstance(obj, str):
-            return _redact_value(obj)
+            return redact_value(obj)
         return "••••"
 
     if obj is None or isinstance(obj, bool | int | float):
