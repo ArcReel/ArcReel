@@ -10,10 +10,11 @@
 
 本次巡检的对象是：
 
-- 没有状态标签的 issue。
-- 外部 PR：作者的 `author_association` 不是 `OWNER`、`MEMBER` 或 `COLLABORATOR`，且不是 bot。
+- 没有状态标签的 issue 和外部 PR。外部 PR 指作者的 `author_association` 不是 `OWNER`、`MEMBER` 或 `COLLABORATOR`，且不是 bot 的 PR。
 - 带 `needs-info` 的 issue 和外部 PR。
 - 维护者已把 `needs-triage` 换成其他状态标签、但还没有对应巡检评论的 issue 和外部 PR。
+- 已发出修改意见的 `ready-for-agent` 外部 PR，以及巡检接手中的 PR：只按第 5 步「接手」核对期限或推进接手。
+- 带 `merge-ready` 的外部 PR：只按「可直接合并」核对是否出现新提交或必需检查失败。
 
 `needs-triage` 是维护者的待决队列：巡检把对象转交进去，由维护者换标签做出决定。
 
@@ -25,7 +26,7 @@
 
 外部 PR 的请求明显命中 `.out-of-scope/` 条目时，评论引用该条目，打 `wontfix` 并关闭，不再做以下检查。
 
-其余外部 PR 在审查前依次检查以下两项。未通过的 PR 停在这一步，打 `needs-info`：
+其余外部 PR 在审查前依次检查以下两项。未通过的 PR 停在这一步，打 `needs-info`；`needs-info` 超过 14 天仍未通过的，按第 4 步的超时规则关闭：
 
 1. **CLA**：`license/cla` 状态为 success。未通过时发一条签署提醒；同一 PR 只提醒一次。
 2. **先讨论方向**：新功能、新供应商、新端点，或增删合计超过 200 行的改动，需要有关联 issue。没有时，请作者先开 issue 讨论方向；只因增删行数超限时，也可以把 PR 拆小。
