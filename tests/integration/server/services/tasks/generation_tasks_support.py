@@ -22,7 +22,7 @@ from server.services.tasks.generation_context import (
     VideoLaneResult,
 )
 from tests.factories import make_video_request_facts
-from tests.fakes import persist_fake_script
+from tests.fakes import persist_fake_script, stage_and_commit
 
 
 def async_return(value):
@@ -270,20 +270,6 @@ class _FakePM:
         return self.project
 
 
-async def _stage_and_commit(commit_formal_output, staged: Path, current: Path, content: bytes, metadata: dict) -> int:
-    """替身生成器落盘产出并提交正式版本。
-
-    与 MediaGenerator 一样在工作线程里写 staging 产物、调正式提交回调：后端在线程里落盘，
-    提交回调经 ``run_noninterruptible_sync`` 执行。
-    """
-
-    def _run() -> int:
-        staged.write_bytes(content)
-        return commit_formal_output(staged, current, metadata)
-
-    return await asyncio.to_thread(_run)
-
-
 class SheetGenerator:
     """按生产口径经正式图活化回调提交一张生成的资产图。"""
 
@@ -295,7 +281,7 @@ class SheetGenerator:
     async def generate_image_async(self, *, resource_type, resource_id, commit_formal_output, **_kwargs):
         current = self._project_dir / resource_type / f"{resource_id}.png"
         staged = self._project_dir / resource_type / f".{resource_id}.staged.png"
-        return current, await _stage_and_commit(commit_formal_output, staged, current, self._content, {})
+        return current, await stage_and_commit(commit_formal_output, staged, current, self._content, {})
 
 
 class FakeGenerator:
@@ -433,17 +419,17 @@ def seed_current_storyboard(fake_pm: _FakePM, resource_id: str = "E1S01") -> Non
     )
 
 
-EIGHT_REFERENCE_CHARACTERS = ["配角1", "配角2", "配角3", "配角4", "配角5"]
+_EIGHT_REFERENCE_CHARACTERS = ["配角1", "配角2", "配角3", "配角4", "配角5"]
 
 
 def pm_with_eight_references(project_path: Path) -> _FakePM:
     """E1S02 装配出 8 张参考图：6 张角色 sheet + 1 张场景 + 1 张道具（无上一分镜图），正文指认首角色、道具与场景。"""
     pm = _FakePM(project_path)
-    for name in EIGHT_REFERENCE_CHARACTERS:
+    for name in _EIGHT_REFERENCE_CHARACTERS:
         pm.project["characters"][name] = {"description": name, "character_sheet": f"characters/{name}.png"}
         (project_path / "characters" / f"{name}.png").write_bytes(b"png")
     segment = pm.script["segments"][1]
-    segment["characters_in_segment"] = ["Alice", *EIGHT_REFERENCE_CHARACTERS]
+    segment["characters_in_segment"] = ["Alice", *_EIGHT_REFERENCE_CHARACTERS]
     segment["image_prompt"] = {
         "scene": "@[Alice]握着@[玉佩]立在@[祠堂]门口",
         "composition": {"shot_type": "Medium Shot", "lighting": "暖光", "ambiance": "薄雾"},

@@ -971,3 +971,16 @@ def test_shared_symbol_usage_covers_auth_deps_and_support_modules_but_not_test_f
     violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "SHARED-SYMBOL-USAGE"]
 
     assert [v.path for v in violations] == ["tests/auth_deps.py", "tests/topic_support.py"]
+
+
+def test_shared_symbol_usage_counts_module_level_assignments(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "fakes.py").write_text(
+        "LONELY = 1\nTyped: int = 2\ntype Alias = int\n_PRIVATE = 3\n__all__ = []\nPAIR_A, (PAIR_B, *REST) = 1, (2, 3)\n"
+        "import os\nos.environ['K'] = 'v'\nREST[0] = 9\n",
+        encoding="utf-8",
+    )
+
+    violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "SHARED-SYMBOL-USAGE"]
+
+    assert [v.line for v in violations] == [1, 2, 3, 6, 6, 6]

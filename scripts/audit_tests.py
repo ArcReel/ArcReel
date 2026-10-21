@@ -1447,6 +1447,27 @@ def shared_symbol_users(tree: ast.Module, module: str) -> set[str]:
     return used
 
 
+def top_level_names(node: ast.stmt) -> list[str]:
+    """顶层语句定义的名字：函数、类、类型别名，以及赋值给裸名的常量。"""
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return [node.name]
+    if isinstance(node, ast.TypeAlias):
+        return [node.name.id]
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+    return [name for t in targets for name in bound_names(t)]
+
+
+def bound_names(target: ast.expr) -> list[str]:
+    """赋值目标绑定的名字：递归解包 `A, (B, *C)`；`X[k] = …`、`x.attr = …` 是修改已有对象，不绑定新名字。"""
+    if isinstance(target, ast.Name):
+        return [target.id]
+    if isinstance(target, ast.Starred):
+        return bound_names(target.value)
+    if isinstance(target, ast.Tuple | ast.List):
+        return [name for elt in target.elts for name in bound_names(elt)]
+    return []
+
+
 def scan_shared_symbol_usage(root: Path, parsed: Sequence[tuple[Path, ast.Module]]) -> list[StructureFinding]:
     """`tests/fakes.py`、`tests/factories.py`、`tests/auth_deps.py` 与 `tests/**/*_support.py`（非 `test_` 开头）的公开顶层符号须被 ≥2 个其他测试文件使用。
 
@@ -1471,20 +1492,19 @@ def scan_shared_symbol_usage(root: Path, parsed: Sequence[tuple[Path, ast.Module
             if other != rel:
                 users.update(shared_symbol_users(other_tree, module))
         for node in tree.body:
-            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) or node.name.startswith("_"):
-                continue
-            count = users[node.name]
-            if count >= SHARED_SYMBOL_MIN_USERS:
-                continue
-            findings.append(
-                StructureFinding(
-                    "SHARED-SYMBOL-USAGE",
-                    rel,
-                    node.lineno,
-                    f"公开符号 `{node.name}` 只被 {count} 个测试文件使用",
-                    "只有一个文件用的移回该文件；模块内部自用的改下划线名；无人使用的删除",
+            for name in top_level_names(node):
+                count = users[name]
+                if name.startswith("_") or count >= SHARED_SYMBOL_MIN_USERS:
+                    continue
+                findings.append(
+                    StructureFinding(
+                        "SHARED-SYMBOL-USAGE",
+                        rel,
+                        node.lineno,
+                        f"公开符号 `{name}` 只被 {count} 个测试文件使用",
+                        "只有一个文件用的移回该文件；模块内部自用的改下划线名；无人使用的删除",
+                    )
                 )
-            )
     return findings
 
 

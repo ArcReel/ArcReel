@@ -26,7 +26,7 @@ from tests.fakes import (
 )
 from tests.http_capture import capture_http
 from tests.integration.server.services.tasks.generation_tasks_support import (
-    EIGHT_REFERENCE_CHARACTERS,
+    _EIGHT_REFERENCE_CHARACTERS,
     FakeGenerator,
     _FakePM,
     fake_resolve_ctx,
@@ -59,7 +59,7 @@ def _expected_basis(project_path: Path, pm: _FakePM):
             logical_id=name,
             kind="sheet",
         )
-        for name in ["Alice", *EIGHT_REFERENCE_CHARACTERS]
+        for name in ["Alice", *_EIGHT_REFERENCE_CHARACTERS]
     ]
     references.append(
         VisualReference(

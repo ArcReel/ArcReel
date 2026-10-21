@@ -42,7 +42,13 @@ from server.services.tasks.image_edit_tasks import (
     execute_image_edit_task,
     resolve_current_image_rel,
 )
-from tests.fakes import bind_session_factory, use_backend_assembler, use_generation_context, use_project_manager
+from tests.fakes import (
+    bind_session_factory,
+    stage_and_commit,
+    use_backend_assembler,
+    use_generation_context,
+    use_project_manager,
+)
 
 
 @pytest.fixture
@@ -54,16 +60,6 @@ async def patched_session_factory(db_factory, monkeypatch):
     """
     bind_session_factory(monkeypatch, db_factory)
     return db_factory
-
-
-async def _stage_and_commit(commit_formal_output, staged: Path, current: Path, content: bytes, metadata: dict) -> int:
-    """替身生成器落盘产出并提交正式版本：与 MediaGenerator 一样在工作线程里写产物、调提交回调。"""
-
-    def _run() -> int:
-        staged.write_bytes(content)
-        return commit_formal_output(staged, current, metadata)
-
-    return await asyncio.to_thread(_run)
 
 
 class _FakeGenerator:
@@ -402,7 +398,7 @@ class TestExecuteImageEditTask:
             async def generate_image_async(self, **kwargs):
                 assert kwargs["formal_output"] is True
                 staged = task_image_staging_path(current, kwargs["task_id"])
-                version = await _stage_and_commit(
+                version = await stage_and_commit(
                     kwargs["commit_formal_output"],
                     staged,
                     current,
@@ -560,7 +556,7 @@ class TestExecuteImageEditTask:
 
                 # 直接调用（非队列任务）没有 task_id：staging 身份由生成器内部造，替身自造一个。
                 staged = task_image_staging_path(current, kwargs["task_id"] or "inline-test")
-                version = await _stage_and_commit(
+                version = await stage_and_commit(
                     kwargs["commit_formal_output"],
                     staged,
                     current,

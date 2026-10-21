@@ -28,7 +28,7 @@ from lib.speech.speech_composition import admit_script_unit
 from tests.factories import make_test_video, wav_bytes
 
 CREATOR = RevisionAuthor(kind="creator", user_id="u1")
-SETTINGS = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
+_SETTINGS = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
 
 
 def write_json(path: Path, value: object) -> None:
@@ -105,7 +105,7 @@ def _install_narration(project_path: Path, item: dict[str, Any], seconds: float)
     audio.parent.mkdir(parents=True, exist_ok=True)
     audio.write_bytes(wav_bytes(seconds, tone_hz=440))
     preparation = admit_script_unit("segments", item).preparation
-    audio_basis = build_narration_audio_basis(preparation, SETTINGS)
+    audio_basis = build_narration_audio_basis(preparation, _SETTINGS)
     VersionManager(project_path).add_version(
         "audio",
         segment_id,
@@ -116,10 +116,10 @@ def _install_narration(project_path: Path, item: dict[str, Any], seconds: float)
         artifact_audio_basis=ArtifactBasisDescriptor.from_basis(audio_basis).to_dict(),
         tts_basis_digest=audio_basis.digest,
         tts_actual_duration_seconds=seconds,
-        tts_provider_id=SETTINGS.provider_id,
-        tts_model_id=SETTINGS.model_id,
-        tts_voice=SETTINGS.voice,
-        tts_speed=SETTINGS.speed,
+        tts_provider_id=_SETTINGS.provider_id,
+        tts_model_id=_SETTINGS.model_id,
+        tts_voice=_SETTINGS.voice,
+        tts_speed=_SETTINGS.speed,
     )
     ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
         ArtifactKey.episode_audio(1, segment_id),

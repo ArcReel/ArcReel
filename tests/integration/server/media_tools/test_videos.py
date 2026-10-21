@@ -25,7 +25,7 @@ from tests.fakes import (
     write_backend_output,
 )
 from tests.integration.server.agent_tool_support import (
-    _CLAIMED_BASIS_DIGEST,
+    CLAIMED_BASIS_DIGEST,
     ToolHarness,
     activate_unbound_project,
     fake_caps_resolver,
@@ -145,7 +145,7 @@ def _activated_project(project_dir: Path, storyboard_ids: dict[str, str] | None 
     for resource_id, artifact_path in (storyboard_ids or {}).items():
         manifest.register_entry_transactionally(
             ArtifactKey.episode_storyboard(1, resource_id),
-            ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=_CLAIMED_BASIS_DIGEST),
+            ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=CLAIMED_BASIS_DIGEST),
         )
     return project
 

@@ -327,7 +327,7 @@ def replay_frame(index: int = -1, *, session_id: str = "default") -> Callable[[F
     return _build
 
 
-ControlResponse = dict[str, Any] | BaseException | Callable[[dict[str, Any]], dict[str, Any]]
+_ControlResponse = dict[str, Any] | BaseException | Callable[[dict[str, Any]], dict[str, Any]]
 
 
 class _FakeQuery:
@@ -384,12 +384,12 @@ class FakeSDKClient:
         frames: list[ScriptedFrame] | None = None,
         *,
         interrupt_frame: dict[str, Any] | None = None,
-        control_responses: Mapping[str, ControlResponse] | None = None,
+        control_responses: Mapping[str, _ControlResponse] | None = None,
         connect_error: Exception | None = None,
     ):
         self._initial_frames = list(frames) if frames else []
         self._interrupt_frame = interrupt_frame
-        self._control_responses: dict[str, ControlResponse] = dict(control_responses or {})
+        self._control_responses: dict[str, _ControlResponse] = dict(control_responses or {})
         self._connect_error = connect_error
         self._frames: asyncio.Queue[Any] = asyncio.Queue()
         self._query = _FakeQuery(self)
@@ -438,7 +438,7 @@ class FakeSDKClient:
         """测试辅助：运行中让 CLI 发出一条原始帧。"""
         self._frames.put_nowait(frame(self) if callable(frame) else frame)
 
-    def respond_control(self, subtype: str, response: ControlResponse) -> None:
+    def respond_control(self, subtype: str, response: _ControlResponse) -> None:
         """测试辅助：指定之后该 subtype 控制请求的应答。"""
         self._control_responses[subtype] = response
 
@@ -1169,3 +1169,17 @@ def use_generation_queue(monkeypatch, queue: Any) -> None:
 def use_backend_assembler(monkeypatch, assemble: Callable[..., Any]) -> None:
     """生成上下文解析时组装后端改调 *assemble*：其余解析（配置、项目、DB）走真实实现，只换掉供应商后端。"""
     monkeypatch.setattr("server.services.tasks.generation_context.assemble_backend", assemble)
+
+
+async def stage_and_commit(commit_formal_output, staged: Path, current: Path, content: bytes, metadata: dict) -> int:
+    """替身生成器落盘产出并提交正式版本。
+
+    与 MediaGenerator 一样在工作线程里写 staging 产物、调正式提交回调：后端在线程里落盘，
+    提交回调经 ``run_noninterruptible_sync`` 执行。
+    """
+
+    def _run() -> int:
+        staged.write_bytes(content)
+        return commit_formal_output(staged, current, metadata)
+
+    return await asyncio.to_thread(_run)

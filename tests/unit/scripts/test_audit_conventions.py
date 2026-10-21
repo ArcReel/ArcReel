@@ -343,8 +343,23 @@ def test_importing_a_private_name_from_another_repo_module_is_reported(repo: Pat
     _write(repo, "lib/backend.py", "from lib.retry import _should_retry\n")
     _write(repo, "packages/demo/src/demo/source.py", "def _check(): ...\n")
     _write(repo, "packages/demo/src/demo/generate.py", "from .source import _check\n")
+    _write(repo, "lib/pkg/__init__.py", "def _helper(): ...\n")
+    _write(repo, "lib/pkg/user.py", "from . import _helper\n")
 
-    assert _private_import_hits(repo) == [("lib/backend.py", 1), ("packages/demo/src/demo/generate.py", 1)]
+    assert _private_import_hits(repo) == [
+        ("lib/backend.py", 1),
+        ("lib/pkg/user.py", 1),
+        ("packages/demo/src/demo/generate.py", 1),
+    ]
+
+
+def test_importing_a_private_submodule_is_allowed(repo: Path) -> None:
+    _write(repo, "server/routers/__init__.py", "")
+    _write(repo, "server/routers/_validators.py", "def check(): ...\n")
+    _write(repo, "server/routers/files.py", "from . import _validators\n")
+    _write(repo, "server/app.py", "from server.routers import _validators\n")
+
+    assert _private_import_hits(repo) == []
 
 
 def test_public_name_under_private_alias_and_external_or_dunder_imports_are_allowed(repo: Path) -> None:

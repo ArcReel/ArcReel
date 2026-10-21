@@ -16,11 +16,10 @@ from lib.artifacts.generation_input import FrozenGenerationInput
 from lib.infra.api_errors import BadRequestError
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.services.tasks import formal_image_commit, generation_tasks
-from tests.fakes import hook_claim_recheck, use_generation_context, use_project_manager
+from tests.fakes import hook_claim_recheck, stage_and_commit, use_generation_context, use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
-    _stage_and_commit,
     fake_resolve_ctx,
     persist_active_fake_project,
     prepare_files,
@@ -450,7 +449,7 @@ class TestGenerationTasks:
                 self.versions = self
 
             async def generate_image_async(self, **kwargs):
-                version = await _stage_and_commit(kwargs["commit_formal_output"], staged, current, b"generated", {})
+                version = await stage_and_commit(kwargs["commit_formal_output"], staged, current, b"generated", {})
                 return current, version
 
             def commit_staged_version(self, **kwargs):
@@ -621,7 +620,7 @@ class TestGenerationTasks:
             async def generate_image_async(self, **kwargs):
                 # 直接调用（非队列任务）没有 task_id：staging 身份由生成器内部造，替身自造一个。
                 staged = task_image_staging_path(current, kwargs["task_id"] or "inline-test")
-                version = await _stage_and_commit(
+                version = await stage_and_commit(
                     kwargs["commit_formal_output"], staged, current, b"generated-sheet", {"aspect_ratio": "16:9"}
                 )
                 return current, version
@@ -675,7 +674,7 @@ class TestGenerationTasks:
             async def generate_image_async(self, **kwargs):
                 assert kwargs["formal_output"] is True
                 staged = task_image_staging_path(current, kwargs["task_id"])
-                version = await _stage_and_commit(
+                version = await stage_and_commit(
                     kwargs["commit_formal_output"], staged, current, b"new-sheet", {"aspect_ratio": "16:9"}
                 )
                 return current, version

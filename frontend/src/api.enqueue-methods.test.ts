@@ -12,7 +12,9 @@ function taggedEnqueueMethods(): string[] {
   const sf = ts.createSourceFile("api.ts", readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
   const names: string[] = [];
   sf.forEachChild(function visit(node) {
-    if (ts.isMethodDeclaration(node) && ts.getJSDocTags(node).some((t) => t.tagName.text === "enqueue")) {
+    // 箭头函数属性（`static foo = async () => …`）也算方法定义，否则改写形态后会被静默漏掉
+    const isMethod = ts.isMethodDeclaration(node) || ts.isPropertyDeclaration(node);
+    if (isMethod && ts.getJSDocTags(node).some((t) => t.tagName.text === "enqueue")) {
       names.push(node.name.getText(sf));
     }
     node.forEachChild(visit);

@@ -188,7 +188,7 @@ async def run_generate_videos(
 # ---------------------------------------------------------------------------
 
 
-_CLAIMED_BASIS_DIGEST = "sha256-v1:" + "a" * 64
+CLAIMED_BASIS_DIGEST = "sha256-v1:" + "a" * 64
 
 
 def fake_reference_projection(

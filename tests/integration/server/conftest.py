@@ -27,7 +27,7 @@ from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import bind_session_factory
-from tests.integration.server.agent_tool_support import _CLAIMED_BASIS_DIGEST, ToolHarness, fake_caps_resolver
+from tests.integration.server.agent_tool_support import CLAIMED_BASIS_DIGEST, ToolHarness, fake_caps_resolver
 
 
 class FakePM:
@@ -169,7 +169,7 @@ class FakePM:
                 continue
             manifest.register_entry_transactionally(
                 key,
-                ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=_CLAIMED_BASIS_DIGEST),
+                ArtifactManifestEntry(artifact_path=artifact_path, basis_digest=CLAIMED_BASIS_DIGEST),
             )
 
     def load_project(self, _name: str) -> dict[str, Any]:
