@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
-import useDocusaurusContext from "@docusaurus/useDocusaurusContext";
 import { translate } from "@docusaurus/Translate";
-import { BECOME_SPONSOR_URL, type Sponsor, sponsors } from "../../data/sponsors";
+import { BECOME_SPONSOR_URL, getSponsors, type Sponsor } from "../../data/sponsors";
 import styles from "./styles.module.css";
 
 // 导航栏赞助位，形式参照 Ant Design 官网页头：头像一排，悬停或聚焦弹出赞助商卡片。
@@ -22,7 +21,7 @@ function useLabels() {
   };
 }
 
-function SponsorCard({ sponsor, description }: { sponsor: Sponsor; description: string }): ReactNode {
+function SponsorCard({ sponsor }: { sponsor: Sponsor }): ReactNode {
   const labels = useLabels();
   const { Logo } = sponsor;
   return (
@@ -33,7 +32,7 @@ function SponsorCard({ sponsor, description }: { sponsor: Sponsor; description: 
           <a href={sponsor.url} target="_blank" rel="noopener noreferrer sponsored" className={styles.cardName}>
             {sponsor.name}
           </a>
-          <span className={styles.cardDesc}>{description}</span>
+          <span className={styles.cardDesc}>{sponsor.description}</span>
         </div>
       </div>
       <div className={styles.cardFooter}>
@@ -58,8 +57,7 @@ function SponsorCard({ sponsor, description }: { sponsor: Sponsor; description: 
 
 export default function SponsorsNav({ mobile = false }: { mobile?: boolean }): ReactNode {
   const labels = useLabels();
-  const { currentLocale } = useDocusaurusContext().i18n;
-  const lang = currentLocale === "en" ? "en" : "zh";
+  const sponsors = getSponsors();
 
   // 移动端抽屉放不下浮层，退化为每家一行链接。
   if (mobile) {
@@ -89,7 +87,7 @@ export default function SponsorsNav({ mobile = false }: { mobile?: boolean }): R
             <sponsor.Logo className={styles.avatar} />
           </a>
           <div className={styles.popover}>
-            <SponsorCard sponsor={sponsor} description={sponsor.description[lang]} />
+            <SponsorCard sponsor={sponsor} />
           </div>
         </div>
       ))}

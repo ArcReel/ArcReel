@@ -1,11 +1,12 @@
 import type { ComponentType, SVGProps } from "react";
+import { translate } from "@docusaurus/Translate";
 
 export interface Sponsor {
   name: string;
   // 内联 SVG 组件，用 currentColor 跟随明暗主题的文字色。
   Logo: ComponentType<SVGProps<SVGSVGElement>>;
   url: string;
-  description: { zh: string; en: string };
+  description: string;
 }
 
 // 图形取自 https://apimart.ai/supplier/apimart.svg，viewBox 收紧并留出圆形头像的内边距。
@@ -19,16 +20,20 @@ function ApimartLogo(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-export const sponsors: Sponsor[] = [
-  {
-    name: "APIMart",
-    Logo: ApimartLogo,
-    url: "https://go.apimart.ai/tw-arcreel",
-    description: {
-      zh: "专注 AI 图片/视频生成的低价 API 平台，GPT-Image-2 低至 $0.006/张，一套异步 API 通吃图片与视频。",
-      en: "Low-cost API platform for AI image & video generation — GPT-Image-2 from $0.006/image, one async API for both.",
+// translate() 须在渲染期调用才能取到当前 locale 的译文，所以用函数而不是模块级常量。
+export function getSponsors(): Sponsor[] {
+  return [
+    {
+      name: "APIMart",
+      Logo: ApimartLogo,
+      url: "https://go.apimart.ai/tw-arcreel",
+      description: translate({
+        id: "sponsors.apimart.description",
+        message: "专注 AI 图片/视频生成的低价 API 平台，GPT-Image-2 低至 $0.006/张，一套异步 API 通吃图片与视频。",
+        description: "APIMart description in the navbar sponsor card",
+      }),
     },
-  },
-];
+  ];
+}
 
 export const BECOME_SPONSOR_URL = "mailto:support@arc-reel.com";

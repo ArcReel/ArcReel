@@ -380,5 +380,9 @@
   "sponsors.visit": {
     "message": "Visit website →",
     "description": "Link in the sponsor card to the sponsor website"
+  },
+  "sponsors.apimart.description": {
+    "message": "Low-cost API platform for AI image & video generation — GPT-Image-2 from $0.006/image, one async API for both.",
+    "description": "APIMart description in the navbar sponsor card"
   }
 }
