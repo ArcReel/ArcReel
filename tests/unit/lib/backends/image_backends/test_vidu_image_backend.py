@@ -1,4 +1,4 @@
-"""ViduImageBackend 单元测试 — 重点校验 prompt/aspect_ratio/resolution 白名单兜底逻辑。"""
+"""ViduImageBackend 单元测试 — 重点校验 prompt/aspect_ratio 白名单兜底与 resolution 原样透传。"""
 
 from __future__ import annotations
 
@@ -17,12 +17,10 @@ from lib.backends.image_backends.vidu import (
     _ASPECT_RATIO_WHITELIST,
     _MAX_REFERENCE_IMAGES,
     _PROMPT_MAX_LEN,
-    _RESOLUTION_WHITELIST,
     DEFAULT_MODEL,
     ViduImageBackend,
 )
 from lib.backends.providers import PROVIDER_VIDU
-from lib.catalog import query as catalog
 from tests.http_capture import capture_http
 
 
@@ -50,14 +48,6 @@ class TestViduImageBackendBasics:
 class TestWhitelistConfig:
     """避免运行时调用，先把配置常量当 spec 钉死，防止误改。"""
 
-    def test_q1_resolution_only_1080p(self):
-        assert _RESOLUTION_WHITELIST["viduq1"] == ["1080p"]
-
-    def test_q2_resolution_includes_1080p_2k_4k(self):
-        assert "1080p" in _RESOLUTION_WHITELIST["viduq2"]
-        assert "2K" in _RESOLUTION_WHITELIST["viduq2"]
-        assert "4K" in _RESOLUTION_WHITELIST["viduq2"]
-
     def test_q1_aspect_ratio_no_2_3_or_3_2(self):
         # 文档：viduq1 只允许 16:9 9:16 1:1 3:4 4:3
         assert "2:3" not in _ASPECT_RATIO_WHITELIST["viduq1"]
@@ -74,36 +64,10 @@ class TestWhitelistConfig:
         assert _PROMPT_MAX_LEN == 2000
 
 
-class TestRegistryBackendConsistency:
-    """目录声明的分辨率须在执行期白名单内，否则 UI 给出的选项会被 backend 静默丢弃。"""
-
-    def test_catalog_image_models_registered_in_whitelist(self):
-        """没有白名单的型号一律不发 resolution，目录里声明了分辨率的图片型号必须登记。"""
-        unregistered = sorted(
-            name
-            for name, model in catalog.list_models("vidu").items()
-            if model.media_type == "image" and model.resolutions and name not in _RESOLUTION_WHITELIST
-        )
-        assert not unregistered, (
-            f"目录 vidu 图片型号 {unregistered} 声明了分辨率，但不在 backend 的 _RESOLUTION_WHITELIST 中"
-        )
-
-    @pytest.mark.parametrize("name", list(_RESOLUTION_WHITELIST))
-    def test_resolutions_within_backend_whitelist(self, name: str):
-        model_info = catalog.get_model("vidu", name)
-        if model_info is None or model_info.media_type != "image":
-            pytest.skip(f"目录未登记图片型号 {name}")
-        extra = set(model_info.resolutions) - set(_RESOLUTION_WHITELIST[name])
-        assert not extra, (
-            f"目录 vidu/{name} 的 resolutions 含 backend 白名单外的 {sorted(extra)}："
-            "按官方文档核对后，改模型目录数据或 lib/backends/image_backends/vidu.py 的 _RESOLUTION_WHITELIST"
-        )
-
-
 class TestEstimateUsage:
-    """预估的分辨率维度与请求同源：只报白名单里会真正下发的值。"""
+    """预估的分辨率维度与请求同源：请求带什么档位就报什么，不另判白名单。"""
 
-    def test_whitelisted_resolution_is_reported(self):
+    def test_requested_resolution_is_reported(self):
         from lib.backends.image_backends.base import ImageRequestFacts
 
         usage = ViduImageBackend.estimate_usage(
@@ -112,10 +76,10 @@ class TestEstimateUsage:
         assert usage.dimensions == {"resolution": "2K"}
         assert usage.quantities == {"output_images": 1, "input_images": 3}
 
-    def test_resolution_outside_whitelist_is_not_sent(self):
+    def test_no_resolution_when_not_requested(self):
         from lib.backends.image_backends.base import ImageRequestFacts
 
-        usage = ViduImageBackend.estimate_usage(ImageRequestFacts(model="viduq1", aspect_ratio="9:16", image_size="2K"))
+        usage = ViduImageBackend.estimate_usage(ImageRequestFacts(model="viduq1", aspect_ratio="9:16"))
         assert usage.dimensions == {}
 
 
@@ -210,3 +174,25 @@ class TestViduImageCreateTaskHttpErrors:
 
         assert ei.value.response.status_code == 400
         assert ei.value.provider_reason == "1013: reference image is not readable"
+
+
+class TestViduImageResolutionPassthrough:
+    @pytest.mark.parametrize(("model", "resolution"), [("viduq1", "2K"), ("viduq2", "8K")])
+    async def test_resolution_is_sent_as_requested_and_upstream_rejection_is_readable(
+        self, image_output_path: Path, model: str, resolution: str
+    ):
+        """档位以模型目录条目为准：越界值照发，由上游拒绝并以拒因摘要返回（docs/adr/0104）。"""
+        import json
+
+        with capture_http() as router:
+            route = router.post("https://api.vidu.com/ent/v2/reference2image").mock(
+                return_value=httpx.Response(400, json={"code": 1013, "message": "resolution not supported"})
+            )
+            backend = ViduImageBackend(api_key="k", model=model, base_url="https://api.vidu.com/ent/v2")
+            with pytest.raises(ProviderRejectedError) as ei:
+                await backend.generate(
+                    ImageGenerationRequest(prompt="x", output_path=image_output_path, image_size=resolution)
+                )
+
+        assert json.loads(route.calls.last.request.content)["resolution"] == resolution
+        assert ei.value.provider_reason == "1013: resolution not supported"

@@ -18,8 +18,11 @@ _IMAGE_PROVIDERS = sorted(provider for provider, media_type in PROVIDER_SPEC_REG
 def test_every_builtin_image_channel_estimates_text_to_image(provider_id: str) -> None:
     model = catalog.default_model(provider_id, "image")
     assert model is not None
+    # 通道不再替请求改档位，所以取目录里确实声明的档位（没声明分辨率的模型用 1K）。
+    resolutions = catalog.get_model(provider_id, model, media_type="image").resolutions
+    image_size = "1K" if not resolutions or "1K" in resolutions else resolutions[0]
     usage = estimate_builtin_image_usage(
-        provider_id, ImageRequestFacts(model=model, aspect_ratio="9:16", image_size="1K", reference_count=0)
+        provider_id, ImageRequestFacts(model=model, aspect_ratio="9:16", image_size=image_size, reference_count=0)
     )
     cost = price_builtin_call(
         provider=provider_id, model=model, media_type="image", requests=(usage,), provider_multiplier=1.0, estimate=True

@@ -137,23 +137,6 @@ _ENDPOINT_MODELS: dict[str, frozenset[str]] = {
 # 端点是否接受 aspect_ratio
 _ENDPOINTS_WITH_ASPECT_RATIO = frozenset({"/text2video", "/reference2video"})
 
-# 按 model 列分辨率白名单（按 /img2video & /reference2video 的并集，最宽松）
-_RESOLUTION_WHITELIST: dict[str, list[str]] = {
-    "viduq3-pro": ["540p", "720p", "1080p"],
-    "viduq3-pro-fast": ["540p", "720p", "1080p"],
-    "viduq3-turbo": ["540p", "720p", "1080p"],
-    "viduq3": ["540p", "720p", "1080p"],
-    "viduq3-mix": ["720p", "1080p"],
-    "viduq2": ["540p", "720p", "1080p"],
-    "viduq2-pro": ["540p", "720p", "1080p"],
-    "viduq2-pro-fast": ["720p", "1080p"],
-    "viduq2-turbo": ["540p", "720p", "1080p"],
-    "viduq1": ["1080p"],
-    "viduq1-classic": ["1080p"],
-    "vidu2.0": ["360p", "720p", "1080p"],
-}
-_DEFAULT_RESOLUTION = "720p"
-
 
 _KNOWN_MODELS = frozenset().union(*_ENDPOINT_MODELS.values())
 
@@ -356,10 +339,9 @@ class ViduVideoBackend:
             "duration": duration,
         }
 
-        # 4) resolution 白名单兜底
-        resolution = _coerce_resolution(self._known_model or self._model, request.resolution)
-        if resolution:
-            body["resolution"] = resolution
+        # 4) resolution 以模型目录条目为准，原样透传；越界档位由上游拒绝（docs/adr/0104）
+        if request.resolution:
+            body["resolution"] = request.resolution
 
         # 5) seed
         if request.seed is not None:
@@ -404,7 +386,7 @@ class ViduVideoBackend:
     ) -> Usage:
         """这次请求的计量（见 :mod:`lib.backends.video_backends.metering`）。
 
-        时长、分辨率与参考图张数取 ``_build_request`` 同一套校正后的发送值；参考生视频按端点判定，Vidu 的
+        时长与参考图张数取 ``_build_request`` 校正后的发送值，分辨率取请求原值；参考生视频按端点判定，Vidu 的
         参考生视频与图生、文生视频单价不同。是否有声只对 q3 系列成立（只有它们发送 ``audio``）。
         """
         known = _known_model(model)
@@ -414,7 +396,7 @@ class ViduVideoBackend:
             request,
             result,
             seconds=seconds,
-            resolution=_coerce_resolution(known or model, request.resolution),
+            resolution=request.resolution or None,
             audio=bool(request.generate_audio) if known in _Q3_MODELS else False,
             reference_images=len(_reference_images(request)) if endpoint == "/reference2video" else 0,
             reference_to_video=endpoint == "/reference2video",
@@ -488,20 +470,3 @@ def _coerce_duration(model: str, endpoint: str, requested: int | None) -> int:
         nearest,
     )
     return int(nearest)
-
-
-def _coerce_resolution(model: str, requested: str | None) -> str | None:
-    """白名单内透传，否则降级到模型默认 720p（viduq1 默认 1080p）。"""
-    whitelist = _RESOLUTION_WHITELIST.get(model)
-    if not whitelist:
-        return requested
-    if requested and requested in whitelist:
-        return requested
-    if requested:
-        logger.warning(
-            "Vidu resolution %s 不在 model=%s 白名单 %s，降级",
-            requested,
-            model,
-            whitelist,
-        )
-    return _DEFAULT_RESOLUTION if _DEFAULT_RESOLUTION in whitelist else whitelist[0]
