@@ -13,3 +13,4 @@ ArcReel 不接受以推广某项商业服务为主要目的的 PR：为某家第
 ## Prior requests
 
 - PR #2500 — feat: add MuAPI video endpoint
+- PR #3311、#1445 等 — octo-patch 账号的 MiniMax 系列 PR（在 ArcReel 共 12 个，仅 #1298 修复已有供应商缺陷被合并）；该账号在 GitHub 上批量提交 MiniMax 接入 PR
