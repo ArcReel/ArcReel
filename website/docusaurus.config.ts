@@ -77,6 +77,10 @@ const config: Config = {
       },
       items: [
         {
+          type: "custom-sponsors",
+          position: "right",
+        },
+        {
           type: "localeDropdown",
           position: "right",
         },

@@ -69,6 +69,15 @@
       <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel">探索 OfoxAI 模型与 API →</a>
     </td>
   </tr>
+  <tr>
+    <td width="200" align="center" valign="top">
+      <a href="https://go.apimart.ai/tw-arcreel"><img src="docs/assets/sponsors/apimart.webp" alt="APIMart" width="180"></a>
+    </td>
+    <td valign="top">
+      <strong>APIMart：AI 图片/视频生成低价 API</strong><br>
+      感谢 APIMart 赞助了本项目！APIMart 是专注 AI 图片/视频生成的低价 API 平台，<strong>GPT-Image-2 低至 $0.006/张，1 美元可出图 160+ 张</strong>。图片、视频一套异步 API 通吃，提交任务拿 ID、回调取结果，跑批万张不超时、换模型不改代码。按量付费、无月费，通过<a href="https://go.apimart.ai/tw-arcreel">此注册链接</a>注册即可开用。
+    </td>
+  </tr>
 </table>
 
 ## 界面一览
