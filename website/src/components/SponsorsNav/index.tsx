@@ -55,7 +55,14 @@ function SponsorCard({ sponsor }: { sponsor: Sponsor }): ReactNode {
   );
 }
 
-export default function SponsorsNav({ mobile = false }: { mobile?: boolean }): ReactNode {
+export default function SponsorsNav({
+  mobile = false,
+  onClick,
+}: {
+  mobile?: boolean;
+  // 移动端抽屉传入的关闭回调，与内置 navbar 项一样转给链接。
+  onClick?: () => void;
+}): ReactNode {
   const labels = useLabels();
   const sponsors = getSponsors();
 
@@ -63,7 +70,13 @@ export default function SponsorsNav({ mobile = false }: { mobile?: boolean }): R
   if (mobile) {
     return sponsors.map((sponsor) => (
       <li key={sponsor.name} className="menu__list-item">
-        <a className="menu__link" href={sponsor.url} target="_blank" rel="noopener noreferrer sponsored">
+        <a
+          className="menu__link"
+          href={sponsor.url}
+          target="_blank"
+          rel="noopener noreferrer sponsored"
+          onClick={onClick}
+        >
           <span className={styles.heart} aria-hidden="true">
             ♥
           </span>
