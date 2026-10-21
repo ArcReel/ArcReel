@@ -69,6 +69,15 @@
       <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel">Explore OfoxAI models and APIs →</a>
     </td>
   </tr>
+  <tr>
+    <td width="200" align="center" valign="top">
+      <a href="https://go.apimart.ai/tw-arcreel"><img src="docs/assets/sponsors/apimart.webp" alt="APIMart" width="180"></a>
+    </td>
+    <td valign="top">
+      <strong>APIMart: Low-cost API for AI image & video generation</strong><br>
+      Thanks to APIMart for sponsoring this project! APIMart is a low-cost API platform for AI image & video generation — <strong>GPT-Image-2 from $0.006/image, 160+ images per dollar</strong>. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — <a href="https://go.apimart.ai/tw-arcreel">sign up here</a> to get started.
+    </td>
+  </tr>
 </table>
 
 ## Screenshots

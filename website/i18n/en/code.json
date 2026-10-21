@@ -368,5 +368,17 @@
   "site.tagline": {
     "message": "Open-source, self-hosted AI video creation platform",
     "description": "The documentation site description used in social cards"
+  },
+  "sponsors.label": {
+    "message": "Sponsor",
+    "description": "Label of the navbar sponsors area"
+  },
+  "sponsors.become": {
+    "message": "Become a sponsor",
+    "description": "Link in the sponsor card inviting new sponsors"
+  },
+  "sponsors.visit": {
+    "message": "Visit website →",
+    "description": "Link in the sponsor card to the sponsor website"
   }
 }
