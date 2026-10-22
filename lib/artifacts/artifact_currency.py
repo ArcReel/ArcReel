@@ -118,7 +118,12 @@ class RegisteredArtifactResolver:
 
 
 class ArtifactCurrencyResolver:
-    """Side-effect-free runtime comparison against canonical target state."""
+    """Side-effect-free runtime comparison against canonical target state.
+
+    A resolver is request-scoped: it reads the Manifest once on construction and
+    answers every comparison from that snapshot, so a Manifest replaced mid-request
+    does not change this request's answers.
+    """
 
     def __init__(self, project_dir: Path) -> None:
         self._project_dir = Path(project_dir)
@@ -126,10 +131,12 @@ class ArtifactCurrencyResolver:
         root_planner = TargetStatePlanner(project_dir, shared_versions=self._shared_versions)
         if not project_schema_is_current(root_planner.project):
             raise ProjectMigrationError("Artifact Manifest is not activated for this project schema")
-        # Validate the sidecar once even when a workflow phase has no artifacts
-        # to compare.  A corrupt active manifest is a blocker, never an empty
-        # target state or permission to fall back to filesystem existence.
-        root_planner.adapter.get_entry(ArtifactKey.episode_script(1))
+        # One Manifest snapshot serves every admission and comparison of this
+        # resolver, read even when a workflow phase has no artifacts to compare: a
+        # corrupt active manifest is a blocker, never an empty target state or
+        # permission to fall back to filesystem existence.
+        self.manifest_snapshot = root_planner.adapter.read_snapshot()
+        root_planner.manifest_snapshot = self.manifest_snapshot
         self._project_bytes = root_planner.project_bytes
         self._planners: dict[int | None, TargetStatePlanner] = {None: root_planner}
         self._adapter = root_planner.adapter
@@ -144,6 +151,7 @@ class ArtifactCurrencyResolver:
                 episode_scope=scope,
                 project_bytes=self._project_bytes,
                 shared_versions=self._shared_versions,
+                manifest_snapshot=self.manifest_snapshot,
             )
             self._planners[scope] = planner
         return planner
@@ -152,11 +160,12 @@ class ArtifactCurrencyResolver:
         # Admission precedes basis reconstruction.  An unclaimed or unsafe
         # formal path is not an input to the planner, so malformed orphan files
         # cannot block the workflow that is responsible for replacing them.
-        admission = self._manifest.compare_entry(key, artifact_path=artifact_path, expected=None)
+        entries = self.manifest_snapshot.entries
+        admission = self._manifest.compare_entry(key, artifact_path=artifact_path, expected=None, entries=entries)
         if admission.status in {ArtifactStatus.MISSING, ArtifactStatus.BLOCKED}:
             return admission
         expected = self._planner_for(key).resolve_key(key)
-        return self._manifest.compare_entry(key, artifact_path=artifact_path, expected=expected)
+        return self._manifest.compare_entry(key, artifact_path=artifact_path, expected=expected, entries=entries)
 
     def resolve_usable_entry(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactManifestEntry | None:
         """Return the exact registered entry selected through canonical admission."""
@@ -167,7 +176,7 @@ class ArtifactCurrencyResolver:
             raise ArtifactManifestError(comparison.blocker.detail)
         if comparison.status not in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
             return None
-        entry = self._adapter.get_entry(key)
+        entry = self.manifest_snapshot.entries.get(key)
         if entry is None or entry.artifact_path != comparison.artifact_path:
             return None
         return entry
@@ -175,7 +184,9 @@ class ArtifactCurrencyResolver:
     def compare_frozen_entry(self, key: ArtifactKey, entry: ArtifactManifestEntry) -> ArtifactComparison:
         """Compare the current formal claim with one provider-selected entry."""
 
-        return self._manifest.compare_entry(key, artifact_path=entry.artifact_path, expected=entry)
+        return self._manifest.compare_entry(
+            key, artifact_path=entry.artifact_path, expected=entry, entries=self.manifest_snapshot.entries
+        )
 
     def artifact_content_digest(self, artifact_path: str) -> str:
         """Hash one safely admitted formal path for provider-input identity."""

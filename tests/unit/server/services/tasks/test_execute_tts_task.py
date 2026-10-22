@@ -37,7 +37,13 @@ from lib.speech.narration_delivery import (
 from lib.speech.speech_composition import admit_script_unit
 from server.services.tasks import generation_context, generation_tasks
 from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
-from tests.fakes import persist_fake_script, write_backend_output
+from tests.fakes import (
+    persist_fake_script,
+    use_backend_assembler,
+    use_generation_context,
+    use_project_manager,
+    write_backend_output,
+)
 
 
 def _audio_ctx(
@@ -276,8 +282,8 @@ def tts_env(monkeypatch, tmp_path):
     )
     assert activate_artifact_target_state(pm.project_path, bump_schema=False) is True
     gen = _FakeAudioGenerator(pm.project_path)
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen))
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, _audio_ctx(gen))
 
     async def _duration(_path: Path) -> float:
         return 5.25
@@ -653,10 +659,8 @@ class TestExecuteTtsTask:
     async def test_synthesis_follows_project_snapshot_and_records_it_as_basis(self, tts_env, monkeypatch):
         pm, gen = tts_env
         pm.project.update({"audio_backend": "dashscope/qwen-tts-latest", "narration_voice": "Ethan"})
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            _audio_ctx(gen, configured_model="qwen-tts-latest", backend_model="qwen-tts-latest"),
+        use_generation_context(
+            monkeypatch, _audio_ctx(gen, configured_model="qwen-tts-latest", backend_model="qwen-tts-latest")
         )
 
         await generation_tasks.execute_tts_task(
@@ -830,7 +834,7 @@ class TestGetOrCreateAudioBackend:
             calls.append((provider_id, media_type, model_id))
             return sentinel
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
+        use_backend_assembler(monkeypatch, _fake_assemble)
 
         resolver = cast(ConfigResolver, None)
         b1 = await generation_context._get_or_create_audio_backend("custom-3", {"model": "tts-1"}, resolver)
@@ -850,7 +854,7 @@ class TestGetOrCreateAudioBackend:
             created.append((provider_id, media_type, model_id))
             return sentinel
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
+        use_backend_assembler(monkeypatch, _fake_assemble)
 
         resolver = cast(ConfigResolver, None)
         b1 = await generation_context._get_or_create_audio_backend(
@@ -869,7 +873,7 @@ class TestGetOrCreateAudioBackend:
         ):
             return SimpleNamespace(provider_id=provider_id, media_type=media_type, model_id=model_id)
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _fake_assemble)
+        use_backend_assembler(monkeypatch, _fake_assemble)
 
         backend = await generation_context._get_or_create_audio_backend(
             "dashscope",
@@ -886,7 +890,7 @@ class TestComputeAffectedFingerprintsTts:
         (project_path / "audio").mkdir(parents=True)
         (project_path / "audio" / "segment_E1S01.wav").write_bytes(b"RIFF")
         pm = _FakePM(project_path)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         fp = generation_tasks.compute_affected_fingerprints("demo", "tts", "E1S01")
         assert "audio/segment_E1S01.wav" in fp

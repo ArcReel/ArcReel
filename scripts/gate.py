@@ -119,7 +119,7 @@ def select_domains(paths: Iterable[str]) -> list[str]:
 def _vcs(root: Path, *args: str) -> str:
     # 路径按 UTF-8 解码，不随平台区域编码变；非 UTF-8 字节用 surrogateescape 保留原样。
     completed = subprocess.run(
-        ("git", *args),
+        ("git", *args),  # noqa: S607 -- 开发者环境的 git 本就经 PATH 查找
         cwd=root,
         capture_output=True,
         text=True,

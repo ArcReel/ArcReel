@@ -550,21 +550,25 @@ class AgentAccessPolicy:
         bash_tools = set(self.BASH_TOOLS)
         return [t for t in tools if t not in bash_tools]
 
-    # SDK 后台任务输出（``<tmp>/claude-*/tasks``）的 tmp 根前缀。
-    # ``tempfile.gettempdir()`` 与 ``.resolve()`` 的结果在进程生命周期内稳定，
-    # 但 ``_check_read_access`` 是 per-tool-use 钩子，每次重算会做无谓的
-    # ``.resolve()`` 系统调用（lstat/readlink）——cached_property 算一次缓存。
-    # 覆盖跨平台 tmp 根（Linux ``/tmp``、macOS 默认 ``/var/folders/.../T``、
-    # Windows ``%TEMP%``）。``resolved`` 已 ``.resolve()`` 过：macOS 上 ``/var``
-    # 是 ``/private/var`` 的 symlink、``/tmp`` 是 ``/private/tmp``，原始 + resolve
-    # 两种形态都列出，避免 startswith 因别名失配。
     @functools.cached_property
     def _sdk_tmp_prefixes(self) -> tuple[str, ...]:
+        """SDK 后台任务输出（``<tmp>/claude-*/tasks``）的 tmp 根前缀。
+
+        ``tempfile.gettempdir()`` 与 ``.resolve()`` 的结果在进程生命周期内稳定，
+        但 ``_check_read_access`` 是 per-tool-use 钩子，每次重算会做无谓的
+        ``.resolve()`` 系统调用（lstat/readlink）——cached_property 算一次缓存。
+        覆盖跨平台 tmp 根（Linux ``/tmp``、macOS 默认 ``/var/folders/.../T``、
+        Windows ``%TEMP%``）。
+
+        ``gettempdir()`` 的原始结果和 ``resolve()`` 后的结果都要列出，外加 ``/tmp``
+        与 ``/private/tmp``：macOS 上 ``/tmp`` 是指向 ``/private/tmp`` 的符号链接
+        （``/var`` 同理指向 ``/private/var``），只列一种形态时 startswith 会失配。
+        """
         _tempdir = Path(tempfile.gettempdir())
         return (
             str(_tempdir / "claude-"),
             str(_tempdir.resolve() / "claude-"),
-            "/tmp/claude-",
+            "/tmp/claude-",  # noqa: S108 -- SDK 写入的固定临时路径前缀，按字面匹配
             "/private/tmp/claude-",
         )
 

@@ -194,10 +194,28 @@ class TestKlingMetering:
 
         assert usage.dimensions["resolution"] == dimension
 
+    def test_estimate_follows_user_relaxed_audio_track(self) -> None:
+        """用户添加的型号把音轨放宽为可控：预估与执行同一份叠加覆盖后的能力，按有声计。"""
+        catalog.install_user_added_models(
+            [
+                catalog.UserAddedModel(
+                    "kling", "kling-user-added", "video", capability_overrides={"audio_track": "controllable"}
+                )
+            ]
+        )
+        try:
+            usage = builtin_video_metered_usage(
+                "kling", "kling-user-added", _request(duration_seconds=5, generate_audio=True)
+            )
+        finally:
+            catalog.install_user_added_models(())
+
+        assert usage.dimensions["audio"] is True
+
 
 class TestViduMetering:
     def test_reference_to_video_is_its_own_price_tier(self) -> None:
-        references = [Path(f"ref-{index}.png") for index in range(9)]
+        references = [Path(f"ref-{index}.png") for index in range(7)]
         reference = ViduVideoBackend.metered_usage(
             "viduq3-turbo", _request(duration_seconds=5, resolution="720p", reference_images=references)
         )
@@ -206,7 +224,6 @@ class TestViduMetering:
         )
 
         assert reference.dimensions["reference_to_video"] is True
-        # Vidu 参考生视频最多发 7 张，多余的截掉不发
         assert reference.quantities["input_images"] == 7
         assert first_frame.dimensions["reference_to_video"] is False
         assert first_frame.quantities["input_images"] == 0

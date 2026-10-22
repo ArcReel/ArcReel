@@ -368,5 +368,21 @@
   "site.tagline": {
     "message": "Open-source, self-hosted AI video creation platform",
     "description": "The documentation site description used in social cards"
+  },
+  "sponsors.label": {
+    "message": "Sponsor",
+    "description": "Label of the navbar sponsors area"
+  },
+  "sponsors.become": {
+    "message": "Become a sponsor",
+    "description": "Link in the sponsor card inviting new sponsors"
+  },
+  "sponsors.visit": {
+    "message": "Visit website →",
+    "description": "Link in the sponsor card to the sponsor website"
+  },
+  "sponsors.apimart.description": {
+    "message": "Low-cost API platform for AI image & video generation — GPT-Image-2 from $0.006/image, one async API for both.",
+    "description": "APIMart description in the navbar sponsor card"
   }
 }

@@ -15,6 +15,7 @@ from lib.project.project_migrations.v7_to_v8_artifact_manifest import migrate_v7
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_generation_queue, use_project_manager, use_reference_projection
 
 
 @pytest.fixture
@@ -69,17 +70,13 @@ def ad_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     # 与生产的 get_project_manager 一样复用同一个实例：构造时会建目录，不该每次请求都在事件循环上重做。
     project_manager = ProjectManager(tmp_path)
-    monkeypatch.setattr(router_mod, "get_project_manager", lambda: project_manager)
+    use_project_manager(monkeypatch, project_manager)
     from tests.fakes import fake_reference_request_projector
 
-    monkeypatch.setattr(
-        router_mod,
-        "project_reference_unit_request",
-        fake_reference_request_projector(durations=(4, 8, 12)),
-    )
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(4, 8, 12)))
     fake_queue = AsyncMock()
     fake_queue.enqueue_task = AsyncMock(return_value={"task_id": "t1", "deduped": False})
-    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: fake_queue)
+    use_generation_queue(monkeypatch, fake_queue)
 
     app = FastAPI()
     register_error_handlers(app)
@@ -217,14 +214,9 @@ def test_empty_migration_shell_can_repair_body_and_duration_atomically(ad_client
 
 
 def test_precheck_uses_unit_orchestration_duration(ad_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from server.routers import reference_videos as router_mod
     from tests.fakes import fake_reference_request_projector
 
-    monkeypatch.setattr(
-        router_mod,
-        "project_reference_unit_request",
-        fake_reference_request_projector(durations=(4, 8, 12)),
-    )
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(4, 8, 12)))
     body = ad_client.get("/api/v1/projects/ad-demo/reference-videos/episodes/1/units/E1U1/duration-precheck").json()
     assert body["needs_confirmation"] is True
     assert body["script_duration"] == 5

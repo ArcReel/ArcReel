@@ -48,6 +48,25 @@ def _plan(caps: VideoCapabilities | None, **kwargs):
     return plan_frame_slots(**kwargs)
 
 
+class TestFirstFrameGating:
+    def test_first_frame_on_caps_without_first_frame_raises(self):
+        """能力 first_frame=False × 实际下发首帧：与尾帧同口径硬失败。"""
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(VideoCapabilities(first_frame=False), has_image=True, has_first_frame=True)
+
+        assert exc.value.code == "video_first_frame_unsupported"
+        assert exc.value.params == {"provider": "acme", "model": "acme-v1"}
+
+    def test_no_first_frame_on_caps_without_first_frame_passes(self):
+        assert _gate(VideoCapabilities(first_frame=False, max_reference_images=2), has_image=True) is None
+
+    def test_first_frame_without_caps_raises(self):
+        with pytest.raises(VideoCapabilityError) as exc:
+            _gate(None, has_image=True, has_first_frame=True)
+
+        assert exc.value.code == "video_first_frame_unsupported"
+
+
 class TestLastFrameGating:
     def test_unsupported_last_frame_with_end_image_raises(self):
         """不支持尾帧 × 携带尾帧：硬失败，不静默降级。"""

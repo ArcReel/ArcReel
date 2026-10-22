@@ -327,6 +327,7 @@ export function ProviderDetail({ providerId, initialModelId, onSaved }: Props) {
           initialModelId={initialModelId}
           onModelsChanged={onSaved}
           providerMultiplier={multiplier.multiplier}
+          mediaTypes={detail.media_types}
         />
 
         {detail.fields.length > 0 && (

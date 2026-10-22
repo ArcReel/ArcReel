@@ -203,6 +203,26 @@ async def test_renamed_image_model_setting_migrates_to_successor(db_session: Asy
     assert await repo.get(setting_key) == "gemini-aistudio/gemini-3.1-flash-image"
 
 
+@pytest.mark.parametrize(
+    ("retired", "successor"),
+    [
+        ("ark/doubao-seed-2-0-lite-260215", "ark/doubao-seed-2-1-lite-260915"),
+        ("ark/doubao-seed-2-0-mini-260215", "ark/doubao-seed-2-0-mini-260428"),
+        ("grok/grok-4-1-fast-reasoning", "grok/grok-4.3"),
+        ("grok/grok-4-1-fast-non-reasoning", "grok/grok-4.3"),
+    ],
+)
+async def test_retired_ark_and_grok_text_model_setting_migrates_to_successor(
+    db_session: AsyncSession, retired: str, successor: str
+):
+    repo = SystemSettingRepository(db_session)
+    await repo.set("text_backend_simple", retired)
+
+    await migrate_retired_model_settings(db_session)
+
+    assert await repo.get("text_backend_simple") == successor
+
+
 async def test_retired_model_migration_leaves_unrenamed_references_unchanged(db_session: AsyncSession):
     repo = SystemSettingRepository(db_session)
     await repo.set("default_text_backend", "gemini-aistudio/gemini-3-flash-preview")

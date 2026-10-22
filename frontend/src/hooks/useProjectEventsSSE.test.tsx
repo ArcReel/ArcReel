@@ -1013,12 +1013,11 @@ describe("useProjectEventsSSE", () => {
       expect(refreshTasksSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("纯任务终态批次同样重拉项目数据（后端每次广播都会 rebase 快照）", async () => {
-      // 后端每广播一批就把项目快照 rebase 到最新，与之并发的文件变更来不及被扫描
-      // diff 出来就失去基线；refreshProject 是这类漏广播的兜底，不能因为「本批次
-      // 只有任务事件」就跳过。
+    it("纯任务终态批次不重拉项目，仍刷新任务列表", async () => {
       const stream = mockProjectEventStream();
-      vi.spyOn(useTasksStore.getState(), "refreshTasks").mockResolvedValue(undefined);
+      const refreshTasksSpy = vi
+        .spyOn(useTasksStore.getState(), "refreshTasks")
+        .mockResolvedValue(undefined);
       const getProjectSpy = vi.spyOn(API, "getProject");
 
       renderHarness("/");
@@ -1027,7 +1026,8 @@ describe("useProjectEventsSSE", () => {
         taskChange({ entity_id: "task-2", action: "task_failed" }),
       ]);
 
-      expect(getProjectSpy).toHaveBeenCalled();
+      expect(refreshTasksSpy).toHaveBeenCalledTimes(1);
+      expect(getProjectSpy).not.toHaveBeenCalled();
     });
 
     it("批次混有项目实体变更时照常重拉项目数据", async () => {

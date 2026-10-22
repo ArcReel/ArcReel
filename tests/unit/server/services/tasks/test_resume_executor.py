@@ -26,7 +26,7 @@ from lib.script.reference_video.execution_checkpoint import (
     StagedProviderMedia,
     StoryboardSubmissionCheckpoint,
 )
-from tests.fakes import write_backend_output
+from tests.fakes import use_project_manager, use_video_thumbnail_extractor, write_backend_output
 
 
 class _FakeProjectManager:
@@ -227,15 +227,13 @@ def _patch_resume_executor_deps(
         ),
     )
     # finalize helpers 内部也通过 generation_tasks/reference_video_tasks 的 get_project_manager
-    monkeypatch.setattr("server.services.tasks.generation_tasks.get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr("server.services.tasks.reference_video_tasks.get_project_manager", lambda: fake_pm)
+    use_project_manager(monkeypatch, fake_pm)
 
     # extract_video_thumbnail 真实实现走 ffmpeg 子进程；mock 成 no-op 让 finalize 不依赖外部工具
     async def _fake_thumb(*_args, **_kwargs):
         return False
 
-    monkeypatch.setattr("server.services.tasks.generation_tasks.extract_video_thumbnail", _fake_thumb)
-    monkeypatch.setattr("server.services.tasks.reference_video_tasks.extract_video_thumbnail", _fake_thumb)
+    use_video_thumbnail_extractor(monkeypatch, _fake_thumb)
 
 
 def _with_storyboard_identity(
@@ -375,14 +373,12 @@ async def test_execute_resume_declares_video_lane_only(monkeypatch, fake_pm, vid
 
     fake_gen = _FakeGenerator()
     monkeypatch.setattr(resume_executor, "get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr("server.services.tasks.generation_tasks.get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr("server.services.tasks.reference_video_tasks.get_project_manager", lambda: fake_pm)
+    use_project_manager(monkeypatch, fake_pm)
 
     async def _fake_thumb(*_args, **_kwargs):
         return False
 
-    monkeypatch.setattr("server.services.tasks.generation_tasks.extract_video_thumbnail", _fake_thumb)
-    monkeypatch.setattr("server.services.tasks.reference_video_tasks.extract_video_thumbnail", _fake_thumb)
+    use_video_thumbnail_extractor(monkeypatch, _fake_thumb)
 
     captured: dict[str, Any] = {}
 

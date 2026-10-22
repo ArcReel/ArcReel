@@ -179,7 +179,7 @@ export function VoiceSampleButton({
   const handleGenerate = async () => {
     const trimmed = text.trim();
     if (!trimmed || !selectedVoice || generating || confirming) return;
-    // 弹窗打开期间占用态可能已变化，提交前从 store 读取最新占用态复核（见 docs/standards/frontend-ui.md）。
+    // 弹窗打开期间占用态可能已变化，提交前从 store 读取最新占用态复核（见 docs/standards/frontend.md）。
     if (busy || isAssetBusy("character", projectName, characterName)) {
       useAppStore.getState().pushToast(t("voice_sample_resource_busy"), "error");
       return;

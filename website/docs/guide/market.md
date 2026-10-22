@@ -56,7 +56,7 @@ GitHub 形态不写 ref 时跟随仓库默认分支。不接受 `http://`、本�
 
 ### 2.3 GitHub raw 代理前缀 {#github-proxy-prefix}
 
-如果部署环境无法直连 `raw.githubusercontent.com`，在全局设置的「市场」分区打开「设置」Tab，找到「GitHub raw 代理前缀」。非空时，ArcReel 会把前缀拼接到所有 `raw.githubusercontent.com` 地址前，覆盖索引、定义和图标的抓取；留空即直连。
+如果部署环境无法直连 `raw.githubusercontent.com`，在全局设置的「市场」分区打开「设置」Tab，找到「GitHub raw 代理前缀」。非空时，ArcReel 会把前缀拼接到所有 `raw.githubusercontent.com` 地址前，覆盖索引、定义和图标的抓取，也覆盖模型目录的官方同步；留空即直连。
 
 该设置是全局单值，默认为空，ArcReel 不预置任何代理地址。设置后请求失败时不会回退直连。代理服务能看到经过的请求，请只使用你信任的代理。
 

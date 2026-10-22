@@ -337,9 +337,27 @@ src = [".", "packages/arcreel-market-core/src", "packages/arcreel-catalog-core/s
 exclude = [".worktrees", ".claude/worktrees", ".agents/skills"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "C4", "PIE", "PT", "RET", "PERF", "RUF", "SIM", "ASYNC"]
+select = [
+    "E", "F", "I", "UP", "B", "C4", "PIE", "PT", "RET", "PERF", "RUF", "SIM", "ASYNC",
+    "TID251", "PLW1514", "S108", "S602", "S604", "S605", "S607",
+]
 # RUF001-003：中文注释与文案里的全角标点被判为「易混淆 unicode」，对中文仓库是纯噪音。
 ignore = ["E402", "E501", "RUF001", "RUF002", "RUF003"]
+# PLW1514 只在 preview 中提供，explicit-preview-rules 保证其他规则不受 preview 影响。
+preview = true
+explicit-preview-rules = true
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"os.O_NOFOLLOW".msg = "Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」"
+"os.O_DIRECTORY".msg = "Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」"
+"os.O_NONBLOCK".msg = "Windows 上不存在。用 getattr(os, \"<名>\", 0) 取值；不可信路径缺少 O_NOFOLLOW 时，见 docs/standards/backend.md「不可信路径缺少 `O_NOFOLLOW` 时，打开后校验文件身份」"
+"asyncio.create_subprocess_shell".msg = "命令经 shell 解析，Windows 上行为不同且有注入风险。改用 asyncio.create_subprocess_exec 并传 list 参数"
+
+[tool.ruff.lint.per-file-ignores]
+# 测试里的 /tmp 是假路径字符串，测试调用 git 依赖 PATH 是预期行为。
+"tests/**" = ["S108", "S607"]
+# 子包测试与主仓 tests/ 同一口径。
+"packages/*/tests/**" = ["S108", "S607"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI 依赖注入以「参数默认值处调用」为惯用法，B008 对其属误报；登记后无需逐处 noqa。
@@ -392,6 +410,8 @@ reportUnusedImport = "warning"
 reportUnusedVariable = "warning"
 reportUnusedClass = "warning"
 reportUnusedFunction = "warning"
+# reportUnreachable 在回调赋值上会误报：basedpyright 不跟踪回调里的赋值，`x: T | None = None` 配 `nonlocal` 会让外层的空值判定被当成恒真、随后的分支被判不可达。
+# 这类告警改用单元素列表当信箱（`box: list[T] = []`，回调里 append，外层读 box[0]），不要删除被误判的分支，也不要加忽略注释。
 reportUnreachable = "warning"
 reportDeprecated = "warning"
 

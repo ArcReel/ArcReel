@@ -14,6 +14,7 @@ from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.service import ConfigService
 from lib.infra.api_errors import BadRequestError
 from server.routers._validators import require_video_bucket_capability
+from tests.fakes import bind_session_factory
 
 
 async def _set_default_video_backend(factory: async_sessionmaker[AsyncSession], value: str) -> None:
@@ -25,7 +26,7 @@ async def _set_default_video_backend(factory: async_sessionmaker[AsyncSession], 
 class TestRequireVideoBucketCapability:
     async def test_missing_r2v_capability_maps_to_bad_request(self, db_factory, monkeypatch):
         await _set_default_video_backend(db_factory, "minimax/MiniMax-Hailuo-2.3")
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         with pytest.raises(BadRequestError) as exc_info:
             await require_video_bucket_capability({}, "r2v")
@@ -36,7 +37,7 @@ class TestRequireVideoBucketCapability:
     async def test_project_r2v_bucket_overrides_incapable_default(self, db_factory, monkeypatch):
         """配置 r2v 桶后参考生视频改用桶内模型：默认模型缺参考图能力也不再拦截。"""
         await _set_default_video_backend(db_factory, "minimax/MiniMax-Hailuo-2.3")
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         # 预检放行即静默返回 None
         assert (
@@ -45,13 +46,13 @@ class TestRequireVideoBucketCapability:
 
     async def test_no_provider_configured_passes_through(self, db_factory, monkeypatch):
         """未配置任何供应商（自动推断失败）→ 放行入队，由 worker 在任务面板暴露。"""
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         assert await require_video_bucket_capability({}, "i2v") is None
 
     async def test_bare_builtin_provider_without_video_model_is_rejected(self, db_factory, monkeypatch):
         """项目层裸写的内置供应商在目录里没有视频默认模型：提交期就报重新选择模型，不放行入队。"""
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         with pytest.raises(ModelNotInCatalogError) as exc_info:
             await require_video_bucket_capability({"video_backend": "openai"}, "i2v")

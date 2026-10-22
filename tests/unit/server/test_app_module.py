@@ -3,15 +3,10 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-import lib.db
 import server.app as app_module
-from server.routers import assistant as assistant_router
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
-
-
-async def _noop_async(*args, **kwargs):
-    """No-op coroutine for mocking async functions in tests."""
+from tests.unit.server.app_lifespan_support import stub_lifespan_dependencies
 
 
 class _FakeWorker:
@@ -42,13 +37,7 @@ class TestAppModule:
 
     @pytest.mark.asyncio
     async def test_lifespan_starts_and_stops_worker(self, monkeypatch):
-        worker = _FakeWorker()
-        monkeypatch.setattr(app_module, "create_generation_worker", lambda: worker)
-        monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
-        monkeypatch.setattr(app_module, "init_db", _noop_async)
-        monkeypatch.setattr(lib.db, "init_db", _noop_async)
-        monkeypatch.setattr(assistant_router.assistant_service, "startup", _noop_async)
-        monkeypatch.setattr(assistant_router.assistant_service, "shutdown", _noop_async)
+        worker = stub_lifespan_dependencies(monkeypatch)
 
         app = app_module.app
         app.state = SimpleNamespace()
@@ -63,12 +52,7 @@ class TestAppModule:
     @pytest.mark.parametrize(("auth_enabled", "expect_warning"), [("false", True), ("true", False)])
     async def test_lifespan_warns_when_auth_disabled(self, monkeypatch, caplog, auth_enabled, expect_warning):
         monkeypatch.setenv("AUTH_ENABLED", auth_enabled)
-        monkeypatch.setattr(app_module, "create_generation_worker", lambda: _FakeWorker())
-        monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
-        monkeypatch.setattr(app_module, "init_db", _noop_async)
-        monkeypatch.setattr(lib.db, "init_db", _noop_async)
-        monkeypatch.setattr(assistant_router.assistant_service, "startup", _noop_async)
-        monkeypatch.setattr(assistant_router.assistant_service, "shutdown", _noop_async)
+        stub_lifespan_dependencies(monkeypatch)
 
         app = app_module.app
         app.state = SimpleNamespace()

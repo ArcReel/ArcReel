@@ -18,7 +18,7 @@ from server.auth import (
     API_KEY_PREFIX,
     CurrentUser,
     CurrentUserInfo,
-    _hash_api_key,
+    hash_api_key,
     invalidate_api_key_cache,
 )
 from server.i18n import Translator
@@ -77,7 +77,7 @@ async def create_api_key(
     """创建新 API Key。完整 key 仅在响应中出现一次，之后无法再查看。"""
     _require_jwt_auth(user, _t)
     key = _generate_api_key()
-    key_hash = _hash_api_key(key)
+    key_hash = hash_api_key(key)
     key_prefix = key[:8]  # e.g. "arc-abcd"
 
     if body.expires_days == 0:

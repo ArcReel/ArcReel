@@ -9,8 +9,8 @@
 3. 使用 Skill 工具调用 `pr-ai-review-loop`，采用其工程判断、覆盖核对、等待、轮次与终核约定；委派方为 team-lead，轮次预算以输入的 `rounds` 为准（省略即该 skill 的默认值）。
    - wait.sh 与质量门等长任务前台阻塞执行。
    - 普通修复以额外 integration-fix commits push，commit message 按 [`CONTRIBUTING.md` 提交规范](../../../../CONTRIBUTING.md)；质量门持续失败时记为 `fault` 并上报 team-lead。
-   - 评估汇报、业务取舍与故障询问均发给 team-lead。
-   - 达到硬停后，按该 skill 完成最后一批必要复审与终核：新意见都能以回复结案时，回复后进入第 6 步；需要改代码时，按 [handoff.md](handoff.md) 追加「审查循环」段，向 team-lead 作硬停汇报并停止。
+   - 评估汇报、按 [escalation.md](../../../../docs/agents/escalation.md) 需要找用户的事项与故障询问均发给 team-lead。
+   - 达到硬停后，按该 skill 完成最后一批必要复审与终核：新意见都能以回复结案时，回复后进入第 6 步；需要改代码时，按 [handoff.md](handoff.md) 追加「审查循环」段，按 [lessons.md](../../../../docs/agents/lessons.md)「收尾自查」自查，向 team-lead 作硬停汇报并停止。
 4. 收到 rebase 指令时，rebase 到最新 `origin/main`，解决冲突、重跑累计质量门，以 `--force-with-lease` push，并按 [handoff.md](handoff.md) 记录新旧 HEAD。保留每个 issue 的单个 conventional commit 与 `Refs #<N>`。
-5. reviewer 意见超出批次范围时，按该 skill 判断是否阻塞验收；非阻塞项回复边界并记为 follow-up 候选。意见涉及真实业务取舍时请示 team-lead，收到裁决后回执确认；team-lead 按主流程的暂停边界持久化 issue 状态并阻断当前 stage 合并，直到用户裁决并完成对应恢复或重建。
-6. 终核通过后，将本 stage 的所有非 issue commits 压成一个同规范的 integration-fix commit。确认压缩前后 tree 一致后，以 `--force-with-lease` push；新 HEAD 的 required checks 通过后，按 [handoff.md](handoff.md) 追加「审查循环」段，回报达标 HEAD 与轮数并停止。
+5. reviewer 意见超出批次范围时，按该 skill 判断是否阻塞验收；非阻塞项回复边界并记为 follow-up 候选。意见按 escalation.md 需要找用户时请示 team-lead，收到裁决后回执确认；team-lead 按主流程的暂停边界持久化 issue 状态并阻断当前 stage 合并，直到用户裁决并完成对应恢复或重建。
+6. 终核通过后，将本 stage 的所有非 issue commits 压成一个同规范的 integration-fix commit。确认压缩前后 tree 一致后，以 `--force-with-lease` push；新 HEAD 的 required checks 通过后，按 lessons.md「收尾自查」自查，按 [handoff.md](handoff.md) 追加「审查循环」段，回报达标 HEAD 与轮数并停止。

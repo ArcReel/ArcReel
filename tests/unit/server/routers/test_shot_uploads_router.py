@@ -19,8 +19,9 @@ from server.error_handlers import register_error_handlers
 from server.routers import reference_videos, shot_uploads
 from server.routers import versions as versions_router
 from server.services.currency import upload_finalize
-from server.services.tasks import formal_image_commit, generation_tasks, reference_video_tasks
+from server.services.tasks import formal_image_commit, reference_video_tasks
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_project_manager
 
 
 def _write_thumbnail(thumbnail_path: Path, content: bytes) -> None:
@@ -80,8 +81,7 @@ def _client(monkeypatch, tmp_path):
     pm = _seed_shot_project(tmp_path)
     monkeypatch.setattr(shot_uploads, "get_project_manager", lambda: pm)
     monkeypatch.setattr(upload_finalize, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
 
     app = FastAPI()
     register_error_handlers(app)
@@ -517,9 +517,7 @@ def _seed_reference_project(tmp_path) -> ProjectManager:
 
 def _ref_client(monkeypatch, tmp_path):
     pm = _seed_reference_project(tmp_path)
-    monkeypatch.setattr(reference_videos, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(reference_video_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
 
     async def _fake_thumbnail(video_path: Path, thumbnail_path: Path):
         await asyncio.to_thread(_write_thumbnail, thumbnail_path, b"jpg")

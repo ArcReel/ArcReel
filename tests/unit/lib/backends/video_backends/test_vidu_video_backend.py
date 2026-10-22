@@ -1,4 +1,4 @@
-"""ViduVideoBackend 单元测试 — 重点：endpoint 选择、duration 强制、resolution 白名单、build_request 字段。"""
+"""ViduVideoBackend 单元测试 — 重点：endpoint 选择、duration 强制、resolution 原样透传、build_request 字段。"""
 
 from __future__ import annotations
 
@@ -13,12 +13,11 @@ from lib.backends.video_backends.vidu import (
     _DURATION_RULES,
     _ENDPOINT_MODELS,
     _ENDPOINTS_WITH_ASPECT_RATIO,
+    _KNOWN_MODELS,
     _Q3_MODELS,
-    _RESOLUTION_WHITELIST,
     DEFAULT_MODEL,
     ViduVideoBackend,
     _coerce_duration,
-    _coerce_resolution,
 )
 from lib.catalog import query as catalog
 from tests.fakes import bounded_poll_clock
@@ -167,34 +166,6 @@ class TestCoerceDuration:
         assert _coerce_duration("unknown-model", "/img2video", None) == 5
 
 
-class TestCoerceResolution:
-    def test_q1_only_1080p_falls_back(self):
-        assert _coerce_resolution("viduq1", "720p") == "1080p"
-
-    def test_q3_turbo_passes_720p(self):
-        assert _coerce_resolution("viduq3-turbo", "720p") == "720p"
-
-    def test_default_for_q3_turbo_when_none(self):
-        # whitelist 里有 720p → 取 720p
-        assert _coerce_resolution("viduq3-turbo", None) == "720p"
-
-    def test_unknown_model_passthrough(self):
-        assert _coerce_resolution("unknown", "9000p") == "9000p"
-
-    def test_all_known_models_have_whitelist(self):
-        # registry 中暴露的模型都得在白名单里
-        for model in {
-            "viduq3-pro",
-            "viduq3-turbo",
-            "viduq3",
-            "viduq3-mix",
-            "viduq2",
-            "viduq1",
-            "vidu2.0",
-        }:
-            assert model in _RESOLUTION_WHITELIST
-
-
 class TestBuildRequest:
     """_build_request 是核心串联函数：endpoint 选择 + duration/resolution/aspect_ratio/audio 字段拼装。"""
 
@@ -220,6 +191,31 @@ class TestBuildRequest:
         assert body["audio"] is True
         # text2video 不携带 images
         assert "images" not in body
+
+    @pytest.mark.parametrize(
+        ("model", "resolution"),
+        [("viduq1", "720p"), ("viduq3-turbo", "4K"), ("unknown-model", "9000p")],
+    )
+    def test_resolution_is_sent_as_requested(self, video_output_path: Path, model: str, resolution: str):
+        """档位以模型目录条目为准：不在任何本地表里的值也原样下发，由上游拒绝（docs/adr/0104）。"""
+        backend = ViduVideoBackend(api_key="test-key", model=model)
+        req = VideoGenerationRequest(prompt="x", output_path=video_output_path, resolution=resolution)
+
+        _, body = backend._build_request(req)
+
+        assert body["resolution"] == resolution
+
+    def test_resolution_omitted_when_not_requested(self, video_output_path: Path):
+        backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
+
+        _, body = backend._build_request(VideoGenerationRequest(prompt="x", output_path=video_output_path))
+
+        assert "resolution" not in body
+
+    def test_metered_usage_reports_requested_resolution(self, video_output_path: Path):
+        request = VideoGenerationRequest(prompt="x", output_path=video_output_path, resolution="720p")
+
+        assert ViduVideoBackend.metered_usage("viduq1", request).dimensions["resolution"] == "720p"
 
     @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_img2video_passes_one_image_no_aspect_ratio(self, tmp_path: Path, video_output_path: Path):
@@ -288,6 +284,52 @@ class TestBuildRequest:
         req = VideoGenerationRequest(prompt="x", output_path=video_output_path, duration_seconds=4)
         with pytest.raises(RuntimeError, match="不支持"):
             backend._build_request(req)
+
+
+class TestUnsendableInputsRejected:
+    """端点发不出的输入在组装请求时拒绝，不静默丢弃。"""
+
+    @staticmethod
+    def _image(tmp_path: Path, name: str) -> Path:
+        p = tmp_path / name
+        p.write_bytes(b"x")
+        return p
+
+    @pytest.mark.parametrize("frame", ["start_image", "end_image"])
+    def test_reference_images_with_frame(self, tmp_path: Path, video_output_path: Path, frame: str):
+        req = VideoGenerationRequest(
+            prompt="x",
+            output_path=video_output_path,
+            reference_images=[self._image(tmp_path, "r.png")],
+            **{frame: self._image(tmp_path, "f.png")},
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            ViduVideoBackend(api_key="test-key", model="viduq3-turbo")._build_request(req)
+        assert exc.value.code == "video_reference_images_with_frames_unsupported"
+
+    def test_reference_images_over_limit(self, tmp_path: Path, video_output_path: Path):
+        refs = [self._image(tmp_path, f"r{i}.png") for i in range(8)]
+        req = VideoGenerationRequest(prompt="x", output_path=video_output_path, reference_images=refs)
+        with pytest.raises(VideoCapabilityError) as exc:
+            ViduVideoBackend(api_key="test-key", model="viduq3-turbo")._build_request(req)
+        assert exc.value.code == "video_reference_images_exceeded"
+        assert exc.value.params == {"model": "viduq3-turbo", "limit": 7, "count": 8}
+
+    def test_end_frame_without_start_frame(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x", output_path=video_output_path, end_image=self._image(tmp_path, "e.png")
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            ViduVideoBackend(api_key="test-key", model="viduq3-turbo")._build_request(req)
+        assert exc.value.code == "video_end_image_requires_start_image"
+
+    def test_reference_audio(self, tmp_path: Path, video_output_path: Path):
+        req = VideoGenerationRequest(
+            prompt="x", output_path=video_output_path, reference_audio_files=[self._image(tmp_path, "a.mp3")]
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            ViduVideoBackend(api_key="test-key", model="viduq3-turbo")._build_request(req)
+        assert exc.value.code == "video_reference_audio_unsupported"
 
 
 class TestPromptLength:
@@ -371,7 +413,10 @@ class TestDurationRulesSpec:
 
 
 class TestRegistryBackendConsistency:
-    """目录里 vidu2.0 的模型事实与 backend 执行期白名单须无分歧（两侧同一份官方文档核实）。"""
+    """目录里 vidu 视频条目的模型事实与 backend 执行期表须无分歧（两侧同一份官方文档核实）。
+
+    时长表是 docs/adr/0018 允许的端点级例外，两侧只要求子集。
+    """
 
     def _vidu2_model_info(self) -> catalog.CatalogModel:
         model = catalog.get_model("vidu", "vidu2.0")
@@ -394,9 +439,27 @@ class TestRegistryBackendConsistency:
         model_info = self._vidu2_model_info()
         assert model_info.duration_resolution_constraints == {"360p": [4], "1080p": [4]}
 
-    def test_resolutions_matches_backend_whitelist(self):
-        model_info = self._vidu2_model_info()
-        assert set(model_info.resolutions) == set(_RESOLUTION_WHITELIST["vidu2.0"])
+    @pytest.mark.parametrize("name", sorted(_KNOWN_MODELS))
+    def test_durations_within_endpoint_rules(self, name: str):
+        """目录时长须落在端点级时长表内，否则 _coerce_duration 会把用户选的时长静默改成最近值。
+
+        端点级校正是 docs/adr/0018 允许的例外，两侧只要求子集，不要求相等。
+        """
+        model_info = catalog.get_model("vidu", name, media_type="video")
+        if model_info is None:
+            pytest.skip(f"目录未登记视频型号 {name}")
+        non_reference = {
+            d for (m, ep), ds in _DURATION_RULES.items() if m == name and ep != "/reference2video" for d in ds
+        }
+        reference = set(_DURATION_RULES.get((name, "/reference2video"), []))
+        # 只走参考生视频的型号，可选时长就是参考生视频端点的时长。
+        allowed = non_reference or reference
+        extra = set(model_info.supported_durations) - allowed
+        assert not extra, f"目录 vidu/{name} 的 supported_durations 含端点时长表外的 {sorted(extra)}"
+        extra_ref = set(model_info.reference_image_durations or []) - reference
+        assert not extra_ref, (
+            f"目录 vidu/{name} 的 reference_image_durations 含 /reference2video 时长表外的 {sorted(extra_ref)}"
+        )
 
 
 class TestCreateTask413:

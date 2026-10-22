@@ -32,7 +32,7 @@ from lib.script.draft_quarantine import (
 from server.draft_workflow import DraftContext, DraftWorkflow, DraftWorkflowError
 from server.services.project.script_review import ScriptReviewService
 from server.text_generation import (
-    _fetch_reference_split_caps,
+    fetch_reference_split_caps,
     reference_soft_violations,
     soft_violation_entries,
     uses_reference_video_units,
@@ -186,7 +186,7 @@ class EpisodeDraftService:
         if not isinstance(units, list):
             return []
         try:
-            caps = await _fetch_reference_split_caps(project, config_resolver=self.config_resolver)
+            caps = await fetch_reference_split_caps(project, config_resolver=self.config_resolver)
         except VideoRequestFactsError:
             return []
         texts = [str(unit.get("text") or "") if isinstance(unit, dict) else "" for unit in units]

@@ -25,9 +25,9 @@ from lib.workflow.workflow_state import (
     WorkflowStatus,
     WorkflowTarget,
 )
-from server.services.admission import video_batch_admission
 from server.services.project import workflow_planner
 from tests.factories import make_video_request_facts
+from tests.fakes import use_active_tasks_lookup
 
 
 def _status(*, action: str = "generate_videos") -> WorkflowStatus:
@@ -608,7 +608,7 @@ async def test_planner_refuses_a_unit_whose_video_input_is_unusable(
         return []
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
-    monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
+    use_active_tasks_lookup(monkeypatch, _no_active_tasks)
 
     before = sorted(path.relative_to(tmp_path).as_posix() for path in tmp_path.rglob("*"))  # noqa: ASYNC240 -- 测试内本地小文件读写/断言，不在生产事件循环上
     plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())
@@ -647,7 +647,7 @@ async def test_planner_folds_a_video_request_facts_failure_into_each_target(
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
     monkeypatch.setattr(workflow_planner, "build_storyboard_video_specs", _specs)
-    monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
+    use_active_tasks_lookup(monkeypatch, _no_active_tasks)
     failure = VideoRequestFactsFailure(
         "video_supported_durations_incompatible",
         (("provider", "gemini-aistudio"), ("model", "veo-3.1"), ("resolution", "4k"), ("capability", "i2v")),
@@ -689,7 +689,7 @@ async def test_planner_reports_the_audio_switch_conflict_before_any_task_exists(
 
     monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _no_active_tasks)
     monkeypatch.setattr(workflow_planner, "build_storyboard_video_specs", _specs)
-    monkeypatch.setattr(video_batch_admission, "get_active_tasks_for_resources", _no_active_tasks)
+    use_active_tasks_lookup(monkeypatch, _no_active_tasks)
     set_admission_video_request_facts(make_video_request_facts(requested_generate_audio=False))
 
     plan = await workflow_planner.WorkflowPlanner(pm).get_plan("demo", WorkflowPlanRequest())

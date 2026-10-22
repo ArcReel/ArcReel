@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from tests.fakes import use_text_generator
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
     drama_project,
@@ -82,7 +83,6 @@ async def test_planning_context_carries_registered_names_aliases_and_description
 async def test_narration_plan_accepts_references_to_listed_new_assets(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     new_assets = [
@@ -90,7 +90,7 @@ async def test_narration_plan_accepts_references_to_listed_new_assets(
         _new("小桃", "register", description="重复的一项"),
     ]
     segment = nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["张三", "小桃"])
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([segment], new_assets=new_assets))
+    use_text_generator(monkeypatch, nr_generator_returning([segment], new_assets=new_assets))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
@@ -102,11 +102,10 @@ async def test_narration_plan_accepts_references_to_listed_new_assets(
 async def test_narration_plan_refuses_an_unlisted_unregistered_reference(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     segment = nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["小桃"])
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([segment]))
+    use_text_generator(monkeypatch, nr_generator_returning([segment]))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
@@ -118,12 +117,11 @@ async def test_narration_plan_refuses_an_unlisted_unregistered_reference(
 async def test_narration_plan_quarantines_an_unresolvable_decision(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     segment = nr_segment("E1S01", 4, "张三在村口等人", characters_in_segment=["三叔"])
     new_assets = [_new("三叔", "merge", target="王五")]
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([segment], new_assets=new_assets))
+    use_text_generator(monkeypatch, nr_generator_returning([segment], new_assets=new_assets))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 
@@ -166,7 +164,6 @@ async def test_reference_plan_still_refuses_an_unlisted_speaker(
 async def test_drama_plan_references_must_be_registered_or_listed(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts, new_assets: list[dict[str, Any]], saved: bool
 ) -> None:
-    from server import text_generation as mod
 
     drama_project(fake_ctx)
     use_fake_caps(fake_ctx, supported_durations=(4, 6, 8), default_duration=4)
@@ -175,7 +172,7 @@ async def test_drama_plan_references_must_be_registered_or_listed(
         utterances=[{"kind": "dialogue", "speaker": "小桃", "text": "姐姐回来了。"}],
     )
     content = {"title": "第一集", "scenes": [scene], "new_assets": new_assets}
-    monkeypatch.setattr(mod.TextGenerator, "create", _drama_generator(content))
+    use_text_generator(monkeypatch, _drama_generator(content))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
 

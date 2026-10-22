@@ -3,7 +3,7 @@
 from dataclasses import replace
 
 from arcreel_catalog_core import CatalogData, CatalogEntry, TextFacts
-from lib.catalog.composition import compose_catalog, newest_official
+from lib.catalog.composition import compose_catalog, merge_official, newest_official
 from tests.catalog_support import catalog_of
 
 
@@ -42,6 +42,34 @@ class TestNewestOfficial:
         synced = _official("2026-10-01T00:00:00Z", _text("chat"))
 
         assert newest_official([factory, synced]) is factory
+
+
+class TestMergeOfficial:
+    def test_newer_sync_keeps_entries_only_the_snapshot_has(self):
+        # 同步不删除模型条目：上游删掉的条目在本地保留最后一个版本（docs/adr/0103）
+        factory = _official("2026-10-01T00:00:00Z", _text("chat", "Chat v1"), _text("legacy"))
+        synced = _official("2026-10-20T00:00:00Z", _text("chat", "Chat v2"))
+
+        merged = merge_official(factory, synced)
+
+        assert merged.dataset_version == synced.dataset_version
+        assert [e.display_name for e in merged.entries] == ["Chat v2", "Legacy"]
+        assert merged.builtin_providers == synced.builtin_providers
+
+    def test_newer_snapshot_wins_and_keeps_entries_only_the_sync_has(self):
+        factory = _official("2026-11-01T00:00:00Z", _text("chat", "Chat v3"))
+        synced = _official("2026-10-20T00:00:00Z", _text("chat", "Chat v2"), _text("extra"))
+
+        merged = merge_official(factory, synced)
+
+        assert merged.dataset_version == factory.dataset_version
+        assert [e.display_name for e in merged.entries] == ["Chat v3", "Extra"]
+
+    def test_nothing_to_retain_returns_the_newest_as_is(self):
+        factory = _official("2026-10-01T00:00:00Z", _text("chat"))
+        synced = _official("2026-10-20T00:00:00Z", _text("chat"))
+
+        assert merge_official(factory, synced) is synced
 
 
 class TestComposeCatalog:

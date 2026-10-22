@@ -21,6 +21,7 @@ from arcreel_market_core.video_backend_contract import ReferenceAudioMode, audio
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
+from lib.catalog.model_id import has_dot_segment
 from lib.catalog.query import binding_key, find_bound_entry
 from lib.config.repository import mask_secret
 from lib.custom_provider import is_custom_endpoint, make_provider_id
@@ -626,6 +627,8 @@ def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str])
             raise HTTPException(status_code=422, detail=_t("model_id_required"))
         if m.is_enabled and not m.endpoint:
             raise HTTPException(status_code=422, detail=_t("endpoint_required"))
+        if has_dot_segment(m.model_id):
+            raise HTTPException(status_code=422, detail=_t("model_id_dot_segment", model=m.model_id))
         if m.model_id in seen:
             raise HTTPException(status_code=422, detail=_t("duplicate_model_id", model_id=m.model_id))
         if m.model_id:
@@ -1015,6 +1018,8 @@ async def update_custom_model(
         raise _model_input_rejected(exc, patch.get("endpoint"), patch.get("entry_binding"), _t) from exc
     if not target.model_id:
         raise HTTPException(status_code=422, detail=_t("model_id_required"))
+    if target.model_id != row.model_id and has_dot_segment(target.model_id):
+        raise HTTPException(status_code=422, detail=_t("model_id_dot_segment", model=target.model_id))
     if target.model_id != row.model_id and row.display_name in ("", row.model_id):
         target = target.model_copy(update={"display_name": target.model_id})
     others = [r for r in rows if r is not row]
@@ -1106,6 +1111,8 @@ async def add_custom_model(
     model_id = model_id.strip()
     if not model_id:
         raise HTTPException(status_code=422, detail=_t("builtin_model_id_required"))
+    if has_dot_segment(model_id):
+        raise HTTPException(status_code=422, detail=_t("model_id_dot_segment", model=model_id))
     rows = await repo.list_models(provider_id)
     if any(r.model_id == model_id for r in rows):
         raise HTTPException(status_code=422, detail=_t("builtin_model_duplicate", model=model_id))
@@ -1560,7 +1567,8 @@ async def _run_discover(
             base_url=base_url or None,
             api_key=api_key,
         )
-        return DiscoverResponse(models=models)
+        # 含点段的 ID 添加会被拒，不放进可添加列表
+        return DiscoverResponse(models=[m for m in models if not has_dot_segment(str(m.get("model_id", "")))])
     except UnsupportedDiscoveryFormatError as exc:
         raise BadRequestError("invalid_discovery_format", discovery_format=discovery_format) from exc
     except InvalidAnthropicBaseUrlError as exc:

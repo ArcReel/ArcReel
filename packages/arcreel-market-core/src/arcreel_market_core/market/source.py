@@ -40,10 +40,10 @@ def check_source(root: Path) -> list[MarketIssue]:
         document = read_index_document(root)
     except ValueError as exc:
         return [MarketIssue(INDEX_FILENAME, ROOT_PATH, MarketIssueCode.INDEX_UNREADABLE, {"detail": str(exc)})]
-    return _check_source_document(root, document)
+    return check_source_document(root, document)
 
 
-def _check_source_document(root: Path, document: object) -> list[MarketIssue]:
+def check_source_document(root: Path, document: object) -> list[MarketIssue]:
     """校验已读取的索引及其引用文件，供 ``check`` 与生成器共用往返闸门。"""
     try:
         index = parse_index(document)

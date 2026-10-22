@@ -16,7 +16,7 @@ from .entry import project_meta
 from .icon import ICON_FORMATS
 from .index import ENDPOINT_ENTRY_TYPE, INDEX_SCHEMA_VERSION
 from .issues import INDEX_FILENAME, ROOT_PATH, MarketIssue, MarketIssueCode
-from .source import _check_source_document, read_index_document, read_json_file
+from .source import check_source_document, read_index_document, read_json_file
 
 ENDPOINTS_DIR = "endpoints"
 DEFINITION_FILENAME = "definition.json"
@@ -72,7 +72,7 @@ def build_index(
     index: dict[str, Any] = {"schema_version": INDEX_SCHEMA_VERSION}
     index.update({field: header[field] for field in _HEADER_FIELDS if field in header})
     index["entries"] = entries
-    if issues := _check_source_document(root, index):
+    if issues := check_source_document(root, index):
         raise GenerateError(issues)
     return index
 

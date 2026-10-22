@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
-from lib.backends.text_generator import TextGenerator
 from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.project import project_manager as project_manager_module
@@ -34,6 +33,7 @@ from lib.script.reference_video.unit_capabilities import evaluate_reference_unit
 from lib.script.script_generator import PlanningVideoFacts, ScriptGenerator
 from server.services.project.episode_drafts import EpisodeDraftService
 from tests.factories import make_video_request_facts
+from tests.fakes import use_text_generator
 
 SCRIPT_PLAN_UNIT = {"unit_id": "E1U01", "text": "@[主角] 推开 @[酒馆] 的门", "duration_seconds": 4}
 SCRIPT_PLAN_UNITS_JSON = _json.dumps({"units": [SCRIPT_PLAN_UNIT]}, ensure_ascii=False)
@@ -1590,7 +1590,7 @@ async def test_rewrite_completed_unit_draft_can_be_hand_fixed_and_adopted(refere
     service = EpisodeDraftService(ProjectManager.for_project_dir(reference_project))
     view = await service.get_draft(reference_project.name, 1, "reference_prompt_authoring")
     assert view["item_ids"] == ["E1U01"]
-    monkeypatch.setattr(TextGenerator, "create", AsyncMock(return_value=_idle_generator()))
+    use_text_generator(monkeypatch, AsyncMock(return_value=_idle_generator()))
     fixed = "镜头1：中景。@[主角] 走进 @[酒馆]。"
     result = await service.save_draft(
         reference_project.name,

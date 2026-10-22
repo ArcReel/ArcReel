@@ -47,6 +47,7 @@ from lib.speech.narration_config import parse_tts_backend
 from server.dependencies import get_config_service
 from server.i18n import Locale, Translator
 from server.routers._validators import validate_backend_value
+from server.services.project.narration_settings import default_narration_tts
 from server.services.tasks.generation_context import audio_backend_capabilities
 
 logger = logging.getLogger(__name__)
@@ -448,7 +449,7 @@ async def get_narration_defaults(
 ) -> NarrationDefaultsResponse:
     """全局默认音频模型、旁白音色与配音语速：创建向导与项目设置切到 TTS 配音时用它预填项目快照。"""
     try:
-        backend, voice, speed = await ConfigResolver(async_session_factory).default_narration_tts()
+        backend, voice, speed = await default_narration_tts(ConfigResolver(async_session_factory))
         audio_backend: str | None = f"{backend.provider_id}/{backend.model_id}"
     except ValueError:
         audio_backend, voice, speed = None, await svc.get_narration_voice(), await svc.get_narration_speed()

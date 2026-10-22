@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from lib.infra.data_root_layout import DataRootLayout
-from lib.infra.logging_utils import _redact_value
+from lib.infra.logging_utils import redact_value
 
 _UNAVAILABLE = "<unavailable: {exc}>"
 
@@ -78,7 +78,7 @@ def _db_url() -> str:
         parsed = urlparse(raw)
         netloc = parsed.netloc
         if parsed.username or parsed.password:
-            user = _redact_value(parsed.username) if parsed.username else ""
+            user = redact_value(parsed.username) if parsed.username else ""
             host = parsed.hostname or ""
             port = f":{parsed.port}" if parsed.port else ""
             netloc = f"{user}:••@{host}{port}" if parsed.password else f"{user}@{host}{port}"
@@ -114,6 +114,25 @@ def _providers() -> str:
     return ", ".join(ids) if ids else "<none>"
 
 
+def _catalog_dataset_version() -> str:
+    from lib.catalog import query
+
+    return query.official_data().dataset_version
+
+
+def _catalog_last_sync() -> str:
+    from lib.catalog.official_sync import sync_status
+
+    at = sync_status().last_success_at
+    return at.isoformat() if at is not None else "<never>"
+
+
+def _catalog_sync_error() -> str:
+    from lib.catalog.official_sync import sync_status
+
+    return sync_status().last_error or "<none>"
+
+
 def collect_diagnostics(*, app_version: Callable[[], object] | None = None) -> str:
     """返回脱敏的 plain-text 诊断报告。任一字段失败用 <unavailable> 占位，整体不抛。"""
     fields: list[tuple[str, Callable[[], object]]] = [
@@ -125,6 +144,9 @@ def collect_diagnostics(*, app_version: Callable[[], object] | None = None) -> s
         ("Log level", _log_level),
         ("Sandbox", _sandbox_status),
         ("Registered providers", _providers),
+        ("Catalog dataset version", _catalog_dataset_version),
+        ("Catalog last sync", _catalog_last_sync),
+        ("Catalog last sync error", _catalog_sync_error),
         ("Report generated", lambda: datetime.now(UTC).isoformat()),
     ]
 

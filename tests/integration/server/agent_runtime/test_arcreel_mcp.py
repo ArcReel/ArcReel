@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from claude_agent_sdk import ClaudeAgentOptions
@@ -17,7 +16,7 @@ from server.agent_runtime.event_log import EventLogStore, build_user_entry
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
-from tests.fakes import FakeSDKClient, result_frame, system_frame
+from tests.fakes import FakeSDKClient, result_frame, system_frame, use_sdk_client
 
 # ---------------------------------------------------------------------------
 # build_arcreel_mcp_server
@@ -120,7 +119,9 @@ def test_retired_tool_names_are_not_registered() -> None:
 
 
 @pytest.mark.parametrize("resume", [False, True], ids=["new", "resumed"])
-async def test_timeline_revision_records_the_agent_author(tmp_path: Path, file_db_factory, resume: bool) -> None:
+async def test_timeline_revision_records_the_agent_author(
+    tmp_path: Path, file_db_factory, resume: bool, monkeypatch
+) -> None:
     projects = ProjectManager(tmp_path / "data")
     projects.create_project("demo")
     projects.create_project_metadata("demo", "Demo", "Anime", "narration")
@@ -147,12 +148,12 @@ async def test_timeline_revision_records_the_agent_author(tmp_path: Path, file_d
         return client
 
     user_entry = build_user_entry([{"type": "text", "text": "开始剪辑"}])
-    with patch("server.agent_runtime.session_manager.ClaudeSDKClient", sdk_client):
-        if resume:
-            meta = await manager.meta_store.create("demo", session_id)
-            await manager.send_message(session_id, "开始剪辑", meta=meta, user_entry=user_entry)
-        else:
-            await manager.send_new_session("demo", "开始剪辑", user_entry=user_entry)
+    use_sdk_client(monkeypatch, sdk_client)
+    if resume:
+        meta = await manager.meta_store.create("demo", session_id)
+        await manager.send_message(session_id, "开始剪辑", meta=meta, user_entry=user_entry)
+    else:
+        await manager.send_new_session("demo", "开始剪辑", user_entry=user_entry)
     try:
         servers = sdk_options[0].mcp_servers
         assert isinstance(servers, dict)

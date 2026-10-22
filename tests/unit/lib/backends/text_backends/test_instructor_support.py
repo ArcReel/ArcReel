@@ -860,7 +860,7 @@ class TestStructuredModeChainSync:
 
     def test_transient_error_keeps_its_type_after_unwrapping(self):
         """瞬态错误剥掉 Instructor 包装后冒泡，保住类型供调用方的重试装饰器判定。"""
-        from lib.infra.retry import BASE_RETRYABLE_ERRORS, _should_retry
+        from lib.infra.retry import BASE_RETRYABLE_ERRORS, should_retry
 
         with (
             patch(
@@ -872,7 +872,7 @@ class TestStructuredModeChainSync:
             self._call()
 
         # 消息文本不含任何瞬态状态码模式，只有异常类型能证明它可重试。
-        assert _should_retry(exc_info.value, BASE_RETRYABLE_ERRORS)
+        assert should_retry(exc_info.value, BASE_RETRYABLE_ERRORS)
 
     def test_invalid_tool_call_arguments_are_terminal(self):
         """上游回了 tool call 但 arguments 不可用：属校验类，不降到约束更弱的 MD_JSON。"""

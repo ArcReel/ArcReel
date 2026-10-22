@@ -1,6 +1,6 @@
-"""退役模型映射：设置与项目里引用的、已被供应商改名的模型改写为后继模型。
+"""退役模型映射：设置与项目里引用的、已被供应商改名或停服的模型改写为后继模型。
 
-只收已确认改名、且有后继模型的精确 ``provider/model`` 引用。已下架而没有后继的模型不在这里：
+只收已确认改名或停服、且有后继模型的精确 ``provider/model`` 引用。已下架而没有后继的模型不在这里：
 这类引用原样保留，运行时构造 backend 时报「该模型不在供应商的模型清单中」，由用户重新选择
 （``lib.catalog.errors.ModelNotInCatalogError``）。
 """
@@ -12,6 +12,11 @@ RETIRED_MODEL_REFERENCES: dict[str, str] = {
     # 文本
     "gemini-aistudio/gemini-3.1-flash-lite-preview": "gemini-aistudio/gemini-3.1-flash-lite",
     "gemini-vertex/gemini-3.1-flash-lite-preview": "gemini-vertex/gemini-3.1-flash-lite",
+    # 方舟 Seed 2.0 Lite/Mini 的 260215 版本与 xAI Grok 4.1 Fast 停服，改用同档在役型号
+    "ark/doubao-seed-2-0-lite-260215": "ark/doubao-seed-2-1-lite-260915",
+    "ark/doubao-seed-2-0-mini-260215": "ark/doubao-seed-2-0-mini-260428",
+    "grok/grok-4-1-fast-reasoning": "grok/grok-4.3",
+    "grok/grok-4-1-fast-non-reasoning": "grok/grok-4.3",
     # 图片：Gemini 图片模型正式发布，AI Studio 与 Vertex 都改用不带 -preview 的名字
     "gemini-aistudio/gemini-3-pro-image-preview": "gemini-aistudio/gemini-3-pro-image",
     "gemini-aistudio/gemini-3.1-flash-image-preview": "gemini-aistudio/gemini-3.1-flash-image",

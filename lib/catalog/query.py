@@ -5,7 +5,8 @@
 默认地址、并发默认），不含模型。
 
 模型清单、条目事实与默认模型取自合成后的目录（``lib.catalog.composition``）：官方数据是随代码打包的出厂快照
-（``lib/catalog/snapshot/``，加载时过 ``arcreel_catalog_core`` 的实例侧校验），用户修改的条目副本整条替换官方条目。
+（``lib/catalog/snapshot/``，加载时过 ``arcreel_catalog_core`` 的实例侧校验）与官方同步取回的数据
+（``lib.catalog.official_sync``）中较新的一份，用户修改的条目副本整条替换官方条目。
 价格是条目的价目表，见 :func:`provider_model_price`。
 供应商模型一级的查询返回目录自己的值对象（:class:`CatalogModel`、:class:`CatalogSearchHit`）；按名字对应条目的
 :func:`find_entry` 返回 ``arcreel_catalog_core`` 的 ``CatalogEntry``，调用方要的正是条目本身的键、事实与价目表。
@@ -39,7 +40,7 @@ from arcreel_catalog_core import (
     normalize_model_name,
 )
 from lib.app_version import app_version
-from lib.catalog.composition import ComposedCatalog, EntrySource, compose_catalog, newest_official
+from lib.catalog.composition import ComposedCatalog, EntrySource, compose_catalog, merge_official
 from lib.catalog.entry_matching import match_entry
 
 logger = logging.getLogger(__name__)
@@ -99,9 +100,29 @@ def factory_snapshot() -> CatalogData:
     )
 
 
+# 官方同步取回的数据：由官方同步装入，见 install_synced_data。单元素列表当信箱。
+_synced: list[CatalogData | None] = [None]
+
+# 按（出厂快照, 同步数据）对象缓存的官方数据；同步数据换上新的一份时重建。
+_official_cache: list[tuple[CatalogData, CatalogData, CatalogData]] = []
+
+
+def install_synced_data(data: CatalogData | None) -> None:
+    """换上官方同步取回的数据，之后的查询读它与出厂快照合成的官方数据（:func:`merge_official`）。
+
+    应用启动时装入已存的数据，每次同步应用新数据集之后再装入；整份替换，读点要么看到旧数据、要么看到新数据。
+    """
+    _synced[0] = data
+
+
 def official_data() -> CatalogData:
-    """官方数据：在候选来源中取数据集版本较新的一份；候选来源只有出厂快照，官方同步的数据作为另一个候选传入。"""
-    return newest_official((factory_snapshot(),))
+    """官方数据：出厂快照与官方同步中数据集版本较新的一份，保留另一份独有的条目；没有同步数据时即出厂快照。"""
+    snapshot, synced = factory_snapshot(), _synced[0]
+    if synced is None:
+        return snapshot
+    if not _official_cache or _official_cache[0][0] is not snapshot or _official_cache[0][1] is not synced:
+        _official_cache[:] = [(snapshot, synced, merge_official(snapshot, synced))]
+    return _official_cache[0][2]
 
 
 def _to_catalog_model(entry: CatalogEntry, api_model_name: str, key: str, default: bool) -> CatalogModel:
@@ -405,8 +426,10 @@ def _provider_models(provider_id: str) -> dict[str, CatalogModel]:
 
 
 def reset_for_tests() -> None:
-    """清空出厂快照、索引、用户添加模型与用户条目副本的进程级状态，下次查询重新读取快照。"""
+    """清空出厂快照、同步数据、索引、用户添加模型与用户条目副本的进程级状态，下次查询重新读取快照。"""
     factory_snapshot.cache_clear()
+    _synced[0] = None
+    _official_cache.clear()
     _user_added[0] = ()
     _user_entries[0] = ((), frozenset())
     _composed_cache.clear()

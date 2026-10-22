@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_catalog_core import MEDIA_TYPES
 from lib.catalog import query as catalog
+from lib.catalog.model_id import has_dot_segment
 from lib.config import registry
 from lib.db.models.builtin_provider_model import BuiltinProviderModelState
 from lib.db.repositories.builtin_provider_model_repo import BuiltinProviderModelRepository
@@ -133,6 +134,8 @@ async def add_builtin_model(
     model_id = model_id.strip()
     if not model_id:
         raise BuiltinModelError("builtin_model_id_required")
+    if has_dot_segment(model_id):
+        raise BuiltinModelError("model_id_dot_segment", model=model_id)
     if media_type is not None and media_type not in MEDIA_TYPES:
         raise BuiltinModelError("builtin_model_media_type_unsupported", media_type=media_type)
     views = catalog.provider_models(provider_id)
@@ -242,6 +245,8 @@ async def update_builtin_model(
         target = new_model_id.strip()
         if not target:
             raise BuiltinModelError("builtin_model_id_required")
+        if has_dot_segment(target):
+            raise BuiltinModelError("model_id_dot_segment", model=target)
         views = catalog.provider_models(provider_id)
         if any(v.model_id == target or (v.official and v.api_model_name == target) for v in views):
             raise BuiltinModelError("builtin_model_duplicate", model=target)

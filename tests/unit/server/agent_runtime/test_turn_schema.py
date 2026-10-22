@@ -1,10 +1,10 @@
 """Unit tests for turn_schema shared normalization."""
 
 from server.agent_runtime.turn_schema import (
-    _stringify_content,
     infer_block_type,
     normalize_block,
     normalize_content,
+    stringify_content,
 )
 
 
@@ -117,32 +117,32 @@ class TestNormalizeContent:
 
 class TestStringifyContent:
     def test_string_passthrough(self):
-        assert _stringify_content("hello") == "hello"
+        assert stringify_content("hello") == "hello"
 
     def test_list_of_text_blocks(self):
         content = [{"type": "text", "text": "line1"}, {"type": "text", "text": "line2"}]
-        assert _stringify_content(content) == "line1\nline2"
+        assert stringify_content(content) == "line1\nline2"
 
     def test_list_with_plain_strings(self):
-        assert _stringify_content(["a", "b"]) == "a\nb"
+        assert stringify_content(["a", "b"]) == "a\nb"
 
     def test_empty_list(self):
-        assert _stringify_content([]) == ""
+        assert stringify_content([]) == ""
 
     def test_none(self):
-        assert _stringify_content(None) == ""
+        assert stringify_content(None) == ""
 
     def test_non_string_non_list(self):
-        assert _stringify_content(42) == "42"
+        assert stringify_content(42) == "42"
 
     def test_mixed_list(self):
         content = [{"type": "text", "text": "dict"}, "plain", 99]
-        assert _stringify_content(content) == "dict\nplain\n99"
+        assert stringify_content(content) == "dict\nplain\n99"
 
     def test_dict_with_none_text(self):
         """SDK may send {type: text, text: null} — must not TypeError on join."""
         content = [{"type": "text", "text": None}]
-        assert _stringify_content(content) == ""
+        assert stringify_content(content) == ""
 
 
 class TestToolResultContentNormalization:

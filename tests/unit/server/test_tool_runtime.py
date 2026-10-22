@@ -11,6 +11,7 @@ from typing import ClassVar
 import pytest
 from pydantic import ValidationError
 
+from lib.catalog.errors import ModelNotInCatalogError
 from lib.generation.generation_queue import ActiveTaskRequestConflict
 from lib.infra.async_thread import run_sync_transaction
 from lib.project.project_manager import ProjectManager
@@ -179,6 +180,28 @@ async def test_video_capabilities_returns_typed_domain_outcome(set_video_request
         },
     }
     assert projects.project_loads == 1
+
+
+async def test_video_capabilities_model_not_in_catalog_guides_reselect() -> None:
+    class _RetiredCapabilities:
+        async def video_capabilities_for_project(self, project: dict, *, generation_type=None) -> dict:
+            raise ModelNotInCatalogError(provider_id="ark", model_id="old-video", media_type="video")
+
+    outcome = await get_video_capabilities(
+        ToolRequest(None),
+        ProjectScope("demo", Path("/projects")),
+        CallerContext(user_id="u1", source="embedded"),
+        Services(
+            projects=_Projects({"generation_mode": "storyboard"}),
+            workflow_planner=_Planner(_status()),
+            capabilities=_RetiredCapabilities(),
+        ),
+    )
+
+    assert outcome.problem is not None
+    assert outcome.problem.code == "model_not_in_provider_catalog"
+    assert outcome.problem.action == "configure_provider"
+    assert outcome.problem.params == {"provider": "ark", "model": "old-video"}
 
 
 async def test_generation_batch_remains_readable_when_project_migration_is_blocked(

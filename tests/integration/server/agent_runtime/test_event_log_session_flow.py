@@ -135,6 +135,8 @@ async def _wait_for_entries(store: EventLogStore, session_id: str, count: int, t
 
 
 async def _wait_for_status(manager: SessionManager, session_id: str, status: str, timeout: float = 5.0) -> None:  # noqa: ASYNC109 -- 测试轮询 helper 的等待上限，非生产取消语义
+    """轮询内存状态。CLI idle 结算先切内存状态、再落库 meta、最后广播 runtime_status：
+    之后还要读 meta、新建订阅或再次发送的用例，改为订阅后等终态广播。"""
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
         managed = manager.sessions.get(session_id)
@@ -1034,9 +1036,7 @@ class TestQueuedMessages:
         """发送在 running 落库期间挂起、会话被完整驱逐后才恢复：拿到普通异常，不把驱逐写的终态改成 error。"""
         client = self._running_turn_client()
         await self._start_running_turn(service, client)
-        client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
-        client.push_frame(_idle_frame())
-        await _wait_for_status(service.session_manager, SDK_ID, "completed")
+        await self._finish_running_turn(service, client)
         update_status = service.meta_store.update_status
         suspended, release = asyncio.Event(), asyncio.Event()
 
@@ -1066,6 +1066,16 @@ class TestQueuedMessages:
         with _scripted_client(service.session_manager, client):
             await service.send_or_create("demo", "写分镜", session_id=SDK_ID)
         await _wait_for_entries(service.event_log_store, SDK_ID, 2)
+
+    @staticmethod
+    async def _finish_running_turn(service: AssistantService, client: FakeSDKClient) -> None:
+        """CLI 结束这一轮并报 idle，等结算走完：终态广播在 meta 落库之后，只等内存状态会让
+        之后的订阅多收一帧迟到的 completed、之后的发送与仍在落库的结算交错。"""
+        async with service.session_manager.stream_messages(SDK_ID, idle_timeout=5) as stream:
+            client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
+            client.push_frame(_idle_frame())
+            while (await _next_broadcast(stream, "runtime_status"))["status"] != "completed":
+                pass
 
     @staticmethod
     def _running_turn_client() -> FakeSDKClient:
@@ -1329,9 +1339,7 @@ class TestQueuedMessages:
     async def test_a_failed_send_to_an_idle_session_broadcasts_the_error_status(self, service: AssistantService):
         client = self._running_turn_client()
         await self._start_running_turn(service, client)
-        client.push_frame(result_frame(session_id=SDK_ID, uuid="r-1"))
-        client.push_frame(_idle_frame())
-        await _wait_for_status(service.session_manager, SDK_ID, "completed")
+        await self._finish_running_turn(service, client)
         stream = _EntryStream(service, SDK_ID)
         update_status = service.meta_store.update_status
 

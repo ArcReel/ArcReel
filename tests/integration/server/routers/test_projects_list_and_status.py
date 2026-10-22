@@ -1,10 +1,57 @@
 """Tests for projects_list_and_status."""
 
+import asyncio
+import threading
+
+import httpx
+
+from lib.i18n import _
+from server.routers import projects
+from server.routers._coalesce import RequestCoalescer
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     _FakeSummaries,
     build_projects_client,
+    override,
 )
+
+
+class _ArrivalSpy(RequestCoalescer):
+    """登记每个已挂上合流的请求，测试据此确认请求已到达，再放行计算。"""
+
+    def __init__(self):
+        super().__init__()
+        self.arrivals: asyncio.Queue[None] = asyncio.Queue()
+
+    async def run(self, key, compute):
+        self.arrivals.put_nowait(None)
+        return await super().run(key, compute)
+
+
+class _GatedSummaries(_FakeSummaries):
+    """第一次摘要计算停在闸门前；修复原因引用剧本文件，呈现时按请求语言成文。"""
+
+    def __init__(self):
+        super().__init__()
+        self._loop = asyncio.get_running_loop()
+        self.started = asyncio.Event()
+        self.gate = threading.Event()
+
+    def get_project_summary(self, name, **kwargs):
+        self._loop.call_soon_threadsafe(self.started.set)
+        self.gate.wait()
+        summary = super().get_project_summary(name, **kwargs)
+        return summary.model_copy(update={"needs_repair": True, "repair_reason": "scripts/episode_1.json"})
+
+
+async def _until(awaitable, *requests):
+    """等到 awaitable 完成；任一请求先结束说明路由提前返回，直接失败而不是挂住。"""
+
+    step = asyncio.ensure_future(awaitable)
+    done, _pending = await asyncio.wait({step, *requests}, return_when=asyncio.FIRST_COMPLETED)
+    if step not in done:
+        step.cancel()
+        raise AssertionError(f"request finished early: {[r.result().status_code for r in done]}")
 
 
 class TestProjectsRouter:
@@ -145,3 +192,34 @@ class TestProjectsRouter:
             assert isinstance(data["asset_fingerprints"]["storyboards/scene_E1S01.png"], int)
 
     # ---------------------------------------------------------------------------
+
+    async def test_get_project_does_not_share_results_across_languages(self, tmp_path, monkeypatch):
+        """合流按语言分开：中文计算在跑、中文请求已占等待位时到达的英文请求，拿到英文文案。"""
+        summaries = _GatedSummaries()
+        spy = _ArrivalSpy()
+        sync_client = build_projects_client(monkeypatch, _FakePM(tmp_path), summaries)
+        override(sync_client, projects.get_project_detail_coalescer, lambda: spy)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=sync_client.app), base_url="http://test"
+        ) as client:
+
+            def get(locale):
+                return asyncio.create_task(client.get("/api/v1/projects/ready", headers={"Accept-Language": locale}))
+
+            running = get("zh")
+            try:
+                await _until(summaries.started.wait(), running)
+                waiting, english = get("zh"), get("en")
+                for _arrival in range(3):
+                    await _until(spy.arrivals.get(), running, waiting, english)
+            finally:
+                # 断言失败时也放行闸门，不留阻塞的工作线程。
+                summaries.gate.set()
+            responses = await asyncio.gather(running, waiting, english)
+
+        def expected(locale):
+            episode = _("episode_position_name", locale=locale, position=1)
+            return _("episode_script_name", locale=locale, name=episode)
+
+        reasons = [r.json()["project"]["status"]["repair_reason"] for r in responses]
+        assert reasons == [expected("zh"), expected("zh"), expected("en")]

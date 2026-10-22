@@ -16,7 +16,7 @@ provider_name 计费归因）各挂专属闭包；文本侧别名映射（dashsc
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -530,7 +530,16 @@ def builtin_video_capabilities_for_model(provider_id: str, model_id: str) -> Vid
 
     覆盖整维替换、优先级最高；音频两维合起来无意义时按不支持参考音频处理，与自定义供应商同一口径。
     """
-    caps = declared_builtin_video_capabilities(provider_id, model_id)
+    return apply_user_added_video_overrides(
+        declared_builtin_video_capabilities(provider_id, model_id), provider_id, model_id
+    )
+
+
+def apply_user_added_video_overrides(caps: VideoCapabilities, provider_id: str, model_id: str) -> VideoCapabilities:
+    """在调用通道给出的能力上叠加内置供应商下用户添加的模型的通道事实覆盖（docs/adr/0104）。
+
+    基底由调用方给定：规划层传无请求上下文的声明，执行闸门传按档位解析的能力，两边叠加口径相同。
+    """
     overrides = catalog.user_added_capability_overrides(provider_id, model_id)
     if not overrides:
         return caps
@@ -568,7 +577,8 @@ def builtin_video_metered_usage(
 ) -> Usage:
     """内置供应商的视频调用通道对一个请求上报的计量，不构造实例；声明式供应商从随版定义读。
 
-    ``result`` 为 ``None`` 时是提交前预估；给出时与结算时调用通道实例上报的计量相同。
+    ``result`` 为 ``None`` 时是提交前预估；给出时与结算时调用通道实例上报的计量相同。请求没带能力时补上
+    叠加用户覆盖后的能力，与执行时请求携带的那份同源，放宽的维度按实际发出的请求计量。
     """
     spec = get_provider_spec(provider_id, "video")
     if spec.registry_backend == "declarative":
@@ -581,6 +591,8 @@ def builtin_video_metered_usage(
         return declarative_video_usage(definition, request, result)
     from lib.backends.video_backends.registry import metered_usage_for_model
 
+    if request.video_capabilities is None:
+        request = replace(request, video_capabilities=builtin_video_capabilities_for_model(provider_id, model_id))
     return metered_usage_for_model(spec.registry_backend, model_id, request, result)
 
 

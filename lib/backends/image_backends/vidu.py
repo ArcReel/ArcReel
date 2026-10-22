@@ -58,11 +58,6 @@ _ASPECT_RATIO_WHITELIST: dict[str, list[str]] = {
     "viduq1": ["16:9", "9:16", "1:1", "3:4", "4:3"],
     "viduq2": ["16:9", "9:16", "1:1", "3:4", "4:3", "21:9", "2:3", "3:2", "auto"],
 }
-# 文档明确的 resolution 白名单
-_RESOLUTION_WHITELIST: dict[str, list[str]] = {
-    "viduq1": ["1080p"],
-    "viduq2": ["1080p", "2K", "4K"],
-}
 
 
 class ViduImageBackend:
@@ -98,15 +93,9 @@ class ViduImageBackend:
         return _MAX_REFERENCE_IMAGES
 
     @staticmethod
-    def _sent_resolution(model: str, image_size: str | None) -> str | None:
-        """请求里会带的 ``resolution``：只发白名单里的值，其余不发、由 Vidu 取默认。"""
-        allowed = _RESOLUTION_WHITELIST.get(model)
-        return image_size if image_size and allowed and image_size in allowed else None
-
-    @staticmethod
     def estimate_usage(facts: ImageRequestFacts) -> Usage:
         refs = facts.reference_count
-        resolution = ViduImageBackend._sent_resolution(facts.model, facts.image_size)
+        resolution = facts.image_size or None
         return per_image_usage(
             output_images=1,
             input_images=None if refs is None else min(refs, _MAX_REFERENCE_IMAGES),
@@ -141,17 +130,10 @@ class ViduImageBackend:
                     ar_allowed,
                 )
 
-        # resolution 白名单兜底
-        resolution = self._sent_resolution(self._model, request.image_size)
+        # resolution 以模型目录条目为准，原样透传；越界档位由上游拒绝（docs/adr/0104）
+        resolution = request.image_size or None
         if resolution is not None:
             body["resolution"] = resolution
-        elif request.image_size and _RESOLUTION_WHITELIST.get(self._model):
-            logger.warning(
-                "Vidu image resolution %s 不在 model=%s 白名单 %s，使用默认",
-                request.image_size,
-                self._model,
-                _RESOLUTION_WHITELIST[self._model],
-            )
         if request.seed is not None:
             body["seed"] = request.seed
 

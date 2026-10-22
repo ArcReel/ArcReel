@@ -8,6 +8,8 @@ type FinalCutErrorCode = Literal[
     "final_cut_narration_unavailable",
     "final_cut_presentation_unavailable",
     "final_cut_blocked",
+    "final_cut_video_version_corrupted",
+    "final_cut_narration_version_corrupted",
     "final_cut_empty",
     "final_cut_ffmpeg_unavailable",
     "final_cut_render_failed",

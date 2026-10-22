@@ -1382,18 +1382,26 @@ def scan_shared_facilities(root: Path, parsed: list[tuple[Path, ast.Module]]) ->
 
 
 PATCH_SPREAD_THRESHOLD = 3
-PATCH_SPREAD_KINDS = {"patch", "patch.object"}
+PATCH_SPREAD_KINDS = {"patch", "patch.object", "monkeypatch.setattr"}
+#: 文件系统边界上逐文件替换的目标：每个用例注入的失败或探针形状各不相同，收编成共享替身只会是一层透传。
+#: 值写明豁免理由；新增条目前先确认确实提不出共享 helper 或 seam。
+PATCH_SPREAD_ALLOWED: Mapping[str, str] = {
+    "pathlib.Path.mkdir": "建目录失败注入（磁盘满、权限）与并发屏障，各用例的触发路径与失败形状不同",
+    "pathlib.Path.open": "读次数计数、锁文件打开闸门、分块读取探针，各用例观察的行为不同",
+    "pathlib.Path.read_bytes": "读次数计数、线程卸载阻塞闸门、权限失败与交错暂停，各用例观察的行为不同",
+    "pathlib.Path.unlink": "删除失败注入（设备忙、文件占用、权限）与持锁探针，各用例的失败条件不同",
+}
 
 
 def scan_patch_spread(patches: Sequence[PatchSite]) -> list[StructureFinding]:
-    """同一 `patch` / `patch.object` 目标出现在 ≥3 个测试文件：缺一个共享替身或 seam。
+    """同一 `patch` / `patch.object` / `monkeypatch.setattr` 目标出现在 ≥3 个测试文件：缺一个共享替身或 seam。
 
-    每个文件只报该目标的第一处。`monkeypatch.setattr` 不在本规则内，归 review；根部是局部
-    对象的 `patch.object` 目标只在文件内有意义，不跨文件聚合。
+    每个文件只报该目标的第一处。根部是局部对象的 `patch.object` / `monkeypatch.setattr` 目标只在文件内
+    有意义，不跨文件聚合；`PATCH_SPREAD_ALLOWED` 里的文件系统边界目标豁免。
     """
     first_site: dict[str, dict[str, int]] = defaultdict(dict)
     for site in patches:
-        if site.kind not in PATCH_SPREAD_KINDS or not site.import_rooted:
+        if site.kind not in PATCH_SPREAD_KINDS or not site.import_rooted or site.target in PATCH_SPREAD_ALLOWED:
             continue
         lines = first_site[site.target]
         lines[site.path] = min(lines.get(site.path, site.line), site.line)
@@ -1414,7 +1422,8 @@ def scan_patch_spread(patches: Sequence[PatchSite]) -> list[StructureFinding]:
     return findings
 
 
-SHARED_SYMBOL_MODULES = ("tests/fakes.py", "tests/factories.py")
+SHARED_SYMBOL_MODULES = ("tests/fakes.py", "tests/factories.py", "tests/auth_deps.py")
+SHARED_SYMBOL_SUPPORT_SUFFIX = "_support.py"
 SHARED_SYMBOL_MIN_USERS = 2
 
 
@@ -1438,14 +1447,42 @@ def shared_symbol_users(tree: ast.Module, module: str) -> set[str]:
     return used
 
 
+def top_level_names(node: ast.stmt) -> list[str]:
+    """顶层语句定义的名字：函数、类、类型别名，以及赋值给裸名的常量。"""
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return [node.name]
+    if isinstance(node, ast.TypeAlias):
+        return [node.name.id]
+    targets = node.targets if isinstance(node, ast.Assign) else [node.target] if isinstance(node, ast.AnnAssign) else []
+    return [name for t in targets for name in bound_names(t)]
+
+
+def bound_names(target: ast.expr) -> list[str]:
+    """赋值目标绑定的名字：递归解包 `A, (B, *C)`；`X[k] = …`、`x.attr = …` 是修改已有对象，不绑定新名字。"""
+    if isinstance(target, ast.Name):
+        return [target.id]
+    if isinstance(target, ast.Starred):
+        return bound_names(target.value)
+    if isinstance(target, ast.Tuple | ast.List):
+        return [name for elt in target.elts for name in bound_names(elt)]
+    return []
+
+
 def scan_shared_symbol_usage(root: Path, parsed: Sequence[tuple[Path, ast.Module]]) -> list[StructureFinding]:
-    """`tests/fakes.py` 与 `tests/factories.py` 的公开顶层符号须被 ≥2 个其他测试文件使用。
+    """`tests/fakes.py`、`tests/factories.py`、`tests/auth_deps.py` 与 `tests/**/*_support.py`（非 `test_` 开头）的公开顶层符号须被 ≥2 个其他测试文件使用。
 
     只被一个文件用的移回该文件，模块内部自用的改下划线名，无人使用的删除。
     """
     trees = {path.relative_to(root).as_posix(): tree for path, tree in parsed}
     findings: list[StructureFinding] = []
-    for rel in SHARED_SYMBOL_MODULES:
+    support = [
+        rel
+        for rel in trees
+        if rel.startswith("tests/")
+        and rel.endswith(SHARED_SYMBOL_SUPPORT_SUFFIX)
+        and not Path(rel).name.startswith("test_")
+    ]
+    for rel in (*SHARED_SYMBOL_MODULES, *sorted(support)):
         tree = trees.get(rel)
         if tree is None:
             continue
@@ -1455,20 +1492,19 @@ def scan_shared_symbol_usage(root: Path, parsed: Sequence[tuple[Path, ast.Module
             if other != rel:
                 users.update(shared_symbol_users(other_tree, module))
         for node in tree.body:
-            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) or node.name.startswith("_"):
-                continue
-            count = users[node.name]
-            if count >= SHARED_SYMBOL_MIN_USERS:
-                continue
-            findings.append(
-                StructureFinding(
-                    "SHARED-SYMBOL-USAGE",
-                    rel,
-                    node.lineno,
-                    f"公开符号 `{node.name}` 只被 {count} 个测试文件使用",
-                    "只有一个文件用的移回该文件；模块内部自用的改下划线名；无人使用的删除",
+            for name in top_level_names(node):
+                count = users[name]
+                if name.startswith("_") or count >= SHARED_SYMBOL_MIN_USERS:
+                    continue
+                findings.append(
+                    StructureFinding(
+                        "SHARED-SYMBOL-USAGE",
+                        rel,
+                        node.lineno,
+                        f"公开符号 `{name}` 只被 {count} 个测试文件使用",
+                        "只有一个文件用的移回该文件；模块内部自用的改下划线名；无人使用的删除",
+                    )
                 )
-            )
     return findings
 
 

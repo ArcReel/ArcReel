@@ -291,6 +291,21 @@ def _grok_sdk(duration: int = 5) -> Generator[AsyncMock]:
 class TestGrokVideo15Models:
     """grok-imagine-video-1.5 / 1.5-lite 的能力声明与请求下发。"""
 
+    async def test_reference_audio_rejected_before_submit(self, tmp_path: Path):
+        """请求体没有参考音频字段，拒绝而不是丢弃后照常提交。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        audio = tmp_path / "voice.mp3"
+        audio.write_bytes(b"ID3")
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-1.5")
+            with pytest.raises(VideoCapabilityError) as exc:
+                await backend.generate(
+                    VideoGenerationRequest(prompt="p", output_path=tmp_path / "o.mp4", reference_audio_files=[audio])
+                )
+        assert exc.value.code == "video_reference_audio_unsupported"
+        generate.assert_not_awaited()
+
     def test_1_5_declares_last_frame_and_reference_images(self):
         from lib.backends.video_backends.grok import GrokVideoBackend
 
@@ -364,6 +379,33 @@ class TestGrokVideo15Models:
         assert kwargs["image_url"].startswith("data:image/png;base64,")
         assert kwargs["last_frame_url"].startswith("data:image/png;base64,")
         assert kwargs["resolution"] == "720p"
+
+    @pytest.mark.parametrize(
+        ("field", "code"),
+        [("start_image", "video_start_image_unreadable"), ("reference_images", "video_reference_images_unreadable")],
+    )
+    async def test_missing_start_or_reference_image_fails_before_provider_call(
+        self, video_output_path: Path, tmp_path: Path, field: str, code: str
+    ):
+        """首帧 / 参考图读不到不静默跳过：否则照常计费，成片却没用上用户给的图。"""
+        from lib.backends.video_backends.grok import GrokVideoBackend
+
+        missing = tmp_path / "missing.png"
+        value = [missing] if field == "reference_images" else missing
+        with _grok_sdk() as generate:
+            backend = GrokVideoBackend(api_key="test-key", model="grok-imagine-video-1.5")
+            with pytest.raises(VideoCapabilityError) as exc:
+                await backend.generate(
+                    VideoGenerationRequest(
+                        prompt="Dolly to the window",
+                        output_path=video_output_path,
+                        duration_seconds=8,
+                        **{field: value},
+                    )
+                )
+
+        assert exc.value.code == code
+        generate.assert_not_awaited()
 
     async def test_missing_end_image_fails_before_provider_call(self, video_output_path: Path, tmp_path: Path):
         """尾帧读不到不静默跳过：否则照常计费，成片却落不到分镜要求的结尾画面。"""

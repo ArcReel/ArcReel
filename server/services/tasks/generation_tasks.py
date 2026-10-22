@@ -1608,7 +1608,8 @@ async def execute_grid_task(
     3. Mark completed; splitting into storyboard cells is a separate, explicit step
     """
     from lib.script.grid.grid_manager import GridManager
-    from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, grid_aspect_ratio_for
+    from lib.script.grid.grid_resolution import grid_image_size
+    from lib.script.grid.layout import grid_aspect_ratio_for
     from lib.script.grid.models import GridGeneration
     from lib.script.grid.prompt_builder import build_grid_prompt
 
@@ -1778,9 +1779,10 @@ async def execute_grid_task(
         grid.model = ctx.image.backend_model
         grid.prompt = prompt_text
         await run_sync_transaction(grid_manager.save, grid)
-        # 保底档与档位门控（``large_grid_allowed``）取同一常量，避免门控按 2K 判定、
-        # 渲染却按别的档位下发
-        image_size = ctx.image.resolution or GRID_FALLBACK_RESOLUTION
+        # 与估价同源（``grid_image_size``）；保底档与档位门控（``large_grid_allowed``）取同一常量
+        image_size = grid_image_size(
+            ctx.image.resolution, ctx.image.provider_model.provider_id, ctx.image.backend_model
+        )
         formal_outcomes: list[FormalImageCommitOutcome] = []
 
         await asyncio.to_thread(assert_current_artifact_input_claims_usable, project_path, formal_claims)

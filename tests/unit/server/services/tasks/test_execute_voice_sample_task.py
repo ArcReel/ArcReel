@@ -12,7 +12,7 @@ from lib.generation.generation_queue import DispatchProviderChanged
 from lib.project.resource_paths import resource_relative_path
 from server.services.tasks import generation_tasks
 from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
-from tests.fakes import write_backend_output
+from tests.fakes import use_generation_context, use_project_manager, write_backend_output
 
 
 def _audio_ctx(generator):
@@ -71,8 +71,8 @@ def voice_sample_env(monkeypatch, tmp_path):
     project_path.mkdir(parents=True)
     pm = _FakePM(project_path)
     gen = _FakeAudioGenerator(project_path)
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", _audio_ctx(gen))
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, _audio_ctx(gen))
 
     async def _always_valid_duration(content, suffix):
         return 5.0

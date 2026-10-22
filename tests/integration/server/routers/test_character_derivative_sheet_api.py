@@ -25,6 +25,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters, generate, versions
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_generation_queue
 from tests.integration.server.derivative_sheet_support import (
     RESULT_IMAGE_RGB,
     read_project_json,
@@ -63,7 +64,7 @@ def _client(monkeypatch, pm, *, queue: _FakeQueue | None = None) -> TestClient:
     for module in (characters, generate, versions):
         monkeypatch.setattr(module, "get_project_manager", lambda: pm)
     monkeypatch.setattr(generate, "ConfigResolver", _FakeConfigResolver)
-    monkeypatch.setattr(generate, "get_generation_queue", lambda: queue or _FakeQueue())
+    use_generation_queue(monkeypatch, queue or _FakeQueue())
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

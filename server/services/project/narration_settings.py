@@ -6,11 +6,12 @@ Web 创建向导与 Agent 建项工具共用：TTS 配音项目省略的模型�
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from lib.catalog import query as catalog
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, ProviderModel
 from lib.custom_provider import is_custom_provider
 from lib.speech.narration_config import (
     NARRATION_DELIVERY_FIELD,
@@ -25,6 +26,9 @@ from lib.speech.narration_config import (
     parse_tts_speed,
     validate_project_narration_config,
 )
+from server.services.tasks.generation_context import audio_backend_voice_ids
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +66,35 @@ def validate_tts_speed(value: float) -> float:
     return speed
 
 
+async def _voice_for_backend(resolver: ConfigResolver, provider_id: str, model_id: str, voice: str) -> str:
+    """让全局音色与项目实际使用的 TTS 模型相符。
+
+    全局音色只有一份，默认音频模型却可能按注册表顺序自动推断到另一家供应商（缺省音色 Cherry
+    只属于 DashScope）。音色不在所选内置模型的音色表中时，改用表中第一个音色。自定义供应商的
+    音色表不一定完整，音色原样保留；音色表取不到时同样原样保留，合成时照常报错。
+    """
+    if is_custom_provider(provider_id):
+        return voice
+    try:
+        voice_ids = await audio_backend_voice_ids(provider_id, model_id, resolver)
+    except Exception as exc:
+        # 预填只是尽力而为：缺 API Key、Vertex 凭证文件不可读等构造失败都不能阻断建项
+        logger.warning("读取音色表失败，旁白音色按全局设置预填 backend=%s/%s：%s", provider_id, model_id, exc)
+        return voice
+    if voice_ids and voice not in voice_ids:
+        return voice_ids[0]
+    return voice
+
+
+async def default_narration_tts(resolver: ConfigResolver) -> tuple[ProviderModel, str, float | None]:
+    """新建 TTS 项目的预填值：全局默认音频模型、与之相符的旁白音色与配音语速。
+
+    未配置任何音频供应商时抛 ValueError。
+    """
+    backend, voice, speed = await resolver.default_narration_tts()
+    return backend, await _voice_for_backend(resolver, backend.provider_id, backend.model_id, voice), speed
+
+
 async def new_project_narration_fields(
     value: NarrationSettingsInput,
     *,
@@ -91,7 +124,11 @@ async def new_project_narration_fields(
             raise NarrationConfigError("narration_tts_model_required")
 
     if backend:
-        fields[TTS_BACKEND_FIELD] = validate_tts_backend(backend)
+        backend = fields[TTS_BACKEND_FIELD] = validate_tts_backend(backend)
+        if TTS_VOICE_FIELD not in value.provided and voice is not None:
+            # 音色按实际写入的模型校正，显式给出的模型可能与全局默认模型不是同一家
+            provider_id, model_id = backend.split("/", 1)
+            voice = await _voice_for_backend(resolver, provider_id, model_id, voice)
     if voice is not None and voice.strip():
         fields[TTS_VOICE_FIELD] = voice.strip()
     if speed is not None:

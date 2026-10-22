@@ -27,9 +27,9 @@ from server.services.presentation.timeline_jianying_draft import TimelineJianyin
 from tests.factories import wav_bytes
 from tests.integration.server.services.presentation.timeline_render_support import (
     CREATOR,
-    append_revision,
+    _append_revision,
+    _install_video,
     edited_timeline,
-    install_video,
     narration_segment,
     setup_project,
     write_json,
@@ -265,7 +265,7 @@ async def test_draft_stays_stale_and_claimed_while_a_new_video_has_no_presentati
     service = TimelineJianyingDraftService(pm)
     await service.render("demo", timeline_id, narration="with_narration")
 
-    install_video(project_path, narration_segment("E1S02", "第二段"), 1.0)
+    _install_video(project_path, narration_segment("E1S02", "第二段"), 1.0)
     key = ArtifactKey.episode_jianying_draft(1, timeline_id, "with_narration")
 
     assert reconcile_artifact_target_claims(project_path, [key]) is False
@@ -306,7 +306,7 @@ async def test_missing_narration_audio_blocks_only_the_narrated_draft(tmp_path: 
     third = narration_segment("E1S03", "还没有配音")
     script["segments"].append(third)
     write_json(script_path, script)
-    install_video(project_path, third, 1.0)
+    _install_video(project_path, third, 1.0)
     timeline_id = (
         await EditTimelineService(pm).create_from_script("demo", episode=1, name="新版", author=CREATOR)
     ).timeline.id
@@ -468,7 +468,7 @@ async def test_a_bgm_missing_from_the_project_blocks_the_draft(tmp_path: Path) -
     )
     with store.locked_episode(document.episode):
         store.write(document.model_copy(update={"next_bgm_number": 2}))
-    append_revision(pm, timeline_id, content)
+    _append_revision(pm, timeline_id, content)
 
     with pytest.raises(JianyingDraftError) as refused:
         await TimelineJianyingDraftService(pm).check("demo", timeline_id, narration="without_narration")
@@ -479,7 +479,7 @@ async def test_a_bgm_missing_from_the_project_blocks_the_draft(tmp_path: Path) -
 async def test_edit_timeline_without_clips_is_refused_like_the_final_cut(tmp_path: Path) -> None:
     pm, project_path = setup_project(tmp_path)
     timeline_id = await edited_timeline(pm)
-    append_revision(pm, timeline_id, EditTimelineContent())
+    _append_revision(pm, timeline_id, EditTimelineContent())
 
     with pytest.raises(JianyingDraftError) as refused:
         await TimelineJianyingDraftService(pm).render("demo", timeline_id, narration="without_narration")
