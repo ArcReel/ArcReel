@@ -3,6 +3,8 @@ status: accepted
 ---
 
 > 无沙箱回退下的 Bash 白名单现在只放行 `python .claude/skills/`，不再放行 ffmpeg 与 ffprobe；`compose-video` 已删除，出片改由成片与剪映草稿工具完成。本 ADR 关于项目 JSON 写入收归 MCP 工具的决定仍有效，正文中的白名单清单是当时的记录。
+>
+> 「结构 remove 只移除剧本引用，项目内已有文件继续保留」已由 `docs/adr/0107` 取代：结构移除连带的媒体与版本进项目回收站。
 
 # Agent 改项目 JSON 数据收归 in-process MCP 工具，裸 Write/Edit/Bash 一律 deny
 
