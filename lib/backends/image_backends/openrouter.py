@@ -69,8 +69,11 @@ _MAX_REFERENCE_IMAGES = 16
 
 #: 生成与模型目录查询的请求路径（相对 base_url）。路径覆盖（docs/adr/0101）按这两条默认路径认出请求。
 IMAGES_PATH = "/images"
-_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MODELS_PATH = "/images/models"
+
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+#: 落盘后能转成 PNG 的输出格式
+_RASTER_OUTPUT_FORMATS = frozenset({"png", "jpeg", "jpg", "webp"})
 
 #: 生成耗时可达 90s+，超时须远大于常规请求
 _HTTP_TIMEOUT = httpx.Timeout(300.0, connect=15.0)
@@ -305,9 +308,13 @@ class OpenRouterImageBackend:
         payload.update(_resolve_model_params(supported, request.image_size, request.aspect_ratio))
         if request.seed is not None and (supported is None or "seed" in supported):
             payload["seed"] = request.seed
-        # 产物路径固定是 .png：模型声明可选 png 时直接要 png，省去落盘后的转码
-        if supported is not None and "png" in _enum_values(supported, "output_format"):
+        # 产物路径固定是 .png：模型声明可选 png 时直接要 png，省去落盘后的转码；声明的格式里没有
+        # 位图（如只出 SVG）时，产物注定转不成 PNG，在提交这次计费请求之前就拒绝
+        output_formats = [v.lower() for v in _enum_values(supported, "output_format")] if supported else []
+        if "png" in output_formats:
             payload["output_format"] = "png"
+        elif output_formats and not _RASTER_OUTPUT_FORMATS.intersection(output_formats):
+            raise ImageOutputFormatError(model=self._model, media_type="/".join(output_formats))
         if input_references:
             payload["input_references"] = input_references
 

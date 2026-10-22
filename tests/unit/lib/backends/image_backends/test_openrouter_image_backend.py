@@ -454,6 +454,18 @@ def test_vector_output_raises_structured_failure(tmp_path: Path):
     assert not (tmp_path / "out.png").exists()
 
 
+def test_vector_only_model_rejected_before_the_billed_request(tmp_path: Path):
+    """目录声明只出 SVG：产物注定转不成 PNG，不发出计费的生成请求。"""
+    model = {"id": "recraft/recraft-v4-vector", "supported_parameters": {**_enum("output_format", "svg")}}
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(model))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        with pytest.raises(ImageOutputFormatError) as ei:
+            _run(_request(tmp_path), model="recraft/recraft-v4-vector")
+    assert ei.value.params == {"model": "recraft/recraft-v4-vector", "media_type": "svg"}
+    assert not route.called
+
+
 def test_png_output_format_requested_when_declared(tmp_path: Path):
     model = {"id": "vendor/fmt", "supported_parameters": {**_enum("output_format", "png", "jpeg", "webp")}}
     with capture_http() as router:
