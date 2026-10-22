@@ -16,6 +16,7 @@ import {
   type ResourceKind,
 } from "@/stores/tasks-store";
 import {
+  enqueueAssetSheetBatch,
   enqueueCharacter,
   enqueueEpisodeNarration,
   enqueueGrid,
@@ -655,6 +656,70 @@ describe("enqueueStoryboardBatch", () => {
 
     expect(res.admission?.decision).toBe("blocked");
     expect(markCounts().resource).toBe(0);
+    expect(useAppStore.getState().toast).toBeNull();
+  });
+});
+
+describe("enqueueAssetSheetBatch", () => {
+  it("按服务端返回的成员逐项打占用标记，未建出任务行的成员不打标", async () => {
+    vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
+      batch_id: "b1",
+      members: [
+        { unit_id: "character/Alice", asset_type: "character", name: "Alice", derivative: null, task_id: "t1", deduped: false, status: "queued" },
+        {
+          unit_id: "character/Alice/战损",
+          asset_type: "character",
+          name: "Alice",
+          derivative: "战损",
+          task_id: "t2",
+          deduped: false,
+          status: "queued",
+        },
+        { unit_id: "scene/庭院", asset_type: "scene", name: "庭院", derivative: null, task_id: null, deduped: false, status: "failed" },
+      ],
+    });
+
+    const res = await enqueueAssetSheetBatch("demo", { asset_type: "character" });
+
+    // 本体占 character 槽、衍生占 character_derivative 槽，与单一入队的口径一致
+    expect(occupied("demo", "character", "Alice")).toBe(true);
+    expect(occupied("demo", "character_derivative", "Alice/战损")).toBe(true);
+    expect(occupied("demo", "scene", "庭院")).toBe(false);
+    expect(res.batch_id).toBe("b1");
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: i18n.t("assets:sheet_batch_submitted", { count: 2 }),
+      tone: "success",
+    });
+  });
+
+  it("重复提交命中去重时弹统一 info 提示", async () => {
+    vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
+      batch_id: "b2",
+      members: [
+        { unit_id: "prop/玉佩", asset_type: "prop", name: "玉佩", derivative: null, task_id: "t9", deduped: true, status: "queued" },
+      ],
+    });
+
+    await enqueueAssetSheetBatch("demo", { asset_type: "prop" });
+
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: i18n.t("dashboard:enqueue_deduped_toast"),
+      tone: "info",
+    });
+  });
+
+  it("整批一个任务都没建出时不打标也不提示", async () => {
+    vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
+      batch_id: "b3",
+      members: [
+        { unit_id: "product/茶盏", asset_type: "product", name: "茶盏", derivative: null, task_id: null, deduped: false, status: "failed" },
+      ],
+    });
+
+    const res = await enqueueAssetSheetBatch("demo", { asset_type: "product" });
+
+    expect(markCounts().resource).toBe(0);
+    expect(res.members).toHaveLength(1);
     expect(useAppStore.getState().toast).toBeNull();
   });
 });

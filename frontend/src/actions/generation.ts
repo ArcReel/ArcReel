@@ -20,6 +20,9 @@ import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
+  AssetSheetBatchMember,
+  AssetSheetBatchScope,
+  AssetSheetBatchSubmitted,
   AuthorPromptsRequest,
   DraftDocType,
   PlanningGap,
@@ -598,4 +601,38 @@ export async function enqueueDraftRepair(
   const deduped = res.batch.members.some((member) => member.deduped === true);
   notifyEnqueued(deduped, i18n.t("dashboard:draft_repair_queued"), "info");
   return { taskIds, deduped };
+}
+
+/** 批量资产图成员的占用槽：衍生随本体名复合成资源 id，与衍生行的复核口径一致。 */
+function assetSheetResource(member: AssetSheetBatchMember): { kind: ResourceKind; id: string } {
+  return member.derivative
+    ? { kind: "character_derivative", id: derivativeResourceId(member.name, member.derivative) }
+    : { kind: member.asset_type, id: member.name };
+}
+
+/**
+ * 资产图批量生成：目标集合由服务端决定（缺描述、本体资产图未生成等都在服务端跳过），
+ * 请求发出前无从逐项打标，故按响应里的「成员 → task_id」逐项补打占用标记——每个成员
+ * 只认领自己那条任务行，未建出任务行的成员（失败、跳过）一律不打标。
+ *
+ * deduped 由服务端按成员给出，任一成员命中即弹统一 info 提示，与单一资产图入队同口径；
+ * 建出任务行时才报提交数量，整批一个都没排上时保持静默，由调用方按批次跟踪陈述结论。
+ */
+export async function enqueueAssetSheetBatch(
+  projectName: string,
+  scope: AssetSheetBatchScope,
+): Promise<AssetSheetBatchSubmitted> {
+  const res = await API.submitAssetSheetBatch(projectName, scope);
+  const queued = res.members.flatMap((member) =>
+    member.task_id ? [{ member, taskId: member.task_id }] : [],
+  );
+  for (const { member, taskId } of queued) {
+    const { kind, id } = assetSheetResource(member);
+    markResource(projectName, kind, id, kind).settle([taskId]);
+  }
+  notifyEnqueued(
+    res.members.some((member) => member.deduped),
+    queued.length > 0 ? i18n.t("assets:sheet_batch_submitted", { count: queued.length }) : null,
+  );
+  return res;
 }

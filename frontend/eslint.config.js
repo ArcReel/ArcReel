@@ -40,6 +40,7 @@ export const ENQUEUE_METHODS = [
   "renderFinalCut",
   "repairEpisodeDraft",
   "startEpisodeReplan",
+  "submitAssetSheetBatch",
   "submitStoryboardBatch",
 ];
 
