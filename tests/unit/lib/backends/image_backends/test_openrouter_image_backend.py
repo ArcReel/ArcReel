@@ -436,6 +436,7 @@ def test_vector_output_raises_structured_failure(tmp_path: Path):
             _run(_request(tmp_path))
     assert ei.value.code == "image_output_format_unsupported"
     assert ei.value.params == {"model": "openai/gpt-image-2", "media_type": "image/svg+xml"}
+    assert not (tmp_path / "out.png").exists()
 
 
 def test_png_output_format_requested_when_declared(tmp_path: Path):
