@@ -17,6 +17,7 @@ from typing import Any, cast
 import httpx
 import pytest
 
+from lib.backends.image_backends import openrouter
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -24,7 +25,7 @@ from lib.backends.image_backends.base import (
     ImageOutputMissingError,
     ReferenceImage,
 )
-from lib.backends.image_backends.openrouter import OpenRouterImageBackend, reset_model_params_for_tests
+from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.providers import PROVIDER_OPENROUTER
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -36,14 +37,6 @@ _PNG_1PX = base64.b64encode(
 _BASE_URL = "https://openrouter.ai/api/v1"
 _IMAGES_URL = f"{_BASE_URL}/images"
 _MODELS_URL = f"{_BASE_URL}/images/models"
-
-
-@pytest.fixture(autouse=True)
-def clear_model_params_cache():
-    """目录查询是进程级缓存，测试间必须清空，否则用例间声明串味。"""
-    reset_model_params_for_tests()
-    yield
-    reset_model_params_for_tests()
 
 
 def _ok_response() -> httpx.Response:
@@ -158,6 +151,8 @@ def test_unknown_model_falls_back_to_size(tmp_path: Path):
     assert req_json["size"] == "1008x1792"  # 1K 档短边 1024、9:16，取比例零偏差的最近对齐解
     assert "resolution" not in req_json
     assert "aspect_ratio" not in req_json
+    # 没有声明依据的参数不带：quality 也不发（1K 档在 OpenAI 口径下本会映射出 quality）
+    assert "quality" not in req_json
     # 纯 T2I 不带参考图字段
     assert "input_references" not in req_json
 
@@ -169,8 +164,7 @@ def test_discovery_failure_falls_back_to_size(tmp_path: Path):
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
         _run(_request(tmp_path))
     req_json = request_json(only_request(route))
-    assert req_json["size"]
-    assert "resolution" not in req_json
+    assert set(req_json) == {"model", "prompt", "n", "size"}
 
 
 def test_resolution_model_sends_ar_and_resolution_never_size(tmp_path: Path):
@@ -285,14 +279,17 @@ def test_known_model_without_sizing_declarations_omits_all(tmp_path: Path):
     assert "quality" not in req_json
 
 
-def test_models_query_cached_within_ttl(tmp_path: Path):
-    """目录查询进程级缓存：同一 (base_url, model) 两次生成只打一次目录。"""
+def test_models_query_cached_on_the_backend_instance(tmp_path: Path):
+    """目录结果缓存在 backend 实例上：同一实例两次生成只查一次；按新配置构造的实例重新查询。"""
+    backend = OpenRouterImageBackend(api_key="sk-or-test", model="openai/gpt-image-2", base_url=_BASE_URL)
     with capture_http() as router:
         models_route = router.get(_MODELS_URL).mock(return_value=_models_response(_GPT_IMAGE_LIKE))
         router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        asyncio.run(backend.generate(_request(tmp_path)))
+        asyncio.run(backend.generate(_request(tmp_path)))
+        assert models_route.call_count == 1
         _run(_request(tmp_path))
-        _run(_request(tmp_path))
-    assert models_route.call_count == 1
+    assert models_route.call_count == 2
 
 
 def test_i2i_sends_data_uri_references(tmp_path: Path):
@@ -374,14 +371,21 @@ def test_fractional_resolution_tier_is_the_smallest_non_downgrading(tmp_path: Pa
     assert request_json(only_request(route))["resolution"] == "1.5K"
 
 
-def test_catalog_failure_is_not_requeried_within_the_failure_window(tmp_path: Path):
-    """目录查询失败短暂缓存：紧接着的第二次生成不再查目录。"""
+def test_catalog_failure_is_not_requeried_within_the_failure_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """目录查询失败短暂缓存：窗口内的下一次生成不再查目录，窗口过后再查。"""
+    clock = [1000.0]
+    monkeypatch.setattr(openrouter.time, "monotonic", lambda: clock[0])
+    backend = OpenRouterImageBackend(api_key="sk-or-test", model="openai/gpt-image-2", base_url=_BASE_URL)
     with capture_http() as router:
         models_route = router.get(_MODELS_URL).mock(return_value=httpx.Response(503))
         router.post(_IMAGES_URL).mock(return_value=_ok_response())
-        _run(_request(tmp_path))
-        _run(_request(tmp_path))
-    assert models_route.call_count == 1
+        asyncio.run(backend.generate(_request(tmp_path)))
+        clock[0] += 59
+        asyncio.run(backend.generate(_request(tmp_path)))
+        assert models_route.call_count == 1
+        clock[0] += 2
+        asyncio.run(backend.generate(_request(tmp_path)))
+    assert models_route.call_count == 2
 
 
 def test_path_overrides_change_the_urls_actually_sent(tmp_path: Path):

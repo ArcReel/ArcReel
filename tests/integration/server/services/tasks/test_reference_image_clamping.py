@@ -16,7 +16,7 @@ from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.visual_artifact_provenance import VisualReference, build_storyboard_image_visual_basis
 from lib.backends.image_backends.grok import GrokImageBackend
-from lib.backends.image_backends.openrouter import OpenRouterImageBackend, reset_model_params_for_tests
+from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from server.services.tasks import generation_context, generation_tasks
 from tests.fakes import (
@@ -304,7 +304,6 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
         bind_session_factory(monkeypatch, db_factory)
         generation_context.invalidate_backend_cache()
         generation_context._backend_cache._locks.clear()
-        reset_model_params_for_tests()
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             assert media_type == "image"
@@ -314,7 +313,6 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
         yield
         generation_context.invalidate_backend_cache()
         generation_context._backend_cache._locks.clear()
-        reset_model_params_for_tests()
 
     async def test_three_reference_model_receives_three_images_numbered_to_match(
         self, tmp_path, monkeypatch, openrouter_lane, caplog
@@ -351,6 +349,6 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
         assert result["warnings"] == [
             {"key": "ref_too_many_images", "params": {"count": 8, "model": self.MODEL, "max_count": 3}}
         ]
-        # 裁剪发生在编排层，backend 的兜底截断不再触发；目录在进程缓存里只查一次
+        # 裁剪发生在编排层，backend 的兜底截断不再触发；通道解析与生成用同一个实例，目录只查一次
         assert "OpenRouter 参考图数量" not in caplog.text
         assert models.call_count == 1

@@ -5,8 +5,8 @@ I2I 统一走 ``POST {base_url}/images`` 的 JSON 端点——参考图以 data 
 ``input_references``，响应 ``data[].b64_json``。本后端因此不复用 OpenAI SDK，请求构造
 仿 MiniMax 的 raw httpx 模式，落盘复用 :func:`save_image_from_response_item`。
 
-模型能力取自 ``GET {base_url}/images/models`` 里该模型声明的 ``supported_parameters``（进程级缓存：
-查到的结果 1h，查询失败 60s）。参考图上限（``input_references``）经 :meth:`reference_image_limit`
+模型能力取自 ``GET {base_url}/images/models`` 里该模型声明的 ``supported_parameters``（缓存在 backend
+实例上：查到的结果 1h，查询失败 60s）。参考图上限（``input_references``）经 :meth:`reference_image_limit`
 交给编排层先裁剪再编号；未声明的参数（``n`` / ``seed``）不下发。尺寸参数按声明自适应（OpenRouter 把
 ``size`` 与 ``resolution`` 同时出现视为冲突并返回 400，两套参数互斥、只能按声明选其一）：
 
@@ -14,7 +14,7 @@ I2I 统一走 ``POST {base_url}/images`` 的 JSON 端点——参考图以 data 
   ``aspect_ratio`` + ``resolution``（不传 size）。档位短边映射到声明枚举里「≥ 请求值的最小档」，映射不到则省略。
 - 未声明 ``resolution`` 但声明 ``size`` 或 ``aspect_ratio``（gpt-image / recraft / mai 系）→ ``size``
   （声明了 size 枚举时只发枚举里的值，否则合成 OpenAI 同款 WxH）+ ``aspect_ratio``，声明 ``quality`` 再叠加。
-- 模型未收录或发现端点失败 → 退回纯 ``size``（与 OpenAI 兼容网关同款），保证生成不因发现
+- 模型未收录或目录查询失败 → 只发 ``size``（与 OpenAI 兼容网关同款），保证生成不因查询
   失败而中断。
 - 收录但 size / aspect_ratio / resolution 一概不声明（如包装型模型）→ 省略全部尺寸参数，
   信任模型默认。
@@ -76,17 +76,11 @@ _MODELS_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 # "2k"/"4K "，不归一会让 size 解析成功但 quality 静默丢失。自定义 WxH（无档位）→ None。
 _QUALITY_MAP_CI = {k.lower(): v for k, v in _QUALITY_MAP.items()}
 
-# (base_url, model) → (monotonic 到期时刻, supported_parameters)。目录与租户无关，进程级缓存。
-# 查到的结果（含「目录里没有这个模型」）缓存 1h；查询失败也短暂缓存为「未收录」，免得目录不可用时
-# 每次生成都重查一遍、各打一份堆栈。
+# 模型目录查询结果缓存在 backend 实例上：实例随供应商配置（base_url、密钥、路径覆盖）构造，配置变更时
+# 调用方整体失效 backend 缓存，目录结果随之作废，不会被另一份配置复用。查到的结果（含「目录里没有这个
+# 模型」）缓存 1h；查询失败也短暂缓存为「未收录」，免得目录不可用时每次生成都重查一遍、各打一份堆栈。
 _MODEL_PARAMS_TTL_SECONDS = 3600.0
 _MODEL_PARAMS_FAILURE_TTL_SECONDS = 60.0
-_model_params_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
-
-
-def reset_model_params_for_tests() -> None:
-    """清空模型目录的进程级缓存，供测试隔离用例；不改变生产行为。"""
-    _model_params_cache.clear()
 
 
 def _quality_for(image_size: str | None) -> str | None:
@@ -207,20 +201,17 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
     """按声明自适应下发尺寸参数，互斥的两套通道只能选其一（同传 size+resolution 必 400）。"""
     quality = _quality_for(image_size)
     if supported is None:
-        # 模型未收录 / 目录不可得：退回 OpenAI 同款 size，保证兼容网关照常出图
+        # 模型未收录 / 目录不可得：只发 OpenAI 同款 size，不带任何没有声明依据的参数（如 quality）
         short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
         w, h = aspect_size(aspect_ratio, short, round_to=16)
-        params: dict[str, str] = {"size": f"{w}x{h}"}
-        if quality:
-            params["quality"] = quality
-        return params
+        return {"size": f"{w}x{h}"}
 
     size_values = _enum_values(supported, "size")
     resolution_values = _enum_values(supported, "resolution")
     ratio_values = _enum_values(supported, "aspect_ratio")
     quality_values = _enum_values(supported, "quality")
 
-    params = {}
+    params: dict[str, str] = {}
     ratio = _pick_aspect_ratio(ratio_values, aspect_ratio) if ratio_values else None
     # size 由「实际下发的比例」算：ratio 选中枚举档时按该档，选不到才退回请求比例——
     # 否则 size 按 2:3 算、aspect_ratio 却写 9:16，两个参数自相矛盾，模型行为不可预期。
@@ -270,6 +261,8 @@ class OpenRouterImageBackend:
         self._base_url = (str(base_url).strip().rstrip("/") if base_url else "") or DEFAULT_BASE_URL
         # 路径覆盖（docs/adr/0101）在 transport 层按请求路径改写，生成与目录查询两条请求都经过它
         self._transport_layer = transport_layer
+        # (monotonic 到期时刻, supported_parameters)；None = 还没查过
+        self._model_params: tuple[float, dict | None] | None = None
 
     @property
     def name(self) -> str:
@@ -346,13 +339,12 @@ class OpenRouterImageBackend:
         return refs
 
     async def _fetch_supported_params(self) -> dict | None:
-        """查该 model 的 supported_parameters（进程级缓存）；目录不可得或不含该模型时返回 None。
+        """查该 model 的 supported_parameters（缓存在实例上）；目录不可得或不含该模型时返回 None。
 
         网络异常与非 2xx 只影响参数精化：生成按 size 兜底照常走，不因查询失败而中断。
         """
-        key = (self._base_url, self._model)
         now = time.monotonic()
-        cached = _model_params_cache.get(key)
+        cached = self._model_params
         if cached and now < cached[0]:
             return cached[1]
         try:
@@ -370,7 +362,7 @@ class OpenRouterImageBackend:
                 self._model,
                 exc_info=True,
             )
-            _model_params_cache[key] = (now + _MODEL_PARAMS_FAILURE_TTL_SECONDS, None)
+            self._model_params = (now + _MODEL_PARAMS_FAILURE_TTL_SECONDS, None)
             return None
         supported: dict | None = None
         for item in items:
@@ -378,7 +370,7 @@ class OpenRouterImageBackend:
                 raw = item.get("supported_parameters")
                 supported = raw if isinstance(raw, dict) else None
                 break
-        _model_params_cache[key] = (now + _MODEL_PARAMS_TTL_SECONDS, supported)
+        self._model_params = (now + _MODEL_PARAMS_TTL_SECONDS, supported)
         return supported
 
     def _encode_references(self, refs) -> list[dict]:

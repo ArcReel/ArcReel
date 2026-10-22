@@ -369,6 +369,8 @@ async def resolve_generation_context(
     resolver = ConfigResolver(async_session_factory)
 
     image_result: ImageLaneResult | None = None
+    image_provider_model: ProviderModel | None = None
+    image_resolution: str | None = None
     video_result: VideoLaneResult | None = None
     audio_result: AudioLaneResult | None = None
     image_backend: Any = None
@@ -385,13 +387,8 @@ async def resolve_generation_context(
                 default_image_model=resolved.model_id or None,
                 generation_type=image.generation_type,
             )
-            image_result = ImageLaneResult(
-                provider_model=resolved,
-                backend_name=image_backend.name,
-                backend_model=image_backend.model,
-                resolution=await r.resolve_resolution(project, resolved.provider_id, image_backend.model),
-                max_reference_images=int(await image_backend.reference_image_limit()),
-            )
+            image_provider_model = resolved
+            image_resolution = await r.resolve_resolution(project, resolved.provider_id, image_backend.model)
 
         if video is not None:
             generation_type = video.generation_type
@@ -451,6 +448,17 @@ async def resolve_generation_context(
                 backend_model=audio_backend.model,
                 voices=tuple(audio_backend.list_voices()),
             )
+
+    if image_provider_model is not None:
+        # 参考图上限可能要向供应商的模型目录查询（如 OpenRouter），放在 resolver session 之外，
+        # 不让一次外部请求占着数据库连接。
+        image_result = ImageLaneResult(
+            provider_model=image_provider_model,
+            backend_name=image_backend.name,
+            backend_model=image_backend.model,
+            resolution=image_resolution,
+            max_reference_images=int(await image_backend.reference_image_limit()),
+        )
 
     generator = MediaGenerator(
         resolved_project_path,
