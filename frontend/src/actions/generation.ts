@@ -20,6 +20,8 @@ import i18n from "@/i18n";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import type {
+  AssetSheetBatchScope,
+  AssetSheetBatchSubmitted,
   AuthorPromptsRequest,
   DraftDocType,
   PlanningGap,
@@ -435,6 +437,32 @@ export async function enqueueStoryboardBatch(
         "warning",
       );
   }
+  return res;
+}
+
+/**
+ * 资产图批量生成：目标集合由服务端按范围决定，占用标记在响应后按成员逐项补打；
+ * 衍生成员占 `本体/衍生` 复合槽（character_derivative），与本体互不遮蔽。
+ * 已有同资源任务（deduped）时弹统一去重提示，否则报入队张数；未建出任务的成员不打标。
+ */
+export async function enqueueAssetSheetBatch(
+  projectName: string,
+  scope: AssetSheetBatchScope,
+): Promise<AssetSheetBatchSubmitted> {
+  const res = await API.submitAssetSheetBatch(projectName, scope);
+  let queued = 0;
+  for (const member of res.members) {
+    if (!member.task_id) continue;
+    queued += 1;
+    const [kind, id]: [ResourceKind, string] = member.derivative
+      ? ["character_derivative", derivativeResourceId(member.name, member.derivative)]
+      : [member.asset_type, member.name];
+    markResource(projectName, kind, id, kind).settle([member.task_id]);
+  }
+  notifyEnqueued(
+    res.members.some((member) => member.deduped),
+    queued > 0 ? i18n.t("assets:sheet_batch_submitted", { count: queued }) : null,
+  );
   return res;
 }
 

@@ -1069,7 +1069,10 @@ class API {
     });
   }
 
-  /** 提交一批，立即返回成员任务；整批终态由调用方按任务跟踪。 */
+  /**
+   * 提交一批，立即返回成员任务；整批终态由调用方按任务跟踪。
+   * @enqueue
+   */
   static async submitAssetSheetBatch(
     projectName: string,
     scope: AssetSheetBatchScope
