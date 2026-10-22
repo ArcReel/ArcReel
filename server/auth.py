@@ -304,7 +304,7 @@ _api_key_cache: OrderedDict[str, tuple[dict | None, float]] = OrderedDict()
 _API_KEY_CACHE_MAX = 512
 
 
-def _hash_api_key(key: str) -> str:
+def hash_api_key(key: str) -> str:
     """计算 API Key 的 SHA-256 哈希。"""
     return hashlib.sha256(key.encode()).hexdigest()
 
@@ -347,13 +347,13 @@ def _set_api_key_cache(key_hash: str, payload: dict | None, expires_at_ts: float
     _api_key_cache[key_hash] = (payload, time.monotonic() + ttl)
 
 
-async def _verify_api_key(token: str) -> dict | None:
+async def verify_api_key(token: str) -> dict | None:
     """验证 API Key token，返回 payload dict 或 None（失败/过期/不存在）。
 
     内部先查缓存，缓存未命中再查数据库。
     查库成功后更新 last_used_at（后台异步，不阻塞响应）。
     """
-    key_hash = _hash_api_key(token)
+    key_hash = hash_api_key(token)
 
     # 缓存查询
     hit, cached_payload = _get_cached_api_key_payload(key_hash)
@@ -425,7 +425,7 @@ def _verify_and_get_payload(token: str) -> dict:
 async def _verify_and_get_payload_async(token: str) -> dict:
     """异步验证 token，支持 API Key（arc- 前缀）和 JWT 两种模式。"""
     if token.startswith(API_KEY_PREFIX):
-        payload = await _verify_api_key(token)
+        payload = await verify_api_key(token)
         if payload is None:
             raise HTTPException(
                 status_code=401,

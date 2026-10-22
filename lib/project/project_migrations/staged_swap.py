@@ -1,9 +1,9 @@
-"""v5→v6 目录交换的命名约定、崩溃窗口认领与磁盘预检。
+"""v5→v6 目录交换的命名约定、中间目录清理与磁盘预检。
 
 v6 迁移在同父目录 staging 树上改写，全部成功后用两次 ``os.replace`` 把项目目录换成 staging 树：
-先把原目录改名为 rollback 目录，再把 staging 树改名为项目目录。两次改名之间进程被硬杀时，
-项目目录不存在、rollback 目录留在磁盘上——恢复责任归启动期扫描（``reclaim_interrupted_swaps``），
-迁移器进程内的 ``finally`` 只覆盖它还活着的场景。
+先把原目录改名为 rollback 目录，再把 staging 树改名为项目目录。迁移器进程内的 ``finally`` 负责把
+失败的交换改回；两次改名之间进程被强杀属于非常规条件，不做自动恢复（ADR 0022），只保证清理端
+不删项目目录缺失时的 rollback 目录，留给人工改回。
 """
 
 from __future__ import annotations
@@ -87,49 +87,11 @@ def _candidate_dirs(projects_dir: Path) -> list[Path]:
     return [child for child in children if child.name.startswith(".") and child.is_dir() and not child.is_symlink()]
 
 
-def reclaim_interrupted_swaps(projects_dir: Path) -> list[str]:
-    """认领交换窗口内崩溃遗留的 rollback 目录，返回被改回的项目名。
-
-    只在项目目录缺失时改回：项目目录存在说明交换已完成（或已被上一轮认领），此时 rollback
-    目录是等待清理的备份，不是恢复源。"""
-    if not projects_dir.is_dir():
-        return []
-    candidates: list[tuple[float, Path, str]] = []
-    for child in _candidate_dirs(projects_dir):
-        name = rollback_project_name(child.name)
-        if name is None:
-            continue
-        try:
-            mtime = child.stat().st_mtime
-        except OSError:
-            continue
-        candidates.append((mtime, child, name))
-
-    reclaimed: list[str] = []
-    attempted: set[str] = set()
-    # 同一项目有多个 rollback 目录时取最新的——它才是最后一次交换的原树。最新候选改回失败时，
-    # 不得继续尝试更旧的候选：那代表更早一次交换前的数据，恢复它会用陈旧内容覆盖认领结果。
-    for _mtime, rollback, name in sorted(candidates, key=lambda item: item[0], reverse=True):
-        if name in attempted:
-            continue
-        attempted.add(name)
-        project_dir = projects_dir / name
-        if project_dir.exists():
-            continue
-        try:
-            os.replace(rollback, project_dir)
-        except OSError:
-            logger.exception("迁移交换窗口遗留目录改回失败：%s", rollback)
-            continue
-        logger.warning("迁移交换窗口内中断，已从 %s 改回项目目录：%s", rollback.name, name)
-        reclaimed.append(name)
-    return reclaimed
-
-
 def cleanup_completed_swap_dirs(projects_dir: Path, cutoff: float) -> None:
     """删除交换已完成、且 mtime 早于 cutoff 的 rollback / staging 遗留目录。
 
-    项目目录存在即视为交换已完成或已被认领，此时中间目录只占磁盘。年龄闸口既沿用备份清理
+    项目目录存在即视为交换已完成，此时中间目录只占磁盘；项目目录缺失时 rollback 目录是唯一的
+    项目数据，一律不删。年龄闸口既沿用备份清理
     策略，也保证正在运行的迁移的 staging 树不会被误删。"""
     if not projects_dir.is_dir():
         return
@@ -195,7 +157,6 @@ __all__ = [
     "ensure_disk_headroom",
     "new_rollback_dir",
     "new_staging_dir",
-    "reclaim_interrupted_swaps",
     "rollback_project_name",
     "staging_project_name",
 ]

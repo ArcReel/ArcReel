@@ -32,7 +32,7 @@ from lib.speech.narration_delivery import (
 from lib.speech.speech_composition import admit_script_unit
 from server.services.tasks import generation_tasks
 from tests.factories import make_video_request_facts, wav_bytes
-from tests.fakes import write_backend_output
+from tests.fakes import use_generation_context, use_project_manager, use_video_thumbnail_extractor, write_backend_output
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -60,12 +60,8 @@ class TestGenerationTasks:
             has_audio_track=True,
             audio_switch_controllable=False,
         )
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, video_request_facts=facts),
-        )
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, video_request_facts=facts))
 
         with pytest.raises(ValueError, match="video_audio_switch_not_supported") as exc:
             await generation_tasks.execute_video_task(
@@ -92,10 +88,9 @@ class TestGenerationTasks:
             await write_backend_output(out_path, b"thumb")
             return out_path
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", fake_extract)
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, fake_extract)
 
         result = await generation_tasks.execute_video_task(
             "demo",
@@ -121,10 +116,9 @@ class TestGenerationTasks:
                 kwargs["warnings"].append(warning)
                 return await super().generate_video_async(**kwargs)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(_WarningGenerator()))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", AsyncMock(return_value=False))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(_WarningGenerator()))
+        use_video_thumbnail_extractor(monkeypatch, AsyncMock(return_value=False))
 
         result = await generation_tasks.execute_video_task(
             "demo",
@@ -149,8 +143,8 @@ class TestGenerationTasks:
             return original_update(**kwargs)
 
         monkeypatch.setattr(fake_pm, "update_scene_asset", _blocking_update)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", AsyncMock(return_value=False))
+        use_project_manager(monkeypatch, fake_pm)
+        use_video_thumbnail_extractor(monkeypatch, AsyncMock(return_value=False))
         task = asyncio.create_task(
             generation_tasks.finalize_video_task(
                 project_name="demo",
@@ -210,14 +204,10 @@ class TestGenerationTasks:
         fake_generator = _CheckpointingGenerator()
         fake_queue = type("Queue", (), {})()
         fake_queue.persist_execution_checkpoint = AsyncMock()
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
         monkeypatch.setattr(generation_tasks, "get_generation_queue", lambda: fake_queue)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12)),
-        )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12)))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -259,13 +249,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         seen_lanes: list[dict] = []
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, seen_lane_requests=seen_lanes),
-        )
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, seen_lane_requests=seen_lanes))
 
         payload = {
             "script_file": "episode_1.json",
@@ -286,8 +271,8 @@ class TestGenerationTasks:
         seed_current_storyboard(fake_pm)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(VideoCapabilityError) as exc:
             await generation_tasks.execute_video_task(
@@ -314,12 +299,8 @@ class TestGenerationTasks:
             allowed_durations=(8,),
             excluded_durations=((6, "resolution"),),
         )
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, video_request_facts=facts),
-        )
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, video_request_facts=facts))
 
         with pytest.raises(VideoCapabilityError) as exc:
             await generation_tasks.execute_video_task(
@@ -341,10 +322,9 @@ class TestGenerationTasks:
         seed_current_storyboard(fake_pm)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         result = await generation_tasks.execute_video_task(
             "demo",
@@ -369,10 +349,9 @@ class TestGenerationTasks:
         )
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         with pytest.raises(ValueError, match="is not bound to episode"):
             await generation_tasks.execute_video_task(
@@ -414,14 +393,12 @@ class TestGenerationTasks:
         )
         fake_generator = FakeGenerator()
         seen_lane_requests: list[dict] = []
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(
+            monkeypatch,
             fake_resolve_ctx(fake_generator, supported_durations=(4, 8, 12), seen_lane_requests=seen_lane_requests),
         )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -442,12 +419,8 @@ class TestGenerationTasks:
             "video_supported_durations_incompatible",
             (("provider", "ark"), ("model", "seedance"), ("resolution", "1080p"), ("capability", "i2v")),
         )
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, video_request_facts=failure),
-        )
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, video_request_facts=failure))
 
         with pytest.raises(DispatchProviderChanged):
             await generation_tasks.execute_video_task(
@@ -489,10 +462,9 @@ class TestGenerationTasks:
             "storyboards/scene_E1S01_first.png",
         )
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -509,8 +481,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_missing.png"}
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="storyboard not found"):
             await generation_tasks.execute_video_task(
@@ -531,8 +503,8 @@ class TestGenerationTasks:
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/scene_E1S01.png"}
         persist_active_fake_project(fake_pm)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="storyboard is not registered"):
             await generation_tasks.execute_video_task(
@@ -571,8 +543,8 @@ class TestGenerationTasks:
                 raise AssertionError("provider submission must remain unreachable")
 
         fake_generator = _SubmittingGenerator()
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         original_stage = generation_tasks.stage_provider_media_for_task
 
@@ -635,8 +607,8 @@ class TestGenerationTasks:
                 raise AssertionError("provider submission must remain unreachable")
 
         fake_generator = _SubmittingGenerator()
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
         original_stage = generation_tasks.stage_provider_media_for_task
 
         def _replace_and_reactivate() -> None:
@@ -685,10 +657,9 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = ["bad"]
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         with pytest.raises(StoryboardImageBindingRequired, match="storyboard binding missing"):
             await generation_tasks.execute_video_task(
@@ -732,8 +703,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": storyboard_value}
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match=re.escape(expected_message)):
             await generation_tasks.execute_video_task(
@@ -759,8 +730,8 @@ class TestGenerationTasks:
         absolute_value = str(project_path / "storyboards" / "scene_E1S01.png")
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": absolute_value}
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="invalid storyboard image path"):
             await generation_tasks.execute_video_task(
@@ -783,8 +754,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "\\Users\\Alice\\scene.png"}
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="invalid storyboard image path"):
             await generation_tasks.execute_video_task(
@@ -807,8 +778,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["generated_assets"] = {"storyboard_image": "storyboards/subdir"}
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="storyboard not found"):
             await generation_tasks.execute_video_task(
@@ -834,10 +805,9 @@ class TestGenerationTasks:
         (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -863,10 +833,9 @@ class TestGenerationTasks:
         (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
         fake_pm.script["segments"][0]["end_frame_image"] = "scene_E1S01.png"
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -886,10 +855,9 @@ class TestGenerationTasks:
         if not missing:
             fake_pm.script["segments"][0]["end_frame_image"] = ""
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -907,8 +875,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="end frame snapshot not found"):
             await generation_tasks.execute_video_task(
@@ -951,8 +919,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = end_frame_value
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="invalid end frame snapshot path"):
             await generation_tasks.execute_video_task(
@@ -979,8 +947,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="invalid end frame snapshot path"):
             await generation_tasks.execute_video_task(
@@ -1007,8 +975,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(ValueError, match="invalid end frame snapshot path"):
             await generation_tasks.execute_video_task(
@@ -1038,8 +1006,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator()
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
         monkeypatch.setattr(Path, "is_junction", lambda self: self == end_frames_dir)
 
         with pytest.raises(ValueError, match="invalid end frame snapshot path"):
@@ -1081,8 +1049,8 @@ class TestGenerationTasks:
 
         fake_generator.generate_video_async = _plan_with_real_gating
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         with pytest.raises(VideoCapabilityError) as exc:
             await generation_tasks.execute_video_task(
@@ -1107,10 +1075,9 @@ class TestGenerationTasks:
         (end_frame_dir / "scene_E1S01.png").write_bytes(b"png")
         fake_pm.script["segments"][0]["end_frame_image"] = "end_frames/scene_E1S01.png"
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         for _ in range(2):
             await generation_tasks.execute_video_task(
@@ -1156,10 +1123,9 @@ class TestGenerationTasks:
         }
         seed_current_storyboard(fake_pm)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         # payload 的 video_prompt 不带 dialogue（drama 新结构）
         await generation_tasks.execute_video_task(
@@ -1215,12 +1181,9 @@ class TestGenerationTasks:
         fake_pm.script = self._drama_script()
         seed_current_storyboard(fake_pm)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator, voice_consistency="soft")
-        )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, voice_consistency="soft"))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -1247,12 +1210,9 @@ class TestGenerationTasks:
         fake_pm.script = self._drama_script()
         seed_current_storyboard(fake_pm)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator, voice_consistency="none")
-        )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, voice_consistency="none"))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -1280,14 +1240,11 @@ class TestGenerationTasks:
         fake_pm.script = self._drama_script()
         seed_current_storyboard(fake_pm)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, voice_consistency="soft", requested_generate_audio=False),
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(
+            monkeypatch, fake_resolve_ctx(fake_generator, voice_consistency="soft", requested_generate_audio=False)
         )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -1314,10 +1271,9 @@ class TestGenerationTasks:
         seed_current_storyboard(fake_pm)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -1348,12 +1304,9 @@ class TestGenerationTasks:
         fake_pm.script = self._legacy_drama_script()
         seed_current_storyboard(fake_pm)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator, voice_consistency="soft")
-        )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, voice_consistency="soft"))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -1386,14 +1339,11 @@ class TestGenerationTasks:
         fake_pm.script = self._legacy_drama_script()
         seed_current_storyboard(fake_pm)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, voice_consistency="soft", requested_generate_audio=False),
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(
+            monkeypatch, fake_resolve_ctx(fake_generator, voice_consistency="soft", requested_generate_audio=False)
         )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -1447,12 +1397,9 @@ class TestGenerationTasks:
         }
         seed_current_storyboard(fake_pm)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator, voice_consistency="soft")
-        )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, voice_consistency="soft"))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
 
         await generation_tasks.execute_video_task(
             "demo",
@@ -1476,14 +1423,9 @@ class TestGenerationTasks:
         seed_current_storyboard(fake_pm)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, supported_durations=(6, 10)),
-        )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, supported_durations=(6, 10)))
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
         # 项目默认 duration 也置空，强制走 caps 默认。
         fake_pm.project.pop("default_duration", None)
 
@@ -1504,14 +1446,11 @@ class TestGenerationTasks:
         seed_current_storyboard(fake_pm)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, supported_durations=(), duration_endpoint_fixed=True),
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(
+            monkeypatch, fake_resolve_ctx(fake_generator, supported_durations=(), duration_endpoint_fixed=True)
         )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
         fake_pm.project.pop("default_duration", None)
 
         await generation_tasks.execute_video_task(
@@ -1532,10 +1471,9 @@ class TestGenerationTasks:
         seed_current_storyboard(fake_pm)
         fake_generator = FakeGenerator()
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(
+            monkeypatch,
             fake_resolve_ctx(
                 fake_generator,
                 video_provider=("gemini-aistudio", "veo-3.1-generate-preview"),
@@ -1549,8 +1487,7 @@ class TestGenerationTasks:
                 ),
             ),
         )
-        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+        use_video_thumbnail_extractor(monkeypatch, async_return(None))
         fake_pm.project.pop("default_duration", None)
 
         await generation_tasks.execute_video_task(
@@ -1569,8 +1506,8 @@ class TestGenerationTasks:
         async def _boom(*args, **kwargs):
             raise RuntimeError("video provider unconfigured")
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", _boom)
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, _boom)
 
         with pytest.raises(RuntimeError, match="video provider unconfigured"):
             await generation_tasks.execute_video_task(

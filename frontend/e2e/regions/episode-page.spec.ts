@@ -221,6 +221,9 @@ const progressPopover = (page: Page) => page.getByRole("dialog", { name: "制作
 async function pageReady(page: Page) {
   await viewTabs(page).waitFor();
   await progress(page).waitFor();
+  // 任务列表到达后，防抖 250ms 还会再刷新一次计划，刷新期间按钮置灰、结束后 150ms 淡回；
+  // 等它落定再操作，免得 axe 在淡入途中取色
+  await page.waitForLoadState("networkidle");
 }
 
 /** 紧凑档 Agent 面板盖在画布右侧，页头行尾的入口在它底下：先收起再操作。 */

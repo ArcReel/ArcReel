@@ -174,7 +174,7 @@ def test_sse_endpoints_accept_bearer_token(auth_coverage_client, path):
 def test_sse_endpoints_accept_api_key(auth_coverage_client, path):
     """带 ``arc-`` API Key 时 router 级依赖放行。"""
     key = "arc-auth-coverage-key"
-    key_hash = auth_module._hash_api_key(key)
+    key_hash = auth_module.hash_api_key(key)
     auth_module._set_api_key_cache(key_hash, {"sub": "apikey:coverage", "via": "apikey"})
     try:
         response = auth_coverage_client.get(path, headers={"Authorization": f"Bearer {key}"})

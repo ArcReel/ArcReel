@@ -4,6 +4,7 @@ import pytest
 
 from lib.infra.api_errors import BadRequestError
 from server.services.tasks import generation_tasks
+from tests.fakes import use_generation_context, use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -20,8 +21,8 @@ class TestGenerationTasks:
         fake_pm = _FakePM(project_path)
         fake_generator = FakeGenerator(project_path)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         result = await generation_tasks.execute_product_task("demo", "保温杯", {"prompt": "入队时的旧描述"})
         assert result["resource_type"] == "products"
@@ -46,8 +47,8 @@ class TestGenerationTasks:
         fake_pm.project["products"]["保温杯"]["reference_images"] = []
         fake_generator = FakeGenerator(project_path)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator))
 
         await generation_tasks.execute_product_task("demo", "保温杯", {})
         assert fake_generator.image_calls[0]["reference_images"] is None
@@ -65,12 +66,8 @@ class TestGenerationTasks:
         fake_generator = FakeGenerator(project_path)
         lanes: list[dict] = []
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, seen_lane_requests=lanes),
-        )
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, seen_lane_requests=lanes))
 
         with pytest.raises(BadRequestError) as excinfo:
             await generation_tasks.execute_product_task("demo", "保温杯", {})
@@ -93,12 +90,8 @@ class TestGenerationTasks:
         ]
         fake_generator = FakeGenerator(project_path)
 
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
-        monkeypatch.setattr(
-            generation_tasks,
-            "resolve_generation_context",
-            fake_resolve_ctx(fake_generator, image_max_reference_images=1),
-        )
+        use_project_manager(monkeypatch, fake_pm)
+        use_generation_context(monkeypatch, fake_resolve_ctx(fake_generator, image_max_reference_images=1))
 
         result = await generation_tasks.execute_product_task("demo", "保温杯", {})
 

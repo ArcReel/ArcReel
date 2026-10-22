@@ -12,6 +12,7 @@ from server.routers import episode_drafts, grids
 from server.services.project import episode_display
 from server.services.project.episode_display import present_episode_diagnostics
 from server.services.project.episode_item_refs import with_episode_item_refs
+from tests.fakes import use_project_manager
 
 
 def test_missing_draft_and_task_failure_use_ledger_title_without_changing_ids(tmp_path, monkeypatch) -> None:
@@ -22,7 +23,7 @@ def test_missing_draft_and_task_failure_use_ledger_title_without_changing_ids(tm
     projects.add_episode("demo", 3, "", "scripts/episode_3.json")
     monkeypatch.setattr(episode_drafts, "get_project_manager", lambda: projects)
     monkeypatch.setattr(episode_display, "get_project_manager", lambda: projects)
-    monkeypatch.setattr(grids, "get_project_manager", lambda: projects)
+    use_project_manager(monkeypatch, projects)
     grid = GridGeneration.create(9, "episode_9.json", ["E9S01"], 2, 2, "grid_4", "p", "m", "16:9")
     grid.status = "failed"
     grid.error_message = "集（id=9）的 E9S01 编写失败"

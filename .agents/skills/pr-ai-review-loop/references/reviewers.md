@@ -16,8 +16,6 @@
 
 CodeRabbit、Codex 自动跟随 push，核对其当前 HEAD 的完成信号。仅回复、不改 HEAD 时，已确认的覆盖仍有效。
 
-ArcReel 已停用 Gemini Code Assist，PR 上不再等待或触发它。
-
 ## 读取与处置记录
 
 从 `is_new` 定位新正文，经 `query.sh ... details <id>...` 批量读取。严重度用于排序，实际内容决定处置；致谢、已确认的撤回与纯风格建议不构成阻塞。flags 与预览或正文冲突时读全文。

@@ -20,6 +20,7 @@ from server.services.admission import video_batch_admission as admission_mod
 from server.services.admission.video_batch_admission import admit_reference_video_batch, admit_storyboard_video_batch
 from server.services.tasks.video_caps import reference_request_facts_lookup
 from tests.factories import activate_reference_project, make_video_request_facts
+from tests.fakes import use_active_tasks_lookup, use_reference_projection
 
 
 def _stub_state(
@@ -33,7 +34,7 @@ def _stub_state(
         probes.append("active_tasks")
         return list(active or [])
 
-    monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _active)
+    use_active_tasks_lookup(monkeypatch, _active)
     return probes
 
 
@@ -90,7 +91,7 @@ async def test_an_active_task_conflicts_before_anything_is_projected(monkeypatch
         projected.append(kwargs["unit"]["unit_id"])
         raise AssertionError("occupied units must not be projected")
 
-    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
+    use_reference_projection(monkeypatch, _project)
 
     admission = await admit_reference_video_batch(
         project_name="demo",
@@ -118,7 +119,7 @@ async def test_a_unit_that_cannot_be_enqueued_is_refused_with_its_own_code(monke
     async def _project(**_kwargs):
         raise AssertionError("unenqueueable units must not be projected")
 
-    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
+    use_reference_projection(monkeypatch, _project)
 
     def _reject(_unit):
         raise ValueError("正文为空")
@@ -145,11 +146,7 @@ async def test_text_only_unit_on_image_only_model_blocks_the_whole_batch(monkeyp
 
     _stub_state(monkeypatch)
 
-    monkeypatch.setattr(
-        admission_mod,
-        "project_reference_unit_request",
-        fake_reference_request_projector(durations=(3,), text_to_video=False),
-    )
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(3,), text_to_video=False))
 
     admission = await admit_reference_video_batch(
         project_name="demo",
@@ -215,9 +212,8 @@ async def test_reference_bucket_failure_blocks_only_its_units_and_withholds_the_
         (("provider", "gemini-aistudio"), ("model", "veo-3.1"), ("resolution", "4k")),
     )
 
-    monkeypatch.setattr(
-        admission_mod,
-        "project_reference_unit_request",
+    use_reference_projection(
+        monkeypatch,
         fake_reference_request_projector(
             request_facts=fake_reference_request_facts(durations=(4,), failures={"i2v": failure})
         ),
@@ -274,7 +270,7 @@ async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
 
         return _Projection()
 
-    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
+    use_reference_projection(monkeypatch, _project)
 
     admission = await admit_reference_video_batch(
         project_name="demo",
@@ -389,7 +385,7 @@ async def test_reference_admission_judges_the_whole_batch_on_one_manifest_snapsh
         )
         return projection
 
-    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project_then_replace_manifest)
+    use_reference_projection(monkeypatch, _project_then_replace_manifest)
 
     admission = await admit_reference_video_batch(
         project_name="demo",

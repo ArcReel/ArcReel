@@ -39,7 +39,7 @@ def format_duration_constraint(supported_durations: list[int], default_duration:
     return f"时长：{body}，按内容节奏自行决定"
 
 
-def _format_aspect_ratio_desc(aspect_ratio: str) -> str:
+def format_aspect_ratio_desc(aspect_ratio: str) -> str:
     if aspect_ratio == "9:16":
         return "竖屏构图"
     if aspect_ratio == "16:9":
@@ -47,7 +47,7 @@ def _format_aspect_ratio_desc(aspect_ratio: str) -> str:
     return f"{aspect_ratio} 构图"
 
 
-def _overview_slot(project_overview: dict) -> dict[str, object]:
+def overview_slot(project_overview: dict) -> dict[str, object]:
     """项目概述投影为键齐全的槽位值，缺键传 None，模版按空渲染。"""
     return {key: project_overview.get(key) for key in ("synopsis", "genre", "theme", "world_setting")}
 
@@ -56,7 +56,7 @@ def _stripped_text(value: object) -> str | None:
     return value.strip() or None if isinstance(value, str) else None
 
 
-def _outline_slot(outline: object) -> dict | None:
+def outline_slot(outline: object) -> dict | None:
     """分集大纲的键齐全投影；空白与非字符串字段按缺失处理，没有任何有效内容时为 ``None``，模版不渲染该块。
 
     大纲是本集内容边界的既定契约，拆分时先知道本集要讲到哪里、下集从哪接，才不会把跨集
@@ -91,7 +91,7 @@ def _outline_slot(outline: object) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
-def _neutralize_tags(value: str) -> str:
+def neutralize_tags(value: str) -> str:
     """中和动态文本里的尖括号：novel_text / 资产名出现 </segments> 等标签序列时，避免打散
     标签化 prompt 的块结构。属 prompt 鲁棒性——prompt_authoring 输出仍由 response_schema 强制，无安全边界。
     """
@@ -107,14 +107,14 @@ def _format_narration_script_plan_segments(script_plan_segments: list[dict]) -> 
         return "（无分镜）"
     lines: list[str] = []
     for seg in script_plan_segments:
-        sid = _neutralize_tags(str(seg.get("segment_id", "?")))
+        sid = neutralize_tags(str(seg.get("segment_id", "?")))
         dur = seg.get("duration_seconds", "?")
         brk = "，场景切换" if seg.get("segment_break") else ""
-        chars = _neutralize_tags("、".join(seg.get("characters_in_segment") or []) or "无")
-        scene_names = _neutralize_tags("、".join(seg.get("scenes") or []) or "无")
-        prop_names = _neutralize_tags("、".join(seg.get("props") or []) or "无")
+        chars = neutralize_tags("、".join(seg.get("characters_in_segment") or []) or "无")
+        scene_names = neutralize_tags("、".join(seg.get("scenes") or []) or "无")
+        prop_names = neutralize_tags("、".join(seg.get("props") or []) or "无")
         # 多行 novel_text 续行缩进进原文块，避免 flush-left 溢出 <segments>；尖括号一并中和防注入
-        novel_block = _neutralize_tags(seg.get("novel_text") or "").replace("\n", "\n  ")
+        novel_block = neutralize_tags(seg.get("novel_text") or "").replace("\n", "\n  ")
         lines.append(
             f"- {sid}（时长 {dur}s{brk}）｜出场角色：{chars}｜场景：{scene_names}｜道具：{prop_names}\n  原文：{novel_block}"
         )
@@ -142,12 +142,12 @@ def build_narration_prompt(
     """
     return builtin_templates.render(
         "text/narration_prompt_authoring",
-        project_overview=_overview_slot(project_overview),
+        project_overview=overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
-        aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
-        assets=_project_asset_appearances(characters, scenes, props),
+        aspect_ratio_label=format_aspect_ratio_desc(aspect_ratio),
+        assets=project_asset_appearances(characters, scenes, props),
         segments_content=_format_narration_script_plan_segments(script_plan_segments),
         episode=episode,
         target_language=target_language,
@@ -164,7 +164,7 @@ def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
 
     渲染结果嵌入 prompt_authoring prompt 的 ``<shots>`` 块：资产名 / utterances 字段先判 ``isinstance(_, list)``——
     降级 / 手改 script_plan 可能写成非列表值（字符串会被逐字符迭代、数字会抛 TypeError），非列表按空处理；
-    列表内再按 ``isinstance(_, str)`` 过滤非字符串脏数据。所有动态文本过 ``_neutralize_tags`` 中和尖括号——
+    列表内再按 ``isinstance(_, str)`` 过滤非字符串脏数据。所有动态文本过 ``neutralize_tags`` 中和尖括号——
     逐字 source_text / utterances / scene_description 含 ``<...>`` 时不致打散标签块结构（与 narration 的
     ``_format_narration_script_plan_segments`` 同口径）。本函数 fail-soft：结构性 fail-loud 在上游 _load_drama_script_plan_content。
     """
@@ -174,7 +174,7 @@ def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
     for scene in content_scenes:
         if not isinstance(scene, dict):
             continue
-        sid = _neutralize_tags(str(scene.get("scene_id") or "?"))
+        sid = neutralize_tags(str(scene.get("scene_id") or "?"))
         duration = scene.get("duration_seconds")
         header = f"### {sid}" + (f"（时长 {duration} 秒）" if duration else "")
         lines = [header]
@@ -185,13 +185,13 @@ def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
         scenes_ref = [s for s in raw_scenes_ref if isinstance(s, str)] if isinstance(raw_scenes_ref, list) else []
         props_ref = [p for p in raw_props_ref if isinstance(p, str)] if isinstance(raw_props_ref, list) else []
         lines.append(
-            f"出场资产：角色 [{_neutralize_tags(', '.join(chars) or '无')}]、"
-            f"场景 [{_neutralize_tags(', '.join(scenes_ref) or '无')}]、道具 [{_neutralize_tags(', '.join(props_ref) or '无')}]"
+            f"出场资产：角色 [{neutralize_tags(', '.join(chars) or '无')}]、"
+            f"场景 [{neutralize_tags(', '.join(scenes_ref) or '无')}]、道具 [{neutralize_tags(', '.join(props_ref) or '无')}]"
         )
         # 视觉改编描述由内容确认转换透传进正式脚本；存量正式脚本可能不带它，缺席时不渲染这一行。
         raw_scene_desc = scene.get("scene_description")
         if raw_scene_desc:
-            scene_desc = _neutralize_tags(str(raw_scene_desc)).replace("\n", "\n  ")
+            scene_desc = neutralize_tags(str(raw_scene_desc)).replace("\n", "\n  ")
             lines.append(f"视觉改编：{scene_desc}")
         raw_utterances = scene.get("utterances")
         utterances = raw_utterances if isinstance(raw_utterances, list) else []
@@ -200,15 +200,15 @@ def render_drama_content_for_prompt_authoring(content_scenes: list) -> str:
             for u in utterances:
                 if not isinstance(u, dict):
                     continue
-                text = _neutralize_tags(str(u.get("text") or "")).replace("\n", "\n    ")
+                text = neutralize_tags(str(u.get("text") or "")).replace("\n", "\n    ")
                 if u.get("kind") == "dialogue":
-                    speaker = _neutralize_tags(str(u.get("speaker") or ""))
+                    speaker = neutralize_tags(str(u.get("speaker") or ""))
                     lines.append(f"  - [台词] {speaker}：{text}")
                 else:
                     lines.append(f"  - [画外音] {text}")
         source_text = scene.get("source_text")
         if source_text:
-            source_block = _neutralize_tags(str(source_text)).replace("\n", "\n  ")
+            source_block = neutralize_tags(str(source_text)).replace("\n", "\n  ")
             lines.append(f"原文锚：{source_block}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
@@ -220,17 +220,17 @@ def _asset_aliases(bucket: dict | None, name: str) -> list[str]:
     aliases = entry.get(ALIASES_FIELD) if isinstance(entry, dict) else None
     if not isinstance(aliases, list):
         return []
-    return [_neutralize_tags(alias) for alias in aliases if isinstance(alias, str) and alias.strip()]
+    return [neutralize_tags(alias) for alias in aliases if isinstance(alias, str) and alias.strip()]
 
 
-def _project_asset_appearances(characters: dict | None, scenes: dict | None, props: dict | None) -> dict:
+def project_asset_appearances(characters: dict | None, scenes: dict | None, props: dict | None) -> dict:
     """资产外观、别名与引用名的键齐全投影；动态尖括号中和后作为模版数据。"""
     return {
         key: [
             {
-                "name": _neutralize_tags(name),
+                "name": neutralize_tags(name),
                 "aliases": _asset_aliases(bucket, name),
-                "appearance": _neutralize_tags(appearance) or None,
+                "appearance": neutralize_tags(appearance) or None,
             }
             for name, appearance in iter_asset_appearances(asset_type, bucket)
         ]
@@ -268,13 +268,13 @@ def build_drama_prompt(
     """
     return builtin_templates.render(
         "text/drama_prompt_authoring",
-        project_overview=_overview_slot(project_overview),
+        project_overview=overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
-        aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
+        aspect_ratio_label=format_aspect_ratio_desc(aspect_ratio),
         assets=(
-            _project_asset_appearances(characters, scenes, props)
+            project_asset_appearances(characters, scenes, props)
             if characters is not None or scenes is not None or props is not None
             else None
         ),
@@ -328,9 +328,9 @@ def build_normalize_prompt(
         "text/drama_script_plan",
         source_kind="screenplay" if source_kind == "screenplay" else "novel",
         target_language=target_language,
-        project_overview=_overview_slot(project_overview),
+        project_overview=overview_slot(project_overview),
         style=style,
-        assets=_project_asset_appearances(characters, scenes, props),
+        assets=project_asset_appearances(characters, scenes, props),
         character_names=asset_reference_names("character", characters),
         scene_names=asset_reference_names("scene", scenes),
         prop_names=asset_reference_names("prop", props),
@@ -342,8 +342,8 @@ def build_normalize_prompt(
         speech_rate=f"{speech_rate_units_per_second(source_language, speech_rate_override):g}",
         speech_unit=reading_unit_noun(source_language),
         episode_target_duration=episode_target_duration,
-        episode_outline=_outline_slot(episode_outline),
-        next_episode_outline=_outline_slot(next_episode_outline),
+        episode_outline=outline_slot(episode_outline),
+        next_episode_outline=outline_slot(next_episode_outline),
         instructions=instructions or None,
     )
 
@@ -385,8 +385,8 @@ def build_narration_split_prompt(
 
     return builtin_templates.render(
         "text/narration_script_plan",
-        project_overview=_overview_slot(project_overview),
-        assets=_project_asset_appearances(characters, scenes, props),
+        project_overview=overview_slot(project_overview),
+        assets=project_asset_appearances(characters, scenes, props),
         novel_text=novel_text,
         character_names=asset_reference_names("character", characters),
         scene_names=asset_reference_names("scene", scenes),

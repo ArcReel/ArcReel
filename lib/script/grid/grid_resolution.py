@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import logging
 
+from lib.catalog import query as catalog
 from lib.config.resolver import ConfigResolver
-from lib.script.grid.layout import large_grid_allowed
+from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,20 @@ async def resolve_image_resolution(r: ConfigResolver, project: dict) -> str | No
         return None
 
 
+def grid_image_size(image_resolution: str | None, provider_id: str, model_id: str) -> str | None:
+    """宫格图下发的分辨率档，执行与估价共用：已配置取配置，未配置取 ``GRID_FALLBACK_RESOLUTION``。
+
+    模型目录给该型号声明了档位、却不含保底档时不传（``None``，见 ``docs/adr/0019``），由上游取默认档：
+    调用通道原样下发档位（``docs/adr/0104``），发出目录外的保底档会被上游拒绝、估价也查不到单价。
+    """
+    if image_resolution:
+        return image_resolution
+    model = catalog.get_model(provider_id, model_id, media_type="image")
+    if model is not None and model.resolutions and GRID_FALLBACK_RESOLUTION not in model.resolutions:
+        return None
+    return GRID_FALLBACK_RESOLUTION
+
+
 async def resolve_large_grid_allowed(project: dict) -> bool:
     """自开 session 的门控入口，供 HTTP 路由与宫格提交规划使用。
 
@@ -48,4 +63,4 @@ async def resolve_large_grid_allowed(project: dict) -> bool:
         return large_grid_allowed(await resolve_image_resolution(r, project))
 
 
-__all__ = ["resolve_image_resolution", "resolve_large_grid_allowed"]
+__all__ = ["grid_image_size", "resolve_image_resolution", "resolve_large_grid_allowed"]

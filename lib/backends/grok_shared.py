@@ -10,7 +10,7 @@ Grok (xAI) 共享工具模块
 
 from __future__ import annotations
 
-from lib.infra.retry import BASE_RETRYABLE_ERRORS, _should_retry
+from lib.infra.retry import BASE_RETRYABLE_ERRORS, should_retry
 
 # gRPC 瞬态状态码（等价于 HTTP 429/500/502/503/504）
 _GRPC_RETRYABLE_CODES: set | None = None
@@ -38,7 +38,7 @@ def grok_should_retry(exc: Exception) -> bool:
                 return exc.code() in _GRPC_RETRYABLE_CODES
         except ImportError:
             pass  # grpc available at module level but aio submodule missing; fall through
-    return _should_retry(exc, BASE_RETRYABLE_ERRORS)
+    return should_retry(exc, BASE_RETRYABLE_ERRORS)
 
 
 def resolve_grok_api_key(api_key: str | None = None) -> str:

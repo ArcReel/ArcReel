@@ -28,7 +28,7 @@ from lib.speech.speech_composition import admit_script_unit
 from tests.factories import make_test_video, wav_bytes
 
 CREATOR = RevisionAuthor(kind="creator", user_id="u1")
-SETTINGS = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
+_SETTINGS = TtsSynthesisSettings("openai", "tts-1", "alloy", 1.0)
 
 
 def write_json(path: Path, value: object) -> None:
@@ -50,7 +50,7 @@ def narration_segment(segment_id: str, text: str) -> dict[str, Any]:
     }
 
 
-def install_video(project_path: Path, item: dict[str, Any], seconds: float) -> None:
+def _install_video(project_path: Path, item: dict[str, Any], seconds: float) -> None:
     segment_id = item["segment_id"]
     storyboard = project_path / "storyboards" / f"scene_{segment_id}.png"
     storyboard.parent.mkdir(parents=True, exist_ok=True)
@@ -99,13 +99,13 @@ def install_video(project_path: Path, item: dict[str, Any], seconds: float) -> N
     )
 
 
-def install_narration(project_path: Path, item: dict[str, Any], seconds: float) -> None:
+def _install_narration(project_path: Path, item: dict[str, Any], seconds: float) -> None:
     segment_id = item["segment_id"]
     audio = project_path / "audio" / f"segment_{segment_id}.wav"
     audio.parent.mkdir(parents=True, exist_ok=True)
     audio.write_bytes(wav_bytes(seconds, tone_hz=440))
     preparation = admit_script_unit("segments", item).preparation
-    audio_basis = build_narration_audio_basis(preparation, SETTINGS)
+    audio_basis = build_narration_audio_basis(preparation, _SETTINGS)
     VersionManager(project_path).add_version(
         "audio",
         segment_id,
@@ -116,10 +116,10 @@ def install_narration(project_path: Path, item: dict[str, Any], seconds: float) 
         artifact_audio_basis=ArtifactBasisDescriptor.from_basis(audio_basis).to_dict(),
         tts_basis_digest=audio_basis.digest,
         tts_actual_duration_seconds=seconds,
-        tts_provider_id=SETTINGS.provider_id,
-        tts_model_id=SETTINGS.model_id,
-        tts_voice=SETTINGS.voice,
-        tts_speed=SETTINGS.speed,
+        tts_provider_id=_SETTINGS.provider_id,
+        tts_model_id=_SETTINGS.model_id,
+        tts_voice=_SETTINGS.voice,
+        tts_speed=_SETTINGS.speed,
     )
     ArtifactManifest(ProjectArtifactManifestAdapter(project_path)).register(
         ArtifactKey.episode_audio(1, segment_id),
@@ -157,14 +157,14 @@ def setup_project(tmp_path: Path, *, narration_delivery: str = "use_tts") -> tup
         project_path / "scripts" / "episode_1.json",
         {"episode": 1, "content_mode": "narration", "segments": [first, second]},
     )
-    install_video(project_path, first, 2.0)
-    install_video(project_path, second, 1.5)
-    install_narration(project_path, first, 1.2)
-    install_narration(project_path, second, 2.0)
+    _install_video(project_path, first, 2.0)
+    _install_video(project_path, second, 1.5)
+    _install_narration(project_path, first, 1.2)
+    _install_narration(project_path, second, 2.0)
     return ProjectManager(tmp_path), project_path
 
 
-def append_revision(pm: ProjectManager, timeline_id: str, content: EditTimelineContent) -> None:
+def _append_revision(pm: ProjectManager, timeline_id: str, content: EditTimelineContent) -> None:
     store = EditTimelineStore(pm, "demo")
     document = store.find(timeline_id)
     with store.locked_episode(document.episode):
@@ -192,5 +192,5 @@ async def edited_timeline(pm: ProjectManager) -> str:
             "hold_us": 500_000,
         }
     )
-    append_revision(pm, created.timeline.id, EditTimelineContent(clips=(edited, second)))
+    _append_revision(pm, created.timeline.id, EditTimelineContent(clips=(edited, second)))
     return created.timeline.id

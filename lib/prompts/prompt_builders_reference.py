@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 from lib.infra.text_metrics import reading_unit_noun
-from lib.prompts.prompt_builders_script import _outline_slot, _overview_slot, _project_asset_appearances
+from lib.prompts.prompt_builders_script import outline_slot, overview_slot, project_asset_appearances
 from lib.prompts.prompt_rules.asset_appearance import asset_reference_names
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.speech.speech_rate import speech_rate_units_per_second
@@ -128,12 +128,12 @@ def build_reference_units_split_prompt(
         "text/reference_video_script_plan",
         source_kind="screenplay" if source_kind == "screenplay" else "novel",
         target_language=target_language,
-        project_overview=_overview_slot(project_overview),
-        assets=_project_asset_appearances(characters, scenes, props),
+        project_overview=overview_slot(project_overview),
+        assets=project_asset_appearances(characters, scenes, props),
         **_candidate_names(characters, scenes, props),
         novel_text=novel_text,
-        episode_outline=_outline_slot(episode_outline),
-        next_episode_outline=_outline_slot(next_episode_outline),
+        episode_outline=outline_slot(episode_outline),
+        next_episode_outline=outline_slot(next_episode_outline),
         episode=episode,
         durations=_join_durations(normalized_durations),
         duration_tiers=duration_tiers,
@@ -194,11 +194,11 @@ def build_reference_video_prompt(
     return builtin_templates.render(
         "text/reference_video_prompt_authoring",
         target_language=target_language,
-        project_overview=_overview_slot(project_overview),
+        project_overview=overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
-        assets=_project_asset_appearances(characters, scenes, props),
+        assets=project_asset_appearances(characters, scenes, props),
         **_candidate_names(characters, scenes, props),
         units_content=render_reference_units_for_prompt_authoring(script_plan_units),
         episode=episode,

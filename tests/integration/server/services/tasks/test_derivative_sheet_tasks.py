@@ -18,9 +18,10 @@ from lib.generation.generation_queue import DispatchProviderChanged
 from lib.infra.api_errors import BadRequestError
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
-from server.services.tasks import derivative_sheet_tasks, formal_image_commit, image_edit_tasks
+from server.services.tasks import derivative_sheet_tasks
 from server.services.tasks.derivative_sheet_tasks import execute_character_derivative_task
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
+from tests.fakes import use_generation_context, use_project_manager
 from tests.http_capture import capture_http, only_request, request_json
 from tests.integration.server.derivative_sheet_support import (
     GENERATION_URL,
@@ -47,7 +48,7 @@ def _wire(monkeypatch, pm, generator) -> None:
     """把任务的项目管理器与生成上下文接到本用例自己的真实项目/生成器上。"""
     monkeypatch.setattr(derivative_sheet_tasks, "get_project_manager", lambda: pm)
     monkeypatch.setattr(derivative_sheet_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
-    monkeypatch.setattr(formal_image_commit, "resolve_generation_context", fake_resolve_ctx(generator))
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
 
 
 def _backend() -> DashScopeImageBackend:
@@ -197,7 +198,7 @@ class TestDerivativeImageEdit:
         pm, project_path = seed_derivative_project(tmp_path)
         generator = build_generator(project_path, _backend())
         _wire(monkeypatch, pm, generator)
-        monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         generated = solid_png_bytes(RESULT_IMAGE_RGB)
         with capture_http() as router:

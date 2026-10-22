@@ -1438,23 +1438,23 @@ class TestReferencePayloadLimits:
         resolver = ConfigResolver.__new__(ConfigResolver)
         total, single = await resolver.reference_payload_limits(None)
         from lib.config.service import (
-            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
-            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+            DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
         )
 
-        assert total == _DEFAULT_REFERENCE_TOTAL_MAX_BYTES
-        assert single == _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        assert total == DEFAULT_REFERENCE_TOTAL_MAX_BYTES
+        assert single == DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
     async def test_default_when_unset(self, db_factory):
         from lib.config.service import (
-            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
-            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+            DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
         )
 
         resolver = ConfigResolver(db_factory)
         total, single = await resolver.reference_payload_limits("gemini-aistudio")
-        assert total == _DEFAULT_REFERENCE_TOTAL_MAX_BYTES
-        assert single == _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        assert total == DEFAULT_REFERENCE_TOTAL_MAX_BYTES
+        assert single == DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
     async def test_provider_override_applies(self, db_factory):
         from lib.config.service import ConfigService
@@ -1469,17 +1469,17 @@ class TestReferencePayloadLimits:
         assert (total, single) == (1000000, 500000)
 
     async def test_unknown_provider_falls_back_to_default(self, db_factory):
-        from lib.config.service import _DEFAULT_REFERENCE_TOTAL_MAX_BYTES
+        from lib.config.service import DEFAULT_REFERENCE_TOTAL_MAX_BYTES
 
         resolver = ConfigResolver(db_factory)
         # 未知 provider → get_provider_config 抛 ValueError → catch 回退默认
         total, _single = await resolver.reference_payload_limits("totally-unknown-provider")
-        assert total == _DEFAULT_REFERENCE_TOTAL_MAX_BYTES
+        assert total == DEFAULT_REFERENCE_TOTAL_MAX_BYTES
 
     async def test_non_numeric_override_falls_back(self, db_factory):
         from lib.config.service import (
-            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
-            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+            DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
             ConfigService,
         )
 
@@ -1489,8 +1489,8 @@ class TestReferencePayloadLimits:
             await session.commit()
         resolver = ConfigResolver(db_factory)
         total, single = await resolver.reference_payload_limits("gemini-aistudio")
-        assert total == _DEFAULT_REFERENCE_TOTAL_MAX_BYTES  # 非数字回退
-        assert single == _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        assert total == DEFAULT_REFERENCE_TOTAL_MAX_BYTES  # 非数字回退
+        assert single == DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
 
 class TestTextBackendTierResolution:

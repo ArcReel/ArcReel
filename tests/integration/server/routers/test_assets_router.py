@@ -17,6 +17,7 @@ from lib.i18n import _ as translate_message
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
 from lib.project.asset_types import DERIVATIVES_FIELD
 from server.routers import assets
+from tests.fakes import fail_project_json_write
 
 
 class TestAssetsCRUD:
@@ -1275,7 +1276,6 @@ class TestApplyToProject:
         assert not list(target_dir.glob(".*.bak"))
 
     def test_project_json_failure_restores_overwritten_media(self, assets_env, monkeypatch):
-        from lib.project import project_manager as project_manager_module
 
         client = assets_env["client"]
         pm = assets_env["pm"]
@@ -1296,14 +1296,7 @@ class TestApplyToProject:
             lambda project: project["scenes"].update({"A": {"description": "old", "scene_sheet": "scenes/A.png"}}),
         )
         project_file = pm.projects_dir / "target" / "project.json"
-        real_atomic_write = project_manager_module.atomic_write_json
-
-        def fail_project_write(path, data):
-            if path == project_file:
-                raise OSError("injected project write failure")
-            return real_atomic_write(path, data)
-
-        monkeypatch.setattr(project_manager_module, "atomic_write_json", fail_project_write)
+        fail_project_json_write(monkeypatch, project_file)
 
         with pytest.raises(OSError, match="injected project write failure"):
             client.post(

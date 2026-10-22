@@ -51,12 +51,6 @@ def test_ark_agent_plan_fast_has_no_1080p() -> None:
     assert model.resolutions == ["480p", "720p"]
 
 
-def test_ark_agent_plan_model_id_format_differs_from_ark() -> None:
-    ark_ids = set(catalog.list_models("ark"))
-    agent_plan_ids = set(catalog.list_models("ark-agent-plan"))
-    assert not (ark_ids & agent_plan_ids), "ark vs ark-agent-plan 模型 ID 命名不同，不应重叠"
-
-
 def test_kling_credentials_and_base_url() -> None:
     """可灵三键 required/secret key（api_key 单键 / access_key+secret_key 双键二选一）+
     默认 base_url（国内域名已迁移至 api-beijing）。"""

@@ -33,6 +33,7 @@ from lib.script.script_batch_edit import (
 from lib.script.script_editor import ScriptEditError, patch_field, resolve_items
 from lib.speech.speech_composition import admit_script_unit
 from lib.workflow.workflow_state import ArtifactCount, EpisodesSummary, EpisodeSummary, ProjectSummary
+from tests.fakes import use_project_manager
 
 
 class _OverviewProbe(BaseModel):
@@ -462,7 +463,7 @@ class _FakeSummaries:
 
 def build_projects_client(monkeypatch, fake_pm, fake_summaries=None, *, session_factory=None):
     """``session_factory`` 给出时，路由经它开数据库会话（默认是生产的 ``async_session_factory``）。"""
-    monkeypatch.setattr(projects, "get_project_manager", lambda: fake_pm)
+    use_project_manager(monkeypatch, fake_pm)
     if session_factory is not None:
         monkeypatch.setattr(projects, "async_session_factory", session_factory)
 
