@@ -424,6 +424,21 @@ def test_non_png_raster_output_is_stored_as_png(tmp_path: Path):
         assert stored.format == "PNG"
 
 
+def test_url_output_is_downloaded_and_stored_as_png(tmp_path: Path):
+    """响应只带产物地址：下载后同样转成 PNG 落盘。"""
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response())
+        router.post(_IMAGES_URL).mock(
+            return_value=httpx.Response(200, json={"data": [{"url": "https://cdn.example.com/out.jpg"}]})
+        )
+        router.get("https://cdn.example.com/out.jpg").mock(
+            return_value=httpx.Response(200, content=_image_bytes("JPEG"))
+        )
+        _run(_request(tmp_path))
+    with Image.open(tmp_path / "out.png") as stored:
+        assert stored.format == "PNG"
+
+
 def test_vector_output_raises_structured_failure(tmp_path: Path):
     """模型返回 SVG：转不成位图，报带稳定 code 的错误，不留错标格式的产物。"""
     svg = base64.b64encode(b'<svg xmlns="http://www.w3.org/2000/svg"/>').decode("ascii")

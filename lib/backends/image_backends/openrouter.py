@@ -3,7 +3,7 @@
 OpenRouter 的图片 API 与 OpenAI 官方不同源：不提供 /images/edits，T2I 与
 I2I 统一走 ``POST {base_url}/images`` 的 JSON 端点——参考图以 data URI 进
 ``input_references``，响应 ``data[].b64_json``。本后端因此不复用 OpenAI SDK，请求构造
-仿 MiniMax 的 raw httpx 模式，落盘复用 :func:`save_image_from_response_item`。
+仿 MiniMax 的 raw httpx 模式，落盘在不可中断段内解码并统一转为 PNG。
 
 模型能力取自 ``GET {base_url}/images/models`` 里该模型声明的 ``supported_parameters``（缓存在 backend
 实例上：查到的结果 1h，查询失败 60s）。参考图上限（``input_references``）经 :meth:`reference_image_limit`
@@ -25,11 +25,11 @@ usage 只按张上报输出与参考图张数，不解析响应里的 ``usage.co
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import time
 from collections.abc import Callable
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -41,7 +41,7 @@ from arcreel_market_core.aspect_size import (
     resolution_to_short_edge,
 )
 from lib.backends.artifact_download_guard import artifact_http_client
-from lib.backends.backend_runtime import should_retry_submit, submit_post
+from lib.backends.backend_runtime import should_retry_submit, submit_post, with_artifact_retry
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
@@ -49,14 +49,14 @@ from lib.backends.image_backends.base import (
     ImageGenerationResult,
     ImageOutputFormatError,
     ImageOutputMissingError,
+    download_image_to_path,
     image_to_base64_data_uri,
     per_image_usage,
-    save_image_from_response_item,
 )
 from lib.backends.openai_shared import OPENAI_IMAGE_QUALITY_MAP as _QUALITY_MAP
 from lib.backends.providers import PROVIDER_OPENROUTER
 from lib.backends.transport_layer import TransportLayer
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.image_utils import convert_image_bytes_to_png
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -442,11 +442,22 @@ class OpenRouterImageBackend:
         if not isinstance(first, dict) or not (first.get("b64_json") or first.get("url")):
             # 成功响应却没带回图片：通常是内容安全过滤命中或上游异常
             raise ImageOutputMissingError(model=self._model)
-        # save_image_from_response_item 以属性访问读取 b64_json/url——dict 包一层即可复用
-        wrapped = SimpleNamespace(b64_json=first.get("b64_json"), url=first.get("url"))
-        await save_image_from_response_item(wrapped, output_path)
-        media_type = first.get("media_type")
-        await run_sync_transaction(self._ensure_png, output_path, media_type if isinstance(media_type, str) else None)
+        media_type = first.get("media_type") if isinstance(first.get("media_type"), str) else None
+        b64 = first.get("b64_json")
+        # 供应商已返回、本次已计费：落盘与转 PNG 都在不可中断段内跑完，取消不能把付费产物丢掉
+        # （docs/standards/backend.md「供应商返回之后的落账段不可中断」）。
+        if b64:
+
+            def _decode_and_save() -> None:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(base64.b64decode(b64))
+                self._ensure_png(output_path, media_type)
+
+            await run_noninterruptible_sync(_decode_and_save)
+            return
+        # 取件失败只在下载层重试，不回退到重跑已计费的出图请求
+        await with_artifact_retry(lambda: download_image_to_path(first["url"], output_path), label="OpenRouter 图像")
+        await run_noninterruptible_sync(self._ensure_png, output_path, media_type)
 
     def _ensure_png(self, output_path: Path, media_type: str | None) -> None:
         """产物路径固定是 .png：JPEG / WebP 等位图转成 PNG 落盘；转不了（如 SVG）即报错，不留错标格式的产物。"""
