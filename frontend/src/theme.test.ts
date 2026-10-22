@@ -28,3 +28,13 @@ it("跟随系统时，系统切换明暗后页面实时跟着变", () => {
   onSystemChange();
   expect(document.documentElement).toHaveClass("dark");
 });
+
+it("其他标签页改了主题，当前页跟着变", () => {
+  window.localStorage.setItem("arcreel_theme", "light");
+  initTheme();
+  expect(document.documentElement).not.toHaveClass("dark");
+
+  window.localStorage.setItem("arcreel_theme", "dark");
+  window.dispatchEvent(new StorageEvent("storage", { key: "arcreel_theme", newValue: "dark" }));
+  expect(document.documentElement).toHaveClass("dark");
+});

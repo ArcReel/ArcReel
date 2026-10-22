@@ -30,10 +30,14 @@ function applyTheme() {
   document.documentElement.classList.toggle("dark", preference === "dark" || (preference === "system" && systemPrefersDark()));
 }
 
-export function setThemePreference(preference: ThemePreference) {
-  window.localStorage.setItem(STORAGE_KEY, preference);
+function applyAndNotify() {
   applyTheme();
   for (const listener of listeners) listener();
+}
+
+export function setThemePreference(preference: ThemePreference) {
+  window.localStorage.setItem(STORAGE_KEY, preference);
+  applyAndNotify();
 }
 
 function subscribe(listener: () => void) {
@@ -45,9 +49,12 @@ export function useThemePreference(): ThemePreference {
   return useSyncExternalStore(subscribe, getThemePreference);
 }
 
-/** 启动时调用一次：应用当前偏好，并在跟随系统时随系统明暗实时切换。 */
+/** 启动时调用一次：应用当前偏好，在跟随系统时随系统明暗实时切换，并跟随其他标签页改的偏好。 */
 export function initTheme() {
   applyTheme();
+  window.addEventListener("storage", (event) => {
+    if (event.key === STORAGE_KEY || event.key === null) applyAndNotify();
+  });
   if (typeof window.matchMedia === "function") {
     window.matchMedia(SYSTEM_DARK_QUERY).addEventListener("change", applyTheme);
   }
