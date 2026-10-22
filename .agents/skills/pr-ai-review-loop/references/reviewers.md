@@ -24,9 +24,9 @@ CodeRabbit、Codex 自动跟随 push，核对其当前 HEAD 的完成信号。�
 
 ## CodeRabbit
 
-**触发。** `walkthrough.is_paused == true` 且其 `updated_at` 后尚未发送 resume 时，发送 `@coderabbitai resume`。其他时候等待自动审查。暂停和限流后的静默都不是完成。
+**触发。** `walkthrough.is_paused == true` 且其 `updated_at` 后尚未发送 resume 时，发送 `@coderabbitai resume`。`walkthrough.is_review_skipped == true`（draft、bot 作者等跳过审查的通知）且其 `updated_at` 后尚未发送 review 时，发送 `@coderabbitai review`。其他时候等待自动审查。暂停、限流和跳过后的静默都不是完成。
 
-**覆盖完成。** `reviewed_current_head == true`，且 `is_in_progress == false`、`is_paused == false`。限流时的 walkthrough 更新时间不算审查，脚本已通过 `is_rate_limited` 排除。
+**覆盖完成。** `reviewed_current_head == true`，且 `is_in_progress == false`、`is_paused == false`。限流与跳过审查时的 walkthrough 更新时间不算审查，脚本已通过 `is_rate_limited`、`is_review_skipped` 排除。
 
 **发现入口。** 读取新 inline 和新 review body；`has_outside_diff` 提示正文含 diff 外发现，无 inline id 时在 PR 顶层回复。`is_ok`、`actionable_count` 是 bot 的摘要，不能替代这些正文。增量审查返回 `Already reviewed` 时，两者可能残留上一轮值，以本轮正文和实际处置为准。所有实质发现已处置即可收敛，不要求 `actionable_count` 归零。
 
