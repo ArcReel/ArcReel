@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -267,4 +267,89 @@ test("record refuses to hide drift in a quoted frontmatter key", () => {
 
   assert.equal(result.status, 1);
   assert.match(result.stderr, /untranslated frontmatter differs from the source/);
+});
+
+test("record with a source refreshes only that entry and keeps the others as recorded", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  const target = (page) => `website/i18n/en/docusaurus-plugin-content-docs/current/guide/${page}.md`;
+  write(root, "website/docs/guide/a.md", "# 甲\n");
+  write(root, "website/docs/guide/b.md", "# 乙\n");
+  write(root, target("a"), "# A\n");
+  write(root, target("b"), "# B\n");
+  record(root);
+  const lockPath = join(root, "website/i18n/translation.lock.json");
+  const before = JSON.parse(readFileSync(lockPath, "utf8"));
+  write(root, "website/docs/guide/a.md", "# 甲 changed\n");
+  write(root, "website/docs/guide/b.md", "# 乙 changed\n");
+
+  execFileSync(process.execPath, [scriptPath, "record", "website/docs/guide/a.md", "--root", root], { encoding: "utf8" });
+
+  const after = JSON.parse(readFileSync(lockPath, "utf8"));
+  assert.notEqual(after["website/docs/guide/a.md"], before["website/docs/guide/a.md"]);
+  assert.equal(after["website/docs/guide/b.md"], before["website/docs/guide/b.md"]);
+  assert.deepEqual(status(root), [{ source: "website/docs/guide/b.md", target: target("b"), state: "stale" }]);
+});
+
+test("record with a source drops entries whose source and target were both deleted", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  const target = (page) => `website/i18n/en/docusaurus-plugin-content-docs/current/guide/${page}.md`;
+  write(root, "website/docs/guide/a.md", "# 甲\n");
+  write(root, "website/docs/guide/c.md", "# 丙\n");
+  write(root, target("a"), "# A\n");
+  write(root, target("c"), "# C\n");
+  record(root);
+  rmSync(join(root, "website/docs/guide/c.md"));
+  rmSync(join(root, target("c")));
+  write(root, "website/docs/guide/a.md", "# 甲 changed\n");
+
+  execFileSync(process.execPath, [scriptPath, "record", "website/docs/guide/a.md", "--root", root], { encoding: "utf8" });
+
+  const after = JSON.parse(readFileSync(join(root, "website/i18n/translation.lock.json"), "utf8"));
+  assert.deepEqual(Object.keys(after), ["website/docs/guide/a.md"]);
+  assert.deepEqual(status(root), []);
+});
+
+test("record with a source refuses a source that is not a documentation source", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "README.md", "# ArcReel\n");
+  write(root, "README.en.md", "# ArcReel\n");
+
+  const result = spawnSync(process.execPath, [scriptPath, "record", "website/docs/nope.md", "--root", root], {
+    encoding: "utf8",
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /website\/docs\/nope\.md/);
+  assert.equal(existsSync(join(root, "website/i18n/translation.lock.json")), false);
+});
+
+test("status generates the missing synced CONTRIBUTING.md copy with the repository sync script", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "CONTRIBUTING.md", "# 贡献\n");
+  write(
+    root,
+    "website/scripts/sync-contributing.mjs",
+    'import { writeFileSync, mkdirSync } from "node:fs";\nmkdirSync("website/docs/dev", { recursive: true });\nwriteFileSync("website/docs/dev/contributing.md", "# 贡献\\n");\n',
+  );
+  write(root, "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md", "# Contributing\n");
+
+  assert.deepEqual(status(root), [
+    {
+      source: "CONTRIBUTING.md",
+      target: "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md",
+      state: "stale",
+    },
+  ]);
+  assert.equal(existsSync(join(root, "website/docs/dev/contributing.md")), true);
+});
+
+test("status explains how to generate the synced copy when no sync script exists", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  write(root, "CONTRIBUTING.md", "# 贡献\n");
+  write(root, "website/i18n/en/docusaurus-plugin-content-docs/current/dev/contributing.md", "# Contributing\n");
+
+  const result = spawnSync(process.execPath, [scriptPath, "status", "--root", root], { encoding: "utf8" });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /pnpm sync-contributing/);
 });

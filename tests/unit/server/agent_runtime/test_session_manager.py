@@ -20,6 +20,7 @@ from tests.fakes import (
     session_state_message,
     system_frame,
     use_provider_env,
+    use_sdk_client,
 )
 
 
@@ -95,11 +96,11 @@ async def _cold_revival_clients(session_manager, monkeypatch):
         created_clients.append(c)
         return c
 
+    use_sdk_client(monkeypatch, _track_client)
     with monkeypatch.context() as m:
         m.setattr(sm_mod, "SDK_AVAILABLE", True)
         m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
         m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
-        m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
         yield created_clients
 
 
@@ -166,11 +167,11 @@ class TestSessionManager:
             created_clients.append(c)
             return c
 
+        use_sdk_client(monkeypatch, _track_client)
         with monkeypatch.context() as m:
             m.setattr(sm_mod, "SDK_AVAILABLE", True)
             m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
             m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
-            m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
             managed = await session_manager.get_or_connect(meta.id)
             # Let the actor enter the async-context (connect).
             await asyncio.sleep(0)
