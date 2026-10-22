@@ -156,6 +156,21 @@ def test_resolution_model_sends_ar_and_resolution_never_size(tmp_path: Path):
     assert "size" not in req_json
 
 
+def test_seed_sent_only_when_declared_or_model_unlisted(tmp_path: Path):
+    """seed 只发给声明了它的模型；目录未收录该模型时照常带上。"""
+    seeded = {"id": "vendor/seeded", "supported_parameters": {"seed": {"type": "boolean"}}}
+    unseeded = {"id": "vendor/unseeded", "supported_parameters": {}}
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(seeded, unseeded))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        for model in ("vendor/seeded", "vendor/unseeded", "vendor/unlisted"):
+            req = _request(tmp_path)
+            req.seed = 42
+            _run(req, model=model)
+    sent = [request_json(call.request).get("seed") for call in route.calls]
+    assert sent == [42, None, 42]
+
+
 def test_model_declaring_both_size_and_resolution_takes_resolution(tmp_path: Path):
     """size 与 resolution 同时声明时走 resolution 通道：两者同传会被 400 拒掉，size 不下发。"""
     model = {

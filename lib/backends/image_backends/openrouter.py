@@ -230,7 +230,8 @@ class OpenRouterImageBackend:
         input_references = await asyncio.to_thread(self._encode_references, refs)
         payload: dict = {"model": self._model, "prompt": request.prompt, "n": 1}
         payload.update(_resolve_model_params(supported, request.image_size, request.aspect_ratio))
-        if request.seed is not None:
+        # 目录收录了该模型却没声明 seed 时不下发：未声明的参数会被拒；未收录时照常带上
+        if request.seed is not None and (supported is None or "seed" in supported):
             payload["seed"] = request.seed
         if input_references:
             payload["input_references"] = input_references
