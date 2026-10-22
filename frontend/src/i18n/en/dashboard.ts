@@ -2354,6 +2354,7 @@ export default {
   'tool_name_generate_videos': 'Generate videos',
   'tool_name_select_video_version': 'Select video version',
   'tool_name_inspect_video_units': 'Inspect video units',
+  'tool_name_video_correction_memory': 'Manage video correction history',
   'tool_name_create_timeline': 'Create edit timeline',
   'tool_name_list_timelines': 'List edit timelines',
   'tool_name_read_timeline': 'Read edit timeline',

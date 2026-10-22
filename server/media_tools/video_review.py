@@ -18,10 +18,12 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 
 from lib.artifacts.version_manager import VersionManager
 from lib.final_cut.basis import version_snapshot
+from lib.infra.async_thread import run_sync_transaction
 from lib.infra.ffmpeg import FfmpegUnavailableError
 from lib.infra.media_probe import MediaProbeError, probe_video_frame_times
 from lib.project.project_manager import is_reference_video_project
 from lib.video_review.contact_sheet import MAX_SHOT_FRAMES, ContactSheet, ContactSheetError, build_contact_sheets
+from lib.video_review.receipts import save_frame_receipt
 from lib.video_review.signals import SignalDetectionError, VideoSignals, signals_for
 from server.agent_toolset.declaration import ToolImage
 from server.media_tools.context import tool_error, tool_problem
@@ -74,6 +76,7 @@ class InspectedUnit:
     detail: str | None = None
     #: 该单元现有的全部视频版本号，用来发现还没看过的候选版本。
     available_versions: tuple[int, ...] = ()
+    review_receipt: str | None = None
 
     @property
     def frame_count(self) -> int:
@@ -214,6 +217,17 @@ async def inspect_video_units(
             )
         )
         units = [replace(unit, available_versions=tuple(available_by_unit[unit.unit_id])) for unit in units]
+        for index, (unit, (_, _, video)) in enumerate(zip(units, targets, strict=True)):
+            if unit.status == "ok" and unit.version is not None and video is not None:
+                receipt = await run_sync_transaction(
+                    save_frame_receipt,
+                    project_path,
+                    unit_id=unit.unit_id,
+                    version=unit.version,
+                    video=video,
+                    frame_times=tuple(frame.time_seconds for sheet in unit.sheets for frame in sheet.frames),
+                )
+                units[index] = replace(unit, review_receipt=receipt)
         return ToolOutcome(value=InspectVideoUnitsResult(frame_budget_per_unit=frames, units=tuple(units)))
     except FfmpegUnavailableError as exc:
         return tool_problem(f"随包 ffmpeg 不可用，无法出联系表：{exc}", code="ffmpeg_unavailable")
@@ -260,6 +274,7 @@ def inspect_video_units_projection(value: InspectVideoUnitsResult) -> dict[str, 
             "status": unit.status,
             "frame_count": unit.frame_count,
             "sheets": sheets,
+            "review_receipt": unit.review_receipt,
         }
         if unit.signals is not None:
             entry["signals"] = _signals_projection(unit.signals)
