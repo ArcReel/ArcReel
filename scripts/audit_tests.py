@@ -229,12 +229,12 @@ MOTIVE_OVERRIDES = {
 MONKEYPATCH_SETTERS = {"setattr", "delattr"}
 
 
-def monkeypatch_context_aliases(tree: ast.Module) -> set[str]:
-    """`with monkeypatch.context() as m` / `with pytest.MonkeyPatch.context() as m` 绑定的别名。
+def monkeypatch_context_aliases(tree: ast.Module) -> dict[str, list[tuple[int, int]]]:
+    """`with monkeypatch.context() as m` / `with pytest.MonkeyPatch.context() as m` 绑定的别名及其 with 块行范围。
 
-    shortcut: 别名按文件收集、不分作用域，同名变量在别处的 setattr 也会计入；出现误报时再按函数区分。
+    只在别名所属 with 块内的调用才算 monkeypatch，同名变量在别处的 setattr 不计入。
     """
-    aliases: set[str] = set()
+    aliases: dict[str, list[tuple[int, int]]] = {}
     for node in ast.walk(tree):
         if not isinstance(node, (ast.With, ast.AsyncWith)):
             continue
@@ -244,10 +244,11 @@ def monkeypatch_context_aliases(tree: ast.Module) -> set[str]:
             receiver, _, method = (name or "").rpartition(".")
             if (
                 method == "context"
-                and ("monkeypatch" in receiver or receiver.endswith("MonkeyPatch"))
+                and ("monkeypatch" in receiver or receiver in ("MonkeyPatch", "pytest.MonkeyPatch"))
                 and isinstance(item.optional_vars, ast.Name)
             ):
-                aliases.add(item.optional_vars.id)
+                span = (node.lineno, node.end_lineno or node.lineno)
+                aliases.setdefault(item.optional_vars.id, []).append(span)
     return aliases
 
 
@@ -1241,7 +1242,8 @@ class FileScanner:
             literal = const_str(node.args[0]) if node.args else None
             return (literal, "patch") if literal else (None, None)
         receiver, _, method = name.rpartition(".")
-        if method in MONKEYPATCH_SETTERS and ("monkeypatch" in receiver or receiver in self.monkeypatch_aliases):
+        in_alias_block = any(start <= node.lineno <= end for start, end in self.monkeypatch_aliases.get(receiver, ()))
+        if method in MONKEYPATCH_SETTERS and ("monkeypatch" in receiver or in_alias_block):
             if not node.args:
                 return None, None
             literal = const_str(node.args[0])

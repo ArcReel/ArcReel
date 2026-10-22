@@ -62,6 +62,14 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _commits_a_rebind(path: Path, payload: Any) -> bool:
+    """这次写盘是在提交改绑：写的是 ``project.json``，且有一集的剧本绑定与盘上不同。"""
+    if path.name != "project.json":
+        return False
+    bound = {entry["episode"]: entry.get("script_file") for entry in _read_json(path)["episodes"]}
+    return any(bound.get(entry["episode"]) != entry.get("script_file") for entry in payload["episodes"])
+
+
 def _migrate(project_dir: Path) -> None:
     assert migrate_project_with_verdict(project_dir) is None
     assert _read_json(project_dir / "project.json")["schema_version"] == CURRENT_PROJECT_SCHEMA_VERSION
@@ -1050,7 +1058,8 @@ def test_a_rebind_interrupted_between_a_move_and_its_commit_finishes_on_retry(
 
     def interrupt(path: Path, payload: Any) -> None:
         nonlocal commits
-        if path.name == "project.json":
+        # 数改绑提交而不是 project.json 的写盘次数：别的步骤多写一次，中断点也不会错位。
+        if _commits_a_rebind(path, payload):
             commits += 1
             if commits == interrupted_at:
                 # 每挪一次剧本就提交一次账本：剧本已挪到位、账本还没改，进程在这里停下。
@@ -1089,14 +1098,14 @@ def test_a_kept_copy_made_before_a_failed_rebind_commit_stays_in_the_report(
 
     write = legacy_shapes.atomic_write_json
 
-    def fail_on_project_json(path: Path, payload: Any) -> None:
-        if path.name == "project.json":
+    def fail_on_rebind_commit(path: Path, payload: Any) -> None:
+        if _commits_a_rebind(path, payload):
             raise OSError("disk full")
         write(path, payload)
 
     # 规范路径上的旧稿已挪成保留副本、剧本也挪到位，提交账本时失败。
     with monkeypatch.context() as patch:
-        patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project_json)
+        patch.setattr(legacy_shapes, "atomic_write_json", fail_on_rebind_commit)
         assert migrate_project_with_verdict(project_dir) is not None
 
     _migrate(project_dir)

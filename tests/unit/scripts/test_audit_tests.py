@@ -962,6 +962,29 @@ def test_setattr_on_monkeypatch_context_alias_reports_private_patch(tmp_path: Pa
     assert _rules(_audit(tmp_path)) == [("PRIVATE-PATCH", "tests/test_a.py")]
 
 
+def test_context_alias_name_reused_outside_its_with_block_is_not_a_monkeypatch(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_a.py").write_text(
+        _context_patching_test("monkeypatch.context()", '"sdk.client.Client"')
+        + "\n\ndef test_b():\n"
+        + "    m = object()\n"
+        + '    m.setattr("lib.shapes._relocate", object)\n'
+        + "    assert m\n",
+        encoding="utf-8",
+    )
+
+    assert _rules(_audit(tmp_path)) == []
+
+
+def test_context_opener_that_is_not_pytest_monkeypatch_binds_no_alias(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_a.py").write_text(
+        _context_patching_test("NotMonkeyPatch.context()", '"lib.shapes._relocate"'), encoding="utf-8"
+    )
+
+    assert _rules(_audit(tmp_path)) == []
+
+
 def test_allowed_filesystem_boundary_target_is_not_reported(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
     for name in ("test_a.py", "test_b.py", "test_c.py"):
