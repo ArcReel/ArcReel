@@ -101,8 +101,7 @@ class MiniMaxImageBackend:
         # 文生图 + 图生图（subject_reference）同一端点。
         return set(self.CHANNEL_CAPABILITIES)
 
-    @property
-    def max_reference_images(self) -> int:
+    async def reference_image_limit(self) -> int:
         return _SUBJECT_REF_LIMIT
 
     @staticmethod

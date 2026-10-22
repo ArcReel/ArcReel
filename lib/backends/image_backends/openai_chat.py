@@ -106,8 +106,7 @@ class OpenAIChatImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
-    @property
-    def max_reference_images(self) -> int:
+    async def reference_image_limit(self) -> int:
         # 同一个协议背后挂的是各家模型，参考图上限随模型而异，交由上游裁决。
         return 0
 

@@ -103,6 +103,7 @@ MESSAGES = {
     "task_fail_comfyui_execution_error": "ComfyUI 执行失败：{detail}（出错节点：{node}）",
     "task_fail_comfyui_interrupted": "ComfyUI 上的这次执行被中断，请重试",
     "task_fail_comfyui_output_missing": "ComfyUI 已执行完毕，但产物节点 {nodes} 没有产出任何文件，请检查该节点的节点绑定与 workflow 的成片链路",
+    "task_fail_image_output_missing": "模型 {model} 没有返回图片，可能触发了内容安全过滤；请调整提示词或参考图后重试",
     "task_fail_comfyui_output_type_mismatch": "ComfyUI 产出的 {filename} 不是这个端点应产出的文件类型（应为 {expected}），请把产物节点的节点绑定指到导出最终产物的那个节点，或在该保存节点上改用受支持的格式（如 SaveVideo 选 h264-mp4）",
     "task_fail_comfyui_output_container_mismatch": "ComfyUI 产出的 {filename} 文件内容不是这个端点应产出的容器（应为 {expected}），请在保存节点上改用受支持的格式（如 SaveVideo 选 h264-mp4）",
     "task_fail_artifact_download_failed": "视频生成任务已成功但下载失败，可重试下载：{detail}",
@@ -588,7 +589,6 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} 不支持文生图；请配置一个支持文生图的默认模型",
     "image_dashscope_4k_t2i_only": "模型 {model} 的 4K 输出仅 wan2.7-image-pro 文生图支持；请改用 2K 或更低分辨率",
     "image_reference_images_unreadable": "模型 {model} 有参考图缺失或无法读取，已中止生成：{names}；请检查参考图路径",
-    "image_reference_images_exceeded": "模型 {model} 最多支持 {limit} 张参考图，收到 {count} 张；请减少参考图数量",
     # Image Edit
     "image_edit_resource_type_invalid": "资源类型「{resource_type}」不支持图片编辑",
     "image_edit_instruction_required": "编辑指令不能为空",

@@ -63,6 +63,10 @@ class _FakeBackend:
     voices: list = field(default_factory=list)
     max_reference_images: int = 0
 
+    async def reference_image_limit(self) -> int:
+        """image backend 协议的一部分：image lane 解析时读一次参考图上限。"""
+        return self.max_reference_images
+
     def list_voices(self):
         """audio backend 协议的一部分：audio lane 解析时会取音色目录快照。"""
         return self.voices

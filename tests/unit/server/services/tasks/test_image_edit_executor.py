@@ -969,6 +969,9 @@ class _EchoBackend:
     model: str
     max_reference_images: int = 0
 
+    async def reference_image_limit(self) -> int:
+        return self.max_reference_images
+
 
 class TestImageSizeResolutionEquivalence:
     """image_size 同源：``ctx.image.resolution`` 等于「先 resolve_image_backend(i2i) 得

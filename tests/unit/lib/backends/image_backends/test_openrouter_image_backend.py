@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import base64
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -19,6 +21,7 @@ from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
+    ImageOutputMissingError,
     ReferenceImage,
 )
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend, reset_model_params_for_tests
@@ -113,8 +116,35 @@ def _run(req: ImageGenerationRequest, *, model: str = "openai/gpt-image-2", api_
 def test_caps_and_defaults():
     backend = OpenRouterImageBackend(base_url=_BASE_URL)
     assert backend.capabilities == {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
-    assert backend.max_reference_images == 16
     assert backend.name == PROVIDER_OPENROUTER
+
+
+def _limit(model: str, *catalog: dict, status: int = 200) -> int:
+    backend = OpenRouterImageBackend(api_key="sk-or-test", model=model, base_url=_BASE_URL)
+    with capture_http() as router:
+        response = _models_response(*catalog) if status == 200 else httpx.Response(status)
+        router.get(_MODELS_URL).mock(return_value=response)
+        return asyncio.run(backend.reference_image_limit())
+
+
+def _ref_range(model_id: str, low: int, high: int) -> dict:
+    return {"id": model_id, "supported_parameters": {"input_references": {"type": "range", "min": low, "max": high}}}
+
+
+@pytest.mark.parametrize(
+    ("catalog", "status", "expected"),
+    [
+        pytest.param((_ref_range("m", 0, 3),), 200, 3, id="declared-below-endpoint-cap"),
+        pytest.param((_ref_range("m", 0, 20),), 200, 16, id="declared-above-endpoint-cap"),
+        pytest.param((), 200, 16, id="model-not-in-catalog"),
+        pytest.param((), 500, 16, id="catalog-unavailable"),
+        # 收录却没声明参考图：不报 0（0 = 不裁剪），由 generate 按不支持图生图报错
+        pytest.param(({"id": "m", "supported_parameters": {}},), 200, 16, id="no-input-references"),
+    ],
+)
+def test_reference_image_limit_follows_the_model_declaration(catalog, status, expected):
+    """上限按模型在目录里声明的 input_references 给出，封顶端点的 16 张。"""
+    assert _limit("m", *catalog, status=status) == expected
 
 
 def test_unknown_model_falls_back_to_size(tmp_path: Path):
@@ -308,21 +338,68 @@ def test_partial_missing_refs_fail_loud_without_submitting(tmp_path: Path):
     assert not route.called
 
 
-def test_refs_over_declared_max_fail_loud_without_submitting(tmp_path: Path):
-    """模型声明 input_references 上限 3 却收到 5 张：报错而非截断，prompt 里的「图4」「图5」不会错指。"""
+def test_refs_over_declared_max_truncated_as_fallback(tmp_path: Path, caplog: pytest.LogCaptureFixture):
+    """编排层未裁剪时的兜底：只发前 3 张（模型声明的上限）并告警。"""
     refs = [_make_ref(tmp_path, f"ref-{i}.png") for i in range(5)]
+    model = _ref_range("x-ai/grok-imagine-image-2.0", 0, 3)
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(model))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        _run(_request(tmp_path, refs=refs), model="x-ai/grok-imagine-image-2.0")
+    assert len(request_json(only_request(route))["input_references"]) == 3
+    assert "截断" in caplog.text
+
+
+def test_edit_only_model_rejects_text_to_image(tmp_path: Path):
+    """模型声明 input_references 下限 1（只做改图）却没带参考图：报不支持文生图，不发 /images 请求。"""
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(_ref_range("krea/k3-edit", 1, 8)))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        with pytest.raises(ImageCapabilityError) as ei:
+            _run(_request(tmp_path), model="krea/k3-edit")
+    assert ei.value.code == "image_endpoint_mismatch_no_t2i"
+    assert not route.called
+
+
+def test_fractional_resolution_tier_is_the_smallest_non_downgrading(tmp_path: Path):
+    """1.5K 这类小数档也认得：2K 请求（短边 1440）选 1.5K，而不是跳到 2K。"""
     model = {
-        "id": "x-ai/grok-imagine-image-2.0",
-        "supported_parameters": {"input_references": {"type": "range", "min": 0, "max": 3}},
+        "id": "tencent/hy-image",
+        "supported_parameters": {**_enum("resolution", "1K", "1.5K", "2K", "4K"), **_enum("aspect_ratio", "9:16")},
     }
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(model))
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
-        with pytest.raises(ImageCapabilityError) as ei:
-            _run(_request(tmp_path, refs=refs), model="x-ai/grok-imagine-image-2.0")
-    assert ei.value.code == "image_reference_images_exceeded"
-    assert ei.value.params == {"model": "x-ai/grok-imagine-image-2.0", "limit": 3, "count": 5}
-    assert not route.called
+        _run(_request(tmp_path, image_size="2K"), model="tencent/hy-image")
+    assert request_json(only_request(route))["resolution"] == "1.5K"
+
+
+def test_catalog_failure_is_not_requeried_within_the_failure_window(tmp_path: Path):
+    """目录查询失败短暂缓存：紧接着的第二次生成不再查目录。"""
+    with capture_http() as router:
+        models_route = router.get(_MODELS_URL).mock(return_value=httpx.Response(503))
+        router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        _run(_request(tmp_path))
+        _run(_request(tmp_path))
+    assert models_route.call_count == 1
+
+
+def test_path_overrides_change_the_urls_actually_sent(tmp_path: Path):
+    """路径覆盖（docs/adr/0101）：生成与目录查询都按覆盖路径接在供应商填写的 base_url 之后发出。"""
+    from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+
+    provider = SimpleNamespace(provider_id="custom-or", base_url="https://relay.example/api/v1", api_key="sk")
+    backend = ENDPOINT_REGISTRY["openrouter-images"].build_backend(
+        cast("Any", provider),
+        "openai/gpt-image-2",
+        {"generate": "/v2/generate", "model_catalog": "/v2/catalog"},
+    )
+    with capture_http() as router:
+        catalog = router.get("https://relay.example/api/v1/v2/catalog").mock(return_value=_models_response())
+        generate = router.post("https://relay.example/api/v1/v2/generate").mock(return_value=_ok_response())
+        asyncio.run(backend.generate(_request(tmp_path)))
+    assert catalog.call_count == 1
+    assert generate.call_count == 1
 
 
 def test_refs_within_declared_max_all_sent(tmp_path: Path):
@@ -416,9 +493,17 @@ def test_auth_header_carries_api_key(tmp_path: Path):
     assert route.calls[0].request.headers["Authorization"] == "Bearer sk-or-test"
 
 
-def test_empty_data_raises_with_model(tmp_path: Path):
+@pytest.mark.parametrize(
+    "body", [b'{"data": []}', b"null", b'{"data": [{}]}'], ids=["empty-data", "null-body", "no-image"]
+)
+def test_response_without_image_raises_structured_failure(tmp_path: Path, body):
+    """成功响应没带回图片：抛带稳定 code 的错误，文案由读侧按语言渲染。"""
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response())
-        router.post(_IMAGES_URL).mock(return_value=httpx.Response(200, json={"data": []}))
-        with pytest.raises(RuntimeError, match="openai/gpt-image-2"):
+        router.post(_IMAGES_URL).mock(
+            return_value=httpx.Response(200, content=body, headers={"Content-Type": "application/json"})
+        )
+        with pytest.raises(ImageOutputMissingError) as ei:
             _run(_request(tmp_path))
+    assert ei.value.code == "image_output_missing"
+    assert ei.value.params == {"model": "openai/gpt-image-2"}

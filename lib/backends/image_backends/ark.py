@@ -100,8 +100,7 @@ class ArkImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return set(self.CHANNEL_CAPABILITIES)
 
-    @property
-    def max_reference_images(self) -> int:
+    async def reference_image_limit(self) -> int:
         return _MAX_REFERENCE_IMAGES
 
     @staticmethod

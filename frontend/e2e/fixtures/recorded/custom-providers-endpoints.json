@@ -275,7 +275,26 @@
         "duration_frame_rate_missing": false,
         "duration_tier_empty": false,
         "native_resolution": null,
-        "requests": []
+        "requests": [
+          {
+            "name": "generate",
+            "display_name_key": "cp_request_generate",
+            "default_path": "/images",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "as_is"
+          },
+          {
+            "name": "model_catalog",
+            "display_name_key": "cp_request_model_catalog",
+            "default_path": "/images/models",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "as_is"
+          }
+        ]
       },
       {
         "key": "gemini-image",

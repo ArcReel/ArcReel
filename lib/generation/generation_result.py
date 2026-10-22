@@ -165,6 +165,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "model_not_in_provider_catalog": GenerationAction.CONFIGURE_PROVIDER,
     # 上游按确定性 4xx 拒了这个请求：原样重发只会被同样拒绝，还要再付一次。
     "provider_rejected": GenerationAction.FIX_INPUT,
+    # 多为内容安全过滤命中：调整提示词或参考图后再生成。
+    "image_output_missing": GenerationAction.FIX_INPUT,
     "declarative_template_render_failed": GenerationAction.CONFIGURE_PROVIDER,
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
     # 图片已出但没取回：图片不续跑，「重试下载」接不回原任务，重新生成是唯一的一步。
@@ -212,7 +214,6 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_aspect_ratio_not_supported": GenerationAction.FIX_INPUT,
     "video_resolution_not_supported": GenerationAction.FIX_INPUT,
     "video_reference_resolution_unsupported": GenerationAction.FIX_INPUT,
-    "image_reference_images_exceeded": GenerationAction.FIX_INPUT,
     "video_reference_images_exceeded": GenerationAction.FIX_INPUT,
     "video_reference_audio_duration_exceeded": GenerationAction.FIX_INPUT,
     "video_reference_audio_exceeded": GenerationAction.FIX_INPUT,

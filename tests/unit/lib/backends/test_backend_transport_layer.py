@@ -26,6 +26,7 @@ from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
+from lib.backends.image_backends.openrouter import OpenRouterImageBackend, reset_model_params_for_tests
 from lib.backends.text_backends.anthropic import AnthropicTextBackend
 from lib.backends.text_backends.base import TextGenerationRequest
 from lib.backends.text_backends.gemini import GeminiTextBackend
@@ -93,6 +94,9 @@ _CALLS: dict[str, Call] = {
     "kling-image": lambda layer, tmp_path: KlingImageBackend(
         auth_mode="bearer", api_key="k", base_url=f"{BASE}/v1", transport_layer=layer
     ).generate(_image(tmp_path)),
+    "openrouter-images": lambda layer, tmp_path: OpenRouterImageBackend(
+        api_key="k", base_url=f"{BASE}/api/v1", transport_layer=layer
+    ).generate(_image(tmp_path)),
     "openai-tts": lambda layer, tmp_path: OpenAIAudioBackend(
         api_key="k", base_url=f"{BASE}/v1", model="tts-1", transport_layer=layer
     ).synthesize(_speech(tmp_path)),
@@ -128,6 +132,8 @@ _CALLS: dict[str, Call] = {
 
 @pytest.mark.parametrize("call", _CALLS.values(), ids=_CALLS.keys())
 async def test_requests_leave_on_the_path_rewritten_by_the_injected_layer(call: Call, tmp_path: Path):
+    # OpenRouter 的模型目录查询结果按进程缓存，清掉才能每次都看到它发出的请求
+    reset_model_params_for_tests()
     layer = PathPrefixRewrite("/", "/rewritten/")
     with capture_http() as router, bounded_poll_clock():
         rewritten = router.route(host="relay.example", path__startswith="/rewritten/").mock(

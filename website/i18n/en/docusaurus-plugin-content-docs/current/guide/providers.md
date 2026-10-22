@@ -452,6 +452,8 @@ Model names are mapped to known models in the model catalog, ignoring case, igno
 
 Each video call endpoint decides first/last frame, reference image, and reference audio support from the model name. When the name maps to a known model in the model catalog, the endpoint uses that model's official name and aliases. A video model the endpoint does not recognize supports only text-to-video and first-frame generation; last frame, reference images, and reference audio are unavailable. For image models, text-to-image and image-to-image are available only where both the model catalog entry and the call endpoint support them; a model that maps to no known model follows the call endpoint alone.
 
+To use image models through OpenRouter, change the call endpoint to "OpenRouter Images API" in [model settings](#model-settings). OpenRouter does not provide OpenAI's `/images/edits` endpoint, so models attached to "OpenAI Images API" cannot do image-to-image. With "OpenRouter Images API", both text-to-image and image-to-image go through `/images`, and the aspect ratio, resolution, and reference image limit follow the parameters OpenRouter declares for that model. When there are more reference images than the model allows, only the first ones are sent and the task result shows a notice; if any reference image cannot be read, generation fails right away instead of continuing with fewer reference images.
+
 If someone has already adapted the call endpoint you need, you can install it directly from the [Market](./market.md) instead of writing the definition yourself.
 
 When a provider submits jobs as JSON and then polls JSON results by task ID, you can click "New endpoint" in the "Endpoints" section and write a declarative definition yourself.

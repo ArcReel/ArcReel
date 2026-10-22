@@ -109,14 +109,14 @@ class TestDeclaredCapabilities:
         backend = _backend()
 
         assert backend.capabilities == {ImageCapability.TEXT_TO_IMAGE}
-        assert backend.max_reference_images == 0
+        assert asyncio.run(backend.reference_image_limit()) == 0
 
     def test_a_workflow_with_reference_slots_is_image_to_image_only(self):
         """有格子却不给图，构造层要么删读图节点要么提交一张空图——都不是「也支持文生图」。"""
         backend = _backend(_definition(reference_slots=2))
 
         assert backend.capabilities == {ImageCapability.IMAGE_TO_IMAGE}
-        assert backend.max_reference_images == 2
+        assert asyncio.run(backend.reference_image_limit()) == 2
 
     @pytest.mark.parametrize(
         ("reference_slots", "expected"),
@@ -146,7 +146,7 @@ class TestDeclaredCapabilities:
 
         assert isinstance(backend, CustomImageBackend)
         assert backend.capabilities == {ImageCapability.IMAGE_TO_IMAGE}
-        assert backend.max_reference_images == 1
+        assert asyncio.run(backend.reference_image_limit()) == 1
 
 
 class TestGenerate:

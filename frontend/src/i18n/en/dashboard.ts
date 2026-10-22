@@ -1587,6 +1587,7 @@ export default {
   'cp_request_poll_img2video': 'Check progress (image to video)',
   'cp_request_poll_multi_image2video': 'Check progress (multi-image reference)',
   'cp_request_download': 'Download video',
+  'cp_request_model_catalog': 'Model parameter lookup',
   'cp_request_path_label': 'Request path',
   'cp_request_auto_v1': '/v1 is added automatically. Once you change the path, it is no longer added.',
   'cp_request_default': 'Default: {{path}}',

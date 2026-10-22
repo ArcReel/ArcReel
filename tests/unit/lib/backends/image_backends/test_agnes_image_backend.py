@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -64,7 +65,7 @@ class TestCapabilities:
         from lib.backends.image_backends.agnes import AgnesImageBackend
 
         # 该后端不按数量裁剪参考图（全量下传，见 i2i 用例），故声明 0 让编排层不裁剪。
-        assert AgnesImageBackend(api_key="sk").max_reference_images == 0
+        assert asyncio.run(AgnesImageBackend(api_key="sk").reference_image_limit()) == 0
 
     def test_default_model_when_unset(self):
         from lib.backends.image_backends.agnes import AgnesImageBackend

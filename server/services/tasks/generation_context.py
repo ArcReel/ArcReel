@@ -390,7 +390,7 @@ async def resolve_generation_context(
                 backend_name=image_backend.name,
                 backend_model=image_backend.model,
                 resolution=await r.resolve_resolution(project, resolved.provider_id, image_backend.model),
-                max_reference_images=int(image_backend.max_reference_images),
+                max_reference_images=int(await image_backend.reference_image_limit()),
             )
 
         if video is not None:

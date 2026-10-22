@@ -160,18 +160,21 @@ class DeclarativeImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return set(image_capabilities_from_definition(self._definition))
 
+    async def reference_image_limit(self) -> int:
+        return self._reference_limit
+
     @property
-    def max_reference_images(self) -> int:
+    def _reference_limit(self) -> int:
         """定义声明的参考图上限；未声明时为 ``0``。校验器保证声明了图生图就有正数上限。"""
         value = (self._definition.get("capabilities") or {}).get("max_reference_images")
         return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        # 编排层已按 max_reference_images 裁剪并提示；这里的截断只是兜底，超出的图没有落点。上限为 0
+        # 编排层已按 reference_image_limit 裁剪并提示；这里的截断只是兜底，超出的图没有落点。上限为 0
         # 时按协议不裁剪。
         references = request.reference_images
-        if self.max_reference_images:
-            references = references[: self.max_reference_images]
+        if self._reference_limit:
+            references = references[: self._reference_limit]
         context = await asyncio.to_thread(
             self._engine.request_context,
             {

@@ -5,9 +5,10 @@ I2I 统一走 ``POST {base_url}/images`` 的 JSON 端点——参考图以 data 
 ``input_references``，响应 ``data[].b64_json``。本后端因此不复用 OpenAI SDK，请求构造
 仿 MiniMax 的 raw httpx 模式，落盘复用 :func:`save_image_from_response_item`。
 
-尺寸参数按模型在 ``GET {base_url}/images/models`` 声明的 ``supported_parameters`` 自适应
-下发（进程级缓存 1h；OpenRouter 把 ``size`` 与 ``resolution`` 同时出现视为冲突并返回 400，
-两套参数互斥、只能按声明选其一）：
+模型能力取自 ``GET {base_url}/images/models`` 里该模型声明的 ``supported_parameters``（进程级缓存：
+查到的结果 1h，查询失败 60s）。参考图上限（``input_references``）经 :meth:`reference_image_limit`
+交给编排层先裁剪再编号；未声明的参数（``n`` / ``seed``）不下发。尺寸参数按声明自适应（OpenRouter 把
+``size`` 与 ``resolution`` 同时出现视为冲突并返回 400，两套参数互斥、只能按声明选其一）：
 
 - 声明 ``resolution``（gemini / seedream / qwen / grok / krea 系，同时声明 ``size`` 也算）→
   ``aspect_ratio`` + ``resolution``（不传 size）。档位短边映射到声明枚举里「≥ 请求值的最小档」，映射不到则省略。
@@ -28,6 +29,7 @@ import logging
 import time
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 
@@ -44,12 +46,14 @@ from lib.backends.image_backends.base import (
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageOutputMissingError,
     image_to_base64_data_uri,
     per_image_usage,
     save_image_from_response_item,
 )
 from lib.backends.openai_shared import OPENAI_IMAGE_QUALITY_MAP as _QUALITY_MAP
 from lib.backends.providers import PROVIDER_OPENROUTER
+from lib.backends.transport_layer import TransportLayer
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -59,8 +63,9 @@ DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_MODEL = "openai/gpt-image-2"
 _MAX_REFERENCE_IMAGES = 16
 
-_IMAGES_ENDPOINT = "/images"
-_MODELS_ENDPOINT = "/images/models"
+#: 生成与模型目录查询的请求路径（相对 base_url）。路径覆盖（docs/adr/0101）按这两条默认路径认出请求。
+IMAGES_PATH = "/images"
+MODELS_PATH = "/images/models"
 
 #: 生成耗时可达 90s+，超时须远大于常规请求
 _HTTP_TIMEOUT = httpx.Timeout(300.0, connect=15.0)
@@ -71,9 +76,11 @@ _MODELS_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 # "2k"/"4K "，不归一会让 size 解析成功但 quality 静默丢失。自定义 WxH（无档位）→ None。
 _QUALITY_MAP_CI = {k.lower(): v for k, v in _QUALITY_MAP.items()}
 
-# (base_url, model) → (monotonic 截止, supported_parameters)。目录与租户无关，进程级缓存；
-# 未收录模型负缓存同 TTL，避免每次生成都白打一趟目录。查询失败不缓存，下次生成再试。
+# (base_url, model) → (monotonic 到期时刻, supported_parameters)。目录与租户无关，进程级缓存。
+# 查到的结果（含「目录里没有这个模型」）缓存 1h；查询失败也短暂缓存为「未收录」，免得目录不可用时
+# 每次生成都重查一遍、各打一份堆栈。
 _MODEL_PARAMS_TTL_SECONDS = 3600.0
+_MODEL_PARAMS_FAILURE_TTL_SECONDS = 60.0
 _model_params_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
 
 
@@ -93,27 +100,43 @@ def _enum_values(supported: dict, name: str) -> list[str]:
     return [v for v in values if isinstance(v, str)] if isinstance(values, list) else []
 
 
-def _range_max(supported: dict, name: str) -> int | None:
-    """取声明 range 的上限（{"type": "range", "min": m, "max": n}）；缺失 → None。"""
+def _range_bound(supported: dict, name: str, bound: str) -> int | None:
+    """取声明 range 的一端（{"type": "range", "min": m, "max": n}，``bound`` 为 min / max）；缺失 → None。"""
     spec = supported.get(name)
     if not isinstance(spec, dict):
         return None
-    value = spec.get("max")
-    return value if isinstance(value, int) else None
+    value = spec.get(bound)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _declared_reference_max(supported: dict | None) -> int | None:
+    """目录声明的参考图上限：收录了该模型却没声明 ``input_references`` 时为 ``0``（不收参考图）；
+    目录不可得、未收录该模型或声明里没写上限时为 ``None``（不知道）。"""
+    if supported is None:
+        return None
+    if "input_references" not in supported:
+        return 0
+    value = _range_bound(supported, "input_references", "max")
+    return None if value is None else max(value, 0)
+
+
+def _effective_reference_limit(supported: dict | None) -> int:
+    """实际按多少张裁剪：模型声明的上限封顶端点的 16 张；声明不出正数上限时取 16。"""
+    declared = _declared_reference_max(supported)
+    return min(declared, _MAX_REFERENCE_IMAGES) if declared else _MAX_REFERENCE_IMAGES
 
 
 def _resolution_px(value: str) -> int | None:
-    """把 resolution 枚举值换算成短边像素（"512" → 512，"1K"/"2K"/"4K" → 1024/2048/4096）。"""
+    """把 resolution 枚举值换算成短边像素（"512" → 512，"1K" / "1.5K" / "2K" → 1024 / 1536 / 2048）。"""
     text = value.strip().upper()
+    scale = 1
     if text.endswith("K"):
-        try:
-            return int(text[:-1]) * 1024
-        except ValueError:
-            return None
+        text, scale = text[:-1], 1024
     try:
-        return int(text)
+        px = round(float(text) * scale)
     except ValueError:
         return None
+    return px if px > 0 else None
 
 
 def _pick_resolution(values: list[str], short_edge: int | None) -> str | None:
@@ -233,11 +256,20 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
 class OpenRouterImageBackend:
     """OpenRouter 统一图片后端：T2I 与 I2I 同 hit ``POST {base_url}/images``。"""
 
-    def __init__(self, *, api_key: str | None = None, model: str | None = None, base_url: str | None = None):
+    def __init__(
+        self,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+        transport_layer: TransportLayer | None = None,
+    ):
         self._api_key = api_key or ""
         self._model = model or DEFAULT_MODEL
         # OpenRouter 的 base_url 已含 /api/v1，不做 ensure_openai_base_url 的 /v1 追加
         self._base_url = (str(base_url).strip().rstrip("/") if base_url else "") or DEFAULT_BASE_URL
+        # 路径覆盖（docs/adr/0101）在 transport 层按请求路径改写，生成与目录查询两条请求都经过它
+        self._transport_layer = transport_layer
 
     @property
     def name(self) -> str:
@@ -251,14 +283,17 @@ class OpenRouterImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
 
-    @property
-    def max_reference_images(self) -> int:
-        return _MAX_REFERENCE_IMAGES
+    async def reference_image_limit(self) -> int:
+        """这个模型单请求可携带的参考图上限：目录声明的 ``input_references`` 上限，封顶 16。
+
+        目录不可得、目录里没有这个模型，或模型没声明可用的参考图上限时取 16：没声明参考图的模型由
+        ``generate`` 按不支持图生图报错（docs/adr/0015），这里不返回 ``0``——``0`` 的意思是「不裁剪」。
+        """
+        return _effective_reference_limit(await self._fetch_supported_params())
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
-        refs = request.reference_images
         supported = await self._fetch_supported_params()
-        self._check_reference_limit(refs, supported)
+        refs = self._fit_references(request.reference_images, supported)
 
         input_references = await asyncio.to_thread(self._encode_references, refs)
         payload: dict = {"model": self._model, "prompt": request.prompt}
@@ -278,53 +313,64 @@ class OpenRouterImageBackend:
             image_path=request.output_path,
             provider=PROVIDER_OPENROUTER,
             model=self._model,
-            # 用量契约（docs/adr/0100）：按张上报输出与实际下发的参考图张数；usage.cost 接入留作后续
+            # 用量契约（docs/adr/0100）：按张上报输出与实际下发的参考图张数
             usage=per_image_usage(output_images=1, input_images=len(input_references)),
         )
 
-    def _check_reference_limit(self, refs: list, supported: dict | None) -> None:
-        """按模型声明的 input_references 上限校验参考图张数，超限即 fail-loud；目录未收录该模型时不校验。
+    def _fit_references(self, refs: list, supported: dict | None) -> list:
+        """按目录声明核对参考图：模型不收参考图或必须带参考图时报错，超出上限时截断。
 
-        编排层按端点上限（16 张）给参考图编号并写进 prompt，在这里截断会让 prompt 里的「图N」指向
-        没有下发的参考图，生成照常计费；因此超限直接报错，由用户减少参考图。
+        目录不可得或未收录该模型时只按端点上限 16 张截断。编排层已按 :meth:`reference_image_limit`
+        裁剪并提示，这里的截断只是兜底。
         """
-        if not refs or supported is None:
-            return
-        # 目录收录了该模型却没声明 input_references：没有供应商接受参考图，按不支持图生图处理
-        declared_max = _range_max(supported, "input_references") if "input_references" in supported else 0
-        if declared_max is None or len(refs) <= declared_max:
-            return
-        if declared_max == 0:
-            raise ImageCapabilityError(
-                "image_endpoint_mismatch_no_i2i",
-                model=self._model,
-                detail=f"model {self._model} declares input_references max {declared_max}",
+        if supported is not None:
+            if refs and _declared_reference_max(supported) == 0:
+                # 目录收录了该模型，却没声明参考图或声明上限为 0：没有供应商接受参考图
+                raise ImageCapabilityError(
+                    "image_endpoint_mismatch_no_i2i",
+                    model=self._model,
+                    detail=f"model {self._model} declares no input_references",
+                )
+            declared_min = _range_bound(supported, "input_references", "min") or 0
+            if not refs and declared_min > 0:
+                raise ImageCapabilityError("image_endpoint_mismatch_no_t2i", model=self._model)
+        limit = _effective_reference_limit(supported)
+        if len(refs) > limit:
+            logger.warning(
+                "OpenRouter 参考图数量 %d 超过 model=%s 上限 %d，截断",
+                len(refs),
+                self._model,
+                limit,
             )
-        raise ImageCapabilityError(
-            "image_reference_images_exceeded", model=self._model, limit=declared_max, count=len(refs)
-        )
+            refs = refs[:limit]
+        return refs
 
     async def _fetch_supported_params(self) -> dict | None:
-        """查该 model 的 supported_parameters（进程级缓存 1h）。
+        """查该 model 的 supported_parameters（进程级缓存）；目录不可得或不含该模型时返回 None。
 
-        网络异常 / 非 2xx / 目录不含该模型一律按「未收录」返回 None——只影响尺寸参数精化，
-        生成流程按 size 兜底照常走，不因发现失败而中断。
+        网络异常与非 2xx 只影响参数精化：生成按 size 兜底照常走，不因查询失败而中断。
         """
         key = (self._base_url, self._model)
         now = time.monotonic()
         cached = _model_params_cache.get(key)
-        if cached and now - cached[0] < _MODEL_PARAMS_TTL_SECONDS:
+        if cached and now < cached[0]:
             return cached[1]
         try:
-            async with artifact_http_client(timeout=_MODELS_TIMEOUT) as client:
+            async with artifact_http_client(timeout=_MODELS_TIMEOUT, transport_layer=self._transport_layer) as client:
                 resp = await client.get(
-                    f"{self._base_url}{_MODELS_ENDPOINT}",
+                    f"{self._base_url}{MODELS_PATH}",
                     headers={"Authorization": f"Bearer {self._api_key}"},
                 )
                 resp.raise_for_status()
                 items = (resp.json() or {}).get("data") or []
         except Exception:
-            logger.warning("OpenRouter 模型目录查询失败，按未收录处理: model=%s", self._model, exc_info=True)
+            logger.warning(
+                "OpenRouter 模型目录查询失败，%ds 内按未收录处理: model=%s",
+                int(_MODEL_PARAMS_FAILURE_TTL_SECONDS),
+                self._model,
+                exc_info=True,
+            )
+            _model_params_cache[key] = (now + _MODEL_PARAMS_FAILURE_TTL_SECONDS, None)
             return None
         supported: dict | None = None
         for item in items:
@@ -332,7 +378,7 @@ class OpenRouterImageBackend:
                 raw = item.get("supported_parameters")
                 supported = raw if isinstance(raw, dict) else None
                 break
-        _model_params_cache[key] = (now, supported)
+        _model_params_cache[key] = (now + _MODEL_PARAMS_TTL_SECONDS, supported)
         return supported
 
     def _encode_references(self, refs) -> list[dict]:
@@ -361,7 +407,7 @@ class OpenRouterImageBackend:
         return encoded
 
     @with_retry_async(retry_if=should_retry_submit)
-    async def _submit(self, payload: dict) -> dict:
+    async def _submit(self, payload: dict) -> Any:
         """单步图像生成 POST（非幂等「建图 + 计费」），返回解析后的响应体。
 
         重试范围严格限定在本方法内、不含落盘——落盘失败不会触发整流程重试导致重复建图与
@@ -370,31 +416,23 @@ class OpenRouterImageBackend:
         """
         log_view = {**payload, "prompt": payload.get("prompt", "")[:80]}
         logger.info("调用 %s 图片 API kwargs=%s", self.name, format_kwargs_for_log(log_view))
-        async with artifact_http_client(timeout=_HTTP_TIMEOUT) as client:
+        async with artifact_http_client(timeout=_HTTP_TIMEOUT, transport_layer=self._transport_layer) as client:
             resp = await submit_post(
                 lambda: client.post(
-                    f"{self._base_url}{_IMAGES_ENDPOINT}",
+                    f"{self._base_url}{IMAGES_PATH}",
                     json=payload,
                     headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
                 ),
                 provider=PROVIDER_OPENROUTER,
             )
-            body = resp.json()
-        if body is None:
-            # 空 data 通常是内容安全过滤命中或上游网关异常，给出清晰错误便于排查
-            raise RuntimeError(
-                f"OpenRouter 图片生成响应 data 为空 (model={self._model})，可能触发内容安全过滤或上游服务异常"
-            )
-        return body
+            return resp.json()
 
-    async def _persist_image(self, body: dict, output_path: Path) -> None:
-        items = body.get("data") or []
-        if not items:
-            # 空 data 通常是内容安全过滤命中或上游网关异常，给出清晰错误便于排查
-            raise RuntimeError(
-                f"OpenRouter 图片生成响应 data 为空 (model={self._model})，可能触发内容安全过滤或上游服务异常"
-            )
-        first = items[0] if isinstance(items[0], dict) else {}
+    async def _persist_image(self, body: Any, output_path: Path) -> None:
+        items = body.get("data") if isinstance(body, dict) else None
+        first = items[0] if isinstance(items, list) and items else None
+        if not isinstance(first, dict) or not (first.get("b64_json") or first.get("url")):
+            # 成功响应却没带回图片：通常是内容安全过滤命中或上游异常
+            raise ImageOutputMissingError(model=self._model)
         # save_image_from_response_item 以属性访问读取 b64_json/url——dict 包一层即可复用
         wrapped = SimpleNamespace(b64_json=first.get("b64_json"), url=first.get("url"))
         await save_image_from_response_item(wrapped, output_path)

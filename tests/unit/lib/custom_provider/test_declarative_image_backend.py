@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 from pathlib import Path
 from typing import Any
@@ -93,7 +94,7 @@ class TestDeclarativeImageBackend:
         backend = _backend(_image_to_image_definition(max_reference_images=3))
 
         assert backend.capabilities == {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
-        assert backend.max_reference_images == 3
+        assert asyncio.run(backend.reference_image_limit()) == 3
 
     @pytest.mark.parametrize(
         ("encoding", "prefix"),
