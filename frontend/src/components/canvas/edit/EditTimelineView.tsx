@@ -276,7 +276,7 @@ export function EditTimelineView({
         id={panelId}
         aria-labelledby={tabId(selected.id)}
         // 播放器、详情栏与轨道固定深色：浅底会干扰对画面明暗的判断
-        className="dark flex min-h-0 flex-1 flex-col bg-background px-4 pt-3 pb-4 text-foreground edit-short:pt-2 edit-short:pb-2"
+        className="dark flex min-h-0 flex-1 flex-col bg-background px-4 pb-4 text-foreground edit-short:pb-2"
       >
         {current && "value" in current ? (
           <TimelinePreview

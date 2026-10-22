@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 
+// 相对生成代码的改动：只在输入控件禁用时整组变淡；按 has-disabled 判断时，组内发送按钮禁用也会让输入框发灰。
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div

@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
  * 主题偏好：本机偏好，不经后端保存。深色由 <html> 上的 .dark 类决定。
  * index.html 的内联脚本在首屏渲染前按同一个存储键和同一套规则加上 .dark，避免先闪一下错误的主题；改这里时一起改。
  */
-export const THEME_PREFERENCES = ["system", "light", "dark"] as const;
+export const THEME_PREFERENCES = ["light", "dark", "system"] as const;
 export type ThemePreference = (typeof THEME_PREFERENCES)[number];
 
 const STORAGE_KEY = "arcreel_theme";
@@ -21,7 +21,7 @@ export function getThemePreference(): ThemePreference {
 }
 
 function systemPrefersDark(): boolean {
-  // 取不到系统偏好时按深色处理，与浅色模式上线前的观感一致
+  // 取不到系统偏好时按深色处理
   return typeof window.matchMedia !== "function" || window.matchMedia(SYSTEM_DARK_QUERY).matches;
 }
 

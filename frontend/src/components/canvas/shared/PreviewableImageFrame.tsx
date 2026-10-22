@@ -42,7 +42,8 @@ export function PreviewableImageFrame({ src, alt, children }: PreviewableImageFr
 
       {src && (
         <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent size="viewer">
+          {/* 看图区域固定深色：浅底会干扰对画面明暗的判断 */}
+          <DialogContent size="viewer" className="dark">
             <DialogHeader>
               <DialogTitle>{alt}</DialogTitle>
             </DialogHeader>

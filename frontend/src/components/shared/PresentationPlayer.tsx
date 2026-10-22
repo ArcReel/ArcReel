@@ -372,7 +372,8 @@ export function PresentationPlayer({
   }
 
   return (
-    <div className={`relative h-full w-full bg-black ${className}`}>
+    // 播放器固定深色：叠在画面上的状态色按深色取值
+    <div className={`dark relative h-full w-full bg-black ${className}`}>
       <video
         ref={bindVideo}
         src={videoUrl}
