@@ -275,7 +275,8 @@ export function EditTimelineView({
         role="tabpanel"
         id={panelId}
         aria-labelledby={tabId(selected.id)}
-        className="flex min-h-0 flex-1 flex-col px-4 pb-4 edit-short:pb-2"
+        // 播放器、详情栏与轨道固定深色：浅底会干扰对画面明暗的判断
+        className="dark flex min-h-0 flex-1 flex-col bg-background px-4 pb-4 text-foreground edit-short:pb-2"
       >
         {current && "value" in current ? (
           <TimelinePreview

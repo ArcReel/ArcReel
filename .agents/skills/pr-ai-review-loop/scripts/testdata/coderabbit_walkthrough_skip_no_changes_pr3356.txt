@@ -1,0 +1,329 @@
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- This is an auto-generated comment: summarize by coderabbit.ai -->
+<!-- review_stack_entry_start -->
+
+<a href="https://app.coderabbit.ai/change-stack/ArcReel/ArcReel/pull/3356?scope=REDACTED&amp;cs_source=review_comment"><picture><source media="(prefers-color-scheme: dark)" srcset="https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui-dark.svg?v=3"><source media="(prefers-color-scheme: light)" srcset="https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui.svg?v=3"><img src="https://storage.googleapis.com/coderabbit_public_assets/review-stack-in-coderabbit-ui.svg?v=3" alt="Review in Change Stack →" height="32"></picture></a>
+
+<!-- review_stack_entry_end -->
+<!-- This is an auto-generated comment: skip review by coderabbit.ai -->
+
+> [!IMPORTANT]
+> ## Review skipped
+> 
+> Review was skipped as selected files did not have any reviewable changes.
+> 
+> 
+> 
+> 
+> 
+> <details>
+> <summary><strong>⚙️ Run configuration</strong></summary>
+> <dl>
+> <dd>
+> 
+> - **Configuration used**: Repository YAML (base), Organization UI (inherited)
+> - **Review profile**: CHILL
+> - **Plan**: Advanced
+> - **Run ID**: `4abf211e-1fef-4258-a1ec-7ea895364970`
+> 
+> </dd>
+> </dl>
+> </details>
+> 
+> <details>
+> <summary><strong>📥 Commits</strong></summary>
+> <dl>
+> <dd>
+> 
+> Reviewing files that changed from the base of the PR and between f5523a878a17601f057e08b1cca5ff84b5cb688f and 9140671e2a7d6f366618613c24970b97ca3ffffb.
+> 
+> </dd>
+> </dl>
+> </details>
+> 
+> You can disable this status message by setting the `reviews.review_status` to `false` in the CodeRabbit configuration file.
+> 
+> Use the checkbox below for a quick retry:
+> - [ ] <!-- {"checkboxId":"e9bb8d72-00e8-4f67-9cb2-caf3b22574fe"} --> 🔍 Trigger review
+
+<!-- end of auto-generated comment: skip review by coderabbit.ai -->
+
+<!-- recent_review_start -->
+
+No actionable comments were generated in the recent review. 🎉
+
+<details>
+<summary><strong>ℹ️ Recent review info</strong></summary>
+<dl>
+<dd>
+
+<details>
+<summary><strong>⚙️ Run configuration</strong></summary>
+<dl>
+<dd>
+
+- **Configuration used**: Repository YAML (base), Organization UI (inherited)
+- **Review profile**: CHILL
+- **Plan**: Advanced
+- **Run ID**: `6f7be833-854b-4da5-ab00-1c6e298bc73b`
+
+</dd>
+</dl>
+</details>
+
+<details>
+<summary><strong>📥 Commits</strong></summary>
+<dl>
+<dd>
+
+Reviewing files that changed from the base of the PR and between aa0d5ab02c591829af8038cd6a372895c5cccdd2 and f5523a878a17601f057e08b1cca5ff84b5cb688f.
+
+</dd>
+</dl>
+</details>
+
+<details>
+<summary><strong>📒 Files selected for processing: 2</strong></summary>
+<dl>
+<dd>
+
+* `scripts/audit_tests.py`
+* `tests/unit/scripts/test_audit_tests.py`
+
+</dd>
+</dl>
+</details>
+
+**Included review availability:** This review used your included allowance. Your plan provides up to 8 included reviews per hour; 5 remain after this review.
+
+</dd>
+</dl>
+</details>
+
+
+<!-- review_details_start -->
+
+<details>
+<summary><strong>📜 Recent review details</strong></summary>
+<dl>
+<dd>
+
+<details>
+<summary><strong>⏰ Context from checks skipped due to timeout: 2</strong></summary>
+<dl>
+<dd>
+
+* GitHub Check: Analyze (javascript-typescript)
+* GitHub Check: Analyze (python)
+
+</dd>
+</dl>
+</details>
+
+<details>
+<summary><strong>🧰 Additional context used</strong></summary>
+<dl>
+<dd>
+
+<details>
+<summary><strong>📚 Code guidelines: 2</strong></summary>
+
+```
+docs/standards/testing.md — configured
+docs/standards/general.md — configured
+```
+
+</details><details>
+<summary><strong>📓 Path-based instructions: 2</strong></summary>
+
+<details>
+<summary><strong>Source excerpt: | 档位 | 允许触达 | |---|---| | `unit` | 内存对象与 `tmp_path`；不触达真实 DB、子进程、网络 | Source excerpt: | 档位 | 允许触达 | |---|---| | `integration` | 真实 DB、文件系统、随包 ffmpeg 子进程 | Source excerpt: | 档位 | 允许触达 | |---|---| | `e2e` | 真实外部服务（远程 API、大模型调用...</strong></summary>
+
+
+**📄 CodeRabbit inference engine (docs/standards/testing.md)**
+
+**Files:**
+- `tests/unit/scripts/test_audit_tests.py`
+
+</details>
+<details>
+<summary><strong>Source excerpt: 这条规则适用于闸门里的工具：lint、类型检查、依赖检查和 audit 脚本。它们报错时修改代码，不加 baseline、计数阈值，也不关闭整条规则；这些做法会把以后同类的真实问题一并放过。豁免只用于确认过的误报。行内豁免是否在同一行写了理由，由 `scripts/audit_conventions.py` 的 `SUPPRESSION-REASON` 检查；review 只判断理由是否成立。审查机器人附带的文风或语法提示（如 Language...</strong></summary>
+
+
+**📄 CodeRabbit inference engine (docs/standards/general.md)**
+
+**Files:**
+- `tests/unit/scripts/test_audit_tests.py`
+- `scripts/audit_tests.py`
+
+</details>
+
+</details>
+
+</dd>
+</dl>
+</details>
+
+<details>
+<summary><strong>🔇 Additional comments: 2</strong></summary><blockquote>
+
+<details>
+<summary><strong>scripts/audit_tests.py: 1</strong></summary><blockquote>
+
+`1457-1457`: LGTM!
+
+
+
+Also applies to: 1460-1468
+
+<!-- cr-comment:v1:cf04d033ae27aeb9141dfc9f -->
+
+</blockquote></details>
+<details>
+<summary><strong>tests/unit/scripts/test_audit_tests.py: 1</strong></summary><blockquote>
+
+`979-980`: LGTM!
+
+<!-- cr-comment:v1:c99172fc9bf83d18d4d27955 -->
+
+</blockquote></details>
+
+</blockquote></details>
+
+</dd>
+</dl>
+</details>
+
+<!-- review_details_end -->
+
+
+
+
+
+<!-- recent_review_end -->
+<!-- walkthrough_start -->
+
+<details>
+<summary><strong>📝 Walkthrough</strong></summary>
+<dl>
+<dd>
+
+本次更新为前端入队 API 增加 `@enqueue` 标记及一致性测试；将多处 Python 私有符号改为公开名称；新增跨模块私有导入审计；扩展测试审计规则；并将大量测试替换为共享依赖注入辅助函数。
+
+**Changes: 规范审计与公共符号迁移**
+
+|层 / 文件|摘要|
+|:---|:---|
+|**前端入队 API 标记** <br> `frontend/src/api.ts`, `frontend/eslint.config.js`, `frontend/src/api.enqueue-methods.test.ts`, `docs/standards/frontend.md`|入队 API 增加 `@enqueue` 标记。AST 测试检查标记方法集合与 `ENQUEUE_METHODS` 完全一致。旧的 `RESTRICT_ENQUEUE` 规范说明已删除。|
+|**Python 公共符号及调用方** <br> `lib/...`, `server/...`, `packages/arcreel-market-core/src/...`, `tests/unit/...`, `docs/standards/backend.md`|多个函数和配置常量改为公开名称。调用方、测试和文档引用同步更新。重试、配置解析、提示构建、认证和脚本规划逻辑未改变。|
+|**审计规则扩展** <br> `scripts/audit_conventions.py`, `scripts/audit_tests.py`, `tests/unit/scripts/*`, `docs/standards/testing.md`|新增 `PRIVATE-IMPORT` 检查。`PATCH-SPREAD` 纳入 `monkeypatch.setattr`，并增加文件系统目标豁免。共享符号扫描扩展到 `tests/auth_deps.py` 和非测试的 `*_support.py` 模块。旧测试规范条目已删除。|
+|**共享测试注入辅助函数** <br> `tests/fakes.py`, `tests/integration/**`, `tests/unit/**`|新增项目管理器、生成上下文、文本生成器、会话工厂、SDK 客户端、生成队列和后端装配器等注入辅助函数。大量测试改用这些辅助函数。测试夹具补充了 `FakePM`、生命周期替身和阶段提交辅助函数。|
+
+<!-- change_assessment_start -->
+**Priority:** ➖ Normal
+
+
+
+**Estimated code review effort:** 4 (Complex) | ~60 minutes
+
+<!-- change_assessment_commit:"f5523a878a17601f057e08b1cca5ff84b5cb688f" -->
+**Severity of issue fixed:** Medium
+<!-- change_assessment_end -->
+
+</dd>
+</dl>
+</details>
+
+<!-- walkthrough_end -->
+<details>
+<summary><strong>Merge Risk:</strong> <strong>🔵 Low</strong> · up to <code>f5523</code></summary>
+<dl>
+<dd>
+
+<!-- final_review_risk_start -->
+<!-- final_review_risk_label
+**Merge Risk:** **🔵 Low** · up to `f5523`
+-->
+<!-- final_review_risk_coverage:{"sourceCommitId":"f5523a878a17601f057e08b1cca5ff84b5cb688f","coveredCommitId":"f5523a878a17601f057e08b1cca5ff84b5cb688f","kind":"reviewed"} -->
+
+The enqueue contract still has one concrete enforcement gap, but the impact is localized and has a straightforward fix.
+<!-- final_review_risk_end -->
+
+</dd>
+</dl>
+</details>
+<!-- pre_merge_checks_walkthrough_start -->
+
+<details>
+<summary><strong>Pre-merge checks: <sup><picture><img src="https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-counter-passed-14-v2.svg" width="14" height="14" align="middle" alt="Passed" title="Passed"></picture></sup> 4 · <sup><picture><img src="https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-counter-failed-14-v2.svg" width="14" height="14" align="middle" alt="Failed" title="Failed"></picture></sup> 1</strong></summary>
+<dl>
+<dd>
+
+<strong><sup><picture><img src="https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-counter-failed-14-v2.svg" width="14" height="14" align="middle" alt="Failed" title="Failed"></picture></sup> Failed checks: 1 warning</strong>
+
+|     Check name     |                                              Status                                              | Explanation                                                                                                                                                                                   | Resolution                                                                         |
+| :---------------- | :----------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------- |
+| Docstring Coverage | ![Warning](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-warning.svg) | Docstring coverage is 55.78% which is insufficient. The required threshold is 80.00%. Docstring coverage is scoped to functions touched by this diff. Analyzed 294 functions across 54 files. | Write docstrings for the functions missing them to satisfy the coverage threshold. |
+
+<details>
+<summary><strong><sup><picture><img src="https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-counter-passed-14-v2.svg" width="14" height="14" align="middle" alt="Passed" title="Passed"></picture></sup> Passed checks: 4 passed</strong></summary>
+<dl>
+<dd>
+
+|         Check name         |                                             Status                                             | Explanation                                                                                                                                                                                               |
+| :------------------------ | :--------------------------------------------------------------------------------------------: | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+|         Title check        | ![Passed](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-passed.svg) | 标题使用 Conventional Commit 格式，明确说明将四条规范改为自动检查并处理现存违规，符合主要变更内容。                                                                                                                                              |
+|      Description check     | ![Passed](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-passed.svg) | 描述完整说明了变更范围、实现方式、验证结果、风险、遗留事项及关联 issue。虽然未严格使用模板中的“变更”“验证”“风险与遗留”标题，但已提供对应信息，内容基本完整。                                                                                                                      |
+|     Linked Issues check    | ![Passed](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-passed.svg) | 四个直接关联的开放 issue 均有对应实现和自动化测试。#3305 新增 `PRIVATE-IMPORT` AST 检查，覆盖指定生产目录和例外，并将现存跨模块私有导入及调用点改为公开名称；对应测试已补充。#3306 将 `monkeypatch.setattr` 纳入 `PATCH-SPREAD`，提取重复 patch，并为必要的文件系统 patch 设置带理由的白名单；对应测试和文档字符串已… |
+| Out of Scope Changes check | ![Passed](https://storage.googleapis.com/coderabbit_public_assets/pre-merge-checks-passed.svg) | 变更均服务于四个 issue。生产代码的公开名称改动实现 `#3305`。共享 fake、patch 迁移、helper 清理和测试注入改动实现 `#3306` 与 `#3307`。审计脚本、白名单理由、审计测试和前端集合测试验证新增规则。未发现与这些目标无关的产品功能变更。                                                                      |
+
+<details>
+<summary><strong>Full details: Linked Issues check</strong></summary>
+<dl>
+<dd>
+
+**Explanation**
+
+四个直接关联的开放 issue 均有对应实现和自动化测试。#3305 新增 `PRIVATE-IMPORT` AST 检查，覆盖指定生产目录和例外，并将现存跨模块私有导入及调用点改为公开名称；对应测试已补充。#3306 将 `monkeypatch.setattr` 纳入 `PATCH-SPREAD`，提取重复 patch，并为必要的文件系统 patch 设置带理由的白名单；对应测试和文档字符串已更新。#3307 扩展 `SHARED-SYMBOL-USAGE` 到 `tests/auth_deps.py` 和非 `test_*.py` 的 `*_support.py`，同时清理单一使用者和未使用 helper，并覆盖排除规则。#3308 使用 `@enqueue` 标记 API，并由 `api.enqueue-methods.test.ts` 检查标记集合与 `ENQUEUE_METHODS` 完全一致。三个规范文档中的对应条目已删除。
+
+</dd>
+</dl>
+</details>
+
+</dd>
+</dl>
+</details>
+
+</dd>
+</dl>
+</details>
+
+<!-- pre_merge_checks_walkthrough_end -->
+<!-- autopilot:start -->
+- [ ] <!-- {"checkboxId":"2708ad07-9f24-4260-9c11-7dc76a49f2e3"} --> <strong title="Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts">Autofix</strong> · Keep fixing CodeRabbit findings and required CI, and resolving merge conflicts
+<!-- autopilot:end -->
+<!-- tips_start -->
+
+
+
+Thanks for using [CodeRabbit](https://coderabbit.ai?utm_source=oss&utm_medium=github&utm_campaign=ArcReel/ArcReel&utm_content=3356)! It's free for OSS, and your support helps us grow. If you like it, consider giving us a shout-out.
+
+<details>
+<summary><strong>❤️ Share</strong></summary>
+<dl>
+<dd>
+
+- [X](https://twitter.com/intent/tweet?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A&url=https%3A//coderabbit.ai)
+- [Mastodon](https://mastodon.social/share?text=I%20just%20used%20%40coderabbitai%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20the%20proprietary%20code.%20Check%20it%20out%3A%20https%3A%2F%2Fcoderabbit.ai)
+- [Reddit](https://www.reddit.com/submit?title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&text=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code.%20Check%20it%20out%3A%20https%3A//coderabbit.ai)
+- [LinkedIn](https://www.linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fcoderabbit.ai&mini=true&title=Great%20tool%20for%20code%20review%20-%20CodeRabbit&summary=I%20just%20used%20CodeRabbit%20for%20my%20code%20review%2C%20and%20it%27s%20fantastic%21%20It%27s%20free%20for%20OSS%20and%20offers%20a%20free%20trial%20for%20proprietary%20code)
+
+</dd>
+</dl>
+</details>
+
+
+<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>
+
+<!-- tips_end -->

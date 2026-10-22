@@ -2,7 +2,7 @@
 
 记录值得改进环境的错，由定期巡检维护、计数与晋升；候选经 PR 上的 `lesson-candidate` 评论提交。条目格式、计数、阈值与退出规则见 [`docs/agents/lessons.md`](agents/lessons.md)。
 
-<!-- reviewed-through: 8597307ecbd9441b483e512ce2c2c965fd25f2fe 2026-10-21 -->
+<!-- reviewed-through: d5e0229e141cbd1c6e4d16ecf2c7e86ae20d419c 2026-10-22 -->
 
 ## 异步任务的结果与异常在每条路径上都有人接
 
@@ -27,6 +27,12 @@
 判定方式：机械（拟用 `lint-class-guards.test.ts`，每条导入守卫都带别名、相对路径、转导出三类用例）
 - #3310 · 2026-10-19 · 审查发现：toast 守卫与原语目录依赖边界只匹配 `@/` 别名，相对路径、`..` 段、转导出被连续三轮指出（bd66ff6a、29ff3121、ec553f95）；没拦住：没有对应规则
 
+### 一致性检查从成员本身枚举，标记与登记都缺的新成员也能被发现
+模式：检查只比对「带标记的成员」与「登记表」两份清单，新成员同时漏了标记和登记时，两边都看不到它
+代价：入队方法绕开 action 层，提交时没有忙碌标记，重复提交也没有去重提示（严重度：常规）
+判定方式：机械（拟用 `api.enqueue-methods.test.ts`，按请求形态识别入队方法，不只认 `@enqueue` 标记）
+- #2872 · 2026-10-22 · 合并后修复：`submitAssetSheetBatch` 既没有 `@enqueue` 也不在 `ENQUEUE_METHODS`，`AssetSheetBatchDialog` 直调绕开 action 层（721d2bd5 引入，#3356 审查发现，#3357 跟进，#3372 修复）；没拦住：检查没接上
+
 ## 异常的捕获范围与传递
 
 ### 带用户指引的结构化异常，在既有宽捕获之前单独放行，传到每个入口
@@ -36,6 +42,19 @@
 - #3248 · 2026-10-19 · 合并后修复：Agent 工具查视频能力、草稿晋升、上传后生成概览、图生图检查四条路径吞掉 ModelNotInCatalogError（#3300，#3314 的 c6040abf 修复）；没拦住：没有对应规则
 
 ## 未分组
+
+### 改写流程判据时，逐个交叉情形确认结论唯一，旧条件挡住的情形仍有着落
+模式：收紧或替换一组判据（分流表、收录与排除条件、超时规则）时，逐条看各自措辞，新增条件与既有条件、表格顺序或下游字段在交叉情形下互相矛盾；或删掉旧判据中的某个条件后，它原本挡住的情形落空
+代价：无人值守的流程对同一对象得出不同结论或无限期挂起；审查—修复往复多轮（严重度：常规）
+判定方式：需要判断
+- #3336 · 2026-10-21 · 审查发现：收尾自查的排除句与「数据·安全·真实花费」条冲突，修复又让「没拦住」的取值与字段名矛盾，同一问题改了 3 轮（e8a8e977、9ef829ba、02ac08e0）；零引用退出删掉「规则存在满 90 天」后，规则加入前的 PR 被计入统计窗口（175d0af9 修复）；没拦住：没有对应规则
+- #3342 · 2026-10-21 · 审查发现：triage 分流表的 `needs-info` 超时规则与按首个匹配执行的表格顺序、前置检查路径、活动判定、状态标签替换在交叉情形下矛盾，同一条超时规则改了 5 轮（71e1b126、e7014af5、aa38cf9c、b2346830、3a513b24）；没拦住：没有对应规则
+
+### 判断 CodeRabbit 是否已覆盖当前 HEAD，以本 HEAD 的审查完成信号为准，不只看 walkthrough
+模式：增量审查只在既有讨论串下回复、不发新 review 正文时，CodeRabbit 已把本 HEAD 的 commit status 置为 "Review completed"，walkthrough 却停在 "Currently processing"；poll.sh 只看 walkthrough，持续报 `is_in_progress=true`
+代价：审查循环空等到超时阈值，靠手动 `@coderabbitai review` 才拿到可判定的覆盖（严重度：常规）
+判定方式：机械（拟用 poll.sh 同时读取 CodeRabbit 在 HEAD 上的 commit status，并加 testdata 用例）
+- #3359 · 2026-10-22 · 审查循环自查：38bb81b0 推送后 CodeRabbit status 已是 success / "Review completed"，walkthrough 到手动触发后才更新；没拦住：检查没接上
 
 ### 高频路径上按现状重算的派生结果，在输入未变时复用
 模式：认领、请求、轮询这类高频路径按现状重算派生结果（内容哈希、推算供应商、重建快照），没有先比对输入的廉价标识（文件 stat、修订号），开销随调用频率和输入规模相乘
@@ -59,6 +78,24 @@
 - 降级 · 2026-10-19 · 自 docs/standards/frontend-async.md「Hook 的函数型 option 列入依赖，不存进 ref」
 
 ## 已晋升
+
+### 等异步过程完成，以它的最后一步为信号，不轮询中途就可见的状态
+去向：docs/standards/testing.md「等待异步过程时，以它的最后一步为就绪信号」
+模式：异步过程分多步执行（切内存 → 落库 → 广播，或渲染 → effect 订阅，或数据到达 → 防抖刷新），测试在第一步可见时就继续，与后续步骤交错；只修出过失败的那个用例，同类用例保留同一等待写法
+代价：CI 偶发红，同一根因跨 issue 复发（严重度：常规）
+判定方式：需要判断
+- #3330 · 2026-10-21 · main CI 失败：集页场景 `waitForEntrance` 返回后计划刷新才经防抖发生，axe 在按钮淡入途中取色报 color-contrast（#3347 的 0202c760 修复）；没拦住：没有对应规则
+- #3331 · 2026-10-21 · main CI 失败：TestQueuedMessages 轮询内存 completed 后建流，CLI idle 结算的落库与广播尚未完成，多收一帧迟到的 completed（#3347 的 d97c9a6b 修复）；没拦住：没有对应规则
+- #3352 · 2026-10-22 · main CI 失败：原文框经 findByRole 等到时订阅聚焦请求的 effect 尚未提交，随后投递的请求被丢掉（#3359 的 2a79befe 修复）；没拦住：没有对应规则
+- #3353 · 2026-10-22 · main CI 失败：TestSendQueuedMessageNow 轮询日志条目后读托盘快照，读到已入日志、未出队的插队消息（#3359 的 f7d1ca13 修复）；没拦住：没有对应规则
+
+### 判断 CodeRabbit 是否已覆盖当前 HEAD，排除跳过审查的 walkthrough
+去向：`.agents/skills/pr-ai-review-loop/scripts/poll.sh` 新增 `is_review_skipped`，跳过通知不计入 `reviewed_current_head`；`test_walkthrough_head.sh` 加真实跳过通知的用例；reviewers.md 写明跳过时发送 `@coderabbitai review`
+模式：PR 以 draft 创建或作者是 bot 时，CodeRabbit 发出跳过审查的 walkthrough；poll.sh 对它仍报 `reviewed_current_head=true`、`is_in_progress=false`，不核对正文就会把未审记作通过
+代价：可能漏掉一家 reviewer 的覆盖（严重度：常规）
+判定方式：机械（poll.sh 识别跳过审查标记）
+- #3347 · 2026-10-21 · 审查循环自查：转 ready 后 poll 显示 CodeRabbit 已覆盖，读正文才发现是 draft 跳过通知，手动触发后才真正审查；没拦住：检查没接上
+- #3359 · 2026-10-22 · 审查循环自查：draft 时期 poll 报 CodeRabbit `reviewed_current_head=true`，没有任何 review，`walkthrough_head` 为空，正文是 draft 跳过通知；没拦住：检查没接上
 
 ### 跨后端或跨路径改变同一能力维度的来源或处理口径时，先列出全部读点再改
 去向：docs/standards/general.md「改变某个能力维度的来源或处理口径时，列出全部读点一起改」（读点跨 `lib/backends`、`lib/generation`、`server/services` 等多个规范的适用路径，所以放进通用规范）

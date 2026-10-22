@@ -26,7 +26,7 @@ INDEX_MAX_BYTES = 25_000
 _TRUNCATION_NOTICE = (
     "> 提示：`{filename}` 共 {line_count} 行 / {byte_size} 字节，"
     "超出 {max_lines} 行 / {max_bytes} 字节的加载上限，以上只是被加载的部分。"
-    "每条索引保持一行、约 200 字符以内，细节写进主题文件。"
+    "每条索引保持一行、约 200 字符以内，细节写进记忆文件。"
 )
 
 

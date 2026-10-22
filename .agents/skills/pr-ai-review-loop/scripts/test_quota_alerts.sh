@@ -58,6 +58,16 @@ if [[ -z "$WT_HEAD_DEF" ]]; then
   echo "could not extract cr_walkthrough_head def from $POLL_SH" >&2
   exit 4
 fi
+SKIP_DEF=""
+for name in cr_skip_marker_body cr_no_reviewable_changes_body cr_review_skipped_body; do
+  def=$(awk -v target="$name" '$0 ~ "^[[:space:]]*def " target ":" {flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
+  if [[ -z "$def" ]]; then
+    echo "could not extract $name def from $POLL_SH" >&2
+    exit 4
+  fi
+  SKIP_DEF+="$def"$'\n'
+done
+
 WT_DEF=$(awk '/^[[:space:]]*def cr_walkthrough_rest:/{flag=1} flag{print; if (/;[[:space:]]*$/ && !/^[[:space:]]*def /) exit}' "$POLL_SH")
 if [[ -z "$WT_DEF" ]]; then
   echo "could not extract cr_walkthrough_rest def from $POLL_SH" >&2
@@ -123,6 +133,7 @@ for tc in "${CASES[@]}"; do
     | {} as \$review_commit_by_id
     | def codex_commit_is_current_head: true;
       $RL_DEF
+      $SKIP_DEF
       $WT_HEAD_DEF
       $WT_DEF
       (cr_walkthrough_rest | \"\\(.is_rate_limited):\\(.reviewed_current_head)\")

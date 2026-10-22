@@ -51,7 +51,7 @@
 #     "walkthrough": {                                  # CR's first comment (auto-edited each review)
 #       "id":                    <int>,                 # REST issue comment id — stable across rewrites
 #       "created_at", "updated_at",
-#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited AND the
+#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited or skipped AND the
 #                                                       # walkthrough's own commit anchor (or, failing that, the
 #                                                       # latest CR review's commit) matches the head
 #       "walkthrough_head":      "<sha>" | null,        # commit anchor parsed from the walkthrough body — the only
@@ -60,6 +60,7 @@
 #       "is_ok":                 <bool>,                # CR explicit pass marker
 #       "is_paused":             <bool>,                # CR paused for this PR
 #       "is_rate_limited":       <bool>,                # walkthrough body IS CR's rate-limit banner — not a review
+#       "is_review_skipped":     <bool>,                # walkthrough body IS CR's skip notice (draft, bot author) — not a review
 #       "is_in_progress":        <bool>,                # CR still processing — don't declare PASS yet
 #       "actionable_count":      "<n>" | null           # parsed from "Actionable comments posted: N"
 #     },
@@ -108,18 +109,24 @@
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
 #   is_new                 new this round: created_at/submittedAt > max(last_push_at, last round's marked_at)
 #                          (PITFALL 2 and 8), OR id absent from the seen ledger (straggler catch, PITFALL 6)
-#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND a commit anchor
+#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND
+#                          is_review_skipped == false AND a commit anchor
 #                          matches the head: walkthrough_head when the body carries one, else the latest CR
 #                          review's commit (null = no evidence either way, timestamp rule alone). CR rewrites its
 #                          first comment each review — but a rate-limit banner rewrite also advances updated_at
 #                          without reviewing anything, and a slow review of an older HEAD rewrites it after the
-#                          next push, so neither must read as "reviewed". On codex review/comment rows:
+#                          next push, so neither must read as "reviewed"; a skip notice (draft, bot author)
+#                          rewrites it the same way. On codex review/comment rows:
 #                          reviewed_commit (REST review commit_id, else the body's "Reviewed commit" sha) vs
 #                          headRefOid (timestamp > last_push_at only as fallback when no commit is known) — a
 #                          straggler or slow review of an older HEAD surfaces as is_new but must not read as
 #                          current-HEAD (see PITFALL 6)
 #   is_rate_limited        walkthrough body carries CR's dedicated rate-limit banner marker (same match as
 #                          quota_alerts) — the current walkthrough is a rate-limit notice, not a review
+#   is_review_skipped      walkthrough body carries CR's skip-review marker for a reason other than "no
+#                          reviewable changes" (draft, bot author) — the head was never reviewed. A "no
+#                          reviewable changes" skip counts as coverage of the head its newest "📥 Commits"
+#                          range line names; walkthrough_head reads that range line instead of the marker
 #   is_ack                 reviewer acknowledgment of a fix or inline reply (never actionable): body carries a
 #                          <review_comment_addressed>/<review_comment_withdrawn> marker or starts with "### Summary"
 #   cr_markers             CodeRabbit tag tokens found in the first 300 chars of a body (literal match):
@@ -482,6 +489,19 @@ jq -n \
     # quota_alerts and walkthrough.is_rate_limited so the two judgments cannot drift apart.
     (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->");
 
+  def cr_skip_marker_body:
+    # CodeRabbit marks every skipped review with a dedicated HTML marker.
+    (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*skip review by coderabbit\\.ai\\s*-->");
+
+  def cr_no_reviewable_changes_body:
+    # A skip because the new commits have no reviewable changes leaves nothing to review: the
+    # head counts as covered once the skip notice names it.
+    cr_skip_marker_body and ((. // "") | test("did not have any reviewable changes"; "i"));
+
+  def cr_review_skipped_body:
+    # Any other skip notice (draft, bot author) means the head was never reviewed.
+    cr_skip_marker_body and (cr_no_reviewable_changes_body | not);
+
   def has_outside_diff_body:
     (. // "") | test("Outside diff range comments \\([1-9][0-9]*\\)"; "i");
 
@@ -501,6 +521,7 @@ jq -n \
     | if . == null then null else
         (.body // "") as $wb
         | ($wb | cr_rate_limited_body) as $rate_limited
+        | ($wb | cr_review_skipped_body) as $skipped
         # Freshness is timestamp-based, but a slow review of an older HEAD rewrites the walkthrough
         # after the next push, faking it. The contradiction check is a commit anchor: walkthrough_head
         # parsed from the body when present (the anchor that follows incremental reviews, PITFALL 9),
@@ -511,13 +532,17 @@ jq -n \
         | ([$main.reviews[] | select(.author.login == "coderabbitai")] | sort_by(.submittedAt)
            | last | if . == null then null else ($review_commit_by_id[.id] // null) end)
           as $latest_review_commit
-        | ($wb | cr_walkthrough_head) as $walkthrough_head
+        # A no-reviewable-changes skip keeps the change_assessment_commit marker of the last real
+        # review; only its newest range line names the skipped head, so it is the anchor there.
+        | (if ($wb | cr_no_reviewable_changes_body)
+           then ([$wb | capture("between [0-9a-fA-F]{7,40} and (?<sha>[0-9a-fA-F]{7,40})")] | .[0].sha // null)
+           else ($wb | cr_walkthrough_head) end) as $walkthrough_head
         | {
           id,
           created_at,
           updated_at,
           reviewed_current_head:
-            ((.updated_at > $last_push) and ($rate_limited | not)
+            ((.updated_at > $last_push) and ($rate_limited | not) and ($skipped | not)
              and (if $walkthrough_head != null
                   then ($walkthrough_head | codex_commit_is_current_head)
                   elif $latest_review_commit == null then true
@@ -525,6 +550,7 @@ jq -n \
           walkthrough_head: $walkthrough_head,
           latest_review_commit: $latest_review_commit,
           is_rate_limited: $rate_limited,
+          is_review_skipped: $skipped,
           is_ok:          ($wb | test("No actionable comments were generated in the recent review")),
           is_paused:      ($wb | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
           is_in_progress: ($wb | test("(review in progress by coderabbit|currently processing new changes)"; "i")),

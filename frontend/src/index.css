@@ -13,15 +13,96 @@
     }
 }
 
-/* 语义 token，命名沿用 shadcn：原始值写在 :root，由下方 @theme inline 映射成工具类。
+/* 语义 token，命名沿用 shadcn：浅色值写在 :root，深色值写在 .dark，由下方 @theme inline 映射成工具类。
    - 品牌紫只有 primary 一个基色；浅底、描边、选中态用透明度修饰（bg-primary/15）。
    - 危险用 destructive（红），警告与过期用 warn（琥珀），完成与可用用 good。
    - 文字三档：foreground（正文）> subtle-foreground（次要）> muted-foreground（弱化）；
-     muted-foreground 在页面底色上的对比度为 5.7:1，正文不再叠加透明度降低它。
+     muted-foreground 在页面底色上的对比度两种模式下都高于 5:1，正文不再叠加透明度降低它。
    - 内联样式与 CSS 直接引用这里的变量（var(--primary)），需要透明度时用
      color-mix(in oklab, var(--primary) 15%, transparent)。 */
 :root {
     --radius: 0.625rem;
+    color-scheme: light;
+
+    --background: oklch(0.985 0.003 265);
+    --foreground: oklch(0.21 0.012 265);
+    --subtle-foreground: oklch(0.40 0.012 265);
+    --card: oklch(1 0 0);
+    --card-foreground: var(--foreground);
+    --popover: oklch(1 0 0);
+    --popover-foreground: var(--foreground);
+    --primary: oklch(0.50 0.15 295);
+    --primary-foreground: oklch(0.99 0 0);
+    --secondary: oklch(0.945 0.006 265);
+    --secondary-foreground: var(--foreground);
+    --muted: oklch(0.945 0.006 265);
+    --muted-foreground: oklch(0.52 0.012 265);
+    --accent: oklch(0.94 0.008 265);
+    --accent-foreground: var(--foreground);
+    --destructive: oklch(0.55 0.20 25);
+    --border: oklch(0.88 0.006 265);
+    --input: oklch(0.84 0.008 265);
+    --ring: oklch(0.50 0.15 295);
+
+    --good: oklch(0.50 0.12 155);
+    --warn: oklch(0.55 0.13 65);
+
+    --chart-1: var(--primary);
+    --chart-2: var(--good);
+    --chart-3: var(--warn);
+    --chart-4: var(--destructive);
+    --chart-5: var(--muted-foreground);
+
+    --media-image: oklch(0.60 0.13 240);
+    --media-video: oklch(0.56 0.15 305);
+    --media-text: oklch(0.60 0.12 160);
+    --media-audio: oklch(0.68 0.13 70);
+
+    --asset-product: oklch(0.50 0.15 294);
+    --asset-character: oklch(0.50 0.12 235);
+    --asset-scene: oklch(0.50 0.11 165);
+    --asset-prop: oklch(0.53 0.12 85);
+
+    --sidebar: oklch(0.965 0.005 265);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--primary);
+    --sidebar-primary-foreground: var(--primary-foreground);
+    --sidebar-accent: var(--accent);
+    --sidebar-accent-foreground: var(--accent-foreground);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
+
+    --scrim: oklch(0.25 0.02 265 / 0.45);
+
+    /* 每集身份色的明度：作文字时在卡片底色上达到 4.5:1 */
+    --episode-lightness: 0.52;
+    /* 阴影墨色：阴影只写透明度，墨色按模式取，浅色下用带蓝的灰并减淡 */
+    --shadow-ink: oklch(0.35 0.03 265 / 0.4);
+    --glow-primary: oklch(0.80 0.06 295 / 0.25);
+    --glow-secondary: oklch(0.85 0.04 260 / 0.2);
+    --scrollbar-thumb: oklch(0.70 0.010 265 / 0.6);
+    --scrollbar-thumb-hover: oklch(0.58 0.010 265 / 0.75);
+    --focus-flash-edge: color-mix(in oklab, var(--primary) 70%, transparent);
+
+    /* 层级。弹层 Portal 到 body，与隔离了层叠上下文的 #app-root 同级，z-index 只需在三者间排序：
+       弹层（Dialog、Sheet、Popover、菜单、Tooltip）< Toast < 新手引导（driver.js 遮罩与气泡）。
+       同层弹层按打开顺序叠放：后打开的 Portal 节点排在 DOM 后面。
+       sticky 是 #app-root 内部的层级：吸顶工具栏盖住同一滚动区里带定位的内容（如卡片角上的菜单按钮）。 */
+    --z-sticky: 10;
+    --z-overlay: 50;
+    --z-toast: 60;
+    --z-onboarding: 10000;
+
+    /* 动效时长：界面动效一律短于 300ms。fast 用于悬停、淡入淡出，base 用于弹层进出与换图交叉淡入。 */
+    --duration-fast: 150ms;
+    --duration-base: 200ms;
+    /* 进场缓动：快起慢停 */
+    --easing-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 深色：<html> 带 .dark 时生效；看成片的区域在子树上加 .dark 固定深色。 */
+.dark {
+    color-scheme: dark;
 
     --background: oklch(0.168 0.009 265);
     --foreground: oklch(0.975 0.004 265);
@@ -54,7 +135,7 @@
     --chart-4: var(--destructive);
     --chart-5: var(--muted-foreground);
 
-    /* 媒体类型色：使用记录的媒体图标、费用趋势与构成共用，四色在暗底上明度相近、色相分开 */
+    /* 媒体类型色：使用记录的媒体图标、费用趋势与构成共用，四色明度相近、色相分开 */
     --media-image: oklch(0.62 0.13 240);
     --media-video: oklch(0.58 0.15 305);
     --media-text: oklch(0.62 0.12 160);
@@ -80,21 +161,15 @@
     /* 模态遮罩：Dialog、Sheet 与新手引导遮罩共用（onboarding/tour.ts 把它交给 driver.js 的遮罩） */
     --scrim: oklch(0.10 0.012 265 / 0.78);
 
-    /* 层级。弹层 Portal 到 body，与隔离了层叠上下文的 #app-root 同级，z-index 只需在三者间排序：
-       弹层（Dialog、Sheet、Popover、菜单、Tooltip）< Toast < 新手引导（driver.js 遮罩与气泡）。
-       同层弹层按打开顺序叠放：后打开的 Portal 节点排在 DOM 后面。
-       sticky 是 #app-root 内部的层级：吸顶工具栏盖住同一滚动区里带定位的内容（如卡片角上的菜单按钮）。 */
-    --z-sticky: 10;
-    --z-overlay: 50;
-    --z-toast: 60;
-    --z-onboarding: 10000;
-
-    /* 动效时长：界面动效一律短于 300ms。fast 用于悬停、淡入淡出，base 用于弹层进出与换图交叉淡入。 */
-    --duration-fast: 150ms;
-    --duration-base: 200ms;
-    /* 进场缓动：快起慢停 */
-    --easing-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+    --episode-lightness: 0.72;
+    --shadow-ink: oklch(0 0 0);
+    --glow-primary: oklch(0.32 0.05 295 / 0.28);
+    --glow-secondary: oklch(0.26 0.04 260 / 0.25);
+    --scrollbar-thumb: oklch(0.50 0.012 265 / 0.55);
+    --scrollbar-thumb-hover: oklch(0.62 0.012 265 / 0.75);
+    --focus-flash-edge: oklch(0.88 0.05 295 / 0.78);
 }
+
 
 @theme {
     /* 字体 — 设计稿统一使用 Inter，display 仅在字号/字重上做区分。
@@ -175,14 +250,14 @@
     --color-sidebar-ring: var(--sidebar-ring);
     --color-scrim: var(--scrim);
     /* 每集的身份色：明度与彩度固定，色相按集 ID 取，由调用处经 style 写入 --episode-hue（episodeHue）。 */
-    --color-episode: oklch(0.72 0.1 var(--episode-hue, 0));
+    --color-episode: oklch(var(--episode-lightness) 0.1 var(--episode-hue, 0));
     /* 剪辑视图轨道上视频单元的片段色与旁白色：色相按视频单元取，由调用处经 style 写入 --unit-hue（unitHue）。 */
     --color-unit-clip: oklch(0.42 0.07 var(--unit-hue, 0));
     --color-unit-narration: oklch(0.5 0.08 var(--unit-hue, 0) / 0.75);
     /* 剪辑视图 BGM 轨的片段色 */
     --color-bgm: oklch(0.45 0.09 300);
 
-    --shadow-overlay: 0 16px 40px -12px oklch(0 0 0 / 0.6);
+    --shadow-overlay: 0 16px 40px -12px color-mix(in oklab, var(--shadow-ink) 60%, transparent);
 
     --z-index-sticky: var(--z-sticky);
     --z-index-overlay: var(--z-overlay);
@@ -208,12 +283,11 @@
 }
 
 /* 全局 body 背景 — radial+linear 复合梯度 */
-html { color-scheme: dark; }
 
 body {
     background:
-        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
-        radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
+        radial-gradient(1000px 500px at 8% -10%, var(--glow-primary), transparent 55%),
+        radial-gradient(900px 500px at 98% 110%, var(--glow-secondary), transparent 55%),
         linear-gradient(180deg, var(--card), var(--sidebar));
     background-attachment: fixed;
     color: var(--foreground);
@@ -273,23 +347,23 @@ body {
     }
     12% {
         box-shadow:
-            0 0 0 1px oklch(0.88 0.05 295 / 0.78),
+            0 0 0 1px var(--focus-flash-edge),
             0 0 0 10px color-mix(in oklab, var(--primary) 12%, transparent),
-            0 18px 36px oklch(0 0 0 / 0.38);
+            0 18px 36px color-mix(in oklab, var(--shadow-ink) 38%, transparent);
         background-color: color-mix(in oklab, var(--primary) 8%, transparent);
     }
     46% {
         box-shadow:
             0 0 0 1px color-mix(in oklab, var(--warn) 68%, transparent),
             0 0 0 9px color-mix(in oklab, var(--warn) 12%, transparent),
-            0 16px 34px oklch(0 0 0 / 0.34);
+            0 16px 34px color-mix(in oklab, var(--shadow-ink) 34%, transparent);
         background-color: color-mix(in oklab, var(--warn) 8%, transparent);
     }
     82% {
         box-shadow:
             0 0 0 1px color-mix(in oklab, var(--good) 72%, transparent),
             0 0 0 8px color-mix(in oklab, var(--good) 12%, transparent),
-            0 14px 28px oklch(0 0 0 / 0.28);
+            0 14px 28px color-mix(in oklab, var(--shadow-ink) 28%, transparent);
         background-color: color-mix(in oklab, var(--good) 8%, transparent);
     }
 }
@@ -305,13 +379,13 @@ body {
    所以标准属性只给不支持伪元素的浏览器（Firefox）。 */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
-    background: oklch(0.50 0.012 265 / 0.55);
+    background: var(--scrollbar-thumb);
     border-radius: 10px;
     border: 2px solid transparent;
     background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: oklch(0.62 0.012 265 / 0.75);
+    background: var(--scrollbar-thumb-hover);
     border: 2px solid transparent;
     background-clip: padding-box;
 }
@@ -321,7 +395,7 @@ body {
 @supports not selector(::-webkit-scrollbar) {
     * {
         scrollbar-width: thin;
-        scrollbar-color: oklch(0.50 0.012 265 / 0.55) transparent;
+        scrollbar-color: var(--scrollbar-thumb) transparent;
     }
 }
 
