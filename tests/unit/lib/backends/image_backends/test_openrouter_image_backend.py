@@ -308,8 +308,8 @@ def test_partial_missing_refs_fail_loud_without_submitting(tmp_path: Path):
     assert not route.called
 
 
-def test_refs_truncated_to_declared_max(tmp_path: Path):
-    """模型声明 input_references 上限 3：超限截断告警而非 400 拒单。"""
+def test_refs_over_declared_max_fail_loud_without_submitting(tmp_path: Path):
+    """模型声明 input_references 上限 3 却收到 5 张：报错而非截断，prompt 里的「图4」「图5」不会错指。"""
     refs = [_make_ref(tmp_path, f"ref-{i}.png") for i in range(5)]
     model = {
         "id": "x-ai/grok-imagine-image-2.0",
@@ -318,9 +318,58 @@ def test_refs_truncated_to_declared_max(tmp_path: Path):
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(model))
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        with pytest.raises(ImageCapabilityError) as ei:
+            _run(_request(tmp_path, refs=refs), model="x-ai/grok-imagine-image-2.0")
+    assert ei.value.code == "image_reference_images_exceeded"
+    assert ei.value.params == {"model": "x-ai/grok-imagine-image-2.0", "limit": 3, "count": 5}
+    assert not route.called
+
+
+def test_refs_within_declared_max_all_sent(tmp_path: Path):
+    refs = [_make_ref(tmp_path, f"ref-{i}.png") for i in range(3)]
+    model = {
+        "id": "x-ai/grok-imagine-image-2.0",
+        "supported_parameters": {"input_references": {"type": "range", "min": 0, "max": 3}},
+    }
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(model))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
         _run(_request(tmp_path, refs=refs), model="x-ai/grok-imagine-image-2.0")
-    req_json = request_json(only_request(route))
-    assert len(req_json["input_references"]) == 3
+    assert len(request_json(only_request(route))["input_references"]) == 3
+
+
+def test_n_sent_only_when_declared_or_model_unlisted(tmp_path: Path):
+    """n 与 seed 同口径：收录却未声明不下发，声明了或未收录照常带 n=1。"""
+    with_n = {"id": "vendor/with-n", "supported_parameters": {"n": {"type": "range", "min": 1, "max": 4}}}
+    without_n = {"id": "vendor/without-n", "supported_parameters": {}}
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(with_n, without_n))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        for model in ("vendor/with-n", "vendor/without-n", "vendor/unlisted"):
+            _run(_request(tmp_path), model=model)
+    assert [request_json(call.request).get("n") for call in route.calls] == [1, None, 1]
+
+
+def test_declared_size_enum_picks_closest_declared_value(tmp_path: Path):
+    """声明 WxH 枚举：选比例最接近、短边不低于请求档位的那一档，不合成枚举外的值。"""
+    model = {
+        "id": "vendor/size-enum",
+        "supported_parameters": {**_enum("size", "1024x1024", "1024x1792", "1792x1024", "auto")},
+    }
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(model))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        _run(_request(tmp_path, aspect_ratio="9:16", image_size="1K"), model="vendor/size-enum")
+    assert request_json(only_request(route))["size"] == "1024x1792"
+
+
+def test_size_enum_without_wxh_values_synthesizes_size(tmp_path: Path):
+    model = {"id": "vendor/size-auto", "supported_parameters": {**_enum("size", "auto")}}
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(model))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        _run(_request(tmp_path, aspect_ratio="9:16", image_size="1K"), model="vendor/size-auto")
+    assert request_json(only_request(route))["size"] == "1008x1792"
 
 
 def test_zero_ref_model_rejects_i2i_fail_loud(tmp_path: Path):

@@ -651,6 +651,7 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
     "image_dashscope_4k_t2i_only": "Mô hình {model}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",
     "image_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
+    "image_reference_images_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} ảnh tham chiếu nhưng nhận được {count}; hãy giảm số lượng ảnh tham chiếu",
     # Image Edit
     "image_edit_resource_type_invalid": "Loại tài nguyên '{resource_type}' không hỗ trợ chỉnh sửa ảnh",
     "image_edit_instruction_required": "Chỉ dẫn chỉnh sửa không được để trống",

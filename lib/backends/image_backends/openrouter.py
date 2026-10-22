@@ -12,7 +12,7 @@ I2I 统一走 ``POST {base_url}/images`` 的 JSON 端点——参考图以 data 
 - 声明 ``resolution``（gemini / seedream / qwen / grok / krea 系，同时声明 ``size`` 也算）→
   ``aspect_ratio`` + ``resolution``（不传 size）。档位短边映射到声明枚举里「≥ 请求值的最小档」，映射不到则省略。
 - 未声明 ``resolution`` 但声明 ``size`` 或 ``aspect_ratio``（gpt-image / recraft / mai 系）→ ``size``
-  （OpenAI 同款 WxH，比例优先、清晰度其次）+ ``aspect_ratio``，声明 ``quality`` 再叠加。
+  （声明了 WxH 枚举时从中选比例最接近的一档，否则合成 OpenAI 同款 WxH）+ ``aspect_ratio``，声明 ``quality`` 再叠加。
 - 模型未收录或发现端点失败 → 退回纯 ``size``（与 OpenAI 兼容网关同款），保证生成不因发现
   失败而中断。
 - 收录但 size / aspect_ratio / resolution 一概不声明（如包装型模型）→ 省略全部尺寸参数，
@@ -154,6 +154,32 @@ def _pick_aspect_ratio(values: list[str], aspect_ratio: str) -> str | None:
     return best[1] if best else None
 
 
+def _parse_size(value: str) -> tuple[int, int] | None:
+    """把 size 枚举值解析成 (宽, 高)；"auto" 等非 WxH 值 → None。"""
+    w, sep, h = value.strip().lower().partition("x")
+    if not sep or not w.isdigit() or not h.isdigit() or int(w) <= 0 or int(h) <= 0:
+        return None
+    return int(w), int(h)
+
+
+def _pick_size(values: list[str], aspect_ratio: str, short_edge: int) -> str | None:
+    """从声明的 WxH 枚举选一档：比例最接近者优先，同比例里取短边「≥ 请求值的最小档」，全档都低于
+    请求值取最大档。枚举里没有可解析的 WxH → None。"""
+    parsed = [(v, dims) for v in values if (dims := _parse_size(v)) is not None]
+    if not parsed:
+        return None
+    target_w, target_h = parse_aspect_ratio(aspect_ratio)
+    target = target_w / target_h
+    best_score = min(abs(w / h - target) for _, (w, h) in parsed)
+    same_ratio = sorted(
+        ((min(w, h), v) for v, (w, h) in parsed if abs(abs(w / h - target) - best_score) < 1e-9),
+    )
+    for edge, v in same_ratio:
+        if edge >= short_edge:
+            return v
+    return same_ratio[-1][1]
+
+
 def _resolve_model_params(supported: dict | None, image_size: str | None, aspect_ratio: str) -> dict[str, str]:
     """按声明自适应下发尺寸参数，互斥的两套通道只能选其一（同传 size+resolution 必 400）。"""
     quality = _quality_for(image_size)
@@ -186,9 +212,13 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
         if ratio:
             params["aspect_ratio"] = ratio
     elif size_values or ratio:
-        # 声明 size 或只声明 aspect_ratio：OpenAI 同款精确 WxH 撑清晰度，ratio 锁比例
-        w, h = aspect_size(effective_ratio, short, round_to=16)
-        params["size"] = f"{w}x{h}"
+        # 声明 size 或只声明 aspect_ratio：WxH 撑清晰度，ratio 锁比例。声明了 WxH 枚举时从枚举里选，
+        # 不合成枚举外的值；枚举里没有可解析的 WxH（如只有 auto）才按 OpenAI 同款合成精确 WxH。
+        size = _pick_size(size_values, effective_ratio, short)
+        if size is None:
+            w, h = aspect_size(effective_ratio, short, round_to=16)
+            size = f"{w}x{h}"
+        params["size"] = size
         if ratio:
             params["aspect_ratio"] = ratio
     # 收录但三类都不声明：省略全部尺寸参数，信任模型默认
@@ -225,12 +255,14 @@ class OpenRouterImageBackend:
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         refs = request.reference_images
         supported = await self._fetch_supported_params()
-        refs = self._clamp_references(refs, supported)
+        self._check_reference_limit(refs, supported)
 
         input_references = await asyncio.to_thread(self._encode_references, refs)
-        payload: dict = {"model": self._model, "prompt": request.prompt, "n": 1}
+        payload: dict = {"model": self._model, "prompt": request.prompt}
+        # 目录收录了该模型却没声明的参数（n / seed）不下发：未声明的参数会被拒；未收录时照常带上
+        if supported is None or "n" in supported:
+            payload["n"] = 1
         payload.update(_resolve_model_params(supported, request.image_size, request.aspect_ratio))
-        # 目录收录了该模型却没声明 seed 时不下发：未声明的参数会被拒；未收录时照常带上
         if request.seed is not None and (supported is None or "seed" in supported):
             payload["seed"] = request.seed
         if input_references:
@@ -247,26 +279,24 @@ class OpenRouterImageBackend:
             usage=per_image_usage(output_images=1, input_images=len(input_references)),
         )
 
-    def _clamp_references(self, refs: list, supported: dict | None) -> list:
-        """按模型声明的 input_references 上限收口：超限截断告警，上限 0 还带参考图即 fail-loud。"""
+    def _check_reference_limit(self, refs: list, supported: dict | None) -> None:
+        """按模型声明的 input_references 上限校验参考图张数，超限即 fail-loud。
+
+        编排层按端点上限（16 张）给参考图编号并写进 prompt，在这里截断会让 prompt 里的「图N」指向
+        没有下发的参考图，生成照常计费；因此超限直接报错，由用户减少参考图。
+        """
         declared_max = _range_max(supported, "input_references") if supported is not None else None
-        if declared_max is None:
-            return refs
-        if declared_max == 0 and refs:
+        if declared_max is None or len(refs) <= declared_max:
+            return
+        if declared_max == 0:
             raise ImageCapabilityError(
                 "image_endpoint_mismatch_no_i2i",
                 model=self._model,
                 detail=f"model {self._model} declares input_references max {declared_max}",
             )
-        if len(refs) > declared_max:
-            logger.warning(
-                "参考图数量 %d 超过模型声明上限 %d，截断 (model=%s)",
-                len(refs),
-                declared_max,
-                self._model,
-            )
-            refs = refs[:declared_max]
-        return refs
+        raise ImageCapabilityError(
+            "image_reference_images_exceeded", model=self._model, limit=declared_max, count=len(refs)
+        )
 
     async def _fetch_supported_params(self) -> dict | None:
         """查该 model 的 supported_parameters（进程级缓存 1h）。
