@@ -12,7 +12,7 @@ I2I 统一走 ``POST {base_url}/images`` 的 JSON 端点——参考图以 data 
 - 声明 ``resolution``（gemini / seedream / qwen / grok / krea 系，同时声明 ``size`` 也算）→
   ``aspect_ratio`` + ``resolution``（不传 size）。档位短边映射到声明枚举里「≥ 请求值的最小档」，映射不到则省略。
 - 未声明 ``resolution`` 但声明 ``size`` 或 ``aspect_ratio``（gpt-image / recraft / mai 系）→ ``size``
-  （声明了 WxH 枚举时从中选比例最接近的一档，否则合成 OpenAI 同款 WxH）+ ``aspect_ratio``，声明 ``quality`` 再叠加。
+  （声明了 size 枚举时只发枚举里的值，否则合成 OpenAI 同款 WxH）+ ``aspect_ratio``，声明 ``quality`` 再叠加。
 - 模型未收录或发现端点失败 → 退回纯 ``size``（与 OpenAI 兼容网关同款），保证生成不因发现
   失败而中断。
 - 收录但 size / aspect_ratio / resolution 一概不声明（如包装型模型）→ 省略全部尺寸参数，
@@ -212,13 +212,16 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
         if ratio:
             params["aspect_ratio"] = ratio
     elif size_values or ratio:
-        # 声明 size 或只声明 aspect_ratio：WxH 撑清晰度，ratio 锁比例。声明了 WxH 枚举时从枚举里选，
-        # 不合成枚举外的值；枚举里没有可解析的 WxH（如只有 auto）才按 OpenAI 同款合成精确 WxH。
+        # 声明 size 或只声明 aspect_ratio：WxH 撑清晰度，ratio 锁比例。声明了 size 枚举时只发枚举里的值：
+        # 有 WxH 就选最接近的一档，只有 auto 就发 auto；未声明 size 才按 OpenAI 同款合成精确 WxH。
         size = _pick_size(size_values, effective_ratio, short)
-        if size is None:
+        if size is None and size_values:
+            size = next((v for v in size_values if v.strip().lower() == "auto"), None)
+        if size is None and not size_values:
             w, h = aspect_size(effective_ratio, short, round_to=16)
             size = f"{w}x{h}"
-        params["size"] = size
+        if size is not None:
+            params["size"] = size
         if ratio:
             params["aspect_ratio"] = ratio
     # 收录但三类都不声明：省略全部尺寸参数，信任模型默认
@@ -280,12 +283,15 @@ class OpenRouterImageBackend:
         )
 
     def _check_reference_limit(self, refs: list, supported: dict | None) -> None:
-        """按模型声明的 input_references 上限校验参考图张数，超限即 fail-loud。
+        """按模型声明的 input_references 上限校验参考图张数，超限即 fail-loud；目录未收录该模型时不校验。
 
         编排层按端点上限（16 张）给参考图编号并写进 prompt，在这里截断会让 prompt 里的「图N」指向
         没有下发的参考图，生成照常计费；因此超限直接报错，由用户减少参考图。
         """
-        declared_max = _range_max(supported, "input_references") if supported is not None else None
+        if not refs or supported is None:
+            return
+        # 目录收录了该模型却没声明 input_references：没有供应商接受参考图，按不支持图生图处理
+        declared_max = _range_max(supported, "input_references") if "input_references" in supported else 0
         if declared_max is None or len(refs) <= declared_max:
             return
         if declared_max == 0:

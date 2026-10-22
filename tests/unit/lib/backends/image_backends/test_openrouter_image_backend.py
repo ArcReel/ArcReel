@@ -363,13 +363,26 @@ def test_declared_size_enum_picks_closest_declared_value(tmp_path: Path):
     assert request_json(only_request(route))["size"] == "1024x1792"
 
 
-def test_size_enum_without_wxh_values_synthesizes_size(tmp_path: Path):
+def test_size_enum_with_only_auto_sends_auto(tmp_path: Path):
+    """size 枚举只有 auto：发声明的 auto，不合成枚举外的 WxH。"""
     model = {"id": "vendor/size-auto", "supported_parameters": {**_enum("size", "auto")}}
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(model))
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
         _run(_request(tmp_path, aspect_ratio="9:16", image_size="1K"), model="vendor/size-auto")
-    assert request_json(only_request(route))["size"] == "1008x1792"
+    assert request_json(only_request(route))["size"] == "auto"
+
+
+def test_listed_model_without_input_references_rejects_i2i(tmp_path: Path):
+    """目录收录了该模型却没声明 input_references：带参考图即报不支持图生图，不发 /images 请求。"""
+    model = {"id": "vendor/t2i-only", "supported_parameters": {**_enum("aspect_ratio", "1:1", "9:16")}}
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(model))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        with pytest.raises(ImageCapabilityError) as ei:
+            _run(_request(tmp_path, refs=[_make_ref(tmp_path)]), model="vendor/t2i-only")
+    assert ei.value.code == "image_endpoint_mismatch_no_i2i"
+    assert not route.called
 
 
 def test_zero_ref_model_rejects_i2i_fail_loud(tmp_path: Path):
