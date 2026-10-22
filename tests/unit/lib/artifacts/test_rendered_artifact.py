@@ -14,14 +14,13 @@ from lib.artifacts.artifact_manifest import (
 )
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
 from lib.project.project_activity import recorded_project_activity
+from tests.fakes import fail_file_replace
 
 
 @pytest.mark.parametrize("failure", ["acceptance", "replacement", "record"])
 async def test_failed_replacement_never_claims_new_content_as_current(
     tmp_path: Path, monkeypatch, failure: str
 ) -> None:
-    import os
-
     key = ArtifactKey.episode_final_cut(1, "tl-0000abcd", "without_narration", "no_subtitles")
     path = "renders/episode_1/tl-0000abcd/final_cut.without_narration.no_subtitles.mp4"
     original = ArtifactBasis.build("test/render", kind_version=1, inputs={"source": "old"})
@@ -40,26 +39,15 @@ async def test_failed_replacement_never_claims_new_content_as_current(
     )
     assert recorded_project_activity(tmp_path) is not None
     payload = b"new"
-    replace = os.replace
-
-    def replace_with_record_failure(source, target, **kwargs) -> None:
-        if str(target).endswith(".render.json"):
-            raise OSError("record write failed")
-        replace(source, target, **kwargs)
-
-    def replace_with_formal_failure(source, target, **kwargs) -> None:
-        if str(target) == str(tmp_path / path):
-            raise OSError("formal replacement failed")
-        replace(source, target, **kwargs)
 
     async def refuse_acceptance(output: Path) -> int:
         raise ValueError("acceptance failed")
 
     with monkeypatch.context() as patch:
         if failure == "record":
-            patch.setattr(os, "replace", replace_with_record_failure)
+            fail_file_replace(patch, (tmp_path / path).with_suffix(".render.json"), message="record write failed")
         if failure == "replacement":
-            patch.setattr(os, "replace", replace_with_formal_failure)
+            fail_file_replace(patch, tmp_path / path, message="formal replacement failed")
         with pytest.raises((OSError, ValueError)):
             await commit_rendered_artifact(
                 tmp_path,

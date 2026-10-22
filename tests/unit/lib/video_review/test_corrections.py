@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
@@ -26,6 +25,7 @@ from lib.video_review.corrections import (
     reserve_correction,
     retire_verified_lesson,
 )
+from tests.fakes import fail_file_replace
 
 
 def _scope(context_hash: str = "a" * 64) -> CorrectionScope:
@@ -380,13 +380,15 @@ def test_oversized_ledger_and_request_are_rejected(tmp_path: Path) -> None:
         matching_verified_lessons(tmp_path, scope=_scope())
 
 
-def test_atomic_replace_failure_preserves_the_previous_ledger(tmp_path: Path) -> None:
+def test_atomic_replace_failure_preserves_the_previous_ledger(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     first = _reserve(tmp_path)
     _fail(tmp_path, first)
     before = _ledger_path(tmp_path).read_bytes()
 
-    with patch("os.replace", side_effect=OSError("disk full")), pytest.raises(OSError, match="disk full"):
-        _reserve(tmp_path, correction="Second attempt", input_hash="f" * 64)
+    with monkeypatch.context() as fault:
+        fail_file_replace(fault, _ledger_path(tmp_path), message="disk full")
+        with pytest.raises(OSError, match="disk full"):
+            _reserve(tmp_path, correction="Second attempt", input_hash="f" * 64)
 
     assert _ledger_path(tmp_path).read_bytes() == before
     assert _reserve(tmp_path, correction="Second attempt", input_hash="f" * 64).root_baseline_version == 1
