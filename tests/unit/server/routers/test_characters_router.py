@@ -11,7 +11,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import FakeProjectAssetMutationMixin
+from tests.fakes import FakeProjectAssetMutationMixin, use_project_manager
 
 
 class _FakePM(FakeProjectAssetMutationMixin):
@@ -53,7 +53,7 @@ class _FakePM(FakeProjectAssetMutationMixin):
 
 
 def _client(monkeypatch, fake_pm):
-    monkeypatch.setattr(characters, "get_project_manager", lambda: fake_pm)
+    use_project_manager(monkeypatch, fake_pm)
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

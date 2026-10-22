@@ -39,8 +39,8 @@ from lib.generation.video_request_facts import (
 from lib.infra.schema_guards import is_int
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import grid_storyboard_enabled, is_reference_video_project
-from lib.script.grid.grid_resolution import resolve_image_resolution
-from lib.script.grid.layout import GRID_FALLBACK_RESOLUTION, large_grid_allowed, plan_grid_chunks
+from lib.script.grid.grid_resolution import grid_image_size, resolve_image_resolution
+from lib.script.grid.layout import large_grid_allowed, plan_grid_chunks
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.request_projection import (
     ProjectionProblem,
@@ -433,8 +433,8 @@ class CostEstimationService:
                 image_provider, image_model = "unknown", "unknown"
 
             # T2I 槽分辨率档：与路由入队、Agent 工具共用 ``grid_resolution`` 的取档，估算的宫格
-            # 张数才不会与实际入队张数漂移；同一档位又是两路分镜图的计价档——宫格图未配置时回落
-            # ``GRID_FALLBACK_RESOLUTION``（与 ``execute_grid_task`` 下发的保底档同源），普通
+            # 张数才不会与实际入队张数漂移；同一档位又是两路分镜图的计价档——宫格图未配置时按
+            # ``grid_image_size`` 取保底档（与 ``execute_grid_task`` 下发的档位同源），普通
             # 分镜图未配置时与执行侧一样不下发分辨率，按价目表的默认档计。解析在两路之前，宫格
             # 与非宫格项目共用这一次 IO。计价与执行取的是同一个 T2I 槽、同一套项目配置，但身份
             # 键不同（此处 registry ``model_id``，执行侧构造后的 backend 型号），两者分叉的供应
@@ -534,7 +534,7 @@ class CostEstimationService:
         video_aspect_ratio = resolve_video_aspect_ratio(project_data)
 
         # 预计算普通分镜图单价（按配置的分辨率档，估价以文生图为准，不带参考图）。宫格图按每张宫格的比例
-        # 在集内逐张估价，分辨率未配置时执行侧下发 ``GRID_FALLBACK_RESOLUTION``，估价同源。
+        # 在集内逐张估价，分辨率未配置时与执行侧同经 ``grid_image_size`` 取档。
         image_unit_cost = _quote_image(
             image_provider,
             image_model,
@@ -553,7 +553,7 @@ class CostEstimationService:
                     image_model,
                     image_price,
                     multiplier=image_multiplier,
-                    image_size=image_resolution or GRID_FALLBACK_RESOLUTION,
+                    image_size=grid_image_size(image_resolution, image_provider, image_model),
                     aspect_ratio=grid_aspect_ratio,
                     reference_count=0,
                 )

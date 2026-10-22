@@ -1,7 +1,7 @@
 """目录合成：官方数据与用户修改合成运行时读到的模型目录（docs/adr/0099、0103）。
 
-- 官方数据：出厂快照与官方同步中，数据集版本较新的一份（:func:`newest_official`）。官方同步取回的数据接入时，
-  作为候选与出厂快照一起交给它比较。
+- 官方数据：出厂快照与官方同步中，数据集版本较新的一份（:func:`newest_official`）；另一份里有、它没有的条目
+  保留下来（:func:`merge_official`），同步不删除模型条目（docs/adr/0103）。
 - 用户修改：整个条目的副本。有副本的条目停止跟随官方，只用副本；丢弃副本即恢复跟随官方。用户新建的条目（官方
   数据里没有它时手动填写的）从一开始就不跟随官方；日后官方数据收录了同一身份的条目，它仍是用户新建的，同时能看到
   官方的值，用户可以改用官方数据。
@@ -28,6 +28,19 @@ def newest_official(candidates: Sequence[CatalogData]) -> CatalogData:
         if parse_dataset_version(candidate.dataset_version) > parse_dataset_version(newest.dataset_version):
             newest = candidate
     return newest
+
+
+def retain_entries(newest: CatalogData, older: CatalogData) -> CatalogData:
+    """``older`` 里有、``newest`` 里没有的条目接在 ``newest`` 的条目之后；供应商清单与数据集版本仍取 ``newest``。"""
+    keys = {entry.key for entry in newest.entries}
+    retained = tuple(entry for entry in older.entries if entry.key not in keys)
+    return replace(newest, entries=newest.entries + retained) if retained else newest
+
+
+def merge_official(snapshot: CatalogData, synced: CatalogData) -> CatalogData:
+    """出厂快照与官方同步合成的官方数据：取数据集版本较新的一份（相同时取快照），保留另一份独有的条目。"""
+    newest = newest_official((snapshot, synced))
+    return retain_entries(newest, synced if newest is snapshot else snapshot)
 
 
 @dataclass(frozen=True)

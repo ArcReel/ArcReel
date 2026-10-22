@@ -34,6 +34,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import files
 from server.services.currency import upload_finalize
 from tests.factories import wav_bytes
+from tests.fakes import fail_project_json_write, use_project_manager, use_text_generator
 
 
 class _FakeTextBackend:
@@ -214,11 +215,10 @@ class TestFilesRouter:
         assert (source_dir / "_episode_5.txt.bak").read_text(encoding="utf-8") == "没有登记的旧文件"
 
     def test_source_writes_refuse_while_the_project_migration_is_blocked(self, tmp_path, monkeypatch):
-        import lib.project.project_migration_guard as guard
         from lib.project.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
 
         client, pm = _client(monkeypatch, tmp_path)
-        monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         source_dir = pm.get_project_path("demo") / "source"
         (source_dir / "novel.txt").write_text("旧整本源文", encoding="utf-8")
         record_migration_failure(
@@ -307,14 +307,7 @@ class TestFilesRouter:
             "demo", lambda project: project.update(whole_source_files=[{"source_file": "source/novel.txt"}])
         )
         project_file = pm.get_project_path("demo") / "project.json"
-        real_atomic_write = project_manager_module.atomic_write_json
-
-        def _fail_project_write(path, data):
-            if path == project_file:
-                raise OSError("injected project write failure")
-            return real_atomic_write(path, data)
-
-        monkeypatch.setattr(project_manager_module, "atomic_write_json", _fail_project_write)
+        fail_project_json_write(monkeypatch, project_file)
 
         with client:
             resp = client.delete("/api/v1/projects/demo/source/novel.txt")
@@ -899,14 +892,7 @@ class TestFilesRouter:
             project_dir = pm.get_project_path("demo")
             project_file = project_dir / "project.json"
             audio_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
-            real_atomic_write = project_manager_module.atomic_write_json
-
-            def _fail_project_write(path, data):
-                if path == project_file:
-                    raise OSError("injected project write failure")
-                return real_atomic_write(path, data)
-
-            monkeypatch.setattr(project_manager_module, "atomic_write_json", _fail_project_write)
+            fail_project_json_write(monkeypatch, project_file)
 
             resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
             assert resp.status_code == 500
@@ -1129,7 +1115,7 @@ class TestFilesRouter:
             captured["purpose"] = purpose
             return await original_create(task_type, project_name, purpose=purpose)
 
-        monkeypatch.setattr(TextGenerator, "create", capture_create)
+        use_text_generator(monkeypatch, capture_create)
         monkeypatch.setattr(_FakeTextBackend, "requests", [])
 
         # 预置 style_template_id + 展开后的 style prompt，验证上传后被强制清掉（互斥）

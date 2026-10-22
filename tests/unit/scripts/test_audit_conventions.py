@@ -332,3 +332,45 @@ def test_ffmpeg_finder_module_and_tests_are_not_scanned(repo: Path) -> None:
     _write(repo, "tests/unit/test_render.py", 'CMD = ["ffmpeg"]\n')
 
     assert _ffmpeg_hits(repo) == []
+
+
+def _private_import_hits(root: Path) -> list[tuple[str, int]]:
+    return [(v.path.as_posix(), v.line) for v in audit(root) if v.rule == "PRIVATE-IMPORT"]
+
+
+def test_importing_a_private_name_from_another_repo_module_is_reported(repo: Path) -> None:
+    _write(repo, "lib/retry.py", "def _should_retry(exc): ...\n")
+    _write(repo, "lib/backend.py", "from lib.retry import _should_retry\n")
+    _write(repo, "packages/demo/src/demo/source.py", "def _check(): ...\n")
+    _write(repo, "packages/demo/src/demo/generate.py", "from .source import _check\n")
+    _write(repo, "lib/pkg/__init__.py", "def _helper(): ...\n")
+    _write(repo, "lib/pkg/user.py", "from . import _helper\n")
+
+    assert _private_import_hits(repo) == [
+        ("lib/backend.py", 1),
+        ("lib/pkg/user.py", 1),
+        ("packages/demo/src/demo/generate.py", 1),
+    ]
+
+
+def test_importing_a_private_submodule_is_allowed(repo: Path) -> None:
+    _write(repo, "server/routers/__init__.py", "")
+    _write(repo, "server/routers/_validators.py", "def check(): ...\n")
+    _write(repo, "server/routers/files.py", "from . import _validators\n")
+    _write(repo, "server/app.py", "from server.routers import _validators\n")
+
+    assert _private_import_hits(repo) == []
+
+
+def test_public_name_under_private_alias_and_external_or_dunder_imports_are_allowed(repo: Path) -> None:
+    _write(repo, "lib/retry.py", "def should_retry(exc): ...\n__version__ = '1'\n")
+    _write(repo, "lib/i18n.py", "def _(text): ...\n")
+    _write(
+        repo,
+        "lib/backend.py",
+        "from lib.retry import should_retry as _should_retry, __version__\n"
+        "from lib.i18n import _\nfrom claude_agent_sdk import _internal\n",
+    )
+    _write(repo, "tests/unit/test_retry.py", "from lib.retry import _private\n")
+
+    assert _private_import_hits(repo) == []

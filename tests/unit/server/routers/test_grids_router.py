@@ -23,6 +23,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import grids
 from server.routers import versions as versions_router
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_project_manager
 
 
 def _narration_script(count: int = 4):
@@ -1409,8 +1410,7 @@ def test_restoring_an_uploaded_grid_version_preserves_its_manifest_claim(monkeyp
     Image.new("RGB", (64, 64), color=(1, 2, 3)).save(target)
     GridManager(project_path).save(grid)
 
-    monkeypatch.setattr(grids, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     monkeypatch.setattr("server.services.tasks.generation_tasks.emit_generation_success_batch", lambda **_kwargs: {})
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -1619,7 +1619,7 @@ async def test_upload_grid_image_cancelled_while_staging_leaves_no_staged_file(m
             staged.set()
 
     monkeypatch.setattr(grids, "stage_uploaded_bytes", _stage)
-    monkeypatch.setattr(grids, "get_project_manager", lambda: _FakePMRegenerate(tmp_path))
+    use_project_manager(monkeypatch, _FakePMRegenerate(tmp_path))
     content = _png_bytes()
     task = asyncio.create_task(
         grids.upload_grid_image(

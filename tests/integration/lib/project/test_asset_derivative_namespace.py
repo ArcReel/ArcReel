@@ -14,6 +14,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import characters
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_project_manager
 
 
 @pytest.fixture
@@ -41,7 +42,7 @@ def _descriptions(pm: ProjectManager) -> dict[str, str]:
 
 def test_adding_a_derivative_differing_only_in_case_is_rejected(alice_pm: ProjectManager, monkeypatch) -> None:
     _set_derivatives(alice_pm, {"Coat": "大衣"})
-    monkeypatch.setattr(characters, "get_project_manager", lambda: alice_pm)
+    use_project_manager(monkeypatch, alice_pm)
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

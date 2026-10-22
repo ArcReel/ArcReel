@@ -16,7 +16,7 @@ from lib.generation.generation_worker import (
 from lib.project.task_project_claim import revoke_task_project_claims
 from lib.script.script_editor import ScriptEditError
 from tests.factories import activate_reference_project
-from tests.fakes import bind_safe_session_factory
+from tests.fakes import bind_safe_session_factory, bind_session_factory
 from tests.integration.lib.generation.worker_support import (
     FakeWorkerQueue,
     capacity_table,
@@ -60,7 +60,7 @@ async def patch_empty_db(db_factory, monkeypatch):
     解析全局默认供应商，视频的入队派生与请求投影则在函数内晚导入 ``lib.db`` 上的全局名字；不隔离时
     它们读真实 dev 库，本机一旦配了其它 ready 供应商，回退断言就被污染。
     """
-    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+    bind_session_factory(monkeypatch, db_factory)
     monkeypatch.setattr("lib.generation.generation_worker.async_session_factory", db_factory)
     return db_factory
 

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from lib.config.service import ConfigService
 from lib.infra.api_errors import BadRequestError
 from server.routers._validators import require_audio_switch_supported
+from tests.fakes import bind_session_factory
 
 _ALWAYS_AUDIBLE = "dashscope/wan2.7-i2v"
 _CONTROLLABLE = "ark/doubao-seedance-2-0-260128"
@@ -30,7 +31,7 @@ async def _seed_settings(factory: async_sessionmaker[AsyncSession], **settings: 
 class TestRequireAudioSwitchSupported:
     async def test_always_audible_model_rejects_stored_off_setting(self, db_factory, monkeypatch):
         await _seed_settings(db_factory, default_video_backend=_ALWAYS_AUDIBLE, video_generate_audio="false")
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         with pytest.raises(BadRequestError) as exc_info:
             await require_audio_switch_supported({}, "i2v")
@@ -41,14 +42,14 @@ class TestRequireAudioSwitchSupported:
     async def test_always_audible_model_rejects_project_level_off_override(self, db_factory, monkeypatch):
         """项目覆盖优先于全局：全局开着、项目关掉，同样在入口拒绝。"""
         await _seed_settings(db_factory, default_video_backend=_ALWAYS_AUDIBLE, video_generate_audio="true")
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         with pytest.raises(BadRequestError):
             await require_audio_switch_supported({"video_generate_audio": False}, "i2v")
 
     async def test_always_audible_model_passes_when_audio_is_on(self, db_factory, monkeypatch):
         await _seed_settings(db_factory, default_video_backend=_ALWAYS_AUDIBLE)
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         # 预检放行即静默返回 None
         assert await require_audio_switch_supported({}, "i2v") is None
@@ -56,7 +57,7 @@ class TestRequireAudioSwitchSupported:
     async def test_controllable_model_keeps_the_off_setting(self, db_factory, monkeypatch):
         """开关可控的供应商行为不变：关闭意图能抵达请求，无声路径照常成立。"""
         await _seed_settings(db_factory, default_video_backend=_CONTROLLABLE, video_generate_audio="false")
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         assert await require_audio_switch_supported({}, "i2v") is None
 
@@ -83,7 +84,7 @@ class TestRequireAudioSwitchSupported:
             await session.commit()
             backend = f"custom-{provider.id}/relay-video-x1"
         await _seed_settings(db_factory, default_video_backend=backend, video_generate_audio="false")
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         if rejected:
             with pytest.raises(BadRequestError) as exc_info:
@@ -94,7 +95,7 @@ class TestRequireAudioSwitchSupported:
 
     async def test_no_provider_configured_passes_through(self, db_factory, monkeypatch):
         await _seed_settings(db_factory, video_generate_audio="false")
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         assert await require_audio_switch_supported({}, "i2v") is None
 

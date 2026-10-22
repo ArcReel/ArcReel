@@ -15,6 +15,7 @@ from lib.agent.agent_memory_paths import project_memory_dir
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
+from tests.fakes import use_provider_env
 
 #: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
 _USER_ID = "default"
@@ -40,7 +41,7 @@ async def test_build_options_includes_sandbox_settings(
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk", "ARK_API_KEY": ""}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+    use_provider_env(monkeypatch, fake_env)
 
     opts = await fs_session_manager._build_options("test_proj")
 
@@ -187,7 +188,7 @@ async def test_build_options_bash_in_allowed_tools_by_sandbox(
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+    use_provider_env(monkeypatch, fake_env)
     opts = await sm._build_options("test_proj")
 
     for tool in AgentAccessPolicy.BASH_TOOLS:

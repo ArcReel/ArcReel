@@ -16,6 +16,7 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import projects
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_project_manager
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     build_projects_client,
@@ -257,7 +258,7 @@ class TestProjectsRouter:
             },
             "episode_1.json",
         )
-        monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
             id="default",

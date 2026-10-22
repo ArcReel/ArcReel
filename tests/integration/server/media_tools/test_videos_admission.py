@@ -11,6 +11,7 @@ import pytest
 from lib.db.models.user import User
 from server.tool_runtime import CallerContext, ToolOutcome
 from tests.factories import make_video_request_facts
+from tests.fakes import use_reference_projection
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
     fake_reference_projection,
@@ -122,10 +123,7 @@ async def test_generate_reference_videos_refuses_a_unit_the_web_route_already_qu
 ) -> None:
     """Web 先入队同一单元：Agent 整集生成在准入处被「已在队列中」拦下，不再入队计费。"""
     fake_ctx = idle_fake_ctx
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection())
     use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = reference_video_script()
     queued = await _enqueue_reference_video_as_web(fake_ctx)
@@ -149,10 +147,7 @@ async def test_web_route_enqueue_dedupes_to_the_task_the_agent_tool_already_queu
 ) -> None:
     """Agent 先入队同一单元：Web 路由随后的入队落在同一个任务上，只产生一个任务。"""
     fake_ctx = idle_fake_ctx
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection())
     use_reference_route(fake_ctx)
     fake_ctx.pm.script_payload = reference_video_script()
     agent_task_ids: list[str] = []
@@ -185,10 +180,7 @@ async def test_generate_reference_videos_ignores_narration_audio_state(
 ) -> None:
     """TTS 配音项目里旁白配音缺失或正在生成，都不影响参考生视频的准入与入队。"""
     fake_ctx = idle_fake_ctx
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request",
-        fake_reference_projection(),
-    )
+    use_reference_projection(monkeypatch, fake_reference_projection())
     use_reference_route(fake_ctx)
     fake_ctx.pm.project_payload.update(
         {"narration_delivery": "use_tts", "audio_backend": "dashscope/qwen3-tts-flash", "narration_voice": "Cherry"}

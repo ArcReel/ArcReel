@@ -15,6 +15,7 @@ from tests.fakes import (
     result_frame,
     stream_event_frame,
     system_frame,
+    use_provider_env,
 )
 
 
@@ -184,7 +185,7 @@ class TestSessionManagerUserInput:
         async def fake_env():
             return {"ANTHROPIC_API_KEY": "sk"}
 
-        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+        use_provider_env(monkeypatch, fake_env)
         monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
         monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
         session_manager._session_actor_shutdown_timeout = 0.05
@@ -243,7 +244,7 @@ class TestSessionManagerUserInput:
         async def fake_env():
             return {"ANTHROPIC_API_KEY": "sk"}
 
-        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+        use_provider_env(monkeypatch, fake_env)
         monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
         monkeypatch.setattr(type(session_manager), "_ensure_capacity", AsyncMock(return_value=None))
         session_manager._session_actor_shutdown_timeout = 0.05

@@ -8,24 +8,15 @@ from types import SimpleNamespace
 
 import pytest
 
-import lib.db
 import server.app as app_module
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import CURRENT_SCHEMA_VERSION
-from server.routers import assistant as assistant_router
+from tests.unit.server.app_lifespan_support import stub_lifespan_dependencies
 
 
 async def _noop_async(*args, **kwargs):
     """No-op coroutine for mocking async startup steps."""
-
-
-class _FakeWorker:
-    async def start(self):
-        pass
-
-    async def stop(self):
-        pass
 
 
 def _seed_stale_project(projects_root: Path) -> tuple[Path, Path]:
@@ -51,12 +42,7 @@ async def test_startup_migrates_projects_and_reaps_stale_backups(tmp_path, monke
     # 数据目录指向 tmp：迁移与备份回收都照真实跑，落点是本用例种下的项目。
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
     monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(data_root))
-    monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
-    monkeypatch.setattr(app_module, "init_db", _noop_async)
-    monkeypatch.setattr(lib.db, "init_db", _noop_async)
-    monkeypatch.setattr(app_module, "create_generation_worker", _FakeWorker)
-    monkeypatch.setattr(assistant_router.assistant_service, "startup", _noop_async)
-    monkeypatch.setattr(assistant_router.assistant_service, "shutdown", _noop_async)
+    stub_lifespan_dependencies(monkeypatch)
     monkeypatch.setattr(app_module, "migrate_local_transcripts_to_store", _noop_async)
 
     app = app_module.app
@@ -95,12 +81,7 @@ async def test_data_root_layout_migration_runs_before_every_project_walk(tmp_pat
     monkeypatch.setattr(app_module, "migrate_data_root_layout", migrate_layout)
     monkeypatch.setattr(app_module, "migrate_local_transcripts_to_store", import_transcripts)
     monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(data_root))
-    monkeypatch.setattr(app_module, "ensure_auth_password", lambda: "test")
-    monkeypatch.setattr(app_module, "init_db", _noop_async)
-    monkeypatch.setattr(lib.db, "init_db", _noop_async)
-    monkeypatch.setattr(app_module, "create_generation_worker", _FakeWorker)
-    monkeypatch.setattr(assistant_router.assistant_service, "startup", _noop_async)
-    monkeypatch.setattr(assistant_router.assistant_service, "shutdown", _noop_async)
+    stub_lifespan_dependencies(monkeypatch)
 
     app = app_module.app
     app.state = SimpleNamespace()

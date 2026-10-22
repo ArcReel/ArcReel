@@ -42,6 +42,13 @@ from server.services.tasks.image_edit_tasks import (
     execute_image_edit_task,
     resolve_current_image_rel,
 )
+from tests.fakes import (
+    bind_session_factory,
+    stage_and_commit,
+    use_backend_assembler,
+    use_generation_context,
+    use_project_manager,
+)
 
 
 @pytest.fixture
@@ -51,18 +58,8 @@ async def patched_session_factory(db_factory, monkeypatch):
     供 image_size 解析等价用例的真实 ConfigResolver 使用（预置供应商无 DB 行，自定义供应商
     默认 resolution 才落 DB）。
     """
-    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+    bind_session_factory(monkeypatch, db_factory)
     return db_factory
-
-
-async def _stage_and_commit(commit_formal_output, staged: Path, current: Path, content: bytes, metadata: dict) -> int:
-    """替身生成器落盘产出并提交正式版本：与 MediaGenerator 一样在工作线程里写产物、调提交回调。"""
-
-    def _run() -> int:
-        staged.write_bytes(content)
-        return commit_formal_output(staged, current, metadata)
-
-    return await asyncio.to_thread(_run)
 
 
 class _FakeGenerator:
@@ -215,7 +212,7 @@ def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, regi
         else:
             fake_pm.sync_disk()
         fake_generator.project_path = fake_pm.project_path
-    monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: fake_pm)
+    use_project_manager(monkeypatch, fake_pm)
 
     async def _fake_resolve(project_name, payload, *, project, image=None, **_kwargs):
         assert image is not None
@@ -229,7 +226,7 @@ def _patch_common(monkeypatch, fake_pm, fake_generator, *, resolution=None, regi
         )
         return GenerationContext(generator=fake_generator, image_lane=lane)
 
-    monkeypatch.setattr(formal_image_commit, "resolve_generation_context", _fake_resolve)
+    use_generation_context(monkeypatch, _fake_resolve)
 
 
 class TestResolveCurrentImageRel:
@@ -312,7 +309,7 @@ class TestExecuteImageEditTask:
                 raise AssertionError("provider must not receive a replaced formal input")
 
         generator = _ReplacingGenerator()
-        monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         async def _resolve(*_args, **_kwargs):
             lane = ImageLaneResult(
@@ -324,7 +321,7 @@ class TestExecuteImageEditTask:
             )
             return GenerationContext(generator=generator, image_lane=lane)
 
-        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", _resolve)
+        use_generation_context(monkeypatch, _resolve)
 
         with pytest.raises(ValueError, match="changed since it was selected"):
             await execute_image_edit_task(
@@ -355,7 +352,7 @@ class TestExecuteImageEditTask:
         pm.update_project("demo", lambda project: project.__setitem__("schema_version", 7))
 
         generator = _FakeGenerator()
-        monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         async def _resolve(*_args, **_kwargs):
             lane = ImageLaneResult(
@@ -367,7 +364,7 @@ class TestExecuteImageEditTask:
             )
             return GenerationContext(generator=generator, image_lane=lane)
 
-        monkeypatch.setattr(formal_image_commit, "resolve_generation_context", _resolve)
+        use_generation_context(monkeypatch, _resolve)
 
         with pytest.raises(ProjectMigrationError, match=f"did not reach v{CURRENT_PROJECT_SCHEMA_VERSION}"):
             await execute_image_edit_task(
@@ -401,7 +398,7 @@ class TestExecuteImageEditTask:
             async def generate_image_async(self, **kwargs):
                 assert kwargs["formal_output"] is True
                 staged = task_image_staging_path(current, kwargs["task_id"])
-                version = await _stage_and_commit(
+                version = await stage_and_commit(
                     kwargs["commit_formal_output"],
                     staged,
                     current,
@@ -559,7 +556,7 @@ class TestExecuteImageEditTask:
 
                 # 直接调用（非队列任务）没有 task_id：staging 身份由生成器内部造，替身自造一个。
                 staged = task_image_staging_path(current, kwargs["task_id"] or "inline-test")
-                version = await _stage_and_commit(
+                version = await stage_and_commit(
                     kwargs["commit_formal_output"],
                     staged,
                     current,
@@ -593,7 +590,7 @@ class TestExecuteImageEditTask:
         assert not provider_references[0].exists()
 
         adapter.delete_entry(source_key)
-        monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         versions_router._restore_non_typed_version(
             versions=manager,
             resource_type=version_resource_type,
@@ -986,12 +983,12 @@ class TestImageSizeResolutionEquivalence:
         """真 ProjectManager（demo 项目目录）+ 回声 assemble 缝，避免 backend 构造触网。"""
         pm = ProjectManager(tmp_path)
         (pm.projects_dir / "demo").mkdir(parents=True)
-        monkeypatch.setattr(generation_context, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _EchoBackend(name=provider_id, model=model_id or "default-model")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         generation_context.invalidate_backend_cache()
         yield
         generation_context.invalidate_backend_cache()
@@ -1036,7 +1033,7 @@ class TestImageEditEventMapping:
 
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         # 从公开订阅口接真实事件总线：断言落在订阅方（SSE 广播那一侧）实际收到的批次上。
         delivered: list[dict] = []

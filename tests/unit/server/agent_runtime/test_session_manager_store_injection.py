@@ -8,6 +8,7 @@ import pytest
 
 from lib.agent.agent_session_store.store import DbSessionStore
 from server.agent_runtime.session_manager import SessionManager
+from tests.fakes import use_provider_env
 
 
 async def _fake_provider_env():
@@ -75,7 +76,7 @@ def test_store_uses_session_factory_seam(monkeypatch, tmp_path):
 async def test_flush_mode_passed_to_options_default(monkeypatch, tmp_path):
     """No env → ClaudeAgentOptions.session_store_flush == 'eager'."""
     monkeypatch.delenv("ARCREEL_SDK_SESSION_STORE_FLUSH", raising=False)
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
+    use_provider_env(monkeypatch, _fake_provider_env)
     sm = _build_sm(tmp_path)
 
     project_cwd = sm.layout.projects_dir / "demo"
@@ -89,7 +90,7 @@ async def test_flush_mode_passed_to_options_default(monkeypatch, tmp_path):
 async def test_flush_mode_passed_to_options_batched(monkeypatch, tmp_path):
     """env=batched → options.session_store_flush == 'batched'."""
     monkeypatch.setenv("ARCREEL_SDK_SESSION_STORE_FLUSH", "batched")
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
+    use_provider_env(monkeypatch, _fake_provider_env)
     sm = _build_sm(tmp_path)
     project_cwd = sm.layout.projects_dir / "demo"
     project_cwd.mkdir(parents=True)
@@ -108,7 +109,7 @@ async def test_flush_mode_passed_to_options_when_store_off(monkeypatch, tmp_path
     """
     monkeypatch.setenv("ARCREEL_SDK_SESSION_STORE", "off")
     monkeypatch.delenv("ARCREEL_SDK_SESSION_STORE_FLUSH", raising=False)
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_provider_env)
+    use_provider_env(monkeypatch, _fake_provider_env)
     sm = _build_sm(tmp_path)
 
     project_cwd = sm.layout.projects_dir / "demo"

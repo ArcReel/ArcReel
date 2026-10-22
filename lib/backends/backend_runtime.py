@@ -39,15 +39,15 @@ from lib.infra.retry import (
     BASE_RETRYABLE_ERRORS,
     AsyncClock,
     NonRetryableError,
-    _should_retry,
     resolve_clock,
+    should_retry,
     with_retry_async,
 )
 
 if TYPE_CHECKING:
     from arcreel_market_core.video_backend_contract import ProviderResponseStage, VideoGenerationRequest
 
-# `_should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
+# `should_retry` 默认会做字符串模式兜底（"timeout"/"503" 等），
 # 而 persist 重试要严格"DB 瞬态错误"语义——业务异常（如
 # `ValueError("Connection timed out: rate")`）不该被字符串子串吞掉。
 # 显式传 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 关掉兜底。
@@ -406,7 +406,7 @@ async def poll_with_retry[T](
         max_wait: 最大等待时间（秒），超时抛出 TimeoutError。
         poll_interval: 成功响应后的轮询间隔，同时是失败退避的基数；视频调用通道统一用默认 5 秒。
         retryable_errors: 可重试的异常类型元组（未指定 retry_if 时生效）。
-        retry_if: 自定义重试谓词，指定时替代默认的 `_should_retry`，让调用方精确控制
+        retry_if: 自定义重试谓词，指定时替代默认的 `should_retry`，让调用方精确控制
             哪些异常应当重试（如按 HTTP status_code 区分确定性 4xx 与瞬态 5xx）。
         label: 日志前缀（如 "Ark"、"Gemini"）。
         on_progress: 可选的进度回调，每次非终态轮询后调用。
@@ -416,7 +416,7 @@ async def poll_with_retry[T](
     active_clock = resolve_clock(clock)
     start = active_clock.monotonic()
     prefix = f"{label} " if label else ""
-    predicate = retry_if if retry_if is not None else (lambda e: _should_retry(e, retryable_errors))
+    predicate = retry_if if retry_if is not None else (lambda e: should_retry(e, retryable_errors))
     consecutive_failures = 0
 
     # 先查询再等待：已完成/缓存命中的任务立刻返回，不被 poll_interval 白等一轮。

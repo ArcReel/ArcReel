@@ -60,7 +60,7 @@ class TestGrokShouldRetry:
         assert grok_should_retry(exc) is False
 
     def test_non_grpc_connection_error_retryable(self):
-        """非 gRPC 异常回退到默认 _should_retry 逻辑。"""
+        """非 gRPC 异常回退到默认 should_retry 逻辑。"""
         assert grok_should_retry(ConnectionError("reset")) is True
 
     def test_non_grpc_timeout_error_retryable(self):

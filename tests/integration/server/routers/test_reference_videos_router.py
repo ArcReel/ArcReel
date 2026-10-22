@@ -17,7 +17,14 @@ from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_display_names, make_video_request_facts
-from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
+from tests.fakes import (
+    fake_reference_request_facts,
+    fake_reference_request_projector,
+    use_active_tasks_lookup,
+    use_generation_queue,
+    use_project_manager,
+    use_reference_projection,
+)
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
 
@@ -75,9 +82,9 @@ def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     from server.routers import reference_videos as router_mod
 
     custom_pm = ProjectManager(tmp_path)
-    monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
+    use_project_manager(monkeypatch, custom_pm)
     # 公共 request projection 的 resolver 需要 DB；路由测试注入 in-process 能力适配器。
-    monkeypatch.setattr(router_mod, "project_reference_unit_request", _projection_with_durations([3, 6, 9]))
+    use_reference_projection(monkeypatch, _projection_with_durations([3, 6, 9]))
 
     app = FastAPI()
     register_error_handlers(app)
@@ -496,9 +503,7 @@ def test_generate_unit_enqueues_task(reference_videos_client: TestClient, monkey
             enqueued.append(kwargs)
             return {"task_id": "task-xyz", "deduped": False}
 
-    from server.routers import reference_videos as router_mod
-
-    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
+    use_generation_queue(monkeypatch, _FakeQueue())
 
     resp = reference_videos_client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
     assert resp.status_code == 202, resp.text
@@ -523,9 +528,7 @@ def test_generate_unit_requires_and_persists_explicit_duration_confirmation(
             enqueued.append(kwargs)
             return {"task_id": "task-confirmed", "deduped": False}
 
-    from server.routers import reference_videos as router_mod
-
-    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
+    use_generation_queue(monkeypatch, _FakeQueue())
 
     unconfirmed = reference_videos_client.post(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate"
@@ -599,9 +602,7 @@ def test_generate_unit_rejects_the_retired_narration_delivery_field(
     uid = _seed_unit(reference_videos_client)
     enqueue = AsyncMock()
 
-    from server.routers import reference_videos as router_mod
-
-    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: type("Queue", (), {"enqueue_task": enqueue})())
+    use_generation_queue(monkeypatch, type("Queue", (), {"enqueue_task": enqueue})())
 
     response = reference_videos_client.post(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate",
@@ -630,9 +631,7 @@ def test_generate_unit_bucket_capability_error_returns_400(
             enqueued.append(kwargs)
             return {"task_id": "task-xyz", "deduped": False}
 
-    from server.routers import reference_videos as router_mod
-
-    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
+    use_generation_queue(monkeypatch, _FakeQueue())
 
     base_project = _projection_with_durations([3, 6, 9])
 
@@ -650,7 +649,7 @@ def test_generate_unit_bucket_capability_error_returns_400(
             ),
         )
 
-    monkeypatch.setattr(router_mod, "project_reference_unit_request", _reject)
+    use_reference_projection(monkeypatch, _reject)
 
     resp = reference_videos_client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
     assert resp.status_code == 400, resp.text
@@ -694,13 +693,11 @@ def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
     script["video_units"] = [{"unit_id": "E1U1", "text": "空镜头", "duration_seconds": 3}]
     script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
-    from server.routers import reference_videos as router_mod
-
     class _FakeQueue:
         async def enqueue_task(self, **kwargs):
             return {"task_id": "task-xyz", "deduped": False}
 
-    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: _FakeQueue())
+    use_generation_queue(monkeypatch, _FakeQueue())
 
     checked: list[str] = []
     base_project = _projection_with_durations([3, 6, 9])
@@ -710,7 +707,7 @@ def test_generate_unit_degenerate_precheck_uses_i2v_bucket(
         checked.append(projection.hydrated_generation_type)
         return projection
 
-    monkeypatch.setattr(router_mod, "project_reference_unit_request", _record)
+    use_reference_projection(monkeypatch, _record)
 
     resp = reference_videos_client.post("/api/v1/projects/demo/reference-videos/episodes/1/units/E1U1/generate")
     assert resp.status_code == 202, resp.text
@@ -727,11 +724,7 @@ def test_generate_unit_rejects_text_only_request_for_image_only_model(
 
     from server.routers import reference_videos as router_mod
 
-    monkeypatch.setattr(
-        router_mod,
-        "project_reference_unit_request",
-        fake_reference_request_projector(durations=(3, 6, 9), text_to_video=False),
-    )
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(3, 6, 9), text_to_video=False))
     enqueue = AsyncMock()
 
     class _FakeQueue:
@@ -770,9 +763,8 @@ def _projection_with_durations(durations: list[int]):
 
 
 def _patch_supported_durations(monkeypatch: pytest.MonkeyPatch, durations: list[int]) -> None:
-    from server.routers import reference_videos as router_mod
 
-    monkeypatch.setattr(router_mod, "project_reference_unit_request", _projection_with_durations(durations))
+    use_reference_projection(monkeypatch, _projection_with_durations(durations))
 
 
 def _precheck(reference_videos_client: TestClient, unit_id: str):
@@ -1210,8 +1202,8 @@ def _patch_batch_admission(
             request_duration_seconds=facts.duration_seconds,
         )
 
-    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _projection_with_durations(durations))
-    monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _no_active)
+    use_reference_projection(monkeypatch, _projection_with_durations(durations))
+    use_active_tasks_lookup(monkeypatch, _no_active)
     monkeypatch.setattr(admission_mod, "quote_video_request", _quote)
 
     enqueued: list[dict[str, object]] = []
@@ -1916,13 +1908,8 @@ def test_generate_batch_reports_a_falsy_video_units_container(
 def test_prompt_preview_renders_draft_with_projected_references_without_saving(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    from server.routers import reference_videos as router_mod
 
-    monkeypatch.setattr(
-        router_mod,
-        "project_reference_unit_request",
-        fake_reference_request_projector(durations=(3, 6, 9), max_reference_images=1),
-    )
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(3, 6, 9), max_reference_images=1))
     uid = _seed_unit(reference_videos_client)
     url = f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}"
     draft = "@[酒馆] 门口，@[张三] 推开门。"
@@ -1949,16 +1936,11 @@ def test_prompt_preview_renders_draft_with_projected_references_without_saving(
 def test_prompt_preview_fails_closed_when_capabilities_cannot_resolve(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
-    from server.routers import reference_videos as router_mod
 
     async def _unavailable_request_facts(generation_type):
         raise RuntimeError("provider configuration unavailable")
 
-    monkeypatch.setattr(
-        router_mod,
-        "project_reference_unit_request",
-        fake_reference_request_projector(request_facts=_unavailable_request_facts),
-    )
+    use_reference_projection(monkeypatch, fake_reference_request_projector(request_facts=_unavailable_request_facts))
     uid = _seed_unit(reference_videos_client)
     response = reference_videos_client.post(
         f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/prompt-preview",
@@ -2006,9 +1988,8 @@ def test_prompt_preview_binds_only_available_audio_from_projected_voice_capabili
 ):
     from server.routers import reference_videos as router_mod
 
-    monkeypatch.setattr(
-        router_mod,
-        "project_reference_unit_request",
+    use_reference_projection(
+        monkeypatch,
         fake_reference_request_projector(
             request_facts=fake_reference_request_facts(
                 durations=(3,),

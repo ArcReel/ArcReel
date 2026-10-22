@@ -183,7 +183,7 @@ class TestPromptBuildersScript:
         # 合法资产名仍在，非字符串项被丢弃
         assert "林清" in rendered
         assert "123" not in rendered
-        # 所有动态文本经 _neutralize_tags 全角化：渲染结果不残留 ASCII 尖括号，标签序列被中和
+        # 所有动态文本经 neutralize_tags 全角化：渲染结果不残留 ASCII 尖括号，标签序列被中和
         assert "<" not in rendered
         assert ">" not in rendered
         assert "＜shots＞" in rendered

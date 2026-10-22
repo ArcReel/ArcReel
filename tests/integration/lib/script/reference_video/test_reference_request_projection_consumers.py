@@ -15,7 +15,13 @@ from server.auth import CurrentUserInfo
 from server.routers import reference_videos
 from server.services.admission.cost_estimation import CostEstimationService, VideoRequestQuote
 from tests.factories import activate_reference_project, make_display_names
-from tests.fakes import fake_reference_request_facts, fake_reference_request_projector
+from tests.fakes import (
+    fake_reference_request_facts,
+    fake_reference_request_projector,
+    use_active_tasks_lookup,
+    use_project_manager,
+    use_reference_projection,
+)
 from tests.integration.server.agent_tool_support import ToolHarness
 
 
@@ -29,9 +35,7 @@ def _stub_batch_admission_queue(monkeypatch) -> None:
     async def _no_active_tasks(**_kwargs):
         return []
 
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.get_active_tasks_for_resources", _no_active_tasks
-    )
+    use_active_tasks_lookup(monkeypatch, _no_active_tasks)
 
 
 async def test_reference_projection_contract_stays_aligned_across_public_consumers(
@@ -104,14 +108,10 @@ async def test_reference_projection_contract_stays_aligned_across_public_consume
         "server.services.admission.cost_estimation.configured_reference_request_facts",
         lambda _project, _resolver: request_facts,
     )
-    monkeypatch.setattr(reference_videos, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(reference_videos, "project_reference_unit_request", project_current)
-    monkeypatch.setattr(
-        "server.services.admission.video_batch_admission.project_reference_unit_request", project_current
-    )
+    use_project_manager(monkeypatch, pm)
+    use_reference_projection(monkeypatch, project_current)
     _stub_batch_admission_queue(monkeypatch)
     monkeypatch.setattr("server.services.admission.video_batch_admission.quote_video_request", quote_current)
-    monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: pm)
     monkeypatch.setattr(
         "lib.script.reference_video.request_projection.project_reference_unit_request",
         project_current,

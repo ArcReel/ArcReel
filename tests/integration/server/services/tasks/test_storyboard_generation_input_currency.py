@@ -13,6 +13,7 @@ from lib.infra.api_errors import BadRequestError
 from lib.project.project_manager import ProjectManager
 from server.services.tasks import generation_tasks
 from tests.factories import make_display_names
+from tests.fakes import use_generation_context, use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     ad_pm,
@@ -44,9 +45,8 @@ def _project_with_derivative_product_and_previous(project_path):
 
 
 def _patch(monkeypatch, pm, generator):
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
-    monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *_a, **_kw: None)
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
 
 
 async def test_generated_storyboard_with_derivative_product_and_previous_is_current(tmp_path, monkeypatch):
@@ -75,9 +75,7 @@ async def test_clamping_only_trims_what_is_sent(tmp_path, monkeypatch):
     pm = ProjectManager(tmp_path)
     generator = FakeGenerator(project_path)
     _patch(monkeypatch, pm, generator)
-    monkeypatch.setattr(
-        generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator, image_max_reference_images=2)
-    )
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator, image_max_reference_images=2))
 
     result = await generation_tasks.execute_storyboard_task(
         "demo", ITEM_ID, {"script_file": "episode_1.json", "prompt": "queued prompt"}
@@ -103,9 +101,7 @@ async def test_every_gap_is_reported_before_the_provider_is_resolved(tmp_path, m
     lane_requests: list[dict] = []
     generator = FakeGenerator(project_path)
     _patch(monkeypatch, pm, generator)
-    monkeypatch.setattr(
-        generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator, seen_lane_requests=lane_requests)
-    )
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator, seen_lane_requests=lane_requests))
 
     with pytest.raises(BadRequestError) as refused:
         await generation_tasks.execute_storyboard_task(

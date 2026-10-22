@@ -36,7 +36,7 @@ from server.services.tasks import generation_context
 from server.services.tasks.generation_tasks import execute_generation_task
 from server.services.tasks.resume_executor import execute_resume_video_task
 from tests.factories import custom_endpoint_definition
-from tests.fakes import bind_safe_session_factory
+from tests.fakes import bind_safe_session_factory, bind_session_factory, use_video_thumbnail_extractor
 from tests.http_capture import capture_http
 
 
@@ -70,7 +70,7 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
       ProjectManager——resolver 等在模块顶部绑定了该名字，只 patch 定义处不生效。
     - 缩略图抽取走 ffmpeg 子进程，替换为 no-op 保持测试封闭。
     """
-    monkeypatch.setattr("lib.db.async_session_factory", session_factory)
+    bind_session_factory(monkeypatch, session_factory)
     bind_safe_session_factory(monkeypatch, session_factory)
     monkeypatch.setattr("lib.db.engine.async_session_factory", session_factory)
     monkeypatch.setenv("ARCREEL_DATA_DIR", str(tmp_path / "appdata"))
@@ -107,8 +107,7 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
     async def _no_thumbnail(*_args: Any, **_kwargs: Any) -> bool:
         return False
 
-    monkeypatch.setattr("server.services.tasks.generation_tasks.extract_video_thumbnail", _no_thumbnail)
-    monkeypatch.setattr("server.services.tasks.reference_video_tasks.extract_video_thumbnail", _no_thumbnail)
+    use_video_thumbnail_extractor(monkeypatch, _no_thumbnail)
     return project_dir
 
 

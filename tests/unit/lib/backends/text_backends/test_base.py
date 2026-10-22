@@ -19,7 +19,7 @@ from lib.backends.text_backends.base import (
     resolve_schema,
 )
 from tests.unit.lib.backends.text_backends.response_schema_support import (
-    class_docstring_texts,
+    _class_docstring_texts,
     response_schema_models,
     response_schema_params,
 )
@@ -230,7 +230,7 @@ class TestResolveSchema:
     def test_response_schema_models_carry_docstrings_and_field_descriptions_by_default(self):
         """前提自检：默认 schema 确实带类 docstring 说明与字段说明，否则下面的参数化断言形同虚设。"""
         models = response_schema_models()
-        assert any(class_docstring_texts(model) for model in models)
+        assert any(_class_docstring_texts(model) for model in models)
         assert any(_field_descriptions(model.model_json_schema()) for model in models)
 
     @pytest.mark.parametrize("model", response_schema_params())
@@ -243,7 +243,7 @@ class TestResolveSchema:
 
         # 顶层与内联后的嵌套模型都不带类 docstring 说明
         assert "description" not in resolved
-        assert class_docstring_texts(model).isdisjoint(descriptions)
+        assert _class_docstring_texts(model).isdisjoint(descriptions)
         assert field_descriptions <= set(descriptions)
 
 
