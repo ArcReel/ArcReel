@@ -69,7 +69,7 @@ beforeEach(() => {
 });
 
 describe("AgentMemorySection", () => {
-  it("索引置顶并显示行数，主题文件按修改时间倒序并带说明；默认打开第一项", async () => {
+  it("索引置顶并显示行数，记忆文件按修改时间倒序并带说明；默认打开第一项", async () => {
     vi.spyOn(API, "getAgentMemory").mockResolvedValue(overview());
     renderSection();
 
@@ -95,7 +95,7 @@ describe("AgentMemorySection", () => {
     expect(within(await fileList()).getByText("索引 240/200 行，超出上限")).toBeInTheDocument();
   });
 
-  it("主题文件的页头显示类型与修改时间", async () => {
+  it("记忆文件的页头显示类型与修改时间", async () => {
     vi.spyOn(API, "getAgentMemory").mockResolvedValue(overview());
     renderSection("section=agent-memory&file=feedback-no-plot-changes.md");
 
