@@ -28,6 +28,7 @@
 - [openai-responses](openai-responses.md)
 - [openai-tts](openai-tts.md)
 - [openai-video](openai-video.md)
+- [openrouter-images](openrouter-images.md)
 - [openrouter-video](openrouter-video.md)
 - [v2-video-generations](v2-video-generations.md)
 - [vidu-video](vidu-video.md)
