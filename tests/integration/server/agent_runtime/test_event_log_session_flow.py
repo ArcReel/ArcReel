@@ -1917,7 +1917,9 @@ class TestSendQueuedMessageNow:
             client.push_frame(command_lifecycle_frame(dropped_uuid, "cancelled", session_id=SDK_ID))
             client.push_frame(command_lifecycle_frame(now_uuid, "started", session_id=SDK_ID))
 
-            entries = await _wait_for_entries(service.event_log_store, SDK_ID, 4)
+            # 接纳先落库、广播条目，最后才移出托盘：等移出广播，而不是轮询中途就可见的日志条目
+            assert (await stream.next("queue_remove")) == {"session_id": SDK_ID, "id": urgent["id"]}
+            entries = await service.event_log_store.list_after(SDK_ID)
             assert [(entry["type"], entry.get("subtype")) for entry in entries] == [
                 ("user", None),
                 ("assistant", None),
