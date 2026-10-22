@@ -33,6 +33,7 @@ import type { CustomProviderInfo } from "@/types/custom-provider";
 import {
   anthropicMessagesUrl,
   hasUnsupportedUrlComponents,
+  isDirectOpenAIAgentBaseUrl,
   normalizeAnthropicBaseUrl,
 } from "@/utils/anthropic-url";
 import { errMsg } from "@/utils/async";
@@ -43,6 +44,7 @@ import { TestResultPanel } from "./TestResultPanel";
 
 // Anthropic 官方预设：留空的路由档位交给 Claude Code 决定，不填成默认模型（与后端 lib/agent/credential_tiers.py 一致）。
 const ANTHROPIC_OFFICIAL_PRESET_ID = "anthropic-official";
+const OPENAI_DIRECT_PRESET_ID = "openai-official";
 
 interface Props {
   open: boolean;
@@ -146,9 +148,13 @@ export function AddCredentialModal({
   // 用户不必知道模型 ID 也能选中一个可用值。
   const availableModels = modelOptions.length > 0 ? modelOptions : (selected?.suggested_models ?? []);
 
-  // 预览即 Agent 运行时固定调用的地址：base_url 原样存储，CLI 内置 SDK 只在其后拼 /v1/messages
-  const baseUrlRejected = hasUnsupportedUrlComponents(form.baseUrl);
-  const messagesUrlPreview = form.baseUrl.trim() ? anthropicMessagesUrl(form.baseUrl) : "";
+  const directOpenAI = form.presetId === OPENAI_DIRECT_PRESET_ID;
+  const directOpenAIUrl = isDirectOpenAIAgentBaseUrl(form.baseUrl);
+  const baseUrlRejected = hasUnsupportedUrlComponents(form.baseUrl) || (directOpenAI && !directOpenAIUrl);
+  const baseUrlErrorKey = directOpenAI ? "agent_openai_base_url_required" : "base_url_unsupported_components";
+  const messagesUrlPreview = directOpenAIUrl
+    ? "https://api.openai.com/v1/responses"
+    : form.baseUrl.trim() ? anthropicMessagesUrl(form.baseUrl) : "";
 
   // 草稿任意可影响连通性的字段（preset / base_url / api_key / model）变化后，
   // 旧 testResult 已经不对应当前草稿了，必须失效，避免用户把未重新验证的配置
@@ -173,7 +179,7 @@ export function AddCredentialModal({
 
   const handleDiscover = async () => {
     if (baseUrlRejected) {
-      setDiscoverError(t("base_url_unsupported_components"));
+      setDiscoverError(t(baseUrlErrorKey));
       return;
     }
     const session = sessionRef.current;
@@ -245,7 +251,7 @@ export function AddCredentialModal({
 
   const handleTest = async () => {
     if (baseUrlRejected) {
-      setSubmitError(t("base_url_unsupported_components"));
+      setSubmitError(t(baseUrlErrorKey));
       return;
     }
     const session = sessionRef.current;
@@ -274,7 +280,7 @@ export function AddCredentialModal({
 
   const handleSubmit = async () => {
     if (baseUrlRejected) {
-      setSubmitError(t("base_url_unsupported_components"));
+      setSubmitError(t(baseUrlErrorKey));
       return;
     }
     setSubmitting(true);
@@ -392,6 +398,7 @@ export function AddCredentialModal({
                 autoComplete="off"
                 spellCheck={false}
                 value={form.baseUrl}
+                readOnly={directOpenAI}
                 onChange={(e) => {
                   form.setBaseUrl(e.target.value);
                   invalidateDiscoveredModels();
@@ -403,7 +410,7 @@ export function AddCredentialModal({
               />
               <p id="cred-url-preview" className="text-xs">
                 {baseUrlRejected ? (
-                  <span className="text-warn">{t("base_url_unsupported_components")}</span>
+                  <span className="text-warn">{t(baseUrlErrorKey)}</span>
                 ) : messagesUrlPreview ? (
                   <span className="text-muted-foreground">
                     {t("messages_url_preview_hint")}{" "}

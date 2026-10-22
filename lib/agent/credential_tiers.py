@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from arcreel_catalog_core import normalize_model_name
+from lib.agent.agent_provider_catalog import OPENAI_DIRECT_PRESET_ID, PRESET_PROVIDERS
 from lib.catalog import query as catalog
+from lib.config.url_utils import is_direct_openai_agent_base_url
 
 if TYPE_CHECKING:
     from lib.db.models.agent_credential import AgentAnthropicCredential
@@ -47,8 +49,13 @@ def tier_models(credential: AgentAnthropicCredential, settings: Mapping[str, str
     """各档位实际调用的模型名；空串表示交给 CLI 决定。
 
     凭证上留空的档位先取系统设置里的旧值。凭证不是 Anthropic 官方预设时，仍为空的四个路由档位填成主模型名，
-    避免 CLI 退回默认的 Claude 模型名。
+    避免 CLI 退回默认的 Claude 模型名。OpenAI 直连不读取旧的 Anthropic 设置，留空档位只继承主模型。
     """
+    if credential.preset_id == OPENAI_DIRECT_PRESET_ID or is_direct_openai_agent_base_url(credential.base_url):
+        main_model = (credential.model or "").strip() or PRESET_PROVIDERS[OPENAI_DIRECT_PRESET_ID].default_model
+        return {
+            tier: (getattr(credential, field) or "").strip() or main_model for tier, field in _CREDENTIAL_FIELDS.items()
+        }
     names: dict[Tier, str] = {
         tier: (getattr(credential, field) or settings.get(TIER_SETTING_KEYS[tier], "").strip())
         for tier, field in _CREDENTIAL_FIELDS.items()

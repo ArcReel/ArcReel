@@ -49,6 +49,7 @@ from server.agent_runtime.models import (
     SubscriptionReady,
     WithdrawalIntent,
 )
+from server.agent_runtime.openai_transport import agent_client_session
 from server.agent_runtime.options_assembler import OptionsAssembler, agent_pricing_of
 from server.agent_runtime.result_status import resolve_result_status
 from server.agent_runtime.sdk_frames import CommandLifecycle
@@ -897,7 +898,7 @@ class SessionManager:
                 sdk_stderr=sdk_stderr,
             ) from exc
         actor = SessionActor(
-            client_factory=lambda: ClaudeSDKClient(options=options),
+            client_factory=lambda: agent_client_session(options, client_factory=ClaudeSDKClient),
             on_message=self._make_actor_message_callback(managed_ref),
             on_command_lifecycle=self._make_command_lifecycle_callback(managed_ref),
         )
@@ -1294,7 +1295,7 @@ class SessionManager:
                 sdk_stderr=sdk_stderr,
             ) from exc
         actor = SessionActor(
-            client_factory=lambda: ClaudeSDKClient(options=options),
+            client_factory=lambda: agent_client_session(options, client_factory=ClaudeSDKClient),
             on_message=self._make_actor_message_callback(managed_ref),
             on_command_lifecycle=self._make_command_lifecycle_callback(managed_ref),
         )

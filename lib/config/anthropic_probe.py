@@ -1,7 +1,7 @@
-"""Anthropic 兼容端点的连通性体检 + 诊断分类。
+"""Agent 供应商的连通性体检 + 诊断分类。
 
 只探测 Agent 真正调用的 ``POST {base_url}/v1/messages``：测试连接的结论必须与运行时
-一致，模型发现是独立的尽力而为路径，不参与体检。
+一致；OpenAI 官方地址使用 ``/v1/responses``。模型发现是独立的尽力而为路径，不参与体检。
 
 走 httpx 直调（不走 Claude SDK 子进程）：
 - SDK 路径冷启动 6s+ / timeout 30s / stderr 不含 HTTP status，诊断精度差
@@ -21,11 +21,19 @@ from typing import Any, Literal
 
 import httpx
 
-from lib.agent.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset
+from lib.agent.agent_provider_catalog import (
+    CUSTOM_SENTINEL_ID,
+    OPENAI_DIRECT_PRESET_ID,
+    PRESET_PROVIDERS,
+    get_preset,
+)
 from lib.config.url_utils import (
     ANTHROPIC_MESSAGES_PATH,
+    OFFICIAL_OPENAI_BASE_URL,
     anthropic_endpoint_url,
+    is_direct_openai_agent_base_url,
     validate_anthropic_base_url,
+    validate_direct_openai_agent_base_url,
 )
 from lib.infra.httpx_shared import get_http_client
 
@@ -84,7 +92,7 @@ async def _post(
 ) -> httpx.Response:
     """POST 出站间接层；``http_client`` 缺省时用共享客户端。"""
     client = http_client or get_http_client()
-    return await client.post(url, headers=headers, json=payload, timeout=timeout_s)
+    return await client.post(url, headers=headers, json=payload, timeout=timeout_s, follow_redirects=False)
 
 
 def _truncate(s: str | None) -> str | None:
@@ -101,7 +109,7 @@ async def probe_messages(
     timeout_s: float = _MESSAGES_PROBE_TIMEOUT_S,
     http_client: httpx.AsyncClient | None = None,
 ) -> ProbeResult:
-    """POST {base_url}/v1/messages 发最小请求 (max_tokens=1)。
+    """Probe Messages, or Responses with an output budget that includes reasoning.
 
     判定:
     - 2xx 且响应 JSON 含 type=message → success
@@ -109,13 +117,23 @@ async def probe_messages(
     - 非 2xx → 失败 (上游错误 body 截 200 字符放入 error 字段)
     - 网络异常/超时 → 失败 (status_code=None)
     """
-    url = anthropic_endpoint_url(base_url, ANTHROPIC_MESSAGES_PATH)
+    direct_openai = is_direct_openai_agent_base_url(base_url)
+    url = (
+        f"{OFFICIAL_OPENAI_BASE_URL}/responses"
+        if direct_openai
+        else anthropic_endpoint_url(base_url, ANTHROPIC_MESSAGES_PATH)
+    )
     payload = {
         "model": model,
         "max_tokens": 1,
         "messages": [{"role": "user", "content": "ping"}],
     }
     headers = {**anthropic_auth_headers(api_key), "content-type": "application/json"}
+    if direct_openai:
+        payload = {"model": model, "max_output_tokens": 1024, "input": "Reply OK.", "store": False}
+        if model == "gpt-6.1-sol":
+            payload["reasoning"] = {"effort": "low"}
+        headers = {"Authorization": f"Bearer {api_key}", "content-type": "application/json"}
     started = time.perf_counter()
     try:
         resp = await _post(url=url, headers=headers, payload=payload, timeout_s=timeout_s, http_client=http_client)
@@ -131,7 +149,7 @@ async def probe_messages(
     elapsed = int((time.perf_counter() - started) * 1000)
     logger.info("probe_messages url=%s status=%d elapsed_ms=%d", url, resp.status_code, elapsed)
 
-    if resp.status_code >= 400:
+    if resp.status_code >= 300:
         return ProbeResult(
             success=False,
             status_code=resp.status_code,
@@ -139,7 +157,7 @@ async def probe_messages(
             error=_truncate(resp.text),
         )
 
-    # 2xx：检查是否真的是 anthropic JSON（识别 OpenAI 兼容代理冒充）
+    # A successful HTTP request must also match the selected provider's protocol.
     try:
         data = resp.json()
     except ValueError:
@@ -147,7 +165,36 @@ async def probe_messages(
             success=False,
             status_code=resp.status_code,
             latency_ms=elapsed,
-            error="non-anthropic response: not JSON",
+            error="non-openai response: not JSON" if direct_openai else "non-anthropic response: not JSON",
+        )
+    if direct_openai:
+        valid_response = (
+            isinstance(data, dict)
+            and data.get("object") == "response"
+            and data.get("status") == "completed"
+            and not data.get("error")
+            and isinstance(data.get("output"), list)
+            and any(
+                isinstance(item, dict)
+                and item.get("type") == "message"
+                and isinstance(item.get("content"), list)
+                and any(
+                    isinstance(part, dict)
+                    and part.get("type") == "output_text"
+                    and isinstance(part.get("text"), str)
+                    and bool(part["text"].strip())
+                    for part in item["content"]
+                )
+                for item in data["output"]
+            )
+        )
+        return ProbeResult(
+            success=valid_response,
+            status_code=resp.status_code,
+            latency_ms=elapsed,
+            error=None
+            if valid_response
+            else "non-openai response: no completed text response; retry the connection test",
         )
     if not isinstance(data, dict) or data.get("type") != "message":
         return ProbeResult(
@@ -179,6 +226,8 @@ def classify_probe_failure(result: ProbeResult) -> DiagnosisCode:
             return DiagnosisCode.MODEL_REQUIRED
         return DiagnosisCode.MODEL_NOT_FOUND
     if code is not None and 200 <= code < 300:
+        if err.startswith("non-openai response:"):
+            return DiagnosisCode.UNKNOWN
         # 2xx 但 probe 判失败 = 协议不匹配（OpenAI 兼容响应冒充 anthropic）
         return DiagnosisCode.OPENAI_COMPAT_ONLY
     if code is None:
@@ -226,7 +275,10 @@ async def run_test(
         if preset is None:
             raise ValueError(f"unknown preset: {preset_id!r}")
         # 覆盖了 preset.messages_url（如内部代理）时与自定义模式同路径；未覆盖时用目录值
-        effective_base = validate_anthropic_base_url(base_url) if base_url else preset.messages_url
+        if preset_id == OPENAI_DIRECT_PRESET_ID:
+            effective_base = validate_direct_openai_agent_base_url(base_url or preset.messages_url)
+        else:
+            effective_base = validate_anthropic_base_url(base_url) if base_url else preset.messages_url
         effective_model = model or preset.default_model
     else:
         if not base_url:
@@ -234,7 +286,15 @@ async def run_test(
         effective_base = validate_anthropic_base_url(base_url)
         effective_model = model or _DEFAULT_TEST_MODEL
 
-    messages_url = anthropic_endpoint_url(effective_base, ANTHROPIC_MESSAGES_PATH)
+    direct_openai = is_direct_openai_agent_base_url(effective_base)
+    if direct_openai:
+        effective_model = (model or "").strip() or PRESET_PROVIDERS[OPENAI_DIRECT_PRESET_ID].default_model
+
+    messages_url = (
+        f"{OFFICIAL_OPENAI_BASE_URL}/responses"
+        if direct_openai
+        else anthropic_endpoint_url(effective_base, ANTHROPIC_MESSAGES_PATH)
+    )
 
     # 预设模型为空：messages 请求必然被上游以「缺 model」拒掉，直接短路，
     # 让用户看到「请先填默认模型」而不是一条泛化的上游报错。

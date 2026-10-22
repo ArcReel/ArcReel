@@ -21,6 +21,119 @@ from tests.http_capture import capture_http, only_request, request_json
 _ANTHROPIC_OK = {"id": "msg_1", "type": "message", "content": [{"type": "text", "text": "ok"}]}
 
 
+@pytest.mark.parametrize(
+    ("preset_id", "base_url"),
+    [
+        ("openai-official", None),
+        ("openai-official", "https://api.openai.com"),
+        ("openai-official", "https://api.openai.com/v1/"),
+        (CUSTOM_SENTINEL_ID, "https://api.openai.com"),
+        (CUSTOM_SENTINEL_ID, "https://api.openai.com/v1/"),
+        (None, "https://api.openai.com/v1"),
+    ],
+)
+@pytest.mark.parametrize("model", [None, "", "   "])
+async def test_direct_openai_probe_uses_responses_and_bearer(
+    preset_id: str | None, base_url: str | None, model: str | None, probe_client: httpx.AsyncClient
+) -> None:
+    with capture_http() as router:
+        route = router.post("https://api.openai.com/v1/responses").respond(
+            json={
+                "id": "resp_test",
+                "object": "response",
+                "status": "completed",
+                "output": [
+                    {"type": "message", "content": [{"type": "output_text", "text": "OK"}]},
+                ],
+            }
+        )
+        result = await run_test(
+            preset_id=preset_id,
+            base_url=base_url,
+            api_key="fake-openai-key",
+            model=model,
+            http_client=probe_client,
+        )
+
+    request = only_request(route)
+    assert result.overall == "ok"
+    assert result.messages_url == "https://api.openai.com/v1/responses"
+    assert request.headers["authorization"] == "Bearer fake-openai-key"
+    assert "x-api-key" not in request.headers
+    assert "anthropic-version" not in request.headers
+    assert request_json(request) == {
+        "model": "gpt-6.1-sol",
+        "max_output_tokens": 1024,
+        "input": "Reply OK.",
+        "store": False,
+        "reasoning": {"effort": "low"},
+    }
+
+
+@pytest.mark.parametrize(
+    "base_url", ["https://relay.example.test", "http://api.openai.com", "https://api.openai.com/v1/messages"]
+)
+async def test_direct_openai_probe_rejects_url_override(base_url: str, probe_client: httpx.AsyncClient) -> None:
+    with capture_http(), pytest.raises(InvalidAnthropicBaseUrlError):
+        await run_test(
+            preset_id="openai-official",
+            base_url=base_url,
+            api_key="fake-openai-key",
+            model=None,
+            http_client=probe_client,
+        )
+
+
+async def test_direct_openai_probe_does_not_follow_redirects() -> None:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        with capture_http() as router:
+            router.post("https://api.openai.com/v1/responses").respond(
+                status_code=307,
+                headers={"location": "https://relay.example.test/v1/responses"},
+            )
+            result = await run_test(
+                preset_id="openai-official",
+                base_url=None,
+                api_key="fake-openai-key",
+                model=None,
+                http_client=client,
+            )
+            assert len(router.calls) == 1
+    assert result.overall == "fail"
+    assert result.messages_probe.status_code == 307
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"object": "chat.completion"},
+        {"object": "response", "status": "failed", "error": {"message": "failed"}},
+        {"object": "response", "status": "queued"},
+        {"object": "response", "status": "completed", "output": []},
+        {"object": "response", "status": "completed", "output": [{"type": "reasoning"}]},
+        {
+            "object": "response",
+            "status": "incomplete",
+            "output": [
+                {"type": "message", "content": [{"type": "output_text", "text": "OK"}]},
+            ],
+        },
+    ],
+)
+async def test_direct_openai_probe_rejects_invalid_results(payload: dict, probe_client: httpx.AsyncClient) -> None:
+    with capture_http() as router:
+        router.post("https://api.openai.com/v1/responses").respond(json=payload)
+        result = await run_test(
+            preset_id="openai-official",
+            base_url=None,
+            api_key="fake-openai-key",
+            model=None,
+            http_client=probe_client,
+        )
+    assert result.overall == "fail"
+    assert result.diagnosis == DiagnosisCode.UNKNOWN
+
+
 @pytest.fixture
 async def probe_client() -> AsyncIterator[httpx.AsyncClient]:
     """真实 httpx 客户端；出站流量由 respx 在 transport 层接管。

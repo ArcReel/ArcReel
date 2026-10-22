@@ -9,6 +9,20 @@ from lib.backends.artifact_download_guard import ArtifactDestinationRejectedErro
 from tests.http_capture import capture_http
 
 
+@pytest.mark.parametrize("base_url", ["https://api.openai.com", "https://api.openai.com/v1/"])
+async def test_direct_openai_discovery_uses_official_models_with_bearer(base_url: str) -> None:
+    from lib.custom_provider.discovery import discover_models
+
+    with capture_http() as router:
+        route = router.get("https://api.openai.com/v1/models").respond(json={"data": [{"id": "gpt-6.1-sol"}]})
+        models = await discover_models(discovery_format="anthropic", base_url=base_url, api_key="fake-openai-key")
+
+    assert [model["model_id"] for model in models] == ["gpt-6.1-sol"]
+    assert route.call_count == 1
+    assert route.calls[0].request.headers["authorization"] == "Bearer fake-openai-key"
+    assert "x-api-key" not in route.calls[0].request.headers
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("base_url", "expected"),

@@ -13,6 +13,18 @@ import httpx
 # 勿散落字面量。
 OFFICIAL_OPENAI_HOSTNAME = "api.openai.com"
 OFFICIAL_OPENAI_BASE_URL = f"https://{OFFICIAL_OPENAI_HOSTNAME}/v1"
+OFFICIAL_OPENAI_AGENT_BASE_URL = f"https://{OFFICIAL_OPENAI_HOSTNAME}"
+
+
+def is_direct_openai_agent_base_url(base_url: str | None) -> bool:
+    """Only canonical HTTPS roots select the direct OpenAI director transport."""
+    return (base_url or "").strip() in (
+        OFFICIAL_OPENAI_AGENT_BASE_URL,
+        OFFICIAL_OPENAI_AGENT_BASE_URL + "/",
+        OFFICIAL_OPENAI_BASE_URL,
+        OFFICIAL_OPENAI_BASE_URL + "/",
+    )
+
 
 # Claude CLI 内置 SDK 固定在 base_url 后拼这一段；探测、预览、运行时共用同一个常量。
 # 也是用户从供应商文档复制整条 Messages 端点时的唯一后缀形态，只有它能被无歧义地剥掉。
@@ -97,6 +109,13 @@ def ensure_google_base_url(url: str | None) -> str | None:
 
 class InvalidAnthropicBaseUrlError(ValueError):
     """Agent 凭证 base_url 含不支持的成分（query / fragment / userinfo）或不是绝对 http(s) 地址。"""
+
+
+def validate_direct_openai_agent_base_url(raw: str) -> str:
+    """Reject overrides before normalization can discard an unsupported suffix."""
+    if not is_direct_openai_agent_base_url(raw):
+        raise InvalidAnthropicBaseUrlError("OpenAI Direct requires https://api.openai.com or https://api.openai.com/v1")
+    return OFFICIAL_OPENAI_AGENT_BASE_URL
 
 
 def normalize_anthropic_base_url(raw: str) -> str:

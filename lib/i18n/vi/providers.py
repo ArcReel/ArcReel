@@ -29,6 +29,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_kling": "Nền tảng tạo video và ảnh Kling của Kuaishou. Xác thực bằng API Key áp dụng cho mọi model; Access Key + Secret Key (JWT) chỉ áp dụng cho model từ 3.0 trở về trước. Chọn một trong hai — nếu điền cả hai, API Key được ưu tiên.",
     "provider_desc_agnes": "Nền tảng đa phương thức Agnes (phong cách OpenAI), xác thực bằng Bearer API key; hiện hỗ trợ tạo ảnh, văn bản và video.",
     # Agent preset notes (lib/agent/agent_provider_catalog.py)
+    "preset_notes_openai_direct": "Dùng trực tiếp khóa API và số dư OpenAI của bạn, tách biệt với thanh toán của cổng ArcReel API. Claude SDK cục bộ quản lý công cụ và phiên; không cần tài khoản Anthropic.",
     "preset_notes_deepseek": "Endpoint Anthropic-compat chính thức của DeepSeek; cần API key sk-.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo chỉ chấp nhận tên model đã biết; không có danh sách model công khai.",
     "preset_notes_ark_coding_plan": "Gói Volcengine Ark Coding Plan; không có endpoint danh sách model — hãy chọn model gợi ý đã bật trong bảng điều khiển Ark.",

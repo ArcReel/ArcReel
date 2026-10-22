@@ -14,7 +14,12 @@ from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.catalog import query as catalog
 from lib.config.anthropic_probe import anthropic_auth_headers
-from lib.config.url_utils import anthropic_endpoint_url, validate_anthropic_base_url
+from lib.config.url_utils import (
+    OFFICIAL_OPENAI_BASE_URL,
+    anthropic_endpoint_url,
+    is_direct_openai_agent_base_url,
+    validate_anthropic_base_url,
+)
 from lib.custom_provider.endpoints import endpoint_to_media_type, infer_endpoint, infer_media_type
 from lib.custom_provider.model_facts import matched_entry_summary
 
@@ -110,10 +115,12 @@ async def _discover_anthropic(base_url: str | None, api_key: str) -> list[dict]:
         ArtifactDestinationRejectedError: 目标协议或解析出的地址不在允许范围内。
     """
     normalized = validate_anthropic_base_url(base_url or "https://api.anthropic.com")
-    url = anthropic_endpoint_url(normalized, "/v1/models")
+    direct_openai = is_direct_openai_agent_base_url(base_url)
+    url = f"{OFFICIAL_OPENAI_BASE_URL}/models" if direct_openai else anthropic_endpoint_url(normalized, "/v1/models")
+    headers = {"Authorization": f"Bearer {api_key}"} if direct_openai else anthropic_auth_headers(api_key)
     async with artifact_http_client(timeout=_DISCOVERY_TIMEOUT_SECONDS) as client:
-        resp = await client.get(url, headers=anthropic_auth_headers(api_key))
-        if resp.status_code == 401:
+        resp = await client.get(url, headers=headers, follow_redirects=False)
+        if resp.status_code == 401 and not direct_openai:
             # 部分网关（火山方舟）只认 Authorization: Bearer，对 x-api-key 一律 401
             resp = await client.get(url, headers=anthropic_auth_headers(api_key, bearer=True))
     raise_for_status_redacted(resp)
