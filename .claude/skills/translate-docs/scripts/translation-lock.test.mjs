@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -288,6 +288,25 @@ test("record with a source refreshes only that entry and keeps the others as rec
   assert.notEqual(after["website/docs/guide/a.md"], before["website/docs/guide/a.md"]);
   assert.equal(after["website/docs/guide/b.md"], before["website/docs/guide/b.md"]);
   assert.deepEqual(status(root), [{ source: "website/docs/guide/b.md", target: target("b"), state: "stale" }]);
+});
+
+test("record with a source drops entries whose source and target were both deleted", () => {
+  const root = mkdtempSync(join(tmpdir(), "arcreel-translation-lock-"));
+  const target = (page) => `website/i18n/en/docusaurus-plugin-content-docs/current/guide/${page}.md`;
+  write(root, "website/docs/guide/a.md", "# 甲\n");
+  write(root, "website/docs/guide/c.md", "# 丙\n");
+  write(root, target("a"), "# A\n");
+  write(root, target("c"), "# C\n");
+  record(root);
+  rmSync(join(root, "website/docs/guide/c.md"));
+  rmSync(join(root, target("c")));
+  write(root, "website/docs/guide/a.md", "# 甲 changed\n");
+
+  execFileSync(process.execPath, [scriptPath, "record", "website/docs/guide/a.md", "--root", root], { encoding: "utf8" });
+
+  const after = JSON.parse(readFileSync(join(root, "website/i18n/translation.lock.json"), "utf8"));
+  assert.deepEqual(Object.keys(after), ["website/docs/guide/a.md"]);
+  assert.deepEqual(status(root), []);
 });
 
 test("record with a source refuses a source that is not a documentation source", () => {

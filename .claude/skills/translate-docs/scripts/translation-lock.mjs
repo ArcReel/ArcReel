@@ -42,13 +42,13 @@ function ensureSyncedContributing(root) {
   const copy = resolve(root, fingerprintSource("CONTRIBUTING.md"));
   const translated = existsSync(resolve(root, targetForSource("CONTRIBUTING.md")));
   if (existsSync(copy) || !translated || !existsSync(resolve(root, "CONTRIBUTING.md"))) return;
-  const syncScript = resolve(root, "website/scripts/sync-contributing.mjs");
-  const result = existsSync(syncScript)
-    ? spawnSync(process.execPath, [syncScript], { cwd: root, encoding: "utf8" })
-    : null;
-  if (!result || result.status !== 0) {
+  const result = spawnSync(process.execPath, [resolve(root, "website/scripts/sync-contributing.mjs")], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
     throw new Error(
-      `Missing synced copy ${fingerprintSource("CONTRIBUTING.md")}; generate it with \`pnpm sync-contributing\` in website/.\n${result?.stderr ?? ""}`,
+      `Missing synced copy ${fingerprintSource("CONTRIBUTING.md")}; generate it with \`pnpm sync-contributing\` in website/.\n${result.stderr ?? ""}`,
     );
   }
 }
@@ -161,8 +161,10 @@ function translationStatus(root) {
   );
 }
 
-// With `sources`, only those lock entries are refreshed and every other entry stays as recorded,
-// so a single-page PR can update the lock without vouching for pages it did not translate.
+// With `sources`, only those lock entries are refreshed and every other current entry stays as
+// recorded, so a single-page PR can update the lock without vouching for pages it did not translate.
+// Entries whose source is gone are dropped either way: the orphan check above has already refused
+// any whose target still exists, so a page-deletion PR need not fall back to a full record.
 function recordTranslations(root, sources = []) {
   ensureSyncedContributing(root);
   const allMappings = sourceTargets(root);
@@ -201,7 +203,9 @@ function recordTranslations(root, sources = []) {
     sources.length === 0
       ? recorded
       : Object.fromEntries(
-          Object.entries({ ...readLock(root), ...recorded }).sort(([left], [right]) => left.localeCompare(right)),
+          Object.entries({ ...readLock(root), ...recorded })
+            .filter(([source]) => currentSources.has(source))
+            .sort(([left], [right]) => left.localeCompare(right)),
         );
   const lockPath = resolve(root, LOCK_PATH);
   const temporaryPath = `${lockPath}.${process.pid}.tmp`;

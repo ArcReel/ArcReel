@@ -96,6 +96,6 @@ pnpm typecheck
 pnpm build
 ```
 
-A PR that translated only some pages records just those: `node .claude/skills/translate-docs/scripts/translation-lock.mjs record <source>...` (sources as printed by `status`) refreshes only the named entries and leaves every other entry as recorded, so pages still stale keep showing up in `status`.
+A PR that translated only some pages records just those: `node .claude/skills/translate-docs/scripts/translation-lock.mjs record <source>...` (sources as printed by `status`) refreshes only the named entries and leaves every other entry as recorded, so pages still stale keep showing up in `status`; entries whose source was deleted are dropped as in a full `record`.
 
 `record` refuses to update the lockfile while a target is missing, while a target's untranslated frontmatter differs from its source, and while any Markdown file under `website/i18n/*/docusaurus-plugin-content-docs/current/` has no source mapping to it. Completion requires `status` to print `Translations are up to date.`, typecheck to pass, and the build to emit both `build/` and `build/en/` without broken links or anchors.
