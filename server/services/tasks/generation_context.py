@@ -102,6 +102,16 @@ def invalidate_backend_cache() -> None:
     _backend_cache.invalidate()
 
 
+def reset_backend_cache_for_tests() -> None:
+    """测试隔离用：清空 backend 实例缓存与 per-key 锁，不改变生产行为。
+
+    ``invalidate_backend_cache()`` 按设计只清条目、不清锁（生产环境同一事件循环贯穿进程生命周期）。
+    测试按用例切换事件循环，竞争过的 ``asyncio.Lock`` 会绑定在已关闭的旧循环上，所以一并清掉。
+    """
+    _backend_cache.invalidate()
+    _backend_cache._locks.clear()
+
+
 async def _get_or_create_backend(
     media_type: str,
     provider_name: str,

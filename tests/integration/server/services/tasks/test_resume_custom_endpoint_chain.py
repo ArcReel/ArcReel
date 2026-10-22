@@ -48,11 +48,9 @@ def clean_backend_cache():
     前一个测试触发过竞争的 ``asyncio.Lock`` 会永久绑定在已关闭的旧循环上，
     后续测试再次竞争即抛 ``RuntimeError``。清空 locks 不影响被测生产行为。
     """
-    generation_context.invalidate_backend_cache()
-    generation_context._backend_cache._locks.clear()
+    generation_context.reset_backend_cache_for_tests()
     yield
-    generation_context.invalidate_backend_cache()
-    generation_context._backend_cache._locks.clear()
+    generation_context.reset_backend_cache_for_tests()
 
 
 @pytest.fixture

@@ -10,18 +10,20 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 import httpx
 import pytest
+from PIL import Image
 
-from lib.backends.image_backends import openrouter
 from lib.backends.image_backends.base import (
     ImageCapability,
     ImageCapabilityError,
     ImageGenerationRequest,
+    ImageOutputFormatError,
     ImageOutputMissingError,
     ReferenceImage,
 )
@@ -371,21 +373,78 @@ def test_fractional_resolution_tier_is_the_smallest_non_downgrading(tmp_path: Pa
     assert request_json(only_request(route))["resolution"] == "1.5K"
 
 
-def test_catalog_failure_is_not_requeried_within_the_failure_window(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+def test_catalog_failure_is_not_requeried_within_the_failure_window(tmp_path: Path):
     """目录查询失败短暂缓存：窗口内的下一次生成不再查目录，窗口过后再查。"""
-    clock = [1000.0]
-    monkeypatch.setattr(openrouter.time, "monotonic", lambda: clock[0])
-    backend = OpenRouterImageBackend(api_key="sk-or-test", model="openai/gpt-image-2", base_url=_BASE_URL)
+    now = [1000.0]
+    backend = OpenRouterImageBackend(
+        api_key="sk-or-test", model="openai/gpt-image-2", base_url=_BASE_URL, clock=lambda: now[0]
+    )
     with capture_http() as router:
         models_route = router.get(_MODELS_URL).mock(return_value=httpx.Response(503))
         router.post(_IMAGES_URL).mock(return_value=_ok_response())
         asyncio.run(backend.generate(_request(tmp_path)))
-        clock[0] += 59
+        now[0] += 59
         asyncio.run(backend.generate(_request(tmp_path)))
         assert models_route.call_count == 1
-        clock[0] += 2
+        now[0] += 2
         asyncio.run(backend.generate(_request(tmp_path)))
     assert models_route.call_count == 2
+
+
+def test_concurrent_first_lookups_query_the_catalog_once():
+    """同一实例上并发的首次查询串行化：只查一次目录，各方拿到同一份结果。"""
+    backend = OpenRouterImageBackend(api_key="sk-or-test", model="m", base_url=_BASE_URL)
+
+    async def both() -> list[int]:
+        return list(await asyncio.gather(backend.reference_image_limit(), backend.reference_image_limit()))
+
+    with capture_http() as router:
+        models_route = router.get(_MODELS_URL).mock(return_value=_models_response(_ref_range("m", 0, 3)))
+        limits = asyncio.run(both())
+    assert limits == [3, 3]
+    assert models_route.call_count == 1
+
+
+def _image_bytes(fmt: str) -> bytes:
+    buffer = io.BytesIO()
+    Image.new("RGB", (4, 4), "red").save(buffer, format=fmt)
+    return buffer.getvalue()
+
+
+def test_non_png_raster_output_is_stored_as_png(tmp_path: Path):
+    """模型返回 JPEG：按 PNG 落盘，产物格式与固定的 .png 路径一致。"""
+    jpeg = base64.b64encode(_image_bytes("JPEG")).decode("ascii")
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response())
+        router.post(_IMAGES_URL).mock(
+            return_value=httpx.Response(200, json={"data": [{"b64_json": jpeg, "media_type": "image/jpeg"}]})
+        )
+        _run(_request(tmp_path))
+    with Image.open(tmp_path / "out.png") as stored:
+        assert stored.format == "PNG"
+
+
+def test_vector_output_raises_structured_failure(tmp_path: Path):
+    """模型返回 SVG：转不成位图，报带稳定 code 的错误，不留错标格式的产物。"""
+    svg = base64.b64encode(b'<svg xmlns="http://www.w3.org/2000/svg"/>').decode("ascii")
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response())
+        router.post(_IMAGES_URL).mock(
+            return_value=httpx.Response(200, json={"data": [{"b64_json": svg, "media_type": "image/svg+xml"}]})
+        )
+        with pytest.raises(ImageOutputFormatError) as ei:
+            _run(_request(tmp_path))
+    assert ei.value.code == "image_output_format_unsupported"
+    assert ei.value.params == {"model": "openai/gpt-image-2", "media_type": "image/svg+xml"}
+
+
+def test_png_output_format_requested_when_declared(tmp_path: Path):
+    model = {"id": "vendor/fmt", "supported_parameters": {**_enum("output_format", "png", "jpeg", "webp")}}
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(model))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        _run(_request(tmp_path), model="vendor/fmt")
+    assert request_json(only_request(route))["output_format"] == "png"
 
 
 def test_path_overrides_change_the_urls_actually_sent(tmp_path: Path):

@@ -183,6 +183,16 @@ class ImageOutputMissingError(RuntimeError):
         super().__init__(f"{self.code}: model={model}")
 
 
+class ImageOutputFormatError(RuntimeError):
+    """供应商返回的图片格式无法作为位图产物使用（如矢量 SVG），携带稳定 code 与 params。"""
+
+    code = "image_output_format_unsupported"
+
+    def __init__(self, *, model: str, media_type: str) -> None:
+        self.params = {"model": model, "media_type": media_type}
+        super().__init__(f"{self.code}: model={model} media_type={media_type}")
+
+
 class ImageCapabilityError(RuntimeError):
     """图像后端能力不匹配（endpoint mismatch / generator gating 共用）。
 

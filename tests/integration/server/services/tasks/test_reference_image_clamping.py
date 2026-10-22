@@ -211,8 +211,7 @@ class TestLimitComesFromTheResolvedBackend:
     @pytest.fixture
     async def vidu_lane(self, db_factory, monkeypatch):
         bind_session_factory(monkeypatch, db_factory)
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             assert (provider_id, media_type) == ("vidu", "image")
@@ -220,8 +219,7 @@ class TestLimitComesFromTheResolvedBackend:
 
         use_backend_assembler(monkeypatch, _assemble)
         yield
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
 
     async def test_vidu_receives_seven_images_and_a_prompt_numbered_to_match(
         self, tmp_path, monkeypatch, vidu_lane, caplog
@@ -254,8 +252,7 @@ class TestGrokLaneClampsToFive:
     @pytest.fixture
     async def grok_lane(self, db_factory, monkeypatch):
         bind_session_factory(monkeypatch, db_factory)
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
         client = MagicMock()
         client.image.sample = AsyncMock(
             return_value=SimpleNamespace(respect_moderation=True, url="https://grok.test/out.png")
@@ -268,8 +265,7 @@ class TestGrokLaneClampsToFive:
 
         use_backend_assembler(monkeypatch, _assemble)
         yield client
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
 
     async def test_grok_receives_five_images_and_the_result_warns(self, tmp_path, monkeypatch, grok_lane):
         project_path = prepare_files(tmp_path)
@@ -302,8 +298,7 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
     @pytest.fixture
     async def openrouter_lane(self, db_factory, monkeypatch):
         bind_session_factory(monkeypatch, db_factory)
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             assert media_type == "image"
@@ -311,8 +306,7 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
 
         use_backend_assembler(monkeypatch, _assemble)
         yield
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
 
     async def test_three_reference_model_receives_three_images_numbered_to_match(
         self, tmp_path, monkeypatch, openrouter_lane, caplog

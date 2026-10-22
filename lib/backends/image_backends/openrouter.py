@@ -27,6 +27,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -46,6 +47,7 @@ from lib.backends.image_backends.base import (
     ImageCapabilityError,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageOutputFormatError,
     ImageOutputMissingError,
     image_to_base64_data_uri,
     per_image_usage,
@@ -54,6 +56,8 @@ from lib.backends.image_backends.base import (
 from lib.backends.openai_shared import OPENAI_IMAGE_QUALITY_MAP as _QUALITY_MAP
 from lib.backends.providers import PROVIDER_OPENROUTER
 from lib.backends.transport_layer import TransportLayer
+from lib.infra.async_thread import run_sync_transaction
+from lib.infra.image_utils import convert_image_bytes_to_png
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -65,6 +69,7 @@ _MAX_REFERENCE_IMAGES = 16
 
 #: 生成与模型目录查询的请求路径（相对 base_url）。路径覆盖（docs/adr/0101）按这两条默认路径认出请求。
 IMAGES_PATH = "/images"
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 MODELS_PATH = "/images/models"
 
 #: 生成耗时可达 90s+，超时须远大于常规请求
@@ -254,6 +259,7 @@ class OpenRouterImageBackend:
         model: str | None = None,
         base_url: str | None = None,
         transport_layer: TransportLayer | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self._api_key = api_key or ""
         self._model = model or DEFAULT_MODEL
@@ -261,8 +267,11 @@ class OpenRouterImageBackend:
         self._base_url = (str(base_url).strip().rstrip("/") if base_url else "") or DEFAULT_BASE_URL
         # 路径覆盖（docs/adr/0101）在 transport 层按请求路径改写，生成与目录查询两条请求都经过它
         self._transport_layer = transport_layer
-        # (monotonic 到期时刻, supported_parameters)；None = 还没查过
+        # (clock 到期时刻, supported_parameters)；None = 还没查过。并发的首次查询经锁串行化，
+        # 免得晚到的失败结果覆盖先到的成功结果。
+        self._clock = clock
         self._model_params: tuple[float, dict | None] | None = None
+        self._model_params_lock = asyncio.Lock()
 
     @property
     def name(self) -> str:
@@ -296,6 +305,9 @@ class OpenRouterImageBackend:
         payload.update(_resolve_model_params(supported, request.image_size, request.aspect_ratio))
         if request.seed is not None and (supported is None or "seed" in supported):
             payload["seed"] = request.seed
+        # 产物路径固定是 .png：模型声明可选 png 时直接要 png，省去落盘后的转码
+        if supported is not None and "png" in _enum_values(supported, "output_format"):
+            payload["output_format"] = "png"
         if input_references:
             payload["input_references"] = input_references
 
@@ -343,10 +355,19 @@ class OpenRouterImageBackend:
 
         网络异常与非 2xx 只影响参数精化：生成按 size 兜底照常走，不因查询失败而中断。
         """
-        now = time.monotonic()
         cached = self._model_params
-        if cached and now < cached[0]:
+        if cached and self._clock() < cached[0]:
             return cached[1]
+        async with self._model_params_lock:
+            cached = self._model_params
+            if cached and self._clock() < cached[0]:
+                return cached[1]
+            supported, ttl = await self._query_supported_params()
+            self._model_params = (self._clock() + ttl, supported)
+            return supported
+
+    async def _query_supported_params(self) -> tuple[dict | None, float]:
+        """查一次模型目录，返回 (supported_parameters, 结果的缓存时长)。"""
         try:
             async with artifact_http_client(timeout=_MODELS_TIMEOUT, transport_layer=self._transport_layer) as client:
                 resp = await client.get(
@@ -362,16 +383,12 @@ class OpenRouterImageBackend:
                 self._model,
                 exc_info=True,
             )
-            self._model_params = (now + _MODEL_PARAMS_FAILURE_TTL_SECONDS, None)
-            return None
-        supported: dict | None = None
+            return None, _MODEL_PARAMS_FAILURE_TTL_SECONDS
         for item in items:
             if isinstance(item, dict) and item.get("id") == self._model:
                 raw = item.get("supported_parameters")
-                supported = raw if isinstance(raw, dict) else None
-                break
-        self._model_params = (now + _MODEL_PARAMS_TTL_SECONDS, supported)
-        return supported
+                return (raw if isinstance(raw, dict) else None), _MODEL_PARAMS_TTL_SECONDS
+        return None, _MODEL_PARAMS_TTL_SECONDS
 
     def _encode_references(self, refs) -> list[dict]:
         """参考图 data URI 编码；任一张读不出即 fail-loud。
@@ -428,3 +445,17 @@ class OpenRouterImageBackend:
         # save_image_from_response_item 以属性访问读取 b64_json/url——dict 包一层即可复用
         wrapped = SimpleNamespace(b64_json=first.get("b64_json"), url=first.get("url"))
         await save_image_from_response_item(wrapped, output_path)
+        media_type = first.get("media_type")
+        await run_sync_transaction(self._ensure_png, output_path, media_type if isinstance(media_type, str) else None)
+
+    def _ensure_png(self, output_path: Path, media_type: str | None) -> None:
+        """产物路径固定是 .png：JPEG / WebP 等位图转成 PNG 落盘；转不了（如 SVG）即报错，不留错标格式的产物。"""
+        content = output_path.read_bytes()
+        if content.startswith(_PNG_SIGNATURE):
+            return
+        try:
+            png = convert_image_bytes_to_png(content)
+        except ValueError:
+            raise ImageOutputFormatError(model=self._model, media_type=media_type or "unknown") from None
+        logger.info("OpenRouter 返回 %s，已转为 PNG: %s", media_type or "非 PNG 图片", output_path)
+        output_path.write_bytes(png)

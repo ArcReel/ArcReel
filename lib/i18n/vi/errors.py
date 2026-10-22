@@ -106,6 +106,7 @@ MESSAGES = {
     "task_fail_comfyui_interrupted": "Lần chạy trên ComfyUI đã bị gián đoạn; hãy thử lại",
     "task_fail_comfyui_output_missing": "ComfyUI đã chạy xong nhưng node thành phẩm {nodes} không tạo ra tệp nào; hãy kiểm tra liên kết node của nó và chuỗi tạo thành phẩm của workflow",
     "task_fail_image_output_missing": "Mô hình {model} không trả về ảnh, có thể do bộ lọc an toàn nội dung; hãy điều chỉnh prompt hoặc ảnh tham chiếu rồi thử lại",
+    "task_fail_image_output_format_unsupported": "Mô hình {model} trả về ảnh định dạng {media_type} không thể chuyển sang PNG; hãy dùng mô hình xuất ảnh raster",
     "task_fail_comfyui_output_type_mismatch": "ComfyUI tạo ra {filename}, không phải loại tệp mà endpoint này cần xuất (cần {expected}); hãy trỏ liên kết node thành phẩm tới node xuất thành phẩm cuối cùng, hoặc đổi node lưu đó sang định dạng được hỗ trợ (với SaveVideo, hãy chọn h264-mp4)",
     "task_fail_comfyui_output_container_mismatch": "Nội dung của {filename} do ComfyUI tạo ra không phải container mà endpoint này cần xuất (cần {expected}); hãy đổi node lưu sang định dạng được hỗ trợ (với SaveVideo, hãy chọn h264-mp4)",
     "task_fail_artifact_download_failed": "Đã tạo video nhưng tải tệp xuống thất bại; hãy thử tải lại: {detail}",

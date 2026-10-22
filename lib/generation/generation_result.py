@@ -167,6 +167,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "provider_rejected": GenerationAction.FIX_INPUT,
     # 多为内容安全过滤命中：调整提示词或参考图后再生成。
     "image_output_missing": GenerationAction.FIX_INPUT,
+    # 模型只出矢量等非位图格式：换一个模型。
+    "image_output_format_unsupported": GenerationAction.CONFIGURE_PROVIDER,
     "declarative_template_render_failed": GenerationAction.CONFIGURE_PROVIDER,
     "declarative_response_extract_failed": GenerationAction.CONFIGURE_PROVIDER,
     # 图片已出但没取回：图片不续跑，「重试下载」接不回原任务，重新生成是唯一的一步。

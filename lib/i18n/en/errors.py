@@ -106,6 +106,7 @@ MESSAGES = {
     "task_fail_comfyui_interrupted": "The run on ComfyUI was interrupted; please retry",
     "task_fail_comfyui_output_missing": "ComfyUI finished but output node {nodes} produced no file; check its node bindings and the workflow's output chain",
     "task_fail_image_output_missing": "Model {model} returned no image, possibly because of content safety filtering; adjust the prompt or reference images and try again",
+    "task_fail_image_output_format_unsupported": "Model {model} returned an image in {media_type} format that cannot be converted to PNG; switch to a model that outputs raster images",
     "task_fail_comfyui_output_type_mismatch": "ComfyUI produced {filename}, which is not a file type this endpoint should output (expected {expected}); point the output node bindings at the node that exports the final artifact, or switch that save node to a supported format (for SaveVideo, pick h264-mp4)",
     "task_fail_comfyui_output_container_mismatch": "The contents of {filename} produced by ComfyUI are not a container this endpoint should output (expected {expected}); switch the save node to a supported format (for SaveVideo, pick h264-mp4)",
     "task_fail_artifact_download_failed": "Video generation succeeded but artifact download failed; retry the download: {detail}",
