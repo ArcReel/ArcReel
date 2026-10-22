@@ -40,7 +40,7 @@ from server.draft_workflow import DraftContext, DraftWorkflow
 from server.services.project.script_review import ScriptReviewError, ScriptReviewService
 from server.tool_runtime import TextGenerationResult
 from tests.factories import make_video_request_facts, register_project_sources
-from tests.fakes import FakeConfigResolver
+from tests.fakes import FakeConfigResolver, use_artifact_registration
 from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 
@@ -1883,10 +1883,7 @@ class TestScriptPlanWriteStore:
             script_review.write_script_plan_locked(project_path, 1, content)
 
         registered: list[object] = []
-        monkeypatch.setattr(
-            "lib.artifacts.artifact_activation.register_current_artifact_if_provable",
-            lambda _project_path, key: registered.append(key),
-        )
+        use_artifact_registration(monkeypatch, lambda _project_path, key: registered.append(key))
 
         with script_review.script_plan_write_lock(project_path, 1):
             assert script_review.write_script_plan_locked(project_path, 1, content) is False
@@ -1926,7 +1923,7 @@ class TestScriptPlanWriteStore:
         def _fail(*_args: object) -> None:
             raise RuntimeError("registration failed")
 
-        monkeypatch.setattr("lib.artifacts.artifact_activation.register_current_artifact_if_provable", _fail)
+        use_artifact_registration(monkeypatch, _fail)
         with (
             script_review.script_plan_write_lock(project_path, 1),
             pytest.raises(RuntimeError, match="registration failed"),
@@ -1950,9 +1947,7 @@ class TestScriptPlanWriteStore:
             record_project_activity(project_path)
             raise RuntimeError("registration failed")
 
-        monkeypatch.setattr(
-            "lib.artifacts.artifact_activation.register_current_artifact_if_provable", _other_writer_then_fail
-        )
+        use_artifact_registration(monkeypatch, _other_writer_then_fail)
         with (
             script_review.script_plan_write_lock(project_path, 1),
             pytest.raises(RuntimeError, match="registration failed"),

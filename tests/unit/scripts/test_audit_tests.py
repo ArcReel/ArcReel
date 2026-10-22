@@ -929,6 +929,39 @@ def test_monkeypatch_setattr_counts_toward_patch_spread(tmp_path: Path) -> None:
     ]
 
 
+def _context_patching_test(opener: str, target: str) -> str:
+    return (
+        "import pytest\n\n\n"
+        "def test_a(monkeypatch):\n"
+        f"    with {opener} as m:\n"
+        f"        m.setattr({target}, object)\n"
+        "        value = 1\n"
+        "    assert value == 1\n"
+    )
+
+
+def test_setattr_on_monkeypatch_context_alias_counts_toward_patch_spread(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_a.py").write_text(_monkeypatching_test('"sdk.client.Client"'), encoding="utf-8")
+    (tests / "test_b.py").write_text(
+        _context_patching_test("monkeypatch.context()", '"sdk.client.Client"'), encoding="utf-8"
+    )
+    (tests / "test_c.py").write_text(
+        _context_patching_test("pytest.MonkeyPatch.context()", '"sdk.client.Client"'), encoding="utf-8"
+    )
+
+    assert [rule for rule, _path in _rules(_audit(tmp_path))] == ["PATCH-SPREAD"] * 3
+
+
+def test_setattr_on_monkeypatch_context_alias_reports_private_patch(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_a.py").write_text(
+        _context_patching_test("monkeypatch.context()", '"lib.shapes._relocate"'), encoding="utf-8"
+    )
+
+    assert _rules(_audit(tmp_path)) == [("PRIVATE-PATCH", "tests/test_a.py")]
+
+
 def test_allowed_filesystem_boundary_target_is_not_reported(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
     for name in ("test_a.py", "test_b.py", "test_c.py"):

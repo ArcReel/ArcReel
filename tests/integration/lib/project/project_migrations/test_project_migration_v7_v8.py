@@ -66,6 +66,7 @@ from lib.speech.speech_presentation import (
     presentation_artifact_paths,
 )
 from lib.workflow.workflow_state import WorkflowStateService
+from tests.fakes import use_artifact_registration
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -551,7 +552,7 @@ def test_formal_script_plan_registration_failure_restores_the_previous_file(tmp_
     def _fail(*_args, **_kwargs):
         raise RuntimeError("injected manifest failure")
 
-    monkeypatch.setattr("lib.artifacts.artifact_activation.register_current_artifact_if_provable", _fail)
+    use_artifact_registration(monkeypatch, _fail)
 
     from lib.script.script_review import write_script_plan_locked
 

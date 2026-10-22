@@ -869,13 +869,21 @@ def test_adjustments_already_on_disk_survive_a_normalization_that_fails_halfway(
 ) -> None:
     project_dir, *_ = _project(tmp_path)
     set_script_episode(project_dir, 1, None)
+    break_script_item_ids(project_dir, 1)
+    write = legacy_shapes.atomic_write_json
+    script_writes = 0
 
-    def fail(_work: object) -> None:
-        raise OSError("disk full")
+    def fail_on_second_script_write(path: Path, payload: Any) -> None:
+        nonlocal script_writes
+        if path.name == "episode_1.json":
+            script_writes += 1
+            if script_writes == 2:
+                raise OSError("disk full")
+        write(path, payload)
 
-    # 剧本集号已写回盘上，之后的一步失败：重跑时规整发现不了这处改动，只能靠未完成的报告带过去。
+    # 剧本集号已写回盘上，之后换条目 id 时写盘失败：重跑时规整发现不了集号的改动，只能靠未完成的报告带过去。
     with monkeypatch.context() as patch:
-        patch.setattr(legacy_shapes, "_repair_item_ids", fail)
+        patch.setattr(legacy_shapes, "atomic_write_json", fail_on_second_script_write)
         assert migrate_project_with_verdict(project_dir) is not None
     unfinished = load_migration_report(project_dir)
     assert unfinished is not None
@@ -884,7 +892,11 @@ def test_adjustments_already_on_disk_survive_a_normalization_that_fails_halfway(
 
     _migrate(project_dir)
 
-    assert _adjusted(project_dir) == [("script_episode_corrected", 1, {"from": "", "to": "1"})]
+    assert _adjusted(project_dir) == [
+        ("script_episode_corrected", 1, {"from": "", "to": "1"}),
+        ("item_id_reassigned", 1, {"from": "E1S01", "to": "E1S02"}),
+        ("item_id_reassigned", 1, {"from": "", "to": "E1S03"}),
+    ]
 
 
 def test_adjustments_survive_a_last_step_that_fails_after_committing_the_current_schema(
@@ -1033,19 +1045,20 @@ def test_a_rebind_interrupted_between_a_move_and_its_commit_finishes_on_retry(
 ) -> None:
     project_dir, *_ = _project(tmp_path)
     cross_bind_episode_scripts(project_dir, filenames, ledger_order=[2, 1])
-    relocate = legacy_shapes._relocate
-    calls = 0
+    write = legacy_shapes.atomic_write_json
+    commits = 0
 
-    def interrupt(*args: Any, **kwargs: Any) -> None:
-        nonlocal calls
-        calls += 1
-        if calls == interrupted_at:
-            # 剧本已挪到位、引用与账本还没改：进程在这里停下。
-            raise KeyboardInterrupt
-        relocate(*args, **kwargs)
+    def interrupt(path: Path, payload: Any) -> None:
+        nonlocal commits
+        if path.name == "project.json":
+            commits += 1
+            if commits == interrupted_at:
+                # 每挪一次剧本就提交一次账本：剧本已挪到位、账本还没改，进程在这里停下。
+                raise KeyboardInterrupt
+        write(path, payload)
 
     with monkeypatch.context() as patch:
-        patch.setattr(legacy_shapes, "_relocate", interrupt)
+        patch.setattr(legacy_shapes, "atomic_write_json", interrupt)
         with pytest.raises(KeyboardInterrupt):
             normalize_legacy_shapes(project_dir, schema_version=7, record=[])
 
@@ -1074,12 +1087,16 @@ def test_a_kept_copy_made_before_a_failed_rebind_commit_stays_in_the_report(
     stray.write_text('{"episode": 1, "title": "游离的旧稿", "segments": []}', encoding="utf-8")
     stray_bytes = stray.read_bytes()
 
-    def fail(*_args: Any, **_kwargs: Any) -> None:
-        raise OSError("disk full")
+    write = legacy_shapes.atomic_write_json
+
+    def fail_on_project_json(path: Path, payload: Any) -> None:
+        if path.name == "project.json":
+            raise OSError("disk full")
+        write(path, payload)
 
     # 规范路径上的旧稿已挪成保留副本、剧本也挪到位，提交账本时失败。
     with monkeypatch.context() as patch:
-        patch.setattr(legacy_shapes, "_relocate", fail)
+        patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project_json)
         assert migrate_project_with_verdict(project_dir) is not None
 
     _migrate(project_dir)
