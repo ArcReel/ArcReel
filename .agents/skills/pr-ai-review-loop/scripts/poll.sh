@@ -124,7 +124,9 @@
 #   is_rate_limited        walkthrough body carries CR's dedicated rate-limit banner marker (same match as
 #                          quota_alerts) — the current walkthrough is a rate-limit notice, not a review
 #   is_review_skipped      walkthrough body carries CR's skip-review marker for a reason other than "no
-#                          reviewable changes" (draft, bot author) — the head was never reviewed
+#                          reviewable changes" (draft, bot author) — the head was never reviewed. A "no
+#                          reviewable changes" skip counts as coverage of the head its newest "📥 Commits"
+#                          range line names; walkthrough_head reads that range line instead of the marker
 #   is_ack                 reviewer acknowledgment of a fix or inline reply (never actionable): body carries a
 #                          <review_comment_addressed>/<review_comment_withdrawn> marker or starts with "### Summary"
 #   cr_markers             CodeRabbit tag tokens found in the first 300 chars of a body (literal match):
@@ -487,11 +489,18 @@ jq -n \
     # quota_alerts and walkthrough.is_rate_limited so the two judgments cannot drift apart.
     (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->");
 
+  def cr_skip_marker_body:
+    # CodeRabbit marks every skipped review with a dedicated HTML marker.
+    (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*skip review by coderabbit\\.ai\\s*-->");
+
+  def cr_no_reviewable_changes_body:
+    # A skip because the new commits have no reviewable changes leaves nothing to review: the
+    # head counts as covered once the skip notice names it.
+    cr_skip_marker_body and ((. // "") | test("did not have any reviewable changes"; "i"));
+
   def cr_review_skipped_body:
-    # CodeRabbit marks a skipped review with a dedicated HTML marker. A skip because the new
-    # commits have no reviewable changes leaves nothing to review, so it is not counted here.
-    (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*skip review by coderabbit\\.ai\\s*-->")
-    and (test("did not have any reviewable changes"; "i") | not);
+    # Any other skip notice (draft, bot author) means the head was never reviewed.
+    cr_skip_marker_body and (cr_no_reviewable_changes_body | not);
 
   def has_outside_diff_body:
     (. // "") | test("Outside diff range comments \\([1-9][0-9]*\\)"; "i");
@@ -523,7 +532,11 @@ jq -n \
         | ([$main.reviews[] | select(.author.login == "coderabbitai")] | sort_by(.submittedAt)
            | last | if . == null then null else ($review_commit_by_id[.id] // null) end)
           as $latest_review_commit
-        | ($wb | cr_walkthrough_head) as $walkthrough_head
+        # A no-reviewable-changes skip keeps the change_assessment_commit marker of the last real
+        # review; only its newest range line names the skipped head, so it is the anchor there.
+        | (if ($wb | cr_no_reviewable_changes_body)
+           then ([$wb | capture("between [0-9a-fA-F]{7,40} and (?<sha>[0-9a-fA-F]{7,40})")] | .[0].sha // null)
+           else ($wb | cr_walkthrough_head) end) as $walkthrough_head
         | {
           id,
           created_at,

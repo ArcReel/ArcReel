@@ -53,7 +53,9 @@ extract_def() {
 HEAD_MATCH_DEF=$(extract_def codex_commit_is_current_head)
 RL_DEF=$(extract_def cr_rate_limited_body)
 WT_HEAD_DEF=$(extract_def cr_walkthrough_head)
-SKIP_DEF=$(extract_def cr_review_skipped_body)
+SKIP_DEF="$(extract_def cr_skip_marker_body)
+$(extract_def cr_no_reviewable_changes_body)
+$(extract_def cr_review_skipped_body)"
 WT_DEF=$(extract_def cr_walkthrough_rest)
 
 INCREMENTAL="$TESTDATA/coderabbit_walkthrough_incremental_pr2614.txt"
@@ -67,6 +69,7 @@ done
 HEAD_2614="1836151d17c1da600b4897ebb44e3680f627d1d6"
 HEAD_2620="e77c32c942b32a0efdea00525568eadf6aee5fc9"
 FIRST_REVIEW_2614="6dfd561b0000000000000000000000000000abcd"
+HEAD_3356="9140671e2a7d6f366618613c24970b97ca3ffffb"
 
 fail=0
 
@@ -120,6 +123,8 @@ RULE_CASES=(
   "no review object, stale walkthrough|$OTHER_HEAD|[]|$FIRST_REVIEW_2614|false"
   "no review object, current walkthrough|$HEAD_2614|[]|$FIRST_REVIEW_2614|true"
   "skip notice, no review object|$OTHER_HEAD|[]|$FIRST_REVIEW_2614|false|$SKIP_BOT"
+  "no-changes skip names current head|$HEAD_3356|$ONE_REVIEW|$FIRST_REVIEW_2614|true|$SKIP_NO_CHANGES"
+  "no-changes skip names an older head|$OTHER_HEAD|$ONE_REVIEW|$FIRST_REVIEW_2614|false|$SKIP_NO_CHANGES"
 )
 
 for tc in "${RULE_CASES[@]}"; do
