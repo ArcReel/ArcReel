@@ -17,6 +17,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import generate
 from server.services.tasks.generation_context import AudioLaneResult, GenerationContext
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_generation_queue, use_project_manager
 
 
 class _FakeQueue:
@@ -63,8 +64,8 @@ class _FakePM:
 
 
 def _app(monkeypatch, fake_pm, fake_queue, *, audio_provider_ready=True, resolve_error: Exception | None = None):
-    monkeypatch.setattr(generate, "get_project_manager", lambda: fake_pm)
-    monkeypatch.setattr(generate, "get_generation_queue", lambda: fake_queue)
+    use_project_manager(monkeypatch, fake_pm)
+    use_generation_queue(monkeypatch, fake_queue)
 
     async def _resolve(self, project, payload):
         if resolve_error is not None:

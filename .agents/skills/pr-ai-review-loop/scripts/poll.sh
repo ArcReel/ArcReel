@@ -68,14 +68,6 @@
 #     "comments_new":     [{id, createdAt, preview}],   # this-round new non-walkthrough comments
 #     "comments_history": {total, last_created_at}      # older ones collapsed to counts ({total: 0} when empty)
 #   },
-#   "gemini": {
-#     "reviews":          [{id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
-#                                                       # listed while is_new OR reviewed_current_head (PITFALL 8);
-#                                                       # body NEVER inlined — query.sh gemini-latest-body
-#     "reviews_history":  {total, last_submitted_at},
-#     "comments_new":     [{id, createdAt, preview}],
-#     "comments_history": {total, last_created_at}
-#   },
 #   "codex": {
 #     "has_started":      <bool>,                       # Codex has acknowledged with eyes or a clean-pass comment
 #     "reviews":          [{id, submittedAt, state, reviewed_commit, reviewed_current_head,
@@ -121,10 +113,11 @@
 #                          review's commit (null = no evidence either way, timestamp rule alone). CR rewrites its
 #                          first comment each review — but a rate-limit banner rewrite also advances updated_at
 #                          without reviewing anything, and a slow review of an older HEAD rewrites it after the
-#                          next push, so neither must read as "reviewed". On gemini review rows:
-#                          the REST review's commit_id vs headRefOid (submittedAt > last_push_at only as fallback
-#                          when the mapping is unavailable) — a straggler or slow review of an older HEAD
-#                          surfaces as is_new but must not read as current-HEAD (see PITFALL 6)
+#                          next push, so neither must read as "reviewed". On codex review/comment rows:
+#                          reviewed_commit (REST review commit_id, else the body's "Reviewed commit" sha) vs
+#                          headRefOid (timestamp > last_push_at only as fallback when no commit is known) — a
+#                          straggler or slow review of an older HEAD surfaces as is_new but must not read as
+#                          current-HEAD (see PITFALL 6)
 #   is_rate_limited        walkthrough body carries CR's dedicated rate-limit banner marker (same match as
 #                          quota_alerts) — the current walkthrough is a rate-limit notice, not a review
 #   is_ack                 reviewer acknowledgment of a fix or inline reply (never actionable): body carries a
@@ -134,12 +127,9 @@
 #                            refactor        "_🛠️ Refactor suggestion" minor     "_🟡 Minor"
 #                            verification    "_💡 Verification agent"  trivial   "_🔵 Trivial"
 #                            nitpick         "_🧹 Nitpick"             low_value "_💤 Low value"
-#   severity_alt           Gemini severity or Codex "Pn Badge" from the inline badge image alt text
-#   has_pass_marker        Gemini review summary carries no actionable opinion: "LGTM" / "no issues found" /
-#                          a "no [adjective] feedback" clause (covers "no feedback to provide", "no additional
-#                          feedback", "no feedback is provided"; any case) / word "approved" (any case), or body
-#                          is empty aside from the "## Code Review" heading (any case). Gemini-only; an unmatched
-#                          summary is treated as still actionable (safe default — no silent pass).
+#   severity_alt           Codex "Pn Badge" from the inline badge image alt text
+#   has_pass_marker        Codex top-level comment is the clean-pass "Codex Review: Didn't find any major
+#                          issues." (any case)
 #   has_started            Codex has posted eyes on the PR or an @codex review trigger comment, or a
 #                          clean-pass comment; reactions count only when the reactor is
 #                          chatgpt-codex-connector[bot] — anyone else's eyes never register
@@ -175,7 +165,7 @@
 #
 # 4. Trigger-command dedup matches comments that START with the command (case-insensitive,
 #    leading spaces/tabs tolerated, trailing text allowed). Prefix matching — not full-line —
-#    so a human-issued "/gemini review (re: security fix)" still registers for dedup, while
+#    so a human-issued "@codex review (re: security fix)" still registers for dedup, while
 #    a comment merely MENTIONING a command mid-text does not (substring matching would
 #    swallow pushback comments that quote a command, silently suppressing real triggers).
 #    Leading whitespace is [ \t] only, NOT \s: \s matches \n, which would also register a
@@ -471,21 +461,6 @@ jq -n \
       ]
     | map(select(.[1] as $pat | $h | contains($pat)) | .[0]);
 
-  def has_pass_marker_body:
-    # A Gemini review summary is one paragraph: it either describes the feedback it gave, or
-    # states there is none. The "no feedback" clause is that pass signal, so match the grammar
-    # mechanically instead of enumerating exact phrasings — "\\bno(\\s+\\w+)?\\s+feedback\\b"
-    # tolerates an inserted adjective ("no additional feedback") and passive voice ("no
-    # feedback is provided"), both of which broke the old fixed-substring match. An unmatched
-    # summary stays actionable (has_pass_marker=false) — the safe default keeps the loop polling
-    # rather than declaring a silent pass. Gemini-only; other bots use their own pass paths.
-    (. // "")
-    | ((test("\\bLGTM\\b"))
-       or (test("no issues found"; "i"))
-       or (test("\\bno(\\s+\\w+)?\\s+feedback\\b"; "i"))
-       or (test("\\bapproved\\b"; "i"))
-       or ((gsub("\\s+"; "") | ascii_downcase) as $bare | ($bare == "" or $bare == "##codereview")));
-
   def codex_reviewed_commit_from_body:
     (. // "")
     | ([capture("Reviewed commit:[* `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null);
@@ -589,7 +564,7 @@ jq -n \
        preview: ($cb | mk_preview), body};
 
   def inline_by_bot:
-    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-advanced-security)\\[bot\\]$"))]
+    [$sub_c[] | select(.user.login | test("(coderabbitai|chatgpt-codex-connector|github-advanced-security)\\[bot\\]$"))]
     | group_by(.user.login)
     | map({
         key:   .[0].user.login,
@@ -620,7 +595,7 @@ jq -n \
     # the body head — a preceding change-stack link banner can otherwise push
     # the phrase itself past the 500-char window and cause a silent miss.
     [$sub_a[]
-     | select(.user.login | test("(chatgpt-codex-connector|gemini-code-assist|coderabbitai)\\[bot\\]$"))
+     | select(.user.login | test("(chatgpt-codex-connector|coderabbitai)\\[bot\\]$"))
      | (.body // "") as $qb
      | select(
          ($qb | cr_rate_limited_body)
@@ -651,23 +626,6 @@ jq -n \
         [$main.reviews[] | select(.author.login == "coderabbitai")
          | {id, submittedAt, state, has_outside_diff: (.body | has_outside_diff_body),
             is_new: fresh(.submittedAt; .id), preview: (.body | mk_preview), body}]
-    },
-
-    gemini: {
-      reviews:
-        [$main.reviews[] | select(.author.login == "gemini-code-assist")
-         | ($review_commit_by_id[.id] // null) as $reviewed_commit
-         | {id, submittedAt, state, is_new: fresh(.submittedAt; .id),
-            reviewed_current_head:
-              (if $reviewed_commit == null
-               then (.submittedAt > $last_push)
-               else ($reviewed_commit | codex_commit_is_current_head)
-               end),
-            has_pass_marker: (.body | has_pass_marker_body),
-            preview: (.body | mk_preview), body}],
-      comments:
-        [$main.comments[] | select(.author.login == "gemini-code-assist")
-         | {id, createdAt, is_new: fresh(.createdAt; .id), preview: (.body | mk_preview), body}]
     },
 
     codex: {
@@ -719,13 +677,12 @@ jq -n \
        | (.body // "") as $tb
        | select(
            (.user.login != "coderabbitai[bot]"
-            and .user.login != "gemini-code-assist[bot]"
             and .user.login != "chatgpt-codex-connector[bot]")
-           and ($tb | test("^[ \\t]*(/gemini review|@codex review|@coderabbitai (resume|full review|review))(\\s|$)"; "i"))
+           and ($tb | test("^[ \\t]*(@codex review|@coderabbitai (resume|full review|review))(\\s|$)"; "i"))
          )
        | .id as $comment_id
        | {author: .user.login, createdAt: .created_at,
-          command: ($tb | capture("^[ \\t]*(?<c>/gemini review|@codex review|@coderabbitai (resume|full review|review))"; "i") | .c | ascii_downcase),
+          command: ($tb | capture("^[ \\t]*(?<c>@codex review|@coderabbitai (resume|full review|review))"; "i") | .c | ascii_downcase),
           has_codex_eyes: (any($sub_b2[]; .comment_id == $comment_id and .content == "eyes")),
           body: ($tb | gsub("^\\s+|\\s+$"; ""))}]
   }
@@ -768,19 +725,6 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
           [$s.coderabbit.other_comments[] | select(.is_new) | {id, createdAt, preview}],
         comments_history:
           ([$s.coderabbit.other_comments[] | select(.is_new | not)]
-           | {total: length, last_created_at: (map(.createdAt) | max // null)}
-           | prune_hist)
-      },
-
-      gemini: {
-        reviews:
-          [$s.gemini.reviews[] | select(shown)
-           | {id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
-        reviews_history: ($s.gemini.reviews | review_history),
-        comments_new:
-          [$s.gemini.comments[] | select(.is_new) | {id, createdAt, preview}],
-        comments_history:
-          ([$s.gemini.comments[] | select(.is_new | not)]
            | {total: length, last_created_at: (map(.createdAt) | max // null)}
            | prune_hist)
       },
@@ -891,7 +835,6 @@ fi
 # and stay out.
 jq -c --slurpfile prev "$WORKDIR/seen.json" '
   [.coderabbit.other_comments[]?.id, .coderabbit.reviews[]?.id,
-   .gemini.reviews[]?.id, .gemini.comments[]?.id,
    .codex.reviews[]?.id, .codex.comments[]?.id,
    ((.inline_comments_by_user // {})[]?[]?.id)]
   | map(select(. != null) | tostring)

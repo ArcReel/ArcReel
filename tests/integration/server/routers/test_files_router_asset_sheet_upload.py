@@ -16,8 +16,9 @@ from lib.workflow.workflow_state import WorkflowStateService
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files, versions
-from server.services.tasks import formal_image_commit, generation_tasks
+from server.services.tasks import generation_tasks
 from tests.auth_deps import AUTH_DEPENDENCIES
+from tests.fakes import use_generation_context, use_project_manager
 from tests.integration.server.derivative_sheet_support import solid_png_bytes
 from tests.integration.server.services.tasks.generation_tasks_support import SheetGenerator, fake_resolve_ctx
 
@@ -49,9 +50,8 @@ def _upload(client: TestClient, content: bytes) -> str:
 
 def _serve_generation(monkeypatch, pm: ProjectManager, generator: SheetGenerator) -> None:
     resolve_ctx = fake_resolve_ctx(generator)
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", resolve_ctx)
-    monkeypatch.setattr(formal_image_commit, "resolve_generation_context", resolve_ctx)
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, resolve_ctx)
 
 
 def _status(project_dir: Path, sheet_path: str) -> ArtifactStatus:
@@ -155,7 +155,7 @@ async def test_restoring_the_uploaded_version_claims_it_by_the_upload_again(tmp_
         _upload(client, uploaded)
     _serve_generation(monkeypatch, pm, SheetGenerator(project_dir, solid_png_bytes((90, 90, 90))))
     await generation_tasks.execute_character_task("demo", "Alice", {})
-    monkeypatch.setattr(versions, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     [upload_version] = [
         record["version"]
         for record in VersionManager(project_dir).get_versions("characters", "Alice")["versions"]

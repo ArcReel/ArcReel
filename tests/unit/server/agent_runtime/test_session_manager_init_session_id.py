@@ -10,7 +10,7 @@ from claude_agent_sdk.types import SystemMessage
 from server.agent_runtime.message_serialization import message_to_dict
 from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
-from tests.fakes import FakeSDKClient, system_frame
+from tests.fakes import FakeSDKClient, system_frame, use_provider_env, use_sdk_client
 
 SDK_ID = "sdk-init-only-1"
 
@@ -53,8 +53,8 @@ async def test_send_new_session_resolves_id_from_init_when_only_system_messages_
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
-    monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client)
+    use_provider_env(monkeypatch, fake_env)
+    use_sdk_client(monkeypatch, lambda options: client)
 
     sdk_id = await manager.send_new_session("demo", "你好")
     try:

@@ -12,6 +12,7 @@ so the two cannot reach different conclusions about the same project.
 
 from __future__ import annotations
 
+import functools
 import json
 from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import replace
@@ -60,6 +61,7 @@ from lib.prompts.prompt_utils import (
 )
 from lib.references.reference_admission import admit_storyboard_item
 from lib.references.reference_catalog import build_reference_catalog
+from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.request_projection import (
     ProjectionProblem,
     ReferenceRequestOptions,
@@ -601,6 +603,8 @@ async def admit_reference_video_batch(
 
     tickets: list[UnitAdmissionTicket] = list(extra_tickets)
     seen_ids: set[str] = set()
+    # 整批单元共用一份可用性判定，在同一份清单快照上判定；首个需要投影的单元才构造，构造失败下个单元重试。
+    shared_assets = functools.cache(lambda: CurrentReferenceAssets(project_path, project))
     for index, unit in enumerate(units):
         unit_id = str(unit.get("unit_id") or "")
         # 脏数据（缺 unit_id、同一个 id 出现多次）不能被悄悄丢出目标集合：剩下的健康 unit
@@ -657,6 +661,7 @@ async def admit_reference_video_batch(
                 project_path=project_path,
                 options=unit_options,
                 resolver=config_resolver,
+                shared_assets=shared_assets,
             )
         except VideoRequestFactsError as exc:
             tickets.append(

@@ -28,6 +28,7 @@ from server.services.admission.video_batch_admission import admit_reference_vide
 from server.services.tasks.video_caps import AudioSwitchConflict, assert_audio_switch_supported
 from server.tool_runtime import ToolOutcome
 from tests.factories import make_display_names, make_video_request_facts
+from tests.fakes import bind_session_factory, use_active_tasks_lookup, use_reference_projection
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
     read_generation_result,
@@ -72,7 +73,7 @@ def _unit_spec(unit: dict[str, Any]) -> TaskSpec:
 class TestAssertAudioSwitchSupported:
     async def test_always_audible_model_with_audio_off_names_provider_and_model(self, db_factory, monkeypatch):
         await _seed_settings(db_factory, default_video_backend=_ALWAYS_AUDIBLE, video_generate_audio="false")
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         with pytest.raises(ValueError, match=r"成片恒有声，无法关闭音频") as exc_info:
             await assert_audio_switch_supported({}, "i2v")
@@ -81,7 +82,7 @@ class TestAssertAudioSwitchSupported:
 
     async def test_controllable_model_keeps_the_off_setting(self, db_factory, monkeypatch):
         await _seed_settings(db_factory, default_video_backend=_CONTROLLABLE, video_generate_audio="false")
-        monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+        bind_session_factory(monkeypatch, db_factory)
 
         await assert_audio_switch_supported({}, "i2v")
 
@@ -122,7 +123,7 @@ class TestReferenceRouteGate:
         async def _no_active(**_kwargs):
             return []
 
-        monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _no_active)
+        use_active_tasks_lookup(monkeypatch, _no_active)
 
     async def test_projects_each_pending_unit_and_skips_done_units(self, tmp_path, monkeypatch):
         seen: list[str] = []
@@ -144,7 +145,7 @@ class TestReferenceRouteGate:
             return _Projection()
 
         self._stub_current_state(monkeypatch)
-        monkeypatch.setattr(admission_mod, "project_reference_unit_request", _record)
+        use_reference_projection(monkeypatch, _record)
         units = [
             {"unit_id": "E1U1", "text": "@[张三] 推门"},
             {"unit_id": "E1U2", "text": "@[李四] 举杯"},
@@ -176,7 +177,7 @@ class TestReferenceRouteGate:
             raise ValueError("正文为空")
 
         self._stub_current_state(monkeypatch)
-        monkeypatch.setattr(admission_mod, "project_reference_unit_request", _record)
+        use_reference_projection(monkeypatch, _record)
         admission = await admit_reference_video_batch(
             project_name="demo",
             project={},
@@ -284,7 +285,7 @@ class TestStoryboardGateEntersAdmission:
         async def _none(**_kwargs):
             return []
 
-        monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _none)
+        use_active_tasks_lookup(monkeypatch, _none)
 
     def _ctx(self, tmp_path: Path) -> ToolHarness:
         project_dir = tmp_path / "demo"

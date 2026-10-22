@@ -6,7 +6,8 @@ import pytest
 
 from lib.infra.api_errors import BadRequestError
 from server.services.admission import prompt_preview
-from server.services.tasks import formal_image_commit, generation_tasks
+from server.services.tasks import generation_tasks
+from tests.fakes import use_generation_context, use_project_manager, use_video_thumbnail_extractor
 from tests.integration.server.services.tasks.generation_tasks_support import (
     FakeGenerator,
     _FakePM,
@@ -17,6 +18,7 @@ from tests.integration.server.services.tasks.generation_tasks_support import (
     prepare_files,
     register_asset_sheet_claims,
     seed_current_storyboard,
+    skip_artifact_registration,
 )
 
 ITEM_ID = "E1S02"
@@ -86,12 +88,11 @@ def _item_of(pm: _FakePM) -> dict:
 
 
 def _patch_execution(monkeypatch, pm: _FakePM, generator: FakeGenerator, *, register_artifacts: bool = False) -> None:
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(generator))
-    monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
-    monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator))
+    use_video_thumbnail_extractor(monkeypatch, async_return(None))
     if not register_artifacts:
-        monkeypatch.setattr(formal_image_commit, "register_current_resource_artifact", lambda *_a, **_kw: True)
+        skip_artifact_registration(monkeypatch)
     monkeypatch.setattr(prompt_preview, "get_project_manager", lambda: pm)
 
 
@@ -261,7 +262,7 @@ class TestPreviewMatchesClampedExecution:
         generator = FakeGenerator(project_path)
         _patch_execution(monkeypatch, pm, generator, register_artifacts=True)
         clamped_lane = fake_resolve_ctx(generator, image_max_reference_images=7)
-        monkeypatch.setattr(generation_tasks, "resolve_generation_context", clamped_lane)
+        use_generation_context(monkeypatch, clamped_lane)
         monkeypatch.setattr(prompt_preview, "resolve_generation_context", clamped_lane)
 
         preview = await prompt_preview.preview_item_prompts("demo", "episode_1.json", ITEM_ID)

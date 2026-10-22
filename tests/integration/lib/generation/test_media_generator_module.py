@@ -1213,6 +1213,41 @@ class TestMediaGenerator:
         assert gen._video_backend.calls == []
         assert gen.ledger.started == []
 
+    async def test_request_carries_overlaid_capabilities(self, tmp_path, user_added_video_model):
+        """后端拿到的请求带着执行闸门那份已叠加覆盖的能力，按它判定可发输入。"""
+        from arcreel_market_core.video_backend_contract import VideoCapabilities
+
+        user_added_video_model("dashscope", {"last_frame": True, "max_reference_images": 6})
+        gen = _build_generator(tmp_path)
+        gen._video_provider_id = "dashscope"
+        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(last_frame=False))
+
+        await gen.generate_video_async(prompt="p", resource_type="videos", resource_id="E1S11")
+
+        caps = gen._video_backend.calls[0].video_capabilities
+        assert caps.last_frame is True
+        assert caps.max_reference_images == 6
+
+    async def test_user_override_narrows_first_frame(self, tmp_path, user_added_video_model):
+        """内置供应商下用户关掉首帧：执行期挡住带首帧的请求，不调用后端、不开记账。"""
+        from arcreel_market_core.video_backend_contract import VideoCapabilities, VideoCapabilityError
+
+        user_added_video_model("kling", {"first_frame": False})
+        gen = _build_generator(tmp_path)
+        gen._video_provider_id = "kling"
+        gen._video_backend = _FakeVideoBackend(video_capabilities=VideoCapabilities(first_frame=True))
+        start_image = tmp_path / "start.png"
+        Image.new("RGB", (8, 8)).save(start_image)
+
+        with pytest.raises(VideoCapabilityError) as exc:
+            await gen.generate_video_async(
+                prompt="p", resource_type="videos", resource_id="E1S12", start_image=start_image
+            )
+
+        assert exc.value.code == "video_first_frame_unsupported"
+        assert gen._video_backend.calls == []
+        assert gen.ledger.started == []
+
     async def test_user_override_keeps_tier_aware_base(self, tmp_path, user_added_video_model):
         """覆盖叠在按档位解析的能力上：未覆盖的尾帧仍随档位放行，覆盖的参考图上限同时生效。"""
         from arcreel_market_core.video_backend_contract import VideoCapabilities
@@ -1909,8 +1944,10 @@ class TestFirstFrameRatioAdaptiveOnly:
 
     async def test_default_capability_leaves_existing_model_payload_unchanged(self, tmp_path):
         """默认 False（现有模型未声明该约束）：首帧任务的请求 payload 保持原样。"""
+        from arcreel_market_core.video_backend_contract import VideoCapabilities
+
         gen = _build_generator(tmp_path)
-        backend = _FakeVideoBackend()  # video_capabilities=None，等同未声明
+        backend = _FakeVideoBackend(video_capabilities=VideoCapabilities())  # 默认档，未声明该约束
         gen._video_backend = backend
 
         start = _solid_png(tmp_path, "start.png", 100, 100)

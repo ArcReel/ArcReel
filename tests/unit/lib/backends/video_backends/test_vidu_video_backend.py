@@ -1,4 +1,4 @@
-"""ViduVideoBackend 单元测试 — 重点：endpoint 选择、duration 强制、resolution 白名单、build_request 字段。"""
+"""ViduVideoBackend 单元测试 — 重点：endpoint 选择、duration 强制、resolution 原样透传、build_request 字段。"""
 
 from __future__ import annotations
 
@@ -15,11 +15,9 @@ from lib.backends.video_backends.vidu import (
     _ENDPOINTS_WITH_ASPECT_RATIO,
     _KNOWN_MODELS,
     _Q3_MODELS,
-    _RESOLUTION_WHITELIST,
     DEFAULT_MODEL,
     ViduVideoBackend,
     _coerce_duration,
-    _coerce_resolution,
 )
 from lib.catalog import query as catalog
 from tests.fakes import bounded_poll_clock
@@ -168,34 +166,6 @@ class TestCoerceDuration:
         assert _coerce_duration("unknown-model", "/img2video", None) == 5
 
 
-class TestCoerceResolution:
-    def test_q1_only_1080p_falls_back(self):
-        assert _coerce_resolution("viduq1", "720p") == "1080p"
-
-    def test_q3_turbo_passes_720p(self):
-        assert _coerce_resolution("viduq3-turbo", "720p") == "720p"
-
-    def test_default_for_q3_turbo_when_none(self):
-        # whitelist 里有 720p → 取 720p
-        assert _coerce_resolution("viduq3-turbo", None) == "720p"
-
-    def test_unknown_model_passthrough(self):
-        assert _coerce_resolution("unknown", "9000p") == "9000p"
-
-    def test_all_known_models_have_whitelist(self):
-        # registry 中暴露的模型都得在白名单里
-        for model in {
-            "viduq3-pro",
-            "viduq3-turbo",
-            "viduq3",
-            "viduq3-mix",
-            "viduq2",
-            "viduq1",
-            "vidu2.0",
-        }:
-            assert model in _RESOLUTION_WHITELIST
-
-
 class TestBuildRequest:
     """_build_request 是核心串联函数：endpoint 选择 + duration/resolution/aspect_ratio/audio 字段拼装。"""
 
@@ -221,6 +191,31 @@ class TestBuildRequest:
         assert body["audio"] is True
         # text2video 不携带 images
         assert "images" not in body
+
+    @pytest.mark.parametrize(
+        ("model", "resolution"),
+        [("viduq1", "720p"), ("viduq3-turbo", "4K"), ("unknown-model", "9000p")],
+    )
+    def test_resolution_is_sent_as_requested(self, video_output_path: Path, model: str, resolution: str):
+        """档位以模型目录条目为准：不在任何本地表里的值也原样下发，由上游拒绝（docs/adr/0104）。"""
+        backend = ViduVideoBackend(api_key="test-key", model=model)
+        req = VideoGenerationRequest(prompt="x", output_path=video_output_path, resolution=resolution)
+
+        _, body = backend._build_request(req)
+
+        assert body["resolution"] == resolution
+
+    def test_resolution_omitted_when_not_requested(self, video_output_path: Path):
+        backend = ViduVideoBackend(api_key="test-key", model="viduq3-turbo")
+
+        _, body = backend._build_request(VideoGenerationRequest(prompt="x", output_path=video_output_path))
+
+        assert "resolution" not in body
+
+    def test_metered_usage_reports_requested_resolution(self, video_output_path: Path):
+        request = VideoGenerationRequest(prompt="x", output_path=video_output_path, resolution="720p")
+
+        assert ViduVideoBackend.metered_usage("viduq1", request).dimensions["resolution"] == "720p"
 
     @patch("lib.backends.video_backends.vidu.image_to_data_uri", new=MagicMock(return_value="data:image/png;base64,XX"))
     def test_img2video_passes_one_image_no_aspect_ratio(self, tmp_path: Path, video_output_path: Path):
@@ -443,19 +438,6 @@ class TestRegistryBackendConsistency:
         """8 秒档只出 720p——360p / 1080p 须声明仅 4 秒可选，UI 才不会给出无效的时长×分辨率组合。"""
         model_info = self._vidu2_model_info()
         assert model_info.duration_resolution_constraints == {"360p": [4], "1080p": [4]}
-
-    @pytest.mark.parametrize("name", list(_RESOLUTION_WHITELIST))
-    def test_resolutions_within_backend_whitelist(self, name: str):
-        """目录声明的分辨率须在执行期白名单内，否则 UI 给出的选项会被 backend 静默降级。"""
-        model_info = catalog.get_model("vidu", name)
-        # 同名型号（viduq1、viduq2）在目录里登记的是图片条目，视频侧只核对视频条目。
-        if model_info is None or model_info.media_type != "video":
-            pytest.skip(f"目录未登记视频型号 {name}")
-        extra = set(model_info.resolutions) - set(_RESOLUTION_WHITELIST[name])
-        assert not extra, (
-            f"目录 vidu/{name} 的 resolutions 含 backend 白名单外的 {sorted(extra)}："
-            "按官方文档核对后，改模型目录数据或 lib/backends/video_backends/vidu.py 的 _RESOLUTION_WHITELIST"
-        )
 
     @pytest.mark.parametrize("name", sorted(_KNOWN_MODELS))
     def test_durations_within_endpoint_rules(self, name: str):

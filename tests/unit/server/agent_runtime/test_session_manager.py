@@ -19,6 +19,7 @@ from tests.fakes import (
     result_frame,
     session_state_message,
     system_frame,
+    use_provider_env,
 )
 
 
@@ -85,7 +86,7 @@ async def _cold_revival_clients(session_manager, monkeypatch):
     async def _fake_env():
         return {}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_env)
+    use_provider_env(monkeypatch, _fake_env)
 
     created_clients: list[_FakeClaudeClient] = []
 
@@ -147,7 +148,7 @@ class TestSessionManager:
         async def _fake_env():
             return {}
 
-        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_env)
+        use_provider_env(monkeypatch, _fake_env)
 
         with monkeypatch.context() as m:
             m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", False)

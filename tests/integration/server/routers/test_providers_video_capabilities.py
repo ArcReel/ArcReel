@@ -26,6 +26,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import projects, providers
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
 from tests.factories import make_display_names
+from tests.fakes import use_project_manager
 
 #: registry 里声明了「1080p 只剩 8 秒」的型号，用来观察真实 resolver 算出的收窄结果。
 VEO = "gemini-aistudio/veo-3.1-generate-preview"
@@ -318,7 +319,7 @@ async def test_disabled_candidate_never_returns_default_model(
     if project_route:
         manager = ProjectManager(tmp_path)
         manager.create_project("candidate")
-        monkeypatch.setattr(projects, "get_project_manager", lambda: manager)
+        use_project_manager(monkeypatch, manager)
         request = projects.get_video_capabilities(name="candidate", **params)
     else:
         request = providers.get_model_video_capabilities(**params)

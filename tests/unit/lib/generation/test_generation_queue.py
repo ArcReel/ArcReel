@@ -13,6 +13,7 @@ from lib.generation.generation_queue import (
     reference_projection_for_queued_task,
 )
 from lib.generation.task_failure import encode_failure
+from tests.fakes import use_project_manager
 
 
 @pytest.fixture
@@ -257,7 +258,7 @@ class TestGenerationQueue:
             seen_options.append(kwargs["options"])
             return sentinel
 
-        monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: _ProjectManager())
+        use_project_manager(monkeypatch, _ProjectManager())
         monkeypatch.setattr("lib.script.reference_video.request_projection.project_reference_unit_request", _project)
 
         projection = await reference_projection_for_queued_task(
@@ -622,8 +623,12 @@ def stub_enqueue_resolution(monkeypatch):
         def load_project(self, project_name):
             return {}
 
+        def get_project_path(self, project_name):
+            # 项目不在磁盘上：迁移守卫按「无从判定」放行
+            raise FileNotFoundError(project_name)
+
     monkeypatch.setattr("lib.config.resolver.ConfigResolver", _FakeResolver)
-    monkeypatch.setattr("lib.config.resolver.get_project_manager", lambda: _FakeProjectManager())
+    use_project_manager(monkeypatch, _FakeProjectManager())
     return holder
 
 

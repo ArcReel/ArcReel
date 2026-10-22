@@ -26,6 +26,7 @@ from lib.prompts.style_templates import resolve_template_prompt
 from lib.workflow.workflow_state import WorkflowStateService
 from tests.legacy_project_shapes import (
     advance_project_schema,
+    without_version_content_digests,
     write_legacy_reference_video_project,
     write_legacy_style_project,
     write_undescribed_style_bases_project,
@@ -406,7 +407,8 @@ def test_killed_after_version_records_are_written_resumes_on_rerun(tmp_path: Pat
 
     migrate_project_dir(project_dir)
 
-    assert (project_dir / "versions" / "versions.json").read_bytes() == rewritten
+    after = json.loads((project_dir / "versions" / "versions.json").read_bytes())
+    assert without_version_content_digests(after) == json.loads(rewritten)
     for key in _REFERENCE_VIDEOS:
         assert _status(project_dir, key) == "current"
 

@@ -75,3 +75,22 @@ def test_a_video_call_on_a_custom_channel_is_charged_per_second_at_the_sent_reso
 
     # 可灵 2.6：1080p 无声 0.5 CNY/秒 × 5 秒
     assert cost == Priced(pytest.approx(2.5), "CNY")
+
+
+def test_custom_video_quote_carries_overridden_capabilities():
+    """预估请求不带能力时补上系统判定叠加用户覆盖后的能力：包装可灵并覆盖为恒有声时按有声计量。"""
+    from lib.custom_provider.endpoints import get_endpoint_spec
+    from lib.custom_provider.metering import CustomPriceSource
+    from lib.db.repositories.custom_provider_repo import CustomModelPricing
+
+    request = VideoGenerationRequest(
+        prompt="p", output_path=Path("o.mp4"), duration_seconds=5, generate_audio=False, service_tier="pro"
+    )
+    spec = get_endpoint_spec("kling-video")
+    plain = CustomPriceSource(CustomModelPricing(endpoint="kling-video"), spec)
+    overridden = CustomPriceSource(
+        CustomModelPricing(endpoint="kling-video", capability_overrides={"audio_track": "always_on"}), spec
+    )
+
+    assert plain.video_usage("kling-v3", request).dimensions["audio"] is False
+    assert overridden.video_usage("kling-v3", request).dimensions["audio"] is True

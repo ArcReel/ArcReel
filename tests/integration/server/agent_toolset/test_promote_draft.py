@@ -26,7 +26,7 @@ from lib.script.draft_quarantine import (
 from lib.script.reference_video.draft_validation import DraftViolation
 from server.draft_workflow import DraftContext, DraftWorkflow
 from server.text_generation import TextGenerationError, TextGenerationRequest, generate_reference_script_plan
-from tests.fakes import FakeTextGenerator
+from tests.fakes import FakeTextGenerator, use_text_generator
 from tests.integration.server.agent_tool_support import (
     _RV_NOVEL,
     ToolHarness,
@@ -141,9 +141,8 @@ async def test_reference_script_plan_write_transaction_does_not_block_event_loop
 ) -> None:
     rv_source(fake_ctx)
     resolver = use_fake_caps(fake_ctx)
-    from server import text_generation as mod
 
-    monkeypatch.setattr(mod.TextGenerator, "create", rv_generator_returning([rv_unit("@[张三] 起身")]))
+    use_text_generator(monkeypatch, rv_generator_returning([rv_unit("@[张三] 起身")]))
     started = threading.Event()
     release = threading.Event()
     caller_thread = threading.get_ident()
@@ -368,7 +367,6 @@ async def test_split_violation_quarantine_records_base_fingerprint(fake_ctx: Too
 
 
 async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: ToolHarness, monkeypatch) -> None:
-    from server import text_generation as mod
 
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
@@ -390,7 +388,7 @@ async def test_split_violation_keeps_pre_generation_formal_baseline(fake_ctx: To
         return _Generator()
 
     resolver = use_fake_caps(fake_ctx)
-    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    use_text_generator(monkeypatch, fake_create)
     generation = asyncio.create_task(
         generate_reference_script_plan(
             TextGenerationRequest(episode=1),
@@ -706,7 +704,6 @@ def _write_rv_formal_script(fake_ctx: ToolHarness, text: str) -> str | None:
 async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolHarness, monkeypatch) -> None:
     """prompt_authoring 晋升走 ``ScriptGenerator.create``：晋升同样经 _add_metadata 落盘，裸构造会把
     metadata.generator 记成 "unknown"，与直接生成路径的同一份产物对不上。"""
-    from lib.backends.text_generator import TextGenerator
 
     rv_project(fake_ctx)
     baseline = _write_rv_formal_script(fake_ctx, "@[张三] 在 @[村口] 等候")
@@ -728,7 +725,7 @@ async def test_promote_draft_prompt_authoring_uses_async_factory(fake_ctx: ToolH
         seen["project_name"] = project_name
         return _TextBoundary()
 
-    monkeypatch.setattr(TextGenerator, "create", create_text_generator)
+    use_text_generator(monkeypatch, create_text_generator)
     out = await promote_reference_draft(fake_ctx)
     assert out.problem is None, out
     assert "episode_1.json" in said(out)
@@ -741,7 +738,6 @@ async def test_promote_draft_surfaces_model_not_in_catalog_with_reselect_guidanc
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """晋升时文本模型已下架：不被包成 draft_promote_failed，给出重新选择模型的指引。"""
-    from lib.backends.text_generator import TextGenerator
     from lib.catalog.errors import ModelNotInCatalogError
 
     rv_project(fake_ctx)
@@ -758,7 +754,7 @@ async def test_promote_draft_surfaces_model_not_in_catalog_with_reselect_guidanc
     async def retired(*_args, **_kwargs):
         raise ModelNotInCatalogError(provider_id="ark", model_id="old-text", media_type="text")
 
-    monkeypatch.setattr(TextGenerator, "create", retired)
+    use_text_generator(monkeypatch, retired)
     out = await promote_reference_draft(fake_ctx)
     assert out.problem is not None
     assert out.problem.code == "model_not_in_provider_catalog"
@@ -768,7 +764,6 @@ async def test_promote_draft_surfaces_model_not_in_catalog_with_reselect_guidanc
 async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    from lib.backends.text_generator import TextGenerator
 
     rv_project(fake_ctx)
     baseline = _write_rv_formal_script(fake_ctx, "@[张三] 起身")
@@ -799,7 +794,7 @@ async def test_promote_draft_waits_for_file_lock_without_blocking_event_loop(
     async def create_text_generator(_task_type, _project_name=None, **_kwargs):
         return _TextBoundary()
 
-    monkeypatch.setattr(TextGenerator, "create", create_text_generator)
+    use_text_generator(monkeypatch, create_text_generator)
     pm = ProjectManager(fake_ctx.data_root)
     held = threading.Event()
     release = threading.Event()
@@ -884,7 +879,6 @@ async def test_promote_draft_prompt_authoring_ignores_unconfirmed_script_plan(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
     """prompt_authoring 草稿按正式剧本晋升：脚本规划重跑后尚未确认不阻塞晋升，与编写入口同口径。"""
-    from lib.backends.text_generator import TextGenerator
 
     rv_project(fake_ctx)
     baseline = _write_rv_formal_script(fake_ctx, "@[张三] 起身")
@@ -913,7 +907,7 @@ async def test_promote_draft_prompt_authoring_ignores_unconfirmed_script_plan(
     async def create_text_generator(_task_type, _project_name=None, **_kwargs):
         return _TextBoundary()
 
-    monkeypatch.setattr(TextGenerator, "create", create_text_generator)
+    use_text_generator(monkeypatch, create_text_generator)
     out = await promote_reference_draft(fake_ctx)
 
     assert out.problem is None, out
@@ -1163,7 +1157,6 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     """重新规范化是刻意的整份重建，与参考生视频的重拆分同口径：正式文件换成新产物的同一临界区内
     清掉上一轮草稿。留着它会让内容确认与 prompt_authoring 一直阻塞在一份已被取代的内容上，而草稿记下的基线
     指纹此刻也对不上，晋升只会反复报冲突——Agent 没有第二条出路。"""
-    from server import text_generation as mod
 
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
@@ -1173,9 +1166,7 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重新规范化后的描述。")]}
 
     use_fake_caps(fake_ctx)
-    monkeypatch.setattr(
-        mod.TextGenerator, "create", FakeTextGenerator(json.dumps(regenerated, ensure_ascii=False)).create
-    )
+    use_text_generator(monkeypatch, FakeTextGenerator(json.dumps(regenerated, ensure_ascii=False)).create)
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 
@@ -1187,7 +1178,6 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
 
 async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ctx: ToolHarness, monkeypatch) -> None:
     """重生成的正式文件提交与草稿 patch/promote 共用草稿锁，避免交叉覆盖。"""
-    from server import text_generation as mod
 
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
@@ -1196,9 +1186,7 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重新规范化后的描述。")]}
 
     use_fake_caps(fake_ctx)
-    monkeypatch.setattr(
-        mod.TextGenerator, "create", FakeTextGenerator(json.dumps(regenerated, ensure_ascii=False)).create
-    )
+    use_text_generator(monkeypatch, FakeTextGenerator(json.dumps(regenerated, ensure_ascii=False)).create)
     pm = ProjectManager(fake_ctx.data_root)
     target = drama_quarantine_path(fake_ctx)
     attempted = asyncio.Event()
@@ -1226,7 +1214,6 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
 async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    from server import text_generation as mod
 
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene()])
@@ -1250,7 +1237,7 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
         return _Generator()
 
     use_fake_caps(fake_ctx)
-    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    use_text_generator(monkeypatch, fake_create)
     generation = asyncio.create_task(
         run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
     )
@@ -1282,7 +1269,6 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
 async def test_normalize_drama_script_preserves_output_when_formal_changes_during_model_call(
     fake_ctx: ToolHarness, monkeypatch
 ) -> None:
-    from server import text_generation as mod
 
     drama_project(fake_ctx)
     write_drama_script_plan(fake_ctx, [drama_scene(scene_description="生成前内容")])
@@ -1304,7 +1290,7 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
         return _Generator()
 
     use_fake_caps(fake_ctx)
-    monkeypatch.setattr(mod.TextGenerator, "create", fake_create)
+    use_text_generator(monkeypatch, fake_create)
     generation = asyncio.create_task(
         run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
     )
@@ -1334,12 +1320,11 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
     丢弃重抽既烧钱又不收敛（同一模型对同一份原文大概率再犯同一类错），本机制的全部要点就是
     让 Agent 就地改这份已付费的产出。
     """
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     segments = [nr_segment("E1S01", 5, _RV_NOVEL, characters_in_segment=["王五"])]
     use_fake_caps(fake_ctx)
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning(segments))
+    use_text_generator(monkeypatch, nr_generator_returning(segments))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 
@@ -1361,7 +1346,6 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
 async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_ctx: ToolHarness, monkeypatch) -> None:
     """重跑拆分成功后清掉上一轮的草稿：正式文件已是新产物，旧草稿留着只会让内容确认与 prompt_authoring 继续
     阻塞在一份已被取代的内容上。"""
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     write_quarantine(
@@ -1372,7 +1356,7 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
         violations=[],
     )
     use_fake_caps(fake_ctx)
-    monkeypatch.setattr(mod.TextGenerator, "create", nr_generator_returning([nr_segment("E1S01", 4, _RV_NOVEL)]))
+    use_text_generator(monkeypatch, nr_generator_returning([nr_segment("E1S01", 4, _RV_NOVEL)]))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 
@@ -1385,15 +1369,10 @@ async def test_split_narration_segments_clears_quarantine_on_regeneration(fake_c
 async def test_split_narration_segments_rejects_malformed_segment_id(
     fake_ctx: ToolHarness, monkeypatch, segment_id: str
 ) -> None:
-    from server import text_generation as mod
 
     nr_source(fake_ctx)
     use_fake_caps(fake_ctx)
-    monkeypatch.setattr(
-        mod.TextGenerator,
-        "create",
-        nr_generator_returning([nr_segment(segment_id, 4, _RV_NOVEL)]),
-    )
+    use_text_generator(monkeypatch, nr_generator_returning([nr_segment(segment_id, 4, _RV_NOVEL)]))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "source": "source/episode_1.txt"})
 

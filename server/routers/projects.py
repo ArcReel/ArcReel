@@ -93,7 +93,8 @@ from lib.workflow.workflow_state import (
 )
 from server.auth import CurrentUser, create_download_token, verify_download_token
 from server.dependencies import require_project_migration_ok
-from server.i18n import DisplayNamesCatalog, Translator
+from server.i18n import DisplayNamesCatalog, Locale, Translator
+from server.routers._coalesce import RequestCoalescer
 from server.routers._episode_source_errors import episode_source_http_error
 from server.routers._script_edits import (
     execute_current_script_edit,
@@ -128,6 +129,12 @@ router = APIRouter()
 # 自带认证端点：浏览器原生下载导航带不了 Authorization header，
 # 端点内 verify_download_token 校验短时效下载 token，注册时不挂 Bearer 依赖。
 self_auth_router = APIRouter()
+
+_project_detail_coalescer = RequestCoalescer()
+
+
+def get_project_detail_coalescer() -> RequestCoalescer:
+    return _project_detail_coalescer
 
 
 def get_workflow_state_service() -> WorkflowStateService:
@@ -910,9 +917,11 @@ async def get_workflow_plan(name: str, request: WorkflowPlanRequest, current_use
 async def get_project(
     name: str,
     _t: Translator,
+    locale: Locale,
     summaries: WorkflowStateServiceDep,
+    coalescer: Annotated[RequestCoalescer, Depends(get_project_detail_coalescer)],
 ):
-    """获取项目详情（含实时计算字段）"""
+    """获取项目详情（含实时计算字段）。同一项目、同一语言的并发请求合流计算。"""
     try:
 
         def _sync():
@@ -956,7 +965,7 @@ async def get_project(
                 "asset_fingerprints": fingerprints,
             }
 
-        return await run_sync_transaction(_sync)
+        return await coalescer.run((name, locale), lambda: run_sync_transaction(_sync))
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
     except (HTTPException, ApiError):

@@ -7,6 +7,8 @@
 
 v18 起生成缺口只拦生成、依据照常投影（``docs/adr/0098``）。同一步按改前改后两次规划补录此前
 因缺口没登记的产物，已登记条目不动，见 :mod:`lib.project.project_migrations.input_gap_backfill`。
+之后给已登记的视频与配音补录内容指纹，正式文件与选中版本快照一致的才写，见
+:mod:`lib.project.project_migrations.content_digest_backfill`。
 
 同一步把 ``project.json`` 各模型字段里已改名的模型改写为后继模型（映射见
 ``lib.config.retired_model_ids``）；已下架而没有后继的引用原样保留，运行时报错由用户重选。产物依据
@@ -20,11 +22,13 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
+from lib.artifacts.artifact_manifest import MANIFEST_FILENAME
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.config.retired_model_ids import PROJECT_MODEL_SETTING_KEYS, migrate_retired_model_reference
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_migration_report import ArtifactBackfillOutcome
 from lib.project.project_migrations.backups import ensure_versioned_backup
+from lib.project.project_migrations.content_digest_backfill import backfill_content_digests
 from lib.project.project_migrations.input_gap_backfill import backfill_input_gap_artifacts
 from lib.project.project_schema import parse_project_schema_version
 
@@ -121,7 +125,10 @@ def migrate_v17_to_v18(project_dir: Path) -> ArtifactBackfillOutcome | None:
             raise ValueError("project.json 必须是对象")
         if parse_project_schema_version(project) >= TARGET_SCHEMA_VERSION:
             return None
+        # 清单在改写前留一份备份（版本记录由缺口补录先行备份）；两次补录的内部备份随之去重。
+        ensure_versioned_backup(project_dir / MANIFEST_FILENAME, _FROM_VERSION)
         outcome = backfill_input_gap_artifacts(project_dir, project)
+        backfill_content_digests(project_dir)
         for path in timeline_files(project_dir):
             try:
                 document = json.loads(path.read_bytes())

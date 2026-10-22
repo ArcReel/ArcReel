@@ -20,6 +20,7 @@ from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.routers import agent_memory
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+from tests.fakes import use_project_manager
 
 USER_BASE = "/api/v1/agent/memory"
 PROJECT_BASE = "/api/v1/projects/demo/agent-memory"
@@ -214,11 +215,10 @@ class TestProjectScoping:
         assert client.get(PROJECT_BASE).json()["files"] == []
 
     def test_blocked_migration_freezes_project_writes_but_not_reads(self, client, demo_data_root, monkeypatch):
-        import lib.project.project_migration_guard as guard
 
         client.put(f"{PROJECT_BASE}/files/tone.md", content=b"body")
         record_migration_failure(_demo_dir(demo_data_root), RuntimeError("broken chain"), schema_version=1)
-        monkeypatch.setattr(guard, "get_project_manager", lambda: ProjectManager(str(demo_data_root)))
+        use_project_manager(monkeypatch, ProjectManager(str(demo_data_root)))
 
         assert client.get(PROJECT_BASE).status_code == 200
         assert client.get(f"{PROJECT_BASE}/files/tone.md").status_code == 200

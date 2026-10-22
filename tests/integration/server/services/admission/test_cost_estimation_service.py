@@ -449,6 +449,28 @@ class TestCostEstimationService:
             "unpriced_reason": None,
         }
 
+    @pytest.mark.parametrize(
+        ("has_audio_track", "controllable", "requested", "expected"),
+        [
+            (True, False, False, True),  # 恒有声（AI Studio 目录型号）：上游照常出有声成片
+            (True, True, False, False),  # 开关可控（Vertex，含放宽了音轨的用户添加型号）：跟随开关
+            (False, False, True, True),  # 恒无声：原样带出开关，由调用通道按型号计量
+            (True, True, True, True),
+        ],
+    )
+    def test_provider_request_audio_is_what_execution_sends(self, has_audio_track, controllable, requested, expected):
+        """预估还原的请求带执行时实际发出的音频开关，调用通道按请求中的开关计量。"""
+        facts = make_video_request_facts(
+            provider_id="gemini-vertex",
+            requested_generate_audio=requested,
+            has_audio_track=has_audio_track,
+            audio_switch_controllable=controllable,
+        )
+
+        request = VideoRequestCostFacts(facts, 8, aspect_ratio="16:9").provider_request()
+
+        assert request.generate_audio is expected
+
     async def test_ark_video_tokens_are_estimated_by_the_official_formula(self, db_factory):
         """Seedance 2.0 按 (输入视频秒数 + 输出秒数) × 宽 × 高 × 24 / 1024 估算视频 token，再按价目表计价。"""
         quote = await quote_video_request(
@@ -1120,6 +1142,30 @@ class TestCostEstimationService:
         assert await _estimated_image_total(None) == pytest.approx(
             await _estimated_image_total(GRID_FALLBACK_RESOLUTION)
         )
+
+    async def test_grid_estimate_without_fallback_tier_in_catalog_is_priced(self, db_factory, monkeypatch):
+        """目录不含保底档的型号（viduq1 只声明 1080p），未配置分辨率时宫格不下发档位，按价目表默认档计价。"""
+        from server.services.admission import cost_estimation as ce
+
+        async def _unset(_r, _project):
+            return None
+
+        monkeypatch.setattr(ce, "resolve_image_resolution", _unset)
+        project_data = {
+            "title": "Test",
+            "content_mode": "narration",
+            "generation_mode": "storyboard",
+            "grid_storyboard": True,
+            "image_provider_t2i": "vidu/viduq1",
+            "episodes": [{"episode": 1, "title": "Ep1", "script_file": "ep1.json"}],
+        }
+        scripts = {"ep1.json": _make_script(1, [f"E1S{i:03d}" for i in range(1, 10)], [6] * 9)}
+
+        service = CostEstimationService(ConfigResolver(db_factory), db_factory)
+        result = await service.compute(project_data, scripts, project_name="proj")
+
+        segments = result["episodes"][0]["segments"]
+        assert sum(seg["estimate"]["image"].get("CNY", 0) for seg in segments) == pytest.approx(0.625, rel=1e-4)
 
     async def test_plain_storyboard_estimate_prices_at_resolved_resolution(self, db_factory, monkeypatch):
         """普通（非宫格）分镜图同样按执行期生效的分辨率档计价；未配置时不下发分辨率，按价目表的默认档计。"""
