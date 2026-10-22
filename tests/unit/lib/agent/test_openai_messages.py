@@ -93,14 +93,22 @@ def test_request_preserves_system_text_tool_schema_and_effort(request_body):
     assert request_body == original
 
 
-def test_native_cli_keep_all_context_and_display_hint_preserve_reasoning(request_body):
-    request_body["thinking"] = {"type": "adaptive", "display": "updates"}
+@pytest.mark.parametrize("display", ["updates", "summarized", "omitted"])
+def test_native_cli_keep_all_context_and_display_hint_preserve_reasoning(request_body, display):
+    request_body["thinking"] = {"type": "adaptive", "display": display}
     request_body["context_management"] = {"edits": [{"type": "clear_thinking_20251015", "keep": "all"}]}
     payload, _ = to_responses_request(request_body)
     assert payload["reasoning"] == {"effort": "medium"}
     assert payload["include"] == ["reasoning.encrypted_content"]
     assert "context_management" not in payload
     assert "thinking" not in payload
+
+
+@pytest.mark.parametrize("display", ["unknown", "", 1, {"mode": "omitted"}])
+def test_unknown_thinking_display_is_rejected_without_echoing_input(request_body, display):
+    request_body["thinking"] = {"type": "adaptive", "display": display}
+    with pytest.raises(ConversionError, match=r"^Unsupported thinking display mode$"):
+        to_responses_request(request_body)
 
 
 @pytest.mark.parametrize("role", ["system", "developer"])

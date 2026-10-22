@@ -22,6 +22,7 @@ import pytest
 import respx
 import uvicorn
 from claude_agent_sdk import (
+    AgentDefinition,
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
@@ -51,6 +52,7 @@ _MODEL = "gpt-6.1-sol"
 _KEY = "synthetic-director-key"
 _IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aDYsAAAAASUVORK5CYII="
 _INITIAL_PROMPT = "Inspect shot one then give your conclusion."
+_CHILD_PROMPT = "Review the synthetic frame in the child agent."
 _RESUME_PROMPT = "Continue using the approved voice."
 _INTERRUPT_PROMPT = "Hold this turn open for interruption."
 _RECOVERY_PROMPT = "Continue after the cancelled turn."
@@ -109,6 +111,7 @@ class _OpenAIResponses:
         self.requests: list[dict[str, Any]] = []
         self.interrupted = _InterruptedStream()
         self.image_path: Path | None = None
+        self.delegate_review = False
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         assert request.headers["authorization"] == f"Bearer {_KEY}"
@@ -118,7 +121,26 @@ class _OpenAIResponses:
         if _INTERRUPT_PROMPT in prompt and _RECOVERY_PROMPT not in prompt:
             return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=self.interrupted)
         tool_outputs = [item for item in payload["input"] if item.get("type") == "function_call_output"]
-        if _INITIAL_PROMPT in prompt and not tool_outputs:
+        if self.delegate_review and _INITIAL_PROMPT in prompt and not tool_outputs:
+            name = next(tool["name"] for tool in payload["tools"] if tool["name"] in {"Agent", "Task"})
+            output = [
+                {
+                    "type": "function_call",
+                    "id": "fc_delegate",
+                    "call_id": "call_delegate",
+                    "name": name,
+                    "arguments": json.dumps(
+                        {
+                            "description": "Review the synthetic frame",
+                            "prompt": _CHILD_PROMPT,
+                            "subagent_type": "frame-review",
+                            "run_in_background": False,
+                        }
+                    ),
+                    "status": "completed",
+                }
+            ]
+        elif (_INITIAL_PROMPT in prompt or _CHILD_PROMPT in prompt) and not tool_outputs:
             name = next(tool["name"] for tool in payload["tools"] if "inspect_frame" in tool["name"])
             output = [
                 {
@@ -238,7 +260,7 @@ async def _result(client: ClaudeSDKClient, *, texts: list[str] | None = None) ->
 
 
 @pytest.mark.timeout(90)
-@pytest.mark.parametrize("tool_catalog", ["minimal", "production"])
+@pytest.mark.parametrize("tool_catalog", ["minimal", "production", "production-subagent"])
 async def test_native_cli_tool_image_resume_and_interrupt(tmp_path: Path, monkeypatch, tool_catalog: str):
     binary_name = "claude.exe" if sys.platform == "win32" else "claude"
     cli_path = Path(claude_agent_sdk.__file__).parent / "_bundled" / binary_name
@@ -267,6 +289,7 @@ async def test_native_cli_tool_image_resume_and_interrupt(tmp_path: Path, monkey
                 "tool_names": [declaration.get("name") for declaration in declarations],
                 "tool_fields": sorted({field for declaration in declarations for field in declaration}),
                 "tool_types": sorted({str(declaration.get("type")) for declaration in declarations}),
+                "thinking": body.get("thinking"),
             }
         )
 
@@ -323,12 +346,13 @@ async def test_native_cli_tool_image_resume_and_interrupt(tmp_path: Path, monkey
                     mcp_servers=synthetic_mcp,
                     allowed_tools=["mcp__test__inspect_frame"],
                 )
-                if tool_catalog == "production":
+                if tool_catalog.startswith("production"):
                     data_root = tmp_path / "data"
                     project_dir = data_root / "projects" / "demo"
                     project_dir.mkdir(parents=True)
-                    replies.image_path = project_dir / "reference.png"
-                    replies.image_path.write_bytes(base64.b64decode(_IMAGE))
+                    if tool_catalog == "production":
+                        replies.image_path = project_dir / "reference.png"
+                        replies.image_path.write_bytes(base64.b64decode(_IMAGE))
                     policy = AgentAccessPolicy(
                         project_root=tmp_path / "repository",
                         data_root=data_root,
@@ -358,6 +382,21 @@ async def test_native_cli_tool_image_resume_and_interrupt(tmp_path: Path, monkey
                         mcp_servers={**assembled.mcp_servers, **synthetic_mcp},
                         allowed_tools=[*assembled.allowed_tools, "mcp__test__inspect_frame"],
                     )
+                    if tool_catalog == "production-subagent":
+                        replies.delegate_review = True
+                        options = replace(
+                            options,
+                            thinking={"type": "adaptive"},
+                            forward_subagent_text=False,
+                            agents={
+                                "frame-review": AgentDefinition(
+                                    description="Review a synthetic frame.",
+                                    prompt="Inspect the frame before giving your conclusion.",
+                                    tools=["mcp__test__inspect_frame"],
+                                    background=False,
+                                )
+                            },
+                        )
                 with respx.mock(assert_all_mocked=True, assert_all_called=False) as http:
                     http.route(host="127.0.0.1").pass_through()
                     http.post(OPENAI_RESPONSES_URL).mock(side_effect=replies)
@@ -380,7 +419,7 @@ async def test_native_cli_tool_image_resume_and_interrupt(tmp_path: Path, monkey
                                 if tool_catalog == "production"
                                 else [{"shot": "one"}, {"shot": "two"}]
                             )
-                            if tool_catalog == "production":
+                            if tool_catalog.startswith("production"):
                                 names = set(request_shapes[0]["tool_names"])
                                 assert {"Read", "Bash"}.issubset(names)
                                 assert {f"mcp__arcreel__{name}" for name in ARCREEL_MCP_TOOL_IDS}.issubset(names)
@@ -388,7 +427,10 @@ async def test_native_cli_tool_image_resume_and_interrupt(tmp_path: Path, monkey
                         tool_turn = next(
                             body
                             for body in replies.requests
-                            if any(item.get("type") == "function_call_output" for item in body["input"])
+                            if any(
+                                item.get("type") == "function_call_output" and item.get("call_id") == "call_review"
+                                for item in body["input"]
+                            )
                         )
                         tool_output = next(
                             item for item in tool_turn["input"] if item.get("type") == "function_call_output"
@@ -413,6 +455,18 @@ async def test_native_cli_tool_image_resume_and_interrupt(tmp_path: Path, monkey
                             and item.get("encrypted_content") == "synthetic-encrypted-history"
                             for item in tool_turn["input"]
                         )
+                        if tool_catalog == "production-subagent":
+                            assert any(
+                                (shape["thinking"] or {}).get("display") == "omitted" for shape in request_shapes
+                            ), [shape["thinking"] for shape in request_shapes]
+                            assert any(
+                                item.get("type") == "function_call_output"
+                                and item.get("call_id") == "call_delegate"
+                                and any(_ANSWER in part.get("text", "") for part in item["output"])
+                                for body in replies.requests
+                                for item in body["input"]
+                            )
+                            return
 
                         async with agent_client_session(
                             replace(options, resume=first.session_id), client_factory=ClaudeSDKClient, registry=registry

@@ -312,7 +312,8 @@ def to_responses_request(body: Mapping[str, Any]) -> tuple[dict[str, Any], dict[
     config = _object(body.get("output_config", {}), "output config")
     _reject_extra(config, {"effort"}, "output config")
     _reject_extra(thinking, {"type", "budget_tokens", "display"}, "thinking")
-    if thinking.get("display") not in (None, "updates"):
+    # Display controls presentation only; encrypted reasoning always round-trips.
+    if thinking.get("display") not in (None, "updates", "summarized", "omitted"):
         raise ConversionError("Unsupported thinking display mode")
     thinking_type = thinking.get("type")
     if thinking_type not in (None, "enabled", "disabled", "adaptive"):
