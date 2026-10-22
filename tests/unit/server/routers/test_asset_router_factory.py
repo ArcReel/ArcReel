@@ -15,7 +15,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import characters
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_translator
-from tests.fakes import FakeProjectAssetMutationMixin
+from tests.fakes import FakeProjectAssetMutationMixin, use_project_manager
 
 # 兜底 500 的默认 locale 文案：测试未覆盖 get_translator，端点回落到 DEFAULT_LOCALE("zh")，
 # 与 make_translator() 默认 locale 一致。
@@ -96,7 +96,7 @@ class _FakePM(FakeProjectAssetMutationMixin):
 
 def _client(monkeypatch):
     fake_pm = _FakePM()
-    monkeypatch.setattr(characters, "get_project_manager", lambda: fake_pm)
+    use_project_manager(monkeypatch, fake_pm)
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -347,11 +347,7 @@ class TestAssetRouterNoLeak:
     """
 
     def test_add_unexpected_error_no_leak(self, monkeypatch):
-        monkeypatch.setattr(
-            characters,
-            "get_project_manager",
-            lambda: (_ for _ in ()).throw(RuntimeError("LEAK_add")),
-        )
+        monkeypatch.setattr(characters, "get_project_manager", lambda: (_ for _ in ()).throw(RuntimeError("LEAK_add")))
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
         app.include_router(characters.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
@@ -363,9 +359,7 @@ class TestAssetRouterNoLeak:
 
     def test_update_unexpected_error_no_leak(self, monkeypatch):
         monkeypatch.setattr(
-            characters,
-            "get_project_manager",
-            lambda: (_ for _ in ()).throw(RuntimeError("LEAK_update")),
+            characters, "get_project_manager", lambda: (_ for _ in ()).throw(RuntimeError("LEAK_update"))
         )
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
@@ -378,9 +372,7 @@ class TestAssetRouterNoLeak:
 
     def test_delete_unexpected_error_no_leak(self, monkeypatch):
         monkeypatch.setattr(
-            characters,
-            "get_project_manager",
-            lambda: (_ for _ in ()).throw(RuntimeError("LEAK_delete")),
+            characters, "get_project_manager", lambda: (_ for _ in ()).throw(RuntimeError("LEAK_delete"))
         )
         app = FastAPI()
         app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")

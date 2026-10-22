@@ -16,10 +16,10 @@ from lib.config.repository import ProviderConfigRepository, SystemSettingReposit
 from lib.db.repositories.credential_repository import CredentialRepository
 from lib.infra.schema_guards import is_int
 
-_DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
-_DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image"
-_DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
-_DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
+DEFAULT_VIDEO_BACKEND = "gemini-aistudio/veo-3.1-lite-generate-preview"
+DEFAULT_IMAGE_BACKEND = "gemini-aistudio/gemini-3.1-flash-image"
+DEFAULT_TEXT_BACKEND = "gemini-aistudio/gemini-3-flash-preview"
+DEFAULT_AUDIO_BACKEND = "dashscope/qwen3-tts-flash"
 # 旁白默认音色（DashScope 预设）；全局 setting 未配置时的兜底。全局音色与语速只作为新建 TTS 项目
 # 的预填值，项目创建后以 project.json 顶层的快照为准（docs/adr/0089）。
 _DEFAULT_NARRATION_VOICE = "Cherry"
@@ -28,8 +28,8 @@ MIN_VIDEO_POLL_TIMEOUT_SECONDS = 60
 # 参考上传副本的保守通用请求体上限（ArcReel 侧安全策略常量，非任一供应商的真实字节限；
 # 被动 413 兜底负责自我纠正）。可经 per-provider 配置 key 覆盖。
 # 与 lib/references/reference_compression.DEFAULT_* 数值一致（单测断言对齐）。
-_DEFAULT_REFERENCE_TOTAL_MAX_BYTES = 8 * 1024 * 1024
-_DEFAULT_REFERENCE_SINGLE_MAX_BYTES = 4 * 1024 * 1024
+DEFAULT_REFERENCE_TOTAL_MAX_BYTES = 8 * 1024 * 1024
+DEFAULT_REFERENCE_SINGLE_MAX_BYTES = 4 * 1024 * 1024
 
 # 写入层校验为正整数的容量键（与 CapacityTable 的三条 lane 一一对应）。
 # 其余 number 字段（image_rpm / video_rpm / request_gap）语义不同（允许小数），不在此列。
@@ -238,16 +238,16 @@ class ConfigService:
         await self._setting_repo.set("video_poll_timeout_seconds", str(value))
 
     async def get_default_video_backend(self) -> tuple[str, str]:
-        raw = await self._setting_repo.get("default_video_backend", _DEFAULT_VIDEO_BACKEND)
-        return self._parse_backend(raw, _DEFAULT_VIDEO_BACKEND)
+        raw = await self._setting_repo.get("default_video_backend", DEFAULT_VIDEO_BACKEND)
+        return self._parse_backend(raw, DEFAULT_VIDEO_BACKEND)
 
     async def get_default_text_backend(self) -> tuple[str, str]:
-        raw = await self._setting_repo.get("default_text_backend", _DEFAULT_TEXT_BACKEND)
-        return self._parse_backend(raw, _DEFAULT_TEXT_BACKEND)
+        raw = await self._setting_repo.get("default_text_backend", DEFAULT_TEXT_BACKEND)
+        return self._parse_backend(raw, DEFAULT_TEXT_BACKEND)
 
     async def get_default_audio_backend(self) -> tuple[str, str]:
-        raw = await self._setting_repo.get("default_audio_backend", _DEFAULT_AUDIO_BACKEND)
-        return self._parse_backend(raw, _DEFAULT_AUDIO_BACKEND)
+        raw = await self._setting_repo.get("default_audio_backend", DEFAULT_AUDIO_BACKEND)
+        return self._parse_backend(raw, DEFAULT_AUDIO_BACKEND)
 
     async def get_narration_voice(self) -> str:
         # 空白 setting 视为未配置，与项目级覆盖的 strip 语义一致，避免空音色进 TTS 请求

@@ -25,7 +25,15 @@ from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import CurrentUserInfo, get_current_user
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_video_request_facts
-from tests.fakes import fake_reference_request_projector, write_backend_output
+from tests.fakes import (
+    fake_reference_request_projector,
+    use_generation_context,
+    use_generation_queue,
+    use_project_manager,
+    use_reference_projection,
+    use_video_thumbnail_extractor,
+    write_backend_output,
+)
 
 _TINY_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x04\x00\x00\x00\x04"
@@ -100,19 +108,11 @@ def three_bucket_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     from lib.project.project_manager import ProjectManager
     from server.routers import reference_videos as router_mod
-    from server.services.tasks import generation_tasks as gt_mod
-    from server.services.tasks import reference_video_tasks as rvt_mod
 
     custom_pm = ProjectManager(tmp_path)
-    monkeypatch.setattr(router_mod, "get_project_manager", lambda: custom_pm)
-    monkeypatch.setattr(gt_mod, "get_project_manager", lambda: custom_pm)
-    monkeypatch.setattr(rvt_mod, "get_project_manager", lambda: custom_pm)
+    use_project_manager(monkeypatch, custom_pm)
     # 保留真实资产水合、定桶与时长投影，只隔离本用例不关心的 DB 能力查询。
-    monkeypatch.setattr(
-        router_mod,
-        "project_reference_unit_request",
-        fake_reference_request_projector(durations=(3, 7)),
-    )
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(3, 7)))
 
     app = FastAPI()
     app.include_router(router_mod.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
@@ -145,11 +145,9 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
         captured.update(kwargs)
         return {"task_id": "t-e2e", "deduped": False}
 
-    from server.routers import reference_videos as router_mod
-
     fake_queue = MagicMock()
     fake_queue.enqueue_task = AsyncMock(side_effect=_fake_enqueue)
-    monkeypatch.setattr(router_mod, "get_generation_queue", lambda: fake_queue)
+    use_generation_queue(monkeypatch, fake_queue)
 
     resp = client.post(f"/api/v1/projects/demo/reference-videos/episodes/1/units/{uid}/generate")
     assert resp.status_code == 202
@@ -170,7 +168,6 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     fake_generator.versions.get_versions.return_value = {"versions": [{"created_at": "2026-04-20T12:00:00"}]}
 
     from lib.config.resolver import ProviderModel
-    from server.services.tasks import reference_video_tasks as rvt_mod
     from server.services.tasks.generation_context import GenerationContext, VideoLaneResult
 
     ctx = GenerationContext(
@@ -195,12 +192,12 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     async def _fake_resolve(*_a, **_k):
         return ctx
 
-    monkeypatch.setattr(rvt_mod, "resolve_generation_context", _fake_resolve)
+    use_generation_context(monkeypatch, _fake_resolve)
 
     async def _fake_extract(*_a, **_k):
         return True
 
-    monkeypatch.setattr(rvt_mod, "extract_video_thumbnail", _fake_extract)
+    use_video_thumbnail_extractor(monkeypatch, _fake_extract)
 
     # 4) 直接调 executor（绕过真实 worker 轮询）
     from server.services.tasks.generation_tasks import execute_generation_task
@@ -255,7 +252,6 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
 
     from lib.config.resolver import ProviderModel
     from lib.script.reference_video.request_projection import ReferenceProjectionBlockedError
-    from server.services.tasks import reference_video_tasks as rvt_mod
     from server.services.tasks.generation_context import GenerationContext, VideoLaneResult
     from server.services.tasks.generation_tasks import execute_generation_task
 
@@ -281,7 +277,7 @@ async def test_e2e_missing_reference_raises(three_bucket_client):
     async def _fake_resolve(*_args, **_kwargs):
         return context
 
-    monkeypatch.setattr(rvt_mod, "resolve_generation_context", _fake_resolve)
+    use_generation_context(monkeypatch, _fake_resolve)
 
     with pytest.raises(ReferenceProjectionBlockedError) as exc:
         await execute_generation_task(

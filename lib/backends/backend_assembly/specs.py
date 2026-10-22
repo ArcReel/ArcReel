@@ -16,7 +16,7 @@ provider_name 计费归因）各挂专属闭包；文本侧别名映射（dashsc
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import partial
 from typing import TYPE_CHECKING, Any
 
@@ -577,7 +577,8 @@ def builtin_video_metered_usage(
 ) -> Usage:
     """内置供应商的视频调用通道对一个请求上报的计量，不构造实例；声明式供应商从随版定义读。
 
-    ``result`` 为 ``None`` 时是提交前预估；给出时与结算时调用通道实例上报的计量相同。
+    ``result`` 为 ``None`` 时是提交前预估；给出时与结算时调用通道实例上报的计量相同。请求没带能力时补上
+    叠加用户覆盖后的能力，与执行时请求携带的那份同源，放宽的维度按实际发出的请求计量。
     """
     spec = get_provider_spec(provider_id, "video")
     if spec.registry_backend == "declarative":
@@ -590,6 +591,8 @@ def builtin_video_metered_usage(
         return declarative_video_usage(definition, request, result)
     from lib.backends.video_backends.registry import metered_usage_for_model
 
+    if request.video_capabilities is None:
+        request = replace(request, video_capabilities=builtin_video_capabilities_for_model(provider_id, model_id))
     return metered_usage_for_model(spec.registry_backend, model_id, request, result)
 
 

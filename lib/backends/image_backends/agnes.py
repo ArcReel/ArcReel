@@ -252,7 +252,7 @@ class AgnesImageBackend:
 
         # 完整响应体可能含 prompt / 签名 URL 等敏感字段，与请求日志脱敏策略一致：只记键名与
         # data 条数，不落整 body；异常消息同样不嵌 body——避免 "503"/"timeout" 子串被默认
-        # _should_retry 误判为可重试（仓库已确立按状态码而非字符串判重试）。
+        # should_retry 误判为可重试（仓库已确立按状态码而非字符串判重试）。
         data_items = data.get("data")
         logger.error(
             "Agnes 图像响应缺少 url/b64_json: keys=%s data_count=%s",

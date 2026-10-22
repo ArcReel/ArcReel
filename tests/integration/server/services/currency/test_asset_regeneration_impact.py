@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from lib.artifacts.artifact_currency import resolve_current_artifact_target
+from lib.artifacts.artifact_activation import register_current_artifact
 from lib.artifacts.artifact_manifest import (
     ArtifactKey,
     ArtifactManifestEntry,
@@ -90,9 +90,7 @@ def _write_artifact(project_dir: Path, relative_path: str) -> Path:
 
 
 def _claim_current(project_dir: Path, key: ArtifactKey) -> None:
-    entry = resolve_current_artifact_target(project_dir, key)
-    assert entry is not None
-    ProjectArtifactManifestAdapter(project_dir).put_entry(key, entry)
+    register_current_artifact(project_dir, key)
 
 
 def _claim_reference_video(cast_projects: ProjectManager, unit: dict) -> None:

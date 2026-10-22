@@ -109,6 +109,7 @@ def gate_video_request(
     model: str,
     prompt: str | None = None,
     has_image: bool = False,
+    has_first_frame: bool = False,
     end_image: Path | None = None,
     reference_images: "list[Path] | None" = None,
     reference_audio_files: "list[Path] | None" = None,
@@ -116,14 +117,15 @@ def gate_video_request(
 ) -> None:
     """统一的请求期能力前置校验：违约抛 ``VideoCapabilityError``，通过则静默返回。
 
-    纯文生能力与三条可选输入路径（尾帧 / 参考图 / 参考音频）在这里一处判定，而不是散在各 backend 的
+    纯文生能力与四条可选输入路径（首帧 / 尾帧 / 参考图 / 参考音频）在这里一处判定，而不是散在各 backend 的
     payload 组装里各写一套——散写的后果是同一种违约在不同供应商下有的硬失败、有的静默截断，
     用户拿到照常扣费但与意图不符的结果却无从得知。故本函数只做拒绝，不做降级：
     能力不支持一律抛错，由上层渲染成用户可读错误（文案见 ``lib/i18n/*/errors.py``）。
 
     ``has_image`` 由调用方按实际下发的图片槽位填写；为 False 时检查纯文生能力。
+    ``has_first_frame`` 同样按实际下发的请求是否带首帧填写（``plan_frame_slots`` 的 ``start_index``）。
 
-    ``caps`` 为 None 表示调用方未查询后端能力——三条路径都不走时能力声明不影响任何结果，
+    ``caps`` 为 None 表示调用方未查询后端能力——四条路径都不走时能力声明不影响任何结果，
     调用方可省去这次查询。传 None 却带任一路径的输入一律按不支持拒绝，而不是放行：占位一份
     "支持"的假能力会让未经能力核实的请求下发出去，正是本函数要堵的降级。
 
@@ -133,7 +135,7 @@ def gate_video_request(
     未知（探测失败/环境不支持），此时跳过总时长校验而不是当作超限拒绝——与本仓库媒体探测
     不可用时降级放行的既有口径一致。
 
-    ``prompt`` 与三条可选路径不同：它在每个请求上都存在，故 ``caps`` 未声明
+    ``prompt`` 与四条可选路径不同：它在每个请求上都存在，故 ``caps`` 未声明
     ``max_prompt_chars`` 时（含 ``caps`` 为 None）跳过该项——未声明约束不等于上限为 0。
 
     与 :func:`plan_frame_slots` 分离是有意的：校验会抛、组装是纯函数，两者调用时机不同——
@@ -153,6 +155,9 @@ def gate_video_request(
 
     if caps is not None and not has_image and not caps.text_to_video:
         raise VideoCapabilityError("video_capability_missing_t2v", provider=provider, model=model)
+
+    if has_first_frame and (caps is None or not caps.first_frame):
+        raise VideoCapabilityError("video_first_frame_unsupported", provider=provider, model=model)
 
     if end_image is not None and (caps is None or not caps.last_frame):
         raise VideoCapabilityError("video_last_frame_unsupported", provider=provider, model=model)

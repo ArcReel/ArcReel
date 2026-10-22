@@ -31,12 +31,12 @@ from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.service import (
-    _DEFAULT_AUDIO_BACKEND,
-    _DEFAULT_IMAGE_BACKEND,
-    _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
-    _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
-    _DEFAULT_TEXT_BACKEND,
-    _DEFAULT_VIDEO_BACKEND,
+    DEFAULT_AUDIO_BACKEND,
+    DEFAULT_IMAGE_BACKEND,
+    DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+    DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+    DEFAULT_TEXT_BACKEND,
+    DEFAULT_VIDEO_BACKEND,
     ConfigService,
 )
 from lib.custom_provider import is_custom_provider, parse_provider_id
@@ -199,7 +199,7 @@ class _LayeredBackendKeys:
 _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     generation_type: _LayeredBackendKeys(
         media_type="image",
-        parse_fallback=_DEFAULT_IMAGE_BACKEND,
+        parse_fallback=DEFAULT_IMAGE_BACKEND,
         project_bucket_key=f"image_provider_{generation_type}",
         project_default_key="default_image_backend",
         global_bucket_key=f"default_image_backend_{generation_type}",
@@ -215,7 +215,7 @@ _IMAGE_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
     generation_type: _LayeredBackendKeys(
         media_type="video",
-        parse_fallback=_DEFAULT_VIDEO_BACKEND,
+        parse_fallback=DEFAULT_VIDEO_BACKEND,
         project_bucket_key=f"video_provider_{generation_type}",
         project_default_key="video_backend",
         global_bucket_key=f"default_video_backend_{generation_type}",
@@ -229,7 +229,7 @@ _VIDEO_LAYERED_KEYS: dict[str, _LayeredBackendKeys] = {
 # 任务类型桶的调用方（费用估算、限流路由兜底、配置展示）解析，不施加桶键覆盖也不过能力闸。
 _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="video",
-    parse_fallback=_DEFAULT_VIDEO_BACKEND,
+    parse_fallback=DEFAULT_VIDEO_BACKEND,
     project_default_key="video_backend",
     global_default_key="default_video_backend",
 )
@@ -239,7 +239,7 @@ _VIDEO_DEFAULT_LAYERED_KEYS = _LayeredBackendKeys(
 # audio_backend 字段，全局默认层用 default_audio_backend 设置键。
 _AUDIO_LAYERED_KEYS = _LayeredBackendKeys(
     media_type="audio",
-    parse_fallback=_DEFAULT_AUDIO_BACKEND,
+    parse_fallback=DEFAULT_AUDIO_BACKEND,
     project_default_key="audio_backend",
     global_default_key="default_audio_backend",
 )
@@ -399,7 +399,7 @@ _TEXT_TIER_SETTING_KEYS: dict[TextTaskTier, str] = {
 _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
     tier: _LayeredBackendKeys(
         media_type="text",
-        parse_fallback=_DEFAULT_TEXT_BACKEND,
+        parse_fallback=DEFAULT_TEXT_BACKEND,
         project_bucket_key=tier_key,
         project_default_key="default_text_backend",
         global_bucket_key=tier_key,
@@ -772,7 +772,7 @@ class ConfigResolver:
         """解析当前项目应使用的视频 (provider_id, model_id)。
 
         优先级：项目级 `project.json.video_backend` > 系统设置 `default_video_backend` >
-        系统默认 `_DEFAULT_VIDEO_BACKEND` > auto-resolve（按 registry 顺序挑第一个 ready）。
+        系统默认 `DEFAULT_VIDEO_BACKEND` > auto-resolve（按 registry 顺序挑第一个 ready）。
 
         返回字面配置结果，不做自定义供应商的身份收敛——供配置展示与「当前选的是哪个」类
         判断使用；要拿运行时实际执行的身份请用 ``resolve_video_backend()``。
@@ -1098,7 +1098,7 @@ class ConfigResolver:
         避免把 PIL 间接拖进被广泛依赖的 resolver。
         """
         if provider_id is None:
-            return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+            return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
         async with self._open_session() as (session, svc):
             return await self._resolve_reference_payload_limits(svc, session, provider_id)
 
@@ -1710,9 +1710,9 @@ class ConfigResolver:
             cfg = await self._resolve_provider_config(svc, session, provider_id)
         except ValueError:
             # 未知 / 自定义供应商（_validate_provider 抛 ValueError）→ 回退保守通用默认
-            return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
-        total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), _DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
-        single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), _DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
+            return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        total = _parse_int(cfg.get(_REFERENCE_TOTAL_MAX_BYTES_KEY), DEFAULT_REFERENCE_TOTAL_MAX_BYTES)
+        single = _parse_int(cfg.get(_REFERENCE_SINGLE_MAX_BYTES_KEY), DEFAULT_REFERENCE_SINGLE_MAX_BYTES)
         return total, single
 
     async def _resolve_all_provider_configs(

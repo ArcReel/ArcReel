@@ -4,6 +4,7 @@ import pytest
 
 from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE
 from server.services.tasks import generation_tasks
+from tests.fakes import use_project_manager
 from tests.integration.server.services.tasks.generation_tasks_support import (
     _FakePM,
 )
@@ -26,7 +27,7 @@ class TestGenerationTasks:
         sb.write_bytes(b"img")
 
         fake_pm = _FakePM(project_path)
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         generation_tasks.emit_generation_success_batch(
             task_type="storyboard",
@@ -54,7 +55,7 @@ class TestGenerationTasks:
         sheet = project_path / "characters" / "derivatives" / "阿岚" / "战斗装.png"
         sheet.parent.mkdir(parents=True)
         sheet.write_bytes(b"img")
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: _FakePM(project_path))
+        use_project_manager(monkeypatch, _FakePM(project_path))
 
         generation_tasks.emit_generation_success_batch(
             task_type=DERIVATIVE_TASK_TYPE,
@@ -98,7 +99,7 @@ class TestGenerationTasks:
 
         project_path = tmp_path / "demo"
         project_path.mkdir()
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: _FakePM(project_path))
+        use_project_manager(monkeypatch, _FakePM(project_path))
 
         generation_tasks.emit_generation_success_batch(
             task_type=task_type,
@@ -152,7 +153,7 @@ class TestGenerationTasks:
         project_path.mkdir()
         fake_pm = _FakePM(project_path)
         fake_pm.script = script
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         for task_type, action in (("storyboard", "storyboard_ready"), ("video", "video_ready")):
             captured.clear()
@@ -183,7 +184,7 @@ class TestGenerationTasks:
         project_path.mkdir()
         fake_pm = _FakePM(project_path)
         fake_pm.script = {"content_mode": "narration", "video_units": [{"unit_id": "U01"}]}
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         generation_tasks.emit_generation_success_batch(
             task_type="reference_video",
@@ -219,7 +220,7 @@ class TestGenerationTasks:
             "shots": [{"shot_id": "E1S01"}],
             "video_units": [{"unit_id": "U01", "shot_ids": ["E1S01"]}],
         }
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         generation_tasks.emit_generation_success_batch(
             task_type="reference_video",
@@ -253,7 +254,7 @@ class TestGenerationTasks:
             "shots": [{"shot_id": "E1S01"}],
             "video_units": [{"unit_id": "E1U01"}],
         }
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         generation_tasks.emit_generation_success_batch(
             task_type="tts",
@@ -286,7 +287,7 @@ class TestGenerationTasks:
             raise FileNotFoundError(script_file)
 
         fake_pm.load_script = _raise_load_script
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         generation_tasks.emit_generation_success_batch(
             task_type="storyboard",
@@ -314,7 +315,7 @@ class TestGenerationTasks:
         project_path.mkdir()
         fake_pm = _FakePM(project_path)
         fake_pm.script = ["not", "a", "dict"]
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         generation_tasks.emit_generation_success_batch(
             task_type="storyboard",
@@ -342,7 +343,7 @@ class TestGenerationTasks:
         project_path.mkdir()
         fake_pm = _FakePM(project_path)
         fake_pm.script = {"content_mode": "narration", "episode": 3, "segments": [{"segment_id": "E3S01"}]}
-        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
 
         for task_type in ("storyboard", "video", "reference_video"):
             captured.clear()

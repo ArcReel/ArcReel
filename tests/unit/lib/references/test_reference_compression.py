@@ -73,8 +73,8 @@ def _fmt(data: bytes) -> str:
 def test_default_constants_match_service():
     from lib.config import service
 
-    assert DEFAULT_TOTAL_MAX_BYTES == service._DEFAULT_REFERENCE_TOTAL_MAX_BYTES
-    assert DEFAULT_SINGLE_MAX_BYTES == service._DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+    assert DEFAULT_TOTAL_MAX_BYTES == service.DEFAULT_REFERENCE_TOTAL_MAX_BYTES
+    assert DEFAULT_SINGLE_MAX_BYTES == service.DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
 
 # ── compress_single_at_step ─────────────────────────────────────────────────

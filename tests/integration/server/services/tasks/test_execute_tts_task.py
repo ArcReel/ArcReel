@@ -7,6 +7,7 @@ from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.project.project_manager import ProjectManager
 from lib.speech.narration_config import NarrationConfigError
 from server.services.tasks import generation_context, generation_tasks
+from tests.fakes import bind_session_factory, use_project_manager
 
 
 async def test_disabled_snapshot_model_blocks_tts_before_paid_synthesis(db_factory, tmp_path, monkeypatch):
@@ -46,9 +47,8 @@ async def test_disabled_snapshot_model_blocks_tts_before_paid_synthesis(db_facto
         "demo",
         narration={"narration_delivery": "use_tts", "audio_backend": backend, "narration_voice": "alloy"},
     )
-    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
-    monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: manager)
-    monkeypatch.setattr(generation_context, "get_project_manager", lambda: manager)
+    bind_session_factory(monkeypatch, db_factory)
+    use_project_manager(monkeypatch, manager)
     generation_context.invalidate_backend_cache()
     try:
         with respx.mock, pytest.raises(NarrationConfigError) as caught:

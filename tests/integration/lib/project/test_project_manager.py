@@ -10,6 +10,7 @@ import pytest
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.backends.providers import CallPurpose
 from lib.project.project_manager import EmptySourceError, ProjectManager
+from tests.fakes import use_text_generator
 
 
 def _write(path: Path, text: str):
@@ -112,7 +113,7 @@ class TestProjectManager:
         async def fake_backend(*args, **kwargs):
             return _FakeTextBackend(), "gemini-aistudio"
 
-        monkeypatch.setattr(TextGenerator, "create", capture_create)
+        use_text_generator(monkeypatch, capture_create)
         monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", fake_backend)
 
         overview = await pm.generate_overview("demo")

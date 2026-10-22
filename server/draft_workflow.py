@@ -59,20 +59,20 @@ from server.text_generation import (
     SOFT_VIOLATION_NOTE_QUARANTINED,
     ReferenceSplitCaps,
     SoftViolation,
-    _build_reference_units_from_flat,
-    _collect_drama_violations,
-    _collect_narration_violations,
-    _collect_reference_flat_violations,
-    _commit_single_script_plan,
-    _coverage_source_scope,
-    _drama_script_plan_result_text,
-    _fetch_reference_split_caps,
-    _load_script_plan_source_with_basis,
-    _narration_script_plan_path,
-    _narration_script_plan_result_text,
-    _reference_result_text,
+    build_reference_units_from_flat,
+    collect_drama_violations,
+    collect_narration_violations,
+    collect_reference_flat_violations,
+    commit_single_script_plan,
+    coverage_source_scope,
+    drama_script_plan_result_text,
+    fetch_reference_split_caps,
     fetch_storyboard_durations,
     load_novel_source,
+    load_script_plan_source_with_basis,
+    narration_script_plan_path,
+    narration_script_plan_result_text,
+    reference_result_text,
     reference_soft_violations,
     render_soft_violation_lines,
     render_soft_violation_section,
@@ -224,7 +224,7 @@ async def revalidate_reference_script_plan_draft(
 ) -> ReferenceDraftRevalidation:
     """按产出时那套校验器全量重判 script_plan 草稿，只读、不写盘、不清草稿。
 
-    重判走的是拆分工具用的同一个函数（``_collect_reference_flat_violations``），不是它的简化
+    重判走的是拆分工具用的同一个函数（``collect_reference_flat_violations``），不是它的简化
     副本：晋升口径、内容确认的读时重算与产出口径必须同一份代码，否则「这里放行、下次
     生成时被拒」这类分叉会重新出现。能力与源文都重新解析——草稿在场期间用户可能改过模型配置或
     源文，重判要对着现值判。
@@ -246,14 +246,14 @@ async def revalidate_reference_script_plan_draft(
     # 事件循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）
     # 在请求协程里跑，卸到线程避免拖慢并发的其它请求。
     novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
-        _load_script_plan_source_with_basis,
+        load_script_plan_source_with_basis,
         project_path,
         draft.meta["source"],
         project,
         episode,
         "reference_video",
     )
-    split_caps = await _fetch_reference_split_caps(project, config_resolver=config_resolver)
+    split_caps = await fetch_reference_split_caps(project, config_resolver=config_resolver)
 
     # 修改过的草稿先过产出时那份 schema：拆分侧由 response_schema 与 _parse_script_plan_json 卡住时长
     # 枚举与字段非空，晋升侧漏掉这一层的话，把 duration_seconds 改成非档位值、或整个删掉（收成
@@ -292,7 +292,7 @@ async def revalidate_reference_script_plan_draft(
 
     source_language = project.get("source_language")
     violations = await asyncio.to_thread(
-        _collect_reference_flat_violations,
+        collect_reference_flat_violations,
         flat_units,
         project,
         project_path=project_path,
@@ -421,7 +421,7 @@ async def _promote_reference_script_plan(
 ) -> str:
     """按产出时那套校验器全量重判 script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。
 
-    返回晋升回执文本：与拆分回执同一出口（``_reference_result_text``），落盘统计后接软违约段。
+    返回晋升回执文本：与拆分回执同一出口（``reference_result_text``），落盘统计后接软违约段。
     晋升成功前无人向 Agent 交代降级提示——修草稿这条主回路走完时它才第一次拿到，故成功路径不能
     只返回一个「已晋升」的布尔。
     """
@@ -465,7 +465,7 @@ async def _promote_reference_script_plan(
         )
         raise DraftWorkflowError("draft_invalid", report + _soft_violation_section(revalidation), draft_refreshed=True)
 
-    units = _build_reference_units_from_flat(
+    units = build_reference_units_from_flat(
         flat_units,
         planning_project(project, revalidation.new_assets),
         episode=episode,
@@ -497,7 +497,7 @@ async def _promote_reference_script_plan(
                 field_hint="content.units",
             ),
         ) from conflict
-    return _reference_result_text(
+    return reference_result_text(
         script_review.official_reference_script_plan_path(project_path, episode),
         units,
         render_soft_violation_lines(revalidation.soft_violations),
@@ -567,7 +567,7 @@ def _render_prompt_authoring_conflict_report(
 
 
 def _flatten_reference_script_plan_units(units: list[Any]) -> list[dict[str, Any]]:
-    """正式 script_plan 的结构化 unit 表 → 扁平草稿单元（``_build_reference_units_from_flat`` 的逆向）。
+    """正式 script_plan 的结构化 unit 表 → 扁平草稿单元（``build_reference_units_from_flat`` 的逆向）。
 
     ``unit_id`` 不进草稿：它是按数组序号机械编号的派生物，草稿是给 Agent 改的那一层，带上
     派生字段等于给漂移开口子。
@@ -668,7 +668,7 @@ async def revalidate_drama_script_plan_draft(
     # 源文可能达数百 KB，同步读盘卸到线程：内容确认的读时重算在请求协程里跑，直接读会
     # 占用事件循环、拖慢并发的其它请求。与另两条路线同口径。
     _novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
-        _load_script_plan_source_with_basis,
+        load_script_plan_source_with_basis,
         project_path,
         draft.meta.get("source"),
         project,
@@ -698,7 +698,7 @@ async def revalidate_drama_script_plan_draft(
         else:
             scene["needs_replan"] = True
     content = with_new_assets(content, content[NEW_ASSETS_FIELD])
-    violations = _collect_drama_violations(raw_scenes, project=project, new_assets=content.get(NEW_ASSETS_FIELD))
+    violations = collect_drama_violations(raw_scenes, project=project, new_assets=content.get(NEW_ASSETS_FIELD))
     return SingleScriptPlanDraftRevalidation(violations, content, schema_failed=False, basis=script_plan_basis)
 
 
@@ -709,7 +709,7 @@ async def _promote_drama_script_plan(
 ) -> str:
     """按产出时那套校验器全量重判 drama script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。
 
-    返回晋升回执文本：与产出回执同一出口（``_drama_script_plan_result_text``）。
+    返回晋升回执文本：与产出回执同一出口（``drama_script_plan_result_text``）。
     """
     project_path = await ctx.aproject_path()
     project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
@@ -748,7 +748,7 @@ async def _promote_drama_script_plan(
     script_plan_path = episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["drama"]
     try:
         await run_sync_transaction(
-            _commit_single_script_plan,
+            commit_single_script_plan,
             project_path,
             episode,
             script_plan_path,
@@ -769,7 +769,7 @@ async def _promote_drama_script_plan(
             ),
         ) from conflict
     raw_scenes = content.get("scenes")
-    return _drama_script_plan_result_text(
+    return drama_script_plan_result_text(
         script_plan_path,
         raw_scenes if isinstance(raw_scenes, list) else [],
         action="晋升",
@@ -821,7 +821,7 @@ async def revalidate_narration_script_plan_draft(
 ) -> SingleScriptPlanDraftRevalidation:
     """按产出时那套校验器全量重判 narration script_plan 草稿，只读、不写盘、不清草稿。
 
-    重判走的是拆分工具用的同一个函数（``_collect_narration_violations``），不是它的简化副本：
+    重判走的是拆分工具用的同一个函数（``collect_narration_violations``），不是它的简化副本：
     晋升口径、内容确认的读时重算与产出口径必须同一份代码，否则「这里放行、下次生成时被拒」
     这类分叉会重新出现。能力档位与源文都重新解析——隔离期间用户可能改过模型配置或源文，重判要
     对着现值判。
@@ -842,7 +842,7 @@ async def revalidate_narration_script_plan_draft(
     # 循环——晋升工具走的是独立会话线程不敏感，但内容确认的读时重算（同一份代码）在请求
     # 协程里跑，卸到线程避免拖慢并发的其它请求。
     novel_text, _prompt_inputs, script_plan_basis = await asyncio.to_thread(
-        _load_script_plan_source_with_basis,
+        load_script_plan_source_with_basis,
         project_path,
         draft.meta["source"],
         project,
@@ -871,7 +871,7 @@ async def revalidate_narration_script_plan_draft(
         )
     content = with_new_assets(content, content[NEW_ASSETS_FIELD])
 
-    violations = _collect_narration_violations(
+    violations = collect_narration_violations(
         content["segments"],
         episode=episode,
         supported_durations=supported_durations,
@@ -883,7 +883,7 @@ async def revalidate_narration_script_plan_draft(
         # 一份原样取回、一字未改的草稿判成覆盖不全。把范围与改法一并写进消息，Agent 才走得出去
         # ——草稿在场时不能重新取回，须由 patch_draft 更新源文范围。
         source_scope=(
-            f"{_coverage_source_scope(cast(str | None, draft.meta['source']), episode=episode)}"
+            f"{coverage_source_scope(cast(str | None, draft.meta['source']), episode=episode)}"
             "，取自草稿的源文范围；若该范围与产出本集正式 script_plan 时不同，"
             "请调用 patch_draft，用 source 传入当初那个源文件的相对路径后重试"
         ),
@@ -911,7 +911,7 @@ async def _promote_narration_script_plan(
 ) -> str:
     """按产出时那套校验器全量重判 narration script_plan 草稿，通过则晋升为正式 script_plan 并清除草稿。
 
-    返回晋升回执文本：与拆分回执同一出口（``_narration_script_plan_result_text``）。
+    返回晋升回执文本：与拆分回执同一出口（``narration_script_plan_result_text``）。
     """
     project_path = await ctx.aproject_path()
     project = await asyncio.to_thread(ctx.pm.load_project, ctx.project_name)
@@ -947,10 +947,10 @@ async def _promote_narration_script_plan(
     # （Web 端保存、重跑拆分）改过时晋升中止、返回冲突报告让 Agent 合并，不静默覆盖对方的修改。
     # 缺少 base_fingerprint 的草稿按无基线晋升。
     expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
-    script_plan_path = _narration_script_plan_path(project_path, episode)
+    script_plan_path = narration_script_plan_path(project_path, episode)
     try:
         await run_sync_transaction(
-            _commit_single_script_plan,
+            commit_single_script_plan,
             project_path,
             episode,
             script_plan_path,
@@ -969,7 +969,7 @@ async def _promote_narration_script_plan(
         )
         raise DraftWorkflowError("formal_revision_conflict", conflict_report) from conflict
     raw_segments = revalidation.content.get("segments")
-    return _narration_script_plan_result_text(
+    return narration_script_plan_result_text(
         script_plan_path,
         raw_segments if isinstance(raw_segments, list) else [],
         action="晋升",
@@ -997,7 +997,7 @@ async def _open_narration_script_plan_for_edit(
         except ValueError as exc:
             raise DraftWorkflowError("draft_open_failed", f"❌ {exc}") from exc
 
-    script_plan_path = _narration_script_plan_path(project_path, episode)
+    script_plan_path = narration_script_plan_path(project_path, episode)
     await run_sync_transaction(
         _open_script_plan_draft,
         project_path,

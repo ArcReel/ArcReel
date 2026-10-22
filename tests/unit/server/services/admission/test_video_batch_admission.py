@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifest, ProjectArtifactManifestAdapter
 from lib.generation.batch_admission import BatchAdmissionDecision
 from lib.generation.generation_result import GenerationAction, GenerationProblemCode, GenerationSelectionMode
 from lib.generation.video_request_facts import VideoRequestFactsFailure
@@ -18,6 +20,7 @@ from server.services.admission import video_batch_admission as admission_mod
 from server.services.admission.video_batch_admission import admit_reference_video_batch, admit_storyboard_video_batch
 from server.services.tasks.video_caps import reference_request_facts_lookup
 from tests.factories import activate_reference_project, make_video_request_facts
+from tests.fakes import use_active_tasks_lookup, use_reference_projection
 
 
 def _stub_state(
@@ -31,7 +34,7 @@ def _stub_state(
         probes.append("active_tasks")
         return list(active or [])
 
-    monkeypatch.setattr(admission_mod, "get_active_tasks_for_resources", _active)
+    use_active_tasks_lookup(monkeypatch, _active)
     return probes
 
 
@@ -88,7 +91,7 @@ async def test_an_active_task_conflicts_before_anything_is_projected(monkeypatch
         projected.append(kwargs["unit"]["unit_id"])
         raise AssertionError("occupied units must not be projected")
 
-    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
+    use_reference_projection(monkeypatch, _project)
 
     admission = await admit_reference_video_batch(
         project_name="demo",
@@ -116,7 +119,7 @@ async def test_a_unit_that_cannot_be_enqueued_is_refused_with_its_own_code(monke
     async def _project(**_kwargs):
         raise AssertionError("unenqueueable units must not be projected")
 
-    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
+    use_reference_projection(monkeypatch, _project)
 
     def _reject(_unit):
         raise ValueError("正文为空")
@@ -143,11 +146,7 @@ async def test_text_only_unit_on_image_only_model_blocks_the_whole_batch(monkeyp
 
     _stub_state(monkeypatch)
 
-    monkeypatch.setattr(
-        admission_mod,
-        "project_reference_unit_request",
-        fake_reference_request_projector(durations=(3,), text_to_video=False),
-    )
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=(3,), text_to_video=False))
 
     admission = await admit_reference_video_batch(
         project_name="demo",
@@ -213,9 +212,8 @@ async def test_reference_bucket_failure_blocks_only_its_units_and_withholds_the_
         (("provider", "gemini-aistudio"), ("model", "veo-3.1"), ("resolution", "4k")),
     )
 
-    monkeypatch.setattr(
-        admission_mod,
-        "project_reference_unit_request",
+    use_reference_projection(
+        monkeypatch,
         fake_reference_request_projector(
             request_facts=fake_reference_request_facts(durations=(4,), failures={"i2v": failure})
         ),
@@ -272,7 +270,7 @@ async def test_extra_tickets_join_the_same_verdict(monkeypatch, tmp_path: Path):
 
         return _Projection()
 
-    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
+    use_reference_projection(monkeypatch, _project)
 
     admission = await admit_reference_video_batch(
         project_name="demo",
@@ -359,6 +357,53 @@ async def test_admission_buckets_an_unclaimed_sheet_like_the_canvas_and_blocks(
         "reference_capability_changed",
     ]
     assert [capability.generation_type for capability in capabilities] == ["r2v", "i2v"]
+
+
+async def test_reference_admission_judges_the_whole_batch_on_one_manifest_snapshot(
+    monkeypatch, tmp_path: Path, set_video_request_facts
+):
+    """一批单元在同一份清单快照上判定：中途清单被替换（认领被撤），后面的单元仍按批开始时的结论。"""
+    _stub_state(monkeypatch)
+    set_video_request_facts(
+        make_video_request_facts(
+            route="reference_video", generation_type="r2v", supported_durations=(9,), allowed_durations=(9,)
+        )
+    )
+    project = _activated_project_with_unclaimed_sheet(tmp_path)
+    units = [
+        {"unit_id": "E1U1", "text": "镜头1：@[张三] 推门", "duration_seconds": 9},
+        {"unit_id": "E1U2", "text": "镜头2：@[张三] 回头", "duration_seconds": 9},
+    ]
+    project_unit = admission_mod.project_reference_unit_request
+
+    async def _project_then_replace_manifest(**kwargs):
+        projection = await project_unit(**kwargs)
+        await asyncio.to_thread(
+            lambda: ArtifactManifest(ProjectArtifactManifestAdapter(tmp_path)).forget_entry_transactionally(
+                ArtifactKey.asset_sheet("character", "张三")
+            )
+        )
+        return projection
+
+    use_reference_projection(monkeypatch, _project_then_replace_manifest)
+
+    admission = await admit_reference_video_batch(
+        project_name="demo",
+        project=project,
+        project_path=tmp_path,
+        script={"episode": 1, "generation_mode": "reference_video", "video_units": units},
+        script_file="scripts/episode_1.json",
+        units=units,
+        request_options=ReferenceRequestOptions(),
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        confirmed_request_durations={"E1U1": 9, "E1U2": 9},
+    )
+
+    assert [(ticket.projection["hydrated_capability"], ticket.problems) for ticket in admission.tickets] == [
+        ("r2v", ()),
+        ("r2v", ()),
+    ]
 
 
 async def test_reference_admission_is_identical_for_tts_and_post_production_projects(

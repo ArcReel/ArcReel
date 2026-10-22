@@ -27,6 +27,7 @@ from lib.custom_provider.endpoints import (
 )
 from server.routers import custom_providers
 from tests.factories import custom_endpoint_definition
+from tests.fakes import use_project_manager
 from tests.http_capture import capture_http, only_request
 
 _EXAMPLE_TEMPLATE_PATH = (
@@ -791,11 +792,8 @@ class TestDeleteProviderCleansGlobalSettings:
         await svc.set_setting("default_video_backend", "gemini-aistudio/veo-3")  # 不应被清理
         await db_session.commit()
 
-        # 项目级清理走真实实现，但项目列表为空 → 只剩全局设置的清理
-        empty_pm = MagicMock()
-        empty_pm.list_projects.return_value = []
-        with patch("lib.config.resolver.get_project_manager", return_value=empty_pm):
-            del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
+        # 项目级清理走真实实现，隔离数据根下项目列表为空 → 只剩全局设置的清理
+        del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert del_resp.status_code == 204
 
         # 验证引用被清理
@@ -809,7 +807,7 @@ class TestDeleteProviderCleansGlobalSettings:
 class TestDeleteProviderCleansProjectRefs:
     """删除 provider 时应清理项目级 project.json 中的悬空引用。"""
 
-    def test_project_refs_cleaned_on_delete(self, custom_providers_client: TestClient):
+    def test_project_refs_cleaned_on_delete(self, custom_providers_client: TestClient, monkeypatch):
         resp = custom_providers_client.post("/api/v1/custom-providers", json=_PROVIDER_PAYLOAD)
         pid = resp.json()["id"]
         prefix = f"custom-{pid}/"
@@ -820,8 +818,8 @@ class TestDeleteProviderCleansProjectRefs:
         project_data = {"text_backend_complex": f"{prefix}gpt-4o", "title": "Test"}
         mock_pm.load_project.return_value = project_data
 
-        with patch("lib.config.resolver.get_project_manager", return_value=mock_pm):
-            del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
+        use_project_manager(monkeypatch, mock_pm)
+        del_resp = custom_providers_client.delete(f"/api/v1/custom-providers/{pid}")
         assert del_resp.status_code == 204
 
         # 验证 update_project 被调用来清理引用

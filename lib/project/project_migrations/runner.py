@@ -40,7 +40,6 @@ from lib.project.project_migrations.legacy_shapes import NORMALIZE_FROM_SCHEMA_V
 from lib.project.project_migrations.staged_swap import (
     cleanup_completed_swap_dirs,
     ensure_disk_headroom,
-    reclaim_interrupted_swaps,
 )
 from lib.project.project_migrations.v0_to_v1_clues_to_scenes_props import migrate_v0_to_v1
 from lib.project.project_migrations.v1_to_v2_normalize_providers import migrate_v1_to_v2
@@ -351,9 +350,6 @@ def run_project_migrations(
     summary = MigrationSummary()
     if not projects_dir.exists():
         return summary
-
-    # 认领在遍历之前：被改回的项目在本轮就继续迁移，不必等下次启动。
-    reclaim_interrupted_swaps(projects_dir)
 
     for child in list_project_dirs(projects_dir):
         version = _load_schema_version(child)

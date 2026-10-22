@@ -1587,12 +1587,12 @@ describe("API.referenceVideos", () => {
     expect(fetchMock.mock.calls[0]![0]).toMatch(/\/units\/E1U1\/duration-precheck$/);
   });
 
-  it("getCostEstimate scopes to one reference unit only", async () => {
+  it("getCostEstimate sends no query string", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
 
-    await API.getCostEstimate("proj", { referenceUnitId: "E1U1" });
+    await API.getCostEstimate("proj");
 
-    expect(fetchMock.mock.calls[0]![0]).toMatch(/\/cost-estimate\?reference_unit_id=E1U1$/);
+    expect(fetchMock.mock.calls[0]![0]).toMatch(/\/cost-estimate$/);
   });
 
   it("deleteReferenceVideoUnit returns void on 204", async () => {

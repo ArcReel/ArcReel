@@ -5,11 +5,16 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from array import array
 from pathlib import Path
 
+import pytest
+
 from lib.artifacts.artifact_manifest import ArtifactStatus
+from lib.artifacts.version_manager import VersionManager
+from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService
 from lib.infra.ffmpeg import ffmpeg_executable
 from lib.project.project_manager import ProjectManager
@@ -90,3 +95,19 @@ async def test_narrated_final_cut_mixes_each_narration_from_its_carrying_clip_an
     assert _peak(narrated_path, 1.27, 1.43) < 300
     assert _peak(narrated_path, 1.6, 2.9) > 3000
     assert _peak(project_path / silent.artifact_path, 0.0, 3.0) < 300
+
+
+async def test_a_corrupted_narration_snapshot_names_the_unit_and_version(tmp_path: Path) -> None:
+    pm, project_path = setup_project(tmp_path)
+    timeline_id = await edited_timeline(pm)
+    versions = VersionManager(project_path)
+    unit_id = sorted(json.loads(versions.versions_file.read_text(encoding="utf-8"))["audio"])[0]
+    history = versions.get_versions("audio", unit_id)
+    record = next(item for item in history["versions"] if item["version"] == history["current_version"])
+    (project_path / record["file"]).write_bytes(b"corrupted")
+
+    with pytest.raises(FinalCutError) as caught:
+        await _service(pm).render("demo", timeline_id, narration="with_narration", subtitles="no_subtitles")
+
+    assert caught.value.code == "final_cut_narration_version_corrupted"
+    assert (caught.value.params["unit_id"], caught.value.params["version"]) == (unit_id, record["version"])

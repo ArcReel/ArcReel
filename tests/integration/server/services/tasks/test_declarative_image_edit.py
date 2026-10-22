@@ -12,10 +12,9 @@ from typing import Any, cast
 import httpx
 
 from lib.custom_provider.endpoints import declarative_endpoint_spec
-from server.services.tasks import formal_image_commit, image_edit_tasks
 from server.services.tasks.image_edit_tasks import execute_image_edit_task
 from tests.factories import image_endpoint_definition
-from tests.fakes import bounded_poll_clock
+from tests.fakes import bounded_poll_clock, use_generation_context, use_project_manager
 from tests.http_capture import capture_http, only_request, request_json
 from tests.integration.server.derivative_sheet_support import (
     OWNER_LEFT_RGB,
@@ -48,10 +47,8 @@ def _image_to_image_backend():
 async def test_image_edit_on_a_declarative_image_to_image_endpoint_produces_a_new_version(tmp_path, monkeypatch):
     pm, project_path = seed_derivative_project(tmp_path)
     generator = build_generator(project_path, _image_to_image_backend(), provider_id="custom-1")
-    monkeypatch.setattr(image_edit_tasks, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(
-        formal_image_commit, "resolve_generation_context", fake_resolve_ctx(generator, image_max_reference_images=4)
-    )
+    use_project_manager(monkeypatch, pm)
+    use_generation_context(monkeypatch, fake_resolve_ctx(generator, image_max_reference_images=4))
 
     edited = solid_png_bytes((240, 120, 20))
     with capture_http() as router, bounded_poll_clock():

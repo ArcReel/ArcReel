@@ -196,22 +196,30 @@ class TestTaskErrorLocalization:
         assert body["error_message"].startswith("图片任务")
 
     def test_render_problems_are_localized_without_changing_the_stored_envelope(self, monkeypatch):
+        from lib.final_cut.errors import FinalCutError
         from lib.generation.generation_result import encode_generation_problem
         from lib.i18n import _
         from lib.jianying_draft.errors import JianyingDraftError
         from server.services.tasks.render_tasks import render_problem
 
+        corrupted = {"unit_id": "E1U2", "resource_type": "audio", "version": 3}
         cases = [
             ("jianying_draft_presentation_unavailable", {"unit_id": "E1U2"}),
             ("jianying_draft_hold_frame_unavailable", {"clip_id": "c1"}),
             ("jianying_draft_acceptance_failed", {}),
             ("jianying_draft_blocked", {"issues": [{"unit_id": "E1U2", "code": "video_missing"}]}),
+            ("final_cut_video_version_corrupted", {**corrupted, "resource_type": "reference_videos"}),
+            ("final_cut_narration_version_corrupted", corrupted),
         ]
         items = [
             {
                 "task_id": code,
                 "error_message": encode_generation_problem(
-                    render_problem(JianyingDraftError(code, "诊断原文", **params))
+                    render_problem(
+                        (FinalCutError if code.startswith("final_cut_") else JianyingDraftError)(
+                            code, "诊断原文", **params
+                        )
+                    )
                 ),
             }
             for code, params in cases
