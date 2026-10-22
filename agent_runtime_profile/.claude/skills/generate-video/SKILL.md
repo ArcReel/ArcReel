@@ -5,6 +5,8 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 # 生成视频
 
+连续事件的多镜头，或用户指出衔接、体型与空间不一致时，先读取 `.claude/references/connected-sequences.md`。以共享场景计划和实际动作交接为单位生成与验收；逐个视频单元可用不代表整段连续。先证明短的连贯段落，再扩展同一方案。
+
 ## 路由
 
 让 MCP 工具读取 `project.json`，按 `generation_mode` × `content_mode` 分派，并校验剧本骨架：
