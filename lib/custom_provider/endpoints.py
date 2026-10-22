@@ -386,7 +386,7 @@ def _build_openrouter_images(
 ) -> CustomImageBackend:
     """OpenRouter 统一 /images 端点（T2I + I2I）。
 
-    OpenRouter 不提供 /images/edits（实测 404），I2I 与 T2I 同 hit 一个 JSON 端点；
+    OpenRouter 不提供 /images/edits，I2I 与 T2I 同 hit 一个 JSON 端点；
     base_url 已含 /api/v1，不做 ensure_openai_base_url 的 /v1 追加。
     """
     delegate = OpenRouterImageBackend(api_key=provider.api_key, base_url=provider.base_url, model=model_id)

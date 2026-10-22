@@ -1,17 +1,17 @@
 """OpenRouterImageBackend — OpenRouter 统一图片生成后端。
 
-OpenRouter 的图片 API 与 OpenAI 官方不同源：不提供 /images/edits（实测 404），T2I 与
+OpenRouter 的图片 API 与 OpenAI 官方不同源：不提供 /images/edits，T2I 与
 I2I 统一走 ``POST {base_url}/images`` 的 JSON 端点——参考图以 data URI 进
 ``input_references``，响应 ``data[].b64_json``。本后端因此不复用 OpenAI SDK，请求构造
 仿 MiniMax 的 raw httpx 模式，落盘复用 :func:`save_image_from_response_item`。
 
 尺寸参数按模型在 ``GET {base_url}/images/models`` 声明的 ``supported_parameters`` 自适应
-下发（进程级缓存 1h；实测 OpenRouter 把 ``size`` 与 ``resolution`` 同时出现视为冲突 400，
+下发（进程级缓存 1h；OpenRouter 把 ``size`` 与 ``resolution`` 同时出现视为冲突并返回 400，
 两套参数互斥、只能按声明选其一）：
 
-- 声明 ``resolution``（gemini / seedream / qwen / grok / krea 系）→ ``aspect_ratio`` +
-  ``resolution``（不传 size）。档位短边映射到声明枚举里「≥ 请求值的最小档」，映射不到则省略。
-- 未声明 ``resolution`` 但声明 ``aspect_ratio``（gpt-image / recraft / mai 系）→ ``size``
+- 声明 ``resolution``（gemini / seedream / qwen / grok / krea 系，同时声明 ``size`` 也算）→
+  ``aspect_ratio`` + ``resolution``（不传 size）。档位短边映射到声明枚举里「≥ 请求值的最小档」，映射不到则省略。
+- 未声明 ``resolution`` 但声明 ``size`` 或 ``aspect_ratio``（gpt-image / recraft / mai 系）→ ``size``
   （OpenAI 同款 WxH，比例优先、清晰度其次）+ ``aspect_ratio``，声明 ``quality`` 再叠加。
 - 模型未收录或发现端点失败 → 退回纯 ``size``（与 OpenAI 兼容网关同款），保证生成不因发现
   失败而中断。
@@ -75,6 +75,11 @@ _QUALITY_MAP_CI = {k.lower(): v for k, v in _QUALITY_MAP.items()}
 # 未收录模型负缓存同 TTL，避免每次生成都白打一趟目录。查询失败不缓存，下次生成再试。
 _MODEL_PARAMS_TTL_SECONDS = 3600.0
 _model_params_cache: dict[tuple[str, str], tuple[float, dict | None]] = {}
+
+
+def reset_model_params_for_tests() -> None:
+    """清空模型目录的进程级缓存，供测试隔离用例；不改变生产行为。"""
+    _model_params_cache.clear()
 
 
 def _quality_for(image_size: str | None) -> str | None:
@@ -172,25 +177,20 @@ def _resolve_model_params(supported: dict | None, image_size: str | None, aspect
     # 否则 size 按 2:3 算、aspect_ratio 却写 9:16，两个参数自相矛盾，模型行为不可预期。
     effective_ratio = ratio or aspect_ratio
     short = resolution_to_short_edge(image_size, tier_map=IMAGE_TIER_SHORT_EDGE)
-    if size_values:
-        # 声明 size：OpenAI 同款精确 WxH（比例优先、清晰度其次）
-        w, h = aspect_size(effective_ratio, short, round_to=16)
-        params["size"] = f"{w}x{h}"
-        if ratio:
-            params["aspect_ratio"] = ratio
-    elif resolution_values:
-        # 声明 resolution：按枚举下发，不传 size（互斥）。ratio / resolution 拿不到（档位映射
-        # 不上、极端比例超出枚举）时各自省略——比传冲突参数被 400 拒掉好。
+    if resolution_values:
+        # 声明 resolution 即走这一支，即便同时声明了 size：两者互斥，不传 size。ratio / resolution
+        # 拿不到（档位映射不上、极端比例超出枚举）时各自省略——比传冲突参数被 400 拒掉好。
         resolution = _pick_resolution(resolution_values, short)
         if resolution:
             params["resolution"] = resolution
         if ratio:
             params["aspect_ratio"] = ratio
-    elif ratio:
-        # 只声明 aspect_ratio：size 撑清晰度，ratio 锁比例
+    elif size_values or ratio:
+        # 声明 size 或只声明 aspect_ratio：OpenAI 同款精确 WxH 撑清晰度，ratio 锁比例
         w, h = aspect_size(effective_ratio, short, round_to=16)
         params["size"] = f"{w}x{h}"
-        params["aspect_ratio"] = ratio
+        if ratio:
+            params["aspect_ratio"] = ratio
     # 收录但三类都不声明：省略全部尺寸参数，信任模型默认
     if quality and quality_values and quality.lower() in {v.lower() for v in quality_values}:
         params["quality"] = quality

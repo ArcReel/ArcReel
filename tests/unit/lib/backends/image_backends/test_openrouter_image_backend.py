@@ -21,7 +21,7 @@ from lib.backends.image_backends.base import (
     ImageGenerationRequest,
     ReferenceImage,
 )
-from lib.backends.image_backends.openrouter import OpenRouterImageBackend, _model_params_cache
+from lib.backends.image_backends.openrouter import OpenRouterImageBackend, reset_model_params_for_tests
 from lib.backends.providers import PROVIDER_OPENROUTER
 from tests.http_capture import capture_http, only_request, request_json
 
@@ -38,9 +38,9 @@ _MODELS_URL = f"{_BASE_URL}/images/models"
 @pytest.fixture(autouse=True)
 def clear_model_params_cache():
     """目录查询是进程级缓存，测试间必须清空，否则用例间声明串味。"""
-    _model_params_cache.clear()
+    reset_model_params_for_tests()
     yield
-    _model_params_cache.clear()
+    reset_model_params_for_tests()
 
 
 def _ok_response() -> httpx.Response:
@@ -55,7 +55,7 @@ def _enum(name: str, *values: str) -> dict:
     return {name: {"type": "enum", "values": list(values)}}
 
 
-# 与 OpenRouter 实测返回同构的 supported_parameters 样本
+# 与 OpenRouter 目录返回同构的 supported_parameters 样本
 _GEMINI_LIKE = {
     "id": "google/gemini-3.1-flash-image",
     "supported_parameters": {
@@ -153,6 +153,26 @@ def test_resolution_model_sends_ar_and_resolution_never_size(tmp_path: Path):
     assert req_json["aspect_ratio"] == "9:16"
     # 2K 档短边 1440 → 枚举里 ≥ 请求值的最小档 2K
     assert req_json["resolution"] == "2K"
+    assert "size" not in req_json
+
+
+def test_model_declaring_both_size_and_resolution_takes_resolution(tmp_path: Path):
+    """size 与 resolution 同时声明时走 resolution 通道：两者同传会被 400 拒掉，size 不下发。"""
+    model = {
+        "id": "vendor/both-sizing",
+        "supported_parameters": {
+            **_enum("size", "1024x1024", "1024x1792"),
+            **_enum("resolution", "1K", "2K"),
+            **_enum("aspect_ratio", "1:1", "9:16"),
+        },
+    }
+    with capture_http() as router:
+        router.get(_MODELS_URL).mock(return_value=_models_response(model))
+        route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
+        _run(_request(tmp_path, image_size="1K"), model="vendor/both-sizing")
+    req_json = request_json(only_request(route))
+    assert req_json["resolution"] == "1K"
+    assert req_json["aspect_ratio"] == "9:16"
     assert "size" not in req_json
 
 
