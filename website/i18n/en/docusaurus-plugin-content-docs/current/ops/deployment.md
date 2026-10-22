@@ -343,6 +343,7 @@ Before committing a migration, ArcReel creates adjacent backups with a `.bak.v<s
 - Formal script files registered in `project.json`;
 - An existing `.arcreel_artifacts.json`;
 - `versions/versions.json`, for migrations that rewrite version records.
+- The rewritten `edit_timelines/episode_*/*.json` files, for migrations that rewrite edit timelines.
 
 Project migration is safe to retry. If a previous startup was interrupted while creating backups or committing changes, the next startup validates the project again and ensures that at least one backup exactly matches the pre-migration content before continuing. Identical backups are kept only once, so repeated failures do not pile up copies. These automatically generated project-level backups exist only for migration recovery; they do not replace deployment-level backups of the database and the entire data root.
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -33,6 +34,23 @@ function targetForSource(source) {
 function fingerprintSource(source) {
   if (source === "CONTRIBUTING.md") return "website/docs/dev/contributing.md";
   return source;
+}
+
+// The synced copy is gitignored build output, so a fresh worktree lacks it. Generate it with the
+// repository's own sync script rather than failing on a bare ENOENT from the fingerprint read.
+function ensureSyncedContributing(root) {
+  const copy = resolve(root, fingerprintSource("CONTRIBUTING.md"));
+  const translated = existsSync(resolve(root, targetForSource("CONTRIBUTING.md")));
+  if (existsSync(copy) || !translated || !existsSync(resolve(root, "CONTRIBUTING.md"))) return;
+  const syncScript = resolve(root, "website/scripts/sync-contributing.mjs");
+  const result = existsSync(syncScript)
+    ? spawnSync(process.execPath, [syncScript], { cwd: root, encoding: "utf8" })
+    : null;
+  if (!result || result.status !== 0) {
+    throw new Error(
+      `Missing synced copy ${fingerprintSource("CONTRIBUTING.md")}; generate it with \`pnpm sync-contributing\` in website/.\n${result?.stderr ?? ""}`,
+    );
+  }
 }
 
 function sourceTargets(root) {
@@ -121,6 +139,7 @@ function readLock(root) {
 }
 
 function translationStatus(root) {
+  ensureSyncedContributing(root);
   const lock = readLock(root);
   const mappings = sourceTargets(root);
   const currentSources = new Set(mappings.map(([source]) => source));
@@ -142,8 +161,16 @@ function translationStatus(root) {
   );
 }
 
-function recordTranslations(root) {
-  const mappings = sourceTargets(root);
+// With `sources`, only those lock entries are refreshed and every other entry stays as recorded,
+// so a single-page PR can update the lock without vouching for pages it did not translate.
+function recordTranslations(root, sources = []) {
+  ensureSyncedContributing(root);
+  const allMappings = sourceTargets(root);
+  const unknown = sources.filter((source) => !allMappings.some(([candidate]) => candidate === source));
+  if (unknown.length > 0) {
+    throw new Error(`Unknown translation sources:\n${unknown.join("\n")}`);
+  }
+  const mappings = sources.length === 0 ? allMappings : allMappings.filter(([source]) => sources.includes(source));
   const missing = mappings.filter(([, target]) => !existsSync(resolve(root, target)));
   if (missing.length > 0) {
     throw new Error(`Refusing to record missing translations:\n${missing.map(([source]) => source).join("\n")}`);
@@ -154,8 +181,8 @@ function recordTranslations(root) {
       `Refusing to record translations whose untranslated frontmatter differs from the source:\n${drifted.map(([, target]) => target).join("\n")}`,
     );
   }
-  const currentSources = new Set(mappings.map(([source]) => source));
-  const currentTargets = new Set(mappings.map(([, target]) => target));
+  const currentSources = new Set(allMappings.map(([source]) => source));
+  const currentTargets = new Set(allMappings.map(([, target]) => target));
   const orphanTargets = [
     ...Object.keys(readLock(root))
       .filter((source) => !currentSources.has(source))
@@ -167,9 +194,15 @@ function recordTranslations(root) {
     throw new Error(`Refusing to record orphan translations:\n${[...new Set(orphanTargets)].sort().join("\n")}`);
   }
 
-  const lock = Object.fromEntries(
+  const recorded = Object.fromEntries(
     mappings.map(([source]) => [source, digest(resolve(root, fingerprintSource(source)))]),
   );
+  const lock =
+    sources.length === 0
+      ? recorded
+      : Object.fromEntries(
+          Object.entries({ ...readLock(root), ...recorded }).sort(([left], [right]) => left.localeCompare(right)),
+        );
   const lockPath = resolve(root, LOCK_PATH);
   const temporaryPath = `${lockPath}.${process.pid}.tmp`;
   mkdirSync(dirname(lockPath), { recursive: true });
@@ -181,32 +214,36 @@ function recordTranslations(root) {
 function parseArguments(argv) {
   const command = argv[0];
   const rootIndex = argv.indexOf("--root");
+  const rest = argv.slice(1).filter((_, index) => index + 1 !== rootIndex && index + 1 !== rootIndex + 1);
   return {
     command,
     root: rootIndex === -1 ? process.cwd() : resolve(argv[rootIndex + 1]),
     json: argv.includes("--json"),
+    sources: rest.filter((argument) => !argument.startsWith("--")),
   };
 }
 
-const { command, root, json } = parseArguments(process.argv.slice(2));
+const { command, root, json, sources } = parseArguments(process.argv.slice(2));
 
 if (command !== "status" && command !== "record") {
-  console.error("Usage: translation-lock.mjs <status|record> [--root PATH] [--json]");
+  console.error("Usage: translation-lock.mjs status [--root PATH] [--json]\n       translation-lock.mjs record [SOURCE...] [--root PATH]");
   process.exitCode = 2;
-} else if (command === "record") {
+} else {
   try {
-    console.log(`Recorded ${recordTranslations(root)} source hashes.`);
+    if (command === "record") {
+      console.log(`Recorded ${recordTranslations(root, sources)} source hashes.`);
+    } else {
+      const status = translationStatus(root);
+      if (json) {
+        process.stdout.write(`${JSON.stringify(status, null, 2)}\n`);
+      } else if (status.length === 0) {
+        console.log("Translations are up to date.");
+      } else {
+        for (const item of status) console.log(`${item.state}\t${item.source}\t${item.target}`);
+      }
+    }
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
-  }
-} else {
-  const status = translationStatus(root);
-  if (json) {
-    process.stdout.write(`${JSON.stringify(status, null, 2)}\n`);
-  } else if (status.length === 0) {
-    console.log("Translations are up to date.");
-  } else {
-    for (const item of status) console.log(`${item.state}\t${item.source}\t${item.target}`);
   }
 }

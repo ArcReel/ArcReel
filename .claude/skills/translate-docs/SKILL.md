@@ -27,6 +27,8 @@ Treat every reported item as one batch:
 - `frontmatter`: make the target's untranslated frontmatter match the source (see Step 3).
 - `orphan`: delete the reported target if it exists; the later `record` command removes the obsolete lock entry.
 
+`status` generates the synced `CONTRIBUTING.md` copy itself when a fresh worktree lacks it, by running `website/scripts/sync-contributing.mjs`.
+
 Finish discovery only after every item has an explicit action. The lockfile changes only through `record`.
 
 For a large batch, dispatch subagents by file group. Give each one its exact source → target pairs and point it at Steps 2 and 3 of this file.
@@ -93,5 +95,7 @@ cd website
 pnpm typecheck
 pnpm build
 ```
+
+A PR that translated only some pages records just those: `node .claude/skills/translate-docs/scripts/translation-lock.mjs record <source>...` (sources as printed by `status`) refreshes only the named entries and leaves every other entry as recorded, so pages still stale keep showing up in `status`.
 
 `record` refuses to update the lockfile while a target is missing, while a target's untranslated frontmatter differs from its source, and while any Markdown file under `website/i18n/*/docusaurus-plugin-content-docs/current/` has no source mapping to it. Completion requires `status` to print `Translations are up to date.`, typecheck to pass, and the build to emit both `build/` and `build/en/` without broken links or anchors.

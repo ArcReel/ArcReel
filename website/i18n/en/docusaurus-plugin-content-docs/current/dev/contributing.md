@@ -75,6 +75,25 @@ pnpm check-consistency
 
 For the development loop and the full gate before pushing, see "工具链与校验" (Toolchain and checks) in [`AGENTS.md`](https://github.com/ArcReel/ArcReel/blob/main/AGENTS.md) and [`docs/agents/testing.md`](https://github.com/ArcReel/ArcReel/blob/main/docs/agents/testing.md). CI runs the same set of checks.
 
+### Frontend Page-Level Tests {#frontend-page-tests}
+
+`frontend/e2e/` is a page-level Playwright suite. It opens each page region at five viewports from 1024×600 to 2560×1440 and checks that the document itself does not scroll, that no content is clipped without being reachable by scrolling, and that vertical scroll areas (including popup bodies) are not stretched into horizontal scrolling; it also uses axe to check accessibility against WCAG 2.2 AA. The CI `frontend-e2e` job runs in the official Playwright image. Locally, render in the same image using run-server remote mode so results match CI:
+
+```bash
+cd frontend
+pnpm e2e:server   # Terminal 1: start the Playwright run-server in Docker; the image version is taken from @playwright/test
+pnpm e2e:remote   # Terminal 2: build the frontend and run the suite against the browser in the container
+```
+
+Without Docker, first run `pnpm exec playwright install chromium`, then run `pnpm e2e`. This approach renders on the local machine, so fonts and layout may differ from CI; the results inside the container are authoritative.
+
+When running several copies of the suite on the same machine in parallel, use environment variables to offset ports and output directories. Defaults in parentheses apply when a variable is unset: `E2E_PORT` is the preview server port (4173), `E2E_OUTPUT_DIR` is the directory for failure screenshots and traces (`frontend/test-results`), and `E2E_SERVER_PORT` is the port the run-server is mapped to on the local machine (3000); `pnpm e2e:server` and `pnpm e2e:remote` read the same variable. With `CI=1`, change the directory of the generated HTML report with Playwright's own `PLAYWRIGHT_HTML_OUTPUT_DIR`. Screenshot baselines are generated with the default ports; after changing a port, screenshots that show the local address on the page are excluded from comparison.
+
+- **Adding scenarios**: register them under `frontend/e2e/regions/` with `defineRegionScenarios`, stating the route to open, the readiness condition, and the states to probe. Scenarios focus on states that change the available height, such as expanding a panel or opening a popup.
+- **Exemptions**: exempt decorative clipping layers with `data-overflow-ok="原因"`; the attribute value must state the reason. Regions that genuinely need horizontal scrolling (timeline tracks, code blocks, tag strips) use `overflow-x-auto`, which the probe recognizes by class name, so no extra exemption is needed.
+- **API data stand-ins**: `frontend/e2e/fixtures/recorded/` is recorded against the real backend by `pnpm e2e:record`. The script requires `uv`, starts the backend in a temporary data directory, and creates a demo project. A PR that changes an API's shape for the backend re-records at the same time, so the shape change shows up as a diff of the stand-in files. Stress variants such as long text or many entries are written in the scenario's `api` field.
+- **Page screenshots**: after a scenario registers `screenshot`, comparison happens only when it runs with `E2E_SCREENSHOTS=1`, and screenshots are taken only at three viewports: 1024×600, 1440×900, and 2560×1440. The CI `frontend-e2e` job sets this variable, and the job fails when a screenshot differs or its baseline is missing. Baselines can only be generated and compared in the container: run with `pnpm e2e:server` and `pnpm e2e:remote`, regenerate new or intentionally changed screenshots by adding `--update-snapshots=changed`, and commit them after checking each one. Fonts rendered on the local machine differ from the container, so do not use it to generate baselines.
+
 ## Code Quality {#code-quality}
 
 The entry point for coding standards is [`CODING_STANDARDS.md`](https://github.com/ArcReel/ArcReel/blob/main/CODING_STANDARDS.md): it maps changed paths to the domain standards under `docs/standards/`, and it contains only project conventions that require judgment and cannot be replaced by tooling. Both local reviews and the AI reviewer on PRs use it as their basis.
