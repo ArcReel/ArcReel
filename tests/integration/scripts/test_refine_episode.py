@@ -6,7 +6,6 @@ import errno
 import hashlib
 import json
 import math
-import os
 import shutil
 import struct
 import subprocess
@@ -16,6 +15,7 @@ from typing import Any
 import pytest
 
 from lib.infra.ffmpeg import ffmpeg_executable
+from scripts import refine_episode
 from scripts.refine_episode import refine
 from tests.factories import make_test_clip, wav_bytes
 
@@ -210,15 +210,15 @@ def test_failed_report_publication_can_retry_without_an_orphaned_export(
     recipe_file: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     output_dir = recipe_file.parent / "exports"
-    replace = os.replace
+    write_report = refine_episode.atomic_write_json
 
-    def fail_report(source: str | Path, destination: str | Path) -> None:
-        if Path(destination).name == "report.json":
+    def fail_report(destination: Path, data: Any) -> None:
+        if destination.name == "report.json":
             raise OSError(errno.ENOSPC, "Report storage is full")
-        replace(source, destination)
+        write_report(destination, data)
 
     with monkeypatch.context() as boundary:
-        boundary.setattr(os, "replace", fail_report)
+        boundary.setattr(refine_episode, "atomic_write_json", fail_report)
         with pytest.raises(OSError, match="Report storage is full"):
             refine(recipe_file, output_dir)
 
