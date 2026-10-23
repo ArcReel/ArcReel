@@ -117,6 +117,7 @@ describe("ReelWorkspace", () => {
     expect(request).toContain("Keep Riven on four legs");
     expect(request).toContain("Preserve the existing exported cut");
     expect(request).toContain("actual assembled export");
+    expect(request).not.toContain("resume the unfinished parent production task");
     await waitFor(() => expect(screen.getByRole("textbox")).toHaveValue(""));
   });
 
@@ -156,6 +157,8 @@ describe("ReelWorkspace", () => {
     fireEvent.click(button);
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(sendMessage.mock.calls[0][0]).toContain("shot E1S01 and only the adjacent transitions");
+    expect(sendMessage.mock.calls[0][0]).toContain("resume the unfinished parent production task");
+    expect(sendMessage.mock.calls[0][0]).toContain("Respect any explicit creator pause or cancellation");
     expect(interrupt).not.toHaveBeenCalled();
     expect(screen.getByRole("textbox")).toHaveValue("Make the paper clearly held in her hand");
     accept(true);

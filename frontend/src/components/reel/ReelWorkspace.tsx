@@ -96,11 +96,11 @@ export function ReelWorkspace({ projectName, episode }: { projectName: string; e
     if (!instruction.trim() || busy || requestInFlight.current) return false;
     requestInFlight.current = true;
     try {
-      const accepted = await sendMessage(revisionRequest(episode, selectedTimeline, unitId, instruction));
+      const accepted = await sendMessage(revisionRequest(episode, selectedTimeline, unitId, instruction, running));
       if (accepted) { setInstruction(""); setSubmitted(true); }
       return accepted;
     } finally { requestInFlight.current = false; }
-  }, [instruction, busy, sendMessage, episode, selectedTimeline, unitId]);
+  }, [instruction, busy, sendMessage, episode, selectedTimeline, unitId, running]);
   useLeaveGuard({ dirty: Boolean(instruction.trim()), saving: state.sending, save: submit, discard: () => setInstruction("") });
   const latestNote = [...state.entries].reverse().find((entry) => entry.type === "assistant" && Array.isArray(entry.content) && entry.content.some((block) => block.type === "text"));
   const note = Array.isArray(latestNote?.content) ? latestNote.content.flatMap((block) => block.type === "text" ? [block.text] : []).join("\n") : null;
