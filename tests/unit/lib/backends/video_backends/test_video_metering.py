@@ -194,6 +194,24 @@ class TestKlingMetering:
 
         assert usage.dimensions["resolution"] == dimension
 
+    def test_estimate_follows_user_relaxed_audio_track(self) -> None:
+        """用户添加的型号把音轨放宽为可控：预估与执行同一份叠加覆盖后的能力，按有声计。"""
+        catalog.install_user_added_models(
+            [
+                catalog.UserAddedModel(
+                    "kling", "kling-user-added", "video", capability_overrides={"audio_track": "controllable"}
+                )
+            ]
+        )
+        try:
+            usage = builtin_video_metered_usage(
+                "kling", "kling-user-added", _request(duration_seconds=5, generate_audio=True)
+            )
+        finally:
+            catalog.install_user_added_models(())
+
+        assert usage.dimensions["audio"] is True
+
 
 class TestViduMetering:
     def test_reference_to_video_is_its_own_price_tier(self) -> None:

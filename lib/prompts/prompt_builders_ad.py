@@ -17,11 +17,11 @@ from collections.abc import Collection, Mapping
 from lib.infra.schema_guards import is_int
 from lib.infra.text_metrics import reading_unit_noun
 from lib.prompts.prompt_builders_script import (
-    _format_aspect_ratio_desc,
-    _neutralize_tags,
-    _overview_slot,
-    _project_asset_appearances,
+    format_aspect_ratio_desc,
     format_duration_constraint,
+    neutralize_tags,
+    overview_slot,
+    project_asset_appearances,
 )
 from lib.prompts.prompt_rules.asset_appearance import asset_reference_names
 from lib.prompts.prompt_templates.builtin import builtin_templates
@@ -86,8 +86,8 @@ def _asset_registry_slot(
 ) -> dict:
     """资产表槽位：有项目资产表时带描述与别名，否则只有候选名。"""
     if registry is None:
-        return _project_asset_appearances(characters, scenes, props)
-    return _project_asset_appearances(
+        return project_asset_appearances(characters, scenes, props)
+    return project_asset_appearances(
         dict(registry.get("characters") or {}), dict(registry.get("scenes") or {}), dict(registry.get("props") or {})
     )
 
@@ -146,11 +146,11 @@ def build_ad_prompt(
     return builtin_templates.render(
         "text/ad_storyboard_script",
         target_language=target_language,
-        project_overview=_overview_slot(project_overview),
+        project_overview=overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
-        aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
+        aspect_ratio_label=format_aspect_ratio_desc(aspect_ratio),
         brief=brief or None,
         assets=_asset_registry_slot(asset_registry, characters, scenes, props),
         character_names=asset_reference_names("character", characters),
@@ -193,11 +193,11 @@ def build_ad_reference_prompt(
     return builtin_templates.render(
         "text/ad_reference_video_script",
         target_language=target_language,
-        project_overview=_overview_slot(project_overview),
+        project_overview=overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
-        aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
+        aspect_ratio_label=format_aspect_ratio_desc(aspect_ratio),
         brief=brief or None,
         assets=_asset_registry_slot(asset_registry, characters, scenes, props),
         products=_format_products(products) if products else None,
@@ -215,7 +215,7 @@ def build_ad_reference_prompt(
 
 def _names(value: object) -> str:
     names = [name for name in value if isinstance(name, str)] if isinstance(value, list) else []
-    return _neutralize_tags("、".join(names) or "无")
+    return neutralize_tags("、".join(names) or "无")
 
 
 def _prompt_summary(value: object, field: str) -> str:
@@ -234,22 +234,22 @@ def render_ad_shots_for_prompt_authoring(shots: list[dict], target_ids: Collecti
     for shot in shots:
         shot_id = str(shot.get("shot_id") or "?")
         pending = shot_id in target_ids
-        header = f"### {_neutralize_tags(shot_id)}{_PENDING_MARK if pending else ''}（时长 {shot.get('duration_seconds', '?')} 秒）"
+        header = f"### {neutralize_tags(shot_id)}{_PENDING_MARK if pending else ''}（时长 {shot.get('duration_seconds', '?')} 秒）"
         lines = [
             header,
-            f"段落：{_neutralize_tags(str(shot.get('section') or '无'))}",
+            f"段落：{neutralize_tags(str(shot.get('section') or '无'))}",
             f"出场：角色 [{_names(shot.get('characters_in_shot'))}]、场景 [{_names(shot.get('scenes'))}]、"
             f"道具 [{_names(shot.get('props'))}]、商品 [{_names(shot.get('products_in_shot'))}]",
         ]
         voiceover = str(shot.get("voiceover_text") or "").strip()
-        lines.append(f"口播：{_neutralize_tags(voiceover) if voiceover else '（无）'}")
+        lines.append(f"口播：{neutralize_tags(voiceover) if voiceover else '（无）'}")
         if not pending:
             scene = _prompt_summary(shot.get("image_prompt"), "scene").strip()
             action = _prompt_summary(shot.get("video_prompt"), "action").strip()
             if scene:
-                lines.append(f"已有画面：{_neutralize_tags(scene)}")
+                lines.append(f"已有画面：{neutralize_tags(scene)}")
             if action:
-                lines.append(f"已有动作：{_neutralize_tags(action)}")
+                lines.append(f"已有动作：{neutralize_tags(action)}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks) or "（无分镜）"
 
@@ -288,11 +288,11 @@ def build_ad_shot_prompt_authoring_prompt(
     return builtin_templates.render(
         "text/ad_storyboard_prompt_authoring",
         target_language=target_language,
-        project_overview=_overview_slot(project_overview),
+        project_overview=overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
-        aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
+        aspect_ratio_label=format_aspect_ratio_desc(aspect_ratio),
         brief=brief or None,
         products=_format_products(products) if products else None,
         character_names=asset_reference_names("character", characters),
@@ -325,11 +325,11 @@ def build_ad_reference_prompt_authoring_prompt(
     return builtin_templates.render(
         "text/ad_reference_video_prompt_authoring",
         target_language=target_language,
-        project_overview=_overview_slot(project_overview),
+        project_overview=overview_slot(project_overview),
         style=style,
         style_description=style_description,
         aspect_ratio=aspect_ratio,
-        aspect_ratio_label=_format_aspect_ratio_desc(aspect_ratio),
+        aspect_ratio_label=format_aspect_ratio_desc(aspect_ratio),
         brief=brief or None,
         products=_format_products(products) if products else None,
         product_names=list(products),

@@ -10,7 +10,7 @@ import { expect, type ApiOverrides } from "../support/test.ts";
 const USER_MEMORY = "/api/v1/agent/memory";
 const PROJECT_MEMORY = "/api/v1/projects/demo/agent-memory";
 
-// 压力变体：索引超出行数上限，三十个主题文件，名称与说明都很长；索引正文三百行，含很长的行。
+// 压力变体：索引超出行数上限，三十个记忆文件，名称与说明都很长；索引正文三百行，含很长的行。
 const TOPICS = Array.from({ length: 30 }, (_, i) => ({
   name: `feedback-${String(i + 1).padStart(2, "0")}-keep-the-original-plot-and-character-voices-when-revising.md`,
   size: 640,

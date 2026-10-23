@@ -1,0 +1,145 @@
+.wrap {
+  display: flex;
+  align-items: center;
+}
+
+.item {
+  position: relative;
+  margin-inline-start: -6px;
+}
+
+.item:first-child {
+  margin-inline-start: 0;
+}
+
+.item:hover,
+.item:focus-within {
+  z-index: 1;
+}
+
+.avatarLink {
+  display: block;
+  border-radius: 50%;
+  border: 2px solid var(--ifm-navbar-background-color);
+}
+
+.avatar {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ifm-background-surface-color);
+  color: var(--ifm-font-color-base);
+  opacity: 0.5;
+  transition:
+    transform 100ms ease,
+    opacity 300ms ease;
+}
+
+.item:hover .avatar,
+.item:focus-within .avatar {
+  transform: translateY(-2px);
+  opacity: 1;
+}
+
+/* padding-top 是头像与卡片之间的透明过渡区，鼠标移向卡片途中不会失去悬停。 */
+.popover {
+  position: absolute;
+  top: 100%;
+  right: -12px;
+  padding-top: 10px;
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 150ms ease,
+    visibility 150ms ease;
+}
+
+.item:hover .popover,
+.item:focus-within .popover {
+  visibility: visible;
+  opacity: 1;
+}
+
+.card {
+  width: 320px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--ifm-dropdown-background-color);
+  box-shadow: var(--ifm-global-shadow-md);
+}
+
+.cardBody {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.cardLogo {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid var(--ifm-color-emphasis-200);
+  background: var(--ifm-color-emphasis-100);
+  color: var(--ifm-font-color-base);
+}
+
+.cardInfo {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cardName {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ifm-font-color-base);
+}
+
+.cardName:hover {
+  color: var(--ifm-color-primary);
+  text-decoration: none;
+}
+
+.cardDesc {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.cardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sponsorLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.heart {
+  color: #ff4d4f;
+}
+
+.becomeLink,
+.visitLink {
+  padding-inline: 10px;
+  font-size: 13px;
+}
+
+.becomeLink {
+  color: var(--ifm-color-emphasis-600);
+}
+
+.visitLink {
+  padding-inline-end: 0;
+  color: var(--ifm-color-primary);
+}

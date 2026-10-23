@@ -43,6 +43,7 @@ from server.services.tasks.generation_context import (
     resolve_generation_context,
 )
 from tests.factories import make_video_request_facts
+from tests.fakes import bind_session_factory, use_backend_assembler, use_project_manager
 
 
 def _registry_video_model(provider_id: str) -> str:
@@ -70,7 +71,7 @@ class _FakeBackend:
 @pytest.fixture
 async def patched_session_factory(db_factory, monkeypatch):
     """真实内存 DB：建全部 ORM 表，并把 lib.db.async_session_factory 指向它。"""
-    monkeypatch.setattr("lib.db.async_session_factory", db_factory)
+    bind_session_factory(monkeypatch, db_factory)
     return db_factory
 
 
@@ -79,7 +80,7 @@ def project_env(monkeypatch, tmp_path: Path):
     """tmp_path 下的真 ProjectManager + 已存在的项目目录。"""
     pm = ProjectManager(tmp_path)
     (tmp_path / "projects" / "demo").mkdir(parents=True)
-    monkeypatch.setattr(generation_context, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     return pm
 
 
@@ -111,7 +112,7 @@ def fake_assemble(monkeypatch):
         calls.append((provider_id, media_type, model_id))
         return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
-    monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+    use_backend_assembler(monkeypatch, _assemble)
     return calls
 
 
@@ -269,7 +270,7 @@ class TestVideoLane:
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         video_model = _registry_video_model("ark")
         ctx = await resolve_generation_context(
             "demo", None, project={"video_backend": f"ark/{video_model}"}, video=VideoLaneRequest()
@@ -298,7 +299,7 @@ class TestVideoLane:
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         video_model = _registry_video_model("ark")
         ctx = await resolve_generation_context(
             "demo",
@@ -334,7 +335,7 @@ class TestActualIdentityQueries:
             # 模拟 load_custom_backend 的回退：请求 m-dead，实际构造出默认启用的 m-live
             return _FakeBackend(name=provider_id, model="m-live")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         ctx = await resolve_generation_context(
             "demo",
             None,
@@ -391,7 +392,7 @@ class TestVideoRequestFacts:
                 await connection.run_sync(SystemSetting.__table__.drop)
             return _FakeBackend(name=provider_id, model=model_id)
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         model_id = _registry_video_model("ark")
 
         ctx = await resolve_generation_context(
@@ -478,7 +479,7 @@ class TestVideoRequestFacts:
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(name=provider_id, model="m-live")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         ctx = await resolve_generation_context(
             "demo",
             None,
@@ -498,7 +499,7 @@ class TestVideoRequestFacts:
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             return _FakeBackend(name=provider_id, model="mystery-model")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         ctx = await resolve_generation_context(
             "demo",
             None,
@@ -533,7 +534,7 @@ class TestAudioLane:
                 name=provider_id, model=model_id or "default-model", voices=[VoiceOption(id="Cherry", label="Cherry")]
             )
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         project = {"audio_backend": "dashscope/tts-model-x"}
         ctx = await resolve_generation_context("demo", None, project=project, audio=AudioLaneRequest())
         assert tuple(v.id for v in ctx.audio.voices) == ("Cherry",)
@@ -550,7 +551,7 @@ class TestAtomicFailure:
                 raise ValueError("video backend 构造失败")
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         video_model = _registry_video_model("ark")
         with pytest.raises(ValueError, match="video backend 构造失败"):
             await resolve_generation_context(
@@ -589,7 +590,7 @@ class TestBackendCache:
             seen.append(generation_type)
             return _FakeBackend(name=provider_id, model=f"{generation_type}-model")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         resolver = cast(ConfigResolver, None)
 
         t2i = await generation_context._get_or_create_image_backend("custom-1", {}, resolver, generation_type="t2i")
@@ -616,7 +617,7 @@ class TestBackendCache:
                 await release.wait()
             return backend
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         resolver = cast(ConfigResolver, None)
 
         task = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
@@ -644,7 +645,7 @@ class TestBackendCache:
             await release.wait()
             return _FakeBackend(name=provider_id, model=model_id or "default-model")
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         resolver = cast(ConfigResolver, None)
 
         t1 = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))
@@ -680,7 +681,7 @@ class TestBackendCache:
                 await release.wait()
             return backend
 
-        monkeypatch.setattr(generation_context, "assemble_backend", _assemble)
+        use_backend_assembler(monkeypatch, _assemble)
         resolver = cast(ConfigResolver, None)
 
         leader = asyncio.create_task(generation_context._get_or_create_video_backend("ark", {"model": "m"}, resolver))

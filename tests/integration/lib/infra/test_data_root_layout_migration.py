@@ -376,17 +376,23 @@ async def test_failed_migration_is_retried_on_next_run(
     assert ProjectManager(data_root).list_projects() == ["demo"]
 
 
-async def test_project_left_mid_schema_swap_is_reclaimed_after_migration(
+async def test_project_left_mid_schema_swap_moves_with_its_rollback_dir(
     data_root: Path, session_factory: async_sessionmaker[AsyncSession], sdk_config_dir: Path
 ) -> None:
     _write_legacy_project(data_root, "demo", novel="交换窗口里的项目")
     store = DbSessionStore(session_factory, user_id="default")
     await _record_session(store, data_root / "demo")
     # 旧版本的项目 schema 迁移停在目录交换的两次改名之间：项目目录只剩 rollback 目录。
-    (data_root / "demo").rename(data_root / f".demo.v6-rollback-{'a' * 32}")
+    rollback_name = f".demo.v6-rollback-{'a' * 32}"
+    (data_root / "demo").rename(data_root / rollback_name)
 
     await _migrate_data_root(data_root, session_factory, sdk_config_dir)
-    run_project_migrations(DataRootLayout(data_root).projects_dir)
+    projects_dir = DataRootLayout(data_root).projects_dir
+    run_project_migrations(projects_dir)
+    assert not (projects_dir / "demo").exists()  # 强杀遗留不自动恢复
+    # 部署文档给出的人工恢复：把 rollback 目录改回项目名。
+    (projects_dir / rollback_name).rename(projects_dir / "demo")
+    run_project_migrations(projects_dir)
 
     manager = ProjectManager(data_root)
     assert manager.list_projects() == ["demo"]

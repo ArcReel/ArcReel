@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import NamedTuple
 
@@ -21,6 +22,7 @@ import respx
 from arcreel_market_core.video_backend_contract import (
     ResumeExpiredError,
     VideoAudioMode,
+    VideoCapabilities,
     VideoCapabilityError,
     VideoGenerationRequest,
 )
@@ -405,6 +407,127 @@ class TestCapabilityValidation:
         )
         assert subpath == "multi-image2video"
         assert len(payload["image_list"]) == 4
+
+
+class TestUserRelaxedCapabilities:
+    """请求带上执行闸门那份已叠加用户覆盖的能力时，放宽的维度照常发出，不按型号档案拒绝。"""
+
+    @staticmethod
+    def _caps(model: str, service_tier: str = "default", **changes) -> VideoCapabilities:
+        return replace(_jwt_backend(model).video_capabilities_for_tier(service_tier), **changes)
+
+    def test_relaxed_reference_images_sent_on_model_without_reference(self, tmp_path):
+        refs = TestCapabilityValidation._refs(tmp_path, 2)
+        subpath, payload = _jwt_backend("kling-v3")._build_payload(
+            _request(tmp_path, reference_images=refs, video_capabilities=self._caps("kling-v3", max_reference_images=2))
+        )
+        assert subpath == "multi-image2video"
+        assert len(payload["image_list"]) == 2
+
+    def test_relaxed_reference_limit_sends_all_references(self, tmp_path):
+        refs = TestCapabilityValidation._refs(tmp_path, 6)
+        _, payload = _jwt_backend("kling-v3-omni")._build_payload(
+            _request(
+                tmp_path, reference_images=refs, video_capabilities=self._caps("kling-v3-omni", max_reference_images=6)
+            )
+        )
+        assert len(payload["image_list"]) == 6
+
+    def test_relaxed_last_frame_sent_at_std_tier_on_pro_only_model(self, tmp_path):
+        first = tmp_path / "first.png"
+        last = tmp_path / "last.png"
+        first.write_bytes(b"\x89PNG\r\n1")
+        last.write_bytes(b"\x89PNG\r\n2")
+        _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(
+            _request(
+                tmp_path,
+                start_image=first,
+                end_image=last,
+                video_capabilities=self._caps("kling-v2-5-turbo", last_frame=True),
+            )
+        )
+        assert payload["mode"] == "std"
+        assert "image_tail" in payload
+
+    def test_relaxed_text_to_video_sent(self, tmp_path):
+        subpath, _ = _jwt_backend("kling-video-o1")._build_payload(
+            _request(tmp_path, video_capabilities=self._caps("kling-video-o1", text_to_video=True))
+        )
+        assert subpath == "text2video"
+
+    def test_relaxed_audio_track_sends_sound_and_meters_audio(self, tmp_path):
+        request = _request(
+            tmp_path,
+            generate_audio=True,
+            video_capabilities=self._caps("kling-v2-5-turbo", audio_track=VideoAudioMode.CONTROLLABLE),
+        )
+        _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(request)
+        assert payload["sound"] == "on"
+        assert KlingVideoBackend.metered_usage("kling-v2-5-turbo", request).dimensions["audio"] is True
+
+    def test_always_on_audio_track_sends_sound_on_and_meters_audio(self, tmp_path):
+        request = _request(
+            tmp_path,
+            generate_audio=False,
+            video_capabilities=self._caps("kling-v2-5-turbo", audio_track=VideoAudioMode.ALWAYS_ON),
+        )
+        _, payload = _jwt_backend("kling-v2-5-turbo")._build_payload(request)
+        assert payload["sound"] == "on"
+        assert KlingVideoBackend.metered_usage("kling-v2-5-turbo", request).dimensions["audio"] is True
+
+    def test_narrowed_audio_track_omits_sound_and_meters_silent(self, tmp_path):
+        request = _request(
+            tmp_path,
+            generate_audio=True,
+            video_capabilities=self._caps("kling-v3", audio_track=VideoAudioMode.ALWAYS_OFF),
+        )
+        _, payload = _jwt_backend("kling-v3")._build_payload(request)
+        assert "sound" not in payload
+        assert KlingVideoBackend.metered_usage("kling-v3", request).dimensions["audio"] is False
+
+    def test_always_on_override_bypasses_1080p_constraint(self, tmp_path):
+        """v2-6 std 档：用户覆盖为恒有声时照常发 sound="on" 并按有声计量，由上游裁定。"""
+        request = _request(
+            tmp_path,
+            resolution="720p",
+            service_tier="std",
+            generate_audio=True,
+            video_capabilities=self._caps("kling-v2-6", "std", audio_track=VideoAudioMode.ALWAYS_ON),
+        )
+        _, payload = _jwt_backend("kling-v2-6")._build_payload(request)
+        assert payload["mode"] == "std"
+        assert payload["sound"] == "on"
+        assert KlingVideoBackend.metered_usage("kling-v2-6", request).dimensions["audio"] is True
+
+    @pytest.mark.parametrize(
+        ("route_audio", "generate_audio"),
+        [(VideoAudioMode.ALWAYS_ON, False), (VideoAudioMode.CONTROLLABLE, True)],
+    )
+    def test_audible_reference_route_override_rejected_before_submit(self, tmp_path, route_audio, generate_audio):
+        """多图主体请求体没有 sound 字段：覆盖为要求有声时提交前拒绝，不静默出无声成片。"""
+        refs = TestCapabilityValidation._refs(tmp_path, 1)
+        request = _request(
+            tmp_path,
+            reference_images=refs,
+            generate_audio=generate_audio,
+            video_capabilities=self._caps("kling-v3-omni", reference_route_audio_track=route_audio),
+        )
+        with pytest.raises(VideoCapabilityError) as exc:
+            _jwt_backend("kling-v3-omni")._build_payload(request)
+        assert exc.value.code == "video_reference_route_audio_unsupported"
+
+    def test_controllable_reference_route_override_with_audio_off_sent(self, tmp_path):
+        refs = TestCapabilityValidation._refs(tmp_path, 1)
+        subpath, payload = _jwt_backend("kling-v3-omni")._build_payload(
+            _request(
+                tmp_path,
+                reference_images=refs,
+                generate_audio=False,
+                video_capabilities=self._caps("kling-v3-omni", reference_route_audio_track=VideoAudioMode.CONTROLLABLE),
+            )
+        )
+        assert subpath == "multi-image2video"
+        assert "sound" not in payload
 
 
 class TestAuthHeaders:

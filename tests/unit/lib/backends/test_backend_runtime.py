@@ -962,7 +962,7 @@ class TestPersistJobIdRetry:
     async def test_no_retry_for_value_error_with_transient_string(self):
         """业务异常即使消息含 ``timed out`` / ``503`` 等串，也不该被字符串兜底吞掉重试。
 
-        `_should_retry` 在 isinstance 不匹配时会做 RETRYABLE_STATUS_PATTERNS 字符串子串兜底，
+        `should_retry` 在 isinstance 不匹配时会做 RETRYABLE_STATUS_PATTERNS 字符串子串兜底，
         因而须显式传 `retry_if=lambda e: isinstance(e, _PERSIST_RETRYABLE_ERRORS)` 严格按类型判断。
         """
         attempts = 0
@@ -1057,7 +1057,7 @@ class TestProviderJobIdPersistenceMixin:
         """持久化失败抛出原异常，由 worker finally 兜底 mark_failed（fail-fast，不吞）。"""
         boom = _make_operational_error("database is locked")
         with (
-            patch("lib.backends.backend_runtime.persist_provider_job_id", new=AsyncMock(side_effect=boom)),
+            captured_provider_job_ids(fail=boom),
             pytest.raises(OperationalError),
         ):
             await self._backend()._persist_provider_job_id(

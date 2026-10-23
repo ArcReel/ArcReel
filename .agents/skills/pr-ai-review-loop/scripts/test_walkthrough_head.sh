@@ -19,6 +19,11 @@
 #   - coderabbit_walkthrough_full_pr2620.txt: a first (full) review's walkthrough; no range
 #     line at all, only the change_assessment_commit and final_review_risk_coverage markers
 #     (HEAD e77c32c9).
+#   - coderabbit_walkthrough_skip_bot_pr3319.txt: a skip notice ("Review skipped", bot
+#     author); same marker and shape as the draft skip notice. The head was never reviewed.
+#   - coderabbit_walkthrough_skip_no_changes_pr3356.txt: a skip notice because the new
+#     commits had no reviewable changes; nothing was left to review. The change-stack
+#     link's scope token is redacted.
 # The marker-less shapes are derived in-test by stripping lines from those bodies.
 
 set -euo pipefail
@@ -48,17 +53,23 @@ extract_def() {
 HEAD_MATCH_DEF=$(extract_def codex_commit_is_current_head)
 RL_DEF=$(extract_def cr_rate_limited_body)
 WT_HEAD_DEF=$(extract_def cr_walkthrough_head)
+SKIP_DEF="$(extract_def cr_skip_marker_body)
+$(extract_def cr_no_reviewable_changes_body)
+$(extract_def cr_review_skipped_body)"
 WT_DEF=$(extract_def cr_walkthrough_rest)
 
 INCREMENTAL="$TESTDATA/coderabbit_walkthrough_incremental_pr2614.txt"
 FULL="$TESTDATA/coderabbit_walkthrough_full_pr2620.txt"
-for f in "$INCREMENTAL" "$FULL"; do
+SKIP_BOT="$TESTDATA/coderabbit_walkthrough_skip_bot_pr3319.txt"
+SKIP_NO_CHANGES="$TESTDATA/coderabbit_walkthrough_skip_no_changes_pr3356.txt"
+for f in "$INCREMENTAL" "$FULL" "$SKIP_BOT" "$SKIP_NO_CHANGES"; do
   [[ -f "$f" ]] || { echo "fixture missing at $f" >&2; exit 4; }
 done
 
 HEAD_2614="1836151d17c1da600b4897ebb44e3680f627d1d6"
 HEAD_2620="e77c32c942b32a0efdea00525568eadf6aee5fc9"
 FIRST_REVIEW_2614="6dfd561b0000000000000000000000000000abcd"
+HEAD_3356="9140671e2a7d6f366618613c24970b97ca3ffffb"
 
 fail=0
 
@@ -100,6 +111,7 @@ done
 # The incremental-review shape: one review object pinned to the first reviewed HEAD,
 # walkthrough rewritten (updated_at > last push) with an anchor on the current HEAD.
 # name | head | reviews json | commit the R1 review is anchored on | expected reviewed_current_head
+# | walkthrough fixture (default: the incremental review)
 LAST_PUSH="2026-09-21T18:00:00Z"
 WT_UPDATED_AT="2026-09-21T18:10:00Z"
 ONE_REVIEW='[{"id":"R1","submittedAt":"2026-09-21T16:41:10Z","author":{"login":"coderabbitai"}}]'
@@ -110,12 +122,15 @@ RULE_CASES=(
   "review on current head, walkthrough anchored elsewhere|$OTHER_HEAD|$ONE_REVIEW|$OTHER_HEAD|false"
   "no review object, stale walkthrough|$OTHER_HEAD|[]|$FIRST_REVIEW_2614|false"
   "no review object, current walkthrough|$HEAD_2614|[]|$FIRST_REVIEW_2614|true"
+  "skip notice, no review object|$OTHER_HEAD|[]|$FIRST_REVIEW_2614|false|$SKIP_BOT"
+  "no-changes skip names current head|$HEAD_3356|$ONE_REVIEW|$FIRST_REVIEW_2614|true|$SKIP_NO_CHANGES"
+  "no-changes skip names an older head|$OTHER_HEAD|$ONE_REVIEW|$FIRST_REVIEW_2614|false|$SKIP_NO_CHANGES"
 )
 
 for tc in "${RULE_CASES[@]}"; do
-  IFS='|' read -r name head reviews review_commit expected <<<"$tc"
+  IFS='|' read -r name head reviews review_commit expected fixture <<<"$tc"
   got=$(jq -r \
-    --rawfile body "$INCREMENTAL" \
+    --rawfile body "${fixture:-$INCREMENTAL}" \
     --arg head "$head" \
     --argjson reviews "$reviews" \
     --arg first_review_commit "$review_commit" \
@@ -128,6 +143,7 @@ for tc in "${RULE_CASES[@]}"; do
     | {R1: \$first_review_commit} as \$review_commit_by_id
     | $HEAD_MATCH_DEF
       $RL_DEF
+      $SKIP_DEF
       $WT_HEAD_DEF
       $WT_DEF
       (cr_walkthrough_rest | \"\\(.reviewed_current_head) walkthrough_head=\\(.walkthrough_head) latest_review_commit=\\(.latest_review_commit)\")
@@ -136,6 +152,29 @@ for tc in "${RULE_CASES[@]}"; do
     echo "PASS rule/$name ($got)"
   else
     echo "FAIL rule/$name: expected reviewed_current_head=$expected, got $got" >&2
+    fail=1
+  fi
+done
+
+# ---- cr_review_skipped_body: a skip notice is not a review, unless nothing was left to review ----
+# name | fixture | expected
+SKIP_CASES=(
+  "skip notice|$SKIP_BOT|true"
+  "skip, no reviewable changes|$SKIP_NO_CHANGES|false"
+  "incremental review|$INCREMENTAL|false"
+  "full review|$FULL|false"
+)
+
+for tc in "${SKIP_CASES[@]}"; do
+  IFS='|' read -r name fixture expected <<<"$tc"
+  got=$(jq -r --rawfile body "$fixture" -n "
+    $SKIP_DEF
+    \$body | cr_review_skipped_body
+    ")
+  if [[ "$got" == "$expected" ]]; then
+    echo "PASS skip/$name ($got)"
+  else
+    echo "FAIL skip/$name: expected $expected, got $got" >&2
     fail=1
   fi
 done

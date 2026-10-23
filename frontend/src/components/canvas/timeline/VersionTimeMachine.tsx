@@ -267,7 +267,7 @@ export function VersionTimeMachine({
 
                 {selectedInfo.file_url &&
                   (resourceType === "videos" || resourceType === "reference_videos" ? (
-                    <div className="aspect-video w-full overflow-hidden rounded-md bg-background">
+                    <div className="aspect-video w-full overflow-hidden rounded-md bg-black">
                       {selectedInfo.presentation_available !== true ? (
                         // eslint-disable-next-line jsx-a11y/media-has-caption -- 无法进入共享成片读取器的历史视频仅展示原始媒体
                         <video

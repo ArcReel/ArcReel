@@ -506,11 +506,7 @@ class TestFailures:
     async def test_a_failed_job_id_persistence_stops_before_polling(self, tmp_path: Path):
         """job_id 没落库就进轮询，进程一重启这笔已在跑的任务就再也找不回来。"""
 
-        async def _boom(*_args: Any, **_kwargs: Any) -> None:
-            raise RuntimeError("db is down")
-
-        with capture_http() as router, bounded_poll_clock(), pytest.MonkeyPatch.context() as patch:
-            patch.setattr("lib.backends.backend_runtime.persist_provider_job_id", _boom)
+        with capture_http() as router, bounded_poll_clock(), captured_provider_job_ids(fail=RuntimeError("db is down")):
             router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
             history = router.get(f"{BASE_URL}/history/p-1")
 

@@ -7,8 +7,9 @@ import { waitForEntrance } from "./region-helpers.ts";
 import { RECORDED_ACCESS_TOKEN } from "./recorded.ts";
 import { expect, expectAccessible, expectReachableLayout, test, type ApiOverrides } from "./test.ts";
 
-// 截图只在这些视口拍，和溢出探针的视口清单分开维护。
+// 截图只在这些视口拍，和溢出探针的视口清单分开维护。浅色只抽样，拍一个视口。
 const SCREENSHOT_PROJECTS = new Set(["1024x600", "1440x900", "2560x1440"]);
+const LIGHT_SCREENSHOT_PROJECTS = new Set(["1440x900"]);
 
 export interface RegionScenario {
   name: string;
@@ -16,6 +17,8 @@ export interface RegionScenario {
   path: string;
   /** 默认已登录。 */
   auth?: "signed-in" | "signed-out";
+  /** 系统明暗，默认深色；主题偏好保持默认的「跟随系统」。 */
+  colorScheme?: "light" | "dark";
   /** 替换录制的接口响应，用于长文本、多条目等压力变体。 */
   api?: ApiOverrides;
   /** 等到区域渲染完成，例如等待标志性元素可见。 */
@@ -46,6 +49,7 @@ export function defineRegionScenarios(region: string, scenarios: RegionScenario[
       test(scenario.name, async ({ page, api }, testInfo) => {
         test.slow(Boolean(scenario.slow));
         if (scenario.api) api.override(scenario.api);
+        if (scenario.colorScheme) await page.emulateMedia({ colorScheme: scenario.colorScheme });
         if ((scenario.auth ?? "signed-in") === "signed-in") {
           await page.addInitScript((token) => localStorage.setItem("arcreel_auth_token", token), RECORDED_ACCESS_TOKEN);
         }
@@ -60,7 +64,8 @@ export function defineRegionScenarios(region: string, scenarios: RegionScenario[
         await expectAccessible(page);
 
         const { screenshot } = scenario;
-        if (screenshot && process.env.E2E_SCREENSHOTS && SCREENSHOT_PROJECTS.has(testInfo.project.name)) {
+        const projects = scenario.colorScheme === "light" ? LIGHT_SCREENSHOT_PROJECTS : SCREENSHOT_PROJECTS;
+        if (screenshot && process.env.E2E_SCREENSHOTS && projects.has(testInfo.project.name)) {
           if (screenshot.showsOrigin && !isDefaultOrigin(page.url())) {
             testInfo.annotations.push({ type: "screenshot", description: `${screenshot.name}：非默认端口，不比对` });
             return;

@@ -27,7 +27,7 @@ import {
 export interface MemoryWorkspace extends AgentMemoryState {
   entries: MemoryEntry[];
   selection: MemorySelection;
-  /** 二级栏（或限宽页里的文件列表）的条目：索引置顶、主题文件按修改时间倒序，末尾是「新建记忆文件」。 */
+  /** 二级栏（或限宽页里的文件列表）的条目：索引置顶、记忆文件按修改时间倒序，末尾是「新建记忆文件」。 */
   group: SecondaryRailGroup;
   activeId: string;
   hrefFor: (file: string) => string;

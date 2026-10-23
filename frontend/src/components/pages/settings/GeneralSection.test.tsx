@@ -30,6 +30,23 @@ describe("GeneralSection", () => {
     expect(i18n.language).toBe("en");
   });
 
+  it("选浅色后立即切换，重新打开设置仍是浅色", async () => {
+    document.documentElement.classList.add("dark");
+    const user = userEvent.setup();
+    const { unmount } = render(<GeneralSection />);
+
+    const theme = screen.getByRole("combobox", { name: "主题" });
+    expect(theme).toHaveTextContent("跟随系统");
+
+    await user.click(theme);
+    await user.click(await screen.findByRole("option", { name: "浅色" }));
+
+    expect(document.documentElement).not.toHaveClass("dark");
+    unmount();
+    render(<GeneralSection />);
+    expect(screen.getByRole("combobox", { name: "主题" })).toHaveTextContent("浅色");
+  });
+
   it("重看引导会重新开始新手引导", async () => {
     const user = userEvent.setup();
     render(<GeneralSection />);

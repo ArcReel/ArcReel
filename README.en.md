@@ -61,22 +61,21 @@
   </tr>
   <tr>
     <td width="200" align="center" valign="top">
-      <a href="https://sidrune.ai/register?source=github&campaign=arcreel&promo=arcreel"><img src="docs/assets/sponsors/sidrune-ai.png" alt="Sidrune AI" width="180"></a>
-    </td>
-    <td valign="top">
-      <strong>One Entry Point to Access and Manage the World's Leading AI Models | Sidrune AI</strong><br>
-      Sidrune AI is built for individual developers, technical teams, and enterprises, providing access to and management of the world's leading AI models through a unified API. Dynamic multi-route scheduling improves availability, with model performance, response times, and costs transparent and easy to review. Depending on the model and route, API costs can be 40%–98% lower than official or benchmark prices.<br>
-      <a href="https://sidrune.ai/register?source=github&campaign=arcreel&promo=arcreel">Visit and sign up now</a> to receive $3 in API credits.
-    </td>
-  </tr>
-  <tr>
-    <td width="200" align="center" valign="top">
       <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel"><img src="docs/assets/sponsors/ofox-ai.svg" alt="OfoxAI" width="180"></a>
     </td>
     <td valign="top">
       <strong>OfoxAI: Model APIs for scripts, images, and video</strong><br>
       Access text, image, and video models through OfoxAI. Choose capabilities for refining scripts, creating character and scene references, and generating video assets. Consult the API documentation for each model’s input requirements, supported parameters, and request format.<br>
       <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel">Explore OfoxAI models and APIs →</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="200" align="center" valign="top">
+      <a href="https://go.apimart.ai/tw-arcreel"><img src="docs/assets/sponsors/apimart.webp" alt="APIMart" width="180"></a>
+    </td>
+    <td valign="top">
+      <strong>APIMart: Low-cost API for AI image & video generation</strong><br>
+      Thanks to APIMart for sponsoring this project! APIMart is a low-cost API platform for AI image & video generation — <strong>GPT-Image-2 from $0.006/image, 160+ images per dollar</strong>. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — <a href="https://go.apimart.ai/tw-arcreel">sign up here</a> to get started.
     </td>
   </tr>
 </table>

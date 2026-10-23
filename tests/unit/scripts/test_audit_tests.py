@@ -899,16 +899,96 @@ def test_patch_object_on_imported_module_counts_toward_patch_spread(tmp_path: Pa
     assert [rule for rule, _path in _rules(_audit(tmp_path))] == ["PATCH-SPREAD"] * 3
 
 
-def test_monkeypatch_setattr_does_not_count_toward_patch_spread(tmp_path: Path) -> None:
+def _monkeypatching_test(target: str) -> str:
+    return (
+        "from pathlib import Path\n\n\n"
+        "def test_a(monkeypatch):\n"
+        f"    monkeypatch.setattr({target}, object)\n"
+        "    value = 1\n"
+        "    assert value == 1\n"
+    )
+
+
+def test_monkeypatch_setattr_counts_toward_patch_spread(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    for name in ("test_a.py", "test_b.py"):
+        (tests / name).write_text(_monkeypatching_test('"sdk.client.Client"'), encoding="utf-8")
+    (tests / "test_c.py").write_text(
+        "import sdk.client\n\n\n"
+        "def test_a(monkeypatch):\n"
+        '    monkeypatch.setattr(sdk.client, "Client", object)\n'
+        "    value = 1\n"
+        "    assert value == 1\n",
+        encoding="utf-8",
+    )
+
+    assert [(rule, path) for rule, path in _rules(_audit(tmp_path))] == [
+        ("PATCH-SPREAD", "tests/test_a.py"),
+        ("PATCH-SPREAD", "tests/test_b.py"),
+        ("PATCH-SPREAD", "tests/test_c.py"),
+    ]
+
+
+def _context_patching_test(opener: str, target: str) -> str:
+    return (
+        "import pytest\n\n\n"
+        "def test_a(monkeypatch):\n"
+        f"    with {opener} as m:\n"
+        f"        m.setattr({target}, object)\n"
+        "        value = 1\n"
+        "    assert value == 1\n"
+    )
+
+
+def test_setattr_on_monkeypatch_context_alias_counts_toward_patch_spread(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_a.py").write_text(_monkeypatching_test('"sdk.client.Client"'), encoding="utf-8")
+    (tests / "test_b.py").write_text(
+        _context_patching_test("monkeypatch.context()", '"sdk.client.Client"'), encoding="utf-8"
+    )
+    (tests / "test_c.py").write_text(
+        _context_patching_test("pytest.MonkeyPatch.context()", '"sdk.client.Client"'), encoding="utf-8"
+    )
+
+    assert [rule for rule, _path in _rules(_audit(tmp_path))] == ["PATCH-SPREAD"] * 3
+
+
+def test_setattr_on_monkeypatch_context_alias_reports_private_patch(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_a.py").write_text(
+        _context_patching_test("monkeypatch.context()", '"lib.shapes._relocate"'), encoding="utf-8"
+    )
+
+    assert _rules(_audit(tmp_path)) == [("PRIVATE-PATCH", "tests/test_a.py")]
+
+
+def test_context_alias_name_reused_outside_its_with_block_is_not_a_monkeypatch(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_a.py").write_text(
+        _context_patching_test("monkeypatch.context()", '"sdk.client.Client"')
+        + "\n\ndef test_b():\n"
+        + "    m = object()\n"
+        + '    m.setattr("lib.shapes._relocate", object)\n'
+        + "    assert m\n",
+        encoding="utf-8",
+    )
+
+    assert _rules(_audit(tmp_path)) == []
+
+
+def test_context_opener_that_is_not_pytest_monkeypatch_binds_no_alias(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "test_a.py").write_text(
+        _context_patching_test("NotMonkeyPatch.context()", '"lib.shapes._relocate"'), encoding="utf-8"
+    )
+
+    assert _rules(_audit(tmp_path)) == []
+
+
+def test_allowed_filesystem_boundary_target_is_not_reported(tmp_path: Path) -> None:
     tests, _ = _repo(tmp_path)
     for name in ("test_a.py", "test_b.py", "test_c.py"):
-        (tests / name).write_text(
-            "def test_a(monkeypatch):\n"
-            '    monkeypatch.setattr("sdk.client.Client", object)\n'
-            "    value = 1\n"
-            "    assert value == 1\n",
-            encoding="utf-8",
-        )
+        (tests / name).write_text(_monkeypatching_test('Path, "unlink"'), encoding="utf-8")
 
     assert _rules(_audit(tmp_path)) == []
 
@@ -936,3 +1016,27 @@ def test_shared_symbol_used_by_fewer_than_two_files_is_reported(tmp_path: Path) 
     assert [(v.path, v.line) for v in violations] == [("tests/fakes.py", 5), ("tests/fakes.py", 9)]
     assert "`used_once` 只被 1 个测试文件使用" in violations[0].guidance
     assert "`Unused` 只被 0 个测试文件使用" in violations[1].guidance
+
+
+def test_shared_symbol_usage_covers_auth_deps_and_support_modules_but_not_test_files(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "auth_deps.py").write_text("def only_here():\n    return 1\n", encoding="utf-8")
+    (tests / "topic_support.py").write_text("def only_here():\n    return 1\n", encoding="utf-8")
+    (tests / "test_topic_support.py").write_text("def helper():\n    return 1\n", encoding="utf-8")
+
+    violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "SHARED-SYMBOL-USAGE"]
+
+    assert [v.path for v in violations] == ["tests/auth_deps.py", "tests/topic_support.py"]
+
+
+def test_shared_symbol_usage_counts_module_level_assignments(tmp_path: Path) -> None:
+    tests, _ = _repo(tmp_path)
+    (tests / "fakes.py").write_text(
+        "LONELY = 1\nTyped: int = 2\ntype Alias = int\n_PRIVATE = 3\n__all__ = []\nPAIR_A, (PAIR_B, *REST) = 1, (2, 3)\n"
+        "import os\nos.environ['K'] = 'v'\nREST[0] = 9\n",
+        encoding="utf-8",
+    )
+
+    violations = [v for v in gate_violations(_audit(tmp_path)) if v.rule == "SHARED-SYMBOL-USAGE"]
+
+    assert [v.line for v in violations] == [1, 2, 3, 6, 6, 6]

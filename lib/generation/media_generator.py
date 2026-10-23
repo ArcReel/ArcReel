@@ -999,6 +999,7 @@ class MediaGenerator:
             model=model_name,
             prompt=prompt,
             has_image=bool(slot_plan.specs),
+            has_first_frame=slot_plan.start_index is not None,
             end_image=end_image,
             reference_images=reference_images,
             reference_audio_files=reference_audio_files,
@@ -1119,6 +1120,7 @@ class MediaGenerator:
                     ),
                     service_tier=version_metadata.get("service_tier", "default"),
                     seed=version_metadata.get("seed"),
+                    video_capabilities=video_caps,
                 )
                 sent_request[:] = [request]
                 return video_backend.generate(request)

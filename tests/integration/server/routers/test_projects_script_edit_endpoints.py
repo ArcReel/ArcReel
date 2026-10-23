@@ -9,6 +9,7 @@ import pytest
 from lib.project.project_manager import ProjectManager
 from lib.script.script_batch_edit import ScriptBatchEditor
 from server.routers import projects
+from tests.fakes import use_project_manager
 from tests.integration.server.routers.projects_router_support import (
     _FakePM,
     build_projects_client,
@@ -656,12 +657,11 @@ class TestProjectsRouter:
         409 的 detail 要同时带项目名与迁移失败原因——阻断回执得让人知道该修哪个项目的什么。
         """
 
-        import lib.project.project_migration_guard as guard
         from lib.project.project_migration_failure import record_migration_failure
 
         fake_pm = _FakePM(tmp_path)
         record_migration_failure(fake_pm.base / project_name, ValueError("坏数据"), schema_version=7)
-        monkeypatch.setattr(guard, "get_project_manager", lambda: fake_pm)
+        use_project_manager(monkeypatch, fake_pm)
         client = build_projects_client(monkeypatch, fake_pm)
         before_project_data = deepcopy(fake_pm.project_data)
         before_scripts = deepcopy(fake_pm.scripts)
@@ -792,7 +792,6 @@ class TestScriptItemInsertAndRemove:
 
     @staticmethod
     def _client(tmp_path, monkeypatch, content_mode: str, *, editor_factory=None):
-        import lib.project.project_migration_guard as guard
 
         pm = ProjectManager(str(tmp_path))
         pm.create_project("demo", content_mode=content_mode)
@@ -811,7 +810,7 @@ class TestScriptItemInsertAndRemove:
             },
             "episode_1.json",
         )
-        monkeypatch.setattr(guard, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
         client = build_projects_client(monkeypatch, pm)
         override(
             client,

@@ -343,6 +343,7 @@ Before committing a migration, ArcReel creates adjacent backups with a `.bak.v<s
 - Formal script files registered in `project.json`;
 - An existing `.arcreel_artifacts.json`;
 - `versions/versions.json`, for migrations that rewrite version records.
+- The rewritten `edit_timelines/episode_*/*.json` files, for migrations that rewrite edit timelines.
 
 Project migration is safe to retry. If a previous startup was interrupted while creating backups or committing changes, the next startup validates the project again and ensures that at least one backup exactly matches the pre-migration content before continuing. Identical backups are kept only once, so repeated failures do not pile up copies. These automatically generated project-level backups exist only for migration recovery; they do not replace deployment-level backups of the database and the entire data root.
 
@@ -360,6 +361,8 @@ Migration rejects a whole project only for these data problems: `project.json` o
 Videos generated before the artifact-record mechanism existed (whose legacy version records have no typed provenance fields) get their provenance backfilled by the migration from the project state at that time, so they display and preview normally after the upgrade. Videos whose provenance cannot be backfilled are not registered, show as missing, and are not listed in the migration report.
 
 After video generation is decoupled from narration duration, videos requested at a longer duration tier to fit narration remain current if they were current before the upgrade. Preview and version restore use the same freshness basis. The migration preserves video files, the actual paid duration, and request records; it only rewrites the freshness basis. Videos already out of date remain out of date, and skipped artifacts from earlier migration reports remain listed.
+
+When upgrading to schema 18, the migration backfills content fingerprints for existing videos and narration audio: it reads both the formal file and the snapshot of the currently selected version, and records the fingerprint only when the two match, so later checks of whether these artifacts are up to date skip reading file contents as long as each file's size and modification time are unchanged. Projects with many or large videos take longer in this step, so the migration on first startup runs correspondingly longer. Artifacts whose formal file does not match its snapshot (for example, a video replaced outside ArcReel) or cannot be read are not backfilled and display the same as before the upgrade.
 
 For drama projects whose `project.json` has no aspect ratio field (projects created by very early versions, or imported ones), storyboard freshness is judged against the drama default ratio of 16:9, matching what generation actually uses. Storyboards in such projects that were previously recorded against 9:16 show as out of date after the upgrade; regenerate them as needed.
 
@@ -396,8 +399,9 @@ The same upgrade moves the source type of drama projects (novel or screenplay) f
 One class of migration first copies the whole project next to its directory, rewrites the copy, and then swaps the directories. What that means for disk space and recovery:
 
 - Free space is checked before the migration starts. If it cannot hold the copy, that project fails with a "disk space is insufficient" error and its directory is left untouched; free up space and restart to continue.
-- If the process is killed during the swap (power loss, `kill -9`, an OOM-killed container), the project directory can be missing for a moment and a hidden directory starting with `.<project-name>.v6-` is left alongside it. The next startup reclaims it and brings the project back, so do not delete these directories by hand, and do not rush to recreate a project that disappeared from the list.
-- Once the project is back in place, those hidden directories are cleaned up automatically under the same retention window as the backups above.
+- If the process is killed during the swap (power loss, `kill -9`, an OOM-killed container), the project directory can be missing, the project disappears from the list, and hidden directories starting with `.<project-name>.v6-` are left alongside it. ArcReel does not recover from this automatically. These hidden directories hold project data: do not delete them by hand, and do not rush to recreate a project with the same name.
+- To recover by hand, stop the service, rename the directory starting with `.<project-name>.v6-rollback-` to `<project-name>` (if there are several, take the most recently modified one), and start the service again. That directory is the original project from before the migration, and the migration runs again on startup.
+- While the project directory is in place, those hidden directories are cleaned up automatically under the same retention window as the backups above; they are never cleaned up while the project directory is missing.
 
 If a project migration fails, preserve the files and inspect the startup logs. Do not manually change the schema version or delete backup files or kept copies. Repair the damaged project files or permissions, then restart the service.
 

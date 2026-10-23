@@ -6,6 +6,7 @@ import server.routers.versions as versions_router
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.image_utils import convert_image_bytes_to_png
 from lib.project.project_manager import ProjectManager
+from tests.fakes import use_project_manager
 
 
 class TestUploadRestorePng:
@@ -40,7 +41,7 @@ class TestUploadRestorePng:
         pm.save_project(project_name, project)
 
         # Patch router project manager to the temp projects root.
-        monkeypatch.setattr(versions_router, "get_project_manager", lambda: pm)
+        use_project_manager(monkeypatch, pm)
 
         # Switch back to v1 without creating a synthetic new version.
         result = await versions_router.restore_version(project_name, "characters", char_name, 1)

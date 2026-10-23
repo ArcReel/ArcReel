@@ -19,10 +19,6 @@ paths:
 
 确认框打开后占用发生变化时，一键破坏性确认（删除、合并、改名的确认按钮）实时禁用；输入表单保持可编辑，由提交时的复核说明原因。
 
-### 新增入队类 API 方法时，把方法名登记进 `frontend/eslint.config.js` 的 `RESTRICT_ENQUEUE`
-
-生成类入队统一经 `frontend/src/actions/` 的动作函数，由它们封装 API 调用、乐观标记占用与去重提示；组件直接调用入队类 API 会漏掉占用标记，用户可以对同一资源重复入队。ESLint 的 `no-restricted-syntax` 只按 `RESTRICT_ENQUEUE` 中登记的方法名拦截直接调用，未登记的新方法不受拦截。
-
 ## 首次使用引导
 
 ### 改动带 `data-onboarding` 的元素，引导链路随之核对
@@ -88,7 +84,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 
 - 浅底、描边、选中态写成基色加透明度修饰（`bg-primary/15`、`border-border/50`），不为某种深浅新增变体 token：变体 token 会让同一语义出现多个近似色，旧色板的变体色已按这一原则删除。CSS 中需要透明度时写 `color-mix(in oklab, var(--primary) 15%, transparent)`。
 - 语义不混用：危险操作用 `destructive`，琥珀色 `warn` 只表示警告与过期。
-- 文字只分 `foreground`、`subtle-foreground`、`muted-foreground` 三档。`muted-foreground` 上不再叠加透明度或 `opacity`：它在页面底色上的对比度是 5.7:1，再降就低于 WCAG AA 要求的 4.5:1。
+- 文字只分 `foreground`、`subtle-foreground`、`muted-foreground` 三档。`muted-foreground` 上不再叠加透明度或 `opacity`：它在页面底色上的对比度浅色与深色下都只略高于 5:1，再降就低于 WCAG AA 要求的 4.5:1。
 - 按集、按视频单元、按资产类型着色时用身份色 token（`episode`、`unit-clip`、`unit-narration`、`asset-*`），色相和配色经 `episodeHue`、`unitHue`、`assetColor` 取值，不在调用处另算颜色。
 
 ## 弹层与提示

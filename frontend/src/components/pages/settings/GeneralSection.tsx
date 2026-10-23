@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { LANGUAGE_DISPLAY_LABELS, SUPPORTED_LANGUAGES, type SupportedLanguage } from "@/i18n";
 import { useOnboardingStore } from "@/stores/onboarding-store";
+import { isThemePreference, setThemePreference, THEME_PREFERENCES, useThemePreference } from "@/theme";
 
 const LANGUAGE_ITEMS = SUPPORTED_LANGUAGES.map((lang) => ({ value: lang, label: LANGUAGE_DISPLAY_LABELS[lang] }));
 
@@ -14,14 +15,17 @@ function isSupportedLanguage(value: unknown): value is SupportedLanguage {
 }
 
 /**
- * 全局设置「通用」：界面语言与重看新手引导。
- * 两项都立即生效：界面语言是本机偏好，不经后端保存，选中后整页文案随即切换，因此这个视图没有保存栏。
+ * 全局设置「通用」：界面语言、主题与重看新手引导。
+ * 各项都立即生效：界面语言与主题是本机偏好，不经后端保存，选中后整页随即切换，因此这个视图没有保存栏。
  */
 export function GeneralSection() {
   const { t, i18n } = useTranslation(["dashboard", "onboarding"]);
   const startTour = useOnboardingStore((s) => s.start);
   const languageLabelId = useId();
+  const themeLabelId = useId();
   const currentLanguage = i18n.language.split("-")[0];
+  const theme = useThemePreference();
+  const themeItems = THEME_PREFERENCES.map((value) => ({ value, label: t(`dashboard:settings_theme_${value}`) }));
 
   return (
     <div className="flex flex-col gap-6">
@@ -46,6 +50,32 @@ export function GeneralSection() {
             </SelectTrigger>
             <SelectContent>
               {LANGUAGE_ITEMS.map((item) => (
+                <SelectItem key={item.value} value={item.value}>
+                  {item.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingRow>
+        <SettingRow
+          label={
+            <span id={themeLabelId} className="text-sm font-medium">
+              {t("dashboard:settings_theme")}
+            </span>
+          }
+        >
+          <Select
+            items={themeItems}
+            value={theme}
+            onValueChange={(value) => {
+              if (isThemePreference(value)) setThemePreference(value);
+            }}
+          >
+            <SelectTrigger aria-labelledby={themeLabelId} className="w-44">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {themeItems.map((item) => (
                 <SelectItem key={item.value} value={item.value}>
                   {item.label}
                 </SelectItem>

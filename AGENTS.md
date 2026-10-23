@@ -11,7 +11,7 @@ uv run python scripts/gate.py --changed            # 按相对 origin/main 的�
 uv run python scripts/gate.py backend frontend     # 或直接点名域；各域的触发路径与步骤见 --list
 ```
 
-另一份闸门正在跑时它会排队，等待是正常现象。相关测试必须实际运行且通过。提 PR 前，检查本次是否出过规范和检查都没拦住的错，记录方式见 `docs/agents/lessons.md`「收尾自查」。新增或升级依赖：`docs/agents/dependencies.md`。启动开发服务器、数据库迁移、分支与提交规范：`CONTRIBUTING.md`。
+另一份闸门正在跑时它会排队，等待是正常现象。相关测试必须实际运行且通过。提 PR 前，检查本次是否出过值得改进环境的错，判据与记录方式见 `docs/agents/lessons.md`「收尾自查」。新增或升级依赖：`docs/agents/dependencies.md`。启动开发服务器、数据库迁移、分支与提交规范：`CONTRIBUTING.md`。
 
 ## Code Review Rules
 

@@ -14,6 +14,7 @@ from lib.workflow.workflow_state import WorkflowRequestError, WorkflowStateServi
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import projects
+from tests.fakes import use_project_manager
 
 
 def _project(tmp_path: Path) -> ProjectManager:
@@ -29,7 +30,7 @@ async def test_rest_serializes_the_authoritative_workflow_status(
     pm = _project(tmp_path)
     expected = WorkflowStateService(pm).get_status("demo", None).model_dump(mode="json")
 
-    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
     app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
@@ -50,7 +51,7 @@ async def test_workflow_status_rest_treats_corrupt_project_as_server_failure(
 
     monkeypatch.setattr(WorkflowStateService, "get_status", _corrupt)
 
-    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
     app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
@@ -80,7 +81,7 @@ async def test_workflow_status_rest_blames_the_request_only_for_request_errors(
 
     monkeypatch.setattr(WorkflowStateService, "get_status", _raise)
 
-    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
@@ -97,7 +98,7 @@ async def test_episode_next_steps_rest_lists_each_episode_and_404s_missing_proje
     pm = _project(tmp_path)
     expected = WorkflowStateService(pm).get_episode_next_steps("demo")
 
-    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
     app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])
@@ -140,7 +141,7 @@ async def test_saving_ad_inspiration_or_story_setting_makes_the_script_stale(
         is ArtifactStatus.CURRENT
     )
 
-    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")
     app.include_router(projects.router, prefix="/api/v1", dependencies=[Depends(get_current_user)])

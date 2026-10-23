@@ -24,6 +24,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import projects
 from server.services.project import workflow_planner
 from server.tool_runtime import ToolOutcome
+from tests.fakes import use_project_manager
 from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 
@@ -93,7 +94,7 @@ async def test_rest_and_mcp_serialize_the_same_workflow_plan(tmp_path: Path, mon
     pm = _project(tmp_path)
     planner = _Planner()
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
-    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     payload = {
         "episode_id": 1,
         "confirmed_request_durations": {"E1S01": 5},
@@ -121,7 +122,7 @@ async def test_workflow_plan_rejects_the_retired_delivery_choice_before_service(
     pm = _project(tmp_path)
     planner = _Planner()
     monkeypatch.setattr(workflow_planner, "get_workflow_planner", lambda _pm=None: planner)
-    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     payload = {"narration_delivery": "post_production"}
 
     outcome = await _agent_plan(pm, tmp_path, payload)
@@ -155,7 +156,7 @@ class _FailingPlanner:
 
 
 def _adapter_app(pm: ProjectManager, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
-    monkeypatch.setattr(projects, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="u1", sub="tester")

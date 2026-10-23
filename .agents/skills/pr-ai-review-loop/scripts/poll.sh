@@ -51,7 +51,7 @@
 #     "walkthrough": {                                  # CR's first comment (auto-edited each review)
 #       "id":                    <int>,                 # REST issue comment id — stable across rewrites
 #       "created_at", "updated_at",
-#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited AND the
+#       "reviewed_current_head": <bool>,                # updated_at > last_push_at AND not rate-limited or skipped AND the
 #                                                       # walkthrough's own commit anchor (or, failing that, the
 #                                                       # latest CR review's commit) matches the head
 #       "walkthrough_head":      "<sha>" | null,        # commit anchor parsed from the walkthrough body — the only
@@ -60,6 +60,7 @@
 #       "is_ok":                 <bool>,                # CR explicit pass marker
 #       "is_paused":             <bool>,                # CR paused for this PR
 #       "is_rate_limited":       <bool>,                # walkthrough body IS CR's rate-limit banner — not a review
+#       "is_review_skipped":     <bool>,                # walkthrough body IS CR's skip notice (draft, bot author) — not a review
 #       "is_in_progress":        <bool>,                # CR still processing — don't declare PASS yet
 #       "actionable_count":      "<n>" | null           # parsed from "Actionable comments posted: N"
 #     },
@@ -67,14 +68,6 @@
 #     "reviews_history":  {total, last_submitted_at},
 #     "comments_new":     [{id, createdAt, preview}],   # this-round new non-walkthrough comments
 #     "comments_history": {total, last_created_at}      # older ones collapsed to counts ({total: 0} when empty)
-#   },
-#   "gemini": {
-#     "reviews":          [{id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
-#                                                       # listed while is_new OR reviewed_current_head (PITFALL 8);
-#                                                       # body NEVER inlined — query.sh gemini-latest-body
-#     "reviews_history":  {total, last_submitted_at},
-#     "comments_new":     [{id, createdAt, preview}],
-#     "comments_history": {total, last_created_at}
 #   },
 #   "codex": {
 #     "has_started":      <bool>,                       # Codex has acknowledged with eyes or a clean-pass comment
@@ -116,17 +109,24 @@
 # FLAG SEMANTICS (single source of truth — reviewers.md references these fields by name)
 #   is_new                 new this round: created_at/submittedAt > max(last_push_at, last round's marked_at)
 #                          (PITFALL 2 and 8), OR id absent from the seen ledger (straggler catch, PITFALL 6)
-#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND a commit anchor
+#   reviewed_current_head  walkthrough.updated_at > last_push_at AND is_rate_limited == false AND
+#                          is_review_skipped == false AND a commit anchor
 #                          matches the head: walkthrough_head when the body carries one, else the latest CR
 #                          review's commit (null = no evidence either way, timestamp rule alone). CR rewrites its
 #                          first comment each review — but a rate-limit banner rewrite also advances updated_at
 #                          without reviewing anything, and a slow review of an older HEAD rewrites it after the
-#                          next push, so neither must read as "reviewed". On gemini review rows:
-#                          the REST review's commit_id vs headRefOid (submittedAt > last_push_at only as fallback
-#                          when the mapping is unavailable) — a straggler or slow review of an older HEAD
-#                          surfaces as is_new but must not read as current-HEAD (see PITFALL 6)
+#                          next push, so neither must read as "reviewed"; a skip notice (draft, bot author)
+#                          rewrites it the same way. On codex review/comment rows:
+#                          reviewed_commit (REST review commit_id, else the body's "Reviewed commit" sha) vs
+#                          headRefOid (timestamp > last_push_at only as fallback when no commit is known) — a
+#                          straggler or slow review of an older HEAD surfaces as is_new but must not read as
+#                          current-HEAD (see PITFALL 6)
 #   is_rate_limited        walkthrough body carries CR's dedicated rate-limit banner marker (same match as
 #                          quota_alerts) — the current walkthrough is a rate-limit notice, not a review
+#   is_review_skipped      walkthrough body carries CR's skip-review marker for a reason other than "no
+#                          reviewable changes" (draft, bot author) — the head was never reviewed. A "no
+#                          reviewable changes" skip counts as coverage of the head its newest "📥 Commits"
+#                          range line names; walkthrough_head reads that range line instead of the marker
 #   is_ack                 reviewer acknowledgment of a fix or inline reply (never actionable): body carries a
 #                          <review_comment_addressed>/<review_comment_withdrawn> marker or starts with "### Summary"
 #   cr_markers             CodeRabbit tag tokens found in the first 300 chars of a body (literal match):
@@ -134,12 +134,9 @@
 #                            refactor        "_🛠️ Refactor suggestion" minor     "_🟡 Minor"
 #                            verification    "_💡 Verification agent"  trivial   "_🔵 Trivial"
 #                            nitpick         "_🧹 Nitpick"             low_value "_💤 Low value"
-#   severity_alt           Gemini severity or Codex "Pn Badge" from the inline badge image alt text
-#   has_pass_marker        Gemini review summary carries no actionable opinion: "LGTM" / "no issues found" /
-#                          a "no [adjective] feedback" clause (covers "no feedback to provide", "no additional
-#                          feedback", "no feedback is provided"; any case) / word "approved" (any case), or body
-#                          is empty aside from the "## Code Review" heading (any case). Gemini-only; an unmatched
-#                          summary is treated as still actionable (safe default — no silent pass).
+#   severity_alt           Codex "Pn Badge" from the inline badge image alt text
+#   has_pass_marker        Codex top-level comment is the clean-pass "Codex Review: Didn't find any major
+#                          issues." (any case)
 #   has_started            Codex has posted eyes on the PR or an @codex review trigger comment, or a
 #                          clean-pass comment; reactions count only when the reactor is
 #                          chatgpt-codex-connector[bot] — anyone else's eyes never register
@@ -175,7 +172,7 @@
 #
 # 4. Trigger-command dedup matches comments that START with the command (case-insensitive,
 #    leading spaces/tabs tolerated, trailing text allowed). Prefix matching — not full-line —
-#    so a human-issued "/gemini review (re: security fix)" still registers for dedup, while
+#    so a human-issued "@codex review (re: security fix)" still registers for dedup, while
 #    a comment merely MENTIONING a command mid-text does not (substring matching would
 #    swallow pushback comments that quote a command, silently suppressing real triggers).
 #    Leading whitespace is [ \t] only, NOT \s: \s matches \n, which would also register a
@@ -471,21 +468,6 @@ jq -n \
       ]
     | map(select(.[1] as $pat | $h | contains($pat)) | .[0]);
 
-  def has_pass_marker_body:
-    # A Gemini review summary is one paragraph: it either describes the feedback it gave, or
-    # states there is none. The "no feedback" clause is that pass signal, so match the grammar
-    # mechanically instead of enumerating exact phrasings — "\\bno(\\s+\\w+)?\\s+feedback\\b"
-    # tolerates an inserted adjective ("no additional feedback") and passive voice ("no
-    # feedback is provided"), both of which broke the old fixed-substring match. An unmatched
-    # summary stays actionable (has_pass_marker=false) — the safe default keeps the loop polling
-    # rather than declaring a silent pass. Gemini-only; other bots use their own pass paths.
-    (. // "")
-    | ((test("\\bLGTM\\b"))
-       or (test("no issues found"; "i"))
-       or (test("\\bno(\\s+\\w+)?\\s+feedback\\b"; "i"))
-       or (test("\\bapproved\\b"; "i"))
-       or ((gsub("\\s+"; "") | ascii_downcase) as $bare | ($bare == "" or $bare == "##codereview")));
-
   def codex_reviewed_commit_from_body:
     (. // "")
     | ([capture("Reviewed commit:[* `]*(?<sha>[0-9a-fA-F]{7,40})"; "i")] | .[0].sha // null);
@@ -507,6 +489,19 @@ jq -n \
     # quota_alerts and walkthrough.is_rate_limited so the two judgments cannot drift apart.
     (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*rate limited by coderabbit\\.ai\\s*-->");
 
+  def cr_skip_marker_body:
+    # CodeRabbit marks every skipped review with a dedicated HTML marker.
+    (. // "") | test("<!--\\s*This is an auto-generated comment:\\s*skip review by coderabbit\\.ai\\s*-->");
+
+  def cr_no_reviewable_changes_body:
+    # A skip because the new commits have no reviewable changes leaves nothing to review: the
+    # head counts as covered once the skip notice names it.
+    cr_skip_marker_body and ((. // "") | test("did not have any reviewable changes"; "i"));
+
+  def cr_review_skipped_body:
+    # Any other skip notice (draft, bot author) means the head was never reviewed.
+    cr_skip_marker_body and (cr_no_reviewable_changes_body | not);
+
   def has_outside_diff_body:
     (. // "") | test("Outside diff range comments \\([1-9][0-9]*\\)"; "i");
 
@@ -526,6 +521,7 @@ jq -n \
     | if . == null then null else
         (.body // "") as $wb
         | ($wb | cr_rate_limited_body) as $rate_limited
+        | ($wb | cr_review_skipped_body) as $skipped
         # Freshness is timestamp-based, but a slow review of an older HEAD rewrites the walkthrough
         # after the next push, faking it. The contradiction check is a commit anchor: walkthrough_head
         # parsed from the body when present (the anchor that follows incremental reviews, PITFALL 9),
@@ -536,13 +532,17 @@ jq -n \
         | ([$main.reviews[] | select(.author.login == "coderabbitai")] | sort_by(.submittedAt)
            | last | if . == null then null else ($review_commit_by_id[.id] // null) end)
           as $latest_review_commit
-        | ($wb | cr_walkthrough_head) as $walkthrough_head
+        # A no-reviewable-changes skip keeps the change_assessment_commit marker of the last real
+        # review; only its newest range line names the skipped head, so it is the anchor there.
+        | (if ($wb | cr_no_reviewable_changes_body)
+           then ([$wb | capture("between [0-9a-fA-F]{7,40} and (?<sha>[0-9a-fA-F]{7,40})")] | .[0].sha // null)
+           else ($wb | cr_walkthrough_head) end) as $walkthrough_head
         | {
           id,
           created_at,
           updated_at,
           reviewed_current_head:
-            ((.updated_at > $last_push) and ($rate_limited | not)
+            ((.updated_at > $last_push) and ($rate_limited | not) and ($skipped | not)
              and (if $walkthrough_head != null
                   then ($walkthrough_head | codex_commit_is_current_head)
                   elif $latest_review_commit == null then true
@@ -550,6 +550,7 @@ jq -n \
           walkthrough_head: $walkthrough_head,
           latest_review_commit: $latest_review_commit,
           is_rate_limited: $rate_limited,
+          is_review_skipped: $skipped,
           is_ok:          ($wb | test("No actionable comments were generated in the recent review")),
           is_paused:      ($wb | test("(review[s]?\\s+paused|paused\\s+by\\s+coderabbit|automatic reviews are paused|paused\\s+for\\s+this\\s+PR)"; "i")),
           is_in_progress: ($wb | test("(review in progress by coderabbit|currently processing new changes)"; "i")),
@@ -589,7 +590,7 @@ jq -n \
        preview: ($cb | mk_preview), body};
 
   def inline_by_bot:
-    [$sub_c[] | select(.user.login | test("(coderabbitai|gemini-code-assist|chatgpt-codex-connector|github-advanced-security)\\[bot\\]$"))]
+    [$sub_c[] | select(.user.login | test("(coderabbitai|chatgpt-codex-connector|github-advanced-security)\\[bot\\]$"))]
     | group_by(.user.login)
     | map({
         key:   .[0].user.login,
@@ -620,7 +621,7 @@ jq -n \
     # the body head — a preceding change-stack link banner can otherwise push
     # the phrase itself past the 500-char window and cause a silent miss.
     [$sub_a[]
-     | select(.user.login | test("(chatgpt-codex-connector|gemini-code-assist|coderabbitai)\\[bot\\]$"))
+     | select(.user.login | test("(chatgpt-codex-connector|coderabbitai)\\[bot\\]$"))
      | (.body // "") as $qb
      | select(
          ($qb | cr_rate_limited_body)
@@ -651,23 +652,6 @@ jq -n \
         [$main.reviews[] | select(.author.login == "coderabbitai")
          | {id, submittedAt, state, has_outside_diff: (.body | has_outside_diff_body),
             is_new: fresh(.submittedAt; .id), preview: (.body | mk_preview), body}]
-    },
-
-    gemini: {
-      reviews:
-        [$main.reviews[] | select(.author.login == "gemini-code-assist")
-         | ($review_commit_by_id[.id] // null) as $reviewed_commit
-         | {id, submittedAt, state, is_new: fresh(.submittedAt; .id),
-            reviewed_current_head:
-              (if $reviewed_commit == null
-               then (.submittedAt > $last_push)
-               else ($reviewed_commit | codex_commit_is_current_head)
-               end),
-            has_pass_marker: (.body | has_pass_marker_body),
-            preview: (.body | mk_preview), body}],
-      comments:
-        [$main.comments[] | select(.author.login == "gemini-code-assist")
-         | {id, createdAt, is_new: fresh(.createdAt; .id), preview: (.body | mk_preview), body}]
     },
 
     codex: {
@@ -719,13 +703,12 @@ jq -n \
        | (.body // "") as $tb
        | select(
            (.user.login != "coderabbitai[bot]"
-            and .user.login != "gemini-code-assist[bot]"
             and .user.login != "chatgpt-codex-connector[bot]")
-           and ($tb | test("^[ \\t]*(/gemini review|@codex review|@coderabbitai (resume|full review|review))(\\s|$)"; "i"))
+           and ($tb | test("^[ \\t]*(@codex review|@coderabbitai (resume|full review|review))(\\s|$)"; "i"))
          )
        | .id as $comment_id
        | {author: .user.login, createdAt: .created_at,
-          command: ($tb | capture("^[ \\t]*(?<c>/gemini review|@codex review|@coderabbitai (resume|full review|review))"; "i") | .c | ascii_downcase),
+          command: ($tb | capture("^[ \\t]*(?<c>@codex review|@coderabbitai (resume|full review|review))"; "i") | .c | ascii_downcase),
           has_codex_eyes: (any($sub_b2[]; .comment_id == $comment_id and .content == "eyes")),
           body: ($tb | gsub("^\\s+|\\s+$"; ""))}]
   }
@@ -768,19 +751,6 @@ jq --arg snapshot_file "$SNAPSHOT_FILE" --argjson rounds "$ROUNDS" '
           [$s.coderabbit.other_comments[] | select(.is_new) | {id, createdAt, preview}],
         comments_history:
           ([$s.coderabbit.other_comments[] | select(.is_new | not)]
-           | {total: length, last_created_at: (map(.createdAt) | max // null)}
-           | prune_hist)
-      },
-
-      gemini: {
-        reviews:
-          [$s.gemini.reviews[] | select(shown)
-           | {id, submittedAt, state, reviewed_current_head, has_pass_marker, is_new, preview}],
-        reviews_history: ($s.gemini.reviews | review_history),
-        comments_new:
-          [$s.gemini.comments[] | select(.is_new) | {id, createdAt, preview}],
-        comments_history:
-          ([$s.gemini.comments[] | select(.is_new | not)]
            | {total: length, last_created_at: (map(.createdAt) | max // null)}
            | prune_hist)
       },
@@ -891,7 +861,6 @@ fi
 # and stay out.
 jq -c --slurpfile prev "$WORKDIR/seen.json" '
   [.coderabbit.other_comments[]?.id, .coderabbit.reviews[]?.id,
-   .gemini.reviews[]?.id, .gemini.comments[]?.id,
    .codex.reviews[]?.id, .codex.comments[]?.id,
    ((.inline_comments_by_user // {})[]?[]?.id)]
   | map(select(. != null) | tostring)

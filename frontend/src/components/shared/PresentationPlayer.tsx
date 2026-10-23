@@ -343,9 +343,10 @@ export function PresentationPlayer({
     }
   };
 
+  // 播放器各状态都固定深色：叠在画面上的状态色和控件按深色取值
   if (loading && !presentation) {
     return (
-      <div className={`grid h-full w-full place-items-center bg-black/35 ${className}`}>
+      <div className={`dark grid h-full w-full place-items-center bg-black/35 ${className}`}>
         <Loader2 className="h-5 w-5 animate-spin text-white/60" aria-label={t("presentation_loading")} />
       </div>
     );
@@ -354,7 +355,7 @@ export function PresentationPlayer({
   if (!presentation || !videoUrl) {
     return (
       <div
-        className={`flex h-full w-full flex-col items-center justify-center gap-2 bg-black/40 p-4 text-center ${className}`}
+        className={`dark flex h-full w-full flex-col items-center justify-center gap-2 bg-black/40 p-4 text-center ${className}`}
       >
         <p role="alert" className="text-xs text-warn">
           {error || t("presentation_unavailable")}
@@ -372,7 +373,7 @@ export function PresentationPlayer({
   }
 
   return (
-    <div className={`relative h-full w-full bg-black ${className}`}>
+    <div className={`dark relative h-full w-full bg-black ${className}`}>
       <video
         ref={bindVideo}
         src={videoUrl}

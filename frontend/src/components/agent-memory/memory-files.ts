@@ -23,7 +23,7 @@ export type MemoryEntry =
       modifiedAt: string;
     };
 
-/** 列表顺序：索引置顶，主题文件按修改时间倒序。 */
+/** 列表顺序：索引置顶，记忆文件按修改时间倒序。 */
 export function memoryEntries(overview: AgentMemoryOverview | null): MemoryEntry[] {
   if (!overview) return [];
   const topics = [...overview.files]

@@ -16,6 +16,7 @@ import {
   type ResourceKind,
 } from "@/stores/tasks-store";
 import {
+  enqueueAssetSheetBatch,
   enqueueCharacter,
   enqueueEpisodeNarration,
   enqueueGrid,
@@ -656,5 +657,55 @@ describe("enqueueStoryboardBatch", () => {
     expect(res.admission?.decision).toBe("blocked");
     expect(markCounts().resource).toBe(0);
     expect(useAppStore.getState().toast).toBeNull();
+  });
+});
+
+describe("enqueueAssetSheetBatch", () => {
+  const member = (unit_id: string, asset_type: "character" | "scene", name: string, derivative: string | null, task_id: string | null, deduped = false) => ({
+    unit_id, asset_type, name, derivative, task_id, deduped, status: task_id ? "queued" : "failed",
+  });
+
+  it("按成员逐项打占用标记（衍生占复合槽、未建任务的不打标），并弹提交提示", async () => {
+    vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
+      batch_id: "b1",
+      members: [
+        member("character/Alice", "character", "Alice", null, "t1"),
+        member("character/Alice/战损", "character", "Alice", "战损", "t2"),
+        member("scene/庭院", "scene", "庭院", null, null),
+      ],
+    });
+
+    await enqueueAssetSheetBatch("demo", { episode_id: 1 });
+
+    expect(occupied("demo", "character", "Alice")).toBe(true);
+    expect(occupied("demo", "character_derivative", "Alice/战损")).toBe(true);
+    expect(occupied("demo", "scene", "庭院")).toBe(false);
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: i18n.t("assets:sheet_batch_submitted", { count: 2 }),
+      tone: "success",
+    });
+  });
+
+  it("有成员命中已在处理的同资源任务时弹去重提示", async () => {
+    vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
+      batch_id: "b1",
+      members: [member("scene/庭院", "scene", "庭院", null, "t9", true)],
+    });
+
+    await enqueueAssetSheetBatch("demo", { asset_type: "scene" });
+
+    expect(occupied("demo", "scene", "庭院")).toBe(true);
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: i18n.t("dashboard:enqueue_deduped_toast"),
+      tone: "info",
+    });
+  });
+
+  it("请求失败时不留标记并原样抛出", async () => {
+    vi.spyOn(API, "submitAssetSheetBatch").mockRejectedValue(new Error("boom"));
+
+    await expect(enqueueAssetSheetBatch("demo", { episode_id: 1 })).rejects.toThrow("boom");
+
+    expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
   });
 });

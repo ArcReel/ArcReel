@@ -71,11 +71,11 @@ def _storyboard_state(pm: ProjectManager) -> dict[str, list[str]]:
     return WorkflowStateService(pm).get_status("demo").artifacts["storyboards"]
 
 
-def _count_content_reads(monkeypatch: pytest.MonkeyPatch, target: Path) -> dict[str, int]:
-    """在文件系统边界上数 ``target`` 的内容被整读几次：按路径打开（流式哈希）一次算一次，
+def _count_content_reads(monkeypatch: pytest.MonkeyPatch, *targets: Path) -> dict[str, int]:
+    """在文件系统边界上数 ``targets`` 的内容合计被整读几次：按路径打开（流式哈希）一次算一次，
     按描述符读的则只算读到超过 1 字节的描述符（在场探针只读 1 字节，不是哈希）。"""
 
-    identity = (target.stat().st_dev, target.stat().st_ino)
+    identities = {(target.stat().st_dev, target.stat().st_ino) for target in targets}
     counts = {"content_reads": 0}
     fd_reads: dict[int, int] = {}
     original_path_open = Path.open
@@ -88,7 +88,7 @@ def _count_content_reads(monkeypatch: pytest.MonkeyPatch, target: Path) -> dict[
             info = path.stat()
         except OSError:
             return False
-        return (info.st_dev, info.st_ino) == identity
+        return (info.st_dev, info.st_ino) in identities
 
     def _counted_path_open(self: Path, *args: Any, **kwargs: Any) -> IO[Any]:
         if _is_target(self):
@@ -98,7 +98,7 @@ def _count_content_reads(monkeypatch: pytest.MonkeyPatch, target: Path) -> dict[
     def _counted_os_open(path: object, *args: object, **kwargs: object) -> int:
         fd = original_os_open(path, *args, **kwargs)
         info = os.fstat(fd)
-        if (info.st_dev, info.st_ino) == identity:
+        if (info.st_dev, info.st_ino) in identities:
             fd_reads[fd] = 0
         return fd
 

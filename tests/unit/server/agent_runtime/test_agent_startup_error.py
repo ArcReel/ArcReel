@@ -24,6 +24,7 @@ from server.agent_runtime.session_manager import (
     SessionManager,
 )
 from server.agent_runtime.session_store import SessionMetaStore
+from tests.fakes import use_provider_env, use_sdk_client
 
 
 class _RecordingClient:
@@ -75,7 +76,7 @@ async def test_build_options_forwards_stderr_callback(
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+    use_provider_env(monkeypatch, fake_env)
 
     captured: list[str] = []
 
@@ -101,7 +102,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+    use_provider_env(monkeypatch, fake_env)
 
     captured_stderr_cb: list = []
     secret = "startup-secret-must-not-leak"
@@ -123,7 +124,7 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
         def add_done_callback(self, _cb):
             pass
 
-    monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", _RecordingClient)
+    use_sdk_client(monkeypatch, _RecordingClient)
     monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
     caplog.set_level("ERROR", logger="server.agent_runtime.session_manager")
 
@@ -159,7 +160,7 @@ async def test_send_new_session_no_stderr_still_wraps(
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+    use_provider_env(monkeypatch, fake_env)
 
     class _FakeActor:
         def __init__(self, *_, on_message=None, client_factory=None, **__):
@@ -187,10 +188,7 @@ async def test_send_new_session_wraps_option_assembly_failure(
     seeded_session_manager: SessionManager, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # 凭证注入失败是 options 装配失败的真实来源，异常须原样浮到 send_new_session
-    monkeypatch.setattr(
-        "server.agent_runtime.options_assembler.load_provider_env_overrides",
-        AsyncMock(side_effect=LookupError("credential missing")),
-    )
+    use_provider_env(monkeypatch, AsyncMock(side_effect=LookupError("credential missing")))
 
     with pytest.raises(AgentStartupError) as exc_info:
         await seeded_session_manager.send_new_session("demo", "你好")
@@ -217,7 +215,7 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+    use_provider_env(monkeypatch, fake_env)
 
     captured_stderr_cb: list = []
 
@@ -234,7 +232,7 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
         def add_done_callback(self, _cb):
             pass
 
-    monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", _RecordingClient)
+    use_sdk_client(monkeypatch, _RecordingClient)
     monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
 
     meta = make_session_meta(id="resumed-session", project_name="demo", status="idle")
@@ -258,7 +256,7 @@ async def test_startup_stderr_is_not_truncated(
     async def fake_env():
         return {"ANTHROPIC_API_KEY": "sk"}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", fake_env)
+    use_provider_env(monkeypatch, fake_env)
 
     captured_stderr_cb: list = []
     observed_count = 250
@@ -277,7 +275,7 @@ async def test_startup_stderr_is_not_truncated(
         def add_done_callback(self, _cb):
             pass
 
-    monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", _RecordingClient)
+    use_sdk_client(monkeypatch, _RecordingClient)
     monkeypatch.setattr("server.agent_runtime.session_manager.SessionActor", _FakeActor)
 
     with pytest.raises(AgentStartupError) as exc_info:

@@ -172,7 +172,8 @@ export function AssetImageViewer({
         if (!nextOpen && !restoring) onNameChange(null);
       }}
     >
-      <DialogContent size="viewer" onKeyDown={handleKeyDown}>
+      {/* 看图区域固定深色：浅底会干扰对画面明暗的判断 */}
+      <DialogContent size="viewer" className="dark" onKeyDown={handleKeyDown}>
         <DialogHeader>
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
             <DialogTitle className="min-w-0 max-w-full">

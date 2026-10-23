@@ -12,10 +12,10 @@ from lib.infra.retry import (
     RETRYABLE_STATUS_PATTERNS,
     NonRetryableError,
     SystemClock,
-    _should_retry,
     bind_clock,
     resolve_clock,
     retry_async,
+    should_retry,
     with_retry_async,
 )
 
@@ -38,66 +38,66 @@ def _no_jitter(_low: float, _high: float) -> float:
 
 
 class TestShouldRetry:
-    """_should_retry 判断逻辑测试。"""
+    """should_retry 判断逻辑测试。"""
 
     def test_retryable_error_type(self):
-        assert _should_retry(ConnectionError("reset"), BASE_RETRYABLE_ERRORS) is True
-        assert _should_retry(TimeoutError("deadline"), BASE_RETRYABLE_ERRORS) is True
+        assert should_retry(ConnectionError("reset"), BASE_RETRYABLE_ERRORS) is True
+        assert should_retry(TimeoutError("deadline"), BASE_RETRYABLE_ERRORS) is True
 
     def test_non_retryable_error_type(self):
-        assert _should_retry(ValueError("bad"), BASE_RETRYABLE_ERRORS) is False
-        assert _should_retry(RuntimeError("crash"), BASE_RETRYABLE_ERRORS) is False
+        assert should_retry(ValueError("bad"), BASE_RETRYABLE_ERRORS) is False
+        assert should_retry(RuntimeError("crash"), BASE_RETRYABLE_ERRORS) is False
 
     def test_string_pattern_429(self):
         exc = RuntimeError("Error code: 429 - rate limited")
-        assert _should_retry(exc, ()) is True
+        assert should_retry(exc, ()) is True
 
     def test_string_pattern_500(self):
         exc = RuntimeError("HTTP 500 Internal Server Error")
-        assert _should_retry(exc, ()) is True
+        assert should_retry(exc, ()) is True
 
     def test_string_pattern_503(self):
         exc = RuntimeError("503 Service Unavailable")
-        assert _should_retry(exc, ()) is True
+        assert should_retry(exc, ()) is True
 
     def test_string_pattern_resource_exhausted(self):
         exc = RuntimeError("RESOURCE_EXHAUSTED: quota exceeded")
-        assert _should_retry(exc, ()) is True
+        assert should_retry(exc, ()) is True
 
     def test_all_patterns_covered(self):
         for pattern in RETRYABLE_STATUS_PATTERNS:
             exc = RuntimeError(f"Error: {pattern}")
-            assert _should_retry(exc, ()) is True, f"Pattern '{pattern}' not detected"
+            assert should_retry(exc, ()) is True, f"Pattern '{pattern}' not detected"
 
     def test_string_pattern_502(self):
         exc = RuntimeError("502 Bad Gateway")
-        assert _should_retry(exc, ()) is True
+        assert should_retry(exc, ()) is True
 
     def test_string_pattern_504(self):
         exc = RuntimeError("504 Gateway Timeout")
-        assert _should_retry(exc, ()) is True
+        assert should_retry(exc, ()) is True
 
     def test_case_insensitive_matching(self):
-        assert _should_retry(RuntimeError("RESOURCE_EXHAUSTED: quota"), ()) is True
-        assert _should_retry(RuntimeError("Internal Server Error"), ()) is True
-        assert _should_retry(RuntimeError("InternalServerError"), ()) is True
-        assert _should_retry(RuntimeError("Service Unavailable"), ()) is True
+        assert should_retry(RuntimeError("RESOURCE_EXHAUSTED: quota"), ()) is True
+        assert should_retry(RuntimeError("Internal Server Error"), ()) is True
+        assert should_retry(RuntimeError("InternalServerError"), ()) is True
+        assert should_retry(RuntimeError("Service Unavailable"), ()) is True
 
     def test_timeout_patterns(self):
-        assert _should_retry(RuntimeError("Connection timed out"), ()) is True
-        assert _should_retry(RuntimeError("read timeout"), ()) is True
-        assert _should_retry(RuntimeError("httpx.ReadTimeout"), ()) is True
+        assert should_retry(RuntimeError("Connection timed out"), ()) is True
+        assert should_retry(RuntimeError("read timeout"), ()) is True
+        assert should_retry(RuntimeError("httpx.ReadTimeout"), ()) is True
 
     def test_unrelated_error_message(self):
         exc = RuntimeError("Invalid API key")
-        assert _should_retry(exc, ()) is False
+        assert should_retry(exc, ()) is False
 
     def test_custom_retryable_errors(self):
         class MyError(Exception):
             pass
 
-        assert _should_retry(MyError("oops"), (MyError,)) is True
-        assert _should_retry(MyError("oops"), ()) is False
+        assert should_retry(MyError("oops"), (MyError,)) is True
+        assert should_retry(MyError("oops"), ()) is False
 
     def test_non_retryable_error_short_circuits_pattern_match(self):
         """NonRetryableError 即使消息文本偶然命中瞬态模式子串，也始终不重试。
@@ -111,7 +111,7 @@ class TestShouldRetry:
 
         exc = _Truncated("provider/model 在 output_tokens=8500 处被截断")
         assert "500" in str(exc)
-        assert _should_retry(exc, ()) is False
+        assert should_retry(exc, ()) is False
 
 
 class TestWithRetryAsync:
@@ -259,7 +259,7 @@ class TestWithRetryAsync:
         assert mock_fn.call_count == 2
 
     async def test_retry_if_false_raises_immediately(self):
-        """retry_if 返回 False 时应立即抛出，即使 _should_retry 会返回 True。"""
+        """retry_if 返回 False 时应立即抛出，即使 should_retry 会返回 True。"""
         mock_fn = AsyncMock(side_effect=ConnectionError("reset"))
         clock = _FakeClock()
 
@@ -279,7 +279,7 @@ class TestWithRetryAsync:
         assert clock.sleeps == []
 
     async def test_retry_if_none_uses_default_should_retry(self):
-        """retry_if=None（默认）应保持原有 _should_retry 行为。"""
+        """retry_if=None（默认）应保持原有 should_retry 行为。"""
         mock_fn = AsyncMock(side_effect=[ConnectionError("reset"), "ok"])
         clock = _FakeClock()
 
@@ -295,7 +295,7 @@ class TestWithRetryAsync:
     async def test_custom_retry_if_cannot_override_non_retryable(self):
         """自定义 retry_if 即便对 NonRetryableError 返回 True，wrapper 仍应短路不重试——
 
-        这个保证须在装饰器内统一判定，不能依赖每个自定义谓词自行调用 _should_retry；
+        这个保证须在装饰器内统一判定，不能依赖每个自定义谓词自行调用 should_retry；
         否则新增的自定义谓词若忘记处理 NonRetryableError，会破坏模块 docstring 承诺的
         "继承 NonRetryableError 的异常类型始终不重试"。
         """

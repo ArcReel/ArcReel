@@ -186,7 +186,7 @@ def select_formal_video(
 class FakeTextGenerator:
     """文本模型替身：按顺序回放预置的回复文本，并记下每次收到的请求。
 
-    以 ``monkeypatch.setattr(TextGenerator, "create", fake.create)`` 接入；回复为异常实例时在
+    以 ``use_text_generator(monkeypatch, fake.create)`` 接入；回复为异常实例时在
     ``generate`` 抛出，模拟供应商调用失败。
     """
 
@@ -327,7 +327,7 @@ def replay_frame(index: int = -1, *, session_id: str = "default") -> Callable[[F
     return _build
 
 
-ControlResponse = dict[str, Any] | BaseException | Callable[[dict[str, Any]], dict[str, Any]]
+_ControlResponse = dict[str, Any] | BaseException | Callable[[dict[str, Any]], dict[str, Any]]
 
 
 class _FakeQuery:
@@ -384,12 +384,12 @@ class FakeSDKClient:
         frames: list[ScriptedFrame] | None = None,
         *,
         interrupt_frame: dict[str, Any] | None = None,
-        control_responses: Mapping[str, ControlResponse] | None = None,
+        control_responses: Mapping[str, _ControlResponse] | None = None,
         connect_error: Exception | None = None,
     ):
         self._initial_frames = list(frames) if frames else []
         self._interrupt_frame = interrupt_frame
-        self._control_responses: dict[str, ControlResponse] = dict(control_responses or {})
+        self._control_responses: dict[str, _ControlResponse] = dict(control_responses or {})
         self._connect_error = connect_error
         self._frames: asyncio.Queue[Any] = asyncio.Queue()
         self._query = _FakeQuery(self)
@@ -438,7 +438,7 @@ class FakeSDKClient:
         """测试辅助：运行中让 CLI 发出一条原始帧。"""
         self._frames.put_nowait(frame(self) if callable(frame) else frame)
 
-    def respond_control(self, subtype: str, response: ControlResponse) -> None:
+    def respond_control(self, subtype: str, response: _ControlResponse) -> None:
         """测试辅助：指定之后该 subtype 控制请求的应答。"""
         self._control_responses[subtype] = response
 
@@ -735,11 +735,11 @@ class FakeConfigResolver:
         if self._reference_payload_limits is not None:
             return self._reference_payload_limits
         from lib.config.service import (
-            _DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
-            _DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
+            DEFAULT_REFERENCE_SINGLE_MAX_BYTES,
+            DEFAULT_REFERENCE_TOTAL_MAX_BYTES,
         )
 
-        return _DEFAULT_REFERENCE_TOTAL_MAX_BYTES, _DEFAULT_REFERENCE_SINGLE_MAX_BYTES
+        return DEFAULT_REFERENCE_TOTAL_MAX_BYTES, DEFAULT_REFERENCE_SINGLE_MAX_BYTES
 
     def _resolve(self, generation_type: str | None) -> dict[str, Any]:
         self.generation_type_calls.append(generation_type)
@@ -803,12 +803,13 @@ def bounded_poll_clock(step: float = 30.0) -> Generator[None]:
 
 
 @contextmanager
-def captured_provider_job_ids() -> Generator[list[dict[str, Any]]]:
+def captured_provider_job_ids(fail: Exception | None = None) -> Generator[list[dict[str, Any]]]:
     """provider_job_id 写回的手写替身：收下写回参数，不落 DB。
 
     ``persist_provider_job_id`` 是 backend 的 DB 边界，各提交-轮询型 backend 的测试只关心
     「写回了什么」。产出按参数名归档的记录列表，断言落在记录内容上而不是替身的调用对象上；
-    非 worker 路径（``task_id=None``）跳过写回时列表保持为空。
+    非 worker 路径（``task_id=None``）跳过写回时列表保持为空。给了 ``fail`` 时写回改为抛出它，
+    用来模拟落库失败。
     """
     records: list[dict[str, Any]] = []
 
@@ -820,6 +821,8 @@ def captured_provider_job_ids() -> Generator[list[dict[str, Any]]]:
         endpoint: str | None = None,
         base_url: str | None = None,
     ) -> None:
+        if fail is not None:
+            raise fail
         records.append(
             {
                 "task_id": task_id,
@@ -1069,3 +1072,125 @@ class HangingProcess:
     async def communicate(self) -> tuple[bytes, None]:
         await self.wait()
         return b"", None
+
+
+def use_project_manager(monkeypatch, pm: Any) -> None:
+    """让读 ``get_project_manager()`` 的项目入口、路由与任务执行模块都拿到 *pm*。
+
+    生产里这些模块共用同一个进程级单例；用例按同一形状把替身装到所有调用方，而不是只换被测
+    模块那一处。真实 ``ProjectManager`` 与只实现用到方法的替身都可以传。
+    """
+    for_pm = lambda: pm  # noqa: E731 -- 同一个工厂装到下列每个调用方
+    monkeypatch.setattr("lib.config.resolver.get_project_manager", for_pm)
+    monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.characters.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.generate.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.grids.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.projects.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.reference_videos.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.versions.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.tasks.generation_context.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.tasks.generation_tasks.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.tasks.image_edit_tasks.get_project_manager", for_pm)
+    monkeypatch.setattr("server.services.tasks.reference_video_tasks.get_project_manager", for_pm)
+
+
+def use_generation_context(monkeypatch, resolve: Callable[..., Any]) -> None:
+    """生成任务执行链各入口的 ``resolve_generation_context`` 都换成 *resolve*（返回固定上下文的 async 函数）。
+
+    生成任务、正式图提交与参考视频任务各自在模块顶部导入这个解析函数，一处换掉就有一条链拿到真实解析。
+    """
+    monkeypatch.setattr("server.services.tasks.formal_image_commit.resolve_generation_context", resolve)
+    monkeypatch.setattr("server.services.tasks.generation_tasks.resolve_generation_context", resolve)
+    monkeypatch.setattr("server.services.tasks.reference_video_tasks.resolve_generation_context", resolve)
+
+
+def use_video_thumbnail_extractor(monkeypatch, extract: Callable[..., Any]) -> None:
+    """视频任务与参考视频任务的缩略图抽帧都换成 *extract*，用例不调真实 ffmpeg。"""
+    monkeypatch.setattr("server.services.tasks.generation_tasks.extract_video_thumbnail", extract)
+    monkeypatch.setattr("server.services.tasks.reference_video_tasks.extract_video_thumbnail", extract)
+
+
+def use_text_generator(monkeypatch, create: Callable[..., Any]) -> None:
+    """``TextGenerator.create`` 换成 *create*：所有经它取文本模型的调用方都拿到替身生成器。"""
+    monkeypatch.setattr("lib.backends.text_generator.TextGenerator.create", create)
+
+
+def bind_session_factory(monkeypatch, factory) -> None:
+    """把 ``lib.db.async_session_factory`` 指向给定的 session 工厂（通常是 conftest 的 ``db_factory``）。
+
+    只对在函数内晚导入 ``from lib.db import async_session_factory`` 的生产代码生效；模块顶部绑定了
+    这个名字的模块要另外替换。
+    """
+    monkeypatch.setattr("lib.db.async_session_factory", factory)
+
+
+def use_sdk_client(monkeypatch, factory: Callable[..., Any]) -> None:
+    """``SessionManager`` 建 SDK 客户端时改调 *factory*（收 ``options``，通常返回 :class:`FakeSDKClient`）。"""
+    monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", factory)
+
+
+def use_artifact_registration(monkeypatch, register: Callable[..., Any]) -> None:
+    """正式产物登记改调 *register*（收 ``project_path, key``），用来记录登记了什么或注入登记失败。
+
+    写盘出口在函数内晚导入 ``register_current_artifact_if_provable``，替换 ``artifact_activation`` 上的名字即生效。
+    """
+    monkeypatch.setattr("lib.artifacts.artifact_activation.register_current_artifact_if_provable", register)
+
+
+def use_provider_env(monkeypatch, load: Callable[..., Any]) -> None:
+    """Agent 会话组装选项时读供应商环境变量改调 *load*（async，返回要注入的环境变量），不读库。"""
+    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", load)
+
+
+def use_reference_projection(monkeypatch, project: Callable[..., Any]) -> None:
+    """参考视频路由与视频批量准入的单元请求投影都换成 *project*（与 ``project_reference_unit_request`` 同签名）。"""
+    monkeypatch.setattr("server.routers.reference_videos.project_reference_unit_request", project)
+    monkeypatch.setattr("server.services.admission.video_batch_admission.project_reference_unit_request", project)
+
+
+def use_active_tasks_lookup(monkeypatch, lookup: Callable[..., Any]) -> None:
+    """视频批量准入查在途任务改调 *lookup*（async，返回在途任务列表），不走生成队列。"""
+    monkeypatch.setattr("server.services.admission.video_batch_admission.get_active_tasks_for_resources", lookup)
+
+
+def fail_project_json_write(monkeypatch, project_file: Path) -> None:
+    """``ProjectManager`` 写 *project_file* 时抛 ``OSError("injected project write failure")``，其余文件照常写。
+
+    文件系统边界上的失败注入：用来验证 project.json 写失败时清单与磁盘文件保持一致。
+    """
+    import lib.project.project_manager as project_manager_module
+
+    real_write = project_manager_module.atomic_write_json
+
+    def _fail_project_write(path, data):
+        if path == project_file:
+            raise OSError("injected project write failure")
+        return real_write(path, data)
+
+    monkeypatch.setattr("lib.project.project_manager.atomic_write_json", _fail_project_write)
+
+
+def use_generation_queue(monkeypatch, queue: Any) -> None:
+    """生成与参考视频路由的 ``get_generation_queue()`` 都返回 *queue*（入队替身）。"""
+    monkeypatch.setattr("server.routers.generate.get_generation_queue", lambda: queue)
+    monkeypatch.setattr("server.routers.reference_videos.get_generation_queue", lambda: queue)
+
+
+def use_backend_assembler(monkeypatch, assemble: Callable[..., Any]) -> None:
+    """生成上下文解析时组装后端改调 *assemble*：其余解析（配置、项目、DB）走真实实现，只换掉供应商后端。"""
+    monkeypatch.setattr("server.services.tasks.generation_context.assemble_backend", assemble)
+
+
+async def stage_and_commit(commit_formal_output, staged: Path, current: Path, content: bytes, metadata: dict) -> int:
+    """替身生成器落盘产出并提交正式版本。
+
+    与 MediaGenerator 一样在工作线程里写 staging 产物、调正式提交回调：后端在线程里落盘，
+    提交回调经 ``run_noninterruptible_sync`` 执行。
+    """
+
+    def _run() -> int:
+        staged.write_bytes(content)
+        return commit_formal_output(staged, current, metadata)
+
+    return await asyncio.to_thread(_run)

@@ -19,6 +19,8 @@ from tests.fakes import (
     result_frame,
     session_state_message,
     system_frame,
+    use_provider_env,
+    use_sdk_client,
 )
 
 
@@ -85,7 +87,7 @@ async def _cold_revival_clients(session_manager, monkeypatch):
     async def _fake_env():
         return {}
 
-    monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_env)
+    use_provider_env(monkeypatch, _fake_env)
 
     created_clients: list[_FakeClaudeClient] = []
 
@@ -94,11 +96,11 @@ async def _cold_revival_clients(session_manager, monkeypatch):
         created_clients.append(c)
         return c
 
+    use_sdk_client(monkeypatch, _track_client)
     with monkeypatch.context() as m:
         m.setattr(sm_mod, "SDK_AVAILABLE", True)
         m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
         m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
-        m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
         yield created_clients
 
 
@@ -147,7 +149,7 @@ class TestSessionManager:
         async def _fake_env():
             return {}
 
-        monkeypatch.setattr("server.agent_runtime.options_assembler.load_provider_env_overrides", _fake_env)
+        use_provider_env(monkeypatch, _fake_env)
 
         with monkeypatch.context() as m:
             m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", False)
@@ -165,11 +167,11 @@ class TestSessionManager:
             created_clients.append(c)
             return c
 
+        use_sdk_client(monkeypatch, _track_client)
         with monkeypatch.context() as m:
             m.setattr(sm_mod, "SDK_AVAILABLE", True)
             m.setattr("server.agent_runtime.options_assembler.SDK_AVAILABLE", True)
             m.setattr("server.agent_runtime.options_assembler.ClaudeAgentOptions", _FakeOptions)
-            m.setattr(sm_mod, "ClaudeSDKClient", _track_client)
             managed = await session_manager.get_or_connect(meta.id)
             # Let the actor enter the async-context (connect).
             await asyncio.sleep(0)

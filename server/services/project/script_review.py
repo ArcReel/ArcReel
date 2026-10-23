@@ -50,7 +50,7 @@ from server.services.tasks.video_caps import (
     reference_request_facts_lookup,
     reference_unit_capabilities,
 )
-from server.text_generation import _fetch_reference_split_caps, reference_soft_violations, soft_violation_entries
+from server.text_generation import fetch_reference_split_caps, reference_soft_violations, soft_violation_entries
 
 logger = logging.getLogger(__name__)
 
@@ -223,7 +223,7 @@ class ScriptReviewService:
         content = state["content"]
         if script_review.script_plan_kind(project) == "reference_video" and isinstance(content, dict):
             try:
-                caps = await _fetch_reference_split_caps(project, config_resolver=self.config_resolver)
+                caps = await fetch_reference_split_caps(project, config_resolver=self.config_resolver)
             except VideoRequestFactsError:
                 return state
             units = content.get("units") or []

@@ -75,7 +75,7 @@ def _is_project_named_dir(entry: Path) -> bool:
 
 
 def _is_project_swap_dir(entry: Path) -> bool:
-    """项目 schema 迁移目录交换留下的 rollback / staging 目录，须与项目同处一个父目录才能被认领或清理。"""
+    """项目 schema 迁移目录交换留下的 rollback / staging 目录，须与项目同处一个父目录才能被清理或人工改回。"""
     name = entry.name
     return (
         (rollback_project_name(name) is not None or staging_project_name(name) is not None)
@@ -142,7 +142,7 @@ def _rename_sdk_session_dir(sdk_projects_dir: Path, legacy_key: str, current_key
 
 
 def _moved_project_names(projects_dir: Path) -> set[str]:
-    """``projects/`` 下的项目名：名字合法的目录，加上目录交换中间目录所属的项目（认领后成为该项目）。"""
+    """``projects/`` 下的项目名：名字合法的目录，加上目录交换中间目录所属的项目（人工改回后成为该项目）。"""
     names: set[str] = set()
     for entry in projects_dir.iterdir():
         if _is_project_named_dir(entry):

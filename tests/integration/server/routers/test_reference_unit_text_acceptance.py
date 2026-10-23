@@ -25,7 +25,7 @@ from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.auth import CurrentUserInfo, get_current_user
 from server.tool_runtime import ScriptPatchResult
 from tests.auth_deps import AUTH_DEPENDENCIES
-from tests.fakes import fake_reference_request_projector
+from tests.fakes import fake_reference_request_projector, use_project_manager, use_reference_projection
 from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 _TINY_PNG = (
@@ -204,12 +204,8 @@ def acceptance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Acceptance:
 
     from server.routers import reference_videos as router_mod
 
-    monkeypatch.setattr(router_mod, "get_project_manager", lambda: pm)
-    monkeypatch.setattr(
-        router_mod,
-        "project_reference_unit_request",
-        fake_reference_request_projector(durations=_SUPPORTED_DURATIONS),
-    )
+    use_project_manager(monkeypatch, pm)
+    use_reference_projection(monkeypatch, fake_reference_request_projector(durations=_SUPPORTED_DURATIONS))
 
     async def _fake_caps(*_args: object, **_kwargs: object) -> dict[str, Any]:
         return {"voice_consistency": "soft", "requested_generate_audio": True, "max_reference_audio_count": 2}

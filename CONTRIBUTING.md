@@ -4,6 +4,10 @@
 
 以推广某项商业服务为主要目的的贡献（例如新增某家服务的接入，或在文档中加入服务推荐与链接）不走 PR 流程，这类 PR 会被关闭；合作请联系 support@arc-reel.com。
 
+开发新功能或进行规模较大的改动前，先开 issue 讨论方向。
+
+PR 合并前，作者需要签署 CLA。签署入口由 CLA Assistant 在 PR 评论中给出。
+
 ArcReel 假定贡献者用 coding Agent 开发。仓库根的 `AGENTS.md`（`CLAUDE.md` 是指向它的链接）是 Agent 的入口，闸门命令、测试选择与代码规范都从它链接出去；本文只讲贡献者本人需要知道的部分。
 
 ## 本地开发环境
@@ -191,7 +195,7 @@ chore: 构建/工具变更
 
 > release-please 默认只有 `feat` 和 `fix`（以及破坏性变更）触发版本 bump。将 `perf`/`refactor`/`docs`/`revert` 配置为 `hidden: false` 仅影响 changelog 呈现，不会使它们触发 patch bump。如果一轮迭代只有这几类 commit，不会产出 Release PR，直到下一个 `fix`/`feat` commit 到来。
 
-`pyproject.toml` 和 `frontend/package.json` 的 `version` 字段由 release-please 自动维护（见 `pyproject.toml` 的 `# managed by release-please` 注释），**开发者视为只读**。`uv.lock` 同样由 release-please workflow 在 Release PR 分支上自动 `uv lock` 同步。实际版本状态以 git tag + `.release-please-manifest.json` 为准。
+`pyproject.toml` 和 `frontend/package.json` 的 `version` 字段由 release-please 自动维护（见 `pyproject.toml` 的 `# managed by release-please` 注释），**开发者视为只读**。`uv.lock` 同样由 release-please workflow 在 Release PR 分支上自动 `uv lock` 同步。出厂模型目录快照（`lib/catalog/snapshot/`）同样在 Release PR 分支上自动更新：workflow 抓取目录数据仓库的最新数据，通过校验器后提交；抓取失败或校验不过时快照保持不变，workflow 给出提示。实际版本状态以 git tag + `.release-please-manifest.json` 为准。
 
 ### commit 示例
 

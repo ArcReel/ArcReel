@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, cast
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
@@ -128,10 +128,29 @@ class CustomPriceSource:
     endpoint_spec: EndpointSpec | None = None
 
     def video_usage(self, model: str, request: VideoGenerationRequest) -> Usage:
-        """一次视频请求的预估用量，与结算同一组计量声明。"""
+        """一次视频请求的预估用量，与结算同一组计量声明。
+
+        请求没带能力时补上系统判定叠加用户覆盖后的能力，与执行时 ``CustomVideoBackend`` 注入的那份同源；
+        系统判定不可得时按不带能力计量。
+        """
         spec = self.endpoint_spec
-        metering = video_metering_for(spec.metering_backend, spec.definition) if spec is not None else None
-        return custom_video_usage(metering, model, request)
+        if spec is None:
+            return custom_video_usage(None, model, request)
+        if request.video_capabilities is None and self.pricing.endpoint:
+            from lib.custom_provider.capabilities import synthesize_video_capabilities
+
+            try:
+                caps = synthesize_video_capabilities(
+                    endpoint=self.pricing.endpoint,
+                    model_id=model,
+                    overrides=self.pricing.capability_overrides,
+                    endpoint_spec=spec,
+                )
+            except ValueError:
+                logger.debug("自定义模型 %s 的视频能力判定不出，预估按不带能力计量", model, exc_info=True)
+            else:
+                request = replace(request, video_capabilities=caps)
+        return custom_video_usage(video_metering_for(spec.metering_backend, spec.definition), model, request)
 
     def image_usage(self, facts: ImageRequestFacts) -> Usage:
         """一次图片请求的预估用量。"""

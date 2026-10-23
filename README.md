@@ -61,22 +61,21 @@
   </tr>
   <tr>
     <td width="200" align="center" valign="top">
-      <a href="https://sidrune.ai/register?source=github&campaign=arcreel&promo=arcreel"><img src="docs/assets/sponsors/sidrune-ai.png" alt="Sidrune AI" width="180"></a>
-    </td>
-    <td valign="top">
-      <strong>一个入口，接入并管理全球主流 AI 模型｜Sidrune AI</strong><br>
-      Sidrune AI 面向个人开发者、技术团队与企业，通过统一 API 接入并管理全球主流 AI 模型；通过多线路动态调度提升可用性，模型表现、响应时间与费用透明可查。根据不同模型与线路，API 调用成本较官方或基准价格可降低 40%—98%。<br>
-      <a href="https://sidrune.ai/register?source=github&campaign=arcreel&promo=arcreel">立即访问并注册</a>，即可获得 $3 API 额度。
-    </td>
-  </tr>
-  <tr>
-    <td width="200" align="center" valign="top">
       <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel"><img src="docs/assets/sponsors/ofox-ai.svg" alt="OfoxAI" width="180"></a>
     </td>
     <td valign="top">
       <strong>OfoxAI：脚本、图像与视频创作的模型 API</strong><br>
       通过 OfoxAI 接入文本、图像和视频模型，为脚本打磨、角色与场景参考图、视频镜头素材选择合适的能力。具体模型的输入要求、支持参数及调用方式请查看 API 文档。<br>
       <a href="https://ofox.ai/?utm_source=github&utm_medium=sponsorship&utm_content=arcreel">探索 OfoxAI 模型与 API →</a>
+    </td>
+  </tr>
+  <tr>
+    <td width="200" align="center" valign="top">
+      <a href="https://go.apimart.ai/tw-arcreel"><img src="docs/assets/sponsors/apimart.webp" alt="APIMart" width="180"></a>
+    </td>
+    <td valign="top">
+      <strong>APIMart：AI 图片/视频生成低价 API</strong><br>
+      感谢 APIMart 赞助了本项目！APIMart 是专注 AI 图片/视频生成的低价 API 平台，<strong>GPT-Image-2 低至 $0.006/张，1 美元可出图 160+ 张</strong>。图片、视频一套异步 API 通吃，提交任务拿 ID、回调取结果，跑批万张不超时、换模型不改代码。按量付费、无月费，通过<a href="https://go.apimart.ai/tw-arcreel">此注册链接</a>注册即可开用。
     </td>
   </tr>
 </table>

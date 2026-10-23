@@ -48,14 +48,6 @@ seam 是构造参数或关键字参数，带生产默认值，不改变生产行
 
 respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的流量同样被捕获），断言的是真实序列化后的请求。路由依赖用 `app.dependency_overrides` 替换，不 patch。
 
-### 同一个 `monkeypatch.setattr` 目标出现在至少 3 个测试文件时，提取为共享 fixture 或 seam
-
-`patch` / `patch.object` 的散落由 `audit_tests` 判定，`monkeypatch.setattr` 按同一标准在审查时判断：同一目标被多个文件各自替换，说明缺一个共享 fixture 或 seam。
-
-### 专题共享模块只放被多个测试文件使用的 helper
-
-专题共享模块（如 `tests/auth_deps.py`、各目录的 `*_support.py`）的公开符号应被至少 2 个测试文件使用；只服务一个文件的 helper 放回该文件。`tests/legacy_project_shapes.py` 是旧版项目形态的样本目录（见 `docs/agents/project-migrations.md`），不受此限。
-
 ### 前端页面级套件的接口替身从真实后端录制
 
 `frontend/e2e/fixtures/recorded/` 下的响应只由 `pnpm e2e:record` 对真实后端录制生成，不手写协议桩，也不手改录制文件；改动接口形状的后端 PR 要同时重录，让形状变化体现在替身文件的 diff 里。手写的替身只反映作者对接口的理解：后端实际的字段、帧序或查询形状变了，页面级套件仍然通过，回归要到运行时才暴露。长文本、多条目等压力变体写在场景的 `api` 字段里。
@@ -84,3 +76,7 @@ respx 保留真实 httpx 客户端、在 transport 层拦截（`AsyncOpenAI` 的
 真实时间等待（`time.sleep`、固定 `setTimeout`）让用例变慢，并在负载高时偶发失败。偶发失败视同普通缺陷，就地改成时钟 seam 或事件握手；修不了或不值得修的按「每条用例保护一个可观察的契约」删除或改造。不引入自动重试（pytest-rerunfailures、CI job 级 retry），它会掩盖本应暴露的失败。前端用例沿用 vitest 默认 5 秒超时，个别慢用例显式覆写并写明原因。
 
 放行条件：概率性 stress 用例（真实并发 + 真实时间）在这里登记后才允许存在。当前唯一登记的是 `tests/integration/lib/project/test_project_manager_concurrent_save.py` 的原子写压力用例。
+
+### 等待异步过程时，以它的最后一步为就绪信号
+
+异步过程常分多步完成，例如切内存状态、落库、广播，或元素渲染后 effect 才订阅、数据到达后防抖刷新才落定。用例在其中某一步刚可见时就继续，后续步骤会与断言或下一个操作交错，负载高时偶发失败。等待条件取这一过程的最后一步：终态广播、出队事件、订阅生效、刷新结算。同一过程的其他用例若用同一种等待写法，一并改掉。
