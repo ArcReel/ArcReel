@@ -223,14 +223,28 @@ def _asset_aliases(bucket: dict | None, name: str) -> list[str]:
     return [_neutralize_tags(alias) for alias in aliases if isinstance(alias, str) and alias.strip()]
 
 
+def _character_voice(bucket: dict | None, name: str) -> str | None:
+    """角色（含衍生）的声音特征；衍生沿用本体角色的声音，只决定配音语气、不参与画面。"""
+    base = name.split("/", 1)[0] if isinstance(name, str) and "/" in name else name
+    entry = (bucket or {}).get(base)
+    voice = entry.get("voice_style") if isinstance(entry, dict) else None
+    voice = voice.strip() if isinstance(voice, str) else ""
+    return _neutralize_tags(voice) or None
+
+
 def _project_asset_appearances(characters: dict | None, scenes: dict | None, props: dict | None) -> dict:
-    """资产外观、别名与引用名的键齐全投影；动态尖括号中和后作为模版数据。"""
+    """资产外观、别名与引用名的键齐全投影；动态尖括号中和后作为模版数据。
+
+    角色额外投影 ``voice_style``（配音风格），供写剧本的模型认人时一并看见声音特征，
+    避免存量角色在口播 / 音色声明里漂走；其渲染由对应资产块模板负责。
+    """
     return {
         key: [
             {
                 "name": _neutralize_tags(name),
                 "aliases": _asset_aliases(bucket, name),
                 "appearance": _neutralize_tags(appearance) or None,
+                **({"voice_style": _character_voice(bucket, name)} if asset_type == "character" else {}),
             }
             for name, appearance in iter_asset_appearances(asset_type, bucket)
         ]

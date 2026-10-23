@@ -522,13 +522,14 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
     await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
 
     prompt = captured["prompt"]
-    # speaker 首现顺序 = 音频编号 = 请求字段顺序（李四先开口，尽管张三先入画）
-    assert "<李四>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。" in prompt
-    assert "<张三>的台词音色参考 @音频2，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。" in prompt
+    # speaker 首现顺序 = 音频编号 = 请求字段顺序（李四先开口，尽管张三先入画）。
+    # 断言按 Seedance 方言：该型号的参考素材指代是 Image N / Audio N。
+    assert "<李四>的台词音色参考 Audio 1，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。" in prompt
+    assert "<张三>的台词音色参考 Audio 2，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。" in prompt
     assert [p.name for p in captured["reference_audio_files"]] == ["李四.mp3", "张三.wav"]
-    # speaker 位不产生参考图：李四没有 @图片N 绑定
-    assert "<张三>@图片1。" in prompt
-    assert "<李四>@图片" not in prompt
+    # speaker 位不产生参考图：李四没有图片绑定
+    assert "<张三>Image 1。" in prompt
+    assert "<李四>Image" not in prompt
 
     frozen_speech_paths: dict[str, Path] = {}
     submitted_audio_paths: list[Path] = []
@@ -623,10 +624,10 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
     assert captured["reference_audio_files"] is None
     assert captured["reference_audio_targets"] is None
     prompt = captured["prompt"]
-    assert "@音频" not in prompt
-    # 台词与参考图绑定照常，只有音色参考行消失
-    assert "<张三>说 {今晚的酒，我请。}" in prompt
-    assert "<张三>@图片1。" in prompt
+    assert "Audio " not in prompt
+    # 台词与参考图绑定照常，只有音色参考行消失；台词按 Seedance 方言用引号
+    assert '<张三>说："今晚的酒，我请。"' in prompt
+    assert "<张三>Image 1。" in prompt
     assert {"key": "ref_warn_silent_episode", "params": {}} in result["warnings"]
 
 

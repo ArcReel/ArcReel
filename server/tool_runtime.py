@@ -2438,6 +2438,9 @@ MERGEABLE_ASSET_TABLES = tuple(ASSET_SPECS[asset_type].bucket_key for asset_type
 PROJECT_SETTINGS = (
     EPISODE_TARGET_UNITS_FIELD,
     EPISODE_TARGET_DURATION_FIELD,
+    # 单镜默认时长：创建时已可写（内容模式非 ad），补进补丁白名单让存量项目也能调——
+    # 按次计费的视频通道要靠它把每段拉满，而它此前只能在 create_project 那一次设定。
+    "default_duration",
     "source_language",
     "brief",
     "narration_voice",
@@ -2448,7 +2451,7 @@ PROJECT_OVERVIEW_FIELDS = ("synopsis", "genre", "theme", "world_setting")
 EPISODE_META_FIELDS = ("title",)
 
 _SOURCE_LANGUAGE_VALUES = ("zh", "en", "vi")
-_POSITIVE_INT_SETTINGS = (EPISODE_TARGET_UNITS_FIELD,)
+_POSITIVE_INT_SETTINGS = (EPISODE_TARGET_UNITS_FIELD, "default_duration")
 
 
 class ToolMessage(BaseModel):
@@ -3526,6 +3529,10 @@ def _patch_project_sync(
             def mutate_settings(project_data: dict[str, Any]) -> None:
                 if "brief" in coerced and project_data.get("content_mode") != "ad":
                     raise ValueError("brief 仅广告/短片项目（content_mode=ad）可用")
+                if "default_duration" in coerced and project_data.get("content_mode") == "ad":
+                    raise ValueError(
+                        "default_duration 不适用广告/短片项目（分镜按 target_duration 预算逐个规划，单个分镜偏好无意义）"
+                    )
                 if EPISODE_TARGET_DURATION_FIELD in coerced and project_data.get("content_mode") == "ad":
                     raise ValueError(
                         f"{EPISODE_TARGET_DURATION_FIELD} 不适用广告/短片项目（整集体量按 target_duration 预算规划）"

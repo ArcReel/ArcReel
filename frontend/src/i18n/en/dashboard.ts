@@ -1196,6 +1196,7 @@ export default {
   'reference_editor_pending_authoring_hint': 'Pending authoring: this video unit\'s prompt hasn\'t been authored yet. Ask the agent to fill it in, or write it below',
   'default_duration_label': 'Default Duration',
   'default_duration_project_desc': 'Default video duration for new storyboards; "Auto" lets AI decide based on content',
+  'default_duration_invalid': 'Enter a whole number of seconds, or leave blank to let AI decide; it must be within the video model\u2019s supported tiers',
   'duration_selection': 'Duration selection',
   'auto_label': 'Auto',
   'image_model': 'Image Model',

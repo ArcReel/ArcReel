@@ -7152,6 +7152,56 @@
           }
         ]
       }
+    },
+    {
+      "maker": "coolhs",
+      "name": "coolhs-wan3",
+      "media_type": "video",
+      "display_name": "\u4e07\u4e07\u5de5\u4f5c\u53f0 \u00b7 \u4e07\u76f8 3.0",
+      "aliases": [
+        "wan",
+        "wan-480p",
+        "wan-720p",
+        "wan-1080p"
+      ],
+      "facts": {
+        "durations": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30
+        ],
+        "resolutions": [
+          "480p",
+          "720p",
+          "1080p"
+        ]
+      }
     }
   ],
   "builtin_providers": {
@@ -7703,6 +7753,17 @@
         "text": "agnes-3.0-flash",
         "image": "agnes-image-2.5-flash",
         "video": "agnes-video-2.5-flash"
+      }
+    },
+    "coolhs": {
+      "models": [
+        {
+          "api_model_name": "wan",
+          "entry": "coolhs/coolhs-wan3"
+        }
+      ],
+      "defaults": {
+        "video": "wan"
       }
     }
   }

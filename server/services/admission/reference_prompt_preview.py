@@ -7,6 +7,7 @@ from typing import Any
 from lib.generation.batch_admission import DURATION_CONFIRMATION_CODE
 from lib.i18n import render_message
 from lib.i18n.display_names import DisplayNames
+from lib.script.reference_video.prompt_dialect import dialect_for
 from lib.script.reference_video.prompt_render import render_video_unit_prompt, resolve_reference_audio_paths
 from lib.script.reference_video.request_projection import ReferenceUnitRequestProjection
 from lib.script.reference_video.voice_settings import VoiceRenderSettings
@@ -53,6 +54,7 @@ def render_reference_prompt_preview(
             request_facts, audio_ready=resolve_reference_audio_paths(project, project_path)
         ),
         request_references=[asset.reference for asset in projection.request_assets],
+        dialect=dialect_for(request_facts.model_id),
     )
     result["text"] = rendered.prompt
     result["references"] = [

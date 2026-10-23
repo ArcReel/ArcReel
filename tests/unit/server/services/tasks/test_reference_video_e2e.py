@@ -216,8 +216,9 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
     )
 
     # 5) 断言三段论渲染：第一段按正文提及顺序绑定，正文 @mention 全部替成 <X>
+    #    本用例的模型是豆包 Seedance，故参考图指代走 Seedance 方言（Image N）
     rendered = captured_backend_kwargs["prompt"]
-    assert rendered.startswith("<张三>@图片1、<酒馆>@图片2、<长剑>@图片3。")
+    assert rendered.startswith("<张三>Image 1、<酒馆>Image 2、<长剑>Image 3。")
     assert "@张三" not in rendered  # 所有 @ 已替换
     assert "@酒馆" not in rendered
     assert "@长剑" not in rendered

@@ -309,17 +309,25 @@ class TestEpisodeTargetDurationInjection:
     def test_split_prompt_carries_the_shared_rule(self):
         prompt = _split_prompt(episode_target_duration=120)
         assert (
-            "按本集目标时长打包——本集成片目标时长约 120 秒：据此决定本集的单元数与拆分粒度，让各单元时长合计向该目标靠拢。"
-            "这是软目标、不是硬上限：不要靠注水 / 切碎凑满，也不要为压进目标删减必要情节；"
-            "单个 unit 在目标之内可长可短，不必贴近单次上限 8 秒，也不要默认选最短 / 保守值。"
+            "本集目标时长是软约束，按下式打包——本集成片目标时长约 120 秒：据此决定本集的单元数与拆分粒度，"
+            "让各单元时长合计向该目标靠拢。这是软目标、不是硬上限：不要靠注水 / 切碎凑满，"
+            "也不要为压进目标删减必要情节。"
         ) in prompt
 
     def test_split_prompt_omits_the_rule_without_a_target(self):
         assert "本集成片目标时长" not in _split_prompt()
 
     def test_packing_no_longer_pushes_units_toward_the_per_call_ceiling(self):
-        assert "使 unit 时长贴近 8 秒" in _split_prompt()
-        assert "使 unit 时长贴近 8 秒" not in _split_prompt(episode_target_duration=120)
+        """打包口径是「连贯性优先的区间」，上界只受模型档位限制，且明确禁止凑满注水。"""
+        prompt = _split_prompt()
+        assert "上界取单次上限 8 秒" in prompt
+        assert "不要为凑满上界注水" in prompt
+
+    def test_default_duration_overrides_the_generic_15s_preference(self):
+        """按次计费的通道靠项目默认时长把段拉满：规则跟随默认偏好，不再写死 15 秒。"""
+        prompt = _split_prompt(default_duration=30, max_duration=30, supported_durations=[30])
+        assert "按上面的默认偏好取 30 秒" in prompt
+        assert "取 15 秒左右" not in prompt
 
     def test_the_rule_coexists_with_the_default_duration_preference(self):
         """两条约束尺度不同（整集体量 vs 单 unit 秒数），须同时呈现而非互相取代。"""

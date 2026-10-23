@@ -3,7 +3,7 @@ protected: true
 ---
 <characters>
 {% for entry in assets.characters %}
-- {{ entry.name }}{% if entry.aliases %}（别名：{{ entry.aliases | join("、") }}）{% endif %}{% if entry.appearance %}：{{ entry.appearance | indent(2, blank=True) }}{% endif %}
+- {{ entry.name }}{% if entry.aliases %}（别名：{{ entry.aliases | join("、") }}）{% endif %}{% if entry.appearance %}：{{ entry.appearance | indent(2, blank=True) }}{% endif %}{% if entry.voice_style %}｜声音：{{ entry.voice_style }}{% endif %}
 
 {% else %}
 （暂无）

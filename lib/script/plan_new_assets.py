@@ -103,6 +103,7 @@ class _Outcome:
 class _Registration:
     description: str
     aliases: list[str] = field(default_factory=list)
+    voice_style: str = ""
 
 
 @dataclass
@@ -183,7 +184,11 @@ class NewAssetResolution:
                 existing = resolve_asset_key(bucket, name)
                 if existing is None:
                     ensure_project_asset_name_available(project, name, requested_asset_type=asset_type)
-                    bucket[name] = build_asset_entry(asset_type, registration.description)
+                    source: dict[str, Any] = {}
+                    if asset_type == "character":
+                        # voice_style 仅角色有意义；空串落到 build_asset_entry 默认值，不额外写键。
+                        source["voice_style"] = registration.voice_style
+                    bucket[name] = build_asset_entry(asset_type, registration.description, source=source or None)
                     existing = name
                 entry = bucket[existing]
                 if isinstance(entry, dict):
@@ -399,7 +404,7 @@ class _Resolver:
         registrations = self.registrations[asset_type]
         registration = registrations.get(final)
         if registration is None:
-            registrations[final] = registration = _Registration(item.description)
+            registrations[final] = registration = _Registration(item.description, voice_style=item.voice_style)
         registration.aliases.extend((item.name, *item.aliases))
         return final
 

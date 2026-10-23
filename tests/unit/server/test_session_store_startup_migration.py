@@ -36,12 +36,13 @@ async def test_lifespan_invokes_session_store_migration(tmp_path, monkeypatch):
         patch("server.app.ProjectEventService") as pes_factory,
         patch("server.app.close_db", new=AsyncMock(return_value=None)),
     ):
-        # Mock the worker so its start() / stop() are awaitables, no-op.
+        # Mock the worker so its start() / reload_limits() / stop() are awaitables, no-op.
         worker_factory.return_value = type(
             "W",
             (),
             {
                 "start": AsyncMock(),
+                "reload_limits": AsyncMock(),
                 "stop": AsyncMock(),
             },
         )()

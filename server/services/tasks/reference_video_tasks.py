@@ -49,6 +49,7 @@ from lib.script.reference_video.execution_checkpoint import (
     stage_provider_media,
     stage_provider_media_for_task,
 )
+from lib.script.reference_video.prompt_dialect import GENERIC, PromptDialect, dialect_for
 from lib.script.reference_video.prompt_render import (
     RenderedUnitPrompt,
     render_video_unit_prompt,
@@ -99,6 +100,7 @@ def _render_unit_prompt(
     settings: VoiceRenderSettings,
     *,
     request_references: list[ReferenceResource] | None = None,
+    dialect: PromptDialect = GENERIC,
 ) -> RenderedUnitPrompt:
     """把 unit 的书写文稿渲染成三段论 backend prompt（见 ``lib.script.reference_video.prompt_render``）。
 
@@ -118,6 +120,7 @@ def _render_unit_prompt(
         project,
         settings,
         request_references=request_references,
+        dialect=dialect,
     )
 
 
@@ -446,6 +449,7 @@ async def execute_reference_video_task(
         project,
         voice_settings,
         request_references=[entry.reference for entry in constrained_entries],
+        dialect=dialect_for(request_facts.model_id),
     )
     rendered_prompt = rendered.prompt
     reference_audio_files, reference_audio_targets = _build_reference_audio_wiring(

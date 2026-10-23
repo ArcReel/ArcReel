@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 from lib.backends.agnes_shared import AGNES_BASE_URL
 from lib.backends.ark_shared import ARK_BASE_URL
+from lib.backends.coolhs_shared import COOLHS_BASE_URL
 from lib.backends.dashscope_shared import DASHSCOPE_BASE_URL
 from lib.backends.minimax_shared import MINIMAX_BASE_URL
 
@@ -195,5 +196,21 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         # Agnes 视频上游对并发敏感，出厂串行（默认 1）避免主动制造 503 Service busy；
         # 用户可经 video_max_workers 覆盖。其余 lane 未声明，走全局默认。
         default_concurrency={"video": 1},
+    ),
+    "coolhs": ProviderMeta(
+        display_name="万万工作台",
+        description=(
+            "万万工作台：万相模型的第三方中转站，卡密（不是 API Key）鉴权。素材需先上传再按 token "
+            "引用，出片要排队、单次可等数小时；成片直链 24 小时过期。"
+        ),
+        required_keys=["api_key"],
+        optional_keys=["base_url", "video_max_workers"],
+        secret_keys=["api_key"],
+        default_base_url=COOLHS_BASE_URL,
+        # 平台是「排队发车」模式：提交后只占队列，不占平台的处理并发，故并发上限的瓶颈不在
+        # 供应商而在**查询频率**（同 IP 600 次 / 15 分钟）。后端把轮询间隔放到 20 秒后，
+        # 并发 3 约 9 次/分钟、并发 6 约 18 次/分钟，都离上限有数倍余量。用户可经
+        # video_max_workers 上调，但超过 10 需要自己算查询额度。
+        default_concurrency={"video": 3},
     ),
 }

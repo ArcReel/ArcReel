@@ -4,9 +4,11 @@ protected: true
 <characters>
 {% for entry in assets.characters %}
 {% if entry.appearance %}
-- {{ entry.name }}：{{ entry.appearance | indent(2, blank=True) }}
+- {{ entry.name }}：{{ entry.appearance | indent(2, blank=True) }}{% if entry.voice_style %}｜声音：{{ entry.voice_style }}{% endif %}
+
 {% else %}
-- {{ entry.name }}
+- {{ entry.name }}{% if entry.voice_style %}｜声音：{{ entry.voice_style }}{% endif %}
+
 {% endif %}
 {% else %}
 （暂无）

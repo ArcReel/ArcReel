@@ -93,10 +93,23 @@ protected: false
      取**不低于**这个秒数的档位。这是单向下界——台词永不压进念不完的短档；无台词的 unit 没有此下界。
      台词量超过最长档（{{ max_duration }} 秒）时把该 unit 拆开，不要把台词硬塞进一个 unit。
   3. 默认偏好：{% if default_duration %}unit 默认取 {{ default_duration }} 秒{% if duration_tiers and duration_tiers.default_with_references_only %}（该默认值只落在带 `@` 引用的 unit 的档位内，另一种状态的 unit 按上面的硬约束取值）{% endif %}{% if duration_tiers and duration_tiers.default_without_references_only %}（该默认值只落在不带 `@` 引用的 unit 的档位内，另一种状态的 unit 按上面的硬约束取值）{% endif %}，叙事需要更长时可取更长档（偏好可被内容需要覆盖，硬约束不可）{% else %}按叙事需要从档位中取值，不强制默认值{% endif %}。
-  4. 打包效率：在 1-3 之内组织正文内容，{% if episode_target_duration %}按本集目标时长打包——{{ partial("shared/episode_target_duration_rule") }}；单个 unit 在目标之内可长可短，不必贴近单次上限 {{ max_duration }} 秒，也{% else %}使 unit 时长贴近 {{ max_duration }} 秒；{% endif %}不要默认选最短 / 保守值。
+  4. 打包效率（**连贯性优先**）：在 1-3 之内组织正文内容。**每个 unit 都是一次独立生成，段越多，拼接接缝越多、段内连贯性越差**——所以同一个连贯叙事段落必须打包成一个长 unit，不要切成多个短 unit。
+     目标区间：**下限 10 秒，上界取单次上限 {{ max_duration }} 秒**。同一时间、同一地点、动作连续的段落，只要合计时长落在这个区间内，就并成一个 unit，不要为了多切几个镜头而拆开；超过该上界的连续段落才拆，断点选在动作完成处 / 视线转移处 / 情绪转折处，让每一段都落回区间内。
+     没有明确叙事需要时{% if default_duration %}按上面的默认偏好取 {{ default_duration }} 秒{% else %}取 15 秒左右{% endif %}；单段越长模型漂移风险越高——用参考图锁住人物、以连续动作推进压住它，并把机位切换控制在 3-4 次以内。
+     不要为凑满上界注水，也不要用碎段把一段连续戏切碎。{% if episode_target_duration %}本集目标时长是软约束，按下式打包——{{ partial("shared/episode_target_duration_rule") }}。{% endif %}
+
 {% if max_reference_images %}
 - **references 上限**：一个 unit 的**画面描述里** `@` 引用的资产名（去重后）不超过 {{ max_reference_images }} 个（台词记号 `@[角色]{台词}` 的说话人不计入——它不生成参考图）；超出时把次要角色融入背景描述（不用 `@` 引用），不要压缩主体资产。
 {% endif %}
+
+# 本集节奏与内容硬约束
+
+- **集首 30 秒**：0-3 秒给一个不靠解释就看懂的异常或对抗（不许用介绍性远景 / 风景空镜开场）；3 秒内必须有一句人对人的话；3-15 秒再出至少两个钩子；15-25 秒是最强的当面冲突；25-30 秒翻转或抛出问题。
+- **翻转间隔**：相邻两次翻转之间不超过两个 unit（约 60 秒），不许出现连续三个同节奏的 unit。
+- **每个 unit 都要有可见因果**：正文里至少安排一处明确因果——先给原因（一个物件或动作的特写），再给结果（可见的终态：位置变化 / 持有物变化 / 身体状态 / 关系变化）。
+- **推断词清零**：不写「若有所思」「似乎」「仿佛」「不禁」「心里明白」「眼底藏着」——这些没有可拍载体，写进正文只会让画面空转。
+- **台词不加快**：台词念不完就把它挪到下一个 unit，**不许靠念快塞进短 unit**。
+- **一个 unit 一个场景**：unit 内不换地点；地点变化必须开新 unit。
 
 # 正文书写语法
 
@@ -114,6 +127,12 @@ protected: false
 - 每个 unit 的正文都要 `@` 引用它发生地的场景资产；地点切换到新 unit 时换成新地点的场景，
   地点不变的连续 unit 逐条重复引用同一个场景（候选表里没有匹配的场景时才用文字写地点）。
 - 本阶段不写景别 / 构图 / 运镜（prompt_authoring 补），把叙事内容与动作过程写清楚即可。
+
+# 段间衔接（硬要求）
+
+相邻 unit 之间没有物理上的首尾帧续接，成片能不能接得住，完全取决于你在正文里如何交接。以下每一条都必须满足：
+
+{{ partial("shared/unit_continuity_rule") }}
 
 {{ partial("shared/new_assets_rule") }}
 {% if instructions %}

@@ -76,3 +76,9 @@ from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backends.agnes import AgnesVideoBackend
 
 register_backend(PROVIDER_AGNES, AgnesVideoBackend)
+
+# Coolhs — 万万工作台（素材先上传拿 id → 排队轮询 → resume；卡密 + 浏览器 UA）
+from lib.backends.providers import PROVIDER_COOLHS
+from lib.backends.video_backends.coolhs import CoolhsVideoBackend
+
+register_backend(PROVIDER_COOLHS, CoolhsVideoBackend)

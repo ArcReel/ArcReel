@@ -18,9 +18,13 @@ class _FakeWorker:
     def __init__(self):
         self.started = False
         self.stopped = False
+        self.reloaded = False
 
     async def start(self):
         self.started = True
+
+    async def reload_limits(self):
+        self.reloaded = True
 
     async def stop(self):
         self.stopped = True
@@ -56,6 +60,8 @@ class TestAppModule:
         async with app_module.lifespan(app):
             assert worker.started
             assert hasattr(app.state, "generation_worker")
+            # 启动即从 DB 补一次容量配置：否则重启后用户配的并发被退回注册表默认值
+            assert worker.reloaded
 
         assert worker.stopped
 

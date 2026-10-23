@@ -20,7 +20,7 @@ from lib.db.base import DEFAULT_USER_ID, dt_to_iso, utc_now
 from lib.db.models.api_call import ApiCall
 from lib.db.models.task import BatchTask, GenerationBatch, Task, WorkerLease
 from lib.db.repositories.base import BaseRepository, rowcount
-from lib.generation.task_failure import bound_reason, collapse_cascade_reason, encode_failure, parse_failure
+from lib.generation.task_failure import bound_reason, collapse_cascade_reason, encode_failure
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
 
 logger = logging.getLogger(__name__)
@@ -605,12 +605,13 @@ class TaskRepository(BaseRepository):
         """
         result = await self.session.execute(self._scope_query(select(Task).where(Task.task_id == task_id), Task))
         task = result.scalar_one_or_none()
-        parsed = parse_failure(task.error_message or "") if task is not None else None
+        # 放宽资格：早期版本只受理 error_code=artifact_download_failed 的任务，导致
+        # 「轮询超时但 provider job 仍然有效」与「早期未编码的下载失败（如 302 重定向抛错）」
+        # 都无法按原 provider job 恢复。只要任务已 failed 且持有 provider_job_id + provider_id，
+        # 就允许走 resume——resume 只轮询/下载、绝不重新提交，不会重复扣费。
         if (
             task is None
             or task.status != "failed"
-            or parsed is None
-            or parsed[0] != "artifact_download_failed"
             or not task.provider_job_id
             or not task.provider_id
         ):

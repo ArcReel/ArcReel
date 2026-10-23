@@ -4,6 +4,7 @@ import { cn } from "cn";
 
 import { DurationTierPicker } from "@/components/shared/DurationTierPicker";
 import { EpisodeTargetDurationField } from "@/components/shared/EpisodeTargetDurationField";
+import { OptionalNumberField } from "@/components/shared/OptionalNumberField";
 import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
 import { InlineWarning } from "@/components/shared/InlineWarning";
@@ -96,6 +97,29 @@ export function BasicsTab({ value, savedValue, onChange, facts }: BasicsTabProps
             <EpisodeTargetDurationField
               value={value.episodeTargetDuration}
               onChange={(next) => onChange((prev) => ({ ...prev, episodeTargetDuration: next }))}
+            />
+          )}
+          {/* 默认单镜时长与单集目标是两个尺度：前者是每段视频的默认秒数（受视频模型档位约束），
+              后者是整集体量。按次计费的通道要靠前者把每段拉满，故存量项目必须能改——广告项目的
+              整集体量由目标总时长表达，服务端对 ad 项目拒写 default_duration，这里同样不呈现。 */}
+          {facts.contentMode !== "ad" && (
+            <OptionalNumberField
+              label={t("default_duration_label")}
+              value={value.models.defaultDuration}
+              onChange={(next) =>
+                onChange((prev) => ({ ...prev, models: { ...prev.models, defaultDuration: next } }))
+              }
+              unit={t("episode_target_duration_unit")}
+              hint={t("default_duration_project_desc")}
+              errorMessage={t("default_duration_invalid")}
+              invalid={
+                value.models.defaultDuration !== null &&
+                !(Number.isInteger(value.models.defaultDuration) && value.models.defaultDuration > 0)
+              }
+              idSuffix="default-duration"
+              inputMode="numeric"
+              max={300}
+              step={1}
             />
           )}
         </div>

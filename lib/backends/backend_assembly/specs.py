@@ -467,6 +467,9 @@ PROVIDER_SPEC_REGISTRY[("minimax", "video")] = ProviderSpec(
 PROVIDER_SPEC_REGISTRY[("agnes", "image")] = _simple_spec("agnes", "image")
 PROVIDER_SPEC_REGISTRY[("agnes", "video")] = _simple_spec("agnes", "video")
 
+# coolhs 只有视频 lane（万万工作台不提供图像 / 文本 / 音频生成），故只登记 video 一条。
+PROVIDER_SPEC_REGISTRY[("coolhs", "video")] = _simple_spec("coolhs", "video")
+
 # ── 文本族注册 ────────────────────────────────────────────────────
 # 简单文本四家（registry_backend = provider_id 自身）；gemini 两个 provider_id 按 backend 分两行
 # （aistudio/vertex 各自闭包，registry_backend 同为 "gemini"）；OpenAI-compat 三家共用一个构造闭包：

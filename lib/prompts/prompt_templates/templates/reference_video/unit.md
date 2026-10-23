@@ -15,6 +15,7 @@ slots:
   style_description: 项目风格描述
   co_present_characters: 同框的不同角色，本体与衍生合并计一个；不足两个时为空
   products: 随请求发出参考图的商品名，按首现顺序去重；无商品参考图时为空
+  negative_prefix: 负向约束行的前缀，随视频模型方言（Avoid 或 Negative）
 protected: false
 ---
 {{ declarations }}
@@ -22,7 +23,7 @@ protected: false
 {{ body }}
 
 {{ partial("shared/media_style") }}
-{{ partial("reference_video/unit/avoid") }}
+{{ partial("reference_video/unit/avoid", prefix=negative_prefix) }}
 {% if products %}
 
 商品高保真还原（最高优先级，优先于前述文字/Logo 禁止项）：画面中的商品{{ partial("reference_video/unit/lists/products") }}必须与商品参考图完全一致——{{ partial("shared/product_fidelity") }}，不得重新设计或美化商品本身；前述文字/Logo 禁止项仅指画面中不得凭空新增文字或 Logo，商品参考图自带的文字与 Logo须原样保留；项目画风只作用于商品以外的画面元素。

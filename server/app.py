@@ -517,6 +517,11 @@ async def lifespan(app: FastAPI):
     worker = create_generation_worker()
     app.state.generation_worker = worker
     await worker.start()
+    # worker 构造时只走 from_env（环境变量 + 注册表默认），不读 DB；而用户在供应商页配的
+    # 并发（video_max_workers 等）只存在于 provider_config 表里。启动后必须补一次 from_db，
+    # 否则每次重启都会悄悄退回注册表默认值——界面显示 15、实际只跑 3，且要到用户重新保存
+    # 一次设置才恢复（保存接口才会触发 reload_limits）。
+    await worker.reload_limits()
     logger.info("GenerationWorker 已启动")
 
     logger.info("启动 ProjectEventService...")

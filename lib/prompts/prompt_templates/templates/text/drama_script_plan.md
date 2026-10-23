@@ -110,6 +110,7 @@ protected: false
   - 候选 scenes：[{{ scene_names | join(", ") or "（暂无）" }}]
   - 候选 props：[{{ prop_names | join(", ") or "（暂无）" }}]
   - 候选里没有的资产写原文称呼，并列进 `new_assets`（见下文）；泛指群演（如「老人甲」「村民若干」）不进 characters_in_scene。
+  - **必填约束**：每个分镜的 `scenes` 至少列出一个场景（纯环境空镜也要写它所在的场景）；画面里出现的人物必须全部写进 `characters_in_scene`，不得漏掉主体角色。漏场景会让该分镜在成片里失去空间锚点，漏角色会失去角色一致性。
 - **scene_description**：{{ variant("text/drama_script_plan/scene_rule", source_kind) }}
 
 ## 逐字内容（内容真相源，定稿后原样保留、不再改写）

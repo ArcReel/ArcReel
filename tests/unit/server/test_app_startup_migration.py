@@ -24,6 +24,9 @@ class _FakeWorker:
     async def start(self):
         pass
 
+    async def reload_limits(self):
+        pass
+
     async def stop(self):
         pass
 

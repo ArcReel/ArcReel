@@ -371,6 +371,11 @@ class PlanNewAsset(BaseModel):
     aliases: list[str] = Field(default_factory=list, description="register：原文中的其他称呼；其余留空")
     target: str = Field(default="", description="merge：归入的同类资产名；derivative：本体角色名；其余留空")
     asset_name: str = Field(default="", description="register：登记名；derivative：衍生名；留空即取 name")
+    voice_style: str = Field(
+        default="",
+        description="register 且 type=character：角色配音风格（音色、语速、情绪基调、口音），1-2 句连贯描述；"
+        "其余类型与 decision 留空。只决定配音与口播语气，不参与画面，由 prompt_render 自动注入最终 prompt 的声音特征行",
+    )
 
 
 class NarrationScriptPlanSegment(BaseModel):

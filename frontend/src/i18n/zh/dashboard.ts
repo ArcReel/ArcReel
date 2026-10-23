@@ -1195,6 +1195,7 @@ export default {
   'reference_editor_pending_authoring_hint': '待编写：该视频单元的提示词尚未编写，可让 Agent 补充提示词，或直接在下方填写',
   'default_duration_label': '默认时长',
   'default_duration_project_desc': '新分镜的默认视频时长，「自动」表示由 AI 根据内容决定',
+  'default_duration_invalid': '请填正整数秒，或留空由 AI 决定；取值须在视频模型支持的档位内',
   'duration_selection': '默认时长选择',
   'auto_label': '自动',
   'image_model': '图片模型',

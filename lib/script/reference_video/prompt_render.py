@@ -29,6 +29,7 @@ from lib.project.asset_types import BUCKET_KEY, asset_name_comparison_key, norma
 from lib.prompts.prompt_style import normalize_style_value
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
+from lib.script.reference_video.prompt_dialect import GENERIC, PromptDialect
 from lib.script.reference_video.script_preview import (
     WARN_UNREGISTERED_MENTION,
     derive_utterances,
@@ -90,6 +91,8 @@ def render_unit_prompt(
     project: dict,
     references: list[ReferenceResource],
     settings: VoiceRenderSettings,
+    *,
+    dialect: PromptDialect = GENERIC,
 ) -> RenderedUnitPrompt:
     """把一个 unit 的书写文稿渲染成三段论 backend prompt。
 
@@ -157,12 +160,14 @@ def render_unit_prompt(
             characters,
             settings,
             request_character_forms,
+            dialect,
         ),
-        body=_render_segment_two(text, subjects, characters, catalog),
+        body=_render_segment_two(text, subjects, characters, catalog, dialect),
         style=normalize_style_value(project.get("style")),
         style_description=normalize_style_value(project.get("style_description")),
         co_present_characters=co_present_characters if len(co_present_characters) >= 2 else [],
         products=list(dict.fromkeys(ref.name for ref in references if ref.type == "product" and ref.name)),
+        negative_prefix=dialect.negative_prefix,
     )
     return RenderedUnitPrompt(
         prompt=prompt,
@@ -178,6 +183,7 @@ def render_video_unit_prompt(
     settings: VoiceRenderSettings,
     *,
     request_references: list[ReferenceResource] | None = None,
+    dialect: PromptDialect = GENERIC,
 ) -> RenderedUnitPrompt:
     """Render the exact reference-video prompt from one current projected unit."""
 
@@ -188,7 +194,7 @@ def render_video_unit_prompt(
     references = request_references
     if references is None:
         references, _missing = derive_references_from_text(text, project)
-    return render_unit_prompt(text, project, references, settings)
+    return render_unit_prompt(text, project, references, settings, dialect=dialect)
 
 
 def _warning_unregistered(name: str) -> dict[str, Any]:
@@ -200,6 +206,7 @@ def _render_voice_declarations(
     audio_no: dict[str, int],
     characters: dict,
     settings: VoiceRenderSettings,
+    dialect: PromptDialect,
 ) -> list[str]:
     """声音声明行：``<X>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``。剧集与 ad 路径共用——两者的
     主体绑定行统一使用 mention 派生的 ``ReferenceResource``；声音声明只认「已登记的
@@ -218,7 +225,7 @@ def _render_voice_declarations(
     for name in speakers:
         parts: list[str] = []
         if name in audio_no:
-            parts.append(f"台词音色参考 @音频{audio_no[name]}，只取音色、语速与情绪，台词以正文为准")
+            parts.append(f"台词音色参考 {dialect.audio(audio_no[name])}，只取音色、语速与情绪，台词以正文为准")
         char_data = characters.get(name)
         voice_style = str((char_data.get("voice_style") if isinstance(char_data, dict) else None) or "").strip()
         if voice_style:
@@ -251,6 +258,7 @@ def _render_segment_one(
     characters: dict,
     settings: VoiceRenderSettings,
     character_forms: dict[str, list[str]],
+    dialect: PromptDialect,
 ) -> str:
     """主体绑定 + 声音声明。
 
@@ -268,11 +276,11 @@ def _render_segment_one(
     返回 ``reference_video/unit`` 模版的 ``declarations`` 槽位值。
     """
     lines: list[str] = []
-    bindings = "、".join(f"<{label}>@图片{i}" for i, label in enumerate(labels, start=1) if label)
+    bindings = "、".join(f"<{label}>{dialect.image(i)}" for i, label in enumerate(labels, start=1) if label)
     if bindings:
         lines.append(bindings + "。")
     lines.extend(_render_form_declarations(character_forms))
-    lines.extend(_render_voice_declarations(speakers, audio_no, characters, settings))
+    lines.extend(_render_voice_declarations(speakers, audio_no, characters, settings, dialect))
     return "\n".join(lines)
 
 
@@ -319,7 +327,13 @@ _MARK_SEPARATORS = _MARK_JOINERS + _MARK_TERMINATORS
 _MARK_SPACES = " \t\u3000"
 
 
-def _render_segment_two(text: str, subjects: Collection[str], characters: dict, catalog: ReferenceCatalog) -> str:
+def _render_segment_two(
+    text: str,
+    subjects: Collection[str],
+    characters: dict,
+    catalog: ReferenceCatalog,
+    dialect: PromptDialect,
+) -> str:
     """单元正文段：画面描述做 mention 替换，发声记号就地重组为官方句式。
 
     ``subjects`` 是已登记的 mention 名（未经能力上限裁剪）——主体记号 ``<X>`` 表达「画面里的
@@ -350,7 +364,7 @@ def _render_segment_two(text: str, subjects: Collection[str], characters: dict, 
             elif not part.speaker:
                 pieces.append(None)
             elif part.speaker in characters:
-                pieces.append(f"<{_speaker_subject(part, catalog)}>说 {{{part.text}}}")
+                pieces.append(dialect.say(_speaker_subject(part, catalog), part.text))
             else:
                 pieces.append(render_mentions_as_subjects(part.raw, subjects))
         lines.append(_join_line_pieces(pieces))

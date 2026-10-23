@@ -38,7 +38,7 @@ def _asset_prompt(asset_type: str, name: str, description: str, style: str = "",
 
 
 def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """角色资产图（三视图 16:9）。"""
+    """角色资产图（四面板 16:9：面部近摄 / 正面全身 / 正侧 / 背面）。"""
     return _asset_prompt("character", name, description, style, style_description)
 
 

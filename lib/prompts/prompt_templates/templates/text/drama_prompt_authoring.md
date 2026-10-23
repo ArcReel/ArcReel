@@ -68,6 +68,14 @@ protected: false
 - **video_prompt.action**：{{ partial("shared/action_writing_guide") }}
 - **video_prompt.ambiance_audio**：{{ partial("shared/ambiance_audio_writing_guide") }}
 
+## 表演层（微表情与肢体调度）
+
+{{ partial("shared/micro_expression_rule") }}
+
+## 打斗镜
+
+{{ partial("shared/fight_rule") }}
+
 # 创作目标
 
 输出可直接驱动 AI 图像 / 视频生成的、视觉一致、节奏紧凑的视觉层。忠于已定稿的分镜内容与戏剧张力。

@@ -1,0 +1,28 @@
+# 本地定制覆盖（Compose 默认自动合并，不改动入库的 docker-compose.yml）
+#
+# 用途：用当前工作区源码构建镜像，而不是拉取 Docker Hub 上的 arcreel/arcreel:latest。
+# 本机网络到 Docker Hub 不通（代理白名单未包含 registry-1.docker.io），故走本地构建。
+#
+# 前置：两个基础镜像需先拉到本地并打上官方 tag（否则 FROM 阶段会去连 Docker Hub）：
+#   docker pull docker.m.daocloud.io/library/node:24-slim
+#   docker tag  docker.m.daocloud.io/library/node:24-slim node:24-slim
+#   docker pull docker.m.daocloud.io/library/python:3.12-slim
+#   docker tag  docker.m.daocloud.io/library/python:3.12-slim python:3.12-slim
+#
+# 构建并启动：
+#   docker compose build --pull=false && docker compose up -d
+
+services:
+  arcreel:
+    # 用独立 tag，不覆盖官方 latest 标签
+    image: arcreel/arcreel:local
+    environment:
+      # 镜像里 `uv sync --no-dev` 装的是运行时依赖，但容器启动命令是 `uv run uvicorn`
+      # ——uv 默认会补装 dev 组（ruff / basedpyright / nodejs-wheel-binaries 等近百 MB），
+      # 每次启动都要走网络重下一遍，镜像源慢时（nodejs-wheel 57.9MB）能把启动拖到几分钟甚至卡死。
+      # 运行时不需要这些开发工具，直接关掉，启动只剩本地包安装。
+      UV_NO_DEV: "1"
+    build:
+      context: ../
+      # 本地构建文件（含国内 PyPI 镜像），路径相对 build context
+      dockerfile: deploy/Dockerfile.local

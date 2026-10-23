@@ -1186,6 +1186,7 @@ export default {
   'reference_editor_pending_authoring_hint': 'Chờ biên soạn: prompt của đơn vị video này chưa được biên soạn. Hãy nhờ Agent bổ sung hoặc tự điền bên dưới',
   'default_duration_label': 'Thời lượng mặc định',
   'default_duration_project_desc': 'Thời lượng video mặc định cho phân cảnh mới; "Tự động" để AI quyết định theo nội dung',
+  'default_duration_invalid': 'Nhập số giây nguyên dương, hoặc để trống để AI quyết định; giá trị phải nằm trong dải mà mô hình video hỗ trợ',
   'duration_selection': 'Chọn thời lượng',
   'auto_label': 'Tự động',
   'image_model': 'Mô hình ảnh',
