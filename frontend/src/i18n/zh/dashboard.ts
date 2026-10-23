@@ -1,6 +1,11 @@
 import type enDashboard from '../en/dashboard';
 
 export default {
+  "reel_rendered_shots": "已生成分镜",
+  "reel_stitched_cut": "观看剪辑版",
+  "reel_preview_shot": "预览分镜 {{number}}",
+  "reel_raw_hint": "点击分镜观看最新版本。这些是工作预览；审查、剪辑、配音和音乐仍在制作中。新分镜完成后会自动显示。",
+  "reel_raw_playing": "正在播放分镜 {{number}} · 单独片段，非最终成片",
   "reel_title": "你的短片",
   "reel_advanced": "高级编辑器",
   "reel_eyebrow": "观看 · 修改 · 对比",
@@ -18,6 +23,8 @@ export default {
   "reel_shot": "镜头 {{number}}",
   "reel_placeholder": "例如：保持蕾米的脸部一致，让生物的反应更快，并让音乐自然衔接到下一镜头。",
   "reel_preserve": "之前的剪辑会保留。导演将检查修改后的动作和相邻镜头，再提供待审版本。",
+  "reel_queue": "排队修改",
+  "reel_queue_hint": "修改请求将加入导演队列，当前渲染会继续运行。",
   "reel_sending": "正在发送…",
   "reel_revise": "生成修改版",
   "reel_stop": "停止导演",

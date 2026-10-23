@@ -1,12 +1,21 @@
 import { defineRegionScenarios } from "../support/scenarios.ts";
-import { FIXED_NOW } from "../support/recorded.ts";
-import { test, type ApiOverrides } from "../support/test.ts";
+import { FIXED_NOW, recorded } from "../support/recorded.ts";
+import { expect, test, type ApiOverrides } from "../support/test.ts";
 
 test.use({ locale: "en-US" });
 
 const timelineId = "tl-reel-test";
 const base = `/api/v1/projects/demo/edit-timelines/${timelineId}`;
+const project = recorded<{ project: { episodes: Record<string, unknown>[] } & Record<string, unknown> }>("project-demo.json");
 const api: ApiOverrides = {
+  "GET /api/v1/files/demo/videos/shot43.mp4": { status: 404, body: { detail: "Media bytes are verified in the live playback check." } },
+  "GET /api/v1/projects/demo": { status: 200, body: { ...project,
+    project: { ...project.project, episodes: [{ ...project.project.episodes[0], script_file: "scripts/episode_1.json" }] },
+    scripts: { "episode_1.json": { episode: 1, title: "Late Again", content_mode: "drama", novel: { title: "", chapter: "" },
+      scenes: Array.from({ length: 45 }, (_, index) => ({ scene_id: `E1S${index + 1}`, duration_seconds: 5, segment_break: false, characters_in_scene: [], image_prompt: null, video_prompt: null,
+        generated_assets: { video_clip: index % 3 === 0 ? `videos/shot${index + 1}.mp4` : null } })),
+    } },
+  } },
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: {} },
   "GET /api/v1/projects/demo/edit-timelines?episode=1": { status: 200, body: { timelines: [{ id: timelineId, name: "Three minute review cut", episode: 1, revision: 1, clip_count: 45, created_at: FIXED_NOW, updated_at: FIXED_NOW, updated_by: { kind: "creator", user_id: null }, update_summary: "" }] } },
   [`GET ${base}`]: { status: 200, body: {
@@ -17,6 +26,15 @@ const api: ApiOverrides = {
 };
 
 defineRegionScenarios("Simple reel workspace", [
+  { name: "rendered takes before an assembled export", path: "/app/projects/demo/reel/1", api,
+    ready: async (page) => { await page.getByRole("button", { name: "Preview shot 43", exact: true }).waitFor(); },
+    act: async (page) => {
+      await page.getByRole("button", { name: "Preview shot 43", exact: true }).click();
+      await expect(page.getByLabel("Episode screening")).toHaveAttribute("src", /videos\/shot43\.mp4$/);
+      await expect(page.getByText("Playing shot 43 · individual take, not the finished cut")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Watch stitched cut" })).toBeDisabled();
+    },
+  },
   { name: "watch and revise with 45 shots", path: "/app/projects/demo/reel/1", api,
     ready: async (page) => { await page.getByRole("button", { name: "Shot 45", exact: true }).waitFor(); },
     act: async (page) => { await page.getByRole("textbox", { name: "What should change?" }).fill("Keep the same dragon proportions and connect its movement into the next shot."); },

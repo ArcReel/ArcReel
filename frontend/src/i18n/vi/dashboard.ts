@@ -1,6 +1,11 @@
 import type enDashboard from "@/i18n/en/dashboard";
 
 export default {
+  "reel_rendered_shots": "Cảnh đã kết xuất",
+  "reel_stitched_cut": "Xem bản dựng",
+  "reel_preview_shot": "Xem thử cảnh {{number}}",
+  "reel_raw_hint": "Chọn một cảnh để xem bản mới nhất. Đây là bản xem thử; việc kiểm tra, cắt dựng, giọng nói và nhạc vẫn đang được hoàn thiện. Cảnh mới sẽ xuất hiện khi kết xuất xong.",
+  "reel_raw_playing": "Đang phát cảnh {{number}} · cảnh riêng lẻ, chưa phải bản dựng hoàn chỉnh",
   "reel_title": "Phim của bạn",
   "reel_advanced": "Trình biên tập nâng cao",
   "reel_eyebrow": "XEM · CHỈNH SỬA · SO SÁNH",
@@ -18,6 +23,8 @@ export default {
   "reel_shot": "Cảnh quay {{number}}",
   "reel_placeholder": "Ví dụ: Giữ khuôn mặt Remi nhất quán ở đây, cho sinh vật phản ứng nhanh hơn và nối nhạc liền mạch sang cảnh tiếp theo.",
   "reel_preserve": "Bản dựng trước được giữ lại. Đạo diễn kiểm tra chuyển động đã sửa và các cảnh liền kề trước khi gửi bản để xem lại.",
+  "reel_queue": "Xếp hàng thay đổi này",
+  "reel_queue_hint": "Yêu cầu thay đổi sẽ vào hàng đợi của đạo diễn. Quá trình kết xuất hiện tại vẫn tiếp tục.",
   "reel_sending": "Đang gửi…",
   "reel_revise": "Tạo bản dựng sửa đổi",
   "reel_stop": "Dừng đạo diễn",

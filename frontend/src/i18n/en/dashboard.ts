@@ -1,5 +1,10 @@
 
 export default {
+  "reel_rendered_shots": "Rendered shots",
+  "reel_stitched_cut": "Watch stitched cut",
+  "reel_preview_shot": "Preview shot {{number}}",
+  "reel_raw_hint": "Tap a shot to watch its latest take. These are working previews; review, trimming, voice and music are still being assembled. New shots appear as they finish.",
+  "reel_raw_playing": "Playing shot {{number}} · individual take, not the finished cut",
   "reel_title": "Your reel",
   "reel_advanced": "Advanced editor",
   "reel_eyebrow": "WATCH · REFINE · COMPARE",
@@ -17,6 +22,8 @@ export default {
   "reel_shot": "Shot {{number}}",
   "reel_placeholder": "For example: Keep Remi’s face consistent here, make the creature’s reaction quicker, and keep the music flowing into the next shot.",
   "reel_preserve": "Your earlier cut is kept. The director checks the revised motion and neighboring cuts before returning a review version.",
+  "reel_queue": "Queue this change",
+  "reel_queue_hint": "Your change joins the director’s queue. The current render keeps running.",
   "reel_sending": "Sending…",
   "reel_revise": "Make a revised cut",
   "reel_stop": "Stop director",
