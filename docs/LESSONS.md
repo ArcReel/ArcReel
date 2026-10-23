@@ -2,7 +2,7 @@
 
 记录值得改进环境的错，由定期巡检维护、计数与晋升；候选经 PR 上的 `lesson-candidate` 评论提交。条目格式、计数、阈值与退出规则见 [`docs/agents/lessons.md`](agents/lessons.md)。
 
-<!-- reviewed-through: d5e0229e141cbd1c6e4d16ecf2c7e86ae20d419c 2026-10-22 -->
+<!-- reviewed-through: 075e33b1037fbc84a64f241f788c7f4e70e4e54c 2026-10-23 -->
 
 ## 异步任务的结果与异常在每条路径上都有人接
 
@@ -76,6 +76,12 @@
 判定方式：需要判断
 - #1648 · 2026-08-05 · 批次复盘：hook 的函数型 option 存进 ref 豁免依赖；没拦住：没有对应规则
 - 降级 · 2026-10-19 · 自 docs/standards/frontend-async.md「Hook 的函数型 option 列入依赖，不存进 ref」
+
+### skill 脚本自带的回归测试接入闸门与 CI
+模式：`.agents/skills/*/scripts/test_*.sh` 这类脚本测试不属于 `scripts/gate.py` 或 CI 的任何域，改动被测脚本后只跑了直接相关的那一个测试，其余抽取同一函数的测试已经坏了，闸门和 CI 照样通过
+代价：skill 脚本的回归测试悄悄失效，到下一次修改时才发现（严重度：常规）
+判定方式：机械（拟用 `scripts/gate.py` 新增一个域，覆盖 `.agents/skills/**/scripts/test_*.sh`，并接入 CI）
+- #3393 · 2026-10-22 · 自查：02445565 给 `cr_walkthrough_rest` 新增 `cr_review_skipped_body` 依赖，`test_quota_alerts.sh` 抽取该函数时 jq 报未定义（退出码 3）；`gate.py --changed` 只命中 tests、conventions 两个域，CI 全绿，0efd7d2b 才补上；没拦住：检查没接上
 
 ## 已晋升
 
