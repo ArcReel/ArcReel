@@ -166,7 +166,7 @@ function isWorkspaceEditing(hasUnsavedChanges: () => boolean): boolean {
   return Boolean(document.querySelector("[data-workspace-editing='true']"));
 }
 
-export function useProjectEventsSSE(projectName?: string | null): void {
+export function useProjectEventsSSE(projectName?: string | null, followDirector = true): void {
   const { t } = useTranslation("dashboard");
   // 把 t 通过 ref 暴露给 callback，避免 i18n 切语言时 refreshProject
   // 重建 → 事件流 effect 跟着重连 → 通知/focus 提示丢失。
@@ -216,11 +216,11 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     const target = queuedFocusRef.current;
     if (!target) return;
     queuedFocusRef.current = null;
-    if (isWorkspaceEditing(hasUnsavedChanges)) {
+    if (!followDirector || isWorkspaceEditing(hasUnsavedChanges)) {
       return;
     }
     executeFocus(target);
-  }, [executeFocus, hasUnsavedChanges]);
+  }, [executeFocus, hasUnsavedChanges, followDirector]);
 
   const refreshProject = useCallback(async () => {
     if (!projectName) return;
@@ -368,6 +368,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
             if (
               change.entity_type === "draft" &&
               change.action === "created" &&
+              followDirector &&
               typeof change.episode === "number" &&
               !isWorkspaceEditing(hasUnsavedChanges)
             ) {
@@ -392,7 +393,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
                 })
                 .find(Boolean) ?? null;
 
-            queuedFocusRef.current = isWorkspaceEditing(hasUnsavedChanges) ? null : nextFocusTarget;
+            queuedFocusRef.current = !followDirector || isWorkspaceEditing(hasUnsavedChanges) ? null : nextFocusTarget;
           }
         }
 
@@ -503,6 +504,7 @@ export function useProjectEventsSSE(projectName?: string | null): void {
     };
   }, [
     clearWorkspaceNotifications,
+    followDirector,
     hasUnsavedChanges,
     invalidateEntities,
     projectName,

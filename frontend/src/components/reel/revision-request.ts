@@ -1,0 +1,8 @@
+export function revisionRequest(episode: number, timelineId: string | null, unitId: string | null, instruction: string): string {
+  return `Revise episode ${episode}${timelineId ? ` using edit timeline ${timelineId}` : ""}. Scope: ${unitId ? `shot ${unitId} and only the adjacent transitions needed to connect it` : "the complete episode"}.
+Creator's requested change:
+${instruction.trim()}
+
+Execute the revision through production, motion review, assembly and export. First inspect the current script, selected media versions, character references, voice/music master and adjoining shot spans. Preserve the existing exported cut and source versions; create a separately named timeline for this revision. Keep the same character identities, body proportions, creature anatomy and approved voice. Preserve continuous narration and music unless the creator requests an audio change. You may simplify your own staging and camera instructions to avoid known rendering failures while retaining the requested story and visible cause/consequence.
+Review motion throughout the revised takes and both joins in the actual assembled export. Check physical action, identity, scale, direction, audio continuity and complete speech. A generated file or a contact sheet alone is not a final-quality pass. Use bounded corrective attempts and keep a visible report of changes and remaining issues; do not silently accept failures or loop indefinitely. Publish the revised cut as a review version; explain any unmet request honestly. Follow .claude/references/connected-sequences.md. Do not change other episodes.`;
+}

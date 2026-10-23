@@ -410,7 +410,7 @@ async def fetch_storyboard_durations(
     fail-loud 的——不归 None 会把「已保存的越界默认时长」变成整个工具的硬失败。
     """
     facts = require_video_request_facts(await storyboard_request_facts(project, config_resolver))
-    durations = planning_durations(facts)
+    durations = planning_durations(facts, project.get("default_duration"))
     default = _project_default_duration(project)
     return (default if default in durations else None), durations
 
@@ -1079,8 +1079,12 @@ async def fetch_reference_split_caps(
     request_facts = reference_request_facts_lookup(project, config_resolver)
     with_ref_facts = require_video_request_facts(await request_facts("r2v"))
     without_ref_facts = await request_facts("i2v")
-    with_refs = planning_durations(with_ref_facts)
-    without_refs = planning_durations(without_ref_facts) if isinstance(without_ref_facts, VideoRequestFacts) else []
+    with_refs = planning_durations(with_ref_facts, project.get("default_duration"))
+    without_refs = (
+        planning_durations(without_ref_facts, project.get("default_duration"))
+        if isinstance(without_ref_facts, VideoRequestFacts)
+        else []
+    )
     unit_durations = sorted(set(with_refs) | set(without_refs))
     default = _project_default_duration(project)
     return ReferenceSplitCaps(
