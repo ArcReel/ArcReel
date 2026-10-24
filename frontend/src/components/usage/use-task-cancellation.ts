@@ -59,6 +59,13 @@ export function useTaskCancellation(
   const [failureDetailState, setFailureDetail] = useState<string | null>(null);
   const failed = request !== null && failedState;
   const failureDetail = request !== null ? failureDetailState : null;
+
+  // 切换作用域时清掉确认态：只靠上面的归属判断，切回原项目时旧确认会重新出现
+  const [prevScopeKey, setPrevScopeKey] = useState(scopeKey);
+  if (scopeKey !== prevScopeKey) {
+    setPrevScopeKey(scopeKey);
+    setOwned(null);
+  }
   const [cancellingTaskIds, setCancellingTaskIds] = useState<ReadonlySet<string>>(new Set());
   const previewAbort = useRef<AbortController | null>(null);
 

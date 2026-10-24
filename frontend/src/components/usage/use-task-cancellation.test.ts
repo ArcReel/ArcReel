@@ -20,6 +20,18 @@ describe("useTaskCancellation", () => {
     expect(result.current.request).toBeNull();
   });
 
+  it("does not bring the confirmation back when switching to another scope and back", async () => {
+    vi.spyOn(API, "cancelAllPreview").mockResolvedValue({ queued_count: 2 });
+    const { result, rerender } = renderHook(({ scope }) => useTaskCancellation(scope), {
+      initialProps: { scope: "a" },
+    });
+    await act(() => result.current.requestAll("a"));
+
+    rerender({ scope: "b" });
+    rerender({ scope: "a" });
+    expect(result.current.request).toBeNull();
+  });
+
   it("ignores a confirmation written for the previous scope even when its preview was not aborted", async () => {
     vi.spyOn(API, "cancelAllPreview").mockResolvedValue({ queued_count: 2 });
     const { result, rerender } = renderHook(({ scope }) => useTaskCancellation(scope), {
