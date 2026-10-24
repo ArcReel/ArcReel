@@ -91,8 +91,8 @@ function Field({
           <Tooltip>
             <TooltipTrigger
               render={
-                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 说明只靠悬停无法被键盘与读屏获知，标签须可聚焦；它没有可执行的动作，不渲染为 button
-                <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-4" />
+                // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex -- 提示的触发元素：说明只靠悬停无法被键盘获知，标签须可聚焦；说明是补充性的，它没有可执行的动作，不渲染为 button
+                <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-4" /> // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- 理由同上一行
               }
             >
               {label}

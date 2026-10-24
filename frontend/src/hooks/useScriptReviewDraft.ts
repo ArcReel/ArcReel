@@ -39,7 +39,7 @@ function isDirty(draft: unknown, serverContent: unknown): boolean {
 }
 
 function clone<TDraft>(content: TDraft | null): TDraft | null {
-  return content ? (JSON.parse(JSON.stringify(content)) as TDraft) : null;
+  return content ? structuredClone(content) : null;
 }
 
 interface ScriptReviewDraftOptions<TDraft extends ScriptReviewContent> {

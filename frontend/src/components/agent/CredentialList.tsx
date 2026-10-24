@@ -98,20 +98,30 @@ export function CredentialList({
                   <Pencil aria-hidden />
                 </Button>
                 {c.is_active ? (
-                  // 生效中的 Agent 供应商不能删除；禁用按钮收不到指针事件，提示挂在外层可聚焦的包裹上。
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 包裹禁用的删除按钮，须能用键盘聚焦以读到不能删除的原因
-                        <span tabIndex={0} className="inline-flex rounded-md outline-none focus-visible:ring-3 focus-visible:ring-ring/50" />
-                      }
-                    >
-                      <Button variant="ghost" size="icon-sm" disabled aria-label={t("cred_delete_label")}>
+                  // 生效中的 Agent 供应商不能删除。按钮用 focusableWhenDisabled 保留聚焦与悬停（只置 aria-disabled），
+                  // 键盘与读屏才拿得到原因；按钮自带的禁用淡化随之不生效，由外层淡化。
+                  <span className="inline-flex cursor-not-allowed opacity-50">
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            disabled
+                            focusableWhenDisabled
+                            aria-label={t("cred_delete_label")}
+                            aria-describedby={`cred-delete-blocked-${c.id}`}
+                          />
+                        }
+                      >
                         <Trash2 aria-hidden />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t("cred_delete_active_blocked")}</TooltipContent>
-                  </Tooltip>
+                      </TooltipTrigger>
+                      <TooltipContent>{t("cred_delete_active_blocked")}</TooltipContent>
+                    </Tooltip>
+                    <span id={`cred-delete-blocked-${c.id}`} className="sr-only">
+                      {t("cred_delete_active_blocked")}
+                    </span>
+                  </span>
                 ) : (
                   <Button
                     variant="ghost"

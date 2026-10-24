@@ -87,6 +87,7 @@ export function TodoProgress({ turns, draftTurn }: TodoProgressProps) {
           >
             <ul className="flex flex-col gap-1">
               {todos.map((todo, index) => (
+                // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- TodoWrite 的待办没有 id、内容可能重复，每次写入整份替换；TodoRow 无本地状态，序号加内容即足够
                 <TodoRow key={`${index}-${todo.content}`} todo={todo} />
               ))}
             </ul>

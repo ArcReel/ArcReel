@@ -58,14 +58,23 @@ export function useTaskCancellation(
   const [cancellingTaskIds, setCancellingTaskIds] = useState<ReadonlySet<string>>(new Set());
   const previewAbort = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    previewAbort.current?.abort();
-    previewAbort.current = null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换项目后旧项目的确认请求必须同步消失
+  // 切换项目后旧项目的确认请求在同一次渲染里消失，不留一帧旧确认态
+  const [prevScopeKey, setPrevScopeKey] = useState(scopeKey);
+  if (scopeKey !== prevScopeKey) {
+    setPrevScopeKey(scopeKey);
     setRequest(null);
     setFailed(false);
     setFailureDetail(null);
-  }, [scopeKey]);
+  }
+
+  // 作废旧作用域在途的预览请求，它的结果不再写回
+  useEffect(
+    () => () => {
+      previewAbort.current?.abort();
+      previewAbort.current = null;
+    },
+    [scopeKey],
+  );
 
   const beginPreview = useCallback(() => {
     previewAbort.current?.abort();
