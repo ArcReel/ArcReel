@@ -835,5 +835,6 @@ MESSAGES = {
     "trash_record_not_found": "This deletion record is not in the project trash. It may have been restored or cleared; refresh and try again",
     "creator_only_operation": "This action cannot be undone, so only the creator can perform it in the app. The Agent cannot call it",
     "trash_restore_unsupported": "This deletion record cannot be restored yet",
+    "trash_restore_failed": "This deletion record cannot be restored with its original structure",
     "trash_restore_target_blocked": "Cannot restore to {path}: a folder on the path has been replaced with a link",
 }

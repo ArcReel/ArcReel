@@ -774,5 +774,6 @@ MESSAGES = {
     "trash_record_not_found": "项目回收站里没有这条删除记录，可能已被恢复或清除，刷新后再试",
     "creator_only_operation": "这项操作不可恢复，只能由创作者在界面上执行，Agent 不能调用",
     "trash_restore_unsupported": "这条删除记录暂时无法恢复",
+    "trash_restore_failed": "这条删除记录无法按原结构恢复",
     "trash_restore_target_blocked": "无法恢复到 {path}：路径上的目录已被替换为链接",
 }

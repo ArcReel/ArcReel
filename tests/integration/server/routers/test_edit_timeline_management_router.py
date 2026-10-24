@@ -1,4 +1,4 @@
-"""剪辑时间线管理路由：复制、改名、修订历史、回滚与删除，在真实项目目录与任务队列上验证。"""
+"""剪辑时间线管理路由：复制、改名、修订历史、回滚、删除与从项目回收站恢复，在真实项目目录与任务队列上验证。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from lib.generation.generation_queue import GenerationQueue, get_generation_queu
 from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
 from server.routers import edit_timelines
+from server.routers import project_trash as trash_router
 from tests.auth_deps import override_auth
 from tests.factories import install_current_video, make_test_clip
 
@@ -26,11 +27,15 @@ AGENT = RevisionAuthor(kind="arcreel_agent")
 
 
 @pytest.fixture
-async def timeline_client(file_db_factory, timeline_project: ProjectManager) -> AsyncIterator[AsyncClient]:
+async def timeline_client(
+    file_db_factory, timeline_project: ProjectManager, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[AsyncClient]:
+    monkeypatch.setattr(trash_router, "get_project_manager", lambda: timeline_project)
     app = FastAPI()
     register_error_handlers(app)
     override_auth(app)
     app.include_router(edit_timelines.router, prefix="/api/v1")
+    app.include_router(trash_router.router, prefix="/api/v1")
     app.dependency_overrides[edit_timelines.get_edit_timeline_service] = lambda: EditTimelineService(timeline_project)
     app.dependency_overrides[edit_timelines.get_final_cut_service] = lambda: FinalCutService(timeline_project)
     app.dependency_overrides[get_generation_queue] = lambda: GenerationQueue(
@@ -190,4 +195,94 @@ async def test_delete_is_refused_while_a_render_is_queued(
 
     assert refused.status_code == 409
     assert submitted.json()["task_id"] in refused.json()["detail"]
+    assert (await timeline_client.get(_url(timeline_id))).status_code == 200
+
+
+async def _only_trash_record(timeline_client: AsyncClient) -> dict[str, Any]:
+    listed = await timeline_client.get("/api/v1/projects/demo/trash")
+    [record] = listed.json()["records"]
+    return record
+
+
+async def test_a_deleted_timeline_comes_back_from_the_trash_with_its_final_cut(
+    tmp_path: Path, timeline_client: AsyncClient, timeline_project: ProjectManager
+) -> None:
+    for unit_id in ("E1U1", "E1U2"):
+        _install(timeline_project, tmp_path, unit_id)
+    timeline_id = await _create(timeline_client)
+    final_cut = FinalCutService(timeline_project)
+    rendered = await final_cut.render("demo", timeline_id, narration="without_narration", subtitles="no_subtitles")
+    project_dir = timeline_project.get_project_path("demo")
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    key = final_cut_key(1, timeline_id, FinalCutVariant())
+    claim = adapter.get_entry(key)
+    project_json = (project_dir / "project.json").read_bytes()
+
+    assert (await timeline_client.delete(_url(timeline_id))).status_code == 204
+    record = await _only_trash_record(timeline_client)
+    assert (record["object"]["kind"], record["object"]["id"], record["has_snapshot"]) == (
+        "edit_timeline",
+        timeline_id,
+        True,
+    )
+    assert f"edit_timelines/episode_1/{timeline_id}.json" in record["files"]
+    assert rendered.artifact_path in record["files"]
+
+    restored = await timeline_client.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+
+    assert restored.status_code == 200, restored.text
+    listed = await timeline_client.get("/api/v1/projects/demo/edit-timelines", params={"episode": 1})
+    assert [(item["id"], item["name"]) for item in listed.json()["timelines"]] == [(timeline_id, "完整版")]
+    assert (await timeline_client.get(_url(timeline_id))).status_code == 200
+    assert (project_dir / rendered.artifact_path).is_file()
+    assert adapter.get_entry(key) == claim
+    # 临时项目迁移得出的项目级状态不带回
+    assert (project_dir / "project.json").read_bytes() == project_json
+    assert (await timeline_client.get("/api/v1/projects/demo/trash")).json()["records"] == []
+    rerendered = await final_cut.render("demo", timeline_id, narration="without_narration", subtitles="no_subtitles")
+    assert rerendered.artifact_path == rendered.artifact_path
+
+
+async def test_a_restored_timeline_takes_a_suffixed_name_when_its_name_is_taken(
+    timeline_client: AsyncClient,
+) -> None:
+    deleted_id = await _create(timeline_client)
+    assert (await timeline_client.delete(_url(deleted_id))).status_code == 204
+    recreated_id = await _create(timeline_client)
+    record = await _only_trash_record(timeline_client)
+
+    restored = await timeline_client.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+
+    assert restored.status_code == 200, restored.text
+    listed = await timeline_client.get("/api/v1/projects/demo/edit-timelines", params={"episode": 1})
+    names = {item["id"]: item["name"] for item in listed.json()["timelines"]}
+    assert names == {recreated_id: "完整版", deleted_id: "完整版 (1)"}
+
+
+async def test_a_failed_timeline_restore_leaves_the_project_and_the_record_as_they_were(
+    tmp_path: Path, timeline_client: AsyncClient, timeline_project: ProjectManager
+) -> None:
+    for unit_id in ("E1U1", "E1U2"):
+        _install(timeline_project, tmp_path, unit_id)
+    timeline_id = await _create(timeline_client)
+    await FinalCutService(timeline_project).render(
+        "demo", timeline_id, narration="without_narration", subtitles="no_subtitles"
+    )
+    project_dir = timeline_project.get_project_path("demo")
+    assert (await timeline_client.delete(_url(timeline_id))).status_code == 204
+    record = await _only_trash_record(timeline_client)
+    # 文档能落回，渲染文件的途经目录却被换成了符号链接
+    (tmp_path / "outside").mkdir()
+    (project_dir / "renders" / "episode_1").rmdir()
+    (project_dir / "renders" / "episode_1").symlink_to(tmp_path / "outside")
+    restore = f"/api/v1/projects/demo/trash/{record['id']}/restore"
+
+    blocked = await timeline_client.post(restore)
+
+    assert blocked.status_code == 409
+    assert not (project_dir / "edit_timelines" / "episode_1" / f"{timeline_id}.json").exists()
+    assert (await _only_trash_record(timeline_client))["id"] == record["id"]
+
+    (project_dir / "renders" / "episode_1").unlink()
+    assert (await timeline_client.post(restore)).status_code == 200
     assert (await timeline_client.get(_url(timeline_id))).status_code == 200

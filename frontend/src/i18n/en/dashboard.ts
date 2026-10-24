@@ -3757,7 +3757,7 @@ export default {
   'edit_view_rename_confirm': 'Rename',
   'edit_view_rename_failed': "Couldn't rename: {{message}}",
   'edit_view_delete_title': 'Delete edit timeline "{{name}}"?',
-  'edit_view_delete_description': 'This deletes every revision of the edit timeline, along with its rendered final cut and exported Jianying drafts, and cannot be undone. The script and the videos of each unit are not affected.',
+  'edit_view_delete_description': 'Every revision of the edit timeline, along with its rendered final cut and exported Jianying drafts, moves to the project trash and is kept for 30 days. You can restore it from the project trash in the Files view during that time. The script and the videos of each unit are not affected.',
   'edit_view_delete_confirm': 'Delete',
   'edit_view_delete_failed': "Couldn't delete: {{message}}",
   'edit_transition_dissolve': 'Dissolve',

@@ -3757,7 +3757,7 @@ export default {
   'edit_view_rename_confirm': 'Đổi tên',
   'edit_view_rename_failed': 'Đổi tên không thành công: {{message}}',
   'edit_view_delete_title': "Xóa dòng thời gian dựng '{{name}}'?",
-  'edit_view_delete_description': 'Thao tác này xóa mọi phiên bản sửa của dòng thời gian dựng, cùng bản dựng hoàn chỉnh đã kết xuất và các bản nháp Jianying đã xuất, và không thể hoàn tác. Kịch bản và video của từng đơn vị không bị ảnh hưởng.',
+  'edit_view_delete_description': 'Mọi phiên bản sửa của dòng thời gian dựng, cùng bản dựng hoàn chỉnh đã kết xuất và các bản nháp Jianying đã xuất, sẽ được chuyển vào thùng rác dự án và giữ trong 30 ngày. Trong thời gian đó, bạn có thể khôi phục từ thùng rác dự án trong chế độ xem Tệp. Kịch bản và video của từng đơn vị không bị ảnh hưởng.',
   'edit_view_delete_confirm': 'Xóa',
   'edit_view_delete_failed': 'Xóa không thành công: {{message}}',
   'edit_transition_dissolve': 'Hòa tan',

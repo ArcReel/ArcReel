@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -13,7 +12,6 @@ from itertools import pairwise
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
 
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.artifacts.rendered_artifact import timeline_renders_dir
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.model import (
     EditClip,
@@ -421,23 +419,20 @@ class EditTimelineService:
         return await self._write_result(project_name, script, sources, unit_ids, written, message)
 
     def _delete_sync(self, project_name: str, timeline_id: str) -> None:
-        # 产物登记依赖剪辑时间线的模型（经 jianying_draft.basis），模块顶层导入会成环。
-        from lib.artifacts.artifact_registration import forget_timeline_render_artifacts
+        # 回收站接入依赖产物登记，后者依赖剪辑时间线的模型（经 jianying_draft.basis），模块顶层导入会成环。
+        from lib.edit_timeline.trash import delete_edit_timeline
 
         store = self._store(project_name)
         episode = store.find(timeline_id).episode
         project_dir = self._projects.get_project_path(project_name)
         with store.locked_episode(episode):
             document = store.find(timeline_id)
-            store.delete(document)
-            # 时间线 ID 不复用，成片与剪映草稿的身份挂在它上面：时间线没了，登记与文件都没有归属。
             with project_metadata_lock(project_dir):
-                forget_timeline_render_artifacts(project_dir, timeline_id)
-                # hard-delete: pending-trash -- #3382 删除剪辑时间线时连带删除它的渲染与剪映草稿
-                shutil.rmtree(project_dir / timeline_renders_dir(episode, timeline_id), ignore_errors=True)
+                delete_edit_timeline(project_dir, document)
+        store.changed(episode)
 
     async def delete(self, project_name: str, timeline_id: str) -> None:
-        """删除一条剪辑时间线及其成片与剪映草稿（登记与 ``renders/`` 下的文件）。
+        """把一条剪辑时间线及其成片与剪映草稿（``renders/`` 下的文件）移进项目回收站，并撤掉渲染产物的登记。
 
         调用方负责确认没有以它为对象的渲染任务仍在排队或执行。
         """

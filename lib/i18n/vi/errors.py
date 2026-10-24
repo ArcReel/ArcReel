@@ -837,5 +837,6 @@ MESSAGES = {
     "trash_record_not_found": "Thùng rác dự án không có bản ghi xóa này. Có thể nó đã được khôi phục hoặc dọn đi; hãy làm mới rồi thử lại",
     "creator_only_operation": "Thao tác này không thể hoàn tác nên chỉ người sáng tạo mới thực hiện được trong giao diện. Agent không thể gọi thao tác này",
     "trash_restore_unsupported": "Hiện chưa thể khôi phục bản ghi xóa này",
+    "trash_restore_failed": "Không thể khôi phục bản ghi xóa này theo cấu trúc ban đầu",
     "trash_restore_target_blocked": "Không thể khôi phục về {path}: một thư mục trên đường dẫn đã bị thay bằng liên kết",
 }
