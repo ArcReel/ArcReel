@@ -22,7 +22,8 @@
     "e2e": "playwright test",
     "e2e:server": "node e2e/run-server.ts",
     "e2e:remote": "PW_TEST_CONNECT_WS_ENDPOINT=ws://127.0.0.1:${E2E_SERVER_PORT:-3000}/ PW_TEST_CONNECT_EXPOSE_NETWORK='<loopback>' playwright test",
-    "e2e:record": "node e2e/record-fixtures.ts"
+    "e2e:record": "node e2e/record-fixtures.ts",
+    "doctor": "react-doctor"
   },
   "dependencies": {
     "@base-ui/react": "^1.8.0",
@@ -77,6 +78,7 @@
     "globals": "^17.11.0",
     "jsdom": "^30.0.1",
     "knip": "^6.33.0",
+    "react-doctor": "^0.9.18",
     "shadcn": "^4.21.1",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.3",

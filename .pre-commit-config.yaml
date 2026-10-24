@@ -43,3 +43,13 @@ repos:
       - id: zizmor
         args: [--no-progress, --offline, --min-severity, medium]
         exclude: ^\.agents/  # vendored skill 自带的上游 CI 不在本仓库运行
+  - repo: local
+    hooks:
+      - id: react-doctor
+        name: react-doctor
+        # 须在 frontend/ 内运行：从仓库根运行时识别不到 React，库相关规则被关闭
+        # --staged 会报整个文件的存量问题，存量 warning 未清理前只拦 error
+        entry: sh -c 'cd frontend && node_modules/.bin/react-doctor --staged --blocking error'
+        language: system
+        pass_filenames: false
+        files: ^frontend/.*\.[jt]sx?$
