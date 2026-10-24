@@ -16,7 +16,11 @@ Record:
 - Sound across the sequence: approved continuous voice/music sources, where ambience continues, and any event that needs a synchronized effect. Regenerating visuals does not regenerate an approved voice or restart the music.
 - Actual renderer inputs from capability inspection. A shared prompt or previous storyboard is not a carried video endpoint. Use endpoint/keyframe conditioning only when the configured route supports it. With first-image-only rendering, choose coverage that tolerates the limitation, inspect the actual outgoing action state, and prepare the next start accordingly; do not claim a precise match from unrelated start frames.
 
+Inspect the actual provider request preview, not only the script notes. Planning descriptions and reference-sheet text are not necessarily sent to the video model. Put the essential actor, action cause, motion cadence, and camera relationship in the executable video prompt itself. A bag opening from inside must not become its wearer opening it; distinguish those performances before rendering and check the observed actor afterward. For ordinary walking, direct a continuous real-time stride with grounded footfalls. Compare runtime frame rate and source timestamps before blaming slow-looking motion on playback speed. Keep an approved continuous soundtrack on the edit timeline; raw per-shot audio is not a substitute.
+
 Before rendering, inspect the planned start images together in narrative order. Correct conflicting scale, layout, or action state before spending on motion. This is a visual planning check, not proof that the later video will stay stable.
+
+For walking or driving, trace the intended path on the visible ground plane. Screen-left-to-right is a projection, not a route: on a receding sidewalk it can direct a pedestrian across the curb into traffic. Check that the subject's forward direction follows the intended support surface and that approaching vehicles do not intersect that path unless the story calls for it. If the frame contradicts the motion direction, change the starting composition and motion instructions together before rendering. Keep incidental traffic out of the action when it adds no story value; do not substitute a frozen moving vehicle.
 
 ## Prove a connected passage
 
@@ -25,6 +29,8 @@ When repairing an unreliable sequence workflow, first complete a short setup/act
 Use the existing generation previews, durable batches, version selection, and correction ledger. This workflow does not reset retry budgets, authorize a new provider, or bypass tool admission. If no correction budget remains, an explicitly authorized single experiment is not a new automatic retry loop.
 
 After each take, compare its actual beginning, middle, and end against its reference and neighboring take. A creature becoming taller, longer-limbed, or human-shaped is an identity defect. A character becoming shorter or broader is also an identity defect. Do not excuse these as perspective, standing up, or performance unless visible ground-plane, camera, and anatomy evidence supports that explanation. If the view cannot establish this, report it as unverified.
+
+For travel, also inspect the actual trajectory across the whole retained span: foot or wheel contact, intended path, curb crossings, and vehicle heading versus displacement. A safe starting frame does not establish a safe path. Reject unintended roadway entry or a collision setup; cropping away the ground, an approaching vehicle, or the defective endpoint is not evidence that the motion was corrected. Save the failed version and observed times, and promote the correction as a reusable lesson only after inspecting its replacement and adjacent join.
 
 ## Review the joins, then the assembly
 
