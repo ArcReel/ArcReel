@@ -14,6 +14,7 @@ import { useTaskRefresh } from "@/hooks/useTaskRefresh";
 import { useProjectEventsSSE } from "@/hooks/useProjectEventsSSE";
 import { useAssistantStore } from "@/stores/assistant-store";
 import { useProjectsStore } from "@/stores/projects-store";
+import { isOccupyingStatus, useTasksStore } from "@/stores/tasks-store";
 import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
 import type { FinalCutStatus } from "@/types/edit-render";
 import { errMsg, voidCall } from "@/utils/async";
@@ -46,6 +47,10 @@ export function ReelWorkspace({ projectName, episode }: { projectName: string; e
   const busy = state.sending || Boolean(state.pendingQuestion);
   const meta = project?.episodes?.find((entry) => entry.episode === episode);
   const script = meta?.script_file ? scripts[meta.script_file.replace(/^scripts\//, "")] : null;
+  const rendering = useTasksStore((s) => s.tasks.some((task) =>
+    task.project_name === projectName && isOccupyingStatus(task.status) &&
+    task.script_file?.replace(/^scripts\//, "") === meta?.script_file?.replace(/^scripts\//, "")
+  ));
   const narration = project?.narration_delivery === "use_tts" ? "with_narration" : "without_narration";
 
   useEffect(() => {
@@ -79,6 +84,10 @@ export function ReelWorkspace({ projectName, episode }: { projectName: string; e
   }, [projectName, selectedTimeline, narration]);
 
   const current = media?.timeline.timeline.id === selectedTimeline ? media : null;
+  const stopped = ["completed", "error", "interrupted"].includes(state.sessionStatus ?? "");
+  const progressLabel = running ? t("reel_working") : rendering ? t("work_status_running")
+    : current?.cut.download_url ? t("reel_review_cut")
+    : stopped ? t("usage_attention_title") : t("todo_status_pending");
   const selectedClip = current?.timeline.clips.find((clip) => clip.unit_id === unitId);
   const contentMode = script?.content_mode ?? "drama";
   const renderedShots = getScriptItems(script, contentMode).flatMap((item, index) => {
@@ -113,7 +122,7 @@ export function ReelWorkspace({ projectName, episode }: { projectName: string; e
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2"><p className="text-sm text-muted-foreground">{t("reel_eyebrow")}</p><h2 className="text-2xl font-semibold">{meta?.title ?? t("reel_title")}</h2><p className="text-sm text-muted-foreground">{t("reel_intro")}</p></div>
           <div className="space-y-2">
-            <span role="status" className="flex items-center gap-2 text-sm">{running && <Loader2 aria-hidden className="size-4 animate-spin" />}{running ? t("reel_working") : current?.cut.download_url ? t("reel_review_cut") : t("reel_preparing")}</span>
+            <span role="status" className="flex items-center gap-2 text-sm">{(running || rendering) && <Loader2 aria-hidden className="size-4 animate-spin" />}{progressLabel}</span>
             {meta?.videos && meta.videos.total > 0 && <p className="text-sm text-muted-foreground">{t("episode_available_videos_hint", { count: meta.videos.available, total: meta.videos.total })}</p>}
           </div>
         </div>

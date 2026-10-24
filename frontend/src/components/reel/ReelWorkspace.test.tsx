@@ -4,7 +4,9 @@ import { API } from "@/api";
 import i18n from "@/i18n";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useAssistantStore } from "@/stores/assistant-store";
+import { useTasksStore } from "@/stores/tasks-store";
 import { stubMediaElementPlayback } from "@/test/media-element";
+import { makeTask } from "@/test/factories";
 import type { DramaEpisodeScript } from "@/types";
 import type { EditClip, EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
 import { ReelWorkspace } from "./ReelWorkspace";
@@ -30,11 +32,34 @@ describe("ReelWorkspace", () => {
     stubMediaElementPlayback();
     sendMessage.mockReset().mockResolvedValue(true);
     interrupt.mockReset();
+    useTasksStore.setState({ tasks: [] });
     useAssistantStore.setState({ entries: [], sending: false, sessionStatus: "idle", pendingQuestion: null, error: null });
     useProjectsStore.setState({ assetFingerprints: {}, currentScripts: {}, currentProjectData: { title: "Late Again", style: "3D", content_mode: "drama", characters: {}, episodes: [{ episode: 1, title: "Late Again", script_file: "" }] } });
     vi.spyOn(API, "listEditTimelines").mockResolvedValue({ timelines: [summary("old", "Earlier cut", "2026-10-01"), summary("new", "Revised cut", "2026-10-02")] });
     vi.spyOn(API, "getEditTimeline").mockImplementation(async (_project, id) => timeline(id));
     vi.spyOn(API, "getFinalCutStatus").mockImplementation(async (_project, id) => ({ episode: 1, timeline_id: id, status: "current", artifact_path: `${id}.mp4`, version: 1, rendered_at: null, narration: "without_narration", subtitles: "no_subtitles", download_url: `/media/${id}.mp4` }));
+  });
+
+  it.each(["completed", "error", "interrupted"] as const)("does not imply production is working after a %s director turn without an export", async (sessionStatus) => {
+    useAssistantStore.setState({ sessionStatus });
+    vi.mocked(API.listEditTimelines).mockResolvedValue({ timelines: [] });
+    render(<ReelWorkspace projectName="film" episode={1} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("Needs attention");
+    expect(screen.queryByText("Preparing the reel")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Episode screening")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["film", "episode_1.json", "Running"],
+    ["another-film", "episode_1.json", "Needs attention"],
+    ["film", "episode_2.json", "Needs attention"],
+  ])("shows active production only for this episode (%s, %s)", async (projectName, scriptFile, label) => {
+    setRenderedShots([]);
+    useAssistantStore.setState({ sessionStatus: "completed" });
+    useTasksStore.setState({ tasks: [makeTask({ project_name: projectName, script_file: scriptFile, status: "running", task_type: "video" })] });
+    vi.mocked(API.listEditTimelines).mockResolvedValue({ timelines: [] });
+    render(<ReelWorkspace projectName="film" episode={1} />);
+    expect(await screen.findByRole("status")).toHaveTextContent(label);
   });
 
   function setRenderedShots(ids: number[]) {
