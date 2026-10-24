@@ -70,6 +70,7 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
       if (signal.aborted || inflight.current !== controller) return;
       setError(errMsg(e));
     } finally {
+      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中复位；只有仍持有 inflight 的请求才复位，被接管的请求交给接管方收尾
       if (!signal.aborted && inflight.current === controller) setLoading(false);
     }
   }, [load]);
@@ -149,6 +150,7 @@ export function PromptPreviewButton<T extends RenderedPromptPreview>({
                   className="flex flex-col gap-1 rounded-md border border-warn/30 bg-warn/10 px-3 py-2 text-xs text-warn"
                 >
                   {result.warnings.map((warning, index) => (
+                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 一次预览结果里的只读提示文本，可能重复且无标识；条目不带状态，整份随预览结果替换
                     <li key={`prompt-preview-warning-${index}`}>{warning}</li>
                   ))}
                 </ul>

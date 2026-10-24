@@ -47,25 +47,51 @@ export interface TaskCancellation {
  * 改写，弹一个「取消失败」反而让用户以为自己漏点了。确认时任务恰好已开始执行，服务端
  * 以 409 拒绝，确认态展示服务端给出的原因。
  */
+/** 一次确认会话的状态。gen 在切换作用域或关闭确认时递增，旧会话的异步结果按 gen 丢弃。 */
+interface ConfirmSession {
+  gen: number;
+  request: CancelRequest | null;
+  cancelling: boolean;
+  failed: boolean;
+  failureDetail: string | null;
+}
+
+const idleSession = (gen: number): ConfirmSession => ({
+  gen,
+  request: null,
+  cancelling: false,
+  failed: false,
+  failureDetail: null,
+});
+
 export function useTaskCancellation(
   scopeKey: string | null,
   onCancelled?: () => void | Promise<void>,
 ): TaskCancellation {
-  const [request, setRequest] = useState<CancelRequest | null>(null);
-  const [cancelling, setCancelling] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [failureDetail, setFailureDetail] = useState<string | null>(null);
+  const [session, setSession] = useState(() => idleSession(0));
+  // 切换作用域即开启新会话：旧项目的确认态在同一次渲染里消失，旧会话在途请求的结果不再写回
+  const [prevScopeKey, setPrevScopeKey] = useState(scopeKey);
+  if (scopeKey !== prevScopeKey) {
+    setPrevScopeKey(scopeKey);
+    setSession((current) => idleSession(current.gen + 1));
+  }
+  const { gen, request, cancelling, failed, failureDetail } = session;
   const [cancellingTaskIds, setCancellingTaskIds] = useState<ReadonlySet<string>>(new Set());
   const previewAbort = useRef<AbortController | null>(null);
 
-  useEffect(() => {
-    previewAbort.current?.abort();
-    previewAbort.current = null;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换项目后旧项目的确认请求必须同步消失
-    setRequest(null);
-    setFailed(false);
-    setFailureDetail(null);
-  }, [scopeKey]);
+  // 只在发起时的会话仍是当前会话时写入
+  const updateSession = useCallback((forGen: number, patch: Partial<Omit<ConfirmSession, "gen">>) => {
+    setSession((current) => (current.gen === forGen ? { ...current, ...patch } : current));
+  }, []);
+
+  // 作废旧作用域在途的预览请求
+  useEffect(
+    () => () => {
+      previewAbort.current?.abort();
+      previewAbort.current = null;
+    },
+    [scopeKey],
+  );
 
   const beginPreview = useCallback(() => {
     previewAbort.current?.abort();
@@ -80,13 +106,16 @@ export function useTaskCancellation(
       try {
         const preview = await API.cancelPreview(taskId, { signal: controller.signal });
         if (controller.signal.aborted) return;
-        setFailed(false);
-        setRequest({ kind: "single", taskId, cascaded: preview.cascaded });
+        updateSession(gen, {
+          request: { kind: "single", taskId, cascaded: preview.cascaded },
+          failed: false,
+          failureDetail: null,
+        });
       } catch {
         // 任务已不在可取消状态，或预览被更新的操作接管
       }
     },
-    [beginPreview],
+    [beginPreview, gen, updateSession],
   );
 
   const requestAll = useCallback(
@@ -97,20 +126,21 @@ export function useTaskCancellation(
           signal: controller.signal,
         });
         if (controller.signal.aborted || queued_count === 0) return;
-        setFailed(false);
-        setRequest({ kind: "all", projectName, queuedCount: queued_count });
+        updateSession(gen, {
+          request: { kind: "all", projectName, queuedCount: queued_count },
+          failed: false,
+          failureDetail: null,
+        });
       } catch {
         // 没有排队中的任务，或预览被更新的操作接管
       }
     },
-    [beginPreview],
+    [beginPreview, gen, updateSession],
   );
 
   const confirm = useCallback(async () => {
     if (!request) return;
-    setCancelling(true);
-    setFailed(false);
-    setFailureDetail(null);
+    updateSession(gen, { cancelling: true, failed: false, failureDetail: null });
     if (request.kind === "single") {
       const taskId = request.taskId;
       setCancellingTaskIds((prev) => new Set(prev).add(taskId));
@@ -121,12 +151,14 @@ export function useTaskCancellation(
         else await API.cancelAllQueued(request.projectName);
       } catch (error) {
         // 取消没有落到服务端：确认态留在原地并标记失败，用户看得到原因、也能重试。
-        setFailed(true);
-        if (error instanceof ApiRequestError && error.status === 409) setFailureDetail(error.message);
+        updateSession(gen, {
+          failed: true,
+          failureDetail: error instanceof ApiRequestError && error.status === 409 ? error.message : null,
+        });
         return;
       }
       // 取消已落地，确认态先收起；随后的重取失败是刷新问题，不再算取消失败。
-      setRequest(null);
+      updateSession(gen, { request: null });
       await onCancelled?.();
     } finally {
       if (request.kind === "single") {
@@ -137,14 +169,13 @@ export function useTaskCancellation(
           return next;
         });
       }
-      setCancelling(false);
+      updateSession(gen, { cancelling: false });
     }
-  }, [request, onCancelled]);
+  }, [request, gen, updateSession, onCancelled]);
 
+  // 确认在途时两个按钮都禁用，关闭只发生在没有在途确认时
   const dismiss = useCallback(() => {
-    setRequest(null);
-    setFailed(false);
-    setFailureDetail(null);
+    setSession((current) => idleSession(current.gen + 1));
   }, []);
 
   return {

@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { PromptTemplateMeta, PromptTemplateTrigger } from "@/types";
 import { errMsg } from "@/utils/async";
-import { categoryLabel, EmptyCard, ErrorCard, LoadingCard, type Load } from "./promptTemplateShared";
+import { categoryLabel } from "./promptTemplateCategory";
+import { EmptyCard, ErrorCard, LoadingCard, type Load } from "./promptTemplateShared";
 
 /** 按流水线顺序排列；接口返回的其他类别按首次出现顺序排在最后。 */
 const CATEGORY_ORDER = ["text", "asset", "storyboard", "video", "style"];

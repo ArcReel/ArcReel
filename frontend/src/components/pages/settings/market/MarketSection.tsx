@@ -189,7 +189,7 @@ export function MarketSection() {
   };
 
   const refreshAll = useCallback(async () => {
-    const targets = sources.filter((source) => source.is_enabled).map((source) => source.id);
+    const targets = new Set(sources.filter((source) => source.is_enabled).map((source) => source.id));
     setRefreshingAll(true);
     setRefreshingIds((current) => new Set([...current, ...targets]));
     try {
@@ -200,7 +200,7 @@ export function MarketSection() {
     } finally {
       if (mounted.current) {
         setRefreshingAll(false);
-        setRefreshingIds((current) => new Set([...current].filter((id) => !targets.includes(id))));
+        setRefreshingIds((current) => new Set([...current].filter((id) => !targets.has(id))));
       }
     }
   }, [pushToast, sources, t]);

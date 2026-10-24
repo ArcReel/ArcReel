@@ -105,6 +105,8 @@ MESSAGES = {
     "task_fail_comfyui_execution_error": "ComfyUI failed during execution: {detail} (failing node: {node})",
     "task_fail_comfyui_interrupted": "The run on ComfyUI was interrupted; please retry",
     "task_fail_comfyui_output_missing": "ComfyUI finished but output node {nodes} produced no file; check its node bindings and the workflow's output chain",
+    "task_fail_image_output_missing": "Model {model} returned no image, possibly because of content safety filtering; adjust the prompt or reference images and try again",
+    "task_fail_image_output_format_unsupported": "Model {model} returned an image in {media_type} format that cannot be converted to PNG; switch to a model that outputs raster images",
     "task_fail_comfyui_output_type_mismatch": "ComfyUI produced {filename}, which is not a file type this endpoint should output (expected {expected}); point the output node bindings at the node that exports the final artifact, or switch that save node to a supported format (for SaveVideo, pick h264-mp4)",
     "task_fail_comfyui_output_container_mismatch": "The contents of {filename} produced by ComfyUI are not a container this endpoint should output (expected {expected}); switch the save node to a supported format (for SaveVideo, pick h264-mp4)",
     "task_fail_artifact_download_failed": "Video generation succeeded but artifact download failed; retry the download: {detail}",
@@ -649,6 +651,7 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} does not support text-to-image; configure a default model that supports text-to-image",
     "image_dashscope_4k_t2i_only": "Model {model}: 4K output is only supported by wan2.7-image-pro for text-to-image; use 2K or lower",
     "image_reference_images_unreadable": "Model {model} has reference images that are missing or unreadable; generation aborted: {names}; check the reference image paths",
+    "image_reference_images_exceeded": "Model {model} supports at most {limit} reference images but this request carried {count}; nothing was submitted; generate again",
     # Image Edit
     "image_edit_resource_type_invalid": "Resource type '{resource_type}' does not support image editing",
     "image_edit_instruction_required": "Edit instruction must not be empty",

@@ -31,25 +31,29 @@ export function LaneBar({
   continues: boolean;
 }) {
   const length = Math.max(end - start, 1);
-  return pieces.map((piece, index) => {
-    const top = ((piece.from - start) / length) * 100;
-    const bottom = 100 - ((piece.to - start) / length) * 100;
-    const extend = continues && index === pieces.length - 1;
-    return (
-      <span
-        key={piece.from}
-        aria-hidden
-        data-replan-lane={piece.lane.kind}
-        className={cn("pointer-events-none absolute -right-5 top-(--lane-top) bottom-(--lane-bottom)", laneClass(piece.lane))}
-        style={
-          {
-            "--lane-top": `${top}%`,
-            "--lane-bottom": extend ? `calc(${bottom}% - 0.75rem)` : `${bottom}%`,
-          } as CSSProperties
-        }
-      />
-    );
-  });
+  return (
+    <>
+      {pieces.map((piece, index) => {
+        const top = ((piece.from - start) / length) * 100;
+        const bottom = 100 - ((piece.to - start) / length) * 100;
+        const extend = continues && index === pieces.length - 1;
+        return (
+          <span
+            key={piece.from}
+            aria-hidden
+            data-replan-lane={piece.lane.kind}
+            className={cn("pointer-events-none absolute -right-5 top-(--lane-top) bottom-(--lane-bottom)", laneClass(piece.lane))}
+            style={
+              {
+                "--lane-top": `${top}%`,
+                "--lane-bottom": extend ? `calc(${bottom}% - 0.75rem)` : `${bottom}%`,
+              } as CSSProperties
+            }
+          />
+        );
+      })}
+    </>
+  );
 }
 
 /** 落在两行之间的不同分界：横跨正文与右侧色条的琥珀色虚线，画在下一行上方的段落间距正中。 */

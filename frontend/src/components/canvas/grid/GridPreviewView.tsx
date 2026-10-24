@@ -202,7 +202,7 @@ export function GridPreviewView({
           const groupKey = [...sceneIds].sort().join(",");
           return (
             <GridGroupCard
-              key={groupKey || idx}
+              key={groupKey}
               projectName={projectName}
               index={idx + 1}
               cellCount={group.length}

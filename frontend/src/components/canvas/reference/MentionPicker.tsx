@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { assetColor } from "./asset-colors";
 import { Popover, PopoverContent } from "@/components/ui/popover";
@@ -141,40 +141,34 @@ export function MentionPicker({
   // render that produced a new activeIndex).
   const clampedActive = Math.min(activeIndex, Math.max(0, flat.length - 1));
 
-  const flatRef = useRef(flat);
-  const clampedRef = useRef(clampedActive);
   // 真实鼠标坐标。浏览器可能在列表滚动（键盘方向键选中触发）导致元素移到静止光标下时
   // 补发 mousemove/mouseenter；仅当 (x, y) 相对上一次记录变化才视作用户主动移动。
   const lastPointerXY = useRef<{ x: number; y: number }>({ x: -1, y: -1 });
 
-  useLayoutEffect(() => {
-    flatRef.current = flat;
-    clampedRef.current = clampedActive;
+  // 键盘监听只随 open 订阅；列表、高亮项与 onSelect 在按键时读最新值，不触发重新订阅。
+  const handleKey = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIndex(Math.min(flat.length - 1, clampedActive + 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex(Math.max(0, clampedActive - 1));
+    } else if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
+      // Tab 补全（仅正向）：与 Enter 同义，阻止默认 tab-out。Shift+Tab 保留原生反向
+      // 焦点切换行为，避免 a11y 回退（picker 打开时仍能按 Shift+Tab 离开输入框）。
+      e.preventDefault();
+      const item = flat[clampedActive];
+      if (item) onSelect({ type: item.type, name: item.name });
+    }
   });
 
   // 仅处理导航/补全键；Esc 与外部点击由 Popover 的 onOpenChange 统一接管。
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      const current = flatRef.current;
-      const active = clampedRef.current;
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setActiveIndex(Math.min(current.length - 1, active + 1));
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setActiveIndex(Math.max(0, active - 1));
-      } else if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey)) {
-        // Tab 补全（仅正向）：与 Enter 同义，阻止默认 tab-out。Shift+Tab 保留原生反向
-        // 焦点切换行为，避免 a11y 回退（picker 打开时仍能按 Shift+Tab 离开输入框）。
-        e.preventDefault();
-        const item = current[active];
-        if (item) onSelect({ type: item.type, name: item.name });
-      }
-    };
+    const onKey = (e: KeyboardEvent) => handleKey(e);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onSelect]);
+  }, [open]);
 
   // Report the keyboard-active option id up to the parent (used by combobox's
   // aria-activedescendant). Re-runs on flat/clampedActive change; when flat is
@@ -182,6 +176,7 @@ export function MentionPicker({
   useEffect(() => {
     if (!onActiveChange) return;
     const current = flat[clampedActive];
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent, react-doctor/no-prop-callback-in-effect -- 候选列表是自持高亮状态的复合控件，焦点留在编辑器里，只把高亮项 id 通知给编辑器作 aria-activedescendant；高亮随查询、标签与候选变化复位，没有单一事件可承载
     onActiveChange(current ? optionId(current.type, current.name) : null);
   }, [flat, clampedActive, onActiveChange]);
 

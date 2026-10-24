@@ -26,7 +26,9 @@ import { StoryboardBatchDialog } from "@/components/canvas/timeline/StoryboardBa
 import { createScriptEditTimeline } from "@/components/canvas/edit-render/create-script-timeline";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { promptAuthoringHandoffText } from "@/components/canvas/shared/prompt-authoring-handoff";
-import { DiscardDraftDialog, draftFallbackText, draftFixRequestText, prefillAssistant } from "@/components/shared/DraftStatus";
+import { DiscardDraftDialog } from "@/components/shared/DraftStatus";
+import { draftFallbackText, draftFixRequestText } from "@/components/shared/draft-text";
+import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { diagnosticCode } from "@/hooks/useDraftEditor";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";

@@ -33,6 +33,9 @@ from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.openai import OpenAIImageBackend
 from lib.backends.image_backends.openai_chat import OpenAIChatImageBackend
+from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMAGES_PATH
+from lib.backends.image_backends.openrouter import MODELS_PATH as OPENROUTER_MODELS_PATH
+from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.minimax_shared import minimax_text_base_url
 from lib.backends.text_backends.anthropic import AnthropicTextBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
@@ -380,6 +383,26 @@ def _build_openai_chat_image(
     return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
+def _build_openrouter_images(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
+    """OpenRouter 统一 /images 端点（T2I + I2I）。
+
+    OpenRouter 不提供 /images/edits，I2I 与 T2I 同走一个 JSON 端点；base_url 已含 /api/v1，
+    不做 ensure_openai_base_url 的 /v1 追加。
+    """
+    base_url = (provider.base_url or "").strip().rstrip("/") or None
+    delegate = OpenRouterImageBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=path_override_layer(
+            _OPENROUTER_IMAGES_REQUESTS, path_overrides, provider.base_url, base_url, model_id
+        ),
+    )
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
 def _build_gemini_image(
     provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomImageBackend:
@@ -539,6 +562,13 @@ _DASHSCOPE_ASYNC_VIDEO_REQUESTS = _python_requests(
     ("poll", "cp_request_poll", "/tasks/{{ task_id }}"),
 )
 _MINIMAX_IMAGE_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_generate", "/image_generation"))
+# 模型目录查询在每次生成时按模型读参数声明，与生成同挂在 base_url 下，中转站改路径时两条一起改；
+# 它不是供应商层面的模型发现（docs/adr/0101 中不用覆盖的那一类），所以同样开放覆盖。
+_OPENROUTER_IMAGES_REQUESTS = _python_requests(
+    "as_is",
+    ("generate", "cp_request_generate", OPENROUTER_IMAGES_PATH),
+    ("model_catalog", "cp_request_model_catalog", OPENROUTER_MODELS_PATH),
+)
 _MINIMAX_TTS_REQUESTS = _python_requests("ensure_v1", ("generate", "cp_request_generate", "/t2a_v2"))
 # SDK 在剥去 /vN 的 base_url 后自己拼 /v1beta
 _GEMINI_GENERATE_REQUESTS = _python_requests(
@@ -794,6 +824,19 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         build_backend=_build_openai_chat_image,
         requests=_OPENAI_CHAT_REQUESTS,
         metering_backend=OpenAIChatImageBackend,
+    ),
+    "openrouter-images": EndpointSpec(
+        key="openrouter-images",
+        media_type="image",
+        family="openrouter",
+        display_name_key="endpoint_openrouter_images_display",
+        request_method="POST",
+        # OpenRouter 统一图片端点：T2I 与 I2I 同 hit /images（不提供 /images/edits）
+        request_path_template="/images",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_openrouter_images,
+        requests=_OPENROUTER_IMAGES_REQUESTS,
+        metering_backend=OpenRouterImageBackend,
     ),
     "gemini-image": EndpointSpec(
         key="gemini-image",

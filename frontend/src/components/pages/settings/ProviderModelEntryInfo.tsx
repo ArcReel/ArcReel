@@ -29,18 +29,12 @@ import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { ManualEntryDialog } from "./ManualEntryDialog";
-import { CapabilityValueEditor, capabilityValueText, withoutDroppedResolutions } from "./ProviderCapabilityOverrides";
+import { capabilityValueText, withoutDroppedResolutions } from "./capabilityValues";
+import { CapabilityValueEditor } from "./ProviderCapabilityOverrides";
 import { PriceEditor } from "./price-editor/PriceEditor";
 import { isPriceTableValid, priceTableOf, type PriceTable } from "./price-editor/priceTable";
 import { MEDIA_LABEL_KEY } from "./providerModelDisplay";
-
-/** 「模型信息」可以修改的部分。 */
-export interface EntryDraft {
-  display_name: string;
-  facts: Record<string, unknown>;
-  /** 编辑中的价目表；没有计费项就是「不填价格」。 */
-  price: PriceTable;
-}
+import { EDITABLE_FACTS, providerNames, type EntryDraft } from "./providerModelEntry";
 
 /**
  * 随保存一起写入的条目改动，只改草稿、不立即生效：「关联其他模型」存为条目绑定，「解除关联」改回按名字对应，
@@ -50,18 +44,6 @@ export type PendingEntryChange =
   | { kind: "link"; entry: CatalogEntryHit }
   | { kind: "unlink" }
   | { kind: "create"; entry: NewCatalogEntry };
-
-export function entryDraftOf(entry: ProviderModelEntryInfo | null): EntryDraft | null {
-  return entry ? { display_name: entry.display_name, facts: entry.facts, price: priceTableOf(entry.price) } : null;
-}
-
-/** 各媒体类型可以修改的模型事实，按界面顺序；时长联动约束紧跟可选时长。 */
-export const EDITABLE_FACTS: Record<ProviderModelItem["media_type"], CapabilityKey[]> = {
-  text: ["image_input", "structured_output", "max_output_tokens"],
-  image: ["text_to_image", "image_to_image", "resolutions"],
-  video: ["durations", "duration_constraints", "resolutions"],
-  audio: [],
-};
 
 /** 「模型信息」里填写不正确的字段，在 Sheet 的校验集合里与上段的键区分开。 */
 export const ENTRY_INVALID_PREFIX = "entry:";
@@ -73,13 +55,6 @@ function sameJson(a: unknown, b: unknown): boolean {
 
 function makerLabel(t: TFunction, maker: string): string {
   return t(`dashboard:catalog_maker_${maker}`, { defaultValue: maker });
-}
-
-/** 供应商名列表，如「『A』『B』」。 */
-export function providerNames(t: TFunction, entry: ProviderModelEntryInfo): string {
-  return entry.shared_with
-    .map((p) => t("pm_entry_provider_name", { name: p.display_name }))
-    .join(t("pm_entry_provider_separator"));
 }
 
 interface Props {
@@ -365,16 +340,13 @@ export interface FactFieldProps {
 
 /**
  * 一项模型事实。编辑器里的文本只在挂载时取初值：取值被外部改掉（放弃修改、采用官方值、恢复官方数据）时换一代
- * 重新挂载，并清掉上一代留下的「填写不正确」。
+ * 重新挂载，上一代的文本输入卸载时收回它留下的「填写不正确」。
  */
 export function FactField({ dimension, value, resolutions, onChange, validityKey, onValidityChange, official }: FactFieldProps) {
   const { t } = useTranslation("dashboard");
   const [seen, setSeen] = useState({ value, generation: 0 });
   if (!sameJson(seen.value, value)) setSeen({ value, generation: seen.generation + 1 });
   const generation = seen.generation;
-  useEffect(() => {
-    if (generation > 0) onValidityChange(validityKey, true);
-  }, [generation, validityKey, onValidityChange]);
 
   const label = t(`pm_cap_${dimension}`);
   return (

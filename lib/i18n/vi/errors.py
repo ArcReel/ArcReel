@@ -105,6 +105,8 @@ MESSAGES = {
     "task_fail_comfyui_execution_error": "ComfyUI thất bại khi thực thi: {detail} (node lỗi: {node})",
     "task_fail_comfyui_interrupted": "Lần chạy trên ComfyUI đã bị gián đoạn; hãy thử lại",
     "task_fail_comfyui_output_missing": "ComfyUI đã chạy xong nhưng node thành phẩm {nodes} không tạo ra tệp nào; hãy kiểm tra liên kết node của nó và chuỗi tạo thành phẩm của workflow",
+    "task_fail_image_output_missing": "Mô hình {model} không trả về ảnh, có thể do bộ lọc an toàn nội dung; hãy điều chỉnh prompt hoặc ảnh tham chiếu rồi thử lại",
+    "task_fail_image_output_format_unsupported": "Mô hình {model} trả về ảnh định dạng {media_type} không thể chuyển sang PNG; hãy dùng mô hình xuất ảnh raster",
     "task_fail_comfyui_output_type_mismatch": "ComfyUI tạo ra {filename}, không phải loại tệp mà endpoint này cần xuất (cần {expected}); hãy trỏ liên kết node thành phẩm tới node xuất thành phẩm cuối cùng, hoặc đổi node lưu đó sang định dạng được hỗ trợ (với SaveVideo, hãy chọn h264-mp4)",
     "task_fail_comfyui_output_container_mismatch": "Nội dung của {filename} do ComfyUI tạo ra không phải container mà endpoint này cần xuất (cần {expected}); hãy đổi node lưu sang định dạng được hỗ trợ (với SaveVideo, hãy chọn h264-mp4)",
     "task_fail_artifact_download_failed": "Đã tạo video nhưng tải tệp xuống thất bại; hãy thử tải lại: {detail}",
@@ -651,6 +653,7 @@ MESSAGES = {
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
     "image_dashscope_4k_t2i_only": "Mô hình {model}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",
     "image_reference_images_unreadable": "Mô hình {model} có ảnh tham chiếu bị thiếu hoặc không đọc được; đã hủy tạo: {names}; hãy kiểm tra đường dẫn ảnh tham chiếu",
+    "image_reference_images_exceeded": "Mô hình {model} hỗ trợ tối đa {limit} ảnh tham chiếu nhưng yêu cầu này có {count}; chưa gửi yêu cầu tạo; hãy tạo lại",
     # Image Edit
     "image_edit_resource_type_invalid": "Loại tài nguyên '{resource_type}' không hỗ trợ chỉnh sửa ảnh",
     "image_edit_instruction_required": "Chỉ dẫn chỉnh sửa không được để trống",

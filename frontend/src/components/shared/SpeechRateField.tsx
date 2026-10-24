@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { OptionalNumberField } from "@/components/shared/OptionalNumberField";
+import { SPEECH_RATE_MAX, SPEECH_RATE_MIN, isValidSpeechRate } from "./speech-rate";
 
 /**
  * 口播语速估算（阅读单位 / 秒）的项目级可选输入。
@@ -13,19 +14,6 @@ import { OptionalNumberField } from "@/components/shared/OptionalNumberField";
  * 并提示单位待定：具体名词在这里是错误承诺——按「字/秒」填入的数值，在语言被检测为 en / vi
  * 后会被同一个估算器按「词/秒」解释，数字不变而含义变了。
  */
-
-/**
- * 硬区间（闭区间）：与后端 lib.speech.speech_rate 的 is_valid_speech_rate 同一把尺。
- * 下界取值依据（下游时长换算的余量）见后端 MIN_SPEECH_RATE_UPS 的注释。
- */
-const SPEECH_RATE_MIN = 0.001;
-const SPEECH_RATE_MAX = 20;
-
-/** 该值是否可提交（null = 未填，合法）。 */
-export function isValidSpeechRate(value: number | null): boolean {
-  if (value === null) return true;
-  return value >= SPEECH_RATE_MIN && value <= SPEECH_RATE_MAX;
-}
 
 /** 阅读单位名词的 i18n key：en / vi 计「词」、zh 计「字」，语言未定时用中性的「字或词」。 */
 function readingUnitKey(sourceLanguage?: string | null): string {

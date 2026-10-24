@@ -20,7 +20,8 @@ import { errMsg, voidCall } from "@/utils/async";
 import { AddModelDialog } from "./AddModelDialog";
 import { FetchModelsDialog, type FetchSelection } from "./FetchModelsDialog";
 import { ManualEntryDialog } from "./ManualEntryDialog";
-import { MEDIA_LABEL_KEY, ProviderModelFlags, priceSummaryText } from "./providerModelDisplay";
+import { ProviderModelFlags } from "./ProviderModelFlags";
+import { MEDIA_LABEL_KEY, priceSummaryText } from "./providerModelDisplay";
 import { ProviderModelSheet, type CustomProviderContext, type OpenProviderModel } from "./ProviderModelSheet";
 
 // 分组顺序：文本、图片、视频、音频。
@@ -203,6 +204,7 @@ export function ProviderModelList({
       const errors: (string | null)[] = [];
       for (const selection of selections) {
         try {
+          // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 逐个添加：服务端让某媒体类型的第一个新模型成为默认，并发添加会争抢默认并交错写同一供应商
           await API.addProviderModel(providerId, addRequestFor(selection, !!custom));
           errors.push(null);
         } catch (err) {

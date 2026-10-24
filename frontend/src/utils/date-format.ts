@@ -59,6 +59,21 @@ const RELATIVE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
 
 const JUST_NOW_MS = 60_000;
 
+const relativeCache = new Map<string, Intl.RelativeTimeFormat>();
+
+function getRelativeFormatter(lang: string): Intl.RelativeTimeFormat {
+  let fmt = relativeCache.get(lang);
+  if (!fmt) {
+    try {
+      fmt = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
+    } catch {
+      fmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+    }
+    relativeCache.set(lang, fmt);
+  }
+  return fmt;
+}
+
 // 与当前相差不足一分钟（含时钟偏差造成的略晚于当前）算「刚刚」；解析失败返回 false。
 // 「刚刚」要嵌进整句话，措辞因句子而异，由调用方各自选文案，不交给 Intl 的「现在」。
 export function isJustNow(value: string | null | undefined, now: number = Date.now()): boolean {
@@ -78,12 +93,7 @@ export function formatRelativeTime(
   const time = parseIsoTimestamp(value).getTime();
   if (Number.isNaN(time)) return null;
   const diff = time - now;
-  let fmt: Intl.RelativeTimeFormat;
-  try {
-    fmt = new Intl.RelativeTimeFormat(lang, { numeric: "auto" });
-  } catch {
-    fmt = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
-  }
+  const fmt = getRelativeFormatter(lang);
   for (const [unit, ms] of RELATIVE_UNITS) {
     if (Math.abs(diff) >= ms) return fmt.format(Math.round(diff / ms), unit);
   }

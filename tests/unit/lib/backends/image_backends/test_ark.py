@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -167,7 +168,7 @@ class TestArkImageBackendProperties:
         with patch("lib.backends.image_backends.ark.create_ark_client"):
             from lib.backends.image_backends.ark import ArkImageBackend
 
-            assert ArkImageBackend(api_key="k", model=model).max_reference_images == 14
+            assert asyncio.run(ArkImageBackend(api_key="k", model=model).reference_image_limit()) == 14
 
 
 class TestArkImageBackendGenerate:
@@ -297,7 +298,7 @@ class TestArkImageBackendGenerate:
         assert call_kwargs["image"] == expected_data_uri
 
     async def test_i2i_truncates_references_over_the_declared_limit(self, backend_and_client, tmp_path: Path):
-        """编排层未裁剪时的兜底：只发前 max_reference_images 张。"""
+        """编排层未裁剪时的兜底：只发前 reference_image_limit() 张。"""
         backend, client = backend_and_client
         refs = []
         for index in range(16):
@@ -310,7 +311,7 @@ class TestArkImageBackendGenerate:
         )
 
         sent = client.requests[-1]["image"]
-        assert len(sent) == backend.max_reference_images == 14
+        assert len(sent) == (await backend.reference_image_limit()) == 14
         assert sent[-1] == "data:image/png;base64," + base64.b64encode(b"img-13").decode()
 
     async def test_i2i_multiple_refs(self, backend_and_client, tmp_path: Path):

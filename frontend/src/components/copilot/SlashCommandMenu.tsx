@@ -82,6 +82,7 @@ export function SlashCommandMenu({
   const [list, setList] = useState<HTMLDivElement | null>(null);
   useLayoutEffect(() => {
     if (!open || !list) {
+      // react-doctor-disable-next-line react-doctor/no-prop-callback-in-effect -- 回传的是 cmdk 自己生成的 DOM id（外部系统），本组件没有可提升的 state，只能在 DOM 落定后读出并通知输入框
       onIdsChange(undefined, undefined);
       return;
     }

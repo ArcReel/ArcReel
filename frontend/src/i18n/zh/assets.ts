@@ -88,7 +88,7 @@ export default {
   "picker_title_scene": "从资产库选择场景",
   "picker_title_prop": "从资产库选择道具",
   "import_count": "导入 {{count}} 个",
-  "loading": "加载中...",
+  "loading": "加载中…",
   "already_in_project": "已在项目",
   "add_to_library": "加入资产库",
   "add_to_library_success": "「{{name}}」已加入资产库",

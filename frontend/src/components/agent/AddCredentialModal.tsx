@@ -89,9 +89,8 @@ export function AddCredentialModal({
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestConnectionResponse | null>(null);
 
-  // 异步竞态隔离：modal 重开（或父组件切到另一条凭证）后，旧 session 里
-  // discover/test 的 await 仍可能返回并写 state。每次 reset effect 里
-  // bump 一次，async 路径在 await 后比对 session id，不一致则丢弃结果。
+  // 异步竞态隔离：modal 关闭后，discover/test 的 await 仍可能返回并写 state。
+  // async 路径在 await 后比对 session id，不一致则丢弃结果。
   const sessionRef = useRef(0);
 
   useEffect(() => {
@@ -116,28 +115,14 @@ export function AddCredentialModal({
     };
   }, [open, mode]);
 
-  // 父组件复用 modal 时只切换 open/initial，本地一次性诊断状态不会自动清。
-  // 重开（或切换到另一条凭证）时把模型列表、错误、测试结果、inflight
-  // loading 全部归零，按新 initial 重算 advancedOpen，bump sessionRef 让旧
-  // session 的 await 返回时丢弃结果。
-  useEffect(() => {
-    sessionRef.current += 1;
-    if (!open) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 重开 modal 时的批量重置，是动作驱动的状态归零
-    setModelOptions([]);
-    setDiscoverError(null);
-    setSubmitError(null);
-    setTestResult(null);
-    setDiscovering(false);
-    setTesting(false);
-    setImportSource(null);
-    setAdvancedOpen(
-      mode === "edit" &&
-        Boolean(
-          initial?.haiku_model || initial?.sonnet_model || initial?.opus_model || initial?.subagent_model,
-        ),
-    );
-  }, [open, initial, mode]);
+  // 每次打开由父组件换 key 重挂载，表单与诊断状态随之从 initial 重建。关闭（或卸载）时换一轮
+  // session：弹窗关着时返回的 discover/test 结果比对不上，不再写 state、不弹提示。
+  useEffect(
+    () => () => {
+      sessionRef.current += 1;
+    },
+    [open],
+  );
 
   const selected: PresetProvider | null = useMemo(() => {
     if (form.presetId === customSentinelId) return null;

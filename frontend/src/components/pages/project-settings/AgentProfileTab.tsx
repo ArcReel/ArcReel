@@ -46,12 +46,14 @@ export function AgentProfileTab({ projectName }: { projectName: string }) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
 
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- await 后的写入都先检查 controller.signal.aborted，cleanup 中 abort 作废上一轮
   useEffect(() => {
     const controller = new AbortController();
     voidCall(
       (async () => {
         try {
           const next = await API.getAgentProfileStatus(projectName, { signal: controller.signal });
+          if (controller.signal.aborted) return;
           setStatus(next);
           setLoadError(null);
         } catch (error) {

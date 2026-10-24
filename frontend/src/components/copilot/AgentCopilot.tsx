@@ -12,7 +12,8 @@ import type { ImagePayload } from "@/types";
 import { voidCall } from "@/utils/async";
 import { AgentComposer, type AgentComposerHandle } from "./AgentComposer";
 import { AgentQuestionnaire } from "./AgentQuestionnaire";
-import { SessionHistory, sessionTitle } from "./SessionHistory";
+import { SessionHistory } from "./SessionHistory";
+import { sessionTitle } from "./session-title";
 import { TodoProgress } from "./TodoProgress";
 import { MessageFlow, type MessageFlowHandle } from "./chat/MessageFlow";
 

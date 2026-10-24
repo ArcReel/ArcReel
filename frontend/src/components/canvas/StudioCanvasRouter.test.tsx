@@ -388,7 +388,7 @@ describe("StudioCanvasRouter", () => {
 
   it("shows loading state when currentProjectName is missing", () => {
     renderAt("/");
-    expect(screen.getByText("加载中...")).toBeInTheDocument();
+    expect(screen.getByText("加载中…")).toBeInTheDocument();
   });
 
   it("keeps showing loading state on a deep link while the project detail request is still in flight", () => {
@@ -403,7 +403,7 @@ describe("StudioCanvasRouter", () => {
 
     renderAt("/characters");
 
-    expect(screen.getByText("加载中...")).toBeInTheDocument();
+    expect(screen.getByText("加载中…")).toBeInTheDocument();
     expect(screen.queryByTestId("character-gallery")).not.toBeInTheDocument();
   });
 
@@ -438,7 +438,7 @@ describe("StudioCanvasRouter", () => {
     viewEpisodes.unmount();
 
     await waitFor(() => {
-      expect(screen.queryByText("加载中...")).not.toBeInTheDocument();
+      expect(screen.queryByText("加载中…")).not.toBeInTheDocument();
     });
   });
 

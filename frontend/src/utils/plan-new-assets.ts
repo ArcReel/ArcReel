@@ -1,4 +1,4 @@
-import type { Character, NewAssetType, PlanNewAsset, Prop, Scene } from "@/types";
+import type { Character, NewAssetDecision, NewAssetType, PlanNewAsset, Prop, Scene } from "@/types";
 
 export type NamesByType = Record<NewAssetType, Set<string>>;
 
@@ -15,7 +15,40 @@ export interface PlanReferenceCandidates extends PlanAssetDicts {
   skippedNames: NamesByType;
 }
 
-const BUCKET = { character: "characters", scene: "scenes", prop: "props" } as const;
+/** 新增项类型对应的项目资产字典。 */
+export const NEW_ASSET_BUCKET = { character: "characters", scene: "scenes", prop: "props" } as const;
+
+/** 新增项的处理方式，按界面顺序。 */
+export const NEW_ASSET_DECISIONS: readonly NewAssetDecision[] = ["register", "merge", "derivative", "skip"];
+
+/**
+ * 草稿里的 `new_assets` 可能被 Agent 改坏：缺键时视为没有新增项，形状或取值不对时返回 false，由调用方
+ * 退回只读呈现。
+ */
+export function hasValidNewAssets(content: Record<string, unknown> | null): boolean {
+  const items = content?.new_assets;
+  if (items === undefined) return true;
+  return (
+    Array.isArray(items) &&
+    items.every((item: unknown) => {
+      if (item == null || typeof item !== "object") return false;
+      const v = item as Record<string, unknown>;
+      return (
+        typeof v.name === "string" &&
+        typeof v.type === "string" &&
+        Object.hasOwn(NEW_ASSET_BUCKET, v.type) &&
+        typeof v.decision === "string" &&
+        (NEW_ASSET_DECISIONS as readonly string[]).includes(v.decision) &&
+        typeof v.reason === "string" &&
+        typeof v.description === "string" &&
+        typeof v.target === "string" &&
+        typeof v.asset_name === "string" &&
+        Array.isArray(v.aliases)
+      );
+    })
+  );
+}
+
 
 function emptyNames(): NamesByType {
   return { character: new Set(), scene: new Set(), prop: new Set() };
@@ -39,8 +72,8 @@ export function planReferenceCandidates(
   for (const item of items) {
     const name = item.name.trim();
     if (!name) continue;
-    const dict = result[BUCKET[item.type]] as Record<string, { description: string }>;
-    if (Object.hasOwn(registered[BUCKET[item.type]], name)) continue;
+    const dict = result[NEW_ASSET_BUCKET[item.type]] as Record<string, { description: string }>;
+    if (Object.hasOwn(registered[NEW_ASSET_BUCKET[item.type]], name)) continue;
     if (item.decision === "skip") {
       result.skippedNames[item.type].add(name);
       continue;

@@ -34,6 +34,7 @@ CAPABILITY_FAILURE_CODES: frozenset[str] = frozenset(
         "image_dashscope_4k_t2i_only",
         "image_endpoint_mismatch_no_i2i",
         "image_endpoint_mismatch_no_t2i",
+        "image_reference_images_exceeded",
         "image_reference_images_unreadable",
         "ref_payload_floor_exceeded",
         "video_capability_missing_t2v",
@@ -150,6 +151,10 @@ FAILURE_CODE_KEYS: dict[str, str] = {
     "comfyui_execution_error": "task_fail_comfyui_execution_error",
     "comfyui_interrupted": "task_fail_comfyui_interrupted",
     "comfyui_output_missing": "task_fail_comfyui_output_missing",
+    # 图片供应商成功响应却没带回图片（多为内容安全过滤）：见 ImageOutputMissingError。
+    "image_output_missing": "task_fail_image_output_missing",
+    # 返回的图片格式转不成位图（如矢量 SVG）：见 ImageOutputFormatError。
+    "image_output_format_unsupported": "task_fail_image_output_format_unsupported",
     "comfyui_output_type_mismatch": "task_fail_comfyui_output_type_mismatch",
     "comfyui_output_container_mismatch": "task_fail_comfyui_output_container_mismatch",
     "artifact_download_failed": "task_fail_artifact_download_failed",

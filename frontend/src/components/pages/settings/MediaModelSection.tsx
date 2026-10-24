@@ -17,12 +17,13 @@ import type { CustomProviderInfo } from "@/types/custom-provider";
 import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import {
   LayeredModelFields,
-  degradeSubFieldsToSaved,
   useGenerationTypeBucketLabels,
   type LayeredSubField,
 } from "@/components/shared/LayeredModelFields";
+import { degradeSubFieldsToSaved } from "@/components/shared/model-layers";
 import { TextTierFields } from "@/components/shared/TextTierFields";
-import { VideoModelSpecBar, videoOptionMetaRenderer } from "@/components/shared/VideoModelSpecBar";
+import { videoOptionMetaRenderer } from "@/components/shared/video-option-meta";
+import { VideoModelSpecBar } from "@/components/shared/VideoModelSpecBar";
 import { InlineWarning } from "@/components/shared/InlineWarning";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { PageShellFooter } from "@/components/shared/page-shell/PageShell";

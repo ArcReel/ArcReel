@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import { StorySetting } from "@/components/canvas/overview/StorySetting";
-import { EditUnitRetentionContext } from "@/components/shared/edit-unit/RetainedEditUnit";
+import { EditUnitRetentionContext } from "@/components/shared/edit-unit/edit-unit-retention";
 import type { ProjectOverview } from "@/types";
 
 import { useStaysInEpisodeView } from "./EpisodeViewScope";

@@ -34,6 +34,7 @@ import {
   VariableChips,
 } from "./endpoint-form-primitives";
 import { JsonBodyEditor } from "./JsonBodyEditor";
+import { useNamedRowIds } from "../useRowIds";
 
 interface EndpointFormProps {
   definition: EndpointDefinition;
@@ -59,6 +60,10 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
   const authHeaders = definition.auth?.headers ?? {};
   const authQuery = definition.auth?.query ?? {};
   const noAuth = Object.keys(authHeaders).length === 0 && Object.keys(authQuery).length === 0;
+  // 行名就是正在编辑的键：行 key 用随名字转移的客户端 id，改名不重建输入框、不丢焦点
+  const headerIds = useNamedRowIds(Object.keys(authHeaders));
+  const inputIds = useNamedRowIds(Object.keys(inputs));
+  const statusIds = useNamedRowIds(Object.keys(statusMap));
 
   const submitVariables = useMemo(() => {
     const generation = profile.generationVariables.map(({ name, descKey }) => ({
@@ -113,9 +118,16 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
     });
 
   const methodOptions = HTTP_METHODS.map((m) => ({ value: m, label: m }));
-  const rename = <T,>(record: Record<string, T>, from: string, to: string, value: T) => {
+  const rename = <T,>(
+    record: Record<string, T>,
+    from: string,
+    to: string,
+    value: T,
+    ids: { rename: (from: string, to: string) => void },
+  ) => {
     const renamed = renameKey(record, from, to, value);
     if (renamed === record && from !== to) pushToast(t("ce_duplicate_key"), "error");
+    else ids.rename(from, to);
     return renamed;
   };
 
@@ -193,10 +205,8 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
           <div className="mt-3">
             <span className={LABEL_CLS}>{t("ce_auth_headers")}</span>
             <div className="space-y-2">
-              {Object.entries(authHeaders).map(([name, value], index) => (
-                // 键即行名，正在被编辑；用它做 key 会让每敲一个字符就重建输入框、丢掉焦点。
-                // renameKey 保序，行的位置在重命名中不变，因此下标是这里稳定的行标识。
-                <div key={index} className="grid grid-cols-[180px_1fr_32px] items-center gap-3">
+              {Object.entries(authHeaders).map(([name, value]) => (
+                <div key={headerIds.idOf(name)} className="grid grid-cols-[180px_1fr_32px] items-center gap-3">
                   <div className="min-w-0">
                     <Input
                       type="text"
@@ -208,7 +218,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                         patch({
                           auth: {
                             ...definition.auth,
-                            headers: rename(authHeaders, name, e.target.value, value),
+                            headers: rename(authHeaders, name, e.target.value, value, headerIds),
                           },
                         })
                       }
@@ -269,8 +279,8 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             <span className="px-1">{t("ce_input_required")}</span>
             <span />
           </div>
-          {Object.entries(inputs).map(([name, spec], index) => (
-            <div key={index} className="grid grid-cols-[1fr_180px_150px_110px_32px] items-center gap-3">
+          {Object.entries(inputs).map(([name, spec]) => (
+            <div key={inputIds.idOf(name)} className="grid grid-cols-[1fr_180px_150px_110px_32px] items-center gap-3">
               <div className="min-w-0">
                 <Input
                   type="text"
@@ -278,7 +288,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                   value={name}
                   readOnly={readOnly}
                   aria-label={t("ce_input_variable")}
-                  onChange={(e) => patch({ inputs: rename(inputs, name, e.target.value, spec) })}
+                  onChange={(e) => patch({ inputs: rename(inputs, name, e.target.value, spec, inputIds) })}
                   autoComplete="off"
                   spellCheck={false}
                 />
@@ -506,8 +516,8 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
             <span className="px-1">{t("ce_status_standard")}</span>
             <span />
           </div>
-          {Object.entries(statusMap).map(([from, to], index) => (
-            <div key={index} className="grid grid-cols-[1fr_16px_180px_32px] items-center gap-3">
+          {Object.entries(statusMap).map(([from, to]) => (
+            <div key={statusIds.idOf(from)} className="grid grid-cols-[1fr_16px_180px_32px] items-center gap-3">
               <div className="min-w-0">
                 <Input
                   type="text"
@@ -515,7 +525,7 @@ export function EndpointForm({ definition, onChange, readOnly }: EndpointFormPro
                   value={from}
                   readOnly={readOnly}
                   aria-label={t("ce_status_provider_value")}
-                  onChange={(e) => patch({ status_map: rename(statusMap, from, e.target.value, to) })}
+                  onChange={(e) => patch({ status_map: rename(statusMap, from, e.target.value, to, statusIds) })}
                   autoComplete="off"
                   spellCheck={false}
                 />

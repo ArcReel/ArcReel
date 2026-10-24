@@ -4,26 +4,7 @@ import { useTranslation } from "react-i18next";
 import { providerSettingsPath } from "@/app-routes";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { buttonVariants } from "@/components/ui/button";
-import type { CustomProviderInfo, CustomProviderModelInfo } from "@/types";
-
-/** 一个模型行对端点的使用：所属自定义供应商与模型。 */
-export interface EndpointUsage {
-  provider: CustomProviderInfo;
-  model: CustomProviderModelInfo;
-}
-
-/** 按端点键分组自定义供应商的模型行；只有自定义供应商的模型能指定端点。 */
-export function groupUsagesByEndpoint(providers: CustomProviderInfo[]): Map<string, EndpointUsage[]> {
-  const byEndpoint = new Map<string, EndpointUsage[]>();
-  for (const provider of providers) {
-    for (const model of provider.models) {
-      const list = byEndpoint.get(model.endpoint) ?? [];
-      list.push({ provider, model });
-      byEndpoint.set(model.endpoint, list);
-    }
-  }
-  return byEndpoint;
-}
+import type { EndpointUsage } from "./endpoint-usages";
 
 /** 端点详情的「使用这个端点的模型」：每行可跳回对应供应商并定位到模型。 */
 export function EndpointUsageList({ usages }: { usages: EndpointUsage[] }) {

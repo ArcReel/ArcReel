@@ -1,9 +1,13 @@
 import { useEffect } from "react";
-import { Toaster, toast as toastQueue } from "@/components/ui/toast";
+import { Toast as ToastPrimitive } from "@base-ui/react/toast";
+import { Toaster } from "@/components/ui/toast";
 import { useAppStore, type Toast } from "@/stores/app-store";
 
 // 提示的停留时长；指针悬停或键盘聚焦在提示上时暂停计时。
 const AUTO_DISMISS_MS = 5000;
+
+// 提示队列只在这里：其余代码经 useAppStore 的 pushToast 发提示
+const toastQueue = ToastPrimitive.createToastManager();
 
 function enqueue({ id, text, tone, action }: Toast) {
   toastQueue.add({
@@ -38,5 +42,5 @@ export function ToastOverlay() {
     });
   }, []);
 
-  return <Toaster timeout={AUTO_DISMISS_MS} />;
+  return <Toaster toastManager={toastQueue} timeout={AUTO_DISMISS_MS} />;
 }

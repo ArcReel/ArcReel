@@ -256,6 +256,47 @@
         ]
       },
       {
+        "key": "openrouter-images",
+        "media_type": "image",
+        "family": "openrouter",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_openrouter_images_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/images",
+        "image_capabilities": [
+          "image_to_image",
+          "text_to_image"
+        ],
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "generate",
+            "display_name_key": "cp_request_generate",
+            "default_path": "/images",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "as_is"
+          },
+          {
+            "name": "model_catalog",
+            "display_name_key": "cp_request_model_catalog",
+            "default_path": "/images/models",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "as_is"
+          }
+        ]
+      },
+      {
         "key": "gemini-image",
         "media_type": "image",
         "family": "google",

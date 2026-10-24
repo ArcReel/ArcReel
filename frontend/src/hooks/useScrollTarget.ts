@@ -64,7 +64,6 @@ export function useScrollTarget(
   const scrollTarget = useAppStore((s) => s.scrollTarget);
   const clearScrollTarget = useAppStore((s) => s.clearScrollTarget);
   const pushToast = useAppStore((s) => s.pushToast);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightedElementRef = useRef<HTMLElement | null>(null);
   const stopSettleRef = useRef<(() => void) | null>(null);
@@ -78,10 +77,6 @@ export function useScrollTarget(
         highlightedElementRef.current.classList.remove("workspace-focus-flash");
         highlightedElementRef.current = null;
       }
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
       if (highlightTimerRef.current) {
         clearTimeout(highlightTimerRef.current);
         highlightTimerRef.current = null;
@@ -89,17 +84,15 @@ export function useScrollTarget(
     };
   }, []);
 
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- 重试计时器由返回的 cleanup 清理；高亮计时器与定位跟随须活过定位后 clearScrollTarget 引起的重跑，归 hook 生命周期，下次定位时替换、卸载时由上面的 effect 释放
   useEffect(() => {
     if (!scrollTarget || scrollTarget.type !== type) return;
     const requestId = scrollTarget.request_id;
     const elementId = `${type}-${scrollTarget.id}`;
     let cancelled = false;
     let prepared = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
     if (highlightTimerRef.current) {
       clearTimeout(highlightTimerRef.current);
       highlightTimerRef.current = null;
@@ -124,7 +117,7 @@ export function useScrollTarget(
           pushToast(i18n.t("errors:scroll_target_not_found", { id: currentTarget.id }), "warning");
           return;
         }
-        retryTimerRef.current = setTimeout(tryResolveTarget, 50);
+        retryTimer = setTimeout(tryResolveTarget, 50);
         return;
       }
 
@@ -152,10 +145,7 @@ export function useScrollTarget(
 
     return () => {
       cancelled = true;
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
+      clearTimeout(retryTimer);
     };
   }, [clearScrollTarget, prepareTarget, pushToast, scrollTarget, type]);
 }

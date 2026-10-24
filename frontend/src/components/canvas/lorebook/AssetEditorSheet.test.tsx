@@ -462,6 +462,28 @@ describe("资产详情 Sheet", () => {
     expect(await screen.findByRole("dialog", { name: "Giáp" })).toBeInTheDocument();
   });
 
+  it("ignores closing while the create request is in flight and accepts it again once the request fails", async () => {
+    const user = userEvent.setup();
+    const creating = createDeferred<{ success: boolean }>();
+    vi.spyOn(API, "addCharacter").mockReturnValue(creating.promise);
+    renderGallery();
+
+    await user.click(screen.getByRole("button", { name: "添加角色" }));
+    const form = await screen.findByRole("dialog", { name: "添加角色" });
+    await user.type(within(form).getByRole("textbox", { name: "名称" }), "阿青");
+    await user.click(within(form).getByRole("button", { name: "创建" }));
+
+    await user.keyboard("{Escape}");
+    expect(screen.getByRole("dialog", { name: "添加角色" })).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    await act(async () => creating.reject(new Error("网络错误")));
+    expect(await within(form).findByRole("alert")).toHaveTextContent("网络错误");
+    // 请求结算后关闭请求重新生效：表单有未保存内容，经离开拦截询问
+    await user.keyboard("{Escape}");
+    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+  });
+
   it("keeps the create form open and explains why when creating fails", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "addProjectProduct").mockRejectedValue(new Error("商品「保温杯」已存在"));

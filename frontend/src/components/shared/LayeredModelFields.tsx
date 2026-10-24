@@ -21,40 +21,6 @@ import { InlineWarning } from "@/components/shared/InlineWarning";
 import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import type { GenerationTypeBucket } from "@/types/system";
 
-/**
- * 层级解析（docs/adr/0054）：取第一个非空层作为生效值。全层皆空即自动推断——那需要
- * 供应商就绪状态与注册表顺序，前端算不出，返回 undefined 由调用处显示「自动选择」。
- */
-export function effectiveModel(...layers: (string | null | undefined)[]): string | undefined {
-  return layers.find((layer) => !!layer) || undefined;
-}
-
-/**
- * 当前配置下真正会执行的视频模型。参考生视频走 r2v 桶、其余生成模式走 i2v，与后端
- * `VIDEO_BUCKET_BY_GENERATION_MODE` 同口径；桶被覆盖时它与默认层不是同一个模型，
- * 故时长 / 分辨率 / 声音档位这些按模型查的能力，以及 model_settings 的分辨率键，都问它。
- */
-export function executingVideoModel(
-  value: { videoBackend: string; videoProviderI2V: string; videoProviderR2V: string },
-  globals: { video: string; videoI2V: string; videoR2V: string },
-  usesReferenceImages?: boolean,
-): string {
-  const bucket = usesReferenceImages ? value.videoProviderR2V : value.videoProviderI2V;
-  const globalBucket = usesReferenceImages ? globals.videoR2V : globals.videoI2V;
-  return effectiveModel(bucket, value.videoBackend, globalBucket, globals.video) ?? "";
-}
-
-/**
- * 文生图路径真正会执行的图片模型——分镜图与资产图都走该路径，图片分辨率按它存取。
- * 图生图另有自己的执行模型，两者不同时后端查不到该键、回落供应商默认档位。
- */
-export function executingImageModel(
-  value: { imageBackendDefault: string; imageBackendT2I: string },
-  globals: { image: string; imageT2I: string },
-): string {
-  return effectiveModel(value.imageBackendT2I, value.imageBackendDefault, globals.imageT2I, globals.image) ?? "";
-}
-
 /** 任务类型桶的界面标签与覆盖说明，图片 / 视频两处调用点共用一份文案。 */
 export function useGenerationTypeBucketLabels(): Record<GenerationTypeBucket, { label: string; caption?: string }> {
   const { t } = useTranslation("templates");
@@ -81,19 +47,6 @@ export interface LayeredSubField {
   /** 留空时的最终生效模型（provider/model）；演算不出即省略。 */
   effective?: string;
   onChange: (next: string) => void;
-}
-
-/**
- * 候选拉取失败时的细分区降级：只保留已配置的行、候选只列其当前值。已保存的覆盖在后端仍然
- * 生效，整块隐藏会让用户既看不出实际执行的是哪个模型，也无从清除；未配置的行没有候选可选，
- * 仍不渲染，全部未配置即整块折叠区消失。
- */
-export function degradeSubFieldsToSaved(
-  fields: LayeredSubField[],
-  hasCandidates: boolean,
-): LayeredSubField[] {
-  if (hasCandidates) return fields;
-  return fields.filter((f) => !!f.value).map((f) => ({ ...f, options: [f.value] }));
 }
 
 export interface LayeredModelFieldsProps {

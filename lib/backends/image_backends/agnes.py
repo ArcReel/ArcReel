@@ -104,8 +104,7 @@ class AgnesImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return set(self.CHANNEL_CAPABILITIES)
 
-    @property
-    def max_reference_images(self) -> int:
+    async def reference_image_limit(self) -> int:
         # Agnes 不按数量裁剪参考图，全量随请求发出。
         return 0
 

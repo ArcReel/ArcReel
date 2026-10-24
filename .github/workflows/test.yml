@@ -598,7 +598,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
-          allow='^(CHANGELOG\.md|pyproject\.toml|uv\.lock|frontend/package\.json|\.release-please-manifest\.json)$'
+          allow='^(CHANGELOG\.md|pyproject\.toml|uv\.lock|frontend/package\.json|\.release-please-manifest\.json|lib/catalog/snapshot/(catalog|manifest)\.json)$'
           bad=$(echo "$changed" | grep -vE "$allow" || true)
           if [ -n "$bad" ]; then
             echo "发布 PR 含版本产物白名单外的文件，请检查 release-please 配置："

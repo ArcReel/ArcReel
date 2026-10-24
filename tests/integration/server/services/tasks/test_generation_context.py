@@ -63,6 +63,10 @@ class _FakeBackend:
     voices: list = field(default_factory=list)
     max_reference_images: int = 0
 
+    async def reference_image_limit(self) -> int:
+        """image backend 协议的一部分：image lane 解析时读一次参考图上限。"""
+        return self.max_reference_images
+
     def list_voices(self):
         """audio backend 协议的一部分：audio lane 解析时会取音色目录快照。"""
         return self.voices
@@ -86,21 +90,10 @@ def project_env(monkeypatch, tmp_path: Path):
 
 @pytest.fixture(autouse=True)
 def clean_backend_cache():
-    """除清空缓存条目外，同时清空 per-key 锁。
-
-    ``invalidate_backend_cache()`` 按设计只清条目、不清 ``_locks``（生产环境同一事件循环
-    贯穿进程生命周期，key 空间有界，不清理无泄漏风险，见 ``_BackendCache`` 类文档）。但
-    pytest-asyncio 按测试函数切换独立事件循环，跨测试复用同一缓存 key 时，若前一个测试
-    已触发过锁竞争（``asyncio.Lock`` 首次竞争时会绑定到当时的事件循环），该 Lock 实例会
-    永久绑定在已关闭的旧循环上，后续测试里再次发生竞争即抛
-    ``RuntimeError: ... is bound to a different event loop``。测试隔离清空 locks 不影响
-    被测生产行为。
-    """
-    generation_context.invalidate_backend_cache()
-    generation_context._backend_cache._locks.clear()
+    """每个用例前后清空 backend 实例缓存与 per-key 锁（锁绑定事件循环的原因见 ``reset_backend_cache_for_tests``）。"""
+    generation_context.reset_backend_cache_for_tests()
     yield
-    generation_context.invalidate_backend_cache()
-    generation_context._backend_cache._locks.clear()
+    generation_context.reset_backend_cache_for_tests()
 
 
 @pytest.fixture

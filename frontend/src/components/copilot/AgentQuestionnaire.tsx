@@ -40,7 +40,7 @@ function choicesOf(question: Question) {
 }
 
 /** 按 Agent 提问的原文回传答案；多选与自由输入合并成一句，用逗号分隔。 */
-export function collectAnswers(questions: Question[], form: FormData): Record<string, string> {
+function collectAnswers(questions: Question[], form: FormData): Record<string, string> {
   const answers: Record<string, string> = {};
   questions.forEach((question, index) => {
     const values = form

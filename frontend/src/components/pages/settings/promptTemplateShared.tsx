@@ -81,10 +81,6 @@ export function DetailSection({
   );
 }
 
-export function categoryLabel(t: (key: string, options: { defaultValue: string }) => string, category: string) {
-  return t(`prompt_templates_category_${category}`, { defaultValue: category });
-}
-
 /** 锁定标记：模版或片段声明 `protected`，不提供编辑入口。 */
 export function LockBadge() {
   const { t } = useTranslation("dashboard");

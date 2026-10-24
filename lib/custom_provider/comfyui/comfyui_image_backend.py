@@ -102,8 +102,11 @@ class ComfyuiImageBackend:
         """
         return set(binding_image_capabilities(self._definition))
 
+    async def reference_image_limit(self) -> int:
+        return self._reference_slots
+
     @property
-    def max_reference_images(self) -> int:
+    def _reference_slots(self) -> int:
         """参考图格子数就是这份 workflow 能收几张。
 
         不返回 ``0``（「本后端不按数量裁剪」）：多出来的图在构造层本来就没有落点，让编排层先按这个
@@ -160,7 +163,7 @@ class ComfyuiImageBackend:
         白占用户的带宽与磁盘。图像端点没有首尾帧这两个语义键（见 ``comfyui.bindings``），故这里
         只有参考图一路。
         """
-        slots = self.max_reference_images
+        slots = self._reference_slots
         references: list[str] = []
         for index, reference in enumerate(request.reference_images[:slots]):
             path = Path(reference.path)

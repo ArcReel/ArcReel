@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback } from "react";
 import { errMsg, voidPromise } from "@/utils/async";
 import { Route, Switch, Redirect } from "wouter";
 import {
@@ -91,9 +91,6 @@ function resolveSegmentPrompt(
 
 export function StudioCanvasRouter() {
   const { t } = useTranslation("dashboard");
-  const tRef = useRef(t);
-  // eslint-disable-next-line react-hooks/refs -- tRef 是稳定 event-handler ref 模式，用于在回调中获取最新 t 而不触发无限 useCallback 重建
-  tRef.current = t;
   const { currentProjectData, currentProjectName, currentScripts, projectDetailLoading } =
     useProjectsStore();
   // 演示态：资产画布仍走 readOnly 透传，工作台时间线的只读则由组件自己直读同一判定。
@@ -140,8 +137,8 @@ export function StudioCanvasRouter() {
   // 调用方据此决定是否推进依赖新数据的后续动作（选中态跟随、报告成功）。
   const refreshAfterAction = useCallback(
     async (): Promise<boolean> =>
-      currentProjectName ? (await refreshAfterWrite(currentProjectName, tRef.current)) === "success" : false,
-    [currentProjectName],
+      currentProjectName ? (await refreshAfterWrite(currentProjectName, t)) === "success" : false,
+    [currentProjectName, t],
   );
 
   // ---- Timeline action callbacks ----
@@ -154,7 +151,7 @@ export function StudioCanvasRouter() {
     patch: Record<string, unknown>,
     scriptFile?: string,
   ): Promise<boolean> => {
-    if (!currentProjectName) throw new Error(tRef.current("common:no_project_selected"));
+    if (!currentProjectName) throw new Error(t("common:no_project_selected"));
     const mode = currentProjectData?.content_mode ?? "narration";
     if (mode === "ad") {
       await API.updateShot(currentProjectName, segmentId, scriptFile ?? "", patch);
@@ -164,7 +161,7 @@ export function StudioCanvasRouter() {
       await API.updateSegment(currentProjectName, segmentId, { script_file: scriptFile, ...patch });
     }
     return refreshProject();
-  }, [currentProjectName, currentProjectData, refreshProject]);
+  }, [currentProjectName, currentProjectData, refreshProject, t]);
 
   // 分镜改序（各形态通用）：把分镜移到 afterId 之后，null 移到最前。
   // 返回是否移动成功，供编辑器把选中态跟随到分镜的新位置。
@@ -182,19 +179,19 @@ export function StudioCanvasRouter() {
       // 此时让选中态跟随新位置会静默切到别的分镜。
       return await refreshAfterAction();
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("reorder_shot_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("reorder_shot_failed", { message: errMsg(err) }), "error");
       return false;
     }
-  }, [currentProjectName, currentScripts, refreshAfterAction]);
+  }, [currentProjectName, currentScripts, refreshAfterAction, t]);
 
   // 时间线新增 / 移除分镜：服务端按当前剧本 revision 执行，这里不取快照。
   // 写入一经提交即报告成功：随后的本地刷新失败时只提示重新加载，不让调用方保持可重试，
   // 否则重试会再新增一条分镜或对已移除的分镜再发一次移除。
   const refreshAfterStructureEdit = useCallback(async () => {
     if (!(await refreshProject())) {
-      useAppStore.getState().pushToast(tRef.current("shot_structure_refresh_failed"), "warning");
+      useAppStore.getState().pushToast(t("shot_structure_refresh_failed"), "warning");
     }
-  }, [refreshProject]);
+  }, [refreshProject, t]);
 
   // afterId 为 null 时追加到末尾（空脚本里即第一条）。
   const handleInsertShot = useCallback(async (
@@ -208,12 +205,12 @@ export function StudioCanvasRouter() {
     try {
       await API.insertScriptItem(currentProjectName, resolvedFile, { afterId: afterId ?? undefined, novelText });
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("shot_insert_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("shot_insert_failed", { message: errMsg(err) }), "error");
       return false;
     }
     await refreshAfterStructureEdit();
     return true;
-  }, [currentProjectName, currentScripts, refreshAfterStructureEdit]);
+  }, [currentProjectName, currentScripts, refreshAfterStructureEdit, t]);
 
   const handleRemoveShot = useCallback(async (itemId: string, scriptFile?: string): Promise<boolean> => {
     if (!currentProjectName || !currentScripts) return false;
@@ -222,24 +219,24 @@ export function StudioCanvasRouter() {
     try {
       await API.removeScriptItem(currentProjectName, itemId, resolvedFile);
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("shot_remove_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("shot_remove_failed", { message: errMsg(err) }), "error");
       return false;
     }
     await refreshAfterStructureEdit();
     return true;
-  }, [currentProjectName, currentScripts, refreshAfterStructureEdit]);
+  }, [currentProjectName, currentScripts, refreshAfterStructureEdit, t]);
 
   const handleUpdateEpisodeTitle = useCallback(async (episode: number, title: string) => {
     if (!currentProjectName) return;
     try {
       await API.updateEpisode(currentProjectName, episode, { title });
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("episode_title_update_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("episode_title_update_failed", { message: errMsg(err) }), "error");
       throw err; // 让 EditableEpisodeTitle 保持编辑态，不误清空
     }
     // 标题已保存：刷新失败只提示，不让标题停在编辑态引人重复提交
     await refreshAfterAction();
-  }, [currentProjectName, refreshAfterAction]);
+  }, [currentProjectName, refreshAfterAction, t]);
 
   // 生成回调在调用时读 store 里的最新剧本，不用渲染时的闭包：「保存并生成」在同一次点击里先保存、
   // 刷新剧本再生成，此刻调用的仍是点击前那次渲染的回调，闭包里是保存前的提示词。
@@ -256,9 +253,9 @@ export function StudioCanvasRouter() {
         resolved.resolvedFile,
       );
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("generate_storyboard_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("generate_storyboard_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName]);
+  }, [currentProjectName, t]);
 
   const handleGenerateVideo = useCallback(async (segmentId: string, scriptFile?: string) => {
     const scripts = useProjectsStore.getState().currentScripts;
@@ -274,19 +271,19 @@ export function StudioCanvasRouter() {
         resolved.duration,
       );
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("generate_video_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName]);
+  }, [currentProjectName, t]);
 
   // 未配置 audio 供应商时在前端就给出清晰提示（后端入队前还有同语义的 400 兜底）
   const ensureAudioProviderConfigured = useCallback((): boolean => {
     const cfg = useConfigStatusStore.getState();
     if (cfg.initialized && !cfg.hasMediaType("audio")) {
-      useAppStore.getState().pushToast(tRef.current("audio_provider_not_configured_toast"), "error");
+      useAppStore.getState().pushToast(t("audio_provider_not_configured_toast"), "error");
       return false;
     }
     return true;
-  }, []);
+  }, [t]);
 
   const handleGenerateNarration = useCallback(async (segmentId: string, scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
@@ -296,9 +293,9 @@ export function StudioCanvasRouter() {
     try {
       await enqueueNarration(currentProjectName, segmentId, resolvedFile);
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("generate_narration_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("generate_narration_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentScripts, ensureAudioProviderConfigured]);
+  }, [currentProjectName, currentScripts, ensureAudioProviderConfigured, t]);
 
   const handleGenerateEpisodeNarration = useCallback(async (scriptFile?: string) => {
     if (!currentProjectName || !currentScripts) return;
@@ -308,9 +305,9 @@ export function StudioCanvasRouter() {
     try {
       await enqueueEpisodeNarration(currentProjectName, resolvedFile);
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("generate_narration_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("generate_narration_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName, currentScripts, ensureAudioProviderConfigured]);
+  }, [currentProjectName, currentScripts, ensureAudioProviderConfigured, t]);
 
   // 后期配音项目不生成旁白配音：收起画布上的生成入口，已有配音照常试听。
   const narrationGenerationEnabled = currentProjectData?.narration_delivery === "use_tts";
@@ -338,12 +335,13 @@ export function StudioCanvasRouter() {
     for (const unitId of unitIds) {
       try {
         if (stepId === "storyboard") {
+          // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 逐个入队保持任务队列与画布单元同序，并发提交会打乱入队顺序
           await handleGenerateStoryboard(unitId, scriptFile);
         } else if (stepId === "video") {
           await handleGenerateVideo(unitId, scriptFile);
         }
       } catch (err) {
-        useAppStore.getState().pushToast(tRef.current("generate_video_failed", { message: errMsg(err) }), "error");
+        useAppStore.getState().pushToast(t("generate_video_failed", { message: errMsg(err) }), "error");
       }
     }
   }, [
@@ -351,6 +349,7 @@ export function StudioCanvasRouter() {
     currentScripts,
     handleGenerateStoryboard,
     handleGenerateVideo,
+    t,
   ]);
 
   // ---- Asset sheet generation callbacks ----
@@ -359,45 +358,45 @@ export function StudioCanvasRouter() {
     try {
       await enqueueCharacter(currentProjectName, name);
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName]);
+  }, [currentProjectName, t]);
 
   const handleGenerateScene = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
       await enqueueScene(currentProjectName, name);
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName]);
+  }, [currentProjectName, t]);
 
   const handleGenerateProp = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
       await enqueueProp(currentProjectName, name);
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName]);
+  }, [currentProjectName, t]);
 
   const handleGenerateProduct = useCallback(async (name: string) => {
     if (!currentProjectName) return;
     try {
       await enqueueProduct(currentProjectName, name);
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("submit_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("submit_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName]);
+  }, [currentProjectName, t]);
 
   const handleGenerateGrid = useCallback(async (episode: number, scriptFile: string, sceneIds?: string[]) => {
     if (!currentProjectName) return;
     try {
       await enqueueGrid(currentProjectName, episode, scriptFile, sceneIds);
     } catch (err) {
-      useAppStore.getState().pushToast(tRef.current("grid_generation_failed", { message: errMsg(err) }), "error");
+      useAppStore.getState().pushToast(t("grid_generation_failed", { message: errMsg(err) }), "error");
     }
-  }, [currentProjectName]);
+  }, [currentProjectName, t]);
 
   // 版本恢复与媒体上传之后的刷新；resolve 为是否已同步，调用方据此决定是否报告成功。
   const handleRestoreAsset = refreshAfterAction;

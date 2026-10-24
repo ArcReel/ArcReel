@@ -1,4 +1,4 @@
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
 import { Loader2, Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -98,7 +98,8 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
   const [aspectRatio, setAspectRatio] = useState<string>(ASPECT_RATIOS[0]);
   const [resolution, setResolution] = useState(NATIVE_RESOLUTION);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(DEFAULT_DURATION_SECONDS);
-  const [assetFiles, setAssetFiles] = useState<Partial<Record<ComfyuiAssetKey, File[]>>>({});
+  // 文件输入框自己显示选中的文件，这份记录只在发请求时读，不需要重渲
+  const assetFiles = useRef<Partial<Record<ComfyuiAssetKey, File[]>>>({});
 
   const [credSource, setCredSource] = useState<"provider" | "inline">(
     providers.length > 0 ? "provider" : "inline",
@@ -125,13 +126,14 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
     [definition.bindings],
   );
 
-  const assets = useMemo(() => {
+  const pickAssets = useCallback(() => {
     const picked: EndpointTestAssets = {};
     for (const { key } of assetSlots) {
-      if (assetFiles[key]?.length) picked[key] = assetFiles[key];
+      const files = assetFiles.current[key];
+      if (files?.length) picked[key] = files;
     }
     return picked;
-  }, [assetFiles, assetSlots]);
+  }, [assetSlots]);
 
   const credentials = useCallback((): EndpointTestCredentials => {
     if (credSource === "provider") return { provider_id: `custom-${providerId}` };
@@ -156,7 +158,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
     setPreviewing(true);
     try {
       setPreview(
-        await API.previewEndpointRequest({ definition, parameters, credentials: credentials() }, { assets }),
+        await API.previewEndpointRequest({ definition, parameters, credentials: credentials() }, { assets: pickAssets() }),
       );
     } catch (e) {
       setPreview(null);
@@ -164,11 +166,11 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
     } finally {
       setPreviewing(false);
     }
-  }, [definition, parameters, credentials, assets]);
+  }, [definition, parameters, credentials, pickAssets]);
 
   const handleStartTrial = useCallback(
-    () => startTrial({ definition, parameters, credentials: credentials() }, assets),
-    [startTrial, definition, parameters, credentials, assets],
+    () => startTrial({ definition, parameters, credentials: credentials() }, pickAssets()),
+    [startTrial, definition, parameters, credentials, pickAssets],
   );
 
   const running = trial.run !== null && !trial.finished;
@@ -249,8 +251,7 @@ export function ComfyuiEndpointTestSection({ definition, providers, blocked }: C
                 accept="image/*"
                 multiple={key === "reference_images"}
                 onChange={(e) => {
-                  const files = Array.from(e.target.files ?? []);
-                  setAssetFiles((current) => ({ ...current, [key]: files }));
+                  assetFiles.current = { ...assetFiles.current, [key]: Array.from(e.target.files ?? []) };
                 }}
               />
             </TestField>

@@ -210,6 +210,7 @@ class TestEndpointCatalog:
             "openai-images-generations",
             "openai-images-edits",
             "openai-chat-image",
+            "openrouter-images",
             "gemini-image",
             "openai-video",
             "newapi-video",

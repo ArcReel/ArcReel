@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeAssetName } from "@/utils/reference-mentions";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { NEW_ASSET_BUCKET, NEW_ASSET_DECISIONS } from "@/utils/plan-new-assets";
 
 /** 一个规划条目引用到的名字与它的原文片段，供新增项展开出场位置。 */
 export interface NewAssetEntryRefs {
@@ -28,42 +29,6 @@ interface NewAssetsSectionProps {
   disabled: boolean;
   onChange: (items: PlanNewAsset[]) => void;
 }
-
-/**
- * 草稿里的 `new_assets` 可能被 Agent 改坏：缺键时视为没有新增项，形状或取值不对时返回 false，由调用方
- * 退回只读呈现。
- */
-export function hasValidNewAssets(content: Record<string, unknown> | null): boolean {
-  const items = content?.new_assets;
-  if (items === undefined) return true;
-  return (
-    Array.isArray(items) &&
-    items.every((item: unknown) => {
-      if (item == null || typeof item !== "object") return false;
-      const v = item as Record<string, unknown>;
-      return (
-        typeof v.name === "string" &&
-        typeof v.type === "string" &&
-        Object.hasOwn(BUCKET, v.type) &&
-        typeof v.decision === "string" &&
-        (DECISIONS as readonly string[]).includes(v.decision) &&
-        typeof v.reason === "string" &&
-        typeof v.description === "string" &&
-        typeof v.target === "string" &&
-        typeof v.asset_name === "string" &&
-        Array.isArray(v.aliases)
-      );
-    })
-  );
-}
-
-const DECISIONS: readonly NewAssetDecision[] = ["register", "merge", "derivative", "skip"];
-
-const BUCKET: Record<NewAssetType, "characters" | "scenes" | "props"> = {
-  character: "characters",
-  scene: "scenes",
-  prop: "props",
-};
 
 type Group = "character" | "derivative" | "scene" | "prop";
 
@@ -89,7 +54,7 @@ function groupOf(item: PlanNewAsset): Group {
 }
 
 function registeredNames(project: ProjectData | null, type: NewAssetType): string[] {
-  return Object.keys(project?.[BUCKET[type]] ?? {});
+  return Object.keys(project?.[NEW_ASSET_BUCKET[type]] ?? {});
 }
 
 /** 确认时自动归到的已登记同类资产：称呼与它同名（规范化后）的任意项，或登记名与它同名的「登记为新资产」项。 */
@@ -244,7 +209,7 @@ function NewAssetRow({
         .map((other) => other.asset_name || other.name),
     ]),
   ];
-  const decisions = item.type === "character" ? DECISIONS : DECISIONS.filter((d) => d !== "derivative");
+  const decisions = item.type === "character" ? NEW_ASSET_DECISIONS : NEW_ASSET_DECISIONS.filter((d) => d !== "derivative");
   const decisionItems = decisions.map((decision) => ({ value: decision, label: t(`new_asset_decision_${decision}`) }));
 
   return (

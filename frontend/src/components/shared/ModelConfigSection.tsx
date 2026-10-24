@@ -23,18 +23,12 @@ import {
 } from "@/utils/provider-models";
 import { isContinuousIntegerRange } from "@/utils/duration_format";
 import { ResolutionPicker } from "./ResolutionPicker";
-import {
-  LayeredModelFields,
-  degradeSubFieldsToSaved,
-  effectiveModel,
-  executingImageModel,
-  executingVideoModel,
-  useGenerationTypeBucketLabels,
-  type LayeredSubField,
-} from "./LayeredModelFields";
+import { LayeredModelFields, useGenerationTypeBucketLabels, type LayeredSubField } from "./LayeredModelFields";
+import { degradeSubFieldsToSaved, effectiveModel, executingImageModel, executingVideoModel } from "./model-layers";
 import { TextTierFields } from "./TextTierFields";
 import { CHANNEL_MODEL_FIELDS, channelOverridden, countModelOverrides, type ModelChannel } from "./model-overrides";
-import { VideoModelSpecBar, videoOptionMetaRenderer } from "./VideoModelSpecBar";
+import { videoOptionMetaRenderer } from "./video-option-meta";
+import { VideoModelSpecBar } from "./VideoModelSpecBar";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type { ProviderInfo, VoiceConsistencyTier } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";

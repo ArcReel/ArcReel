@@ -78,6 +78,7 @@ function OnboardingChunkPreloader() {
 function ConfigStatusLoader() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- 退避计时器在异步 tick 里设置，id 存在 effect 局部变量，返回的 cleanup 统一 clearTimeout 并置 cancelled
   useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;

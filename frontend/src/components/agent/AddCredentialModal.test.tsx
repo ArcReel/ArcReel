@@ -622,6 +622,20 @@ describe("AddCredentialModal", () => {
       expect(panel.getByText("https://api.deepseek.com/anthropic/v1/messages")).toBeInTheDocument();
       expect(panel.queryByText(/发现端点|Discovery endpoint|Endpoint discovery/i)).not.toBeInTheDocument();
     });
+
+    it("keeps the result when the parent re-renders with a new initial object", async () => {
+      vi.spyOn(API, "testAgentConnectionDraft").mockResolvedValue(okResult);
+      const props = { presets, customSentinelId: "__custom__", onSubmit: vi.fn(), onClose: vi.fn() };
+      const { rerender } = render(<AddCredentialModal open {...props} initial={{}} />);
+      fireEvent.click(screen.getByRole("button", { name: /DeepSeek/i }));
+      fireEvent.change(screen.getByLabelText("密钥"), { target: { value: "sk-test" } });
+      fireEvent.click(screen.getByTestId("test-connection"));
+      await screen.findByText(/test[_ ]ok|连通正常|Kết nối/i);
+
+      // 编辑态的父组件每次渲染都传新的 initial 字面量，不算重开
+      rerender(<AddCredentialModal open {...props} initial={{}} />);
+      expect(screen.getByText(/test[_ ]ok|连通正常|Kết nối/i)).toBeInTheDocument();
+    });
   });
 
   describe("base_url 预览与拦截", () => {

@@ -134,7 +134,7 @@ def test_validator_rejects_invalid_unit_duration(tmp_path: Path):
     result = v.validate_project_tree(tmp_path)
     assert not result.valid
     low, high = REFERENCE_UNIT_DURATION_RANGE
-    assert any(f"duration_seconds 必须是 {low}-{high}" in e for e in result.errors)
+    assert any(f"duration_seconds 必须是 {low}～{high}" in e for e in result.errors)
 
 
 def test_validator_rejects_duplicate_reference_video_unit_ids(tmp_path: Path):

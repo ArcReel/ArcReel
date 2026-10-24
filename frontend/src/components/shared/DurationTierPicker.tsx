@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { Input } from "@/components/ui/input";
 
 /** 目标时长的常用档位（秒）；其他正整数秒走「自定义」。 */
-export const DURATION_TIERS = [15, 30, 60, 90] as const;
+const DURATION_TIERS = [15, 30, 60, 90] as const;
 
 function isTier(value: number | null): boolean {
   return DURATION_TIERS.some((tier) => tier === value);

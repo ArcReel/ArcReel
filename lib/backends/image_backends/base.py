@@ -158,16 +158,39 @@ class ImageBackend(Protocol):
         """这条调用通道实现了文生图还是图生图（通道事实，不含模型事实）。"""
         ...
 
-    @property
-    def max_reference_images(self) -> int:
-        """单请求可携带的参考图上限；``0`` = 该后端不按数量裁剪。
+    async def reference_image_limit(self) -> int:
+        """这个模型单请求可携带的参考图上限；``0`` = 该后端不按数量裁剪。
 
-        与 ``generate`` 内的截断常量同源。编排层据此在渲染「图N」编号前裁剪参考图序列
+        与 ``generate`` 内的截断同源。编排层解析图片通道时读一次，据此在渲染「图N」编号前裁剪参考图序列
         （见 ``lib.prompts.reference_image_numbering.clamp_reference_images``），后端内的截断退为兜底。
+        异步：上限可能要向供应商的模型目录查询才知道（如 OpenRouter 按模型声明的 ``input_references``）。
         """
         ...
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult: ...
+
+
+class ImageOutputMissingError(RuntimeError):
+    """供应商成功响应却没有带回图片（常见于内容安全过滤命中或上游异常）。
+
+    与 :class:`ImageCapabilityError` 一样只带稳定 code 与 params，文案由读侧按语言渲染。
+    """
+
+    code = "image_output_missing"
+
+    def __init__(self, *, model: str) -> None:
+        self.params = {"model": model}
+        super().__init__(f"{self.code}: model={model}")
+
+
+class ImageOutputFormatError(RuntimeError):
+    """供应商返回的图片格式无法作为位图产物使用（如矢量 SVG），携带稳定 code 与 params。"""
+
+    code = "image_output_format_unsupported"
+
+    def __init__(self, *, model: str, media_type: str) -> None:
+        self.params = {"model": model, "media_type": media_type}
+        super().__init__(f"{self.code}: model={model} media_type={media_type}")
 
 
 class ImageCapabilityError(RuntimeError):

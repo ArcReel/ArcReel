@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import "@/i18n";
-import { CapabilityOverrideRow, overrideToState, stateToOverride } from "./CapabilityOverrideRow";
+import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
 
 function setup(props: Partial<React.ComponentProps<typeof CapabilityOverrideRow>> = {}) {
   const onChange = vi.fn();
@@ -21,16 +21,19 @@ function setup(props: Partial<React.ComponentProps<typeof CapabilityOverrideRow>
 const seg = (name: RegExp) => screen.getByRole("radio", { name });
 
 describe("三态与覆盖值的映射", () => {
-  it("键缺席映射为跟随，true/false 映射为强制开/关", () => {
-    expect(overrideToState(undefined)).toBe("follow");
-    expect(overrideToState(true)).toBe("on");
-    expect(overrideToState(false)).toBe("off");
+  it.each([
+    [true, /强制开/],
+    [false, /强制关/],
+  ] as const)("覆盖值 %s 选中对应的强制段", (override, name) => {
+    setup({ override });
+    expect(seg(name)).toHaveAttribute("aria-checked", "true");
   });
 
-  it("跟随回写 undefined（键缺席）而非 false", () => {
-    expect(stateToOverride("follow")).toBeUndefined();
-    expect(stateToOverride("on")).toBe(true);
-    expect(stateToOverride("off")).toBe(false);
+  it("点强制开回写 true", async () => {
+    const user = userEvent.setup();
+    const { onChange } = setup();
+    await user.click(seg(/强制开/));
+    expect(onChange).toHaveBeenCalledWith(true);
   });
 });
 

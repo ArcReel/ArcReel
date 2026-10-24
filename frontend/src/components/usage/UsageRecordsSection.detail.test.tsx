@@ -120,7 +120,7 @@ describe("UsageRecordsSection detail", () => {
     const dialog = within(await screen.findByRole("dialog"));
 
     const valueOf = (label: string) =>
-      (dialog.getByText(label, { selector: "span" }).closest("div") as HTMLElement).textContent?.replace(label, "");
+      (dialog.getByText(label, { selector: "span, button" }).closest("div") as HTMLElement).textContent?.replace(label, "");
     // 记录里的总输入 1000 含缓存命中 600 与缓存写入 150，「输入」只剩没缓存的 250。
     expect(valueOf("输入")).toBe("250");
     expect(valueOf("缓存命中")).toBe("600");
@@ -129,7 +129,7 @@ describe("UsageRecordsSection detail", () => {
     expect(valueOf("1 小时")).toBe("50");
     expect(valueOf("输出")).toBe("30");
 
-    await userEvent.hover(dialog.getByText("输入", { selector: "span" }));
+    await userEvent.hover(dialog.getByRole("button", { name: "输入" }));
     expect(await screen.findByText("不含缓存命中与缓存写入的部分")).toBeInTheDocument();
   });
 
@@ -142,7 +142,7 @@ describe("UsageRecordsSection detail", () => {
     const dialog = within(await screen.findByRole("dialog"));
 
     const valueOf = (label: string) =>
-      (dialog.getByText(label, { selector: "span" }).closest("div") as HTMLElement).textContent?.replace(label, "");
+      (dialog.getByText(label, { selector: "span, button" }).closest("div") as HTMLElement).textContent?.replace(label, "");
     expect(valueOf("输入")).toBe("120");
     expect(valueOf("缓存命中")).toBe("—");
     expect(valueOf("缓存写入")).toBe("—");
@@ -266,15 +266,15 @@ describe("UsageRecordsSection detail", () => {
 
     renderUsageRecordsSection("section=usage");
     await userEvent.click(await screen.findByRole("button", { name: "下一页" }));
-    expect(await screen.findByText("21–21 / 40")).toBeInTheDocument();
+    expect(await screen.findByText("21～21 / 40")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "详情" }));
     await screen.findByRole("dialog");
-    expect(screen.getByText("21–21 / 40")).toBeInTheDocument();
+    expect(screen.getByText("21～21 / 40")).toBeInTheDocument();
 
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.getByText("21–21 / 40")).toBeInTheDocument();
+    expect(screen.getByText("21～21 / 40")).toBeInTheDocument();
   });
 
   it("closes on Escape and drops the record param from the URL", async () => {

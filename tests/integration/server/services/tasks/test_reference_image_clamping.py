@@ -1,5 +1,6 @@
 """分镜图参考图按图像后端上限裁剪后再编号：实发张数与声明行一致，依据仍按完整装配集登记。"""
 
+import base64
 import io
 import json
 import logging
@@ -15,6 +16,7 @@ from lib.artifacts.artifact_activation import active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.visual_artifact_provenance import VisualReference, build_storyboard_image_visual_basis
 from lib.backends.image_backends.grok import GrokImageBackend
+from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from server.services.tasks import generation_context, generation_tasks
 from tests.fakes import (
@@ -209,8 +211,7 @@ class TestLimitComesFromTheResolvedBackend:
     @pytest.fixture
     async def vidu_lane(self, db_factory, monkeypatch):
         bind_session_factory(monkeypatch, db_factory)
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
 
         async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
             assert (provider_id, media_type) == ("vidu", "image")
@@ -218,8 +219,7 @@ class TestLimitComesFromTheResolvedBackend:
 
         use_backend_assembler(monkeypatch, _assemble)
         yield
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
 
     async def test_vidu_receives_seven_images_and_a_prompt_numbered_to_match(
         self, tmp_path, monkeypatch, vidu_lane, caplog
@@ -252,8 +252,7 @@ class TestGrokLaneClampsToFive:
     @pytest.fixture
     async def grok_lane(self, db_factory, monkeypatch):
         bind_session_factory(monkeypatch, db_factory)
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
         client = MagicMock()
         client.image.sample = AsyncMock(
             return_value=SimpleNamespace(respect_moderation=True, url="https://grok.test/out.png")
@@ -266,8 +265,7 @@ class TestGrokLaneClampsToFive:
 
         use_backend_assembler(monkeypatch, _assemble)
         yield client
-        generation_context.invalidate_backend_cache()
-        generation_context._backend_cache._locks.clear()
+        generation_context.reset_backend_cache_for_tests()
 
     async def test_grok_receives_five_images_and_the_result_warns(self, tmp_path, monkeypatch, grok_lane):
         project_path = prepare_files(tmp_path)
@@ -289,3 +287,60 @@ class TestGrokLaneClampsToFive:
         assert result["warnings"] == [
             {"key": "ref_too_many_images", "params": {"count": 8, "model": "grok-imagine-image", "max_count": 5}}
         ]
+
+
+class TestOpenRouterLaneClampsToTheCatalogLimit:
+    """真实 OpenRouter backend：上限按模型目录声明的 input_references 给出，编排层据此裁剪并编号。"""
+
+    MODEL = "vendor/three-refs"
+    BASE_URL = "https://openrouter.ai/api/v1"
+
+    @pytest.fixture
+    async def openrouter_lane(self, db_factory, monkeypatch):
+        bind_session_factory(monkeypatch, db_factory)
+        generation_context.reset_backend_cache_for_tests()
+
+        async def _assemble(*, provider_id, media_type, model_id, resolver, rate_limiter=None, generation_type=None):
+            assert media_type == "image"
+            return OpenRouterImageBackend(api_key="k", model=self.MODEL, base_url=self.BASE_URL)
+
+        use_backend_assembler(monkeypatch, _assemble)
+        yield
+        generation_context.reset_backend_cache_for_tests()
+
+    async def test_three_reference_model_receives_three_images_numbered_to_match(
+        self, tmp_path, monkeypatch, openrouter_lane
+    ):
+        project_path = prepare_files(tmp_path)
+        pm = pm_with_eight_references(project_path)
+        pm.project["image_provider_i2i"] = "vidu/viduq2"
+        (project_path / "project.json").write_text(json.dumps(pm.project, ensure_ascii=False), encoding="utf-8")
+        use_project_manager(monkeypatch, pm)
+        catalog = {
+            "data": [
+                {
+                    "id": self.MODEL,
+                    "supported_parameters": {"input_references": {"type": "range", "min": 0, "max": 3}},
+                }
+            ]
+        }
+        buffer = io.BytesIO()
+        Image.new("RGB", (8, 8), "red").save(buffer, format="PNG")
+        image_b64 = base64.b64encode(buffer.getvalue()).decode("ascii")
+
+        with capture_http() as router:
+            models = router.get(f"{self.BASE_URL}/images/models").mock(return_value=httpx.Response(200, json=catalog))
+            route = router.post(f"{self.BASE_URL}/images").mock(
+                return_value=httpx.Response(200, json={"data": [{"b64_json": image_b64}]})
+            )
+            result = await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
+
+        body = json.loads(route.calls.last.request.content)
+        assert len(body["input_references"]) == 3
+        assert "图1、图2、图3为角色参考图" in body["prompt"]
+        assert "图4" not in body["prompt"]
+        assert result["warnings"] == [
+            {"key": "ref_too_many_images", "params": {"count": 8, "model": self.MODEL, "max_count": 3}}
+        ]
+        # 通道解析与生成用同一个实例，目录只查一次：两步读到的上限一致，backend 不会因超限拒绝提交
+        assert models.call_count == 1

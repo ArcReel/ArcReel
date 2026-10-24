@@ -343,16 +343,19 @@ export function LeaveGuardProvider({ children }: { children: ReactNode }) {
     if (!request) return;
     setSaving(true);
     let saved = true;
-    for (const id of request.unitIds) {
-      // 每次取最新登记：前一个单元保存后会重新渲染并更新登记
-      const unit = unitsRef.current.get(id);
-      if (unit && !(await unit.save())) {
-        saved = false;
-        break;
+    try {
+      for (const id of request.unitIds) {
+        // 每次取最新登记：前一个单元保存后会重新渲染并更新登记
+        const unit = unitsRef.current.get(id);
+        if (unit && !(await unit.save())) {
+          saved = false;
+          break;
+        }
       }
+    } finally {
+      setSaving(false);
+      setOpen(false);
     }
-    setSaving(false);
-    setOpen(false);
     // 保存失败留在原处，错误显示在编辑单元的保存栏或提示条上
     if (saved) pass(request.proceed);
   };

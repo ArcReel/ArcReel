@@ -146,7 +146,7 @@ class TestOpenAIImageBackend:
 
         assert result.image_path == output_path
         assert output_path.read_bytes() == b"image_data"
-        assert len(mock_client.images.edit.call_args[1]["image"]) == backend.max_reference_images == 16
+        assert len(mock_client.images.edit.call_args[1]["image"]) == (await backend.reference_image_limit()) == 16
 
     async def test_image_to_image(self, tmp_path: Path):
         """I2I 路径应调用 images.edit()。"""

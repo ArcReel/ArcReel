@@ -108,10 +108,9 @@ class CustomImageBackend:
         implemented = frozenset(self.capabilities)
         return implemented if self._model_capabilities is None else implemented & self._model_capabilities
 
-    @property
-    def max_reference_images(self) -> int:
+    async def reference_image_limit(self) -> int:
         # 自定义供应商的参考图截断发生在被包装的 backend 内，上限即它声明的那一个。
-        return self._delegate.max_reference_images
+        return await self._delegate.reference_image_limit()
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
         result = await self._delegate.generate(request)

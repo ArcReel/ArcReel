@@ -8,7 +8,7 @@ import { cn } from "cn";
 import { API } from "@/api";
 import { providerSettingsPath } from "@/app-routes";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { InfoTip, InfoTipContent, InfoTipTrigger } from "@/components/ui/info-tip";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import type { UsageRecordDetail } from "@/types";
 import { formatCurrencyAmount } from "@/utils/cost-format";
@@ -79,7 +79,7 @@ function Field({
 }: {
   label: string;
   value: ReactNode;
-  /** 悬停或聚焦标签时显示的说明。 */
+  /** 悬停、点按标签或按 Enter/Space 时显示的说明。 */
   hint?: string;
   /** 从属于上一行的明细（如缓存写入的两档）。 */
   indent?: boolean;
@@ -88,17 +88,10 @@ function Field({
     <div className="flex gap-3 py-0.5 text-sm">
       <span className={cn("w-24 shrink-0 text-muted-foreground", indent && "pl-3")}>
         {hint ? (
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 说明只靠悬停无法被键盘与读屏获知，标签须可聚焦；它没有可执行的动作，不渲染为 button
-                <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-4" />
-              }
-            >
-              {label}
-            </TooltipTrigger>
-            <TooltipContent>{hint}</TooltipContent>
-          </Tooltip>
+          <InfoTip>
+            <InfoTipTrigger render={<button type="button" className="cursor-help underline decoration-dotted underline-offset-4" />}>{label}</InfoTipTrigger>
+            <InfoTipContent title={label}>{hint}</InfoTipContent>
+          </InfoTip>
         ) : (
           label
         )}

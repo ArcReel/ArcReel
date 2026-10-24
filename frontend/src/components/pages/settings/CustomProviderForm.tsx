@@ -39,7 +39,8 @@ import { DurationParseError } from "@/utils/duration_format";
 import { formatNameList } from "@/utils/list-format";
 import { parseMultiplier } from "@/utils/multiplier";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
-import { DURATION_ERROR_KEY, ModelTable } from "./CustomProviderModelTable";
+import { ModelTable } from "./CustomProviderModelTable";
+import { DURATION_ERROR_KEY } from "./durationErrors";
 import { FetchModelsDialog, type FetchSelection } from "./FetchModelsDialog";
 import { ProviderModelList } from "./ProviderModelList";
 import {
@@ -733,9 +734,10 @@ export function CustomProviderForm({
                 onToggleDefault={(key) =>
                   updateModels((rows) => toggleDefaultReducer(rows, key, endpointToMediaType, endpointToImageCapabilities))
                 }
-                onSetEnabled={(keys, enabled) =>
-                  updateModels((rows) => rows.map((m) => (keys.includes(m.key) ? { ...m, is_enabled: enabled } : m)))
-                }
+                onSetEnabled={(keys, enabled) => {
+                  const selected = new Set(keys);
+                  updateModels((rows) => rows.map((m) => (selected.has(m.key) ? { ...m, is_enabled: enabled } : m)));
+                }}
               />
             ) : (
               <p className="rounded-lg border border-dashed border-input px-4 py-6 text-center text-sm text-muted-foreground">

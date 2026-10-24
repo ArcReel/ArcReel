@@ -4,7 +4,7 @@ import { AlertTriangle, Bot, CheckCircle2, Loader2, Sparkles } from "lucide-reac
 
 import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
-import { prefillAssistant } from "@/components/shared/DraftStatus";
+import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { OutputTruncationHint } from "@/components/shared/OutputTruncationHint";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

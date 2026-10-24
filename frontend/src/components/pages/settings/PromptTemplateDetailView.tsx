@@ -7,8 +7,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import type { PromptTemplateDetail } from "@/types";
 import { errMsg } from "@/utils/async";
 import { flattenOutputSchema } from "./promptTemplateSchema";
+import { categoryLabel } from "./promptTemplateCategory";
 import {
-  categoryLabel,
   CHIP_CLS,
   DetailSection,
   ErrorCard,

@@ -83,6 +83,19 @@ describe("ProviderCapabilityOverrides", () => {
     expect(screen.getByRole("textbox", { name: "「可选时长」的值" })).toHaveAttribute("aria-invalid", "true");
   });
 
+  it("stops blocking the save once an invalid dimension is restored", () => {
+    const onValidityChange = vi.fn();
+    render(<Harness onValidityChange={onValidityChange} />);
+    fireEvent.click(screen.getByRole("button", { name: "修改「可选时长」" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "「可选时长」的值" }), { target: { value: "8-4" } });
+    expect(onValidityChange).toHaveBeenLastCalledWith("durations", false);
+
+    fireEvent.click(screen.getByRole("button", { name: "恢复「可选时长」" }));
+
+    expect(onValidityChange).toHaveBeenLastCalledWith("durations", true);
+    expect(current()).toEqual({});
+  });
+
   it("drops the duration constraints of a resolution once that resolution is removed", () => {
     render(
       <Harness

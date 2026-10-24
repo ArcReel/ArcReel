@@ -15,15 +15,15 @@ import { Button } from "@/components/ui/button";
 import { ProjectMemoryFiles } from "@/components/agent-memory/ProjectMemoryFiles";
 import { SaveBar } from "@/components/shared/edit-unit/SaveBar";
 import { PartialSaveError, useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
-import { isValidEpisodeTargetDuration } from "@/components/shared/EpisodeTargetDurationField";
-import { executingVideoModel } from "@/components/shared/LayeredModelFields";
+import { isValidEpisodeTargetDuration } from "@/components/shared/episode-target-duration";
+import { executingVideoModel } from "@/components/shared/model-layers";
 import { countModelOverrides } from "@/components/shared/model-overrides";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
-import { narrationDeliveryProblem } from "@/components/shared/NarrationDeliveryFields";
+import { narrationDeliveryProblem } from "@/components/shared/narration-delivery";
 import { PageHeader } from "@/components/shared/page-shell/PageHeader";
 import { PageShell, PageShellFooter } from "@/components/shared/page-shell/PageShell";
 import { PageSidebar, type PageSidebarGroup } from "@/components/shared/page-shell/PageSidebar";
-import { isValidSpeechRate } from "@/components/shared/SpeechRateField";
+import { isValidSpeechRate } from "@/components/shared/speech-rate";
 import { useDisplayNames } from "@/hooks/useDisplayNames";
 import { useModelCandidates } from "@/hooks/useModelCandidates";
 import { useCapabilitiesStore } from "@/stores/capabilities-store";
@@ -152,6 +152,7 @@ function ProjectSettingsView({ projectName }: { projectName: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadCount, setLoadCount] = useState(0);
 
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- await 后的写入都先检查 controller.signal.aborted，cleanup 中 abort 作废上一轮
   useEffect(() => {
     const controller = new AbortController();
     voidCall(

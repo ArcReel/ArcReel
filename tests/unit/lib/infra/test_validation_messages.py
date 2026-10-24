@@ -15,7 +15,7 @@ def _translator(locale: str):
 class TestDefaultTranslate:
     def test_renders_in_chinese(self):
         message = ValidationMessage("val_missing_field", {"field": "title"})
-        assert message.render(default_translate) == "缺少必填字段: title"
+        assert message.render(default_translate) == "缺少必填字段：title"
 
     def test_message_ref_param_follows_the_locale(self):
         message = ValidationMessage(
@@ -35,13 +35,13 @@ class TestDefaultTranslate:
             "val_missing_field",
             {"field": MessageJoin(("title", MessageRef("asset_type_character")), separator=" / ")},
         )
-        assert message.render(default_translate) == "缺少必填字段: title / 角色"
+        assert message.render(default_translate) == "缺少必填字段：title / 角色"
 
 
 class TestValidationResult:
     def test_errors_property_renders_in_default_locale(self):
         result = ValidationResult(valid=False, error_messages=[ValidationMessage("val_missing_field", {"field": "id"})])
-        assert result.errors == ["缺少必填字段: id"]
+        assert result.errors == ["缺少必填字段：id"]
 
     def test_render_warnings_honours_translator(self):
         result = ValidationResult(

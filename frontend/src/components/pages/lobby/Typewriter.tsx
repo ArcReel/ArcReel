@@ -137,6 +137,7 @@ export function Typewriter({
     const segEnd = consumed + seg.text.length;
     const visibleEnd = Math.max(consumed, Math.min(pos, segEnd));
     visibleNodes.push(
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- segments 是固定顺序的文案片段，不重排不增删，位置即身份，文本可能重复不能作 key
       <span key={`tw-s-${i}`} className={seg.className}>
         {seg.text.slice(0, visibleEnd - consumed)}
       </span>,

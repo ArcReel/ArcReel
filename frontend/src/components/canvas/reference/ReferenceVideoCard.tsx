@@ -78,11 +78,14 @@ function renderHighlightedTokens(
     const nextAcc = acc + tk.text.length;
     if (!inserted && caretOffset !== null && caretOffset >= acc && caretOffset <= nextAcc) {
       const local = caretOffset - acc;
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 正文按位置切出的着色片段，只读、无状态，位置即身份
       out.push(<Fragment key={`pre-${i}`}>{renderPiece(tk, tk.text.slice(0, local), `pre-${i}`)}</Fragment>);
       if (anchorEl) out.push(anchorEl);
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 同上：光标后半段的着色片段
       out.push(<Fragment key={`post-${i}`}>{renderPiece(tk, tk.text.slice(local), `post-${i}`)}</Fragment>);
       inserted = true;
     } else {
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 同上：完整的着色片段
       out.push(<Fragment key={`t-${i}`}>{renderPiece(tk, tk.text, `t-${i}`)}</Fragment>);
     }
     acc = nextAcc;
@@ -328,6 +331,7 @@ export function ReferenceVideoCard({
                 {result.references.length ? (
                   <ol className="space-y-2">
                     {result.references.map((reference, index) => (
+                      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 预览结果整份替换、只读，同一张参考图可出现多次，行内无状态
                       <li key={`${reference.path}-${index}`} className="flex items-center gap-3 text-xs text-subtle-foreground">
                         <ReferencePreviewImage projectName={projectName} path={reference.path} name={reference.name} />
                         <span>{t("reference_prompt_preview_image", { index: index + 1, name: reference.name })}</span>

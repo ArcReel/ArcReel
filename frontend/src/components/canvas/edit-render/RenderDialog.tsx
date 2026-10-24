@@ -168,6 +168,7 @@ function RenderPanel({
 
   const busy = requesting || downloading;
   useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent, react-doctor/no-prop-callback-in-effect -- 在途状态来自按版本 key 重新挂载的面板与其 useRenderArtifact，父级无法持有；父级只需据此忽略关闭请求，卸载时由下方 cleanup 复位
     onBusyChange(busy);
   }, [busy, onBusyChange]);
   // 换版本重新挂载或对话框关闭时，上一份面板的在途状态不再拦住关闭。

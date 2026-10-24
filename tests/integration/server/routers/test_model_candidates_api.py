@@ -322,9 +322,13 @@ class TestCatalogDisplayNames:
             en = client.get(CANDIDATES_URL, headers={"Accept-Language": "en"}).json()
         assert zh["provider_names"]["ark"] == "火山方舟"
         assert en["provider_names"]["ark"] == "Volcengine Ark"
-        # 模型显示名取目录条目，不分语言
-        assert zh["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "豆包 Seed 2.0 Pro"
-        assert en["model_names"]["ark/doubao-seed-2-0-pro-260215"] == "豆包 Seed 2.0 Pro"
+        # 模型显示名取目录条目，不分语言；型号从目录取，免得随出厂快照更新失效
+        model_id = catalog.default_model("ark", "text")
+        assert model_id is not None
+        model = catalog.get_model("ark", model_id)
+        assert model is not None
+        assert zh["model_names"][f"ark/{model_id}"] == model.display_name
+        assert en["model_names"][f"ark/{model_id}"] == model.display_name
 
     def test_model_names_cover_media_types_without_buckets(self, make_client):
         """model_names 不按 image/video 收窄——文本 / 音频下拉共用同一份译名表。"""

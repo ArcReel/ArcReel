@@ -23,10 +23,9 @@ import {
   DraftEpisodeViolations,
   DraftSoftViolationList,
   InvalidDraftBar,
-  draftFallbackText,
-  draftFixRequestText,
-  prefillAssistant,
 } from "@/components/shared/DraftStatus";
+import { draftFallbackText, draftFixRequestText } from "@/components/shared/draft-text";
+import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { sumItemDuration } from "@/utils/script-shape";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
@@ -41,7 +40,8 @@ import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScr
 import { ScriptHighlight } from "@/components/shared/ScriptHighlight";
 import { toScriptLines, type MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import { dialogueSpeakers, extractMentions, normalizeAssetName } from "@/utils/reference-mentions";
-import { NewAssetsSection, hasValidNewAssets, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
+import { NewAssetsSection, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
+import { hasValidNewAssets } from "@/utils/plan-new-assets";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { episodeAgentRef, itemIdsInEpisodeText, itemIdWithinEpisode } from "@/utils/episode-display";
 import { tierProblemText } from "./unit-tier-problem";
@@ -240,6 +240,7 @@ function InlineViolations({ violations, unitKey }: { violations: ScriptReviewVio
           ? t(speechKey, { unitId: itemIdWithinEpisode(unitKey), location })
           : itemIdsInEpisodeText(v.message);
         return (
+          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 违约由服务端整表算出、没有 ID，同一 code 可重复出现；只读文本、行内无状态
           <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-xs leading-snug text-destructive">
             <OctagonAlert className="mt-px size-3 shrink-0" aria-hidden="true" />
             <span>{message}</span>

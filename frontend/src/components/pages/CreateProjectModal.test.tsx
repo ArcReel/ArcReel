@@ -455,6 +455,34 @@ describe("CreateProjectModal", () => {
     await waitFor(() => expect(API.uploadStyleImage).toHaveBeenCalledWith("demo-proj", file));
   });
 
+  it("keeps the uploaded style preview across leaving and returning to step 3, and frees every preview it stops using", async () => {
+    let seq = 0;
+    const created = vi.spyOn(URL, "createObjectURL").mockImplementation(() => `blob:preview-${++seq}`);
+    const revoked = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    render(<CreateProjectModal />);
+    fillBasics();
+    await walkToStyle();
+    fireEvent.click(screen.getByRole("tab", { name: "自定义" }));
+    const fileInput = document.querySelector("input[type='file']") as HTMLInputElement;
+    Object.defineProperty(fileInput, "files", { value: [new File(["content"], "style.png", { type: "image/png" })] });
+    fireEvent.change(fileInput);
+    const preview = () => screen.getByRole("img", { name: "上传风格参考图" }).getAttribute("src");
+    expect(preview()).toBe("blob:preview-1");
+
+    fireEvent.click(screen.getByRole("button", { name: "上一步" }));
+    clickNext();
+    await screen.findByRole("button", { name: "创建项目" });
+
+    const shown = preview();
+    expect(shown).not.toBeNull();
+    expect(revoked).not.toHaveBeenCalledWith(shown);
+    // 不再显示的预览地址都已收回，同一时刻只有正在显示的那一个
+    const stale = created.mock.results.map((r) => r.value as string).filter((url) => url !== shown);
+    expect(revoked.mock.calls.map(([url]) => url).sort()).toEqual(stale.sort());
+    created.mockRestore();
+    revoked.mockRestore();
+  });
+
   it("creates without a style when the custom tab has no image", async () => {
     render(<CreateProjectModal />);
     fillBasics();

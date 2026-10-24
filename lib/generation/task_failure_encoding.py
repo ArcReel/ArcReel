@@ -12,7 +12,7 @@ from typing import Any
 
 from arcreel_market_core.video_backend_contract import VideoCapabilityError
 from lib.backends.http_status_errors import ArtifactDownloadError, ProviderRejectedError
-from lib.backends.image_backends.base import ImageCapabilityError
+from lib.backends.image_backends.base import ImageCapabilityError, ImageOutputFormatError, ImageOutputMissingError
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ImageBucketCapabilityError, VideoBucketCapabilityError
 from lib.custom_provider.comfyui.failures import ComfyuiError
@@ -51,6 +51,8 @@ def encode_task_failure_message(exc: Exception) -> str:
         exc,
         ArtifactDownloadError
         | ImageCapabilityError
+        | ImageOutputMissingError
+        | ImageOutputFormatError
         | VideoCapabilityError
         | ReferencePayloadFloorError
         | ImageBucketCapabilityError

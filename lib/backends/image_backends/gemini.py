@@ -114,8 +114,11 @@ class GeminiImageBackend:
     def capabilities(self) -> set[ImageCapability]:
         return set(self.CHANNEL_CAPABILITIES)
 
+    async def reference_image_limit(self) -> int:
+        return self._reference_limit
+
     @property
-    def max_reference_images(self) -> int:
+    def _reference_limit(self) -> int:
         return _MAX_REFERENCE_IMAGES if self._image_model in _MODELS_WITH_14_REFERENCES else 0
 
     @staticmethod
@@ -144,7 +147,7 @@ class GeminiImageBackend:
         # 2. 构建 contents：参考图按数组序位排在前，prompt 置于末尾；
         #    参考图的身份由 prompt 内的 Reference_Images 声明行按「图N」指认，图片之间不夹任何文本标签。
         refs = request.reference_images
-        limit = self.max_reference_images
+        limit = self._reference_limit
         if limit and len(refs) > limit:
             logger.warning("Gemini 参考图数量 %d 超过上限 %d，截断", len(refs), limit)
             refs = refs[:limit]

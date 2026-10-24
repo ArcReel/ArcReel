@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -56,9 +57,9 @@ class TestWhitelistConfig:
     def test_q2_aspect_ratio_includes_auto(self):
         assert "auto" in _ASPECT_RATIO_WHITELIST["viduq2"]
 
-    def test_max_reference_images_is_seven(self):
+    def test_reference_image_limit_is_seven(self):
         assert _MAX_REFERENCE_IMAGES == 7
-        assert ViduImageBackend(api_key="k", model="viduq2").max_reference_images == 7
+        assert asyncio.run(ViduImageBackend(api_key="k", model="viduq2").reference_image_limit()) == 7
 
     def test_prompt_truncation_limit(self):
         assert _PROMPT_MAX_LEN == 2000
@@ -133,7 +134,7 @@ class TestViduReferenceImageLimit:
         import json
 
         body = json.loads(route.calls.last.request.content)
-        assert len(body["images"]) == backend.max_reference_images == 7
+        assert len(body["images"]) == (await backend.reference_image_limit()) == 7
 
 
 class TestViduImageCreateTaskHttpErrors:
