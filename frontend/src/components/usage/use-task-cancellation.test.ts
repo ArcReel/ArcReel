@@ -32,6 +32,36 @@ describe("useTaskCancellation", () => {
     expect(result.current.request).toBeNull();
   });
 
+  it("keeps the new scope's confirmation when a confirm from the previous scope settles later", async () => {
+    vi.spyOn(API, "cancelAllPreview").mockResolvedValue({ queued_count: 2 });
+    let reject!: (error: Error) => void;
+    vi.spyOn(API, "cancelAllQueued").mockImplementation(
+      () =>
+        new Promise((_, r) => {
+          reject = r;
+        }),
+    );
+    const { result, rerender } = renderHook(({ scope }) => useTaskCancellation(scope), {
+      initialProps: { scope: "a" },
+    });
+    await act(() => result.current.requestAll("a"));
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.confirm();
+    });
+
+    rerender({ scope: "b" });
+    await act(() => result.current.requestAll("b"));
+    await act(async () => {
+      reject(new Error("network"));
+      await pending;
+    });
+
+    expect(result.current.request).toEqual({ kind: "all", projectName: "b", queuedCount: 2 });
+    expect(result.current.failed).toBe(false);
+    expect(result.current.cancelling).toBe(false);
+  });
+
   it("ignores a confirmation written for the previous scope even when its preview was not aborted", async () => {
     vi.spyOn(API, "cancelAllPreview").mockResolvedValue({ queued_count: 2 });
     const { result, rerender } = renderHook(({ scope }) => useTaskCancellation(scope), {
