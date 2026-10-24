@@ -2,7 +2,6 @@
 
 import json
 import re
-import shutil
 from collections.abc import Callable
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
@@ -20,6 +19,7 @@ from lib.catalog.errors import ModelNotInCatalogError
 from lib.db.models.api_call import ApiCall
 from lib.db.repositories.session_repo import SessionRepository
 from lib.db.repositories.task_repo import TaskRepository
+from lib.infra.data_root_layout import DataRootLayout
 from lib.project.project_manager import EmptySourceError
 from lib.script.script_batch_edit import (
     InsertAfterOperation,
@@ -52,6 +52,7 @@ class _FakePM:
     def __init__(self, base: Path):
         self.base = base
         self.data_root = base
+        self.layout = DataRootLayout(base)
         self.projects_dir = base
         self.project_data = {
             "ready": {
@@ -135,9 +136,6 @@ class _FakePM:
     def locked_source_registration(self, name):
         with self.locked_source_mutation(name) as source_dir:
             yield source_dir, self.project_data.setdefault(name, {"episodes": []}), ExitStack()
-
-    def delete_project_directory(self, name):
-        shutil.rmtree(self.get_project_path(name))
 
     def get_project_status(self, name):
         return {"current_stage": "source_ready"}

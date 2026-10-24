@@ -401,6 +401,71 @@ describe("ProjectsPage", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("项目名称 'second' 非法");
   });
 
+  it("restores a deleted project under a new name when the original is taken, and reloads the grid", async () => {
+    vi.spyOn(API, "listProjects")
+      .mockResolvedValueOnce({ projects: [summary("demo", { title: "New" })] })
+      .mockResolvedValueOnce({
+        projects: [summary("demo", { title: "New" }), summary("demo-2", { title: "Old" })],
+      });
+    vi.spyOn(API, "listDeletedProjects").mockResolvedValue({
+      projects: [
+        {
+          id: "demo#deleted-20261020T080000Z",
+          name: "demo",
+          title: "Old",
+          deleted_at: "2026-10-20T08:00:00+00:00",
+          expires_at: "2026-11-19T08:00:00+00:00",
+        },
+      ],
+      retention_days: 30,
+    });
+    vi.spyOn(API, "restoreDeletedProject").mockResolvedValue({ name: "demo-2" });
+
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "已删除项目" }));
+    const dialog = await screen.findByRole("dialog", { name: "已删除项目" });
+    await user.click(await within(dialog).findByRole("button", { name: "恢复「Old」" }));
+
+    expect(API.restoreDeletedProject).toHaveBeenCalledWith("demo#deleted-20261020T080000Z");
+    expect(await within(dialog).findByText("没有已删除项目")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(useAppStore.getState().toast?.text).toBe("原名已被占用，「Old」已恢复为 demo-2");
+    });
+    // 对话框是模态的，背后的网格对无障碍树隐藏：按重新加载的请求判断网格已刷新
+    await waitFor(() => expect(API.listProjects).toHaveBeenCalledTimes(2));
+  });
+
+  it("purges a deleted project only after a second confirmation", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+    vi.spyOn(API, "listDeletedProjects").mockResolvedValue({
+      projects: [
+        {
+          id: "demo#deleted-20261020T080000Z",
+          name: "demo",
+          title: "Old",
+          deleted_at: "2026-10-20T08:00:00+00:00",
+          expires_at: "2026-11-19T08:00:00+00:00",
+        },
+      ],
+      retention_days: 30,
+    });
+    vi.spyOn(API, "purgeDeletedProject").mockResolvedValue({ success: true });
+
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "已删除项目" }));
+    const dialog = await screen.findByRole("dialog", { name: "已删除项目" });
+    await user.click(await within(dialog).findByRole("button", { name: "彻底删除「Old」" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "彻底删除「Old」？" });
+    expect(API.purgeDeletedProject).not.toHaveBeenCalled();
+
+    await user.click(within(confirm).getByRole("button", { name: "彻底删除" }));
+
+    expect(API.purgeDeletedProject).toHaveBeenCalledWith("demo#deleted-20261020T080000Z");
+    expect(await within(dialog).findByText("没有已删除项目")).toBeInTheDocument();
+  });
+
   it("exports the chosen scope of a card's project", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [summary("second", { title: "Second" })] });
     vi.spyOn(API, "requestExportToken").mockResolvedValue({

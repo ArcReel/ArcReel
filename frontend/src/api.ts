@@ -142,7 +142,13 @@ import type {
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
-import type { FileViewListing, RestoredFile, TrashListing, TrashRecord } from "@/types/file-view";
+import type {
+  DeletedProjectListing,
+  FileViewListing,
+  RestoredFile,
+  TrashListing,
+  TrashRecord,
+} from "@/types/file-view";
 import type {
   EpisodeNextStep,
   WorkflowMigrationReport,
@@ -672,6 +678,19 @@ class API {
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "DELETE",
     });
+  }
+
+  static async listDeletedProjects(options: { signal?: AbortSignal } = {}): Promise<DeletedProjectListing> {
+    return this.request("/deleted-projects", { signal: options.signal });
+  }
+
+  /** 整体恢复已删除项目；原名被占用时服务端加后缀，返回恢复后的项目名。 */
+  static async restoreDeletedProject(id: string): Promise<{ name: string }> {
+    return this.request(`/deleted-projects/${encodeURIComponent(id)}/restore`, { method: "POST" });
+  }
+
+  static async purgeDeletedProject(id: string): Promise<{ success: boolean }> {
+    return this.request(`/deleted-projects/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 
   /**

@@ -16,6 +16,7 @@ import { LobbyGreeting } from "./lobby/LobbyGreeting";
 import { LobbyHeader } from "./lobby/LobbyHeader";
 import { LobbyToolbar } from "./lobby/LobbyToolbar";
 import { ProjectCard, type ProjectCardActions } from "./lobby/ProjectCard";
+import { DeletedProjectsDialog } from "./lobby/DeletedProjectsDialog";
 import { DeleteProjectDialog, RenameProjectDialog } from "./lobby/ProjectDialogs";
 import { LOBBY_FILTERS, asProjectStatus, matchesFilter, type LobbyFilter } from "./lobby/lobby-projects";
 import { useProjectExport } from "@/components/layout/useProjectExport";
@@ -69,6 +70,7 @@ export function ProjectsPage() {
   const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState<ProjectSummary | null>(null);
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
   const projectImport = useProjectImport({ onImported: reload });
   const projectExport = useProjectExport();
 
@@ -187,6 +189,7 @@ export function ProjectsPage() {
           onCreate={openCreate}
           onImport={projectImport.openPicker}
           importing={projectImport.importing}
+          onOpenDeleted={() => setShowDeleted(true)}
         />
       }
     >
@@ -208,6 +211,7 @@ export function ProjectsPage() {
       {projectExport.element}
       <RenameProjectDialog project={renaming} onClose={() => setRenaming(null)} onDone={reload} />
       <DeleteProjectDialog project={deleting} onClose={() => setDeleting(null)} onDone={reload} />
+      <DeletedProjectsDialog open={showDeleted} onClose={() => setShowDeleted(false)} onRestored={reload} />
       {showCreateModal && <CreateProjectModal />}
     </PageShell>
   );

@@ -76,6 +76,7 @@ The default Compose configuration mounts:
 ```text
 deploy/projects/               data root
 ├── projects/<project-name>/   projects and generated assets
+├── deleted_projects/          deleted projects, kept for 30 days
 ├── global_assets/             global asset library
 ├── users/<user_id>/memory/    Agent user memory
 ├── arcreel.db                 default SQLite database (with -wal / -shm)

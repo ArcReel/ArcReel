@@ -49,7 +49,7 @@ from lib.infra.logging_config import (
 from lib.infra.loop_stall_probe import start_loop_stall_probe, stop_loop_stall_probe
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
-from lib.script.source_loader.migration import migrate_project_source_encoding
+from lib.script.source_loader.migration import migrate_project_source_encoding, migrate_project_source_encoding_once
 from server.auth import ensure_auth_password, get_current_user, warn_if_auth_disabled
 from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok, require_valid_project_name
@@ -330,41 +330,10 @@ async def _migrate_source_encoding_on_startup(
     if not projects_dir.exists():  # noqa: ASYNC240 -- 启动期一次性存在性检查，本地元数据
         return summary
 
-    def _run_one(project_dir: Path) -> dict:
-        marker_dir = project_dir / ".arcreel"
-        marker = marker_dir / "source_encoding_migrated"
-        if marker.exists():
-            return {"skipped": True}
-        try:
-            result = migrate(project_dir)
-            marker_dir.mkdir(exist_ok=True)
-            marker.touch()
-            if result.failed:
-                err_log = marker_dir / "migration_errors.log"
-                err_log.write_text(
-                    "\n".join(f"FAILED: {name}" for name in result.failed) + "\n",
-                    encoding="utf-8",
-                )
-            return {
-                "migrated": result.migrated,
-                "skipped": result.skipped,
-                "failed": result.failed,
-            }
-        except Exception as exc:
-            logger.exception(
-                "源文件编码迁移失败 project=%s，已跳过，server 继续启动",
-                project_dir.name,
-            )
-            try:
-                marker_dir.mkdir(exist_ok=True)
-                (marker_dir / "migration_errors.log").write_text(f"FATAL: {exc}\n", encoding="utf-8")
-                marker.touch()
-            except Exception:
-                pass
-            return {"error": str(exc)}
-
     for project_dir in list_project_dirs(projects_dir):
-        summary[project_dir.name] = await asyncio.to_thread(_run_one, project_dir)
+        summary[project_dir.name] = await asyncio.to_thread(
+            migrate_project_source_encoding_once, project_dir, migrate=migrate
+        )
     return summary
 
 
@@ -545,10 +514,10 @@ async def lifespan(app: FastAPI):
     from lib.catalog.official_sync import start_official_sync, stop_official_sync
 
     catalog_sync = start_official_sync(async_session_factory)
-    # 项目回收站的过期清理：启动时清一次，之后定期清理；随应用关停取消
+    # 项目回收站与已删除项目的过期清理：启动时清一次，之后定期清理；随应用关停取消
     from server.services.project.trash_expiry import start_trash_expiry, stop_trash_expiry
 
-    trash_expiry = start_trash_expiry(layout.projects_dir)
+    trash_expiry = start_trash_expiry(layout)
     try:
         async with remote_mcp_host.run():
             yield

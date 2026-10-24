@@ -478,12 +478,15 @@ class ProjectManager:
     _DELETE_RETRYABLE_ERRNOS = (errno.ENOTEMPTY, errno.EACCES)
 
     def delete_project_directory(self, name: str) -> None:
-        """删除项目目录，容忍并发扫描与删除操作竞态产生的临时性错误。"""
+        """硬删除项目目录，只用于撤销刚建出的项目；容忍并发扫描与删除操作竞态产生的临时性错误。
+
+        创作者删除项目走已删除项目（``lib.project.deleted_projects``），不经这里。
+        """
         project_dir = self.get_project_path(name)
         attempts = 5
         for attempt in range(attempts):
             try:
-                shutil.rmtree(project_dir)  # hard-delete: pending-trash -- #3389 删除整个项目目录
+                shutil.rmtree(project_dir)  # hard-delete: rollback -- 撤销创建失败的项目
                 return
             except FileNotFoundError:
                 # 目录已不存在——上一次重试已经成功,或并发的另一次删除已经完成,
