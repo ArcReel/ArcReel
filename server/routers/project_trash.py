@@ -1,17 +1,18 @@
-"""项目回收站：列出删除记录、恢复、彻底删除与清空（彻底删除与清空只开放给创作者，不给 Agent 工具）。"""
+"""项目回收站：列出删除记录、恢复、彻底删除与清空。彻底删除与清空只开放给创作者：不给 Agent 工具，服务端也拒绝内嵌 Agent 的令牌。"""
 
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.project import project_trash
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
+from server.auth import reject_embedded_agent
 
 router = APIRouter(prefix="/projects/{project_name}/trash")
 
@@ -48,7 +49,7 @@ async def restore_trash_record(project_name: str, record_id: str):
     return await run_sync_transaction(_sync)
 
 
-@router.delete("/{record_id}")
+@router.delete("/{record_id}", dependencies=[Depends(reject_embedded_agent)])
 async def purge_trash_record(project_name: str, record_id: str):
     def _sync() -> None:
         with project_change_source("webui"):
@@ -58,7 +59,7 @@ async def purge_trash_record(project_name: str, record_id: str):
     return {"success": True}
 
 
-@router.delete("")
+@router.delete("", dependencies=[Depends(reject_embedded_agent)])
 async def empty_trash(project_name: str):
     def _sync() -> int:
         with project_change_source("webui"):

@@ -35,7 +35,7 @@ from lib.infra.data_root_layout import DataRootLayout
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
 from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
-from server.auth import create_token, is_auth_enabled
+from server.auth import EMBEDDED_AGENT_SUB, create_token, is_auth_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -349,7 +349,7 @@ class OptionsAssembler:
                 "CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS": "1",
                 "ARCREEL_API_BASE": (os.environ.get("ARCREEL_API_BASE") or "http://127.0.0.1:1241/api/v1").rstrip("/"),
                 "ARCREEL_API_TOKEN": (
-                    create_token("embedded-agent", expiry_seconds=_EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS)
+                    create_token(EMBEDDED_AGENT_SUB, expiry_seconds=_EMBEDDED_AGENT_TOKEN_EXPIRY_SECONDS)
                     if is_auth_enabled()
                     else ""
                 ),

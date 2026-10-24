@@ -57,6 +57,7 @@ from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET
 from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
 from server.agent_toolset.project_entry import CREATE_PROJECT, EDIT_SOURCE_TEXT
+from server.agent_toolset.project_trash import DELETE_PROJECT_FILE, RESTORE_TRASH_RECORD
 from server.agent_toolset.remote import LONG_TASK_NOTE, remote_tool
 from server.agent_toolset.repair_channel import MERGE_ASSET
 from server.agent_toolset.script_authoring import (
@@ -155,6 +156,9 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "restore_revision": {"timeline": "tl-0000abcd", "revision": 1},
     "render_final_cut": {"timeline": "tl-0000abcd"},
     "export_jianying_draft": {"timeline": "tl-0000abcd"},
+    "delete_project_file": {"path": "notes.txt"},
+    "list_trash_records": {},
+    "restore_trash_record": {"record_id": "20261025T000000Z-0000abcd"},
 }
 
 _DECLARATIONS = pytest.mark.parametrize("declaration", AGENT_TOOLSET, ids=lambda declaration: declaration.name)
@@ -553,6 +557,9 @@ _PROBLEM_ON_SAMPLE = frozenset(
         MERGE_ASSET.name,
         # 测试项目没有登记整本源文的文件。
         EDIT_SOURCE_TEXT.name,
+        # 测试项目里没有样例路径的文件，回收站里也没有删除记录。
+        DELETE_PROJECT_FILE.name,
+        RESTORE_TRASH_RECORD.name,
     }
 )
 

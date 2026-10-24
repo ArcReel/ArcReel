@@ -13,6 +13,7 @@ from server.agent_toolset.jianying_drafts import JIANYING_DRAFT_TOOLS
 from server.agent_toolset.media_generation import MEDIA_GENERATION_TOOLS
 from server.agent_toolset.orientation import ORIENTATION_TOOLS
 from server.agent_toolset.project_entry import PROJECT_ENTRY_TOOLS
+from server.agent_toolset.project_trash import PROJECT_TRASH_TOOLS
 from server.agent_toolset.repair_channel import REPAIR_CHANNEL_TOOLS
 from server.agent_toolset.script_authoring import SCRIPT_AUTHORING_TOOLS
 from server.agent_toolset.script_editing import SCRIPT_EDITING_TOOLS
@@ -37,6 +38,7 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *SCRIPT_EDITING_TOOLS,
     *EPISODE_PLANNING_TOOLS,
     *WORKFLOW_COMPLETION_TOOLS,
+    *PROJECT_TRASH_TOOLS,
 )
 
 # 工具 id 是短名（SDK 注册时另加 ``mcp__arcreel__`` 前缀）。前端显示名在 ``frontend/src/i18n/{zh,en,vi}/dashboard.ts``
