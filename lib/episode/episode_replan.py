@@ -624,6 +624,7 @@ def _apply_adoption(
         if num in legacy and path.is_file() and not path.is_symlink():
             path.rename(archive_episode_file_path(path))
         else:
+            # hard-delete: derived -- 重新规划采纳时替换掉的派生集原文，可由分集账本重新生成
             path.unlink(missing_ok=True)
     for num, entry in zip(new_ids, new_entries, strict=True):
         source_range = entry["source_range"]

@@ -419,6 +419,7 @@ def _write_derived(project_dir: Path, episode: int, text: str, *, fresh: bool) -
 
 
 def _remove_derived(project_dir: Path, episode: int) -> None:
+    # hard-delete: derived -- 手动切分丢弃的集原文，可由分集账本重新生成
     episode_source_path(project_dir, episode).unlink(missing_ok=True)
 
 

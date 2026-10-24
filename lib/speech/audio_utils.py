@@ -80,7 +80,7 @@ def discard_stale_reference_audio(stale_path: Path | None) -> None:
     if stale_path is None:
         return
     try:
-        stale_path.unlink(missing_ok=True)
+        stale_path.unlink(missing_ok=True)  # hard-delete: pending-trash -- #3388 替换或清除角色参考音频时删除旧音频
     except OSError:
         logger.warning("旧参考音频物理删除失败，可能残留孤儿文件：%s", stale_path, exc_info=True)
 
@@ -124,7 +124,7 @@ async def probe_audio_duration_seconds(content: bytes, suffix: str) -> float | N
             raise ValueError("音频文件无法解析") from None
     finally:
         for path in created:
-            await run_noninterruptible_sync(path.unlink, missing_ok=True)
+            await run_noninterruptible_sync(path.unlink, missing_ok=True)  # hard-delete: temp -- 时长探测的临时文件
 
     if probe.first_stream("audio") is None:
         raise ValueError("音频文件无法解析")

@@ -399,7 +399,7 @@ def _apply_narration_patch(project: dict, req: UpdateProjectRequest) -> None:
 
 def _cleanup_temp_file(path: str) -> None:
     try:
-        os.unlink(path)
+        os.unlink(path)  # hard-delete: temp -- 归档导入导出的临时文件
     except FileNotFoundError:
         return
 

@@ -416,7 +416,7 @@ def save_manifest(
         os.replace(tmp_str, path)
     except BaseException:
         with contextlib.suppress(OSError):
-            os.unlink(tmp_str)
+            os.unlink(tmp_str)  # hard-delete: temp -- 清单原子写的临时文件
         raise
     return True
 
@@ -441,7 +441,7 @@ def _safe_unlink_if_file(path: Path) -> None:
     # symlink to file → 识别成 True，unlink 删 symlink 本体而非 target；
     # 真 file → 识别 True + unlink。这是安全的，target 文件永远不会被误删。
     if path.is_file():
-        path.unlink()
+        path.unlink()  # hard-delete: derived -- 上游移除且用户未改过的 profile 物化文件，可由 profile 重新物化
 
 
 def _safe_copy(source: Path, dest: Path) -> None:
@@ -460,7 +460,7 @@ def _safe_copy(source: Path, dest: Path) -> None:
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.is_symlink():
-        dest.unlink()
+        dest.unlink()  # hard-delete: infra -- 复制前移除目标处的符号链接，防止写穿到链接目标
     # 拒绝 dest 是真实目录的情况：``shutil.copy2(src, dest_dir)`` 会变成 copy 到
     # ``dest_dir/src.name`` 这种意外路径而不是失败。决策表里 rel 永远是文件级别，
     # 出现 dest 是目录 = 用户/归档预置的同名目录，应显式失败让上层计 errors。
@@ -517,12 +517,15 @@ def _full_reset_from_profile(
     dest_tree = project_dir / _PROFILE_TREE_ROOT
     dest_top = project_dir / _PROFILE_TOP_FILE
     if dest_tree.is_symlink() or dest_tree.is_file():
+        # hard-delete: pending-trash -- #3381 重置 Agent profile 时整棵 .claude/ 被替换，含定制与项目独有 skill
         dest_tree.unlink()
     elif dest_tree.is_dir():
+        # hard-delete: pending-trash -- #3381 重置 Agent profile 时整棵 .claude/ 被替换，含定制与项目独有 skill
         shutil.rmtree(dest_tree)
     if dest_top.is_symlink() or dest_top.is_file():
-        dest_top.unlink()
+        dest_top.unlink()  # hard-delete: pending-trash -- #3381 重置 Agent profile 时 CLAUDE.md 被替换，含用户定制
     elif dest_top.is_dir():
+        # hard-delete: pending-trash -- #3381 重置 Agent profile 时 CLAUDE.md 被替换，含用户定制
         shutil.rmtree(dest_top)
 
     manifest = Manifest.empty()

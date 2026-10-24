@@ -361,10 +361,10 @@ def stage_provider_media(
         return planned
     finally:
         if not published:
-            shutil.rmtree(temporary_dir, ignore_errors=True)
+            shutil.rmtree(temporary_dir, ignore_errors=True)  # hard-delete: temp -- 供应商媒体暂存目录
         # Concurrent staging or another task-owned entry can keep the shared task directory non-empty.
         with contextlib.suppress(OSError):
-            task_dir.rmdir()
+            task_dir.rmdir()  # hard-delete: temp -- 空的任务暂存目录
 
 
 async def stage_provider_media_for_task(
@@ -416,21 +416,21 @@ def cleanup_staged_provider_media(project_path: Path, task_id: str) -> None:
         if _is_link_or_junction(cursor):
             return
     if final_dir.is_symlink():
-        final_dir.unlink(missing_ok=True)
+        final_dir.unlink(missing_ok=True)  # hard-delete: temp -- 任务的供应商媒体暂存
     elif _is_junction(final_dir):
         # Windows directory junctions are directory reparse points: remove the entry with rmdir so neither
         # pathlib.unlink nor recursive deletion can follow or reject the linked directory.
         # Idempotent cleanup can race with another remover of the same junction entry.
         with contextlib.suppress(FileNotFoundError):
-            final_dir.rmdir()
+            final_dir.rmdir()  # hard-delete: temp -- 任务的供应商媒体暂存
     elif os.path.lexists(final_dir):
         if final_dir.is_dir():
-            shutil.rmtree(final_dir)
+            shutil.rmtree(final_dir)  # hard-delete: temp -- 任务的供应商媒体暂存
         else:
-            final_dir.unlink(missing_ok=True)
+            final_dir.unlink(missing_ok=True)  # hard-delete: temp -- 任务的供应商媒体暂存
     # Parent pruning is best effort because sibling task data or a concurrent creator may keep it in use.
     with contextlib.suppress(OSError):
-        final_dir.parent.rmdir()
+        final_dir.parent.rmdir()  # hard-delete: temp -- 空的任务暂存目录
 
 
 @dataclass(frozen=True, slots=True)

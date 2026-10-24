@@ -194,7 +194,7 @@ class ComfyuiExecution:
         head = await asyncio.to_thread(_read_head, output_path)
         if container_matches(head, self._media_type):
             return
-        await asyncio.to_thread(output_path.unlink, True)
+        await asyncio.to_thread(output_path.unlink, True)  # hard-delete: temp -- 刚下载、容器格式不符的输出
         raise ComfyuiError(OUTPUT_CONTAINER_MISMATCH, filename=picked.filename, media_type=self._media_type)
 
     async def _history_or_lost(

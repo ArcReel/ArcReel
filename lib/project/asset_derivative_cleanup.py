@@ -58,7 +58,7 @@ def purge_owner_derivative_sheets(project_dir: Path, owner_name: str, entry: Map
 
 def _unlink(path: Path) -> None:
     try:
-        path.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)  # hard-delete: pending-trash -- #3385 删除资产、衍生或合并资产时删除衍生图
     except OSError:
         logger.warning("衍生资产图删除失败，已解除登记", exc_info=True)
 
@@ -66,4 +66,4 @@ def _unlink(path: Path) -> None:
 def _remove_if_empty(directory: Path) -> None:
     # 非空、不存在或无权限都不是错误：目录只是收纳，留着不影响任何登记。
     with contextlib.suppress(OSError):
-        directory.rmdir()
+        directory.rmdir()  # hard-delete: infra -- 衍生图清理后的空目录

@@ -194,7 +194,7 @@ def _promote_temp_output(succeeded: bool, temp_path: Path, output_path: Path) ->
         temp_path.replace(output_path)
         return True
     finally:
-        temp_path.unlink(missing_ok=True)
+        temp_path.unlink(missing_ok=True)  # hard-delete: temp -- ffmpeg 临时输出
 
 
 async def _extract_frame_at_index(

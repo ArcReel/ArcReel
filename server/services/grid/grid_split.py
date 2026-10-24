@@ -145,7 +145,7 @@ async def apply_grid_split(
                     src.load()
                     return snapshot, split_grid_image(src, grid.rows, grid.cols, video_aspect_ratio)
             except BaseException:
-                snapshot.unlink(missing_ok=True)
+                snapshot.unlink(missing_ok=True)  # hard-delete: temp -- 切分用的合成图快照
                 raise
 
         composite_snapshot, cells = _snapshot_and_split()
@@ -194,7 +194,7 @@ async def apply_grid_split(
                 staged_path = Path(staged_name)
                 staged_paths.append(staged_path)
                 os.close(fd)
-                staged_path.unlink()
+                staged_path.unlink()  # hard-delete: temp -- mkstemp 占位文件
                 cell.save(staged_path, format="PNG")
                 version_metadata = {"source": "grid_split", "grid_id": grid.id}
                 version_metadata_by_resource[resource_id] = version_metadata
@@ -410,8 +410,8 @@ async def apply_grid_split(
             return updated_ids, missing_ids
         finally:
             for staged_path in staged_paths:
-                staged_path.unlink(missing_ok=True)
-            composite_snapshot.unlink(missing_ok=True)
+                staged_path.unlink(missing_ok=True)  # hard-delete: temp -- 切分的暂存格
+            composite_snapshot.unlink(missing_ok=True)  # hard-delete: temp -- 切分用的合成图快照
 
     updated_ids, missing_ids = await run_noninterruptible_sync(_split_and_assign)
 

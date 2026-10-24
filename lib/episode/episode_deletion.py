@@ -283,9 +283,10 @@ def delete_episode(
         from lib.artifacts.artifact_activation import register_artifact_entries_atomically
 
         for path in source_files:
+            # hard-delete: pending-trash -- #3384 删集时删除集原文（切自整本源文的集原文属派生，接入时区分）
             path.unlink(missing_ok=True)
         if script_path is not None:
-            script_path.unlink(missing_ok=True)
+            script_path.unlink(missing_ok=True)  # hard-delete: pending-trash -- #3384 删集时删除剧本
         sync_source_snapshots(project_dir, committed["project"], {})
         expected: dict[ArtifactKey, ArtifactManifestEntry | None] = committed["expected"]
         if expected:
@@ -304,9 +305,10 @@ def delete_episode(
 def _remove_tree(path: Path) -> None:
     try:
         if path.is_symlink() or path.is_file():
+            # hard-delete: pending-trash -- #3384 删集后清理该集的草稿、渲染与媒体（其中 .lock 属基础设施）
             path.unlink(missing_ok=True)
         elif path.is_dir():
-            shutil.rmtree(path)
+            shutil.rmtree(path)  # hard-delete: pending-trash -- #3384 删集后清理该集的草稿、渲染与媒体目录
     except OSError:
         logger.warning("删除集的产物清理失败：%s", path, exc_info=True)
 

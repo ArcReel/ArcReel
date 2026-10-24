@@ -769,6 +769,7 @@ async def finalize_reference_video_unit(
     if await extract_video_thumbnail(output_path, thumb_path):
         thumb_rel: str | None = f"reference_videos/thumbnails/{resource_id}.jpg"
     else:
+        # hard-delete: derived -- 抽取失败时清掉视频缩略图，可从视频重新生成
         await run_noninterruptible_sync(thumb_path.unlink, missing_ok=True)
         thumb_rel = None
 

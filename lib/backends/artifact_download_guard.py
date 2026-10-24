@@ -202,7 +202,7 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
             await flush()
         await run_sync_transaction(os.replace, partial_path, output_path)
     except BaseException:
-        await asyncio.to_thread(partial_path.unlink, True)
+        await asyncio.to_thread(partial_path.unlink, True)  # hard-delete: temp -- 下载中断留下的 .partial 文件
         raise
 
 

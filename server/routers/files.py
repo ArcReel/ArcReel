@@ -571,6 +571,7 @@ async def upload_file(
                             if spec.host_bucket is not None:
                                 # 入口已校验宿主存在；并发删除导致的窗口期竞态按 404 处理，
                                 # 已落盘的文件一并清理避免孤儿
+                                # hard-delete: rollback -- 宿主资产已消失时移除刚上传的文件
                                 target_path.unlink(missing_ok=True)
                                 raise HTTPException(
                                     status_code=404, detail=_t(spec.host_not_found_key, name=name)
@@ -756,8 +757,10 @@ async def _handle_source_upload(
                     original_filename=original_filename,
                     on_conflict=on_conflict,
                 )
+                # hard-delete: rollback -- 源文件写入失败时撤销本次写入
                 undo.callback(result.normalized_path.unlink, missing_ok=True)
                 if result.raw_path is not None:
+                    # hard-delete: rollback -- 源文件写入失败时撤销本次写入
                     undo.callback(result.raw_path.unlink, missing_ok=True)
                 loaded["result"] = result
                 return f"source/{result.normalized_path.name}"
@@ -768,7 +771,7 @@ async def _handle_source_upload(
                 )
             return outcome
         finally:
-            tmp_path.unlink(missing_ok=True)
+            tmp_path.unlink(missing_ok=True)  # hard-delete: temp -- 上传临时文件
 
     try:
         outcome = await run_sync_transaction(_sync)
@@ -836,7 +839,7 @@ async def _handle_episode_source_upload(
                 shutil.copyfileobj(file.file, out)
             extracted = SourceLoader.extract(tmp_path, original_filename=original_filename)
         finally:
-            tmp_path.unlink(missing_ok=True)
+            tmp_path.unlink(missing_ok=True)  # hard-delete: temp -- 上传临时文件
         with project_change_source("webui"), manager.locked_source_registration(project_name) as (_dir, project, undo):
             return add_own_source_episode(project_dir, project, extracted.text, undo=undo, source_kind=source_kind)
 
@@ -1081,7 +1084,7 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
                     raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
                 unregister_source_file(project, f"source/{filename}")
                 content = source_path.read_bytes()
-                source_path.unlink()
+                source_path.unlink()  # hard-delete: pending-trash -- #3387 删除源文件
                 undo.callback(source_path.write_bytes, content)
 
             # 登记已写回后再级联删除原文件备份（同 stem，任意扩展名）
@@ -1090,7 +1093,7 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
                 stem = source_path.stem
                 for raw_file in raw_dir.iterdir():
                     if raw_file.is_file() and raw_file.stem == stem:
-                        raw_file.unlink()
+                        raw_file.unlink()  # hard-delete: pending-trash -- #3387 删除源文件时连带删除原始上传件
             return {"success": True}
 
         return await run_sync_transaction(_sync)

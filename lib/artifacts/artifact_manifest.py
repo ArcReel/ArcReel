@@ -1688,9 +1688,9 @@ class ProjectArtifactManifestAdapter:
     def _remove_manifest_unlocked(self, root_fd: int | None) -> None:
         def unlink() -> None:
             if root_fd is None:
-                (self._project_dir / MANIFEST_FILENAME).unlink()
+                (self._project_dir / MANIFEST_FILENAME).unlink()  # hard-delete: infra -- 已清空的产物清单 sidecar
             else:
-                os.unlink(MANIFEST_FILENAME, dir_fd=root_fd)
+                os.unlink(MANIFEST_FILENAME, dir_fd=root_fd)  # hard-delete: infra -- 已清空的产物清单 sidecar
 
         try:
             _retry_while_held_open(unlink, self._sleep)
@@ -2516,6 +2516,6 @@ def _create_temporary_file(root_fd: int, *, nofollow_flag: int) -> tuple[int, st
 
 def _unlink_temporary_file(tmp_name: str, root_fd: int | None) -> None:
     if root_fd is None:
-        os.unlink(tmp_name)
+        os.unlink(tmp_name)  # hard-delete: temp -- 清单原子写的临时文件
     else:
-        os.unlink(tmp_name, dir_fd=root_fd)
+        os.unlink(tmp_name, dir_fd=root_fd)  # hard-delete: temp -- 清单原子写的临时文件

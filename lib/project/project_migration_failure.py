@@ -181,7 +181,7 @@ def clear_migration_failure(project_dir: Path) -> None:
 
     path = migration_failure_path(project_dir)
     try:
-        path.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)  # hard-delete: infra -- 迁移失败判定记录
     except OSError as exc:
         logger.error("无法清除迁移失败记录，该项目仍被阻断：%s（%s）", path, exc)
         raise
@@ -231,7 +231,7 @@ def _write_atomically(path: Path, record: MigrationFailureRecord) -> None:
         # failed write is louder than the migration failure it was recording:
         # generation stays open on data the migration already refused.
         logger.error("无法写入迁移失败记录，该项目不会被阻断：%s（%s）", path, exc)
-        Path(tmp_name).unlink(missing_ok=True)
+        Path(tmp_name).unlink(missing_ok=True)  # hard-delete: temp -- 原子写的临时文件
         raise
 
 

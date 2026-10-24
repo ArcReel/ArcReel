@@ -45,7 +45,7 @@ class FrozenImageReferences:
         """Remove snapshots after the awaited provider submission completes."""
 
         if self._directory is not None:
-            shutil.rmtree(self._directory, ignore_errors=True)
+            shutil.rmtree(self._directory, ignore_errors=True)  # hard-delete: temp -- 冻结参考图的临时副本目录
 
 
 def freeze_image_references(
@@ -94,7 +94,7 @@ def freeze_image_references(
             if source.resolve(strict=True) != resolved or visual_file_digest(source) != source_digest:
                 raise OSError("reference images changed while they were frozen")
     except BaseException:
-        shutil.rmtree(directory, ignore_errors=True)
+        shutil.rmtree(directory, ignore_errors=True)  # hard-delete: temp -- 冻结参考图失败时的临时副本目录
         raise
     return FrozenImageReferences(frozen_provider, tuple(frozen_visuals), directory)
 

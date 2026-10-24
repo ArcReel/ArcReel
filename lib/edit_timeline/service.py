@@ -433,6 +433,7 @@ class EditTimelineService:
             # 时间线 ID 不复用，成片与剪映草稿的身份挂在它上面：时间线没了，登记与文件都没有归属。
             with project_metadata_lock(project_dir):
                 forget_timeline_render_artifacts(project_dir, timeline_id)
+                # hard-delete: pending-trash -- #3382 删除剪辑时间线时连带删除它的渲染与剪映草稿
                 shutil.rmtree(project_dir / timeline_renders_dir(episode, timeline_id), ignore_errors=True)
 
     async def delete(self, project_name: str, timeline_id: str) -> None:

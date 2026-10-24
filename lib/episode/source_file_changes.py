@@ -291,7 +291,7 @@ def _revision(operation: Mapping[str, Any], impact: SourceFileImpact) -> str:
 
 def _restore_file(path: Path, content: bytes | None) -> None:
     if content is None:
-        path.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)  # hard-delete: rollback -- 撤销时移除事务前不存在的文件
     else:
         path.write_bytes(content)
 
@@ -377,7 +377,7 @@ def _apply(
         path = episode_source_path(project_dir, episode)
         if path.is_file() and not path.is_symlink():
             _remember(path, undo)
-            path.unlink()
+            path.unlink()  # hard-delete: derived -- 整本源文变化后退下的派生集原文，可由分集账本重新生成
     _sync_snapshots(project_dir, project, docs, change.touched, undo)
     _record_fingerprints(project, docs, change.touched)
 
@@ -424,6 +424,7 @@ def _purge_raw_backups(project_dir: Path, rel: str, undo: ExitStack) -> None:
     for path in raw_dir.iterdir():
         if path.stem == stem and path.is_file() and not path.is_symlink():
             _remember(path, undo)
+            # hard-delete: pending-trash -- #3387 删除整本源文件时连带删除原始上传件（替换上传也经此清理旧上传件）
             path.unlink()
 
 
@@ -525,7 +526,7 @@ def delete_whole_source_file(
             path = project_dir / rel
             if path.is_file() and not path.is_symlink():
                 _remember(path, undo)
-                path.unlink()
+                path.unlink()  # hard-delete: pending-trash -- #3387 删除整本源文中的源文件
             _purge_raw_backups(project_dir, rel, undo)
 
         return _Change(docs=[doc for doc in docs if doc.rel_path != rel], remaps=remaps, commit=commit, touched=[rel])

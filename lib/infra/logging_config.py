@@ -99,7 +99,7 @@ def migrate_legacy_log_dir(*, legacy_dir: Path = LEGACY_LOG_DIR) -> None:
         if moved:
             logger.info("migrated %d legacy log entries %s -> %s", moved, old_dir, new_dir)
         with contextlib.suppress(OSError):
-            old_dir.rmdir()
+            old_dir.rmdir()  # hard-delete: infra -- 迁走后的空旧日志目录
     except OSError as exc:
         logger.error(
             "legacy log dir migration FAILED (logs remain at %s; please move them to %s manually): %s",

@@ -549,7 +549,7 @@ async def upload_grid_image(
             )
     finally:
         for path in staged_files:
-            await asyncio.to_thread(path.unlink, missing_ok=True)
+            await asyncio.to_thread(path.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
 
     return {
         "success": True,

@@ -53,7 +53,7 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
     # 必须无条件继续执行，否则 schema_version 升 1 后永久遗失版本文件。
     # 目录非空（有残余未知文件）则保留，不视为迁移失败
     with contextlib.suppress(OSError):
-        clues_dir.rmdir()
+        clues_dir.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
 
     # versions/clues 同样按原 clue type 分流
     versions_clues = project_dir / "versions" / "clues"
@@ -66,7 +66,7 @@ def _relocate_clue_files(project_dir: Path, old_clues: dict[str, dict]) -> None:
                 shutil.move(str(file), str(target_versions / file.name))
         # versions/clues 非空（有未归类文件）则保留，不视为迁移失败
         with contextlib.suppress(OSError):
-            versions_clues.rmdir()
+            versions_clues.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
 
 
 def _migrate_scripts(project_dir: Path, old_clues: dict[str, dict]) -> None:

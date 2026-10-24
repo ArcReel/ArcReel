@@ -41,7 +41,7 @@ PresentationBundleServiceDep = Annotated[PresentationBundleService, Depends(get_
 
 
 def _cleanup_bundle(path: str) -> None:
-    shutil.rmtree(Path(path).parent, ignore_errors=True)
+    shutil.rmtree(Path(path).parent, ignore_errors=True)  # hard-delete: temp -- 导出包的临时目录
 
 
 @router.get("/projects/{project_name}/presentations/{resource_type}/{resource_id}/bundle")
