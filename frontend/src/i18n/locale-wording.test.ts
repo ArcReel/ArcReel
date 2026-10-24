@@ -34,7 +34,7 @@ describe("locale wording", () => {
   it("writes value ranges with「～」in the zh pack", () => {
     // 端点含占位符或百分号、或后接单位的才算范围；两端都是裸数字的（如时长档位简写 3-15）是用户照样输入的语法
     const range =
-      /\{\{\w+\}\}\s?[-–]\s?(\d|\{\{)|\d\s?[-–]\s?\{\{|\d%\s?[-–]\s?\d|\d\s?[-–]\s?\d+(%|\s?[\p{Script=Han}A-Za-z])/u;
+      /\{\{\w+\}\}\s?[-–]\s?(\d|\{\{)|\d\s?[-–]\s?\{\{|\d%\s?[-–]\s?\d|\d\s?[-–]\s?\d+(\.\d+)?(%|\s?[\p{Script=Han}A-Za-z])/u;
     const offenders = entries(zh).filter(([, text]) => range.test(text));
     expect(offenders).toEqual([]);
   });
