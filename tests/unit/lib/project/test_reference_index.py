@@ -20,7 +20,7 @@ def _write(path: Path, content: object) -> None:
 
 
 @pytest.fixture
-def project_dir(tmp_path: Path) -> Path:
+def indexed_project_dir(tmp_path: Path) -> Path:
     root = tmp_path / "demo"
     _write(
         root / "project.json",
@@ -163,12 +163,12 @@ def project_dir(tmp_path: Path) -> Path:
         ("scripts/.episode_1.json.lock", FileReference(FileRole.INFRASTRUCTURE)),
     ],
 )
-def test_role_comes_from_project_references(project_dir: Path, rel: str, expected: FileReference) -> None:
-    assert ReferenceIndex.build(project_dir).reference_of(rel) == expected
+def test_role_comes_from_project_references(indexed_project_dir: Path, rel: str, expected: FileReference) -> None:
+    assert ReferenceIndex.build(indexed_project_dir).reference_of(rel) == expected
 
 
-def test_contains_resource_tracks_project_data(project_dir: Path) -> None:
-    index = ReferenceIndex.build(project_dir)
+def test_contains_resource_tracks_project_data(indexed_project_dir: Path) -> None:
+    index = ReferenceIndex.build(indexed_project_dir)
 
     assert index.contains_resource("characters", "阿青")
     assert index.contains_resource("character_derivatives", "阿青/少年")
@@ -182,8 +182,32 @@ def test_contains_resource_tracks_project_data(project_dir: Path) -> None:
     assert not index.contains_resource("reference_videos", "E1S01")
 
 
-def test_corrupt_project_data_fails_instead_of_reporting_unreferenced(project_dir: Path) -> None:
-    (project_dir / "scripts/episode_1.json").write_text("{", encoding="utf-8")
+def test_pending_grid_record_is_structure_before_any_reference(indexed_project_dir: Path) -> None:
+    # 排队中的宫格只有 grids/<id>.json，还没有产物登记或剧本 grid_id。
+    _write(indexed_project_dir / "grids/grid_fedcba987654.json", {"id": "grid_fedcba987654", "status": "pending"})
+
+    index = ReferenceIndex.build(indexed_project_dir)
+
+    assert index.reference_of("grids/grid_fedcba987654.json") == FileReference(
+        FileRole.STRUCTURE, FileOwner("grid", id="grid_fedcba987654")
+    )
+    # 已有剧本引用的宫格仍带所属集。
+    assert index.reference_of("grids/grid_0123456789ab.json").owner == FileOwner(
+        "grid", id="grid_0123456789ab", episode=1
+    )
+
+
+def test_legacy_script_plan_is_structure_of_its_episode(indexed_project_dir: Path) -> None:
+    # 只剩旧版 .md 规划时，分集视图仍读取它作为该集的脚本规划。
+    _write(indexed_project_dir / "drafts/episode_1/script_plan_normalized_script.md", "# 规划")
+
+    assert ReferenceIndex.build(indexed_project_dir).reference_of(
+        "drafts/episode_1/script_plan_normalized_script.md"
+    ) == FileReference(FileRole.STRUCTURE, FileOwner("episode", episode=1))
+
+
+def test_corrupt_project_data_fails_instead_of_reporting_unreferenced(indexed_project_dir: Path) -> None:
+    (indexed_project_dir / "scripts/episode_1.json").write_text("{", encoding="utf-8")
 
     with pytest.raises(json.JSONDecodeError):
-        ReferenceIndex.build(project_dir)
+        ReferenceIndex.build(indexed_project_dir)

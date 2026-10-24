@@ -20,7 +20,7 @@ BASE = "/api/v1/projects/demo/file-view"
 
 
 @pytest.fixture
-def project_dir(tmp_path):
+def file_view_project_dir(tmp_path):
     root = DataRootLayout(tmp_path / "data").projects_dir / "demo"
     (root / "storyboards").mkdir(parents=True)
     (root / ".arcreel/memory").mkdir(parents=True)
@@ -50,8 +50,8 @@ def project_dir(tmp_path):
 
 
 @pytest.fixture
-def file_view_client(project_dir, monkeypatch):
-    data_root = project_dir.parents[1]
+def file_view_client(file_view_project_dir, monkeypatch):
+    data_root = file_view_project_dir.parents[1]
     monkeypatch.setattr(file_view, "get_project_manager", lambda: ProjectManager(str(data_root)))
     app = FastAPI()
     app.include_router(
@@ -124,12 +124,12 @@ def test_content_refuses_infrastructure_traversal_and_non_files(file_view_client
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="platform has no symlink")
-def test_symlinks_are_neither_listed_nor_followed(file_view_client, project_dir, tmp_path):
+def test_symlinks_are_neither_listed_nor_followed(file_view_client, file_view_project_dir, tmp_path):
     outside = tmp_path / "secret"
     outside.mkdir()
     (outside / "key.txt").write_text("secret", encoding="utf-8")
-    (project_dir / "storyboards/link.png").symlink_to(project_dir / "storyboards/scene_E1S01.png")
-    (project_dir / "outside").symlink_to(outside, target_is_directory=True)
+    (file_view_project_dir / "storyboards/link.png").symlink_to(file_view_project_dir / "storyboards/scene_E1S01.png")
+    (file_view_project_dir / "outside").symlink_to(outside, target_is_directory=True)
 
     assert "outside" not in _entries(file_view_client.get(BASE))
     assert "link.png" not in _entries(file_view_client.get(BASE, params={"path": "storyboards"}))

@@ -164,7 +164,8 @@ class SourceLoader:
             )
         except Exception:
             # raw 备份失败：回滚已写入的 normalized，避免孤儿文件误导后续 detect_conflict
-            normalized_path.unlink(missing_ok=True)  # hard-delete: rollback -- 原始上传件备份失败时移除刚写的规范化文本
+            # hard-delete: rollback -- 原始上传件备份失败时移除目标路径的规范化文本；replace 时被覆盖的旧内容不会恢复
+            normalized_path.unlink(missing_ok=True)
             raise
 
         return NormalizeResult(

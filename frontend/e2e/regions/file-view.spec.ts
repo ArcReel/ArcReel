@@ -144,6 +144,24 @@ defineRegionScenarios("文件视图", [
     },
   },
   {
+    name: "多选未引用文件：选择数量、取消选择与受保护文件",
+    path: PATH,
+    api: STRESS,
+    ready: (page) => tree(page).getByRole("button", { name: /storyboards/ }).waitFor(),
+    act: async (page) => {
+      const nav = tree(page);
+      await nav.getByRole("button", { name: /storyboards/ }).click();
+      await nav.getByRole("checkbox", { name: `选择 ${LONG_NAME}_1.png` }).check();
+      await nav.getByRole("checkbox", { name: `选择 ${LONG_NAME}_4.png` }).check();
+      await expect(nav.getByRole("checkbox", { name: `选择 ${LONG_NAME}_2.png` })).toHaveCount(0);
+      await expect(nav.getByRole("button", { name: "移入项目回收站（2）" })).toBeEnabled();
+      await nav.getByRole("button", { name: /storyboards/ }).click();
+      await expect(nav.getByRole("button", { name: "移入项目回收站（2）" })).toBeEnabled();
+      await nav.getByRole("button", { name: "取消选择" }).click();
+      await expect(nav.getByRole("button", { name: "移入项目回收站（2）" })).toHaveCount(0);
+    },
+  },
+  {
     name: "项目回收站分区：没有删除记录",
     path: PATH,
     api: EVENT_STREAM,
