@@ -153,6 +153,7 @@ from lib.script.script_batch_edit import (
     ScriptBatchEditor,
     ScriptBatchEditProblem,
     ScriptBatchEditResult,
+    SetSequenceDirectionOperation,
     script_revision,
 )
 from lib.script.script_editor import (
@@ -507,7 +508,12 @@ class PatchSplitOperation(BaseModel):
 
 
 PatchEpisodeScriptOperation = Annotated[
-    PatchUpdateOperation | PatchInsertOperation | PatchMoveOperation | PatchRemoveOperation | PatchSplitOperation,
+    PatchUpdateOperation
+    | PatchInsertOperation
+    | PatchMoveOperation
+    | PatchRemoveOperation
+    | PatchSplitOperation
+    | SetSequenceDirectionOperation,
     Field(discriminator="op"),
 ]
 
@@ -522,7 +528,8 @@ class PatchEpisodeScriptRequest(BaseModel):
         pattern=r"^sha256-v1:[0-9a-f]{64}$", description="get_episode_script 返回的当前 revision"
     )
     operations: list[PatchEpisodeScriptOperation] = Field(
-        min_length=1, description="按顺序执行的编辑操作，整批原子提交：update / insert / move / remove / split"
+        min_length=1,
+        description="按顺序执行的编辑操作，整批原子提交：update / insert / move / remove / split / set_sequence_direction",
     )
 
     @field_validator("script")
@@ -2252,6 +2259,11 @@ def _project_patch_operations(
             except ScriptEditError as exc:
                 exc.params.update(operation_index=operation_index, location=location, unit_id=unit_id)
                 raise
+
+        if isinstance(operation, SetSequenceDirectionOperation):
+            preview["sequence_direction"] = operation.direction.model_dump()
+            append(operation.model_dump(mode="python"), index)
+            continue
 
         if isinstance(operation, PatchUpdateOperation):
             item_id = operation.id

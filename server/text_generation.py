@@ -950,7 +950,7 @@ async def generate_drama_script_plan(
                 draft_path,
                 script_plan_path,
             )
-        schema = build_drama_normalized_script_model(supported_durations)
+        schema = build_drama_normalized_script_model(supported_durations, require_direction=True)
         generator = await TextGenerator.create(
             TextTaskType.SCRIPT, project_name=project_name, purpose=CallPurpose.SCRIPT_GENERATION
         )

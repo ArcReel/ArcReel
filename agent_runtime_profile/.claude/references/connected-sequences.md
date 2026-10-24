@@ -4,7 +4,7 @@ Use this workflow when multiple shots depict one continuous event, or the creato
 
 ## Save one sequence plan
 
-Use the existing project file tools to save a small production note under `refinement/`; keep the episode script and timeline as the source of executable prompts and edits. Do not invent script fields or a second asset registry. Update the note after each decision so another session can resume it.
+New drama plans must include `sequence_direction` and each shot's `continuity`. These fields are saved into the formal script, and targeted prompt authoring receives the shared direction plus neighboring shot states. Use `patch_episode_script` with `set_sequence_direction` to revise the shared plan and `update` to revise a shot's `continuity`; combine related changes in one revision-checked batch. Reauthor the affected prompts before rendering. Keep detailed experimental evidence under `refinement/`, not a second executable script or asset registry. Legacy scripts remain readable; add direction and continuity before extending a disconnected sequence.
 
 Record:
 

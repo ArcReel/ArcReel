@@ -153,6 +153,7 @@ from lib.script.script_review import (
 )
 from lib.script.script_skeleton import resolve_declared_kind, resolve_kind_items, rewrite_episode_prefix
 from lib.script.script_structure_validator import validate_script_structure
+from lib.script.sequence_direction import SequenceDirection, render_sequence_context
 from lib.speech.speech_composition import require_script_unit_admitted
 from lib.speech.speech_rate import project_speech_rate_override
 
@@ -327,6 +328,7 @@ class ScriptGenerator:
         self.project_path = Path(project_path)
         self.generator = generator
         self.config_resolver = config_resolver
+        self._script_plan_direction: dict | None = None
         self._script_plan_fingerprint: str | None = None
         #: 加载器读到的脚本规划顶层 ``new_assets``，物化时据此改写引用并登记。
         self._script_plan_new_assets: object = None
@@ -592,7 +594,8 @@ class ScriptGenerator:
         """分镜类条目（segments / scenes / shots）的视觉层 prompt：输入是正式剧本里这些条目的内容字段。"""
         entries = list(targets.entries)
         if targets.kind == "scenes":
-            return self._build_drama_prompt_authoring_prompt(entries, episode, instructions)
+            prompt = self._build_drama_prompt_authoring_prompt(entries, episode, instructions)
+            return prompt + render_sequence_context(targets.script, set(targets.ids))
         if targets.kind == "shots":
             return self._build_ad_shot_prompt_authoring_prompt(episode, targets, instructions)
         return build_narration_prompt(
@@ -738,6 +741,7 @@ class ScriptGenerator:
         与新条目同 id，名下产物也随本次写入撤登记，并清理其历史版本与当前媒体文件。``project_update`` 与剧本在同一写事务内修改
         project.json，确认记录借此与正式剧本一起落盘。
         """
+        self._script_plan_direction = None
         self._script_plan_fingerprint = None
         self._script_plan_new_assets = None
         self._artifact_basis = None
@@ -763,7 +767,12 @@ class ScriptGenerator:
         filename = await asyncio.to_thread(formal_script_filename, self.project_path, self.project_json, episode)
         # 集标题取分集账本：drama 规划里模型起的标题照填、不采用，免得冻结派生集名或覆盖用户的标题。
         script_data = build_materialized_script(
-            self.project_json, episode, plan_kind=plan_kind, plan_entries=plan_entries, title=None
+            self.project_json,
+            episode,
+            plan_kind=plan_kind,
+            plan_entries=plan_entries,
+            title=None,
+            sequence_direction=self._script_plan_direction,
         )
         items_key = plan_variant(plan_kind).skeleton_kind
         id_field = entry_id_field(plan_kind)
@@ -1432,6 +1441,10 @@ class ScriptGenerator:
             raise ValueError("脚本规划内容文件结构异常：顶层应为对象 {title, scenes}")
         self._script_plan_fingerprint = content_fingerprint_of_data(data)
         self._script_plan_new_assets = data.get(NEW_ASSETS_FIELD)
+        direction = data.get("sequence_direction")
+        self._script_plan_direction = (
+            SequenceDirection.model_validate(direction).model_dump() if direction is not None else None
+        )
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("脚本规划内容文件结构异常：scenes 必须是非空的分镜对象数组")

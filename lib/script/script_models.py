@@ -13,6 +13,7 @@ from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Fie
 from pydantic.json_schema import SkipJsonSchema
 
 from lib.script.script_skeleton import resolve_declared_kind
+from lib.script.sequence_direction import SequenceDirection, ShotContinuity
 
 # 所有剧本模型默认禁止额外字段:Agent 的 `patch_episode_script` 通过 `_set_nested` 允许在
 # dict 上凭空创建叶子(为了让 Agent 补 LLM 漏写的 optional 字段);若 Pydantic 走默认
@@ -550,6 +551,8 @@ class DramaScene(BaseModel):
             )
         return utterances
 
+    continuity: ShotContinuity | None = Field(default=None, exclude_if=lambda value: value is None)
+
     scene_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: int = Field(default=8, ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
@@ -589,6 +592,8 @@ class DramaEpisodeScript(BaseModel):
     详见 `NarrationEpisodeScript` docstring。顶层不走 ``extra="forbid"`` 同理。
     """
 
+    sequence_direction: SequenceDirection | None = Field(default=None, exclude_if=lambda value: value is None)
+
     title: str = Field(description="剧集标题")
     # 见 NarrationEpisodeScript.content_mode 说明
     content_mode: SkipJsonSchema[Literal["drama"]] = Field(default="drama", description="创作类型")
@@ -627,6 +632,8 @@ class DramaSceneContent(BaseModel):
 
     model_config = _STRICT_CONFIG
 
+    continuity: ShotContinuity | None = Field(default=None, exclude_if=lambda value: value is None)
+
     scene_id: str = Field(min_length=1, description="分镜 ID，格式 E{集}S{序号} 或 E{集}S{序号}_{子序号}")
     duration_seconds: int = Field(default=8, ge=1, le=60, description="分镜时长（秒）")
     segment_break: bool = Field(default=False, description="是否为场景切换点")
@@ -649,6 +656,8 @@ class DramaNormalizedScript(BaseModel):
 
     顶层不走 ``extra="forbid"``（同 ``DramaEpisodeScript``）：避免落盘时附带的运行时字段触发拒绝。
     """
+
+    sequence_direction: SequenceDirection | None = Field(default=None, exclude_if=lambda value: value is None)
 
     title: str = Field(description="剧集标题")
     scenes: list[DramaSceneContent] = Field(description="分镜内容列表")
@@ -1133,7 +1142,9 @@ def build_episode_script_model(content_mode: str, supported_durations: list[int]
     )
 
 
-def build_drama_normalized_script_model(supported_durations: list[int]) -> type[BaseModel]:
+def build_drama_normalized_script_model(
+    supported_durations: list[int], *, require_direction: bool = False
+) -> type[BaseModel]:
     """构造 script_plan 规范化剧本模型，``duration_seconds`` 被 ``supported_durations`` 枚举硬约束。
 
     内容抽取前移后由 script_plan 决定分镜时长，故 duration 枚举约束加在内容层 ``DramaSceneContent`` 上
@@ -1145,10 +1156,16 @@ def build_drama_normalized_script_model(supported_durations: list[int]) -> type[
         _duration_literal(supported_durations),
         "分镜时长（秒），必须取 supported_durations 中的值",
     )
+    if require_direction:
+        scene = create_model("DirectedDramaSceneContent", __base__=scene, continuity=(ShotContinuity, ...))
+    fields: dict[str, Any] = {}
+    if require_direction:
+        fields["sequence_direction"] = (SequenceDirection, ...)
     return create_model(
         "DramaNormalizedScript",
         __base__=DramaNormalizedScript,
         scenes=(_list_of(scene), Field(description="分镜内容列表")),
+        **fields,
     )
 
 

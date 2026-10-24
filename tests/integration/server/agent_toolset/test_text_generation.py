@@ -27,7 +27,12 @@ from server.tool_runtime import (
     ToolRequest,
     generate_script_plan,
 )
-from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
+from tests.factories import (
+    make_sequence_direction,
+    make_shot_continuity,
+    make_video_request_facts,
+    seed_endpoint_fixed_video_model,
+)
 from tests.fakes import FakeTextGenerator, use_text_generator
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
@@ -968,9 +973,11 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
                 text = json.dumps(
                     {
                         "title": "第一集",
+                        "sequence_direction": make_sequence_direction(),
                         "scenes": [
                             {
                                 "scene_id": "E1S01",
+                                "continuity": make_shot_continuity(),
                                 "duration_seconds": 4,
                                 "segment_break": False,
                                 "characters_in_scene": [],
@@ -1047,9 +1054,11 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
                     "text": json.dumps(
                         {
                             "title": "第一集",
+                            "sequence_direction": make_sequence_direction(),
                             "scenes": [
                                 {
                                     "scene_id": "E1S01",
+                                    "continuity": make_shot_continuity(),
                                     "duration_seconds": 4,
                                     "segment_break": False,
                                     "characters_in_scene": [],
@@ -1098,7 +1107,13 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
         "source_kind": "novel",
         "source_language": "中文",
         "overview": {},
-        "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        "episodes": [
+            {
+                "episode": 1,
+                "title": "第一集",
+                "script_file": "scripts/episode_1.json",
+            }
+        ],
     }
     fake_ctx.pm.project_payload = project
     project_file = fake_ctx.project_path / "project.json"
@@ -1124,9 +1139,11 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
                     "text": json.dumps(
                         {
                             "title": "第一集",
+                            "sequence_direction": make_sequence_direction(),
                             "scenes": [
                                 {
                                     "scene_id": "E1S01",
+                                    "continuity": make_shot_continuity(),
                                     "duration_seconds": 4,
                                     "segment_break": False,
                                     "characters_in_scene": [],
@@ -1180,9 +1197,11 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
                 text = json.dumps(
                     {
                         "title": "第一集",
+                        "sequence_direction": make_sequence_direction(),
                         "scenes": [
                             {
                                 "scene_id": "E1S01",
+                                "continuity": make_shot_continuity(),
                                 "duration_seconds": 4,
                                 "segment_break": False,
                                 "characters_in_scene": ["阿离"],
