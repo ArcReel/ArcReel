@@ -12,14 +12,18 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lib.agent.agent_provider_catalog import CUSTOM_SENTINEL_ID, get_preset, list_presets
+from lib.agent.agent_provider_catalog import CUSTOM_SENTINEL_ID, OPENAI_DIRECT_PRESET_ID, get_preset, list_presets
 from lib.agent.credential_tiers import Tier, tier_statuses
 from lib.catalog import query as catalog
 from lib.config.anthropic_probe import DiagnosisCode, run_test
 from lib.config.anthropic_probe import ProbeResult as ProbeResultDC
 from lib.config.anthropic_probe import TestConnectionResponse as TestConnectionResponseDC
 from lib.config.repository import SystemSettingRepository, mask_secret
-from lib.config.url_utils import InvalidAnthropicBaseUrlError, validate_anthropic_base_url
+from lib.config.url_utils import (
+    InvalidAnthropicBaseUrlError,
+    validate_anthropic_base_url,
+    validate_direct_openai_agent_base_url,
+)
 from lib.db import get_async_session
 from lib.db.base import dt_to_iso
 from lib.db.models.agent_credential import AgentAnthropicCredential
@@ -217,6 +221,13 @@ def _normalized_base_url(raw: str, _t: Translator) -> str:
         raise HTTPException(status_code=422, detail=_t("agent_base_url_invalid")) from exc
 
 
+def _openai_base_url(raw: str, _t: Translator) -> str:
+    try:
+        return validate_direct_openai_agent_base_url(raw)
+    except InvalidAnthropicBaseUrlError as exc:
+        raise HTTPException(status_code=422, detail=_t("agent_openai_base_url_required")) from exc
+
+
 async def _resolve_key_source(
     body: CreateCredentialRequest, _t: Translator, session: AsyncSession
 ) -> tuple[str, str | None]:
@@ -264,7 +275,10 @@ async def create_credential(
         preset = get_preset(body.preset_id)
         if preset is None:
             raise HTTPException(status_code=422, detail=_t("agent_preset_unknown", preset_id=body.preset_id))
-        base_url = _normalized_base_url(requested_base_url, _t) if requested_base_url else preset.messages_url
+        if body.preset_id == OPENAI_DIRECT_PRESET_ID:
+            base_url = _openai_base_url(requested_base_url or preset.messages_url, _t)
+        else:
+            base_url = _normalized_base_url(requested_base_url, _t) if requested_base_url else preset.messages_url
         display_name = body.display_name or preset.display_name
         model = body.model or preset.default_model
     else:
@@ -318,7 +332,14 @@ async def update_credential(
             fields.pop(required, None)
     binding_changes = _validated_tier_bindings(fields.pop("tier_bindings", None), _t)
     if "base_url" in fields:
-        fields["base_url"] = _normalized_base_url(fields["base_url"], _t)
+        existing = await repo.get(cred_id)
+        if existing is None:
+            raise HTTPException(status_code=404, detail=_t("agent_credential_not_found"))
+        fields["base_url"] = (
+            _openai_base_url(fields["base_url"], _t)
+            if existing.preset_id == OPENAI_DIRECT_PRESET_ID
+            else _normalized_base_url(fields["base_url"], _t)
+        )
     if not fields and not binding_changes:
         raise HTTPException(status_code=400, detail=_t("agent_no_fields_to_update"))
     cred = await repo.update(cred_id, **fields)
@@ -461,7 +482,8 @@ async def _run_and_serialize(
     try:
         result = await run_test(preset_id=preset_id, base_url=base_url, api_key=api_key, model=model)
     except InvalidAnthropicBaseUrlError as exc:
-        raise HTTPException(status_code=422, detail=_t("agent_base_url_invalid")) from exc
+        key = "agent_openai_base_url_required" if preset_id == OPENAI_DIRECT_PRESET_ID else "agent_base_url_invalid"
+        raise HTTPException(status_code=422, detail=_t(key)) from exc
     except ValueError as exc:
         raise UnprocessableError("agent_test_validation_error").with_diagnostic(str(exc)) from exc
     return _serialize_test_response(result)

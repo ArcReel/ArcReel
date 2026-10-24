@@ -14,15 +14,16 @@ from __future__ import annotations
 
 import shutil
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.render_plan import PlannedClip, RenderPlan, RenderSegment
 from lib.final_cut.subtitles import BurnedSubtitle, ass_document
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.ffmpeg import local_file_input
-from lib.infra.media_probe import MediaProbeError, probe_media
+from lib.infra.media_probe import MediaProbeError, probe_media, probe_video_frame_times
 from lib.infra.subprocess_deadline import (
     DEFAULT_TERMINATE_GRACE_SECONDS,
     Spawner,
@@ -30,6 +31,7 @@ from lib.infra.subprocess_deadline import (
     run_with_deadline,
 )
 from lib.subtitle_style.font import SUBTITLE_FONT_FILE
+from lib.video_review.signals import TAG_BLACK, TAG_FREEZE, SignalDetectionError, VideoSignals, detect_signals
 
 AUDIO_SAMPLE_RATE = 48_000
 
@@ -389,6 +391,18 @@ def _stage_subtitles(workspace: Path, document: str) -> None:
 
 
 @dataclass(frozen=True, slots=True)
+class FinalCutTechnicalReview:
+    """本地技术检查；黑屏、定格只提示，不判定画面或声音的创作品质。"""
+
+    status: Literal["PASS", "WARN"]
+    decode_verified: bool
+    signals: VideoSignals
+    warnings: tuple[str, ...] = ()
+    visual_quality_assessed: bool = False
+    audio_quality_assessed: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class FinalCutAcceptance:
     """成片验收结果：剪辑时间线应有的时长与实测的音视频流时长（秒）。"""
 
@@ -396,10 +410,11 @@ class FinalCutAcceptance:
     video_duration: float
     audio_duration: float
     tolerance: float = ACCEPTANCE_TOLERANCE_SECONDS
+    technical_review: FinalCutTechnicalReview | None = None
 
 
 async def accept_final_cut(path: Path, plan: RenderPlan, *, spawn: Spawner | None = None) -> FinalCutAcceptance:
-    """经媒体探测接口验收成片：音视频流齐全，两者时长都与剪辑时间线时长相差不超过容差。"""
+    """检查流、时长和完整音视频解码；自动收集黑屏、定格、切点提示，不评判创作品质。"""
     try:
         probe = await probe_media(path, spawn=spawn)
     except MediaProbeError as exc:
@@ -430,7 +445,24 @@ async def accept_final_cut(path: Path, plan: RenderPlan, *, spawn: Spawner | Non
             video_duration=acceptance.video_duration,
             audio_duration=acceptance.audio_duration,
         )
-    return acceptance
+    try:
+        frame_times = await probe_video_frame_times(path, spawn=spawn)
+        signals = await detect_signals(
+            path,
+            frame_times,
+            strict_audio_decode=True,
+            deadline_seconds=DEFAULT_RENDER_DEADLINES.for_seconds(plan.duration_seconds),
+            spawn=spawn,
+        )
+    except (MediaProbeError, SignalDetectionError) as exc:
+        raise FinalCutError("final_cut_acceptance_failed", f"成片完整解码检查失败：{exc}", phase="decode") from exc
+    warnings = tuple(tag for tag, spans in ((TAG_BLACK, signals.black), (TAG_FREEZE, signals.freeze)) if spans)
+    return replace(
+        acceptance,
+        technical_review=FinalCutTechnicalReview(
+            status="WARN" if warnings else "PASS", decode_verified=True, signals=signals, warnings=warnings
+        ),
+    )
 
 
 __all__ = [
@@ -439,6 +471,7 @@ __all__ = [
     "DEFAULT_RENDER_DEADLINES",
     "BgmInput",
     "FinalCutAcceptance",
+    "FinalCutTechnicalReview",
     "NarrationInput",
     "RenderDeadlines",
     "accept_final_cut",

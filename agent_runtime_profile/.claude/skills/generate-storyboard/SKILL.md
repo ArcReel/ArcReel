@@ -7,6 +7,8 @@ description: 为分镜生成分镜图。当用户说"生成分镜"、"预览分�
 
 通过生成队列创建分镜图，画面比例根据 content_mode 自动设置。
 
+连续事件的多镜头，或用户指出衔接、体型与空间不一致时，先读取 `.claude/references/connected-sequences.md`，保存共享场景与动作交接计划；先一起看起始画面，再生成运动。上一张分镜参考不等于上一段视频的真实末帧。
+
 > 生成模式规格详见 `.claude/references/generation-modes.md`。
 
 ## 工具调用

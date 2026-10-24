@@ -57,6 +57,7 @@ def test_curated_preset_set() -> None:
     """目录与用户提供的表格保持一致;11 条预设."""
     expected = {
         "anthropic-official",
+        "openai-official",
         "arcreel",
         "glm-cn",
         "glm-intl",
@@ -76,6 +77,7 @@ def test_default_models_match_table() -> None:
     """用户表格指定的默认模型."""
     expected = {
         "anthropic-official": "",
+        "openai-official": "gpt-6.1-sol",
         "arcreel": "gpt-5.5",
         "glm-cn": "glm-5.1",
         "glm-intl": "glm-5.1",

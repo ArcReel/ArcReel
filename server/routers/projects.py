@@ -830,7 +830,7 @@ async def get_video_capabilities(
         )
         caps["duration_constraints"] = duration_constraints_payload(request_facts)
         # 内容确认页的时长按剧本规划档位选与判：确认转换用的是同一份 planning_durations。
-        caps["duration_constraints"]["planning"] = planning_durations(request_facts)
+        caps["duration_constraints"]["planning"] = planning_durations(request_facts, project.get("default_duration"))
         return caps
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc

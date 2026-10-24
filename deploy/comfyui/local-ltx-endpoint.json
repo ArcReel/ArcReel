@@ -1,0 +1,153 @@
+{
+  "kind": "comfyui",
+  "schema_version": "1.0.0",
+  "meta": {
+    "name": "Local LTX 2.3 \u2014 controlled anchors",
+    "author": "Local recovery",
+    "version": "1.1.0",
+    "description": "Local 1024\u00d7576 at 24 fps. Optional last-frame anchor, explicit seed and 2/4/5-second takes. Native audio is a scratch track; use the approved continuous soundtrack for delivery."
+  },
+  "media_type": "video",
+  "auth": {},
+  "workflow": {
+    "1": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "arcreel-start-image.png"
+      },
+      "_meta": {
+        "title": "ARCREEL:start_image"
+      }
+    },
+    "2": {
+      "class_type": "MacQualityVideo",
+      "inputs": {
+        "prompt": "Describe the action and sound for this shot.",
+        "quality": "Animated dialogue",
+        "duration": "5 seconds",
+        "seed": 2026100442,
+        "reference_image": [
+          "1",
+          0
+        ],
+        "end_image": [
+          "6",
+          0
+        ],
+        "frames": 121
+      },
+      "_meta": {
+        "title": "ARCREEL:prompt Local five-second video"
+      }
+    },
+    "3": {
+      "class_type": "GetVideoComponents",
+      "inputs": {
+        "video": [
+          "2",
+          0
+        ]
+      }
+    },
+    "4": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": [
+          "3",
+          0
+        ],
+        "audio": [
+          "3",
+          1
+        ],
+        "fps": 24.0,
+        "bit_depth": "auto",
+        "color_space": "sRGB",
+        "codec": "none"
+      }
+    },
+    "5": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": [
+          "4",
+          0
+        ],
+        "filename_prefix": "arcreel/local-evaluation",
+        "format": "mp4",
+        "format.codec": "h264",
+        "format.codec.encoding": "auto"
+      },
+      "_meta": {
+        "title": "ARCREEL:output Native audio preserved"
+      }
+    },
+    "6": {
+      "class_type": "LoadImage",
+      "inputs": {
+        "image": "arcreel-end-image.png"
+      },
+      "_meta": {
+        "title": "ARCREEL:end_image"
+      }
+    }
+  },
+  "bindings": {
+    "prompt": [
+      {
+        "node": "2",
+        "input": "prompt",
+        "class_type": "MacQualityVideo"
+      }
+    ],
+    "start_image": [
+      {
+        "node": "1",
+        "input": "image",
+        "class_type": "LoadImage"
+      }
+    ],
+    "seed": [
+      {
+        "node": "2",
+        "input": "seed",
+        "class_type": "MacQualityVideo",
+        "policy": "random"
+      }
+    ],
+    "fps": [
+      {
+        "node": "4",
+        "input": "fps",
+        "class_type": "CreateVideo",
+        "direction": "read"
+      }
+    ],
+    "output": [
+      {
+        "node": "5",
+        "class_type": "SaveVideo"
+      }
+    ],
+    "negative_prompt": [],
+    "end_image": [
+      {
+        "node": "6",
+        "input": "image",
+        "class_type": "LoadImage"
+      }
+    ],
+    "reference_images": [],
+    "width": [],
+    "height": [],
+    "frames": [
+      {
+        "node": "2",
+        "input": "frames",
+        "class_type": "MacQualityVideo",
+        "step": 8,
+        "fps": 24
+      }
+    ]
+  }
+}

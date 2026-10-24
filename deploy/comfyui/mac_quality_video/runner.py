@@ -1,0 +1,212 @@
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+import urllib.request
+from contextlib import suppress
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+RUNTIME = ROOT / "user/runtimes/ltx-2-mlx"
+
+
+def build_command(config, root):
+    allowed = {"name", "mode", "width", "height", "frames", "seed", "prompt", "recipe", "image", "end_image"}
+    unknown = set(config) - allowed
+    if unknown:
+        raise ValueError("Unsupported renderer controls: " + ", ".join(sorted(unknown)))
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", config["name"]):
+        raise ValueError("Run name must contain only letters, numbers, underscores, and hyphens.")
+    if config["mode"] not in ("distilled", "two-stage"):
+        raise ValueError("This adapter supports distilled or two-stage generation.")
+    if not isinstance(config["seed"], int) or isinstance(config["seed"], bool) or not 0 <= config["seed"] < 2**32:
+        raise ValueError("Seed must be an unsigned 32-bit integer.")
+    if config.get("recipe") == "animated-dialogue" and (
+        config["mode"] != "distilled"
+        or (config["width"], config["height"]) != (1024, 576)
+        or config["frames"] not in (49, 97, 121)
+    ):
+        raise ValueError("The animated memory preset supports 2, 4, or 5 seconds at 1024 x 576 and 24 fps.")
+    if config.get("end_image") and not config.get("image"):
+        raise ValueError("An end anchor requires a starting image.")
+    for key in ("image", "end_image"):
+        if config.get(key) and not Path(config[key]).is_file():
+            raise ValueError(f"Missing {key}: {config[key]}")
+    runtime = root / "user/runtimes/ltx-2-mlx"
+    out = root / "output/quality" / f"{config['name']}.mp4"
+    args = [
+        str(runtime / ".venv/bin/python"),
+        "-u",
+        str(root / "user/video_engine_entry.py"),
+        "generate",
+        "--" + config["mode"],
+        "--model",
+        str(root / "models/mlx/ltx-2.3-22b-q8-distilled-1.1"),
+        "--gemma",
+        str(root / "models/mlx/gemma-3-12b-it-4bit"),
+        "--prompt",
+        config["prompt"],
+        "--output",
+        str(out),
+        "--seed",
+        str(config["seed"]),
+        "--height",
+        str(config["height"]),
+        "--width",
+        str(config["width"]),
+        "--frames",
+        str(config["frames"]),
+        "--frame-rate",
+        "24",
+        "--low-ram",
+    ]
+    if config.get("image"):
+        args += ["--image", str(config["image"]), "0", "1.0"]
+    if config.get("end_image"):
+        args += ["--image", str(config["end_image"]), "last", "1.0"]
+    return args
+
+
+def run(config_path, check_interrupt=None):
+    import psutil
+
+    config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    args = build_command(config, ROOT)
+    blocked = ROOT / "user/video-render-retry-blocked.json"
+    if blocked.exists() or (ROOT.parent / "WanGP-Trial/.benchmark/retry-blocked.json").exists():
+        raise RuntimeError("A prior renderer needs cleanup verification. No new render was started.")
+    animated = config.get("recipe") == "animated-dialogue"
+    reserve = 4 if animated else 8
+    swap_limit = 2048 if animated else 256
+    name = config["name"]
+    out = ROOT / "output/quality" / f"{name}.mp4"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists():
+        raise RuntimeError("Output already exists; choose a new run name.")
+    # Leave space for the working set, host reserve, and decode margin.
+    minimum_start = 14 if animated else 19
+    if psutil.virtual_memory().available < minimum_start * 2**30:
+        raise RuntimeError(f"At least {minimum_start} GiB available memory is required to start this preset.")
+    env = os.environ.copy()
+    env.update(
+        {
+            "HF_HOME": str(ROOT / "user/huggingface"),
+            "HF_HUB_DISABLE_TELEMETRY": "1",
+            "HF_HUB_OFFLINE": "1",
+            "TRANSFORMERS_OFFLINE": "1",
+            "TOKENIZERS_PARALLELISM": "false",
+            "LTX2_VAE_DECODE_BUDGET_GB": "6",
+            "LTX2_COMPUTE_DTYPE": "bfloat16",
+            "LTX2_GEMMA_EVAL_EVERY": "1",
+            "LTX2_DIT_EVAL_EVERY": "1",
+            "PYTHONUNBUFFERED": "1",
+        }
+    )
+    env.pop("AGX_RELAX_CDM_CTXSTORE_TIMEOUT", None)
+    logpath = ROOT / "user" / f"{name}.log"
+    reportpath = ROOT / "user" / f"{name}-report.json"
+    report = {
+        "config": config,
+        "command": args,
+        "output": str(out),
+        "status": "running",
+        "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "reserve_gib": reserve,
+        "minimum_start_gib": minimum_start,
+        "mlx_guideline_gib": 16,
+        "decode_budget_gib": 6,
+        "samples": [],
+    }
+    swap_start = psutil.swap_memory().sout
+    start = time.monotonic()
+    next_check = start
+    low_count = 0
+    reason = None
+    with logpath.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(
+            args, cwd=RUNTIME, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True
+        )
+        report["pid"] = process.pid
+        print("Rendering", name, "PID", process.pid, flush=True)
+        try:
+            while process.poll() is None:
+                if check_interrupt:
+                    check_interrupt()
+                now = time.monotonic()
+                available = psutil.virtual_memory().available / 2**30
+                try:
+                    rss = psutil.Process(process.pid).memory_info().rss / 2**30
+                except psutil.NoSuchProcess:
+                    rss = 0
+                sample = {
+                    "elapsed": round(now - start, 2),
+                    "available_gib": round(available, 3),
+                    "process_rss_gib": round(rss, 3),
+                    "new_swap_out_mib": round((psutil.swap_memory().sout - swap_start) / 2**20, 2),
+                }
+                report["samples"].append(sample)
+                low_count = low_count + 1 if available < reserve else 0
+                if available < 2:
+                    reason = "Less than 2 GiB available memory."
+                elif low_count >= (10 if animated else 2):
+                    reason = f"Available memory stayed below the {reserve} GiB reserve."
+                if sample["new_swap_out_mib"] > swap_limit:
+                    reason = f"More than {swap_limit} MiB of new system swap writes during the render."
+                if now - start > 1800:
+                    reason = "Render exceeded the 30 minute test limit."
+                if reason:
+                    break
+                if now >= next_check:
+                    t = time.monotonic()
+                    try:
+                        with urllib.request.urlopen("http://127.0.0.1:8188/system_stats", timeout=2) as response:
+                            response.read()
+                        sample["comfy_api_ms"] = round((time.monotonic() - t) * 1000, 2)
+                    except Exception:
+                        sample["comfy_api_ms"] = None
+                    reportpath.write_text(json.dumps(report, indent=2))
+                    print("Progress", sample, flush=True)
+                    next_check = now + 20
+                time.sleep(1)
+        except BaseException:
+            reason = "Benchmark interrupted."
+            raise
+        finally:
+            unreaped = False
+            if process.poll() is None:
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGINT)
+                try:
+                    process.wait(timeout=30)
+                except subprocess.TimeoutExpired:
+                    unreaped = True
+                    blocked.write_text(
+                        json.dumps({"pid": process.pid, "reason": reason or "Renderer did not exit cooperatively"})
+                    )
+            report["seconds"] = round(time.monotonic() - start, 2)
+            report["exit_code"] = process.returncode
+            report["status"] = (
+                "needs_cleanup"
+                if unreaped
+                else "cancelled"
+                if reason
+                else ("completed" if process.returncode == 0 else "failed")
+            )
+            if reason:
+                report["reason"] = reason
+            report["min_available_gib"] = min((x["available_gib"] for x in report["samples"]), default=None)
+            report["max_process_rss_gib"] = max((x["process_rss_gib"] for x in report["samples"]), default=None)
+            reportpath.write_text(json.dumps(report, indent=2))
+            print("Result", json.dumps({k: v for k, v in report.items() if k not in ["samples", "config"]}), flush=True)
+    if report["status"] == "needs_cleanup":
+        raise RuntimeError("Renderer did not exit safely. Further renders are blocked until its cleanup is verified.")
+    if report["status"] != "completed":
+        raise RuntimeError(reason or ("Video engine failed; see " + str(logpath)))
+    return report
+
+
+if __name__ == "__main__":
+    run(sys.argv[1])

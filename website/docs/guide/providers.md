@@ -22,7 +22,9 @@ Agent 负责：
 - 规范化剧本；
 - 编排后续生成任务。
 
-ArcReel 的 Agent Runtime 基于 Claude Agent SDK，支持 Anthropic 官方服务以及项目所支持的兼容配置。
+ArcReel 的 Agent Runtime 通过本地 Claude Agent SDK 管理工具、会话与权限，支持 OpenAI Direct、Anthropic 官方服务以及项目所支持的兼容配置。
+
+使用已有的 OpenAI API 额度时，在设置的 Agent 供应商中添加 **OpenAI Direct**，填写 OpenAI API 密钥，选择可用模型，测试连接后启用。模型请求直接发往 OpenAI，无需 Anthropic 账户或外部网关账户。官方地址固定，留空的模型档位使用主模型。**ArcReel API** 是单独计费的网关，不使用你的 OpenAI 额度。图片与视频生成供应商仍需单独配置。
 
 Agent 供应商不一定承担实际图片和视频生成。
 

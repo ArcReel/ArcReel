@@ -1,4 +1,4 @@
-"""预设 Anthropic 兼容供应商目录。
+"""预设 Agent 供应商目录，包括直接使用 OpenAI 的内置适配。
 
 每条 PresetProvider 提供 messages_url + discovery_url + 「获取 API Key」链接，
 让用户在 UI 上选 chip 即填好 URL。`default_model` 仅作为输入框 placeholder
@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from lib.config.url_utils import OFFICIAL_OPENAI_AGENT_BASE_URL
+
 CUSTOM_SENTINEL_ID = "__custom__"
+OPENAI_DIRECT_PRESET_ID = "openai-official"
 
 
 @dataclass(frozen=True)
@@ -31,6 +34,20 @@ class PresetProvider:
 
 
 PRESET_PROVIDERS: dict[str, PresetProvider] = {
+    OPENAI_DIRECT_PRESET_ID: PresetProvider(
+        id=OPENAI_DIRECT_PRESET_ID,
+        display_name="OpenAI Direct",
+        icon_key="OpenAI",
+        messages_url=OFFICIAL_OPENAI_AGENT_BASE_URL,
+        discovery_url=OFFICIAL_OPENAI_AGENT_BASE_URL,
+        default_model="gpt-6.1-sol",
+        suggested_models=("gpt-6.1-sol", "gpt-6-luna", "gpt-6-astra"),
+        docs_url="https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+        api_key_url="https://platform.openai.com/api-keys",
+        notes_i18n_key="preset_notes_openai_direct",
+        api_key_pattern=None,
+        is_recommended=False,
+    ),
     "anthropic-official": PresetProvider(
         id="anthropic-official",
         display_name="Anthropic Official",
@@ -218,6 +235,7 @@ PRESET_PROVIDERS: dict[str, PresetProvider] = {
 PRESET_ORDER: tuple[str, ...] = (
     "anthropic-official",
     "arcreel",
+    OPENAI_DIRECT_PRESET_ID,
     "deepseek",
     "kimi",
     "xiaomi-mimo",

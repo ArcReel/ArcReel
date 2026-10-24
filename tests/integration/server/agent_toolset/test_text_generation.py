@@ -774,8 +774,23 @@ async def test_fetch_storyboard_durations_drops_out_of_range_default(set_video_r
     assert await mod.fetch_storyboard_durations({"default_duration": True}) == (None, [8])
 
 
-async def test_fetch_storyboard_durations_borrows_planning_tiers_when_endpoint_fixed(set_video_request_facts) -> None:
-    """时长由端点固定的桶没有档位可选，剧本规划借共享的规划档位出篇幅。"""
+@pytest.mark.parametrize("planned", [5, 8])
+async def test_fetch_storyboard_durations_uses_project_plan_when_endpoint_fixed(
+    set_video_request_facts, planned
+) -> None:
+    """An endpoint-fixed source respects the saved planning duration without adding request tiers."""
+    from server import text_generation as mod
+
+    set_video_request_facts(
+        make_video_request_facts(supported_durations=(), allowed_durations=(), duration_endpoint_fixed=True)
+    )
+
+    assert await mod.fetch_storyboard_durations({"default_duration": planned}) == (planned, [planned])
+
+
+async def test_fetch_storyboard_durations_borrows_planning_tiers_without_a_project_plan(
+    set_video_request_facts,
+) -> None:
     from lib.generation.video_request_facts import ENDPOINT_FIXED_PLANNING_DURATIONS
     from server import text_generation as mod
 
@@ -783,9 +798,9 @@ async def test_fetch_storyboard_durations_borrows_planning_tiers_when_endpoint_f
         make_video_request_facts(supported_durations=(), allowed_durations=(), duration_endpoint_fixed=True)
     )
 
-    default, durations = await mod.fetch_storyboard_durations({"default_duration": 8})
+    default, durations = await mod.fetch_storyboard_durations({})
     assert durations == ENDPOINT_FIXED_PLANNING_DURATIONS
-    assert default == 8
+    assert default is None
 
 
 async def test_fetch_storyboard_durations_reads_the_bucket_of_the_generation_mode(set_video_request_facts) -> None:

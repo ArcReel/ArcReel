@@ -30,12 +30,18 @@ from tests.fakes import use_provider_env, use_sdk_client
 class _RecordingClient:
     """假 SDK 客户端：只记住这轮装配好的 options。
 
-    actor 收到的是闭包着 options 的 ``client_factory``，调用一次即可取出其中的
+    actor 收到的是闭包着 options 的 ``client_factory``，进入它的异步上下文即可取出其中的
     stderr 回调——被测的正是「装配器把回调挂进 options」这一步，不能替换掉它。
     """
 
     def __init__(self, options: Any) -> None:
         self.options = options
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 def test_agent_startup_error_str_includes_stderr() -> None:
@@ -104,22 +110,22 @@ async def test_send_new_session_wraps_actor_failure_with_stderr(
 
     use_provider_env(monkeypatch, fake_env)
 
-    captured_stderr_cb: list = []
     secret = "startup-secret-must-not-leak"
 
     class _FakeActor:
         def __init__(self, *_, on_message=None, client_factory=None, **__):
             self.task = None
             self._on_message = on_message
-            captured_stderr_cb.append(client_factory().options.stderr)
+            self._client_factory = client_factory
 
         async def start(self):
-            # 模拟 SDK 在 connect 阶段先喷 stderr 再退出
-            cb = captured_stderr_cb[0]
-            cb("Claude Code on Windows requires either Git for Windows (for bash) or PowerShell.")
-            cb("Or set CLAUDE_CODE_GIT_BASH_PATH to your bash.exe location.")
-            cb(f"Authorization: Bearer {secret}")
-            raise RuntimeError(f"Command failed with exit code 1; api_key={secret}")
+            async with self._client_factory() as client:
+                # 模拟 SDK 在 connect 阶段先喷 stderr 再退出
+                cb = client.options.stderr
+                cb("Claude Code on Windows requires either Git for Windows (for bash) or PowerShell.")
+                cb("Or set CLAUDE_CODE_GIT_BASH_PATH to your bash.exe location.")
+                cb(f"Authorization: Bearer {secret}")
+                raise RuntimeError(f"Command failed with exit code 1; api_key={secret}")
 
         def add_done_callback(self, _cb):
             pass
@@ -217,17 +223,16 @@ async def test_get_or_connect_wraps_actor_failure_with_stderr(
 
     use_provider_env(monkeypatch, fake_env)
 
-    captured_stderr_cb: list = []
-
     class _FakeActor:
         def __init__(self, *_, on_message=None, client_factory=None, **__):
             self.task = None
-            captured_stderr_cb.append(client_factory().options.stderr)
+            self._client_factory = client_factory
 
         async def start(self):
-            cb = captured_stderr_cb[0]
-            cb("resume-failed: cannot rehydrate transcript")
-            raise RuntimeError("Command failed with exit code 1")
+            async with self._client_factory() as client:
+                cb = client.options.stderr
+                cb("resume-failed: cannot rehydrate transcript")
+                raise RuntimeError("Command failed with exit code 1")
 
         def add_done_callback(self, _cb):
             pass
@@ -258,19 +263,19 @@ async def test_startup_stderr_is_not_truncated(
 
     use_provider_env(monkeypatch, fake_env)
 
-    captured_stderr_cb: list = []
     observed_count = 250
 
     class _FakeActor:
         def __init__(self, *_, on_message=None, client_factory=None, **__):
             self.task = None
-            captured_stderr_cb.append(client_factory().options.stderr)
+            self._client_factory = client_factory
 
         async def start(self):
-            cb = captured_stderr_cb[0]
-            for i in range(observed_count):
-                cb(f"line-{i:04d}")
-            raise RuntimeError("Command failed with exit code 1")
+            async with self._client_factory() as client:
+                cb = client.options.stderr
+                for i in range(observed_count):
+                    cb(f"line-{i:04d}")
+                raise RuntimeError("Command failed with exit code 1")
 
         def add_done_callback(self, _cb):
             pass

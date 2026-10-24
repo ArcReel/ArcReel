@@ -40,6 +40,7 @@ export const ARCREEL_TOOL_SUMMARIES: Record<string, Summarize> = {
   split_grids: (i, f) => f.count("tool_summary_grids", i.grid_ids),
   select_video_version: (i, f) => f.join(f.item(i.unit_id), f.version(i.version)),
   inspect_video_units: (i, f) => f.items(i.unit_ids),
+  video_correction_memory: (i, f) => f.item(f.record(i.command).unit_id),
   create_timeline: (i, f) => f.join(f.episode(i.episode), f.quote(i.name)),
   list_timelines: (i, f) => f.episode(i.episode),
   read_timeline: () => "",

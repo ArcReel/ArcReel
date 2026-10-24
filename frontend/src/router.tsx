@@ -1,7 +1,7 @@
 // router.tsx — Route definitions for the studio layout
 
 import { useEffect, useRef } from "react";
-import { Route, Switch, Redirect, useParams } from "wouter";
+import { Route, Switch, Redirect, useParams, useRoute } from "wouter";
 import { useTranslation } from "react-i18next";
 import { StudioLayout } from "@/components/layout";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
@@ -38,6 +38,7 @@ import {
 
 // 首屏之外的整页按路由拆 chunk：项目大厅、项目工作区与登录页是落地页，保持随入口加载；
 // 全局设置（含用量图表 Recharts）、项目设置与资产库进入时再拉取。
+const ReelWorkspace = lazyNamed(() => import("@/components/reel/ReelWorkspace"), "ReelWorkspace");
 const SystemConfigPage = lazyNamed(() => import("@/components/pages/SystemConfigPage"), "SystemConfigPage");
 const ProjectSettingsPage = lazyNamed(
   () => import("@/components/pages/ProjectSettingsPage"),
@@ -131,6 +132,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function StudioWorkspace() {
   const params = useParams<{ projectName: string }>();
   const projectName = params.projectName ?? null;
+  const [reel, reelParams] = useRoute("/reel/:episode");
   const { setCurrentProject, setProjectDetailLoading } = useProjectsStore();
   const { t } = useTranslation("onboarding");
   // 把 t 通过 ref 暴露给首屏加载的 onError 回调，避免切语言触发 t 重建 → effect
@@ -195,6 +197,10 @@ function StudioWorkspace() {
     if (!projectName || !isDemoProject(projectName)) return;
     setCurrentProject(projectName, buildDemoProjectData(t), buildDemoScripts(t));
   }, [projectName, setCurrentProject, t]);
+
+  if (reel && projectName && !isDemoProject(projectName) && /^\d+$/.test(reelParams.episode) && Number(reelParams.episode) > 0) {
+    return <ReelWorkspace key={`${projectName}:${reelParams.episode}`} projectName={projectName} episode={Number(reelParams.episode)} />;
+  }
 
   return (
     <StudioLayout>

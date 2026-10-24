@@ -1171,6 +1171,20 @@ def fail_project_json_write(monkeypatch, project_file: Path) -> None:
     monkeypatch.setattr("lib.project.project_manager.atomic_write_json", _fail_project_write)
 
 
+def fail_file_replace(monkeypatch, destination: Path, *, message: str) -> None:
+    """Fail replacement of one destination while retaining real filesystem writes elsewhere."""
+    import os
+
+    real_replace = os.replace
+
+    def _fail_replace(source, target, **kwargs) -> None:
+        if Path(target) == destination:
+            raise OSError(message)
+        real_replace(source, target, **kwargs)
+
+    monkeypatch.setattr(os, "replace", _fail_replace)
+
+
 def use_generation_queue(monkeypatch, queue: Any) -> None:
     """生成与参考视频路由的 ``get_generation_queue()`` 都返回 *queue*（入队替身）。"""
     monkeypatch.setattr("server.routers.generate.get_generation_queue", lambda: queue)

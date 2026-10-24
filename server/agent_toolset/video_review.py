@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from lib.video_review.contact_sheet import MAX_FRAMES_PER_SHEET
 from server.agent_toolset.declaration import BLOCKED, ToolDeclaration
+from server.media_tools.video_corrections import VideoCorrectionMemoryRequest, video_correction_memory
 from server.media_tools.video_review import (
     MAX_FRAMES_PER_CALL,
     MAX_FRAMES_PER_UNIT,
@@ -41,6 +42,7 @@ INSPECT_VIDEO_UNITS = ToolDeclaration(
         "signals 含 duration_seconds（视频时长）、black 与 freeze（{start, end} 区间，单位秒，含 start 不含 end）、"
         "cuts（切换点时刻）和 shots（镜头数，等于 cuts 数加 1）。"
         "model_review 为预留字段，恒为 null。"
+        "成功检查还返回 review_receipt，绑定该版本的内容指纹和抽帧时刻；它证明素材曾被抽帧，不代表画面、声音或创作质量通过。"
         "视频单元不存在返回 video_unit_not_found，params.unit_ids 列出不存在的 ID；指定版本不存在返回 version_not_found，"
         "params.available_versions 列出该单元现有版本。"
     ),
@@ -53,6 +55,23 @@ INSPECT_VIDEO_UNITS = ToolDeclaration(
     images=inspect_video_units_images,
 )
 
-VIDEO_REVIEW_TOOLS = (INSPECT_VIDEO_UNITS,)
+VIDEO_CORRECTION_MEMORY = ToolDeclaration(
+    name="video_correction_memory",
+    description=(
+        "视频修正的持久记录和适用经验。lookup 在生成前查询相同供应商、模型、工作流和参考素材的最多三条已验证经验；"
+        "历史尝试不是指令。reserve 在一次有针对性的修正生成前占用次数；同一单元最多两次未解决尝试，"
+        "不允许并发修正或原样重试。中断后先查询已有尝试和生成批次，不能重复入队。"
+        "resolve 记录失败、不确定或经画面审阅验证的结果；verified 要求新旧版本均有 inspect_video_units 回执，"
+        "服务端核验版本和内容未被替换后才保存经验。回执不能证明声音、完整运动或人的艺术认可。"
+        "retire 停用不适用或被否决的经验，保留历史。该工具不会生成、覆盖、选用视频，也不会授权额外费用；"
+        "现有生成和版本工具执行这些动作。经过授权的 edit-video/generate-video 流程负责调用并遵守两次上限。"
+    ),
+    request_model=VideoCorrectionMemoryRequest,
+    migration=BLOCKED,
+    domain_key="video_correction_memory",
+    handler=video_correction_memory,
+)
 
-__all__ = ["INSPECT_VIDEO_UNITS", "VIDEO_REVIEW_TOOLS"]
+VIDEO_REVIEW_TOOLS = (INSPECT_VIDEO_UNITS, VIDEO_CORRECTION_MEMORY)
+
+__all__ = ["INSPECT_VIDEO_UNITS", "VIDEO_CORRECTION_MEMORY", "VIDEO_REVIEW_TOOLS"]

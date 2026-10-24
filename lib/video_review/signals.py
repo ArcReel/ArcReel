@@ -22,7 +22,7 @@ from typing import Any
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.ffmpeg import ffmpeg_executable, local_file_input
 from lib.infra.json_io import atomic_write_json, load_json_or_none
-from lib.infra.subprocess_deadline import SubprocessDeadlineExceeded, run_with_deadline
+from lib.infra.subprocess_deadline import Spawner, SubprocessDeadlineExceeded, run_with_deadline
 
 logger = logging.getLogger(__name__)
 
@@ -162,11 +162,19 @@ def _parse_signals(log: str, duration: float) -> VideoSignals:
     )
 
 
-async def detect_signals(video_path: Path, frame_times: Sequence[float]) -> VideoSignals:
+async def detect_signals(
+    video_path: Path,
+    frame_times: Sequence[float],
+    *,
+    strict_audio_decode: bool = False,
+    deadline_seconds: float = _DETECT_DEADLINE_SECONDS,
+    spawn: Spawner | None = None,
+) -> VideoSignals:
     """对整段视频解码一次，算出黑屏段、卡帧段与镜头切换点。
 
     Args:
         frame_times: 该视频每帧的起始时刻（``probe_video_frame_times`` 的结果），用来定视频总时长。
+        strict_audio_decode: 同时完整解码首条音轨，并在音视频解码错误时失败；用于成片验收。
 
     Raises:
         FfmpegUnavailableError: 随包 ffmpeg 不可用。
@@ -188,18 +196,19 @@ async def detect_signals(video_path: Path, frame_times: Sequence[float]) -> Vide
         "-nostats",
         "-v",
         "info",
+        *(["-xerror", "-err_detect", "explode"] if strict_audio_decode else []),
         *local_file_input(video_path),
         "-map",
         "0:v:0",
         "-vf",
         filters,
-        "-an",
+        *(["-map", "0:a:0"] if strict_audio_decode else ["-an"]),
         "-f",
         "null",
         "-",
     ]
     try:
-        result = await run_with_deadline(args, deadline_seconds=_DETECT_DEADLINE_SECONDS, capture_stderr=True)
+        result = await run_with_deadline(args, deadline_seconds=deadline_seconds, capture_stderr=True, spawn=spawn)
     except SubprocessDeadlineExceeded:
         raise SignalDetectionError(f"信号检测超时：{video_path.name}") from None
     if result.returncode != 0:

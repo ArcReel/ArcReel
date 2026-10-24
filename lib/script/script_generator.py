@@ -284,9 +284,9 @@ class PlanningVideoFacts:
         """该桶的成功事实；解析不出即抛 :class:`VideoRequestFactsError`。"""
         return require_video_request_facts(self.result(generation_type))
 
-    def planning_durations(self, generation_type: VideoGenerationType) -> list[int]:
+    def planning_durations(self, generation_type: VideoGenerationType, planned_duration: object = None) -> list[int]:
         """该桶规划可选的时长档位（端点固定时借规划档位）；解析不出即抛。"""
-        return planning_durations(self.require(generation_type))
+        return planning_durations(self.require(generation_type), planned_duration)
 
 
 def _require_overwrite_acknowledged(
@@ -1106,7 +1106,7 @@ class ScriptGenerator:
         1080p 的 Veo 项目的剧本会产出 4/6 秒分镜，到视频入队时才被 backend 拒，用户已无统一纠正
         入口。解析不出即抛 :class:`VideoRequestFactsError`。
         """
-        return facts.planning_durations(self._storyboard_bucket)
+        return facts.planning_durations(self._storyboard_bucket, self.project_json.get("default_duration"))
 
     def _unit_duration_off_every_tier(
         self, duration: int, *, facts: PlanningVideoFacts, generation_type: VideoGenerationType
@@ -1120,7 +1120,7 @@ class ScriptGenerator:
         for candidate in ("r2v", "i2v"):
             if self._unit_duration_off_tier(duration, facts=facts, generation_type=candidate) is None:
                 return None
-        return facts.planning_durations(generation_type)
+        return facts.planning_durations(generation_type, self.project_json.get("default_duration"))
 
     def _unit_duration_off_tier(
         self, duration: int, *, facts: PlanningVideoFacts, generation_type: VideoGenerationType
@@ -1132,7 +1132,7 @@ class ScriptGenerator:
         result = facts.result(generation_type)
         if not isinstance(result, VideoRequestFacts):
             return []
-        tiers = planning_durations(result)
+        tiers = planning_durations(result, self.project_json.get("default_duration"))
         return None if resolve_duration_slot(duration, tiers).seconds == duration else tiers
 
     def _hydrate_reference_units(self, units: Sequence[dict]) -> tuple[ReferenceUnitHydration, ...]:

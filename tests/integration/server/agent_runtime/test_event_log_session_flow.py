@@ -189,7 +189,7 @@ class TestNewSessionEventLogFlow:
 
         async def build_options(*_args, **kwargs):
             captured_stderr.append(kwargs["stderr"])
-            return SimpleNamespace(env=None)
+            return SimpleNamespace(env={})
 
         client = _CrashBeforeInitClient(lambda line: captured_stderr[0](line))
 
@@ -211,7 +211,7 @@ class TestNewSessionEventLogFlow:
         client = _QueryFailureClient()
 
         with (
-            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env={}))),
             patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
             pytest.raises(AgentStartupError) as exc_info,
         ):
@@ -225,7 +225,7 @@ class TestNewSessionEventLogFlow:
         client = FakeSDKClient()
 
         with (
-            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env={}))),
             patch.object(
                 manager,
                 "_process_inbox",
@@ -242,7 +242,7 @@ class TestNewSessionEventLogFlow:
 
     async def test_full_round_produces_typed_monotonic_entries(self, manager: SessionManager):
         client = FakeSDKClient(frames=_new_session_frames())
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
 
         with (
             patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
@@ -291,7 +291,7 @@ class TestNewSessionEventLogFlow:
     async def test_replayed_echo_persists_user_message_identity_mapping(self, manager: SessionManager):
         """回放副本被丢弃前先落映射：条目 uuid 可查回 transcript entry 身份。"""
         client = FakeSDKClient(frames=_new_session_frames())
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
 
         with (
             patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
@@ -345,7 +345,7 @@ class TestNewSessionEventLogFlow:
                 _idle_frame(),
             ]
         )
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
         caplog.set_level("WARNING", logger="server.agent_runtime.entry_pipeline")
 
         with (
@@ -397,7 +397,7 @@ class TestNewSessionEventLogFlow:
         """中断动作与结果是时间线事件：SDK 回显 + result 兜底（竞态双写）只产出一条 typed 条目。"""
         meta = await manager.meta_store.create("demo", SDK_ID)
         client = _InterruptingClient(echo=True)
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
 
         with (
             patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
@@ -429,7 +429,7 @@ class TestNewSessionEventLogFlow:
         """回显缺席的中断：result(session_status=interrupted) 兜底定型，时间线仍有稳定条目。"""
         meta = await manager.meta_store.create("demo", SDK_ID)
         client = _InterruptingClient(echo=False)
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
 
         with (
             patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
@@ -484,7 +484,7 @@ class TestNewSessionEventLogFlow:
                 result_frame(session_id=SDK_ID, uuid="r-1"),
             ]
         )
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
 
         with (
             patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
@@ -528,7 +528,7 @@ class TestNewSessionEventLogFlow:
                 result_frame(session_id=SDK_ID, uuid="r-1"),
             ]
         )
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
 
         with (
             patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
@@ -626,7 +626,7 @@ class TestNewSessionEventLogFlow:
     async def test_initial_user_entry_write_failure_reports_error(self, manager: SessionManager):
         """新会话首条用户消息落库失败：受理显式失败，会话进入可观察的 error 态。"""
         client = FakeSDKClient(frames=_new_session_frames())
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
         update_status_spy = AsyncMock(wraps=manager.meta_store.update_status)
 
         with (
@@ -670,7 +670,7 @@ class TestNewSessionEventLogFlow:
                 result_frame(session_id=SDK_ID, uuid="r-1"),
             ]
         )
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
         update_status_spy = AsyncMock(wraps=manager.meta_store.update_status)
 
         with (
@@ -710,7 +710,7 @@ class TestNewSessionEventLogFlow:
             ]
         )
         clients = iter([failing_client, retry_client])
-        fake_options = SimpleNamespace(env=None)
+        fake_options = SimpleNamespace(env={})
 
         with (
             patch.object(manager, "_build_options", new=AsyncMock(return_value=fake_options)),
@@ -771,7 +771,7 @@ class TestSessionStatusFollowsCliIdle:
     async def _send(self, manager: SessionManager, client: FakeSDKClient) -> None:
         meta = await manager.meta_store.create("demo", SDK_ID)
         with (
-            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+            patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env={}))),
             patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
         ):
             await manager.send_message(
@@ -897,7 +897,7 @@ class TestSessionStatusFollowsCliIdle:
 def _scripted_client(manager: SessionManager, client: FakeSDKClient) -> Generator[None]:
     """会话连接 CLI 时拿到这个替身。"""
     with (
-        patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))),
+        patch.object(manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env={}))),
         patch("server.agent_runtime.session_manager.ClaudeSDKClient", lambda options: client),
     ):
         yield
@@ -1686,7 +1686,7 @@ class TestUnsentQueuedMessages:
         try:
             with (
                 patch.object(
-                    service.session_manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env=None))
+                    service.session_manager, "_build_options", new=AsyncMock(return_value=SimpleNamespace(env={}))
                 ),
                 patch("server.agent_runtime.session_manager.ClaudeSDKClient", _connect),
             ):
@@ -1779,7 +1779,7 @@ class TestUnsentQueuedMessages:
         async def _build_options(*args: Any, **kwargs: Any) -> SimpleNamespace:
             building.set()
             await proceed.wait()
-            return SimpleNamespace(env=None)
+            return SimpleNamespace(env={})
 
         try:
             with (

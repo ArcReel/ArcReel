@@ -140,6 +140,12 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "generate_videos": {"script": "episode_1.json", "target": {"scope": "all"}},
     "select_video_version": {"unit_id": "E1S01", "version": 1},
     "inspect_video_units": {"unit_ids": ["E1S01"]},
+    "video_correction_memory": {
+        "command": {
+            "action": "lookup",
+            "context": {"provider": "p", "model": "m", "workflow": "storyboard", "reference_paths": []},
+        }
+    },
     "create_timeline": {"from": "script", "episode": 1, "name": "完整版"},
     "list_timelines": {"episode": 1},
     "read_timeline": {"timeline": "tl-0000abcd"},

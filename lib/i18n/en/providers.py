@@ -29,6 +29,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_kling": "Kuaishou Kling video and image generation platform. API Key authentication works with all models; Access Key + Secret Key (JWT) only supports 3.0-and-earlier models. Choose either — when both are set, API Key takes priority.",
     "provider_desc_agnes": "Agnes multimodal platform (OpenAI-style), authenticated with a Bearer API key; currently supports image, text and video generation.",
     # Agent preset notes (lib/agent/agent_provider_catalog.py)
+    "preset_notes_openai_direct": "Uses your OpenAI API key and credits directly, separately from ArcReel API gateway billing. The local Claude SDK runs tools and sessions; no Anthropic account is required.",
     "preset_notes_deepseek": "DeepSeek official Anthropic-compat endpoint; needs sk- prefixed key.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo only accepts known model names; no public model list.",
     "preset_notes_ark_coding_plan": "Volcengine Ark Coding Plan; no model-list endpoint — pick a suggested model you have enabled in the Ark console.",

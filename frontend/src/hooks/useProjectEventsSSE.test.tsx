@@ -41,17 +41,17 @@ function mockProjectEventStream() {
   };
 }
 
-function HookHarness({ projectName }: { projectName: string }) {
-  useProjectEventsSSE(projectName);
+function HookHarness({ projectName, followDirector = true }: { projectName: string; followDirector?: boolean }) {
+  useProjectEventsSSE(projectName, followDirector);
   const [location] = useLocation();
   return <div data-testid="location">{location}</div>;
 }
 
-function renderHarness(path = "/") {
+function renderHarness(path = "/", followDirector = true) {
   const { hook } = memoryLocation({ path });
   return render(
     <Router hook={hook}>
-      <HookHarness projectName="demo" />
+      <HookHarness projectName="demo" followDirector={followDirector} />
     </Router>,
   );
 }
@@ -159,6 +159,20 @@ describe("useProjectEventsSSE", () => {
       }),
     );
     expect(useAppStore.getState().assistantToolActivitySuppressed).toBe(true);
+  });
+
+  it.each(["character", "draft"] as const)("keeps the reel open while refreshing director %s changes", async (kind) => {
+    const stream = mockProjectEventStream();
+    renderHarness("/reel/1", false);
+    act(() => {
+      stream.options?.onChanges?.({
+        project_name: "demo", batch_id: "reel-update", fingerprint: "reel-update", generated_at: "2026-10-22T00:00:00Z", source: "filesystem",
+        changes: [{ entity_type: kind, action: "created", entity_id: "hero", episode: 1, label: "Updated", important: true, focus: { pane: "characters", anchor_type: "character", anchor_id: "hero" } }],
+      });
+    });
+    await waitFor(() => expect(API.getProject).toHaveBeenCalled());
+    expect(screen.getByTestId("location")).toHaveTextContent("/reel/1");
+    expect(useAppStore.getState().scrollTarget).toBeNull();
   });
 
   it("navigates product changes to the products page", async () => {

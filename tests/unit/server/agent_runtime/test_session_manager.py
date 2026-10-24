@@ -27,6 +27,7 @@ from tests.fakes import (
 class _FakeOptions:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
+        self.env = kwargs.get("env", {})
 
 
 class _FakeClaudeClient:

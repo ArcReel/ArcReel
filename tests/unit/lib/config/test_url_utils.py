@@ -7,9 +7,35 @@ import pytest
 from lib.config.url_utils import (
     InvalidAnthropicBaseUrlError,
     anthropic_endpoint_url,
+    is_direct_openai_agent_base_url,
     normalize_anthropic_base_url,
     validate_anthropic_base_url,
 )
+
+
+@pytest.mark.parametrize("suffix", ["", "/", "/v1", "/v1/"])
+def test_direct_openai_agent_accepts_only_canonical_roots(suffix: str) -> None:
+    assert is_direct_openai_agent_base_url(f"https://api.openai.com{suffix}")
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        None,
+        "",
+        "http://api.openai.com",
+        "https://api.openai.com:443",
+        "https://api.openai.com.evil.test",
+        "https://user@api.openai.com",
+        "https://api.openai.com/v1/messages",
+        "https://api.openai.com/v1/responses",
+        "https://api.openai.com?",
+        "https://api.openai.com#",
+        "https://api.openai.com//",
+    ],
+)
+def test_direct_openai_agent_rejects_other_destinations(base_url: str | None) -> None:
+    assert not is_direct_openai_agent_base_url(base_url)
 
 
 class TestNormalizeAnthropicBaseUrl:

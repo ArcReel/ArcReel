@@ -19,6 +19,7 @@ from lib.generation.video_request_facts import (
     VideoRequestFacts,
     VideoRequestFactsFailure,
     evaluate_video_request_facts,
+    planning_durations,
 )
 from tests.catalog_support import install_catalog, with_entry_facts
 from tests.factories import seed_endpoint_fixed_video_model
@@ -534,3 +535,25 @@ async def test_request_shaping_capabilities_come_from_the_same_evaluation(resolv
     assert (facts.text_to_video, facts.first_frame) == (declared.text_to_video, declared.first_frame)
     assert facts.max_reference_audio_count == declared.max_reference_audio_count
     assert facts.reference_audio_per_image is declared.reference_audio_per_image
+
+
+@pytest.mark.parametrize(
+    ("planned", "expected"),
+    [(5, [5]), (6, [6]), (None, [4, 8]), (True, [4, 8]), (0, [4, 8]), (-1, [4, 8]), ("5", [4, 8])],
+)
+async def test_endpoint_fixed_planning_honors_project_length_without_claiming_control(
+    resolver, db_factory, planned, expected
+):
+    pair = await seed_endpoint_fixed_video_model(db_factory)
+    facts = await _read(resolver, {"video_provider_i2v": pair})
+    assert isinstance(facts, VideoRequestFacts)
+    assert planning_durations(facts, planned) == expected
+    assert facts.duration_endpoint_fixed is True
+    assert facts.allowed_durations == ()
+
+
+async def test_planning_preference_cannot_expand_actual_model_tiers(resolver):
+    facts = await _read(resolver, {"video_provider_i2v": VEO})
+    assert isinstance(facts, VideoRequestFacts)
+    assert planning_durations(facts, 5) == list(facts.allowed_durations)
+    assert 5 not in planning_durations(facts, 5)

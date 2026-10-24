@@ -8,6 +8,8 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 
 本项目为**广告/短片**（ad）：单视频、恒单集（剧本即 `scripts/episode_1.json`）、按 `target_duration` 规划镜头。**没有分集概念**——不要做分集规划、拆分或小说源文件处理。
 
+任何视频生成或重做（包括修复视频单元后重做），都先加载 `generate-video` skill：生成前查询适用的已验证经验，生成后完成「生成后审阅与有限纠正」。批次成功不替代审片；每单元最多 2 次授权内自动纠正，通过即停止；持久计数不因新请求或验收成功而重置，已有授权不重复确认。
+
 ## 工作流步骤
 
 先调用 `mcp__arcreel__get_workflow_plan({})` 取回权威计划。把 `steps[]`、`blockers`、`status.operations`
@@ -62,7 +64,7 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
      `requested_ids` 为空时才调 `mcp__arcreel__generate_videos({"script": target.script_filename, "target": {"scope": "episode", "episode_id": target.episode}})`。
      返回后按逐 ID 分账陈述结果（`succeeded` / `failed` / `blocked` / `skipped`），并把 workflow 步骤
      状态、队列任务、供应商 checkpoint、产物时效四轴分开说——「任务成功」不等于「当前产物有效」；
-     stale 产物照常可用，是否重做由用户决定，不自动删除或重生已付费产物
+     stale 产物照常可用，不因 stale 自动重生；授权内的画面纠正按 `generate-video` 执行，保留已付费历史版本
    - 带货项目走分镜图生视频时，先审核商品分镜保真度，再产生视频费用；通用短片没有商品分镜，不设这道审核。
    - 参考生视频按自包含视频单元生成，跳过分镜；参考图在执行期按正文 `@[名称]` 的首次提及顺序解析，商品与角色、场景、道具同规则。用户不满意时按 `unit_id` 点名重做。
 
