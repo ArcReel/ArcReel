@@ -58,9 +58,17 @@ function getImagePreviewHeightClass(
   return "h-64";
 }
 
+// 预览选中态记在所属资源身份与版本指纹之下：资源或其版本改变后不沿用另一份资源的选中
+interface VersionSelection {
+  projectName: string;
+  resourcePath: string;
+  fingerprint: number | null;
+  version: number;
+}
+
 /**
  * 资源的历史版本：触发按钮打开弹层，列出版本号，选中一个即预览媒体与生成说明，
- * 非当前版本可切换为当前。弹层随触发按钮定位，滚动时跟随，不再自行关闭。
+ * 非当前版本可切换为当前。弹层随触发按钮定位，滚动时跟随，不会自行关闭。
  */
 export function VersionTimeMachine({
   projectName,
@@ -101,12 +109,13 @@ export function VersionTimeMachine({
   const [currentVersion, setCurrentVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
-  // 预览选中态记在所属资源身份与版本指纹之下：资源或其版本改变后不沿用另一份资源的选中
-  const selectionScopeOf = (fingerprint: number | null) =>
-    JSON.stringify([projectName, resourceType, resourceId, fingerprint]);
-  const selectionScope = selectionScopeOf(resourceFp);
-  const [selection, setSelection] = useState<{ scope: string; version: number } | null>(null);
-  const selectedVersion = selection?.scope === selectionScope ? selection.version : null;
+  const [selection, setSelection] = useState<VersionSelection | null>(null);
+  const selectedVersion =
+    selection?.projectName === projectName &&
+    selection.resourcePath === resourcePath &&
+    selection.fingerprint === resourceFp
+      ? selection.version
+      : null;
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
   const setOpen = (next: boolean) => {
     if (!next && restoringVersion !== null) return;
@@ -157,9 +166,11 @@ export function VersionTimeMachine({
         }
         await onRestore?.(version);
         setReload((current) => current + 1);
-        // 切换结果直接体现在「当前」标记与媒体上，成功不再弹提示；恢复已换了指纹，按最新指纹记选中
+        // 切换结果直接体现在「当前」标记与媒体上，成功时不弹提示；恢复已换了指纹，按最新指纹记选中
         setSelection({
-          scope: selectionScopeOf(useProjectsStore.getState().getAssetFingerprint(resourcePath)),
+          projectName,
+          resourcePath,
+          fingerprint: useProjectsStore.getState().getAssetFingerprint(resourcePath),
           version,
         });
       })());
@@ -232,7 +243,7 @@ export function VersionTimeMachine({
               className="flex-wrap"
               value={selectedVersion != null ? [String(selectedVersion)] : []}
               onValueChange={(next: string[]) =>
-                setSelection(next[0] ? { scope: selectionScope, version: Number(next[0]) } : null)
+                setSelection(next[0] ? { projectName, resourcePath, fingerprint: resourceFp, version: Number(next[0]) } : null)
               }
             >
               {versions.map((v) => (

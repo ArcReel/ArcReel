@@ -1,4 +1,4 @@
-import { type FocusEvent, type KeyboardEvent, type PointerEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUp, CircleAlert, Clock, Pencil, Send, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type { QueuedMessage, QueuedMessageWithdrawal } from "@/types";
 import { voidCall } from "@/utils/async";
+import { dismissOnEscape, dismissOnFocusLeave, keepFocusInside } from "@/utils/inline-confirm";
 import { turnPlainText } from "./chat/utils";
 
 // ---------------------------------------------------------------------------
@@ -137,24 +138,6 @@ function QueuedMessageItem({
     returnFocusRef.current = returnFocus;
     setConfirmingDelete(false);
   };
-  const dismissOnEscape = (event: KeyboardEvent) => {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      dismissDelete(true);
-    }
-  };
-  const dismissOnFocusLeave = (event: FocusEvent<HTMLDivElement>) => {
-    const next = event.relatedTarget;
-    // 焦点仍在区域内，或整个窗口失焦（relatedTarget 为空且文档已不持有焦点）：确认态保留
-    if (next instanceof Node ? event.currentTarget.contains(next) : !document.hasFocus()) return;
-    dismissDelete(false);
-  };
-  const keepFocusInside = (event: PointerEvent<HTMLDivElement>) => {
-    // 点区域内的提示文字不让焦点落到 body：按钮（含按钮内的图标、文字节点）照常接收焦点
-    if (event.target instanceof Element && event.target.closest("button")) return;
-    event.preventDefault();
-  };
-
   return (
     <li className="flex items-start gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 text-xs">
       <Clock aria-hidden className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
@@ -164,17 +147,15 @@ function QueuedMessageItem({
       </div>
       {confirmingDelete ? (
         // 面板最窄 320px 时提示文字加两个按钮放不下一行：允许换行，宽度不够时提示文字先折到上一行。
-        // Esc 绑在两个按钮上而不是这个容器上：容器不是交互元素，jsx-a11y 不允许在它上面挂键盘事件；
-        // 焦点一离开容器确认态就结束，Esc 不会落在容器外
         <div
           role="group"
           aria-label={t("queued_message_delete_prompt")}
           className="-my-0.5 flex min-w-0 flex-wrap items-center justify-end gap-1"
-          onBlur={dismissOnFocusLeave}
+          onBlur={(event) => dismissOnFocusLeave(event, dismissDelete)}
           onPointerDown={keepFocusInside}
         >
           <span className="text-muted-foreground">{t("queued_message_delete_prompt")}</span>
-          <Button variant="destructive" size="xs" disabled={busy} onKeyDown={dismissOnEscape} onClick={() => withdraw("delete")}>
+          <Button variant="destructive" size="xs" disabled={busy} onKeyDown={(event) => dismissOnEscape(event, dismissDelete)} onClick={() => withdraw("delete")}>
             {t("queued_message_delete_confirm")}
           </Button>
           <Button
@@ -182,7 +163,7 @@ function QueuedMessageItem({
             variant="outline"
             size="xs"
             disabled={busy}
-            onKeyDown={dismissOnEscape}
+            onKeyDown={(event) => dismissOnEscape(event, dismissDelete)}
             onClick={() => dismissDelete(true)}
           >
             {t("cancel")}

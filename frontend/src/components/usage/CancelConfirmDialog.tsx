@@ -1,9 +1,10 @@
-import { useEffect, useRef, type FocusEvent, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { voidPromise } from "@/utils/async";
 import { episodeItemRefLabel } from "@/utils/episode-display";
+import { dismissOnEscape, dismissOnFocusLeave, keepFocusInside } from "@/utils/inline-confirm";
 import type { CancelRequest } from "./use-task-cancellation";
 
 interface CancelConfirmDialogProps {
@@ -57,31 +58,13 @@ export function CancelConfirmDialog({
     onDismiss();
     if (returnFocus && trigger?.isConnected) trigger.focus();
   };
-  const dismissOnEscape = (event: KeyboardEvent) => {
-    if (event.key !== "Escape") return;
-    // 不让 Esc 继续冒泡关掉所在的悬浮层
-    event.stopPropagation();
-    dismiss(true);
-  };
-  const dismissOnFocusLeave = (event: FocusEvent<HTMLDivElement>) => {
-    const next = event.relatedTarget;
-    // 焦点仍在区域内，或整个窗口失焦（relatedTarget 为空且文档已不持有焦点）：确认态保留
-    if (next instanceof Node ? event.currentTarget.contains(next) : !document.hasFocus()) return;
-    dismiss(false);
-  };
-  const keepFocusInside = (event: PointerEvent<HTMLDivElement>) => {
-    // 点区域内的提示文字不让焦点落到 body：按钮照常接收焦点
-    if (event.target instanceof Element && event.target.closest("button")) return;
-    event.preventDefault();
-  };
-
   return (
     // react-doctor-disable-next-line react-doctor/prefer-html-dialog -- 行内非模态确认，留在所在列表里不进顶层；原生 <dialog> 的价值在 showModal 的模态行为，这里不需要
     <div
       role="alertdialog"
       aria-label={t("cancel_confirm_aria")}
       className="flex flex-col gap-2 border-t border-border bg-muted/40 px-4 py-3"
-      onBlur={dismissOnFocusLeave}
+      onBlur={(event) => dismissOnFocusLeave(event, dismiss)}
       onPointerDown={keepFocusInside}
     >
       <p className="text-sm text-subtle-foreground">
@@ -111,7 +94,7 @@ export function CancelConfirmDialog({
           size="sm"
           variant="destructive"
           onClick={voidPromise(onConfirm)}
-          onKeyDown={dismissOnEscape}
+          onKeyDown={(event) => dismissOnEscape(event, dismiss)}
           disabled={cancelling}
         >
           {cancelling ? t("cancelling") : t("confirm_cancel")}
@@ -121,7 +104,7 @@ export function CancelConfirmDialog({
           size="sm"
           variant="outline"
           onClick={() => dismiss(true)}
-          onKeyDown={dismissOnEscape}
+          onKeyDown={(event) => dismissOnEscape(event, dismiss)}
           disabled={cancelling}
         >
           {t("go_back")}

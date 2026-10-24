@@ -83,6 +83,4 @@ export {
   ButtonGroup,
   ButtonGroupSeparator,
   ButtonGroupText,
-  // react-doctor-disable-next-line react-doctor/only-export-components -- shadcn 原语的 cva 定义与组件同文件：@shadcn/lint 从组件所在文件读取 variant 与 size 名写进修正提示，拆到别的模块后提示里不再列出可用变体
-  buttonGroupVariants,
 }

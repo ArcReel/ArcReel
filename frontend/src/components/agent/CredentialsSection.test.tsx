@@ -40,9 +40,7 @@ describe("CredentialsSection", () => {
       messages_url: "https://api.deepseek.com/anthropic/v1/messages",
     });
     render(<CredentialsSection />);
-    await waitFor(() => expect(API.listAgentPresetProviders).toHaveBeenCalled());
-
-    fireEvent.click(screen.getByRole("button", { name: "添加供应商" }));
+    fireEvent.click(await screen.findByRole("button", { name: "添加供应商" }));
     fireEvent.click(await screen.findByRole("button", { name: /DeepSeek/i }));
     fireEvent.change(screen.getByLabelText("密钥"), { target: { value: "sk-test" } });
     fireEvent.click(screen.getByTestId("test-connection"));
