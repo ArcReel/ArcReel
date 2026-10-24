@@ -17,11 +17,11 @@ from typing import ClassVar
 from lib.backends.backend_runtime import (
     notify_provider_response_to,
     poll_with_retry,
+    should_retry_poll,
     should_retry_submit,
     submit_post,
 )
 from lib.backends.higgsfield_shared import (
-    HIGGSFIELD_RETRYABLE_ERRORS,
     create_higgsfield_client,
     extract_image_urls,
     extract_request_id,
@@ -198,7 +198,7 @@ class HiggsfieldImageBackend:
                 is_failed=request_failure_reason,
                 poll_interval=_POLL_INTERVAL_SECONDS,
                 max_wait=_POLL_MAX_WAIT_SECONDS,
-                retryable_errors=HIGGSFIELD_RETRYABLE_ERRORS,
+                retry_if=should_retry_poll,
                 label="Higgsfield",
                 on_progress=lambda v, elapsed: logger.info(
                     "Higgsfield 图片生成中... status=%s elapsed=%ds", v.get("status"), int(elapsed)

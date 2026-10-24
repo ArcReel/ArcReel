@@ -146,6 +146,33 @@ class TestGenerate:
         assert result.usage.quantities == {"output_images": 1, "input_images": 1}
         assert result.usage.dimensions == {"resolution": "1k"}
 
+    async def test_transient_status_error_while_polling_is_retried(self, tmp_path: Path):
+        """状态接口偶发 503 / 刚提交时 404 按共用轮询谓词重试，不让已计费的请求立即失败。"""
+        out = tmp_path / "o.png"
+        request = ImageGenerationRequest(prompt="p", output_path=out)
+        with capture_http() as router, bounded_poll_clock():
+            router.post(f"{API}/higgsfield-ai/soul/v2/standard").mock(
+                return_value=httpx.Response(200, json={"status": "queued", "request_id": "req-5"})
+            )
+            status = router.get(f"{API}/requests/req-5/status").mock(
+                side_effect=[
+                    httpx.Response(404, json={"detail": "not yet"}),
+                    httpx.Response(503, json={"detail": "busy"}),
+                    httpx.Response(
+                        200,
+                        json={
+                            "status": "completed",
+                            "request_id": "req-5",
+                            "images": [{"url": "https://cdn.example.com/o.png"}],
+                        },
+                    ),
+                ]
+            )
+            router.get("https://cdn.example.com/o.png").mock(return_value=httpx.Response(200, content=PNG))
+            await _backend(MODEL_SOUL_2).generate(request)
+        assert status.call_count == 3
+        assert out.read_bytes() == PNG
+
     async def test_failed_status_raises(self, tmp_path: Path):
         request = ImageGenerationRequest(prompt="p", output_path=tmp_path / "o.png")
         with capture_http() as router, bounded_poll_clock():
