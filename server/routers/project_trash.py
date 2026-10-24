@@ -1,11 +1,11 @@
-"""项目回收站：列出删除记录、恢复、彻底删除与清空。彻底删除与清空只开放给创作者：不给 Agent 工具，服务端也拒绝内嵌 Agent 的令牌。"""
+"""项目回收站：列出删除记录、恢复、下载记录里的文件、彻底删除与清空。彻底删除与清空只开放给创作者：不给 Agent 工具，服务端也拒绝内嵌 Agent 的令牌。"""
 
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
@@ -13,6 +13,7 @@ from lib.project import project_trash
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from server.auth import reject_embedded_agent
+from server.routers.file_view import content_media_type, stream_file
 
 router = APIRouter(prefix="/projects/{project_name}/trash")
 
@@ -43,10 +44,22 @@ async def list_trash(project_name: str):
 async def restore_trash_record(project_name: str, record_id: str):
     def _sync() -> dict[str, object]:
         with project_change_source("webui"):
-            restored = project_trash.restore(_project_dir(project_name), record_id)
-        return {"restored": [item.to_dict() for item in restored]}
+            return project_trash.restore(_project_dir(project_name), record_id).to_dict()
 
     return await run_sync_transaction(_sync)
+
+
+@router.get("/{record_id}/files")
+async def download_trash_record_file(project_name: str, record_id: str, path: str = Query(...)):
+    """下载记录里的一个被删文件：降级恢复后只能下载的结构文件从这里取回。"""
+    name = Path(path).name
+
+    def _sync():
+        handle, info = project_trash.open_record_file(_project_dir(project_name), record_id, path)
+        return handle, info.st_size, content_media_type(name)
+
+    handle, size, media_type = await asyncio.to_thread(_sync)
+    return stream_file(handle, size, name, media_type, download=True)
 
 
 @router.delete("/{record_id}", dependencies=[Depends(reject_embedded_agent)])

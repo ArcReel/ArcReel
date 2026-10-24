@@ -100,8 +100,7 @@ async def restore_trash_record(
     record_id = request.value.record_id
 
     def restore() -> dict[str, Any]:
-        restored = project_trash.restore(services.projects.get_project_path(scope.project_name), record_id)
-        return {"restored": [item.to_dict() for item in restored]}
+        return project_trash.restore(services.projects.get_project_path(scope.project_name), record_id).to_dict()
 
     return await _run("restore_trash_record", True, restore)
 
@@ -116,7 +115,14 @@ def restore_trash_record_summary(value: dict[str, Any]) -> str:
         f"{item['original']} → {item['path']}" + ("（作为历史版本加回）" if item["as_history"] else "")
         for item in value["restored"]
     ]
-    return "已恢复：\n" + "\n".join(lines)
+    if not value.get("degraded"):
+        return "已恢复：\n" + "\n".join(lines)
+    kept = "、".join(value["download_only"])
+    return (
+        "无法按原结构恢复，只加回了其中的文件"
+        + ("：\n" + "\n".join(lines) if lines else "（没有可加回的文件）")
+        + (f"\n结构文件 {kept} 留在这条删除记录里，只能由创作者在回收站下载" if kept else "")
+    )
 
 
 __all__ = [
