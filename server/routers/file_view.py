@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
-from lib.project.file_view import delete_unreferenced_file, iter_file_chunks, list_directory, open_project_file
+from lib.project.file_view import iter_file_chunks, list_directory, move_file_to_trash, open_project_file
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from server.routers._file_responses import guess_media_type
@@ -59,7 +59,7 @@ async def delete_file_view_entry(project_name: str, path: str = Query(...)):
         project_dir = _project_dir(project_name)
         try:
             with project_change_source("webui"):
-                record = delete_unreferenced_file(project_dir, path)
+                record = move_file_to_trash(project_dir, path)
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise NotFoundError("file_not_found", path=path) from exc
         return {"record": record.to_dict()}

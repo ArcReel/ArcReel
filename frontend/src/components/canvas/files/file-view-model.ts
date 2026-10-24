@@ -6,7 +6,9 @@ import { assetNotificationTarget } from "@/utils/task-target";
 export type FilePreviewKind = "image" | "video" | "audio" | "text";
 
 export function canDeleteFile(entry: FileViewEntry): boolean {
-  return entry.type === "file" && entry.role === "unreferenced" && entry.owner?.kind !== "source";
+  // 历史版本中的当前版本由服务端拒绝
+  if (entry.type !== "file") return false;
+  return entry.role === "history" || (entry.role === "unreferenced" && entry.owner?.kind !== "source");
 }
 
 const PREVIEW_KINDS: Record<string, FilePreviewKind> = {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { ownerTarget, previewKind } from "./file-view-model";
+import type { FileViewEntry } from "@/types";
+
+import { canDeleteFile, ownerTarget, previewKind } from "./file-view-model";
 
 describe("ownerTarget", () => {
   it("routes assets to their gallery and focuses the card", () => {
@@ -41,5 +43,25 @@ describe("previewKind", () => {
     expect(previewKind("project.json")).toBe("text");
     expect(previewKind("draft.zip")).toBeNull();
     expect(previewKind("README")).toBeNull();
+  });
+});
+
+describe("canDeleteFile", () => {
+  const file = (role: FileViewEntry["role"], owner?: FileViewEntry["owner"]): FileViewEntry => ({
+    name: "a.png",
+    path: "a.png",
+    type: "file",
+    size: 1,
+    modified_at: "2026-10-25T00:00:00+00:00",
+    role,
+    owner,
+  });
+
+  it("offers history versions and unreferenced files, not other roles or loose source files", () => {
+    expect(canDeleteFile(file("history"))).toBe(true);
+    expect(canDeleteFile(file("unreferenced"))).toBe(true);
+    expect(canDeleteFile(file("unreferenced", { kind: "source" }))).toBe(false);
+    expect(canDeleteFile(file("referenced"))).toBe(false);
+    expect(canDeleteFile(file("memory"))).toBe(false);
   });
 });

@@ -29,7 +29,7 @@ from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
 from lib.infra.json_io import atomic_write_json
 from lib.project.project_change_hints import emit_project_change_batch, get_project_change_source
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
-from lib.project.resource_paths import resource_of_path
+from lib.project.resource_paths import resource_of_path, resource_relative_path
 
 __all__ = [
     "RETENTION",
@@ -174,7 +174,7 @@ def restore(project_dir: Path, record_id: str) -> list[RestoredFile]:
         if record.has_snapshot:
             raise BadRequestError("trash_restore_unsupported")
         record_dir = trash_dir(project_dir) / record.id
-        restored = [_land_file(project_dir, record_dir / _FILES_DIR / rel, rel) for rel in record.files]
+        restored = [_land_file(project_dir, record_dir / _FILES_DIR / rel, rel, record.object) for rel in record.files]
         shutil.rmtree(record_dir)
     _notify(project_dir)
     return restored
@@ -252,11 +252,22 @@ def _require(project_dir: Path, record_id: str) -> TrashRecord:
     return record
 
 
-def _land_file(project_dir: Path, stored: Path, rel: str) -> RestoredFile:
+def _land_file(project_dir: Path, stored: Path, rel: str, obj: Mapping[str, Any]) -> RestoredFile:
     target = project_dir / rel
     if any(parent.is_symlink() for parent in target.parents if parent.is_relative_to(project_dir)):
         # 删除之后有人把途经的目录换成了符号链接：不跟着它写到别处。
         raise ConflictError("trash_restore_target_blocked", path=rel)
+    if obj.get("kind") == "version" and obj.get("resource_type") in VersionManager.RESOURCE_TYPES:
+        # 被删的历史版本重新登记进版本历史：只把快照放回原路径，版本历史里不会有它。
+        resource_type, resource_id = str(obj["resource_type"]), str(obj["resource_id"])
+        path = VersionManager(project_dir).add_history_version(
+            resource_type,
+            resource_id,
+            stored,
+            current_file=project_dir / resource_relative_path(resource_type, resource_id),
+            prompt=str(obj.get("prompt") or ""),
+        )
+        return RestoredFile(rel, path, as_history=True)
     if not (target.exists() or target.is_symlink()):
         target.parent.mkdir(parents=True, exist_ok=True)
         os.replace(stored, target)

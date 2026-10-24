@@ -24,6 +24,7 @@ from lib.agent.profile_manifest import (
     load_manifest,
     save_manifest,
 )
+from lib.project import project_trash
 
 # ---------- enumerate ----------
 
@@ -767,6 +768,12 @@ def test_full_force_reset_discards_all_customized_files_and_restores_builtin(tmp
         "customized": False,
         "customized_files": [],
     }
+    # 丢弃的定制与项目独有文件成为一条删除记录；与内置一致的文件不进回收站
+    [record] = project_trash.list_records(project)
+    assert record.files == (".claude/skills/private/SKILL.md", "CLAUDE.md")
+    project_trash.restore(project, record.id)
+    assert user_only.read_text(encoding="utf-8") == "private"
+    assert (project / "CLAUDE (1).md").read_text(encoding="utf-8") == "custom"
 
 
 def test_profile_reset_preserves_project_private_area(tmp_path: Path) -> None:

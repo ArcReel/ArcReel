@@ -10,6 +10,7 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifacts.version_manager import VersionManager
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
@@ -261,3 +262,36 @@ def test_trash_is_hidden_from_the_file_view(trash_client):
     names = {entry["name"] for entry in trash_client.get(FILES, params={"path": ".arcreel"}).json()["entries"]}
     assert "trash" not in names
     assert trash_client.get(FILES, params={"path": ".arcreel/trash"}).status_code == 404
+
+
+def _history(project_dir) -> dict:
+    return json.loads((project_dir / "versions/versions.json").read_text(encoding="utf-8"))["storyboards"]["E1S01"]
+
+
+def test_history_version_moves_to_trash_and_restores_into_version_history(trash_client, trash_project_dir):
+    current = trash_project_dir / "storyboards/scene_E1S01.png"
+    manager = VersionManager(trash_project_dir)
+    manager.add_version("storyboards", "E1S01", "old prompt", source_file=current)
+    current.write_bytes(b"in-use v2")
+    manager.add_version("storyboards", "E1S01", "new prompt", source_file=current)
+    old, latest = _history(trash_project_dir)["versions"]
+
+    refused = trash_client.delete(FILES, params={"path": latest["file"]})
+    assert refused.status_code == 409, refused.text
+    response = trash_client.delete(FILES, params={"path": old["file"]})
+    assert response.status_code == 200, response.text
+
+    assert not (trash_project_dir / old["file"]).exists()
+    assert [v["version"] for v in _history(trash_project_dir)["versions"]] == [latest["version"]]
+    [record] = _records(trash_client)
+    assert record["object"]["kind"] == "version"
+
+    [restored] = trash_client.post(f"{TRASH}/{record['id']}/restore").json()["restored"]
+
+    assert restored["as_history"] is True
+    history = _history(trash_project_dir)
+    assert history["current_version"] == latest["version"]
+    back = next(v for v in history["versions"] if v["file"] == restored["path"])
+    assert back["prompt"] == "old prompt"
+    assert (trash_project_dir / back["file"]).read_bytes() == b"in-use"
+    assert current.read_bytes() == b"in-use v2"
