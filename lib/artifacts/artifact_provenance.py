@@ -44,11 +44,14 @@ def build_script_plan_basis(
     *,
     episode: int,
     project: Mapping[str, object],
+    reference_context: list[dict[str, str]] | None = None,
 ) -> ArtifactBasis:
     """Describe every durable prompt input consumed by one script_plan artifact."""
 
     content_mode, generation_mode = _content_axes(project)
     prompt_inputs = project_script_plan_prompt_inputs(episode, project=project)
+    if reference_context:
+        prompt_inputs["reference_context"] = reference_context
     return _build_script_plan_basis(
         source_content,
         content_mode=content_mode,
@@ -63,6 +66,7 @@ def build_script_plan_request(
     episode: int,
     project: Mapping[str, object],
     expected_variant: ScriptPlanPromptVariant,
+    reference_context: list[dict[str, str]] | None = None,
 ) -> tuple[dict[str, object], ArtifactBasis]:
     """Freeze the prompt projection and basis for one route-specific script_plan request."""
 
@@ -72,6 +76,8 @@ def build_script_plan_request(
         project=project,
         expected_variant=expected_variant,
     )
+    if reference_context:
+        prompt_inputs["reference_context"] = reference_context
     basis = _build_script_plan_basis(
         source_content,
         content_mode=content_mode,

@@ -61,6 +61,7 @@ from lib.infra.content_digest import sha256_file
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
+from lib.project.reference_library import append_reference_context, current_reference_context
 from lib.prompts.prompt_builders_ad import (
     build_ad_prompt,
     build_ad_reference_prompt,
@@ -581,6 +582,13 @@ class ScriptGenerator:
     async def _build_visual_prompt(
         self, episode: int, targets: PromptAuthoringTargets, instructions: str | None
     ) -> str:
+        references = await asyncio.to_thread(current_reference_context, self.project_path)
+        prompt = self._build_visual_prompt_content(episode, targets, instructions)
+        return append_reference_context(prompt, references)
+
+    def _build_visual_prompt_content(
+        self, episode: int, targets: PromptAuthoringTargets, instructions: str | None
+    ) -> str:
         """分镜类条目（segments / scenes / shots）的视觉层 prompt：输入是正式剧本里这些条目的内容字段。"""
         entries = list(targets.entries)
         if targets.kind == "scenes":
@@ -1066,7 +1074,7 @@ class ScriptGenerator:
         if self.content_mode == "ad":
             return self._build_ad_reference_prompt_authoring_prompt(episode, targets, instructions)
         facts = await self._fetch_video_request_facts()
-        return self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions)
+        return await self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions)
 
     @property
     def _storyboard_bucket(self) -> VideoGenerationType:
@@ -1529,7 +1537,14 @@ class ScriptGenerator:
                     raise enriched[0] from exc
                 raise DraftViolations(enriched) from exc
 
-    def _build_reference_prompt_authoring_prompt(
+    async def _build_reference_prompt_authoring_prompt(
+        self, episode: int, targets: PromptAuthoringTargets, facts: PlanningVideoFacts, instructions: str | None
+    ) -> str:
+        references = await asyncio.to_thread(current_reference_context, self.project_path)
+        prompt = self._build_reference_prompt_content(episode, targets, facts, instructions)
+        return append_reference_context(prompt, references)
+
+    def _build_reference_prompt_content(
         self, episode: int, targets: PromptAuthoringTargets, facts: PlanningVideoFacts, instructions: str | None
     ) -> str:
         return build_reference_video_prompt(
@@ -1584,7 +1599,7 @@ class ScriptGenerator:
         logger.info("正在为第 %d 集编写提示词（video_units，%d/%d 个单元）...", episode, len(units), len(targets.items))
         result = await self._generate_text(
             TextGenerationRequest(
-                prompt=self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions),
+                prompt=await self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions),
                 response_schema=ReferencePromptAuthoringFlatScript,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             )

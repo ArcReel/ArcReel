@@ -1459,3 +1459,39 @@ async def test_generate_episode_script_truncation_offers_the_way_out(fake_ctx: T
         GenerationAction.CONFIGURE_PROVIDER,
         _TRUNCATION_PARAMS,
     )
+
+
+@pytest.mark.parametrize("mode", ["drama", "narration", "reference_video"])
+async def test_script_planning_reads_only_the_current_reference_edition(
+    fake_ctx: ToolHarness, video_request_facts, tmp_path: Path, mode: str
+) -> None:
+    from lib.project.reference_library import publish_reference_context, register_pdf_reference
+
+    fake_ctx.pm.project_payload["content_mode"] = "narration" if mode == "narration" else "drama"
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video" if mode == "reference_video" else "storyboard"
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "episode_1.txt").write_text("A quiet walk.")
+    pdf = tmp_path / "world.pdf"
+    pdf.write_bytes(b"%PDF-1.7 old")
+    old = register_pdf_reference(fake_ctx.project_path, "world", pdf)
+    publish_reference_context(fake_ctx.project_path, "world", expected_revision=old.latest, context="RETIRED_FACT")
+    pdf.write_bytes(b"%PDF-1.7 new")
+    latest = register_pdf_reference(fake_ctx.project_path, "world", pdf)
+    blocked = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
+    assert blocked.problem is not None
+    assert "needs a consolidated map" in said(blocked)
+    publish_reference_context(
+        fake_ctx.project_path, "world", expected_revision=latest.latest, context="CURRENT_FACT p54"
+    )
+    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
+    assert result.problem is None, said(result)
+    text = said(result)
+    assert text.count("CURRENT_FACT p54") == 1
+    assert latest.latest in text
+    assert "RETIRED_FACT" not in text
+    assert old.latest not in text
+    read = await run_declared_tool("get_project_content", fake_ctx, {})
+    assert read.problem is None
+    assert "CURRENT_FACT p54" in said(read)
+    assert "RETIRED_FACT" not in said(read)

@@ -743,6 +743,26 @@ class TestDryRunPrompt:
         assert second_needle in prompt
         assert first_needle not in prompt
 
+    async def test_authoring_refreshes_versioned_reference_context(self, tmp_path: Path, variant: _Variant) -> None:
+        from lib.project.reference_library import publish_reference_context, register_pdf_reference
+
+        project_dir = await self._converted_with_pending(tmp_path, variant, *variant.entry_ids)
+        pdf = tmp_path / "world.pdf"
+        pdf.write_bytes(b"%PDF-1.7 old")
+        old = register_pdf_reference(project_dir, "world", pdf)
+        publish_reference_context(project_dir, "world", expected_revision=old.latest, context="OLD_CANON")
+        generator = variant.generator(project_dir, [])
+        assert "OLD_CANON" in await generator.build_prompt(1)
+        pdf.write_bytes(b"%PDF-1.7 new")
+        new = register_pdf_reference(project_dir, "world", pdf)
+        with pytest.raises(ValueError, match="needs a consolidated map"):
+            await generator.build_prompt(1)
+        publish_reference_context(project_dir, "world", expected_revision=new.latest, context="NEW_CANON")
+        prompt = await generator.build_prompt(1)
+        assert prompt.count("NEW_CANON") == 1
+        assert "OLD_CANON" not in prompt
+        assert new.latest in prompt
+
     async def test_prompt_says_so_when_nothing_is_pending(self, tmp_path: Path, variant: _Variant) -> None:
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
 

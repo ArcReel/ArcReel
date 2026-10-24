@@ -145,6 +145,7 @@ from lib.project.project_migration_failure import (
 )
 from lib.project.project_migration_guard import project_migration_failure
 from lib.project.project_migrations import migrate_project_with_verdict
+from lib.project.reference_library import current_reference_context
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.script_batch_edit import (
     ScriptBatchEditCommand,
@@ -1072,6 +1073,8 @@ class ProjectFileRequest(BaseModel):
 class ProjectContent(BaseModel):
     revision: str
     project: dict[str, Any]
+    reference_context: list[dict[str, str]] = Field(default_factory=list)
+    reference_warning: str | None = None
 
 
 class EpisodeScriptContent(BaseModel):
@@ -1267,7 +1270,18 @@ def _file_problem(name: str, exc: BaseException) -> ToolProblem:
 
 def _get_project_content_sync(project_name: str, projects: ProjectManager) -> ProjectContent:
     project = projects.load_project(project_name)
-    return ProjectContent(revision=prefixed_canonical_json_digest(project), project=project)
+    warning = None
+    try:
+        references = current_reference_context(projects.get_project_path(project_name))
+    except (ValueError, OSError) as exc:
+        references = []
+        warning = str(exc)
+    return ProjectContent(
+        revision=prefixed_canonical_json_digest(project),
+        project=project,
+        reference_context=references,
+        reference_warning=warning,
+    )
 
 
 async def get_project_content(

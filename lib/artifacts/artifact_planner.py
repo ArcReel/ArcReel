@@ -85,6 +85,7 @@ from lib.project.project_schema import (
     parse_project_schema_version,
     project_schema_is_current,
 )
+from lib.project.reference_library import current_reference_context
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, resource_relative_path
 from lib.references.reference_admission import SHEET_MISSING_CODE
 from lib.script import script_review
@@ -754,6 +755,7 @@ class TargetStatePlanner:
                     source_content,
                     episode=binding.episode,
                     project=self.project,
+                    reference_context=current_reference_context(self.project_dir),
                 )
             except (TypeError, ValueError):
                 pass

@@ -50,6 +50,7 @@ from lib.infra.schema_guards import is_int, is_str
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import ASSET_SPECS, BUCKET_KEY, asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.project.reference_library import append_reference_context, current_reference_context
 from lib.prompts.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompts.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
@@ -501,6 +502,7 @@ def load_script_plan_source_with_basis(
         episode=episode,
         project=project,
         expected_variant=expected_variant,
+        reference_context=current_reference_context(project_path),
     )
     return novel_text, prompt_inputs, basis
 
@@ -927,6 +929,10 @@ async def generate_drama_script_plan(
             speech_rate_override=cast(float | None, prompt_inputs["speech_rate_override"]),
             episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
             instructions=instructions,
+        )
+
+        prompt = append_reference_context(
+            prompt, cast(list[dict[str, str]], prompt_inputs.get("reference_context", []))
         )
 
         if request.dry_run:
@@ -1655,6 +1661,10 @@ async def generate_reference_script_plan(
             instructions=instructions,
         )
 
+        prompt = append_reference_context(
+            prompt, cast(list[dict[str, str]], prompt_inputs.get("reference_context", []))
+        )
+
         if request.dry_run:
             return TextGenerationResult(
                 f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}\n\nPrompt 长度: {len(prompt)} 字符"
@@ -1814,6 +1824,10 @@ async def generate_narration_script_plan(
             target_language=cast(str, prompt_inputs["target_language"]),
             episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
             instructions=instructions,
+        )
+
+        prompt = append_reference_context(
+            prompt, cast(list[dict[str, str]], prompt_inputs.get("reference_context", []))
         )
 
         if request.dry_run:
