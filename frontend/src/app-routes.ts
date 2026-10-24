@@ -135,6 +135,7 @@ export const WORKSPACE_ROUTE_SCENES = "scenes";
 export const WORKSPACE_ROUTE_PROPS = "props";
 export const WORKSPACE_ROUTE_PRODUCTS = "products";
 export const WORKSPACE_ROUTE_EPISODES = "episodes";
+export const WORKSPACE_ROUTE_FILES = "files";
 
 /** 集页的视图查询参数：`?view=edit` 打开剪辑视图，缺省为分镜视图；`tl` 指定打开哪条剪辑时间线。 */
 export const EPISODE_VIEW_PARAM = "view";
@@ -157,6 +158,7 @@ const WORKSPACE_STATIC_LEAF_ROUTES = [
   WORKSPACE_ROUTE_SCENES,
   WORKSPACE_ROUTE_PROPS,
   WORKSPACE_ROUTE_PRODUCTS,
+  WORKSPACE_ROUTE_FILES,
 ] as const;
 
 /**

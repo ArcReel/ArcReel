@@ -675,7 +675,7 @@ def _stage_assets(assets: EndpointTestAssets, staged: list[Path]) -> dict[str, P
 
 def _remove_staging(staged: list[Path]) -> None:
     for staging in staged:
-        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(staging, ignore_errors=True)  # hard-delete: temp -- 试跑的 mkdtemp 暂存
 
 
 def _persist_assets(assets: EndpointTestAssets, staging: Path) -> dict[str, Path | list[Path] | None]:

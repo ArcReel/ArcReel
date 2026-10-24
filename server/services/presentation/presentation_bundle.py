@@ -80,6 +80,7 @@ class PresentationBundleService:
             return await run_sync_transaction(_export)
         except BaseException:
             for temp_dir in temp_dirs:
+                # hard-delete: temp -- 导出的临时目录
                 await run_noninterruptible_sync(shutil.rmtree, temp_dir, ignore_errors=True)
             raise
 

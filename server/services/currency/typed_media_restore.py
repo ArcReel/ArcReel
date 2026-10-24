@@ -49,6 +49,7 @@ def _clear_video_thumbnail(resource_type: str, resource_id: str, project_path: P
         thumbnail_key = f"reference_videos/thumbnails/{resource_id}.jpg"
     else:
         return None
+    # hard-delete: derived -- 版本还原时清掉视频缩略图，可从视频重新生成
     (project_path / thumbnail_key).unlink(missing_ok=True)
     return thumbnail_key, 0
 

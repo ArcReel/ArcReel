@@ -374,3 +374,111 @@ def test_public_name_under_private_alias_and_external_or_dunder_imports_are_allo
     _write(repo, "tests/unit/test_retry.py", "from lib.retry import _private\n")
 
     assert _private_import_hits(repo) == []
+
+
+def _hard_delete_hits(root: Path) -> list[tuple[str, int]]:
+    return sorted((v.path.as_posix(), v.line) for v in audit(root) if v.rule == "HARD-DELETE")
+
+
+def test_untagged_delete_calls_and_callbacks_are_reported(repo: Path) -> None:
+    _write(
+        repo,
+        "lib/cleanup.py",
+        """import os, shutil, asyncio
+from shutil import rmtree
+def run(p, items):
+    p.unlink(missing_ok=True)
+    os.remove(p)
+    shutil.rmtree(
+        p,
+    )
+    rmtree(p)
+    p.rmdir()
+    asyncio.to_thread(p.unlink)
+    items.remove(p)
+    p.unlink()  # hard-delete: temp -- 本函数刚写下的暂存文件
+""",
+    )
+    _write(repo, "server/drop.py", "import aiofiles.os\nasync def f(p):\n    await aiofiles.os.remove(p)\n")
+    _write(repo, "tests/unit/test_cleanup.py", "def test(p):\n    p.unlink()\n")
+
+    assert _hard_delete_hits(repo) == [
+        ("lib/cleanup.py", 4),
+        ("lib/cleanup.py", 5),
+        ("lib/cleanup.py", 6),
+        ("lib/cleanup.py", 9),
+        ("lib/cleanup.py", 10),
+        ("lib/cleanup.py", 11),
+        ("server/drop.py", 3),
+    ]
+
+
+def test_delete_functions_and_modules_bound_by_import_aliases_are_reported(repo: Path) -> None:
+    _write(
+        repo,
+        "lib/cleanup.py",
+        """from os import remove
+from shutil import rmtree as delete_tree
+import os as filesystem
+import aiofiles.os as aos
+async def run(p, items, handler):
+    remove(p)
+    delete_tree(p)
+    filesystem.remove(p)
+    await aos.remove(p)
+    items.remove(p)
+    remove = handler
+""",
+    )
+
+    assert _hard_delete_hits(repo) == [
+        ("lib/cleanup.py", 6),
+        ("lib/cleanup.py", 7),
+        ("lib/cleanup.py", 8),
+        ("lib/cleanup.py", 9),
+    ]
+
+
+def test_hard_delete_tag_needs_known_category_and_reason(repo: Path) -> None:
+    _write(
+        repo,
+        "lib/cleanup.py",
+        """def run(p):
+    p.unlink()  # hard-delete: pending-trash
+    p.unlink()  # hard-delete: pending-trash --
+    p.unlink()  # hard-delete: trash -- 理由
+    p.unlink()  # hard-delete: pending-trash -- 删一集的媒体应进回收站
+    p.unlink(
+        missing_ok=True,
+    )  # hard-delete: rollback -- 撤销写到一半的文件
+""",
+    )
+
+    assert _hard_delete_hits(repo) == [("lib/cleanup.py", 2), ("lib/cleanup.py", 3), ("lib/cleanup.py", 4)]
+
+
+def test_hard_delete_tag_without_delete_call_is_reported(repo: Path) -> None:
+    _write(repo, "lib/cleanup.py", "def run(p):\n    trash(p)  # hard-delete: pending-trash -- 已接入回收站\n")
+
+    assert _hard_delete_hits(repo) == [("lib/cleanup.py", 2)]
+
+
+def test_hard_delete_tag_may_sit_on_any_line_of_the_statement_or_alone_on_the_line_above(repo: Path) -> None:
+    _write(
+        repo,
+        "lib/cleanup.py",
+        """async def run(p, q):
+    await to_thread(
+        p.unlink, missing_ok=True
+    )  # hard-delete: temp -- 格式化器拆行后标注落在语句末行
+    # hard-delete: temp -- 理由太长时独占上一行
+    q.unlink()
+    p.unlink()  # hard-delete: temp -- 上一行的行尾标注不覆盖下一行
+    q.unlink()
+    # hard-delete: temp -- 隔了一行的独占标注不算数
+
+    q.unlink()
+""",
+    )
+
+    assert _hard_delete_hits(repo) == [("lib/cleanup.py", 8), ("lib/cleanup.py", 9), ("lib/cleanup.py", 11)]

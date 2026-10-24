@@ -747,6 +747,7 @@ async def delete_credential(
         cred_file = Path(cred_path)
         if cred_file.is_file():  # noqa: ASYNC240 -- 凭证文件存在性检查，本地元数据
             try:
+                # hard-delete: out-of-scope -- 供应商凭证，不属于项目
                 cred_file.unlink()  # noqa: ASYNC240 -- 删除单个凭证文件，本地元数据
                 logger.info("已删除凭证文件: %s", cred_file)
             except OSError:

@@ -54,7 +54,7 @@ def extract_uploaded_source_text(file: UploadFile, _t: Translator) -> str:
     except (UnsupportedFormatError, FileSizeExceededError, SourceDecodeError, CorruptFileError) as exc:
         raise source_loader_http_error(exc, _t) from exc
     finally:
-        tmp_path.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)  # hard-delete: temp -- 上传临时文件
 
 
 __all__ = ["extract_uploaded_source_text", "source_loader_http_error"]

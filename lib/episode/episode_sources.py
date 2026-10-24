@@ -561,7 +561,7 @@ def sync_source_snapshots(
     keep = {PurePosixPath(rel).name for rel in wanted}
     for path in snapshot_dir.iterdir():
         if path.name not in keep and (path.is_file() or path.is_symlink()):
-            path.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)  # hard-delete: derived -- 过期的整本源文快照，可由账本重新生成
 
 
 def read_source_snapshot(project_dir: Path, rel: str) -> str | None:

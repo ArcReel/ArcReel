@@ -142,6 +142,7 @@ import type {
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
+import type { FileViewListing, RestoredFile, TrashListing, TrashRecord } from "@/types/file-view";
 import type {
   EpisodeNextStep,
   WorkflowMigrationReport,
@@ -557,6 +558,60 @@ class API {
   }
 
   // ==================== Agent 记忆 ====================
+
+  // ==================== 文件视图 ====================
+
+  /** 列出项目目录（`path` 为空串时是项目根）的直接子项，大目录按需逐级展开。 */
+  static async getFileView(
+    projectName: string,
+    path: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<FileViewListing> {
+    const query = new URLSearchParams({ path }).toString();
+    return this.request(`/projects/${encodeURIComponent(projectName)}/file-view?${query}`, { signal: options.signal });
+  }
+
+  /** 读取单个文件的原始内容，用于预览与下载；鉴权接口，所以取 Blob 而不是给出可直接打开的地址。 */
+  static async getFileViewContent(
+    projectName: string,
+    path: string,
+    options: { download?: boolean; signal?: AbortSignal } = {}
+  ): Promise<Blob> {
+    const query = new URLSearchParams({ path, ...(options.download ? { download: "true" } : {}) }).toString();
+    const url = `/projects/${encodeURIComponent(projectName)}/file-view/content?${query}`;
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url, { signal: options.signal }));
+    await throwIfNotOk(response, i18n.t("errors:file_view_load_failed"));
+    return response.blob();
+  }
+
+  /** 把一个未引用文件移进项目回收站；其余角色由服务端拒绝。 */
+  static async deleteFileViewEntry(projectName: string, path: string): Promise<{ record: TrashRecord }> {
+    const query = new URLSearchParams({ path }).toString();
+    return this.request(`/projects/${encodeURIComponent(projectName)}/file-view?${query}`, { method: "DELETE" });
+  }
+
+  // ==================== 项目回收站 ====================
+
+  static async getTrash(projectName: string, options: { signal?: AbortSignal } = {}): Promise<TrashListing> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/trash`, { signal: options.signal });
+  }
+
+  static async restoreTrashRecord(projectName: string, recordId: string): Promise<{ restored: RestoredFile[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/trash/${encodeURIComponent(recordId)}/restore`,
+      { method: "POST" },
+    );
+  }
+
+  static async purgeTrashRecord(projectName: string, recordId: string): Promise<{ success: boolean }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/trash/${encodeURIComponent(recordId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  static async emptyTrash(projectName: string): Promise<{ purged: number }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/trash`, { method: "DELETE" });
+  }
 
   /**
    * 用户记忆与项目记忆的接口形状完全一致，只有路径前缀不同；两级共用同一组方法，

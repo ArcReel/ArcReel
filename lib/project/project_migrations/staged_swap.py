@@ -106,7 +106,7 @@ def cleanup_completed_swap_dirs(projects_dir: Path, cutoff: float) -> None:
                 continue
         except OSError:
             continue
-        shutil.rmtree(child, ignore_errors=True)
+        shutil.rmtree(child, ignore_errors=True)  # hard-delete: infra -- 迁移完成后的回滚与暂存交换目录
         if child.exists():
             logger.warning("无法删除迁移中间目录：%s", child)
 

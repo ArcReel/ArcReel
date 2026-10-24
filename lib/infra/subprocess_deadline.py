@@ -86,7 +86,7 @@ def _remove(paths: Iterable[Path]) -> None:
     """尽力删除；删除失败只记录，不覆盖正在传播的超时或取消。"""
     for path in paths:
         try:
-            path.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)  # hard-delete: temp -- 超时被杀的子进程留下的输出
         except OSError:
             logger.warning("未能删除子进程输出 %s", path, exc_info=True)
 

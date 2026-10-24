@@ -914,7 +914,7 @@ def _presentation_restore_target(
 
 def _restore_file(path: Path, snapshot: bytes | None) -> None:
     if snapshot is None:
-        path.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)  # hard-delete: rollback -- 回滚时移除事务前不存在的文件
     else:
         atomic_write_bytes(path, snapshot)
 

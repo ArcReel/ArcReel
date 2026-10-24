@@ -122,6 +122,11 @@ const RECORDINGS: Recording[] = [
   { file: "project-demo-agent-memory", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/agent-memory` },
   // 项目「分集」视图：演示项目没有整本源文，只有一集无原文的集；整本源文、多集与未登记文件由场景替换。
   { file: "project-demo-episodes-view", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/episodes-view` },
+  // 项目「文件」视图：项目根与 scripts 目录（演示项目只有一集的空正式脚本；多文件、长文件名与预览正文由场景替换）。
+  { file: "project-demo-file-view", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/file-view?path=` },
+  { file: "project-demo-file-view-scripts", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/file-view?path=scripts` },
+  // 文件视图的「项目回收站」分区：演示项目没有删除记录，多条记录由场景替换。
+  { file: "project-demo-trash", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/trash` },
   // 集页「多宫格分镜图」：宫格档位上限与宫格记录（演示项目没有宫格，多组联合图由场景替换）。
   { file: "project-demo-grid-capability", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grid-capability` },
   { file: "project-demo-grids", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}/grids` },

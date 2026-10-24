@@ -171,7 +171,7 @@ def _restore_after_persist_failure(
             if old_bytes is not None:
                 write_bytes_atomic(old_bytes, target)
             else:
-                target.unlink(missing_ok=True)
+                target.unlink(missing_ok=True)  # hard-delete: rollback -- 设置尾帧失败时移除本次新建的快照
             raise _RollbackDone
     except _RollbackDone:
         pass
@@ -247,7 +247,7 @@ def _clear_snapshot_and_field(
             generation = _advance_shot_generation(key)
             entered = True
             matched[0]["end_frame_image"] = None
-            target.unlink(missing_ok=True)
+            target.unlink(missing_ok=True)  # hard-delete: pending-trash -- #3388 清除尾帧图
     except EndFrameError:
         raise
     except BaseException:

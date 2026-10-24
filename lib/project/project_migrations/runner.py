@@ -407,7 +407,7 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
                     continue
                 try:
                     if bak.stat().st_mtime < cutoff:
-                        bak.unlink()
+                        bak.unlink()  # hard-delete: infra -- 过期的迁移备份
                 except OSError:
                     logger.warning("无法删除备份：%s", bak)
         for bak_dir in versioned_backup_candidates(project_dir / "clues", (0,)):
@@ -415,7 +415,7 @@ def cleanup_stale_backups(projects_dir: Path, max_age_days: int = 7) -> None:
                 continue
             try:
                 if bak_dir.stat().st_mtime < cutoff:
-                    shutil.rmtree(bak_dir, ignore_errors=True)
+                    shutil.rmtree(bak_dir, ignore_errors=True)  # hard-delete: infra -- 过期的迁移备份目录
             except OSError:
                 logger.warning("无法删除 clues 备份：%s", bak_dir)
 

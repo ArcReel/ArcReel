@@ -605,11 +605,11 @@ def migrate_v5_to_v6(project_dir: Path) -> None:
         except BaseException:
             os.replace(rollback, project_dir)
             raise
-        shutil.rmtree(rollback, ignore_errors=True)
+        shutil.rmtree(rollback, ignore_errors=True)  # hard-delete: infra -- 迁移交换成功后的迁移前副本
     finally:
         # ignore_errors：staging 清理失败（占用/权限）不得中断本块，否则下面的原树恢复检查
         # 会被跳过，项目目录停在缺失状态。
-        shutil.rmtree(staging, ignore_errors=True)
+        shutil.rmtree(staging, ignore_errors=True)  # hard-delete: temp -- 迁移暂存树
         if rollback.exists() and not project_dir.exists():
             os.replace(rollback, project_dir)
 

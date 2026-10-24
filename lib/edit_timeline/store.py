@@ -119,6 +119,7 @@ class EditTimelineStore:
 
     def delete(self, document: EditTimelineDocument) -> None:
         """删除一条剪辑时间线的文件；调用方须持有该集的锁。"""
+        # hard-delete: pending-trash -- #3382 删除剪辑时间线文档
         (self._episode_dir(document.episode) / f"{document.id}.json").unlink(missing_ok=True)
         self._changed(document.episode)
 

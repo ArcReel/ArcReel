@@ -58,13 +58,13 @@ def _move_entry(source: Path, target: Path) -> None:
     if source.is_symlink() and not Path(os.readlink(source)).is_absolute():
         rebased_link = os.path.normpath(source.parent / os.readlink(source))
     if target.is_symlink() and rebased_link is not None and os.readlink(target) == rebased_link:
-        source.unlink()
+        source.unlink()  # hard-delete: infra -- 数据根布局迁移：重指向后的旧符号链接
         return
     if target.exists() or target.is_symlink():
         raise FileExistsError(f"数据根布局迁移：{target} 已存在，无法把 {source} 挪过去，请人工处理后重启")
     if rebased_link is not None:
         target.symlink_to(rebased_link, target_is_directory=True)
-        source.unlink()
+        source.unlink()  # hard-delete: infra -- 数据根布局迁移：重指向后的旧符号链接
         return
     source.rename(target)
 
@@ -284,7 +284,7 @@ def _merge_dir_into(source: Path, target: Path) -> None:
         else:
             logger.warning("数据根布局迁移：%s 已存在，保留旧位置的 %s", destination, entry)
     if not any(source.iterdir()):
-        source.rmdir()
+        source.rmdir()  # hard-delete: infra -- 数据根布局迁移：合并后的空目录
 
 
 async def _rename_global_assets_dir(context: DataRootMigrationContext) -> None:
@@ -349,7 +349,7 @@ async def _move_user_data_to_users_dir(context: DataRootMigrationContext) -> Non
         return
     _merge_dir_into(legacy_users, layout.users_dir)
     with contextlib.suppress(OSError):
-        legacy_users.parent.rmdir()
+        legacy_users.parent.rmdir()  # hard-delete: infra -- 数据根布局迁移：迁走后的空 .arcreel/
     logger.info("数据根布局迁移：用户数据移入 %s", layout.users_dir)
 
 
@@ -368,17 +368,17 @@ async def _move_runtime_state_to_runtime_dir(context: DataRootMigrationContext) 
     layout.runtime_dir.mkdir(exist_ok=True)
     if legacy_marker.exists():
         if layout.session_import_marker_path.exists():
-            legacy_marker.unlink()
+            legacy_marker.unlink()  # hard-delete: infra -- 数据根布局迁移：重复的会话导入标记
         else:
             legacy_marker.rename(layout.session_import_marker_path)
     if legacy_error_log.exists():
         if layout.project_migration_error_log_path.exists():
             with layout.project_migration_error_log_path.open("a", encoding="utf-8") as merged:
                 merged.write(legacy_error_log.read_text(encoding="utf-8", errors="replace"))
-            legacy_error_log.unlink()
+            legacy_error_log.unlink()  # hard-delete: infra -- 数据根布局迁移：已合并的旧迁移错误日志
         else:
             legacy_error_log.rename(layout.project_migration_error_log_path)
-    shutil.rmtree(legacy_locks, ignore_errors=True)
+    shutil.rmtree(legacy_locks, ignore_errors=True)  # hard-delete: infra -- 数据根布局迁移：旧的生成准入锁目录
     logger.info("数据根布局迁移：运行时状态收进 %s", layout.runtime_dir)
 
 
@@ -400,7 +400,7 @@ def _is_same_file(a: Path, b: Path) -> bool:
 def _discard_legacy_file(source: Path) -> None:
     """删除已复制进数据根的旧文件；旧卷可能是只读挂载，删不掉时留在原处，不阻断迁移。"""
     try:
-        source.unlink(missing_ok=True)
+        source.unlink(missing_ok=True)  # hard-delete: infra -- 数据根布局迁移：已复制到新位置的旧凭证文件
     except OSError:
         logger.warning("Vertex 凭证旧文件删除失败，保留在原位置：%s", source, exc_info=True)
 

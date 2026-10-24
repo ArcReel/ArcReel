@@ -124,7 +124,7 @@ class BgmLibraryService:
             )
             await run_sync_transaction(self._commit, project_name, project_dir, staged, track)
         finally:
-            await asyncio.to_thread(staged.unlink, missing_ok=True)
+            await asyncio.to_thread(staged.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
         return track
 
     async def _duration_us(self, path: Path) -> int:

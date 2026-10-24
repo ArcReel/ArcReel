@@ -174,6 +174,7 @@ class AgentMemoryStore:
         if not path.is_file():
             raise NotFoundError("memory_file_not_found", filename=filename)
         try:
+            # hard-delete: pending-trash -- #3381 项目记忆文件的删除；同一方法服务的用户记忆不在回收站范围
             path.unlink()
         except FileNotFoundError as exc:
             raise NotFoundError("memory_file_not_found", filename=filename) from exc
@@ -185,6 +186,7 @@ class AgentMemoryStore:
         索引由 Agent 在写第一条记忆时重建；预置一个空 ``MEMORY.md`` 只会让列表显示
         一个 0 行的索引，与「什么都没有」不可区分。
         """
+        # hard-delete: pending-trash -- #3381 清空项目记忆；同一方法服务的用户记忆不在回收站范围
         shutil.rmtree(self.directory, ignore_errors=True)
         self.directory.mkdir(parents=True, exist_ok=True)
         self._record_activity()

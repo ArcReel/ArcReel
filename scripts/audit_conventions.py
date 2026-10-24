@@ -12,6 +12,9 @@
   （ADR 0095），只经 `lib/infra/ffmpeg.py` 查找。
 - PRIVATE-IMPORT：`from <本仓模块> import _name` 不允许，被别的模块用到的符号取公开名。`from m import 公开名 as _别名`、
   gettext 的 `_`、dunder 与私有子模块不算。
+- HARD-DELETE：lib、server 与子包中每处删除文件的调用（`unlink`、`rmdir`、`rmtree`、`os.remove`，含作为回调传出的
+  删除方法）在所在语句行尾或上一行写 `# hard-delete: <类别> -- 理由`。项目数据的删除应进项目回收站（ADR 0107），
+  尚未接入的标 `pending-trash`。
 
 `--check` 以 `规则号 file:line 修复指引` 列出全部命中，非零即退出码 1；
 `--fix` 重新生成索引表与 CodeRabbit 映射后再检查其余规则。
@@ -495,6 +498,133 @@ def check_private_imports(root: Path, out: list[Violation]) -> None:
                     out.append(Violation("PRIVATE-IMPORT", rel, node.lineno, guidance))
 
 
+# ---------------------------------------------------------------- 硬删除类别
+
+HARD_DELETE_SCAN_GLOBS = ("lib/**/*.py", "server/**/*.py", "packages/*/src/**/*.py")
+# 项目回收站模块本身负责真正删除（彻底删除、清空、过期清理）
+HARD_DELETE_EXEMPT: frozenset[Path] = frozenset({Path("lib/project/project_trash.py")})
+HARD_DELETE_CATEGORIES = {
+    "temp": "本流程自己创建的临时、暂存文件",
+    "rollback": "失败时撤销未完成的写入",
+    "derived": "可由账本或其他源数据重新生成的派生文件",
+    "infra": "锁、缓存、数据库、日志、迁移备份等基础设施文件",
+    "out-of-scope": "项目数据之外的文件（全局资产库、用户记忆、应用配置、供应商数据等）",
+    "pending-trash": "应进项目回收站、尚未接入的项目数据删除（Spec #3377）",
+}
+_HARD_DELETE_TAG = re.compile(r"#\s*hard-delete:\s*(?P<category>[\w-]*)(?P<rest>.*)")
+_ANY_DELETE_ATTRS = frozenset({"unlink", "rmdir", "rmtree"})
+# list.remove、set.remove 等同名方法太多，remove 只认 os.remove / aiofiles.os.remove
+_OS_DELETE_ATTRS = frozenset({"remove", "removedirs"})
+
+
+_OS_MODULES = frozenset({"os", "aiofiles.os"})
+_DELETE_MODULES = _OS_MODULES | {"shutil"}
+
+
+@dataclass(frozen=True)
+class _DeleteBindings:
+    """模块的导入绑定：能裸调的删除函数名，以及指向 ``os`` / ``aiofiles.os`` 的模块名。"""
+
+    functions: frozenset[str]
+    os_modules: frozenset[str]
+
+
+def _delete_bindings(tree: ast.AST) -> _DeleteBindings:
+    functions = {"rmtree"}
+    os_modules = {"os"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in _DELETE_MODULES:
+            functions.update(
+                alias.asname or alias.name for alias in node.names if alias.name in _ANY_DELETE_ATTRS | _OS_DELETE_ATTRS
+            )
+        elif isinstance(node, ast.Import):
+            os_modules.update(alias.asname for alias in node.names if alias.name in _OS_MODULES and alias.asname)
+    return _DeleteBindings(frozenset(functions), frozenset(os_modules))
+
+
+def _is_delete_ref(node: ast.AST, bindings: _DeleteBindings) -> bool:
+    # 只认读取：给同名变量赋值不是删除
+    if not isinstance(node, ast.Name | ast.Attribute) or not isinstance(node.ctx, ast.Load):
+        return False
+    if isinstance(node, ast.Name):
+        return node.id in bindings.functions
+    if node.attr in _ANY_DELETE_ATTRS:
+        return True
+    base = node.value
+    is_os = (isinstance(base, ast.Name) and base.id in bindings.os_modules) or (
+        isinstance(base, ast.Attribute) and base.attr == "os"
+    )
+    return node.attr in _OS_DELETE_ATTRS and is_os
+
+
+def _delete_spans(tree: ast.AST) -> list[tuple[int, int, int]]:
+    """每处删除调用或作为回调传出的删除方法：(报告行, 区间首行, 区间末行)。
+
+    区间取所在的简单语句，格式化器把长语句拆成多行后，行尾标注落在其中任一行都算数。
+    """
+    calls = {id(n.func): n for n in ast.walk(tree) if isinstance(n, ast.Call)}
+    statements: dict[int, ast.stmt] = {}
+    for stmt in ast.walk(tree):
+        if isinstance(stmt, ast.stmt) and not hasattr(stmt, "body") and not hasattr(stmt, "cases"):
+            statements.update((id(child), stmt) for child in ast.walk(stmt))
+    spans: list[tuple[int, int, int]] = []
+    bindings = _delete_bindings(tree)
+    for node in ast.walk(tree):
+        if _is_delete_ref(node, bindings):
+            outer = statements.get(id(node)) or calls.get(id(node)) or node
+            spans.append((node.lineno, outer.lineno, outer.end_lineno or outer.lineno))
+    return sorted(spans)
+
+
+def _hard_delete_tags(source: str) -> tuple[dict[int, re.Match[str]], set[int]]:
+    """标注所在行，以及其中独占一行的标注（作用于下一行开始的语句）。"""
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+    except (tokenize.TokenError, SyntaxError):
+        return {}, set()
+    tags: dict[int, re.Match[str]] = {}
+    standalone: set[int] = set()
+    for token in tokens:
+        if token.type == tokenize.COMMENT and (match := _HARD_DELETE_TAG.search(token.string)):
+            tags[token.start[0]] = match
+            if token.line.lstrip().startswith("#"):
+                standalone.add(token.start[0])
+    return tags, standalone
+
+
+def check_hard_deletes(root: Path, out: list[Violation]) -> None:
+    categories = "、".join(f"`{c}`" for c in HARD_DELETE_CATEGORIES)
+    for path in sorted({p for pattern in HARD_DELETE_SCAN_GLOBS for p in root.glob(pattern)}):
+        rel = path.relative_to(root)
+        if rel in HARD_DELETE_EXEMPT:
+            continue
+        try:
+            source = path.read_text(encoding="utf-8")
+            tree = ast.parse(source)
+        except (SyntaxError, UnicodeDecodeError):
+            continue
+        tags, standalone = _hard_delete_tags(source)
+        covered: set[int] = set()
+        for line, start, end in _delete_spans(tree):
+            lines = [start - 1, *range(start, end + 1)] if start - 1 in standalone else range(start, end + 1)
+            covered.update(lines)
+            tag = next((tags[n] for n in lines if n in tags), None)
+            if tag is None:
+                guidance = (
+                    f"删除文件要标注类别：在所在语句行尾或上一行写 `# hard-delete: <类别> -- 理由`，类别取 {categories}；"
+                    "项目数据的删除应进项目回收站（docs/adr/0107）"
+                )
+            elif tag["category"] not in HARD_DELETE_CATEGORIES:
+                guidance = f"`hard-delete` 类别 `{tag['category']}` 不存在，取 {categories}"
+            elif not re.match(r"\s*--\s*\S", tag["rest"]):
+                guidance = "`# hard-delete: <类别>` 后接 ` -- 理由`，写明这次删除为什么属于该类别"
+            else:
+                continue
+            out.append(Violation("HARD-DELETE", rel, line, guidance))
+        orphan = "这行没有删除调用，`hard-delete` 标注随删除调用一起移走或删掉"
+        out.extend(Violation("HARD-DELETE", rel, line, orphan) for line in sorted(tags.keys() - covered))
+
+
 # ---------------------------------------------------------------- 入口
 
 
@@ -507,6 +637,7 @@ def audit(root: Path = ROOT, *, fix: bool = False) -> list[Violation]:
     check_suppression_reasons(root, out)
     check_bundled_ffmpeg(root, out)
     check_private_imports(root, out)
+    check_hard_deletes(root, out)
     return out
 
 

@@ -65,7 +65,7 @@ class DerivativeSheetRelocation:
         for directory in self.retired_dirs:
             # 非空、不存在或无权限都不是错误：目录只是收纳，留着不影响任何登记。
             with contextlib.suppress(OSError):
-                directory.rmdir()
+                directory.rmdir()  # hard-delete: infra -- 衍生图搬走后的空目录
 
     def commit_manifest(self) -> None:
         """把每个衍生的清单条目重键到新 id。各计划的键互不相交，逐个 CAS 提交安全。"""

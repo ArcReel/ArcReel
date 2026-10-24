@@ -141,7 +141,7 @@ async def _save_upload(file: UploadFile, asset_type: str, _t: Translator) -> str
 def _delete_global_asset_file(rel_path: str) -> None:
     path = get_project_manager().data_root / rel_path
     try:
-        path.unlink()
+        path.unlink()  # hard-delete: out-of-scope -- 全局资产库文件，不属于项目
     except FileNotFoundError:
         # 文件已不存在（并发删除或 create 回滚）视为成功，忽略即可
         return

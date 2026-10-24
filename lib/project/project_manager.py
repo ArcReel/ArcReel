@@ -465,7 +465,7 @@ class ProjectManager:
             self.sync_agent_profile(project_dir, content_mode=content_mode)
         except Exception:
             # sync 失败时回滚 project_dir，避免残缺目录阻塞重试（同名 create 撞 FileExistsError）
-            shutil.rmtree(project_dir, ignore_errors=True)
+            shutil.rmtree(project_dir, ignore_errors=True)  # hard-delete: rollback -- 创建项目失败时移除刚建的项目目录
             raise
 
         return project_dir
@@ -483,7 +483,7 @@ class ProjectManager:
         attempts = 5
         for attempt in range(attempts):
             try:
-                shutil.rmtree(project_dir)
+                shutil.rmtree(project_dir)  # hard-delete: pending-trash -- #3389 删除整个项目目录
                 return
             except FileNotFoundError:
                 # 目录已不存在——上一次重试已经成功,或并发的另一次删除已经完成,
@@ -509,7 +509,7 @@ class ProjectManager:
             return
         for directory, _subdirs, _files in os.walk(project_dir, topdown=False):
             try:
-                os.rmdir(directory)
+                os.rmdir(directory)  # hard-delete: infra -- 已删除项目同名下被重新建出的空目录
             except OSError:
                 continue
 
@@ -2345,7 +2345,7 @@ class ProjectManager:
                 for destination, backup in reversed(installed):
                     try:
                         if destination.exists() or destination.is_symlink():
-                            destination.unlink()
+                            destination.unlink()  # hard-delete: rollback -- 写入失败时移除本次新装的文件
                         if backup is not None:
                             os.replace(backup, destination)
                     except OSError:
@@ -2354,7 +2354,7 @@ class ProjectManager:
             finally:
                 for temporary, _destination in staged:
                     try:
-                        temporary.unlink(missing_ok=True)
+                        temporary.unlink(missing_ok=True)  # hard-delete: temp -- 写入暂存文件
                     except OSError:
                         logger.warning("清理项目文件事务暂存失败: %s", temporary)
                 if committed:
@@ -2362,7 +2362,7 @@ class ProjectManager:
                         if backup is None:
                             continue
                         try:
-                            backup.unlink(missing_ok=True)
+                            backup.unlink(missing_ok=True)  # hard-delete: temp -- 提交后的 .bak 备份
                         except OSError:
                             logger.warning("清理项目文件事务备份失败: %s", backup)
 
@@ -3560,7 +3560,7 @@ class ProjectManager:
             VersionManager(project_dir).purge_resource(spec.bucket_key, source)
             for path in asset_files_named(project_dir, spec, source):
                 try:
-                    path.unlink(missing_ok=True)
+                    path.unlink(missing_ok=True)  # hard-delete: pending-trash -- #3385 合并资产时删除被并资产名下的文件
                 except OSError:
                     logger.warning("被并资产的文件删除失败，已解除登记: %s", path, exc_info=True)
 

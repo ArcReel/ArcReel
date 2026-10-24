@@ -177,7 +177,7 @@ def _atomic_write(target: Path, data: bytes, *, mtime_ns: int) -> None:
                 raise
     finally:
         with contextlib.suppress(OSError):
-            tmp_path.unlink()
+            tmp_path.unlink()  # hard-delete: temp -- 缩略图原子写的临时文件
 
 
 def _remove_stale_versions(source_dir: Path, *, keep: set[str | None]) -> None:
@@ -186,4 +186,4 @@ def _remove_stale_versions(source_dir: Path, *, keep: set[str | None]) -> None:
         version = entry.stem.split("-", 1)[1] if "-" in entry.stem else ""
         if version not in keep:
             with contextlib.suppress(OSError):
-                entry.unlink()
+                entry.unlink()  # hard-delete: derived -- 旧版本缩略图缓存

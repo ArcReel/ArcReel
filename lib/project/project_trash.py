@@ -1,0 +1,274 @@
+"""项目回收站：项目内一切删除的唯一出口（``docs/adr/0107``）。
+
+对外只有这几个操作：:func:`record_deletion` 记一次删除、:func:`list_records` 列出、:func:`restore` 恢复、
+:func:`purge` 彻底删除、:func:`empty` 清空、:func:`purge_expired` 过期清理。删除记录是
+``<项目>/.arcreel/trash/<记录 ID>/``：``record.json`` 记对象描述、被删文件、schema 版本、删除时间、发起方与
+占用字节数，被删文件按原相对路径放在 ``files/`` 下。目录在项目私有区，因此不入归档、不入数据校验、
+文件视图也不列出；已删除项目整体移动时随项目一起走。
+
+这里是项目数据真正被删掉的地方，``scripts/audit_conventions.py`` 的硬删除检查豁免本模块。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import secrets
+import shutil
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path, PurePosixPath
+from typing import Any, Literal
+
+from lib.agent.agent_memory_paths import ARCREEL_DIRNAME
+from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.version_manager import VersionManager
+from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
+from lib.infra.json_io import atomic_write_json
+from lib.project.project_change_hints import emit_project_change_batch, get_project_change_source
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from lib.project.resource_paths import resource_of_path
+
+__all__ = [
+    "RETENTION",
+    "TRASH_DIRNAME",
+    "TRASH_ENTITY_TYPE",
+    "RestoredFile",
+    "TrashRecord",
+    "empty",
+    "list_records",
+    "purge",
+    "purge_expired",
+    "record_deletion",
+    "restore",
+    "trash_dir",
+]
+
+TRASH_DIRNAME = "trash"
+#: 删除记录按删除时间保留 30 天。
+RETENTION = timedelta(days=30)
+#: 删除记录本身的格式版本；与项目 schema 版本（``schema_version``）无关。
+RECORD_FORMAT = 1
+
+_RECORD_FILE = "record.json"
+_FILES_DIR = "files"
+_RECORD_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
+
+Origin = Literal["user", "agent"]
+
+#: 回收站变化的项目变更条目：与任务终态、记账结算一样是刷新信号，不进通知与聚焦。
+TRASH_ENTITY_TYPE = "trash"
+
+
+def trash_dir(project_dir: Path) -> Path:
+    return project_dir / ARCREEL_DIRNAME / TRASH_DIRNAME
+
+
+@dataclass(frozen=True, slots=True)
+class TrashRecord:
+    """一条删除记录。``object`` 是对象描述，至少含 ``kind``；``files`` 是被删文件删除前的项目内相对路径。"""
+
+    id: str
+    object: Mapping[str, Any]
+    files: tuple[str, ...]
+    schema_version: int
+    deleted_at: datetime
+    origin: Origin
+    size: int
+    has_snapshot: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "object": dict(self.object),
+            "files": list(self.files),
+            "schema_version": self.schema_version,
+            "deleted_at": self.deleted_at.isoformat(),
+            "origin": self.origin,
+            "size": self.size,
+            "has_snapshot": self.has_snapshot,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class RestoredFile:
+    """被恢复的一个文件落在哪里：``as_history`` 为真时它成了 ``resource`` 的一条历史版本。"""
+
+    original: str
+    path: str
+    as_history: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"original": self.original, "path": self.path, "as_history": self.as_history}
+
+
+# ---------------------------------------------------------------- 记录
+
+
+def record_deletion(project_dir: Path, obj: Mapping[str, Any], files: Sequence[str]) -> TrashRecord:
+    """把 ``files``（项目内相对 POSIX 路径，必须是普通文件）移进一条新的删除记录。
+
+    调用方持有项目锁，并已在同一临界区里确认这些文件可以删除；发起方取当前的变更来源。
+    任一文件移动失败时已移走的文件搬回原处，不留下半条记录。
+    """
+    if "kind" not in obj or not files:
+        raise ValueError("删除记录需要对象类型与至少一个被删文件")
+    record_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
+    record_dir = trash_dir(project_dir) / record_id
+    stored = record_dir / _FILES_DIR
+    moved: list[tuple[Path, Path]] = []
+    try:
+        size = 0
+        for rel in files:
+            source = project_dir / _checked_rel(rel)
+            if source.is_symlink() or not source.is_file():
+                raise FileNotFoundError(rel)
+            target = stored / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            size += source.stat().st_size
+            os.replace(source, target)
+            moved.append((target, source))
+        record = TrashRecord(
+            id=record_id,
+            object=dict(obj),
+            files=tuple(files),
+            schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
+            deleted_at=datetime.now(UTC),
+            origin="user" if get_project_change_source() == "webui" else "agent",
+            size=size,
+        )
+        # record.json 最后写：没有它的目录不算记录，列出时跳过。
+        atomic_write_json(record_dir / _RECORD_FILE, {"format": RECORD_FORMAT, **record.to_dict()})
+    except BaseException:
+        for target, source in reversed(moved):
+            source.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(target, source)
+        shutil.rmtree(record_dir, ignore_errors=True)
+        raise
+    _notify(project_dir)
+    return record
+
+
+def list_records(project_dir: Path) -> list[TrashRecord]:
+    """全部删除记录，新删除的在前。读不出的记录跳过。"""
+    root = trash_dir(project_dir)
+    if not root.is_dir():
+        return []
+    records = [record for entry in root.iterdir() if (record := _load(entry)) is not None]
+    return sorted(records, key=lambda record: record.deleted_at, reverse=True)
+
+
+# ---------------------------------------------------------------- 恢复与清理
+
+
+def restore(project_dir: Path, record_id: str) -> list[RestoredFile]:
+    """把一条删除记录加回项目，成功后记录消失。
+
+    目前只恢复只涉及文件的记录：原路径空闲则回原路径；原路径已有文件时，它是某个资源的当前文件就作为
+    该资源的历史版本加回，否则换一个新文件名。从不覆盖现有文件。
+    """
+    with project_metadata_lock(project_dir):
+        record = _require(project_dir, record_id)
+        if record.has_snapshot:
+            raise BadRequestError("trash_restore_unsupported")
+        record_dir = trash_dir(project_dir) / record.id
+        restored = [_land_file(project_dir, record_dir / _FILES_DIR / rel, rel) for rel in record.files]
+        shutil.rmtree(record_dir)
+    _notify(project_dir)
+    return restored
+
+
+def purge(project_dir: Path, record_id: str) -> None:
+    """彻底删除一条记录。"""
+    with project_metadata_lock(project_dir):
+        record = _require(project_dir, record_id)
+        shutil.rmtree(trash_dir(project_dir) / record.id)
+    _notify(project_dir)
+
+
+def empty(project_dir: Path) -> int:
+    """清空项目回收站，返回删掉的记录数。"""
+    with project_metadata_lock(project_dir):
+        records = list_records(project_dir)
+        shutil.rmtree(trash_dir(project_dir), ignore_errors=True)
+    _notify(project_dir)
+    return len(records)
+
+
+def purge_expired(project_dir: Path, *, now: datetime | None = None) -> int:
+    """清除删除时间早于保留期的记录，返回清除数。"""
+    if not trash_dir(project_dir).is_dir():
+        return 0
+    cutoff = (now or datetime.now(UTC)) - RETENTION
+    with project_metadata_lock(project_dir):
+        expired = [record for record in list_records(project_dir) if record.deleted_at <= cutoff]
+        for record in expired:
+            shutil.rmtree(trash_dir(project_dir) / record.id)
+    if expired:
+        _notify(project_dir)
+    return len(expired)
+
+
+# ---------------------------------------------------------------- 内部
+
+
+def _notify(project_dir: Path) -> None:
+    change = {"entity_type": TRASH_ENTITY_TYPE, "action": "updated", "entity_id": "trash", "label": "trash"}
+    emit_project_change_batch(project_dir.name, [{**change, "focus": None, "important": False}])
+
+
+def _checked_rel(rel: str) -> str:
+    path = PurePosixPath(rel)
+    if not rel or "\\" in rel or path.is_absolute() or any(part in {"", ".", ".."} for part in rel.split("/")):
+        raise ValueError(f"非法的项目内路径: {rel!r}")
+    return rel
+
+
+def _load(record_dir: Path) -> TrashRecord | None:
+    if not _RECORD_ID_RE.match(record_dir.name) or record_dir.is_symlink():
+        return None
+    try:
+        data = json.loads((record_dir / _RECORD_FILE).read_text(encoding="utf-8"))
+        return TrashRecord(
+            id=record_dir.name,
+            object=data["object"],
+            files=tuple(_checked_rel(rel) for rel in data["files"]),
+            schema_version=int(data["schema_version"]),
+            deleted_at=datetime.fromisoformat(data["deleted_at"]),
+            origin=data["origin"],
+            size=int(data["size"]),
+            has_snapshot=bool(data.get("has_snapshot", False)),
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _require(project_dir: Path, record_id: str) -> TrashRecord:
+    record = _load(trash_dir(project_dir) / record_id) if _RECORD_ID_RE.match(record_id) else None
+    if record is None:
+        raise NotFoundError("trash_record_not_found", id=record_id)
+    return record
+
+
+def _land_file(project_dir: Path, stored: Path, rel: str) -> RestoredFile:
+    target = project_dir / rel
+    if any(parent.is_symlink() for parent in target.parents if parent.is_relative_to(project_dir)):
+        # 删除之后有人把途经的目录换成了符号链接：不跟着它写到别处。
+        raise ConflictError("trash_restore_target_blocked", path=rel)
+    if not (target.exists() or target.is_symlink()):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(stored, target)
+        return RestoredFile(rel, rel)
+    resource = resource_of_path(rel)
+    if resource is not None and target.is_file() and not target.is_symlink():
+        path = VersionManager(project_dir).add_history_version(*resource, stored, current_file=target)
+        return RestoredFile(rel, path, as_history=True)
+    path = PurePosixPath(rel)
+    for n in range(1, 1000):
+        candidate = path.with_name(f"{path.stem} ({n}){path.suffix}").as_posix()
+        if not ((project_dir / candidate).exists() or (project_dir / candidate).is_symlink()):
+            os.replace(stored, project_dir / candidate)
+            return RestoredFile(rel, candidate)
+    raise FileExistsError(rel)

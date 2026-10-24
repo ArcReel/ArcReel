@@ -54,6 +54,7 @@ def purge_replaced_entry_media(project_dir: Path, entry_ids: Iterable[str]) -> N
             if path is None:
                 continue
             try:
+                # hard-delete: pending-trash -- #3386 重插新条目或覆盖正式剧本时删除被替换条目的媒体
                 path.unlink(missing_ok=True)
             except OSError:
                 logger.warning("被替换条目 %s 的 %s 文件删除失败，已解除引用", entry_id, resource_type, exc_info=True)

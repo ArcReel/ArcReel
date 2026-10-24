@@ -145,6 +145,7 @@ def _unlink_paths(*paths: Path | None) -> list[tuple[Path, OSError]]:
         if path is None:
             continue
         try:
+            # hard-delete: pending-trash -- #3384 #3385 #3386 purge_resource 经此删除资源的全部历史版本；其余调用方删的是暂存与回滚文件，最后一个接入的 ticket 改标 temp
             path.unlink(missing_ok=True)
         except OSError as exc:
             failures.append((path, exc))
@@ -510,6 +511,7 @@ class VersionManager:
                 try:
                     if current_backup is None:
                         if not current_existed:
+                            # hard-delete: rollback -- 提交失败时移除本次新建的当前文件
                             current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
@@ -517,6 +519,7 @@ class VersionManager:
                     rollback_errors.append(exc)
                 try:
                     if versions_snapshot is None:
+                        # hard-delete: rollback -- 提交失败时移除本次新建的 versions.json
                         self.versions_file.unlink(missing_ok=True)
                     else:
                         atomic_write_bytes(self.versions_file, versions_snapshot)
@@ -524,7 +527,7 @@ class VersionManager:
                     rollback_errors.append(exc)
                 for path in created_snapshots:
                     try:
-                        path.unlink(missing_ok=True)
+                        path.unlink(missing_ok=True)  # hard-delete: rollback -- 提交失败时移除本次新建的快照
                     except OSError as exc:
                         rollback_errors.append(exc)
                 if rollback_errors:
@@ -661,6 +664,7 @@ class VersionManager:
                 rollback_errors: list[OSError] = []
                 try:
                     if versions_snapshot is None:
+                        # hard-delete: rollback -- 提交失败时移除本次新建的 versions.json
                         self.versions_file.unlink(missing_ok=True)
                     else:
                         atomic_write_bytes(self.versions_file, versions_snapshot)
@@ -796,6 +800,7 @@ class VersionManager:
                     try:
                         if backup is None:
                             if not current_existed:
+                                # hard-delete: rollback -- 提交失败时移除本次新建的当前文件
                                 current_file.unlink(missing_ok=True)
                         else:
                             os.replace(backup, current_file)
@@ -803,6 +808,7 @@ class VersionManager:
                         rollback_errors.append(exc)
                 try:
                     if versions_snapshot is None:
+                        # hard-delete: rollback -- 提交失败时移除本次新建的 versions.json
                         self.versions_file.unlink(missing_ok=True)
                     else:
                         atomic_write_bytes(self.versions_file, versions_snapshot)
@@ -810,7 +816,7 @@ class VersionManager:
                     rollback_errors.append(exc)
                 for path in created_snapshots:
                     try:
-                        path.unlink(missing_ok=True)
+                        path.unlink(missing_ok=True)  # hard-delete: rollback -- 提交失败时移除本次新建的快照
                     except OSError as exc:
                         rollback_errors.append(exc)
                 if rollback_errors:
@@ -921,6 +927,7 @@ class VersionManager:
                 history_rollback_errors: list[OSError] = []
                 try:
                     if versions_snapshot is None:
+                        # hard-delete: rollback -- 提交失败时移除本次新建的 versions.json
                         self.versions_file.unlink(missing_ok=True)
                     else:
                         atomic_write_bytes(self.versions_file, versions_snapshot)
@@ -975,6 +982,7 @@ class VersionManager:
                 try:
                     if current_backup is None:
                         if not current_existed:
+                            # hard-delete: rollback -- 选择失败时移除本次新建的当前文件
                             current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
@@ -1083,6 +1091,7 @@ class VersionManager:
                 if current_existed:
                     current_backup = _create_rollback_backup(current_file)
                 if previous is None or previous_file is None:
+                    # hard-delete: derived -- 拒绝唯一版本：被拒版本的快照仍留在版本历史，当前文件只是它的副本
                     current_file.unlink(missing_ok=True)
                     resource_data["current_version"] = 0
                 else:
@@ -1103,6 +1112,7 @@ class VersionManager:
                 try:
                     if current_backup is None:
                         if not current_existed:
+                            # hard-delete: rollback -- 拒绝失败时移除本次新建的当前文件
                             current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
@@ -1287,6 +1297,37 @@ class VersionManager:
                 **metadata,
             )
 
+    def add_history_version(
+        self, resource_type: str, resource_id: str, source_file: Path, *, current_file: Path, prompt: str = ""
+    ) -> str:
+        """把 ``source_file`` 作为资源的一条历史版本加回，当前版本不变；返回新版本快照的项目内相对路径。
+
+        恢复删除记录时用：原路径已有当前文件，被恢复的文件不覆盖它。当前文件还没有版本记录时
+        先补录成当前版本，否则加回的版本会成为唯一一条、看起来像是当前版本。
+        """
+        if resource_type not in self.RESOURCE_TYPES:
+            raise ValueError(f"不支持的资源类型: {resource_type}")
+
+        with self._lock:
+            self.ensure_current_tracked(resource_type, resource_id, current_file, prompt)
+            data = self._load_versions()
+            resource_data = data.setdefault(resource_type, {}).setdefault(
+                resource_id, {"current_version": 0, "versions": []}
+            )
+            current_version = resource_data.get("current_version", 0)
+            created: list[Path] = []
+            try:
+                self._append_selected_snapshot(
+                    resource_type, resource_id, resource_data, Path(source_file), prompt, {}, created
+                )
+                resource_data["current_version"] = current_version
+                self._save_versions(data)
+            except BaseException as exc:
+                _report_cleanup_failures(_unlink_paths(*created), active_failure=exc)
+                raise
+            record_project_activity(self.project_path)
+            return resource_data["versions"][-1]["file"]
+
     def purge_resource(self, resource_type: str, resource_id: str) -> int:
         """删除一个资源的全部版本记录与快照文件，返回删除的快照数。
 
@@ -1387,6 +1428,7 @@ class VersionManager:
                 try:
                     if current_backup is None:
                         if not current_existed:
+                            # hard-delete: rollback -- 还原失败时移除本次新建的当前文件
                             current_file.unlink(missing_ok=True)
                     else:
                         os.replace(current_backup, current_file)
@@ -1394,6 +1436,7 @@ class VersionManager:
                     rollback_errors.append(exc)
                 try:
                     if versions_snapshot is None:
+                        # hard-delete: rollback -- 还原失败时移除本次新建的 versions.json
                         self.versions_file.unlink(missing_ok=True)
                     else:
                         atomic_write_bytes(self.versions_file, versions_snapshot)

@@ -125,14 +125,14 @@ def cleanup_interrupted_render_staging(project_dir: Path) -> None:
     for path in root.rglob(".*"):
         if re.fullmatch(r"(?:\..+\.[0-9a-f]{32}\.(?:work|partial\.[^.]+)|\.project\.[^.]+\.tmp)", path.name):
             if path.is_dir() and not path.is_symlink():
-                shutil.rmtree(path)
+                shutil.rmtree(path)  # hard-delete: temp -- 重启后清理中断渲染留下的 .work 目录
             else:
-                path.unlink(missing_ok=True)
+                path.unlink(missing_ok=True)  # hard-delete: temp -- 重启后清理中断渲染留下的临时文件
 
 
 def _discard(output: Path, workspace: Path) -> None:
-    output.unlink(missing_ok=True)
-    shutil.rmtree(workspace, ignore_errors=True)
+    output.unlink(missing_ok=True)  # hard-delete: temp -- 未被采纳的渲染输出
+    shutil.rmtree(workspace, ignore_errors=True)  # hard-delete: temp -- 渲染工作目录
 
 
 async def commit_rendered_artifact[AcceptanceT](

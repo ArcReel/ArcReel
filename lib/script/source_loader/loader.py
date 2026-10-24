@@ -164,6 +164,7 @@ class SourceLoader:
             )
         except Exception:
             # raw 备份失败：回滚已写入的 normalized，避免孤儿文件误导后续 detect_conflict
+            # hard-delete: rollback -- 原始上传件备份失败时移除目标路径的规范化文本；replace 时被覆盖的旧内容不会恢复
             normalized_path.unlink(missing_ok=True)
             raise
 
@@ -208,4 +209,5 @@ class SourceLoader:
             return
         for stale in raw_dir.iterdir():
             if stale.is_file() and stale.stem == target_stem:
+                # hard-delete: pending-trash -- #3387 替换上传时删除旧的原始上传件，接入时判定替换是否进回收站
                 stale.unlink(missing_ok=True)

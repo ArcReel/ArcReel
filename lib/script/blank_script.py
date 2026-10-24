@@ -89,7 +89,7 @@ def start_blank_script(pm: ProjectManager, project_name: str, episode: int) -> s
 
         if plan_path is not None and plan_path.exists():
             with script_review.formal_script_plan_write_transaction(project_path, episode, plan_path):
-                plan_path.unlink()
+                plan_path.unlink()  # hard-delete: pending-trash -- #3387 开始空白剧本时丢弃正式规划
         for kind in draft_kinds:
             clear_quarantine(project_path, episode, kind)
     return filename

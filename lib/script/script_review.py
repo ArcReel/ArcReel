@@ -375,7 +375,7 @@ def delete_script_plan_file(project_path: Path, episode: int, path: Path) -> boo
         if not path.exists():
             return False
         with formal_script_plan_write_transaction(project_path, episode, path):
-            path.unlink()
+            path.unlink()  # hard-delete: pending-trash -- #3387 删除规划草稿或规划文件
     return True
 
 

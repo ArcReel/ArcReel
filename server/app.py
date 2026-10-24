@@ -75,6 +75,7 @@ from server.routers import (
     episode_management,
     episode_planning,
     episodes_view,
+    file_view,
     files,
     generate,
     grids,
@@ -86,6 +87,7 @@ from server.routers import (
     products,
     project_events,
     project_migration,
+    project_trash,
     projects,
     prompt_authoring,
     prompt_templates,
@@ -544,10 +546,15 @@ async def lifespan(app: FastAPI):
     from lib.catalog.official_sync import start_official_sync, stop_official_sync
 
     catalog_sync = start_official_sync(async_session_factory)
+    # 项目回收站的过期清理：启动时清一次，之后定期清理；随应用关停取消
+    from server.services.project.trash_expiry import start_trash_expiry, stop_trash_expiry
+
+    trash_expiry = start_trash_expiry(layout.projects_dir)
     try:
         async with remote_mcp_host.run():
             yield
     finally:
+        await stop_trash_expiry(trash_expiry)
         await stop_official_sync(catalog_sync)
         # 运行期异常或关停被取消时同样撤销延时转储，免得收尾阶段误写调用栈。
         await stop_loop_stall_probe(stall_probe)
@@ -679,6 +686,18 @@ app.include_router(
     edit_timelines.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["剪辑时间线"]
 )
 app.include_router(files.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["文件管理"])
+app.include_router(
+    file_view.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["文件视图"],
+)
+app.include_router(
+    project_trash.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["项目回收站"],
+)
 app.include_router(episodes_view.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["分集视图"])
 app.include_router(
     episode_management.router, prefix="/api/v1", dependencies=[Depends(get_current_user)], tags=["集管理"]

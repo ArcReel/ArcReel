@@ -1956,7 +1956,7 @@ async def upload_source(
             yield source_path
         finally:
             if source_path is not None:
-                source_path.unlink(missing_ok=True)
+                source_path.unlink(missing_ok=True)  # hard-delete: temp -- Agent 上传源文件的临时文件
 
     def _upload_episode() -> dict[str, Any]:
         _validate()
@@ -1986,8 +1986,10 @@ async def upload_source(
                 result = SourceLoader.load(
                     source_path, source_dir, original_filename=value.filename, on_conflict=value.on_conflict
                 )
+                # hard-delete: rollback -- 源文件写入失败时撤销本次写入
                 undo.callback(result.normalized_path.unlink, missing_ok=True)
                 if result.raw_path is not None:
+                    # hard-delete: rollback -- 源文件写入失败时撤销本次写入
                     undo.callback(result.raw_path.unlink, missing_ok=True)
                 loaded["result"] = result
                 return f"source/{result.normalized_path.name}"

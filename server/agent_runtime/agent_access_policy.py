@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
-from lib.agent.agent_memory_paths import is_valid_memory_user_id
+from lib.agent.agent_memory_paths import ARCREEL_DIRNAME, is_valid_memory_user_id
 from lib.episode.episode_paths import (
     AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES,
     DRAMA_SCRIPT_PLAN_QUARANTINE_FILENAME,
@@ -27,6 +27,7 @@ from lib.episode.episode_paths import (
     REFERENCE_VIDEO_SCRIPT_PLAN_QUARANTINE_FILENAME,
 )
 from lib.infra.data_root_layout import DataRootLayout
+from lib.project.project_trash import TRASH_DIRNAME
 from lib.script.draft_quarantine import OPEN_DRAFT_TOOL_NAME, PROMOTE_TOOL_NAME
 
 logger = logging.getLogger(__name__)
@@ -801,6 +802,20 @@ class AgentAccessPolicy:
         return False
 
     @classmethod
+    def _is_protected_trash(cls, target: Path, bases: list[Path]) -> bool:
+        """命中项目回收站（``.arcreel/trash/`` 整子树，含目录本身）。
+
+        删除记录只经回收站模块增删；直写能绕过「清空与彻底删除只属于创作者」。
+        ``bases`` 与 target 的 raw/resolved 双形式口径同 ``_is_protected_project_json``。
+        """
+        target_s = cls._normalize_path_for_protected_compare(target)
+        for base in bases:
+            trash_dir = cls._normalize_path_for_protected_compare(base / ARCREEL_DIRNAME / TRASH_DIRNAME)
+            if target_s == trash_dir or target_s.startswith(trash_dir + os.sep):
+                return True
+        return False
+
+    @classmethod
     def _is_protected_formal_script_plan(cls, target: Path, bases: list[Path]) -> bool:
         """命中受写禁的正式 script_plan（``drafts/episode_N/`` 下 ``AGENT_PROTECTED_SCRIPT_PLAN_FILENAMES``）。
 
@@ -843,6 +858,7 @@ class AgentAccessPolicy:
 #:   工具；两层投影同覆盖面（``scripts/`` 整子树 + ``project.json``）。
 #: - ``edit_timeline``：「写入口收归」——剪辑时间线只能经剪辑时间线工具追加修订；两层同覆盖面。
 #: - ``source``：「写入口收归」——源文只能经上传与编辑源文的工具写入，改动按对齐重映射分集账本；两层同覆盖面。
+#: - ``trash``：项目回收站只经回收站模块增删，清空与彻底删除只开放给创作者；两层同覆盖面。
 #: - ``formal_script_plan``：「写入口持锁」——正式 script_plan 另有多条持同一把 per-path 锁的写入
 #:   路径，Write/Edit 取不到锁，直改即丢失更新窗口。两层刻意不对称：sandbox 按 ``drafts/``
 #:   整目录 deny（清单在会话装配期一次性构造，集是运行时增删的，逐文件枚举必然落空；Bash
@@ -878,6 +894,15 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
             "mcp__arcreel__edit_source_text。删除、调序整本源文的文件请用户在「分集」视图里操作。"
         ),
         sandbox_subpaths=("source",),
+    ),
+    ProtectedWriteRule(
+        name="trash",
+        matches=AgentAccessPolicy._is_protected_trash,
+        deny_message=(
+            "访问被拒绝：.arcreel/trash/ 是项目回收站，不可直接写入或删除。"
+            "回收站的清空与彻底删除只能由用户在文件视图里操作。"
+        ),
+        sandbox_subpaths=(f"{ARCREEL_DIRNAME}/{TRASH_DIRNAME}",),
     ),
     ProtectedWriteRule(
         name="formal_script_plan",

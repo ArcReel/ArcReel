@@ -820,7 +820,7 @@ async def upload_unit_video(
                     commit_metadata=_commit_metadata,
                 )
             finally:
-                await asyncio.to_thread(staged_video.unlink, missing_ok=True)
+                await asyncio.to_thread(staged_video.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
             # emit 内部会读剧本解析 episode 并计算指纹，放线程池避免阻塞事件循环；
             # 返回的指纹直接复用进响应体，免二次计算
             fingerprints = await run_sync_transaction(

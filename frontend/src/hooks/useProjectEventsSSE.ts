@@ -79,6 +79,11 @@ function isUsageRecordChange(change: ProjectChange): boolean {
   return change.entity_type === "usage_record";
 }
 
+/** 项目回收站变化（刷新信号，非项目实体变更）。 */
+function isTrashChange(change: ProjectChange): boolean {
+  return change.entity_type === "trash";
+}
+
 function getChangePriority(change: ProjectChange): number {
   if (COMPLETION_ACTIONS.has(change.action)) {
     return CHANGE_PRIORITY[change.action] ?? Number.MAX_SAFE_INTEGER;
@@ -289,6 +294,8 @@ export function useProjectEventsSSE(projectName?: string | null, followDirector 
         // 任务终态事件已经错过，顶栏用量按事件刷新，故在此补一次全量重取。
         if (previousFingerprint) {
           void useUsageHeaderStore.getState().refresh();
+          // 回收站不在快照指纹里，断线期间的增删同样只能在这里补拉。
+          useAppStore.getState().invalidateTrash();
         }
         // 会话恢复通知只推一次，订阅建立之前（含首次建连前的失败重试）发出的已经错过；
         // 首次快照也要核对：会话 hook 的加载读到的状态可能早于这次恢复。
@@ -309,8 +316,11 @@ export function useProjectEventsSSE(projectName?: string | null, followDirector 
         // 记账结算与任务终态同为刷新信号：混进实体变更会在 entityRevisions 里留下永不
         // 被消费的 `usage_record:<id>` 键，并把前一批实体变更排队的聚焦目标清空。
         const entityChanges = payload.changes.filter(
-          (c) => !isTaskChange(c) && !isUsageRecordChange(c),
+          (c) => !isTaskChange(c) && !isUsageRecordChange(c) && !isTrashChange(c),
         );
+        if (payload.changes.some(isTrashChange)) {
+          useAppStore.getState().invalidateTrash();
+        }
 
         // 提取并更新 asset fingerprints（零延迟，立即写入 store）
         const mergedFingerprints: Record<string, number> = {};

@@ -384,7 +384,7 @@ class ProjectArchiveService:
                     scope=scope,
                 )
         except Exception:
-            archive_path.unlink(missing_ok=True)
+            archive_path.unlink(missing_ok=True)  # hard-delete: temp -- 导出失败的半成品归档
             raise
         finally:
             if temp_dir is not None:
@@ -832,7 +832,7 @@ class ProjectArchiveService:
         for _attempt in range(_EXPORT_SNAPSHOT_ATTEMPTS):
             with project_metadata_lock(source_dir):
                 if target_dir.exists():
-                    shutil.rmtree(target_dir)
+                    shutil.rmtree(target_dir)  # hard-delete: temp -- 导出用的目录快照
                 try:
                     manifest_before = self._source_manifest_entries(source_dir)
                     copied = self._copy_visible_tree(source_dir, target_dir)
@@ -844,7 +844,7 @@ class ProjectArchiveService:
             if manifest_before == manifest_after and source_after == copied:
                 return manifest_before
         if target_dir.exists():
-            shutil.rmtree(target_dir)
+            shutil.rmtree(target_dir)  # hard-delete: temp -- 导出用的目录快照
         raise ArtifactManifestError("project changed repeatedly while creating an archive snapshot") from last_missing
 
     def _source_manifest_entries(
@@ -2208,7 +2208,7 @@ class ProjectArchiveService:
                 prepared_dir.rename(target_dir)
         finally:
             if prepared_dir.exists():
-                shutil.rmtree(prepared_dir, ignore_errors=True)
+                shutil.rmtree(prepared_dir, ignore_errors=True)  # hard-delete: temp -- 导入暂存目录
 
     def _replace_project_dir(self, prepared_dir: Path, target_dir: Path) -> None:
         """覆盖导入等同于删除现有项目再导入：现有项目的记录按删除收尾，目录连同项目记忆一并换掉。
@@ -2229,11 +2229,12 @@ class ProjectArchiveService:
                 if target_dir.exists():
                     discarded_dir = target_dir.with_name(f".import-discard-{target_dir.name}-{secrets.token_hex(4)}")
                     target_dir.rename(discarded_dir)
+                    # hard-delete: rollback -- 交换失败时移除新装的导入
                     shutil.rmtree(discarded_dir, ignore_errors=True)
                 backup_dir.rename(target_dir)
             raise
         try:
-            shutil.rmtree(backup_dir)
+            shutil.rmtree(backup_dir)  # hard-delete: pending-trash -- #3389 归档覆盖导入时删除被覆盖的旧项目
         except OSError:
             # 覆盖已经生效，记录也已收尾；残留的旧目录不改变导入结果。
             logger.warning("覆盖导入后旧项目目录删除失败: %s", backup_dir, exc_info=True)

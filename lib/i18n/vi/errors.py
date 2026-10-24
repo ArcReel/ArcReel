@@ -832,4 +832,9 @@ MESSAGES = {
     "episode_delete_cut_tail": "Sau khi xóa, nguyên văn của tập trở lại thành nguyên văn chưa cắt, điểm bắt đầu lập kế hoạch tiếp lùi về theo.",
     "episode_delete_cut_gap_first": "Sau khi xóa, nguyên văn của tập trở lại thành nguyên văn chưa cắt, nằm trước «{after}». Lập kế hoạch đến hết sẽ không lấp đoạn này; có thể lập kế hoạch đoạn nguyên văn chưa cắt này trong chế độ xem «Phân tập».",
     "episode_delete_cut_gap_between": "Sau khi xóa, nguyên văn của tập trở lại thành nguyên văn chưa cắt, nằm giữa «{before}» và «{after}». Lập kế hoạch đến hết sẽ không lấp đoạn này; có thể lập kế hoạch đoạn nguyên văn chưa cắt này trong chế độ xem «Phân tập».",
+    "file_view_delete_not_allowed": "Không thể xóa {path} trong chế độ xem tệp. Chỉ có thể xóa tệp không được tham chiếu ở đây; hãy xử lý tệp đang dùng tại màn hình chứa nó",
+    "file_view_delete_source_in_episodes": "{path} là tệp nguồn chưa được đưa vào toàn bộ văn bản nguồn. Hãy xử lý trong màn hình Tập",
+    "trash_record_not_found": "Thùng rác dự án không có bản ghi xóa này. Có thể nó đã được khôi phục hoặc dọn đi; hãy làm mới rồi thử lại",
+    "trash_restore_unsupported": "Hiện chưa thể khôi phục bản ghi xóa này",
+    "trash_restore_target_blocked": "Không thể khôi phục về {path}: một thư mục trên đường dẫn đã bị thay bằng liên kết",
 }
