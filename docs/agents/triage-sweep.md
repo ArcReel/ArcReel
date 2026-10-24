@@ -26,7 +26,7 @@
 
 其余外部 PR 在审查前依次检查以下两项。未通过的 PR 停在这一步，打 `needs-info`；`needs-info` 超过 14 天仍未通过的，不论期间有无回复，评论说明补齐后可以重开，然后关闭：
 
-1. **CLA**：`license/cla` 状态为 success。未通过时发一条签署提醒；同一 PR 只提醒一次。
+1. **CLA**：`license/cla` 状态为 success。PR 的最新提交上没有这个状态时，先访问 `https://cla-assistant.io/check/ArcReel/ArcReel?pullRequest=<PR 号>` 触发重新检查，再读状态。未通过时发一条签署提醒；同一 PR 只提醒一次。
 2. **先讨论方向**：新功能、新供应商、新端点，或增删合计超过 200 行的改动，需要有关联 issue。没有时，请作者先开 issue 讨论方向；只因增删行数超限时，也可以把 PR 拆小。
 
 曾因前置检查打上 `needs-info` 的 PR 通过两项检查后，摘掉 `needs-info`，继续第 3 步。
