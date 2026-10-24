@@ -146,7 +146,7 @@ describe("EditTimelineView tab menu", () => {
 
     const dialog = await screen.findByRole("alertdialog");
     expect(dialog).toHaveTextContent("删除剪辑时间线「快节奏版」？");
-    expect(dialog).toHaveTextContent("删除后无法恢复");
+    expect(dialog).toHaveTextContent("移入项目回收站，保留 30 天");
     expect(remove).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));

@@ -10,6 +10,7 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project import project_trash
@@ -218,6 +219,31 @@ def test_restore_onto_an_occupied_plain_path_takes_a_new_name(trash_client, tras
     assert restored["path"] == "notes (1).txt"
     assert (trash_project_dir / "notes.txt").read_text(encoding="utf-8") == "newer"
     assert (trash_project_dir / "notes (1).txt").read_text(encoding="utf-8") == "agent notes"
+
+
+def test_a_multi_file_record_is_restored_whole_or_not_at_all(trash_client, trash_project_dir, tmp_path):
+    (trash_project_dir / "extras").mkdir()
+    (trash_project_dir / "extras/b.txt").write_text("b", encoding="utf-8")
+    with project_metadata_lock(trash_project_dir):
+        record = project_trash.record_deletion(trash_project_dir, {"kind": "bundle"}, ["notes.txt", "extras/b.txt"])
+    # 删除之后途经目录被换成符号链接：第二个文件无处可落
+    (tmp_path / "outside").mkdir()
+    (trash_project_dir / "extras").rmdir()
+    (trash_project_dir / "extras").symlink_to(tmp_path / "outside")
+
+    blocked = trash_client.post(f"{TRASH}/{record.id}/restore")
+
+    assert blocked.status_code == 409
+    assert not (trash_project_dir / "notes.txt").exists()
+    assert [item["id"] for item in _records(trash_client)] == [record.id]
+
+    (trash_project_dir / "extras").unlink()
+    restored = trash_client.post(f"{TRASH}/{record.id}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert (trash_project_dir / "notes.txt").read_text(encoding="utf-8") == "agent notes"
+    assert (trash_project_dir / "extras/b.txt").read_text(encoding="utf-8") == "b"
+    assert _records(trash_client) == []
 
 
 def test_purge_and_empty_remove_records(trash_client):

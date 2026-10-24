@@ -3756,7 +3756,7 @@ export default {
   'edit_view_rename_confirm': '重命名',
   'edit_view_rename_failed': '重命名失败：{{message}}',
   'edit_view_delete_title': '删除剪辑时间线「{{name}}」？',
-  'edit_view_delete_description': '将删除这条剪辑时间线的全部修订，以及它已渲染的成片和导出的剪映草稿，删除后无法恢复。脚本和视频素材不受影响。',
+  'edit_view_delete_description': '这条剪辑时间线的全部修订，以及它已渲染的成片和导出的剪映草稿，将一起移入项目回收站，保留 30 天，期间可以在「文件」视图的项目回收站里恢复。脚本和视频素材不受影响。',
   'edit_view_delete_confirm': '删除',
   'edit_view_delete_failed': '删除失败：{{message}}',
   'edit_transition_dissolve': '叠化',
