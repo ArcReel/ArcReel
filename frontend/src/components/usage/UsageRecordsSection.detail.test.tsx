@@ -266,15 +266,15 @@ describe("UsageRecordsSection detail", () => {
 
     renderUsageRecordsSection("section=usage");
     await userEvent.click(await screen.findByRole("button", { name: "下一页" }));
-    expect(await screen.findByText("21–21 / 40")).toBeInTheDocument();
+    expect(await screen.findByText("21～21 / 40")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "详情" }));
     await screen.findByRole("dialog");
-    expect(screen.getByText("21–21 / 40")).toBeInTheDocument();
+    expect(screen.getByText("21～21 / 40")).toBeInTheDocument();
 
     await userEvent.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(screen.getByText("21–21 / 40")).toBeInTheDocument();
+    expect(screen.getByText("21～21 / 40")).toBeInTheDocument();
   });
 
   it("closes on Escape and drops the record param from the URL", async () => {

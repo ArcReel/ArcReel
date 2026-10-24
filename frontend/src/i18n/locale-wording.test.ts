@@ -18,9 +18,24 @@ function entries(modules: Record<string, Messages>): [string, string][] {
   return out;
 }
 
+// 后端 zh 包按同一口径检查：tests/unit/lib/i18n/test_locale_wording.py
 describe("locale wording", () => {
   it("uses a full-width colon after Chinese text in the zh pack", () => {
     const offenders = entries(zh).filter(([, text]) => /\p{Script=Han}\s?:/u.test(text));
+    expect(offenders).toEqual([]);
+  });
+
+  it("uses「…」for ellipses and「」for quotes in the zh pack", () => {
+    // 只查成对的引号：列举非法字符时单独出现的 " 是字符本身
+    const offenders = entries(zh).filter(([, text]) => /\.\.\.|"[^"]*"/.test(text));
+    expect(offenders).toEqual([]);
+  });
+
+  it("writes value ranges with「～」in the zh pack", () => {
+    // 端点含占位符或百分号、或后接单位的才算范围；两端都是裸数字的（如时长档位简写 3-15）是用户照样输入的语法
+    const range =
+      /\{\{\w+\}\}\s?[-–]\s?(\d|\{\{)|\d\s?[-–]\s?\{\{|\d%\s?[-–]\s?\d|\d\s?[-–]\s?\d+(%|\s?[\p{Script=Han}A-Za-z])/u;
+    const offenders = entries(zh).filter(([, text]) => range.test(text));
     expect(offenders).toEqual([]);
   });
 

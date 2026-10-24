@@ -141,7 +141,7 @@ describe("ProjectsPage", () => {
     vi.spyOn(API, "listProjects").mockImplementation(() => new Promise(() => {}));
 
     renderPage();
-    expect(screen.getByRole("status")).toHaveTextContent("加载项目列表...");
+    expect(screen.getByRole("status")).toHaveTextContent("加载项目列表…");
   });
 
   it("explains a failed load instead of showing an empty lobby", async () => {

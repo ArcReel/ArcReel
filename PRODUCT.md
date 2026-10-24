@@ -43,21 +43,19 @@ web
 
 - 名称 ArcReel，口号「Agent 驱动的 AI 视频创作工作台」（`BRAND.tagline` 默认值）。
 - **品牌名可动态配置**：品牌名与口号取自 `frontend/src/branding.ts` 的 `BRAND` 与 i18n 资源中的 `[[brand]]` 占位符，构建期可覆盖。
-- **术语表即界面用词**：`GLOSSARY.md` 中的中文术语就是 UI 用词，其 `_Avoid_` 条目列出的说法禁止出现在界面上。
+- **术语表即界面用词**：界面用词以 `GLOSSARY.md` 为准，中文文案规范见 `docs/standards/copy.md`。
 
 ## Evidence on Hand
 
 - 产品文档站 `website/`（docs.arc-reel.com）：入门教程、创作流程、供应商配置、剪映导出、FAQ、部署运维、架构说明。
 - 界面截图 `docs/assets/screenshots/`；风格模版缩略图 `frontend/public/style-thumbnails`；品牌图标与 manifest 位于 `frontend/public/`。
-- **尚不存在的材料**：客户名单、用户数、案例研究、评测数据、媒体报道、定价与付费档位文案。这些内容在设计中按空缺处理，不做占位撰写。
 
 ## Product Principles
 
 1. **审核优先于自动**：自动化产出默认可见、可修改、可单独重做。
 2. **代价先于执行**：消耗额度的操作在提交前呈现影响范围与预计费用，批量操作尤其如此。
 3. **服务端判定即状态**：进度、阻断与产物状态一律来自服务端权威判定，界面不另行按文件存在性推断。
-4. **术语一致优先于文案表现力**：同一概念在界面各处使用同一个词。
-5. **单人可完成**：所有关键路径由一个人独立走通。
+4. **单人可完成**：所有关键路径由一个人独立走通。
 
 ## Accessibility & Inclusion
 

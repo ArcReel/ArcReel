@@ -9,6 +9,8 @@ knowledge_base:
       # standards:start
       - files: "docs/standards/backend.md"
         applyTo: "lib/**,server/**,scripts/**,alembic/**,packages/**"
+      - files: "docs/standards/copy.md"
+        applyTo: "frontend/src/i18n/zh/**,lib/i18n/zh/**,website/docs/**,README.md,CONTRIBUTING.md,docs/**,**/CLAUDE.md"
       - files: "docs/standards/docs.md"
         applyTo: "website/docs/**,README.md,README.en.md,CONTRIBUTING.md"
       - files: "docs/standards/frontend.md"
