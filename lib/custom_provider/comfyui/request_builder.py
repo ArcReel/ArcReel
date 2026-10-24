@@ -114,7 +114,10 @@ def build_workflow(
     dropped = _apply_media(workflow, bindings, media or MediaInputs(), load_inference_rules(media_type))
 
     body, avoid_text = split_avoid_lines(prompt)
-    _write_all(workflow, _targets(bindings.get("prompt")), body)
+    # A text-only renderer has no other destination for these instructions.
+    # Split them out only when the workflow actually binds a negative input.
+    prompt_text = body if _targets(bindings.get("negative_prompt")) else prompt
+    _write_all(workflow, _targets(bindings.get("prompt")), prompt_text)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
     # 图自己写着片长、而这份片长凑不出一档原生时长时不动帧数：端点对外说的正是「时长不由

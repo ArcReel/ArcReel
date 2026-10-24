@@ -319,13 +319,13 @@ class TestAvoidSplit:
 
         assert _inputs(built, "7")["text"] == "水印"
 
-    def test_an_unbound_negative_prompt_only_strips_the_lines(self):
+    def test_an_unbound_negative_prompt_preserves_the_instructions_in_the_body(self):
         definition = comfyui_endpoint_definition()
         definition["bindings"]["negative_prompt"] = []
 
         built = _build(definition, prompt="一只猫\n\nAvoid: 水印")
 
-        assert _inputs(built, "6")["text"] == "一只猫"
+        assert _inputs(built, "6")["text"] == "一只猫\n\nAvoid: 水印"
         assert _inputs(built, "7")["text"] == ""
         assert built.negative_prompt == "水印"
 
