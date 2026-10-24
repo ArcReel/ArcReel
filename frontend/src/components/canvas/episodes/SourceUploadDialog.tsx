@@ -23,6 +23,7 @@ import { formatNameList } from "@/utils/list-format";
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_FORMATS_LABEL, isSupportedSourceFile } from "@/utils/source-files";
 
 import type { SourceKind } from "@/types/episodes-view";
+import { formatFileSize } from "@/utils/file-size";
 
 import { SourceKindSelect } from "./SourceKindSelect";
 import { isReservedEpisodeFileName, type SourceUploadMode } from "./episodes-view-model";
@@ -45,12 +46,6 @@ interface SourceUploadDialogProps {
   initialFiles?: File[];
   onClose: () => void;
   onUploaded?: (result: SourceUploadResult) => void;
-}
-
-function fileSizeLabel(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function moveKey(rows: Row[], fromKey: string, toIndex: number): Row[] {
@@ -389,7 +384,7 @@ export function SourceUploadDialog({
                           ) : null}
                         </div>
                         {isNew ? (
-                          <span className="num shrink-0 text-xs text-muted-foreground">{fileSizeLabel(row.file.size)}</span>
+                          <span className="num shrink-0 text-xs text-muted-foreground">{formatFileSize(row.file.size)}</span>
                         ) : (
                           <span className="shrink-0 text-xs text-muted-foreground">
                             {withSourceKind

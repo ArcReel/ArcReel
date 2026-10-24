@@ -1,0 +1,142 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/file-view?path=",
+  "status": 200,
+  "body": {
+    "path": "",
+    "entries": [
+      {
+        "name": ".claude",
+        "path": ".claude",
+        "type": "directory",
+        "size": 208068,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "audio",
+        "path": "audio",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "characters",
+        "path": "characters",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "drafts",
+        "path": "drafts",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "grids",
+        "path": "grids",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "output",
+        "path": "output",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "presentations",
+        "path": "presentations",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "products",
+        "path": "products",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "props",
+        "path": "props",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "scenes",
+        "path": "scenes",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "scripts",
+        "path": "scripts",
+        "type": "directory",
+        "size": 389,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "source",
+        "path": "source",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "storyboards",
+        "path": "storyboards",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "subtitles",
+        "path": "subtitles",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "thumbnails",
+        "path": "thumbnails",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "videos",
+        "path": "videos",
+        "type": "directory",
+        "size": 0,
+        "modified_at": "2026-01-01T08:00:00.000Z"
+      },
+      {
+        "name": "CLAUDE.md",
+        "path": "CLAUDE.md",
+        "type": "file",
+        "size": 20798,
+        "modified_at": "2026-01-01T08:00:00.000Z",
+        "role": "agent_config",
+        "owner": null
+      },
+      {
+        "name": "project.json",
+        "path": "project.json",
+        "type": "file",
+        "size": 655,
+        "modified_at": "2026-01-01T08:00:00.000Z",
+        "role": "structure",
+        "owner": {
+          "kind": "project"
+        }
+      }
+    ]
+  }
+}

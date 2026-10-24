@@ -23,6 +23,7 @@ export default {
   'upload_failed': 'Upload failed',
   'upload_conflict_incomplete': 'Couldn\'t upload "{{filename}}": the server returned 409 without complete conflict details',
   'memory_file_load_failed': 'Couldn\'t load the memory file',
+  'file_view_load_failed': 'Couldn\'t load the file',
   'memory_file_save_failed': 'Couldn\'t save the memory file',
   'file_content_load_failed': 'Couldn\'t load the file content',
   'file_replace_failed': 'Couldn\'t replace the file',

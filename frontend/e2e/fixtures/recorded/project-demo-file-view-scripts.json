@@ -1,0 +1,22 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/file-view?path=scripts",
+  "status": 200,
+  "body": {
+    "path": "scripts",
+    "entries": [
+      {
+        "name": "episode_1.json",
+        "path": "scripts/episode_1.json",
+        "type": "file",
+        "size": 389,
+        "modified_at": "2026-01-01T08:00:00.000Z",
+        "role": "structure",
+        "owner": {
+          "kind": "episode",
+          "episode": 1
+        }
+      }
+    ]
+  }
+}

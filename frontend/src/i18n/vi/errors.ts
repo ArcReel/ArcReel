@@ -24,6 +24,7 @@ export default {
   'upload_failed': 'Tải lên thất bại',
   'upload_conflict_incomplete': 'Tải lên "{{filename}}" thất bại: máy chủ trả về 409 nhưng thông tin xung đột không đầy đủ',
   'memory_file_load_failed': 'Không tải được tệp bộ nhớ',
+  'file_view_load_failed': 'Không tải được tệp',
   'memory_file_save_failed': 'Không lưu được tệp bộ nhớ',
   'file_content_load_failed': 'Không tải được nội dung tệp',
   'file_replace_failed': 'Không thay thế được tệp',
