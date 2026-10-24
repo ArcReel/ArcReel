@@ -768,4 +768,9 @@ MESSAGES = {
     "episode_delete_cut_tail": "删除后，它的原文变回未切分的原文，接续规划的起点随之回退。",
     "episode_delete_cut_gap_first": "删除后，它的原文变回未切分的原文，留在「{after}」之前；一键规划不会回填这段原文，可以在「分集」视图里规划这段未切分的原文。",
     "episode_delete_cut_gap_between": "删除后，它的原文变回未切分的原文，留在「{before}」与「{after}」之间；一键规划不会回填这段原文，可以在「分集」视图里规划这段未切分的原文。",
+    "file_view_delete_not_allowed": "{path} 不能在文件视图里删除：只有未引用的文件可以在这里删除，在用的文件请到它所属的界面处理",
+    "file_view_delete_source_in_episodes": "{path} 是未纳入整本源文的源文件，请到「分集」视图处理",
+    "trash_record_not_found": "项目回收站里没有这条删除记录，可能已被恢复或清除，刷新后再试",
+    "trash_restore_unsupported": "这条删除记录暂时无法恢复",
+    "trash_restore_target_blocked": "无法恢复到 {path}：路径上的目录已被替换为链接",
 }

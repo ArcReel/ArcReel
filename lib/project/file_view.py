@@ -15,10 +15,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO
 
+from lib.artifacts.formal_write import project_metadata_lock
+from lib.infra.api_errors import ConflictError
 from lib.infra.path_safety import PathTraversalError, safe_join
-from lib.project.reference_index import FileReference, ReferenceIndex, is_infrastructure_path
+from lib.project import project_trash
+from lib.project.reference_index import FileReference, FileRole, ReferenceIndex, is_infrastructure_path
 
-__all__ = ["FileViewEntry", "iter_file_chunks", "list_directory", "open_project_file"]
+__all__ = ["FileViewEntry", "delete_unreferenced_file", "iter_file_chunks", "list_directory", "open_project_file"]
 
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
@@ -165,6 +168,24 @@ def _open_checked(project_dir: Path, parts: tuple[str, ...]) -> int:
         os.close(fd)
         raise FileNotFoundError("/".join(parts))
     return fd
+
+
+def delete_unreferenced_file(project_dir: Path, rel: str) -> project_trash.TrashRecord:
+    """把一个未引用文件移进项目回收站，成为一条只含它的删除记录。
+
+    在项目锁内重建引用索引再判定：其余角色一律拒绝；未纳入整本源文的源文件交给分集视图处理。
+    """
+    parts = _parts(rel)
+    with project_metadata_lock(project_dir):
+        path = _resolve(project_dir, parts) if parts else project_dir
+        if not path.is_file():
+            raise FileNotFoundError(rel)
+        reference = ReferenceIndex.build(project_dir).reference_of(rel)
+        if reference.role is not FileRole.UNREFERENCED:
+            raise ConflictError("file_view_delete_not_allowed", path=rel)
+        if reference.owner is not None and reference.owner.kind == "source":
+            raise ConflictError("file_view_delete_source_in_episodes", path=rel)
+        return project_trash.record_deletion(project_dir, {"kind": "file", "path": rel}, [rel])
 
 
 def iter_file_chunks(handle: BinaryIO, chunk_size: int = 1024 * 1024) -> Iterator[bytes]:

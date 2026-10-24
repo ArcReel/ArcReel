@@ -37,7 +37,9 @@ export interface ProjectChange {
     | "task"
     // usage_record 同样是刷新信号：一次供应商调用结算落库（成功/失败/取消），
     // 用来重拉用量与成本，不进通知与聚焦跳转。
-    | "usage_record";
+    | "usage_record"
+    // trash 同样是刷新信号：项目回收站有增删，用来重拉文件视图与回收站分区。
+    | "trash";
   action:
     | "created"
     | "updated"

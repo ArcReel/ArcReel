@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
-import { ChevronRight, Download, File, Folder, FolderOpen, Loader2, RefreshCw } from "lucide-react";
+import { ChevronRight, Download, File, Folder, FolderOpen, Loader2, RefreshCw, Trash2 } from "lucide-react";
 
 import { API } from "@/api";
 import { DetailPane } from "@/components/shared/master-detail/DetailPane";
@@ -9,6 +9,7 @@ import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAppStore } from "@/stores/app-store";
 import type { FileViewEntry } from "@/types";
 import { errMsg } from "@/utils/async";
@@ -18,6 +19,7 @@ import { formatFileSize } from "@/utils/file-size";
 import { cn } from "cn";
 
 import { FilePreview } from "./FilePreview";
+import { TrashSection } from "./TrashSection";
 import { ownerTarget } from "./file-view-model";
 
 type DirectoryState =
@@ -26,10 +28,10 @@ type DirectoryState =
   | { status: "ready"; entries: FileViewEntry[] };
 
 /**
- * 已加载的目录（键为项目内相对路径，根目录为空串），目录展开时才请求它的子项。
+ * 已加载的目录（键为项目内相对路径，根目录为空串），目录展开时才请求它的子项；`refreshKey` 变化时重拉加载过的目录。
  * 还没有结果的目录按加载中显示；刷新时保留旧列表直到新结果到达，重试时由调用方先标成加载中。
  */
-function useDirectories(projectName: string) {
+function useDirectories(projectName: string, refreshKey: number) {
   const [directories, setDirectories] = useState<Record<string, DirectoryState>>({});
   const controllerRef = useRef<AbortController | null>(null);
 
@@ -39,8 +41,11 @@ function useDirectories(projectName: string) {
     return () => controller.abort();
   }, []);
 
+  const loadedRef = useRef(new Set<string>());
+
   const load = useCallback(
     (path: string) => {
+      loadedRef.current.add(path);
       const signal = controllerRef.current?.signal;
       API.getFileView(projectName, path, { signal })
         .then((listing) => {
@@ -55,7 +60,12 @@ function useDirectories(projectName: string) {
     [projectName],
   );
 
-  useEffect(() => load(""), [load]);
+  // 手动刷新，或项目回收站有增删（含 Agent 发起的删除与恢复）时，文件可能离开或回到目录树：重拉加载过的目录。
+  const trashRevision = useAppStore((s) => s.trashRevision);
+  useEffect(() => {
+    const paths = loadedRef.current.size > 0 ? [...loadedRef.current] : [""];
+    for (const path of paths) load(path);
+  }, [load, trashRevision, refreshKey]);
 
   const retry = useCallback(
     (path: string) => {
@@ -68,13 +78,52 @@ function useDirectories(projectName: string) {
   return { directories, load, retry };
 }
 
+type FileViewSection = "files" | "trash";
+
 /**
- * 项目级「文件」视图：左侧按磁盘目录树列出项目文件，目录按需展开；右侧是选中文件的角色、预览、下载与所属界面入口。
- * 这里只读：被引用的文件跳到所属界面修改，未纳入整本源文的源文件交给「分集」。
+ * 项目级「文件」视图，分「文件」与「回收站」两个分区。
+ * 文件分区：左侧按磁盘目录树列出项目文件，目录按需展开；右侧是选中文件的角色、预览、下载与所属界面入口。
+ * 只有未引用文件能在这里移入回收站；被引用的文件跳到所属界面修改，未纳入整本源文的源文件交给「分集」。
  */
 export function FileView({ projectName }: { projectName: string }) {
   const { t } = useTranslation("dashboard");
-  const { directories, load, retry } = useDirectories(projectName);
+  const [section, setSection] = useState<FileViewSection>("files");
+  // 「刷新」重拉当前分区：两个分区都把它和回收站失效信号一起作为重拉条件。
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* 分区与刷新靠左：窄屏下 Agent 面板浮在画布右侧，靠右的控件会被盖住 */}
+      <header className="flex shrink-0 flex-col gap-2 border-b border-border px-6 py-3">
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold">{t("file_view_title")}</h1>
+          <p className="text-sm text-muted-foreground">{t("file_view_description")}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Tabs value={section} onValueChange={(value: FileViewSection) => setSection(value)}>
+            <TabsList aria-label={t("file_view_sections_aria")}>
+              <TabsTrigger value="files">{t("file_view_section_files")}</TabsTrigger>
+              <TabsTrigger value="trash">{t("file_view_section_trash")}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <Button variant="outline" size="sm" onClick={() => setRefreshKey((key) => key + 1)}>
+            <RefreshCw data-icon="inline-start" aria-hidden />
+            {t("file_view_refresh")}
+          </Button>
+        </div>
+      </header>
+      {section === "files" ? (
+        <FilesSection projectName={projectName} refreshKey={refreshKey} />
+      ) : (
+        <TrashSection projectName={projectName} refreshKey={refreshKey} />
+      )}
+    </div>
+  );
+}
+
+function FilesSection({ projectName, refreshKey }: { projectName: string; refreshKey: number }) {
+  const { t } = useTranslation("dashboard");
+  const { directories, load, retry } = useDirectories(projectName, refreshKey);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [selected, setSelected] = useState<FileViewEntry | null>(null);
 
@@ -89,53 +138,41 @@ export function FileView({ projectName }: { projectName: string }) {
     setExpanded(next);
   };
 
-  const refresh = () => {
-    load("");
-    for (const path of expanded) load(path);
+  const onDeleted = () => {
+    setSelected(null);
+    useAppStore.getState().invalidateTrash();
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <header className="flex shrink-0 items-center gap-3 border-b border-border px-6 py-3">
-        <div className="min-w-0 flex-1">
-          <h1 className="text-base font-semibold">{t("file_view_title")}</h1>
-          <p className="text-sm text-muted-foreground">{t("file_view_description")}</p>
+    <div className="flex min-h-0 flex-1">
+      <nav
+        aria-label={t("file_view_tree_label")}
+        className="relative flex w-[clamp(240px,32cqw,360px)] shrink-0 flex-col overflow-y-auto border-r px-2 py-3 [scrollbar-gutter:stable]"
+      >
+        <DirectoryList
+          path=""
+          directories={directories}
+          expanded={expanded}
+          selectedPath={selected?.path ?? null}
+          onToggle={toggle}
+          onSelect={setSelected}
+          onRetry={retry}
+        />
+      </nav>
+      {selected ? (
+        <FileDetail key={selected.path} projectName={projectName} entry={selected} onDeleted={onDeleted} />
+      ) : (
+        <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <File aria-hidden />
+              </EmptyMedia>
+              <EmptyTitle>{t("file_view_select_hint")}</EmptyTitle>
+            </EmptyHeader>
+          </Empty>
         </div>
-        <Button variant="outline" size="sm" onClick={refresh}>
-          <RefreshCw data-icon="inline-start" aria-hidden />
-          {t("file_view_refresh")}
-        </Button>
-      </header>
-      <div className="flex min-h-0 flex-1">
-        <nav
-          aria-label={t("file_view_tree_label")}
-          className="relative flex w-[clamp(240px,32cqw,360px)] shrink-0 flex-col overflow-y-auto border-r px-2 py-3 [scrollbar-gutter:stable]"
-        >
-          <DirectoryList
-            path=""
-            directories={directories}
-            expanded={expanded}
-            selectedPath={selected?.path ?? null}
-            onToggle={toggle}
-            onSelect={setSelected}
-            onRetry={retry}
-          />
-        </nav>
-        {selected ? (
-          <FileDetail key={selected.path} projectName={projectName} entry={selected} />
-        ) : (
-          <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center">
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <File aria-hidden />
-                </EmptyMedia>
-                <EmptyTitle>{t("file_view_select_hint")}</EmptyTitle>
-              </EmptyHeader>
-            </Empty>
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }
@@ -228,11 +265,22 @@ function DirectoryList(props: DirectoryListProps) {
   );
 }
 
-function FileDetail({ projectName, entry }: { projectName: string; entry: FileViewEntry }) {
+function FileDetail({
+  projectName,
+  entry,
+  onDeleted,
+}: {
+  projectName: string;
+  entry: FileViewEntry;
+  onDeleted: () => void;
+}) {
   const { t } = useTranslation("dashboard");
   const [downloading, setDownloading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const target = ownerTarget(entry.owner, projectName);
   const unreferencedSource = entry.role === "unreferenced" && entry.owner?.kind === "source";
+  // 只有未引用文件能在这里删除；服务端同样校验，这里只决定是否给出按钮。
+  const deletable = entry.role === "unreferenced" && !unreferencedSource;
   const description = entry.role
     ? t(unreferencedSource ? "file_view_role_desc_unreferenced_source" : `file_view_role_desc_${entry.role}`)
     : null;
@@ -246,6 +294,31 @@ function FileDetail({ projectName, entry }: { projectName: string; entry: FileVi
       useAppStore.getState().pushToast(t("file_view_download_failed", { name: entry.name, message: errMsg(error) }), "error");
     } finally {
       setDownloading(false);
+    }
+  };
+
+  // 移入项目回收站可以恢复，不弹确认，提示里直接给「恢复」。
+  const moveToTrash = async () => {
+    setDeleting(true);
+    try {
+      const { record } = await API.deleteFileViewEntry(projectName, entry.path);
+      onDeleted();
+      useAppStore.getState().pushToast(t("file_view_moved_to_trash", { name: entry.name }), "info", {
+        action: {
+          label: t("trash_restore"),
+          onClick: () => {
+            API.restoreTrashRecord(projectName, record.id)
+              .catch((error: unknown) => {
+                useAppStore.getState().pushToast(t("trash_action_failed", { message: errMsg(error) }), "error");
+              })
+              .finally(() => useAppStore.getState().invalidateTrash());
+          },
+        },
+      });
+    } catch (error) {
+      useAppStore.getState().pushToast(t("file_view_delete_failed", { name: entry.name, message: errMsg(error) }), "error");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -284,6 +357,16 @@ function FileDetail({ projectName, entry }: { projectName: string; entry: FileVi
           )}
           {t("file_view_download")}
         </Button>
+        {deletable ? (
+          <Button variant="outline" size="sm" disabled={deleting} onClick={() => void moveToTrash()}>
+            {deleting ? (
+              <Loader2 data-icon="inline-start" aria-hidden className="animate-spin" />
+            ) : (
+              <Trash2 data-icon="inline-start" aria-hidden />
+            )}
+            {t("file_view_move_to_trash")}
+          </Button>
+        ) : null}
       </div>
     </div>
   );

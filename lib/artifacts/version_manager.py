@@ -1297,6 +1297,37 @@ class VersionManager:
                 **metadata,
             )
 
+    def add_history_version(
+        self, resource_type: str, resource_id: str, source_file: Path, *, current_file: Path, prompt: str = ""
+    ) -> str:
+        """把 ``source_file`` 作为资源的一条历史版本加回，当前版本不变；返回新版本快照的项目内相对路径。
+
+        恢复删除记录时用：原路径已有当前文件，被恢复的文件不覆盖它。当前文件还没有版本记录时
+        先补录成当前版本，否则加回的版本会成为唯一一条、看起来像是当前版本。
+        """
+        if resource_type not in self.RESOURCE_TYPES:
+            raise ValueError(f"不支持的资源类型: {resource_type}")
+
+        with self._lock:
+            self.ensure_current_tracked(resource_type, resource_id, current_file, prompt)
+            data = self._load_versions()
+            resource_data = data.setdefault(resource_type, {}).setdefault(
+                resource_id, {"current_version": 0, "versions": []}
+            )
+            current_version = resource_data.get("current_version", 0)
+            created: list[Path] = []
+            try:
+                self._append_selected_snapshot(
+                    resource_type, resource_id, resource_data, Path(source_file), prompt, {}, created
+                )
+                resource_data["current_version"] = current_version
+                self._save_versions(data)
+            except BaseException as exc:
+                _report_cleanup_failures(_unlink_paths(*created), active_failure=exc)
+                raise
+            record_project_activity(self.project_path)
+            return resource_data["versions"][-1]["file"]
+
     def purge_resource(self, resource_type: str, resource_id: str) -> int:
         """删除一个资源的全部版本记录与快照文件，返回删除的快照数。
 
