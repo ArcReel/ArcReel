@@ -113,7 +113,7 @@ export function EpisodeHead({
           <>
             {facts.length > 0 ? <span aria-hidden>·</span> : null}
             <InfoTip>
-              <InfoTipTrigger render={<button type="button" className="shrink-0 rounded-sm" />}>
+              <InfoTipTrigger render={<button type="button" className="inline-flex min-h-6 shrink-0 items-center rounded-sm" />}>
                 {t("episode_head_cost", { cost: costSummary.estimate })}
               </InfoTipTrigger>
               <InfoTipContent title={t("episode_head_cost", { cost: costSummary.estimate })}>{costDetail}</InfoTipContent>
