@@ -2,7 +2,7 @@
 
 记录值得改进环境的错，由定期巡检维护、计数与晋升；候选经 PR 上的 `lesson-candidate` 评论提交。条目格式、计数、阈值与退出规则见 [`docs/agents/lessons.md`](agents/lessons.md)。
 
-<!-- reviewed-through: 075e33b1037fbc84a64f241f788c7f4e70e4e54c 2026-10-23 -->
+<!-- reviewed-through: 553278714a48283583591c6e8bcfea427708f90b 2026-10-24 -->
 
 ## 异步任务的结果与异常在每条路径上都有人接
 
@@ -41,6 +41,26 @@
 判定方式：需要判断
 - #3248 · 2026-10-19 · 合并后修复：Agent 工具查视频能力、草稿晋升、上传后生成概览、图生图检查四条路径吞掉 ModelNotInCatalogError（#3300，#3314 的 c6040abf 修复）；没拦住：没有对应规则
 
+## 仓库约定与自动化没有接上检查
+
+### skill 脚本自带的回归测试接入闸门与 CI
+模式：`.agents/skills/*/scripts/test_*.sh` 这类脚本测试不属于 `scripts/gate.py` 或 CI 的任何域，改动被测脚本后只跑了直接相关的那一个测试，其余抽取同一函数的测试已经坏了，闸门和 CI 照样通过
+代价：skill 脚本的回归测试悄悄失效，到下一次修改时才发现（严重度：常规）
+判定方式：机械（拟用 `scripts/gate.py` 新增一个域，覆盖 `.agents/skills/**/scripts/test_*.sh`，并接入 CI）
+- #3393 · 2026-10-22 · 自查：02445565 给 `cr_walkthrough_rest` 新增 `cr_review_skipped_body` 依赖，`test_quota_alerts.sh` 抽取该函数时 jq 报未定义（退出码 3）；`gate.py --changed` 只命中 tests、conventions 两个域，CI 全绿，0efd7d2b 才补上；没拦住：检查没接上
+
+### 外部 skill 只在 `.agents/skills/` 保留一份正本，`.claude/skills/` 下只放指向它的符号链接
+模式：用工具自带的安装命令（如 `react-doctor install`、`skills add -a claude-code`）安装 skill 时，工具在 `.claude/skills/` 写入实体目录拷贝、覆盖已有的符号链接，或在命令执行时所在的子目录（如 `frontend/`）里再装一份，同一 skill 出现多份内容
+代价：正本与拷贝内容不一致，agent 读到的 skill 版本不确定，跟进上游时漏改（严重度：常规）
+判定方式：机械（拟用 `scripts/audit_conventions.py`：`.claude/skills/*` 是指向 `../../.agents/skills/<同名>` 的符号链接，只在开发态使用的 skill 列入白名单；`.agents/skills/` 只出现在仓库根目录）
+- #3407 · 2026-10-24 · 自查：`.claude/skills/react-doctor` 是实体拷贝，`frontend/.agents/skills/react-doctor` 是多余副本，按建议重装后 CLI 又一次用拷贝覆盖了符号链接；根因：安装工具默认写拷贝且不感知本仓库约定；没拦住：检查没接上，`audit_conventions.py` 不检查 skill 目录形态
+
+### 给工作流生成的 PR 新增写入步骤时，同步更新针对该 PR 的完整性检查，并用会产生改动的数据演练一次
+模式：给 Release PR 等由工作流生成的 PR 增加会提交新文件的步骤，只验证了步骤本身，没有更新该 PR 的变更白名单，也没有让该 PR 带着真实改动跑一遍 CI；问题到第一次真正产生改动时才暴露（见 #3411）
+代价：发版被阻塞，需要临时开修复 PR（严重度：常规）
+判定方式：机械（拟用工作流静态检查：工作流在发版分支上 `git add` 的路径须被 `release-integrity` 白名单覆盖）
+- #3346 · 2026-10-24 · 合并后修复：发版 PR 自动刷新的目录快照不在 `release-integrity` 白名单内，且新快照下架了测试写死的方舟型号，Release PR #3114 两项检查失败（#3409 放行快照路径，#3410 改为从目录取默认模型）；根因：快照刷新步骤合入时没有在会产生快照改动的 Release PR 上演练；没拦住：没有对应规则
+
 ## 未分组
 
 ### 改写流程判据时，逐个交叉情形确认结论唯一，旧条件挡住的情形仍有着落
@@ -77,13 +97,21 @@
 - #1648 · 2026-08-05 · 批次复盘：hook 的函数型 option 存进 ref 豁免依赖；没拦住：没有对应规则
 - 降级 · 2026-10-19 · 自 docs/standards/frontend-async.md「Hook 的函数型 option 列入依赖，不存进 ref」
 
-### skill 脚本自带的回归测试接入闸门与 CI
-模式：`.agents/skills/*/scripts/test_*.sh` 这类脚本测试不属于 `scripts/gate.py` 或 CI 的任何域，改动被测脚本后只跑了直接相关的那一个测试，其余抽取同一函数的测试已经坏了，闸门和 CI 照样通过
-代价：skill 脚本的回归测试悄悄失效，到下一次修改时才发现（严重度：常规）
-判定方式：机械（拟用 `scripts/gate.py` 新增一个域，覆盖 `.agents/skills/**/scripts/test_*.sh`，并接入 CI）
-- #3393 · 2026-10-22 · 自查：02445565 给 `cr_walkthrough_rest` 新增 `cr_review_skipped_body` 依赖，`test_quota_alerts.sh` 抽取该函数时 jq 报未定义（退出码 3）；`gate.py --changed` 只命中 tests、conventions 两个域，CI 全绿，0efd7d2b 才补上；没拦住：检查没接上
+### 按模型声明能判定发不出或用不了的请求，在计费请求前拒绝
+模式：新接入的后端只在请求构造或产物落盘时才对照模型目录声明（参考图张数上下限、输出格式），超限时截断、产物转不成位图时先计费再删除；编排层仍按端点固定上限编号「图N」，提示词指认没有发出的图
+代价：用户为必然偏离或必然不可用的结果付费（严重度：数据·安全·真实花费）
+判定方式：需要判断
+- #3361 · 2026-10-24 · 审查发现：`openrouter-images` 参考图超限在截断与报错之间改了 3 轮（d2a6e389 报错、3cc3210d 改由编排层按模型上限裁剪并保留后端截断兜底、8ea8f80e 兜底改为报错），参考图下限与「收录却未声明参考图」另修两轮（3943af66、3cc3210d）；只出 SVG 的模型先计费、转码失败再删产物（cd9a20b9、106308b0），a505a825 改为提交前拒绝；没拦住：没有对应规则
+- 评审未晋升 · 2026-10-24 · 待 #3405 裁决：编排层「参考图裁剪」是否保留为静默行为，决定这条规则的适用范围
 
 ## 已晋升
+
+### 供应商返回之后的落盘与转码走不可中断段，公共助手也不例外
+去向：已晋升，见 #3413（让公共落盘助手默认满足不可中断要求，从架构上消除；规范里的文字规则已存在却没被执行）
+模式：后端复用 `save_image_from_response_item` 这类公共落盘助手，或自己用 `run_sync_transaction` 转码；写盘本身跑完，取消照常向外传播，其后的转码与产物提交被跳过
+代价：已计费的产物在取消或事件循环拆除时丢失（严重度：数据·安全·真实花费）
+判定方式：需要判断
+- #3361 · 2026-10-24 · 审查发现：`openrouter-images` 首版经 `save_image_from_response_item` 落盘、用 `run_sync_transaction` 转 PNG，248abe7e 改为在 `run_noninterruptible_sync` 内解码、写盘并转码；公共助手本身仍用 `run_sync_transaction`；没拦住：有规则但没被执行（docs/standards/backend.md「供应商返回之后的落账段不可中断」）
 
 ### 等异步过程完成，以它的最后一步为信号，不轮询中途就可见的状态
 去向：docs/standards/testing.md「等待异步过程时，以它的最后一步为就绪信号」
