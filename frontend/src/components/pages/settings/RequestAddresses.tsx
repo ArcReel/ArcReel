@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { InfoTip, InfoTipContent, InfoTipTrigger } from "@/components/ui/info-tip";
 import type { EndpointRequest, PathOverrides } from "@/types";
 
 const MODEL_PLACEHOLDER = /\{\{\s*model\s*\}\}/g;
@@ -166,20 +166,19 @@ function AddressBar({ request, rawBase, override, display, onCommit }: AddressBa
     >
       <TruncatedText text={base} className="max-w-3/5 shrink-0 text-muted-foreground" />
       {autoV1 && (
-        <Tooltip>
-          <TooltipTrigger
+        <InfoTip>
+          <InfoTipTrigger
             render={
-              <span
-                // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex -- 提示的触发点：悬停或聚焦都要能看到说明；它没有可执行的动作
-                tabIndex={0} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- 同一理由见上一行
+              <button
+                type="button"
                 className="mx-0.5 shrink-0 rounded-sm border border-dashed border-border px-0.5 text-muted-foreground"
               />
             }
           >
             /v1
-          </TooltipTrigger>
-          <TooltipContent>{t("cp_request_auto_v1")}</TooltipContent>
-        </Tooltip>
+          </InfoTipTrigger>
+          <InfoTipContent>{t("cp_request_auto_v1")}</InfoTipContent>
+        </InfoTip>
       )}
       <button
         type="button"

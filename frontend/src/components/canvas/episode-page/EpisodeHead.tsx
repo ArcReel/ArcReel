@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { InfoTip, InfoTipContent, InfoTipTrigger } from "@/components/ui/info-tip";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useCostStore } from "@/stores/cost-store";
 import type { EpisodeCost, EpisodeMeta } from "@/types";
@@ -112,18 +112,12 @@ export function EpisodeHead({
         {costSummary ? (
           <>
             {facts.length > 0 ? <span aria-hidden>·</span> : null}
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex -- 已花与剩余只在提示里，须能用键盘聚焦打开；它没有可执行的动作，不渲染为 button
-                  <span tabIndex={0} className="focus-ring shrink-0 rounded-sm" /> // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- 同一理由见上一行
-                }
-              >
+            <InfoTip>
+              <InfoTipTrigger render={<button type="button" className="shrink-0 rounded-sm" />}>
                 {t("episode_head_cost", { cost: costSummary.estimate })}
-                <span className="sr-only">{costDetail}</span>
-              </TooltipTrigger>
-              <TooltipContent>{costDetail}</TooltipContent>
-            </Tooltip>
+              </InfoTipTrigger>
+              <InfoTipContent>{costDetail}</InfoTipContent>
+            </InfoTip>
           </>
         ) : null}
       </p>

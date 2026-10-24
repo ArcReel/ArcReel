@@ -40,6 +40,12 @@ function renderHead(meta: EpisodeMeta = FIRST, overrides: Partial<Parameters<typ
   );
 }
 
+/** 已花与剩余在花费摘要的说明弹层里：点开摘要，返回弹层。 */
+async function openCostDetail(summary: string) {
+  fireEvent.click(screen.getByRole("button", { name: summary }));
+  return screen.findByRole("dialog");
+}
+
 describe("EpisodeHead", () => {
   beforeEach(() => {
     useProjectsStore.setState(useProjectsStore.getInitialState(), true);
@@ -67,22 +73,21 @@ describe("EpisodeHead", () => {
     expect(screen.getByRole("textbox", { name: "编辑分集标题" })).toHaveAttribute("placeholder", "第 2 集");
   });
 
-  it("counts history spend as spent but not against the remaining estimate", () => {
+  it("counts history spend as spent but not against the remaining estimate", async () => {
     seedCost("demo", { unassigned: { USD: 10 } });
 
     renderHead();
 
     // 已花含历史支出；剩余仍是整笔预估——那 $10 花在已被替换掉的旧剧本上，当前剧本的工作一件也没做
-    expect(screen.getByText("预估 $10.00")).toBeInTheDocument();
-    expect(screen.getByText("已花 $10.00，剩余 $10.00")).toBeInTheDocument();
+    expect(await openCostDetail("预估 $10.00")).toHaveAccessibleDescription("已花 $10.00，剩余 $10.00");
   });
 
-  it("deducts current-script spend from the remaining estimate", () => {
+  it("deducts current-script spend from the remaining estimate", async () => {
     seedCost("demo", { video: { USD: 4 } });
 
     renderHead();
 
-    expect(screen.getByText("已花 $4.00，剩余 $6.00")).toBeInTheDocument();
+    expect(await openCostDetail("预估 $10.00")).toHaveAccessibleDescription("已花 $4.00，剩余 $6.00");
   });
 
   it("leaves the cost out until this project's estimate has loaded", () => {

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ReferencesSection } from "./ReferencesSection";
 import { useProjectsStore } from "@/stores/projects-store";
@@ -54,9 +54,10 @@ describe("ReferencesSection", () => {
     expect(screen.queryByText(/项失效/)).not.toBeInTheDocument();
   });
 
-  it("still counts a derivative the character does not have", () => {
+  it("still counts a derivative the character does not have", async () => {
     renderSection(["阿岚/夜行衣"]);
 
-    expect(screen.getByText("1 项失效")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "1 项失效" }));
+    expect(await screen.findByRole("dialog")).toHaveAccessibleDescription("此引用已失效，点击可移除");
   });
 });

@@ -130,7 +130,7 @@ describe("RequestAddresses", () => {
     expect(screen.queryByText(/^默认：/)).not.toBeInTheDocument();
   });
 
-  it("没有修改时，自动补上的 /v1 单独标出", () => {
+  it("没有修改时，自动补上的 /v1 单独标出，点开可看说明", async () => {
     render(
       <RequestAddresses
         requests={[{ ...POLL, base_url_rule: "append_v1", default_path: "/videos/{{ task_id }}" }]}
@@ -141,7 +141,8 @@ describe("RequestAddresses", () => {
       />,
     );
 
-    expect(screen.getByText("/v1")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "/v1" }));
+    expect(await screen.findByRole("dialog")).toHaveAccessibleDescription("自动补上的 /v1。修改路径后不再自动补。");
   });
 
   it.each([
