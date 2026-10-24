@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, ClassVar, assert_never
+from typing import TYPE_CHECKING, Any, ClassVar, assert_never
 
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError
@@ -35,6 +35,9 @@ from lib.project.resource_paths import (
     version_snapshot_relative_path,
 )
 from lib.project.task_project_claim import ensure_task_project_claim
+
+if TYPE_CHECKING:
+    from lib.project.project_trash import TrashRecord
 
 _LOCKS_GUARD = threading.Lock()
 _LOCKS_BY_VERSIONS_FILE: dict[str, threading.RLock] = {}
@@ -1327,6 +1330,45 @@ class VersionManager:
                 raise
             record_project_activity(self.project_path)
             return resource_data["versions"][-1]["file"]
+
+    def delete_history_version(self, snapshot_path: str) -> "TrashRecord":
+        """把快照路径为 ``snapshot_path`` 的一条历史版本移进项目回收站，返回删除记录；当前版本不能这样删除。
+
+        调用方持有项目锁（``project_metadata_lock``）。恢复时它作为该资源的一条历史版本加回。
+        """
+        # 回收站模块依赖本模块（恢复时加回历史版本），只能在这里导入。
+        from lib.project import project_trash
+
+        with self._lock:
+            data = self._load_versions()
+            for resource_type, resources in data.items():
+                for resource_id, resource_data in resources.items() if isinstance(resources, dict) else ():
+                    versions = resource_data.get("versions", []) if isinstance(resource_data, dict) else []
+                    for index, record in enumerate(versions):
+                        if not isinstance(record, dict) or record.get("file") != snapshot_path:
+                            continue
+                        if record.get("version") == resource_data.get("current_version"):
+                            raise ConflictError("version_delete_current", path=snapshot_path)
+                        self._resolve_snapshot(resource_type, record)
+                        original = self.versions_file.read_bytes()
+                        del versions[index]
+                        self._save_versions(data)
+                        obj = {
+                            "kind": "version",
+                            "path": snapshot_path,
+                            "resource_type": resource_type,
+                            "resource_id": resource_id,
+                            "version": record.get("version"),
+                            "prompt": record.get("prompt", ""),
+                        }
+                        try:
+                            trashed = project_trash.record_deletion(self.project_path, obj, [snapshot_path])
+                        except BaseException:
+                            atomic_write_bytes(self.versions_file, original)
+                            raise
+                        record_project_activity(self.project_path)
+                        return trashed
+        raise NotFoundError("version_not_found", version=snapshot_path)
 
     def purge_resource(self, resource_type: str, resource_id: str) -> int:
         """删除一个资源的全部版本记录与快照文件，返回删除的快照数。

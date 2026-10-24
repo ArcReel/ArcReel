@@ -13,6 +13,7 @@ from lib.agent.agent_memory_store import (
     parse_memory_frontmatter,
 )
 from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.project import project_trash
 from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 
 
@@ -40,7 +41,7 @@ class TestFilenameRule:
             "sub/notes.md",
             "..\\notes.md",
             "../notes.md",
-            "note s.md",
+            "note*s.md",
             "n" * 98 + ".md",
         ],
     )
@@ -317,3 +318,35 @@ class TestProjectActivity:
 
         assert not (tmp_path / ACTIVITY_FILENAME).exists()
         assert not (store.directory / ACTIVITY_FILENAME).exists()
+
+
+class TestProjectMemoryTrash:
+    """项目记忆的删除与清空进项目回收站；恢复时原名被占用则换成仍可见的新名。"""
+
+    def test_deleted_memory_restores_under_a_new_visible_name(self, tmp_path):
+        project_store = AgentMemoryStore.for_project(tmp_path)
+        project_store.write("notes.md", b"old")
+        project_store.delete("notes.md")
+        project_store.write("notes.md", b"new")
+
+        [record] = project_trash.list_records(tmp_path)
+        assert record.object == {"kind": "memory", "path": ".arcreel/memory/notes.md"}
+        project_trash.restore(tmp_path, record.id)
+
+        assert project_store.read("notes.md") == b"new"
+        assert project_store.read("notes (1).md") == b"old"
+        assert [entry["name"] for entry in project_store.overview()["files"]] == ["notes (1).md", "notes.md"]
+
+    def test_clear_becomes_one_record_that_restores_every_file(self, tmp_path):
+        project_store = AgentMemoryStore.for_project(tmp_path)
+        project_store.write(INDEX_FILENAME, b"- [a](a.md)")
+        project_store.write("a.md", b"a")
+        project_store.clear()
+
+        [record] = project_trash.list_records(tmp_path)
+        assert record.files == (".arcreel/memory/MEMORY.md", ".arcreel/memory/a.md")
+        assert project_store.overview()["files"] == []
+        project_trash.restore(tmp_path, record.id)
+
+        assert project_store.read("a.md") == b"a"
+        assert project_store.read(INDEX_FILENAME) == b"- [a](a.md)"

@@ -1,5 +1,5 @@
-"""Host-neutral project-trash tools: move an unreferenced file into the project trash, list deletion records,
-restore a record.
+"""Host-neutral project-trash tools: move an unreferenced file or a non-current history version into the project
+trash, list deletion records, restore a record.
 
 There is deliberately no purge or empty tool: those are irreversible and belong to the creator alone
 (``docs/adr/0107``). Deletion reuses the file-view check, so the reference index is rebuilt under the
@@ -19,7 +19,7 @@ from lib.i18n import _ as translate
 from lib.infra.api_errors import ApiError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.project import project_trash
-from lib.project.file_view import delete_unreferenced_file
+from lib.project.file_view import move_file_to_trash
 from lib.project.project_change_hints import project_change_source
 from server.media_tools.context import tool_error, tool_problem
 from server.tool_runtime import CallerContext, NoArguments, ProjectScope, Services, ToolOutcome, ToolRequest
@@ -66,7 +66,7 @@ async def delete_project_file(
 
     def delete() -> dict[str, Any]:
         try:
-            record = delete_unreferenced_file(services.projects.get_project_path(scope.project_name), path)
+            record = move_file_to_trash(services.projects.get_project_path(scope.project_name), path)
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise NotFoundError("file_not_found", path=path) from exc
         return {"record": record.to_dict()}

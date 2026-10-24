@@ -1,9 +1,10 @@
-"""Agent 的回收站工具：删除只把未引用文件移进项目回收站并记为 Agent 发起，列出与恢复走同一个回收站模块。"""
+"""Agent 的回收站工具：删除只把未引用文件或历史版本移进项目回收站并记为 Agent 发起，列出与恢复走同一个回收站模块。"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
+from lib.artifacts.version_manager import VersionManager
 from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
 from tests.integration.server.agent_tool_support import ToolHarness, problem_of, run_declared_tool
@@ -69,3 +70,22 @@ async def test_agent_lists_and_restores_a_deletion_record(tmp_path: Path) -> Non
     assert project_trash.list_records(ctx.project_path) == []
     again = await run_declared_tool("restore_trash_record", ctx, {"record_id": record["id"]})
     assert problem_of(again).code == "trash_record_not_found"
+
+
+async def test_agent_deletes_a_history_version_but_not_the_current_one(tmp_path: Path) -> None:
+    ctx = _harness(tmp_path)
+    current = ctx.project_path / "storyboards/scene_E1S01.png"
+    manager = VersionManager(ctx.project_path)
+    manager.add_version("storyboards", "E1S01", "v1", source_file=current)
+    manager.add_version("storyboards", "E1S01", "v2", source_file=current)
+    old, latest = manager.get_versions("storyboards", "E1S01")["versions"]
+
+    refused = await run_declared_tool("delete_project_file", ctx, {"path": latest["file"]})
+    outcome = await run_declared_tool("delete_project_file", ctx, {"path": old["file"]})
+
+    assert problem_of(refused).code == "version_delete_current"
+    assert outcome.problem is None, outcome.problem
+    assert [v["version"] for v in manager.get_versions("storyboards", "E1S01")["versions"]] == [latest["version"]]
+    [record] = project_trash.list_records(ctx.project_path)
+    assert record.object["kind"] == "version"
+    assert record.origin == "agent"

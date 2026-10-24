@@ -1,4 +1,4 @@
-"""项目回收站工具的声明：删除未引用文件（只进回收站）、列出删除记录、恢复删除记录。
+"""项目回收站工具的声明：删除未引用文件或历史版本（只进回收站）、列出删除记录、恢复删除记录。
 
 不声明清空与彻底删除：两者不可恢复，只开放给创作者在文件视图里操作（``docs/adr/0107``）。
 """
@@ -20,10 +20,11 @@ from server.tool_runtime import NoArguments
 DELETE_PROJECT_FILE = ToolDeclaration(
     name="delete_project_file",
     description=(
-        "把项目里的一个未引用文件移入项目回收站，成为一条删除记录，30 天内可用 restore_trash_record 恢复。"
+        "把项目里的一个未引用文件或一个非当前的历史版本（versions/ 下的快照）移入项目回收站，成为一条删除记录，"
+        "30 天内可用 restore_trash_record 恢复，历史版本恢复后回到版本历史。"
         "这是 Agent 删除项目文件的唯一途径：媒体目录与 versions/ 不能直接写入或删除。"
         "删除前在项目锁内按引用关系重新判定，被项目数据、剧本、产物清单或版本历史引用的文件"
-        "返回 file_view_delete_not_allowed，未纳入整本源文的源文件返回 file_view_delete_source_in_episodes，"
+        "返回 file_view_delete_not_allowed，当前版本返回 version_delete_current，未纳入整本源文的源文件返回 file_view_delete_source_in_episodes，"
         "文件不存在返回 file_not_found。只删创作者明确要删的文件；回收站的清空与彻底删除只能由创作者在文件视图里操作。"
         "成功返回 record（含 id、files、deleted_at、size）。"
     ),
