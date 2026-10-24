@@ -13,6 +13,7 @@ from typing import Any
 
 from arcreel_market_core.video_backend_contract import ResumeEndpointChangedError
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
+from lib.generation.deleted_target import GenerationTargetDeletedError
 from lib.project.project_change_hints import project_change_source
 from lib.script.reference_video.execution_checkpoint import (
     ReferenceExecutionIdentityError,
@@ -169,24 +170,29 @@ async def execute_resume_video_task(
         #: 续跑期 backend 产生的非阻断提示，与首跑同一条通道落进任务 result。
         warnings: list[dict[str, Any]] = []
         with project_change_source("worker"):
-            output_path, version, _, video_uri = await generator.resume_video_async(
-                job_id=job_id,
-                resource_type=resource_type,
-                resource_id=resource_id,
-                prompt=prompt_text,
-                aspect_ratio=aspect_ratio,
-                duration_seconds=duration_seconds,
-                resolution=resolution,
-                task_id=task_id,
-                submitted_base_url=_submitted_base_url(task),
-                seed=seed,
-                service_tier=service_tier,
-                poll_timeout_seconds=poll_timeout_seconds,
-                before_formal_commit=artifact_committer.prepare_selection,
-                commit_formal_output=artifact_committer,
-                warnings=warnings,
-                **optional_kwargs,
-            )
+            try:
+                resumed = await generator.resume_video_async(
+                    job_id=job_id,
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    prompt=prompt_text,
+                    aspect_ratio=aspect_ratio,
+                    duration_seconds=duration_seconds,
+                    resolution=resolution,
+                    task_id=task_id,
+                    submitted_base_url=_submitted_base_url(task),
+                    seed=seed,
+                    service_tier=service_tier,
+                    poll_timeout_seconds=poll_timeout_seconds,
+                    before_formal_commit=artifact_committer.prepare_selection,
+                    commit_formal_output=artifact_committer,
+                    warnings=warnings,
+                    **optional_kwargs,
+                )
+            except GenerationTargetDeletedError as deleted:
+                # 结果已进项目回收站，任务照常成功；没有写回任何资源，不发生成成功事件。
+                return deleted.result
+            output_path, version, _, video_uri = resumed
 
             def _emit_success() -> None:
                 emit_generation_success_batch(

@@ -143,12 +143,18 @@ def structure_files(project_dir: Path) -> list[str]:
 
 
 def record_deletion(
-    project_dir: Path, obj: Mapping[str, Any], files: Sequence[str], *, snapshot: bool = False
+    project_dir: Path,
+    obj: Mapping[str, Any],
+    files: Sequence[str],
+    *,
+    snapshot: bool = False,
+    sources: Mapping[str, Path] | None = None,
 ) -> TrashRecord:
     """把 ``files``（项目内相对 POSIX 路径，必须是普通文件）移进一条新的删除记录。
 
     调用方持有项目锁，并已在同一临界区里确认这些文件可以删除；发起方取当前的变更来源。``snapshot``
     为真时先把删除前的结构文件复制进记录（结构删除用；被删文件本身不重复复制），恢复时按身份从中取出对象。
+    文件实际不在该路径上时（例如生成结果的暂存文件），``sources`` 给出它的位置，记录里仍记原路径。
     任一文件移动失败时已移走的文件搬回原处，不留下半条记录。
     """
     if "kind" not in obj or not files:
@@ -168,7 +174,7 @@ def record_deletion(
                     shutil.copy2(project_dir / rel, target)
                     size += target.stat().st_size
         for rel in files:
-            source = project_dir / _checked_rel(rel)
+            source = (sources or {}).get(rel) or project_dir / _checked_rel(rel)
             if source.is_symlink() or not source.is_file():
                 raise FileNotFoundError(rel)
             target = stored / rel

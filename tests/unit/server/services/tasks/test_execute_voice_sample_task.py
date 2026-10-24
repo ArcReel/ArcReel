@@ -52,7 +52,8 @@ class _FakeAudioGenerator:
         self.audio_calls: list[dict] = []
         self.versions = self
 
-    async def generate_audio_async(self, *, text, resource_id, voice, speed, task_id=None):
+    async def generate_audio_async(self, *, text, resource_id, voice, speed, task_id=None, target_resource=None):
+        self.target_resource = target_resource
         self.audio_calls.append(
             {"text": text, "resource_id": resource_id, "voice": voice, "speed": speed, "task_id": task_id}
         )
@@ -97,6 +98,8 @@ class TestExecuteCharacterVoiceSampleTask:
                 "task_id": "task-1",
             }
         ]
+        # 试听样本归属角色：角色被删时样本进回收站，而不是按样本自身的资源 ID 复核。
+        assert gen.target_resource == ("characters", "艾莉")
         assert result["resource_type"] == "audio"
         assert result["resource_id"] == "voice_sample__艾莉__task-1"
         assert result["character_name"] == "艾莉"

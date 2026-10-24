@@ -19,7 +19,7 @@ import pytest
 
 from arcreel_market_core.video_backend_contract import ResumeExpiredError
 from lib.generation.media_generator import MediaGenerator
-from tests.fakes import FakeConfigResolver, select_formal_video, write_backend_output
+from tests.fakes import FakeConfigResolver, select_formal_video, write_backend_output, write_generation_targets
 
 
 class _FakeVideoResult:
@@ -158,6 +158,7 @@ def _build_generator(tmp_path: Path, *, initial_version: int = 0) -> MediaGenera
     gen = object.__new__(MediaGenerator)
     gen.project_path = tmp_path / "projects" / "demo"
     gen.project_path.mkdir(parents=True, exist_ok=True)
+    write_generation_targets(gen.project_path, segments=("E1S01",), video_units=("E1U1",))
     gen.project_name = "demo"
     gen._rate_limiter = None
     gen._image_backend = None

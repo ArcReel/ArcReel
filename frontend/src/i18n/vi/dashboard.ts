@@ -2806,6 +2806,7 @@ export default {
   'trash_empty_state_description': "Các tệp bạn xóa trong chế độ xem tệp sẽ xuất hiện ở đây và được giữ {{days}} ngày.",
   'trash_record_meta_user': "Bạn đã xóa lúc {{time}}",
   'trash_record_meta_agent': "Agent đã xóa lúc {{time}}",
+  'trash_record_meta_target_deleted': "Tạo xong lúc {{time}}, mục tiêu đã bị xóa",
   'trash_restore': "Khôi phục",
   'trash_restored': "Đã khôi phục {{name}} về vị trí cũ",
   'trash_restored_renamed': "Vị trí cũ đã có tệp, {{name}} được khôi phục thành {{path}}",

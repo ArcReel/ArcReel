@@ -262,3 +262,22 @@ it("keeps in-flight writes protected when switching between sections", async () 
   expect(screen.getByRole("button", { name: "彻底删除" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "清空项目回收站" })).toBeDisabled();
 });
+
+it("labels a generation result whose target was deleted instead of naming who deleted it", async () => {
+  const record = {
+    id: "g",
+    object: { kind: "generation_result", path: "characters/阿岚.png", note: "target_deleted_during_generation" },
+    files: ["characters/阿岚.png"], schema_version: 1,
+    deleted_at: "2026-01-01T00:00:00Z", origin: "agent", size: 1, has_snapshot: false,
+  };
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (!url.pathname.endsWith("/trash")) return Promise.resolve(Response.json({ path: "", entries: [] }));
+    return Promise.resolve(Response.json({ records: [record], total_size: 1, retention_days: 30 }));
+  });
+  render(<FileView projectName="demo" />);
+  await userEvent.setup().click(screen.getByRole("tab", { name: "项目回收站" }));
+
+  expect(await screen.findByText(/生成完成，目标已删除/)).toBeInTheDocument();
+  expect(screen.queryByText(/由 Agent 删除/)).not.toBeInTheDocument();
+});

@@ -154,6 +154,23 @@ def persist_fake_script(project_path: Path, script_file: object, script: object)
     target.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
 
 
+def write_generation_targets(
+    project_path: Path, *, segments: tuple[str, ...] = (), video_units: tuple[str, ...] = ()
+) -> None:
+    """写一份最小项目数据，让第 1 集剧本里有这些分镜条目与视频单元。
+
+    队列任务的产物提交前会复核目标资源仍在项目中，目标不在时产物进项目回收站。
+    """
+    (project_path / "project.json").write_text(
+        json.dumps({"episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}]}), encoding="utf-8"
+    )
+    script = {
+        "segments": [{"segment_id": item_id} for item_id in segments],
+        "video_units": [{"unit_id": item_id} for item_id in video_units],
+    }
+    persist_fake_script(project_path, "episode_1.json", script)
+
+
 def select_formal_video(
     generator: MediaGenerator,
     *,

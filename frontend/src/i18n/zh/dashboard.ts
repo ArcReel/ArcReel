@@ -2696,6 +2696,7 @@ export default {
   'trash_empty_state_description': "在文件视图里删除的文件会出现在这里，保留 {{days}} 天。",
   'trash_record_meta_user': "{{time}} 由你删除",
   'trash_record_meta_agent': "{{time}} 由 Agent 删除",
+  'trash_record_meta_target_deleted': "{{time}} 生成完成，目标已删除",
   'trash_restore': "恢复",
   'trash_restored': "{{name}} 已恢复到原位置",
   'trash_restored_renamed': "原位置已有文件，{{name}} 已恢复为 {{path}}",

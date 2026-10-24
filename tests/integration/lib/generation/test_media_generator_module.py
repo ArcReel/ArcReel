@@ -8,8 +8,9 @@ from typing import ClassVar
 
 import pytest
 
-from lib.artifacts.version_manager import PaidVersionCommit
+from lib.artifacts.version_manager import PaidVersionCommit, VersionManager
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationResult
+from lib.generation.deleted_target import TARGET_DELETED_NOTE, GenerationTargetDeletedError
 from lib.generation.media_generator import (
     MediaGenerator,
     cleanup_staged_video_output,
@@ -17,6 +18,7 @@ from lib.generation.media_generator import (
     task_image_staging_path,
     task_video_staging_path,
 )
+from lib.project import project_trash
 from tests.factories import comfyui_endpoint_definition, custom_endpoint_definition
 from tests.fakes import (
     MP4_BYTES,
@@ -25,6 +27,7 @@ from tests.fakes import (
     bounded_poll_clock,
     select_formal_video,
     write_backend_output,
+    write_generation_targets,
 )
 from tests.http_capture import capture_http
 
@@ -153,6 +156,7 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen = object.__new__(MediaGenerator)
     gen.project_path = tmp_path / "projects" / "demo"
     gen.project_path.mkdir(parents=True, exist_ok=True)
+    write_generation_targets(gen.project_path, segments=("E1S01",), video_units=("E1U1",))
     gen.project_name = "demo"
     gen._rate_limiter = None
     gen._image_backend = _FakeImageBackend()
@@ -164,6 +168,109 @@ def _build_generator(tmp_path: Path) -> MediaGenerator:
     gen.versions = _FakeVersions()
     gen.ledger = _FakeLedger()
     return gen
+
+
+class _FakeAudioBackend:
+    name = "fake-audio"
+    model = "audio-model"
+
+    async def synthesize(self, request):
+        await write_backend_output(request.output_path, b"fake-audio-data")
+        return object()
+
+
+def _refuse_commit(*_args, **_kwargs):
+    raise AssertionError("目标已删除时不应提交正式产物")
+
+
+async def _refuse_prepare(*_args, **_kwargs):
+    raise AssertionError("目标已删除时不应准备选片")
+
+
+class TestTargetDeletedDuringGeneration:
+    """生成完成时目标已删除：结果按原路径进项目回收站，原路径与版本历史不变，费用照常记为成功。"""
+
+    @staticmethod
+    def _assert_trashed(gen: MediaGenerator, caught, rel: str, content: bytes) -> None:
+        [record] = project_trash.list_records(gen.project_path)
+        assert caught.value.result == {
+            "resource_type": record.object["resource_type"],
+            "resource_id": record.object["resource_id"],
+            "file_path": None,
+            "target_deleted": True,
+            "trash_record_id": record.id,
+        }
+        assert record.object["note"] == TARGET_DELETED_NOTE
+        assert record.files == (rel,)
+        assert (project_trash.trash_dir(gen.project_path) / record.id / "files" / rel).read_bytes() == content
+        # 原目录里既没有正式文件，也没有残留的暂存文件；版本历史没有新增。
+        assert list((gen.project_path / rel).parent.iterdir()) == []
+        assert not (gen.project_path / "versions").exists()
+        assert [outcome["status"] for outcome in gen.ledger.outcomes] == ["success"]
+
+    async def test_image(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        with pytest.raises(GenerationTargetDeletedError) as caught:
+            await gen.generate_image_async(
+                prompt="p",
+                resource_type="storyboards",
+                resource_id="E1S09",
+                formal_output=True,
+                task_id="task-image",
+                commit_formal_output=_refuse_commit,
+            )
+        self._assert_trashed(gen, caught, "storyboards/scene_E1S09.png", b"fake-image-data")
+
+    async def test_video(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        with pytest.raises(GenerationTargetDeletedError) as caught:
+            await gen.generate_video_async(
+                prompt="p",
+                resource_type="reference_videos",
+                resource_id="E1U9",
+                formal_output=True,
+                task_id="task-video",
+                before_formal_commit=_refuse_prepare,
+                commit_formal_output=_refuse_commit,
+            )
+        self._assert_trashed(gen, caught, "reference_videos/E1U9.mp4", b"fake-video-data")
+
+    async def test_audio(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        gen.versions = VersionManager(gen.project_path)
+        gen._audio_backend = _FakeAudioBackend()
+        gen._audio_provider_id = "fake-audio"
+        with pytest.raises(GenerationTargetDeletedError) as caught:
+            await gen.generate_audio_async(
+                text="t",
+                resource_id="E1S09",
+                voice="v",
+                task_id="task-audio",
+                before_commit=_refuse_prepare,
+                commit_staged=_refuse_commit,
+            )
+        self._assert_trashed(gen, caught, "audio/segment_E1S09.wav", b"fake-audio-data")
+
+    async def test_target_still_present_commits_normally(self, tmp_path):
+        gen = _build_generator(tmp_path)
+        committed = []
+
+        def _commit(staged, current, _metadata):
+            committed.append(current)
+            return 1
+
+        await gen.generate_image_async(
+            prompt="p",
+            resource_type="storyboards",
+            resource_id="E1S01",
+            formal_output=True,
+            task_id="task-present",
+            commit_formal_output=_commit,
+        )
+        assert committed == [gen.project_path / "storyboards" / "scene_E1S01.png"]
+        assert project_trash.list_records(gen.project_path) == []
 
 
 class TestSegmentIdFor:
