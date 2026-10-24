@@ -442,7 +442,7 @@ class TestExecuteImageEditTask:
             build_storyboard_image_visual_basis,
         )
         from lib.generation.media_generator import task_image_staging_path
-        from server.routers import versions as versions_router
+        from server.services.currency import image_version_restore
 
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
@@ -591,7 +591,8 @@ class TestExecuteImageEditTask:
 
         adapter.delete_entry(source_key)
         use_project_manager(monkeypatch, pm)
-        versions_router._restore_non_typed_version(
+        image_version_restore.restore_non_typed_version(
+            project_manager=pm,
             versions=manager,
             resource_type=version_resource_type,
             project_name="demo",

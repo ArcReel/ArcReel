@@ -2390,6 +2390,7 @@ export default {
   'tool_name_split_grids': '多宫格分镜切分落格',
   'tool_name_generate_videos': '生成视频',
   'tool_name_set_video_end_frame': '设置视频尾帧',
+  'tool_name_select_storyboard_version': '切换分镜图版本',
   'tool_name_select_video_version': '切换视频版本',
   'tool_name_inspect_video_units': '查看视频单元画面',
   'tool_name_video_correction_memory': '管理视频纠正记录',

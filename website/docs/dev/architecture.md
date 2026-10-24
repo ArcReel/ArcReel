@@ -210,6 +210,8 @@ Agent 工具在 `server/agent_toolset/` 只声明一次：内嵌会话经 `serve
 
 分镜图生视频可通过 `set_video_end_frame` 选择项目内已有图片作为尾帧，显式传 `source_path: null` 清除。Agent 与 Web 共用 `server/services/project/end_frame.py` 的快照、路径校验、剧本锁与失败回滚；工具绑定调用方的项目管理器，不从模型参数选择项目根目录。设置只影响下一次生成，不会修改现有视频。参考生视频不接受尾帧；生成前核对模型能力，生成后核对请求实际包含尾帧，并审阅中间运动。
 
+`select_storyboard_version` 通过 `server/services/currency/image_version_restore.py` 与 Web 共用还原事务，按元数据、版本文件与指针、产物依据的顺序持锁写入。工具限定当前项目中的分镜；还原首帧不修改已冻结的尾帧。Agent 可先记录首帧版本，编辑并检查尾帧、保存尾帧快照，再还原首帧版本，最后检查两帧并生成视频。
+
 ### 5.4 会话串行 {#session-actor}
 
 每个会话的 `ClaudeSDKClient` 由该会话专属的 `SessionActor` task 独占，query、interrupt、撤回排队消息与 disconnect 都经命令队列投递，在 actor 内串行执行。新增会话操作同样走命令队列，不直接持有 client（[ADR 0028](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0028-session-actor-single-task-serialization.md)）。

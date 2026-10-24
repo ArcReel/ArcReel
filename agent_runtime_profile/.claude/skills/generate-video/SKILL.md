@@ -68,6 +68,8 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 For storyboard video, use `set_video_end_frame({"script":"episode_1.json", "shot_id":"E1S01", "source_path":"storyboards/ending.png"})` to snapshot an inspected project image as the shot's ending frame. Explicit `source_path: null` clears it. Check `get_video_capabilities` first; reference-video mode does not accept this control. This sets guidance for the next generation, not an existing video's last frame.
 
+To make a new ending guide from the accepted starting image, first record its version from `versions/versions.json`. Use `edit_images` for the ending pose, inspect the result, and snapshot it with `set_video_end_frame`. Then call `select_storyboard_version({"shot_id":"E1S01", "version":1})` with the recorded starting version. The ending snapshot survives that restore. Inspect both images before generation; do not copy image bytes over current paths or rewrite version metadata by hand.
+
 Choose an attainable continuation of the starting image, preserving identity, support, props and screen direction. A planned endpoint described only in prose is not image conditioning. Verify the resulting request receipt includes the actual ending image in `media_inputs`; then review the full intermediate motion and the cut into the next shot. Endpoint agreement alone is not a passing motion review.
 
 ### 切换 current 版本

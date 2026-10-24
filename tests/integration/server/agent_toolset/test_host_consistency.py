@@ -68,6 +68,7 @@ from server.agent_toolset.script_authoring import (
     PROMOTE_DRAFT,
 )
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
+from server.agent_toolset.storyboard_versions import SELECT_STORYBOARD_VERSION
 from server.agent_toolset.toolset import AGENT_TOOLSET, ARCREEL_MCP_TOOL_IDS, MIGRATION_BLOCKED_TOOL_IDS
 from server.agent_toolset.video_review import INSPECT_VIDEO_UNITS
 from server.agent_toolset.video_versions import SELECT_VIDEO_VERSION
@@ -140,6 +141,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "reset_episode_planning": {},
     "complete_script_plan_rebuild": {"episode_id": 1, "expected_stale_script_plan_revision": None},
     "generate_videos": {"script": "episode_1.json", "target": {"scope": "all"}},
+    "select_storyboard_version": {"shot_id": "E1S01", "version": 1},
     "select_video_version": {"unit_id": "E1S01", "version": 1},
     "inspect_video_units": {"unit_ids": ["E1S01"]},
     "video_correction_memory": {
@@ -550,6 +552,7 @@ _PROBLEM_ON_SAMPLE = frozenset(
         PATCH_EPISODE_SCRIPT.name,
         SPLIT_GRIDS.name,
         SELECT_VIDEO_VERSION.name,
+        SELECT_STORYBOARD_VERSION.name,
         SET_VIDEO_END_FRAME.name,
         INSPECT_VIDEO_UNITS.name,
         READ_TIMELINE.name,
