@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Edit3, MapPin, Plus, Puzzle, User } from "lucide-react";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { InfoTip, InfoTipContent, InfoTipTrigger } from "@/components/ui/info-tip";
 import { TooltipIconButton } from "./TooltipIconButton";
 import { AvatarStack } from "@/components/canvas/timeline/AvatarStack";
 import { ClueStack } from "@/components/canvas/timeline/ClueStack";
@@ -161,19 +161,20 @@ export function ReferencesSection({
       <div className="flex min-h-7 items-center gap-2">
         {heading}
         {totalStale > 0 && (
-          <Tooltip>
-            <TooltipTrigger
+          <InfoTip>
+            <InfoTipTrigger
               render={
-                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 失效说明只在提示里，须能用键盘聚焦打开；它没有可执行的动作，不渲染为 button
-                <span tabIndex={0} className="num focus-ring inline-flex items-center gap-1 rounded-full bg-warn/10 px-1.5 py-0.5 text-xs text-warn ring-1 ring-warn/30" />
+                <button
+                  type="button"
+                  className="num inline-flex items-center gap-1 rounded-full bg-warn/10 px-1.5 py-0.5 text-xs text-warn ring-1 ring-warn/30"
+                />
               }
             >
               <AlertTriangle aria-hidden className="size-3" />
               {t("segment_refs_stale_badge", { count: totalStale })}
-              <span className="sr-only">{t("segment_refs_stale_hint")}</span>
-            </TooltipTrigger>
-            <TooltipContent>{t("segment_refs_stale_hint")}</TooltipContent>
-          </Tooltip>
+            </InfoTipTrigger>
+            <InfoTipContent title={t("segment_refs_stale_badge", { count: totalStale })}>{t("segment_refs_stale_hint")}</InfoTipContent>
+          </InfoTip>
         )}
         <span className="flex-1" />
         <TooltipIconButton

@@ -11,11 +11,11 @@ import { formatNameList } from "@/utils/list-format";
 import { catalogDisplayNames, catalogDurations } from "@/utils/provider-models";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { isValidEpisodeTargetDuration } from "@/components/shared/EpisodeTargetDurationField";
-import { isValidSpeechRate } from "@/components/shared/SpeechRateField";
-import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
+import { isValidEpisodeTargetDuration } from "@/components/shared/episode-target-duration";
+import { isValidSpeechRate } from "@/components/shared/speech-rate";
+import { executingImageModel, executingVideoModel } from "@/components/shared/model-layers";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
-import { narrationDeliveryProblem, type NarrationDeliveryValue } from "@/components/shared/NarrationDeliveryFields";
+import { narrationDeliveryProblem, type NarrationDeliveryValue } from "@/components/shared/narration-delivery";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { WizardStepBasics, type WizardBasicsValue } from "./create-project/WizardStepBasics";
 import {
@@ -125,6 +125,7 @@ export function CreateProjectModal() {
   const [generationData, setGenerationData] = useState<WizardGenerationData | null>(null);
   const [generationError, setGenerationError] = useState<string | null>(null);
 
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- await 后的写入都先检查 controller.signal.aborted，cleanup 中 abort 作废上一轮
   useEffect(() => {
     const controller = new AbortController();
     voidCall((async () => {
@@ -149,22 +150,6 @@ export function CreateProjectModal() {
     })());
     return () => controller.abort();
   }, [i18n.language]);
-
-  // 页面持有独立的预览地址，选择器切换步骤卸载时只收回自己的地址。
-  const changeStyle = (next: StylePickerValue) => {
-    const uploadedPreview = next.uploadedFile
-      ? next.uploadedFile === style.uploadedFile
-        ? style.uploadedPreview
-        : URL.createObjectURL(next.uploadedFile)
-      : next.uploadedPreview;
-    setStyle({ ...next, uploadedPreview });
-  };
-  // 页面地址在变更或卸载时收回；已保存的服务端地址无需收回。
-  useEffect(() => {
-    const url = style.uploadedPreview;
-    if (!url?.startsWith("blob:")) return;
-    return () => URL.revokeObjectURL(url);
-  }, [style.uploadedPreview]);
 
   const close = () => setShowCreateModal(false);
 
@@ -341,7 +326,7 @@ export function CreateProjectModal() {
               error={generationError}
             />
           )}
-          {step === 3 && <StylePicker value={style} onChange={changeStyle} />}
+          {step === 3 && <StylePicker value={style} onChange={setStyle} />}
         </DialogBody>
 
         <DialogFooter>

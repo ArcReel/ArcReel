@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { NarrationDeliveryFields, type NarrationDeliveryValue } from "@/components/shared/NarrationDeliveryFields";
+import { NarrationDeliveryFields } from "@/components/shared/NarrationDeliveryFields";
+import type { NarrationDeliveryValue } from "@/components/shared/narration-delivery";
 import type { CharacterVoiceBinding, NarrationDefaultsResponse } from "@/types";
 import type { GenerationRoute } from "@/utils/generation-mode";
 

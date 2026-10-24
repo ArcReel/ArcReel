@@ -325,7 +325,7 @@ describe("AgentConfigTab", () => {
     renderSection();
 
     const item = await screen.findByRole("listitem", { name: "Anthropic 主号" });
-    expect(within(item).getByRole("button", { name: "删除" })).toBeDisabled();
+    expect(within(item).getByRole("button", { name: "删除" })).toHaveAttribute("aria-disabled", "true");
   });
 
   it("外部 Agent 与语言规范以链接指向对应分区", async () => {

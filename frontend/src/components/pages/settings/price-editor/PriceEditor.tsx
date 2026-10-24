@@ -47,6 +47,7 @@ import {
   type PriceTable,
 } from "./priceTable";
 import { CJK_DOUBLE_METER, METERS, PRICE_CURRENCIES } from "./priceVocabulary.generated";
+import { useRowIds } from "../useRowIds";
 
 export interface PriceEditorProps {
   /** 正在编辑的价目表；没有计费项时就是「不填价格」。 */
@@ -159,6 +160,8 @@ function MeterCard({ meter, currency, mediaType, resolutions, issues, onChange, 
   const conditional = meter.dims.length > 0;
   const addableDims = addableDimensions(meter, mediaType);
   const canAddAllowance = isKnownMeter(meter.meter) && METERS[meter.meter].kind === "count" && meter.meter !== "requests";
+  // 档在数据里没有身份（条件可编辑、可暂时重复）：行 key 用客户端 id，删掉中间一档时其余档的输入不错位
+  const rowIds = useRowIds(meter.rows.length);
 
   return (
     <section aria-label={name} className="flex flex-col gap-3 rounded-lg border border-border bg-background p-3">
@@ -177,7 +180,7 @@ function MeterCard({ meter, currency, mediaType, resolutions, issues, onChange, 
             : t("pm_pe_price_label", { name });
           const rowIssues = issues.filter((issue) => "row" in issue && issue.row === index);
           return (
-            <li key={index} className="flex flex-col gap-1">
+            <li key={rowIds.ids[index]} className="flex flex-col gap-1">
               <div className="flex flex-wrap items-center gap-2">
                 {meter.dims.map((dim) => (
                   <ConditionTag
@@ -208,7 +211,10 @@ function MeterCard({ meter, currency, mediaType, resolutions, issues, onChange, 
                     variant="ghost"
                     size="icon-xs"
                     aria-label={t("pm_pe_delete_row", { condition })}
-                    onClick={() => onChange(withoutRow(meter, index))}
+                    onClick={() => {
+                      rowIds.remove(index);
+                      onChange(withoutRow(meter, index));
+                    }}
                   >
                     <Trash2 aria-hidden />
                   </Button>
@@ -286,7 +292,15 @@ function MeterCard({ meter, currency, mediaType, resolutions, issues, onChange, 
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="xs" onClick={() => onChange(withRow(meter))} disabled={!conditional}>
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={() => {
+            rowIds.append();
+            onChange(withRow(meter));
+          }}
+          disabled={!conditional}
+        >
           <Plus aria-hidden data-icon="inline-start" />
           {t("pm_pe_add_row")}
         </Button>
@@ -498,11 +512,11 @@ function amountText(value: number | null): string {
 }
 
 /**
- * 不小于 0 的数字输入。文本只在输入时改变；外部把取值换掉（采用官方值、删除一档后后面的档上移）时跟着换，
+ * 不小于 0 的数字输入。文本只在输入时改变；外部把取值换掉（采用官方值、放弃修改）时跟着换，
  * 输入到一半的文字（如「0.」）不会被覆盖。取值为空或不合法时 `onChange(null)`。
  */
 function NumberField({ value, onChange, label, prefix, suffix, invalid, className }: NumberFieldProps) {
-  const [text, setText] = useState(amountText(value));
+  const [text, setText] = useState(() => amountText(value));
   const [seen, setSeen] = useState(value);
   if (!Object.is(value, seen)) {
     setSeen(value);

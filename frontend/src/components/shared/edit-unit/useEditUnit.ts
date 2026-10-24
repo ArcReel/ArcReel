@@ -2,7 +2,7 @@ import { useCallback, useContext, useEffect, useState } from "react";
 
 import { errMsg } from "@/utils/async";
 
-import { EditUnitRetentionContext, useRetainWhile } from "./RetainedEditUnit";
+import { EditUnitRetentionContext, useRetainWhile } from "./edit-unit-retention";
 
 import { useLeaveGuard } from "./LeaveGuard";
 

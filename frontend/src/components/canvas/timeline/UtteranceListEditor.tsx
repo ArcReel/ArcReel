@@ -221,9 +221,9 @@ export function UtteranceListEditor({
       {utterances.length === 0 ? (
         <p className="py-1 text-xs text-muted-foreground">{t("utterance_empty")}</p>
       ) : (
-        <div role="list">
+        <ul>
           {utterances.map((u, i) => (
-            <div key={renderKeys[i]} role="listitem">
+            <li key={renderKeys[i]}>
               <UtteranceRow
                 value={u}
                 index={i}
@@ -234,9 +234,9 @@ export function UtteranceListEditor({
                 onMove={(delta) => moveAt(i, delta)}
                 onRemove={() => removeAt(i)}
               />
-            </div>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
 
       {speakerListId && (

@@ -119,6 +119,7 @@ export const useConfigStatusStore = create<ConfigStatusState>((set, get) => {
     for (;;) {
       set({ loading: true, pendingRefresh: false });
       try {
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 补跑必须等上一轮落地后再读 pendingRefresh，并发会让旧响应覆盖新数据
         const { issues, availableMediaTypes, isEmbeddedAgentConfigured } = await getConfigStatus();
         set({
           issues,

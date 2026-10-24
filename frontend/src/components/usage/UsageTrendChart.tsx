@@ -1,9 +1,10 @@
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
+// react-doctor-disable-next-line react-doctor/prefer-dynamic-import -- 本模块由 UsageTrendCard 经 lazyNamed 按需加载，recharts 随它进独立 chunk
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
-import { cn } from "cn";
 
 import { ChartContainer, ChartTooltip, type ChartConfig } from "@/components/ui/chart";
+import { SeriesSwatch } from "./SeriesSwatch";
 import { formatRatio } from "./usage-record-format";
 import type { TrendBucket, TrendMetric, TrendSeries } from "./usage-trend";
 import { bucketSuccessRate, bucketTotal, seriesFor, shortDay, trendTicks } from "./usage-trend";
@@ -24,10 +25,6 @@ export interface UsageTrendChartProps {
 
 /** 一根柱的数据行：各序列的值按序列 key 展开，另带原桶供提示使用。 */
 type TrendRow = Record<string, number | string | TrendBucket> & { from: string; bucket: TrendBucket };
-
-export function SeriesSwatch({ series }: { series: TrendSeries }) {
-  return <span aria-hidden="true" className={cn("size-2.5 shrink-0 rounded-xs", series.swatchClass)} />;
-}
 
 function TrendTooltip({
   bucket,

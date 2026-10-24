@@ -79,6 +79,7 @@ export function useTrialRun(): TrialRunHandle {
 
   // 试跑是进程内异步 run：创建后轮询读回，终态即停。递归 setTimeout 保证上一次
   // 读回落地后才排下一次，响应慢于间隔时不会堆积并发请求。
+  // react-doctor-disable-next-line react-doctor/effect-needs-cleanup -- 每轮的定时器号写进同一个 timer，cleanup 统一 clearTimeout 并 abort；abort 后的回调不再排下一轮
   useEffect(() => {
     if (!runId || finished || pollStopped) return;
     const controller = new AbortController();

@@ -30,7 +30,7 @@ import { isComfyuiDefinition, reimportedDefinition, type ComfyuiImportDraft } fr
 import { EndpointDetail, type EndpointSelection } from "./EndpointDetail";
 import type { EndpointBackTarget } from "./EndpointHeader";
 import { EndpointImportDialog } from "./EndpointImportDialog";
-import { groupUsagesByEndpoint } from "./EndpointUsageList";
+import { groupUsagesByEndpoint } from "./endpoint-usages";
 
 /** 有 kind 即是一份此刻就能显示的端点定义；其余形状的身份由服务端的分流结果给出。 */
 function hasKind(value: unknown): value is AnyEndpointDefinition {
@@ -92,11 +92,11 @@ export function EndpointsSection() {
   const [importBusy, setImportBusy] = useState<"infer" | "save" | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [importPending, setImportPending] = useState(false);
-  // 粘进来的原始载荷：换媒体类型时要拿它重跑一次校验，包装结果随之更新。
-  const [importPayload, setImportPayload] = useState<unknown>(null);
+  // 粘进来的原始载荷：换媒体类型时要拿它重跑一次校验，包装结果随之更新。只在处理函数里读，不参与渲染。
+  const importPayload = useRef<unknown>(null);
   const [importMediaType, setImportMediaType] = useState<ComfyuiMediaType>("video");
-  // 重新导入的落点：新 workflow 接到这份定义上，身份与已确认的节点绑定沿用它。
-  const [reimportBase, setReimportBase] = useState<{
+  // 重新导入的落点：新 workflow 接到这份定义上，身份与已确认的节点绑定沿用它。只在处理函数里读，不参与渲染。
+  const reimportBase = useRef<{
     record: CustomEndpointInfo | null;
     definition: ComfyuiEndpointDefinition;
   } | null>(null);
@@ -287,16 +287,17 @@ export function EndpointsSection() {
       try {
         const result = await API.validateCustomEndpoint(payload, {
           mediaType,
-          excludeId: reimportBase?.record?.id,
+          excludeId: reimportBase.current?.record?.id,
         });
         if (importRunRef.current !== run) return;
         setImportDefinition(result.wrapped_definition ?? picked);
         setImportValidation(result);
       } finally {
+        // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中；被后一次接管时由接管方负责复位，不动它的状态
         if (importRunRef.current === run) setImportPending(false);
       }
     },
-    [reimportBase],
+    [],
   );
 
   /** 清掉上一次交出去的载荷与它的结果；弹窗开着时用户可以接着再交一份。 */
@@ -305,7 +306,7 @@ export function EndpointsSection() {
     setImportFileName("");
     setImportDefinition(null);
     setImportValidation(null);
-    setImportPayload(null);
+    importPayload.current = null;
     setImportPending(false);
   }, []);
 
@@ -316,7 +317,7 @@ export function EndpointsSection() {
       setImportFileName(fileName);
       setImportValidation(null);
       setImportDefinition(null);
-      setImportPayload(null);
+      importPayload.current = null;
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
@@ -326,7 +327,7 @@ export function EndpointsSection() {
         pushToast(t("ce_import_read_failed"), "error");
         return;
       }
-      setImportPayload(parsed);
+      importPayload.current = parsed;
       try {
         await validatePayload(parsed, importMediaType, run);
       } catch (e) {
@@ -341,16 +342,17 @@ export function EndpointsSection() {
   const handleImportMediaTypeChange = useCallback(
     (mediaType: ComfyuiMediaType) => {
       setImportMediaType(mediaType);
-      if (importPayload === null) return;
+      const payload = importPayload.current;
+      if (payload === null) return;
       const run = ++importRunRef.current;
       setImportValidation(null);
       voidCall(
-        validatePayload(importPayload, mediaType, run).catch((e) => {
+        validatePayload(payload, mediaType, run).catch((e) => {
           if (importRunRef.current === run) pushToast(errMsg(e), "error");
         }),
       );
     },
-    [importPayload, validatePayload, pushToast],
+    [validatePayload, pushToast],
   );
 
   const finishImport = useCallback(
@@ -373,16 +375,17 @@ export function EndpointsSection() {
     const run = importRunRef.current;
     setImportBusy("infer");
     try {
-      const base = reimportBase
+      const reimport = reimportBase.current;
+      const base = reimport
         ? reimportedDefinition(
-            reimportBase.definition,
+            reimport.definition,
             importDefinition,
             importValidation.import_shape === "endpoint_definition",
           )
         : importDefinition;
       const inference = await API.inferComfyuiBindings(base, { mediaType: base.media_type });
       if (importRunRef.current !== run) return;
-      const record = reimportBase?.record ?? null;
+      const record = reimport?.record ?? null;
       draftSeq.current += 1;
       setComfyuiDraft({
         token: String(draftSeq.current),
@@ -398,7 +401,7 @@ export function EndpointsSection() {
     } finally {
       if (importRunRef.current === run) setImportBusy(null);
     }
-  }, [importDefinition, importValidation, importFileName, reimportBase, select, pushToast, t]);
+  }, [importDefinition, importValidation, importFileName, select, pushToast, t]);
 
   /** 关掉导入弹窗：在途的识别与推断一并作废，回来的那一份不再装进详情。 */
   const closeImport = useCallback(() => {
@@ -409,7 +412,7 @@ export function EndpointsSection() {
   }, []);
 
   const openImport = useCallback(() => {
-    setReimportBase(null);
+    reimportBase.current = null;
     setImportMediaType("video");
     resetImportSource();
     setImportOpen(true);
@@ -422,7 +425,7 @@ export function EndpointsSection() {
       // 端点 B 上点了重新导入时，沿用 A 的 record 会把 B 的 workflow 存到 A 身上。
       const draftRecord = comfyuiDraft?.record?.key === selectedKey ? comfyuiDraft.record : null;
       const record = draftRecord ?? customEndpoints.find((endpoint) => endpoint.key === selectedKey) ?? null;
-      setReimportBase({ record, definition: current });
+      reimportBase.current = { record, definition: current };
       setImportMediaType(current.media_type);
       resetImportSource();
       setImportOpen(true);
@@ -494,6 +497,7 @@ export function EndpointsSection() {
       } finally {
         if (marketUpdateRef.current === controller) {
           marketUpdateRef.current = null;
+          // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中；被后一次接管时由接管方负责复位，不动它的状态
           setMarketUpdatePending(false);
         }
       }

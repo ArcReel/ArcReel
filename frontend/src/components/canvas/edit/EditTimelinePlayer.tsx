@@ -65,8 +65,8 @@ export function EditTimelinePlayer({
           {playback.videoRefs.map((ref, slot) => {
             const visible = showVideo && playback.visibleSlot === slot;
             return (
-              // eslint-disable-next-line jsx-a11y/media-has-caption -- 字幕由剪辑时间线的字幕轨叠加显示，不走 <track>
-              <video
+              // react-doctor-disable-next-line react-doctor/media-has-caption -- 字幕由剪辑时间线的字幕轨叠加显示，不走 <track>
+              <video // eslint-disable-line jsx-a11y/media-has-caption -- 字幕由字幕轨叠加显示
                 key={slot}
                 ref={ref}
                 playsInline

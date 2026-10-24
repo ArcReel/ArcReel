@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { EpisodeMeta, ProjectData } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 
-import { showsEpisodeSource } from "./EpisodePage";
+import { showsEpisodeSource } from "./episode-view";
 
 function project(episode: Partial<EpisodeMeta> | null, contentMode = "narration"): ProjectData {
   return {

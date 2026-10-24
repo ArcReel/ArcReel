@@ -6,11 +6,6 @@ import { TruncatedText } from "@/components/shared/TruncatedText";
 import type { WorkflowMigrationAdjustment, WorkflowMigrationReport } from "@/types/workflow";
 import { episodeDisplayName, type EpisodeLedger } from "@/utils/episode-display";
 
-/** 报告里的条目数：「已调整」与「未能带入」两组之和。 */
-export function migrationReportItemCount(report: WorkflowMigrationReport): number {
-  return report.adjusted.length + report.skipped.length;
-}
-
 const ASSET_TYPES = new Set(["character", "scene", "prop", "product"]);
 const ARTIFACT_KINDS = new Set([
   "asset-sheet",
@@ -139,6 +134,7 @@ export function MigrationReportContent({
       {report.adjusted.length > 0 && (
         <Section icon={Wrench} tone="text-primary" title={t("migration_report_adjusted")} count={report.adjusted.length}>
           {report.adjusted.map((item, index) => (
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 迁移报告的只读列表，同一代码与文件可出现多条且无唯一标识；条目不带状态，界面不重排也不筛选
             <li key={`${item.code}-${item.file ?? ""}-${index}`} className={ITEM}>
               <p className="wrap-break-word">{adjustmentText(t, item, episodes)}</p>
               {item.backup && (

@@ -16,11 +16,12 @@ import { CreateEpisodeDialog } from "./CreateEpisodeDialog";
 import { EpisodeOutline, type EpisodeMenuActions } from "./EpisodeOutline";
 import { EpisodesHeader } from "./EpisodesHeader";
 import { ExternalChangeNotice } from "./ExternalChangeNotice";
-import { ManualSplitToolbar, caretEpisode } from "./ManualSplitToolbar";
+import { ManualSplitToolbar } from "./ManualSplitToolbar";
 import { ReplanCandidatePanel } from "./ReplanCandidatePanel";
 import { SourceManuscript } from "./SourceManuscript";
 import { SourceUploadDialog } from "./SourceUploadDialog";
 import { UnregisteredFilesBanner } from "./UnregisteredFiles";
+import { caretEpisode } from "./manual-split-model";
 import { replanCompare } from "./replan-compare-model";
 import { useDeleteEpisode } from "./useDeleteEpisode";
 import { useManualSplit } from "./useManualSplit";
@@ -172,6 +173,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     const header = episodeHeaders.current.get(scrollTarget.episode);
     if (header === undefined) return;
     scrolledTarget.current = scrollTarget;
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- 要等原文渲染出这一集的标题节点才能滚动，当前集随这次滚动一起更新，与 locate 同一做法
     setCurrent(scrollTarget.episode);
     scrollIntoViewTop(header);
   }, [view, scrollTarget, setCurrent]);

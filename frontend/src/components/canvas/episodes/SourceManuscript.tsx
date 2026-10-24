@@ -36,11 +36,12 @@ interface SourceManuscriptProps {
   compare: ReplanCompare | null;
 }
 
-type InlineMark = { offset: number; node: ReactNode };
+/** `key` 在同一行原文的标记间唯一：标记前后移动时，分集点工具栏这类有状态的标记不被重新挂载。 */
+type InlineMark = { key: string; offset: number; node: ReactNode };
 type CaretMark = InlineMark | null;
 
 /** 一段原文所在文件的对照与该文件里新旧分界不同的位置；没有对照时为 null。 */
-type SegmentCompare = { compare: ReplanCompare; diffs: number[] } | null;
+type SegmentCompare = { compare: ReplanCompare; diffs: ReadonlySet<number> } | null;
 
 /**
  * 正文容器跳过屏幕外段落的渲染（`offscreen-skip`）。插入光标所在的段落照常绘制：
@@ -118,12 +119,12 @@ export function SourceManuscript({
   const allBoundaries = adjacentBoundaries(view);
   const movingPair = moving === null ? null : allBoundaries.find((b) => b.left === moving);
   const fileCompares = useMemo<SegmentCompare[]>(
-    () => view.files.map((_, index) => (compare === null ? null : { compare, diffs: compare.diffs(index) })),
+    () => view.files.map((_, index) => (compare === null ? null : { compare, diffs: new Set(compare.diffs(index)) })),
     [view.files, compare],
   );
   const caretMark = (fileIndex: number): CaretMark =>
     caret !== null && caret.point.file === fileIndex
-      ? { offset: caret.point.offset, node: <CaretMarker episode={caret.episode}>{caret.toolbar}</CaretMarker> }
+      ? { key: "caret", offset: caret.point.offset, node: <CaretMarker episode={caret.episode}>{caret.toolbar}</CaretMarker> }
       : null;
 
   const onMouseUp = (event: MouseEvent) => {
@@ -135,8 +136,12 @@ export function SourceManuscript({
   };
 
   return (
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- 原文区的点击用来放置分集点，键盘操作（←/→ 微调、Enter 确认、Esc 取消）由视图在 window 上统一接管
-    <div data-manuscript className="pb-24" onMouseUp={onMouseUp}>
+    // react-doctor-disable-next-line react-doctor/no-static-element-interactions -- 原文区的点击用来放置分集点，键盘操作（←/→ 微调、Enter 确认、Esc 取消）由视图在 window 上统一接管
+    <div // eslint-disable-line jsx-a11y/no-static-element-interactions -- 理由同上一行
+      data-manuscript
+      className="pb-24"
+      onMouseUp={onMouseUp}
+    >
       {view.files.map((file, index) => {
         const mark = caretMark(index);
         const hostRun = mark === null ? null : caretRunStart(file, mark.offset);
@@ -244,13 +249,13 @@ function RunText({ fileIndex, run, marks }: { fileIndex: number; run: TextRun; m
   const chars = [...run.text];
   const parts: ReactNode[] = [];
   let from = 0;
-  for (const [index, mark] of marks.entries()) {
+  for (const mark of marks) {
     const split = Math.min(Math.max(mark.offset - run.start, from), chars.length);
     parts.push(
-      <span key={`t${index}`} data-file={fileIndex} data-run={run.start + from}>
+      <span key={`before-${mark.key}`} data-file={fileIndex} data-run={run.start + from}>
         {chars.slice(from, split).join("")}
       </span>,
-      <Fragment key={`m${index}`}>{mark.node}</Fragment>,
+      <Fragment key={mark.key}>{mark.node}</Fragment>,
     );
     from = split;
   }
@@ -278,16 +283,16 @@ function SegmentText({
   const runs = textRuns(segment.text, segment.start).map((run) => ({ run, end: run.start + [...run.text].length }));
   const lanes = compare ? runs.map(({ run, end }) => compare.compare.lanes(fileIndex, run.start, end)) : null;
   return runs.map(({ run, end }, index) => {
-    const marks: InlineMark[] = (compare?.diffs ?? [])
+    const marks: InlineMark[] = [...(compare?.diffs ?? [])]
       .filter((offset) => run.start < offset && offset < end)
-      .map((offset) => ({ offset, node: <BoundaryTick /> }));
+      .map((offset) => ({ key: `tick-${offset}`, offset, node: <BoundaryTick /> }));
     if (caret !== null && run.start === hostRun) marks.push(caret);
     marks.sort((a, b) => a.offset - b.offset);
     const pieces = lanes?.[index] ?? [];
     const next = lanes?.[index + 1];
     return (
       <p key={run.start} className={lanes ? "relative" : undefined}>
-        {compare?.diffs.includes(run.start) ? <BoundaryRule /> : null}
+        {compare?.diffs.has(run.start) ? <BoundaryRule /> : null}
         <RunText fileIndex={fileIndex} run={run} marks={marks} />
         {pieces.length > 0 ? (
           <LaneBar

@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { TFunction } from "i18next";
-import { VideoModelSpecBar, videoOptionMetaRenderer, VoiceConsistencyBadge } from "./VideoModelSpecBar";
+import { videoOptionMetaRenderer } from "./video-option-meta";
+import { VideoModelSpecBar, VoiceConsistencyBadge } from "./VideoModelSpecBar";
 import { lookupCatalogVideoAudio } from "@/utils/provider-models";
 import type { ModelInfoResponse, ProviderInfo, VideoRoute } from "@/types";
 

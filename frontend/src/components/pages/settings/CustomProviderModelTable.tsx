@@ -1,7 +1,6 @@
 import { Fragment, useId, useMemo, useState, type MouseEvent } from "react";
 import { Check, ChevronDown, ChevronRight, ExternalLink, Search, Store, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 import { Link } from "wouter";
 import { endpointSettingsPath, marketSettingsPath } from "@/app-routes";
 import { ResolutionPicker } from "@/components/shared/ResolutionPicker";
@@ -15,10 +14,10 @@ import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type { DiscoveryFormat, MatchedCatalogEntry, MediaType } from "@/types";
-import { DurationParseError, parseDurationInput, type DurationParseErrorCode } from "@/utils/duration_format";
 import { parseMultiplier } from "@/utils/multiplier";
 import { IMAGE_STANDARD_RESOLUTIONS, VIDEO_STANDARD_RESOLUTIONS, resolutionPlaceholder } from "@/utils/provider-models";
 import { CapabilityOverrideRow } from "./CapabilityOverrideRow";
+import { durationsError } from "./durationErrors";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { isComfyuiProtocol, isComfyuiVideoEndpoint, withLastFrameOverride } from "./customProviderHelpers";
 import { matchedEntryFor, type ModelRow } from "./customProviderFormState";
@@ -37,27 +36,6 @@ const MEDIA_LABEL_KEY: Record<MediaType, string> = {
 const MEDIA_ORDER = Object.keys(MEDIA_LABEL_KEY) as MediaType[];
 
 type MediaFilter = "all" | MediaType;
-
-export const DURATION_ERROR_KEY: Record<DurationParseErrorCode, string> = {
-  empty_after_split: "supported_durations_err_empty_after_split",
-  non_positive: "supported_durations_err_non_positive",
-  exceeds_max: "supported_durations_err_exceeds_max",
-  range_too_large: "supported_durations_err_range_too_large",
-  range_inverted: "supported_durations_err_range_inverted",
-  unparseable: "supported_durations_err_unparseable",
-};
-
-/** 支持秒数的格式错误；空值或格式正确时为 null。 */
-export function durationsError(t: TFunction, text: string): string | null {
-  if (!text.trim()) return null;
-  try {
-    parseDurationInput(text);
-    return null;
-  } catch (e) {
-    if (e instanceof DurationParseError) return t(DURATION_ERROR_KEY[e.code], e.params);
-    return t(DURATION_ERROR_KEY.unparseable, { seg: "" });
-  }
-}
 
 // 档位为空的三支各说一句：三支互斥，两个文案位都为假即「帧率读得到、只是换算不出整秒时长」。
 const EMPTY_TIER_COPY = {

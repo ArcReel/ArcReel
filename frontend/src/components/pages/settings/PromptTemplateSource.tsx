@@ -75,6 +75,7 @@ function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: S
         ? t("prompt_templates_optional_slot", { slot: part.condition })
         : t("prompt_templates_optional_condition", { condition: part.condition });
       return (
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 节点由只读原文一次性解析而来，原文随模版换而整体重挂载，不重排不增删，位置即身份
         <span key={index} className="my-2 block border-l-2 border-border pl-3">
           <span role="group" aria-label={label}>
             <span className="mb-1 block font-sans text-xs text-muted-foreground">{label}</span>
@@ -89,6 +90,7 @@ function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: S
     const reference = PARTIAL_PATTERN.exec(part)?.groups;
     if (reference) {
       return (
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 节点由只读原文一次性解析而来，原文随模版换而整体重挂载，不重排不增删，位置即身份
         <PartialReference
           key={index}
           marker={part}
@@ -116,6 +118,7 @@ function SourceNodes({ nodes, ...props }: Omit<SourceProps, "text"> & { nodes: S
       }
     }
     return /^\{[{%#]/.test(part) ? (
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 节点由只读原文一次性解析而来，原文随模版换而整体重挂载，不重排不增删，位置即身份
       <mark key={index} className="rounded-sm bg-muted px-0.5 text-muted-foreground">
         {part}
       </mark>

@@ -158,6 +158,7 @@ export function IssueList({ issues, clipIds, onSelectClip }: IssueListProps) {
             });
             const dot = <span aria-hidden className={cn("mt-1.5 size-1.5 shrink-0 rounded-full", ISSUE_DOT[issue.code] ?? "bg-muted-foreground")} />;
             return (
+              // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- issue 由服务端按修订整表算出、没有 ID，同一 code 可重复出现；行内无状态，位置即身份
               <li key={`${issue.code}-${index}`}>
                 {clipId ? (
                   <button

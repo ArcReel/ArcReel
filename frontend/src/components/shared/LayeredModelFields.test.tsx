@@ -3,7 +3,8 @@ import { describe, it, expect, vi } from "vitest";
 import type { ComponentProps } from "react";
 import userEvent from "@testing-library/user-event";
 import "@/i18n";
-import { LayeredModelFields, effectiveModel, type LayeredSubField } from "./LayeredModelFields";
+import { LayeredModelFields, type LayeredSubField } from "./LayeredModelFields";
+import { effectiveModel } from "./model-layers";
 
 const OPTIONS = ["gemini/veo-3", "ark/seedance"];
 const PROVIDER_NAMES = { gemini: "Gemini", ark: "Ark" };

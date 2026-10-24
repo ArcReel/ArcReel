@@ -46,7 +46,8 @@ import { NarrationAudioCard } from "./NarrationAudioCard";
 import { NotesDrawer } from "./NotesDrawer";
 import { PromptPreviewButton } from "@/components/shared/PromptPreviewButton";
 import { ReferencesSection } from "./ReferencesSection";
-import { StatusBadge, statusFromAssets } from "./StatusBadge";
+import { statusFromAssets } from "./shot-status";
+import { StatusBadge } from "./StatusBadge";
 import { ShotStructureActions, type InsertShotHandler } from "./ShotStructureActions";
 import { SegmentBreakToggle } from "./SegmentBreakToggle";
 import { API } from "@/api";
@@ -55,7 +56,7 @@ import { isResourceBusy, isScriptFileBusy } from "@/stores/tasks-store";
 import { useCostStore } from "@/stores/cost-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { speakerCandidates } from "@/utils/plan-new-assets";
-import { durationIncompatibleLabel } from "@/components/canvas/shared/PlanDurationSelect";
+import { durationIncompatibleLabel } from "@/components/canvas/shared/duration-incompatible";
 import { errMsg } from "@/utils/async";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { charactersFieldFor, type CharactersField } from "@/utils/script-shape";
@@ -879,6 +880,7 @@ export function ShotDetail({
                 <p className="mb-2 text-xs text-muted-foreground">{t("detail_legacy_dialogue_hint")}</p>
                 <ul className="flex flex-col gap-1.5">
                   {legacyDialogue.map((d, i) => (
+                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 旧版对白只读展示、只能整体清空，不重排增删，行内无状态，条目没有 ID
                     <li key={i} className="flex items-start gap-2 text-sm">
                       <TruncatedText text={d.speaker} className="w-20 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1 wrap-break-word whitespace-pre-wrap">{d.line}</span>

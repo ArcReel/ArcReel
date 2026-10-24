@@ -40,6 +40,8 @@ export function CredentialsSection() {
   const [presets, setPresets] = useState<PresetProvider[]>([]);
   const [customSentinelId, setCustomSentinelId] = useState("__custom__");
   const [addModalOpen, setAddModalOpen] = useState(false);
+  // 每次打开新建弹窗换一个 key，弹窗重挂载，不带上一轮的草稿与诊断结果
+  const [addSession, setAddSession] = useState(0);
   const [busyCredId, setBusyCredId] = useState<number | null>(null);
   // 档位绑定按 Agent 供应商分桶：不同供应商上的请求可以同时在途，一个结束不放开另一个。
   const [tierBusyIds, setTierBusyIds] = useState<ReadonlySet<number>>(() => new Set());
@@ -185,7 +187,14 @@ export function CredentialsSection() {
           </h3>
           <p className="text-sm text-muted-foreground">{t("agent_providers_desc")}</p>
         </div>
-        <Button variant="outline" onClick={() => setAddModalOpen(true)} className="shrink-0">
+        <Button
+          variant="outline"
+          onClick={() => {
+            setAddSession((n) => n + 1);
+            setAddModalOpen(true);
+          }}
+          className="shrink-0"
+        >
           <Plus aria-hidden data-icon="inline-start" />
           {t("add_credential")}
         </Button>
@@ -206,6 +215,7 @@ export function CredentialsSection() {
       />
 
       <AddCredentialModal
+        key={addSession}
         open={addModalOpen}
         presets={presets}
         customSentinelId={customSentinelId}

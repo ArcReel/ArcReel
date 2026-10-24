@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import type { ContentBlock } from "@/types";
 import { WorkDetail, WorkRow, useSessionDone, useToolLabel } from "./WorkRow";
+import { stringifyResult } from "./utils";
 import { toolStatus } from "./work-label";
 
 // ---------------------------------------------------------------------------
@@ -10,11 +11,6 @@ import { toolStatus } from "./work-label";
 // Skill 与 Agent/Task tool_use 不经过本组件（分别由 SkillChip 与 SubagentCard 渲染，
 // 见 ContentBlockRenderer 分发）。
 // ---------------------------------------------------------------------------
-
-export function stringifyResult(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
-}
 
 export function ToolCallWithResult({ block }: { block: ContentBlock }) {
   const { t } = useTranslation("dashboard");

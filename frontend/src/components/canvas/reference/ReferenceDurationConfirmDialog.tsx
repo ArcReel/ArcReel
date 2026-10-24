@@ -124,6 +124,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
         <ul className="space-y-1">
           {advisoryItems.flatMap(({ unitId, problems }) =>
             problems.map((problem, index) => (
+              // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 单元内的提示由服务端算出、没有 ID，确认框打开期间只读不变、行内无状态
               <li
                 key={`${unitId}-${index}`}
                 className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5"

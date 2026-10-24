@@ -175,6 +175,36 @@ describe("PriceEditor", () => {
     expect(screen.getByTestId("valid")).toHaveTextContent("false");
   });
 
+  it("keeps the other tiers' input and focus in place when a middle tier is deleted", () => {
+    render(
+      <Harness
+        mediaType="text"
+        initial={{
+          currency: "USD",
+          meters: [
+            {
+              meter: "uncached_input_tokens",
+              dims: ["context_tier"],
+              rows: [0, 100_000, 200_000].map((tier, i) => ({ when: { context_tier: tier }, price: i + 1 })),
+            },
+          ],
+        }}
+      />,
+    );
+    const prices = () => within(card("输入")).getAllByRole("textbox", { name: /^输入的单价/ });
+    const last = prices()[2];
+    // 输入到一半的文字只存在于这一档自己的输入框里
+    fireEvent.change(last, { target: { value: "3." } });
+    last.focus();
+
+    fireEvent.click(within(card("输入")).getAllByRole("button", { name: /^删除这一档/ })[1]);
+
+    expect(prices()).toHaveLength(2);
+    expect(prices()[1]).toBe(last);
+    expect(last).toHaveValue("3.");
+    expect(last).toHaveFocus();
+  });
+
   it("offers the service tiers as standard, Flex and Fast", async () => {
     render(<Harness mediaType="text" />);
     await pickMenuItem("添加计费项", "输入");

@@ -1,13 +1,18 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { LazyBoundary } from "@/components/shared/LazyBoundary";
 import { Button } from "@/components/ui/button";
 import type { UsageSummary } from "@/types";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
-import { SeriesSwatch, UsageTrendChart } from "./UsageTrendChart";
+import { lazyNamed } from "@/utils/lazy-component";
+import { SeriesSwatch } from "./SeriesSwatch";
 import { formatCount } from "./usage-record-format";
 import type { TrendBucket, TrendMetric } from "./usage-trend";
 import { buildTrendBuckets, seriesFor, shortDay } from "./usage-trend";
+
+// 图表连同 recharts 拆进独立 chunk：设置页的其他分区不必为它付下载
+const UsageTrendChart = lazyNamed(() => import("./UsageTrendChart"), "UsageTrendChart");
 
 const METRICS: { value: TrendMetric; labelKey: string }[] = [
   { value: "calls", labelKey: "usage_trend_metric_calls" },
@@ -76,13 +81,18 @@ export function UsageTrendCard({ summary }: { summary: UsageSummary | null }) {
       {buckets.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted-foreground">{t("usage_trend_empty")}</p>
       ) : (
-        <UsageTrendChart
-          buckets={buckets}
-          metric={metric}
-          name={name}
-          formatValue={formatValue}
-          bucketLabel={bucketLabel}
-        />
+        // 与图表同高（h-52），chunk 到达前后布局不跳动
+        <div className="h-52">
+          <LazyBoundary variant="pane">
+            <UsageTrendChart
+              buckets={buckets}
+              metric={metric}
+              name={name}
+              formatValue={formatValue}
+              bucketLabel={bucketLabel}
+            />
+          </LazyBoundary>
+        </div>
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">

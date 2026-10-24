@@ -7,7 +7,7 @@ import { cn } from "cn";
 import { API } from "@/api";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { InfoTip, InfoTipContent, InfoTipTrigger } from "@/components/ui/info-tip";
 import type { UsageAgentSession, UsageAgentSessionRecord, UsageSummary } from "@/types";
 import { USAGE_PAGE_SIZE } from "@/stores/usage-records-store";
 import type { UsageRecordsFilters } from "@/stores/usage-records-store";
@@ -40,20 +40,13 @@ interface UsageSessionsCardProps {
 /** 无值时的占位。 */
 const DASH = "—";
 
-/** 带说明的文字：悬停或聚焦时显示说明；说明只靠悬停无法被键盘与读屏获知，故触发元素可聚焦。 */
+/** 带说明的文字：悬停、点按或按 Enter/Space 时显示说明。 */
 function HintedText({ hint, children }: { hint: string; children: ReactNode }) {
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 说明须可被键盘与读屏获知；它没有可执行的动作，不渲染为 button
-          <span tabIndex={0} className="cursor-help underline decoration-dotted underline-offset-4" />
-        }
-      >
-        {children}
-      </TooltipTrigger>
-      <TooltipContent>{hint}</TooltipContent>
-    </Tooltip>
+    <InfoTip>
+      <InfoTipTrigger render={<button type="button" className="cursor-help underline decoration-dotted underline-offset-4" />}>{children}</InfoTipTrigger>
+      <InfoTipContent title={children}>{hint}</InfoTipContent>
+    </InfoTip>
   );
 }
 

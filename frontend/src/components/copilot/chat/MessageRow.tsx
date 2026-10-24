@@ -112,13 +112,14 @@ function UserMessage({ turn, onStartEdit }: { turn: Turn; onStartEdit?: (text: s
             <div className="flex flex-col gap-2">
               {images.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
-                  {/* 图片块没有 id，顺序即身份，消息落库后不再变化 */}
                   {images.map((src, index) => (
+                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 图片块没有 id，顺序即身份，消息落库后不再重排或过滤
                     <ChatImage key={index} src={src} index={index + 1} />
                   ))}
                 </div>
               )}
               {blocks.map((block, index) => (
+                // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 优先用块 id；无 id 的块只会在末尾追加，不重排不过滤，序号即身份
                 <UserBlock key={block.id ?? index} block={block} index={index} />
               ))}
             </div>
@@ -211,6 +212,7 @@ function SystemEvent({ turn, announce }: { turn: Turn; announce: boolean }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
       {blocks.map((block, index) => (
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 优先用块 id；无 id 的块只会在末尾追加，不重排不过滤，序号即身份
         <ContentBlockRenderer key={block.id ?? index} block={block} index={index} announce={announce} />
       ))}
     </div>

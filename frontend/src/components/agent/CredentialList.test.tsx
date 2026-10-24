@@ -42,20 +42,26 @@ describe("CredentialList", () => {
     expect(onActivate).toHaveBeenCalledWith(1);
   });
 
-  it("disables delete on active credential", () => {
+  it("disables delete on active credential but keeps it focusable with the reason", () => {
+    const onDelete = vi.fn();
     render(
       <CredentialList
         credentials={[mockCred({ is_active: true })]}
         onActivate={vi.fn()}
         onTest={vi.fn()}
         onEdit={vi.fn()}
-        onDelete={vi.fn()}
+        onDelete={onDelete}
         onBindTier={vi.fn()}
         onUnbindTier={vi.fn()}
       />,
     );
     const deleteBtn = screen.getByRole("button", { name: /delete|remove|删除|Xoá/i });
-    expect(deleteBtn).toBeDisabled();
+    expect(deleteBtn).toHaveAttribute("aria-disabled", "true");
+    expect(deleteBtn).toHaveAccessibleDescription(/生效中的 Agent 供应商不能删除/);
+    deleteBtn.focus();
+    expect(deleteBtn).toHaveFocus();
+    fireEvent.click(deleteBtn);
+    expect(onDelete).not.toHaveBeenCalled();
   });
 
   it("renders empty hint when no credentials", () => {

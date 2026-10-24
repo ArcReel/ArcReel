@@ -55,6 +55,7 @@ export function MemoryFileEditor({ scope, entry, dir, layout, onSaved, onDelete,
   const [attempt, setAttempt] = useState(0);
   const filename = entry.name;
 
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- 每轮加载持有自己的 AbortController，await 之后两处写 state 前都先复核 signal.aborted，过期结果不会回写
   useEffect(() => {
     const controller = new AbortController();
     const load = async () => {

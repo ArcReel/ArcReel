@@ -1,5 +1,6 @@
 import * as React from "react"
 import { cn } from "cn"
+// react-doctor-disable-next-line react-doctor/prefer-dynamic-import -- 本模块就是 recharts 的封装原语，懒加载边界设在使用图表的组件处
 import * as RechartsPrimitive from "recharts"
 import type { TooltipValueType } from "recharts"
 
@@ -67,8 +68,10 @@ function ChartContainer({
     return () => controller.abort()
   }, [])
 
+  const contextValue = React.useMemo(() => ({ config }), [config])
+
   return (
-    <ChartContext.Provider value={{ config }}>
+    <ChartContext.Provider value={contextValue}>
       <div
         data-slot="chart"
         data-chart={chartId}
@@ -157,6 +160,7 @@ function ChartTooltipContent({
   >) {
   const { config } = useChart()
 
+  // react-doctor-disable-next-line react-doctor/rerender-memo-before-early-return -- 提示框未激活时 payload 为空，memo 回调第一行就返回 null，没有可省下的 JSX 构建
   const tooltipLabel = React.useMemo(() => {
     if (hideLabel || !payload?.length) {
       return null
@@ -218,6 +222,7 @@ function ChartTooltipContent({
               color ?? payloadFill(itemPayload) ?? item.color
 
             return (
+              // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- recharts 每次悬停重新生成 payload，行按系列顺序排列、不带状态；name 与 dataKey 不保证唯一（dataKey 还可能是函数）
               <div
                 key={index}
                 className={cn(
@@ -316,6 +321,7 @@ function ChartLegendContent({
           const itemConfig = getPayloadConfigFromPayload(config, item, key)
 
           return (
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 图例 payload 由 recharts 按系列顺序生成，行不带状态；dataKey 不保证唯一且可能是函数
             <div
               key={index}
               className={cn(

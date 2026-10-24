@@ -339,6 +339,7 @@ export function PresentationPlayer({
         .getState()
         .pushToast(t("presentation_download_failed", { message: errMsg(cause) }), "error");
     } finally {
+      // react-doctor-disable-next-line react-doctor/no-unowned-async-error-clear -- 下载在途时按钮禁用且入口先判 downloading，不会有更新的下载同时持有这个标志
       setDownloading(false);
     }
   };

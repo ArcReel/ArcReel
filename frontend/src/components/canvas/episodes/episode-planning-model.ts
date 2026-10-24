@@ -38,12 +38,13 @@ export function lastPlanningFailure(tasks: TaskItem[], projectName: string): Pla
     null,
   );
   if (latest === null || latest.status !== "failed") return null;
+  const byId = new Map(planning.map((task) => [task.task_id, task]));
   let root = latest;
   const seen = new Set<string>();
   while (root.error_code === CASCADE_FAILURE_CODE && !seen.has(root.task_id)) {
     seen.add(root.task_id);
     const dependency = root.error_params?.dependency_task_id;
-    const parent = planning.find((task) => task.task_id === dependency);
+    const parent = typeof dependency === "string" ? byId.get(dependency) : undefined;
     if (!parent) break;
     root = parent;
   }

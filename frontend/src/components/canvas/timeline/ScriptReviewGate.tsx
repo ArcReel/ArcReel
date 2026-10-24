@@ -26,20 +26,20 @@ import {
   DraftSoftViolationList,
   DraftViolationList,
   InvalidDraftBar,
-  draftFallbackText,
-  draftFixRequestText,
-  prefillAssistant,
 } from "@/components/shared/DraftStatus";
+import { draftFallbackText, draftFixRequestText } from "@/components/shared/draft-text";
+import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
-import { NewAssetsSection, hasValidNewAssets, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
+import { NewAssetsSection, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { useModelCapabilities, type DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
-import { PlanDurationSelect, durationIncompatibleLabel } from "@/components/canvas/shared/PlanDurationSelect";
+import { durationIncompatibleLabel } from "@/components/canvas/shared/duration-incompatible";
+import { PlanDurationSelect } from "@/components/canvas/shared/PlanDurationSelect";
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
-import { speakerCandidates } from "@/utils/plan-new-assets";
+import { hasValidNewAssets, speakerCandidates } from "@/utils/plan-new-assets";
 import { ScriptPlanStart } from "@/components/canvas/shared/ScriptPlanStart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -219,6 +219,7 @@ function ReadOnlyUtterances({ utterances }: { utterances: Utterance[] }) {
   return (
     <ul className="flex flex-col gap-1.5">
       {utterances.map((u, i) => (
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 只读的台词列表，随剧本整体替换、不在此重排增删，行内无状态，台词没有 ID
         <li key={String(i)} className="flex items-start gap-2 text-sm leading-relaxed">
           <Badge variant="outline" className="mt-0.5">
             {u.kind === "dialogue" ? u.speaker : t("utterance_kind_voiceover")}
@@ -715,6 +716,7 @@ export function ScriptReviewGate({
             {"scenes" in content
               ? content.scenes.map((scene, i) => (
                   <DramaSceneCard
+                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 待修复草稿的 scene_id 可能缺失或重复（正是违约所在），批注、锚点与修改都按位置寻址且不重排；带上 ID 让换内容时重新挂载
                     key={`${String(i)}-${scene.scene_id}`}
                     scene={scene}
                     disabled={draftBusy}
@@ -726,6 +728,7 @@ export function ScriptReviewGate({
                 ))
               : content.segments.map((segment, i) => (
                   <NarrationSegmentCard
+                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 待修复草稿的 segment_id 可能缺失或重复（正是违约所在），批注、锚点与修改都按位置寻址且不重排；带上 ID 让换内容时重新挂载
                     key={`${String(i)}-${segment.segment_id}`}
                     segment={segment}
                     disabled={draftBusy}
@@ -881,6 +884,7 @@ export function ScriptReviewGate({
         {contentMode === "drama" && draft != null && "scenes" in draft
           ? draft.scenes.map((scene, i) => (
               <DramaSceneCard
+                // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 以 scene_id 为 key，只在 Agent 草稿缺 ID 时以位置兜底；卡片只就地修改、不重排增删
                 key={scene.scene_id || i}
                 scene={scene}
                 disabled={busy}
@@ -893,6 +897,7 @@ export function ScriptReviewGate({
         {contentMode === "narration" && draft != null && "segments" in draft
           ? draft.segments.map((segment, i) => (
               <NarrationSegmentCard
+                // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 以 segment_id 为 key，只在 Agent 草稿缺 ID 时以位置兜底；卡片只就地修改、不重排增删
                 key={segment.segment_id || i}
                 segment={segment}
                 disabled={busy}

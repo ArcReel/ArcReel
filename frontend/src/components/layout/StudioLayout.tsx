@@ -107,10 +107,12 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   const agentFrameRef = useRef<HTMLElement>(null);
   const sidebarPanelRef = usePanelRef();
   const agentPanelRef = usePanelRef();
-  const [sidebarWidth, setSidebarWidth] = useState(readSidebarWidth);
-  const latest = useRef({ sidebarCollapsed, sidebarWidth, agentOpen, agentWidth });
+  // 记住的侧栏宽度只在命令式调宽时读取，不参与渲染，更新时不重绘外壳
+  const [initialSidebarWidth] = useState(readSidebarWidth);
+  const sidebarWidthRef = useRef(initialSidebarWidth);
+  const latest = useRef({ sidebarCollapsed, agentOpen, agentWidth });
   useLayoutEffect(() => {
-    latest.current = { sidebarCollapsed, sidebarWidth, agentOpen, agentWidth };
+    latest.current = { sidebarCollapsed, agentOpen, agentWidth };
   });
 
   // 面板的 defaultSize 是双击手柄复位到的默认宽度；挂载时与之后的开合、折叠都在这里按记住的宽度落到面板上。
@@ -118,7 +120,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     const panel = sidebarPanelRef.current;
     if (!panel) return;
     if (sidebarCollapsed) panel.collapse();
-    else panel.resize(latest.current.sidebarWidth);
+    else panel.resize(sidebarWidthRef.current);
   }, [sidebarCollapsed, sidebarPanelRef]);
 
   useLayoutEffect(() => {
@@ -131,7 +133,7 @@ export function StudioLayout({ children }: StudioLayoutProps) {
 
   const rememberSidebarWidth = useCallback((width: number) => {
     if (width < SIDEBAR_MIN_WIDTH) return;
-    setSidebarWidth(width);
+    sidebarWidthRef.current = width;
     persistSidebarWidth(width);
   }, []);
   const rememberAgentWidth = useCallback((width: number) => {
@@ -156,14 +158,19 @@ export function StudioLayout({ children }: StudioLayoutProps) {
   };
   // 双击由库在 document 的捕获阶段处理，window 的捕获阶段先于它
   useEffect(() => {
+    let resetTimer: ReturnType<typeof setTimeout> | undefined;
     const handleDoubleClick = () => {
       userResizingRef.current = true;
-      setTimeout(() => {
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(() => {
         userResizingRef.current = false;
       });
     };
     window.addEventListener("dblclick", handleDoubleClick, true);
-    return () => window.removeEventListener("dblclick", handleDoubleClick, true);
+    return () => {
+      window.removeEventListener("dblclick", handleDoubleClick, true);
+      clearTimeout(resetTimer);
+    };
   }, []);
 
   const handleLayoutChanged = (_layout: unknown, meta: LayoutChangedMeta) => {
@@ -187,7 +194,8 @@ export function StudioLayout({ children }: StudioLayoutProps) {
     // 其余变化来自视口与档位：库按变化前的百分比缩放面板，或为画布的最小宽度挤窄面板。展开着的面板回到记住的
     // 像素宽度；放不下时库把结果夹在约束内，布局不变也就不会再次触发。
     if (sidebar && !current.sidebarCollapsed && !sidebar.isCollapsed()) {
-      if (Math.abs(sidebar.getSize().inPixels - current.sidebarWidth) > 1) sidebar.resize(current.sidebarWidth);
+      const sidebarWidth = sidebarWidthRef.current;
+      if (Math.abs(sidebar.getSize().inPixels - sidebarWidth) > 1) sidebar.resize(sidebarWidth);
     }
     if (agent && current.agentOpen && !agent.isCollapsed()) {
       if (Math.abs(agent.getSize().inPixels - current.agentWidth) > 1) agent.resize(current.agentWidth);

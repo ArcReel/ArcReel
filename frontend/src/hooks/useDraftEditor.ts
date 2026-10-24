@@ -54,7 +54,7 @@ export interface DraftEditorHandle<T> {
 }
 
 function clone<T>(value: T | null): T | null {
-  return value == null ? null : (JSON.parse(JSON.stringify(value)) as T);
+  return value == null ? null : structuredClone(value);
 }
 
 function isDirty<T>(synced: Synced<T>): boolean {

@@ -356,6 +356,7 @@ function ReplaceSourceFileForm({
   const formId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
   const [upload, setUpload] = useState<File | null>(null);
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- 表单随对话框打开挂载，源文件类型是这次替换的草稿初值，打开期间不随外部刷新回写
   const [sourceKind, setSourceKind] = useState<SourceKind | null>(file.source_kind);
 
   const submit = async () => {

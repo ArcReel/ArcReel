@@ -1,5 +1,10 @@
 import { useTranslation } from "react-i18next";
 import { OptionalNumberField } from "@/components/shared/OptionalNumberField";
+import {
+  EPISODE_TARGET_DURATION_MAX,
+  EPISODE_TARGET_DURATION_MIN,
+  isValidEpisodeTargetDuration,
+} from "./episode-target-duration";
 
 /**
  * 单集目标时长（秒）的项目级可选输入。
@@ -11,20 +16,6 @@ import { OptionalNumberField } from "@/components/shared/OptionalNumberField";
  * 广告/短片项目不呈现该输入：整集体量已由目标总时长（target_duration）预算表达，
  * 两套总量口径并存会互相竞争。
  */
-
-/** 硬区间（闭区间，秒）：与后端 lib.episode.episode_target_duration 的 is_valid_episode_target_duration 同一把尺。 */
-const EPISODE_TARGET_DURATION_MIN = 10;
-const EPISODE_TARGET_DURATION_MAX = 600;
-
-/** 该值是否可提交（null = 未设目标，合法）。 */
-export function isValidEpisodeTargetDuration(value: number | null): boolean {
-  if (value === null) return true;
-  return (
-    Number.isInteger(value) &&
-    value >= EPISODE_TARGET_DURATION_MIN &&
-    value <= EPISODE_TARGET_DURATION_MAX
-  );
-}
 
 export interface EpisodeTargetDurationFieldProps {
   value: number | null;

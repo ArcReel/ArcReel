@@ -57,8 +57,9 @@ export function addableMeters(table: PriceTable, mediaType: MediaType): MeterKey
 
 /** 这个计费项还能「按条件分价」的选择维度：适用于该媒体类型，且没有加过。 */
 export function addableDimensions(meter: PriceMeter, mediaType: MediaType): DimKey[] {
+  const used = new Set(meter.dims);
   return (Object.keys(DIMENSIONS) as DimKey[]).filter(
-    (key) => (DIMENSIONS[key].mediaTypes as readonly string[]).includes(mediaType) && !meter.dims.includes(key),
+    (key) => (DIMENSIONS[key].mediaTypes as readonly string[]).includes(mediaType) && !used.has(key),
   );
 }
 

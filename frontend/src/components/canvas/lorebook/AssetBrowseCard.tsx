@@ -5,21 +5,18 @@ import {
   History,
   ImageUp,
   Images,
-  Landmark,
   Layers,
   Library,
   Maximize2,
   MoreHorizontal,
-  Package,
   PenLine,
-  ShoppingBag,
   Sparkles,
   Tags,
   Trash2,
-  User,
 } from "lucide-react";
 import { API } from "@/api";
 import { AddToLibraryDialog, type LibraryImportPreview } from "@/components/assets/AddToLibraryDialog";
+import { ASSET_SHEET_TYPE_ICON } from "@/components/assets/asset-type-icons";
 import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
 import { ImageEditDialog } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
@@ -35,7 +32,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
-import type { AssetSheetType } from "@/types";
 import { errMsg } from "@/utils/async";
 import { isAssetBusy, rejectIfAssetBusy } from "./assetBusyGuard";
 import { VERSION_RESOURCE, type GalleryAsset, type GalleryMarker } from "./gallery-model";
@@ -44,13 +40,6 @@ import { MergeAssetDialog } from "./MergeAssetDialog";
 import { ProjectAssetDeleteDialog } from "./ProjectAssetDeleteDialog";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 import type { AssetSheetStatusRow } from "@/types";
-
-export const ASSET_TYPE_ICON: Record<AssetSheetType, typeof User> = {
-  character: User,
-  scene: Landmark,
-  prop: Package,
-  product: ShoppingBag,
-};
 
 type DialogKey = "image-edit" | "versions" | "library" | "merge" | "delete";
 
@@ -111,7 +100,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   const [deleting, setDeleting] = useState(false);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const { type, name } = asset;
-  const Icon = ASSET_TYPE_ICON[type];
+  const Icon = ASSET_SHEET_TYPE_ICON[type];
 
   const sheetFp = useProjectsStore((s) => (asset.sheetPath ? s.getAssetFingerprint(asset.sheetPath) : null));
   const sheetUrl =
@@ -154,6 +143,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
+      // react-doctor-disable-next-line react-doctor/no-unowned-async-error-clear -- 上传在途时 busy 禁用入口并在开头拦截，同一卡片不会有更新的上传共享这个标志；错误走提示，不存本地 state
       setUploading(false);
     }
   };

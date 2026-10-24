@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { enqueueScriptPlan, scriptPlanResourceId } from "@/actions/generation";
-import { prefillAssistant } from "@/components/shared/DraftStatus";
+import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
 import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy } from "@/stores/tasks-store";

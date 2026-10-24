@@ -76,7 +76,8 @@ export function CharacterDerivativesField({
     }),
   );
   const [rowOrder, setRowOrder] = useState(() => [...liveRows.keys()]);
-  const addedKeys = [...liveRows.keys()].filter((key) => !rowOrder.includes(key));
+  const ordered = new Set(rowOrder);
+  const addedKeys = [...liveRows.keys()].filter((key) => !ordered.has(key));
   if (addedKeys.length > 0) setRowOrder([...rowOrder, ...addedKeys]);
   const removeRow = useCallback((key: string) => setRowOrder((prev) => prev.filter((item) => item !== key)), []);
 

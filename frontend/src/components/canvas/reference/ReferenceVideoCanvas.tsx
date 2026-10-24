@@ -12,7 +12,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { useEditUnit, type EditUnit } from "@/components/shared/edit-unit/useEditUnit";
-import { RetainedEditUnit, useRetainWhile } from "@/components/shared/edit-unit/RetainedEditUnit";
+import { useRetainWhile } from "@/components/shared/edit-unit/edit-unit-retention";
+import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { UnsavedChangesBar } from "@/components/shared/edit-unit/UnsavedChangesBar";
 import {
@@ -48,7 +49,8 @@ import { BatchFillButton, useBatchGap } from "@/components/canvas/episode-page/B
 import { EpisodeHeaderActions } from "@/components/canvas/episode-page/EpisodeHeaderActions";
 import type { EpisodeCanvasContext } from "@/components/canvas/episode-page/EpisodePage";
 import { NoScriptBlankState } from "@/components/canvas/shared/StartBlankScriptButton";
-import { computeVoiceLegacyNotice, VoiceLegacyBanner } from "./VoiceLegacyBanner";
+import { VoiceLegacyBanner } from "./VoiceLegacyBanner";
+import { computeVoiceLegacyNotice } from "./voice-legacy-notice";
 import { useReferenceDurationGate } from "@/hooks/useReferenceDurationGate";
 import { ReferenceScriptPlanPreviewPanel } from "@/components/canvas/reference/ReferenceScriptPlanPreviewPanel";
 import { PromptAuthoringDraftPanel, usePromptAuthoringDraft } from "./PromptAuthoringDraftPanel";
@@ -609,6 +611,7 @@ export function ReferenceVideoCanvas({
       async (unitIds: string[], confirmedDurations: ReadonlyMap<string, number>) => {
       for (const id of unitIds) {
         if (!canEnqueue(id)) continue;
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 有意串行：每次入队前按最新状态复核，让后端依次做去重检查
         await enqueue(id, confirmedDurations.get(id));
       }
     },

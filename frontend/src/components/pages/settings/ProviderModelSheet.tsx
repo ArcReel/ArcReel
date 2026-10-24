@@ -42,15 +42,9 @@ import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
 import { EndpointSelect } from "./EndpointSelect";
 import { ProviderCapabilityOverrides } from "./ProviderCapabilityOverrides";
 import { priceForSave, samePrice } from "./price-editor/priceTable";
-import {
-  ENTRY_INVALID_PREFIX,
-  ProviderModelEntryInfo,
-  entryDraftOf,
-  providerNames,
-  type EntryDraft,
-  type PendingEntryChange,
-} from "./ProviderModelEntryInfo";
-import { ProviderModelFlags } from "./providerModelDisplay";
+import { ENTRY_INVALID_PREFIX, ProviderModelEntryInfo, type PendingEntryChange } from "./ProviderModelEntryInfo";
+import { entryDraftOf, providerNames, type EntryDraft } from "./providerModelEntry";
+import { ProviderModelFlags } from "./ProviderModelFlags";
 import { RequestAddresses } from "./RequestAddresses";
 
 /** 自定义供应商的模型另有调用端点与请求地址，需要供应商的接口地址与模型发现协议。 */

@@ -13,6 +13,8 @@
  * 写 `view`，剧本生成后停在缺省视图上的页面因此自动落到分镜。取值无效或当前不可选时按缺省视图显示。
  */
 import { EPISODE_VIEW_EDIT, EPISODE_VIEW_PARAM } from "@/app-routes";
+import type { EpisodeMeta, ProjectData } from "@/types";
+import type { EpisodeScript } from "@/types/script";
 import type { GenerationRoute } from "@/utils/generation-mode";
 
 export const EPISODE_VIEWS = ["setting", "plan", "grid", "board", EPISODE_VIEW_EDIT] as const;
@@ -34,6 +36,30 @@ export interface EpisodeViewFacts {
   sourceReview: boolean;
   /** 演示项目：没有剪辑视图。 */
   demo: boolean;
+}
+
+/** 视图 tab 的元素 id，视图区以它作为无障碍名。 */
+export function episodeViewTabId(view: EpisodeView): string {
+  return `episode-view-tab-${view}`;
+}
+
+/** 本集已有中间稿：分段稿或生成好的剧本草稿。 */
+export function hasEpisodeDraft(meta: EpisodeMeta | undefined): boolean {
+  return meta?.script_status === "segmented" || meta?.script_status === "generated";
+}
+
+/**
+ * 脚本规划视图呈现集原文：已选集，但正式剧本与中间稿都没有。
+ * 广告/短片恒单集、演示项目没有源文可切，走各自画布。
+ */
+export function showsEpisodeSource(
+  projectData: ProjectData | null,
+  episode: number,
+  script: EpisodeScript | null,
+  demo: boolean,
+): boolean {
+  const meta = projectData?.episodes?.find((entry) => entry.episode === episode);
+  return meta !== undefined && !script && !hasEpisodeDraft(meta) && projectData?.content_mode !== "ad" && !demo;
 }
 
 export interface EpisodeViewTab {

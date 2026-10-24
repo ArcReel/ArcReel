@@ -1,7 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { Check, Loader2, SearchIcon, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 import { cn } from "cn";
 import {
   AlertDialog,
@@ -19,12 +18,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { useAssistantStore } from "@/stores/assistant-store";
 import type { SessionMeta } from "@/types";
-import { formatRelativeTime, formatShortDateTime, isJustNow } from "@/utils/date-format";
-
-/** 会话的显示标题：没有标题时用创建时间，再不行就叫「新会话」。 */
-export function sessionTitle(session: SessionMeta | undefined, t: TFunction): string {
-  return session?.title || formatShortDateTime(session?.created_at) || t("dashboard:new_session");
-}
+import { formatRelativeTime, isJustNow } from "@/utils/date-format";
+import { sessionTitle } from "./session-title";
 
 function SessionStatusDot({ status }: { status: SessionMeta["status"] }) {
   const { t } = useTranslation("dashboard");

@@ -74,6 +74,7 @@ export function useProviderCatalog(language: string): ProviderCatalog {
       if (!silent) setError(errMsg(err));
       return { status: "failed" };
     } finally {
+      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 复位已在 finally 中；被作废的一轮把复位交给接管方，否则会灭掉接管方的加载态
       if (!controller.signal.aborted) setLoading(false);
     }
   }, []);

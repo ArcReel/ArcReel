@@ -7,7 +7,7 @@ import { API } from "@/api";
 import { EPISODE_PLANNING_SLOTS, enqueueEpisodePlanning } from "@/actions/generation";
 import { ApiRequestError } from "@/api/errors";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
-import { prefillAssistant } from "@/components/shared/DraftStatus";
+import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";

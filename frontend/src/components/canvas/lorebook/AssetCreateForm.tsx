@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId } from "react";
+import { useCallback, useId } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
@@ -47,24 +47,25 @@ export function AssetCreateForm({
   const brandId = useId();
   const sellingPointsId = useId();
 
+  // 在途状态在发起创建的地方上报：创建成功时在请求结算前就切到详情，表单卸载后 finally 仍会落下
   const save = useCallback(
     async (fields: NewAssetFields) => {
-      await createAsset(projectName, assetType, fields);
-      // 刷新失败时已提示；新资产不在数据里，Sheet 随即关闭，不会停在可重复提交的表单
-      await refreshAfterWrite(projectName, t);
-      // 后端按 strip + NFC 落盘，按真名选中新资产
-      onCreated(normalizeAssetName(fields.name));
+      onSubmittingChange(true);
+      try {
+        await createAsset(projectName, assetType, fields);
+        // 刷新失败时已提示；新资产不在数据里，Sheet 随即关闭，不会停在可重复提交的表单
+        await refreshAfterWrite(projectName, t);
+        // 后端按 strip + NFC 落盘，按真名选中新资产
+        onCreated(normalizeAssetName(fields.name));
+      } finally {
+        onSubmittingChange(false);
+      }
     },
-    [projectName, assetType, onCreated, t],
+    [projectName, assetType, onCreated, onSubmittingChange, t],
   );
   const unit = useEditUnit<NewAssetFields>({ source: BLANK, save, leaveTitle: t(`assets:gallery_add.${assetType}`) });
   const { value, setValue } = unit;
   const submitting = unit.status === "saving";
-  useEffect(() => {
-    onSubmittingChange(submitting);
-    // 创建成功时在请求结算前就切到详情，卸载时也要落下
-    return () => onSubmittingChange(false);
-  }, [submitting, onSubmittingChange]);
   const setField = <K extends keyof NewAssetFields>(key: K, next: NewAssetFields[K]) =>
     setValue((prev) => ({ ...prev, [key]: next }));
   const nameMissing = value.name.trim().length === 0;

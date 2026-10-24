@@ -61,6 +61,7 @@ function DiagnosticList({ diagnostics }: { diagnostics: MarketSubmissionDiagnost
       <ul className="divide-y divide-border">
         {diagnostics.map((diagnostic, index) => (
           <li
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 服务端一次返回的只读诊断列表，不重排不增删；同文件同路径同代码的诊断可重复，下标只用于去重
             key={`${diagnostic.file}-${diagnostic.path}-${diagnostic.code}-${index}`}
             className="flex items-start gap-2.5 px-4 py-2.5"
           >

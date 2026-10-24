@@ -1,8 +1,8 @@
 import { API } from "@/api";
 import type { ProjectSettingsTab } from "@/app-routes";
-import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
+import { executingImageModel, executingVideoModel } from "@/components/shared/model-layers";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
-import type { NarrationDeliveryValue } from "@/components/shared/NarrationDeliveryFields";
+import type { NarrationDeliveryValue } from "@/components/shared/narration-delivery";
 import type { CharacterVoiceBinding, ModelSettingEntry, NarrationDelivery, ProjectData } from "@/types";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";

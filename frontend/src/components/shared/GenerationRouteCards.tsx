@@ -3,6 +3,7 @@ import { ArrowRight, Box, Image as ImageIcon, Lock, Play, Trees, User } from "lu
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import type { GenerationRoute } from "@/utils/generation-mode";
+import { ROUTE_META } from "./generation-route-meta";
 
 /**
  * 生成模式二选一卡（创建向导）。
@@ -11,15 +12,6 @@ import type { GenerationRoute } from "@/utils/generation-mode";
  * 卡内图示画的是两个生成模式各自喂给视频模型的输入契约——分镜图生视频是单张分镜图（I2V），
  * 参考生视频是角色/场景/道具参考图集合（R2V），这正是区分生成模式的判据。
  */
-
-/**
- * 生成模式的文案与输入契约标签。向导二卡与设置页只读展示共用同一份，
- * 避免两处各自维护「生成模式 → 名称 / 描述 / I2V-R2V」的对应关系而漂移。
- */
-export const ROUTE_META: Record<GenerationRoute, { nameKey: string; descKey: string; tag: string }> = {
-  storyboard: { nameKey: "route_storyboard", descKey: "route_storyboard_desc", tag: "I2V" },
-  reference_video: { nameKey: "route_reference_video", descKey: "route_reference_video_desc", tag: "R2V" },
-};
 
 /** 「创建后不可更改」琥珀锁形徽章。与区块标题同行，设置页只读展示复用。 */
 export function RouteLockBadge() {

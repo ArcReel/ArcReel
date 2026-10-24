@@ -119,6 +119,36 @@ describe("VersionTimeMachine", () => {
     useProjectsStore.setState({ assetFingerprints: {} });
   });
 
+  it("drops the previewed version when the resource gets a new version elsewhere, but keeps the one just restored", async () => {
+    useProjectsStore.setState({ assetFingerprints: { "products/Cup.png": 1 } });
+    const versions = [
+      { version: 1, filename: "v1.png", created_at: "2026-10-01", file_size: 1, is_current: false, file_url: "/v1.png" },
+      { version: 2, filename: "v2.png", created_at: "2026-10-02", file_size: 1, is_current: true, file_url: "/v2.png" },
+    ];
+    vi.spyOn(API, "getVersions").mockResolvedValue({
+      resource_type: "products", resource_id: "Cup", current_version: 2, versions,
+    });
+    vi.spyOn(API, "restoreVersion").mockResolvedValue({
+      success: true,
+      asset_fingerprints: { "products/Cup.png": 3 },
+    });
+    render(<VersionTimeMachine projectName="demo" resourceType="products" resourceId="Cup" open />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "v1" }));
+    expect(screen.getByAltText("版本 v1 预览")).toBeInTheDocument();
+    // 别处（如 Agent）生成了新版本：预览选中不沿用到新的版本列表
+    act(() => useProjectsStore.getState().updateAssetFingerprints({ "products/Cup.png": 2 }));
+    expect(screen.queryByAltText("版本 v1 预览")).not.toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "v1" }));
+    fireEvent.click(screen.getByRole("button", { name: "切换到此版本" }));
+    await waitFor(() => expect(API.restoreVersion).toHaveBeenCalledWith("demo", "products", "Cup", 1));
+    // 恢复本身换了指纹，刚恢复的版本仍保持选中
+    await waitFor(() => expect(useProjectsStore.getState().assetFingerprints["products/Cup.png"]).toBe(3));
+    expect(await screen.findByAltText("版本 v1 预览")).toBeInTheDocument();
+    useProjectsStore.setState({ assetFingerprints: {} });
+  });
+
   it("ignores Escape while a version restore is in flight", async () => {
     const user = userEvent.setup();
     const pending = createDeferred<{ success: boolean }>();

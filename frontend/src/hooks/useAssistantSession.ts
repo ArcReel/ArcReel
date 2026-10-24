@@ -447,7 +447,6 @@ export function useAssistantSession(projectName: string | null) {
     invalidatePendingSend,
     loadSession,
     store,
-    writeSessions,
   ]);
 
   // 发送消息。返回是否受理成功——失败时调用方保留输入内容。

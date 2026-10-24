@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import "@/i18n";
@@ -71,5 +72,59 @@ describe("EndpointForm", () => {
     for (const label of [/^默认接口地址/, /^版本/, /^名称/]) {
       expect(screen.getByLabelText(label).closest(".font-mono")).toBeNull();
     }
+  });
+
+  describe("editable rows", () => {
+    function Harness({ initial }: { initial: EndpointDefinition }) {
+      const [definition, setDefinition] = useState(initial);
+      return <EndpointForm definition={definition} onChange={setDefinition} readOnly={false} />;
+    }
+    const statusInputs = () => screen.getAllByRole("textbox", { name: "端点状态值" });
+
+    it("keeps the remaining rows and focus in place when a middle mapping is deleted", () => {
+      render(
+        <Harness initial={{ ...IMAGE_DEFINITION, status_map: { queued: "running", busy: "running", done: "succeeded" } }} />,
+      );
+      const last = statusInputs()[2];
+      last.focus();
+
+      fireEvent.click(screen.getAllByRole("button", { name: "删除映射" })[1]);
+
+      expect(statusInputs().map((input) => (input as HTMLInputElement).value)).toEqual(["queued", "done"]);
+      expect(statusInputs()[1]).toBe(last);
+      expect(last).toHaveFocus();
+    });
+
+    it("keeps the input focused while renaming, even when the new key moves the row", () => {
+      render(<Harness initial={{ ...IMAGE_DEFINITION, status_map: { completed: "succeeded", failed: "failed" } }} />);
+      const input = statusInputs()[1];
+      input.focus();
+
+      // 整数形式的键在对象枚举里排到最前，这一行随之移到第一位
+      fireEvent.change(input, { target: { value: "2" } });
+
+      expect(statusInputs()[0]).toBe(input);
+      expect(input).toHaveValue("2");
+      expect(input).toHaveFocus();
+    });
+
+    it("keeps a path row in place when a path above it is deleted", () => {
+      render(
+        <Harness
+          initial={{
+            ...IMAGE_DEFINITION,
+            submit: { ...IMAGE_DEFINITION.submit, extract: { task_id: ["$.a", "$.b", "$.c"] } },
+          }}
+        />,
+      );
+      const last = screen.getByRole("textbox", { name: "任务 ID 3" });
+      last.focus();
+
+      fireEvent.click(screen.getAllByRole("button", { name: "删除路径" })[0]);
+
+      expect(screen.getByRole("textbox", { name: "任务 ID 2" })).toBe(last);
+      expect(last).toHaveValue("$.c");
+      expect(last).toHaveFocus();
+    });
   });
 });

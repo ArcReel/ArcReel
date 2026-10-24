@@ -125,10 +125,11 @@ export function PromptAuthoringDialog({
   const [submitting, setSubmitting] = useState(false);
   const [overwrite, setOverwrite] = useState<PromptOverwrite | null>(null);
 
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
   // 脚本在弹窗打开期间变化（条目被删）时，自选范围只算仍在脚本里的条目，按剧本顺序。
   const selectedIds = useMemo(
-    () => entries.filter((entry) => selected.includes(entry.id)).map((entry) => entry.id),
-    [entries, selected],
+    () => entries.filter((entry) => selectedSet.has(entry.id)).map((entry) => entry.id),
+    [entries, selectedSet],
   );
 
   const entryIds: string[] | null =
@@ -179,8 +180,9 @@ export function PromptAuthoringDialog({
       await API.savePromptAuthoringInstructions(projectName, episode, instructions.trim());
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
-      setSubmitting(false);
       return;
+    } finally {
+      setSubmitting(false);
     }
     useAssistantStore.getState().setInput(
       promptAuthoringHandoffText(t, {
@@ -191,7 +193,6 @@ export function PromptAuthoringDialog({
       }),
     );
     useAppStore.getState().setAssistantPanelOpen(true);
-    setSubmitting(false);
     onClose();
   };
 
@@ -251,7 +252,7 @@ export function PromptAuthoringDialog({
                       <li key={entry.id} className="rounded-sm px-1.5 py-1 hover:bg-muted/50">
                         <Label className="w-full">
                           <Checkbox
-                            checked={selected.includes(entry.id)}
+                            checked={selectedSet.has(entry.id)}
                             disabled={submitting}
                             onCheckedChange={() => toggle(entry.id)}
                           />

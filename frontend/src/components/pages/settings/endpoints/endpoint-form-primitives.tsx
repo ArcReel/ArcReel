@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { EndpointPathItem } from "@/types";
 import { isPlainPath, pathItemText, type EndpointFormSection } from "./endpoint-definition-draft";
+import { useRowIds } from "../useRowIds";
 
 export const LABEL_CLS = "mb-1.5 block text-sm font-medium";
 export const HINT_CLS = "mt-1.5 block text-xs text-muted-foreground";
@@ -317,12 +318,14 @@ export function PathsEditor({
   hint?: string;
 }) {
   const { t } = useTranslation("dashboard");
+  // 路径文本可重复且正在编辑，不能作 key；删掉中间一项时其余行不能错位
+  const rowIds = useRowIds(paths.length);
   return (
     <div>
       <span className={LABEL_CLS}>{label}</span>
       <div className="flex flex-col gap-1.5">
         {paths.map((item, index) => (
-          <div key={index} className="flex items-center gap-2">
+          <div key={rowIds.ids[index]} className="flex items-center gap-2">
             <span aria-hidden className="w-4 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
               {index + 1}
             </span>
@@ -349,14 +352,20 @@ export function PathsEditor({
             {!readOnly && (
               <RowDeleteButton
                 label={t("ce_path_remove")}
-                onClick={() => onChange(paths.filter((_, i) => i !== index))}
+                onClick={() => {
+                  rowIds.remove(index);
+                  onChange(paths.filter((_, i) => i !== index));
+                }}
               />
             )}
           </div>
         ))}
       </div>
       {!readOnly && (
-        <Button variant="ghost" size="xs" className="mt-1.5" onClick={() => onChange([...paths, ""])}>
+        <Button variant="ghost" size="xs" className="mt-1.5" onClick={() => {
+            rowIds.append();
+            onChange([...paths, ""]);
+          }}>
           <Plus aria-hidden data-icon="inline-start" />
           {t("ce_path_add")}
         </Button>

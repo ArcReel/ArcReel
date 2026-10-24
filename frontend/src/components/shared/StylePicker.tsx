@@ -1,5 +1,5 @@
 import { TruncatedText } from "@/components/shared/TruncatedText";
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Upload, X } from "lucide-react";
 import { cn } from "cn";
@@ -16,8 +16,9 @@ export interface StylePickerValue {
   mode: "template" | "custom";
   templateId: string | null;
   activeCategory: "live" | "anim";
+  /** 待上传的参考图；有文件时选择器按文件自建预览，不读 `uploadedPreview`。 */
   uploadedFile: File | null;
-  /** Either a blob: URL (just-uploaded) or a /api/v1/files/... URL (already saved). */
+  /** 已保存的参考图地址（/api/v1/files/...）；选择器不往这里写 blob: 地址。 */
   uploadedPreview: string | null;
 }
 
@@ -81,8 +82,20 @@ function TemplateCard({ thumbnail, label, tagline, isSelected, isDefault, defaul
   );
 }
 
-function revokeBlobUrl(url: string | null) {
-  if (url && url.startsWith("blob:")) URL.revokeObjectURL(url);
+/**
+ * 待上传文件的预览地址，只由选择器持有：随文件创建，换文件或卸载时收回；重新挂载时按文件重建，
+ * 不会把已收回的地址留在调用方的取值里。layout effect 在绘制前换上地址，预览不闪一帧空态。
+ */
+function useFilePreview(file: File | null): string | null {
+  const [preview, setPreview] = useState<{ file: File; url: string } | null>(null);
+  useLayoutEffect(() => {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- object URL 随文件创建并在换文件或卸载时回收（同 AssetCreateDialog）
+    setPreview({ file, url });
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  return preview?.file === file ? preview.url : null;
 }
 
 /**
@@ -92,14 +105,8 @@ function revokeBlobUrl(url: string | null) {
 export function StylePicker({ value, onChange }: StylePickerProps) {
   const { t } = useTranslation(["common", "templates"]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const ownedBlobUrlRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    return () => {
-      revokeBlobUrl(ownedBlobUrlRef.current);
-      ownedBlobUrlRef.current = null;
-    };
-  }, []);
+  const filePreview = useFilePreview(value.uploadedFile);
+  const preview = value.uploadedFile ? filePreview : value.uploadedPreview;
 
   const activeTab: StyleTab = value.mode === "custom" ? "custom" : value.activeCategory;
 
@@ -114,22 +121,17 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    revokeBlobUrl(ownedBlobUrlRef.current);
-    const objectUrl = URL.createObjectURL(file);
-    ownedBlobUrlRef.current = objectUrl;
     onChange({
       ...value,
       mode: "custom",
       templateId: null,
       uploadedFile: file,
-      uploadedPreview: objectUrl,
+      uploadedPreview: null,
     });
     e.target.value = "";
   };
 
   const handleClearUpload = () => {
-    revokeBlobUrl(ownedBlobUrlRef.current);
-    ownedBlobUrlRef.current = null;
     onChange({ ...value, uploadedFile: null, uploadedPreview: null });
   };
 
@@ -163,9 +165,9 @@ export function StylePicker({ value, onChange }: StylePickerProps) {
       <TabsContent value="custom" className="mt-2">
         <div className="flex flex-col gap-3">
           <p className="text-sm text-muted-foreground">{t("templates:tab_custom_desc")}</p>
-          {value.uploadedPreview ? (
+          {preview ? (
             <div className="relative overflow-hidden rounded-lg border border-border">
-              <img src={value.uploadedPreview} alt={t("templates:upload_reference")} className="h-48 w-full object-cover" />
+              <img src={preview} alt={t("templates:upload_reference")} className="h-48 w-full object-cover" />
               <div className="absolute top-2 right-2">
                 <Button variant="secondary" size="icon-sm" onClick={handleClearUpload} aria-label={t("common:remove")}>
                   <X />

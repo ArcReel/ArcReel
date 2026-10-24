@@ -63,6 +63,7 @@ export function useAgentMemory(scope: AgentMemoryScope): AgentMemoryState {
       setLoaded({ target, data: null, error: errMsg(err) });
     } finally {
       // 被接管方让位：作废后不复位共享状态，否则会灭掉接管方刚点亮的加载态。
+      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 复位已在 finally 中；条件只让被作废的一轮把复位交给接管方
       if (!controller.signal.aborted) setLoading(false);
     }
   }, [target]);
