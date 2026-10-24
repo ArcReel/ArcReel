@@ -194,6 +194,7 @@ async def ensure_faststart(
     finally:
         # 清理失败（如临时文件被其他进程占用）只记日志，不让尽力而为的重封装抛错或盖过取消
         try:
+            # hard-delete: temp -- faststart 重封装的临时文件
             await run_sync_transaction(temp_path.unlink, missing_ok=True)
         except OSError:
             logger.warning("faststart 临时文件清理失败: %s", temp_path, exc_info=True)

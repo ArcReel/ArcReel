@@ -78,13 +78,13 @@ def _remove_task_staging_path(path: Path) -> None:
     """Remove a task-owned staging entry without traversing links or arbitrary directories."""
 
     if path.is_symlink():
-        path.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)  # hard-delete: temp -- 生成任务的暂存输出
     elif _is_junction(path):
-        path.rmdir()
+        path.rmdir()  # hard-delete: temp -- 生成任务的暂存目录
     elif os.path.lexists(path):
         if not path.is_file():
             raise ValueError("formal media staging path is not a regular file")
-        path.unlink()
+        path.unlink()  # hard-delete: temp -- 生成任务的暂存输出
 
 
 _remove_task_video_staging_path = _remove_task_staging_path
@@ -109,7 +109,7 @@ async def _discard_staged_output(path: Path | None) -> None:
     """
 
     if path is not None:
-        await run_noninterruptible_sync(path.unlink, missing_ok=True)
+        await run_noninterruptible_sync(path.unlink, missing_ok=True)  # hard-delete: temp -- 生成任务的暂存输出
 
 
 @asynccontextmanager
@@ -231,7 +231,7 @@ def _commit_formal_image_output(
     new_version = commit_formal_output(staged_output_path, output_path, metadata)
     if type(new_version) is not int or new_version < 1:
         raise RuntimeError("formal image commit did not return a positive version")
-    staged_output_path.unlink(missing_ok=True)
+    staged_output_path.unlink(missing_ok=True)  # hard-delete: temp -- 提交后的暂存输出
     return new_version
 
 
@@ -390,7 +390,7 @@ class MediaGenerator:
         )
         os.close(fd)
         staged_path = Path(staged_name)
-        staged_path.unlink()
+        staged_path.unlink()  # hard-delete: temp -- mkstemp 占位文件
         return output_path, staged_path
 
     def _commit_video_output_version_sync(
@@ -439,7 +439,7 @@ class MediaGenerator:
             )
             raise RuntimeError("formal video output requires an artifact commit callback")
         finally:
-            staged_output_path.unlink(missing_ok=True)
+            staged_output_path.unlink(missing_ok=True)  # hard-delete: temp -- 提交后的暂存输出
 
     async def _commit_video_output_version(
         self,

@@ -100,7 +100,7 @@ def unregister_source_file(project: dict[str, Any], rel: str) -> None:
 def _restore_file(path: Path, content: bytes | None) -> None:
     """把 ``path`` 恢复成 ``content``；``content`` 为 None 表示原先没有这个文件。"""
     if content is None:
-        path.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)  # hard-delete: rollback -- 撤销时移除事务前不存在的文件
     else:
         path.write_bytes(content)
 
@@ -301,7 +301,7 @@ def adopt_source_file_as_episode(pm: ProjectManager, project_name: str, filename
             if episode_source_origin(entry) is not SourceOrigin.NONE:
                 raise EpisodeSourceError("episode_source_present", f"集（id={episode}）已经有原文")
         # 先删原文件再写集文件：原文件恰好就是目标集文件的同名文件时，写入不会被当成占位文件改名留底
-        path.unlink()
+        path.unlink()  # hard-delete: derived -- 源文件作为集原文采纳：内容随即写入该集的原文文件，等同移动
         undo.callback(_restore_file, path, original)
         if entry is None or episode is None:
             return add_own_source_episode(project_dir, project, text, undo=undo)

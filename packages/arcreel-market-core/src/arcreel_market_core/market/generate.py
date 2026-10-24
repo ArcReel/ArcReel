@@ -85,7 +85,7 @@ def write_index(root: Path, index: dict[str, Any]) -> Path:
     path = root / INDEX_FILENAME
     # 索引是生成物：被换成符号链接时替换链接本身，否则写入会落到链接目标，索引文件在 git 里不变。
     if path.is_symlink():
-        path.unlink()
+        path.unlink()  # hard-delete: derived -- 生成的市场索引被换成符号链接时替换链接本身
     path.write_text(render_index(index), encoding="utf-8")
     return path
 

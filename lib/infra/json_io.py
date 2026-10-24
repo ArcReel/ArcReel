@@ -72,7 +72,7 @@ def atomic_write_json(path: Path, data: Any) -> None:
     finally:
         if tmp_path is not None:
             with suppress(OSError):
-                tmp_path.unlink()
+                tmp_path.unlink()  # hard-delete: temp -- 原子写的临时文件
 
 
 def atomic_write_bytes(path: Path, data: bytes) -> None:
@@ -99,4 +99,4 @@ def atomic_write_bytes(path: Path, data: bytes) -> None:
     finally:
         if tmp_path is not None:
             with suppress(OSError):
-                tmp_path.unlink()
+                tmp_path.unlink()  # hard-delete: temp -- 原子写的临时文件

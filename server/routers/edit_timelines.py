@@ -564,6 +564,7 @@ async def download_jianying_draft(
         raise edit_timeline_api_error(exc) from exc
     except JianyingDraftError as exc:
         raise jianying_draft_api_error(exc) from exc
+    # hard-delete: temp -- 剪映草稿下载包的临时目录
     return FileResponse(
         path=str(package),
         media_type="application/zip",

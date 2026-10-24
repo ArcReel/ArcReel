@@ -526,7 +526,7 @@ def _write_atomically(output_path: Path, write: Callable[[Path], object]) -> Non
         write(partial_path)
         os.replace(partial_path, output_path)
     except BaseException:
-        partial_path.unlink(missing_ok=True)
+        partial_path.unlink(missing_ok=True)  # hard-delete: temp -- 原子写的 .part 文件
         raise
 
 

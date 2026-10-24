@@ -45,14 +45,14 @@ def _restore_snapshots(snapshots: tuple[_FileSnapshot, ...]) -> None:
                 unchanged = snapshot.path.is_symlink() and os.readlink(snapshot.path) == snapshot.symlink_target
                 if not unchanged:
                     if snapshot.path.exists() or snapshot.path.is_symlink():
-                        snapshot.path.unlink()
+                        snapshot.path.unlink()  # hard-delete: rollback -- 正式写入回滚：移除事务中换上的符号链接
                     snapshot.path.symlink_to(
                         snapshot.symlink_target,
                         target_is_directory=snapshot.symlink_is_directory,
                     )
             elif snapshot.content is None:
                 if snapshot.path.exists() or snapshot.path.is_symlink():
-                    snapshot.path.unlink()
+                    snapshot.path.unlink()  # hard-delete: rollback -- 正式写入回滚：移除事务前不存在的文件
             else:
                 atomic_write_bytes(snapshot.path, snapshot.content)
         except OSError as exc:

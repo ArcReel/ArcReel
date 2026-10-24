@@ -472,7 +472,7 @@ class OpenRouterImageBackend:
             png = convert_image_bytes_to_png(content)
         except ValueError:
             # 转不成位图就不留下这份内容：格式与 .png 扩展名不符，下游会按 PNG 误读
-            output_path.unlink(missing_ok=True)
+            output_path.unlink(missing_ok=True)  # hard-delete: temp -- 刚写入暂存路径、无法转换的供应商输出
             raise ImageOutputFormatError(model=self._model, media_type=media_type or "unknown") from None
         logger.info("OpenRouter 返回 %s，已转为 PNG: %s", media_type or "非 PNG 图片", output_path)
         output_path.write_bytes(png)

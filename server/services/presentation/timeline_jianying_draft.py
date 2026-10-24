@@ -401,6 +401,7 @@ class TimelineJianyingDraftService:
             output = await run_sync_transaction(_package)
         except BaseException as exc:
             for temp_dir in temp_dirs:
+                # hard-delete: temp -- 打包的临时目录
                 await run_noninterruptible_sync(shutil.rmtree, temp_dir, ignore_errors=True)
             if isinstance(exc, JianyingDraftArchiveError):
                 raise JianyingDraftError("jianying_draft_invalid", str(exc), timeline_id=timeline_id) from exc

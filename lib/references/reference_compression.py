@@ -282,4 +282,4 @@ def compressed_reference_payload(
         yield landed_step, merged
     finally:
         if temp_root is not None:
-            shutil.rmtree(temp_root, ignore_errors=True)
+            shutil.rmtree(temp_root, ignore_errors=True)  # hard-delete: temp -- 参考图压缩的临时目录

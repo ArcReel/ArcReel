@@ -346,6 +346,7 @@ def clear_quarantine(project_path: Path, episode: int, kind: str, *, record_acti
     ``record_activity=False``，由外层提交后记账：账本是项目全局的，不随事务回滚。
     """
     try:
+        # hard-delete: pending-trash -- #3387 #3390 创作者或 Agent 丢弃草稿；晋升调用方删的是已写入正式文件的草稿，接入时区分
         quarantine_path(project_path, episode, kind).unlink()
     except FileNotFoundError:
         return False

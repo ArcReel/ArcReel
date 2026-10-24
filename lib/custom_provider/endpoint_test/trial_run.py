@@ -883,7 +883,7 @@ def _expired(entry: Path, now: float) -> bool:
 
 
 def _remove_tree(path: Path) -> None:
-    shutil.rmtree(path, ignore_errors=True)
+    shutil.rmtree(path, ignore_errors=True)  # hard-delete: out-of-scope -- 端点测试的试跑目录，在数据根下而非项目内
 
 
 _manager: TrialRunManager | None = None

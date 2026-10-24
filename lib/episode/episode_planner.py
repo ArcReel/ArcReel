@@ -1151,7 +1151,7 @@ class EpisodePlanner:
         remaining = source_dir / "_remaining.txt"
         if remaining.is_file():
             try:
-                remaining.unlink()
+                remaining.unlink()  # hard-delete: derived -- 未切分原文的派生文件，可由分集账本重新生成
             except OSError as exc:
                 logger.warning("余文文件清理失败（不阻断提交）：%s: %s", remaining, exc)
 

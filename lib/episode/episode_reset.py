@@ -235,7 +235,7 @@ def _apply_files(
     archived: list[tuple[str, str]] = []
     for path in plan.deletes:
         try:
-            path.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)  # hard-delete: derived -- 分集重置删除的派生集原文，可由分集账本重新生成
         except OSError as exc:
             raise EpisodeResetError(f"派生集文件删除失败，重置已中止：{path.name}: {exc}") from exc
         deleted.append(_rel(project_dir, path))
@@ -251,7 +251,7 @@ def _apply_files(
     remaining = project_dir / "source" / "_remaining.txt"
     if remaining.is_file():
         try:
-            remaining.unlink()
+            remaining.unlink()  # hard-delete: derived -- 未切分原文的派生文件，可由分集账本重新生成
         except OSError as exc:
             raise EpisodeResetError(f"余文文件清理失败，重置已中止：{remaining.name}: {exc}") from exc
     return deleted, archived

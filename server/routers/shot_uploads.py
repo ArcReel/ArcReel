@@ -109,6 +109,7 @@ async def upload_shot_media(
                     await run_sync_transaction(_stage)
                 except BaseException:
                     for path in staged_images:
+                        # hard-delete: temp -- 上传暂存文件
                         await run_noninterruptible_sync(path.unlink, missing_ok=True)
                     raise
                 version = await commit_manual_storyboard_upload(

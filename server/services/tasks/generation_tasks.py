@@ -1422,6 +1422,7 @@ async def finalize_video_task(
             asset_path=f"thumbnails/scene_{resource_id}.jpg",
         )
     else:
+        # hard-delete: derived -- 抽取失败时清掉视频缩略图，可从视频重新生成
         await run_noninterruptible_sync(thumbnail_file.unlink, missing_ok=True)
 
     created_at = await run_noninterruptible_sync(

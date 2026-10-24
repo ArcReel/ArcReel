@@ -427,7 +427,7 @@ def _restore_file(path: Path, present: bool, content: bytes | None) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_bytes(path, content)
     else:
-        path.unlink(missing_ok=True)
+        path.unlink(missing_ok=True)  # hard-delete: rollback -- 回滚时移除事务前不存在的缩略图
 
 
 def paid_video_history_result(

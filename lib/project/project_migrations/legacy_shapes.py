@@ -708,7 +708,7 @@ def _relocate_derivative_sheet(work: _Work, derivative: object, owner: str, kept
         os.replace(source, target)
         # 只是收纳目录：非空或删不掉都不影响任何登记。
         with contextlib.suppress(OSError):
-            source.parent.rmdir()
+            source.parent.rmdir()  # hard-delete: infra -- 迁移搬走后的空目录
     derivative[_DERIVATIVE_SHEET_FIELD] = new_rel
     return {normalize_artifact_path(value): normalize_artifact_path(new_rel)}
 

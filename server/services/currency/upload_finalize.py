@@ -114,7 +114,7 @@ async def save_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes: 
         await ensure_faststart(tmp_path)
         await run_sync_transaction(tmp_path.replace, target)
     except BaseException:
-        await asyncio.to_thread(tmp_path.unlink, missing_ok=True)
+        await asyncio.to_thread(tmp_path.unlink, missing_ok=True)  # hard-delete: temp -- 上传临时文件
         raise
 
 
@@ -126,7 +126,7 @@ async def stage_uploaded_video_stream(src: BinaryIO, target: Path, *, max_bytes:
         await save_uploaded_video_stream(src, staged_file, max_bytes=max_bytes)
         return staged_file
     except BaseException:
-        await asyncio.to_thread(staged_file.unlink, missing_ok=True)
+        await asyncio.to_thread(staged_file.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
         raise
 
 
@@ -142,7 +142,7 @@ def write_bytes_atomic(content: bytes, target: Path) -> None:
         tmp_path.write_bytes(content)
         tmp_path.replace(target)
     except BaseException:
-        tmp_path.unlink(missing_ok=True)
+        tmp_path.unlink(missing_ok=True)  # hard-delete: temp -- 上传临时文件
         raise
 
 
@@ -155,7 +155,7 @@ def stage_uploaded_bytes(content: bytes, target: Path) -> Path:
         staged_file.write_bytes(content)
         return staged_file
     except BaseException:
-        staged_file.unlink(missing_ok=True)
+        staged_file.unlink(missing_ok=True)  # hard-delete: temp -- 上传暂存文件
         raise
 
 
@@ -248,7 +248,7 @@ async def commit_manual_storyboard_upload(
     try:
         return await run_noninterruptible_sync(_commit)
     finally:
-        await asyncio.to_thread(staged_image.unlink, missing_ok=True)
+        await asyncio.to_thread(staged_image.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
 
 
 ManualVideoMetadataCommit = Callable[[str | None, Callable[[Path], None]], None]
@@ -295,6 +295,7 @@ async def commit_manual_video_upload(
 
                 with formal_write_transaction(thumbnail_file):
                     if selected_thumbnail is None:
+                        # hard-delete: derived -- 新上传的视频没有缩略图时清掉旧缩略图
                         thumbnail_file.unlink(missing_ok=True)
                     else:
                         thumbnail_file.parent.mkdir(parents=True, exist_ok=True)
@@ -323,8 +324,8 @@ async def commit_manual_video_upload(
         return await run_noninterruptible_sync(_commit)
     finally:
         await asyncio.gather(
-            asyncio.to_thread(staged_video.unlink, missing_ok=True),
-            asyncio.to_thread(staged_thumbnail.unlink, missing_ok=True),
+            asyncio.to_thread(staged_video.unlink, missing_ok=True),  # hard-delete: temp -- 上传暂存文件
+            asyncio.to_thread(staged_thumbnail.unlink, missing_ok=True),  # hard-delete: temp -- 上传暂存文件
         )
 
 
