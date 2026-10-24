@@ -88,7 +88,14 @@ async def chain_project(session_factory, tmp_path: Path, monkeypatch) -> Path:
     project_dir = tmp_path / "projects" / "demo"
     (project_dir / "scripts").mkdir(parents=True)
     (project_dir / "project.json").write_text(
-        json.dumps({"content_mode": "narration", "default_duration": 8, "aspect_ratio": "9:16"}),
+        json.dumps(
+            {
+                "content_mode": "narration",
+                "default_duration": 8,
+                "aspect_ratio": "9:16",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        ),
         encoding="utf-8",
     )
     (project_dir / "scripts" / "episode_1.json").write_text(

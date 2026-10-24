@@ -44,7 +44,7 @@ from lib.episode.episode_sources import (
     is_whole_source_file_path,
     whole_source_files,
 )
-from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD
+from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, normalize_asset_name
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, END_FRAME_RESOURCE_TYPE
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.script_models import get_generated_assets
@@ -120,6 +120,7 @@ _RENDER_RECORD_SUFFIX = ".render.json"
 _ITEM_ARRAYS = (("segments", "segment_id"), ("scenes", "scene_id"), ("shots", "shot_id"), ("video_units", "unit_id"))
 _ASSET_TYPE_BY_BUCKET = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
 _SEGMENT_RESOURCE_TYPES = frozenset({"storyboards", "videos", "audio", END_FRAME_RESOURCE_TYPE})
+_ASSET_RESOURCE_TYPES = frozenset({*_ASSET_TYPE_BY_BUCKET, CHARACTER_DERIVATIVE_RESOURCE_TYPE})
 #: 每集草稿目录里由工作流持有的文件：隔离草稿，以及分集视图会读取的脚本规划（含旧版 ``.md``）。
 _EPISODE_DRAFT_FILENAMES = tuple(
     dict.fromkeys(
@@ -233,7 +234,9 @@ class ReferenceIndex:
         return self.reference_of(rel).role
 
     def contains_resource(self, resource_type: str, resource_id: str) -> bool:
-        """资源（``lib/project/resource_paths`` 的资源类型 + 资源 ID）是否仍在项目数据中。"""
+        """资源（``lib/project/resource_paths`` 的资源类型 + 资源 ID）是否仍在项目数据中；资产名按 NFC 比对。"""
+        if resource_type in _ASSET_RESOURCE_TYPES:
+            resource_id = normalize_asset_name(resource_id)
         return (resource_type, resource_id) in self._resources
 
     # ------------------------------------------------------------------ 构建
@@ -290,7 +293,7 @@ class ReferenceIndex:
                 if not isinstance(asset, Mapping):
                     continue
                 owner = FileOwner("asset", id=str(name), asset_type=asset_type)
-                self._resources.add((spec.bucket_key, str(name)))
+                self._resources.add((spec.bucket_key, normalize_asset_name(str(name))))
                 for field in (spec.sheet_field, *spec.extra_string_fields, *spec.original_image_fields):
                     for value in _as_list(asset.get(field)):
                         self._mark(value, FileRole.REFERENCED, owner)
@@ -298,7 +301,9 @@ class ReferenceIndex:
                 for derivative_name, derivative in (
                     (derivatives or {}).items() if isinstance(derivatives, Mapping) else ()
                 ):
-                    self._resources.add((CHARACTER_DERIVATIVE_RESOURCE_TYPE, f"{name}/{derivative_name}"))
+                    self._resources.add(
+                        (CHARACTER_DERIVATIVE_RESOURCE_TYPE, normalize_asset_name(f"{name}/{derivative_name}"))
+                    )
                     if isinstance(derivative, Mapping):
                         self._mark(derivative.get(spec.sheet_field), FileRole.REFERENCED, owner)
 
@@ -334,7 +339,8 @@ class ReferenceIndex:
                 self._item_episodes[item_id] = episode
                 if array_key == "video_units":
                     owner = FileOwner("reference_unit", id=item_id, episode=episode)
-                    self._resources.add(("reference_videos", item_id))
+                    # 视频单元也有自己的旁白配音。
+                    self._resources.update({("reference_videos", item_id), ("audio", item_id)})
                 else:
                     owner = FileOwner("segment", id=item_id, episode=episode)
                     self._resources.update((resource_type, item_id) for resource_type in _SEGMENT_RESOURCE_TYPES)

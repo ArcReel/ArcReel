@@ -30,6 +30,13 @@ function recordTitle(record: TrashRecord): string {
   return record.object.path ?? record.files[0] ?? record.id;
 }
 
+/** 生成完成时目标已删除的结果：不是谁删的，单独说明来历。 */
+function recordMetaKey(record: TrashRecord): string {
+  return record.object.note === "target_deleted_during_generation"
+    ? "trash_record_meta_target_deleted"
+    : `trash_record_meta_${record.origin}`;
+}
+
 interface PurgeRequest {
   /** 彻底删除的那条记录；清空时为空，与所有恢复中的记录冲突。 */
   recordId?: string;
@@ -174,7 +181,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
                 <div className="flex min-w-0 flex-1 flex-col">
                   <TruncatedText text={recordTitle(record)} className="text-sm" />
                   <span className="text-xs text-muted-foreground">
-                    {t(`trash_record_meta_${record.origin}`, {
+                    {t(recordMetaKey(record), {
                       time: formatShortDateTime(record.deleted_at) ?? record.deleted_at,
                     })}
                     {" · "}

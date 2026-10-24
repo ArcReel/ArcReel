@@ -39,6 +39,7 @@ from lib.backends.providers import CallPurpose, CallType, require_provider_pair
 from lib.billing.ledger import Ledger
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation.deleted_target import trash_result_if_target_deleted
 from lib.generation.video_request_facts import DEFAULT_PLANNED_DURATION_SECONDS
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.path_safety import PathTraversalError, safe_join
@@ -509,6 +510,30 @@ class MediaGenerator:
                 failure.add_note(f"paid video history archival also failed: {archive_failure}")
             raise
 
+    async def _trash_if_target_deleted(
+        self,
+        *,
+        resource_type: str,
+        resource_id: str,
+        staged_file: Path | None,
+        task_id: str | None,
+        target: tuple[str, str] | None = None,
+    ) -> None:
+        """队列任务的产物在费用结算后、正式提交前复核目标仍在项目中，已删除时进回收站并抛出。
+
+        见 :mod:`lib.generation.deleted_target`。没有任务身份或暂存文件的直接调用不复核。
+        """
+        if task_id is None or staged_file is None:
+            return
+        await run_noninterruptible_sync(
+            trash_result_if_target_deleted,
+            self.project_path,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            staged_file=staged_file,
+            target=target,
+        )
+
     def _get_output_path(self, resource_type: str, resource_id: str) -> Path:
         """
         根据资源类型和 ID 推断输出路径
@@ -753,6 +778,12 @@ class MediaGenerator:
                 )
                 call.success(result)
 
+            await self._trash_if_target_deleted(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                staged_file=staged_output_path,
+                task_id=task_id,
+            )
             metadata: dict[str, Any] = {"aspect_ratio": aspect_ratio, **version_metadata}
             if staged_output_path is None:
                 new_version = await run_noninterruptible_sync(
@@ -786,6 +817,7 @@ class MediaGenerator:
         before_submit: Callable[[], Awaitable[None]] | None = None,
         before_commit: Callable[[Path], Awaitable[None]] | None = None,
         commit_staged: Callable[[Path, Path], int | PaidVersionCommit] | None = None,
+        target_resource: tuple[str, str] | None = None,
         **version_metadata,
     ) -> tuple[Path, int]:
         """
@@ -801,6 +833,7 @@ class MediaGenerator:
             speed: 语速预留（同步模型忽略）
             task_id: 本次合成所属的生成任务；记账据此回指任务，直接调用（无队列任务）留空
             before_submit: 首次 provider 提交紧前执行一次的异步准入钩子
+            target_resource: 产物所属的资源（资源类型, 资源 ID），缺省为产物自身；它已被删除时产物进回收站
             **version_metadata: 额外元数据
 
         Returns:
@@ -851,6 +884,13 @@ class MediaGenerator:
                     raise RuntimeError("audio backend completed without a regular output file")
                 call.success(result)
 
+            await self._trash_if_target_deleted(
+                resource_type=resource_type,
+                resource_id=resource_id,
+                staged_file=staged_path,
+                task_id=task_id,
+                target=target_resource,
+            )
             if before_commit is not None:
                 await before_commit(staged_path)
             commit = commit_staged
@@ -1147,6 +1187,12 @@ class MediaGenerator:
             _collect_result_warnings(warnings, result)
             call.success(result, usage=backend_metered_usage(video_backend, sent_request[0], result))
 
+        await self._trash_if_target_deleted(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            staged_file=staged_output_path,
+            task_id=task_id,
+        )
         await self._prepare_formal_video_commit(
             resource_type=resource_type,
             resource_id=resource_id,
@@ -1315,6 +1361,12 @@ class MediaGenerator:
 
         # backend.resume_video 已将付费结果下载到请求路径。正式媒体请求写入 staging，随后由
         # commit callback 在一个受控事务内保存历史并决定是否选中；非正式请求直接追加版本。
+        await self._trash_if_target_deleted(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            staged_file=staged_output_path,
+            task_id=task_id,
+        )
         await self._prepare_formal_video_commit(
             resource_type=resource_type,
             resource_id=resource_id,

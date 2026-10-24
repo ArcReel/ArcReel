@@ -2697,6 +2697,7 @@ export default {
   'trash_empty_state_description': "Files you delete in the file view appear here and are kept for {{days}} days.",
   'trash_record_meta_user': "Deleted by you at {{time}}",
   'trash_record_meta_agent': "Deleted by the Agent at {{time}}",
+  'trash_record_meta_target_deleted': "Generated at {{time}} after its target was deleted",
   'trash_restore': "Restore",
   'trash_restored': "{{name}} restored to its original location",
   'trash_restored_renamed': "A file already exists at the original location, so {{name}} was restored as {{path}}",
