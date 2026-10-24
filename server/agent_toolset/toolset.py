@@ -5,6 +5,7 @@ from __future__ import annotations
 from server.agent_toolset.content_read import CONTENT_READ_TOOLS
 from server.agent_toolset.declaration import AgentToolDeclaration, Blocked, ToolDeclaration
 from server.agent_toolset.edit_timelines import EDIT_TIMELINE_TOOLS
+from server.agent_toolset.end_frames import END_FRAME_TOOLS
 from server.agent_toolset.episode_planning import EPISODE_PLANNING_TOOLS
 from server.agent_toolset.final_cuts import FINAL_CUT_TOOLS
 from server.agent_toolset.generation_batches import GENERATION_BATCH_TOOLS
@@ -28,6 +29,7 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *MEDIA_GENERATION_TOOLS,
     *GRID_STORYBOARD_TOOLS,
     *VIDEO_VERSION_TOOLS,
+    *END_FRAME_TOOLS,
     *VIDEO_REVIEW_TOOLS,
     *EDIT_TIMELINE_TOOLS,
     *FINAL_CUT_TOOLS,

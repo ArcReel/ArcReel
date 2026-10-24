@@ -64,6 +64,12 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
   结构与问题码见 `.claude/references/generation-results.md`。
 - `succeeded` 只证明任务产出，不证明画面合格；整集、批量和单项都按「生成后审阅与有限纠正」验收成功产物，复用的现行产物也须有同版本的审片报告，不能因批次已结束跳过审片。
 
+### Ending-frame guidance
+
+For storyboard video, use `set_video_end_frame({"script":"episode_1.json", "shot_id":"E1S01", "source_path":"storyboards/ending.png"})` to snapshot an inspected project image as the shot's ending frame. Explicit `source_path: null` clears it. Check `get_video_capabilities` first; reference-video mode does not accept this control. This sets guidance for the next generation, not an existing video's last frame.
+
+Choose an attainable continuation of the starting image, preserving identity, support, props and screen direction. A planned endpoint described only in prose is not image conditioning. Verify the resulting request receipt includes the actual ending image in `media_inputs`; then review the full intermediate motion and the cut into the next shot. Endpoint agreement alone is not a passing motion review.
+
 ### 切换 current 版本
 
 视频单元的 current 版本决定预览、剪辑与导出用哪一版。挑更好的版本时调用

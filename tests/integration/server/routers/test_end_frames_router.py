@@ -548,7 +548,7 @@ class TestPersistFailureRestoresSnapshot:
         必须跳过回滚——否则会用陈旧字节覆盖对方刚成功落盘的内容。"""
         c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
-        key = ("demo", "episode_1.json", "E1S01")
+        key = (str(pm.get_project_path("demo")), "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(32, 32))
 
         _fail_first_persist(script_io)
@@ -564,7 +564,7 @@ class TestPersistFailureRestoresSnapshot:
         c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
-        key = ("demo", "episode_1.json", "E1S01")
+        key = (str(pm.get_project_path("demo")), "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(40, 40))
 
         _fail_first_persist(script_io)
@@ -585,7 +585,7 @@ class TestPersistFailureRestoresSnapshot:
         c, pm = end_frames_client
         _upload(c, _img_bytes("PNG"))
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
-        key = ("demo", "episode_1.json", "E1S01")
+        key = (str(pm.get_project_path("demo")), "episode_1.json", "E1S01")
 
         _fail_first_persist(script_io)
         _inject_concurrent_takeover_before_nth_load(script_io, key, snapshot, None, n=3)
@@ -602,7 +602,7 @@ class TestPersistFailureRestoresSnapshot:
         互相看不见——回滚会误判「无人接手」，用旧字节覆盖对方已成功落盘的内容。"""
         c, pm = end_frames_client
         snapshot = pm.get_project_path("demo") / END_FRAME_REL
-        normalized_key = ("demo", "episode_1.json", "E1S01")
+        normalized_key = (str(pm.get_project_path("demo")), "episode_1.json", "E1S01")
         concurrent_bytes = _img_bytes("PNG", size=(48, 48))
 
         _fail_first_persist(script_io)

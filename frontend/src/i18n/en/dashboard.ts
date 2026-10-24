@@ -2390,6 +2390,7 @@ export default {
   'tool_name_generate_grid': 'Generate multi-grid storyboard',
   'tool_name_split_grids': 'Split multi-grid storyboard into cells',
   'tool_name_generate_videos': 'Generate videos',
+  'tool_name_set_video_end_frame': 'Set ending frame',
   'tool_name_select_video_version': 'Select video version',
   'tool_name_inspect_video_units': 'Inspect video units',
   'tool_name_video_correction_memory': 'Manage video correction history',

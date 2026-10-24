@@ -38,6 +38,7 @@ export const ARCREEL_TOOL_SUMMARIES: Record<string, Summarize> = {
   generate_videos: (i, f) => f.items(f.record(i.target).ids) || f.script(i.script),
   generate_grid: (i, f) => f.items(i.scene_ids) || f.script(i.script),
   split_grids: (i, f) => f.count("tool_summary_grids", i.grid_ids),
+  set_video_end_frame: (i, f) => f.item(i.shot_id),
   select_video_version: (i, f) => f.join(f.item(i.unit_id), f.version(i.version)),
   inspect_video_units: (i, f) => f.items(i.unit_ids),
   video_correction_memory: (i, f) => f.item(f.record(i.command).unit_id),

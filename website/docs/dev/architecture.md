@@ -208,6 +208,8 @@ flowchart TD
 
 Agent 工具在 `server/agent_toolset/` 只声明一次：内嵌会话经 `server/agent_runtime/arcreel_mcp.py` 构建进程内 MCP server，外部 Agent 经远程 MCP，两侧都从这份声明投影（[ADR 0087](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0087-agent-toolset-single-declaration.md)）。`tests/integration/server/agent_toolset/test_host_consistency.py` 校验两侧宿主注册的工具集合与声明相同。
 
+分镜图生视频可通过 `set_video_end_frame` 选择项目内已有图片作为尾帧，显式传 `source_path: null` 清除。Agent 与 Web 共用 `server/services/project/end_frame.py` 的快照、路径校验、剧本锁与失败回滚；工具绑定调用方的项目管理器，不从模型参数选择项目根目录。设置只影响下一次生成，不会修改现有视频。参考生视频不接受尾帧；生成前核对模型能力，生成后核对请求实际包含尾帧，并审阅中间运动。
+
 ### 5.4 会话串行 {#session-actor}
 
 每个会话的 `ClaudeSDKClient` 由该会话专属的 `SessionActor` task 独占，query、interrupt、撤回排队消息与 disconnect 都经命令队列投递，在 actor 内串行执行。新增会话操作同样走命令队列，不直接持有 client（[ADR 0028](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0028-session-actor-single-task-serialization.md)）。

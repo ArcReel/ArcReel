@@ -52,6 +52,7 @@ from server.agent_toolset.edit_timelines import (
     RESTORE_REVISION,
 )
 from server.agent_toolset.embedded import embedded_server
+from server.agent_toolset.end_frames import SET_VIDEO_END_FRAME
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
 from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
@@ -95,6 +96,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "edit_source_text": {"filename": "novel.txt", "text": "第一章\n改写"},
     "get_workflow_plan": {"episode_id": 1},
     "get_video_capabilities": {},
+    "set_video_end_frame": {"script": "episode_1.json", "shot_id": "E1S01", "source_path": "storyboards/end.png"},
     "get_prompt_preview": {"script": "episode_1.json", "item_id": "E1S01"},
     "get_generation_batch": {"batch_id": "batch-absent"},
     "cancel_generation_batch": {"batch_id": "batch-absent"},
@@ -548,6 +550,7 @@ _PROBLEM_ON_SAMPLE = frozenset(
         PATCH_EPISODE_SCRIPT.name,
         SPLIT_GRIDS.name,
         SELECT_VIDEO_VERSION.name,
+        SET_VIDEO_END_FRAME.name,
         INSPECT_VIDEO_UNITS.name,
         READ_TIMELINE.name,
         EDIT_TIMELINE.name,
