@@ -29,6 +29,7 @@ from pwdlib import PasswordHash
 from pydantic import BaseModel, ConfigDict
 
 from lib import PROJECT_ROOT
+from lib.infra.api_errors import ApiError
 
 logger = logging.getLogger(__name__)
 
@@ -467,3 +468,15 @@ async def get_current_user(
 
 # Type aliases for FastAPI dependency injection
 CurrentUser = Annotated[CurrentUserInfo, Depends(get_current_user)]
+
+#: 内嵌 Agent 调用本地服务所用令牌的 sub（见 ``server/agent_runtime/options_assembler.py``）。
+EMBEDDED_AGENT_SUB = "embedded-agent"
+
+
+async def reject_embedded_agent(user: CurrentUser) -> None:
+    """不可恢复的操作只属于创作者：拒绝内嵌 Agent 的令牌，Agent 在沙箱里直接调 HTTP 也绕不过。
+
+    鉴权关闭时所有请求都是同一个匿名用户、调用方不可区分，这道检查随之失效，与其余身份限制相同。
+    """
+    if user.sub == EMBEDDED_AGENT_SUB:
+        raise ApiError("creator_only_operation", status_code=403)

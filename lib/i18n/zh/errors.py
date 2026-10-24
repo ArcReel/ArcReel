@@ -771,6 +771,7 @@ MESSAGES = {
     "file_view_delete_not_allowed": "{path} 不能在文件视图里删除：只有未引用的文件可以在这里删除，在用的文件请到它所属的界面处理",
     "file_view_delete_source_in_episodes": "{path} 是未纳入整本源文的源文件，请到「分集」视图处理",
     "trash_record_not_found": "项目回收站里没有这条删除记录，可能已被恢复或清除，刷新后再试",
+    "creator_only_operation": "这项操作不可恢复，只能由创作者在界面上执行，Agent 不能调用",
     "trash_restore_unsupported": "这条删除记录暂时无法恢复",
     "trash_restore_target_blocked": "无法恢复到 {path}：路径上的目录已被替换为链接",
 }

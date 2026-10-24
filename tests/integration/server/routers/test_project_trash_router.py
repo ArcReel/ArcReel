@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
+from server.auth import EMBEDDED_AGENT_SUB, CurrentUserInfo, get_current_user
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.routers import file_view
@@ -228,6 +229,19 @@ def test_purge_and_empty_remove_records(trash_client):
     assert trash_client.delete(TRASH).json() == {"purged": 1}
     assert _records(trash_client) == []
     assert trash_client.post(f"{TRASH}/{first['id']}/restore").status_code == 404
+
+
+def test_embedded_agent_token_cannot_purge_or_empty(trash_client):
+    """内嵌 Agent 持有本地服务的令牌：彻底删除与清空在服务端拒绝它，不只靠不提供 MCP 工具。"""
+    trash_client.delete(FILES, params={"path": "notes.txt"})
+    [record] = _records(trash_client)
+    trash_client.app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
+        id="default", sub=EMBEDDED_AGENT_SUB, role="admin"
+    )
+
+    assert trash_client.delete(f"{TRASH}/{record['id']}").status_code == 403
+    assert trash_client.delete(TRASH).status_code == 403
+    assert [r["id"] for r in _records(trash_client)] == [record["id"]]
 
 
 def test_records_are_kept_until_the_retention_period_ends(trash_client, trash_project_dir):

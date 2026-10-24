@@ -66,4 +66,7 @@ export const ARCREEL_TOOL_SUMMARIES: Record<string, Summarize> = {
   plan_episodes: () => "",
   reset_episode_planning: (i, f) => f.episode(i.episode_id),
   complete_script_plan_rebuild: (i, f) => f.episode(i.episode_id),
+  delete_project_file: (i, f) => f.path(i.path),
+  list_trash_records: () => "",
+  restore_trash_record: () => "",
 };
