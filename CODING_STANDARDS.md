@@ -12,6 +12,7 @@ ArcReel 的代码规范：审查 diff 时需要判断、工具替代不了的项
 | 规范 | 适用路径 |
 |---|---|
 | [`docs/standards/backend.md`](docs/standards/backend.md) | `lib/**`, `server/**`, `scripts/**`, `alembic/**`, `packages/**` |
+| [`docs/standards/copy.md`](docs/standards/copy.md) | `frontend/src/i18n/zh/**`, `lib/i18n/zh/**`, `website/docs/**`, `README.md`, `CONTRIBUTING.md`, `docs/**`, `**/CLAUDE.md` |
 | [`docs/standards/docs.md`](docs/standards/docs.md) | `website/docs/**`, `README.md`, `README.en.md`, `CONTRIBUTING.md` |
 | [`docs/standards/frontend.md`](docs/standards/frontend.md) | `frontend/src/**` |
 | [`docs/standards/general.md`](docs/standards/general.md) | `**` |

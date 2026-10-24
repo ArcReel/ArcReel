@@ -56,7 +56,7 @@ describe("CancelConfirmDialog", () => {
     rerenderDialog(true);
     const back = screen.getByRole("button", { name: "返回" });
     expect(back).toBeDisabled();
-    expect(screen.getByRole("button", { name: "取消中..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "取消中…" })).toBeDisabled();
     act(() => screen.getByRole("button", { name: "elsewhere" }).focus());
     expect(onDismiss).not.toHaveBeenCalled();
 

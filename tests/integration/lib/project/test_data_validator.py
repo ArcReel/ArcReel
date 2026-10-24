@@ -74,7 +74,7 @@ class TestDataValidator:
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
-        assert any("字段类型错误: style 应为字符串" in error for error in result.errors)
+        assert any("字段类型错误：style 应为字符串" in error for error in result.errors)
 
     @pytest.mark.parametrize("style", [None, "", " \n"], ids=["absent", "empty", "whitespace"])
     def test_validate_project_rejects_selected_template_without_snapshot(self, tmp_path, style):
@@ -91,7 +91,7 @@ class TestDataValidator:
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
-        assert any("缺少必填字段: style" in error for error in result.errors)
+        assert any("缺少必填字段：style" in error for error in result.errors)
 
     @pytest.mark.parametrize("template_id", [0, ["live_cinematic"]], ids=["falsy", "truthy"])
     def test_validate_project_rejects_non_string_template_id(self, tmp_path, template_id):
@@ -105,8 +105,8 @@ class TestDataValidator:
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
-        assert any("字段类型错误: style_template_id 应为字符串" in error for error in result.errors)
-        assert not any("缺少必填字段: style" in error for error in result.errors)
+        assert any("字段类型错误：style_template_id 应为字符串" in error for error in result.errors)
+        assert not any("缺少必填字段：style" in error for error in result.errors)
 
     def test_validate_project_treats_empty_template_id_as_none(self, tmp_path):
         """创建接口按真值判定是否展开模版，空串 id 与 null 同义，不要求快照。"""
@@ -152,7 +152,7 @@ class TestDataValidator:
 
         assert not result.valid
         # title 完全缺失 → "缺少必填字段",区别于"字段类型错误"
-        assert any("缺少必填字段: title" in error for error in result.errors)
+        assert any("缺少必填字段：title" in error for error in result.errors)
         assert any("content_mode" in error for error in result.errors)
         assert any("角色 'A' 数据格式错误" in error for error in result.errors)
         # 描述为空的场景 / 道具不报错
@@ -170,8 +170,8 @@ class TestDataValidator:
         result = DataValidator(projects_dir=str(tmp_path / "projects")).validate_project("demo")
 
         assert not result.valid
-        assert any("字段类型错误: title 应为字符串" in error for error in result.errors)
-        assert not any("缺少必填字段: title" in error for error in result.errors)
+        assert any("字段类型错误：title 应为字符串" in error for error in result.errors)
+        assert not any("缺少必填字段：title" in error for error in result.errors)
 
     def test_validate_project_allows_empty_title(self, tmp_path):
         # title 为空字符串属于合法状态:前端会以「未命名项目」i18n 兜底,
@@ -1305,7 +1305,7 @@ class TestGenerationModeValidation:
         del payload["generation_mode"]
         result = self._validate(tmp_path, payload)
         assert not result.valid
-        assert any("缺少必填字段: generation_mode" in e for e in result.errors)
+        assert any("缺少必填字段：generation_mode" in e for e in result.errors)
 
     @pytest.mark.parametrize("mode", ["grid", "single", "bogus"])
     def test_non_binary_route_rejected(self, tmp_path, mode):

@@ -141,7 +141,7 @@ describe("ProjectsPage", () => {
     vi.spyOn(API, "listProjects").mockImplementation(() => new Promise(() => {}));
 
     renderPage();
-    expect(screen.getByRole("status")).toHaveTextContent("加载项目列表...");
+    expect(screen.getByRole("status")).toHaveTextContent("加载项目列表…");
   });
 
   it("explains a failed load instead of showing an empty lobby", async () => {
@@ -441,7 +441,7 @@ describe("ProjectsPage", () => {
     vi.spyOn(API, "importProject").mockResolvedValue(
       importResult("imported-demo", {
         auto_fixed: [{ code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" }],
-        warnings: [{ code: "validation_warning", message: "发现未识别的附加文件/目录: extras" }],
+        warnings: [{ code: "validation_warning", message: "发现未识别的附加文件/目录：extras" }],
       }),
     );
 

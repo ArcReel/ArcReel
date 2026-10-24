@@ -167,13 +167,13 @@ describe("UsageRecordsSection records", () => {
     };
     renderUsageRecordsSection();
 
-    expect(await screen.findByText("1–20 / 73")).toBeInTheDocument();
+    expect(await screen.findByText("1～20 / 73")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "上一页" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "下一页" })).toBeEnabled();
 
     await userEvent.click(screen.getByRole("button", { name: "下一页" }));
 
-    expect(await screen.findByText("21–40 / 73")).toBeInTheDocument();
+    expect(await screen.findByText("21～40 / 73")).toBeInTheDocument();
   });
 
   it("puts running tasks and task-less pending calls above the finished records", async () => {
@@ -278,7 +278,7 @@ describe("UsageRecordsSection records", () => {
     renderUsageRecordsSection("section=usage&u_status=pending");
 
     expect(await screen.findAllByText("剧本生成")).toHaveLength(1);
-    expect(screen.queryByText(/1–0 \/ 1/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1～0 \/ 1/)).not.toBeInTheDocument();
   });
 
   it("polls pending calls every 3 seconds only while the in-progress block is non-empty", async () => {

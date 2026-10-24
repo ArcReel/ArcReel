@@ -233,7 +233,7 @@ describe("EditTimelineView", () => {
 
     fireEvent.click(within(issues).getByText("c3：素材已更新，暂用完整视频"));
     const inspector = screen.getByTestId("edit-clip-inspector");
-    expect(within(inspector).getByRole("deletion")).toHaveTextContent("0.5–2s");
+    expect(within(inspector).getByRole("deletion")).toHaveTextContent("0.5～2s");
     expect(inspector).toHaveTextContent("（素材共 5s）");
     expect(inspector).toHaveTextContent("素材已更新，暂用完整视频");
     expect(inspector).toHaveTextContent("保留推门动作");
@@ -563,11 +563,11 @@ describe("EditTimelineView", () => {
     renderView();
 
     const span = await screen.findByTestId("edit-narration-c1");
-    expect(span).toHaveAttribute("title", "U1 的旁白，挂在 c1 上：0–4.5s");
+    expect(span).toHaveAttribute("title", "U1 的旁白，挂在 c1 上：0～4.5s");
     expect(await screen.findByTestId("edit-player-subtitle")).toHaveTextContent("门后传来脚步声。");
     expect(screen.getByTestId("edit-bgm-b1")).toHaveAttribute(
       "title",
-      "雨夜：0–7.8s，音量 0.25，淡入 1s，淡出 1s",
+      "雨夜：0～7.8s，音量 0.25，淡入 1s，淡出 1s",
     );
     expect(screen.getByText("转场效果以成片为准")).toBeInTheDocument();
 

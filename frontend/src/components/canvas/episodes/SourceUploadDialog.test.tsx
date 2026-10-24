@@ -120,7 +120,7 @@ describe("SourceUploadDialog", () => {
       "将成为第 3 集",
     ]);
 
-    fireEvent.click(screen.getByRole("button", { name: "添加为第 2–3 集" }));
+    fireEvent.click(screen.getByRole("button", { name: "添加为第 2～3 集" }));
 
     await waitFor(() => expect(onUploaded).toHaveBeenCalledWith({ wholeSourceFiles: [], episodes: [3, 2] }));
     expect(upload.mock.calls.map((call) => [call[2].name, call[4]?.role, call[4]?.insertAt])).toEqual([
@@ -279,7 +279,7 @@ describe("SourceUploadDialog", () => {
     await pickKind("这批文件的源文件类型", "剧本");
     await pickKind("二.txt 的源文件类型", "小说");
     fireEvent.change(screen.getByLabelText("选择文件"), { target: { files: [txt("三.txt")] } });
-    fireEvent.click(screen.getByRole("button", { name: "添加为第 2–4 集" }));
+    fireEvent.click(screen.getByRole("button", { name: "添加为第 2～4 集" }));
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(upload.mock.calls.map((call) => [call[2].name, call[4]?.sourceKind])).toEqual([

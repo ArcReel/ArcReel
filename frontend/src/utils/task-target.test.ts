@@ -225,7 +225,7 @@ describe("describeTaskFailure", () => {
         error_params: { provider_reason: "InvalidParameter" },
       }),
     );
-    expect(text).toBe('分镜 "未命名集 · S01" 生成失败：上游返回 {{reason}}（供应商拒因：InvalidParameter）');
+    expect(text).toBe('分镜「未命名集 · S01」生成失败：上游返回 {{reason}}（供应商拒因：InvalidParameter）');
   });
 
   it("keeps the plain text when there is no provider reason", () => {

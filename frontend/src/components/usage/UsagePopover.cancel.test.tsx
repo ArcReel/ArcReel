@@ -210,7 +210,7 @@ describe("UsagePopover cancellation", () => {
   it("offers no cancel action on a task that has started running", () => {
     openWithTasks([activeTask({ task_id: "t-run", status: "running" })]);
 
-    expect(screen.getByText("生成中...")).toBeInTheDocument();
+    expect(screen.getByText("生成中…")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "取消此任务" })).not.toBeInTheDocument();
   });
 

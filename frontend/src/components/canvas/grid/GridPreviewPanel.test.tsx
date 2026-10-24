@@ -183,7 +183,7 @@ describe("GridPreviewPanel occupancy", () => {
 
     useTasksStore.setState({ tasks: [makeTask({ status: "running" })] });
 
-    const regenBtn = await screen.findByText("生成中...");
+    const regenBtn = await screen.findByText("生成中…");
     expect(regenBtn).toBeDisabled();
   });
 
