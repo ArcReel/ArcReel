@@ -151,33 +151,40 @@ export function EditTimelineView({
   // 刷新期间沿用上一次的列表，避免每次项目变更都闪回加载态。
   const timelines = list && "value" in list ? list.value : null;
 
-  // 列表到了才能判断链接指向的剪辑时间线还在不在：在就切过去，不在就提示并放弃这次定位。
+  // 列表到了才能判断链接指向的剪辑时间线还在不在：在就直接选中它，不在就提示并放弃这次定位。
   const jumpTimelineId = jump?.timelineId ?? null;
-  const jumpTimelineKnown = timelines !== null && jumpTimelineId !== null && timelines.some((item) => item.id === jumpTimelineId);
+  const jumpTarget =
+    timelines !== null && jumpTimelineId !== null && timelines.some((item) => item.id === jumpTimelineId)
+      ? jumpTimelineId
+      : null;
   // 沿用中的旧列表可能还没有刚新建的那条，只按本轮读到的列表判定「不存在」。
   const listFresh = list?.key === listKey;
+  // react-doctor-disable-next-line react-doctor/no-effect-chain -- 地址栏的定位指令与异步读到的列表齐备后才能判定目标不存在，需要提示一次，提示是副作用只能放在 effect
   useEffect(() => {
     if (!jump || !timelines) return;
     if (timelines.length === 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 没有剪辑时间线可定位，作废这次定位
-      setJump(null);
+      // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- 定位指令来自地址栏、列表异步到达，两者齐备时才能判定作废
+      setJump(null); // eslint-disable-line react-hooks/set-state-in-effect -- 没有剪辑时间线可定位，作废这次定位
       return;
     }
-    if (jumpTimelineId === null) return;
-    if (jumpTimelineKnown) {
-      setChosenId(jumpTimelineId);
-    } else if (listFresh) {
+    if (jumpTimelineId !== null && jumpTarget === null && listFresh) {
       useAppStore.getState().pushToast(t("edit_view_link_timeline_missing"), "warning");
+      // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- 与上面的提示同属一次性通知：目标不存在时提示一次并作废定位
       setJump(null);
     }
-  }, [jump, jumpTimelineId, jumpTimelineKnown, listFresh, timelines, t]);
-  const handleJumpApplied = useCallback(() => setJump(null), []);
+  }, [jump, jumpTimelineId, jumpTarget, listFresh, timelines, t]);
+  // 定位完成后把链接那条记为选中，此后标签不随定位指令清空而回落。
+  const handleJumpApplied = useCallback(() => {
+    if (jumpTarget !== null) setChosenId(jumpTarget);
+    setJump(null);
+  }, [jumpTarget]);
   const selectedId =
-    timelines && chosenId && timelines.some((item) => item.id === chosenId)
+    jumpTarget ??
+    (timelines && chosenId && timelines.some((item) => item.id === chosenId)
       ? chosenId
       : timelines
         ? pickDefaultTimeline(timelines)
-        : null;
+        : null);
   const selected = timelines?.find((item) => item.id === selectedId);
 
   // 每次项目变更都重新读取：读取结果还取决于视频单元的 current 版本，不只取决于修订。

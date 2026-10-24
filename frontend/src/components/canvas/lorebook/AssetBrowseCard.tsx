@@ -154,6 +154,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     } finally {
+      // react-doctor-disable-next-line react-doctor/no-unowned-async-error-clear -- 上传在途时 busy 禁用入口并在开头拦截，同一卡片不会有更新的上传共享这个标志；错误走提示，不存本地 state
       setUploading(false);
     }
   };

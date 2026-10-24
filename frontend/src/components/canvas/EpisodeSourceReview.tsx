@@ -55,6 +55,7 @@ function GuideContent({ meta }: { meta: EpisodeMeta | undefined }) {
       {beats.length > 0 && (
         <ol className="flex flex-col gap-2.5">
           {beats.map((beat, index) => (
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 节拍是只读的有序文本，不重排不增删、无行内状态，位置即身份，文本可能重复不能作 key
             <li key={index} className="flex gap-2.5 text-sm leading-relaxed">
               <span aria-hidden className="w-4 shrink-0 text-right font-semibold text-primary tabular-nums">
                 {index + 1}

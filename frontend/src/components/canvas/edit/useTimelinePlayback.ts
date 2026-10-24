@@ -369,6 +369,7 @@ export function useTimelinePlayback(
     const pool = audioPool.current;
     const wanted = new Set<string>();
     for (const placement of audio) {
+      // react-doctor-disable-next-line react-doctor/no-pass-data-to-parent -- audioUrl 是调用方给的纯取址函数，不是上报回调；本 effect 同步的是 Audio 元素池这一外部资源
       const url = audioUrl(placement);
       if (!url) continue;
       wanted.add(placement.id);

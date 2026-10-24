@@ -172,6 +172,7 @@ export function EpisodesView({ projectName }: { projectName: string }) {
     const header = episodeHeaders.current.get(scrollTarget.episode);
     if (header === undefined) return;
     scrolledTarget.current = scrollTarget;
+    // react-doctor-disable-next-line react-doctor/no-adjust-state-on-prop-change -- 要等原文渲染出这一集的标题节点才能滚动，当前集随这次滚动一起更新，与 locate 同一做法
     setCurrent(scrollTarget.episode);
     scrollIntoViewTop(header);
   }, [view, scrollTarget, setCurrent]);

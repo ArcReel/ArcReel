@@ -879,6 +879,7 @@ export function ShotDetail({
                 <p className="mb-2 text-xs text-muted-foreground">{t("detail_legacy_dialogue_hint")}</p>
                 <ul className="flex flex-col gap-1.5">
                   {legacyDialogue.map((d, i) => (
+                    // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 旧版对白只读展示、只能整体清空，不重排增删，行内无状态，条目没有 ID
                     <li key={i} className="flex items-start gap-2 text-sm">
                       <TruncatedText text={d.speaker} className="w-20 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1 wrap-break-word whitespace-pre-wrap">{d.line}</span>

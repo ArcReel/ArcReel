@@ -101,7 +101,12 @@ export function VersionTimeMachine({
   const [currentVersion, setCurrentVersion] = useState(0);
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
-  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
+  // 预览选中态记在所属资源身份与版本指纹之下：资源或其版本改变后不沿用另一份资源的选中
+  const selectionScopeOf = (fingerprint: number | null) =>
+    JSON.stringify([projectName, resourceType, resourceId, fingerprint]);
+  const selectionScope = selectionScopeOf(resourceFp);
+  const [selection, setSelection] = useState<{ scope: string; version: number } | null>(null);
+  const selectedVersion = selection?.scope === selectionScope ? selection.version : null;
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
   const setOpen = (next: boolean) => {
     if (!next && restoringVersion !== null) return;
@@ -119,6 +124,7 @@ export function VersionTimeMachine({
     } catch {
       if (!signal.aborted) setVersions([]);
     } finally {
+      // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中复位；被 abort 时由接管的新一轮加载负责复位
       if (!signal.aborted) setLoading(false);
     }
   }, [projectName, resourceType, resourceId]);
@@ -131,10 +137,6 @@ export function VersionTimeMachine({
     return () => controller.abort();
   }, [open, resourceId, resourceFp, reload, loadVersions]);
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 资源身份或版本改变，预览选中态不沿用另一份资源
-    setSelectedVersion(null);
-  }, [projectName, resourceId, resourceType, resourceFp]);
 
   async function handleRestore(version: number) {
     // disabled 是响应式的 restoringVersion/busy：面板打开期间资源转为占用中时随之更新，
@@ -155,8 +157,11 @@ export function VersionTimeMachine({
         }
         await onRestore?.(version);
         setReload((current) => current + 1);
-        // 切换结果直接体现在「当前」标记与媒体上，成功不再弹提示
-        setSelectedVersion(version);
+        // 切换结果直接体现在「当前」标记与媒体上，成功不再弹提示；恢复已换了指纹，按最新指纹记选中
+        setSelection({
+          scope: selectionScopeOf(useProjectsStore.getState().getAssetFingerprint(resourcePath)),
+          version,
+        });
       })());
     } catch (err) {
       useAppStore
@@ -226,7 +231,9 @@ export function VersionTimeMachine({
               size="sm"
               className="flex-wrap"
               value={selectedVersion != null ? [String(selectedVersion)] : []}
-              onValueChange={(next: string[]) => setSelectedVersion(next[0] ? Number(next[0]) : null)}
+              onValueChange={(next: string[]) =>
+                setSelection(next[0] ? { scope: selectionScope, version: Number(next[0]) } : null)
+              }
             >
               {versions.map((v) => (
                 <ToggleGroupItem key={v.version} value={String(v.version)}>

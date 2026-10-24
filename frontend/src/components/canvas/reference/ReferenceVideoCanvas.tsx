@@ -609,6 +609,7 @@ export function ReferenceVideoCanvas({
       async (unitIds: string[], confirmedDurations: ReadonlyMap<string, number>) => {
       for (const id of unitIds) {
         if (!canEnqueue(id)) continue;
+        // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 有意串行：每次入队前按最新状态复核，让后端依次做去重检查
         await enqueue(id, confirmedDurations.get(id));
       }
     },

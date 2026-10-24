@@ -126,6 +126,7 @@ export function useRenderArtifact(
         setLoadError(errMsg(err));
         return null;
       } finally {
+        // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中复位；被 abort 时由接管的新一轮加载负责复位
         if (!signal.aborted) setLoading(false);
       }
     },
@@ -162,6 +163,7 @@ export function useRenderArtifact(
         if (signal.aborted) return;
         setSubmitError(errMsg(err));
       } finally {
+        // react-doctor-disable-next-line react-doctor/no-loading-flag-reset-outside-finally -- 已在 finally 中复位；被 abort 时取消域已作废，由接管方负责复位
         if (!signal.aborted) setSubmitting(false);
       }
     },

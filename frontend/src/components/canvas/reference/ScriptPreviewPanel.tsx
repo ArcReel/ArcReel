@@ -129,6 +129,7 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           }`}
         >
           {warnings.map((w, i) => (
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 告警是服务端按正文整表派生的只读文本，同一 key 可重复出现，行内无状态
             <li key={`${w.key}-${i}`} className="flex gap-1.5 text-xs leading-relaxed text-warn">
               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
               <span>{w.message}</span>
@@ -166,10 +167,10 @@ export function ScriptPreviewPanel({ projectName, episode, text, lookup }: Scrip
           aria-busy={stale || undefined}
           className={`mt-2 flex flex-col gap-1 text-xs ${stale ? "opacity-45" : ""}`}
         >
-          {utterances.map((u, i) => {
+          {utterances.map((u) => {
             const palette = assetColor(u.kind === "dialogue" ? "character" : "unknown");
             return (
-              <li key={`${u.index}-${i}`} className="flex items-baseline gap-2">
+              <li key={u.index} className="flex items-baseline gap-2">
                 <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
                   {t("script_preview_utterance_badge", { index: u.index })}
                 </span>

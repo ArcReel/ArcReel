@@ -115,8 +115,8 @@ export function EpisodeHead({
             <Tooltip>
               <TooltipTrigger
                 render={
-                  // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 已花与剩余只在提示里，须能用键盘聚焦打开；它没有可执行的动作，不渲染为 button
-                  <span tabIndex={0} className="focus-ring shrink-0 rounded-sm" />
+                  // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex -- 已花与剩余只在提示里，须能用键盘聚焦打开；它没有可执行的动作，不渲染为 button
+                  <span tabIndex={0} className="focus-ring shrink-0 rounded-sm" /> // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- 同一理由见上一行
                 }
               >
                 {t("episode_head_cost", { cost: costSummary.estimate })}

@@ -240,6 +240,7 @@ function InlineViolations({ violations, unitKey }: { violations: ScriptReviewVio
           ? t(speechKey, { unitId: itemIdWithinEpisode(unitKey), location })
           : itemIdsInEpisodeText(v.message);
         return (
+          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 违约由服务端整表算出、没有 ID，同一 code 可重复出现；只读文本、行内无状态
           <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-xs leading-snug text-destructive">
             <OctagonAlert className="mt-px size-3 shrink-0" aria-hidden="true" />
             <span>{message}</span>

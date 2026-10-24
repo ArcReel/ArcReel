@@ -71,6 +71,7 @@ export function AssetOriginalsField({
       await track(
         (async () => {
           for (const file of files) {
+            // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 同一资产的原图逐张写入：保持选择顺序、避免并发改写同一条资产记录，中途失败即停并按已传张数刷新
             await API.uploadFile(projectName, multiple ? "product_ref" : "character_ref", file, name);
             uploaded += 1;
           }

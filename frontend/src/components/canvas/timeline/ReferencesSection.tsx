@@ -164,8 +164,8 @@ export function ReferencesSection({
           <Tooltip>
             <TooltipTrigger
               render={
-                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 失效说明只在提示里，须能用键盘聚焦打开；它没有可执行的动作，不渲染为 button
-                <span tabIndex={0} className="num focus-ring inline-flex items-center gap-1 rounded-full bg-warn/10 px-1.5 py-0.5 text-xs text-warn ring-1 ring-warn/30" />
+                // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex -- 失效说明只在提示里，须能用键盘聚焦打开；它没有可执行的动作，不渲染为 button
+                <span tabIndex={0} className="num focus-ring inline-flex items-center gap-1 rounded-full bg-warn/10 px-1.5 py-0.5 text-xs text-warn ring-1 ring-warn/30" /> // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- 同一理由见上一行
               }
             >
               <AlertTriangle aria-hidden className="size-3" />

@@ -48,6 +48,7 @@ export function usePromptAuthoringDraft(projectName: string, episode: number) {
   const scopeKey = `${projectName}:${episode}`;
   const [reloadNonce, setReloadNonce] = useState(0);
 
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- await 后的写入先检查 signal.aborted，cleanup 中 abort 作废上一轮
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;

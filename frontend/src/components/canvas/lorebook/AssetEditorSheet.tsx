@@ -82,6 +82,7 @@ export function AssetEditorSheet({
   const present = target?.mode === "create" || live !== undefined;
   const open = target !== null && (present || held);
   useEffect(() => {
+    // react-doctor-disable-next-line react-doctor/no-prop-callback-in-effect -- 资产被外部删除（项目数据刷新）且编辑单元不再保留时才关闭，两个条件分别来自数据推送与子编辑单元，没有单一事件可承载；这里清掉父级的目标，避免同名资产再出现时自动重开
     if (target !== null && !present && !held) onTargetChange(null);
   }, [target, present, held, onTargetChange]);
 
