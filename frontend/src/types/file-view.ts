@@ -51,6 +51,8 @@ export interface TrashRecord {
   origin: "user" | "agent";
   size: number;
   has_snapshot: boolean;
+  /** 无法按原结构恢复、已降级恢复过的记录：只剩结构文件，只能下载。 */
+  download_only: boolean;
 }
 
 export interface TrashListing {
@@ -82,4 +84,14 @@ export interface RestoredFile {
   original: string;
   path: string;
   as_history: boolean;
+}
+
+/** 一次恢复的结果。`object` 是加回后的对象描述，换了名时与记录里的不同。 */
+export interface RestoreResult {
+  object: TrashRecord["object"];
+  restored: RestoredFile[];
+  /** 为真时对象无法按原结构恢复，只加回了其中的文件。 */
+  degraded: boolean;
+  /** 留在记录里、只能下载的结构文件。 */
+  download_only: string[];
 }

@@ -4,7 +4,8 @@
 :func:`purge` 彻底删除、:func:`empty` 清空、:func:`purge_expired` 过期清理。删除记录是
 ``<项目>/.arcreel/trash/<记录 ID>/``：``record.json`` 记对象描述、被删文件、schema 版本、删除时间、发起方与
 占用字节数，被删文件按原相对路径放在 ``files/`` 下；结构删除另把删除前的项目结构文件（:func:`structure_files`）
-按原相对路径复制在 ``snapshot/`` 下，恢复时由 :mod:`lib.project.trash_restore` 的流水线处理。目录在项目私有区，
+按原相对路径复制在 ``snapshot/`` 下，恢复时由 :mod:`lib.project.trash_restore` 的流水线处理。流水线降级恢复后，
+记录只剩无法加回的结构文件，成为只能下载的记录（``download_only``）。目录在项目私有区，
 因此不入归档、不入数据校验、文件视图也不列出；已删除项目整体移动时随项目一起走。
 
 这里是项目数据真正被删掉的地方，``scripts/audit_conventions.py`` 的硬删除检查豁免本模块。
@@ -17,11 +18,11 @@ import os
 import re
 import secrets
 import shutil
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 
 from lib.agent.agent_memory_paths import ARCREEL_DIRNAME
 from lib.artifacts.formal_write import project_metadata_lock
@@ -39,10 +40,15 @@ __all__ = [
     "SNAPSHOT_DIRNAME",
     "TRASH_DIRNAME",
     "TRASH_ENTITY_TYPE",
+    "RestoreResult",
     "RestoredFile",
     "TrashRecord",
     "empty",
+    "is_structure_file",
+    "keep_for_download",
+    "land_files",
     "list_records",
+    "open_record_file",
     "purge",
     "purge_expired",
     "record_deletion",
@@ -84,6 +90,8 @@ class TrashRecord:
     origin: Origin
     size: int
     has_snapshot: bool = False
+    #: 降级恢复后剩下的结构文件只能下载，不能再恢复。
+    download_only: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -95,6 +103,7 @@ class TrashRecord:
             "origin": self.origin,
             "size": self.size,
             "has_snapshot": self.has_snapshot,
+            "download_only": self.download_only,
         }
 
 
@@ -110,6 +119,27 @@ class RestoredFile:
         return {"original": self.original, "path": self.path, "as_history": self.as_history}
 
 
+@dataclass(frozen=True, slots=True)
+class RestoreResult:
+    """一次恢复的结果。``object`` 是加回后的对象描述（换了名或 ID 时与记录里的不同）。
+
+    ``degraded`` 为真时对象无法按原结构恢复，只加回了其中的文件；``download_only`` 是留在记录里、只能下载的结构文件。
+    """
+
+    object: Mapping[str, Any]
+    restored: list[RestoredFile]
+    degraded: bool = False
+    download_only: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "object": dict(self.object),
+            "restored": [item.to_dict() for item in self.restored],
+            "degraded": self.degraded,
+            "download_only": list(self.download_only),
+        }
+
+
 # ---------------------------------------------------------------- 记录
 
 #: 结构快照收的单个文件：``project.json``、产物清单与版本历史记录。
@@ -121,6 +151,20 @@ _STRUCTURE_TREES: Mapping[str, frozenset[str]] = {
     "edit_timelines": frozenset({".json"}),
     "source": frozenset(SOURCE_TEXT_SUFFIXES),
 }
+
+
+def is_structure_file(rel: str) -> bool:
+    """项目内相对 POSIX 路径 ``rel`` 是否属于结构文件（与 :func:`structure_files` 同一口径）。"""
+    if rel in _STRUCTURE_FILES:
+        return True
+    top, *rest = rel.split("/")
+    suffixes = _STRUCTURE_TREES.get(top)
+    return (
+        suffixes is not None
+        and bool(rest)
+        and not any(part.startswith(".") for part in rest)
+        and PurePosixPath(rel).suffix.lower() in suffixes
+    )
 
 
 def structure_files(project_dir: Path) -> list[str]:
@@ -216,40 +260,89 @@ def list_records(project_dir: Path) -> list[TrashRecord]:
 # ---------------------------------------------------------------- 恢复与清理
 
 
-def restore(project_dir: Path, record_id: str) -> list[RestoredFile]:
+def restore(project_dir: Path, record_id: str) -> RestoreResult:
     """把一条删除记录加回项目，成功后记录消失；失败时项目与记录都保持恢复前的样子。
 
-    带结构快照的记录走恢复流水线（:mod:`lib.project.trash_restore`）。只涉及文件的记录：原路径空闲则回原路径；
-    原路径已有文件时，它是某个资源的当前文件就作为该资源的历史版本加回，否则换一个新文件名。从不覆盖现有文件。
+    带结构快照的记录走恢复流水线（:mod:`lib.project.trash_restore`），对象无法按原结构恢复时降级为只加回文件。
+    只涉及文件的记录按 :func:`land_files` 的规则加回。只能下载的记录不能恢复。
     """
     record = require_record(project_dir, record_id)
+    if record.download_only:
+        raise ConflictError("trash_restore_download_only", id=record.id)
     if record.has_snapshot:
         # 恢复流水线经各对象的落地规则依赖领域模块，顶层导入会成环。
         from lib.project.trash_restore import restore_structural
 
-        restored = restore_structural(project_dir, record)
+        result = restore_structural(project_dir, record)
         _notify(project_dir)
-        return restored
+        return result
     with project_metadata_lock(project_dir):
         record = require_record(project_dir, record_id)
         record_dir = trash_dir(project_dir) / record.id
-        for rel in record.files:
-            check_restore_target(project_dir, rel)
-        moved: list[tuple[Path, Path]] = []
-        try:
-            restored = [
-                _land_file(project_dir, record_dir / FILES_DIRNAME / rel, rel, record.object, moved)
-                for rel in record.files
-            ]
-        except BaseException:
-            # 已落回的文件搬回记录：记录仍完整，可以再次恢复。
-            # shortcut: 已加成历史版本的文件不撤回，再次恢复会多一条同内容的历史版本；历史版本支持单条删除后改为撤回。
-            for stored, target in reversed(moved):
-                os.replace(target, stored)
-            raise
-        shutil.rmtree(record_dir)
+        restored = land_files(
+            project_dir,
+            [(record_dir / FILES_DIRNAME / rel, rel) for rel in record.files],
+            record.object,
+            then=lambda: shutil.rmtree(record_dir),
+        )
     _notify(project_dir)
+    return RestoreResult(record.object, restored)
+
+
+def land_files(
+    project_dir: Path, files: Sequence[tuple[Path, str]], obj: Mapping[str, Any], *, then: Callable[[], None]
+) -> list[RestoredFile]:
+    """把 ``(待加回的文件, 项目内相对路径)`` 逐个加回项目，全部成功后执行 ``then``；调用方持有项目锁。
+
+    原路径空闲则回原路径；原路径已有文件时，它是某个资源的当前文件就作为该资源的历史版本加回，否则换一个新文件名。
+    从不覆盖现有文件。任一步失败时已落回的文件搬回原处，项目回到加回之前。
+    """
+    for _source, rel in files:
+        check_restore_target(project_dir, rel)
+    moved: list[tuple[Path, Path]] = []
+    try:
+        restored = [_land_file(project_dir, source, rel, obj, moved) for source, rel in files]
+        then()
+    except BaseException:
+        # shortcut: 已加成历史版本的文件不撤回，再次恢复会多一条同内容的历史版本；历史版本支持单条删除后改为撤回。
+        for source, target in reversed(moved):
+            os.replace(target, source)
+        raise
     return restored
+
+
+def keep_for_download(project_dir: Path, record_id: str, files: Sequence[str]) -> None:
+    """降级恢复后把记录改成只剩 ``files``（记录里的结构文件）、只能下载；调用方持有项目锁。"""
+    record = require_record(project_dir, record_id)
+    record_dir = trash_dir(project_dir) / record.id
+    stored = record_dir / FILES_DIRNAME
+    kept = replace(
+        record,
+        files=tuple(files),
+        size=sum((stored / rel).stat().st_size for rel in files),
+        has_snapshot=False,
+        download_only=True,
+    )
+    # record.json 先改：之后清理中断时，记录照样只列出剩下的文件。
+    atomic_write_json(record_dir / _RECORD_FILE, {"format": RECORD_FORMAT, **kept.to_dict()})
+    shutil.rmtree(record_dir / SNAPSHOT_DIRNAME, ignore_errors=True)
+    for rel in record.files:
+        if rel not in kept.files:
+            (stored / rel).unlink(missing_ok=True)
+
+
+def open_record_file(project_dir: Path, record_id: str, rel: str) -> tuple[BinaryIO, os.stat_result]:
+    """以不跟随符号链接的方式打开记录里的一个被删文件，供下载；调用方负责关闭句柄。"""
+    # 文件视图依赖本模块，顶层导入会成环。
+    from lib.project.file_view import open_project_file
+
+    record = require_record(project_dir, record_id)
+    if rel not in record.files:
+        raise NotFoundError("file_not_found", path=rel)
+    try:
+        return open_project_file(trash_dir(project_dir) / record.id / FILES_DIRNAME, rel)
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise NotFoundError("file_not_found", path=rel) from exc
 
 
 def consume(project_dir: Path, record_id: str) -> None:
@@ -317,6 +410,7 @@ def _load(record_dir: Path) -> TrashRecord | None:
             origin=data["origin"],
             size=int(data["size"]),
             has_snapshot=bool(data.get("has_snapshot", False)),
+            download_only=bool(data.get("download_only", False)),
         )
     except (OSError, ValueError, KeyError, TypeError):
         return None

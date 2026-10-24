@@ -85,8 +85,33 @@ const TRASH_STRESS: ApiOverrides = {
           origin: i % 2 === 0 ? "user" : "agent",
           size: 1_234_567 + i,
           has_snapshot: false,
+          download_only: false,
         };
       }),
+    },
+  },
+};
+
+// 降级恢复过的剪辑时间线记录：只剩结构文件，只能下载；另一条剪辑时间线记录按对象名显示。
+const TIMELINE_DOCUMENT = "edit_timelines/episode_1/tl-0000abcd.json";
+const TRASH_DEGRADED: ApiOverrides = {
+  ...EVENT_STREAM,
+  "GET /api/v1/projects/demo/trash": {
+    status: 200,
+    body: {
+      ...trash,
+      total_size: 4096,
+      records: ["tl-0000abcd", "tl-0000beef"].map((id, i) => ({
+        id: `20261024T08000${i}Z-0000000${i}`,
+        object: { kind: "edit_timeline", id, episode: 1, name: i === 0 ? "初剪" : "完整版" },
+        files: i === 0 ? [TIMELINE_DOCUMENT] : [`edit_timelines/episode_1/${id}.json`],
+        schema_version: 17,
+        deleted_at: "2026-10-24T08:00:00+00:00",
+        origin: "user",
+        size: 2048,
+        has_snapshot: i !== 0,
+        download_only: i === 0,
+      })),
     },
   },
 };
@@ -190,5 +215,20 @@ defineRegionScenarios("文件视图", [
       await expect(dialog).toBeHidden();
     },
     screenshot: { name: "file-view-trash", target: (page) => page.getByRole("main") },
+  },
+  {
+    name: "项目回收站分区：降级恢复后只能下载的记录",
+    path: PATH,
+    api: TRASH_DEGRADED,
+    ready: (page) => sections(page).waitFor(),
+    act: async (page) => {
+      await sections(page).getByRole("tab", { name: "项目回收站" }).click();
+      await expect(page.getByText("剪辑时间线「初剪」（第 1 集）")).toBeVisible();
+      await expect(page.getByText("剪辑时间线「完整版」（第 1 集）")).toBeVisible();
+      await expect(page.getByText("无法按原结构恢复，以下结构文件只能下载")).toBeVisible();
+      await expect(page.getByRole("button", { name: `下载 ${TIMELINE_DOCUMENT}` })).toBeVisible();
+      // 只能下载的记录没有「恢复」，另一条照常可以恢复
+      await expect(page.getByRole("button", { name: "恢复" })).toHaveCount(1);
+    },
   },
 ]);

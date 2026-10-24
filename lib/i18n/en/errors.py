@@ -837,5 +837,6 @@ MESSAGES = {
     "deleted_project_not_found": "This project is not in deleted projects. It may have been restored or permanently deleted; refresh and try again",
     "trash_restore_unsupported": "This deletion record cannot be restored yet",
     "trash_restore_failed": "This deletion record cannot be restored with its original structure",
+    "trash_restore_download_only": "This deletion record can no longer be restored; its structure files can only be downloaded",
     "trash_restore_target_blocked": "Cannot restore to {path}: a folder on the path has been replaced with a link",
 }

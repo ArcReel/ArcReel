@@ -839,5 +839,6 @@ MESSAGES = {
     "deleted_project_not_found": "Không có dự án này trong dự án đã xóa. Có thể nó đã được khôi phục hoặc xóa vĩnh viễn; hãy làm mới rồi thử lại",
     "trash_restore_unsupported": "Hiện chưa thể khôi phục bản ghi xóa này",
     "trash_restore_failed": "Không thể khôi phục bản ghi xóa này theo cấu trúc ban đầu",
+    "trash_restore_download_only": "Không thể khôi phục bản ghi xóa này nữa; các tệp cấu trúc trong đó chỉ có thể tải xuống",
     "trash_restore_target_blocked": "Không thể khôi phục về {path}: một thư mục trên đường dẫn đã bị thay bằng liên kết",
 }

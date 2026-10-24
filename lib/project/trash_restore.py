@@ -7,6 +7,10 @@
 4. 先取规则声明的领域锁、再取项目锁，按落地规则把对象加回当前项目，并为加回的产物补录。
    落地失败时撤掉本次新建的文件，记录原样保留。
 
+迁移失败、或迁移后的临时项目里取不出对象时降级：被删的媒体等文件按迁移后（迁移中途失败时为失败那一刻）的路径，
+照只涉及文件的记录的规则加回（原路径空闲则回原路径，否则作为历史版本或换新名）；被删的结构文件不加回，
+留在记录里只能下载。
+
 临时项目迁移得出的项目级状态（如集 ID 高水位）留在临时目录里随之丢弃：落地规则只把取出的对象加回当前项目。
 
 新的对象类型在 :func:`_rules` 里登记一个取出函数，返回描述落地的 :class:`Restoration`。
@@ -14,7 +18,9 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import shutil
 import tempfile
 from collections.abc import Callable, Mapping
@@ -24,17 +30,21 @@ from pathlib import Path
 from typing import Any
 
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.infra.api_errors import BadRequestError, ConflictError
+from lib.infra.api_errors import BadRequestError
 from lib.infra.json_io import atomic_write_json
 from lib.project import project_trash
 from lib.project.project_migrations.runner import migrate_project_dir
-from lib.project.project_trash import RestoredFile, TrashRecord
+from lib.project.project_trash import RestoredFile, RestoreResult, TrashRecord
 from lib.script.source_loader.migration import migrate_project_source_encoding
 
 __all__ = ["Landing", "Restoration", "TakeRule", "restore_structural"]
 
+logger = logging.getLogger(__name__)
+
 #: 迁移步可能就地改写文本文件；这些后缀复制进临时项目，其余（媒体）用硬链接，免得大文件复制一遍。
 _COPIED_SUFFIXES = frozenset({".json", ".md", ".txt"})
+#: 迁移步留下的备份（``<名>.bak.v<N>-<ts>``）与规整时搁置的副本（``.kept.``），不是被删的文件。
+_MIGRATION_COPY_RE = re.compile(r"\.(?:bak|kept)\.v\d+-\d+")
 
 
 class Landing:
@@ -82,11 +92,11 @@ class Landing:
 class Restoration:
     """从临时项目取出、待加回当前项目的一个对象。
 
-    ``land`` 在 ``locks`` 与项目锁之内执行，经 :class:`Landing` 写文件，产物补录放在最后；它抛错时本次新建的
-    文件被撤掉。``after`` 在锁外、落地成功后执行（发领域刷新信号等）。
+    ``land`` 在 ``locks`` 与项目锁之内执行，经 :class:`Landing` 写文件，产物补录放在最后，返回加回后的对象描述
+    （换了名或身份时）；它抛错时本次新建的文件被撤掉。``after`` 在锁外、落地成功后执行（发领域刷新信号等）。
     """
 
-    land: Callable[[Landing], None]
+    land: Callable[[Landing], Mapping[str, Any] | None]
     locks: Callable[[], AbstractContextManager[object]] = nullcontext
     after: Callable[[], None] = field(default=lambda: None)
 
@@ -102,8 +112,8 @@ def _rules() -> Mapping[str, TakeRule]:
     return {EDIT_TIMELINE_KIND: take_edit_timeline}
 
 
-def restore_structural(project_dir: Path, record: TrashRecord) -> list[RestoredFile]:
-    """把一条带结构快照的删除记录经流水线加回 ``project_dir``，成功后记录消失。调用方不持锁。"""
+def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:
+    """把一条带结构快照的删除记录经流水线加回 ``project_dir``，成功后记录消失；降级时记录只剩结构文件。调用方不持锁。"""
     rule = _rules().get(str(record.object.get("kind")))
     if rule is None:
         raise BadRequestError("trash_restore_unsupported")
@@ -117,19 +127,64 @@ def restore_structural(project_dir: Path, record: TrashRecord) -> list[RestoredF
         try:
             migrate_project_source_encoding(staged)
             migrate_project_dir(staged)
-        except Exception as exc:
-            raise ConflictError("trash_restore_failed", id=record.id) from exc
-        restoration = rule(project_dir, staged, record.object)
+            restoration = rule(project_dir, staged, record.object)
+        except Exception:
+            # 失败原因记在日志里；创作者看到的是降级结果。
+            logger.warning("删除记录 %s 无法按原结构恢复，降级为只恢复文件", record.id, exc_info=True)
+            return _restore_files_only(project_dir, record, staged)
         landing = Landing(project_dir)
         with restoration.locks(), project_metadata_lock(project_dir):
             try:
-                restoration.land(landing)
+                landed = restoration.land(landing)
                 project_trash.consume(project_dir, record.id)
             except BaseException:
                 landing.rollback()
                 raise
     restoration.after()
-    return landing.restored
+    return RestoreResult(landed or record.object, landing.restored)
+
+
+def _restore_files_only(project_dir: Path, record: TrashRecord, staged: Path) -> RestoreResult:
+    """降级：临时项目里被删的非结构文件按它们此刻的路径加回，记录里的结构文件留着只能下载。"""
+    files = [(staged / rel, rel) for rel in _non_structure_files(staged)]
+    kept = tuple(rel for rel in record.files if project_trash.is_structure_file(rel))
+
+    def settle() -> None:
+        if kept:
+            project_trash.keep_for_download(project_dir, record.id, kept)
+        else:
+            project_trash.consume(project_dir, record.id)
+
+    with project_metadata_lock(project_dir):
+        project_trash.require_record(project_dir, record.id)
+        restored = project_trash.land_files(project_dir, files, record.object, then=settle)
+    return RestoreResult(record.object, restored, degraded=True, download_only=kept)
+
+
+def _non_structure_files(staged: Path) -> list[str]:
+    """临时项目里的非结构文件：结构快照只收结构文件，所以它们都是记录里被删的文件（可能已被迁移步挪了位置）。
+
+    不收私有区、项目根下的迁移记录等隐藏文件、迁移备份与符号链接。
+    """
+    found: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(staged):
+        top = Path(dirpath) == staged
+        dirnames[:] = sorted(
+            name for name in dirnames if not (top and name.startswith(".")) and not _MIGRATION_COPY_RE.search(name)
+        )
+        for name in sorted(filenames):
+            path = Path(dirpath) / name
+            rel = path.relative_to(staged).as_posix()
+            if (
+                (top and name.startswith("."))
+                or _MIGRATION_COPY_RE.search(name)
+                or path.is_symlink()
+                or not path.is_file()
+                or project_trash.is_structure_file(rel)
+            ):
+                continue
+            found.append(rel)
+    return found
 
 
 def _stage(record_dir: Path, staged: Path) -> None:

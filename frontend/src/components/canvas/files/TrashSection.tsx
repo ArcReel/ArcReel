@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, RotateCcw, Trash2 } from "lucide-react";
+import type { TFunction } from "i18next";
+import { Download, Loader2, RotateCcw, Trash2 } from "lucide-react";
 
 import { API } from "@/api";
 import { TruncatedText } from "@/components/shared/TruncatedText";
@@ -18,16 +19,43 @@ import {
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useAppStore } from "@/stores/app-store";
-import type { TrashListing, TrashRecord } from "@/types";
+import type { RestoreResult, TrashListing, TrashRecord } from "@/types";
 import { errMsg } from "@/utils/async";
 import { formatShortDateTime } from "@/utils/date-format";
+import { downloadBlob } from "@/utils/download";
 import { formatFileSize } from "@/utils/file-size";
 
 type ListingState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; listing: TrashListing };
 
-/** 记录的对象名：只涉及文件的记录取被删文件的路径。 */
-function recordTitle(record: TrashRecord): string {
-  return record.object.path ?? record.files[0] ?? record.id;
+/** 对象名：按对象类型显示，只涉及文件的对象取被删文件的路径。 */
+function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): string | undefined {
+  if (object.kind === "edit_timeline" && typeof object.name === "string") {
+    return t("trash_object_edit_timeline", { name: object.name, episode: object.episode });
+  }
+  return object.path;
+}
+
+function recordTitle(t: TFunction<"dashboard">, record: TrashRecord): string {
+  return objectTitle(t, record.object) ?? record.files[0] ?? record.id;
+}
+
+/** 恢复结果的提示：降级时说明找回了什么、哪些只能下载；对象换了名时给出新名，文件换了位置时给出真实落点。 */
+function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result: RestoreResult): string {
+  const name = recordTitle(t, record);
+  if (result.degraded) {
+    return result.download_only.length > 0
+      ? t("trash_restored_degraded", { name, count: result.restored.length })
+      : t("trash_restored_degraded_files", { name, count: result.restored.length });
+  }
+  if (record.has_snapshot) {
+    const landed = result.object.name;
+    return typeof landed === "string" && landed !== record.object.name
+      ? t("trash_restored_object_renamed", { name, landed })
+      : t("trash_restored_object", { name });
+  }
+  if (result.restored.some((item) => item.as_history)) return t("trash_restored_as_history", { name });
+  const renamed = result.restored.find((item) => item.path !== item.original);
+  return renamed ? t("trash_restored_renamed", { name, path: renamed.path }) : t("trash_restored", { name });
 }
 
 /** 生成完成时目标已删除的结果：不是谁删的，单独说明来历。 */
@@ -99,16 +127,10 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
   const restore = async (record: TrashRecord) => {
     setBusyIds((current) => new Set(current).add(record.id));
     try {
-      const { restored } = await API.restoreTrashRecord(projectName, record.id);
-      const asHistory = restored.some((item) => item.as_history);
-      const renamed = restored.find((item) => !item.as_history && item.path !== item.original);
-      const text = asHistory
-        ? t("trash_restored_as_history", { name: recordTitle(record) })
-        : renamed
-          ? t("trash_restored_renamed", { name: recordTitle(record), path: renamed.path })
-          : t("trash_restored", { name: recordTitle(record) });
-      dropRecords((item) => item.id !== record.id);
-      useAppStore.getState().pushToast(text, "success");
+      const result = await API.restoreTrashRecord(projectName, record.id);
+      // 降级后留下只能下载的结构文件时记录还在，由随后的重拉换成只能下载的样子
+      if (result.download_only.length === 0) dropRecords((item) => item.id !== record.id);
+      useAppStore.getState().pushToast(restoredMessage(t, record, result), result.degraded ? "warning" : "success");
     } catch (error) {
       useAppStore.getState().pushToast(t("trash_action_failed", { message: errMsg(error) }), "error");
     } finally {
@@ -179,7 +201,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
             return (
               <li key={record.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/40">
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <TruncatedText text={recordTitle(record)} className="text-sm" />
+                  <TruncatedText text={recordTitle(t, record)} className="text-sm" />
                   <span className="text-xs text-muted-foreground">
                     {t(recordMetaKey(record), {
                       time: formatShortDateTime(record.deleted_at) ?? record.deleted_at,
@@ -187,15 +209,20 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
                     {" · "}
                     <span className="num">{formatFileSize(record.size)}</span>
                   </span>
-                </div>
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => void restore(record)}>
-                  {busy ? (
-                    <Loader2 data-icon="inline-start" aria-hidden className="animate-spin" />
-                  ) : (
-                    <RotateCcw data-icon="inline-start" aria-hidden />
+                  {record.download_only && (
+                    <DownloadOnlyFiles projectName={projectName} record={record} />
                   )}
-                  {t("trash_restore")}
-                </Button>
+                </div>
+                {!record.download_only && (
+                  <Button variant="outline" size="sm" disabled={busy} onClick={() => void restore(record)}>
+                    {busy ? (
+                      <Loader2 data-icon="inline-start" aria-hidden className="animate-spin" />
+                    ) : (
+                      <RotateCcw data-icon="inline-start" aria-hidden />
+                    )}
+                    {t("trash_restore")}
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="sm"
@@ -204,7 +231,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
                     setPurge({
                       recordId: record.id,
                       title: t("trash_purge_title"),
-                      description: t("trash_purge_description", { name: recordTitle(record) }),
+                      description: t("trash_purge_description", { name: recordTitle(t, record) }),
                       confirmLabel: t("trash_purge"),
                       run: () => API.purgeTrashRecord(projectName, record.id),
                     })
@@ -225,6 +252,51 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
         onClose={() => setPurge(null)}
         onDone={afterChange}
       />
+    </div>
+  );
+}
+
+/** 降级恢复后留下的结构文件：说明为什么只能下载，逐个提供下载。 */
+function DownloadOnlyFiles({ projectName, record }: { projectName: string; record: TrashRecord }) {
+  const { t } = useTranslation("dashboard");
+  const [downloading, setDownloading] = useState<string | null>(null);
+
+  const download = async (path: string) => {
+    const name = path.split("/").pop() ?? path;
+    setDownloading(path);
+    try {
+      downloadBlob(await API.downloadTrashRecordFile(projectName, record.id, path), name);
+    } catch (error) {
+      useAppStore.getState().pushToast(t("file_view_download_failed", { name, message: errMsg(error) }), "error");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  return (
+    <div className="mt-1 flex min-w-0 flex-col items-start gap-1">
+      <p className="text-xs text-warn">{t("trash_download_only_hint")}</p>
+      <ul className="flex min-w-0 max-w-full flex-col items-start">
+        {record.files.map((path) => (
+          <li key={path} className="max-w-full">
+            <Button
+              variant="link"
+              size="xs"
+              className="max-w-full"
+              disabled={downloading !== null}
+              aria-label={t("trash_download_file", { path })}
+              onClick={() => void download(path)}
+            >
+              {downloading === path ? (
+                <Loader2 data-icon="inline-start" aria-hidden className="animate-spin" />
+              ) : (
+                <Download data-icon="inline-start" aria-hidden />
+              )}
+              <TruncatedText text={path} className="font-mono text-xs" />
+            </Button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

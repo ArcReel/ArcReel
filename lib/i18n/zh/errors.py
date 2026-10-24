@@ -776,5 +776,6 @@ MESSAGES = {
     "deleted_project_not_found": "已删除项目里没有这个项目，可能已被恢复或彻底删除，刷新后再试",
     "trash_restore_unsupported": "这条删除记录暂时无法恢复",
     "trash_restore_failed": "这条删除记录无法按原结构恢复",
+    "trash_restore_download_only": "这条删除记录已无法恢复，其中的结构文件只能下载",
     "trash_restore_target_blocked": "无法恢复到 {path}：路径上的目录已被替换为链接",
 }

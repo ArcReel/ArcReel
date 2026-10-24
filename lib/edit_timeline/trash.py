@@ -73,7 +73,7 @@ def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) 
     }
     store = EditTimelineStore(ProjectManager.for_project_dir(project_dir), project_dir.name)
 
-    def land(landing: Landing) -> None:
+    def land(landing: Landing) -> Mapping[str, Any]:
         taken_ids = {existing.id for existing in store.list_documents()}
         landed_id = document.id
         while (
@@ -98,6 +98,7 @@ def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) 
                 project_dir,
                 {key: ArtifactManifestEntry(entry.artifact_path, entry.basis_digest) for key, entry in claims.items()},
             )
+        return {**obj, "id": landed.id, "name": landed.name}
 
     return Restoration(
         land=land,

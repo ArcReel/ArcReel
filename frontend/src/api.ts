@@ -145,7 +145,7 @@ import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory
 import type {
   DeletedProjectListing,
   FileViewListing,
-  RestoredFile,
+  RestoreResult,
   TrashListing,
   TrashRecord,
 } from "@/types/file-view";
@@ -602,11 +602,20 @@ class API {
     return this.request(`/projects/${encodeURIComponent(projectName)}/trash`, { signal: options.signal });
   }
 
-  static async restoreTrashRecord(projectName: string, recordId: string): Promise<{ restored: RestoredFile[] }> {
+  static async restoreTrashRecord(projectName: string, recordId: string): Promise<RestoreResult> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/trash/${encodeURIComponent(recordId)}/restore`,
       { method: "POST" },
     );
+  }
+
+  /** 下载删除记录里的一个被删文件（降级恢复后只能下载的结构文件）。 */
+  static async downloadTrashRecordFile(projectName: string, recordId: string, path: string): Promise<Blob> {
+    const query = new URLSearchParams({ path }).toString();
+    const url = `/projects/${encodeURIComponent(projectName)}/trash/${encodeURIComponent(recordId)}/files?${query}`;
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url));
+    await throwIfNotOk(response, i18n.t("errors:file_view_load_failed"));
+    return response.blob();
   }
 
   static async purgeTrashRecord(projectName: string, recordId: string): Promise<{ success: boolean }> {
