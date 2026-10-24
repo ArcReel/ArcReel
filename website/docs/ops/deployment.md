@@ -76,6 +76,7 @@ curl http://localhost:1241/health
 ```text
 deploy/projects/               数据根
 ├── projects/<项目名>/         项目与生成资产
+├── deleted_projects/          已删除项目，保留 30 天
 ├── global_assets/             全局资产库
 ├── users/<user_id>/memory/    Agent 用户记忆
 ├── arcreel.db                 默认 SQLite 数据库（连同 -wal / -shm）
@@ -90,6 +91,8 @@ deploy/projects/               数据根
 > 备份时归档整个数据根，不要只备份数据库而忽略项目文件。数据库保存任务、配置和索引信息，项目目录保存原始素材和生成文件，两者需要保持一致。
 
 项目回收站存放在 `projects/<项目名>/.arcreel/trash/`，完整数据根备份会保留其中的删除记录，项目 ZIP 导出不包含它。删除记录按删除时间保留 30 天，应用启动时和运行期间定期清理；恢复备份不会重置记录的保留期。
+
+删除的项目整体移到 `deleted_projects/<项目名>#deleted-<删除时间>/`，连同它的项目回收站，同样保留 30 天、按同样的方式清理。在项目列表页的「已删除项目」中可以恢复或彻底删除；恢复时原名已被占用，项目会以加后缀的新名字恢复。
 
 ## 2. 生产部署：PostgreSQL {#postgresql-deployment}
 

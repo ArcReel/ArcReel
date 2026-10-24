@@ -1,15 +1,14 @@
-"""项目回收站的过期清理：应用启动时清一次，之后定期清理。"""
+"""项目回收站与已删除项目的过期清理：应用启动时清一次，之后定期清理。"""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
 import logging
-from pathlib import Path
 
 from lib.infra.async_thread import run_sync_transaction
-from lib.infra.data_root_layout import list_project_dirs
-from lib.project import project_trash
+from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
+from lib.project import deleted_projects, project_trash
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +16,11 @@ logger = logging.getLogger(__name__)
 SWEEP_INTERVAL_SECONDS = 6 * 3600
 
 
-async def _sweep_loop(projects_dir: Path) -> None:
+async def _sweep_loop(layout: DataRootLayout) -> None:
     while True:
         purged = 0
         try:
-            project_dirs = await asyncio.to_thread(list_project_dirs, projects_dir)
+            project_dirs = await asyncio.to_thread(list_project_dirs, layout.projects_dir)
         except Exception:
             logger.warning("项目回收站过期清理列项目失败，等下一轮", exc_info=True)
             project_dirs = []
@@ -33,12 +32,19 @@ async def _sweep_loop(projects_dir: Path) -> None:
                 logger.warning("清理项目回收站过期记录失败 project=%s", project_dir.name, exc_info=True)
         if purged:
             logger.info("项目回收站清除过期记录 %d 条", purged)
+        try:
+            purged_projects = await run_sync_transaction(deleted_projects.purge_expired, layout)
+        except Exception:
+            logger.warning("清理过期的已删除项目失败，等下一轮", exc_info=True)
+        else:
+            if purged_projects:
+                logger.info("清除过期的已删除项目 %d 个", purged_projects)
         await asyncio.sleep(SWEEP_INTERVAL_SECONDS)
 
 
-def start_trash_expiry(projects_dir: Path) -> asyncio.Task[None]:
+def start_trash_expiry(layout: DataRootLayout) -> asyncio.Task[None]:
     """启动后台清理循环：立即清一次，之后每隔 :data:`SWEEP_INTERVAL_SECONDS` 一次。"""
-    return asyncio.get_running_loop().create_task(_sweep_loop(projects_dir), name="project-trash-expiry")
+    return asyncio.get_running_loop().create_task(_sweep_loop(layout), name="project-trash-expiry")
 
 
 async def stop_trash_expiry(task: asyncio.Task[None]) -> None:

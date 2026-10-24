@@ -59,6 +59,24 @@ export interface TrashListing {
   retention_days: number;
 }
 
+// 已删除项目（后端 lib/project/deleted_projects.py）。
+
+/** 一个已删除项目。`id` 是它的墓碑名，恢复与彻底删除都按它定位；`name` 是删除前的项目名。 */
+export interface DeletedProject {
+  id: string;
+  name: string;
+  title: string;
+  /** 带时区偏移的 UTC ISO 8601。 */
+  deleted_at: string;
+  /** 到期自动清除的时间，同为 UTC ISO 8601。 */
+  expires_at: string;
+}
+
+export interface DeletedProjectListing {
+  projects: DeletedProject[];
+  retention_days: number;
+}
+
 /** 恢复后一个文件的落点：`as_history` 为真时它成了所在资源的一条历史版本。 */
 export interface RestoredFile {
   original: string;

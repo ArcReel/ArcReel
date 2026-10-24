@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "wouter";
-import { Bot, ChevronDown, FileArchive, Library, Loader2, Plus, Search, Settings } from "lucide-react";
+import { Bot, ChevronDown, FileArchive, Library, Loader2, Plus, Search, Settings, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { ROUTE_APP_ASSETS, ROUTE_APP_SETTINGS, settingsSectionPath } from "@/app-routes";
@@ -25,10 +25,11 @@ interface LobbyHeaderProps {
   onCreate: () => void;
   onImport: () => void;
   importing: boolean;
+  onOpenDeleted: () => void;
 }
 
-/** 大厅顶栏：品牌与搜索靠左；资产库、外部 Agent 接入、「新建项目」分体按钮与设置靠右。 */
-export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importing }: LobbyHeaderProps) {
+/** 大厅顶栏：品牌与搜索靠左；资产库、外部 Agent 接入、已删除项目、「新建项目」分体按钮与设置靠右。 */
+export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importing, onOpenDeleted }: LobbyHeaderProps) {
   const { t } = useTranslation(["dashboard", "common", "assets"]);
   const configComplete = useConfigStatusStore((s) => s.isComplete);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -55,6 +56,21 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
           <IconLink href={settingsSectionPath("external-agent")} label={t("dashboard:settings_external_agent")}>
             <Bot aria-hidden />
           </IconLink>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("dashboard:lobby_deleted_projects")}
+                  onClick={onOpenDeleted}
+                />
+              }
+            >
+              <Trash2 aria-hidden />
+            </TooltipTrigger>
+            <TooltipContent>{t("dashboard:lobby_deleted_projects")}</TooltipContent>
+          </Tooltip>
           <span aria-hidden className="mx-1 h-5 w-px bg-border" />
           <ButtonGroup>
             <Button onClick={onCreate} data-onboarding={ONBOARDING_ANCHORS.lobbyCreateProject}>

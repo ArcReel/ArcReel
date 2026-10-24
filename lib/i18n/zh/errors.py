@@ -433,7 +433,7 @@ MESSAGES = {
     "ad_grid_not_supported": "广告/短片项目不支持多宫格分镜",
     "grid_storyboard_not_enabled": "项目未启用多宫格分镜，无法生成多宫格分镜",
     "ad_target_duration_required": "广告/短片项目必须设置目标总时长（正整数秒）",
-    "project_deleted": "项目 '{name}' 已删除",
+    "project_deleted": "项目 '{name}' 已移入已删除项目，30 天内可以恢复",
     "scene_updated": "分镜 '{scene_id}' 已更新",
     "segment_updated": "分镜 '{segment_id}' 已更新",
     # Characters / Scenes / Props
@@ -773,6 +773,7 @@ MESSAGES = {
     "file_view_delete_source_in_episodes": "{path} 是未纳入整本源文的源文件，请到「分集」视图处理",
     "trash_record_not_found": "项目回收站里没有这条删除记录，可能已被恢复或清除，刷新后再试",
     "creator_only_operation": "这项操作不可恢复，只能由创作者在界面上执行，Agent 不能调用",
+    "deleted_project_not_found": "已删除项目里没有这个项目，可能已被恢复或彻底删除，刷新后再试",
     "trash_restore_unsupported": "这条删除记录暂时无法恢复",
     "trash_restore_failed": "这条删除记录无法按原结构恢复",
     "trash_restore_target_blocked": "无法恢复到 {path}：路径上的目录已被替换为链接",

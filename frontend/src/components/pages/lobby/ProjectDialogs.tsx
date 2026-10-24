@@ -126,7 +126,7 @@ export function RenameProjectDialog({ project, onClose, onDone }: ProjectDialogP
   );
 }
 
-/** 删除项目不可撤销，先用 AlertDialog 确认。 */
+/** 删除项目先用 AlertDialog 确认：项目移入「已删除项目」，保留期内可以恢复。 */
 export function DeleteProjectDialog({ project, onClose, onDone }: ProjectDialogProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const [submitting, setSubmitting] = useState(false);

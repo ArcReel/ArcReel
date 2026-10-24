@@ -461,7 +461,7 @@ MESSAGES = {
     "ad_grid_not_supported": "Dự án quảng cáo/video ngắn không hỗ trợ tạo video từ phân cảnh đa lưới",
     "grid_storyboard_not_enabled": "Dự án chưa bật phân cảnh đa lưới",
     "ad_target_duration_required": "Dự án quảng cáo/video ngắn bắt buộc phải có tổng thời lượng mục tiêu (số giây nguyên dương)",
-    "project_deleted": "Đã xóa dự án '{name}'",
+    "project_deleted": "Đã chuyển dự án '{name}' vào dự án đã xóa. Bạn có thể khôi phục trong 30 ngày",
     "scene_updated": "Đã cập nhật cảnh '{scene_id}'",
     "segment_updated": "Đã cập nhật đoạn '{segment_id}'",
     # Characters / Scenes / Props
@@ -836,6 +836,7 @@ MESSAGES = {
     "file_view_delete_source_in_episodes": "{path} là tệp nguồn chưa được đưa vào toàn bộ văn bản nguồn. Hãy xử lý trong màn hình Tập",
     "trash_record_not_found": "Thùng rác dự án không có bản ghi xóa này. Có thể nó đã được khôi phục hoặc dọn đi; hãy làm mới rồi thử lại",
     "creator_only_operation": "Thao tác này không thể hoàn tác nên chỉ người sáng tạo mới thực hiện được trong giao diện. Agent không thể gọi thao tác này",
+    "deleted_project_not_found": "Không có dự án này trong dự án đã xóa. Có thể nó đã được khôi phục hoặc xóa vĩnh viễn; hãy làm mới rồi thử lại",
     "trash_restore_unsupported": "Hiện chưa thể khôi phục bản ghi xóa này",
     "trash_restore_failed": "Không thể khôi phục bản ghi xóa này theo cấu trúc ban đầu",
     "trash_restore_target_blocked": "Không thể khôi phục về {path}: một thư mục trên đường dẫn đã bị thay bằng liên kết",
