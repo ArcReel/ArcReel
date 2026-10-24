@@ -330,10 +330,11 @@ class OpenRouterImageBackend:
         )
 
     def _fit_references(self, refs: list, supported: dict | None) -> list:
-        """按目录声明核对参考图：模型不收参考图或必须带参考图时报错，超出上限时截断。
+        """按目录声明核对参考图：模型不收参考图、必须带参考图或张数超出上限时报错，不截断。
 
-        目录不可得或未收录该模型时只按端点上限 16 张截断。编排层已按 :meth:`reference_image_limit`
-        裁剪并提示，这里的截断只是兜底。
+        编排层已按 :meth:`reference_image_limit` 裁剪参考图并在提示词里编号「图N」。这里仍超限，说明两次
+        读到的目录不一致（如编排时目录查询失败按 16 张编号，提交前又查到更小的上限）；此时截断会让提示词
+        指认没有发出的图、照常计费，所以不提交，交给重新生成按最新上限重新裁剪编号。
         """
         if supported is not None:
             if refs and _declared_reference_max(supported) == 0:
@@ -348,13 +349,9 @@ class OpenRouterImageBackend:
                 raise ImageCapabilityError("image_endpoint_mismatch_no_t2i", model=self._model)
         limit = _effective_reference_limit(supported)
         if len(refs) > limit:
-            logger.warning(
-                "OpenRouter 参考图数量 %d 超过 model=%s 上限 %d，截断",
-                len(refs),
-                self._model,
-                limit,
+            raise ImageCapabilityError(
+                "image_reference_images_exceeded", model=self._model, limit=limit, count=len(refs)
             )
-            refs = refs[:limit]
         return refs
 
     async def _fetch_supported_params(self) -> dict | None:

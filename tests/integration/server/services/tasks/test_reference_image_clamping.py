@@ -309,7 +309,7 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
         generation_context.reset_backend_cache_for_tests()
 
     async def test_three_reference_model_receives_three_images_numbered_to_match(
-        self, tmp_path, monkeypatch, openrouter_lane, caplog
+        self, tmp_path, monkeypatch, openrouter_lane
     ):
         project_path = prepare_files(tmp_path)
         pm = pm_with_eight_references(project_path)
@@ -333,8 +333,7 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
             route = router.post(f"{self.BASE_URL}/images").mock(
                 return_value=httpx.Response(200, json={"data": [{"b64_json": image_b64}]})
             )
-            with caplog.at_level(logging.INFO):
-                result = await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
+            result = await generation_tasks.execute_storyboard_task("demo", ITEM_ID, STORYBOARD_PAYLOAD)
 
         body = json.loads(route.calls.last.request.content)
         assert len(body["input_references"]) == 3
@@ -343,6 +342,5 @@ class TestOpenRouterLaneClampsToTheCatalogLimit:
         assert result["warnings"] == [
             {"key": "ref_too_many_images", "params": {"count": 8, "model": self.MODEL, "max_count": 3}}
         ]
-        # 裁剪发生在编排层，backend 的兜底截断不再触发；通道解析与生成用同一个实例，目录只查一次
-        assert "OpenRouter 参考图数量" not in caplog.text
+        # 通道解析与生成用同一个实例，目录只查一次：两步读到的上限一致，backend 不会因超限拒绝提交
         assert models.call_count == 1

@@ -216,6 +216,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "video_aspect_ratio_not_supported": GenerationAction.FIX_INPUT,
     "video_resolution_not_supported": GenerationAction.FIX_INPUT,
     "video_reference_resolution_unsupported": GenerationAction.FIX_INPUT,
+    # 提交前才发现参考图多于模型上限（两次读到的模型目录不一致）：重新生成会按最新上限重新裁剪编号。
+    "image_reference_images_exceeded": GenerationAction.RETRY,
     "video_reference_images_exceeded": GenerationAction.FIX_INPUT,
     "video_reference_audio_duration_exceeded": GenerationAction.FIX_INPUT,
     "video_reference_audio_exceeded": GenerationAction.FIX_INPUT,

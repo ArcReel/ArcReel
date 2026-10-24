@@ -337,16 +337,18 @@ def test_partial_missing_refs_fail_loud_without_submitting(tmp_path: Path):
     assert not route.called
 
 
-def test_refs_over_declared_max_truncated_as_fallback(tmp_path: Path, caplog: pytest.LogCaptureFixture):
-    """编排层未裁剪时的兜底：只发前 3 张（模型声明的上限）并告警。"""
+def test_refs_over_declared_max_rejected_without_submitting(tmp_path: Path):
+    """参考图多于模型上限（编排层按另一份目录读数编了号）：报错且不发 /images，不截断后照常计费。"""
     refs = [_make_ref(tmp_path, f"ref-{i}.png") for i in range(5)]
     model = _ref_range("x-ai/grok-imagine-image-2.0", 0, 3)
     with capture_http() as router:
         router.get(_MODELS_URL).mock(return_value=_models_response(model))
         route = router.post(_IMAGES_URL).mock(return_value=_ok_response())
-        _run(_request(tmp_path, refs=refs), model="x-ai/grok-imagine-image-2.0")
-    assert len(request_json(only_request(route))["input_references"]) == 3
-    assert "截断" in caplog.text
+        with pytest.raises(ImageCapabilityError) as ei:
+            _run(_request(tmp_path, refs=refs), model="x-ai/grok-imagine-image-2.0")
+    assert ei.value.code == "image_reference_images_exceeded"
+    assert ei.value.params == {"model": "x-ai/grok-imagine-image-2.0", "limit": 3, "count": 5}
+    assert not route.called
 
 
 def test_edit_only_model_rejects_text_to_image(tmp_path: Path):
