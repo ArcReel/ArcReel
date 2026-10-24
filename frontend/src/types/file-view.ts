@@ -36,3 +36,32 @@ export interface FileViewListing {
   path: string;
   entries: FileViewEntry[];
 }
+
+// 项目回收站（后端 lib/project/project_trash.py）。
+
+/** 一条删除记录。`object.kind` 是被删对象的类型，文件视图删除的未引用文件为 `file`。 */
+export interface TrashRecord {
+  id: string;
+  object: { kind: string; path?: string; [key: string]: unknown };
+  /** 被删文件删除前的项目内相对路径。 */
+  files: string[];
+  schema_version: number;
+  /** 带时区偏移的 UTC ISO 8601。 */
+  deleted_at: string;
+  origin: "user" | "agent";
+  size: number;
+  has_snapshot: boolean;
+}
+
+export interface TrashListing {
+  records: TrashRecord[];
+  total_size: number;
+  retention_days: number;
+}
+
+/** 恢复后一个文件的落点：`as_history` 为真时它成了所在资源的一条历史版本。 */
+export interface RestoredFile {
+  original: string;
+  path: string;
+  as_history: boolean;
+}

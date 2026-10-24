@@ -1,0 +1,10 @@
+{
+  "method": "GET",
+  "path": "/api/v1/projects/demo/trash",
+  "status": 200,
+  "body": {
+    "records": [],
+    "total_size": 0,
+    "retention_days": 30
+  }
+}

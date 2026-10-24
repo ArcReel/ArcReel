@@ -16,7 +16,14 @@ interface Listing {
   entries: Record<string, unknown>[];
 }
 
+interface TrashListing {
+  records: Record<string, unknown>[];
+  total_size: number;
+  retention_days: number;
+}
+
 const root = recorded<Listing>("project-demo-file-view.json");
+const trash = recorded<TrashListing>("project-demo-trash.json");
 const scripts = recorded<Listing>("project-demo-file-view-scripts.json");
 const scriptFile = scripts.entries[0];
 
@@ -58,6 +65,33 @@ const STRESS: ApiOverrides = {
     body: LONG_SCRIPT,
   },
 };
+
+// 压力变体：项目回收站里一百二十条删除记录，路径很长，发起方交替。
+const TRASH_STRESS: ApiOverrides = {
+  ...EVENT_STREAM,
+  "GET /api/v1/projects/demo/trash": {
+    status: 200,
+    body: {
+      ...trash,
+      total_size: 9_876_543_210,
+      records: Array.from({ length: 120 }, (_, i) => {
+        const path = `storyboards/${LONG_NAME}_${i + 1}.png`;
+        return {
+          id: `20261024T0800${String(i % 60).padStart(2, "0")}Z-${String(i).padStart(8, "0")}`,
+          object: { kind: "file", path },
+          files: [path],
+          schema_version: 18,
+          deleted_at: "2026-10-24T08:00:00+00:00",
+          origin: i % 2 === 0 ? "user" : "agent",
+          size: 1_234_567 + i,
+          has_snapshot: false,
+        };
+      }),
+    },
+  },
+};
+
+const sections = (page: Page) => page.getByRole("tablist", { name: "文件视图分区" });
 
 defineRegionScenarios("文件视图", [
   {
@@ -108,5 +142,35 @@ defineRegionScenarios("文件视图", [
       // 目录树滚到底不带动详情栏，详情栏的页头仍在原处
       await expect(page.getByRole("heading", { level: 2, name: String(scriptFile.name) })).toBeInViewport();
     },
+  },
+  {
+    name: "项目回收站分区：没有删除记录",
+    path: PATH,
+    api: EVENT_STREAM,
+    ready: (page) => sections(page).waitFor(),
+    act: async (page) => {
+      await sections(page).getByRole("tab", { name: "项目回收站" }).click();
+      await expect(page.getByText("项目回收站是空的")).toBeVisible();
+      await expect(page.getByRole("button", { name: "清空项目回收站" })).toBeDisabled();
+    },
+  },
+  {
+    name: "项目回收站分区：多条删除记录与清空确认（压力）",
+    path: PATH,
+    api: TRASH_STRESS,
+    slow: true,
+    ready: (page) => sections(page).waitFor(),
+    act: async (page) => {
+      await sections(page).getByRole("tab", { name: "项目回收站" }).click();
+      await expect(page.getByText(/共 120 条删除记录/)).toBeVisible();
+      await expect(page.getByRole("button", { name: "恢复" })).toHaveCount(120);
+      await page.getByRole("button", { name: "清空项目回收站" }).click();
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog.getByText("120 条删除记录将被彻底删除，无法恢复。")).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "取消" })).toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+    },
+    screenshot: { name: "file-view-trash", target: (page) => page.getByRole("main") },
   },
 ]);

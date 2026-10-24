@@ -11,6 +11,7 @@ import pytest
 from lib.project.resource_paths import (
     RESOURCE_TYPES,
     resource_extension,
+    resource_of_path,
     resource_relative_path,
 )
 
@@ -89,3 +90,23 @@ class TestResourceTypes:
             "reference_videos",
             "character_derivatives",
         }
+
+
+class TestResourceOfPath:
+    @pytest.mark.parametrize(
+        ("rel", "expected"),
+        [
+            ("storyboards/scene_E1S01.png", ("storyboards", "E1S01")),
+            ("audio/segment_E1S01.wav", ("audio", "E1S01")),
+            ("characters/姜月茴.png", ("characters", "姜月茴")),
+            # 衍生的子目录更深，先于角色匹配
+            ("characters/derivatives/姜月茴/少年.png", ("character_derivatives", "姜月茴/少年")),
+            # 形状对不上的路径不是任何资源的当前文件
+            ("characters/derivatives/少年.png", None),
+            ("videos/E1S01.mp4", None),
+            ("storyboards/scene_E1S01.jpg", None),
+            ("notes.txt", None),
+        ],
+    )
+    def test_inverts_resource_relative_path(self, rel: str, expected: tuple[str, str] | None) -> None:
+        assert resource_of_path(rel) == expected

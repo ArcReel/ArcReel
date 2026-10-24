@@ -101,3 +101,22 @@ def version_snapshot_relative_path(resource_type: str, resource_id: str, *, vers
     parent, _, stem = resource_id.rpartition("/")
     parent_prefix = f"{parent}/" if parent else ""
     return f"versions/{pattern.subdir}/{parent_prefix}{stem}_v{version}_{timestamp}{pattern.extension}"
+
+
+def resource_of_path(rel: str) -> tuple[str, str] | None:
+    """:func:`resource_relative_path` 的逆运算：项目内相对路径对应的 ``(资源类型, 资源 ID)``，不是资源当前文件时返回 ``None``。
+
+    子目录更深的类型先匹配：``characters/derivatives/a/b.png`` 是衍生 ``a/b``，不是角色 ``derivatives/a/b``。
+    """
+    for resource_type, pattern in sorted(_PATTERNS.items(), key=lambda item: -item[1].subdir.count("/")):
+        head = f"{pattern.subdir}/{pattern.prefix}"
+        if not (rel.startswith(head) and rel.endswith(pattern.extension)):
+            continue
+        resource_id = rel[len(head) : len(rel) - len(pattern.extension)]
+        if (
+            resource_id
+            and resource_id.count("/") == pattern.id_segments - 1
+            and resource_relative_path(resource_type, resource_id) == rel
+        ):
+            return resource_type, resource_id
+    return None

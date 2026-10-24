@@ -142,7 +142,7 @@ import type {
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
-import type { FileViewListing } from "@/types/file-view";
+import type { FileViewListing, RestoredFile, TrashListing, TrashRecord } from "@/types/file-view";
 import type {
   EpisodeNextStep,
   WorkflowMigrationReport,
@@ -582,6 +582,35 @@ class API {
     const response = await fetch(`${API_BASE}${url}`, withAuth(url, { signal: options.signal }));
     await throwIfNotOk(response, i18n.t("errors:file_view_load_failed"));
     return response.blob();
+  }
+
+  /** 把一个未引用文件移进项目回收站；其余角色由服务端拒绝。 */
+  static async deleteFileViewEntry(projectName: string, path: string): Promise<{ record: TrashRecord }> {
+    const query = new URLSearchParams({ path }).toString();
+    return this.request(`/projects/${encodeURIComponent(projectName)}/file-view?${query}`, { method: "DELETE" });
+  }
+
+  // ==================== 项目回收站 ====================
+
+  static async getTrash(projectName: string, options: { signal?: AbortSignal } = {}): Promise<TrashListing> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/trash`, { signal: options.signal });
+  }
+
+  static async restoreTrashRecord(projectName: string, recordId: string): Promise<{ restored: RestoredFile[] }> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/trash/${encodeURIComponent(recordId)}/restore`,
+      { method: "POST" },
+    );
+  }
+
+  static async purgeTrashRecord(projectName: string, recordId: string): Promise<{ success: boolean }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/trash/${encodeURIComponent(recordId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  static async emptyTrash(projectName: string): Promise<{ purged: number }> {
+    return this.request(`/projects/${encodeURIComponent(projectName)}/trash`, { method: "DELETE" });
   }
 
   /**

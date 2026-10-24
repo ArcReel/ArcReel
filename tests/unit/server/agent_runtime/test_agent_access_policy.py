@@ -155,6 +155,19 @@ def test_write_edit_timeline_denied(policy: AgentAccessPolicy, tool: str, relati
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize(
+    "relative", [".arcreel/trash/20261025T000000Z-0000abcd/record.json", ".arcreel/trash/x/files/notes.txt"]
+)
+def test_write_trash_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """项目回收站只经回收站模块增删，Agent 直写会绕过「清空只开放给创作者」；项目记忆不受影响。"""
+    cwd = _cwd(policy)
+    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert ".arcreel/trash/" in (reason or "")
+    assert policy.check_path_access(str(cwd / ".arcreel/memory/MEMORY.md"), tool, cwd, user_id=_USER_ID)[0]
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize(
     "relative", ["source/novel.txt", "source/episode_1.txt", "source/snapshots/novel.txt", "source/new.md"]
 )
 def test_write_source_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
@@ -503,7 +516,7 @@ def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) 
 
 
 def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccessPolicy) -> None:
-    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json、edit_timelines/、drafts/ 与 source/（Bash 子进程内核级封堵）。"""
+    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json、edit_timelines/、drafts/、source/ 与 .arcreel/trash/（Bash 子进程内核级封堵）。"""
     cwd = _cwd(policy)
     settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
     deny_write = settings["filesystem"]["denyWrite"]
@@ -512,6 +525,7 @@ def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccess
     assert str(cwd / "drafts") in deny_write
     assert str(cwd / "edit_timelines") in deny_write
     assert str(cwd / "source") in deny_write
+    assert str(cwd / ".arcreel/trash") in deny_write
 
 
 def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: AgentAccessPolicy) -> None:

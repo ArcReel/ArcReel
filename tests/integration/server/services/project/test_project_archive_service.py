@@ -32,6 +32,7 @@ from lib.final_cut.basis import FinalCutVariant, final_cut_artifact_path, final_
 from lib.i18n import _
 from lib.infra.validation_messages import default_translate
 from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
+from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations.runner import migrate_project_dir
@@ -1782,10 +1783,13 @@ class TestProjectArchiveService:
         assert not (pm.get_project_path("demo") / ".arcreel").exists()
         assert not list(pm.projects_dir.glob(".import-*"))
 
-    def test_export_omits_project_memory(self, tmp_path):
+    def test_export_omits_project_memory_and_trash(self, tmp_path):
+        """项目私有区（项目记忆与项目回收站）都不随归档导出。"""
         pm = ProjectManager(tmp_path / "projects")
         project_dir = _create_project(pm)
         _write_text(project_dir / ".arcreel" / "memory" / "MEMORY.md", "index")
+        _write_text(project_dir / "notes.txt", "deleted later")
+        project_trash.record_deletion(project_dir, {"kind": "file", "path": "notes.txt"}, ["notes.txt"])
 
         service = ProjectArchiveService(pm)
         archive_path, _ = service.export_project("demo")
