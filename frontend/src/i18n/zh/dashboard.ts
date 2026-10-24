@@ -3709,7 +3709,7 @@ export default {
   'episode_view_setting': '故事设定',
   'ad_setting_hint': 'AI 生成脚本时会参考这里的设定。保存修改后，已生成的脚本会标为过期。',
   'ad_brief_title': '创作灵感',
-  'ad_brief_placeholder': '描述你想要的视频：目标人群、风格调性、重点卖点、行动号召……',
+  'ad_brief_placeholder': '描述你想要的视频：目标人群、风格调性、重点卖点、行动号召…',
   'ad_products_view_all': '查看全部',
   'ad_products_empty_hint': '添加商品图和卖点，AI 生成脚本时会围绕商品来写。没有商品时，也可以只凭创作灵感生成。',
   // 共享组件：缩略图的查看大图

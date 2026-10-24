@@ -27,7 +27,7 @@ describe("locale wording", () => {
 
   it("uses「…」for ellipses and「」for quotes in the zh pack", () => {
     // 只查成对的引号：列举非法字符时单独出现的 " 是字符本身
-    const offenders = entries(zh).filter(([, text]) => /\.\.\.|"[^"]*"/.test(text));
+    const offenders = entries(zh).filter(([, text]) => /\.\.\.|……|"[^"]*"/.test(text));
     expect(offenders).toEqual([]);
   });
 

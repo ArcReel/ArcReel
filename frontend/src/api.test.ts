@@ -1079,7 +1079,7 @@ describe("API", () => {
             jsonData: {
               detail: "导入包校验失败",
               errors: ["缺少 project.json", "缺少 scripts/episode_1.json"],
-              warnings: ["发现未识别的附加文件/目录: extra"],
+              warnings: ["发现未识别的附加文件/目录：extra"],
               diagnostics: {
                 blocking: [
                   { code: "validation_error", message: "缺少 project.json" },
@@ -1089,7 +1089,7 @@ describe("API", () => {
                   { code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" },
                 ],
                 warnings: [
-                  { code: "validation_warning", message: "发现未识别的附加文件/目录: extra" },
+                  { code: "validation_warning", message: "发现未识别的附加文件/目录：extra" },
                 ],
               },
             },
@@ -1105,7 +1105,7 @@ describe("API", () => {
         message: "导入包校验失败",
         detail: "导入包校验失败",
         errors: ["缺少 project.json", "缺少 scripts/episode_1.json"],
-        warnings: ["发现未识别的附加文件/目录: extra"],
+        warnings: ["发现未识别的附加文件/目录：extra"],
         diagnostics: {
           blocking: [
             { code: "validation_error", message: "缺少 project.json" },
@@ -1115,7 +1115,7 @@ describe("API", () => {
             { code: "missing_clues_field", message: "segments[0]: 补全缺失字段 clues_in_segment" },
           ],
           warnings: [
-            { code: "validation_warning", message: "发现未识别的附加文件/目录: extra" },
+            { code: "validation_warning", message: "发现未识别的附加文件/目录：extra" },
           ],
         },
       });
