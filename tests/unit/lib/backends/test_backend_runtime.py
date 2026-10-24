@@ -1057,7 +1057,7 @@ class TestProviderJobIdPersistenceMixin:
         """持久化失败抛出原异常，由 worker finally 兜底 mark_failed（fail-fast，不吞）。"""
         boom = _make_operational_error("database is locked")
         with (
-            patch("lib.backends.backend_runtime.persist_provider_job_id", new=AsyncMock(side_effect=boom)),
+            captured_provider_job_ids(fail=boom),
             pytest.raises(OperationalError),
         ):
             await self._backend()._persist_provider_job_id(

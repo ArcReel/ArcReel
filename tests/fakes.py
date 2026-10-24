@@ -803,12 +803,13 @@ def bounded_poll_clock(step: float = 30.0) -> Generator[None]:
 
 
 @contextmanager
-def captured_provider_job_ids() -> Generator[list[dict[str, Any]]]:
+def captured_provider_job_ids(fail: Exception | None = None) -> Generator[list[dict[str, Any]]]:
     """provider_job_id 写回的手写替身：收下写回参数，不落 DB。
 
     ``persist_provider_job_id`` 是 backend 的 DB 边界，各提交-轮询型 backend 的测试只关心
     「写回了什么」。产出按参数名归档的记录列表，断言落在记录内容上而不是替身的调用对象上；
-    非 worker 路径（``task_id=None``）跳过写回时列表保持为空。
+    非 worker 路径（``task_id=None``）跳过写回时列表保持为空。给了 ``fail`` 时写回改为抛出它，
+    用来模拟落库失败。
     """
     records: list[dict[str, Any]] = []
 
@@ -820,6 +821,8 @@ def captured_provider_job_ids() -> Generator[list[dict[str, Any]]]:
         endpoint: str | None = None,
         base_url: str | None = None,
     ) -> None:
+        if fail is not None:
+            raise fail
         records.append(
             {
                 "task_id": task_id,
@@ -1125,6 +1128,14 @@ def bind_session_factory(monkeypatch, factory) -> None:
 def use_sdk_client(monkeypatch, factory: Callable[..., Any]) -> None:
     """``SessionManager`` 建 SDK 客户端时改调 *factory*（收 ``options``，通常返回 :class:`FakeSDKClient`）。"""
     monkeypatch.setattr("server.agent_runtime.session_manager.ClaudeSDKClient", factory)
+
+
+def use_artifact_registration(monkeypatch, register: Callable[..., Any]) -> None:
+    """正式产物登记改调 *register*（收 ``project_path, key``），用来记录登记了什么或注入登记失败。
+
+    写盘出口在函数内晚导入 ``register_current_artifact_if_provable``，替换 ``artifact_activation`` 上的名字即生效。
+    """
+    monkeypatch.setattr("lib.artifacts.artifact_activation.register_current_artifact_if_provable", register)
 
 
 def use_provider_env(monkeypatch, load: Callable[..., Any]) -> None:

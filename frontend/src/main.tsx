@@ -4,6 +4,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { i18nReady } from "@/i18n";
 import { BRAND, BRAND_DOCUMENT_TITLE } from "@/branding";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { initTheme } from "@/theme";
 
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
@@ -22,6 +23,8 @@ const metaDescription = document.querySelector<HTMLMetaElement>('meta[name="desc
 if (metaDescription) {
   metaDescription.content = BRAND.description;
 }
+
+initTheme();
 
 // 从 localStorage 恢复登录状态
 useAuthStore.getState().initialize();

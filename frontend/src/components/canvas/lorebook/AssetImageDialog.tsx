@@ -27,7 +27,8 @@ export function AssetImageDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent size="xl">
+      {/* 看图区域固定深色：浅底会干扰对画面明暗的判断 */}
+      <DialogContent size="xl" className="dark">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>

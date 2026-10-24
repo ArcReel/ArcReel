@@ -34,7 +34,7 @@ from server.error_handlers import register_error_handlers
 from server.routers import files
 from server.services.currency import upload_finalize
 from tests.factories import wav_bytes
-from tests.fakes import fail_project_json_write, use_project_manager, use_text_generator
+from tests.fakes import fail_project_json_write, use_artifact_registration, use_project_manager, use_text_generator
 
 
 class _FakeTextBackend:
@@ -1537,10 +1537,7 @@ class TestFilesRouter:
             raise RuntimeError("manifest unavailable")
 
         with monkeypatch.context() as registration_patch:
-            registration_patch.setattr(
-                "lib.artifacts.artifact_activation.register_current_artifact_if_provable",
-                _fail_registration,
-            )
+            use_artifact_registration(registration_patch, _fail_registration)
             with pytest.raises(RuntimeError, match="manifest unavailable"):
                 files._write_plain_draft(
                     "demo",

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
+import { enqueueAssetSheetBatch } from "@/actions/generation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -76,13 +77,11 @@ export function AssetSheetBatchDialog({
   const handleConfirm = async () => {
     setSubmitting(true);
     try {
-      const submitted = await API.submitAssetSheetBatch(projectName, scope);
+      const submitted = await enqueueAssetSheetBatch(projectName, scope);
       const members = submitted.members.filter((member) => member.status !== "blocked");
       if (members.length > 0) {
         useAssetSheetBatchStore.getState().track({ batchId: submitted.batch_id, projectName, members });
       }
-      const queuedCount = members.filter((member) => member.task_id).length;
-      if (queuedCount > 0) useAppStore.getState().pushToast(t("sheet_batch_submitted", { count: queuedCount }), "success");
       onClose();
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
