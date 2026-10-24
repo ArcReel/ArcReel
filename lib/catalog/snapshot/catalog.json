@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-24T16:52:48Z",
+  "dataset_version": "2026-10-24T19:16:53Z",
   "entries": [
     {
       "maker": "agnes",
@@ -14012,13 +14012,26 @@
         "meters": [
           {
             "meter": "output_images",
-            "dims": [],
+            "dims": [
+              "resolution"
+            ],
             "rows": [
               {
-                "when": {},
+                "when": {
+                  "resolution": "720p"
+                },
                 "price": 0.0032
+              },
+              {
+                "when": {
+                  "resolution": "1080p"
+                },
+                "price": 0.0057
               }
-            ]
+            ],
+            "defaults": {
+              "resolution": "720p"
+            }
           }
         ]
       }
