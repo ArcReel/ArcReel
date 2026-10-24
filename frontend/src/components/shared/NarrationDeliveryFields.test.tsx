@@ -2,7 +2,8 @@ import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
 import { describe, it, expect, vi } from "vitest";
 import "@/i18n";
 import { API } from "@/api";
-import { NarrationDeliveryFields, type NarrationDeliveryValue } from "./NarrationDeliveryFields";
+import { NarrationDeliveryFields } from "./NarrationDeliveryFields";
+import type { NarrationDeliveryValue } from "./narration-delivery";
 
 const ttsProject: NarrationDeliveryValue = {
   delivery: "use_tts",

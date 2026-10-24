@@ -9,7 +9,8 @@ import {
 } from "@/stores/tasks-store";
 import type { GridGeneration } from "@/types/grid";
 import type { TaskItem } from "@/types";
-import { GridPreviewPanel, gridImageAspect } from "./GridPreviewPanel";
+import { GridPreviewPanel } from "./GridPreviewPanel";
+import { gridImageAspect } from "./grid-preview-model";
 
 // useActiveResourceIds 默认包裹真实实现，仅在个别用例里用 mockReturnValue 模拟
 // "响应式信号尚未追上真实 store"的场景，验证提交 handler 不依赖它、独立新鲜读 store。

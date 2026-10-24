@@ -30,7 +30,7 @@ import { isComfyuiDefinition, reimportedDefinition, type ComfyuiImportDraft } fr
 import { EndpointDetail, type EndpointSelection } from "./EndpointDetail";
 import type { EndpointBackTarget } from "./EndpointHeader";
 import { EndpointImportDialog } from "./EndpointImportDialog";
-import { groupUsagesByEndpoint } from "./EndpointUsageList";
+import { groupUsagesByEndpoint } from "./endpoint-usages";
 
 /** 有 kind 即是一份此刻就能显示的端点定义；其余形状的身份由服务端的分流结果给出。 */
 function hasKind(value: unknown): value is AnyEndpointDefinition {

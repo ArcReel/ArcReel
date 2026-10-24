@@ -48,10 +48,12 @@ import {
 } from "./endpoint-definition-draft";
 import { EndpointDiagnostics } from "./EndpointDiagnostics";
 import { EndpointHeader, type EndpointBackTarget } from "./EndpointHeader";
-import { EndpointReferenceList, endpointReferences } from "./EndpointReferenceList";
+import { endpointReferences } from "./endpoint-references";
+import { EndpointReferenceList } from "./EndpointReferenceList";
 import { EndpointForm } from "./EndpointForm";
 import { EndpointTestSection } from "./EndpointTestSection";
-import { EndpointUsageList, type EndpointUsage } from "./EndpointUsageList";
+import type { EndpointUsage } from "./endpoint-usages";
+import { EndpointUsageList } from "./EndpointUsageList";
 import { exportEndpointDefinition } from "./export-endpoint-definition";
 import { EXAMPLE_TEMPLATES } from "./example-templates";
 import { VariableInsertionProvider } from "./endpoint-form-primitives";

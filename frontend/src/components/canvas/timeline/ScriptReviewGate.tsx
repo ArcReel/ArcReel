@@ -26,20 +26,20 @@ import {
   DraftSoftViolationList,
   DraftViolationList,
   InvalidDraftBar,
-  draftFallbackText,
-  draftFixRequestText,
-  prefillAssistant,
 } from "@/components/shared/DraftStatus";
+import { draftFallbackText, draftFixRequestText } from "@/components/shared/draft-text";
+import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { EpisodeDurationSummary } from "@/components/shared/EpisodeDurationSummary";
 import { ScriptPlanButton } from "@/components/canvas/shared/ScriptPlanButton";
 import { StartBlankScriptButton } from "@/components/canvas/shared/StartBlankScriptButton";
-import { NewAssetsSection, hasValidNewAssets, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
+import { NewAssetsSection, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
 import { ScriptOverwriteConfirmDialog } from "@/components/shared/ScriptOverwriteConfirmDialog";
 import { VideoModelUnresolvedNotice } from "@/components/shared/VideoModelUnresolvedNotice";
 import { useModelCapabilities, type DurationOutOfRangeReason } from "@/hooks/useModelCapabilities";
-import { PlanDurationSelect, durationIncompatibleLabel } from "@/components/canvas/shared/PlanDurationSelect";
+import { durationIncompatibleLabel } from "@/components/canvas/shared/duration-incompatible";
+import { PlanDurationSelect } from "@/components/canvas/shared/PlanDurationSelect";
 import { PlanStructureHint } from "@/components/canvas/shared/PlanStructureHint";
-import { speakerCandidates } from "@/utils/plan-new-assets";
+import { hasValidNewAssets, speakerCandidates } from "@/utils/plan-new-assets";
 import { ScriptPlanStart } from "@/components/canvas/shared/ScriptPlanStart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

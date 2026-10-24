@@ -11,7 +11,7 @@ import type { TodoItem, Turn } from "@/types";
 // 失败的写入不算数；空清单是有效的最新状态（Agent 清空了待办）。
 // ---------------------------------------------------------------------------
 
-export function extractLatestTodos(turns: Turn[], draftTurn: Turn | null): TodoItem[] | null {
+function extractLatestTodos(turns: Turn[], draftTurn: Turn | null): TodoItem[] | null {
   const allTurns = draftTurn ? [...turns, draftTurn] : turns;
 
   for (let i = allTurns.length - 1; i >= 0; i--) {

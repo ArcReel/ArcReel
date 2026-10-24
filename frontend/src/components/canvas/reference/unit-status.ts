@@ -1,4 +1,3 @@
-import { useTranslation } from "react-i18next";
 import { isActiveStatus } from "@/stores/tasks-store";
 import type { ReferenceVideoUnit, TaskItem, UnitStatus } from "@/types";
 
@@ -81,15 +80,4 @@ export function deriveUnitStatus({
   if (queueRow?.status === "failed" && !(supportsManualUpload && hasClip)) return "failed";
   if (!queueRow && busy) return "running";
   return hasClip ? "ready" : "pending";
-}
-
-export function StatusBadge({ status }: { status: UnitStatus }) {
-  const { t } = useTranslation("dashboard");
-  const conf = STATUS_CONF[status];
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-sm px-1.5 py-0.5 text-xs font-medium ${conf.badgeClass}`}>
-      <span aria-hidden="true" className={`size-1.5 rounded-full ${conf.dotClass}`} />
-      {t(conf.i18nKey)}
-    </span>
-  );
 }

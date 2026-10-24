@@ -6,8 +6,6 @@ import { Button } from "@/components/ui/button"
 import { XIcon, CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
-const toast = ToastPrimitive.createToastManager()
-
 function ToastProvider({ ...props }: ToastPrimitive.Provider.Props) {
   return <ToastPrimitive.Provider {...props} />
 }
@@ -196,7 +194,7 @@ function ToastList() {
 
 function Toaster({
   children,
-  toastManager = toast,
+  toastManager,
   ...props
 }: ToastPrimitive.Provider.Props) {
   return (
@@ -211,9 +209,9 @@ function Toaster({
   )
 }
 
-const createToastManager = ToastPrimitive.createToastManager
 const useToastManager = ToastPrimitive.useToastManager
 
+// 不导出模块级 toast 队列与 createToastManager：队列由 ToastOverlay 持有并传给 Toaster，原语文件只导出组件与 hook
 export {
   Toaster,
   Toast,
@@ -225,7 +223,5 @@ export {
   ToastProvider,
   ToastTitle,
   ToastViewport,
-  createToastManager,
-  toast,
   useToastManager,
 }

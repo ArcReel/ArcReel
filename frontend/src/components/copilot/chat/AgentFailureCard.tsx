@@ -36,7 +36,7 @@ const GENERIC_KEY: Record<FailureObservation["phase"], string> = {
 };
 
 /** 一句话结论用的 key：认识的原样使用，其余回落到该阶段的通用 key。 */
-export function failureConclusionKey(failure: FailureObservation): string {
+function failureConclusionKey(failure: FailureObservation): string {
   const key = failure.summary.key;
   return key && CONCLUSION_KEYS[failure.phase].has(key) ? key : GENERIC_KEY[failure.phase];
 }

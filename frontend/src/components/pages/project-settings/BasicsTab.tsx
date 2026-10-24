@@ -4,7 +4,8 @@ import { cn } from "cn";
 
 import { DurationTierPicker } from "@/components/shared/DurationTierPicker";
 import { EpisodeTargetDurationField } from "@/components/shared/EpisodeTargetDurationField";
-import { ROUTE_META, RouteLockBadge } from "@/components/shared/GenerationRouteCards";
+import { RouteLockBadge } from "@/components/shared/GenerationRouteCards";
+import { ROUTE_META } from "@/components/shared/generation-route-meta";
 import { GridStoryboardBar } from "@/components/shared/GridStoryboardBar";
 import { InlineWarning } from "@/components/shared/InlineWarning";
 import { SpeechRateField } from "@/components/shared/SpeechRateField";

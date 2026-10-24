@@ -8,10 +8,11 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import type { CapabilityKey, CatalogEntryHit, NewCatalogEntry, ProviderModelItem } from "@/types";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
-import { EDITABLE_FACTS, FactField } from "./ProviderModelEntryInfo";
+import { FactField } from "./ProviderModelEntryInfo";
 import { PriceEditor } from "./price-editor/PriceEditor";
 import { isPriceTableValid, priceForSave, priceTableOf, type PriceTable } from "./price-editor/priceTable";
 import { MEDIA_LABEL_KEY } from "./providerModelDisplay";
+import { EDITABLE_FACTS } from "./providerModelEntry";
 
 type MediaType = ProviderModelItem["media_type"];
 
@@ -127,11 +128,11 @@ function ManualEntryForm({
     return () => controller.abort();
   }, [lookupName, media, durationsTouched]);
 
+  // 换类型时字段按 `${media}:${key}` 全部重新挂载，上一类型里填错的输入卸载时自己收回「不合法」
   const switchMedia = (next: MediaType) => {
     setMedia(next);
     setFacts(defaultFacts(next));
     setDurationsTouched(false);
-    setInvalidKeys(new Set());
   };
 
   const trimmedMaker = maker.trim();

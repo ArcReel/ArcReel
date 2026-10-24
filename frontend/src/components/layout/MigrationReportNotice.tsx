@@ -4,7 +4,7 @@ import { Info, Loader2, X } from "lucide-react";
 
 import { API } from "@/api";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { MigrationReportContent, migrationReportItemCount } from "@/components/shared/MigrationReportContent";
+import { MigrationReportContent } from "@/components/shared/MigrationReportContent";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -41,7 +41,7 @@ export function MigrationReportNotice({
   const [dismissedAt, setDismissedAt] = useState<string | null>(null);
 
   if (dismissedAt === report.migrated_at) return null;
-  const count = migrationReportItemCount(report);
+  const count = report.adjusted.length + report.skipped.length;
   if (count === 0) return null;
   const label = t("dashboard:migration_report_notice", { count });
 

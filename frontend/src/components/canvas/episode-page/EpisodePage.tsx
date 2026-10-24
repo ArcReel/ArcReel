@@ -18,15 +18,18 @@ import { DemoEpisodePlaceholder } from "@/onboarding/DemoEpisodePlaceholder";
 import { useCostStore } from "@/stores/cost-store";
 import { useEpisodeSurfaceRequest } from "@/stores/episode-surface-store";
 import { usePromptAuthoringStore } from "@/stores/prompt-authoring-store";
-import type { EpisodeMeta, ProjectData } from "@/types";
+import type { ProjectData } from "@/types";
 import type { EpisodeScript } from "@/types/script";
 import { gridStoryboardEnabled, normalizeRoute } from "@/utils/generation-mode";
 import { lazyNamed } from "@/utils/lazy-component";
 import { previewAspect } from "@/utils/preview-aspect";
 
 import {
+  episodeViewTabId,
   episodeViewTabs,
+  hasEpisodeDraft,
   resolveEpisodeView,
+  showsEpisodeSource,
   withEpisodeView,
   type CanvasView,
   type EpisodeView,
@@ -34,7 +37,7 @@ import {
 } from "./episode-view";
 import { EpisodeHead } from "./EpisodeHead";
 import { EpisodeHeaderActions, EpisodeHeaderSlotProvider } from "./EpisodeHeaderActions";
-import { EpisodePageHeader, episodeViewTabId } from "./EpisodePageHeader";
+import { EpisodePageHeader } from "./EpisodePageHeader";
 import { EpisodeViewFactsProvider } from "./EpisodeViewScope";
 import { StorySettingView } from "./StorySettingView";
 
@@ -49,25 +52,6 @@ export interface EpisodeViewChangeOptions {
 export interface EpisodeCanvasContext {
   view: CanvasView;
   onViewChange: (view: EpisodeView, options?: EpisodeViewChangeOptions) => void;
-}
-
-/** 本集已有中间稿：分段稿或生成好的剧本草稿。 */
-function hasEpisodeDraft(meta: EpisodeMeta | undefined): boolean {
-  return meta?.script_status === "segmented" || meta?.script_status === "generated";
-}
-
-/**
- * 脚本规划视图呈现集原文：已选集，但正式剧本与中间稿都没有。
- * 广告/短片恒单集、演示项目没有源文可切，走各自画布。
- */
-export function showsEpisodeSource(
-  projectData: ProjectData | null,
-  episode: number,
-  script: EpisodeScript | null,
-  demo: boolean,
-): boolean {
-  const meta = projectData?.episodes?.find((entry) => entry.episode === episode);
-  return meta !== undefined && !script && !hasEpisodeDraft(meta) && projectData?.content_mode !== "ad" && !demo;
 }
 
 /**

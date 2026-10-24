@@ -1,7 +1,8 @@
 import { render, screen, fireEvent } from "@testing-library/react";
 import { describe, it, expect, vi } from "vitest";
 import "@/i18n";
-import { SpeechRateField, isValidSpeechRate } from "./SpeechRateField";
+import { SpeechRateField } from "./SpeechRateField";
+import { isValidSpeechRate } from "./speech-rate";
 
 describe("SpeechRateField", () => {
   it("shows 字/秒 for zh, 词/秒 for en / vi", () => {

@@ -38,7 +38,7 @@ function badgeKeyFor(kind: ThumbnailAssetKind, name: string): BadgeKey {
   return KIND_META[kind].badgeKey;
 }
 
-export function getSheetPath(
+function getSheetPath(
   kind: ThumbnailAssetKind,
   asset: Asset | undefined,
 ): string | undefined {

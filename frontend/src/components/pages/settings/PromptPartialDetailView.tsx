@@ -5,8 +5,8 @@ import { API } from "@/api";
 import { Button } from "@/components/ui/button";
 import type { PromptTemplateMeta, PromptTemplatePartial } from "@/types";
 import { errMsg } from "@/utils/async";
+import { categoryLabel } from "./promptTemplateCategory";
 import {
-  categoryLabel,
   DetailSection,
   ErrorCard,
   LoadingCard,

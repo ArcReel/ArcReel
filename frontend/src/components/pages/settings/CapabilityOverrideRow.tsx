@@ -20,12 +20,12 @@ export type OverrideState = "follow" | "on" | "off";
 const SEGMENT_ORDER: OverrideState[] = ["follow", "on", "off"];
 
 /** 覆盖值（undefined = 键缺席）与三态之间的双向映射，写入侧的唯一转换点。 */
-export function overrideToState(override: boolean | undefined): OverrideState {
+function overrideToState(override: boolean | undefined): OverrideState {
   if (override === undefined) return "follow";
   return override ? "on" : "off";
 }
 
-export function stateToOverride(state: OverrideState): boolean | undefined {
+function stateToOverride(state: OverrideState): boolean | undefined {
   if (state === "follow") return undefined;
   return state === "on";
 }

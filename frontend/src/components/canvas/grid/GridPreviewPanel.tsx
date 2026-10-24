@@ -25,8 +25,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { useAppStore } from "@/stores/app-store";
 import { isResourceBusy, useActiveResourceIds, useTasksStore } from "@/stores/tasks-store";
 import type { GridGeneration, ReferenceImage } from "@/types/grid";
-import type { ProjectData } from "@/types/project";
-import { previewAspect } from "@/utils/preview-aspect";
+import { gridImageAspect, type GridImageAspect } from "./grid-preview-model";
 
 export interface GridPreviewPanelProps {
   projectName: string;
@@ -42,8 +41,6 @@ export interface GridPreviewPanelProps {
 
 type GridDisplayStatus = GridGeneration["status"] | "interrupted";
 
-type GridImageAspect = "16:9" | "9:16" | "4:3" | "3:4";
-
 /**
  * 联合图加载前的占位比例与宽度：宽度取「栏宽」与「70cqh 高度下按该比例的宽度」中较小者，
  * 比例推算正确时与加载后按图片自身尺寸受 max-w-full、max-h-[70cqh] 约束的结果一致，加载前后不跳动。
@@ -55,21 +52,6 @@ const GRID_IMAGE_BOX: Record<GridImageAspect, { width: number; height: number; c
   "4:3": { width: 1920, height: 1440, className: "w-[min(100%,calc(70cqh*4/3))]" },
   "3:4": { width: 1440, height: 1920, className: "w-[min(100%,calc(70cqh*3/4))]" },
 };
-
-/**
- * 联合图的整图比例，与后端 grid_aspect_ratio_for 同口径：方形档取视频比例的规范朝向，
- * 存量 3×2 / 2×3 记录取 4:3 / 3:4。记录未冻结视频比例时按项目画幅回退。
- */
-export function gridImageAspect(
-  grid: Pick<GridGeneration, "rows" | "cols" | "video_aspect_ratio">,
-  project: Pick<ProjectData, "aspect_ratio" | "content_mode"> | null | undefined,
-): GridImageAspect {
-  const [w, h] = (grid.video_aspect_ratio ?? previewAspect(project)).split(":").map(Number);
-  const videoAspect = w > h ? "16:9" : "9:16";
-  if (grid.rows === 3 && grid.cols === 2) return "4:3";
-  if (grid.rows === 2 && grid.cols === 3) return "3:4";
-  return videoAspect;
-}
 
 const STATUS_ICON: Record<Exclude<GridDisplayStatus, "generating">, typeof Clock> = {
   pending: Clock,

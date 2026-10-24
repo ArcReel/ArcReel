@@ -49,7 +49,7 @@ import { useTrackWrite } from "./useAssetWrites";
 import { useStaleRegenerateConfirm } from "./useStaleRegenerateConfirm";
 
 /** 脚本正文里引用衍生的记号。 */
-export function derivativeToken(characterName: string, derivativeName: string): string {
+function derivativeToken(characterName: string, derivativeName: string): string {
   return `@[${characterName}/${derivativeName}]`;
 }
 

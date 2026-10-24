@@ -20,7 +20,8 @@ import { errMsg, voidCall } from "@/utils/async";
 import { AddModelDialog } from "./AddModelDialog";
 import { FetchModelsDialog, type FetchSelection } from "./FetchModelsDialog";
 import { ManualEntryDialog } from "./ManualEntryDialog";
-import { MEDIA_LABEL_KEY, ProviderModelFlags, priceSummaryText } from "./providerModelDisplay";
+import { ProviderModelFlags } from "./ProviderModelFlags";
+import { MEDIA_LABEL_KEY, priceSummaryText } from "./providerModelDisplay";
 import { ProviderModelSheet, type CustomProviderContext, type OpenProviderModel } from "./ProviderModelSheet";
 
 // 分组顺序：文本、图片、视频、音频。

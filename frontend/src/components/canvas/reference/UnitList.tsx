@@ -4,7 +4,8 @@ import { Plus, Search } from "lucide-react";
 import { SortableHandle, SortableItem, SortableList, type SortableMove } from "@/components/shared/sortable/SortableList";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { StatusBadge, resolveUnitStatus } from "./unit-status";
+import { resolveUnitStatus } from "./unit-status";
+import { UnitStatusBadge } from "./UnitStatusBadge";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 
@@ -126,7 +127,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
                       >
                         {shortId}
                       </span>
-                      <StatusBadge status={resolveUnitStatus(u, statusMap)} />
+                      <UnitStatusBadge status={resolveUnitStatus(u, statusMap)} />
                       <span className="flex-1" />
                       <span className="font-mono text-xs tabular-nums text-muted-foreground">
                         {t("reference_editor_unit_meta", { duration: u.duration_seconds })}

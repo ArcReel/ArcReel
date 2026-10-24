@@ -11,11 +11,11 @@ import { formatNameList } from "@/utils/list-format";
 import { catalogDisplayNames, catalogDurations } from "@/utils/provider-models";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { isValidEpisodeTargetDuration } from "@/components/shared/EpisodeTargetDurationField";
-import { isValidSpeechRate } from "@/components/shared/SpeechRateField";
-import { executingImageModel, executingVideoModel } from "@/components/shared/LayeredModelFields";
+import { isValidEpisodeTargetDuration } from "@/components/shared/episode-target-duration";
+import { isValidSpeechRate } from "@/components/shared/speech-rate";
+import { executingImageModel, executingVideoModel } from "@/components/shared/model-layers";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
-import { narrationDeliveryProblem, type NarrationDeliveryValue } from "@/components/shared/NarrationDeliveryFields";
+import { narrationDeliveryProblem, type NarrationDeliveryValue } from "@/components/shared/narration-delivery";
 import { StylePicker, type StylePickerValue } from "@/components/shared/StylePicker";
 import { WizardStepBasics, type WizardBasicsValue } from "./create-project/WizardStepBasics";
 import {

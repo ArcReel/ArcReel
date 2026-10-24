@@ -36,7 +36,8 @@ import {
 import { ComfyuiBindingTable } from "./ComfyuiBindingTable";
 import { ComfyuiEndpointTestSection } from "./ComfyuiEndpointTestSection";
 import { EndpointHeader, type EndpointBackTarget } from "./EndpointHeader";
-import { EndpointUsageList, type EndpointUsage } from "./EndpointUsageList";
+import type { EndpointUsage } from "./endpoint-usages";
+import { EndpointUsageList } from "./EndpointUsageList";
 import { exportEndpointDefinition } from "./export-endpoint-definition";
 
 /** 自动包装原始 workflow 时写进 `meta.name` 的占位值，与服务端 `import_shapes.py` 同一个。 */

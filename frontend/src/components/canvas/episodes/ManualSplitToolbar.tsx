@@ -9,7 +9,7 @@ import { episodeDisplayName } from "@/utils/episode-display";
 import { Button } from "@/components/ui/button";
 
 import { episodeHue, formatVolume } from "./episodes-view-model";
-import { rangeUnits, type PointAction } from "./manual-split-model";
+import { caretEpisode, rangeUnits, type PointAction } from "./manual-split-model";
 
 interface ManualSplitToolbarProps {
   view: EpisodesView;
@@ -20,11 +20,6 @@ interface ManualSplitToolbarProps {
   busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
-}
-
-/** 插入光标取哪一集的集色：拆分取这一集，切分与移动分界取品牌色（null）。 */
-export function caretEpisode(action: PointAction): number | null {
-  return action.kind === "split" ? action.episode : null;
 }
 
 /**

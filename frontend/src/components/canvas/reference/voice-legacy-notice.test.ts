@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeVoiceLegacyNotice } from "./VoiceLegacyBanner";
+import { computeVoiceLegacyNotice } from "./voice-legacy-notice";
 import type { ReferenceVideoUnit, UnitGeneratedAssets } from "@/types/reference-video";
 import type { Character } from "@/types/project";
 

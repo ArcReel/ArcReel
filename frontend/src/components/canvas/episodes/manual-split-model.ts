@@ -173,6 +173,11 @@ export function adjacentBoundaries(view: EpisodesView): { left: number; right: n
   });
 }
 
+/** 插入光标取哪一集的集色：拆分取这一集，切分与移动分界取品牌色（null）。 */
+export function caretEpisode(action: PointAction): number | null {
+  return action.kind === "split" ? action.episode : null;
+}
+
 /**
  * 落点上能做的手工切分；做不了时返回 null。
  *

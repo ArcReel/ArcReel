@@ -6,7 +6,10 @@ import { createPortal } from "react-dom";
  */
 const EpisodeHeaderSlotContext = createContext<HTMLElement | null | undefined>(undefined);
 
-export const EpisodeHeaderSlotProvider = EpisodeHeaderSlotContext.Provider;
+/** 集页提供插槽节点：挂载前为 null。 */
+export function EpisodeHeaderSlotProvider({ value, children }: { value: HTMLElement | null; children: ReactNode }) {
+  return <EpisodeHeaderSlotContext.Provider value={value}>{children}</EpisodeHeaderSlotContext.Provider>;
+}
 
 /**
  * 各视图往集页页头放当前视图的动作（批量补齐、编写提示词、出片等）。子元素经 portal 渲染到页头，

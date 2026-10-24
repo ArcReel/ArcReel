@@ -39,7 +39,8 @@ import { DurationParseError } from "@/utils/duration_format";
 import { formatNameList } from "@/utils/list-format";
 import { parseMultiplier } from "@/utils/multiplier";
 import { FieldHint, FieldRow } from "./CustomProviderFieldRow";
-import { DURATION_ERROR_KEY, ModelTable } from "./CustomProviderModelTable";
+import { ModelTable } from "./CustomProviderModelTable";
+import { DURATION_ERROR_KEY } from "./durationErrors";
 import { FetchModelsDialog, type FetchSelection } from "./FetchModelsDialog";
 import { ProviderModelList } from "./ProviderModelList";
 import {

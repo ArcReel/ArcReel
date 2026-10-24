@@ -6,11 +6,6 @@ import { TruncatedText } from "@/components/shared/TruncatedText";
 import type { WorkflowMigrationAdjustment, WorkflowMigrationReport } from "@/types/workflow";
 import { episodeDisplayName, type EpisodeLedger } from "@/utils/episode-display";
 
-/** 报告里的条目数：「已调整」与「未能带入」两组之和。 */
-export function migrationReportItemCount(report: WorkflowMigrationReport): number {
-  return report.adjusted.length + report.skipped.length;
-}
-
 const ASSET_TYPES = new Set(["character", "scene", "prop", "product"]);
 const ARTIFACT_KINDS = new Set([
   "asset-sheet",

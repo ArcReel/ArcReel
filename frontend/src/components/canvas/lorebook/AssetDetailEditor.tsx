@@ -16,7 +16,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import type { AssetSheetStatusRow, AssetSheetType, Character, Product } from "@/types";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { ASSET_TYPE_ICON } from "./AssetBrowseCard";
+import { ASSET_SHEET_TYPE_ICON } from "@/components/assets/asset-type-icons";
 import { rejectIfAssetBusy, useAssetBusyNames } from "./assetBusyGuard";
 import { AssetAliasesField } from "./AssetAliasesField";
 import { AssetImageDialog } from "./AssetImageDialog";
@@ -147,7 +147,7 @@ export function AssetDetailEditor({
       ? API.getFileUrl(projectName, gallery.sheetPath, sheetFp)
       : null;
   const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
-  const Icon = ASSET_TYPE_ICON[assetType];
+  const Icon = ASSET_SHEET_TYPE_ICON[assetType];
   const imageAlt = t("assets:asset_image_alt", { name });
 
   const staleConfirm = useStaleRegenerateConfirm({

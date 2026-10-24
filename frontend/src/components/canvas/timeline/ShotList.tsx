@@ -10,7 +10,8 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SortableHandle, SortableItem, SortableList, type SortableMove } from "@/components/shared/sortable/SortableList";
 import { useProjectsStore } from "@/stores/projects-store";
-import { StatusBadge, statusFromAssets } from "@/components/canvas/timeline/StatusBadge";
+import { statusFromAssets } from "@/components/canvas/timeline/shot-status";
+import { StatusBadge } from "@/components/canvas/timeline/StatusBadge";
 import {
   getScriptItemId,
   type EditorContentMode,
