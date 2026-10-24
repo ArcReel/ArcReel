@@ -87,7 +87,8 @@ export function toggleDefaultReducer<T extends ModelLike>(
  *  会放行一份保存时才被拒的配置。 */
 function imageDefaultsCollide(a: ImageCap[], b: ImageCap[]): boolean {
   if (a.length === 0 || b.length === 0) return true;
-  return a.some((c) => b.includes(c));
+  const bCaps = new Set(b);
+  return a.some((c) => bCaps.has(c));
 }
 
 /** 一行模型占用的「默认槽位」集合：非 image → media_type 自身；image → 各 capability

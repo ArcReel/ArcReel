@@ -95,6 +95,7 @@ export function MarketInstallDialog({
   const [references, setReferences] = useState<EndpointReference[] | null>(null);
   const [confirmingUninstall, setConfirmingUninstall] = useState(false);
 
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- await 后的写入都先检查 controller.signal.aborted，cleanup 中 abort 作废上一轮
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
@@ -304,7 +305,10 @@ export function MarketInstallDialog({
                     {Array.isArray(validation?.hints?.suggested_models) &&
                       validation.hints.suggested_models
                         .filter((model) => model !== null && typeof model === "object")
-                        .map((model, index) => <p key={index}>{displayValue(model.label ?? model.id)}</p>)}
+                        .map((model, index) => (
+                          // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 市场定义里的只读提示，一次取回不重排不增删、无组件状态；条目字段未经校验，没有可靠的唯一标识
+                          <p key={index}>{displayValue(model.label ?? model.id)}</p>
+                        ))}
                     {!validation?.hints && <p>{t("market_no_hints")}</p>}
                   </InfoBlock>
                 </div>

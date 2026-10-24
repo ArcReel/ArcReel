@@ -203,6 +203,7 @@ export function ProviderModelList({
       const errors: (string | null)[] = [];
       for (const selection of selections) {
         try {
+          // react-doctor-disable-next-line react-doctor/async-await-in-loop -- 逐个添加：服务端让某媒体类型的第一个新模型成为默认，并发添加会争抢默认并交错写同一供应商
           await API.addProviderModel(providerId, addRequestFor(selection, !!custom));
           errors.push(null);
         } catch (err) {

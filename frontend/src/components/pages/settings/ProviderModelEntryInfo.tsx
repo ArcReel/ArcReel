@@ -365,16 +365,13 @@ export interface FactFieldProps {
 
 /**
  * 一项模型事实。编辑器里的文本只在挂载时取初值：取值被外部改掉（放弃修改、采用官方值、恢复官方数据）时换一代
- * 重新挂载，并清掉上一代留下的「填写不正确」。
+ * 重新挂载，上一代的文本输入卸载时收回它留下的「填写不正确」。
  */
 export function FactField({ dimension, value, resolutions, onChange, validityKey, onValidityChange, official }: FactFieldProps) {
   const { t } = useTranslation("dashboard");
   const [seen, setSeen] = useState({ value, generation: 0 });
   if (!sameJson(seen.value, value)) setSeen({ value, generation: seen.generation + 1 });
   const generation = seen.generation;
-  useEffect(() => {
-    if (generation > 0) onValidityChange(validityKey, true);
-  }, [generation, validityKey, onValidityChange]);
 
   const label = t(`pm_cap_${dimension}`);
   return (

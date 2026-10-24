@@ -152,6 +152,7 @@ function ProjectSettingsView({ projectName }: { projectName: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadCount, setLoadCount] = useState(0);
 
+  // react-doctor-disable-next-line react-doctor/no-set-state-after-await-in-effect -- await 后的写入都先检查 controller.signal.aborted，cleanup 中 abort 作废上一轮
   useEffect(() => {
     const controller = new AbortController();
     voidCall(

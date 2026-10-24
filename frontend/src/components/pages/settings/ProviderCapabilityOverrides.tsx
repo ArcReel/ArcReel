@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { cn } from "cn";
@@ -107,9 +107,9 @@ export function ProviderCapabilityOverrides({ capabilities, value, onChange, onV
 
   const set = (key: CapabilityKey, next: unknown) => {
     const draft: Record<string, unknown> = { ...value };
+    // 「恢复」卸载这一维的编辑器，编辑器里没改对的输入在卸载时自己收回「不合法」
     if (next === undefined) {
       delete draft[key];
-      onValidityChange(key, true);
     } else {
       draft[key] = next;
     }
@@ -203,7 +203,7 @@ interface EditorProps {
 
 /**
  * 一个能力维度的取值编辑器，「这个供应商支持的参数」与「模型信息」共用。文本输入只在挂载时取 `value` 作初值，
- * 外部改了取值（放弃修改、采用官方值）时由调用方换 `key` 重新挂载。
+ * 外部改了取值（放弃修改、采用官方值）时由调用方换 `key` 重新挂载；卸载的文本输入不再拦着保存。
  */
 export function CapabilityValueEditor({ dimension, label, value, resolutions, onChange, onValidityChange }: EditorProps) {
   const { t } = useTranslation("dashboard");
@@ -328,12 +328,19 @@ interface ParsedInputProps {
   onValidityChange: (valid: boolean) => void;
 }
 
-/** 文本输入：每次输入都解析，合法时写回修改，不合法时就地提示并让保存栏拦下保存。 */
+/**
+ * 文本输入：每次输入都解析，合法时写回修改，不合法时就地提示并让保存栏拦下保存。
+ * 卸载时收回自己报的「不合法」：换一代重新挂载、约束行随分辨率删除后，没改对的旧输入不再拦着保存。
+ */
 function ParsedInput({ label, initial, hint, inputMode, parse, onChange, onValidityChange }: ParsedInputProps) {
   const [text, setText] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const hintId = useId();
   const note = error ?? hint;
+  const releaseInvalid = useEffectEvent(() => {
+    if (error !== null) onValidityChange(true);
+  });
+  useEffect(() => () => releaseInvalid(), []);
   return (
     <div className="flex flex-col gap-1">
       <Input
@@ -379,19 +386,6 @@ function ConstraintsEditor({ value, resolutions, onChange, onValidityChange }: C
     else invalid.current.add(row);
     onValidityChange(invalid.current.size === 0);
   };
-  // 删掉分辨率时它那一行随之消失：行里没改对的输入不再拦着保存
-  const rowKeys = resolutions.map((resolution) => `res:${resolution}`).join("\n");
-  useEffect(() => {
-    const kept = new Set(rowKeys.split("\n"));
-    let pruned = false;
-    for (const key of invalid.current) {
-      if (key !== "reference" && !kept.has(key)) {
-        invalid.current.delete(key);
-        pruned = true;
-      }
-    }
-    if (pruned) onValidityChange(invalid.current.size === 0);
-  }, [rowKeys, onValidityChange]);
   const byResolution = value.by_resolution ?? {};
   const allowedFor = (resolution: string) =>
     Object.entries(byResolution).find(([res]) => sameResolution(res, resolution))?.[1];

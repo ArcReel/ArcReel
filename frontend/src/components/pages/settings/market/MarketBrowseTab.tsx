@@ -132,11 +132,12 @@ export function MarketBrowseTab({
             multiple
             className="flex-wrap"
             value={enabled.filter((source) => !hiddenSourceIds.has(source.id)).map((source) => String(source.id))}
-            onValueChange={(value: string[]) =>
+            onValueChange={(value: string[]) => {
+              const shown = new Set(value);
               setHiddenSourceIds(
-                new Set(enabled.filter((source) => !value.includes(String(source.id))).map((source) => source.id)),
-              )
-            }
+                new Set(enabled.filter((source) => !shown.has(String(source.id))).map((source) => source.id)),
+              );
+            }}
           >
             {enabled.map((source) => (
               <ToggleGroupItem key={source.id} value={String(source.id)}>

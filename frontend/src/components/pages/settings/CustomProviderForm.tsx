@@ -733,9 +733,10 @@ export function CustomProviderForm({
                 onToggleDefault={(key) =>
                   updateModels((rows) => toggleDefaultReducer(rows, key, endpointToMediaType, endpointToImageCapabilities))
                 }
-                onSetEnabled={(keys, enabled) =>
-                  updateModels((rows) => rows.map((m) => (keys.includes(m.key) ? { ...m, is_enabled: enabled } : m)))
-                }
+                onSetEnabled={(keys, enabled) => {
+                  const selected = new Set(keys);
+                  updateModels((rows) => rows.map((m) => (selected.has(m.key) ? { ...m, is_enabled: enabled } : m)));
+                }}
               />
             ) : (
               <p className="rounded-lg border border-dashed border-input px-4 py-6 text-center text-sm text-muted-foreground">

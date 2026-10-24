@@ -170,8 +170,8 @@ function AddressBar({ request, rawBase, override, display, onCommit }: AddressBa
           <TooltipTrigger
             render={
               <span
-                // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 悬停或聚焦都要能看到说明；它没有可执行的动作
-                tabIndex={0}
+                // react-doctor-disable-next-line react-doctor/no-noninteractive-tabindex -- 提示的触发点：悬停或聚焦都要能看到说明；它没有可执行的动作
+                tabIndex={0} // eslint-disable-line jsx-a11y/no-noninteractive-tabindex -- 同一理由见上一行
                 className="mx-0.5 shrink-0 rounded-sm border border-dashed border-border px-0.5 text-muted-foreground"
               />
             }
