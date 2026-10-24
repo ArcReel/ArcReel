@@ -68,6 +68,8 @@ export function AddToLibraryDialog({
     >
       <DialogContent showCloseButton={!submitting}>
         <AddToLibraryForm
+          // 名称输入框以资源名为初值：换了资源就整表重建，不沿用上一个资源的输入
+          key={`${props.resourceType}:${props.resourceId}`}
           {...props}
           busy={busy}
           submitting={submitting}
@@ -96,6 +98,7 @@ function AddToLibraryForm({
 }) {
   const { t } = useTranslation("assets");
   const nameId = useId();
+  // react-doctor-disable-next-line react-doctor/no-derived-useState -- 资源名只作可编辑名称的初值，之后由用户修改；资源变化时调用处按 key 重建表单
   const [name, setName] = useState(resourceId);
   const [conflict, setConflict] = useState<{ name: string; asset: Asset | null } | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -52,6 +52,7 @@ function SpeechToken({ token }: { token: Extract<Token, { kind: "speech" }> }) {
 function renderTokens(tokens: Token[], keyPrefix: string) {
   return tokens.map((tk, i) => {
     if (tk.kind === "speech") {
+      // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 记号是一行文本按顺序切出的只读片段，位置就是它的身份，片段不带状态
       return <SpeechToken key={`${keyPrefix}-${i}`} token={tk} />;
     }
     if (tk.kind === "mention") {
@@ -109,9 +110,9 @@ export function ScriptHighlight({ text, lookup, className, renderAfterLine }: Sc
 
   return (
     <div className={cn("font-mono text-xs leading-6", className)}>
-      {lines.map((line, i) => (
-        <Fragment key={i}>
-          <LineRow line={line} index={i} />
+      {lines.map((line) => (
+        <Fragment key={line.sourceLine}>
+          <LineRow line={line} index={line.sourceLine} />
           {renderAfterLine?.(line.sourceLine)}
         </Fragment>
       ))}

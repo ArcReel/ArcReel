@@ -139,6 +139,7 @@ export function MigrationReportContent({
       {report.adjusted.length > 0 && (
         <Section icon={Wrench} tone="text-primary" title={t("migration_report_adjusted")} count={report.adjusted.length}>
           {report.adjusted.map((item, index) => (
+            // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 迁移报告的只读列表，同一代码与文件可出现多条且无唯一标识；条目不带状态，界面不重排也不筛选
             <li key={`${item.code}-${item.file ?? ""}-${index}`} className={ITEM}>
               <p className="wrap-break-word">{adjustmentText(t, item, episodes)}</p>
               {item.backup && (

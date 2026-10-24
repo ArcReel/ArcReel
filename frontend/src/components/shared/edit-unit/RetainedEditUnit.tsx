@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useId, useLayoutEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useId, useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 
 /**
  * 子树里的编辑单元经它报告「有未保存修改或保存在途」。同一视图里可能有多个单元（如资产与它的各条衍生），
@@ -56,8 +56,10 @@ export function RetainedEditUnit<T>({
     protectParent?.(key, protectedUnit);
     return () => protectParent?.(key, false);
   }, [protectedUnit, protectParent, key]);
+  const shownMessage = retained ? message : parent?.message;
+  const retention = useMemo(() => ({ protect, message: shownMessage }), [protect, shownMessage]);
   return (
-    <EditUnitRetentionContext.Provider value={{ protect, message: retained ? message : parent?.message }}>
+    <EditUnitRetentionContext.Provider value={retention}>
       {children(retained ? shown.value : value)}
     </EditUnitRetentionContext.Provider>
   );

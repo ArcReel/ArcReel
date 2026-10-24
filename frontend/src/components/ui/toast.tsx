@@ -104,6 +104,7 @@ function ToastAction({
 function ToastClose({
   className,
   children,
+  // react-doctor-disable-next-line react-doctor/shadcn-icon-button-requires-label -- aria-label 写在 ToastPrimitive.Close 上，经 base-ui 的 render 合并到这个 Button
   render = <Button variant="ghost" size="icon-sm" />,
   ...props
 }: ToastPrimitive.Close.Props) {

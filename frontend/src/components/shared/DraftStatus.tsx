@@ -347,6 +347,7 @@ export function DraftViolationList({ violations }: { violations: ScriptReviewVio
   return (
     <ul className="mt-1.5 flex flex-col gap-1">
       {violations.map((v, i) => (
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 校验结果的只读列表，条目没有唯一标识、不带状态，界面不重排也不筛选，整份随校验结果替换
         <li key={`${v.code}-${i}`} className="flex items-start gap-1.5 text-xs leading-snug text-destructive">
           <OctagonAlert className="mt-px size-3 shrink-0" aria-hidden="true" />
           <span>{itemIdsInEpisodeText(v.message)}</span>
@@ -362,6 +363,7 @@ export function DraftSoftViolationList({ softViolations }: { softViolations: Dra
   return (
     <ul className="mt-1.5 flex flex-col gap-1">
       {softViolations.map((soft, i) => (
+        // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 校验结果的只读列表，条目没有唯一标识、不带状态，界面不重排也不筛选，整份随校验结果替换
         <li key={`${soft.code}-${i}`} className="flex items-start gap-1.5 text-xs leading-snug text-warn">
           <AlertTriangle className="mt-px size-3 shrink-0" aria-hidden="true" />
           <span>{itemIdsInEpisodeText(soft.message)}</span>
