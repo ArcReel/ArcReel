@@ -19,7 +19,7 @@ class MacQualityVideo(io.ComfyNode):
             node_id="MacQualityVideo",
             display_name="Mac Video — LTX 2.3",
             category="video/Mac",
-            description="Local Apple Silicon video with optional start and end anchors. Animated dialogue supports 2, 4, or 5 seconds at 24 fps and requires 14 GiB available; other presets require 19 GiB. Stop requests a safe exit.",
+            description="Local Apple Silicon video with optional start and end anchors. Two anchors use dedicated dev keyframe interpolation and require 19 GiB available. Start-only Animated dialogue supports 2, 4, or 5 seconds at 24 fps and requires 14 GiB; other presets require 19 GiB. Stop requests a safe exit.",
             inputs=[
                 io.String.Input("prompt", multiline=True),
                 io.Combo.Input(

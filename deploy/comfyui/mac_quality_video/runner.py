@@ -36,15 +36,20 @@ def build_command(config, root):
         if config.get(key) and not Path(config[key]).is_file():
             raise ValueError(f"Missing {key}: {config[key]}")
     runtime = root / "user/runtimes/ltx-2-mlx"
+    model = root / "models/mlx/ltx-2.3-22b-q8-distilled-1.1"
+    keyframe = bool(config.get("end_image"))
+    if keyframe:
+        for filename in ("transformer-dev.safetensors", "transformer-distilled-1.1.safetensors"):
+            if not (model / filename).is_file():
+                raise ValueError(f"Keyframe interpolation requires installed {filename}; no render started.")
     out = root / "output/quality" / f"{config['name']}.mp4"
     args = [
         str(runtime / ".venv/bin/python"),
         "-u",
         str(root / "user/video_engine_entry.py"),
-        "generate",
-        "--" + config["mode"],
+        *(["keyframe"] if keyframe else ["generate", "--" + config["mode"]]),
         "--model",
-        str(root / "models/mlx/ltx-2.3-22b-q8-distilled-1.1"),
+        str(model),
         "--gemma",
         str(root / "models/mlx/gemma-3-12b-it-4bit"),
         "--prompt",
@@ -63,10 +68,24 @@ def build_command(config, root):
         "24",
         "--low-ram",
     ]
-    if config.get("image"):
+    if keyframe:
+        # The pinned low-RAM runtime swaps to the pre-fused distilled transformer
+        # at strength 1.0. The explicit LoRA name enables that refinement path;
+        # it does not load a separate LoRA file in this configuration.
+        args += [
+            "--start",
+            str(config["image"]),
+            "--end",
+            str(config["end_image"]),
+            "--dev-transformer",
+            "transformer-dev.safetensors",
+            "--distilled-lora",
+            "ltx-2.3-22b-distilled-lora-384.safetensors",
+            "--lora-strength",
+            "1.0",
+        ]
+    elif config.get("image"):
         args += ["--image", str(config["image"]), "0", "1.0"]
-    if config.get("end_image"):
-        args += ["--image", str(config["end_image"]), "last", "1.0"]
     return args
 
 
@@ -78,7 +97,7 @@ def run(config_path, check_interrupt=None):
     blocked = ROOT / "user/video-render-retry-blocked.json"
     if blocked.exists() or (ROOT.parent / "WanGP-Trial/.benchmark/retry-blocked.json").exists():
         raise RuntimeError("A prior renderer needs cleanup verification. No new render was started.")
-    animated = config.get("recipe") == "animated-dialogue"
+    animated = config.get("recipe") == "animated-dialogue" and not config.get("end_image")
     reserve = 4 if animated else 8
     swap_limit = 2048 if animated else 256
     name = config["name"]
@@ -111,6 +130,7 @@ def run(config_path, check_interrupt=None):
     report = {
         "config": config,
         "command": args,
+        "pipeline": "keyframe" if config.get("end_image") else config["mode"],
         "output": str(out),
         "status": "running",
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
