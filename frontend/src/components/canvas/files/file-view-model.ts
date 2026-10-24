@@ -1,9 +1,13 @@
 import { episodeEditViewPath, projectSettingsPath } from "@/app-routes";
 import { episodesViewPath } from "@/components/canvas/episodes/episodes-view-model";
-import type { FileViewOwner, WorkspaceFocusTargetInput } from "@/types";
+import type { FileViewEntry, FileViewOwner, WorkspaceFocusTargetInput } from "@/types";
 import { assetNotificationTarget } from "@/utils/task-target";
 
 export type FilePreviewKind = "image" | "video" | "audio" | "text";
+
+export function canDeleteFile(entry: FileViewEntry): boolean {
+  return entry.type === "file" && entry.role === "unreferenced" && entry.owner?.kind !== "source";
+}
 
 const PREVIEW_KINDS: Record<string, FilePreviewKind> = {
   png: "image",

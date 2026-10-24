@@ -301,7 +301,7 @@ def adopt_source_file_as_episode(pm: ProjectManager, project_name: str, filename
             if episode_source_origin(entry) is not SourceOrigin.NONE:
                 raise EpisodeSourceError("episode_source_present", f"集（id={episode}）已经有原文")
         # 先删原文件再写集文件：原文件恰好就是目标集文件的同名文件时，写入不会被当成占位文件改名留底
-        path.unlink()  # hard-delete: derived -- 源文件作为集原文采纳：内容随即写入该集的原文文件，等同移动
+        path.unlink()  # hard-delete: derived -- 源文件作为集原文采纳：全文按 NFC 与统一换行写入该集的原文文件，文本不丢，等同移动
         undo.callback(_restore_file, path, original)
         if entry is None or episode is None:
             return add_own_source_episode(project_dir, project, text, undo=undo)

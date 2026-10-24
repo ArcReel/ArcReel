@@ -517,15 +517,43 @@ _ANY_DELETE_ATTRS = frozenset({"unlink", "rmdir", "rmtree"})
 _OS_DELETE_ATTRS = frozenset({"remove", "removedirs"})
 
 
-def _is_delete_ref(node: ast.AST) -> bool:
-    if isinstance(node, ast.Name):
-        return node.id == "rmtree"
-    if not isinstance(node, ast.Attribute):
+_OS_MODULES = frozenset({"os", "aiofiles.os"})
+_DELETE_MODULES = _OS_MODULES | {"shutil"}
+
+
+@dataclass(frozen=True)
+class _DeleteBindings:
+    """模块的导入绑定：能裸调的删除函数名，以及指向 ``os`` / ``aiofiles.os`` 的模块名。"""
+
+    functions: frozenset[str]
+    os_modules: frozenset[str]
+
+
+def _delete_bindings(tree: ast.AST) -> _DeleteBindings:
+    functions = {"rmtree"}
+    os_modules = {"os"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in _DELETE_MODULES:
+            functions.update(
+                alias.asname or alias.name for alias in node.names if alias.name in _ANY_DELETE_ATTRS | _OS_DELETE_ATTRS
+            )
+        elif isinstance(node, ast.Import):
+            os_modules.update(alias.asname for alias in node.names if alias.name in _OS_MODULES and alias.asname)
+    return _DeleteBindings(frozenset(functions), frozenset(os_modules))
+
+
+def _is_delete_ref(node: ast.AST, bindings: _DeleteBindings) -> bool:
+    # 只认读取：给同名变量赋值不是删除
+    if not isinstance(node, ast.Name | ast.Attribute) or not isinstance(node.ctx, ast.Load):
         return False
+    if isinstance(node, ast.Name):
+        return node.id in bindings.functions
     if node.attr in _ANY_DELETE_ATTRS:
         return True
     base = node.value
-    is_os = (isinstance(base, ast.Name) and base.id == "os") or (isinstance(base, ast.Attribute) and base.attr == "os")
+    is_os = (isinstance(base, ast.Name) and base.id in bindings.os_modules) or (
+        isinstance(base, ast.Attribute) and base.attr == "os"
+    )
     return node.attr in _OS_DELETE_ATTRS and is_os
 
 
@@ -540,8 +568,9 @@ def _delete_spans(tree: ast.AST) -> list[tuple[int, int, int]]:
         if isinstance(stmt, ast.stmt) and not hasattr(stmt, "body") and not hasattr(stmt, "cases"):
             statements.update((id(child), stmt) for child in ast.walk(stmt))
     spans: list[tuple[int, int, int]] = []
+    bindings = _delete_bindings(tree)
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name | ast.Attribute) and _is_delete_ref(node):
+        if _is_delete_ref(node, bindings):
             outer = statements.get(id(node)) or calls.get(id(node)) or node
             spans.append((node.lineno, outer.lineno, outer.end_lineno or outer.lineno))
     return sorted(spans)

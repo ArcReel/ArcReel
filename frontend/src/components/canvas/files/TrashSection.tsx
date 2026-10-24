@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, RotateCcw, Trash2 } from "lucide-react";
 
@@ -31,6 +31,8 @@ function recordTitle(record: TrashRecord): string {
 }
 
 interface PurgeRequest {
+  /** 彻底删除的那条记录；清空时为空，与所有恢复中的记录冲突。 */
+  recordId?: string;
   title: string;
   description: string;
   confirmLabel: string;
@@ -45,32 +47,50 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
   const { t } = useTranslation("dashboard");
   const trashRevision = useAppStore((s) => s.trashRevision);
   const [state, setState] = useState<ListingState>({ status: "loading" });
-  const [busyId, setBusyId] = useState<string | null>(null);
+  // 可以同时恢复多条记录：每条记录各自占用，完成时只释放自己。
+  const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
   const [purge, setPurge] = useState<PurgeRequest | null>(null);
 
-  const load = useCallback(
-    (signal?: AbortSignal) => {
-      API.getTrash(projectName, { signal })
-        .then((listing) => {
-          if (!signal?.aborted) setState({ status: "ready", listing });
-        })
-        .catch((error: unknown) => {
-          if (!signal?.aborted) setState({ status: "error", message: errMsg(error) });
-        });
-    },
-    [projectName],
-  );
+  // 自动重拉与「重试」共用一个控制器：每次加载都取消上一次，旧响应不会覆盖新列表。
+  const controllerRef = useRef<AbortController | null>(null);
+  const load = useCallback(() => {
+    controllerRef.current?.abort();
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const { signal } = controller;
+    API.getTrash(projectName, { signal })
+      .then((listing) => {
+        if (!signal.aborted) setState({ status: "ready", listing });
+      })
+      .catch((error: unknown) => {
+        if (!signal.aborted) setState({ status: "error", message: errMsg(error) });
+      });
+  }, [projectName]);
 
   useEffect(() => {
-    const controller = new AbortController();
-    load(controller.signal);
-    return () => controller.abort();
+    load();
+    const controllers = controllerRef;
+    return () => controllers.current?.abort();
   }, [load, trashRevision, refreshKey]);
 
   const afterChange = () => useAppStore.getState().invalidateTrash();
 
+  /**
+   * 服务端已确认移除的记录立即从列表里拿掉，不等重拉：否则已恢复或已删除的记录还留在列表里、又解除了占用，可以被再操作一次。
+   * 在途的列表请求可能早于这次变更，先取消；随后的重拉以服务端为准。
+   */
+  const dropRecords = (keep: (record: TrashRecord) => boolean) => {
+    controllerRef.current?.abort();
+    setState((current) => {
+      if (current.status !== "ready") return current;
+      const records = current.listing.records.filter(keep);
+      const totalSize = records.reduce((total, record) => total + record.size, 0);
+      return { status: "ready", listing: { ...current.listing, records, total_size: totalSize } };
+    });
+  };
+
   const restore = async (record: TrashRecord) => {
-    setBusyId(record.id);
+    setBusyIds((current) => new Set(current).add(record.id));
     try {
       const { restored } = await API.restoreTrashRecord(projectName, record.id);
       const asHistory = restored.some((item) => item.as_history);
@@ -80,11 +100,16 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
         : renamed
           ? t("trash_restored_renamed", { name: recordTitle(record), path: renamed.path })
           : t("trash_restored", { name: recordTitle(record) });
+      dropRecords((item) => item.id !== record.id);
       useAppStore.getState().pushToast(text, "success");
     } catch (error) {
       useAppStore.getState().pushToast(t("trash_action_failed", { message: errMsg(error) }), "error");
     } finally {
-      setBusyId(null);
+      setBusyIds((current) => {
+        const next = new Set(current);
+        next.delete(record.id);
+        return next;
+      });
       afterChange();
     }
   };
@@ -114,7 +139,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
         <Button
           variant="destructive"
           size="sm"
-          disabled={records.length === 0}
+          disabled={records.length === 0 || busyIds.size > 0}
           onClick={() =>
             setPurge({
               title: t("trash_empty_title"),
@@ -143,7 +168,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
       ) : (
         <ul className="relative flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-2 [scrollbar-gutter:stable]">
           {records.map((record) => {
-            const busy = busyId === record.id;
+            const busy = busyIds.has(record.id);
             return (
               <li key={record.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/40">
                 <div className="flex min-w-0 flex-1 flex-col">
@@ -170,6 +195,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
                   disabled={busy}
                   onClick={() =>
                     setPurge({
+                      recordId: record.id,
                       title: t("trash_purge_title"),
                       description: t("trash_purge_description", { name: recordTitle(record) }),
                       confirmLabel: t("trash_purge"),
@@ -184,7 +210,14 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
           })}
         </ul>
       )}
-      <PurgeConfirmDialog request={purge} onClose={() => setPurge(null)} onDone={afterChange} />
+      <PurgeConfirmDialog
+        request={purge}
+        onSucceeded={(request) => dropRecords(request.recordId ? (item) => item.id !== request.recordId : () => false)}
+        // 打开后才开始的恢复同样挡住确认：提交时再按当前占用判一次
+        blocked={purge !== null && (purge.recordId ? busyIds.has(purge.recordId) : busyIds.size > 0)}
+        onClose={() => setPurge(null)}
+        onDone={afterChange}
+      />
     </div>
   );
 }
@@ -192,10 +225,14 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
 /** 彻底删除与清空的确认：不可恢复。`request` 为 null 时关闭。 */
 function PurgeConfirmDialog({
   request,
+  blocked,
+  onSucceeded,
   onClose,
   onDone,
 }: {
   request: PurgeRequest | null;
+  blocked: boolean;
+  onSucceeded: (request: PurgeRequest) => void;
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -210,11 +247,12 @@ function PurgeConfirmDialog({
   }
 
   const confirm = async () => {
-    if (!shown || running) return;
+    if (!shown || running || blocked) return;
     setRunning(true);
     setError(null);
     try {
       await shown.run();
+      onSucceeded(shown);
       onDone();
       onClose();
     } catch (err) {
@@ -248,7 +286,7 @@ function PurgeConfirmDialog({
         </AlertDialogBody>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={running}>{t("common:cancel")}</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" disabled={running} onClick={() => void confirm()}>
+          <AlertDialogAction variant="destructive" disabled={running || blocked} onClick={() => void confirm()}>
             {running && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
             {shown?.confirmLabel}
           </AlertDialogAction>

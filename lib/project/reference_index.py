@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -28,7 +29,14 @@ from lib.agent.agent_memory_paths import ARCREEL_DIRNAME, MEMORY_DIRNAME
 from lib.artifacts.artifact_manifest import ArtifactKind, ProjectArtifactManifestAdapter
 from lib.bgm.library import PROJECT_BGM_FIELD
 from lib.episode.episode_ids import item_id_episode
-from lib.episode.episode_paths import episode_source_relpath
+from lib.episode.episode_paths import (
+    REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+    REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
+    SCRIPT_PLAN_FILENAMES,
+    episode_drafts_dir,
+    episode_source_relpath,
+    script_plan_read_candidates,
+)
 from lib.episode.episode_sources import (
     SOURCE_SNAPSHOTS_DIR,
     SourceOrigin,
@@ -38,6 +46,7 @@ from lib.episode.episode_sources import (
 )
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, END_FRAME_RESOURCE_TYPE
+from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.script_models import get_generated_assets
 
 __all__ = ["FileOwner", "FileReference", "FileRole", "ReferenceIndex", "is_infrastructure_path"]
@@ -111,6 +120,17 @@ _RENDER_RECORD_SUFFIX = ".render.json"
 _ITEM_ARRAYS = (("segments", "segment_id"), ("scenes", "scene_id"), ("shots", "shot_id"), ("video_units", "unit_id"))
 _ASSET_TYPE_BY_BUCKET = {spec.bucket_key: asset_type for asset_type, spec in ASSET_SPECS.items()}
 _SEGMENT_RESOURCE_TYPES = frozenset({"storyboards", "videos", "audio", END_FRAME_RESOURCE_TYPE})
+#: 每集草稿目录里由工作流持有的文件：隔离草稿，以及分集视图会读取的脚本规划（含旧版 ``.md``）。
+_EPISODE_DRAFT_FILENAMES = tuple(
+    dict.fromkeys(
+        (
+            *QUARANTINE_FILENAMES,
+            *(name for mode in SCRIPT_PLAN_FILENAMES for name in script_plan_read_candidates(mode)),
+            REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME,
+            REFERENCE_VIDEO_SCRIPT_PLAN_LEGACY_FILENAME,
+        )
+    )
+)
 
 
 def is_infrastructure_path(rel: str) -> bool:
@@ -147,7 +167,9 @@ def _read_json(path: Path) -> Any:
 class ReferenceIndex:
     """一个项目的引用快照：:meth:`role_of` 对任意项目内相对路径给出角色，:meth:`contains_resource` 判资源是否仍在。"""
 
-    def __init__(self) -> None:
+    def __init__(self, project_dir: Path) -> None:
+        self._project_dir = project_dir
+        self._directory_entries: dict[Path, dict[str, Path]] = {}
         self._refs: dict[str, FileReference] = {}
         self._resources: set[tuple[str, str]] = set()
         self._item_episodes: dict[str, int] = {}
@@ -157,7 +179,7 @@ class ReferenceIndex:
     @classmethod
     def build(cls, project_dir: Path) -> ReferenceIndex:
         """读取项目数据构建索引。项目数据损坏时照常抛出：宁可拒绝，不把在用文件误判为未引用。"""
-        index = cls()
+        index = cls(project_dir)
         project = _read_json(project_dir / "project.json") or {}
         index._mark("project.json", FileRole.STRUCTURE, _PROJECT)
         index._index_assets(project)
@@ -166,24 +188,30 @@ class ReferenceIndex:
         index._index_sources(project)
         index._index_manifest(project_dir)
         index._index_versions(project_dir)
+        index._index_grid_records(project_dir)
         return index
 
     # ------------------------------------------------------------------ 查询
 
     def reference_of(self, rel: str) -> FileReference:
         """项目内相对 POSIX 路径（文件）的角色与所属对象。"""
+        rel = self._canonical(rel)
         if is_infrastructure_path(rel):
             return _INFRASTRUCTURE
         if rel in self._refs:
             return self._refs[rel]
+        rel = self._storage_path(rel)
         parts = PurePosixPath(rel).parts
-        if rel == "CLAUDE.md" or parts[:1] == (".claude",):
+        if rel == self._canonical("CLAUDE.md") or parts[:1] == (".claude",):
             return _AGENT_CONFIG
         if parts[:2] == (ARCREEL_DIRNAME, MEMORY_DIRNAME) and len(parts) == 3:
             return FileReference(FileRole.MEMORY, FileOwner("memory", id=parts[2]))
-        if _TIMELINE_PATH_RE.match(rel):
-            episode = int(parts[1].removeprefix("episode_"))
-            return FileReference(FileRole.STRUCTURE, FileOwner("timeline", id=PurePosixPath(rel).stem, episode=episode))
+        timeline = rel.lower()
+        if _TIMELINE_PATH_RE.match(timeline) and self._canonical(timeline) == rel:
+            episode = int(PurePosixPath(timeline).parts[1].removeprefix("episode_"))
+            return FileReference(
+                FileRole.STRUCTURE, FileOwner("timeline", id=PurePosixPath(timeline).stem, episode=episode)
+            )
         if parts[:2] == ("source", "raw") and len(parts) == 3:
             # 原始上传件随规范化文本一起增删；对应的源文件未纳入整本源文时同样交给分集视图。
             return self._source_stems.get(PurePosixPath(rel).stem, FileReference(FileRole.UNREFERENCED, _SOURCE))
@@ -191,6 +219,15 @@ class ReferenceIndex:
             # 未纳入整本源文、也不是任何一集原文的源文件：由分集视图处理。
             return FileReference(FileRole.UNREFERENCED, _SOURCE)
         return _UNREFERENCED
+
+    def _storage_path(self, rel: str) -> str:
+        """存储目录用标准拼写识别；只接受文件系统确认属于同一目录的别名。"""
+        parts = PurePosixPath(rel).parts
+        for prefix in ("source/raw", "source", ".claude", f"{ARCREEL_DIRNAME}/{MEMORY_DIRNAME}"):
+            expected = PurePosixPath(prefix).parts
+            if self._canonical(prefix) == "/".join(parts[: len(expected)]):
+                return "/".join((*expected, *parts[len(expected) :]))
+        return rel
 
     def role_of(self, rel: str) -> FileRole:
         return self.reference_of(rel).role
@@ -201,10 +238,45 @@ class ReferenceIndex:
 
     # ------------------------------------------------------------------ 构建
 
+    def _canonical(self, rel: str) -> str:
+        """采用磁盘上的实际名称，统一大小写及 Unicode 别名，不合并独立存在的文件。"""
+        normalized = _normalize(rel)
+        if normalized is None:
+            return rel
+        directory = self._project_dir
+        parts: list[str] = []
+        try:
+            for part in PurePosixPath(normalized).parts:
+                candidate = directory / part
+                if candidate.is_symlink():
+                    return rel
+                if directory not in self._directory_entries:
+                    self._directory_entries[directory] = {entry.name: entry for entry in directory.iterdir()}
+                entries = self._directory_entries[directory]
+                actual = entries.get(part)
+                if actual is None:
+                    identity = candidate.stat()
+                    actual = next(
+                        (
+                            entry
+                            for entry in entries.values()
+                            if os.path.samestat(entry.stat(follow_symlinks=False), identity)
+                        ),
+                        None,
+                    )
+                if actual is None:
+                    return rel
+                parts.append(actual.name)
+                directory = actual
+        except (FileNotFoundError, NotADirectoryError):
+            return rel
+        return "/".join(parts)
+
     def _mark(self, rel: object, role: FileRole, owner: FileOwner | None = None) -> None:
         path = _normalize(rel)
         if path is None:
             return
+        path = self._canonical(path)
         current = self._refs.get(path)
         if current is None or _ROLE_PRIORITY[role] > _ROLE_PRIORITY[current.role]:
             self._refs[path] = FileReference(role, owner)
@@ -240,10 +312,14 @@ class ReferenceIndex:
     def _index_scripts(self, project_dir: Path, project: Mapping[str, Any]) -> None:
         for entry in _ledger(project):
             episode = entry["episode"]
+            owner = FileOwner("episode", episode=episode)
+            for filename in _EPISODE_DRAFT_FILENAMES:
+                draft = episode_drafts_dir(project_dir, episode) / filename
+                self._mark(draft.relative_to(project_dir).as_posix(), FileRole.STRUCTURE, owner)
             script_file = _normalize(entry.get("script_file"))
             if script_file is None:
                 continue
-            self._mark(script_file, FileRole.STRUCTURE, FileOwner("episode", episode=episode))
+            self._mark(script_file, FileRole.STRUCTURE, owner)
             script = _read_json(project_dir / script_file)
             if isinstance(script, Mapping):
                 self._index_script_items(script, episode)
@@ -278,8 +354,14 @@ class ReferenceIndex:
         self._mark(f"grids/{grid_id}.json", FileRole.STRUCTURE, owner)
         self._mark(f"grids/{grid_id}.png", FileRole.REFERENCED, owner)
 
+    def _index_grid_records(self, project_dir: Path) -> None:
+        """排队中或失败的宫格记录还没有产物登记与剧本引用，也由宫格流程持有；放在最后，已知所属集的引用优先。"""
+        for record in sorted((project_dir / "grids").glob("grid_*.json")):
+            self._index_grid(record.stem, None)
+
     def _index_sources(self, project: Mapping[str, Any]) -> None:
         for rel in whole_source_files(project):
+            rel = self._canonical(rel)
             self._mark(rel, FileRole.STRUCTURE, _SOURCE)
             self._mark(f"{SOURCE_SNAPSHOTS_DIR}/{PurePosixPath(rel).name}", FileRole.DERIVED, _SOURCE)
             self._source_stems[PurePosixPath(rel).stem] = FileReference(FileRole.STRUCTURE, _SOURCE)

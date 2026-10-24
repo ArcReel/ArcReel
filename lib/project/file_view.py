@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import stat
 from collections.abc import Iterator
@@ -81,16 +82,21 @@ def _iso(timestamp: float) -> str:
 
 
 def _visible_size(directory: Path, rel: str) -> int:
-    """目录下可见文件的总字节数；不进符号链接，不计基础设施文件。"""
+    """目录下可见文件的总字节数；不进符号链接，不计基础设施文件。扫描途中被移走的条目不计。"""
+    try:
+        with os.scandir(directory) as scan:
+            entries = list(scan)
+    except FileNotFoundError:
+        return 0
     total = 0
-    with os.scandir(directory) as entries:
-        for entry in entries:
-            child = f"{rel}/{entry.name}" if rel else entry.name
-            if entry.is_symlink() or is_infrastructure_path(child):
-                continue
-            if entry.is_dir(follow_symlinks=False):
-                total += _visible_size(Path(entry.path), child)
-            elif entry.is_file(follow_symlinks=False):
+    for entry in entries:
+        child = f"{rel}/{entry.name}" if rel else entry.name
+        if entry.is_symlink() or is_infrastructure_path(child):
+            continue
+        if entry.is_dir(follow_symlinks=False):
+            total += _visible_size(Path(entry.path), child)
+        elif entry.is_file(follow_symlinks=False):
+            with contextlib.suppress(FileNotFoundError):
                 total += entry.stat(follow_symlinks=False).st_size
     return total
 
@@ -108,7 +114,10 @@ def list_directory(project_dir: Path, rel: str = "", *, index: ReferenceIndex | 
             child = "/".join((*parts, entry.name))
             if entry.is_symlink() or is_infrastructure_path(child):
                 continue
-            info = entry.stat(follow_symlinks=False)
+            try:
+                info = entry.stat(follow_symlinks=False)
+            except FileNotFoundError:  # 生成任务或回收站操作在扫描途中移走了它
+                continue
             if entry.is_dir(follow_symlinks=False):
                 size = _visible_size(Path(entry.path), child)
                 found.append(FileViewEntry(entry.name, child, True, size, _iso(info.st_mtime)))

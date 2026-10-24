@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from datetime import timedelta
 
 import pytest
@@ -23,7 +24,7 @@ TRASH = "/api/v1/projects/demo/trash"
 
 
 @pytest.fixture
-def project_dir(tmp_path):
+def trash_project_dir(tmp_path):
     root = DataRootLayout(tmp_path / "data").projects_dir / "demo"
     (root / "storyboards").mkdir(parents=True)
     (root / "scripts").mkdir()
@@ -44,8 +45,8 @@ def project_dir(tmp_path):
 
 
 @pytest.fixture
-def client(project_dir, monkeypatch):
-    manager = ProjectManager(str(project_dir.parents[1]))
+def trash_client(trash_project_dir, monkeypatch):
+    manager = ProjectManager(str(trash_project_dir.parents[1]))
     monkeypatch.setattr(file_view, "get_project_manager", lambda: manager)
     monkeypatch.setattr(trash_router, "get_project_manager", lambda: manager)
     app = FastAPI()
@@ -58,100 +59,191 @@ def client(project_dir, monkeypatch):
     return TestClient(app)
 
 
-def _records(client) -> list[dict]:
-    response = client.get(TRASH)
+def _records(trash_client) -> list[dict]:
+    response = trash_client.get(TRASH)
     assert response.status_code == 200, response.text
     return response.json()["records"]
 
 
-def test_deleting_a_referenced_file_is_rejected(client, project_dir):
+def test_deleting_a_referenced_file_is_rejected(trash_client, trash_project_dir):
     # 未纳入整本源文的源文件同样拒绝：它交给分集视图处理
     for path in ("storyboards/scene_E1S01.png", "project.json", "scripts/episode_1.json", "source/extra.txt"):
-        response = client.delete(FILES, params={"path": path})
+        response = trash_client.delete(FILES, params={"path": path})
         assert response.status_code == 409, path
 
-    assert (project_dir / "storyboards/scene_E1S01.png").read_bytes() == b"in-use"
-    assert _records(client) == []
+    assert (trash_project_dir / "storyboards/scene_E1S01.png").read_bytes() == b"in-use"
+    assert _records(trash_client) == []
 
 
-def test_deleting_an_unreferenced_file_creates_one_record(client, project_dir):
-    response = client.delete(FILES, params={"path": "storyboards/scene_E1S02.png"})
+def test_deleting_an_unreferenced_file_creates_one_record(trash_client, trash_project_dir):
+    response = trash_client.delete(FILES, params={"path": "storyboards/scene_E1S02.png"})
     assert response.status_code == 200, response.text
 
-    assert not (project_dir / "storyboards/scene_E1S02.png").exists()
-    [record] = _records(client)
+    assert not (trash_project_dir / "storyboards/scene_E1S02.png").exists()
+    [record] = _records(trash_client)
     assert record["object"] == {"kind": "file", "path": "storyboards/scene_E1S02.png"}
     assert record["files"] == ["storyboards/scene_E1S02.png"]
     assert record["origin"] == "user"
     assert record["size"] == len(b"leftover")
-    assert client.get(TRASH).json()["total_size"] == len(b"leftover")
+    assert trash_client.get(TRASH).json()["total_size"] == len(b"leftover")
 
 
-def test_restore_returns_to_original_path_when_free(client, project_dir):
-    client.delete(FILES, params={"path": "notes.txt"})
-    [record] = _records(client)
+@pytest.mark.parametrize("reference_alias", [False, True])
+@pytest.mark.parametrize("alias_kind", ["unicode", "case"])
+def test_file_alias_cannot_bypass_reference_guard(trash_client, trash_project_dir, reference_alias, alias_kind):
+    canonical = "characters/Café.png"
+    alias = unicodedata.normalize("NFD", canonical) if alias_kind == "unicode" else canonical.upper()
+    target = trash_project_dir / canonical
+    target.parent.mkdir()
+    target.write_bytes(b"in-use")
+    if not (trash_project_dir / alias).exists() or not target.samefile(trash_project_dir / alias):
+        pytest.skip("filesystem distinguishes these file names")
+    project = json.loads((trash_project_dir / "project.json").read_text(encoding="utf-8"))
+    project["characters"] = {"Café": {"character_sheet": alias if reference_alias else canonical}}
+    (trash_project_dir / "project.json").write_text(json.dumps(project), encoding="utf-8")
 
-    response = client.post(f"{TRASH}/{record['id']}/restore")
+    listing = trash_client.get(FILES, params={"path": "characters"}).json()["entries"]
+    assert listing[0]["role"] == "referenced"
+    response = trash_client.delete(FILES, params={"path": listing[0]["path"] if reference_alias else alias})
+
+    assert response.status_code == 409, response.text
+    assert target.read_bytes() == b"in-use"
+    assert _records(trash_client) == []
+
+
+def test_distinct_case_sensitive_file_can_be_deleted(trash_client, trash_project_dir):
+    canonical = trash_project_dir / "storyboards/scene_E1S01.png"
+    distinct = trash_project_dir / "storyboards/SCENE_E1S01.PNG"
+    if distinct.exists():
+        pytest.skip("filesystem does not distinguish case")
+    distinct.write_bytes(b"unused")
+
+    response = trash_client.delete(FILES, params={"path": distinct.relative_to(trash_project_dir).as_posix()})
+
+    assert response.status_code == 200, response.text
+    assert canonical.read_bytes() == b"in-use"
+    assert not distinct.exists()
+
+
+@pytest.mark.parametrize(
+    ("stored", "standard"),
+    [
+        ("claude.md", "CLAUDE.md"),
+        ("SOURCE/extra.txt", "source/extra.txt"),
+        ("EDIT_TIMELINES/EPISODE_1/TL-0123ABCD.JSON", "edit_timelines/episode_1/tl-0123abcd.json"),
+    ],
+)
+def test_storage_roles_protect_case_aliases(trash_client, trash_project_dir, stored, standard):
+    target = trash_project_dir / stored
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("protected", encoding="utf-8")
+    expected = trash_project_dir / standard
+    if not expected.exists() or not target.samefile(expected):
+        pytest.skip("filesystem distinguishes case")
+
+    response = trash_client.delete(FILES, params={"path": stored})
+
+    assert response.status_code == 409, response.text
+    assert target.read_text(encoding="utf-8") == "protected"
+    assert _records(trash_client) == []
+
+
+def test_workflow_draft_cannot_be_deleted_from_file_view(trash_client, trash_project_dir):
+    from lib.episode.episode_paths import episode_drafts_dir
+    from lib.script.draft_quarantine import QUARANTINE_FILENAMES
+
+    directory = episode_drafts_dir(trash_project_dir, 1)
+    directory.mkdir(parents=True)
+    for filename in QUARANTINE_FILENAMES:
+        draft = directory / filename
+        draft.write_text("{}", encoding="utf-8")
+        response = trash_client.delete(FILES, params={"path": draft.relative_to(trash_project_dir).as_posix()})
+        assert response.status_code == 409, response.text
+        assert draft.read_text(encoding="utf-8") == "{}"
+    assert _records(trash_client) == []
+
+
+def test_separately_deleted_files_can_be_restored_independently(trash_client, trash_project_dir):
+    paths = ("notes.txt", "storyboards/scene_E1S02.png")
+    records = [trash_client.delete(FILES, params={"path": path}).json()["record"] for path in paths]
+    assert len({record["id"] for record in records}) == 2
+    assert [record["files"] for record in records] == [[path] for path in paths]
+
+    response = trash_client.post(f"{TRASH}/{records[0]['id']}/restore")
+
+    assert response.status_code == 200, response.text
+    assert (trash_project_dir / paths[0]).read_text(encoding="utf-8") == "agent notes"
+    assert not (trash_project_dir / paths[1]).exists()
+    assert [record["id"] for record in _records(trash_client)] == [records[1]["id"]]
+
+
+def test_restore_returns_to_original_path_when_free(trash_client, trash_project_dir):
+    trash_client.delete(FILES, params={"path": "notes.txt"})
+    [record] = _records(trash_client)
+
+    response = trash_client.post(f"{TRASH}/{record['id']}/restore")
 
     assert response.status_code == 200, response.text
     assert response.json()["restored"] == [{"original": "notes.txt", "path": "notes.txt", "as_history": False}]
-    assert (project_dir / "notes.txt").read_text(encoding="utf-8") == "agent notes"
-    assert _records(client) == []
+    assert (trash_project_dir / "notes.txt").read_text(encoding="utf-8") == "agent notes"
+    assert _records(trash_client) == []
 
 
-def test_restore_onto_an_occupied_resource_path_adds_a_history_version(client, project_dir):
-    client.delete(FILES, params={"path": "storyboards/scene_E1S02.png"})
-    (project_dir / "storyboards/scene_E1S02.png").write_bytes(b"regenerated")
-    [record] = _records(client)
+def test_restore_onto_an_occupied_resource_path_adds_a_history_version(trash_client, trash_project_dir):
+    trash_client.delete(FILES, params={"path": "storyboards/scene_E1S02.png"})
+    (trash_project_dir / "storyboards/scene_E1S02.png").write_bytes(b"regenerated")
+    [record] = _records(trash_client)
 
-    [restored] = client.post(f"{TRASH}/{record['id']}/restore").json()["restored"]
+    [restored] = trash_client.post(f"{TRASH}/{record['id']}/restore").json()["restored"]
 
     assert restored["as_history"] is True
-    assert (project_dir / "storyboards/scene_E1S02.png").read_bytes() == b"regenerated"
-    assert (project_dir / restored["path"]).read_bytes() == b"leftover"
-    history = json.loads((project_dir / "versions/versions.json").read_text(encoding="utf-8"))["storyboards"]["E1S02"]
+    assert (trash_project_dir / "storyboards/scene_E1S02.png").read_bytes() == b"regenerated"
+    assert (trash_project_dir / restored["path"]).read_bytes() == b"leftover"
+    history = json.loads((trash_project_dir / "versions/versions.json").read_text(encoding="utf-8"))["storyboards"][
+        "E1S02"
+    ]
     current = next(v for v in history["versions"] if v["version"] == history["current_version"])
-    assert (project_dir / current["file"]).read_bytes() == b"regenerated"
+    assert (trash_project_dir / current["file"]).read_bytes() == b"regenerated"
 
 
-def test_restore_onto_an_occupied_plain_path_takes_a_new_name(client, project_dir):
-    client.delete(FILES, params={"path": "notes.txt"})
-    (project_dir / "notes.txt").write_text("newer", encoding="utf-8")
-    [record] = _records(client)
+def test_restore_onto_an_occupied_plain_path_takes_a_new_name(trash_client, trash_project_dir):
+    trash_client.delete(FILES, params={"path": "notes.txt"})
+    (trash_project_dir / "notes.txt").write_text("newer", encoding="utf-8")
+    [record] = _records(trash_client)
 
-    [restored] = client.post(f"{TRASH}/{record['id']}/restore").json()["restored"]
+    [restored] = trash_client.post(f"{TRASH}/{record['id']}/restore").json()["restored"]
 
     assert restored["path"] == "notes (1).txt"
-    assert (project_dir / "notes.txt").read_text(encoding="utf-8") == "newer"
-    assert (project_dir / "notes (1).txt").read_text(encoding="utf-8") == "agent notes"
+    assert (trash_project_dir / "notes.txt").read_text(encoding="utf-8") == "newer"
+    assert (trash_project_dir / "notes (1).txt").read_text(encoding="utf-8") == "agent notes"
 
 
-def test_purge_and_empty_remove_records(client):
-    client.delete(FILES, params={"path": "notes.txt"})
-    client.delete(FILES, params={"path": "storyboards/scene_E1S02.png"})
-    first, second = _records(client)
+def test_purge_and_empty_remove_records(trash_client):
+    trash_client.delete(FILES, params={"path": "notes.txt"})
+    trash_client.delete(FILES, params={"path": "storyboards/scene_E1S02.png"})
+    first, second = _records(trash_client)
 
-    assert client.delete(f"{TRASH}/{first['id']}").status_code == 200
-    assert [r["id"] for r in _records(client)] == [second["id"]]
-    assert client.delete(TRASH).json() == {"purged": 1}
-    assert _records(client) == []
-    assert client.post(f"{TRASH}/{first['id']}/restore").status_code == 404
+    assert trash_client.delete(f"{TRASH}/{first['id']}").status_code == 200
+    assert [r["id"] for r in _records(trash_client)] == [second["id"]]
+    assert trash_client.delete(TRASH).json() == {"purged": 1}
+    assert _records(trash_client) == []
+    assert trash_client.post(f"{TRASH}/{first['id']}/restore").status_code == 404
 
 
-def test_records_are_kept_until_the_retention_period_ends(client, project_dir):
-    client.delete(FILES, params={"path": "notes.txt"})
-    [record] = project_trash.list_records(project_dir)
+def test_records_are_kept_until_the_retention_period_ends(trash_client, trash_project_dir):
+    trash_client.delete(FILES, params={"path": "notes.txt"})
+    [record] = project_trash.list_records(trash_project_dir)
     expires_at = record.deleted_at + project_trash.RETENTION
 
-    assert project_trash.purge_expired(project_dir, now=expires_at - timedelta(seconds=1)) == 0
-    assert [r["id"] for r in _records(client)] == [record.id]
-    assert project_trash.purge_expired(project_dir, now=expires_at) == 1
-    assert _records(client) == []
+    assert project_trash.purge_expired(trash_project_dir, now=expires_at - timedelta(seconds=1)) == 0
+    assert [r["id"] for r in _records(trash_client)] == [record.id]
+    assert project_trash.purge_expired(trash_project_dir, now=expires_at) == 1
+    assert _records(trash_client) == []
 
 
-def test_trash_is_hidden_from_the_file_view(client):
-    client.delete(FILES, params={"path": "notes.txt"})
+def test_trash_is_hidden_from_the_file_view(trash_client):
+    trash_client.delete(FILES, params={"path": "notes.txt"})
 
-    names = {entry["name"] for entry in client.get(FILES, params={"path": ".arcreel"}).json()["entries"]}
+    names = {entry["name"] for entry in trash_client.get(FILES, params={"path": ".arcreel"}).json()["entries"]}
     assert "trash" not in names
-    assert client.get(FILES, params={"path": ".arcreel/trash"}).status_code == 404
+    assert trash_client.get(FILES, params={"path": ".arcreel/trash"}).status_code == 404

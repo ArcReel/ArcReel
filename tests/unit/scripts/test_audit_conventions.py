@@ -413,6 +413,32 @@ def run(p, items):
     ]
 
 
+def test_delete_functions_and_modules_bound_by_import_aliases_are_reported(repo: Path) -> None:
+    _write(
+        repo,
+        "lib/cleanup.py",
+        """from os import remove
+from shutil import rmtree as delete_tree
+import os as filesystem
+import aiofiles.os as aos
+async def run(p, items, handler):
+    remove(p)
+    delete_tree(p)
+    filesystem.remove(p)
+    await aos.remove(p)
+    items.remove(p)
+    remove = handler
+""",
+    )
+
+    assert _hard_delete_hits(repo) == [
+        ("lib/cleanup.py", 6),
+        ("lib/cleanup.py", 7),
+        ("lib/cleanup.py", 8),
+        ("lib/cleanup.py", 9),
+    ]
+
+
 def test_hard_delete_tag_needs_known_category_and_reason(repo: Path) -> None:
     _write(
         repo,
