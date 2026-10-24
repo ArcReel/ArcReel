@@ -9,6 +9,7 @@
 - [gemini-aistudio](gemini-aistudio.md)
 - [gemini-vertex](gemini-vertex.md)
 - [grok](grok.md)
+- [higgsfield](higgsfield.md)
 - [kling](kling.md)
 - [minimax](minimax.md)
 - [openai](openai.md)

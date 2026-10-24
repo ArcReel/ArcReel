@@ -13,6 +13,7 @@ MESSAGES: dict[str, str] = {
     "provider_name_minimax": "MiniMax",
     "provider_name_kling": "可灵 Kling",
     "provider_name_agnes": "Agnes",
+    "provider_name_higgsfield": "Higgsfield",
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "已删除的供应商",
     "deleted_agent_provider_display_name": "已删除的 Agent 供应商",
@@ -28,6 +29,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_minimax": "MiniMax（海螺）多模态平台，提供文本、图片、视频与语音生成。默认连接国内站，海外可将 base_url 切换到国际站。",
     "provider_desc_kling": "快手可灵 Kling 视频与图像生成平台。API Key 鉴权适用于全部模型；Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。",
     "provider_desc_agnes": "Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像 / 文本 / 视频生成。",
+    "provider_desc_higgsfield": "Higgsfield 聚合 API，以 Key ID + Key Secret 鉴权；提供 Soul 2、Qwen Image 3 图片生成与可灵 3.0、可灵 O3、Seedance 2.5 视频生成，仅图片与视频能力。",
     # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
     "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",

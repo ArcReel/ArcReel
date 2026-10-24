@@ -60,6 +60,7 @@ Providers' specific models, parameters, regional availability, and pricing chang
 | MiniMax | ✅ | ✅ | ✅ | ✅ | Text, image, video generation, and TTS |
 | Kling | — | ✅ | ✅ | — | Image, image-to-video, and reference-to-video generation |
 | Agnes | ✅ | ✅ | ✅ | — | Text, image, and video generation |
+| Higgsfield | — | ✅ | ✅ | — | Unified API: Soul 2 and Qwen Image 3 images, Kling 3.0, Kling O3 and Seedance 2.5 video |
 | Custom Providers | Interface-dependent | Interface-dependent | Interface-dependent | Interface-dependent | Private gateways, local models, or third-party compatible services |
 
 The built-in OpenAI provider offers text and image capabilities. OpenAI-compatible video and TTS are connected through a Custom Provider's call endpoints.

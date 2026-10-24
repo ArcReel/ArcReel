@@ -66,3 +66,8 @@ from lib.backends.image_backends.agnes import AgnesImageBackend
 from lib.backends.providers import PROVIDER_AGNES
 
 register_backend(PROVIDER_AGNES, AgnesImageBackend)
+
+from lib.backends.image_backends.higgsfield import HiggsfieldImageBackend
+from lib.backends.providers import PROVIDER_HIGGSFIELD
+
+register_backend(PROVIDER_HIGGSFIELD, HiggsfieldImageBackend)

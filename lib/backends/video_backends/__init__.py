@@ -76,3 +76,9 @@ from lib.backends.providers import PROVIDER_AGNES
 from lib.backends.video_backends.agnes import AgnesVideoBackend
 
 register_backend(PROVIDER_AGNES, AgnesVideoBackend)
+
+# Higgsfield — 聚合 API（Key ID + Key Secret 鉴权，素材经文件上传换 URL，按 request_id 轮询 + resume）
+from lib.backends.providers import PROVIDER_HIGGSFIELD
+from lib.backends.video_backends.higgsfield import HiggsfieldVideoBackend
+
+register_backend(PROVIDER_HIGGSFIELD, HiggsfieldVideoBackend)

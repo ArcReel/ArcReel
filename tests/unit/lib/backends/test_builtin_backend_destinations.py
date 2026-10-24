@@ -20,11 +20,13 @@ from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 from lib.backends.image_backends.agnes import AgnesImageBackend
 from lib.backends.image_backends.base import ImageGenerationRequest
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
+from lib.backends.image_backends.higgsfield import HiggsfieldImageBackend
 from lib.backends.image_backends.kling import KlingImageBackend
 from lib.backends.image_backends.minimax import MiniMaxImageBackend
 from lib.backends.image_backends.vidu import ViduImageBackend
 from lib.backends.video_backends.agnes import AgnesVideoBackend
 from lib.backends.video_backends.dashscope import DashScopeVideoBackend
+from lib.backends.video_backends.higgsfield import HiggsfieldVideoBackend
 from lib.backends.video_backends.vidu import ViduVideoBackend
 from tests.fakes import bounded_poll_clock
 from tests.http_capture import capture_http
@@ -76,6 +78,15 @@ _CALLS: dict[str, Call] = {
     "vidu-video": lambda tmp_path: ViduVideoBackend(api_key="k", base_url=f"{METADATA_BASE_URL}/ent/v2").generate(
         _video(tmp_path)
     ),
+    "higgsfield-image": lambda tmp_path: HiggsfieldImageBackend(
+        access_key="id", secret_key="secret", base_url=METADATA_BASE_URL
+    ).generate(_image(tmp_path)),
+    "higgsfield-video": lambda tmp_path: HiggsfieldVideoBackend(
+        access_key="id", secret_key="secret", base_url=METADATA_BASE_URL
+    ).generate(_video(tmp_path)),
+    "higgsfield-video-resume": lambda tmp_path: HiggsfieldVideoBackend(
+        access_key="id", secret_key="secret", base_url=METADATA_BASE_URL
+    ).resume_video("req-1", _video(tmp_path)),
 }
 
 

@@ -230,6 +230,10 @@ _VIDEO_AUDIO_STANCES: dict[tuple[str, str], tuple[str, str]] = {
     ("kling", "kling-v3"): ("controllable", "always_off"),
     ("kling", "kling-v3-omni"): ("controllable", "always_off"),
     ("kling", "kling-video-o1"): ("always_off", "always_off"),
+    # Higgsfield 聚合 API：三个视频模型的请求体都带音轨开关（可灵 sound、Seedance generate_audio）。
+    ("higgsfield", "bytedance/seedance-2.5"): ("controllable", "controllable"),
+    ("higgsfield", "kling-video/o3"): ("controllable", "controllable"),
+    ("higgsfield", "kling-video/v3.0"): ("controllable", "controllable"),
     ("minimax", "MiniMax-H3"): ("always_on", "always_on"),
     ("minimax", "MiniMax-Hailuo-2.3"): ("always_off", "always_off"),
     ("minimax", "MiniMax-Hailuo-2.3-Fast"): ("always_off", "always_off"),

@@ -902,6 +902,9 @@ class TestTestProviderConnection:
         assert resp.available_models == ["MiniMax-M2.7", "abab6.5s-chat"]
         assert resp.success is True
 
+    def test_higgsfield_registered_in_dispatch(self):
+        assert "higgsfield" in providers._CONNECTIVITY_CHECK_DISPATCH
+
     def test_kling_registered_in_dispatch(self):
         # kling 作为内置 provider 暴露在设置页，连接测试必须有 dispatcher，
         # 否则点"测试连接"会落到 connectivity_check_unsupported 分支（即便凭证有效）

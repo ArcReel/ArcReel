@@ -28,8 +28,10 @@ def _models_of(provider_id: str, media_type: str) -> dict[str, CatalogModel]:
 
 
 class TestListings:
-    # vidu 仅图片+视频、kling 仅图片+视频，均跳过文本相关断言
-    _TEXT_PROVIDERS: ClassVar[list[str]] = [pid for pid in PROVIDER_REGISTRY if pid not in ("vidu", "kling")]
+    # vidu / kling / higgsfield 仅图片+视频，均跳过文本相关断言
+    _TEXT_PROVIDERS: ClassVar[list[str]] = [
+        pid for pid in PROVIDER_REGISTRY if pid not in ("vidu", "kling", "higgsfield")
+    ]
 
     def test_text_providers_have_text_models(self):
         for provider_id in self._TEXT_PROVIDERS:

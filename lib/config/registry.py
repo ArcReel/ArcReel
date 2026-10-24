@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from lib.backends.agnes_shared import AGNES_BASE_URL
 from lib.backends.ark_shared import ARK_BASE_URL
 from lib.backends.dashscope_shared import DASHSCOPE_BASE_URL
+from lib.backends.higgsfield_shared import HIGGSFIELD_BASE_URL
 from lib.backends.minimax_shared import MINIMAX_BASE_URL
 
 # 合法并发 lane 名，与 CapacityTable 的 image/video/audio 三条容量通道对齐。
@@ -195,5 +196,18 @@ PROVIDER_REGISTRY: dict[str, ProviderMeta] = {
         # Agnes 视频上游对并发敏感，出厂串行（默认 1）避免主动制造 503 Service busy；
         # 用户可经 video_max_workers 覆盖。其余 lane 未声明，走全局默认。
         default_concurrency={"video": 1},
+    ),
+    "higgsfield": ProviderMeta(
+        display_name="Higgsfield",
+        description=(
+            "Higgsfield 聚合 API，以 Key ID + Key Secret 鉴权；提供 Soul 2、Qwen Image 3 图片生成与"
+            "可灵 3.0、可灵 O3、Seedance 2.5 视频生成，仅图片与视频能力。"
+        ),
+        # Key ID 与 Key Secret 成对签发、缺一不可：沿用 provider_credential 已有的 access_key /
+        # secret_key 定型列（见 ADR 0037），不另加迁移。
+        required_keys=["access_key", "secret_key"],
+        optional_keys=["base_url", "image_max_workers", "video_max_workers"],
+        secret_keys=["access_key", "secret_key"],
+        default_base_url=HIGGSFIELD_BASE_URL,
     ),
 }

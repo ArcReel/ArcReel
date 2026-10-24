@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-24T06:01:38Z",
+  "dataset_version": "2026-10-24T16:52:48Z",
   "entries": [
     {
       "maker": "agnes",
@@ -13993,6 +13993,77 @@
           }
         ]
       }
+    },
+    {
+      "maker": "higgsfield",
+      "name": "soul-2",
+      "media_type": "image",
+      "display_name": "Soul 2",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": false,
+        "resolutions": [
+          "720p",
+          "1080p"
+        ]
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "output_images",
+            "dims": [],
+            "rows": [
+              {
+                "when": {},
+                "price": 0.0032
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "alibaba",
+      "name": "qwen-image-3",
+      "media_type": "image",
+      "display_name": "Qwen Image 3",
+      "facts": {
+        "text_to_image": true,
+        "image_to_image": true,
+        "resolutions": [
+          "1k",
+          "2k"
+        ]
+      }
+    },
+    {
+      "maker": "kuaishou",
+      "name": "kling-o3",
+      "media_type": "video",
+      "display_name": "可灵 O3",
+      "facts": {
+        "durations": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "resolutions": [
+          "720p",
+          "1080p",
+          "4k"
+        ]
+      }
     }
   ],
   "builtin_providers": {
@@ -14740,6 +14811,34 @@
         "text": "agnes-3.0-flash",
         "image": "agnes-image-2.5-flash",
         "video": "agnes-video-2.5-flash"
+      }
+    },
+    "higgsfield": {
+      "models": [
+        {
+          "api_model_name": "higgsfield-ai/soul/v2",
+          "entry": "higgsfield/soul-2"
+        },
+        {
+          "api_model_name": "alibaba/qwen-image-3",
+          "entry": "alibaba/qwen-image-3"
+        },
+        {
+          "api_model_name": "bytedance/seedance-2.5",
+          "entry": "bytedance/doubao-seedance-2.5"
+        },
+        {
+          "api_model_name": "kling-video/o3",
+          "entry": "kuaishou/kling-o3"
+        },
+        {
+          "api_model_name": "kling-video/v3.0",
+          "entry": "kuaishou/kling-v3"
+        }
+      ],
+      "defaults": {
+        "image": "higgsfield-ai/soul/v2",
+        "video": "bytedance/seedance-2.5"
       }
     }
   }

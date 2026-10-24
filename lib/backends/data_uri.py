@@ -17,7 +17,7 @@ from pathlib import Path
 _DEFAULT_IMAGE_MIME = "image/png"
 
 
-def _image_mime_from_bytes(content: bytes) -> str | None:
+def image_mime_from_bytes(content: bytes) -> str | None:
     """从常见图片格式的文件头识别 MIME，无法识别时交由扩展名兼容回退。"""
     if content.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png"
@@ -49,5 +49,5 @@ def image_to_data_uri(image_path: Path, mime_types: Mapping[str, str]) -> str:
     `mime_types` 查扩展名、未登记回落 PNG 的既有兼容行为。
     """
     content = image_path.read_bytes()
-    mime = _image_mime_from_bytes(content) or mime_types.get(image_path.suffix.lower(), _DEFAULT_IMAGE_MIME)
+    mime = image_mime_from_bytes(content) or mime_types.get(image_path.suffix.lower(), _DEFAULT_IMAGE_MIME)
     return f"data:{mime};base64,{base64.b64encode(content).decode('ascii')}"

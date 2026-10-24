@@ -467,6 +467,36 @@ PROVIDER_SPEC_REGISTRY[("minimax", "video")] = ProviderSpec(
 PROVIDER_SPEC_REGISTRY[("agnes", "image")] = _simple_spec("agnes", "image")
 PROVIDER_SPEC_REGISTRY[("agnes", "video")] = _simple_spec("agnes", "video")
 
+
+# higgsfield 特例族：Key ID + Key Secret 双 secret（沿用 access_key / secret_key 定型列），媒体侧
+# image / video 同一构造形态，没有 api_key 单键模式。
+_HIGGSFIELD_REGISTRY_BACKEND = "higgsfield"
+
+
+def _build_higgsfield(config: LoadedConfig, model_id: str | None, *, media_type: str) -> Any:
+    kwargs: dict[str, Any] = {
+        "access_key": config.credentials.get("access_key"),
+        "secret_key": config.credentials.get("secret_key"),
+        "model": model_id,
+    }
+    base_url = _resolve_base_url(config)
+    if base_url:
+        kwargs["base_url"] = base_url
+    return _media_create_backend(media_type)(_HIGGSFIELD_REGISTRY_BACKEND, **kwargs)
+
+
+PROVIDER_SPEC_REGISTRY.update(
+    {
+        (_HIGGSFIELD_REGISTRY_BACKEND, media_type): ProviderSpec(
+            provider_id=_HIGGSFIELD_REGISTRY_BACKEND,
+            media_type=media_type,
+            registry_backend=_HIGGSFIELD_REGISTRY_BACKEND,
+            build_backend=partial(_build_higgsfield, media_type=media_type),
+        )
+        for media_type in ("image", "video")
+    }
+)
+
 # ── 文本族注册 ────────────────────────────────────────────────────
 # 简单文本四家（registry_backend = provider_id 自身）；gemini 两个 provider_id 按 backend 分两行
 # （aistudio/vertex 各自闭包，registry_backend 同为 "gemini"）；OpenAI-compat 三家共用一个构造闭包：

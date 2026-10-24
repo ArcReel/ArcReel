@@ -13,6 +13,7 @@ MESSAGES: dict[str, str] = {
     "provider_name_minimax": "MiniMax",
     "provider_name_kling": "Kling",
     "provider_name_agnes": "Agnes",
+    "provider_name_higgsfield": "Higgsfield",
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "Deleted provider",
     "deleted_agent_provider_display_name": "Deleted Agent provider",
@@ -28,6 +29,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_minimax": "MiniMax (Hailuo) multimodal platform with text, image, video and speech generation. Connects to the domestic site by default; set base_url to the international site for overseas access.",
     "provider_desc_kling": "Kuaishou Kling video and image generation platform. API Key authentication works with all models; Access Key + Secret Key (JWT) only supports 3.0-and-earlier models. Choose either — when both are set, API Key takes priority.",
     "provider_desc_agnes": "Agnes multimodal platform (OpenAI-style), authenticated with a Bearer API key; currently supports image, text and video generation.",
+    "provider_desc_higgsfield": "Higgsfield unified API, authenticated with a Key ID + Key Secret pair; provides Soul 2 and Qwen Image 3 image generation plus Kling 3.0, Kling O3 and Seedance 2.5 video generation. Image and video only.",
     # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "DeepSeek official Anthropic-compat endpoint; needs sk- prefixed key.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo only accepts known model names; no public model list.",

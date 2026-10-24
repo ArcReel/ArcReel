@@ -974,6 +974,18 @@ def _check_vidu(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityC
     )
 
 
+def _check_higgsfield(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
+    """Higgsfield 连通性检查 — HTTP 细节封装在 lib.backends.higgsfield_shared.test_higgsfield_connection。"""
+    from lib.backends.higgsfield_shared import test_higgsfield_connection
+
+    test_higgsfield_connection(config)
+    return ConnectivityCheckResponse(
+        success=True,
+        available_models=[],
+        message=_t("connectivity_check_ok"),
+    )
+
+
 def _check_dashscope(config: dict[str, str], _t: Callable[..., str]) -> ConnectivityCheckResponse:
     """通过 models.list() 验证 DashScope API Key（compatible-mode，OpenAI 协议）。
 
@@ -1092,6 +1104,7 @@ _CONNECTIVITY_CHECK_DISPATCH: dict[str, Callable[[dict[str, str], Any], Connecti
     "dashscope": _check_dashscope,
     "minimax": _check_minimax,
     "kling": _check_kling,
+    "higgsfield": _check_higgsfield,
 }
 
 

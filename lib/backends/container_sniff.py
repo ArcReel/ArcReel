@@ -21,7 +21,7 @@ CONTAINER_HEAD_BYTES = 12
 #: 认的是这一边而不是「视频 brand 白名单」：视频侧的 brand 是开放集（``isom`` / ``iso2`` /
 #: ``mp41`` / ``mp42`` / ``avc1`` / ``qt`` / ``M4V`` / ``dash`` …，各家导出器还在加），白名单
 #: 会把合法成片判成认不出——那比漏认一张 HEIC 更糟。brand 与 MIME 的对应沿用
-#: ``data_uri._image_mime_from_bytes`` 已有的那一份。
+#: ``data_uri.image_mime_from_bytes`` 已有的那一份。
 _ISO_BMFF_IMAGE_BRANDS: Mapping[bytes, str] = {
     b"heic": "image/heic",
     b"heix": "image/heic",

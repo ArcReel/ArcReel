@@ -13,6 +13,7 @@ MESSAGES: dict[str, str] = {
     "provider_name_minimax": "MiniMax",
     "provider_name_kling": "Kling",
     "provider_name_agnes": "Agnes",
+    "provider_name_higgsfield": "Higgsfield",
     # 失败文案里目录查不到的供应商（已被删除）的泛称
     "deleted_provider_display_name": "Nhà cung cấp đã bị xóa",
     "deleted_agent_provider_display_name": "Nhà cung cấp Agent đã bị xóa",
@@ -28,6 +29,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_minimax": "Nền tảng đa phương thức MiniMax (Hailuo) hỗ trợ tạo văn bản, ảnh, video và giọng nói. Mặc định kết nối site nội địa; đặt base_url sang site quốc tế khi dùng ở nước ngoài.",
     "provider_desc_kling": "Nền tảng tạo video và ảnh Kling của Kuaishou. Xác thực bằng API Key áp dụng cho mọi model; Access Key + Secret Key (JWT) chỉ áp dụng cho model từ 3.0 trở về trước. Chọn một trong hai — nếu điền cả hai, API Key được ưu tiên.",
     "provider_desc_agnes": "Nền tảng đa phương thức Agnes (phong cách OpenAI), xác thực bằng Bearer API key; hiện hỗ trợ tạo ảnh, văn bản và video.",
+    "provider_desc_higgsfield": "API hợp nhất Higgsfield, xác thực bằng cặp Key ID + Key Secret; cung cấp tạo ảnh Soul 2, Qwen Image 3 và tạo video Kling 3.0, Kling O3, Seedance 2.5. Chỉ hỗ trợ ảnh và video.",
     # Agent preset notes (lib/agent/agent_provider_catalog.py)
     "preset_notes_deepseek": "Endpoint Anthropic-compat chính thức của DeepSeek; cần API key sk-.",
     "preset_notes_xiaomi_mimo": "Xiaomi MiMo chỉ chấp nhận tên model đã biết; không có danh sách model công khai.",
