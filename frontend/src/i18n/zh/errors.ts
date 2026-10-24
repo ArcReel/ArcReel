@@ -24,6 +24,7 @@ export default {
   'upload_failed': '上传失败',
   'upload_conflict_incomplete': '上传「{{filename}}」失败：服务端返回 409，但冲突详情不完整',
   'memory_file_load_failed': '获取记忆文件失败',
+  'file_view_load_failed': '无法读取文件',
   'memory_file_save_failed': '保存记忆文件失败',
   'file_content_load_failed': '获取文件内容失败',
   'file_replace_failed': '替换文件失败',

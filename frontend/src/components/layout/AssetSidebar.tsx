@@ -5,6 +5,7 @@ import {
   BookOpen,
   Clapperboard,
   FilePlus,
+  FolderTree,
   Landmark,
   LayoutDashboard,
   Package,
@@ -30,7 +31,7 @@ import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useCostStore } from "@/stores/cost-store";
-import { WORKSPACE_ROUTE_EPISODES } from "@/app-routes";
+import { WORKSPACE_ROUTE_EPISODES, WORKSPACE_ROUTE_FILES } from "@/app-routes";
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { normalizeRoute } from "@/utils/generation-mode";
 import { CreateEpisodeDialog } from "@/components/canvas/episodes/CreateEpisodeDialog";
@@ -137,6 +138,10 @@ export function AssetSidebar({ collapsed, onCollapsedChange }: AssetSidebarProps
           },
         ]
       : []),
+    // 演示项目没有服务端文件可列
+    ...(demoMode
+      ? []
+      : [{ key: "files", path: `/${WORKSPACE_ROUTE_FILES}`, label: t("dashboard:workspace_nav_files"), icon: FolderTree }]),
   ];
 
   const isNavActive = (item: NavItem): boolean => {

@@ -142,6 +142,7 @@ import type {
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
+import type { FileViewListing } from "@/types/file-view";
 import type {
   EpisodeNextStep,
   WorkflowMigrationReport,
@@ -557,6 +558,31 @@ class API {
   }
 
   // ==================== Agent 记忆 ====================
+
+  // ==================== 文件视图 ====================
+
+  /** 列出项目目录（`path` 为空串时是项目根）的直接子项，大目录按需逐级展开。 */
+  static async getFileView(
+    projectName: string,
+    path: string,
+    options: { signal?: AbortSignal } = {}
+  ): Promise<FileViewListing> {
+    const query = new URLSearchParams({ path }).toString();
+    return this.request(`/projects/${encodeURIComponent(projectName)}/file-view?${query}`, { signal: options.signal });
+  }
+
+  /** 读取单个文件的原始内容，用于预览与下载；鉴权接口，所以取 Blob 而不是给出可直接打开的地址。 */
+  static async getFileViewContent(
+    projectName: string,
+    path: string,
+    options: { download?: boolean; signal?: AbortSignal } = {}
+  ): Promise<Blob> {
+    const query = new URLSearchParams({ path, ...(options.download ? { download: "true" } : {}) }).toString();
+    const url = `/projects/${encodeURIComponent(projectName)}/file-view/content?${query}`;
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url, { signal: options.signal }));
+    await throwIfNotOk(response, i18n.t("errors:file_view_load_failed"));
+    return response.blob();
+  }
 
   /**
    * 用户记忆与项目记忆的接口形状完全一致，只有路径前缀不同；两级共用同一组方法，
