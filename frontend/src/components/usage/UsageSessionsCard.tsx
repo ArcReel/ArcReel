@@ -45,7 +45,7 @@ function HintedText({ hint, children }: { hint: string; children: ReactNode }) {
   return (
     <InfoTip>
       <InfoTipTrigger render={<button type="button" className="cursor-help underline decoration-dotted underline-offset-4" />}>{children}</InfoTipTrigger>
-      <InfoTipContent>{hint}</InfoTipContent>
+      <InfoTipContent title={children}>{hint}</InfoTipContent>
     </InfoTip>
   );
 }

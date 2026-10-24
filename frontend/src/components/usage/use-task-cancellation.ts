@@ -51,21 +51,16 @@ export function useTaskCancellation(
   scopeKey: string | null,
   onCancelled?: () => void | Promise<void>,
 ): TaskCancellation {
-  const [request, setRequest] = useState<CancelRequest | null>(null);
+  // 确认态记在发起它的作用域之下：切换项目后旧项目的确认态（包括切换后才返回的旧预览）不会生效
+  const [owned, setOwned] = useState<{ scope: string | null; request: CancelRequest } | null>(null);
+  const request = owned?.scope === scopeKey ? owned.request : null;
   const [cancelling, setCancelling] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const [failureDetail, setFailureDetail] = useState<string | null>(null);
+  const [failedState, setFailed] = useState(false);
+  const [failureDetailState, setFailureDetail] = useState<string | null>(null);
+  const failed = request !== null && failedState;
+  const failureDetail = request !== null ? failureDetailState : null;
   const [cancellingTaskIds, setCancellingTaskIds] = useState<ReadonlySet<string>>(new Set());
   const previewAbort = useRef<AbortController | null>(null);
-
-  // 切换项目后旧项目的确认请求在同一次渲染里消失，不留一帧旧确认态
-  const [prevScopeKey, setPrevScopeKey] = useState(scopeKey);
-  if (scopeKey !== prevScopeKey) {
-    setPrevScopeKey(scopeKey);
-    setRequest(null);
-    setFailed(false);
-    setFailureDetail(null);
-  }
 
   // 作废旧作用域在途的预览请求，它的结果不再写回
   useEffect(
@@ -90,12 +85,13 @@ export function useTaskCancellation(
         const preview = await API.cancelPreview(taskId, { signal: controller.signal });
         if (controller.signal.aborted) return;
         setFailed(false);
-        setRequest({ kind: "single", taskId, cascaded: preview.cascaded });
+        setFailureDetail(null);
+        setOwned({ scope: scopeKey, request: { kind: "single", taskId, cascaded: preview.cascaded } });
       } catch {
         // 任务已不在可取消状态，或预览被更新的操作接管
       }
     },
-    [beginPreview],
+    [beginPreview, scopeKey],
   );
 
   const requestAll = useCallback(
@@ -107,12 +103,13 @@ export function useTaskCancellation(
         });
         if (controller.signal.aborted || queued_count === 0) return;
         setFailed(false);
-        setRequest({ kind: "all", projectName, queuedCount: queued_count });
+        setFailureDetail(null);
+        setOwned({ scope: scopeKey, request: { kind: "all", projectName, queuedCount: queued_count } });
       } catch {
         // 没有排队中的任务，或预览被更新的操作接管
       }
     },
-    [beginPreview],
+    [beginPreview, scopeKey],
   );
 
   const confirm = useCallback(async () => {
@@ -135,7 +132,7 @@ export function useTaskCancellation(
         return;
       }
       // 取消已落地，确认态先收起；随后的重取失败是刷新问题，不再算取消失败。
-      setRequest(null);
+      setOwned(null);
       await onCancelled?.();
     } finally {
       if (request.kind === "single") {
@@ -151,7 +148,7 @@ export function useTaskCancellation(
   }, [request, onCancelled]);
 
   const dismiss = useCallback(() => {
-    setRequest(null);
+    setOwned(null);
     setFailed(false);
     setFailureDetail(null);
   }, []);

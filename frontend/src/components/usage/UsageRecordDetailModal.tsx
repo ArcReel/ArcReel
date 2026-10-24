@@ -90,7 +90,7 @@ function Field({
         {hint ? (
           <InfoTip>
             <InfoTipTrigger render={<button type="button" className="cursor-help underline decoration-dotted underline-offset-4" />}>{label}</InfoTipTrigger>
-            <InfoTipContent>{hint}</InfoTipContent>
+            <InfoTipContent title={label}>{hint}</InfoTipContent>
           </InfoTip>
         ) : (
           label

@@ -31,9 +31,13 @@ function InfoTipTrigger({
 function InfoTipContent({
   className,
   side = "top",
+  title,
   children,
   ...props
-}: React.ComponentProps<typeof PopoverContent>) {
+}: Omit<React.ComponentProps<typeof PopoverContent>, "title"> & {
+  /** 弹层的可访问名称，通常就是触发元素上的文字；不显示，只供读屏播报。 */
+  title: React.ReactNode
+}) {
   return (
     <PopoverContent
       data-slot="info-tip-content"
@@ -41,6 +45,7 @@ function InfoTipContent({
       className={cn("w-fit max-w-xs px-3 py-1.5 text-xs", className)}
       {...props}
     >
+      <PopoverPrimitive.Title className="sr-only">{title}</PopoverPrimitive.Title>
       {/* 说明挂成弹层的 aria-describedby，读屏打开时连同弹层一起播报 */}
       <PopoverPrimitive.Description>{children}</PopoverPrimitive.Description>
     </PopoverContent>

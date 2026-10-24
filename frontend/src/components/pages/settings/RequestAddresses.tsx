@@ -177,7 +177,7 @@ function AddressBar({ request, rawBase, override, display, onCommit }: AddressBa
           >
             /v1
           </InfoTipTrigger>
-          <InfoTipContent>{t("cp_request_auto_v1")}</InfoTipContent>
+          <InfoTipContent title="/v1">{t("cp_request_auto_v1")}</InfoTipContent>
         </InfoTip>
       )}
       <button

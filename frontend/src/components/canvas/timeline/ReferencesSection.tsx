@@ -173,7 +173,7 @@ export function ReferencesSection({
               <AlertTriangle aria-hidden className="size-3" />
               {t("segment_refs_stale_badge", { count: totalStale })}
             </InfoTipTrigger>
-            <InfoTipContent>{t("segment_refs_stale_hint")}</InfoTipContent>
+            <InfoTipContent title={t("segment_refs_stale_badge", { count: totalStale })}>{t("segment_refs_stale_hint")}</InfoTipContent>
           </InfoTip>
         )}
         <span className="flex-1" />

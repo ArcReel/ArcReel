@@ -9,7 +9,7 @@ function InputHint() {
   return (
     <InfoTip>
       <InfoTipTrigger render={<button type="button" className="underline decoration-dotted" />}>输入</InfoTipTrigger>
-      <InfoTipContent>{HINT}</InfoTipContent>
+      <InfoTipContent title="输入">{HINT}</InfoTipContent>
     </InfoTip>
   );
 }
@@ -65,6 +65,15 @@ describe("InfoTip", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(trigger()).toHaveFocus();
+  });
+
+  it("names the popup after the trigger text", async () => {
+    const user = userEvent.setup();
+    render(<InputHint />);
+
+    await user.click(trigger());
+
+    expect(await screen.findByRole("dialog", { name: "输入" })).toBeInTheDocument();
   });
 
   it("exposes the hint as the popup's accessible description", async () => {

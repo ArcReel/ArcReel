@@ -116,7 +116,7 @@ export function EpisodeHead({
               <InfoTipTrigger render={<button type="button" className="shrink-0 rounded-sm" />}>
                 {t("episode_head_cost", { cost: costSummary.estimate })}
               </InfoTipTrigger>
-              <InfoTipContent>{costDetail}</InfoTipContent>
+              <InfoTipContent title={t("episode_head_cost", { cost: costSummary.estimate })}>{costDetail}</InfoTipContent>
             </InfoTip>
           </>
         ) : null}
