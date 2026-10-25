@@ -30,7 +30,7 @@ def _client(monkeypatch, tmp_path: Path, *, description: str) -> tuple[TestClien
     pm.create_project("demo")
     pm.create_project_metadata("demo", "Demo", "Anime", "narration")
     pm.add_character("demo", "Alice", description)
-    monkeypatch.setattr(files, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
 
     app = FastAPI()
     register_error_handlers(app)
