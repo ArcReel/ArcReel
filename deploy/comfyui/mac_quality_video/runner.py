@@ -36,9 +36,9 @@ def build_command(config, root):
         raise ValueError("Unsupported renderer controls: " + ", ".join(sorted(unknown)))
     if not re.fullmatch(r"[A-Za-z0-9_-]+", config["name"]):
         raise ValueError("Run name must contain only letters, numbers, underscores, and hyphens.")
-    if config["mode"] not in ("distilled", "two-stage", "motion-track", "identity-reference"):
+    if config["mode"] not in ("distilled", "two-stage", "motion-track", "structural-control", "identity-reference"):
         raise ValueError("This adapter supports distilled or two-stage generation, or IC-LoRA qualification.")
-    controlled = config["mode"] in ("motion-track", "identity-reference")
+    controlled = config["mode"] in ("motion-track", "structural-control", "identity-reference")
     sampler = config.get("sampler", "euler")
     if sampler not in ("euler", "euler_ancestral_cfg_pp"):
         raise ValueError("Unsupported qualification sampler.")
@@ -55,6 +55,8 @@ def build_command(config, root):
             raise ValueError("Motion-track qualification requires a starting image.")
         if config["mode"] == "motion-track" and config.get("end_image"):
             raise ValueError("Motion-track qualification cannot use an end anchor.")
+        if config["mode"] == "structural-control" and (not config.get("image") or config.get("end_image")):
+            raise ValueError("Structural-control qualification requires a start image and no end anchor.")
         if config.get("recipe"):
             raise ValueError("IC-LoRA qualification cannot use another recipe.")
         if config["mode"] == "identity-reference" and (config["width"], config["height"], config["frames"]) != (

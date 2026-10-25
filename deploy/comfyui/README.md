@@ -58,9 +58,9 @@ missed the intended action with near-identical guides. That is evidence for
 pipeline selection, not a guarantee of action quality. Review every frame and
 the moving joins before accepting a take; do not mark a technical success final.
 
-## Isolated motion and identity qualification
+## Isolated motion, structure, and identity qualification
 
-The runner accepts `motion-track` and `identity-reference` modes for bounded local
+The runner accepts `motion-track`, `structural-control`, and `identity-reference` modes for bounded local
 experiments. These modes are not part of the ComfyUI node or ArcReel endpoint
 schema. Keep their outputs outside approved episode assets until full motion,
 identity, and adjacent-shot reviews pass. `identity-reference` means the requested
@@ -90,12 +90,12 @@ Motion tests require a start image and a correctly timed track video generated
 with the official track rasterizer. Identity tests instead use the Ingredients
 LoRA and a static reference video; `image` is optional so a test can ask for a new
 composition rather than merely preserve its starting frame. Prepare clean
-identity references without conflicting character panels. Match control video
-dimensions, frame rate, and duration to the output. Motion tests can start short;
+identity references without conflicting character panels. Use the adapter's
+prescribed reference dimensions and match the output frame rate and duration. Motion tests can start short;
 Ingredients tests require the trained bucket of 768×448, 121 frames at 24 fps,
 with the still reference repeated across the full clip.
 
-Both modes use the dev transformer, control LoRA strength 1.0, distilled LoRA
+These modes use the dev transformer, control LoRA strength 1.0, distilled LoRA
 strength 0.5, and single-stage full-resolution generation. Unlike the keyframe
 strength-1.0 shortcut above, these modes **read the separate distilled LoRA file**.
 This weight composition follows the official single-stage distilled workflows
@@ -113,8 +113,8 @@ passing sampler tests does not establish motion or character quality. Sampler
 controls on ordinary generation modes and negative text with Euler are rejected
 instead of silently ignored.
 
-Motion tests accept 49/97/121 frames at 768×448 or 1024×576; identity tests accept
-only 121 frames at 768×448. Both modes reject alternative recipes and missing
+Motion and structure tests accept 49/97/121 frames at 768×448 or 1024×576; identity tests accept
+only 121 frames at 768×448. These modes reject alternative recipes and missing
 control files or a missing dev transformer. Motion tests reject an end anchor.
 Identity tests can pair `image` and `end_image` with the identity
 reference: both images go to the IC pipeline as temporal anchors at frame 0 and
@@ -125,10 +125,37 @@ correct movement between them.
 The 19 GiB start requirement, 8 GiB reserve, swap guard, timeout, and cancellation
 handling apply. Do not run simultaneous GPU experiments.
 
-Motion and Ingredients are separate tests: their reference downscale factors are
-2 and 1 respectively, while the pinned runtime uses one global factor. Do not
+Motion and Union use reference downscale factor 2; Ingredients uses factor 1.
+The pinned runtime uses one global factor. Do not
 combine them in one call. No weights, account credentials, or gated terms are
 installed or accepted automatically. Verify each downloaded model against its
 upstream revision and checksum before testing. Record the exact input hashes,
 command, runtime revision, result, failures, and any temporarily paused services'
 restoration with each trial.
+
+### Dense depth contact fixture
+
+`structural-control` is an isolated Union Control experiment, not a production
+capability. It requires a starting image and rejects an ending anchor. Supply the
+LTX 2.3 Union adapter and a grayscale depth video at half the output dimensions,
+matching the reference downscale factor in its metadata. Keep all guides at the
+same frame count and 24 fps. The versioned single-stage workflow is
+[LTX 2.3 Union Control at 6df1f3f](https://github.com/Lightricks/ComfyUI-LTXVideo/blob/6df1f3ff90f03437911756d0dcb51ac7580bebe9/example_workflows/2.3/LTX-2.3_ICLoRA_Union_Control_Distilled.json).
+Do not substitute a newer model's workflow or combine adapters with different
+reference scales.
+
+Generate a deterministic 49-frame contact diagnostic with:
+
+```bash
+uv run python -m scripts.prepare_contact_guide --output-dir /absolute/new/guide-directory
+```
+
+This orthographic proxy checks fixed arm lengths, arm/bag clearance, and a palm
+supporting the bag underside. It records frame coordinates, source and video
+hashes, and validation metrics; existing output directories are never replaced.
+Its synthetic inverse depth uses fixed bounds throughout the clip. It is not an
+approved character rig, a learned depth estimate, a whole-body physics check, or
+a guarantee of generated contact. The model's training distribution may differ.
+Inspect the decoded guide before inference, and review every generated frame
+for contact, occlusion, form, and timing afterward. Source geometry passing
+does not qualify the generated take or authorize a production episode.

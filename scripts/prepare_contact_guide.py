@@ -1,0 +1,281 @@
+"""Build a deterministic arm/prop contact fixture before a video-control trial.
+
+This orthographic proxy is a control diagnostic, not a character asset or a
+finished animation. It does not call a model or publish into a project.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+import subprocess
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+import numpy as np
+from PIL import Image
+
+from lib.infra.ffmpeg import ffmpeg_executable
+
+WIDTH, HEIGHT, FPS, FRAME_COUNT = 768, 448, 24, 49
+UPPER_ARM, FOREARM = 68.0, 55.0
+BAG_HALF_SIZE = (32.0, 32.0, 30.0)
+CONTACT_FRAME = 29
+ARM_DEPTH = 150.0
+
+
+@dataclass(frozen=True)
+class ContactFrame:
+    shoulder: tuple[float, float]
+    elbow: tuple[float, float]
+    wrist: tuple[float, float]
+    palm: tuple[float, float]
+    hand_angle: float
+    bag: tuple[float, float]
+
+
+def solve_elbow(shoulder, wrist, upper_arm, forearm, pole):
+    """Solve a planar two-bone chain without stretching or clamping the target."""
+    if min(upper_arm, forearm) <= 0:
+        raise ValueError("Arm lengths must be positive")
+    delta = np.asarray(wrist, dtype=float) - shoulder
+    distance = float(np.linalg.norm(delta))
+    if not abs(upper_arm - forearm) < distance < upper_arm + forearm:
+        raise ValueError("Wrist is unreachable without changing arm length")
+    direction = delta / distance
+    along = (upper_arm**2 - forearm**2 + distance**2) / (2 * distance)
+    height = math.sqrt(max(0.0, upper_arm**2 - along**2))
+    perpendicular = np.array([-direction[1], direction[0]])
+    if np.dot(perpendicular, np.asarray(pole) - shoulder) < 0:
+        perpendicular *= -1
+    elbow = np.asarray(shoulder) + along * direction + height * perpendicular
+    return float(elbow[0]), float(elbow[1])
+
+
+def smooth_between(frame, first, last):
+    t = min(1.0, max(0.0, (frame - first) / (last - first)))
+    return t**3 * (10 + t * (-15 + 6 * t))
+
+
+def contact_sequence():
+    frames = []
+    shoulder = (439.0, 127.0)
+    for frame in range(FRAME_COUNT):
+        dip = smooth_between(frame, 2, 10)
+        bag = (385 + 12 * dip, 196 + 12 * dip)
+        reach = smooth_between(frame, 8, CONTACT_FRAME)
+        wrist = (457 - 19 * reach, 237 + 9 * reach)
+        hand_angle = math.pi / 2 + math.pi / 2 * reach
+        palm = (wrist[0] + 13 * math.cos(hand_angle), wrist[1] + 13 * math.sin(hand_angle))
+        elbow = solve_elbow(shoulder, wrist, UPPER_ARM, FOREARM, (600.0, 200.0))
+        frames.append(ContactFrame(shoulder, elbow, wrist, palm, hand_angle, bag))
+    validate_sequence(frames)
+    return frames
+
+
+def segment_box_distance(start, end, box_min, box_max):
+    """Exact 2D segment/rectangle distance for the arm's shared depth plane."""
+    delta = np.asarray(end) - start
+    low, high = 0.0, 1.0
+    for axis in range(2):
+        if delta[axis] == 0:
+            if not box_min[axis] <= start[axis] <= box_max[axis]:
+                break
+        else:
+            near, far = sorted((bound - start[axis]) / delta[axis] for bound in (box_min[axis], box_max[axis]))
+            low, high = max(low, near), min(high, far)
+    else:
+        if low <= high:
+            return 0.0
+
+    def point_segment_distance(point):
+        fraction = np.clip(np.dot(np.asarray(point) - start, delta) / np.dot(delta, delta), 0, 1)
+        return float(np.linalg.norm(np.asarray(point) - start - fraction * delta))
+
+    endpoint_distances = [
+        float(np.linalg.norm(np.maximum(np.maximum(np.asarray(box_min) - point, np.asarray(point) - box_max), 0)))
+        for point in (start, end)
+    ]
+    return min(
+        *endpoint_distances,
+        *(point_segment_distance((x, y)) for x in (box_min[0], box_max[0]) for y in (box_min[1], box_max[1])),
+    )
+
+
+def validate_sequence(frames):
+    """Validate the declared planar contact fixture, not inferred video motion."""
+    if len(frames) != FRAME_COUNT:
+        raise ValueError("The contact fixture requires exactly 49 frames")
+    max_length_error = 0.0
+    max_contact_gap = 0.0
+    min_arm_clearance = math.inf
+    for index, frame in enumerate(frames):
+        points = np.array([frame.shoulder, frame.elbow, frame.wrist, frame.palm, frame.bag])
+        if not np.isfinite(points).all():
+            raise ValueError("Non-finite guide coordinates")
+        if (points < 0).any() or (points >= [WIDTH, HEIGHT]).any():
+            raise ValueError("Guide coordinates outside the picture")
+        error = max(
+            abs(math.dist(frame.shoulder, frame.elbow) - UPPER_ARM),
+            abs(math.dist(frame.elbow, frame.wrist) - FOREARM),
+        )
+        max_length_error = max(max_length_error, error)
+        if error > 1e-6:
+            raise ValueError(f"Arm length changes at frame {index}")
+        if not math.isclose(math.dist(frame.wrist, frame.palm), 13, abs_tol=1e-6):
+            raise ValueError(f"Hand length changes at frame {index}")
+        if frame.wrist[1] < frame.shoulder[1]:
+            raise ValueError(f"Wrist rises above shoulder at frame {index}")
+        # Arm and palm share depth 150, within the bag volume 130..190.
+        # The rotated palm stays below the bag, including before contact.
+        hand_y_radius = math.hypot(13 * math.sin(frame.hand_angle), 6 * math.cos(frame.hand_angle))
+        bag_bottom = frame.bag[1] + BAG_HALF_SIZE[1]
+        hand_top = frame.palm[1] - hand_y_radius
+        hand_x_radius = math.hypot(13 * math.cos(frame.hand_angle), 6 * math.sin(frame.hand_angle))
+        if hand_top < bag_bottom - 1e-6 and abs(frame.palm[0] - frame.bag[0]) < BAG_HALF_SIZE[0] + hand_x_radius:
+            raise ValueError(f"Palm penetrates the bag at frame {index}")
+        box_min = np.asarray(frame.bag) - BAG_HALF_SIZE[:2]
+        box_max = np.asarray(frame.bag) + BAG_HALF_SIZE[:2]
+        for start, end, radius in ((frame.shoulder, frame.elbow, 10), (frame.elbow, frame.wrist, 7)):
+            clearance = segment_box_distance(start, end, box_min, box_max) - radius
+            min_arm_clearance = min(min_arm_clearance, clearance)
+            if clearance < -1e-6:
+                raise ValueError(f"Arm penetrates the bag at frame {index}")
+        if index >= CONTACT_FRAME and (
+            not math.isclose(hand_top, bag_bottom, abs_tol=1e-6)
+            or abs(frame.palm[0] - frame.bag[0]) >= BAG_HALF_SIZE[0]
+        ):
+            raise ValueError(f"Palm loses underside contact at frame {index}")
+        if index >= CONTACT_FRAME:
+            max_contact_gap = max(max_contact_gap, abs(hand_top - bag_bottom))
+    if frames[10].bag[1] <= frames[0].bag[1] or frames[8].wrist != frames[0].wrist:
+        raise ValueError("The bag dip must precede the catch")
+    return {
+        "frames": len(frames),
+        "max_bone_length_error": max_length_error,
+        "contact_frames": [CONTACT_FRAME, FRAME_COUNT - 1],
+        "max_contact_gap": max_contact_gap,
+        "min_arm_bag_clearance": min_arm_clearance,
+        "coordinate_units": "Proxy scene units; camera maps one unit to one output pixel. Not meters.",
+        "production_qualified": False,
+        "scope": "Planar arm lengths and palm/bag underside contact only; not a complete character rig or acting review.",
+    }
+
+
+def render_depth(frame, width=384, height=224):
+    """Ray cast fixed-depth proxy solids with a clip-wide depth mapping."""
+    xx, yy = np.meshgrid((np.arange(width) + 0.5) * WIDTH / width, (np.arange(height) + 0.5) * HEIGHT / height)
+    depth = np.full((height, width), 600.0)
+
+    def ellipsoid(center, radii, angle=0.0):
+        x, y, z = center
+        a, b, c = radii
+        dx, dy = xx - x, yy - y
+        u = math.cos(angle) * dx + math.sin(angle) * dy
+        v = -math.sin(angle) * dx + math.cos(angle) * dy
+        remaining = 1 - (u / a) ** 2 - (v / b) ** 2
+        front = z - c * np.sqrt(np.maximum(remaining, 0))
+        np.minimum(depth, np.where(remaining >= 0, front, 600), out=depth)
+
+    def capsule(start, end, radius, z):
+        delta = np.asarray(end) - start
+        fraction = np.clip(((xx - start[0]) * delta[0] + (yy - start[1]) * delta[1]) / np.dot(delta, delta), 0, 1)
+        squared = (xx - start[0] - fraction * delta[0]) ** 2 + (yy - start[1] - fraction * delta[1]) ** 2
+        front = z - np.sqrt(np.maximum(radius**2 - squared, 0))
+        np.minimum(depth, np.where(squared <= radius**2, front, 600), out=depth)
+
+    # Solids remain fixed except the articulated near arm and translated prop.
+    ellipsoid((480, 187, 185), (36, 66, 30))
+    ellipsoid((475, 65, 165), (41, 39, 30))
+    ellipsoid((515, 19, 175), (22, 18, 20))
+    capsule((478, 108), (477, 131), 12, 175)
+    for hip, knee, ankle, shoe in [
+        ((465, 245), (454, 326), (447, 398), (449, 412, 175)),
+        ((501, 246), (502, 318), (506, 387), (508, 398, 205)),
+    ]:
+        capsule(hip, knee, 13, shoe[2])
+        capsule(knee, ankle, 10, shoe[2])
+        ellipsoid(shoe, (23, 11, 20))
+    capsule((508, 135), (516, 192), 10, 205)
+    capsule((516, 192), (514, 237), 8, 205)
+    ellipsoid((514, 247, 205), (7, 13, 7))
+    bx, by = frame.bag
+    strap_end = (bx + 25, by - 27)
+    strap_joint = solve_elbow(frame.shoulder, strap_end, 32, 32, (350, 100))
+    capsule(frame.shoulder, strap_joint, 3, 135)
+    capsule(strap_joint, strap_end, 3, 135)
+    bag_mask = (abs(xx - bx) <= BAG_HALF_SIZE[0]) & (abs(yy - by) <= BAG_HALF_SIZE[1])
+    np.minimum(depth, np.where(bag_mask, 130, 600), out=depth)
+    # The small prop occupant is a stable proxy silhouette, not an identity model.
+    ellipsoid((bx, by - 42, 150), (19, 18, 20))
+    ellipsoid((bx - 17, by - 49, 158), (10, 4, 6), -0.7)
+    ellipsoid((bx + 17, by - 49, 158), (10, 4, 6), 0.7)
+    ellipsoid((bx - 4, by - 33, 129), (10, 7, 8))
+    capsule(frame.shoulder, frame.elbow, 10, ARM_DEPTH)
+    capsule(frame.elbow, frame.wrist, 7, ARM_DEPTH)
+    ellipsoid((*frame.palm, ARM_DEPTH), (13, 6, 7), frame.hand_angle)
+    # Near-bright inverse depth with fixed bounds across the entire clip.
+    gray = np.clip((1 / depth - 1 / 600) / (1 / 90 - 1 / 600), 0, 1)
+    return np.repeat(np.rint(gray[:, :, None] * 255).astype(np.uint8), 3, axis=2)
+
+
+def export_guide(output_dir):
+    frames = contact_sequence()
+    metrics = validate_sequence(frames)
+    output_dir.mkdir(parents=True, exist_ok=False)
+    sequence = output_dir / "performance.json"
+    sequence.write_text(
+        json.dumps({"schema_version": 1, "fps": FPS, "frames": [asdict(frame) for frame in frames]}, indent=2) + "\n"
+    )
+    pixels = np.stack([render_depth(frame) for frame in frames])
+    video = output_dir / "depth-guide.mp4"
+    subprocess.run(
+        [
+            ffmpeg_executable(),
+            "-v",
+            "error",
+            "-f",
+            "rawvideo",
+            "-pixel_format",
+            "rgb24",
+            "-video_size",
+            "384x224",
+            "-framerate",
+            str(FPS),
+            "-i",
+            "pipe:0",
+            "-an",
+            "-c:v",
+            "libx264",
+            "-crf",
+            "0",
+            "-pix_fmt",
+            "yuv444p",
+            str(video),
+        ],
+        input=pixels.tobytes(),
+        check=True,
+    )
+    for index in (0, 10, CONTACT_FRAME, FRAME_COUNT - 1):
+        Image.fromarray(pixels[index]).save(output_dir / f"frame-{index:02d}.png")
+    metrics.update(
+        video_sha256=hashlib.sha256(video.read_bytes()).hexdigest(),
+        sequence_sha256=hashlib.sha256(sequence.read_bytes()).hexdigest(),
+        source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        depth_convention="Grayscale RGB, near bright, fixed inverse-depth bounds 90..600 for all frames; synthetic proxy distribution unqualified.",
+    )
+    (output_dir / "validation.json").write_text(json.dumps(metrics, indent=2) + "\n")
+    return metrics
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    args = parser.parse_args()
+    print(json.dumps(export_guide(args.output_dir), indent=2))
+
+
+if __name__ == "__main__":
+    main()

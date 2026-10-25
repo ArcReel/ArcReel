@@ -64,7 +64,12 @@ def motion_config(tmp_path):
 
 @pytest.mark.parametrize(
     ("mode", "width", "height", "frames"),
-    [("motion-track", 1024, 576, 49), ("motion-track", 768, 448, 121), ("identity-reference", 768, 448, 121)],
+    [
+        ("motion-track", 1024, 576, 49),
+        ("motion-track", 768, 448, 121),
+        ("identity-reference", 768, 448, 121),
+        ("structural-control", 768, 448, 49),
+    ],
 )
 def test_control_reaches_single_stage_cli_with_dev_recipe_and_reference(
     renderer, motion_config, tmp_path, mode, width, height, frames
@@ -188,7 +193,7 @@ def test_motion_control_invalid_or_dropped_inputs_fail_before_launch(
         renderer.build_command(motion_config, tmp_path)
 
 
-@pytest.mark.parametrize("mode", ["motion-track", "identity-reference"])
+@pytest.mark.parametrize("mode", ["motion-track", "identity-reference", "structural-control"])
 def test_control_never_falls_back_when_dev_model_is_missing(renderer, motion_config, tmp_path, mode):
     motion_config.update(mode=mode, width=768, height=448, frames=121)
     (tmp_path / "models/mlx/ltx-2.3-22b-q8-distilled-1.1/transformer-dev.safetensors").unlink()
@@ -196,7 +201,7 @@ def test_control_never_falls_back_when_dev_model_is_missing(renderer, motion_con
         renderer.build_command(motion_config, tmp_path)
 
 
-@pytest.mark.parametrize("mode", ["motion-track", "identity-reference"])
+@pytest.mark.parametrize("mode", ["motion-track", "identity-reference", "structural-control"])
 def test_control_keeps_stricter_memory_admission(renderer, motion_config, tmp_path, monkeypatch, mode):
     motion_config.update(mode=mode, width=768, height=448, frames=121)
     path = tmp_path / "config.json"
@@ -207,6 +212,13 @@ def test_control_keeps_stricter_memory_admission(renderer, motion_config, tmp_pa
     )
     with pytest.raises(RuntimeError, match="At least 19 GiB"):
         renderer.run(path)
+
+
+@pytest.mark.parametrize("override", [{"image": None}, {"end_image": "end.png"}])
+def test_structural_test_requires_its_single_start_anchor(renderer, motion_config, tmp_path, override):
+    motion_config.update(mode="structural-control", **override)
+    with pytest.raises(ValueError, match="requires a start image and no end anchor"):
+        renderer.build_command(motion_config, tmp_path)
 
 
 @pytest.mark.parametrize(("seconds", "frames"), [(2, 49), (4, 97), (5, 121)])
