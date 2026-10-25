@@ -263,6 +263,7 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "anyio" },
     { name = "basedpyright" },
     { name = "blockbuster" },
     { name = "deptry" },
@@ -330,6 +331,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "anyio", specifier = ">=4.14.2" },
     { name = "basedpyright", specifier = ">=1.39.4" },
     { name = "blockbuster", specifier = ">=1.5.29" },
     { name = "deptry", specifier = ">=0.24.0" },
