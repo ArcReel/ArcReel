@@ -14,14 +14,43 @@ RUNTIME = ROOT / "user/runtimes/ltx-2-mlx"
 
 
 def build_command(config, root):
-    allowed = {"name", "mode", "width", "height", "frames", "seed", "prompt", "recipe", "image", "end_image"}
+    allowed = {
+        "name",
+        "mode",
+        "width",
+        "height",
+        "frames",
+        "seed",
+        "prompt",
+        "recipe",
+        "image",
+        "end_image",
+        "control_lora",
+        "control_video",
+        "distilled_lora",
+    }
     unknown = set(config) - allowed
     if unknown:
         raise ValueError("Unsupported renderer controls: " + ", ".join(sorted(unknown)))
     if not re.fullmatch(r"[A-Za-z0-9_-]+", config["name"]):
         raise ValueError("Run name must contain only letters, numbers, underscores, and hyphens.")
-    if config["mode"] not in ("distilled", "two-stage"):
-        raise ValueError("This adapter supports distilled or two-stage generation.")
+    if config["mode"] not in ("distilled", "two-stage", "motion-track", "identity-reference"):
+        raise ValueError("This adapter supports distilled or two-stage generation, or IC-LoRA qualification.")
+    controlled = config["mode"] in ("motion-track", "identity-reference")
+    if controlled:
+        if not all(config.get(key) for key in ("control_lora", "control_video", "distilled_lora")):
+            raise ValueError("IC-LoRA qualification requires control_lora, control_video and distilled_lora.")
+        if config["mode"] == "motion-track" and not config.get("image"):
+            raise ValueError("Motion-track qualification requires a starting image.")
+        if config.get("end_image") or config.get("recipe"):
+            raise ValueError("IC-LoRA qualification cannot use an end anchor or another recipe.")
+        if config["frames"] not in (49, 97, 121) or (config["width"], config["height"]) not in (
+            (768, 448),
+            (1024, 576),
+        ):
+            raise ValueError("IC-LoRA qualification supports 49/97/121 frames at 768x448 or 1024x576.")
+    elif any(config.get(key) for key in ("control_lora", "control_video", "distilled_lora")):
+        raise ValueError("Control inputs require an IC-LoRA qualification mode; they must not be ignored.")
     if not isinstance(config["seed"], int) or isinstance(config["seed"], bool) or not 0 <= config["seed"] < 2**32:
         raise ValueError("Seed must be an unsigned 32-bit integer.")
     if config.get("recipe") == "animated-dialogue" and (
@@ -32,11 +61,13 @@ def build_command(config, root):
         raise ValueError("The animated memory preset supports 2, 4, or 5 seconds at 1024 x 576 and 24 fps.")
     if config.get("end_image") and not config.get("image"):
         raise ValueError("An end anchor requires a starting image.")
-    for key in ("image", "end_image"):
+    for key in ("image", "end_image", "control_lora", "control_video", "distilled_lora"):
         if config.get(key) and not Path(config[key]).is_file():
             raise ValueError(f"Missing {key}: {config[key]}")
     runtime = root / "user/runtimes/ltx-2-mlx"
     model = root / "models/mlx/ltx-2.3-22b-q8-distilled-1.1"
+    if controlled and not (model / "transformer-dev.safetensors").is_file():
+        raise ValueError("IC-LoRA qualification requires installed transformer-dev.safetensors; no render started.")
     keyframe = bool(config.get("end_image"))
     if keyframe:
         for filename in ("transformer-dev.safetensors", "transformer-distilled-1.1.safetensors"):
@@ -47,7 +78,7 @@ def build_command(config, root):
         str(runtime / ".venv/bin/python"),
         "-u",
         str(root / "user/video_engine_entry.py"),
-        *(["keyframe"] if keyframe else ["generate", "--" + config["mode"]]),
+        *(["ic-lora"] if controlled else ["keyframe"] if keyframe else ["generate", "--" + config["mode"]]),
         "--model",
         str(model),
         "--gemma",
@@ -68,7 +99,25 @@ def build_command(config, root):
         "24",
         "--low-ram",
     ]
-    if keyframe:
+    if controlled:
+        args += [
+            "--lora",
+            str(config["control_lora"]),
+            "1.0",
+            "--video-conditioning",
+            str(config["control_video"]),
+            "1.0",
+            "--single-stage",
+            "--dev-transformer",
+            "transformer-dev.safetensors",
+            "--distilled-lora",
+            str(config["distilled_lora"]),
+            "--distilled-lora-strength",
+            "0.5",
+        ]
+        if config.get("image"):
+            args += ["--image", str(config["image"]), "0", "1.0"]
+    elif keyframe:
         # The pinned low-RAM runtime swaps to the pre-fused distilled transformer
         # at strength 1.0. The explicit LoRA name enables that refinement path;
         # it does not load a separate LoRA file in this configuration.

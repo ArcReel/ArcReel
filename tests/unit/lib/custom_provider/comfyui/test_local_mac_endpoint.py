@@ -42,6 +42,107 @@ def test_endpoint_advertises_only_connected_capabilities(endpoint):
     assert size_is_fixed(endpoint["bindings"])
 
 
+@pytest.fixture
+def motion_config(tmp_path):
+    files = {name: tmp_path / name for name in ("image", "control_lora", "control_video", "distilled_lora")}
+    for path in files.values():
+        path.touch()
+    model = tmp_path / "models/mlx/ltx-2.3-22b-q8-distilled-1.1"
+    model.mkdir(parents=True)
+    (model / "transformer-dev.safetensors").touch()
+    return {
+        "name": "motion-qualification",
+        "mode": "motion-track",
+        "width": 1024,
+        "height": 576,
+        "frames": 49,
+        "seed": 20261025,
+        "prompt": "Remi raises her hand.",
+        **{key: str(path) for key, path in files.items()},
+    }
+
+
+@pytest.mark.parametrize("mode", ["motion-track", "identity-reference"])
+def test_control_reaches_single_stage_cli_with_dev_recipe_and_reference(renderer, motion_config, tmp_path, mode):
+    motion_config["mode"] = mode
+    command = renderer.build_command(motion_config, tmp_path)
+    assert command[3] == "ic-lora"
+    assert command[command.index("--lora") + 1 : command.index("--lora") + 3] == [
+        motion_config["control_lora"],
+        "1.0",
+    ]
+    assert command[command.index("--video-conditioning") + 1 : command.index("--video-conditioning") + 3] == [
+        motion_config["control_video"],
+        "1.0",
+    ]
+    assert command[command.index("--image") + 1 : command.index("--image") + 4] == [
+        motion_config["image"],
+        "0",
+        "1.0",
+    ]
+    assert "--single-stage" in command
+    assert "--low-ram" in command
+    assert command[command.index("--dev-transformer") + 1] == "transformer-dev.safetensors"
+    assert command[command.index("--distilled-lora") + 1] == motion_config["distilled_lora"]
+    assert command[command.index("--distilled-lora-strength") + 1] == "0.5"
+    assert "--two-stage" not in command
+
+
+def test_identity_reference_can_condition_a_new_composition_without_a_start_image(renderer, motion_config, tmp_path):
+    motion_config["mode"] = "identity-reference"
+    motion_config.pop("image")
+    command = renderer.build_command(motion_config, tmp_path)
+    assert command[3] == "ic-lora"
+    assert command[command.index("--video-conditioning") + 1] == motion_config["control_video"]
+    assert "--image" not in command
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"control_video": None}, "requires control_lora"),
+        ({"control_lora": None}, "requires control_lora"),
+        ({"distilled_lora": None}, "requires control_lora"),
+        ({"image": None}, "requires a starting image"),
+        ({"end_image": "end.png"}, "cannot use an end anchor"),
+        ({"recipe": "animated-dialogue"}, "cannot use an end anchor"),
+        ({"control_video": "missing.mp4"}, "Missing control_video"),
+        ({"control_lora": "missing.safetensors"}, "Missing control_lora"),
+        ({"distilled_lora": "missing.safetensors"}, "Missing distilled_lora"),
+        ({"frames": 120}, "supports 49/97/121"),
+        ({"width": 1000}, "supports 49/97/121"),
+        ({"mode": "distilled"}, "must not be ignored"),
+    ],
+)
+def test_motion_control_invalid_or_dropped_inputs_fail_before_launch(
+    renderer, motion_config, tmp_path, override, message
+):
+    motion_config.update(override)
+    with pytest.raises(ValueError, match=message):
+        renderer.build_command(motion_config, tmp_path)
+
+
+@pytest.mark.parametrize("mode", ["motion-track", "identity-reference"])
+def test_control_never_falls_back_when_dev_model_is_missing(renderer, motion_config, tmp_path, mode):
+    motion_config["mode"] = mode
+    (tmp_path / "models/mlx/ltx-2.3-22b-q8-distilled-1.1/transformer-dev.safetensors").unlink()
+    with pytest.raises(ValueError, match="IC-LoRA qualification requires installed transformer-dev"):
+        renderer.build_command(motion_config, tmp_path)
+
+
+@pytest.mark.parametrize("mode", ["motion-track", "identity-reference"])
+def test_control_keeps_stricter_memory_admission(renderer, motion_config, tmp_path, monkeypatch, mode):
+    motion_config["mode"] = mode
+    path = tmp_path / "config.json"
+    path.write_text(json.dumps(motion_config))
+    monkeypatch.setattr(renderer, "ROOT", tmp_path)
+    monkeypatch.setitem(
+        sys.modules, "psutil", SimpleNamespace(virtual_memory=lambda: SimpleNamespace(available=18 * 2**30))
+    )
+    with pytest.raises(RuntimeError, match="At least 19 GiB"):
+        renderer.run(path)
+
+
 @pytest.mark.parametrize(("seconds", "frames"), [(2, 49), (4, 97), (5, 121)])
 @pytest.mark.parametrize("with_end", [False, True])
 def test_request_reaches_real_cli_controls(endpoint, renderer, tmp_path, seconds, frames, with_end):

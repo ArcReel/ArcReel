@@ -29,7 +29,8 @@ Do not install or restart while generation is running.
 | Audio | Native audio remains available as a scratch track. Final narration and music use approved continuous timeline stems; a new shot must not replace the speaker or restart the score. |
 | Memory | Start/end interpolation requires 19 GiB available, an 8 GiB reserve, and no more than 256 MiB new swap writes, including when Animated dialogue is selected. Start-only Animated dialogue keeps its existing lighter limits. Block streaming, sequential text encoding, decode budget, cancellation and timeout remain in force. |
 | A2V, retake, extend, HQ | Installed experimental routes, not silently substituted for distilled. Require their own measured qualification before default use. |
-| Pose/depth/control/identity LoRA, LipDub, LTX 2.5 | Required weights are absent. Do not advertise these as working local controls. |
+| Motion and identity IC-LoRA | Separate CLI qualification modes described below. The shipped endpoint still does not accept these controls. Installed weights alone do not qualify a route for episode generation. |
+| Other pose/depth controls, LipDub, LTX 2.5 | Not qualified by this adapter. Do not advertise these as working local controls. |
 
 Rendering success means a media file was produced. It does not mean character,
 physics, sound, or editorial review passed. Use the existing `scripts/refine_episode.py`
@@ -56,3 +57,60 @@ A matched-input 49-frame qualification removed an unwanted passerby but still
 missed the intended action with near-identical guides. That is evidence for
 pipeline selection, not a guarantee of action quality. Review every frame and
 the moving joins before accepting a take; do not mark a technical success final.
+
+## Isolated motion and identity qualification
+
+The runner accepts `motion-track` and `identity-reference` modes for bounded local
+experiments. These modes are not part of the ComfyUI node or ArcReel endpoint
+schema. Keep their outputs outside approved episode assets until full motion,
+identity, and adjacent-shot reviews pass. `identity-reference` means the requested
+conditioning route, not a verified identity guarantee.
+
+In addition to the existing model pack and Gemma encoder, provide the matching
+official control LoRA, a control video, and the separate distilled LoRA file:
+
+```json
+{
+  "name": "motion-qualification-01",
+  "mode": "motion-track",
+  "width": 1024,
+  "height": 576,
+  "frames": 49,
+  "seed": 12345,
+  "prompt": "One natural hand raise while the subject remains standing.",
+  "image": "/absolute/path/to/start.png",
+  "control_lora": "/absolute/path/to/ltx-2.3-22b-ic-lora-motion-track-control-ref0.5.safetensors",
+  "control_video": "/absolute/path/to/motion-tracks.mp4",
+  "distilled_lora": "/absolute/path/to/ltx-2.3-22b-distilled-lora-384-1.1.safetensors"
+}
+```
+
+Use the existing standalone runner entry point with this JSON configuration.
+Motion tests require a start image and a correctly timed track video generated
+with the official track rasterizer. Identity tests instead use the Ingredients
+LoRA and a static reference video; `image` is optional so a test can ask for a new
+composition rather than merely preserve its starting frame. Prepare clean
+identity references without conflicting character panels. Match control video
+dimensions, frame rate, and duration to the output. Start short, then qualify the
+intended production duration; the Ingredients model card recommends 121 frames.
+
+Both modes use the dev transformer, control LoRA strength 1.0, distilled LoRA
+strength 0.5, and single-stage full-resolution generation. Unlike the keyframe
+strength-1.0 shortcut above, these modes **read the separate distilled LoRA file**.
+This weight composition follows the official single-stage distilled workflows
+at ComfyUI-LTXVideo revision `220e1d45aa0469f518e982102fca4dca92a61862`.
+The pinned MLX runtime uses deterministic Euler rather than the workflows'
+Euler ancestral CFG++ sampler; this is not numerical parity with ComfyUI.
+
+Only 49/97/121 frames at 768×448 or 1024×576 are accepted. An end anchor or another
+recipe is rejected, as are missing control files or a missing dev transformer.
+The 19 GiB start requirement, 8 GiB reserve, swap guard, timeout, and cancellation
+handling apply. Do not run simultaneous GPU experiments.
+
+Motion and Ingredients are separate tests: their reference downscale factors are
+2 and 1 respectively, while the pinned runtime uses one global factor. Do not
+combine them in one call. No weights, account credentials, or gated terms are
+installed or accepted automatically. Verify each downloaded model against its
+upstream revision and checksum before testing. Record the exact input hashes,
+command, runtime revision, result, failures, and any temporarily paused services'
+restoration with each trial.
