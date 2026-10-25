@@ -333,7 +333,7 @@ def export_guide(output_dir, *, reaction=False, expressive=False, continuation=F
     for index in (0, 33, 41, 96) if continuation else (0, 10, CONTACT_FRAME, FRAME_COUNT - 1):
         Image.fromarray(pixels[index]).save(output_dir / f"frame-{index:02d}.png")
     metrics.update(
-        viewport=viewport,
+        viewport=list(viewport) if viewport is not None else None,
         performance="supported_reaction"
         if continuation
         else "expressive"
