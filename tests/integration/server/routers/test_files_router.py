@@ -25,6 +25,7 @@ from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
+from lib.project import project_trash
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.script import script_review
@@ -795,9 +796,8 @@ class TestFilesRouter:
             new_path = project_dir / "characters" / "refs_audio" / "Alice.mp3"
             assert new_path.exists()
 
-    def test_character_audio_ref_replace_succeeds_when_stale_cleanup_fails(self, tmp_path, monkeypatch):
-        """替换成功但旧文件物理删除失败（权限/IO 错误）时，请求仍应成功——新文件与字段已提交，
-        不应因清理失败误报整次替换失败并诱导重试（重试时旧文件已找不到指针，成为孤儿）。"""
+    def test_character_audio_ref_replace_moves_the_stale_file_to_the_project_trash(self, tmp_path, monkeypatch):
+        """换成不同扩展名时，被换掉的旧文件在同一次提交里进项目回收站。"""
         client, pm = _client(monkeypatch, tmp_path)
 
         async def _fake_duration(content, suffix):
@@ -806,33 +806,16 @@ class TestFilesRouter:
         monkeypatch.setattr(files, "probe_audio_duration_seconds", _fake_duration)
 
         with client:
-            first = client.post(
-                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("v1.wav", b"fake-wav-bytes", "audio/wav")},
-            )
-            assert first.status_code == 200
+            for name in ("v1.wav", "v2.mp3"):
+                response = client.post(
+                    "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                    files={"file": (name, b"fake-audio-bytes", "audio/mpeg")},
+                )
+                assert response.status_code == 200
             project_dir = pm.get_project_path("demo")
-            old_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
-            assert old_path.exists()
-
-            original_unlink = Path.unlink
-
-            def _boom(self, *args, **kwargs):
-                if self == old_path:
-                    raise PermissionError("simulated unlink failure")
-                return original_unlink(self, *args, **kwargs)
-
-            monkeypatch.setattr(Path, "unlink", _boom)
-
-            second = client.post(
-                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("v2.mp3", b"fake-mp3-bytes", "audio/mpeg")},
-            )
-            assert second.status_code == 200
-            assert second.json()["path"] == "characters/refs_audio/Alice.mp3"
-            new_path = project_dir / "characters" / "refs_audio" / "Alice.mp3"
-            assert new_path.exists()
-            assert old_path.exists()  # 清理失败，旧文件残留（已记告警日志），但不影响本次请求成功
+            (record,) = project_trash.list_records(project_dir)
+            assert record.files == ("characters/refs_audio/Alice.wav",)
+            assert not (project_dir / "characters" / "refs_audio" / "Alice.wav").exists()
             assert (
                 pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.mp3"
             )
@@ -853,33 +836,12 @@ class TestFilesRouter:
             assert delete.status_code == 200
             assert not audio_path.exists()
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
-
-    def test_delete_character_reference_audio_succeeds_when_cleanup_fails(self, tmp_path, monkeypatch):
-        """字段已提交清空后，物理删除失败只残留无引用文件，不应让请求误报失败。"""
-        client, pm = _client(monkeypatch, tmp_path)
-        with client:
-            upload = client.post(
-                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("alice_voice.wav", wav_bytes(3), "audio/wav")},
-            )
-            assert upload.status_code == 200
-            project_dir = pm.get_project_path("demo")
-            audio_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
-            assert audio_path.exists()
-
-            original_unlink = Path.unlink
-
-            def _boom(self, *args, **kwargs):
-                if self == audio_path:
-                    raise PermissionError("simulated unlink failure")
-                return original_unlink(self, *args, **kwargs)
-
-            monkeypatch.setattr(Path, "unlink", _boom)
-
-            resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
-            assert resp.status_code == 200
-            assert pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == ""
-            assert audio_path.exists()
+            (record,) = project_trash.list_records(project_dir)
+            assert record.object == {
+                "kind": "reference_audio",
+                "character": "Alice",
+                "path": "characters/refs_audio/Alice.wav",
+            }
 
     def test_delete_character_reference_audio_preserves_file_when_project_commit_fails(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)

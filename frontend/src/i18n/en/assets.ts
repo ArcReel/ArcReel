@@ -271,7 +271,7 @@ export default {
   "original_alt_indexed": "Product reference image {{index}} of \"{{name}}\"",
   "reference_audio_replace": "Replace reference audio",
   "reference_audio_delete_title": "Delete reference audio?",
-  "reference_audio_delete_description": "The reference audio of \"{{name}}\" will be deleted. This can't be undone.",
+  "reference_audio_delete_description": "The reference audio of \"{{name}}\" will be moved to the project trash. You can restore it within 30 days.",
   "create_more_hint.character": "After creating it, you can upload a reference image and reference audio and add aliases in its details.",
   "create_more_hint.scene": "After creating it, you can add aliases and generate its asset image in its details.",
   "create_more_hint.prop": "After creating it, you can add aliases and generate its asset image in its details.",

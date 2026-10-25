@@ -116,8 +116,15 @@ def _rules() -> Mapping[str, TakeRule]:
     # 各对象的取出与落地规则依赖本模块的 Landing / Restoration，顶层导入会成环。
     from lib.edit_timeline.trash import EDIT_TIMELINE_KIND, take_edit_timeline
     from lib.episode.episode_trash import EPISODE_KIND, take_episode
+    from lib.project import media_trash
 
-    return {EDIT_TIMELINE_KIND: take_edit_timeline, EPISODE_KIND: take_episode}
+    return {
+        EDIT_TIMELINE_KIND: take_edit_timeline,
+        EPISODE_KIND: take_episode,
+        media_trash.GRID_KIND: media_trash.take_grid,
+        media_trash.END_FRAME_KIND: media_trash.take_end_frame,
+        media_trash.REFERENCE_AUDIO_KIND: media_trash.take_reference_audio,
+    }
 
 
 def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:

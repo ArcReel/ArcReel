@@ -111,7 +111,7 @@ from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script.script_editor import ScriptEditError, resolve_items
 from lib.script.script_models import get_generated_assets
-from lib.speech.audio_utils import discard_stale_reference_audio, resolve_audio_ref_path, resolve_stale_reference_audio
+from lib.speech.audio_utils import resolve_audio_ref_path, resolve_stale_reference_audio
 from lib.speech.narration_config import (
     NARRATION_CONFIG_FIELDS,
     NARRATION_DELIVERY_FIELD,
@@ -3787,8 +3787,7 @@ class ProjectManager:
 
         Video currency selection hashes reference-audio bytes while holding the project lock.  Keeping every
         physical replacement in that same lock makes the project pointer and the bytes one coherent input snapshot.
-        A replaced file with a different extension is best-effort cleanup after the new pointer commits; it is no
-        longer an input then, so cleanup does not need to prolong the selection-critical section.
+        A replaced file with a different extension goes to the project trash inside the same commit.
         """
 
         project_dir = self.get_project_path(project_name)
@@ -3796,63 +3795,53 @@ class ProjectManager:
         target = Path(self._safe_subpath(project_dir, ref_path))
         if os.path.realpath(target.parent) != os.path.realpath(refs_audio_dir):
             raise ValueError("reference audio target must be inside characters/refs_audio")
-        stale_audio: Path | None = None
+        stale: list[tuple[dict, str, Path]] = []
 
         def _mutate(project: dict) -> None:
-            nonlocal stale_audio
             key = resolve_asset_key(project.get("characters"), char_name)
             if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
             old_audio = project["characters"][key].get("reference_audio")
             stale_audio = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target)
             self._set_character_reference_audio(project, char_name, ref_path)
+            if stale_audio is not None:
+                stale.append((project, key, stale_audio))
 
-        project = self._update_project_with_files(
+        return self._update_project_with_files(
             project_name,
             _mutate,
             writes=[(content, target)],
+            on_commit=lambda _file: self._trash_unreferenced_reference_audio(project_dir, *stale[0]) if stale else None,
         )
-        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
-        return project
 
-    def _discard_stale_reference_audio_if_unreferenced(
-        self,
-        project_name: str,
-        stale_audio: Path | None,
-    ) -> None:
-        """Best-effort cleanup that cannot delete a newer concurrent selection of the same path."""
+    @staticmethod
+    def _trash_unreferenced_reference_audio(project_dir: Path, project: dict, character: str, stale: Path) -> None:
+        """Move a reference audio no character points at any more to the project trash; the caller holds the lock."""
 
-        if stale_audio is None:
-            return
-        project_dir = self.get_project_path(project_name)
         refs_audio_dir = project_dir / "characters" / "refs_audio"
-        stale_identity = os.path.realpath(stale_audio)
-        with self._project_lock(project_name):
-            project = self._read_project_raw_unlocked(project_name)
-            characters = project.get("characters")
-            if isinstance(characters, dict):
-                for character in characters.values():
-                    if not isinstance(character, dict):
-                        continue
-                    reference_audio = character.get("reference_audio")
-                    current = resolve_audio_ref_path(
-                        project_dir,
-                        refs_audio_dir,
-                        reference_audio if isinstance(reference_audio, str) else None,
-                    )
-                    if current is not None and os.path.realpath(current) == stale_identity:
-                        return
-            discard_stale_reference_audio(stale_audio)
+        stale_identity = os.path.realpath(stale)
+        characters = project.get("characters")
+        for entry in characters.values() if isinstance(characters, dict) else ():
+            reference_audio = entry.get("reference_audio") if isinstance(entry, dict) else None
+            current = resolve_audio_ref_path(
+                project_dir, refs_audio_dir, reference_audio if isinstance(reference_audio, str) else None
+            )
+            if current is not None and os.path.realpath(current) == stale_identity:
+                return
+        if stale.is_file() and not stale.is_symlink():
+            # 回收站的落地规则依赖本模块，顶层导入会成环。
+            from lib.project.media_trash import trash_reference_audio
+
+            trash_reference_audio(project_dir, character, f"characters/refs_audio/{stale.name}")
 
     def clear_character_reference_audio(self, project_name: str, char_name: str) -> dict:
-        """Clear the reference first, then best-effort delete the now-unreferenced audio file."""
+        """Clear the reference and move the now-unreferenced audio file to the project trash in one commit."""
 
         project_dir = self.get_project_path(project_name)
         refs_audio_dir = project_dir / "characters" / "refs_audio"
-        stale_audio: Path | None = None
+        stale: list[tuple[dict, str, Path]] = []
 
         def _mutate(project: dict) -> None:
-            nonlocal stale_audio
             key = resolve_asset_key(project.get("characters"), char_name)
             if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
@@ -3863,10 +3852,14 @@ class ProjectManager:
                 old_audio if isinstance(old_audio, str) else None,
             )
             self._set_character_reference_audio(project, char_name, "")
+            if stale_audio is not None:
+                stale.append((project, key, stale_audio))
 
-        project = self.update_project(project_name, _mutate)
-        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
-        return project
+        return self.update_project(
+            project_name,
+            _mutate,
+            on_commit=lambda _file: self._trash_unreferenced_reference_audio(project_dir, *stale[0]) if stale else None,
+        )
 
     def get_project_character(self, project_name: str, name: str) -> dict:
         """获取项目级角色定义"""

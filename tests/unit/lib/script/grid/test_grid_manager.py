@@ -12,6 +12,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestEntry,
     ProjectArtifactManifestAdapter,
 )
+from lib.project import project_trash
 from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 from lib.script.grid.grid_manager import GridManager
 from lib.script.grid.models import GridGeneration
@@ -77,7 +78,7 @@ class TestGridManager:
             with pytest.raises(ValueError, match="非法宫格 ID"):
                 gm.get(bad)
             with pytest.raises(ValueError, match="非法宫格 ID"):
-                gm.delete(bad)
+                gm.move_to_trash(bad)
 
     def test_grids_dir_created(self, tmp_path):
         """GridManager creates the grids/ subdirectory automatically."""
@@ -111,7 +112,7 @@ class TestGridManager:
 
         def _delete() -> bool:
             delete_started.set()
-            return gm.delete(grid.id)
+            return gm.move_to_trash(grid.id)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             update_future = pool.submit(gm.update, grid.id, _pause_update)
@@ -204,6 +205,9 @@ class TestCleanupSuperseded:
         assert gm.get(old.id) is None
         assert not image.exists()
         assert adapter.get_entry(key) is None
+        (trashed,) = project_trash.list_records(tmp_path)
+        assert trashed.object["kind"] == "grid"
+        assert set(trashed.files) == {f"grids/{old.id}.json", f"grids/{old.id}.png"}
 
     def test_manifest_failure_restores_superseded_record_and_image(
         self, tmp_path, monkeypatch: pytest.MonkeyPatch
@@ -227,9 +231,7 @@ class TestCleanupSuperseded:
         def _fail_registration(*_args, **_kwargs):
             raise RuntimeError("manifest unavailable")
 
-        monkeypatch.setattr(
-            "lib.artifacts.artifact_activation.register_artifact_entries_atomically", _fail_registration
-        )
+        monkeypatch.setattr("lib.project.media_trash.register_artifact_entries_atomically", _fail_registration)
 
         with pytest.raises(RuntimeError, match="manifest unavailable"):
             gm.cleanup_superseded("ep1.json", 1, {"S1", "S2"})
@@ -238,6 +240,7 @@ class TestCleanupSuperseded:
         assert image.read_bytes() == b"grid-image"
         assert (tmp_path / MANIFEST_FILENAME).read_bytes() == before_manifest
         assert adapter.get_entry(key) == entry
+        assert project_trash.list_records(tmp_path) == []
 
     def test_returns_zero_when_nothing_to_delete(self, tmp_path):
         assert GridManager(tmp_path).cleanup_superseded("ep1.json", 1, {"S1"}) == 0
@@ -322,9 +325,9 @@ def test_grid_changes_advance_activity_only_after_commit(tmp_path, operation):
     elif operation == "update":
         gm.update(grid.id, lambda current: setattr(current, "status", "completed"))
     elif operation == "delete":
-        assert gm.delete(grid.id)
+        assert gm.move_to_trash(grid.id)
     elif operation == "missing_delete":
-        assert not gm.delete("grid_000000000000")
+        assert not gm.move_to_trash("grid_000000000000")
     else:
         with pytest.raises(RuntimeError, match="registration failed"):
             gm.update(grid.id, lambda current: setattr(current, "status", "completed"), on_commit=fail_commit)
