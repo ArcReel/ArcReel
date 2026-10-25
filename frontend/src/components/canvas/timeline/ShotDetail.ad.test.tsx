@@ -276,7 +276,7 @@ describe("ShotDetail 广告/短片", () => {
     fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
 
     rerender(detail(true));
-    const confirm = within(await screen.findByRole("alertdialog")).getByRole("button", { name: "移除分镜" });
+    const confirm = within(await screen.findByRole("alertdialog")).getByRole("button", { name: "移入项目回收站" });
     expect(confirm).toBeDisabled();
     fireEvent.click(confirm);
 

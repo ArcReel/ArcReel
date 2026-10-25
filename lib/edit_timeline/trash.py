@@ -24,9 +24,10 @@ from lib.edit_timeline.store import (
     document_relpath,
     read_timeline_document,
 )
+from lib.episode.episode_trash import require_live_episode
 from lib.infra.api_errors import ConflictError
 from lib.project import project_trash
-from lib.project.project_manager import ProjectManager, find_episode
+from lib.project.project_manager import ProjectManager
 from lib.project.trash_restore import Landing, Restoration
 
 __all__ = ["EDIT_TIMELINE_KIND", "delete_edit_timeline", "take_edit_timeline"]
@@ -67,11 +68,10 @@ def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) 
     projects = ProjectManager.for_project_dir(project_dir)
 
     def require_episode() -> None:
-        if find_episode(projects.load_project(project_dir.name), document.episode) is None:
-            # 所属的集已删除：加回的时间线打不开。
-            raise ConflictError("trash_restore_failed", id=timeline_id)
+        # 所属的集已删除时加回的时间线打不开：集还在项目回收站里就只能随集恢复，否则按取不出对象降级。
+        require_live_episode(project_dir, document.episode, timeline_id)
 
-    # 此处抛错按取不出对象降级；落地时在锁内再核对一次，期间被删的集让本次恢复失败、记录保留。
+    # 落地时在锁内再核对一次，期间被删的集让本次恢复失败、记录保留。
     require_episode()
     staged_renders = timeline_renders_dir(document.episode, document.id)
     render_files = _files_under(staged, staged_renders)

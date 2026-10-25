@@ -40,7 +40,7 @@ from lib.project.project_migration_failure import (
     ProjectMigrationError,
     load_migration_verdict,
 )
-from lib.project.script_entry_cleanup import purge_replaced_entry_media
+from lib.project.script_entry_cleanup import trash_entries
 from lib.script.prompt_authoring_scope import VISUAL_LAYER_FIELDS, visual_layer_complete
 from lib.script.reference_video.draft_validation import is_verbatim_source_anchor
 from lib.script.script_editor import ScriptEditError, new_item_id, patch_field, resolve_items
@@ -270,11 +270,22 @@ class ScriptBatchEditor:
             resolved_script = bound_script
             return resolved_script
 
+        # 离开剧本的条目（编号 → 条目数组键）与改写前的结构文件，在锁内的候选校验通过后填好。
+        departed: dict[str, str] = {}
+        removed_ids: set[str] = set()
+        before_files: dict[str, bytes] = {}
+
         def finalize_manifest(_script_path: Path) -> None:
-            if commit_manifest is not None:
-                commit_manifest()
-            # 仍持剧本锁：新条目的媒体不能在同号旧身份清理完成前落盘。
-            purge_replaced_entry_media(self._pm.get_project_path(project_name), fresh_insert_ids)
+            # 仍持剧本锁：新条目的媒体不能在同号旧身份移走之前落盘。删除记录先建，快照里的清单还带着登记。
+            trash_entries(
+                self._pm.get_project_path(project_name),
+                episode=episode_number or 0,
+                script_file=resolved_script,
+                entries=departed,
+                before=before_files,
+                removed=removed_ids,
+                then=commit_manifest,
+            )
 
         try:
             with self._pm.locked_episode_script(
@@ -479,6 +490,25 @@ class ScriptBatchEditor:
                         removed_resource_ids=frozenset(affected_ids) - final_ids,
                         replaced_resource_ids=frozenset(fresh_insert_ids),
                     )
+                    original_items, original_id_field, original_kind = resolve_items(original)
+                    original_ids = [
+                        item[original_id_field]
+                        for item in original_items
+                        if isinstance(item, Mapping) and isinstance(item.get(original_id_field), str)
+                    ]
+                    # 被移除的条目，加上本批以新身份沿用旧编号的条目（旧条目可能在更早的批次里已移除）。
+                    removed_ids.update(item_id for item_id in original_ids if item_id not in final_ids)
+                    departed.update(
+                        dict.fromkeys(
+                            [
+                                *(item_id for item_id in original_ids if item_id in removed_ids),
+                                *(item_id for item_id in affected_ids if item_id in fresh_insert_ids),
+                            ],
+                            original_kind,
+                        )
+                    )
+                    for rel in (f"scripts/{resolved_script}", ProjectManager.PROJECT_FILE):
+                        before_files[rel] = (project_dir / rel).read_bytes()
                 except ProjectMigrationError:
                     # 项目未升级到当前数据版本，交给外层按迁移口径回执；它同时是
                     # ArtifactManifestError 与 ValueError，不先接住就会被下面这条泛化成

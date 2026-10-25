@@ -20,6 +20,7 @@ from lib.config.resolver import ConfigResolver
 from lib.generation.video_request_facts import VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.json_io import atomic_write_json
+from lib.project import project_trash
 from lib.project.project_activity import ACTIVITY_FILENAME, record_project_activity, recorded_project_activity
 from lib.project.project_manager import ProjectManager, find_episode
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
@@ -606,10 +607,8 @@ class TestConfirmMaterializesScript:
         assert not old_claims.keys() & snapshot.keys()
         assert ArtifactKey.episode_script(1) in snapshot
 
-    async def test_acknowledged_overwrite_clears_history_and_files_of_reused_entry_ids(
-        self, tmp_path, video_request_facts
-    ):
-        """新脚本沿用旧编号的条目是新身份：旧版本历史与当前媒体文件随覆盖清理；被移除的条目不动。"""
+    async def test_acknowledged_overwrite_moves_old_entries_to_the_project_trash(self, tmp_path, video_request_facts):
+        """覆盖后旧条目的媒体与版本历史移进项目回收站：沿用旧编号的条目是新身份，不接旧历史；被移除的条目同样移走。"""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(pm, _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")))
@@ -624,16 +623,18 @@ class TestConfirmMaterializesScript:
 
         await _confirm_over_existing_script(pm)
 
-        for resource_type in ("storyboards", "end_frames", "videos", "audio"):
-            assert versions.get_current_version(resource_type, "E1S01") == 0
-            assert not (project_path / resource_relative_path(resource_type, "E1S01")).exists()
-            assert versions.get_current_version(resource_type, "E1S09") == 1
-            assert (project_path / resource_relative_path(resource_type, "E1S09")).exists()
+        for entry_id in ("E1S01", "E1S09"):
+            for resource_type in ("storyboards", "end_frames", "videos", "audio"):
+                assert not versions.has_versions(resource_type, entry_id)
+                assert not (project_path / resource_relative_path(resource_type, entry_id)).exists()
+        records = {record.object["id"]: record for record in project_trash.list_records(project_path)}
+        assert set(records) == {"E1S01", "E1S09"}
+        assert "storyboards/scene_E1S09.png" in records["E1S09"].files
 
-    async def test_overwrite_still_succeeds_when_history_cleanup_fails_after_commit(
+    async def test_overwrite_is_refused_untouched_when_version_history_is_unreadable(
         self, tmp_path, video_request_facts
     ):
-        """清理是提交后的收尾：版本记录读不出时覆盖照常完成，当前文件仍被清掉，不把已提交的覆盖报成失败。"""
+        """旧条目移进项目回收站是覆盖的一部分：版本记录读不出时整次覆盖不写入，剧本与旧媒体原样保留。"""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(pm, _narration_script(_narration_script_segment("E1S01")))
@@ -643,12 +644,14 @@ class TestConfirmMaterializesScript:
         current.write_bytes(b"old")
         (project_path / "versions").mkdir(exist_ok=True)
         (project_path / "versions" / "versions.json").write_text("{broken", encoding="utf-8")
+        before = (project_path / "scripts" / "episode_1.json").read_bytes()
 
-        await _confirm_over_existing_script(pm)
+        with pytest.raises(ScriptReviewError):
+            await _confirm_over_existing_script(pm)
 
-        segment = json.loads((project_path / "scripts" / "episode_1.json").read_text(encoding="utf-8"))["segments"][0]
-        assert segment["pending_authoring"] is True
-        assert not current.exists()
+        assert (project_path / "scripts" / "episode_1.json").read_bytes() == before
+        assert current.read_bytes() == b"old"
+        assert project_trash.list_records(project_path) == []
 
     async def test_acknowledgement_of_an_outdated_script_is_refused_with_the_current_listing(self, tmp_path):
         """认可只对应被列出的那份正式脚本：列出之后正式脚本又有变化，带旧版本的确认按新清单再次拒绝。"""

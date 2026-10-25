@@ -125,6 +125,10 @@ async def test_a_timeline_deleted_before_its_episode_restores_normally_once_the_
     assert (await episode_client.delete(f"/api/v1/projects/demo/edit-timelines/{timeline_id}")).status_code == 204
     await _delete_episode_1(episode_client)
     by_kind = {record["object"]["kind"]: record for record in await _records(episode_client)}
+    # 集还在项目回收站里：时间线只能随集恢复，不降级成只能下载。
+    too_early = await episode_client.post(f"/api/v1/projects/demo/trash/{by_kind['edit_timeline']['id']}/restore")
+    assert too_early.status_code == 409
+    assert "只能随集恢复" in too_early.json()["detail"]
 
     episode_back = await episode_client.post(f"/api/v1/projects/demo/trash/{by_kind['episode']['id']}/restore")
     timeline_back = await episode_client.post(f"/api/v1/projects/demo/trash/{by_kind['edit_timeline']['id']}/restore")

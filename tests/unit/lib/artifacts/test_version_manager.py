@@ -583,7 +583,6 @@ class TestVersionManager:
         "restore",
         "metadata",
         "rename",
-        "purge",
         "failed_restore",
     ],
 )
@@ -634,8 +633,6 @@ def test_version_changes_advance_activity_only_after_commit(tmp_path, operation)
         assert vm.update_version_metadata("characters", "Alice", 1, prompt="corrected")
     elif operation == "rename":
         vm.rename_resource("characters", "Alice", "Bob")
-    elif operation == "purge":
-        vm.purge_resource("characters", "Alice")
     else:
         with pytest.raises(RuntimeError, match="registration failed"):
             vm.restore_version("characters", "Alice", 1, current, on_restore=fail_restore)
