@@ -5,7 +5,7 @@
 
 原编号空闲（剧本里没有、媒体落点空闲、版本历史里没有它）就沿用，媒体、版本历史、字幕与呈现原样加回，
 产物清单登记取自迁移后的临时项目，照常按产物时效判定；被占用时发新编号，媒体与版本历史随新编号加回、不带登记，
-字幕与呈现是派生产物，不加回。所属的集也在项目回收站里时只能随集恢复。
+不再属于原宫格、按普通分镜规划，字幕与呈现是派生产物，不加回。所属的集也在项目回收站里时只能随集恢复。
 """
 
 from __future__ import annotations
@@ -138,9 +138,12 @@ def _rename(
 
 
 def _relinked(entry: Mapping[str, Any], relink: Mapping[str, str]) -> dict[str, Any]:
-    """条目里指向旧编号文件的路径字段（产物与尾帧）改指新编号。"""
+    """条目里指向旧编号文件的路径字段（产物与尾帧）改指新编号；换了编号的条目不再是原宫格的成员。"""
     restored = json.loads(json.dumps(entry))
     assets = restored.get("generated_assets")
+    if relink and isinstance(assets, dict):
+        # 宫格记录的成员仍是旧编号：留着宫格字段，产物规划会因找不到宫格目标而跳过这张分镜图。
+        assets.update(grid_id=None, grid_cell_index=None)
     for holder in (restored, assets if isinstance(assets, dict) else {}):
         for key, value in holder.items():
             if isinstance(value, str) and value in relink:

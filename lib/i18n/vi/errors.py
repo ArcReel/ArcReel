@@ -841,7 +841,7 @@ MESSAGES = {
     "creator_only_operation": "Thao tác này không thể hoàn tác nên chỉ người sáng tạo mới thực hiện được trong giao diện. Agent không thể gọi thao tác này",
     "deleted_project_not_found": "Không có dự án này trong dự án đã xóa. Có thể nó đã được khôi phục hoặc xóa vĩnh viễn; hãy làm mới rồi thử lại",
     "trash_restore_unsupported": "Hiện chưa thể khôi phục bản ghi xóa này",
-    "trash_restore_failed": "Không thể khôi phục bản ghi xóa này theo cấu trúc ban đầu",
+    "trash_restore_failed": "Dự án không còn chỗ trống để đặt lại mục này nên chưa có gì được khôi phục và bản ghi xóa vẫn được giữ: hãy giải phóng vị trí rồi thử lại, hoặc tải xuống các tệp trong bản ghi",
     "trash_restore_needs_episode": "Tập «{name}» chứa mục này cũng đã bị xóa nên chỉ có thể khôi phục cùng tập: hãy khôi phục tập từ thùng rác dự án trước, rồi khôi phục bản ghi này",
     "trash_restore_needs_episode_untitled": "Tập {episode} chứa mục này cũng đã bị xóa nên chỉ có thể khôi phục cùng tập: hãy khôi phục tập từ thùng rác dự án trước, rồi khôi phục bản ghi này",
     "trash_restore_download_only": "Không thể khôi phục bản ghi xóa này nữa; các tệp cấu trúc trong đó chỉ có thể tải xuống",

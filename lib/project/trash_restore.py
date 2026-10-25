@@ -4,7 +4,7 @@
 2. 跑源文编码迁移与项目迁移链（与归档导入相同的两步，schema 相同时为空操作）。归档导入的目录树修复、
    数据校验与导入激活面向完整项目，在缺少其余媒体的临时项目上会误报，这里不跑；
 3. 按对象类型的落地规则，按身份（不是删除时的原路径）从迁移后的临时项目取出对象；
-4. 先取规则声明的领域锁、再取项目锁，按落地规则把对象加回当前项目，并为加回的产物补录。
+4. 先取规则声明的领域锁、再取项目锁，再核对一次记录仍在，按落地规则把对象加回当前项目，并为加回的产物补录。
    落地失败时撤掉本次新建的文件，记录原样保留。
 
 迁移失败、或迁移后的临时项目里取不出对象时降级：被删的媒体等文件按迁移后（迁移中途失败时为失败那一刻）的路径，
@@ -152,7 +152,7 @@ def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:
         staged = DataRootLayout(Path(tmp)).projects_dir / project_dir.name
         with project_metadata_lock(project_dir):
             # 铺设期间记录不能被彻底删除或被另一次恢复拿走。
-            project_trash.require_record(project_dir, record.id)
+            _require_unchanged(project_dir, record)
             _stage(record_dir, staged)
         try:
             migrate_project_source_encoding(staged)
@@ -166,6 +166,8 @@ def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:
             return _restore_files_only(project_dir, record, staged)
         landing = Landing(project_dir)
         with restoration.locks(), project_metadata_lock(project_dir):
+            # 迁移期间锁已释放：并发的另一次恢复或到期清理可能已拿走记录，此时落地会留下没有记录的对象。
+            _require_unchanged(project_dir, record)
             try:
                 landed = restoration.land(landing)
                 project_trash.consume(project_dir, record.id)
@@ -188,9 +190,16 @@ def _restore_files_only(project_dir: Path, record: TrashRecord, staged: Path) ->
             project_trash.consume(project_dir, record.id)
 
     with project_metadata_lock(project_dir):
-        project_trash.require_record(project_dir, record.id)
+        _require_unchanged(project_dir, record)
         restored = project_trash.land_files(project_dir, files, record.object, then=settle)
     return RestoreResult(record.object, restored, degraded=True, download_only=kept)
+
+
+def _require_unchanged(project_dir: Path, record: TrashRecord) -> None:
+    """记录仍在、且仍是这次恢复读到的样子；调用方持有项目锁。不在时抛 ``trash_record_not_found``。"""
+    if project_trash.require_record(project_dir, record.id) != record:
+        # 记录唯一的改写是并发的另一次降级恢复把它改成只能下载。
+        raise ConflictError("trash_restore_download_only", id=record.id)
 
 
 def _non_structure_files(staged: Path) -> list[str]:
