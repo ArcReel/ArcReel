@@ -565,7 +565,8 @@ class TestMergeWithProducedArtifacts:
     def test_the_report_counts_exactly_the_artifacts_the_merge_outdates(self, produced: ProjectManager) -> None:
         preview = produced.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
 
-        assert [(item.episode, item.storyboards, item.videos) for item in preview.episodes] == [(1, 2, 0), (2, 0, 2)]
+        # E1S03 引用的衍生「战损」连图迁到王建国名下：分镜图依据只记图，不记名字，它保持现行。
+        assert [(item.episode, item.storyboards, item.videos) for item in preview.episodes] == [(1, 1, 0), (2, 0, 2)]
 
         produced.merge_asset(PROJECT, "characters", "老王", "王建国")
 
@@ -579,8 +580,24 @@ class TestMergeWithProducedArtifacts:
             unit_id: self._current(produced, ArtifactKey.episode_video(2, unit_id), f"reference_videos/{unit_id}.mp4")
             for unit_id in ("E2U1", "E2U2", "E2U3")
         }
-        assert storyboards == {"E1S01": False, "E1S02": True, "E1S03": False}
+        assert storyboards == {"E1S01": False, "E1S02": True, "E1S03": True}
         assert videos == {"E2U1": False, "E2U2": True, "E2U3": False}  # E2U3 只换了说话人
+
+    def test_a_storyboard_on_a_folded_derivative_is_counted_as_outdated(self, produced: ProjectManager) -> None:
+        """并入保留方已有衍生的换成了另一张图：引用它的分镜图照常计入、照常过期。"""
+        project_dir = produced.get_project_path(PROJECT)
+        script_path = project_dir / "scripts" / "episode_1.json"
+        script = json.loads(script_path.read_text(encoding="utf-8"))
+        script["segments"][1]["characters_in_segment"] = ["老王/便装"]
+        script_path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+        key = ArtifactKey.episode_storyboard(1, "E1S02")
+        _claim_current(project_dir, key)
+
+        preview = produced.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
+        produced.merge_asset(PROJECT, "characters", "老王", "王建国")
+
+        assert (preview.episodes[0].episode, preview.episodes[0].storyboards) == (1, 2)
+        assert not self._current(produced, key, "storyboards/scene_E1S02.png")
 
     def test_derivatives_move_to_the_kept_character_and_same_named_ones_fold(self, produced: ProjectManager) -> None:
         project_dir = produced.get_project_path(PROJECT)

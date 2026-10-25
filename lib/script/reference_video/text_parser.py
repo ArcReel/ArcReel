@@ -442,6 +442,25 @@ def render_mentions(text: str, render: Callable[[str], str]) -> str:
     return "".join(parts)
 
 
+def render_matched_mentions(text: str, render: Callable[[str], str | None]) -> str:
+    """同 :func:`render_mentions`，但 ``render`` 返回 ``None`` 的 mention 原样保留（含 ``@`` 与括号）。"""
+    if "@" not in text:
+        return text
+    parts: list[str] = []
+    last = 0
+    for start, end, name in _iter_mentions(text):
+        replacement = render(asset_name_comparison_key(name))
+        if replacement is None:
+            continue
+        parts.append(text[last:start])
+        parts.append(replacement)
+        last = end
+    if last == 0:
+        return text
+    parts.append(text[last:])
+    return "".join(parts)
+
+
 def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
     """把 prompt 中的 ``@[X]`` / ``@X`` 替换为三段论的主体记号 ``<X>``。
 

@@ -54,6 +54,7 @@ from lib.artifacts.visual_artifact_provenance import (
     build_uploaded_asset_sheet_basis,
     build_uploaded_storyboard_basis,
     build_uploaded_video_basis,
+    project_basis_records_asset_names,
     project_basis_style_description,
     visual_file_digest,
 )
@@ -853,6 +854,7 @@ class TargetStatePlanner:
                     grid_aspect_ratio=grid_aspect_ratio_for(grid.rows, grid.cols, member_ratio),
                     references=references,
                     absent=gaps,
+                    asset_names=project_basis_records_asset_names(self.project),
                 )
             except (OSError, TypeError, ValueError):
                 continue
@@ -918,6 +920,7 @@ class TargetStatePlanner:
                         references=references,
                         source_composite_digest=composite_digest,
                         absent=gaps,
+                        asset_names=project_basis_records_asset_names(self.project),
                     )
                 except (OSError, TypeError, ValueError):
                     continue

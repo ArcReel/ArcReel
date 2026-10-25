@@ -21,6 +21,8 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
+from lib.artifacts.artifact_planner import TargetStatePlanner
+from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.artifacts.version_manager import VERSION_CONTENT_DIGEST, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
@@ -834,6 +836,56 @@ def write_legacy_style_project(
     return project_dir
 
 
+def write_legacy_named_reference_bases_project(root: Path, name: str = "legacy-named-references") -> Path:
+    """schema 18 项目：分镜图、宫格与切格分镜的依据记着资产名（v19 起不记）。
+
+    在 :func:`write_legacy_style_project` 上让三格分镜都引用角色「阿离」、画面描述用 ``@[阿离]`` 指认它，
+    宫格记录冻结同一张角色资产图；按迁移链推进到 v18，清单按那时记名的口径登记。再按 v18 口径给宫格与
+    E1S03 写一条选中的版本记录（冻结依据），给 E1S01 写两版、选中第 2 版。
+    """
+
+    project_dir = write_legacy_style_project(root, name, style="写实电影感")
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    for segment in script["segments"]:
+        segment["characters_in_segment"] = ["阿离"]
+        segment["image_prompt"]["scene"] = f"@[阿离]站在{segment['segment_id']}的雨巷里"
+    _write_json(script_path, script)
+    grid_path = next((project_dir / "grids").glob("grid_*.json"))
+    grid = json.loads(grid_path.read_text(encoding="utf-8"))
+    grid["reference_images"] = [{"path": "characters/阿离.png", "name": "阿离", "ref_type": "character"}]
+    _write_json(grid_path, grid)
+    advance_project_schema(project_dir, to_version=18)
+
+    project_bytes = (project_dir / "project.json").read_bytes()
+    planner = TargetStatePlanner(project_dir, project_bytes=project_bytes)
+    planner.plan()
+    versions_path = project_dir / "versions" / "versions.json"
+    versions = json.loads(versions_path.read_text(encoding="utf-8"))
+    for bucket, resource_id, key, source in (
+        ("grids", grid["id"], ArtifactKey.episode_grid(1, grid["id"]), f"grids/{grid['id']}.png"),
+        ("storyboards", "E1S03", ArtifactKey.episode_storyboard(1, "E1S03"), "storyboards/scene_E1S03.png"),
+        ("storyboards", "E1S01", ArtifactKey.episode_storyboard(1, "E1S01"), "storyboards/scene_E1S01.png"),
+    ):
+        records = []
+        for version in range(1, 3 if resource_id == "E1S01" else 2):
+            snapshot = f"versions/{bucket}/{resource_id}_v{version}_20260101T000000.png"
+            (project_dir / snapshot).parent.mkdir(parents=True, exist_ok=True)
+            (project_dir / snapshot).write_bytes((project_dir / source).read_bytes())
+            records.append(
+                {
+                    "version": version,
+                    "file": snapshot,
+                    "prompt": resource_id,
+                    "created_at": f"2026-01-0{version}T00:00:00Z",
+                    IMAGE_ARTIFACT_BASIS_FIELD: planner.bases[key].to_evidence_dict(),
+                }
+            )
+        versions[bucket][resource_id] = {"current_version": len(records), "versions": records}
+    _write_json(versions_path, versions)
+    return project_dir
+
+
 ScriptPlanVariantName = Literal["drama", "narration", "reference_video"]
 
 #: 退役的条目指纹与整集指纹：样本里只要求字段在场，取值无关紧要。
@@ -1532,6 +1584,7 @@ __all__ = [
     "write_legacy_drama_storyboard_project",
     "write_legacy_episode_id_remnants_project",
     "write_legacy_item_id_reuse_project",
+    "write_legacy_named_reference_bases_project",
     "write_legacy_presentation_project",
     "write_legacy_reference_video_project",
     "write_legacy_retired_flash_lite_project",

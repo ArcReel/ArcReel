@@ -4,7 +4,7 @@ status: accepted
 
 # 资产以 name 为身份，重命名走级联重写而非引入稳定 id
 
-资产（character/scene/prop/product）以 name 作唯一标识，剧本、prompt 渲染与 `@[名称]` mention 都以专名为介质——剧本是 LLM 读写的文档，专名直读是核心可用性。重命名因此定义为原子级联事务：一次改齐资产桶 key、全部剧集剧本引用（引用数组、speaker、mention）与按名命名的关联文件及路径字段（不变式「文件 stem = 资产名」）。
+资产（character/scene/prop/product）以 name 作唯一标识，剧本、prompt 渲染与 `@[名称]` mention 都以专名为介质——剧本是 LLM 读写的文档，专名直读是核心可用性。重命名因此定义为原子级联事务：一次改齐资产桶 key、全部剧集剧本引用（引用数组、speaker、mention）、按名命名的关联文件及路径字段（不变式「文件 stem = 资产名」），以及宫格记录冻结的参考图名字与路径（宫格与切格分镜的依据按它重放，见 `docs/adr/0062`「分镜图与宫格的依据不记资产名」）。
 
 ## 明确不采用
 
