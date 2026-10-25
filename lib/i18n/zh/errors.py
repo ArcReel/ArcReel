@@ -778,7 +778,7 @@ MESSAGES = {
     "creator_only_operation": "这项操作不可恢复，只能由创作者在界面上执行，Agent 不能调用",
     "deleted_project_not_found": "已删除项目里没有这个项目，可能已被恢复或彻底删除，刷新后再试",
     "trash_restore_unsupported": "这条删除记录暂时无法恢复",
-    "trash_restore_failed": "这条删除记录无法按原结构恢复",
+    "trash_restore_failed": "当前项目里没有空出的位置放回它，这次什么都没有恢复，删除记录仍保留：腾出位置后重试，或下载记录中的文件",
     "trash_restore_needs_episode": "所属的集「{name}」也已删除，只能随集恢复：先在项目回收站里恢复这一集，再恢复这条记录",
     "trash_restore_needs_episode_untitled": "所属的第 {episode} 集也已删除，只能随集恢复：先在项目回收站里恢复这一集，再恢复这条记录",
     "trash_restore_download_only": "这条删除记录已无法恢复，其中的结构文件只能下载",

@@ -839,7 +839,7 @@ MESSAGES = {
     "creator_only_operation": "This action cannot be undone, so only the creator can perform it in the app. The Agent cannot call it",
     "deleted_project_not_found": "This project is not in deleted projects. It may have been restored or permanently deleted; refresh and try again",
     "trash_restore_unsupported": "This deletion record cannot be restored yet",
-    "trash_restore_failed": "This deletion record cannot be restored with its original structure",
+    "trash_restore_failed": "There is no free place in the project to put it back, so nothing was restored and the deletion record is kept: free up the spot and try again, or download the files in the record",
     "trash_restore_needs_episode": "Its episode “{name}” was deleted too, so it can only be restored with the episode: restore the episode from the project trash first, then this record",
     "trash_restore_needs_episode_untitled": "Its episode {episode} was deleted too, so it can only be restored with the episode: restore the episode from the project trash first, then this record",
     "trash_restore_download_only": "This deletion record can no longer be restored; its structure files can only be downloaded",

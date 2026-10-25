@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -9,8 +11,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.artifact_planner import TargetStatePlanner
+from lib.artifacts.formal_write import project_metadata_lock
 from lib.artifacts.version_manager import VersionManager
 from lib.episode.episode_deletion import delete_episode
+from lib.infra.api_errors import ApiError
+from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import resource_relative_path
 from lib.script.script_batch_edit import ScriptBatchEditor
@@ -128,6 +135,66 @@ def test_a_shot_whose_id_was_handed_out_again_comes_back_under_a_new_id(
     [snapshot] = versions.get_versions("storyboards", "E1S04")["versions"]
     assert Path(snapshot["file"]).name.startswith("E1S04_v1_")
     assert (project_dir / snapshot["file"]).read_bytes() == b"image-E1S03"
+
+
+def test_a_renumbered_grid_member_comes_back_as_a_plain_shot_that_the_planner_plans(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, http = _project(tmp_path, monkeypatch)
+    project_dir = manager.get_project_path("demo")
+    script = manager.load_script("demo", "episode_1.json")
+    script["segments"][2]["generated_assets"] |= {"grid_id": "grid_1", "grid_cell_index": 2}
+    manager.save_script("demo", script, "episode_1.json")
+    with http:
+        record = _remove(http, "E1S03")
+        http.post(
+            "/api/v1/projects/demo/script-items",
+            json={"script_file": "episode_1.json", "after_id": "E1S01", "novel_text": "新的一镜。"},
+        )
+        restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+
+    assert restored.json()["object"]["id"] == "E1S04", restored.text
+    assets = _segments(manager)[3]["generated_assets"]
+    # 宫格的成员仍是旧编号：新编号的分镜不再属于它，按普通分镜规划。
+    assert (assets.get("grid_id"), assets.get("grid_cell_index")) == (None, None)
+    assert TargetStatePlanner(project_dir).resolve_basis(ArtifactKey.episode_storyboard(1, "E1S04")) is not None
+
+
+def test_two_concurrent_restores_of_one_record_put_it_back_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, http = _project(tmp_path, monkeypatch)
+    project_dir = manager.get_project_path("demo")
+    with http:
+        record = _remove(http, "E1S03")
+    outcomes: list[object] = []
+
+    def restore() -> None:
+        try:
+            outcomes.append(project_trash.restore(project_dir, record["id"]))
+        except ApiError as exc:
+            outcomes.append(exc)
+
+    racers = [threading.Thread(target=restore) for _ in range(2)]
+    # 两个标签页同时点恢复：两次都铺设完临时项目、停在剧本锁前，之后才先后落地。
+    with manager.script_lock("demo", "episode_1.json"):
+        for racer in racers:
+            racer.start()
+        deadline = time.monotonic() + 30
+        while len(list(project_trash.trash_dir(project_dir).glob(".restore-*/projects/demo/project.json"))) < 2:
+            assert time.monotonic() < deadline, "两次恢复没有都开始铺设"
+            time.sleep(0.01)
+        with project_metadata_lock(project_dir):
+            pass  # 铺设在项目锁内进行：拿到锁时两次铺设都已完成
+    for racer in racers:
+        racer.join(timeout=30)
+
+    [failure] = [o for o in outcomes if isinstance(o, ApiError)]
+    assert failure.key == "trash_record_not_found"
+    assert len(outcomes) == 2
+    assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S03"]
+    assert sorted(p.name for p in (project_dir / "storyboards").iterdir()) == ["scene_E1S02.png", "scene_E1S03.png"]
+    assert not VersionManager(project_dir).has_versions("storyboards", "E1S04")
 
 
 def test_a_shot_whose_episode_was_deleted_too_can_only_come_back_with_the_episode(
