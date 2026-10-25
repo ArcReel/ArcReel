@@ -219,7 +219,7 @@ describe("GridPreviewPanel split", () => {
       success: true,
       split_at: "2026-07-16T01:00:00Z",
       updated_scene_ids: ["SCN-1", "SCN-2"],
-      missing_scene_ids: ["SCN-9"],
+      missing_scene_ids: ["SCN-8", "SCN-9"],
       asset_fingerprints: { "storyboards/scene_SCN-1.png": 42 },
     });
 
@@ -231,8 +231,8 @@ describe("GridPreviewPanel split", () => {
     await waitFor(() => {
       expect(API.splitGrid).toHaveBeenCalledWith("demo", "grid-1");
       expect(useProjectsStore.getState().assetFingerprints["storyboards/scene_SCN-1.png"]).toBe(42);
-      // 单槽 toast：有跳过分镜时警示后发、留在最终态
-      expect(useAppStore.getState().toast?.text).toContain("SCN-9");
+      // 单槽 toast：有跳过分镜时警示后发、留在最终态；只报数量，不露出条目 ID
+      expect(useAppStore.getState().toast?.text).toBe("2 个分镜已不在脚本中，已跳过");
     });
     // 切分完成后「未切分」提示消失
     expect(screen.queryByText("未切分")).not.toBeInTheDocument();

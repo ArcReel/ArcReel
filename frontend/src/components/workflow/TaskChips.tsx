@@ -5,7 +5,7 @@ import type { WorkflowTaskObservation } from "@/types/workflow";
 import { useTaskRowsByIds } from "@/stores/tasks-store";
 import { TaskElapsedReadout } from "@/components/shared/TaskElapsedReadout";
 import { CheckpointNote } from "./CheckpointNote";
-import { UnitTag } from "./UnitTag";
+import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 import { taskToneClass } from "./state-language";
 
 /**
@@ -36,7 +36,7 @@ export function TaskChips({ tasks }: { tasks: WorkflowTaskObservation[] }) {
           const row = taskRows.get(task.task_id);
           return (
             <li key={task.task_id} className="flex flex-wrap items-center gap-1.5">
-              <UnitTag unitId={task.unit_id} />
+              <EpisodeItemRef itemId={task.unit_id} />
               <span className={cn("rounded-full border px-2 py-0.5 text-xs", taskToneClass(task.status))}>
                 {t(`task_type_${task.task_type}`, { defaultValue: t("task_fallback_type") })}
                 {" · "}

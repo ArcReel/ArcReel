@@ -8,7 +8,8 @@ import type {
   ReferenceProjectionAdmission,
 } from "@/types";
 import i18n from "@/i18n";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useProjectsStore } from "@/stores/projects-store";
+import { findEpisodeItem } from "@/utils/episode-item";
 
 /** Standard error response body from backend (mirrors FastAPI HTTPException detail). */
 export interface ErrorResponse {
@@ -284,7 +285,9 @@ function formatSpeechAdmission(admission: SpeechAdmission): string {
     parse_failed: "speech_admission_parse_failed",
     empty_speaker: "speech_admission_empty_speaker",
   }[problem.code];
-  return i18n.t(`dashboard:${key}`, { unitId: itemIdWithinEpisode(problem.unit_id), location });
+  // 文案里称呼单元用它在本集里的当前位置；单元已不在剧本里时写「已删除」。
+  const position = findEpisodeItem(useProjectsStore.getState().currentScripts, problem.unit_id)?.position;
+  return i18n.t(`dashboard:${key}`, { position: position ?? i18n.t("common:deleted"), location });
 }
 
 function formatScriptEditResult(result: ScriptEditResult): string {

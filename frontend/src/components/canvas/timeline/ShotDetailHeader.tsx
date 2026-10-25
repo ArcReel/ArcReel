@@ -1,15 +1,14 @@
 import type { ReactNode } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Badge } from "@/components/ui/badge";
+import { ItemPositionOfTotal } from "@/components/shared/episode-item/ItemPositionOfTotal";
 import { TooltipIconButton } from "./TooltipIconButton";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 interface ShotDetailHeaderProps {
   segmentId: string;
   index: number;
   total: number;
-  /** 分镜号后面的属性：时长、状态、切分点开关等。 */
+  /** 位置后面的属性：时长、状态、切分点开关等。 */
   meta: ReactNode;
   /** 前移、后移一位；缺省时不显示。 */
   onMoveEarlier?: () => void;
@@ -25,7 +24,7 @@ interface ShotDetailHeaderProps {
   notes?: ReactNode;
 }
 
-/** 分镜详情页头：左侧分镜号与属性，右侧序号、移动、增删、上一镜 / 下一镜与备注。 */
+/** 分镜详情页头：左侧「位置 / 总数」与属性，右侧移动、增删、上一镜 / 下一镜与备注。 */
 export function ShotDetailHeader({
   segmentId,
   index,
@@ -43,14 +42,9 @@ export function ShotDetailHeader({
   const { t } = useTranslation("dashboard");
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-border/50 px-5 py-2.5">
-      <Badge translate="no">
-        <span className="num">{itemIdWithinEpisode(segmentId)}</span>
-      </Badge>
+      <ItemPositionOfTotal itemId={segmentId} kind="shot" position={index + 1} total={total} />
       {meta}
       <div className="ml-auto flex items-center gap-0.5">
-        <span className="num mr-1.5 text-xs text-muted-foreground">
-          {t("shot_detail_count", { current: index + 1, total })}
-        </span>
         {onMoveEarlier && onMoveLater ? (
           <>
             <TooltipIconButton

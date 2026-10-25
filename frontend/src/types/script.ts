@@ -311,6 +311,8 @@ export interface DramaScene {
    * 存量 drama 走后端读时迁移，前端读到时此字段可能缺省。
    */
   utterances?: Utterance[];
+  /** 画面描述：内容确认时从脚本规划透传；手动新增的分镜为空或缺省。 */
+  scene_description?: string;
   /** 对应原文：内容确认时从脚本规划透传，时间线只读；手动新增的分镜为空或缺省。 */
   source_text?: string;
   note?: string;

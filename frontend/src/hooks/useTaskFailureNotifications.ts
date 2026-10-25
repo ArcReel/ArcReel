@@ -78,7 +78,12 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
         useAppStore.getState().pushNotification(tRef.current("task_target_deleted"), "warning");
       }
       if (notify && tk.status === "failed") {
-        const text = describeTaskFailure(tRef.current, tk, projectDataRef.current);
+        const text = describeTaskFailure(
+          tRef.current,
+          tk,
+          projectDataRef.current,
+          useProjectsStore.getState().currentScripts,
+        );
         if (text) {
           useAppStore.getState().pushNotification(text, "error", {
             target: buildTaskFailureTarget(tk, projectDataRef.current),

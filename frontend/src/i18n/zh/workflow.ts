@@ -162,7 +162,7 @@ export default {
   'agent_prefill_generate_script': '按创作灵感与商品为{{episodeRef}}生成脚本',
   'agent_prefill_add_script_items_storyboard': '为{{episodeRef}}的正式脚本添加分镜',
   'agent_prefill_add_script_items_unit': '为{{episodeRef}}的正式脚本添加视频单元',
-  'agent_prefill_repair_video_units': '修改{{episodeRef}}的视频单元 {{ids}}，使它们可以生成视频',
+  'agent_prefill_repair_video_units': '修改{{episodeRef}}的{{ids}}，使它们可以生成视频',
   'agent_prefill_patch_episode_script': '修正{{episodeRef}}正式脚本中不符合要求的字段',
   'agent_prefill_generate_asset_sheets': '为{{episodeRef}}引用的待生成资产生成资产图',
   'agent_prefill_generate_storyboards': '为{{episodeRef}}还没有分镜图的分镜生成分镜图',

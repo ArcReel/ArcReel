@@ -16,9 +16,9 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "cn";
 import { useProjectsStore } from "@/stores/projects-store";
-import { getScriptItems, getScriptItemId, type EditorContentMode } from "@/utils/script-shape";
+import { getScriptItems, type EditorContentMode } from "@/utils/script-shape";
 import { stripScriptsPrefix } from "@/utils/task-target";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { itemPositionLabel } from "@/utils/episode-display";
 
 /** 可选的项目内图片：path 是项目内相对路径，交给 /end-frame/select 做快照复制。 */
 interface PickableImage {
@@ -111,13 +111,9 @@ export function EndFramePicker({
 
   const groups = useMemo<ImageGroup[]>(() => {
     const storyboards: PickableImage[] = getScriptItems(script, contentMode)
-      .filter((item) => item.generated_assets?.storyboard_image)
-      .map((item) => {
-        const id = getScriptItemId(item, contentMode);
-        return {
-          path: item.generated_assets!.storyboard_image as string,
-          label: t("end_frame_picker_storyboard_label", { id: itemIdWithinEpisode(id) }),
-        };
+      .flatMap((item, index) => {
+        const path = item.generated_assets?.storyboard_image;
+        return path ? [{ path, label: itemPositionLabel("shot", index + 1, t) }] : [];
       });
 
     return [

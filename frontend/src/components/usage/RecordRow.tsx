@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 
+import { EpisodeItemRefView } from "@/components/shared/episode-item/EpisodeItemRef";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import { Button } from "@/components/ui/button";
 import { useNowTick } from "@/hooks/useNowTick";
@@ -34,18 +35,30 @@ export interface RecordRowProps {
   trailing?: ReactNode;
 }
 
-/** 目标：分镜号是不截断的前缀，只有后面的集名或用途在放不下时截断。 */
+/**
+ * 目标：分镜或视频单元以位置角标与缩略图开头、不截断，后面的集名与正文摘录在放不下时截断；
+ * 宫格这类条目以集内 ID 开头；其余记录只写用途。
+ */
 export function TargetLabel({ record, focusable = true }: { record: UsageRecordView; focusable?: boolean }) {
   const { t } = useTranslation("dashboard");
-  const { prefix, name } = targetParts(record.segmentId, record.segmentRef, record.purpose, t);
+  const { item, prefix, name } = targetParts(record.segmentId, record.segmentRef, record.purpose, t);
+  const text = item?.excerpt ? `${name} · ${item.excerpt}` : name;
   return (
-    <span className="flex min-w-0 items-baseline gap-1.5">
+    <span className="flex min-w-0 items-center gap-1.5">
+      {item && (
+        <EpisodeItemRefView
+          item={{ ...item, excerpt: "" }}
+          kind={item.kind}
+          projectName={record.projectName}
+          className="shrink-0"
+        />
+      )}
       {prefix && <span className="num shrink-0 text-foreground">{prefix}</span>}
-      {name && (
+      {text && (
         <TruncatedText
-          text={name}
+          text={text}
           focusable={focusable}
-          className={prefix ? "text-subtle-foreground" : "text-foreground"}
+          className={item || prefix ? "text-subtle-foreground" : "text-foreground"}
         />
       )}
     </span>

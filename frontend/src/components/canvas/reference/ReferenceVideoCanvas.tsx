@@ -85,7 +85,8 @@ import type {
   ReferenceVideoUnit,
   UnitStatus,
 } from "@/types";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { itemPositionLabel } from "@/utils/episode-display";
+import { ItemPositionOfTotal } from "@/components/shared/episode-item/ItemPositionOfTotal";
 import { stepAnchor } from "@/utils/move-anchor";
 
 export interface ReferenceVideoCanvasProps extends EpisodeCanvasContext {
@@ -164,11 +165,14 @@ function unitNarrationText(unit: ReferenceVideoUnit | null): string {
  */
 function UnitPromptEdit({
   unit,
+  unitLabel,
   onSave,
   allowNavigation,
   children,
 }: {
   unit: ReferenceVideoUnit;
+  /** 离开确认里称呼这个单元：「视频单元 5」。 */
+  unitLabel: string;
   onSave: (unitId: string, prompt: string) => Promise<string>;
   allowNavigation: (to: string) => boolean;
   children: (edit: EditUnit<string>) => ReactNode;
@@ -180,7 +184,7 @@ function UnitPromptEdit({
     source: unit.text,
     save,
     allowNavigation,
-    leaveTitle: t("reference_unit_leave_title", { id: itemIdWithinEpisode(unitId) }),
+    leaveTitle: t("reference_unit_leave_title", { id: unitLabel }),
   });
   return <>{children(edit)}</>;
 }
@@ -485,6 +489,14 @@ export function ReferenceVideoCanvas({
     [isUnitLocked, ttsBusyUnitIds],
   );
   const [removeUnitId, setRemoveUnitId] = useState<string | null>(null);
+  /** 确认框里称呼单元：「视频单元 5」，已不在列表里时「已删除」。 */
+  const unitPositionOf = useCallback(
+    (unitId: string | null) => {
+      const index = unitId ? units.findIndex((u) => u.unit_id === unitId) : -1;
+      return itemPositionLabel("unit", index < 0 ? null : index + 1, t);
+    },
+    [units, t],
+  );
   const [removingUnit, setRemovingUnit] = useState(false);
   const openRemoveDialog = useCallback(
     (unitId: string) => {
@@ -658,7 +670,7 @@ export function ReferenceVideoCanvas({
         try {
           const result = await API.uploadReferenceUnitVideo(projectName, episode, unitId, file);
           useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
-          useAppStore.getState().pushToast(t("media_upload_success", { id: unitId }), "success");
+          useAppStore.getState().pushToast(t("media_upload_success", { id: unitPositionOf(unitId) }), "success");
         } catch (e) {
           toastError(e, (msg) => t("media_upload_failed", { message: msg }));
           return;
@@ -673,7 +685,7 @@ export function ReferenceVideoCanvas({
         setUploading(unitId, false);
       }
     },
-    [projectName, episode, loadUnits, isUnitLocked, setUploading, t],
+    [projectName, episode, loadUnits, isUnitLocked, setUploading, unitPositionOf, t],
   );
 
   const handleUnitsRefresh = useCallback(
@@ -991,12 +1003,7 @@ export function ReferenceVideoCanvas({
         {/* 中栏上方：单元头部、单元提示与窄屏下的编辑 / 预览切换 */}
         <div className="col-start-2 row-start-1 flex min-w-0 flex-col border-b border-border">
           <div className="flex flex-wrap items-center gap-2 px-4 py-2">
-            <span
-              translate="no"
-              className="rounded-sm bg-primary px-2 py-0.5 font-mono text-xs font-semibold text-primary-foreground"
-            >
-              {itemIdWithinEpisode(unit.unit_id)}
-            </span>
+            <ItemPositionOfTotal itemId={unit.unit_id} kind="unit" position={selectedIndex + 1} total={units.length} />
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <Clock aria-hidden className="size-3.5" />
               {renderDurationControl(unit, edit)}
@@ -1007,11 +1014,6 @@ export function ReferenceVideoCanvas({
               </span>
             )}
             <span className="flex-1" />
-            {selectedIndex >= 0 && (
-              <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                {selectedIndex + 1} / {units.length}
-              </span>
-            )}
             <div className="flex items-center">
               <HeaderIconButton
                 label={t("reference_unit_move_earlier")}
@@ -1266,6 +1268,7 @@ export function ReferenceVideoCanvas({
             <UnitPromptEdit
               key={selected.unit_id}
               unit={selected}
+              unitLabel={unitPositionOf(selected.unit_id)}
               onSave={handlePromptSave}
               allowNavigation={allowNavigation}
             >
@@ -1339,7 +1342,7 @@ export function ReferenceVideoCanvas({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {t("reference_unit_remove_title", { id: itemIdWithinEpisode(removeUnitId ?? "") })}
+              {t("reference_unit_remove_title", { id: unitPositionOf(removeUnitId) })}
             </AlertDialogTitle>
             <AlertDialogDescription>{t("reference_unit_remove_desc")}</AlertDialogDescription>
           </AlertDialogHeader>

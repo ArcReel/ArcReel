@@ -30,20 +30,36 @@ describe("UnitList", () => {
     expect(screen.getByText(/No video units in this episode yet|本集还没有视频单元/)).toBeInTheDocument();
   });
 
-  it("renders a row per unit with id, duration and prompt preview", () => {
+  it("renders a row per unit with its position, duration and prompt preview", () => {
     render(
       <UnitList
-        units={[mkUnit("E1U1"), mkUnit("E1U2", { duration_seconds: 8 })]}
+        units={[mkUnit("E1U4"), mkUnit("E1U9", { duration_seconds: 8 })]}
         selectedId={null}
         onSelect={vi.fn()}
         onAdd={vi.fn()}
       />,
     );
-    expect(screen.getByText("U1")).toBeInTheDocument();
-    expect(screen.getByText("U2")).toBeInTheDocument();
+    // 单元按本集里的位置称呼，条目 ID 不出现在界面上
+    expect(screen.getByTestId("unit-row-E1U4")).toContainElement(screen.getByRole("img", { name: "视频单元 1" }));
+    expect(screen.getByTestId("unit-row-E1U9")).toContainElement(screen.getByRole("img", { name: "视频单元 2" }));
+    expect(screen.queryByText(/U4|U9/)).not.toBeInTheDocument();
     expect(screen.getAllByText(/enter the pub/)).toHaveLength(2);
     expect(screen.getByText(/^(3s|3 ?秒)$/)).toBeInTheDocument();
     expect(screen.getByText(/^(8s|8 ?秒)$/)).toBeInTheDocument();
+  });
+
+  it("filters by a unit's position number", () => {
+    render(
+      <UnitList
+        units={[mkUnit("E1U4"), mkUnit("E1U9", { text: "另一段" })]}
+        selectedId={null}
+        onSelect={vi.fn()}
+        onAdd={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "2" } });
+    expect(screen.getByTestId("unit-row-E1U9")).toBeInTheDocument();
+    expect(screen.queryByTestId("unit-row-E1U4")).not.toBeInTheDocument();
   });
 
   it("highlights the selected unit", () => {
@@ -93,7 +109,7 @@ describe("UnitList", () => {
       const units = [mkUnit("E1U1"), mkUnit("E1U2"), mkUnit("E1U3")];
       render(<UnitList units={units} selectedId={null} onSelect={vi.fn()} onAdd={vi.fn()} onMove={onMove} />);
 
-      screen.getByRole("button", { name: /U1/, description: /空格|space/i }).focus();
+      screen.getByRole("button", { name: "调整「视频单元 1」的顺序", description: /空格|space/i }).focus();
       await userEvent.keyboard(" ");
       // dnd-kit 拿起后要等测量完成才响应方向键
       await waitFor(() => expect(screen.getByText(/已拿起|picked up/i)).toBeInTheDocument());
@@ -108,7 +124,7 @@ describe("UnitList", () => {
       const units = [mkUnit("E1U1"), mkUnit("E1U2", { text: "另一段" })];
       render(<UnitList units={units} selectedId={null} onSelect={vi.fn()} onAdd={vi.fn()} onMove={vi.fn()} />);
       fireEvent.change(screen.getByRole("searchbox"), { target: { value: "pub" } });
-      expect(screen.getByRole("button", { name: /U1/, description: /空格|space/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "调整「视频单元 1」的顺序", description: /空格|space/i })).toBeDisabled();
     });
   });
 });

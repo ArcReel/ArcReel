@@ -6,9 +6,19 @@ import { API } from "@/api";
 import i18n from "@/i18n";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageRecordsStore } from "@/stores/usage-records-store";
-import type { UsageStatsBlock, UsageSummary } from "@/types";
-import { makeUsageSummary } from "./usage-fixtures";
+import type { EpisodeItemRef, UsageStatsBlock, UsageSummary } from "@/types";
+import { makeUsageRecord, makeUsageSummary } from "./usage-fixtures";
 import { renderUsageRecordsSection } from "./usage-test-utils";
+
+/** 后端附上的 E1S10 指称：它在第 1 集（无标题）里当前排第 3 位。 */
+const E1S10_REF: EpisodeItemRef = {
+  episode_title: "",
+  episode_position: 1,
+  item_id: "S10",
+  item_position: 3,
+  item_excerpt: "",
+  item_thumbnail: null,
+};
 
 function stats(overrides: Partial<UsageStatsBlock> = {}): UsageStatsBlock {
   return {
@@ -234,6 +244,7 @@ describe("UsageRecordsSection attention", () => {
         project_name: "星海列车",
         media_type: "video",
         segment_id: "E1S10",
+        segment_ref: E1S10_REF,
         count: 4,
         first_failed_at: "2026-03-15T02:00:00+00:00",
         last_failed_at: "2026-03-15T08:00:00+00:00",
@@ -243,7 +254,7 @@ describe("UsageRecordsSection attention", () => {
     const { location } = renderUsageRecordsSection("section=usage&u_status=success");
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /星海列车 · 分镜 未命名集 · S10 连续失败/ }),
+      await screen.findByRole("button", { name: /星海列车 · 分镜 第 1 集 · 3 连续失败/ }),
     );
 
     await waitFor(() => {
@@ -258,6 +269,11 @@ describe("UsageRecordsSection attention", () => {
 
   it("sends the segment filter to the records request and offers a chip to clear it", async () => {
     mockAttention([]);
+    vi.mocked(API.getUsageRecords).mockResolvedValue({
+      items: [makeUsageRecord({ id: 5, segment_id: "E1S10", segment_ref: E1S10_REF })],
+      next_cursor: null,
+      total: 1,
+    });
     const { location } = renderUsageRecordsSection("section=usage&u_segment=E1S10");
 
     await waitFor(() =>
@@ -266,7 +282,8 @@ describe("UsageRecordsSection attention", () => {
       }),
     );
 
-    await userEvent.click(screen.getByRole("button", { name: "清除筛选：分镜 未命名集 · S10" }));
+    // chip 按记录带回的指称称呼分镜：集名与当前位置，不露条目 ID。
+    await userEvent.click(await screen.findByRole("button", { name: "清除筛选：分镜 第 1 集 · 3" }));
 
     await waitFor(() => expect(lastQuery(location.history).has("u_segment")).toBe(false));
   });

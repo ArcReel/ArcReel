@@ -7,7 +7,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/in
 import { resolveUnitStatus } from "./unit-status";
 import { UnitStatusBadge } from "./UnitStatusBadge";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
 
 export interface UnitListProps {
   units: ReferenceVideoUnit[];
@@ -38,12 +38,16 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
   const filtering = query.trim().length > 0;
   const reorderable = Boolean(onMove) && !filtering && pendingOrder === null;
 
+  // 显示的位置跟着显示顺序走：改序在途时按新顺序编号，落定后与剧本一致。
+  const positionById = useMemo(() => new Map(ids.map((id, i) => [id, i + 1])), [ids]);
+  const positionLabel = (id: string) => t("common:item_position_unit", { position: positionById.get(id) });
+
   const shown = useMemo(() => {
     const ordered = ids.flatMap((id) => byId.get(id) ?? []);
     const q = query.trim().toLowerCase();
     if (!q) return ordered;
-    return ordered.filter((u) => u.unit_id.toLowerCase().includes(q) || u.text.toLowerCase().includes(q));
-  }, [ids, byId, query]);
+    return ordered.filter((u) => String(positionById.get(u.unit_id)) === q || u.text.toLowerCase().includes(q));
+  }, [ids, byId, positionById, query]);
 
   const move = ({ id, to, ids: next }: SortableMove<string>) => {
     if (!onMove) return;
@@ -91,13 +95,12 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
         <SortableList
           ids={ids}
           disabled={!reorderable}
-          getName={(id) => itemIdWithinEpisode(id)}
+          getName={positionLabel}
           onMove={move}
         >
           <ul aria-label={t("reference_unit_list_title")} className="relative min-h-0 flex-1 overflow-y-auto px-2 pb-2">
             {shown.map((u) => {
               const selected = u.unit_id === selectedId;
-              const shortId = itemIdWithinEpisode(u.unit_id);
               return (
                 <SortableItem
                   key={u.unit_id}
@@ -106,7 +109,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
                 >
                   {onMove && (
                     <span className="pt-1.5">
-                      <SortableHandle label={t("reference_unit_reorder", { id: shortId })} />
+                      <SortableHandle label={t("reference_unit_reorder", { id: positionLabel(u.unit_id) })} />
                     </span>
                   )}
                   <button
@@ -119,14 +122,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
                     }`}
                   >
                     <span className="flex items-center gap-1.5">
-                      <span
-                        translate="no"
-                        className={`rounded-sm px-1.5 py-0.5 font-mono text-xs font-semibold ${
-                          selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        {shortId}
-                      </span>
+                      <ItemPositionBadge position={positionById.get(u.unit_id) ?? null} kind="unit" active={selected} />
                       <UnitStatusBadge status={resolveUnitStatus(u, statusMap)} />
                       <span className="flex-1" />
                       <span className="font-mono text-xs tabular-nums text-muted-foreground">

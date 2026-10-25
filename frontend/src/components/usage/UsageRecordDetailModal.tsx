@@ -3,6 +3,8 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "wouter";
+
+import { EpisodeItemRefView } from "@/components/shared/episode-item/EpisodeItemRef";
 import { cn } from "cn";
 
 import { API } from "@/api";
@@ -297,8 +299,18 @@ export function UsageRecordDetailModal({
           <DialogTitle>
             {target ? (
               <span className="flex min-w-0 items-baseline gap-2">
+                {target.item && (
+                  <EpisodeItemRefView
+                    item={{ ...target.item, excerpt: "" }}
+                    kind={target.item.kind}
+                    projectName={detail?.project_name}
+                    className="shrink-0 self-center"
+                  />
+                )}
                 {target.prefix && <span className="num shrink-0">{target.prefix}</span>}
-                <span className="min-w-0 break-words">{target.name}</span>
+                <span className="min-w-0 break-words">
+                  {target.item?.excerpt ? `${target.name} · ${target.item.excerpt}` : target.name}
+                </span>
               </span>
             ) : (
               t("dashboard:usage_detail_title", { id: recordId })

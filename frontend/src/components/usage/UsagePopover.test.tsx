@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
@@ -7,7 +7,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { makeTask } from "@/test/factories";
-import type { UsageRecord, UsageSummary } from "@/types";
+import type { EpisodeItemRef, UsageRecord, UsageSummary } from "@/types";
 import { makeUsageRecord, makeUsageRecordDetail, makeUsageSummary } from "./usage-fixtures";
 import {
   HEADER_PROJECT,
@@ -24,6 +24,18 @@ const EMPTY_KPI = {
   cost: {},
   unpriced_calls: 0,
 };
+
+/** 后端附上的条目指称：第 1 集（无标题）里排第 `position` 位的分镜。 */
+function itemRef(itemId: string, position: number): EpisodeItemRef {
+  return {
+    episode_title: "",
+    episode_position: 1,
+    item_id: itemId,
+    item_position: position,
+    item_excerpt: "",
+    item_thumbnail: null,
+  };
+}
 
 function stubUsageApi() {
   vi.spyOn(API, "getUsageSummary").mockResolvedValue(makeUsageSummary());
@@ -82,31 +94,34 @@ describe("UsagePopover", () => {
           task_type: "storyboard",
           media_type: "image",
           resource_id: "E1S10",
+          resource_ref: itemRef("S10", 3),
         }),
       ],
     });
     openPopover({ summary: makeUsageSummary({ kpi: EMPTY_KPI }) });
 
-    expect(screen.getByRole("region", { name: "进行中" })).toHaveTextContent(/S10\s*未命名集/);
+    const running = screen.getByRole("region", { name: "进行中" });
+    expect(within(running).getByRole("img", { name: "分镜 3" })).toBeInTheDocument();
+    expect(running).toHaveTextContent(/3\s*第 1 集/);
     expect(screen.getByText("还没有已结束的调用。")).toBeInTheDocument();
     expect(screen.getByText("本项目 · 全部")).toBeInTheDocument();
     expect(screen.getByText("0 成功")).toBeInTheDocument();
   });
 
   it("keeps a placeholder in the in-progress column while only finished calls exist", () => {
-    openPopover({ recent: [makeUsageRecord({ id: 7, segment_id: "E1S11" })] });
+    openPopover({ recent: [makeUsageRecord({ id: 7, segment_id: "E1S11", segment_ref: itemRef("S11", 6) })] });
 
     expect(screen.getByText("当前没有进行中的调用。")).toBeInTheDocument();
-    expect(screen.getByText("S11")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "分镜 6" })).toBeInTheDocument();
   });
 
   it("opens the same detail modal as the settings page from a finished row", async () => {
     const detailSpy = vi
       .spyOn(API, "getUsageRecord")
       .mockResolvedValue(makeUsageRecordDetail({ id: 7, prompt: "一只在雨里的猫" }));
-    openPopover({ recent: [makeUsageRecord({ id: 7, segment_id: "E1S11" })] });
+    openPopover({ recent: [makeUsageRecord({ id: 7, segment_id: "E1S11", segment_ref: itemRef("S11", 6) })] });
 
-    fireEvent.click(screen.getByText("S11"));
+    fireEvent.click(screen.getByRole("img", { name: "分镜 6" }));
 
     await waitFor(() => expect(detailSpy).toHaveBeenCalledWith(7, expect.anything()));
     expect(await screen.findByText("一只在雨里的猫")).toBeInTheDocument();
@@ -115,11 +130,17 @@ describe("UsagePopover", () => {
   it("puts a failed-call phrase beside its target", () => {
     openPopover({
       recent: [
-        makeUsageRecord({ id: 7, segment_id: "E1S11", status: "failed", error_code: "timeout" }),
+        makeUsageRecord({
+          id: 7,
+          segment_id: "E1S11",
+          segment_ref: itemRef("S11", 6),
+          status: "failed",
+          error_code: "timeout",
+        }),
       ],
     });
 
-    expect(screen.getByText("S11").closest("button")).toHaveTextContent("超时");
+    expect(screen.getByRole("img", { name: "分镜 6" }).closest("button")).toHaveTextContent("超时");
   });
 
   it("renders the success rate in the same format as the settings page", async () => {

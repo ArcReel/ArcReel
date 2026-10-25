@@ -29,11 +29,27 @@ describe("UsageRecordsSection detail", () => {
   it("opens the dialog straight from a record deep link", async () => {
     const detail = vi
       .spyOn(API, "getUsageRecord")
-      .mockResolvedValue(makeUsageRecordDetail({ id: 42, segment_id: "E1S10" }));
+      .mockResolvedValue(
+        makeUsageRecordDetail({
+          id: 42,
+          segment_id: "E1S10",
+          segment_ref: {
+            episode_title: "",
+            episode_position: 1,
+            item_id: "S10",
+            item_position: 3,
+            item_excerpt: "推门而入",
+            item_thumbnail: null,
+          },
+        }),
+      );
 
     renderUsageRecordsSection("section=usage&record=42");
 
-    expect(await screen.findByRole("dialog", { name: /S10\s*未命名集/ })).toBeInTheDocument();
+    // 标题以位置角标开头，后接集名与正文摘录，不露条目 ID。
+    const dialog = await screen.findByRole("dialog", { name: /第 1 集 · 推门而入/ });
+    expect(within(dialog).getByRole("img", { name: "分镜 3" })).toBeInTheDocument();
+    expect(dialog).not.toHaveAccessibleName(/S10/);
     expect(detail).toHaveBeenCalledWith(42, { signal: expect.any(AbortSignal) });
   });
 

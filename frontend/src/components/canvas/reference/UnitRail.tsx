@@ -3,7 +3,6 @@ import { PanelLeftOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { STATUS_CONF, resolveUnitStatus } from "./unit-status";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 export interface UnitRailProps {
   units: ReferenceVideoUnit[];
@@ -34,28 +33,28 @@ export function UnitRail({ units, selectedId, onSelect, onExpand, statusMap, cla
         aria-label={t("reference_unit_list_title")}
         className="relative flex min-h-0 w-full flex-1 flex-col gap-1 overflow-y-auto px-1.5 pb-2.5"
       >
-        {units.map((u) => {
+        {units.map((u, index) => {
           const selected = u.unit_id === selectedId;
           const conf = STATUS_CONF[resolveUnitStatus(u, statusMap)];
-          const shortId = itemIdWithinEpisode(u.unit_id);
+          const position = index + 1;
           return (
             <li key={u.unit_id}>
               <button
                 type="button"
                 onClick={() => onSelect(u.unit_id)}
                 aria-current={selected || undefined}
-                aria-label={`${shortId} · ${t(conf.i18nKey)}`}
+                aria-label={`${t("common:item_position_unit", { position })} · ${t(conf.i18nKey)}`}
                 className={`focus-ring flex w-full flex-col items-center gap-1 rounded-md border py-2 transition-colors duration-fast ${
                   selected ? "border-primary/30 bg-primary/10" : "border-transparent hover:bg-muted/50"
                 }`}
               >
                 <span
-                  translate="no"
-                  className={`rounded-sm px-1 py-0.5 font-mono text-xs font-semibold ${
+                  aria-hidden
+                  className={`num rounded-sm px-1 py-0.5 text-xs font-semibold ${
                     selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
                   }`}
                 >
-                  {shortId}
+                  {position}
                 </span>
                 <span aria-hidden="true" className={`size-1.5 rounded-full ${conf.dotClass}`} />
               </button>

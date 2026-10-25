@@ -10,12 +10,16 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeAssetName } from "@/utils/reference-mentions";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import type { EpisodeItemKind } from "@/utils/episode-item";
+import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
 import { NEW_ASSET_BUCKET, NEW_ASSET_DECISIONS } from "@/utils/plan-new-assets";
 
 /** 一个规划条目引用到的名字与它的原文片段，供新增项展开出场位置。 */
 export interface NewAssetEntryRefs {
   id: string;
+  /** 条目在规划里的位置，从 1 起；出场位置以它称呼条目。 */
+  position: number;
+  kind: EpisodeItemKind;
   /** 条目里引用到的全部名字（引用数组、说话人、正文 `@[名]`），未归一。 */
   names: string[];
   snippet: string;
@@ -306,9 +310,7 @@ function NewAssetRow({
             <ul className="mt-1.5 flex flex-col gap-1">
               {appearances.map((entry) => (
                 <li key={entry.id} className="flex items-start gap-2 text-xs leading-relaxed">
-                  <span className="shrink-0 rounded-sm bg-muted px-1.5 py-px text-muted-foreground tabular-nums">
-                    {itemIdWithinEpisode(entry.id)}
-                  </span>
+                  <ItemPositionBadge position={entry.position} kind={entry.kind} className="mt-px" />
                   <span className="text-muted-foreground">{entry.snippet}</span>
                 </li>
               ))}

@@ -251,7 +251,7 @@ MESSAGES = {
     "script_overwrite_loss_narration_audio": "{count} đoạn lồng tiếng",
     "script_overwrite_loss_end_frame": "{count} khung hình cuối",
     "script_overwrite_loss_grid": "{count} phân cảnh thuộc lưới (liên quan {grids} ảnh ghép, các ảnh ghép này mất đăng ký)",
-    "script_overwrite_history": "Lịch sử phiên bản của sản phẩm thuộc các mục cũ cũng được chuyển vào thùng rác dự án, nên mục trong kịch bản mới dùng lại cùng mã sẽ không kế thừa lịch sử cũ. Trong 30 ngày có thể khôi phục các mục cũ từ thùng rác dự án trong chế độ xem «Tệp».",
+    "script_overwrite_history": "Lịch sử phiên bản của sản phẩm thuộc các mục cũ cũng được chuyển vào thùng rác dự án, các mục trong kịch bản mới không kế thừa lịch sử cũ. Trong 30 ngày có thể khôi phục các mục cũ từ thùng rác dự án trong chế độ xem «Tệp».",
     "script_overwrite_entries": "Các mục kịch bản sẽ bị xóa: {entries}",
     "script_overwrite_entry": "{id} ({kinds})",
     "script_overwrite_kind_storyboard": "ảnh phân cảnh",

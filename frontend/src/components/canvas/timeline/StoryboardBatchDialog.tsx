@@ -15,7 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { BatchAdmissionSummary } from "@/components/workflow/BatchAdmissionSummary";
-import { UnitTag } from "@/components/workflow/UnitTag";
+import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 import { useAppStore } from "@/stores/app-store";
 import { errMsg } from "@/utils/async";
 import { costEntries, formatCurrencyAmount } from "@/utils/cost-format";
@@ -94,9 +94,9 @@ export function StoryboardBatchDialog({
             <p className="font-medium text-subtle-foreground">
               {t("storyboard_batch_targets", { count: preview.targets.length })}
             </p>
-            <div className="flex flex-wrap gap-1">
+            <div className="flex flex-wrap gap-x-3 gap-y-1.5">
               {preview.targets.map((item) => (
-                <UnitTag key={item.unit_id} unitId={item.unit_id} />
+                <EpisodeItemRef key={item.unit_id} itemId={item.unit_id} />
               ))}
             </div>
           </div>
@@ -109,7 +109,7 @@ export function StoryboardBatchDialog({
             <ul className="mt-1 flex flex-col gap-1">
               {preview.skipped.map((item) => (
                 <li key={item.unit_id} className="flex flex-wrap items-center gap-x-1.5">
-                  <UnitTag unitId={item.unit_id} />
+                  <EpisodeItemRef itemId={item.unit_id} />
                   <span>{t(`storyboard_batch_skip.${item.reason}`)}</span>
                 </li>
               ))}

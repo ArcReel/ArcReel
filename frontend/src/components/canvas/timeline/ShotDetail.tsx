@@ -58,7 +58,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { speakerCandidates } from "@/utils/plan-new-assets";
 import { durationIncompatibleLabel } from "@/components/canvas/shared/duration-incompatible";
 import { errMsg } from "@/utils/async";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 import { charactersFieldFor, type CharactersField } from "@/utils/script-shape";
 import {
   emptyImagePrompt,
@@ -472,6 +472,7 @@ export function ShotDetail({
   editRef,
 }: ShotDetailProps) {
   const { t } = useTranslation("dashboard");
+  const itemLabel = useItemPositionLabel(segmentId);
   const status = statusFromAssets(segment.generated_assets?.status);
   const segCost = useCostStore((s) => s.getSegmentCost(segmentId));
   const isAd = contentMode === "ad";
@@ -505,7 +506,7 @@ export function ShotDetail({
     source,
     save,
     isEqual: shotFieldsEqual,
-    leaveTitle: t("shot_leave_title", { id: itemIdWithinEpisode(segmentId) }),
+    leaveTitle: t("shot_leave_title", { id: itemLabel }),
     allowNavigation,
   });
   const { value: fields, setValue, dirty } = unit;
@@ -552,7 +553,7 @@ export function ShotDetail({
       // 复用版本恢复的刷新管线（refreshProject 等由父级回调承载）；刷新失败时父级已提示，不同时报告成功
       const refreshed = kind === "storyboard" ? await onRestoreStoryboard?.() : await onRestoreVideo?.();
       if (refreshed === false) return;
-      useAppStore.getState().pushToast(t("media_upload_success", { id: segmentId }), "success");
+      useAppStore.getState().pushToast(t("media_upload_success", { id: itemLabel }), "success");
     } catch (err) {
       useAppStore.getState().pushToast(t("media_upload_failed", { message: errMsg(err) }), "error");
     } finally {

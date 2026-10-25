@@ -1,5 +1,4 @@
-import { itemIdsInEpisodeText } from "@/utils/episode-display";
-import { describe, it, expect, vi, afterEach, type MockInstance } from "vitest";
+import { describe, it, expect, vi, afterEach, onTestFinished, type MockInstance } from "vitest";
 import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ScriptReviewGate } from "./ScriptReviewGate";
@@ -40,6 +39,16 @@ const CONFIRMED: Partial<ScriptReviewState> = {
   confirmed_at: "2026-06-26T00:00:00Z",
   script_overwrite: makeScriptOverwrite(),
 };
+
+/** 本集正式脚本：覆盖确认的丢失清单列的是这里的分镜，按它们在正式脚本里的位置称呼。 */
+function seedFormalScenes(sceneIds: string[]) {
+  useProjectsStore.setState({
+    currentScripts: {
+      "episode_1.json": { episode: 1, content_mode: "drama", scenes: sceneIds.map((scene_id) => ({ scene_id })) } as never,
+    },
+  });
+  onTestFinished(() => useProjectsStore.setState({ currentScripts: {} }));
+}
 
 function dramaState(overrides: Partial<ScriptReviewState> = {}): ScriptReviewState {
   return {
@@ -137,7 +146,7 @@ describe("ScriptReviewGate", () => {
 
     await waitFor(() => expect(screen.getByDisplayValue("你终于回来了。")).toBeInTheDocument());
     expect(screen.getByDisplayValue("阿离")).toBeInTheDocument();
-    expect(screen.getByText("S01")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "分镜 1" })).toBeInTheDocument();
     expect(screen.getByText("待确认")).toBeInTheDocument();
     expect(screen.getByText("确认并继续")).toBeInTheDocument();
   });
@@ -270,6 +279,7 @@ describe("ScriptReviewGate", () => {
       grid_count: 1,
       text: "现有 2 条分镜全部移除。\n以下内容无法在项目内恢复：分镜图 1 张、视频 1 段、配音 1 段、尾帧 1 张、宫格归属 1 处。\n将被移除的分镜：E1S01（分镜图、视频、配音、尾帧、宫格）、E1S09",
     });
+    seedFormalScenes(["E1S01", "E1S09"]);
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: overwrite }));
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
@@ -283,8 +293,13 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(button);
 
     const dialog = await screen.findByRole("alertdialog");
-    // 确认框原样呈现服务端生成的丢失清单，不在前端另拼。
-    expect(within(dialog).getByText(itemIdsInEpisodeText(overwrite.text), { normalizer: (text) => text })).toBeInTheDocument();
+    // 确认框呈现服务端生成的丢失清单，不在前端另拼；条目 ID 换成它在正式脚本里的位置。
+    expect(
+      within(dialog).getByText(
+        "现有 2 条分镜全部移除。\n以下内容无法在项目内恢复：分镜图 1 张、视频 1 段、配音 1 段、尾帧 1 张、宫格归属 1 处。\n将被移除的分镜：分镜 1（分镜图、视频、配音、尾帧、宫格）、分镜 2",
+        { normalizer: (text) => text },
+      ),
+    ).toBeInTheDocument();
     expect(confirm).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
@@ -322,6 +337,7 @@ describe("ScriptReviewGate", () => {
       storyboard_count: 1,
       text: "现有 2 条分镜全部移除。分镜图 1 张。E1S07（分镜图）",
     });
+    seedFormalScenes(["E1S01", "E1S07"]);
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState({ script_overwrite: listed }));
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
@@ -332,8 +348,8 @@ describe("ScriptReviewGate", () => {
     fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
     fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
 
-    await waitFor(() => expect(screen.getByRole("alertdialog")).toHaveTextContent("S07"));
-    expect(screen.getByRole("alertdialog")).toHaveTextContent(itemIdsInEpisodeText(refreshed.text));
+    await waitFor(() => expect(screen.getByRole("alertdialog")).toHaveTextContent("分镜 2（分镜图）"));
+    expect(screen.getByRole("alertdialog")).toHaveTextContent("现有 2 条分镜全部移除。分镜图 1 张。分镜 2（分镜图）");
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
@@ -456,7 +472,7 @@ describe("ScriptReviewGate", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(dramaState());
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="drama" />);
 
-    await waitFor(() => expect(screen.getByText("S01")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("img", { name: "分镜 1" })).toBeInTheDocument());
     expect(screen.queryByText(/目标/)).not.toBeInTheDocument();
   });
 
@@ -465,7 +481,7 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
 
     await waitFor(() => expect(screen.getByDisplayValue("裴与出征后的第二年。")).toBeInTheDocument());
-    expect(screen.getByText("S01")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "分镜 1" })).toBeInTheDocument();
   });
 
   it("presents a draft needing fixes with violations on their items and adopts it once a hand fix clears them", async () => {
@@ -1010,10 +1026,10 @@ describe("ScriptReviewGate item fields", () => {
     return save.mock.calls[0][2];
   }
 
-  /** 展开 S01 的时长下拉，读出选项后收起。 */
+  /** 展开第 1 个分镜的时长下拉，读出选项后收起。 */
   async function durationOptions() {
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("combobox", { name: "S01 时长" }));
+    await user.click(await screen.findByRole("combobox", { name: "分镜 1 时长" }));
     const labels = (await screen.findAllByRole("option")).map((option) => option.textContent);
     await user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
@@ -1022,7 +1038,7 @@ describe("ScriptReviewGate item fields", () => {
 
   async function pickDuration(label: string) {
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("combobox", { name: "S01 时长" }));
+    await user.click(await screen.findByRole("combobox", { name: "分镜 1 时长" }));
     await user.click(await screen.findByRole("option", { name: label }));
   }
 
@@ -1163,7 +1179,7 @@ describe("ScriptReviewGate item fields", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" durationOptions={[6]} />);
     expect(await screen.findByText("旧宅")).toBeInTheDocument();
     expect(screen.queryByText("确认后可在时间线增删、调整顺序")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("S01 时长")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("分镜 1 时长")).not.toBeInTheDocument();
     expect(screen.queryByRole("switch")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑引用" })).not.toBeInTheDocument();
   });

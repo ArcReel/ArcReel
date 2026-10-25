@@ -3,7 +3,7 @@ import { cn } from "cn";
 import { formatCurrencyAmount } from "@/utils/cost-format";
 import type { WorkflowAdmission } from "@/types/workflow";
 import { ProblemList } from "./ProblemList";
-import { UnitTag } from "./UnitTag";
+import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 import { admissionUnitViews, isWithheld } from "./problem-views";
 
 interface Props {
@@ -51,7 +51,7 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
               <p className="text-subtle-foreground">{t("admission_withheld_title", { count: withheld.length })}</p>
               <div className="flex flex-wrap gap-1">
                 {withheld.map((unit) => (
-                  <UnitTag key={unit.unit_id} unitId={unit.unit_id} />
+                  <EpisodeItemRef key={unit.unit_id} itemId={unit.unit_id} />
                 ))}
               </div>
             </div>
@@ -86,7 +86,7 @@ export function BatchAdmissionSummary({ admission, skippedUnitIds, className }: 
                 </span>
                 <span className="flex flex-wrap gap-1">
                   {tier.unit_ids.map((unitId) => (
-                    <UnitTag key={unitId} unitId={unitId} />
+                    <EpisodeItemRef key={unitId} itemId={unitId} />
                   ))}
                 </span>
               </li>

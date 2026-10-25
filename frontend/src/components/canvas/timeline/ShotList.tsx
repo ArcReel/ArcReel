@@ -17,7 +17,7 @@ import {
   type EditorContentMode,
   type ScriptItem,
 } from "@/utils/script-shape";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
 import { InsertShotButton, type InsertShotHandler } from "./ShotStructureActions";
 
 type Segment = ScriptItem;
@@ -70,7 +70,7 @@ function getSegmentText(seg: Segment, mode: ListContentMode): string {
 }
 
 /**
- * 分镜列表：展开 220px，收起为 44px 的分镜号栏。展开时可搜索，并用把手拖动或键盘排序；
+ * 分镜列表：展开 220px，收起为 44px 的位置栏。展开时可搜索，并用把手拖动或键盘排序；
  * 按搜索词筛选时排序没有明确含义，把手禁用。
  */
 export function ShotList({
@@ -107,14 +107,20 @@ export function ShotList({
     return pendingOrder;
   }, [indexById, pendingOrder]);
 
+  // 显示的位置跟着显示顺序走：改序在途时按新顺序编号，落定后与剧本一致。
+  const positionById = useMemo(() => new Map(orderedIds.map((id, i) => [id, i + 1])), [orderedIds]);
+  const positionLabel = (id: string) => t("common:item_position_shot", { position: positionById.get(id) });
+
   const visibleIds = useMemo(() => {
     if (!search) return orderedIds;
     const query = search.toLowerCase();
     return orderedIds.filter((id) => {
       const seg = segments[indexById.get(id)!];
-      return id.toLowerCase().includes(query) || getSegmentText(seg, contentMode).toLowerCase().includes(query);
+      return (
+        String(positionById.get(id)) === query.trim() || getSegmentText(seg, contentMode).toLowerCase().includes(query)
+      );
     });
-  }, [orderedIds, search, segments, indexById, contentMode]);
+  }, [orderedIds, search, segments, indexById, positionById, contentMode]);
 
   const selectedId = segments[selectedIndex] ? getScriptItemId(segments[selectedIndex], contentMode) : null;
 
@@ -157,12 +163,13 @@ export function ShotList({
                     type="button"
                     onClick={() => onSelect(index)}
                     aria-current={active || undefined}
+                    aria-label={positionLabel(id)}
                     className={cn(
                       "num focus-ring grid size-7 place-items-center rounded-md text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
                       active && "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
                     )}
                   >
-                    {itemIdWithinEpisode(id)}
+                    {positionById.get(id)}
                   </button>
                 </li>
               );
@@ -218,7 +225,7 @@ export function ShotList({
         <SortableList
           ids={visibleIds}
           onMove={handleSortMove}
-          getName={(id) => itemIdWithinEpisode(id)}
+          getName={positionLabel}
           disabled={!sortable || moveDisabled || search !== ""}
         >
           <ul className="flex flex-col gap-0.5">
@@ -258,12 +265,10 @@ export function ShotList({
                       {sbUrl ? (
                         <img src={sbUrl} alt="" className="size-full object-cover" loading="lazy" decoding="async" />
                       ) : null}
+                      <ItemPositionBadge position={positionById.get(id) ?? null} kind="shot" overlay />
                     </span>
                     <span className="flex min-w-0 flex-1 flex-col gap-1">
                       <span className="flex items-center gap-1.5">
-                        <span className={cn("num text-xs font-medium", active ? "text-primary" : "text-subtle-foreground")}>
-                          {itemIdWithinEpisode(id)}
-                        </span>
                         <StatusBadge status={statusFromAssets(seg.generated_assets?.status)} />
                       </span>
                       {text ? (
@@ -285,7 +290,7 @@ export function ShotList({
                       </span>
                     </span>
                   </button>
-                  {sortable ? <SortableHandle label={t("shot_reorder", { id: itemIdWithinEpisode(id) })} /> : null}
+                  {sortable ? <SortableHandle label={t("shot_reorder", { id: positionLabel(id) })} /> : null}
                 </SortableItem>
               );
             })}

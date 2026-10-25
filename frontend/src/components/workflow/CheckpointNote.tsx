@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { UnitTag } from "./UnitTag";
+import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 
 /**
  * 哪些单元的请求供应商已经收单。
@@ -14,7 +14,7 @@ export function CheckpointNote({ unitIds }: { unitIds: string[] }) {
   return (
     <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
       {unitIds.map((unitId) => (
-        <UnitTag key={unitId} unitId={unitId} />
+        <EpisodeItemRef key={unitId} itemId={unitId} />
       ))}
       <span>{t("checkpoint_submitted")}</span>
     </p>
