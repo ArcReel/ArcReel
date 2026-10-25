@@ -393,6 +393,58 @@ async def test_bgm_is_mixed_in_and_cut_at_the_timeline_end_without_changing_the_
     assert _status(render_project, timeline_id, result.artifact_path) is ArtifactStatus.CURRENT
 
 
+@pytest.mark.usefixtures("media")
+@pytest.mark.parametrize(
+    ("source_out", "fade_out", "fades"),
+    [(3.149, 0.0, False), (3.145, 0.0, False), (3.2, 0.0, True), (3.149, 0.4, True)],
+)
+async def test_frame_rounding_preserves_the_authored_bgm_ending(
+    render_project: ProjectManager, source_out: float, fade_out: float, fades: bool
+) -> None:
+    track = await BgmLibraryService(render_project).upload(
+        "demo", filename="steady.wav", content=wav_bytes(3.5, tone_hz=330)
+    )
+    timeline_id = await _create_timeline(render_project)
+    editor = EditTimelineService(render_project)
+    await editor.edit(
+        "demo",
+        timeline_id,
+        base_revision=1,
+        summary="A sub-frame trim must not introduce an unrequested music fade",
+        operations=[
+            SetTrim(op="set_trim", clip="c2", trim=TrimSpec(source_in=0.0, source_out=1.5)),
+            SetTrim(op="set_trim", clip="c3", trim=TrimSpec(source_in=0.0, source_out=0.649)),
+            SetVolume(op="set_volume", clip="c1", volume=0.0),
+            SetVolume(op="set_volume", clip="c3", volume=0.0),
+            InsertBgm(
+                op="insert_bgm",
+                bgm_id=track.id,
+                start=0.0,
+                source_out=source_out,
+                volume=0.5,
+                fade_in=0.0,
+                fade_out=fade_out,
+            ),
+        ],
+        author=CREATOR,
+    )
+    readout = await editor.read("demo", timeline_id)
+    assert readout.duration == pytest.approx(3.149)
+
+    result = await FinalCutService(render_project).render("demo", timeline_id, **PLAIN)
+
+    output = render_project.get_project_path("demo") / result.artifact_path
+    assert result.acceptance.video_duration == pytest.approx(94 / 30, abs=0.001)
+    assert result.acceptance.audio_duration == pytest.approx(94 / 30, abs=0.03)
+    early = _max_volume_db(output, start=1.6, seconds=0.2)
+    tail = _max_volume_db(output, start=3.0, seconds=0.08)
+    # A true overhang still gets its cutoff fade; an explicitly authored fade also survives.
+    if fades:
+        assert tail < early - 7
+    else:
+        assert tail == pytest.approx(early, abs=0.8)
+
+
 def _quiet_bgm_with_loud_hits(seconds: float, sample_rate: int = 8000) -> bytes:
     """−40 dBFS 上下的正弦音，每 0.5 秒一下几个采样长、接近满幅的脉冲：积分响度很低，登记的响度增益很高。"""
     samples = array("h")

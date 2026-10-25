@@ -377,7 +377,7 @@ class FinalCutService:
 
     @staticmethod
     def _bgm(project_dir: Path, inputs: FinalCutInputs, total_us: int) -> tuple[BgmInput, ...]:
-        """按成片实际时长摆放 BGM；音量是 BGM 的响度增益乘以片段音量。"""
+        """按剪辑时长摆放 BGM；最终混音再对齐输出帧数，避免舍入半帧触发额外淡出。"""
         items: list[BgmInput] = []
         for placed in place_bgm(inputs.bgm, total_us):
             source = inputs.bgm_sources[placed.bgm_id]
@@ -421,7 +421,9 @@ class FinalCutService:
         basis = final_cut_basis(inputs)
         project_dir = await asyncio.to_thread(self._project_dir, project_name)
         media = await self._render_media(inputs)
-        plan = plan_render(render_clips([item.clip for item in inputs.clips], media), inputs.profile)
+        clips = render_clips([item.clip for item in inputs.clips], media)
+        plan = plan_render(clips, inputs.profile)
+        editorial_duration_us = sum(clip.source_duration_us + clip.hold_us for clip in clips)
         if not plan.segments:
             raise FinalCutError("final_cut_empty", "剪辑时间线没有可渲染的剪辑片段", timeline_id=inputs.timeline_id)
         placement = self._placement(checked, materials, media) if materials is not None else None
@@ -436,7 +438,7 @@ class FinalCutService:
             narrations: tuple[NarrationInput, ...] = ()
             if placement is not None and variant.with_narration:
                 narrations = self._narrations(project_dir, placement)
-            return narrations, self._bgm(project_dir, inputs, plan.total_frames * 1_000_000 // plan.profile.fps)
+            return narrations, self._bgm(project_dir, inputs, editorial_duration_us)
 
         narrations, bgm = await asyncio.to_thread(audio_inputs)
         ffmpeg = ffmpeg_executable()
