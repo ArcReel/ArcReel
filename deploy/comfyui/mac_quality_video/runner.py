@@ -1,16 +1,67 @@
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
 import time
 import urllib.request
 from contextlib import suppress
+from fractions import Fraction
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNTIME = ROOT / "user/runtimes/ltx-2-mlx"
+
+
+def validate_identity_reference(config):
+    if config["mode"] != "identity-reference":
+        return
+    probe = shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
+    try:
+        result = subprocess.run(
+            [
+                probe,
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-count_frames",
+                "-show_entries",
+                "stream=width,height,nb_read_frames,r_frame_rate,avg_frame_rate,duration",
+                "-of",
+                "json",
+                str(config["control_video"]),
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=30,
+        )
+        stream = json.loads(result.stdout)["streams"][0]
+        valid = (
+            (int(stream["width"]), int(stream["height"]), int(stream["nb_read_frames"])) == (768, 448, 121)
+            and Fraction(stream["r_frame_rate"]) == 24
+            and Fraction(stream["avg_frame_rate"]) == 24
+            and abs(float(stream["duration"]) - 121 / 24) < 1 / 48
+        )
+    except (
+        OSError,
+        subprocess.SubprocessError,
+        KeyError,
+        IndexError,
+        TypeError,
+        ValueError,
+        ZeroDivisionError,
+    ) as error:
+        raise ValueError("Cannot verify the Ingredients reference video; no render started.") from error
+    if not valid:
+        raise ValueError(
+            "Ingredients reference must contain 121 frames at 768x448 and 24 fps. "
+            "Repeat the reference still across the full clip; the runtime does not extend a short source. "
+            "No render started."
+        )
 
 
 def build_command(config, root):
@@ -164,10 +215,11 @@ def build_command(config, root):
 
 
 def run(config_path, check_interrupt=None):
-    import psutil
-
     config = json.loads(Path(config_path).read_text(encoding="utf-8"))
     args = build_command(config, ROOT)
+    validate_identity_reference(config)
+    import psutil
+
     blocked = ROOT / "user/video-render-retry-blocked.json"
     if blocked.exists() or (ROOT.parent / "WanGP-Trial/.benchmark/retry-blocked.json").exists():
         raise RuntimeError("A prior renderer needs cleanup verification. No new render was started.")

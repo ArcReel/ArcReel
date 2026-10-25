@@ -94,6 +94,9 @@ identity references without conflicting character panels. Use the adapter's
 prescribed reference dimensions and match the output frame rate and duration. Motion tests can start short;
 Ingredients tests require the trained bucket of 768×448, 121 frames at 24 fps,
 with the still reference repeated across the full clip.
+The runner decodes and probes that reference before loading the model, rejecting
+short, unreadable, or mismatched-size/rate videos. `validate_identity_reference`
+is also available to resource-reservation wrappers before they pause services.
 
 These modes use the dev transformer, control LoRA strength 1.0, distilled LoRA
 strength 0.5, and single-stage full-resolution generation. Unlike the keyframe

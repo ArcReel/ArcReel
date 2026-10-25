@@ -209,6 +209,20 @@ def test_control_keeps_stricter_memory_admission(renderer, motion_config, tmp_pa
     path = tmp_path / "config.json"
     path.write_text(json.dumps(motion_config))
     monkeypatch.setattr(renderer, "ROOT", tmp_path)
+    if mode == "identity-reference":
+        stream = {
+            "width": 768,
+            "height": 448,
+            "nb_read_frames": "121",
+            "r_frame_rate": "24/1",
+            "avg_frame_rate": "24/1",
+            "duration": "5.041667",
+        }
+        monkeypatch.setattr(
+            renderer.subprocess,
+            "run",
+            lambda *args, **kwargs: SimpleNamespace(stdout=json.dumps({"streams": [stream]})),
+        )
     monkeypatch.setitem(
         sys.modules, "psutil", SimpleNamespace(virtual_memory=lambda: SimpleNamespace(available=18 * 2**30))
     )
