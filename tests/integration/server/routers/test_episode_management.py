@@ -5,11 +5,13 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from lib.episode.episode_layout import build_episode_layout
 from lib.i18n.zh import errors as zh_errors
 from lib.project.project_manager import ProjectManager
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import episode_management
+from server.routers import project_trash as trash_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 
 NOVEL = "少年下山。城里起火。夜雨。"
@@ -44,10 +46,12 @@ def _client(monkeypatch, tmp_path: Path, episodes: list[dict]) -> tuple[TestClie
         rng = entry["source_range"]
         (source_dir / f"episode_{entry['episode']}.txt").write_text(NOVEL[rng["start"] : rng["end"]], encoding="utf-8")
     monkeypatch.setattr(episode_management, "get_project_manager", lambda: pm)
+    monkeypatch.setattr(trash_router, "get_project_manager", lambda: pm)
     app = FastAPI()
     register_error_handlers(app)
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
     app.include_router(episode_management.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
+    app.include_router(trash_router.router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     return TestClient(app), pm
 
 
@@ -84,6 +88,29 @@ def test_delete_returns_the_loss_text_first_then_deletes_with_its_revision(tmp_p
     assert body["impact"]["text"].startswith("「第 2 集」还没有产物。")
     assert _order(pm) == [1]
     assert deleted.json()["status"] == "deleted"
+
+
+def test_a_restored_cut_episode_comes_back_at_the_end_with_its_range_text_as_its_own_source(tmp_path, monkeypatch):
+    client, pm = _client(monkeypatch, tmp_path, [_cut(1, 0, 5), _cut(2, 5, 10)])
+    source_dir = pm.get_project_path("demo") / "source"
+
+    with client:
+        preview = client.post("/api/v1/projects/demo/episodes/1/delete", json={}).json()
+        client.post("/api/v1/projects/demo/episodes/1/delete", json={"revision": preview["impact"]["revision"]})
+        [record] = client.get("/api/v1/projects/demo/trash").json()["records"]
+        restored = client.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert _order(pm) == [2, 1]
+    entry = pm.load_project("demo")["episodes"][1]
+    assert entry["source_origin"] == "own"
+    assert "source_range" not in entry
+    assert (source_dir / "episode_1.txt").read_text(encoding="utf-8") == NOVEL[0:5]
+    # 原范围留作未切分的原文，整本源文没有被改动
+    assert (source_dir / "novel.txt").read_text(encoding="utf-8") == NOVEL
+    layout = build_episode_layout(pm.get_project_path("demo"), pm.load_project("demo"))
+    unsplit = [(seg.start, seg.end) for file in layout.files for seg in file.segments if seg.kind == "unsplit"]
+    assert unsplit[0] == (0, 5)
 
 
 def test_unknown_episode_is_not_found(tmp_path, monkeypatch):

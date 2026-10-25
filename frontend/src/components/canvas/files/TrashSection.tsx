@@ -32,6 +32,11 @@ function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): 
   if (object.kind === "edit_timeline" && typeof object.name === "string") {
     return t("trash_object_edit_timeline", { name: object.name, episode: object.episode });
   }
+  if (object.kind === "episode") {
+    return typeof object.title === "string" && object.title !== ""
+      ? t("trash_object_episode", { name: object.title })
+      : t("trash_object_episode_untitled", { episode: object.id });
+  }
   return object.path;
 }
 
@@ -47,6 +52,7 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
       ? t("trash_restored_degraded", { name, count: result.restored.length })
       : t("trash_restored_degraded_files", { name, count: result.restored.length });
   }
+  if (record.object.kind === "episode") return t("trash_restored_episode", { name });
   if (record.has_snapshot) {
     const landed = result.object.name;
     return typeof landed === "string" && landed !== record.object.name

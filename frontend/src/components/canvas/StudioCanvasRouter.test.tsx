@@ -752,7 +752,7 @@ describe("StudioCanvasRouter", () => {
     await user.click(screen.getByRole("button", { name: "这一集的更多操作" }));
     await user.click(await screen.findByRole("menuitem", { name: "删除这一集" }));
     const dialog = await screen.findByRole("alertdialog", { name: "删除「EP1」" });
-    await user.click(within(dialog).getByRole("button", { name: "删除" }));
+    await user.click(within(dialog).getByRole("button", { name: "移入项目回收站" }));
 
     // 删掉的是正在看的这一集，回到分集列表
     await waitFor(() => expect(history.at(-1)).toBe("/episodes"));

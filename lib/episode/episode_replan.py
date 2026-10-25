@@ -77,6 +77,7 @@ from lib.episode.episode_sources import (
     sync_source_snapshots,
     whole_source_files,
 )
+from lib.episode.source_kinds import entry_source_kind, record_episode_kind
 from lib.infra.text_metrics import count_reading_units
 from lib.project.project_manager import ProjectManager
 from lib.script import script_review
@@ -582,9 +583,17 @@ def _write_new_episode_file(project_dir: Path, episode: int, text: str) -> None:
 
 
 def _apply_adoption(
-    project_dir: Path, project: dict[str, Any], candidate: Mapping[str, Any], adoption: _Adoption
+    project_dir: Path,
+    project: dict[str, Any],
+    candidate: Mapping[str, Any],
+    adoption: _Adoption,
+    *,
+    delete_retired: bool = False,
 ) -> list[int]:
-    """按推演改写 ``project`` 并落盘集文件与快照，返回候选集的新集 ID。"""
+    """按推演改写 ``project`` 并落盘集文件与快照，返回候选集的新集 ID。
+
+    ``delete_retired`` 时退下的集留着集文件、转为自带原文的集：随后删除时集原文进删除记录，恢复后仍是这一集的源文。
+    """
     docs = discover_sources(project_dir, project)
     texts = {doc.rel_path: doc.text for doc in docs}
     entries = _entries(project)
@@ -612,7 +621,10 @@ def _apply_adoption(
         new_entries.append(entry)
     for num in adoption.retired:
         entry = by_id[num]
-        entry[SOURCE_ORIGIN_FIELD] = SourceOrigin.NONE.value
+        kind = entry_source_kind(project, entry)
+        entry[SOURCE_ORIGIN_FIELD] = (SourceOrigin.OWN if delete_retired else SourceOrigin.NONE).value
+        if delete_retired:
+            record_episode_kind(project, entry, kind)
         entry.pop("source_range", None)
         script_review.mark_ledger_stale(project_dir, project, entry, num)
     project["episodes"] = [by_id[num] if kind == "old" else new_entries[num] for kind, num in adoption.order]
@@ -621,6 +633,8 @@ def _apply_adoption(
 
     for num in adoption.replaced:
         path = episode_source_path(project_dir, num)
+        if delete_retired and num in adoption.retired:
+            continue
         if num in legacy and path.is_file() and not path.is_symlink():
             path.rename(archive_episode_file_path(path))
         else:
@@ -640,7 +654,8 @@ def adopt_replan_candidate(
 ) -> ReplanAdoptionResult | ReplanConfirmationRequired:
     """采纳候选。``revision`` 与当前变更清单的指纹不符（含未传）时只返回清单，不写入。
 
-    ``delete_retired`` 为 True 时，退下的集在采纳提交后逐个按删除一集的口径硬删除；删除失败的集保留为无原文的集。
+    ``delete_retired`` 为 True 时，退下的集在采纳提交后逐个按删除一集的口径移进项目回收站；删除失败的集保留为
+    自带原文的集。
     """
     project_dir = Path(project_path)
     pm = ProjectManager.for_project_dir(project_dir)
@@ -664,7 +679,9 @@ def adopt_replan_candidate(
             raise _StaleConfirmation(locked_impact)
         if episode_id_high_water(p) + 1 != planned_first:
             raise ReplanError("conflict", "分集账本刚被改动，这次采纳没有执行")
-        committed["episodes"] = _apply_adoption(project_dir, p, locked_candidate, locked_adoption)
+        committed["episodes"] = _apply_adoption(
+            project_dir, p, locked_candidate, locked_adoption, delete_retired=delete_retired
+        )
 
     try:
         pm.update_project(project_name, _commit, formal_paths=formal_paths)

@@ -11,6 +11,7 @@ from lib.episode.episode_deletion import (
     EpisodeDeletionConfirmationRequired,
     EpisodeDeletionResult,
     delete_episode,
+    episode_trash_record,
     render_episode_deletion_text,
 )
 from lib.episode.episode_layout import build_episode_layout
@@ -267,7 +268,7 @@ class TestDelete:
         ]
         assert gaps == [(CH2, CH3)]
 
-    def test_episode_with_products_lists_what_is_lost_and_removes_it(self, tmp_path: Path):
+    def test_episode_with_products_lists_what_is_lost_and_moves_it_to_the_trash(self, tmp_path: Path):
         project_dir = _project_dir(tmp_path, [_cut(1, 0, CH2), _own(2)])
         _give_script(project_dir, 2, storyboards=2)
         (project_dir / "drafts" / "episode_2").mkdir(parents=True)
@@ -291,6 +292,18 @@ class TestDelete:
         assert not (project_dir / "edit_timelines" / "episode_2").exists()
         assert not (project_dir / "storyboards" / "scene_E2S01.png").exists()
         assert (project_dir / "storyboards" / "scene_E1S01.png").exists()
+        record = episode_trash_record(project_dir, 2)
+        assert record is not None
+        assert (record.object, record.has_snapshot) == ({"kind": "episode", "id": 2, "title": "番外2"}, True)
+        assert set(record.files) == {
+            "source/episode_2.txt",
+            "scripts/episode_2.json",
+            "drafts/episode_2/script_plan_segments.json",
+            "edit_timelines/episode_2/tl_1.json",
+            "storyboards/scene_E2S01.png",
+            "storyboards/scene_E2S02.png",
+        }
+        assert episode_trash_record(project_dir, 1) is None
 
     def test_loss_text_names_every_kind_of_product(self, tmp_path: Path):
         project_dir = _project_dir(tmp_path, [_own(2)])
@@ -302,9 +315,10 @@ class TestDelete:
         text = render_episode_deletion_text(preview.impact, project, i18n_message)
 
         assert text == (
-            "删除「番外2」后无法恢复，以下内容会一并删除：\n"
+            "「番外2」将移入项目回收站，保留 30 天，以下内容一并移入：\n"
             "集原文（5 字）、正式脚本、分镜图 3 张\n"
-            "这些产物的版本历史一并清除。"
+            "这些产物的版本历史一并移入。\n"
+            "期间可以在「文件」视图的项目回收站里恢复，恢复后它作为自带原文的集排在播出顺序末尾。"
         )
 
     def test_recoverable_text_for_a_cut_episode_in_the_middle(self, tmp_path: Path):
