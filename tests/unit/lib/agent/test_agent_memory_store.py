@@ -323,6 +323,38 @@ class TestProjectActivity:
 class TestProjectMemoryTrash:
     """项目记忆的删除与清空进项目回收站；恢复时原名被占用则换成仍可见的新名。"""
 
+    def test_long_memory_name_remains_readable_after_conflict_restore(self, tmp_path):
+        project_store = AgentMemoryStore.for_project(tmp_path)
+        name = "a" * 97 + ".md"
+        project_store.write(name, b"old")
+        project_store.delete(name)
+        project_store.write(name, b"new")
+        [record] = project_trash.list_records(tmp_path)
+
+        [restored] = project_trash.restore(tmp_path, record.id).restored
+
+        restored_name = Path(restored.path).name
+        assert restored_name != name
+        assert project_store.read(restored_name) == b"old"
+        assert {entry["name"] for entry in project_store.overview()["files"]} == {name, restored_name}
+
+    def test_clear_keeps_memory_written_after_the_deletion_snapshot(self, tmp_path, monkeypatch):
+        project_store = AgentMemoryStore.for_project(tmp_path)
+        project_store.write("old.md", b"old")
+        record_deletion = project_trash.record_deletion
+
+        def record_and_write(*args, **kwargs):
+            record = record_deletion(*args, **kwargs)
+            project_store.write("new.md", b"new")
+            return record
+
+        monkeypatch.setattr(project_trash, "record_deletion", record_and_write)
+        project_store.clear()
+
+        assert project_store.read("new.md") == b"new"
+        [record] = project_trash.list_records(tmp_path)
+        assert record.files == (".arcreel/memory/old.md",)
+
     def test_deleted_memory_restores_under_a_new_visible_name(self, tmp_path):
         project_store = AgentMemoryStore.for_project(tmp_path)
         project_store.write("notes.md", b"old")

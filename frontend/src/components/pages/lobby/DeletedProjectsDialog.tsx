@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Empty, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { useAppStore } from "@/stores/app-store";
+import type { RefreshProjectResult } from "@/stores/projects-store";
 import type { DeletedProject, DeletedProjectListing } from "@/types";
 import { errMsg } from "@/utils/async";
 import { formatShortDateTime } from "@/utils/date-format";
@@ -35,8 +36,8 @@ type ListingState = { status: "loading" } | { status: "error"; message: string }
 interface DeletedProjectsDialogProps {
   open: boolean;
   onClose: () => void;
-  /** 有项目恢复回来，项目列表需要重新加载。 */
-  onRestored: () => void;
+  /** 有项目恢复回来，重新加载项目列表并返回结算值；刷新失败时不报告恢复成功。 */
+  onRestored: () => Promise<RefreshProjectResult>;
 }
 
 /**
@@ -73,14 +74,17 @@ export function DeletedProjectsDialog({ open, onClose, onRestored }: DeletedProj
 
   const titleOf = (project: DeletedProject) => getProjectDisplayName(project.title, project.name);
 
-  /** 服务端已确认移走的项目立即从列表里拿掉，不等重拉，免得解除占用后又能被操作一次。 */
+  /**
+   * 服务端已确认移走的项目立即从列表里拿掉，不等重拉，免得解除占用后又能被操作一次。
+   * 再重拉一次：作废的在途列表可能带着这期间新删除的项目。
+   */
   const dropProject = (id: string) => {
-    controllerRef.current?.abort();
     setState((current) =>
       current.status === "ready"
         ? { status: "ready", listing: { ...current.listing, projects: current.listing.projects.filter((p) => p.id !== id) } }
         : current,
     );
+    load();
   };
 
   const setBusy = (id: string, busy: boolean) =>
@@ -96,6 +100,8 @@ export function DeletedProjectsDialog({ open, onClose, onRestored }: DeletedProj
     try {
       const { name } = await API.restoreDeletedProject(project.id);
       dropProject(project.id);
+      // 成功提示只在项目列表刷新成功后给：失败时已有刷新失败的提示，被新一轮刷新或离开页面作废时静默。
+      if ((await onRestored()) !== "success") return;
       const title = titleOf(project);
       useAppStore
         .getState()
@@ -105,7 +111,6 @@ export function DeletedProjectsDialog({ open, onClose, onRestored }: DeletedProj
             : t("dashboard:deleted_projects_restored_renamed", { title, name }),
           "success",
         );
-      onRestored();
     } catch (error) {
       useAppStore.getState().pushToast(t("dashboard:trash_action_failed", { message: errMsg(error) }), "error");
     } finally {

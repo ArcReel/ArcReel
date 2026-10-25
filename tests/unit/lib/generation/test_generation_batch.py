@@ -175,6 +175,27 @@ def test_successful_replacement_keeps_reporting_the_generated_candidate() -> Non
     assert item.artifact_status is ArtifactStatus.CURRENT
 
 
+def test_deleted_target_reports_the_trash_instead_of_the_requested_artifact() -> None:
+    read = build_generation_batch_read_model(
+        _replacement_batch(),
+        [_succeeded("E1S01", {"file_path": None, "target_deleted": True, "trash_record_id": "trash-1"})],
+        queue_depth={},
+    )
+
+    assert read.generation_result is not None
+    assert read.generation_result.succeeded == []
+    assert read.generation_result.failed == ["E1S01"]
+    [item] = read.generation_result.items
+    assert item.task_state == "succeeded"
+    assert item.artifact_path is None
+    assert item.artifact_key is None
+    assert item.artifact_status is ArtifactStatus.MISSING
+    assert item.problem is not None
+    assert item.problem.code == GenerationProblemCode.TARGET_DELETED
+    assert item.problem.action is GenerationAction.NONE
+    assert item.problem.params == {"trash_record_id": "trash-1"}
+
+
 def test_terminal_result_carries_the_worker_warnings_of_succeeded_items() -> None:
     """MCP 调用方从持久化批次读到的终态结果与内嵌等待路径一样带 worker warnings。"""
 

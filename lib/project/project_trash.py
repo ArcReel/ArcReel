@@ -300,14 +300,14 @@ def land_files(
     for _source, rel in files:
         check_restore_target(project_dir, rel)
     moved: list[tuple[Path, Path]] = []
-    try:
-        restored = [_land_file(project_dir, source, rel, obj, moved) for source, rel in files]
-        then()
-    except BaseException:
-        # shortcut: 已加成历史版本的文件不撤回，再次恢复会多一条同内容的历史版本；历史版本支持单条删除后改为撤回。
-        for source, target in reversed(moved):
-            os.replace(target, source)
-        raise
+    with VersionManager(project_dir).history_transaction():
+        try:
+            restored = [_land_file(project_dir, source, rel, obj, moved) for source, rel in files]
+            then()
+        except BaseException:
+            for source, target in reversed(moved):
+                os.replace(target, source)
+            raise
     return restored
 
 
@@ -450,6 +450,7 @@ def _land_file(
             stored,
             current_file=project_dir / resource_relative_path(resource_type, resource_id),
             prompt=str(obj.get("prompt") or ""),
+            metadata=obj["metadata"] if isinstance(obj.get("metadata"), dict) else None,
         )
         return RestoredFile(rel, path, as_history=True)
     if not (target.exists() or target.is_symlink()):
@@ -463,7 +464,14 @@ def _land_file(
         return RestoredFile(rel, path, as_history=True)
     path = PurePosixPath(rel)
     for n in range(1, 1000):
-        candidate = path.with_name(f"{path.stem} ({n}){path.suffix}").as_posix()
+        suffix = f" ({n}){path.suffix}"
+        stem = path.stem
+        if obj.get("kind") == "memory":
+            # 记忆存储依赖回收站，文件名约束在落地时读取，避免顶层循环依赖。
+            from lib.agent.agent_memory_store import FILENAME_MAX_LENGTH
+
+            stem = stem[: FILENAME_MAX_LENGTH - len(suffix)]
+        candidate = path.with_name(f"{stem}{suffix}").as_posix()
         if not ((project_dir / candidate).exists() or (project_dir / candidate).is_symlink()):
             os.replace(stored, project_dir / candidate)
             moved.append((stored, project_dir / candidate))

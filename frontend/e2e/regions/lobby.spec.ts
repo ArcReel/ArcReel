@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
-import { FIXED_NOW } from "../support/recorded.ts";
+import type { DeletedProjectListing } from "../../src/types/file-view.ts";
+import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
@@ -58,14 +59,16 @@ const MANY: ApiOverrides = { "GET /api/v1/projects": { status: 200, body: { proj
 const EMPTY: ApiOverrides = { "GET /api/v1/projects": { status: 200, body: { projects: [] } } };
 
 // 压力变体：十二个已删除项目，标题很长。
+const deletedProjects = recorded<DeletedProjectListing>("deleted-projects.json");
 const DELETED: ApiOverrides = {
   "GET /api/v1/deleted-projects": {
     status: 200,
     body: {
-      retention_days: 30,
+      ...deletedProjects,
       projects: Array.from({ length: 12 }, (_, index) => {
         const deletedAt = new Date(Date.parse(FIXED_NOW) - (index + 1) * DAY_MS);
         return {
+          ...deletedProjects.projects[0],
           id: `project-${index}#deleted-20261020T08000${index % 10}Z`,
           name: `project-${index}`,
           title: `${LONG_TITLE} ${index + 1}`,

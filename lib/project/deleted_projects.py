@@ -72,6 +72,13 @@ def move_in(layout: DataRootLayout, project_dir: Path, tombstone: str) -> Path:
     return target
 
 
+def move_back(layout: DataRootLayout, project_dir: Path, tombstone: str) -> None:
+    """撤销 :func:`move_in`：记录没能提交时把已删除项目 ``tombstone`` 移回 ``project_dir``；没移走过时什么都不做。"""
+    moved = layout.deleted_projects_dir / tombstone
+    if moved.is_dir() and not (project_dir.exists() or project_dir.is_symlink()):
+        moved.rename(project_dir)
+
+
 def list_entries(layout: DataRootLayout) -> list[DeletedProject]:
     """全部已删除项目，最近删除的在前。"""
     try:

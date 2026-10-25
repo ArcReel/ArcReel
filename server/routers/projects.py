@@ -59,7 +59,13 @@ from lib.generation.task_failure import FAILURE_CODE_KEYS
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
 from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
-from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_sync, run_sync_transaction
+from lib.infra.async_thread import (
+    EventLoopBridge,
+    run_noninterruptible_async,
+    run_noninterruptible_sync,
+    run_sync_transaction,
+)
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.json_io import domain_error_on_value_error
 from lib.project import deleted_projects
 from lib.project.asset_fingerprints import compute_asset_fingerprints
@@ -1191,10 +1197,16 @@ async def delete_project(name: str, _t: Translator):
     try:
         manager = get_project_manager()
         project_dir = await asyncio.to_thread(manager.get_project_path, name)
-        # 收尾记录与移走目录在同一个事务里：移走失败时记录回滚，项目原样留在原处。
+        # 收尾记录与移走目录在同一个事务里：移走或提交失败时记录回滚，目录移回原处。
         # 排队任务不会在移走的目录上开跑，执行中的任务照常跑完但放弃落盘。
-        async with retiring_project(async_session_factory, project_dir.name) as tombstone:
-            await run_sync_transaction(deleted_projects.move_in, manager.layout, project_dir, tombstone)
+        tombstone: str | None = None
+        try:
+            async with retiring_project(async_session_factory, project_dir.name) as tombstone:
+                await run_sync_transaction(deleted_projects.move_in, manager.layout, project_dir, tombstone)
+        except BaseException:
+            if tombstone is not None:
+                await run_sync_transaction(deleted_projects.move_back, manager.layout, project_dir, tombstone)
+            raise
         return {"success": True, "message": _t("project_deleted", name=name)}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -1218,7 +1230,12 @@ async def list_deleted_projects():
 @router.post("/deleted-projects/{deleted_id}/restore")
 async def restore_deleted_project(deleted_id: str):
     """整体恢复已删除项目：原名被占用时加后缀，记录改回恢复后的名字，再走启动时的迁移链"""
-    layout = get_project_manager().layout
+    # 整段不可中断：移出途中被取消时落点随返回值丢弃，目录已回原位而记录仍挂在墓碑名下。
+    project_dir = await run_noninterruptible_async(_restore_deleted_project(get_project_manager().layout, deleted_id))
+    return {"name": project_dir.name}
+
+
+async def _restore_deleted_project(layout: DataRootLayout, deleted_id: str) -> Path:
     project_dir = await run_sync_transaction(deleted_projects.move_out, layout, deleted_id)
     try:
         await restore_retired_project(async_session_factory, deleted_id, project_dir.name)
@@ -1231,7 +1248,7 @@ async def restore_deleted_project(deleted_id: str):
         project_dir,
         recorded_episode_ids=recorded_episode_ids_on(asyncio.get_running_loop()),
     )
-    return {"name": project_dir.name}
+    return project_dir
 
 
 @router.delete("/deleted-projects/{deleted_id}", dependencies=[Depends(reject_embedded_agent)])

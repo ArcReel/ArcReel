@@ -1053,7 +1053,7 @@ export default {
   'agent_memory_new_file': 'New memory file',
   'agent_memory_create': 'Create',
   'agent_memory_new_file_placeholder': 'e.g. tone.md',
-  'agent_memory_name_invalid': 'The name must start with a letter or digit, use only letters, digits, dots, underscores or hyphens, and end with .md',
+  'agent_memory_name_invalid': 'The name must start with a letter or digit, use only letters, digits, spaces, parentheses, dots, underscores or hyphens, and end with .md',
   'agent_memory_name_duplicate': 'A file with this name already exists',
   'agent_memory_empty_hint': 'No memory yet. The agent records it as you create, and you can add a file by hand.',
   'agent_memory_no_description': 'No description',

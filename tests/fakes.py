@@ -1104,6 +1104,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("server.routers.generate.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.grids.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.projects.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.project_trash.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.reference_videos.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.versions.get_project_manager", for_pm)
     monkeypatch.setattr("server.services.tasks.generation_context.get_project_manager", for_pm)

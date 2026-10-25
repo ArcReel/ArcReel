@@ -138,6 +138,7 @@ MESSAGES = {
     "empty_speaker": "Đơn vị này có câu thoại chưa gán nhân vật; hãy bổ sung người nói rồi thử lại",
     "generation_batch_admission_withheld": "Một đơn vị khác trong lô này không qua kiểm duyệt nên không tác vụ nào được tạo; hãy sửa rồi thử lại để gửi cùng nhau",
     "generation_active_task_conflict": "Đơn vị này đã có tác vụ đang chạy; hãy đợi hoàn tất trước khi gửi lô này",
+    "generation_target_deleted": "Đối tượng đã bị xóa trong khi tạo. Kết quả nằm trong thùng rác dự án và có thể khôi phục từ Tệp.",
     "generation_unit_not_found": "Đơn vị này không có trong kịch bản của tập",
     "generation_unit_input_unusable": "Dữ liệu đầu vào của đơn vị này không dùng được; hãy tạo phần phụ thuộc trước",
     "generation_unit_request_invalid": "Nội dung yêu cầu của đơn vị này không hợp lệ; hãy sửa rồi thử lại",

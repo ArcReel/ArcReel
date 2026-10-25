@@ -1,0 +1,17 @@
+{
+  "method": "GET",
+  "path": "/api/v1/deleted-projects",
+  "status": 200,
+  "body": {
+    "projects": [
+      {
+        "id": "deleted-demo#deleted-20260101T080000Z",
+        "name": "deleted-demo",
+        "title": "已删除演示项目",
+        "deleted_at": "2026-01-01T08:00:00.000Z",
+        "expires_at": "2026-01-01T08:00:00.000Z"
+      }
+    ],
+    "retention_days": 30
+  }
+}

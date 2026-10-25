@@ -48,6 +48,7 @@ AGENT_PROTECTED_MEDIA_DIRS: tuple[str, ...] = (
     "bgm",
     "renders",
 )
+AGENT_PROTECTED_MEDIA_FILES: tuple[str, ...] = tuple(f"style_reference.{ext}" for ext in ("png", "jpg", "jpeg", "webp"))
 
 
 def _default_claude_projects_dir() -> Path:
@@ -840,6 +841,10 @@ class AgentAccessPolicy:
         """
         return any(
             cls._is_within_for_compare(target, base / name) for base in bases for name in AGENT_PROTECTED_MEDIA_DIRS
+        ) or any(
+            cls._normalize_path_for_protected_compare(target) == cls._normalize_path_for_protected_compare(base / name)
+            for base in bases
+            for name in AGENT_PROTECTED_MEDIA_FILES
         )
 
     @classmethod
@@ -943,11 +948,11 @@ AgentAccessPolicy.PROTECTED_WRITE_RULES = (
         deny_message=(
             "访问被拒绝：媒体目录（"
             + "、".join(f"{name}/" for name in AGENT_PROTECTED_MEDIA_DIRS)
-            + "）下的文件不可直接写入、覆盖或删除，媒体只经生成与编辑工具写入。"
+            + "）下的文件与根目录的 style_reference 风格参考图不可直接写入、覆盖或删除，媒体只经生成与编辑工具写入。"
             "删除未引用文件走 mcp__arcreel__delete_project_file，文件移入项目回收站，可用 "
             "mcp__arcreel__restore_trash_record 恢复。"
         ),
-        sandbox_subpaths=AGENT_PROTECTED_MEDIA_DIRS,
+        sandbox_subpaths=(*AGENT_PROTECTED_MEDIA_DIRS, *AGENT_PROTECTED_MEDIA_FILES),
     ),
     ProtectedWriteRule(
         name="versions",
