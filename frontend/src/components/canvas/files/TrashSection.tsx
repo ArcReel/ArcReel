@@ -52,6 +52,10 @@ function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): 
   if (object.kind === "asset_derivative" && typeof object.name === "string") {
     return t("trash_object_asset_derivative", { name: object.name, owner: object.owner });
   }
+  if (object.kind === "source_file" && typeof object.path === "string") {
+    return t("trash_object_source_file", { name: object.path.split("/").pop() });
+  }
+  if (object.kind === "planning_draft") return t("trash_object_planning_draft", { episode: object.episode });
   if (object.kind === "script_entry") {
     const key = object.item_kind === "video_units" ? "trash_object_script_unit" : "trash_object_script_entry";
     return t(key, { id: object.id, episode: object.episode });

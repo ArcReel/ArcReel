@@ -150,6 +150,7 @@ export default {
   "sheet_batch_done": "Đợt tạo hình tài sản hoàn tất: đã tạo {{count}} hình",
   "sheet_batch_done_with_failures": "Đợt tạo hình tài sản kết thúc: đã tạo {{succeeded}}, lỗi {{failed}}",
   "sheet_batch_owner_missing": "{{count}} hình phái sinh chưa được gửi vì hình gốc chưa được tạo",
+  "sheet_batch_target_deleted": "{{count}} hình hoàn tất khi tài sản đã bị xóa; kết quả nằm trong thùng rác dự án",
   "sheet_regenerate_stale_title": "Tạo lại hình này?",
   "sheet_regenerate_stale_impact": "Sau khi tạo lại, {{storyboards}} hình phân cảnh và {{videos}} video dùng hình này sẽ trở nên lỗi thời.",
   "sheet_regenerate_stale_derivatives": "{{count}} hình phái sinh của nó cũng sẽ lỗi thời.",

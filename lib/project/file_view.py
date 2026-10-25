@@ -50,6 +50,8 @@ class FileViewEntry:
         if self.reference is not None:
             data["role"] = self.reference.role.value
             data["owner"] = None if self.reference.owner is None else self.reference.owner.to_dict()
+            if self.reference.current:
+                data["is_current"] = True
         return data
 
 

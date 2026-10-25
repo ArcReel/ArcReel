@@ -93,6 +93,34 @@ def test_directory_entries_carry_role_and_owner(file_view_client):
     assert memory["MEMORY.md"]["owner"] == {"kind": "memory", "id": "MEMORY.md"}
 
 
+def test_current_version_snapshot_is_marked_current(file_view_client, file_view_project_dir):
+    (file_view_project_dir / "versions/storyboards").mkdir(parents=True)
+    for name in ("E1S01_v1.png", "E1S01_v2.png"):
+        (file_view_project_dir / "versions/storyboards" / name).write_bytes(b"v")
+    (file_view_project_dir / "versions/versions.json").write_text(
+        json.dumps(
+            {
+                "storyboards": {
+                    "E1S01": {
+                        "current_version": 2,
+                        "versions": [
+                            {"version": 1, "file": "versions/storyboards/E1S01_v1.png"},
+                            {"version": 2, "file": "versions/storyboards/E1S01_v2.png"},
+                        ],
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    entries = _entries(file_view_client.get(BASE, params={"path": "versions/storyboards"}))
+
+    assert entries["E1S01_v2.png"]["role"] == "history"
+    assert entries["E1S01_v2.png"]["is_current"] is True
+    assert "is_current" not in entries["E1S01_v1.png"]
+
+
 def test_content_previews_text_and_downloads_as_attachment(file_view_client):
     preview = file_view_client.get(f"{BASE}/content", params={"path": "scripts/episode_1.json"})
     assert preview.status_code == 200
