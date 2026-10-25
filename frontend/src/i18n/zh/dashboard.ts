@@ -2399,6 +2399,7 @@ export default {
   'tool_name_list_timelines': '列出剪辑时间线',
   'tool_name_read_timeline': '读取剪辑时间线',
   'tool_name_list_bgm': '列出 BGM',
+  'tool_name_import_bgm': '导入配乐',
   'tool_name_edit_timeline': '修改剪辑时间线',
   'tool_name_rename_timeline': '重命名剪辑时间线',
   'tool_name_list_revisions': '查看剪辑时间线修订历史',

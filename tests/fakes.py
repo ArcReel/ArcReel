@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import os
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Mapping
 from contextlib import contextmanager
@@ -31,6 +32,11 @@ _STREAM_EOF = object()
 #: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
 MP4_BYTES = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mp4-bytes"
 PNG_BYTES = b"\x89PNG\r\n\x1a\npng-bytes"
+
+
+def use_os_open(monkeypatch: Any, replacement: Callable[..., int]) -> None:
+    """Share the file-descriptor boundary hook for read counting and path-race tests."""
+    monkeypatch.setattr(os, "open", replacement)
 
 
 async def write_backend_output(path: Path, data: bytes) -> None:

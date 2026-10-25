@@ -2400,6 +2400,7 @@ export default {
   'tool_name_list_timelines': 'List edit timelines',
   'tool_name_read_timeline': 'Read edit timeline',
   'tool_name_list_bgm': 'List BGM',
+  'tool_name_import_bgm': 'Import soundtrack',
   'tool_name_edit_timeline': 'Update edit timeline',
   'tool_name_rename_timeline': 'Rename edit timeline',
   'tool_name_list_revisions': 'List edit timeline revisions',

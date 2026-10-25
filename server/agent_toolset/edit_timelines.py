@@ -3,7 +3,14 @@
 from __future__ import annotations
 
 from server.agent_toolset.declaration import BLOCKED, ToolDeclaration
-from server.media_tools.bgm import ListBgmRequest, bgm_list_summary, list_bgm
+from server.media_tools.bgm import (
+    ImportBgmRequest,
+    ListBgmRequest,
+    bgm_import_summary,
+    bgm_list_summary,
+    import_bgm,
+    list_bgm,
+)
 from server.media_tools.edit_timelines import (
     CreateTimelineRequest,
     EditTimelineRequest,
@@ -159,14 +166,32 @@ LIST_BGM = ToolDeclaration(
     name="list_bgm",
     description=(
         "列出项目里已上传的 BGM：id（如 bgm-3f9a0c21，edit_timeline 的 insert_bgm 用它引用）、name 与 duration（秒），"
-        "按上传先后排列。BGM 属于整个项目，各集的剪辑时间线都能用；上传由创作者在剪辑视图的 BGM 轨完成，"
-        "列表为空时请创作者先上传。只读，无副作用。"
+        "按上传先后排列。BGM 属于整个项目，各集的剪辑时间线都能用；创作者可以在剪辑视图的 BGM 轨上传，"
+        "项目内已有音频可用 import_bgm 登记。只读，无副作用。"
     ),
     request_model=ListBgmRequest,
     migration=BLOCKED,
     domain_key="bgm",
     handler=list_bgm,
     summary=bgm_list_summary,
+)
+
+IMPORT_BGM = ToolDeclaration(
+    name="import_bgm",
+    description=(
+        "Import an existing MP3, WAV or M4A file inside this project into its soundtrack library using the normal "
+        "upload validation and loudness measurement. Use this for an authorized locally prepared music or finished "
+        "audio mix so edit_timeline insert_bgm can reference its returned ID. Does not generate audio, change its "
+        "source bytes, place it on a timeline or replace an existing item; each call creates a new library item. "
+        "Use list_bgm before importing to avoid duplicate uploads. Returns duration and measured normalization "
+        "gain_db: timeline volume multiplies this gain, so account for it when preserving an already mastered mix. "
+        "Only project-relative visible paths are allowed; no external files, URLs or hidden configuration files."
+    ),
+    request_model=ImportBgmRequest,
+    migration=BLOCKED,
+    domain_key="bgm",
+    handler=import_bgm,
+    summary=bgm_import_summary,
 )
 
 RESTORE_REVISION = ToolDeclaration(
@@ -196,12 +221,14 @@ EDIT_TIMELINE_TOOLS = (
     LIST_REVISIONS,
     RESTORE_REVISION,
     LIST_BGM,
+    IMPORT_BGM,
 )
 
 __all__ = [
     "CREATE_TIMELINE",
     "EDIT_TIMELINE",
     "EDIT_TIMELINE_TOOLS",
+    "IMPORT_BGM",
     "LIST_BGM",
     "LIST_REVISIONS",
     "LIST_TIMELINES",

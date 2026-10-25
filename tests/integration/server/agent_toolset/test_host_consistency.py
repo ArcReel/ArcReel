@@ -46,6 +46,7 @@ from server.agent_toolset.declaration import (
 from server.agent_toolset.edit_timelines import (
     CREATE_TIMELINE,
     EDIT_TIMELINE,
+    IMPORT_BGM,
     LIST_REVISIONS,
     READ_TIMELINE,
     RENAME_TIMELINE,
@@ -155,6 +156,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "list_timelines": {"episode": 1},
     "read_timeline": {"timeline": "tl-0000abcd"},
     "list_bgm": {},
+    "import_bgm": {"source_path": "audio/mix.wav"},
     "edit_timeline": {
         "timeline": "tl-0000abcd",
         "base_revision": 1,
@@ -541,6 +543,7 @@ _TIME_DEPENDENT_RESULTS = frozenset({CREATE_PROJECT.name, CREATE_TIMELINE.name})
 # 样例入参下合法地返回 problem 的声明：测试项目缺少它们要找的对象或能力配置。其余声明在样例入参下必须成功。
 _PROBLEM_ON_SAMPLE = frozenset(
     {
+        IMPORT_BGM.name,
         GET_VIDEO_CAPABILITIES.name,
         GET_PROMPT_PREVIEW.name,
         GET_GENERATION_BATCH.name,

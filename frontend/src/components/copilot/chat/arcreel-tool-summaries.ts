@@ -52,6 +52,7 @@ export const ARCREEL_TOOL_SUMMARIES: Record<string, Summarize> = {
   list_revisions: () => "",
   restore_revision: (i, f) => f.revision(i.revision),
   list_bgm: () => "",
+  import_bgm: (i, f) => f.text(i.source_path),
   render_final_cut: (i, f) => f.revision(i.revision),
   export_jianying_draft: (i, f) => f.revision(i.revision),
   generate_episode_script: (i, f) => f.items(i.entry_ids) || f.episode(i.episode_id),
