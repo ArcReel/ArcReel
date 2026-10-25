@@ -194,8 +194,8 @@ class TestDerivativeDeleteCascade:
         assert response.status_code == 200, response.text
         self._assert_purged(project_path)
         assert read_project_json(project_path)["characters"] == {}
-        # 本体自己的资产图与历史按既有口径保留，级联只清衍生。
-        assert (project_path / "characters/阿岚.png").is_file()
+        # 本体的资产图与衍生一起进了同一条删除记录。
+        assert not (project_path / "characters/阿岚.png").exists()
 
     def test_purging_one_derivative_leaves_its_sibling_untouched(self, tmp_path, monkeypatch):
         pm, project_path = seed_derivative_project(tmp_path)

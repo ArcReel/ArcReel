@@ -55,6 +55,7 @@ __all__ = [
     "restore",
     "structure_files",
     "trash_dir",
+    "withdraw",
 ]
 
 TRASH_DIRNAME = "trash"
@@ -193,15 +194,18 @@ def record_deletion(
     *,
     snapshot: bool = False,
     sources: Mapping[str, Path] | None = None,
+    before: Mapping[str, bytes] | None = None,
 ) -> TrashRecord:
     """把 ``files``（项目内相对 POSIX 路径，必须是普通文件）移进一条新的删除记录。
 
     调用方持有项目锁，并已在同一临界区里确认这些文件可以删除；发起方取当前的变更来源。``snapshot``
     为真时先把删除前的结构文件复制进记录（结构删除用；被删文件本身不重复复制），恢复时按身份从中取出对象。
     文件实际不在该路径上时（例如生成结果的暂存文件），``sources`` 给出它的位置，记录里仍记原路径。
-    任一文件移动失败时已移走的文件搬回原处，不留下半条记录。
+    调用方已在同一临界区里改写过的结构文件（如删集时的 ``project.json``），由 ``before`` 给出删除前的内容。
+    结构删除的对象可以没有被删文件（它只存在于结构文件里）。
+    任一文件移动失败时已移走的文件搬回原处，不留下半条记录；记录建立后提交失败时用 :func:`withdraw` 撤回。
     """
-    if "kind" not in obj or not files:
+    if "kind" not in obj or not (files or snapshot):
         raise ValueError("删除记录需要对象类型与至少一个被删文件")
     record_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
     record_dir = trash_dir(project_dir) / record_id
@@ -209,13 +213,17 @@ def record_deletion(
     moved: list[tuple[Path, Path]] = []
     try:
         size = 0
+        stored.mkdir(parents=True)  # 没有被删文件的结构删除也有这个目录：恢复流水线从这里铺设
         if snapshot:
             deleted = set(files)
             for rel in structure_files(project_dir):
                 if rel not in deleted:
                     target = record_dir / SNAPSHOT_DIRNAME / rel
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(project_dir / rel, target)
+                    if before is not None and rel in before:
+                        target.write_bytes(before[rel])
+                    else:
+                        shutil.copy2(project_dir / rel, target)
                     size += target.stat().st_size
         for rel in files:
             source = (sources or {}).get(rel) or project_dir / _checked_rel(rel)
@@ -246,6 +254,18 @@ def record_deletion(
         raise
     _notify(project_dir)
     return record
+
+
+def withdraw(project_dir: Path, record_id: str) -> None:
+    """撤回同一临界区里刚建立的删除记录：被删文件搬回原处，记录消失。删除提交失败时补偿用；调用方持有项目锁。"""
+    record = require_record(project_dir, record_id)
+    record_dir = trash_dir(project_dir) / record.id
+    for rel in record.files:
+        target = project_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(record_dir / FILES_DIRNAME / rel, target)
+    shutil.rmtree(record_dir)
+    _notify(project_dir)
 
 
 def list_records(project_dir: Path) -> list[TrashRecord]:

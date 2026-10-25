@@ -16,6 +16,7 @@ from typing import Any
 
 import pytest
 
+from lib.project import project_trash
 from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_review
@@ -981,6 +982,12 @@ async def test_discard_draft_keeps_formal_content_and_is_idempotent(fake_ctx: To
     assert second["discarded"] is False
     assert not rv_quarantine_path(fake_ctx).exists()
     assert rv_script_plan_path(fake_ctx).read_text(encoding="utf-8") == formal_before
+    # 丢弃的草稿进项目回收站，恢复回原位
+    project_dir = rv_quarantine_path(fake_ctx).parents[2]
+    (record,) = project_trash.list_records(project_dir)
+    assert record.origin == "agent"
+    project_trash.restore(project_dir, record.id)
+    assert rv_quarantine_path(fake_ctx).is_file()
 
 
 async def test_open_reference_prompt_authoring_keeps_an_empty_title_empty(fake_ctx: ToolHarness) -> None:

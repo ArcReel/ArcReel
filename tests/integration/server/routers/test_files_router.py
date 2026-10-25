@@ -21,10 +21,12 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.backends.providers import CallPurpose
+from lib.episode.episode_sources import whole_source_files
 from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
 from lib.i18n.zh import errors as zh_errors
+from lib.project import project_trash
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.script import script_review
@@ -795,9 +797,8 @@ class TestFilesRouter:
             new_path = project_dir / "characters" / "refs_audio" / "Alice.mp3"
             assert new_path.exists()
 
-    def test_character_audio_ref_replace_succeeds_when_stale_cleanup_fails(self, tmp_path, monkeypatch):
-        """替换成功但旧文件物理删除失败（权限/IO 错误）时，请求仍应成功——新文件与字段已提交，
-        不应因清理失败误报整次替换失败并诱导重试（重试时旧文件已找不到指针，成为孤儿）。"""
+    def test_character_audio_ref_replace_moves_the_stale_file_to_the_project_trash(self, tmp_path, monkeypatch):
+        """换成不同扩展名时，被换掉的旧文件在同一次提交里进项目回收站。"""
         client, pm = _client(monkeypatch, tmp_path)
 
         async def _fake_duration(content, suffix):
@@ -806,33 +807,16 @@ class TestFilesRouter:
         monkeypatch.setattr(files, "probe_audio_duration_seconds", _fake_duration)
 
         with client:
-            first = client.post(
-                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("v1.wav", b"fake-wav-bytes", "audio/wav")},
-            )
-            assert first.status_code == 200
+            for name in ("v1.wav", "v2.mp3"):
+                response = client.post(
+                    "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
+                    files={"file": (name, b"fake-audio-bytes", "audio/mpeg")},
+                )
+                assert response.status_code == 200
             project_dir = pm.get_project_path("demo")
-            old_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
-            assert old_path.exists()
-
-            original_unlink = Path.unlink
-
-            def _boom(self, *args, **kwargs):
-                if self == old_path:
-                    raise PermissionError("simulated unlink failure")
-                return original_unlink(self, *args, **kwargs)
-
-            monkeypatch.setattr(Path, "unlink", _boom)
-
-            second = client.post(
-                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("v2.mp3", b"fake-mp3-bytes", "audio/mpeg")},
-            )
-            assert second.status_code == 200
-            assert second.json()["path"] == "characters/refs_audio/Alice.mp3"
-            new_path = project_dir / "characters" / "refs_audio" / "Alice.mp3"
-            assert new_path.exists()
-            assert old_path.exists()  # 清理失败，旧文件残留（已记告警日志），但不影响本次请求成功
+            (record,) = project_trash.list_records(project_dir)
+            assert record.files == ("characters/refs_audio/Alice.wav",)
+            assert not (project_dir / "characters" / "refs_audio" / "Alice.wav").exists()
             assert (
                 pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == "characters/refs_audio/Alice.mp3"
             )
@@ -853,33 +837,12 @@ class TestFilesRouter:
             assert delete.status_code == 200
             assert not audio_path.exists()
             assert pm.load_project("demo")["characters"]["Alice"].get("reference_audio") == ""
-
-    def test_delete_character_reference_audio_succeeds_when_cleanup_fails(self, tmp_path, monkeypatch):
-        """字段已提交清空后，物理删除失败只残留无引用文件，不应让请求误报失败。"""
-        client, pm = _client(monkeypatch, tmp_path)
-        with client:
-            upload = client.post(
-                "/api/v1/projects/demo/upload/character_audio_ref?name=Alice",
-                files={"file": ("alice_voice.wav", wav_bytes(3), "audio/wav")},
-            )
-            assert upload.status_code == 200
-            project_dir = pm.get_project_path("demo")
-            audio_path = project_dir / "characters" / "refs_audio" / "Alice.wav"
-            assert audio_path.exists()
-
-            original_unlink = Path.unlink
-
-            def _boom(self, *args, **kwargs):
-                if self == audio_path:
-                    raise PermissionError("simulated unlink failure")
-                return original_unlink(self, *args, **kwargs)
-
-            monkeypatch.setattr(Path, "unlink", _boom)
-
-            resp = client.delete("/api/v1/projects/demo/characters/Alice/reference-audio")
-            assert resp.status_code == 200
-            assert pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == ""
-            assert audio_path.exists()
+            (record,) = project_trash.list_records(project_dir)
+            assert record.object == {
+                "kind": "reference_audio",
+                "character": "Alice",
+                "path": "characters/refs_audio/Alice.wav",
+            }
 
     def test_delete_character_reference_audio_preserves_file_when_project_commit_fails(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
@@ -2298,6 +2261,58 @@ class TestSourceMultiFormatUpload:
             resp = client.delete("/api/v1/projects/demo/source/to_delete.txt")
             assert resp.status_code == 200
             assert not raw_path.exists()
+            # 源文件与原始上传件是同一条删除记录
+            (record,) = project_trash.list_records(project_dir)
+            assert sorted(record.files) == ["source/raw/to_delete.txt", "source/to_delete.txt"]
+
+            # 恢复为未纳入整本源文的源文件，原始上传件随之回原处
+            project_trash.restore(project_dir, record.id)
+            assert (project_dir / "source/to_delete.txt").is_file()
+            assert raw_path.is_file()
+            assert "source/to_delete.txt" not in whole_source_files(pm.load_project("demo"))
+
+    def test_delete_unregistered_source_file_moves_it_and_raw_to_trash(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        (project_dir / "source/raw").mkdir(parents=True)
+        (project_dir / "source/extra.txt").write_text("未纳入", encoding="utf-8")
+        (project_dir / "source/raw/extra.docx").write_bytes(b"docx")
+        with client:
+            assert client.delete("/api/v1/projects/demo/source/extra.txt").status_code == 200
+        (record,) = project_trash.list_records(project_dir)
+        assert sorted(record.files) == ["source/extra.txt", "source/raw/extra.docx"]
+        assert not (project_dir / "source/extra.txt").exists()
+
+    def test_replacing_a_source_file_moves_the_old_file_and_raw_to_trash(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        with client:
+            _upload_source(client, "demo", "old.txt", ("旧章\n" * 30).encode("gbk"))
+            resp = _upload_source(client, "demo", "old.txt", "新内容".encode(), on_conflict="replace")
+            assert resp.status_code == 200, resp.text
+        assert (project_dir / "source/old.txt").read_text(encoding="utf-8") == "新内容"
+        assert not (project_dir / "source/raw/old.txt").exists()
+        (record,) = project_trash.list_records(project_dir)
+        assert sorted(record.files) == ["source/old.txt", "source/raw/old.txt"]
+
+        # 原名已被新文件占用：旧文件与原始上传件一起换名加回，主干仍对应
+        result = project_trash.restore(project_dir, record.id)
+        assert sorted(item.path for item in result.restored) == ["source/old (1).txt", "source/raw/old (1).txt"]
+        assert (project_dir / "source/old.txt").read_text(encoding="utf-8") == "新内容"
+
+    def test_failed_replace_of_an_unregistered_file_keeps_the_old_file(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        (project_dir / "source/raw").mkdir(parents=True)
+        (project_dir / "source/extra.txt").write_text("旧内容", encoding="utf-8")
+        (project_dir / "source/raw/extra.docx").write_bytes(b"docx")
+        fail_project_json_write(monkeypatch, project_dir / "project.json")
+        with client, pytest.raises(OSError, match="injected project write failure"):
+            _upload_source(client, "demo", "extra.txt", "新内容".encode(), on_conflict="replace")
+        # 撤销时旧文件与原始上传件回到原处，删除记录撤回
+        assert (project_dir / "source/extra.txt").read_text(encoding="utf-8") == "旧内容"
+        assert (project_dir / "source/raw/extra.docx").read_bytes() == b"docx"
+        assert project_trash.list_records(project_dir) == []
 
     def test_upload_source_invalid_on_conflict_returns_422(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)

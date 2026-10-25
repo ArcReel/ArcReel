@@ -12,7 +12,7 @@ import shutil
 import sys
 import tempfile
 import threading
-from collections.abc import Callable, Collection, Generator, Mapping, Sequence
+from collections.abc import Callable, Collection, Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -148,7 +148,7 @@ def _unlink_paths(*paths: Path | None) -> list[tuple[Path, OSError]]:
         if path is None:
             continue
         try:
-            # hard-delete: pending-trash -- #3384 #3385 #3386 purge_resource 经此删除资源的全部历史版本；其余调用方删的是暂存与回滚文件，最后一个接入的 ticket 改标 temp
+            # hard-delete: temp -- 暂存、回滚与恢复失败时撤下的快照文件；数据删除都经项目回收站
             path.unlink(missing_ok=True)
         except OSError as exc:
             failures.append((path, exc))
@@ -1181,7 +1181,7 @@ class VersionManager:
         与文件名可能以 NFD 落盘。返回涉及的快照文件数；旧 id 无版本记录时返回 0
         （幂等：级联事务中途失败后重跑安全）。``dry_run=True`` 只统计、不迁移。
 
-        新 id 下已有他人的版本历史时整体拒绝：资产删除只删资产桶 key、版本记录与快照留存，
+        新 id 下已有他人的版本历史时整体拒绝：资产桶中没有对应条目时，仍可能留有版本记录与快照，
         迁移过去会不可恢复地覆盖它。拒绝发生在 ``dry_run`` 分支之前，因此级联事务的扫描
         阶段就能拦下，零写入承诺不破。
 
@@ -1192,7 +1192,7 @@ class VersionManager:
             raise ValueError(f"不支持的资源类型: {resource_type}")
 
         from lib.project.asset_rename import AssetRenameHistoryCollisionError
-        from lib.project.asset_types import normalize_asset_name, rekey_equivalent_entries, resolve_asset_key
+        from lib.project.asset_types import normalize_asset_name, rekey_equivalent_entries
 
         with self._lock:
             data = self._load_versions()
@@ -1230,8 +1230,7 @@ class VersionManager:
                     src.replace(dst)
                 version["file"] = dst.relative_to(self.project_path).as_posix()
             # 视觉同名的等价 key（NFC / NFD 并存）一并收编到新 id 下，留一条会顶着旧名残留、
-            # 之后被重建的同名资产接上。被合并掉的那条记录，其快照文件会留在盘上成为孤儿——
-            # 与资产删除只删桶 key、快照留存是同一口径，宁可留下也不静默删除用户的历史。
+            # 之后被重建的同名资产接上。被合并掉的那条记录，其快照文件留在盘上，避免静默删除用户的历史。
             rekey_equivalent_entries(bucket, old_id, new_id)
             self._save_versions(data)
             record_project_activity(self.project_path)
@@ -1409,35 +1408,49 @@ class VersionManager:
                         return trashed
         raise NotFoundError("version_not_found", version=snapshot_path)
 
-    def purge_resource(self, resource_type: str, resource_id: str) -> int:
-        """删除一个资源的全部版本记录与快照文件，返回删除的快照数。
+    def resource_records(self, resources: Iterable[tuple[str, str]]) -> dict[str, dict[str, Any]]:
+        """这些资源的版本记录（按资源类型分桶）；没有记录的资源不出现。"""
+        data = self._load_versions()
+        found: dict[str, dict[str, Any]] = {}
+        for resource_type, resource_id in resources:
+            record = data.get(resource_type, {}).get(resource_id)
+            if isinstance(record, dict):
+                found.setdefault(resource_type, {})[resource_id] = record
+        return found
 
-        只服务「资源本身随之消失」的删除路径（当前是角色衍生）：留着记录会让重建的同名
-        资源接上一段不属于它的历史。资产删除保留历史是另一条既有口径，不经此。
-        快照文件删不掉时记录并继续——记录已经删了，留在盘上的文件不再被任何版本引用。
-        """
-        if resource_type not in self.RESOURCE_TYPES:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
+    def snapshot_files(self, records: Mapping[str, Mapping[str, Any]]) -> list[str]:
+        """版本记录里各版本快照的项目内相对路径（快照文件可能已不在盘上）。"""
+        return [
+            version["file"]
+            for resource_type, bucket in records.items()
+            for record in bucket.values()
+            for version in record.get("versions", [])
+            if isinstance(version, dict) and self.is_managed_snapshot_path(resource_type, version.get("file"))
+        ]
 
+    def detach_resources(self, resources: Iterable[tuple[str, str]]) -> None:
+        """从版本历史里摘掉这些资源的记录，不动快照文件：它们已随删除记录移进项目回收站。调用方持项目锁。"""
         with self._lock:
             data = self._load_versions()
-            bucket = data.get(resource_type)
-            if not isinstance(bucket, dict):
-                return 0
-            key = resolve_asset_key(bucket, resource_id)
-            record = bucket.get(key) if key is not None else None
-            if key is None or not isinstance(record, dict):
-                return 0
-            snapshots = [
-                self._resolve_snapshot(resource_type, version)
-                for version in record.get("versions", [])
-                if isinstance(version, dict) and isinstance(version.get("file"), str)
-            ]
-            del bucket[key]
-            self._save_versions(data)
-            record_project_activity(self.project_path)
-            _report_cleanup_failures(_unlink_paths(*snapshots), active_failure=sys.exception())
-            return len(snapshots)
+            removed = [data[rt].pop(rid) for rt, rid in resources if rid in data.get(rt, {})]
+            if removed:
+                self._save_versions(data)
+                record_project_activity(self.project_path)
+
+    def attach_resources(self, records: Mapping[str, Mapping[str, Any]]) -> None:
+        """恢复删除记录时把整段版本记录加回，快照文件已放回原处；已有记录的资源保持现状。调用方持项目锁。"""
+        with self._lock:
+            data = self._load_versions()
+            added = False
+            for resource_type, bucket in records.items():
+                target = data.setdefault(resource_type, {})
+                for resource_id, record in bucket.items():
+                    if resource_id not in target:
+                        target[resource_id] = dict(record)
+                        added = True
+            if added:
+                self._save_versions(data)
+                record_project_activity(self.project_path)
 
     def restore_version(
         self,

@@ -69,6 +69,27 @@ describe("useTaskFailureNotifications", () => {
     });
   });
 
+  it("tells the user the result went to the trash when the target was deleted during generation", async () => {
+    useTasksStore.setState({ tasks: [task({ status: "running" }), task({ task_id: "t2", status: "running" })] });
+    render(<Harness project="demo" />);
+
+    act(() => {
+      useTasksStore.setState({
+        tasks: [
+          task({ status: "succeeded", result: { target_deleted: true, trash_record_id: "r1" } }),
+          task({ task_id: "t2", status: "succeeded", result: { file_path: "storyboards/a.png" } }),
+        ],
+      });
+    });
+
+    await waitFor(() => {
+      expect(useAppStore.getState().workspaceNotifications).toHaveLength(1);
+    });
+    const note = useAppStore.getState().workspaceNotifications[0];
+    expect(note.tone).toBe("warning");
+    expect(note.text).toContain("项目回收站");
+  });
+
   it("does not notify for tasks already failed on first observation", () => {
     useTasksStore.setState({ tasks: [task({ status: "failed" })] });
     render(<Harness project="demo" />);

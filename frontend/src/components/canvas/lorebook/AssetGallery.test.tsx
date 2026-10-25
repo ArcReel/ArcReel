@@ -223,7 +223,7 @@ describe("AssetGallery", () => {
 
       const dialog = await screen.findByRole("alertdialog", { name: "删除场景「庭院」？" });
       expect(
-        await within(dialog).findByText("被「开端」等 2 集共 5 处引用，删除后这些分镜在生成时会被拦下，资产也无法恢复。"),
+        await within(dialog).findByText("被「开端」等 2 集共 5 处引用，删除后这些分镜在生成时会被拦下。资产将连同资产图、版本历史与衍生移入项目回收站，保留 30 天，期间可以在「文件」视图的项目回收站里恢复。"),
       ).toBeInTheDocument();
       expect(within(dialog).getByText("夜访")).toBeInTheDocument();
       expect(preview).toHaveBeenCalledWith("demo", "scene", "庭院", { signal: expect.any(AbortSignal) });
@@ -249,7 +249,7 @@ describe("AssetGallery", () => {
 
       await user.click(within(await openMenu(user, "书房")).getByRole("menuitem", { name: "删除" }));
       const dialog = await screen.findByRole("alertdialog", { name: "删除场景「书房」？" });
-      expect(await within(dialog).findByText("删除后无法恢复。")).toBeInTheDocument();
+      expect(await within(dialog).findByText("资产将连同资产图、版本历史与衍生移入项目回收站，保留 30 天，期间可以在「文件」视图的项目回收站里恢复。")).toBeInTheDocument();
       expect(within(dialog).queryByRole("button", { name: "改为并入…" })).not.toBeInTheDocument();
 
       await user.click(within(dialog).getByRole("button", { name: "删除" }));
@@ -293,7 +293,7 @@ describe("AssetGallery", () => {
         );
         await user.click(within(await openMenu(user, "书房")).getByRole("menuitem", { name: "删除" }));
         const dialog = await screen.findByRole("alertdialog", { name: "删除场景「书房」？" });
-        await within(dialog).findByText("删除后无法恢复。");
+        await within(dialog).findByText("资产将连同资产图、版本历史与衍生移入项目回收站，保留 30 天，期间可以在「文件」视图的项目回收站里恢复。");
         await user.click(within(dialog).getByRole("button", { name: "删除" }));
         return within(await screen.findByRole("alertdialog", { name: "有未保存的修改" }));
       }

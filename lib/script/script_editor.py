@@ -175,7 +175,7 @@ def new_item_id(script: dict[str, Any]) -> str:
 
     分镜族为 ``E{集}S{序号:02d}``，参考生视频单元为 ``E{集}U{序号}``；序号不回填中间空缺，也不从
     锚点派生，条目顺序只由数组位置决定。只看现存条目，所以末尾条目删掉后再新增会取回它的序号；
-    同号旧条目留下的媒体与版本历史由批量编辑在提交时清掉，新条目是全新的身份。
+    同号旧条目留下的媒体与版本历史由批量编辑在提交时移进项目回收站，新条目是全新的身份。
     """
     items, id_field, kind = resolve_items(script)
     ids = [str(item.get(id_field)) for item in items if isinstance(item, dict)]

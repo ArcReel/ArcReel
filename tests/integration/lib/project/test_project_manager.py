@@ -1,14 +1,13 @@
 import json
 import shutil
 import warnings
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Event
 
 import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.backends.providers import CallPurpose
+from lib.project import project_trash
 from lib.project.project_manager import EmptySourceError, ProjectManager
 from tests.fakes import use_text_generator
 
@@ -790,7 +789,7 @@ class TestProjectManager:
         assert alice["description"] == "hero rewritten"
         assert alice["derivatives"] == table
 
-    def test_reference_audio_cleanup_cannot_delete_a_newer_concurrent_selection(self, tmp_path, monkeypatch):
+    def test_replaced_and_cleared_reference_audio_go_to_the_project_trash(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo")
@@ -798,38 +797,16 @@ class TestProjectManager:
         wav_rel = "characters/refs_audio/Alice.wav"
         mp3_rel = "characters/refs_audio/Alice.mp3"
         pm.install_character_reference_audio("demo", "Alice", wav_rel, b"old-wav")
-
-        first_cleanup_ready = Event()
-        continue_first_cleanup = Event()
-        original_cleanup = pm._discard_stale_reference_audio_if_unreferenced
-
-        def _delay_first_cleanup(project_name: str, stale_audio: Path | None) -> None:
-            if stale_audio is not None and stale_audio.name == "Alice.wav" and not first_cleanup_ready.is_set():
-                first_cleanup_ready.set()
-                assert continue_first_cleanup.wait(timeout=2)
-            original_cleanup(project_name, stale_audio)
-
-        monkeypatch.setattr(pm, "_discard_stale_reference_audio_if_unreferenced", _delay_first_cleanup)
-
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            first = executor.submit(
-                pm.install_character_reference_audio,
-                "demo",
-                "Alice",
-                mp3_rel,
-                b"intermediate-mp3",
-            )
-            try:
-                assert first_cleanup_ready.wait(timeout=2)
-                pm.install_character_reference_audio("demo", "Alice", wav_rel, b"new-wav")
-            finally:
-                continue_first_cleanup.set()
-            first.result(timeout=2)
+        pm.install_character_reference_audio("demo", "Alice", mp3_rel, b"new-mp3")
+        pm.clear_character_reference_audio("demo", "Alice")
 
         project_dir = pm.get_project_path("demo")
-        assert pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == wav_rel
-        assert (project_dir / wav_rel).read_bytes() == b"new-wav"
+        assert pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == ""
+        assert not (project_dir / wav_rel).exists()
         assert not (project_dir / mp3_rel).exists()
+        records = project_trash.list_records(project_dir)
+        assert sorted(record.files[0] for record in records) == [mp3_rel, wav_rel]
+        assert {record.object["kind"] for record in records} == {"reference_audio"}
 
     @pytest.mark.asyncio
     async def test_reference_read_source_and_generate_overview(self, tmp_path, monkeypatch):

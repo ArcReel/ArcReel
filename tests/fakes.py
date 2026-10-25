@@ -11,7 +11,7 @@ import itertools
 import json
 import os
 import threading
-from collections.abc import AsyncIterator, Callable, Generator, Mapping
+from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -71,7 +71,8 @@ class FakeProjectAssetMutationMixin:
         raise NotImplementedError
 
     def get_project_path(self, project_name: str) -> Path:
-        raise NotImplementedError
+        # 替身默认没有项目目录：给一个不存在的位置，新建资产时查项目回收站得到空。
+        return Path("/nonexistent-arcreel-fake-projects") / project_name
 
     def update_asset_entry(
         self,
@@ -81,6 +82,7 @@ class FakeProjectAssetMutationMixin:
         mutate_fn: Callable[[dict], None],
         *,
         on_commit: Callable[[Path], None] | None = None,
+        formal_paths: Sequence[Path] = (),
     ) -> dict[str, Any]:
         from lib.project.asset_types import ASSET_SPECS, resolve_asset_key
 

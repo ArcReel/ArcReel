@@ -69,22 +69,6 @@ def resolve_stale_reference_audio(
     return resolved_old
 
 
-def discard_stale_reference_audio(stale_path: Path | None) -> None:
-    """删除已无指针指向的旧参考音频；删除失败只告警不抛。
-
-    调用点必须在新文件已落盘且角色字段已指向它之后——此时删旧文件才不会留下「字段指向
-    已删文件」的中间态。物理删除失败（权限/IO 错误，含 Windows 文件占用）不应让本次替换
-    报错：新文件与字段都已成功提交，此时再抛异常会让调用方误以为整次替换失败并重试，而
-    重试时旧指针已指向新文件，旧文件反而成为找不到指针的孤儿。
-    """
-    if stale_path is None:
-        return
-    try:
-        stale_path.unlink(missing_ok=True)  # hard-delete: pending-trash -- #3388 替换或清除角色参考音频时删除旧音频
-    except OSError:
-        logger.warning("旧参考音频物理删除失败，可能残留孤儿文件：%s", stale_path, exc_info=True)
-
-
 async def _probe_or_none(path: Path) -> MediaProbe | None:
     """探测已落盘文件；随包 ffmpeg 不可用或文件无法解析时返回 None。"""
     try:

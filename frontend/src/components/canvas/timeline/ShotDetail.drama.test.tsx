@@ -208,10 +208,10 @@ describe("ShotDetail 剧情演绎", () => {
       fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
       const dialog = await screen.findByRole("alertdialog");
       expect(within(dialog).getByText("移除分镜 S01？")).toBeInTheDocument();
-      expect(within(dialog).getByText(/产物随分镜一并移除/)).toBeInTheDocument();
+      expect(within(dialog).getByText(/随分镜移入项目回收站/)).toBeInTheDocument();
       expect(onRemoveShot).not.toHaveBeenCalled();
 
-      fireEvent.click(within(dialog).getByRole("button", { name: "移除分镜" }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "移入项目回收站" }));
 
       await waitFor(() => expect(onRemoveShot).toHaveBeenCalledWith("E1S01"));
       await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());

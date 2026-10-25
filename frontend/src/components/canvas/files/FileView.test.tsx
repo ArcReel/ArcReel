@@ -332,6 +332,81 @@ it("names a timeline record by its object and reports the name it was restored u
   await waitFor(() => expect(toasts.at(-1)?.text).toBe("原名已被占用，剪辑时间线「初剪」（第 1 集） 已改名为「初剪 (1)」恢复"));
 });
 
+it("names source file and planning draft records by their object", async () => {
+  const record = (id: string, object: TrashRecord["object"]) => timelineRecord({ id, object, files: [String(object.path)] });
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("/trash")) {
+      return Promise.resolve(Response.json({
+        records: [
+          record("s", { kind: "source_file", path: "source/第一章.txt", raw: [] }),
+          record("p", { kind: "planning_draft", path: "drafts/episode_2/plan.json", episode: 2 }),
+        ],
+        total_size: 20,
+        retention_days: 30,
+      }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  await userEvent.setup().click(screen.getByRole("tab", { name: "项目回收站" }));
+  expect(await screen.findByText("源文件「第一章.txt」")).toBeInTheDocument();
+  expect(screen.getByText("第 2 集的规划草稿")).toBeInTheDocument();
+});
+
+it("names an episode record by its title and says the restored episode goes to the end of the order", async () => {
+  const toasts = collectToasts();
+  const episode = { kind: "episode", id: 3, title: "番外" };
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    if (init?.method === "POST") {
+      return Promise.resolve(Response.json(restoreResult(episode, [
+        { original: "scripts/episode_3.json", path: "scripts/episode_3.json", as_history: false },
+      ])));
+    }
+    if (url.pathname.endsWith("/trash")) {
+      const records = [
+        timelineRecord({ id: "ep", object: episode, files: ["scripts/episode_3.json"] }),
+        timelineRecord({ id: "ep2", object: { kind: "episode", id: 4, title: "" }, files: ["scripts/episode_4.json"] }),
+      ];
+      return Promise.resolve(Response.json({ records, total_size: 20, retention_days: 30 }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "项目回收站" }));
+  expect(await screen.findByText("集「番外」")).toBeInTheDocument();
+  expect(screen.getByText("第 4 集")).toBeInTheDocument();
+
+  await user.click(screen.getAllByRole("button", { name: "恢复" })[0]);
+
+  await waitFor(() => expect(toasts.at(-1)?.text).toBe("集「番外」 已恢复，排在播出顺序末尾"));
+});
+
+it("names asset and derivative records by their objects", async () => {
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("/trash")) {
+      const base = { ...timelineRecord(), has_snapshot: true, files: [] };
+      return Promise.resolve(Response.json({
+        records: [
+          { ...base, id: "a", object: { kind: "asset", asset_type: "scene", name: "茶楼" } },
+          { ...base, id: "b", object: { kind: "asset_derivative", asset_type: "character", owner: "阿岚", name: "战甲" } },
+        ],
+        total_size: 10,
+        retention_days: 30,
+      }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  await userEvent.setup().click(screen.getByRole("tab", { name: "项目回收站" }));
+
+  expect(await screen.findByText("场景「茶楼」")).toBeInTheDocument();
+  expect(screen.getByText("角色「阿岚」的衍生「战甲」")).toBeInTheDocument();
+});
+
 it("tells what a degraded restore recovered and offers the remaining structure files for download", async () => {
   const toasts = collectToasts();
   const downloads: string[] = [];
@@ -374,4 +449,38 @@ it("tells what a degraded restore recovered and offers the remaining structure f
   expect(screen.queryByRole("button", { name: "恢复" })).not.toBeInTheDocument();
   await user.click(download);
   await waitFor(() => expect(downloads).toEqual([TIMELINE_DOCUMENT]));
+});
+
+it("names a removed shot or video unit by its id and says when it came back under a new id", async () => {
+  const toasts = collectToasts();
+  const shot = { kind: "script_entry", id: "E1S03", episode: 1, item_kind: "segments" };
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    if (init?.method === "POST") {
+      return Promise.resolve(Response.json(restoreResult({ ...shot, id: "E1S04" }, [
+        { original: "storyboards/scene_E1S03.png", path: "storyboards/scene_E1S04.png", as_history: false },
+      ])));
+    }
+    if (url.pathname.endsWith("/trash")) {
+      const records = [
+        timelineRecord({ id: "shot", object: shot, files: ["storyboards/scene_E1S03.png"] }),
+        timelineRecord({
+          id: "unit",
+          object: { kind: "script_entry", id: "E1U2", episode: 1, item_kind: "video_units" },
+          files: ["reference_videos/E1U2.mp4"],
+        }),
+      ];
+      return Promise.resolve(Response.json({ records, total_size: 20, retention_days: 30 }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "项目回收站" }));
+  expect(await screen.findByText("分镜 E1S03（第 1 集）")).toBeInTheDocument();
+  expect(screen.getByText("视频单元 E1U2（第 1 集）")).toBeInTheDocument();
+
+  await user.click(screen.getAllByRole("button", { name: "恢复" })[0]);
+
+  await waitFor(() => expect(toasts.at(-1)?.text).toBe("原编号已被占用，分镜 E1S03（第 1 集） 已以新编号 E1S04 恢复"));
 });

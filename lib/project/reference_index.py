@@ -106,6 +106,8 @@ class FileOwner:
 class FileReference:
     role: FileRole
     owner: FileOwner | None = None
+    #: 历史版本快照里的当前版本：版本管理拒绝删除它。
+    current: bool = False
 
 
 _PROJECT = FileOwner("project")
@@ -277,14 +279,14 @@ class ReferenceIndex:
             return rel
         return "/".join(parts)
 
-    def _mark(self, rel: object, role: FileRole, owner: FileOwner | None = None) -> None:
+    def _mark(self, rel: object, role: FileRole, owner: FileOwner | None = None, *, current: bool = False) -> None:
         path = _normalize(rel)
         if path is None:
             return
         path = self._canonical(path)
-        current = self._refs.get(path)
-        if current is None or _ROLE_PRIORITY[role] > _ROLE_PRIORITY[current.role]:
-            self._refs[path] = FileReference(role, owner)
+        existing = self._refs.get(path)
+        if existing is None or _ROLE_PRIORITY[role] > _ROLE_PRIORITY[existing.role]:
+            self._refs[path] = FileReference(role, owner, current)
 
     def _index_assets(self, project: Mapping[str, Any]) -> None:
         for asset_type, spec in ASSET_SPECS.items():
@@ -421,10 +423,14 @@ class ReferenceIndex:
         for resource_type, resources in data.items() if isinstance(data, Mapping) else ():
             for resource_id, record in resources.items() if isinstance(resources, Mapping) else ():
                 owner = self._version_owner(resource_type, str(resource_id))
-                versions = record.get("versions") if isinstance(record, Mapping) else None
+                if not isinstance(record, Mapping):
+                    continue
+                versions = record.get("versions")
                 for version in versions if isinstance(versions, list) else ():
                     if isinstance(version, Mapping):
-                        self._mark(version.get("file"), FileRole.HISTORY, owner)
+                        number = version.get("version")
+                        current = number is not None and number == record.get("current_version")
+                        self._mark(version.get("file"), FileRole.HISTORY, owner, current=current)
 
     def _version_owner(self, resource_type: str, resource_id: str) -> FileOwner | None:
         if resource_type in _ASSET_TYPE_BY_BUCKET:

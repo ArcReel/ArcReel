@@ -4,10 +4,10 @@
 2. 跑源文编码迁移与项目迁移链（与归档导入相同的两步，schema 相同时为空操作）。归档导入的目录树修复、
    数据校验与导入激活面向完整项目，在缺少其余媒体的临时项目上会误报，这里不跑；
 3. 按对象类型的落地规则，按身份（不是删除时的原路径）从迁移后的临时项目取出对象；
-4. 先取规则声明的领域锁、再取项目锁，按落地规则把对象加回当前项目，并为加回的产物补录。
+4. 先取规则声明的领域锁、再取项目锁，再核对一次记录仍在，按落地规则把对象加回当前项目，并为加回的产物补录。
    落地失败时撤掉本次新建的文件，记录原样保留。
 
-迁移失败、或迁移后的临时项目里取不出对象时降级：被删的媒体等文件按迁移后（迁移中途失败时为失败那一刻）的路径，
+迁移失败、或迁移后的临时项目里取不出对象时降级（没有被删文件的记录不降级，记录保留）：被删的媒体等文件按迁移后（迁移中途失败时为失败那一刻）的路径，
 照只涉及文件的记录的规则加回（原路径空闲则回原路径，否则作为历史版本或换新名）；被删的结构文件不加回，
 留在记录里只能下载。
 
@@ -30,14 +30,15 @@ from pathlib import Path
 from typing import Any
 
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.infra.api_errors import BadRequestError
+from lib.infra.api_errors import BadRequestError, ConflictError
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.json_io import atomic_write_json
 from lib.project import project_trash
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_trash import RestoredFile, RestoreResult, TrashRecord
 from lib.script.source_loader.migration import migrate_project_source_encoding
 
-__all__ = ["Landing", "Restoration", "TakeRule", "restore_structural"]
+__all__ = ["Landing", "Restoration", "RestoreBlocked", "TakeRule", "restore_structural"]
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,10 @@ logger = logging.getLogger(__name__)
 _COPIED_SUFFIXES = frozenset({".json", ".md", ".txt"})
 #: 迁移步留下的备份（``<名>.bak.v<N>-<ts>``）与规整时搁置的副本（``.kept.``），不是被删的文件。
 _MIGRATION_COPY_RE = re.compile(r"\.(?:bak|kept)\.v\d+-\d+")
+
+
+class RestoreBlocked(ConflictError):
+    """对象此刻不能恢复、但之后可以（如所属的集也在项目回收站里）：取出规则抛它时不降级，记录原样保留。"""
 
 
 class Landing:
@@ -115,8 +120,25 @@ TakeRule = Callable[[Path, Path, Mapping[str, Any]], Restoration]
 def _rules() -> Mapping[str, TakeRule]:
     # 各对象的取出与落地规则依赖本模块的 Landing / Restoration，顶层导入会成环。
     from lib.edit_timeline.trash import EDIT_TIMELINE_KIND, take_edit_timeline
+    from lib.episode.episode_trash import EPISODE_KIND, take_episode
+    from lib.episode.source_trash import SOURCE_FILE_KIND, take_source_file
+    from lib.project import media_trash
+    from lib.project.asset_trash import ASSET_DERIVATIVE_KIND, ASSET_KIND, take_asset, take_asset_derivative
+    from lib.project.script_entry_trash import SCRIPT_ENTRY_KIND, take_script_entry
+    from lib.script.planning_draft_trash import PLANNING_DRAFT_KIND, take_planning_draft
 
-    return {EDIT_TIMELINE_KIND: take_edit_timeline}
+    return {
+        EDIT_TIMELINE_KIND: take_edit_timeline,
+        EPISODE_KIND: take_episode,
+        media_trash.GRID_KIND: media_trash.take_grid,
+        media_trash.END_FRAME_KIND: media_trash.take_end_frame,
+        media_trash.REFERENCE_AUDIO_KIND: media_trash.take_reference_audio,
+        SCRIPT_ENTRY_KIND: take_script_entry,
+        SOURCE_FILE_KIND: take_source_file,
+        PLANNING_DRAFT_KIND: take_planning_draft,
+        ASSET_KIND: take_asset,
+        ASSET_DERIVATIVE_KIND: take_asset_derivative,
+    }
 
 
 def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:
@@ -126,21 +148,30 @@ def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:
         raise BadRequestError("trash_restore_unsupported")
     record_dir = project_trash.trash_dir(project_dir) / record.id
     with tempfile.TemporaryDirectory(prefix=".restore-", dir=record_dir.parent) as tmp:
-        staged = Path(tmp) / project_dir.name
+        # 临时项目按数据根布局摆放，落地规则可以在其中用 ProjectManager 走领域流程（如资产换名的改名级联）。
+        staged = DataRootLayout(Path(tmp)).projects_dir / project_dir.name
         with project_metadata_lock(project_dir):
             # 铺设期间记录不能被彻底删除或被另一次恢复拿走。
-            project_trash.require_record(project_dir, record.id)
+            _require_unchanged(project_dir, record)
             _stage(record_dir, staged)
         try:
             migrate_project_source_encoding(staged)
             migrate_project_dir(staged)
             restoration = rule(project_dir, staged, record.object)
-        except Exception:
+        except RestoreBlocked:
+            raise
+        except Exception as exc:
+            if not record.files:
+                # 只存在于结构里的对象降级后什么都加回不了，消耗记录就丢了它：记录保留，之后可以重试。
+                logger.warning("删除记录 %s 无法按原结构恢复，记录保留", record.id, exc_info=True)
+                raise ConflictError("trash_restore_unsupported") from exc
             # 失败原因记在日志里；创作者看到的是降级结果。
             logger.warning("删除记录 %s 无法按原结构恢复，降级为只恢复文件", record.id, exc_info=True)
             return _restore_files_only(project_dir, record, staged)
         landing = Landing(project_dir)
         with restoration.locks(), project_metadata_lock(project_dir):
+            # 迁移期间锁已释放：并发的另一次恢复或到期清理可能已拿走记录，此时落地会留下没有记录的对象。
+            _require_unchanged(project_dir, record)
             try:
                 landed = restoration.land(landing)
                 project_trash.consume(project_dir, record.id)
@@ -163,9 +194,16 @@ def _restore_files_only(project_dir: Path, record: TrashRecord, staged: Path) ->
             project_trash.consume(project_dir, record.id)
 
     with project_metadata_lock(project_dir):
-        project_trash.require_record(project_dir, record.id)
+        _require_unchanged(project_dir, record)
         restored = project_trash.land_files(project_dir, files, record.object, then=settle)
     return RestoreResult(record.object, restored, degraded=True, download_only=kept)
+
+
+def _require_unchanged(project_dir: Path, record: TrashRecord) -> None:
+    """记录仍在、且仍是这次恢复读到的样子；调用方持有项目锁。不在时抛 ``trash_record_not_found``。"""
+    if project_trash.require_record(project_dir, record.id) != record:
+        # 记录唯一的改写是并发的另一次降级恢复把它改成只能下载。
+        raise ConflictError("trash_restore_download_only", id=record.id)
 
 
 def _non_structure_files(staged: Path) -> list[str]:

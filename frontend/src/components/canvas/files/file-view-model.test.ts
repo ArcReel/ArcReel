@@ -64,4 +64,8 @@ describe("canDeleteFile", () => {
     expect(canDeleteFile(file("referenced"))).toBe(false);
     expect(canDeleteFile(file("memory"))).toBe(false);
   });
+
+  it("hides delete for the current version snapshot", () => {
+    expect(canDeleteFile({ ...file("history"), is_current: true })).toBe(false);
+  });
 });

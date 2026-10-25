@@ -126,7 +126,7 @@ PROMOTE_DRAFT = ToolDeclaration(
 
 DISCARD_DRAFT = ToolDeclaration(
     name="discard_draft",
-    description="按 canonical revision 丢弃指定草稿；正式文档保持不变。",
+    description="按 canonical revision 丢弃指定草稿，草稿移入项目回收站；正式文档保持不变。",
     request_model=DiscardDraftRequest,
     migration=BLOCKED,
     domain_key=_DRAFT,

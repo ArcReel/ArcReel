@@ -136,7 +136,7 @@ describe("EpisodeHead", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(discard).not.toHaveBeenCalled();
 
-    fireEvent.click(within(await openDeletion()).getByRole("button", { name: "删除" }));
+    fireEvent.click(within(await openDeletion()).getByRole("button", { name: "移入项目回收站" }));
     fireEvent.click(within(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).getByRole("button", { name: "放弃修改" }));
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", 1, "r1"));
@@ -163,7 +163,7 @@ describe("EpisodeHead", () => {
     async function confirmAndDiscard() {
       fireEvent.click(screen.getByRole("button", { name: "这一集的更多操作" }));
       fireEvent.click(await screen.findByRole("menuitem", { name: "删除这一集" }));
-      fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "删除" }));
+      fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "移入项目回收站" }));
       fireEvent.click(within(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).getByRole("button", { name: "放弃修改" }));
     }
 

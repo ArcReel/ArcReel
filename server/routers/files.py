@@ -51,6 +51,7 @@ from lib.episode.source_file_changes import (
     replace_whole_source_file,
 )
 from lib.episode.source_kinds import SourceKind
+from lib.episode.source_trash import trash_source_file
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.image_thumbnails import ensure_image_thumbnail, is_thumbnail_source, snap_thumbnail_width
@@ -751,6 +752,9 @@ async def _handle_source_upload(
                 shutil.copyfileobj(file.file, out)
 
             def _write(source_dir: Path, undo: ExitStack) -> str:
+                if on_conflict == "replace":
+                    # 被替换的旧文件连同原始上传件进项目回收站，事务失败时撤回原处。
+                    trash_source_file(project_dir, f"source/{normalized_name}", undo)
                 result = SourceLoader.load(
                     tmp_path,
                     source_dir,
@@ -1083,17 +1087,8 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
                 if not source_path.exists():
                     raise HTTPException(status_code=404, detail=_t("file_not_found", path=filename))
                 unregister_source_file(project, f"source/{filename}")
-                content = source_path.read_bytes()
-                source_path.unlink()  # hard-delete: pending-trash -- #3387 删除源文件
-                undo.callback(source_path.write_bytes, content)
-
-            # 登记已写回后再级联删除原文件备份（同 stem，任意扩展名）
-            raw_dir = project_dir / "source" / "raw"
-            if raw_dir.exists():
-                stem = source_path.stem
-                for raw_file in raw_dir.iterdir():
-                    if raw_file.is_file() and raw_file.stem == stem:
-                        raw_file.unlink()  # hard-delete: pending-trash -- #3387 删除源文件时连带删除原始上传件
+                # 源文件连同原始上传件（同主干）成为一条删除记录；写回登记失败时撤回。
+                trash_source_file(project_dir, f"source/{filename}", undo)
             return {"success": True}
 
         return await run_sync_transaction(_sync)

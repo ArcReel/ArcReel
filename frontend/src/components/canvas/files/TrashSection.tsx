@@ -27,10 +27,38 @@ import { formatFileSize } from "@/utils/file-size";
 
 type ListingState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; listing: TrashListing };
 
+const ASSET_TYPES = ["character", "scene", "prop", "product"] as const;
+
+function isAssetType(value: unknown): value is (typeof ASSET_TYPES)[number] {
+  return ASSET_TYPES.includes(value as (typeof ASSET_TYPES)[number]);
+}
+
 /** 对象名：按对象类型显示，只涉及文件的对象取被删文件的路径。 */
 function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): string | undefined {
   if (object.kind === "edit_timeline" && typeof object.name === "string") {
     return t("trash_object_edit_timeline", { name: object.name, episode: object.episode });
+  }
+  if (object.kind === "episode") {
+    return typeof object.title === "string" && object.title !== ""
+      ? t("trash_object_episode", { name: object.title })
+      : t("trash_object_episode_untitled", { episode: object.id });
+  }
+  if (object.kind === "grid") return t("trash_object_grid", { episode: object.episode });
+  if (object.kind === "end_frame") return t("trash_object_end_frame", { shot: object.shot_id });
+  if (object.kind === "reference_audio") return t("trash_object_reference_audio", { name: object.character });
+  if (object.kind === "asset" && isAssetType(object.asset_type) && typeof object.name === "string") {
+    return t(`trash_object_asset.${object.asset_type}`, { name: object.name });
+  }
+  if (object.kind === "asset_derivative" && typeof object.name === "string") {
+    return t("trash_object_asset_derivative", { name: object.name, owner: object.owner });
+  }
+  if (object.kind === "source_file" && typeof object.path === "string") {
+    return t("trash_object_source_file", { name: object.path.split("/").pop() });
+  }
+  if (object.kind === "planning_draft") return t("trash_object_planning_draft", { episode: object.episode });
+  if (object.kind === "script_entry") {
+    const key = object.item_kind === "video_units" ? "trash_object_script_unit" : "trash_object_script_entry";
+    return t(key, { id: object.id, episode: object.episode });
   }
   return object.path;
 }
@@ -47,7 +75,14 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
       ? t("trash_restored_degraded", { name, count: result.restored.length })
       : t("trash_restored_degraded_files", { name, count: result.restored.length });
   }
-  if (record.has_snapshot) {
+  if (record.object.kind === "episode") return t("trash_restored_episode", { name });
+  if (record.object.kind === "script_entry") {
+    return result.object.id !== record.object.id
+      ? t("trash_restored_entry_renumbered", { name, landed: result.object.id })
+      : t("trash_restored_object", { name });
+  }
+  // 带名字的对象（剪辑时间线）按名字说明是否改名；其余按文件落点说明。
+  if (record.has_snapshot && typeof record.object.name === "string") {
     const landed = result.object.name;
     return typeof landed === "string" && landed !== record.object.name
       ? t("trash_restored_object_renamed", { name, landed })

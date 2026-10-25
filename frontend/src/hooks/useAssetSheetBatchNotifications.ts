@@ -65,15 +65,21 @@ export function useAssetSheetBatchNotifications(projectName?: string | null): vo
       const ownerMissing = failed.filter(({ task, member }) =>
         task ? heldBackByOwner(task) : member.problem_code === "generation_dependency_failed",
       ).length;
-      const succeeded = rows.length - failed.length;
+      // 生成完成时目标已删除：任务成功但结果进了项目回收站，不算作已生成。
+      const targetDeleted = rows.filter(
+        ({ status, task }) => status === "succeeded" && task?.result?.target_deleted === true,
+      ).length;
+      const succeeded = rows.length - failed.length - targetDeleted;
       const tr = tRef.current;
       let text =
         failed.length === 0
           ? tr("sheet_batch_done", { count: succeeded })
           : tr("sheet_batch_done_with_failures", { succeeded, failed: failed.length });
       if (ownerMissing > 0) text = `${text}；${tr("sheet_batch_owner_missing", { count: ownerMissing })}`;
+      if (targetDeleted > 0) text = `${text}；${tr("sheet_batch_target_deleted", { count: targetDeleted })}`;
       const focus = (failed[0] ?? rows[0])?.member;
-      useAppStore.getState().pushNotification(text, failed.length === 0 ? "success" : "error", {
+      const tone = failed.length > 0 ? "error" : targetDeleted > 0 ? "warning" : "success";
+      useAppStore.getState().pushNotification(text, tone, {
         target: focus ? assetNotificationTarget(focus.asset_type, focus.name) : null,
       });
       useAssetSheetBatchStore.getState().settle(batch.batchId);

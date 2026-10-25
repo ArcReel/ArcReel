@@ -88,6 +88,7 @@ from lib.episode.source_file_changes import (
     replace_whole_source_file,
 )
 from lib.episode.source_kinds import SourceKind
+from lib.episode.source_trash import trash_source_file
 from lib.generation.generation_batch import (
     GenerationBatchReadModel,
     GenerationBatchRequestedItem,
@@ -1983,6 +1984,9 @@ async def upload_source(
         with _temporary_source() as source_path:
 
             def _write(source_dir: Path, undo: contextlib.ExitStack) -> str:
+                if value.on_conflict == "replace":
+                    # 被替换的旧文件连同原始上传件进项目回收站，事务失败时撤回原处。
+                    trash_source_file(source_dir.parent, f"source/{Path(value.filename).stem}.txt", undo)
                 result = SourceLoader.load(
                     source_path, source_dir, original_filename=value.filename, on_conflict=value.on_conflict
                 )
@@ -3664,9 +3668,9 @@ def _merge_asset_message(project: Mapping[str, Any], report: AssetMergeReport) -
     if report.derivatives_folded:
         lines.append("与保留方已有衍生同名、并入已有衍生：" + "、".join(report.derivatives_folded))
     lines.append(
-        "被并方的描述、资产图及版本历史、声音设置、原图与参考音频不保留。"
+        "被并方的描述、资产图及版本历史、声音设置、原图与参考音频不并入保留方，将移入项目回收站。"
         if report.dry_run
-        else "被并方的描述、资产图及版本历史、声音设置、原图与参考音频已删除。"
+        else "被并方的描述、资产图及版本历史、声音设置、原图与参考音频已移入项目回收站。"
     )
     return "\n".join(lines)
 

@@ -444,10 +444,10 @@ def test_hard_delete_tag_needs_known_category_and_reason(repo: Path) -> None:
         repo,
         "lib/cleanup.py",
         """def run(p):
-    p.unlink()  # hard-delete: pending-trash
-    p.unlink()  # hard-delete: pending-trash --
+    p.unlink()  # hard-delete: temp
+    p.unlink()  # hard-delete: temp --
     p.unlink()  # hard-delete: trash -- 理由
-    p.unlink()  # hard-delete: pending-trash -- 删一集的媒体应进回收站
+    p.unlink()  # hard-delete: temp -- 本流程创建的暂存文件
     p.unlink(
         missing_ok=True,
     )  # hard-delete: rollback -- 撤销写到一半的文件
@@ -457,8 +457,22 @@ def test_hard_delete_tag_needs_known_category_and_reason(repo: Path) -> None:
     assert _hard_delete_hits(repo) == [("lib/cleanup.py", 2), ("lib/cleanup.py", 3), ("lib/cleanup.py", 4)]
 
 
+def test_pending_trash_category_is_rejected_with_trash_guidance(repo: Path) -> None:
+    _write(
+        repo,
+        "lib/cleanup.py",
+        "def run(p):\n    p.unlink()  # hard-delete: pending-trash -- 删一集的媒体应进回收站\n",
+    )
+
+    violations = [v for v in audit(repo) if v.rule == "HARD-DELETE"]
+
+    assert [(v.path.as_posix(), v.line) for v in violations] == [("lib/cleanup.py", 2)]
+    assert "回收站" in violations[0].guidance
+    assert "已退役" in violations[0].guidance
+
+
 def test_hard_delete_tag_without_delete_call_is_reported(repo: Path) -> None:
-    _write(repo, "lib/cleanup.py", "def run(p):\n    trash(p)  # hard-delete: pending-trash -- 已接入回收站\n")
+    _write(repo, "lib/cleanup.py", "def run(p):\n    trash(p)  # hard-delete: temp -- 已接入回收站\n")
 
     assert _hard_delete_hits(repo) == [("lib/cleanup.py", 2)]
 

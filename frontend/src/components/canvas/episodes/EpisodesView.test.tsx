@@ -377,7 +377,7 @@ describe("EpisodesView", () => {
       const dialog = await screen.findByRole("alertdialog", { name: "删除「番外」" });
       expect(dialog).toHaveTextContent("删除「番外」后无法恢复，以下内容会一并删除：");
       expect(dialog).toHaveTextContent("集原文（8 字）、正式脚本");
-      fireEvent.click(within(dialog).getByRole("button", { name: "删除" }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "移入项目回收站" }));
 
       await waitFor(() => expect(remove).toHaveBeenLastCalledWith("demo", 3, "rev-1"));
     });

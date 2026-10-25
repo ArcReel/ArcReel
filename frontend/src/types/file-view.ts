@@ -30,6 +30,8 @@ export interface FileViewEntry {
   /** 只有文件带角色。 */
   role?: FileViewRole;
   owner?: FileViewOwner | null;
+  /** 历史版本里的当前版本快照才带，且恒为 true；服务端拒绝删除它。 */
+  is_current?: true;
 }
 
 export interface FileViewListing {

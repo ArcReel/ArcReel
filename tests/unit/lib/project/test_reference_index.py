@@ -176,14 +176,18 @@ def indexed_project_dir(tmp_path: Path) -> Path:
             FileReference(FileRole.REFERENCED, FileOwner("episode", episode=1)),
         ),
         ("thumbnails/scene_E1S01.jpg", FileReference(FileRole.DERIVED, FileOwner("segment", id="E1S01", episode=1))),
-        # 历史版本按版本历史判定，current 版本的快照同样在版本历史里；被删资产留下的版本仍是历史版本。
+        # 历史版本按版本历史判定，current 版本的快照同样在版本历史里并带当前标识；被删资产留下的版本仍是历史版本。
         (
             "versions/storyboards/E1S01_v1_20260101T000000.png",
             FileReference(FileRole.HISTORY, FileOwner("segment", id="E1S01", episode=1)),
         ),
         (
+            "versions/storyboards/E1S01_v2_20260102T000000.png",
+            FileReference(FileRole.HISTORY, FileOwner("segment", id="E1S01", episode=1), current=True),
+        ),
+        (
             "versions/characters/旧人_v1_x.png",
-            FileReference(FileRole.HISTORY, FileOwner("asset", id="旧人", asset_type="character")),
+            FileReference(FileRole.HISTORY, FileOwner("asset", id="旧人", asset_type="character"), current=True),
         ),
         ("source/novel.txt", FileReference(FileRole.STRUCTURE, FileOwner("source"))),
         ("source/raw/novel.epub", FileReference(FileRole.STRUCTURE, FileOwner("source"))),

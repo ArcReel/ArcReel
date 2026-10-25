@@ -20,7 +20,7 @@ import time
 import unicodedata
 from collections import Counter
 from collections.abc import AsyncGenerator, Callable, Generator, Mapping, Sequence
-from contextlib import ExitStack, asynccontextmanager, contextmanager
+from contextlib import AbstractContextManager, ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -80,7 +80,6 @@ from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameNotFoundError,
     AssetRenameReport,
-    asset_files_named,
     plan_asset_file_renames,
     rewrite_entry_paths,
     rewrite_payload_references,
@@ -104,14 +103,14 @@ from lib.project.asset_types import (
 )
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_schema import parse_project_schema_version
-from lib.project.script_entry_cleanup import purge_replaced_entry_media
+from lib.project.script_entry_cleanup import trash_entries
 from lib.project.task_project_claim import ensure_task_project_claim
 from lib.references.reference_catalog import derivative_reference
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script.script_editor import ScriptEditError, resolve_items
 from lib.script.script_models import get_generated_assets
-from lib.speech.audio_utils import discard_stale_reference_audio, resolve_audio_ref_path, resolve_stale_reference_audio
+from lib.speech.audio_utils import resolve_audio_ref_path, resolve_stale_reference_audio
 from lib.speech.narration_config import (
     NARRATION_CONFIG_FIELDS,
     NARRATION_DELIVERY_FIELD,
@@ -762,7 +761,8 @@ class ProjectManager:
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
             artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
             expected_fingerprint: 可选的正式剧本内容基线；在剧本锁内不匹配时拒绝写入。
-            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；撤销产物登记，并在剧本锁内清理旧媒体与历史。
+            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；撤销产物登记。它们与旧剧本里不再有的条目一样，
+                旧媒体与版本历史在同一写事务里移进项目回收站。
             project_update: 与剧本、集索引同一写事务内对 project.json 的额外修改；仅带集号的剧本可用。
 
         Returns:
@@ -787,9 +787,10 @@ class ProjectManager:
                 from lib.artifacts.artifact_activation import prepare_episode_script_manifest_commit
 
                 project_path = self.get_project_path(project_name)
+                project_file = self._get_project_file_path(project_name)
                 script_path = Path(self._safe_subpath(project_path / "scripts", filename))
                 before_script = self._load_script_or_none(script_path)
-                items, id_field, _kind = resolve_items(script)
+                items, id_field, script_kind = resolve_items(script)
                 resource_ids = tuple(
                     resource_id
                     for item in items
@@ -798,9 +799,10 @@ class ProjectManager:
                     and resource_id
                 )
                 previous_resource_ids: tuple[str, ...] = ()
+                previous_kind = script_kind
                 if before_script is not None:
                     try:
-                        previous_items, previous_id_field, _previous_kind = resolve_items(before_script)
+                        previous_items, previous_id_field, previous_kind = resolve_items(before_script)
                     except ScriptEditError:
                         pass
                     else:
@@ -822,17 +824,37 @@ class ProjectManager:
                         replaced_resource_ids=replaced_resource_ids,
                         basis=artifact_basis,
                     )
-                    if manifest_commit is None:
-                        return None
+                    # 项目锁内、写入之前：删除记录的快照要改写前的剧本与 project.json。
+                    before_files = {
+                        rel: path.read_bytes()
+                        for rel, path in ((f"scripts/{filename}", script_path), (self.PROJECT_FILE, project_file))
+                        if path.is_file()
+                    }
 
                     def _register_manifest(_script_path: Path) -> None:
-                        manifest_commit()
+                        # 被移除与被新身份替换的旧条目移进项目回收站，再撤登记；仍持剧本锁，新条目的媒体不能先落盘。
+                        # 覆盖时旧剧本里的条目都按结构移除建记录（ADR 0080），没有媒体的也能找回。
+                        trash_entries(
+                            project_path,
+                            episode=episode,
+                            script_file=filename,
+                            entries=dict.fromkeys(
+                                [
+                                    *(rid for rid in previous_resource_ids if rid not in resource_ids),
+                                    *replaced_resource_ids,
+                                ],
+                                previous_kind,
+                            ),
+                            before=before_files,
+                            removed=previous_resource_ids,
+                            then=manifest_commit,
+                        )
 
                     return _register_manifest
 
                 prepare_on_commit = _prepare_manifest_commit
 
-            output = self._commit_script_unlocked(
+            return self._commit_script_unlocked(
                 project_name,
                 script,
                 filename,
@@ -841,9 +863,6 @@ class ProjectManager:
                 prepare_on_commit=prepare_on_commit,
                 project_update=project_update,
             )
-            # 替换已提交，仍持剧本锁：新条目的媒体不能在旧身份清理完成前落盘。
-            purge_replaced_entry_media(self.get_project_path(project_name), replaced_resource_ids)
-            return output
 
     def _commit_script_unlocked(
         self,
@@ -1042,6 +1061,29 @@ class ProjectManager:
                 on_commit=on_commit,
                 prepare_on_commit=(lambda: prepare_on_commit(script)) if prepare_on_commit is not None else None,
             )
+
+    def script_lock(self, project_name: str, script_filename: str) -> AbstractContextManager[None]:
+        """剧本的排他锁（不可重入），供要在项目锁之外先取剧本锁、再在锁内调用 :meth:`update_script_locked` 的调用方。"""
+        return self._script_lock(project_name, script_filename)
+
+    def update_script_locked(self, project_name: str, script_filename: str, mutate_fn: Callable[[dict], None]) -> dict:
+        """调用方依次持剧本锁与项目锁（如恢复流水线的落地规则）：读-改-写剧本并同步集索引，返回写回的剧本。
+
+        写回经「不更坏」结构校验；与 :meth:`update_project_locked` 一样不做失败回滚，也不发变更提示。
+        """
+        norm = self.normalize_script_filename(script_filename)
+        script, _migrated = self._read_script_unlocked(project_name, norm)
+        before = copy.deepcopy(script)
+        mutate_fn(script)
+        self._write_script_unlocked(
+            project_name, script, norm, sync_project=False, validate=True, before=before, emit_change=False
+        )
+        project = self._read_project_raw_unlocked(project_name)
+        if isinstance(script.get("episode"), int):
+            self._apply_episode_sync(project, script, norm)
+        self._touch_metadata(project)
+        atomic_write_json(self._get_project_file_path(project_name), project)
+        return script
 
     @contextmanager
     def locked_project_script_snapshot(self, project_name: str, script_filename: str):
@@ -2101,10 +2143,7 @@ class ProjectManager:
         with self._project_lock(project_name), ExitStack() as transaction:
             if on_commit is not None or formal_paths:
                 transaction.enter_context(formal_write_transaction(project_file, *formal_paths))
-            with open(project_file, encoding="utf-8") as f:
-                project = json.load(f)
-            self._apply_project_mutation_unlocked(project_name, project, mutate_fn)
-            atomic_write_json(project_file, project)
+            project = self.update_project_locked(project_name, mutate_fn)
             if on_commit is not None:
                 on_commit(project_file)
 
@@ -2115,6 +2154,16 @@ class ProjectManager:
 
         return project
 
+    def update_project_locked(self, project_name: str, mutate_fn: Callable[[dict], None]) -> dict:
+        """:meth:`update_project` 的锁内一步：调用方已持有项目锁（不可重入），如恢复流水线的落地规则。
+
+        读、改、规整后原子写回并返回写回的项目元数据；不做失败回滚，也不发变更提示。
+        """
+        project = self._read_project_raw_unlocked(project_name)
+        self._apply_project_mutation_unlocked(project_name, project, mutate_fn)
+        atomic_write_json(self._get_project_file_path(project_name), project)
+        return project
+
     def update_asset_entry(
         self,
         asset_type: str,
@@ -2123,6 +2172,7 @@ class ProjectManager:
         mutate_fn: Callable[[dict], None],
         *,
         on_commit: Callable[[Path], None] | None = None,
+        formal_paths: Sequence[Path] = (),
     ) -> dict:
         """Update one asset and reconcile a moved formal sheet claim.
 
@@ -2175,7 +2225,7 @@ class ProjectManager:
             if on_commit is not None:
                 on_commit(project_file)
 
-        self.update_project(project_name, _mutate, on_commit=_commit)
+        self.update_project(project_name, _mutate, on_commit=_commit, formal_paths=formal_paths)
         return result
 
     def update_project_reconciling_episode_bindings(
@@ -2839,21 +2889,20 @@ class ProjectManager:
         }
 
     def delete_asset(self, project_name: str, table: str, name: str) -> dict:
-        """Delete one project asset and its formal sheet claim in one commit.
+        """删除一个项目资产：条目、资产图、原图与参考音频、版本历史与名下衍生一起成为一条删除记录。
 
-        The project entry owns the identity of an asset-sheet claim. Leaving
-        that claim behind would make a complete Manifest snapshot refer to an
-        asset that no longer exists, so every caller shares this write seam.
+        资产条目拥有资产图清单登记的身份，登记留着会让清单指向不存在的资产，所以全部调用方共用这一处；
+        project.json、版本记录与清单在同一个正式写入事务里改写，删除记录建不成时一起回滚。
         """
 
-        from lib.artifacts.artifact_activation import forget_current_resource_artifact
-        from lib.project.asset_derivative_cleanup import purge_owner_derivative_sheets
+        from lib.project import asset_trash
 
         asset_type = self._resolve_asset_type(table)
         spec = ASSET_SPECS[asset_type]
         project_dir = self.get_project_path(project_name)
         deleted_name: str | None = None
         deleted_entry: dict[str, Any] = {}
+        before: dict[str, bytes] = {}
 
         def _mutate(project: dict) -> None:
             nonlocal deleted_name
@@ -2861,26 +2910,21 @@ class ProjectManager:
             key = resolve_asset_key(bucket, name)
             if not isinstance(bucket, dict) or key is None:
                 raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+            before.update(asset_trash.state_before(project_dir))
             deleted_name = key
             entry = bucket[key]
             if isinstance(entry, dict):
                 deleted_entry.update(entry)
             del bucket[key]
 
-        def _forget_claim(_project_file: Path) -> None:
+        def _trash(_project_file: Path) -> None:
             if deleted_name is None:  # pragma: no cover - mutate contract
                 raise RuntimeError("asset deletion did not resolve a canonical identity")
-            forget_current_resource_artifact(
-                project_dir,
-                resource_type=spec.bucket_key,
-                resource_id=deleted_name,
-            )
-            # 本体的资产图与历史留存（可被重建的同名资产接上），衍生的不留：删掉本体后
-            # 衍生已无任何入口，见 lib/project/asset_derivative_cleanup。
-            if spec.supports_derivatives:
-                purge_owner_derivative_sheets(project_dir, deleted_name, deleted_entry)
+            asset_trash.trash_asset(project_dir, spec, deleted_name, deleted_entry, before)
 
-        return self.update_project(project_name, _mutate, on_commit=_forget_claim)
+        return self.update_project(
+            project_name, _mutate, on_commit=_trash, formal_paths=asset_trash.state_paths(project_dir)
+        )
 
     def preview_asset_deletion(self, project_name: str, table: str, name: str) -> AssetDeletionPreview:
         """删除资产前的引用预览（只读）：剧本与草稿里有多少处引用会在删除后悬空。
@@ -3358,10 +3402,10 @@ class ProjectManager:
         与 :meth:`rename_asset` 同一组锁、同一套「先扫描、再落盘」：全部剧集剧本与 script_plan 草稿里
         指向被并方的引用改指保留方（规则见 :mod:`lib.project.asset_merge`），保留方原样不动，只追加
         别名（并为本体）或衍生（并为衍生）。被并方的描述、资产图及版本历史、声音设置、原图与参考音频
-        都不保留，资产图撤销登记；它名下的衍生迁到保留方，与保留方已有衍生同名（只差大小写也算）的并入那个。
+        不并入，连同条目成为一条删除记录；它名下的衍生迁到保留方，与保留方已有衍生同名（只差大小写也算）的并入那个。
         ``dry_run=True`` 时只返回影响报告，预览与执行共用同一次扫描，数字必然一致。
 
-        落盘顺序：剧本 → 草稿 → 衍生资产图搬迁 → project.json 与清单 → 被并方的版本历史与文件。
+        落盘顺序：剧本 → 草稿 → 衍生资产图搬迁 → 同一个正式写入事务里的 project.json、清单与被并方的删除记录。
         project.json 提交前中途失败时，重跑同一次合并即可收敛（已改写的引用不再计数）。
 
         Raises:
@@ -3372,9 +3416,7 @@ class ProjectManager:
             AssetRenameHistoryCollisionError: 迁移衍生的目标 id 下已有别的版本历史。
         """
         # 衍生与产物模块经产物规划反向依赖本模块，惰性 import 破环（与 rename_asset 同理）。
-        from lib.artifacts.artifact_activation import forget_current_resource_artifact
-        from lib.artifacts.version_manager import VersionManager
-        from lib.project.asset_derivative_cleanup import purge_derivative_sheets
+        from lib.project import asset_trash
         from lib.project.asset_derivative_rename import (
             plan_derivative_sheet_relocation,
             rewrite_derivative_sheet_paths,
@@ -3545,6 +3587,7 @@ class ProjectManager:
                 return report
 
             # —— 落盘 ——
+            state_before = asset_trash.state_before(project_dir)
             for filename, script, before in changed_scripts:
                 self._write_script_unlocked(project_name, script, filename, sync_project=False, before=before)
             self._carry_script_plan_confirmations(project_dir, mutated, changed_drafts)
@@ -3553,19 +3596,20 @@ class ProjectManager:
             relocation.relocate()
             self._touch_metadata(mutated)
             project_file = self._get_project_file_path(project_name)
-            with formal_write_transaction(project_file):
+            # 被并方的资产图、版本历史、按名命名的文件与并入已有同名衍生的那些衍生进项目回收站：留在原处
+            # 会让以后同名的资产接上不属于它的历史。迁到保留方名下的衍生此时已搬走，记录不收它们。
+            with formal_write_transaction(*asset_trash.state_paths(project_dir)):
                 atomic_write_json(project_file, mutated)
                 relocation.commit_manifest()
-                forget_current_resource_artifact(project_dir, resource_type=spec.bucket_key, resource_id=source)
-                if spec.supports_derivatives:
-                    purge_derivative_sheets(project_dir, source, derivative_plan.folded)
-            # 被并方的版本历史与按名命名的文件不保留：留着会让以后同名的资产接上不属于它的历史。
-            VersionManager(project_dir).purge_resource(spec.bucket_key, source)
-            for path in asset_files_named(project_dir, spec, source):
-                try:
-                    path.unlink(missing_ok=True)  # hard-delete: pending-trash -- #3385 合并资产时删除被并资产名下的文件
-                except OSError:
-                    logger.warning("被并资产的文件删除失败，已解除登记: %s", path, exc_info=True)
+                asset_trash.trash_asset(
+                    project_dir,
+                    spec,
+                    source,
+                    discarded,
+                    state_before,
+                    merged_into=target,
+                    derivatives_moved=list(derivative_plan.moved),
+                )
 
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
         return report
@@ -3780,8 +3824,7 @@ class ProjectManager:
 
         Video currency selection hashes reference-audio bytes while holding the project lock.  Keeping every
         physical replacement in that same lock makes the project pointer and the bytes one coherent input snapshot.
-        A replaced file with a different extension is best-effort cleanup after the new pointer commits; it is no
-        longer an input then, so cleanup does not need to prolong the selection-critical section.
+        A replaced file with a different extension goes to the project trash inside the same commit.
         """
 
         project_dir = self.get_project_path(project_name)
@@ -3789,63 +3832,53 @@ class ProjectManager:
         target = Path(self._safe_subpath(project_dir, ref_path))
         if os.path.realpath(target.parent) != os.path.realpath(refs_audio_dir):
             raise ValueError("reference audio target must be inside characters/refs_audio")
-        stale_audio: Path | None = None
+        stale: list[tuple[dict, str, Path]] = []
 
         def _mutate(project: dict) -> None:
-            nonlocal stale_audio
             key = resolve_asset_key(project.get("characters"), char_name)
             if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
             old_audio = project["characters"][key].get("reference_audio")
             stale_audio = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target)
             self._set_character_reference_audio(project, char_name, ref_path)
+            if stale_audio is not None:
+                stale.append((project, key, stale_audio))
 
-        project = self._update_project_with_files(
+        return self._update_project_with_files(
             project_name,
             _mutate,
             writes=[(content, target)],
+            on_commit=lambda _file: self._trash_unreferenced_reference_audio(project_dir, *stale[0]) if stale else None,
         )
-        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
-        return project
 
-    def _discard_stale_reference_audio_if_unreferenced(
-        self,
-        project_name: str,
-        stale_audio: Path | None,
-    ) -> None:
-        """Best-effort cleanup that cannot delete a newer concurrent selection of the same path."""
+    @staticmethod
+    def _trash_unreferenced_reference_audio(project_dir: Path, project: dict, character: str, stale: Path) -> None:
+        """Move a reference audio no character points at any more to the project trash; the caller holds the lock."""
 
-        if stale_audio is None:
-            return
-        project_dir = self.get_project_path(project_name)
         refs_audio_dir = project_dir / "characters" / "refs_audio"
-        stale_identity = os.path.realpath(stale_audio)
-        with self._project_lock(project_name):
-            project = self._read_project_raw_unlocked(project_name)
-            characters = project.get("characters")
-            if isinstance(characters, dict):
-                for character in characters.values():
-                    if not isinstance(character, dict):
-                        continue
-                    reference_audio = character.get("reference_audio")
-                    current = resolve_audio_ref_path(
-                        project_dir,
-                        refs_audio_dir,
-                        reference_audio if isinstance(reference_audio, str) else None,
-                    )
-                    if current is not None and os.path.realpath(current) == stale_identity:
-                        return
-            discard_stale_reference_audio(stale_audio)
+        stale_identity = os.path.realpath(stale)
+        characters = project.get("characters")
+        for entry in characters.values() if isinstance(characters, dict) else ():
+            reference_audio = entry.get("reference_audio") if isinstance(entry, dict) else None
+            current = resolve_audio_ref_path(
+                project_dir, refs_audio_dir, reference_audio if isinstance(reference_audio, str) else None
+            )
+            if current is not None and os.path.realpath(current) == stale_identity:
+                return
+        if stale.is_file() and not stale.is_symlink():
+            # 回收站的落地规则依赖本模块，顶层导入会成环。
+            from lib.project.media_trash import trash_reference_audio
+
+            trash_reference_audio(project_dir, character, f"characters/refs_audio/{stale.name}")
 
     def clear_character_reference_audio(self, project_name: str, char_name: str) -> dict:
-        """Clear the reference first, then best-effort delete the now-unreferenced audio file."""
+        """Clear the reference and move the now-unreferenced audio file to the project trash in one commit."""
 
         project_dir = self.get_project_path(project_name)
         refs_audio_dir = project_dir / "characters" / "refs_audio"
-        stale_audio: Path | None = None
+        stale: list[tuple[dict, str, Path]] = []
 
         def _mutate(project: dict) -> None:
-            nonlocal stale_audio
             key = resolve_asset_key(project.get("characters"), char_name)
             if key is None:
                 raise KeyError(f"角色 '{char_name}' 不存在")
@@ -3856,10 +3889,14 @@ class ProjectManager:
                 old_audio if isinstance(old_audio, str) else None,
             )
             self._set_character_reference_audio(project, char_name, "")
+            if stale_audio is not None:
+                stale.append((project, key, stale_audio))
 
-        project = self.update_project(project_name, _mutate)
-        self._discard_stale_reference_audio_if_unreferenced(project_name, stale_audio)
-        return project
+        return self.update_project(
+            project_name,
+            _mutate,
+            on_commit=lambda _file: self._trash_unreferenced_reference_audio(project_dir, *stale[0]) if stale else None,
+        )
 
     def get_project_character(self, project_name: str, name: str) -> dict:
         """获取项目级角色定义"""

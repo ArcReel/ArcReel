@@ -127,7 +127,7 @@ export function ProjectAssetDeleteDialog({
   } else if (preview.phase === "failed") {
     impact = t("assets:gallery_delete_check_failed", { message: preview.message });
   } else if (references === 0) {
-    impact = t("assets:gallery_delete_irreversible");
+    impact = t("assets:gallery_delete_moves_to_trash");
   } else if (referencedEpisodes.length === 0) {
     impact = t("assets:gallery_delete_impact_unattributed", { count: references });
   } else {

@@ -16,11 +16,11 @@ from lib.script import script_review
 from lib.script.draft_quarantine import (
     DRAFT_OWNER_AGENT,
     QUARANTINE_KIND_PROMPT_AUTHORING,
-    clear_quarantine,
     draft_owner,
     quarantine_path,
     read_quarantine,
 )
+from lib.script.planning_draft_trash import discard_quarantine
 from lib.script.script_document import build_blank_script
 
 
@@ -88,10 +88,9 @@ def start_blank_script(pm: ProjectManager, project_name: str, episode: int) -> s
         pm.save_script(project_name, build_blank_script(project, episode), filename, project_update=_drop_review)
 
         if plan_path is not None and plan_path.exists():
-            with script_review.formal_script_plan_write_transaction(project_path, episode, plan_path):
-                plan_path.unlink()  # hard-delete: pending-trash -- #3387 开始空白剧本时丢弃正式规划
+            script_review.trash_script_plan_locked(project_path, episode, plan_path)
         for kind in draft_kinds:
-            clear_quarantine(project_path, episode, kind)
+            discard_quarantine(project_path, episode, kind)
     return filename
 
 

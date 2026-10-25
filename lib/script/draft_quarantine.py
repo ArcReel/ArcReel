@@ -340,13 +340,13 @@ def quarantine_exists(project_path: Path, episode: int, kind: str) -> bool:
 
 
 def clear_quarantine(project_path: Path, episode: int, kind: str, *, record_activity: bool = True) -> bool:
-    """清除草稿（晋升成功或用户丢弃），返回是否真的删掉了文件；删掉时推进项目活动。
+    """晋升成功后清除草稿，返回是否真的删掉了文件；删掉时推进项目活动。丢弃草稿走 :func:`lib.script.planning_draft_trash.discard_quarantine`。
 
     缺失时静默——晋升可能来自一次直接重跑，本就没有草稿要清。在外层写事务内清除时传
     ``record_activity=False``，由外层提交后记账：账本是项目全局的，不随事务回滚。
     """
     try:
-        # hard-delete: pending-trash -- #3387 #3390 创作者或 Agent 丢弃草稿；晋升调用方删的是已写入正式文件的草稿，接入时区分
+        # hard-delete: temp -- 晋升的暂存草稿，内容已写入正式文件
         quarantine_path(project_path, episode, kind).unlink()
     except FileNotFoundError:
         return False
