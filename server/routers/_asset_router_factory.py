@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict
 
 from lib.infra.api_errors import NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
+from lib.project import asset_trash
 from lib.project.asset_merge import (
     MERGEABLE_ASSET_TYPES,
     AssetMergeNotFoundError,
@@ -256,7 +257,11 @@ def build_asset_router(
                 if not ok:
                     raise HTTPException(status_code=409, detail=_t(keys["exists"], name=name))
                 data = manager.load_project(project_name)
-                return {"success": True, result_key: data[spec.bucket_key][name]}
+                # 回收站里有同名的删除记录时告诉前端，提示创作者可以把之前的资产图找回来。
+                trash_record = asset_trash.deleted_asset_record(
+                    manager.get_project_path(project_name), asset_type, name
+                )
+                return {"success": True, result_key: data[spec.bucket_key][name], "trash_record_id": trash_record}
 
             return await run_sync_transaction(_sync)
         except ProjectAssetNameConflictError as exc:

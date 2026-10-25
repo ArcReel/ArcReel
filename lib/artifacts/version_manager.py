@@ -148,7 +148,7 @@ def _unlink_paths(*paths: Path | None) -> list[tuple[Path, OSError]]:
         if path is None:
             continue
         try:
-            # hard-delete: pending-trash -- #3385 #3386 purge_resource 经此删除资源的全部历史版本；其余调用方删的是暂存与回滚文件，最后一个接入的 ticket 改标 temp
+            # hard-delete: pending-trash -- #3386 purge_resource 经此删除资源的全部历史版本；其余调用方删的是暂存与回滚文件，最后一个接入的 ticket 改标 temp
             path.unlink(missing_ok=True)
         except OSError as exc:
             failures.append((path, exc))
@@ -1181,7 +1181,7 @@ class VersionManager:
         与文件名可能以 NFD 落盘。返回涉及的快照文件数；旧 id 无版本记录时返回 0
         （幂等：级联事务中途失败后重跑安全）。``dry_run=True`` 只统计、不迁移。
 
-        新 id 下已有他人的版本历史时整体拒绝：资产删除只删资产桶 key、版本记录与快照留存，
+        新 id 下已有他人的版本历史时整体拒绝：早先的资产删除只删资产桶 key、版本记录与快照留存，
         迁移过去会不可恢复地覆盖它。拒绝发生在 ``dry_run`` 分支之前，因此级联事务的扫描
         阶段就能拦下，零写入承诺不破。
 
@@ -1231,7 +1231,7 @@ class VersionManager:
                 version["file"] = dst.relative_to(self.project_path).as_posix()
             # 视觉同名的等价 key（NFC / NFD 并存）一并收编到新 id 下，留一条会顶着旧名残留、
             # 之后被重建的同名资产接上。被合并掉的那条记录，其快照文件会留在盘上成为孤儿——
-            # 与资产删除只删桶 key、快照留存是同一口径，宁可留下也不静默删除用户的历史。
+            # 与早先的资产删除留下快照是同一口径，宁可留下也不静默删除用户的历史。
             rekey_equivalent_entries(bucket, old_id, new_id)
             self._save_versions(data)
             record_project_activity(self.project_path)
@@ -1456,8 +1456,8 @@ class VersionManager:
     def purge_resource(self, resource_type: str, resource_id: str) -> int:
         """删除一个资源的全部版本记录与快照文件，返回删除的快照数。
 
-        只服务「资源本身随之消失」的删除路径（当前是角色衍生）：留着记录会让重建的同名
-        资源接上一段不属于它的历史。资产删除保留历史是另一条既有口径，不经此。
+        只服务「资源本身随之消失」的删除路径：留着记录会让重建的同名资源接上一段不属于它的历史。
+        资产与衍生的删除不经此，它们的版本历史随删除记录进项目回收站。
         快照文件删不掉时记录并继续——记录已经删了，留在盘上的文件不再被任何版本引用。
         """
         if resource_type not in self.RESOURCE_TYPES:

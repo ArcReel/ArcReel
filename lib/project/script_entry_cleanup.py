@@ -5,7 +5,7 @@
 盘上的旧文件被登记为第一版），回滚就能回到不属于它的画面。
 
 单列一个模块是因为它同时需要 :mod:`lib.artifacts.version_manager`（历史）与
-:mod:`lib.project.resource_paths`（当前文件路径），与 :mod:`lib.project.asset_derivative_cleanup` 同构。
+:mod:`lib.project.resource_paths`（当前文件路径）。
 """
 
 from __future__ import annotations

@@ -362,6 +362,29 @@ it("names an episode record by its title and says the restored episode goes to t
   await waitFor(() => expect(toasts.at(-1)?.text).toBe("集「番外」 已恢复，排在播出顺序末尾"));
 });
 
+it("names asset and derivative records by their objects", async () => {
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("/trash")) {
+      const base = { ...timelineRecord(), has_snapshot: true, files: [] };
+      return Promise.resolve(Response.json({
+        records: [
+          { ...base, id: "a", object: { kind: "asset", asset_type: "scene", name: "茶楼" } },
+          { ...base, id: "b", object: { kind: "asset_derivative", asset_type: "character", owner: "阿岚", name: "战甲" } },
+        ],
+        total_size: 10,
+        retention_days: 30,
+      }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  await userEvent.setup().click(screen.getByRole("tab", { name: "项目回收站" }));
+
+  expect(await screen.findByText("场景「茶楼」")).toBeInTheDocument();
+  expect(screen.getByText("角色「阿岚」的衍生「战甲」")).toBeInTheDocument();
+});
+
 it("tells what a degraded restore recovered and offers the remaining structure files for download", async () => {
   const toasts = collectToasts();
   const downloads: string[] = [];

@@ -56,7 +56,7 @@ class AssetRenameFileCollisionError(ValueError):
 class AssetRenameHistoryCollisionError(ValueError):
     """新名下已有保留的版本历史，整体拒绝、不落盘。
 
-    资产删除只删资产桶 key，版本记录与快照会留下（见 delete_entry）：迁移过去会覆盖这份
+    早先的资产删除只删资产桶 key，版本记录与快照留在项目里：迁移过去会覆盖这份
     历史且不可恢复。与孤儿文件同口径——宁可 fail loud 让用户先处理，也不静默销毁。
     """
 

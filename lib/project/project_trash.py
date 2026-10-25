@@ -202,9 +202,10 @@ def record_deletion(
     为真时先把删除前的结构文件复制进记录（结构删除用；被删文件本身不重复复制），恢复时按身份从中取出对象。
     文件实际不在该路径上时（例如生成结果的暂存文件），``sources`` 给出它的位置，记录里仍记原路径。
     调用方已在同一临界区里改写过的结构文件（如删集时的 ``project.json``），由 ``before`` 给出删除前的内容。
+    结构删除的对象可以没有被删文件（它只存在于结构文件里）。
     任一文件移动失败时已移走的文件搬回原处，不留下半条记录；记录建立后提交失败时用 :func:`withdraw` 撤回。
     """
-    if "kind" not in obj or not files:
+    if "kind" not in obj or not (files or snapshot):
         raise ValueError("删除记录需要对象类型与至少一个被删文件")
     record_id = f"{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{secrets.token_hex(4)}"
     record_dir = trash_dir(project_dir) / record_id
@@ -212,6 +213,7 @@ def record_deletion(
     moved: list[tuple[Path, Path]] = []
     try:
         size = 0
+        stored.mkdir(parents=True)  # 没有被删文件的结构删除也有这个目录：恢复流水线从这里铺设
         if snapshot:
             deleted = set(files)
             for rel in structure_files(project_dir):

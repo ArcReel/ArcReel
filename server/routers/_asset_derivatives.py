@@ -7,7 +7,7 @@
 
 本模块只做登记（新增、改描述、删除）与改名；衍生资产图的生成、版本与过期判定不在此处。
 改名与删除是例外：那张图的落盘坐标含衍生名，改名要连带搬图、版本历史与清单键
-（``lib.project.asset_derivative_rename``），删除要连带清掉三者（``lib.project.asset_derivative_cleanup``），
+（``lib.project.asset_derivative_rename``），删除要连带把三者移进项目回收站（``lib.project.asset_trash``），
 两者都与登记写入同属一次提交。
 """
 
@@ -23,7 +23,7 @@ from pydantic import BaseModel
 
 from lib.infra.api_errors import NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
-from lib.project.asset_derivative_cleanup import purge_derivative_sheets
+from lib.project import asset_trash
 from lib.project.asset_derivatives import ensure_derivative_table, find_derivative_name
 from lib.project.asset_rename import (
     AssetRenameConflictError,
@@ -240,25 +240,31 @@ def register_derivative_routes(
         _t: Translator,
     ):
         deleted: list[str] = []
+        before: dict[str, bytes] = {}
 
-        def _mutate(entry: dict[str, Any]) -> None:
-            table = ensure_derivative_table(entry)
-            key = resolve_asset_key(table, derivative_name)
-            if key is None:
-                raise _DerivativeMissing(derivative_name)
-            del table[key]
-            deleted.append(key)
+        def _write(manager: ProjectManager, commit: Callable[[Path], None]) -> dict[str, Any]:
+            project_dir = manager.get_project_path(project_name)
 
-        def _purge(manager: ProjectManager, owner_key: str) -> None:
-            purge_derivative_sheets(manager.get_project_path(project_name), owner_key, deleted)
+            def _mutate(entry: dict[str, Any]) -> None:
+                table = ensure_derivative_table(entry)
+                key = resolve_asset_key(table, derivative_name)
+                if key is None:
+                    raise _DerivativeMissing(derivative_name)
+                before.update(asset_trash.state_before(project_dir))
+                del table[key]
+                deleted.append(key)
 
-        await _run(
-            project_name,
-            entry_name,
-            lambda manager, commit: manager.update_asset_entry(
-                asset_type, project_name, entry_name, _mutate, on_commit=commit
-            ),
-            _t,
-            _purge,
-        )
+            return manager.update_asset_entry(
+                asset_type,
+                project_name,
+                entry_name,
+                _mutate,
+                on_commit=commit,
+                formal_paths=asset_trash.state_paths(project_dir),
+            )
+
+        def _trash(manager: ProjectManager, owner_key: str) -> None:
+            asset_trash.trash_asset_derivative(manager.get_project_path(project_name), owner_key, deleted[0], before)
+
+        await _run(project_name, entry_name, _write, _t, _trash)
         return {"success": True, "message": _t("asset_derivative_deleted", name=derivative_name)}

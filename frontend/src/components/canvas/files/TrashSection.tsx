@@ -27,6 +27,12 @@ import { formatFileSize } from "@/utils/file-size";
 
 type ListingState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; listing: TrashListing };
 
+const ASSET_TYPES = ["character", "scene", "prop", "product"] as const;
+
+function isAssetType(value: unknown): value is (typeof ASSET_TYPES)[number] {
+  return ASSET_TYPES.includes(value as (typeof ASSET_TYPES)[number]);
+}
+
 /** 对象名：按对象类型显示，只涉及文件的对象取被删文件的路径。 */
 function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): string | undefined {
   if (object.kind === "edit_timeline" && typeof object.name === "string") {
@@ -40,6 +46,12 @@ function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): 
   if (object.kind === "grid") return t("trash_object_grid", { episode: object.episode });
   if (object.kind === "end_frame") return t("trash_object_end_frame", { shot: object.shot_id });
   if (object.kind === "reference_audio") return t("trash_object_reference_audio", { name: object.character });
+  if (object.kind === "asset" && isAssetType(object.asset_type) && typeof object.name === "string") {
+    return t(`trash_object_asset.${object.asset_type}`, { name: object.name });
+  }
+  if (object.kind === "asset_derivative" && typeof object.name === "string") {
+    return t("trash_object_asset_derivative", { name: object.name, owner: object.owner });
+  }
   return object.path;
 }
 

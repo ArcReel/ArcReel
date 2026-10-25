@@ -202,6 +202,11 @@ export interface SuccessResponse {
   message?: string;
 }
 
+/** 新建项目资产的结果；项目回收站里有同类型同名资产的删除记录时带上最新那条的 ID。 */
+export interface AssetCreateResult extends SuccessResponse {
+  trash_record_id?: string | null;
+}
+
 export interface AgentProfileStatus {
   customized: boolean;
   customized_files: string[];

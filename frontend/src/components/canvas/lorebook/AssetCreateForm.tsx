@@ -1,5 +1,7 @@
 import { useCallback, useId } from "react";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
+import { API } from "@/api";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useEditUnit } from "@/components/shared/edit-unit/useEditUnit";
 import { Button } from "@/components/ui/button";
@@ -7,7 +9,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SheetBody, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import { useAppStore } from "@/stores/app-store";
 import type { AssetSheetType } from "@/types";
+import { errMsg } from "@/utils/async";
 import { normalizeAssetName } from "@/utils/reference-mentions";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { createAsset, EMPTY_ASSET_FIELDS, type NewAssetFields } from "./asset-editor-model";
@@ -20,6 +24,18 @@ const DESCRIPTION_PLACEHOLDER = {
   prop: "dashboard:prop_desc_placeholder",
   product: "dashboard:product_desc_placeholder",
 } as const satisfies Record<AssetSheetType, string>;
+
+/** 从项目回收站恢复同名资产：原名已被刚建的资产占用，恢复结果带后缀，可以再合并。 */
+async function restoreFromTrash(projectName: string, recordId: string, t: TFunction): Promise<void> {
+  const { pushToast } = useAppStore.getState();
+  try {
+    const result = await API.restoreTrashRecord(projectName, recordId);
+    await refreshAfterWrite(projectName, t);
+    pushToast(t("assets:create_trash_restored", { name: result.object.name }), "success");
+  } catch (error) {
+    pushToast(t("assets:create_trash_restore_failed", { message: errMsg(error) }), "error");
+  }
+}
 
 /**
  * 详情 Sheet 的新建模式：空白的详情表单，「创建」即保存。创建后由调用方切到这个资产的详情，
@@ -52,11 +68,21 @@ export function AssetCreateForm({
     async (fields: NewAssetFields) => {
       onSubmittingChange(true);
       try {
-        await createAsset(projectName, assetType, fields);
+        const created = await createAsset(projectName, assetType, fields);
         // 刷新失败时已提示；新资产不在数据里，Sheet 随即关闭，不会停在可重复提交的表单
         await refreshAfterWrite(projectName, t);
         // 后端按 strip + NFC 落盘，按真名选中新资产
-        onCreated(normalizeAssetName(fields.name));
+        const name = normalizeAssetName(fields.name);
+        onCreated(name);
+        const recordId = created.trash_record_id;
+        if (recordId) {
+          useAppStore.getState().pushToast(t("assets:create_trash_hint", { name }), "info", {
+            action: {
+              label: t("assets:create_trash_restore"),
+              onClick: () => void restoreFromTrash(projectName, recordId, t),
+            },
+          });
+        }
       } finally {
         onSubmittingChange(false);
       }
