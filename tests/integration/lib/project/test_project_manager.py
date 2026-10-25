@@ -290,17 +290,13 @@ class TestProjectManager:
         synced = pm.sync_episode_from_script("demo", "episode_1.json")
         assert synced["episodes"][0]["episode"] == 1
 
-        # add_scene (drama format)
         drama_script = {
             "episode": 2,
             "title": "第二集",
             "content_mode": "drama",
-            "scenes": [],
+            "scenes": [{"scene_id": "E2S01", "duration_seconds": 8, "generated_assets": {}}],
         }
         pm.save_script("demo", drama_script, "episode_2.json", validate=False)
-        pm.add_scene("demo", "episode_2.json", {"duration_seconds": 8, "generated_assets": {}})
-        loaded_drama = pm.load_script("demo", "episode_2.json")
-        assert loaded_drama["scenes"][0]["scene_id"] == "001"
 
         # update_scene_asset + pending helpers
         narration_script = pm.load_script("demo", "episode_1.json")
@@ -330,7 +326,7 @@ class TestProjectManager:
             pm.update_scene_asset("demo", "episode_1.json", "NOT_FOUND", "video_clip", "x.mp4")
 
     def test_locked_script_helpers_drama_paths(self, tmp_path):
-        """覆盖经 locked_script 迁移的 helper 在 drama/scenes 分支与默认资产填充。"""
+        """覆盖经 locked_script 迁移的 helper 在 drama/scenes 分支。"""
         pm = ProjectManager(tmp_path / "projects")
         pm.create_project("demo")
         pm.create_project_metadata("demo", "Demo", "Anime", "drama")
@@ -339,16 +335,12 @@ class TestProjectManager:
             "episode": 1,
             "title": "第一集",
             "content_mode": "drama",
-            "scenes": [],
+            "scenes": [
+                {"scene_id": "001", "duration_seconds": 6, "generated_assets": {}},
+                {"scene_id": "002", "duration_seconds": 4, "generated_assets": {}},
+            ],
         }
         pm.save_script("demo", drama_script, "episode_1.json", validate=False)
-
-        # add_scene 未带 generated_assets：触发默认资产填充分支
-        pm.add_scene("demo", "episode_1.json", {"duration_seconds": 6})
-        pm.add_scene("demo", "episode_1.json", {"duration_seconds": 4})
-        loaded = pm.load_script("demo", "episode_1.json")
-        assert [s["scene_id"] for s in loaded["scenes"]] == ["001", "002"]
-        assert loaded["scenes"][0]["generated_assets"]["status"] == "pending"
 
         # update_scene_asset 走 drama/scenes 分支（else: scene_id）
         pm.update_scene_asset("demo", "episode_1.json", "001", "storyboard_image", "sb/001.png")
@@ -560,7 +552,14 @@ class TestProjectManager:
         stored = json.loads((project_dir / "scripts" / "episode_1.json").read_text(encoding="utf-8"))
         assert stored["segments"][0]["segment_id"] == "E1S01"
         assert pm.load_project("demo")["episodes"] == [
-            {"episode": 1, "source_origin": "none", "title": "Episode 1", "script_file": "scripts/episode_1.json"}
+            {
+                "episode": 1,
+                "source_origin": "none",
+                "title": "Episode 1",
+                "script_file": "scripts/episode_1.json",
+                # 剧本落盘时记下本集条目编号用过的最大号
+                "item_id_high_water": 1,
+            }
         ]
 
     @pytest.mark.parametrize(

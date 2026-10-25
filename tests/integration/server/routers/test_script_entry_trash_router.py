@@ -76,7 +76,7 @@ def _remove(http: TestClient, item_id: str) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("changed_input", [False, True])
-def test_a_removed_shot_comes_back_after_its_predecessor_with_media_and_history(
+def test_a_removed_shot_comes_back_after_its_predecessor_under_a_new_id_with_media_and_history(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed_input: bool
 ) -> None:
     manager, http = _project(tmp_path, monkeypatch)
@@ -105,47 +105,56 @@ def test_a_removed_shot_comes_back_after_its_predecessor_with_media_and_history(
 
         restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
 
+        # 编号只分配、不复用：原编号空闲也不沿用，取本集用过的最大号之后的新编号。
         assert restored.status_code == 200, restored.text
-        assert (restored.json()["object"]["id"], restored.json()["degraded"]) == ("E1S02", False)
+        assert (restored.json()["object"]["id"], restored.json()["degraded"]) == ("E1S04", False)
         segments = _segments(manager)
-        assert [s["segment_id"] for s in segments] == ["E1S01", "E1S02", "E1S03"]
-        assert segments[1]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S02.png"
-        assert (project_dir / "storyboards" / "scene_E1S02.png").read_bytes() == b"image-E1S02"
-        assert VersionManager(project_dir).get_versions("storyboards", "E1S02") == history
-        assert adapter.get_entry(key) == claim
-        status = ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=claim.artifact_path).status
-        assert status == (ArtifactStatus.STALE if changed_input else ArtifactStatus.CURRENT)
+        assert [s["segment_id"] for s in segments] == ["E1S01", "E1S04", "E1S03"]
+        assert segments[1]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S04.png"
+        assert (project_dir / "storyboards" / "scene_E1S04.png").read_bytes() == b"image-E1S02"
+        assert not (project_dir / "storyboards" / "scene_E1S02.png").exists()
+        [snapshot] = VersionManager(project_dir).get_versions("storyboards", "E1S04")["versions"]
+        assert snapshot["prompt"] == history["versions"][0]["prompt"]
+        assert (project_dir / snapshot["file"]).read_bytes() == b"image-E1S02"
+        # 登记随新编号补录，依据摘要不变；新编号下的输入与删除前不同，照常判为过期而不是缺失。
+        assert adapter.get_entry(key) is None
+        new_key = ArtifactKey.episode_storyboard(1, "E1S04")
+        new_claim = adapter.get_entry(new_key)
+        assert new_claim is not None
+        assert (new_claim.artifact_path, new_claim.basis_digest) == ("storyboards/scene_E1S04.png", claim.basis_digest)
+        status = ArtifactCurrencyResolver(project_dir).compare(new_key, artifact_path=new_claim.artifact_path).status
+        assert status is ArtifactStatus.STALE
         assert http.get("/api/v1/projects/demo/trash").json()["records"] == []
 
 
-def test_a_shot_whose_id_was_handed_out_again_comes_back_under_a_new_id(
+def test_a_removed_last_shot_keeps_its_id_out_of_new_items_and_comes_back_under_a_new_id(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     manager, http = _project(tmp_path, monkeypatch)
     project_dir = manager.get_project_path("demo")
     with http:
         record = _remove(http, "E1S03")
-        # 末尾条目删掉后再新增会取回它的编号：新条目是另一个身份。
+        # 末尾条目删掉后再新增不会取回它的编号：编号只分配、不复用。
         inserted = http.post(
             "/api/v1/projects/demo/script-items",
             json={"script_file": "episode_1.json", "after_id": "E1S01", "novel_text": "新的一镜。"},
         )
-        assert inserted.json()["item"]["segment_id"] == "E1S03"
+        assert inserted.json()["item"]["segment_id"] == "E1S04"
 
         restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
 
     assert restored.status_code == 200, restored.text
-    assert restored.json()["object"]["id"] == "E1S04"
+    assert restored.json()["object"]["id"] == "E1S05"
     segments = _segments(manager)
-    assert [s["segment_id"] for s in segments] == ["E1S01", "E1S03", "E1S02", "E1S04"]
-    assert segments[3]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S04.png"
+    assert [s["segment_id"] for s in segments] == ["E1S01", "E1S04", "E1S02", "E1S05"]
+    assert segments[3]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S05.png"
     assert segments[1]["generated_assets"] == {}
-    assert (project_dir / "storyboards" / "scene_E1S04.png").read_bytes() == b"image-E1S03"
+    assert (project_dir / "storyboards" / "scene_E1S05.png").read_bytes() == b"image-E1S03"
     assert not (project_dir / "storyboards" / "scene_E1S03.png").exists()
     versions = VersionManager(project_dir)
     assert not versions.has_versions("storyboards", "E1S03")
-    [snapshot] = versions.get_versions("storyboards", "E1S04")["versions"]
-    assert Path(snapshot["file"]).name.startswith("E1S04_v1_")
+    [snapshot] = versions.get_versions("storyboards", "E1S05")["versions"]
+    assert Path(snapshot["file"]).name.startswith("E1S05_v1_")
     assert (project_dir / snapshot["file"]).read_bytes() == b"image-E1S03"
 
 
@@ -165,11 +174,11 @@ def test_a_renumbered_grid_member_comes_back_as_a_plain_shot_that_the_planner_pl
         )
         restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
 
-    assert restored.json()["object"]["id"] == "E1S04", restored.text
+    assert restored.json()["object"]["id"] == "E1S05", restored.text
     assets = _segments(manager)[3]["generated_assets"]
     # 宫格的成员仍是旧编号：新编号的分镜不再属于它，按普通分镜规划。
     assert (assets.get("grid_id"), assets.get("grid_cell_index")) == (None, None)
-    assert TargetStatePlanner(project_dir).resolve_basis(ArtifactKey.episode_storyboard(1, "E1S04")) is not None
+    assert TargetStatePlanner(project_dir).resolve_basis(ArtifactKey.episode_storyboard(1, "E1S05")) is not None
 
 
 @pytest.mark.parametrize("degraded", [False, True])
@@ -223,10 +232,17 @@ def test_two_concurrent_restores_of_one_record_put_it_back_once(
         assert kept.files == ("scripts/episode_1.json",)
         assert not (project_dir / "scripts/episode_1.json").exists()
         assert manager.load_project("demo")["episodes"] == []
+        assert sorted(p.name for p in (project_dir / "storyboards").iterdir()) == [
+            "scene_E1S02.png",
+            "scene_E1S03.png",
+        ]
     else:
-        assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S03"]
-    assert sorted(p.name for p in (project_dir / "storyboards").iterdir()) == ["scene_E1S02.png", "scene_E1S03.png"]
-    assert not VersionManager(project_dir).has_versions("storyboards", "E1S04")
+        assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S04"]
+        assert sorted(p.name for p in (project_dir / "storyboards").iterdir()) == [
+            "scene_E1S02.png",
+            "scene_E1S04.png",
+        ]
+    assert not VersionManager(project_dir).has_versions("storyboards", "E1S05")
 
 
 def test_a_shot_whose_episode_was_deleted_too_can_only_come_back_with_the_episode(
@@ -251,7 +267,7 @@ def test_a_shot_whose_episode_was_deleted_too_can_only_come_back_with_the_episod
     assert episode_back.status_code == 200, episode_back.text
     assert shot_back.status_code == 200, shot_back.text
     assert shot_back.json()["degraded"] is False
-    assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S03"]
+    assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S04", "E1S03"]
 
 
 def test_a_failure_while_moving_the_media_leaves_the_script_media_and_trash_untouched(
@@ -288,7 +304,7 @@ def test_a_removed_shot_without_media_still_becomes_a_record_and_returns_to_the_
         restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
 
     assert restored.status_code == 200, restored.text
-    assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S03"]
+    assert [s["segment_id"] for s in _segments(manager)] == ["E1S04", "E1S02", "E1S03"]
 
 
 def test_a_shot_without_media_that_cannot_be_taken_out_keeps_its_record(
@@ -317,7 +333,7 @@ def test_a_shot_without_media_that_cannot_be_taken_out_keeps_its_record(
     assert refused.status_code == 409, refused.text
     assert kept == [record["id"]]
     assert retried.status_code == 200, retried.text
-    assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S03"]
+    assert [s["segment_id"] for s in _segments(manager)] == ["E1S04", "E1S02", "E1S03"]
 
 
 def test_a_renumbered_shot_does_not_take_the_history_its_new_id_had_when_it_was_deleted(
@@ -333,11 +349,11 @@ def test_a_renumbered_shot_does_not_take_the_history_its_new_id_had_when_it_was_
         inserted = http.post(
             "/api/v1/projects/demo/script-items", json={"script_file": "episode_1.json", "novel_text": "新的一镜。"}
         )
-        assert inserted.json()["item"]["segment_id"] == "E1S01", inserted.text
+        assert inserted.json()["item"]["segment_id"] == "E1S04", inserted.text
 
         restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
 
     assert restored.status_code == 200, restored.text
-    assert restored.json()["object"]["id"] == "E1S02"
-    assert [s["segment_id"] for s in _segments(manager)] == ["E1S02", "E1S01"]
-    assert not VersionManager(project_dir).has_versions("storyboards", "E1S02")
+    assert restored.json()["object"]["id"] == "E1S05"
+    assert [s["segment_id"] for s in _segments(manager)] == ["E1S05", "E1S04"]
+    assert not VersionManager(project_dir).has_versions("storyboards", "E1S05")

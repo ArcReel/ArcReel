@@ -1351,10 +1351,61 @@ def test_item_added_after_removing_the_last_one_starts_without_old_media_or_hist
     result = service.execute("demo", _command(pm, [{"op": "insert_after", "after_id": "E1S01", "item": item}]))
 
     assert result.success is True, result.problems
-    assert item["scene_id"] == "E1S02"
-    assert pm.load_script("demo", "episode_1.json")["scenes"][1]["generated_assets"] == {}
+    # 占位编号 E1S02 已被删掉的分镜用过，提交时另发 E1S03
+    assert (item["scene_id"], result.affected_ids) == ("E1S02", ("E1S03",))
+    added = pm.load_script("demo", "episode_1.json")["scenes"][1]
+    assert (added["scene_id"], added["generated_assets"]) == ("E1S03", {})
     assert not storyboard.exists()
     assert VersionManager(project_dir).has_versions("storyboards", "E1S02") is False
+    assert VersionManager(project_dir).has_versions("storyboards", "E1S03") is False
+
+
+def test_fresh_insert_takes_a_number_after_every_number_the_episode_has_used(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, _project_dir = editor
+    assert service.execute("demo", _command(pm, [{"op": "remove", "id": "E1S03"}])).success is True
+
+    result = service.execute(
+        "demo", _command(pm, [{"op": "insert_after", "after_id": "E1S02", "item": _segment("E1S03")}])
+    )
+
+    assert result.success is True, result.problems
+    assert result.affected_ids == ("E1S04",)
+    saved = pm.load_script("demo", "episode_1.json")["segments"]
+    assert [segment["segment_id"] for segment in saved] == ["E1S01", "E1S02", "E1S04"]
+    episode = next(entry for entry in pm.load_project("demo")["episodes"] if entry["episode"] == 1)
+    assert episode["item_id_high_water"] == 4
+
+
+def test_later_operations_in_the_batch_address_the_issued_id(
+    editor: tuple[ProjectManager, ScriptBatchEditor, Path],
+) -> None:
+    pm, service, _project_dir = editor
+
+    result = service.execute(
+        "demo",
+        _command(
+            pm,
+            [
+                {"op": "insert_after", "after_id": "E1S01", "item": _segment("E1S99", text="第一条新分镜")},
+                {"op": "insert_after", "after_id": "E1S99", "item": _segment("E1S98", text="第二条新分镜")},
+                {"op": "update", "id": "E1S99", "fields": {"novel_text": "改过的第一条"}},
+                {"op": "move_after", "id": "E1S98", "after_id": None},
+            ],
+        ),
+    )
+
+    assert result.success is True, result.problems
+    assert result.affected_ids == ("E1S04", "E1S05")
+    saved = pm.load_script("demo", "episode_1.json")["segments"]
+    assert [(segment["segment_id"], segment["novel_text"]) for segment in saved] == [
+        ("E1S05", "第二条新分镜"),
+        ("E1S01", "风吹过旷野。"),
+        ("E1S04", "改过的第一条"),
+        ("E1S02", "风吹过旷野。"),
+        ("E1S03", "风吹过旷野。"),
+    ]
 
 
 def test_episode_without_source_ignores_an_unregistered_episode_file(tmp_path: Path) -> None:

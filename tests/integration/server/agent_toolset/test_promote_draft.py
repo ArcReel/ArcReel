@@ -191,7 +191,8 @@ async def test_promote_draft_promotes_after_repair(fake_ctx: ToolHarness, monkey
     assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
-    assert saved["units"][0]["unit_id"] == "E1U01"
+    # 落盘时由服务端发号：夹具剧本已用过 1 号
+    assert saved["units"][0]["unit_id"] == "E1U2"
     assert saved["units"][0]["text"] == "@[张三] 在 @[村口] 出场"
 
 
@@ -575,8 +576,9 @@ async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: Too
     text = draft_of(out)["message"]
     assert "降级提示" in text
     assert "未引用场景" in text
-    assert "unit E1U02：" in text
-    assert "unit E1U01：" not in text
+    # 回执按落盘时发出的编号定位（夹具剧本已用过 1 号）
+    assert "unit E1U3：" in text
+    assert "unit E1U2：" not in text
 
 
 async def test_promote_receipt_silent_when_every_unit_references_a_scene(fake_ctx: ToolHarness, monkeypatch) -> None:

@@ -66,6 +66,8 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
             "gemini-vertex/gemini-3-pro-image-preview": {"resolution": "2K"},
             "gemini-vertex/gemini-3-pro-image": {"resolution": "1K"},
         },
+        # v18→v19 记下本集用过的最大分镜号（样本剧本到 E1S02）
+        "episodes": [{**entry, "item_id_high_water": 2} for entry in legacy["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
     migrated = _read_json(project_dir / "project.json")
@@ -101,6 +103,7 @@ def test_schema_17_retired_text_model_references_resolve_to_successors(
     assert _read_json(project_path) == {
         **project,
         **dict.fromkeys(TEXT_BACKEND_SETTING_KEYS, successor),
+        "episodes": [{**entry, "item_id_high_water": 2} for entry in project["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
 

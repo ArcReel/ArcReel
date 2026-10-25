@@ -24,6 +24,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.artifacts.version_manager import VERSION_CONTENT_DIGEST, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
+from lib.project import project_trash
 from lib.project.project_migrations.runner import MIGRATORS
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.grid.models import GridGeneration, build_frame_chain
@@ -256,6 +257,55 @@ def write_legacy_timeline_agent_turn_project(root: Path) -> Path:
                     "content": {"clips": [{**clip, "source_volume": 0.6}]},
                     "changed_clip_ids": ["c1"],
                 },
+            ],
+        },
+    )
+    return project_dir
+
+
+def write_legacy_item_id_reuse_project(root: Path, name: str = "legacy-item-id-reuse") -> Path:
+    """schema 18 项目：新增条目只避开剧本里现存的编号，删掉的条目在别处留下更大的编号。
+
+    剧本里是 E1S1、E1S2；删掉的 E1S5 只剩版本历史，E1S7 在项目回收站的删除记录里，剪辑时间线的片段还引用
+    已删掉的 E1S9。升级前在剧本末尾新增会取 E1S3，接上这些旧编号的历史。
+    """
+
+    project_dir = write_legacy_storyboard_project(root, name=name)
+    advance_project_schema(project_dir, to_version=18)
+    removed_image = project_dir / "storyboards" / "scene_E1S5.png"
+    removed_image.write_bytes(b"removed-E1S5")
+    VersionManager(project_dir).add_version("storyboards", "E1S5", "删掉的分镜", source_file=removed_image)
+    removed_image.unlink()
+    trashed_audio = project_dir / "audio" / "segment_E1S7.wav"
+    trashed_audio.parent.mkdir(parents=True, exist_ok=True)
+    trashed_audio.write_bytes(b"removed-E1S7")
+    project_trash.record_deletion(
+        project_dir,
+        {"kind": "script_entry", "id": "E1S7", "episode": 1, "script_file": "episode_1.json", "item_kind": "segments"},
+        ["audio/segment_E1S7.wav"],
+    )
+    _write_json(
+        project_dir / "edit_timelines" / "episode_1" / "tl-00000e19.json",
+        {
+            "schema_version": 1,
+            "id": "tl-00000e19",
+            "episode": 1,
+            "name": "初剪",
+            "created_at": "2026-09-01T00:00:00Z",
+            "next_clip_number": 3,
+            "revisions": [
+                {
+                    "number": 1,
+                    "author": {"kind": "creator", "user_id": "u1"},
+                    "summary": "按脚本新建",
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "content": {
+                        "clips": [
+                            {"id": "c1", "unit_id": "E1S1", "source_volume": 1.0},
+                            {"id": "c2", "unit_id": "E1S9", "source_volume": 1.0},
+                        ]
+                    },
+                }
             ],
         },
     )
@@ -1481,6 +1531,7 @@ __all__ = [
     "write_legacy_ad_reference_video_project",
     "write_legacy_drama_storyboard_project",
     "write_legacy_episode_id_remnants_project",
+    "write_legacy_item_id_reuse_project",
     "write_legacy_presentation_project",
     "write_legacy_reference_video_project",
     "write_legacy_retired_flash_lite_project",

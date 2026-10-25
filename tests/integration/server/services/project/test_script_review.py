@@ -600,7 +600,8 @@ class TestConfirmMaterializesScript:
 
         assert state["status"] == "confirmed"
         [segment] = _formal_script(pm)["segments"]
-        assert segment["segment_id"] == "E1S01"
+        # 规划里的 E1S01 已被旧剧本用过，转出时换成本集用过的最大号之后的新编号
+        assert segment["segment_id"] == "E1S10"
         assert segment["pending_authoring"] is True
         assert segment["image_prompt"] is None
         snapshot = adapter.snapshot_entries()
@@ -608,7 +609,7 @@ class TestConfirmMaterializesScript:
         assert ArtifactKey.episode_script(1) in snapshot
 
     async def test_acknowledged_overwrite_moves_old_entries_to_the_project_trash(self, tmp_path, video_request_facts):
-        """覆盖后旧条目的媒体与版本历史移进项目回收站：沿用旧编号的条目是新身份，不接旧历史；被移除的条目同样移走。"""
+        """覆盖后旧条目的媒体与版本历史移进项目回收站：新条目换新编号，不接旧历史；被移除的条目同样移走。"""
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
         _write_script(pm, _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")))

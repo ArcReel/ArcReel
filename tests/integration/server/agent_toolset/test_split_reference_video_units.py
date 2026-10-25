@@ -309,7 +309,8 @@ async def test_split_reference_video_units_happy_derives_structure(
 
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     unit = saved["units"][0]
-    assert unit["unit_id"] == "E1U01"
+    # 夹具剧本已用过 E1S01：本集编号只分配、不复用，单元从 2 号起
+    assert unit["unit_id"] == "E1U2"
     assert unit["text"] == text
     # 参考图不落盘：读侧一律从正文的 @[名称] 派生
     assert "references" not in unit
@@ -320,16 +321,17 @@ async def test_split_reference_video_units_happy_derives_structure(
     assert captured["generate_project_name"] == "demo"
 
 
-async def test_split_reference_video_units_numbers_unit_ids_by_order(
+async def test_split_reference_video_units_issues_unit_ids_after_the_highest_used_number(
     fake_ctx: ToolHarness, monkeypatch, video_request_facts
 ) -> None:
-    """unit_id 按数组序号机械编号：LLM 不写 id，也就不存在重复 / 错集号可写。"""
+    """unit_id 由服务端按数组顺序发号，取本集用过的最大号之后：LLM 不写 id，也就不存在重复 / 错集号 / 复用可写。"""
     rv_source(fake_ctx)
     units = [rv_unit("@[张三] 起身"), rv_unit("@[张三] 出门")]
     out = await run_rv_split(fake_ctx, monkeypatch, units)
     assert out.problem is None, out
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
-    assert [u["unit_id"] for u in saved["units"]] == ["E1U01", "E1U02"]
+    assert [u["unit_id"] for u in saved["units"]] == ["E1U2", "E1U3"]
+    assert fake_ctx.pm.project_payload["episodes"][0]["item_id_high_water"] == 3
 
 
 async def test_split_reference_video_units_derives_dialogue_without_reference_image(
@@ -565,8 +567,9 @@ async def test_split_reference_video_units_names_units_without_scene_reference(
 
     assert out.problem is None, out
     text = said(out)
-    assert "unit E1U02：" in text
-    assert "unit E1U01：" not in text
+    # 回执按落盘时发出的编号定位（夹具剧本已用过 1 号）
+    assert "unit E1U3：" in text
+    assert "unit E1U2：" not in text
     assert "未引用场景" in text
 
 
@@ -588,8 +591,9 @@ async def test_split_reference_video_units_counts_this_episodes_new_scenes_as_sc
 
     assert out.problem is None, out
     text = said(out)
-    assert "unit E1U02：" in text
-    assert "unit E1U01：" not in text
+    # 回执按落盘时发出的编号定位（夹具剧本已用过 1 号）
+    assert "unit E1U3：" in text
+    assert "unit E1U2：" not in text
 
 
 async def test_split_reference_video_units_reports_soft_violations_alongside_the_violation_report(
