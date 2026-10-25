@@ -131,14 +131,15 @@ def test_sampler_controls_are_never_silently_dropped(renderer, motion_config, tm
         renderer.build_command(motion_config, tmp_path)
 
 
-def test_identity_reference_keeps_both_temporal_anchors_in_the_ic_pipeline(renderer, motion_config, tmp_path):
+@pytest.mark.parametrize(("mode", "frames"), [("identity-reference", 121), ("structural-control", 49)])
+def test_control_keeps_both_temporal_anchors_in_the_ic_pipeline(renderer, motion_config, tmp_path, mode, frames):
     end = tmp_path / "end.png"
     end.touch()
-    motion_config.update(mode="identity-reference", width=768, height=448, frames=121, end_image=str(end))
+    motion_config.update(mode=mode, width=768, height=448, frames=frames, end_image=str(end))
     command = renderer.build_command(motion_config, tmp_path)
     anchors = [command[i + 1 : i + 4] for i, arg in enumerate(command) if arg == "--image"]
     assert command[3] == "ic-lora"
-    assert anchors == [[motion_config["image"], "0", "1.0"], [str(end), "120", "1.0"]]
+    assert anchors == [[motion_config["image"], "0", "1.0"], [str(end), str(frames - 1), "1.0"]]
     assert command[command.index("--video-conditioning") + 1] == motion_config["control_video"]
     assert command[command.index("--distilled-lora") + 1] == motion_config["distilled_lora"]
     assert "--start" not in command
@@ -146,13 +147,14 @@ def test_identity_reference_keeps_both_temporal_anchors_in_the_ic_pipeline(rende
 
 
 @pytest.mark.parametrize("missing", ["image", "end_image"])
-def test_identity_temporal_anchors_require_a_real_start_and_end(renderer, motion_config, tmp_path, missing):
+@pytest.mark.parametrize("mode", ["identity-reference", "structural-control"])
+def test_control_temporal_anchors_require_a_real_start_and_end(renderer, motion_config, tmp_path, missing, mode):
     end = tmp_path / "end.png"
     end.touch()
-    motion_config.update(mode="identity-reference", width=768, height=448, frames=121, end_image=str(end))
+    motion_config.update(mode=mode, width=768, height=448, frames=121, end_image=str(end))
     if missing == "image":
         motion_config.pop("image")
-        message = "An end anchor requires a starting image"
+        message = "requires a starting image"
     else:
         end.unlink()
         message = "Missing end_image"
@@ -214,10 +216,9 @@ def test_control_keeps_stricter_memory_admission(renderer, motion_config, tmp_pa
         renderer.run(path)
 
 
-@pytest.mark.parametrize("override", [{"image": None}, {"end_image": "end.png"}])
-def test_structural_test_requires_its_single_start_anchor(renderer, motion_config, tmp_path, override):
-    motion_config.update(mode="structural-control", **override)
-    with pytest.raises(ValueError, match="requires a start image and no end anchor"):
+def test_structural_test_requires_a_start_anchor(renderer, motion_config, tmp_path):
+    motion_config.update(mode="structural-control", image=None)
+    with pytest.raises(ValueError, match="requires a starting image"):
         renderer.build_command(motion_config, tmp_path)
 
 

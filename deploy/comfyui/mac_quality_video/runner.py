@@ -55,8 +55,8 @@ def build_command(config, root):
             raise ValueError("Motion-track qualification requires a starting image.")
         if config["mode"] == "motion-track" and config.get("end_image"):
             raise ValueError("Motion-track qualification cannot use an end anchor.")
-        if config["mode"] == "structural-control" and (not config.get("image") or config.get("end_image")):
-            raise ValueError("Structural-control qualification requires a start image and no end anchor.")
+        if config["mode"] == "structural-control" and not config.get("image"):
+            raise ValueError("Structural-control qualification requires a starting image.")
         if config.get("recipe"):
             raise ValueError("IC-LoRA qualification cannot use another recipe.")
         if config["mode"] == "identity-reference" and (config["width"], config["height"], config["frames"]) != (
@@ -204,9 +204,7 @@ def run(config_path, check_interrupt=None):
     report = {
         "config": config,
         "command": args,
-        "pipeline": "keyframe"
-        if config.get("end_image") and config["mode"] != "identity-reference"
-        else config["mode"],
+        "pipeline": "keyframe" if args[3] == "keyframe" else config["mode"],
         "output": str(out),
         "status": "running",
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),

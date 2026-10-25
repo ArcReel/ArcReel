@@ -136,7 +136,11 @@ restoration with each trial.
 ### Dense depth contact fixture
 
 `structural-control` is an isolated Union Control experiment, not a production
-capability. It requires a starting image and rejects an ending anchor. Supply the
+capability. It requires a starting image and accepts an optional `end_image` as
+a final-frame anchor within the same IC-LoRA pipeline. Both image anchors and
+the depth guide remain connected; this does not switch to keyframe-only
+generation. Check that the anchors and guide describe compatible poses before
+inference. Endpoint accuracy is not proof of a valid path between them. Supply the
 LTX 2.3 Union adapter and a grayscale depth video at half the output dimensions,
 matching the reference downscale factor in its metadata. Keep all guides at the
 same frame count and 24 fps. The versioned single-stage workflow is
