@@ -155,6 +155,24 @@ def test_reasoning_effort_respects_sol_minimum_without_changing_other_models(
     assert payload["reasoning"] == {"effort": expected}
 
 
+@pytest.mark.parametrize(
+    "content", ["Previous turn interrupted.", [{"type": "text", "text": "Previous turn interrupted."}]]
+)
+def test_sdk_assistant_history_without_resume_metadata_uses_output_text(request_body, content):
+    request_body["messages"] = [
+        {"role": "assistant", "content": content},
+        {"role": "user", "content": "Continue the review."},
+    ]
+    payload, _ = to_responses_request(request_body)
+    assistant, user = payload["input"]
+    assert assistant == {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": "Previous turn interrupted.", "annotations": []}],
+    }
+    assert user["content"] == [{"type": "input_text", "text": "Continue the review."}]
+
+
 def test_request_preserves_images_inside_and_outside_tool_results(request_body):
     image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "aW1hZ2U="}}
     request_body["messages"] = [

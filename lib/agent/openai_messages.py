@@ -200,7 +200,10 @@ def _message_items(message: Mapping[str, Any], wire_names: Mapping[str, str]) ->
         if kind in {"text", "image"}:
             if role == "assistant" and kind == "image":
                 raise ConversionError("Assistant image history is unsupported")
-            pending.append(_input_part(block))
+            if role == "assistant":
+                pending.append({"type": "output_text", "text": _string(block.get("text"), "text"), "annotations": []})
+            else:
+                pending.append(_input_part(block))
             continue
         flush()
         if kind == "tool_use" and role == "assistant":

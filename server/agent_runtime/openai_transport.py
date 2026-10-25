@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import secrets
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, aclosing, asynccontextmanager
@@ -130,15 +131,71 @@ def _error(message: str, *, error_type: str = "invalid_request_error") -> dict[s
     return {"type": "error", "error": {"type": error_type, "message": message}}
 
 
-def _upstream_error(status: int) -> dict[str, Any]:
+async def _upstream_error(response: httpx.Response, payload: dict[str, Any]) -> dict[str, Any]:
+    status = response.status_code
     if status in (401, 403):
         return _error(
             "OpenAI rejected the director credential. Check its API access.", error_type="authentication_error"
         )
     if status == 429:
         return _error("OpenAI rate or credit limit reached. Check the account limits.", error_type="rate_limit_error")
+    # Never relay the upstream message: it may echo credentials or prompt text.
+    # These identifiers identify the failure without exposing request content.
+    diagnostics = []
+    raw = bytearray()
+    async for chunk in response.aiter_bytes():
+        raw.extend(chunk)
+        if len(raw) > 64 * 1024:
+            break
+    try:
+        body = json.loads(raw) if len(raw) <= 64 * 1024 else None
+    except (ValueError, UnicodeDecodeError):
+        body = None
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict):
+        code = error.get("code")
+        if code in (
+            "context_length_exceeded",
+            "invalid_encrypted_content",
+            "invalid_image",
+            "invalid_image_format",
+            "invalid_value",
+            "invalid_request",
+            "invalid_request_error",
+            "invalid_request_body",
+            "invalid_json_schema",
+            "missing_required_parameter",
+            "unsupported_parameter",
+            "unsupported_value",
+            "model_not_found",
+        ):
+            diagnostics.append(f"code={code}")
+        param = error.get("param")
+        if isinstance(param, str) and re.fullmatch(
+            r"(?:model|input|tools|instructions|reasoning|text|temperature|top_p|max_output_tokens)"
+            r"(?:\[\d+\]|\.(?:content|type|id|call_id|name|arguments|output|image_url|detail|"
+            r"encrypted_content|summary|format|schema|parameters|properties|effort))*",
+            param,
+        ):
+            diagnostics.append(f"parameter={param}")
+            location = re.fullmatch(r"input\[(\d+)\]\.content\[(\d+)\]", param)
+            if location:
+                item_index, part_index = map(int, location.groups())
+                items = payload.get("input", [])
+                if item_index < len(items):
+                    item = items[item_index]
+                    parts = item.get("content", [])
+                    role = item.get("role")
+                    if part_index < len(parts) and role in {"user", "assistant", "system", "developer"}:
+                        kind = parts[part_index].get("type")
+                        if kind in {"input_text", "output_text", "input_image", "refusal"}:
+                            diagnostics.append(f"role={role}, content_type={kind}")
+    request_id = response.headers.get("x-request-id", "")
+    if re.fullmatch(r"req_[a-f0-9]{32}", request_id):
+        diagnostics.append(f"request={request_id}")
+    suffix = f" ({', '.join(diagnostics)})" if diagnostics else ""
     return _error(
-        f"OpenAI rejected the director request (HTTP {status}). Check the selected model and input.",
+        f"OpenAI rejected the director request (HTTP {status}){suffix}. Check the selected model and input.",
         error_type="api_error",
     )
 
@@ -251,7 +308,7 @@ async def _openai_stream(
             close_revoked = asyncio.create_task(_close_revoked_response(response, credential))
             try:
                 if response.is_error:
-                    yield _sse(_upstream_error(response.status_code))
+                    yield _sse(await _upstream_error(response, payload))
                     return
                 async with aclosing(_upstream_events(response)) as events:
                     async for event in events:
@@ -317,7 +374,7 @@ async def messages(
             request,
         )
         if response.is_error:
-            return JSONResponse(_upstream_error(response.status_code), status_code=response.status_code)
+            return JSONResponse(await _upstream_error(response, payload), status_code=response.status_code)
         result = await asyncio.to_thread(from_responses_response, response.json(), names, model=str(payload["model"]))
         return JSONResponse(result, status_code=502 if result.get("type") == "error" else 200)
     except (httpx.HTTPError, ValueError):
@@ -353,7 +410,7 @@ async def count_tokens(
             request,
         )
         if response.is_error:
-            return JSONResponse(_upstream_error(response.status_code), status_code=response.status_code)
+            return JSONResponse(await _upstream_error(response, payload), status_code=response.status_code)
         count = response.json().get("input_tokens")
         if not isinstance(count, int) or isinstance(count, bool) or count < 0:
             raise ValueError("Invalid token count.")

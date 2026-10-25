@@ -507,3 +507,49 @@ async def test_upstream_authentication_error_never_echoes_credentials(director_c
     assert response.json()["error"]["type"] == "authentication_error"
     assert _KEY not in response.text
     assert "private prompt" not in response.text
+
+
+@pytest.mark.parametrize(("path", "stream"), [(_MESSAGES, False), (_MESSAGES, True), (_COUNT_TOKENS, False)])
+@pytest.mark.parametrize("safe_identifiers", [True, False])
+async def test_bad_request_reports_only_allowed_diagnostics(
+    director_client, director_registry, path, stream, safe_identifiers
+):
+    token = director_registry.register(_KEY, frozenset({_MODEL}))
+    endpoint = OPENAI_RESPONSES_URL if path == _MESSAGES else f"{OPENAI_RESPONSES_URL}/input_tokens"
+    secret = f"{_KEY} private prompt"
+    request_id = "req_" + "a" * 32
+    with capture_http(assert_all_called=True) as upstream:
+        upstream.post(endpoint).respond(
+            400,
+            headers={"x-request-id": request_id if safe_identifiers else secret},
+            json={
+                "error": {
+                    "message": secret,
+                    "code": "invalid_value" if safe_identifiers else secret,
+                    "param": "input[0].content[0]" if safe_identifiers else secret,
+                }
+            },
+        )
+        response = await director_client.post(path, headers={"x-api-key": token}, json=_message(stream=stream))
+    assert response.status_code == (200 if stream else 400)
+    error = _events(response)[-1]["error"] if stream else response.json()["error"]
+    assert error["type"] == "api_error"
+    assert "HTTP 400" in error["message"]
+    assert ("code=invalid_value" in error["message"]) is safe_identifiers
+    assert ("parameter=input[0].content[0]" in error["message"]) is safe_identifiers
+    assert ("role=user, content_type=input_text" in error["message"]) is safe_identifiers
+    assert "Outline a scene" not in error["message"]
+    assert (request_id in error["message"]) is safe_identifiers
+    assert _KEY not in response.text
+    assert "private prompt" not in response.text
+
+
+@pytest.mark.parametrize("content", [b"not json", b"[]", b"x" * 65537])
+async def test_unstructured_upstream_error_retains_safe_status(director_client, director_registry, content):
+    token = director_registry.register(_KEY, frozenset({_MODEL}))
+    with capture_http(assert_all_called=True) as upstream:
+        upstream.post(OPENAI_RESPONSES_URL).respond(400, content=content)
+        response = await director_client.post(_MESSAGES, headers={"x-api-key": token}, json=_message(stream=True))
+    error = _events(response)[-1]["error"]
+    assert error["type"] == "api_error"
+    assert "HTTP 400" in error["message"]
