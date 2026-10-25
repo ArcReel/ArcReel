@@ -190,6 +190,19 @@ def test_write_media_denied(policy: AgentAccessPolicy, tool: str, relative: str)
     assert "delete_project_file" in (reason or "")
 
 
+def test_protected_media_covers_every_public_media_location() -> None:
+    """写保护表从媒体的唯一定义处枚举：公开端点可读的每个媒体目录与项目根目录的媒体文件，
+    都在 Agent 写保护里。新增媒体位置只登记到公开端点时，Agent 能绕过项目回收站直接覆盖或删除它。"""
+    from lib.project.data_validator import DataValidator
+    from server.agent_runtime.agent_access_policy import AGENT_PROTECTED_MEDIA_DIRS, AGENT_PROTECTED_MEDIA_FILES
+    from server.routers.files import PUBLIC_MEDIA_DIRS, is_public_media_path
+
+    assert set(AGENT_PROTECTED_MEDIA_DIRS) >= PUBLIC_MEDIA_DIRS
+    root_media = {name for name in DataValidator.ALLOWED_ROOT_ENTRIES if is_public_media_path((name,))}
+    assert root_media
+    assert root_media <= set(AGENT_PROTECTED_MEDIA_FILES)
+
+
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize("relative", ["versions/versions.json", "versions/storyboards/scene_E1S01_v1_20261025.png"])
 def test_write_version_history_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
