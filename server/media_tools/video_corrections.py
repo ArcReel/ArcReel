@@ -21,6 +21,7 @@ from lib.video_review.corrections import (
     get_correction_attempt,
     matching_verified_lessons,
     record_correction_outcome,
+    related_verified_lessons,
     reserve_correction,
     retire_verified_lesson,
 )
@@ -114,9 +115,28 @@ def _execute(request: VideoCorrectionMemoryRequest, scope: ProjectScope, service
     if unit_id is not None and unit_id not in known:
         raise ValueError("Video unit does not belong to this project")
     if isinstance(command, LookupCorrections):
-        lessons = matching_verified_lessons(project_path, scope=command.context.resolve(project_path))
+        context = command.context.resolve(project_path)
+        lessons = matching_verified_lessons(project_path, scope=context)
+        related = (
+            related_verified_lessons(project_path, scope=context, limit=3 - len(lessons)) if len(lessons) < 3 else ()
+        )
         return {
             "lessons": [lesson.model_dump(mode="json") for lesson in lessons],
+            "related_lessons": [
+                {
+                    "lesson": lesson.model_dump(mode="json"),
+                    "applicability": "unverified_for_current_context",
+                    "changed_scope": [
+                        label
+                        for label, changed in (
+                            ("workflow", lesson.attempt.scope.context_hash != context.context_hash),
+                            ("references", lesson.attempt.scope.reference_hashes != context.reference_hashes),
+                        )
+                        if changed
+                    ],
+                }
+                for lesson in related
+            ],
             "attempts": [
                 attempt.model_dump(mode="json")
                 for attempt in correction_attempts(project_path, unit_id=command.unit_id)

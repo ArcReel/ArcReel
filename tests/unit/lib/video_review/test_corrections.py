@@ -22,6 +22,7 @@ from lib.video_review.corrections import (
     get_correction_attempt,
     matching_verified_lessons,
     record_correction_outcome,
+    related_verified_lessons,
     reserve_correction,
     retire_verified_lesson,
 )
@@ -329,6 +330,26 @@ def test_verified_lessons_remain_project_and_exact_context_scoped(tmp_path: Path
     assert matching_verified_lessons(tmp_path, scope=_scope("f" * 64)) == ()
     changed_model = _scope().model_copy(update={"model": "another-model"})
     assert matching_verified_lessons(tmp_path, scope=changed_model) == ()
+
+
+def test_related_lessons_are_bounded_and_exclude_other_renderers_projects_and_retired_evidence(tmp_path: Path) -> None:
+    attempts = [_verify(tmp_path, _reserve(tmp_path, unit=f"shot-{index}")) for index in range(5)]
+    _fail(tmp_path, _reserve(tmp_path, unit="failed"))
+    _reserve(tmp_path, unit="pending")
+    retire_verified_lesson(tmp_path, attempt_id=attempts[-1].attempt_id)
+    context = _scope("f" * 64)
+
+    assert [item.attempt.unit_id for item in related_verified_lessons(tmp_path, scope=context)] == [
+        "shot-3",
+        "shot-2",
+        "shot-1",
+    ]
+    assert related_verified_lessons(tmp_path, scope=_scope()) == ()
+    assert related_verified_lessons(tmp_path, scope=context.model_copy(update={"model": "other"})) == ()
+    assert related_verified_lessons(tmp_path, scope=context.model_copy(update={"provider": "other"})) == ()
+    other_project = tmp_path / "other-project"
+    other_project.mkdir()
+    assert related_verified_lessons(other_project, scope=context) == ()
 
 
 def test_detail_history_eviction_does_not_restore_exhausted_budget(tmp_path: Path) -> None:

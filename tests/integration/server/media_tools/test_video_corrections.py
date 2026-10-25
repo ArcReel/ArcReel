@@ -75,7 +75,7 @@ def _context(**updates: Any) -> dict[str, Any]:
     }
 
 
-def _install(ctx: ToolHarness, source: Path, **metadata: Any) -> int:
+def _install(ctx: ToolHarness, source: Path, *, unit: str = "E1S01", **metadata: Any) -> int:
     provenance = {
         "execution_task_id": "candidate-generation-task",
         "execution_request_digest": "d" * 64,
@@ -84,9 +84,9 @@ def _install(ctx: ToolHarness, source: Path, **metadata: Any) -> int:
         **metadata,
     }
     version = VersionManager(ctx.project_path).add_version(
-        "videos", "E1S01", "A blue background, locked camera", source_file=source, **provenance
+        "videos", unit, "A blue background, locked camera", source_file=source, **provenance
     )
-    current = ctx.project_path / resource_relative_path("videos", "E1S01")
+    current = ctx.project_path / resource_relative_path("videos", unit)
     current.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, current)
     return version
@@ -189,6 +189,77 @@ async def test_actual_inspection_receipts_promote_a_scoped_lesson_then_retire_it
     retired = await _lookup(ctx)
     assert retired["lessons"] == []
     assert retired["attempts"][0]["status"] == "verified"
+
+
+async def test_new_shot_context_can_retrieve_evidence_without_claiming_a_verified_fix(
+    ctx: ToolHarness, clips: dict[str, Path]
+) -> None:
+    attempt, before, after = await _candidate(ctx, clips)
+    verified = (await _memory(ctx, _resolution(attempt, before, after)))["attempt"]
+    Image.new("RGB", (8, 8), "green").save(ctx.project_path / "references" / "subject.png")
+
+    result = await _lookup(ctx, workflow="new shot with a different camera")
+
+    assert result["lessons"] == []
+    assert result["related_lessons"] == [
+        {
+            "lesson": {"attempt": verified},
+            "applicability": "unverified_for_current_context",
+            "changed_scope": ["workflow", "references"],
+        }
+    ]
+    assert result["attempts"][0]["attempt_id"] == attempt
+    assert (await _lookup(ctx, model="another-model"))["related_lessons"] == []
+    assert (await _lookup(ctx, provider="another-provider"))["related_lessons"] == []
+    await _memory(ctx, {"action": "retire", "attempt_id": attempt})
+    assert (await _lookup(ctx))["related_lessons"] == []
+
+
+async def test_exact_lessons_take_priority_within_the_shared_three_example_budget(
+    ctx: ToolHarness, clips: dict[str, Path]
+) -> None:
+    attempt_ids = []
+    units = [f"E1S{index + 1:02}" for index in range(5)]
+    ctx.pm.save_script(
+        ctx.project_name,
+        {
+            "episode": 1,
+            "title": "E1",
+            "content_mode": "narration",
+            "segments": [{"segment_id": unit, "novel_text": "旁白"} for unit in units],
+        },
+        "episode_1.json",
+        validate=False,
+    )
+    for index in range(5):
+        unit = units[index]
+        if index:
+            install_current_video(ctx.project_path, "videos", unit, clips["red"])
+        before = await _inspect(ctx, 1, unit=unit)
+        context = _context(workflow="palette consistency" if index < 2 else "different camera")
+        attempt = (
+            await _memory(
+                ctx,
+                _reservation(before, unit_id=unit, context=context, input_description=f"Color correction {index}"),
+            )
+        )["attempt"]["attempt_id"]
+        version = _install(ctx, clips["blue"], unit=unit)
+        after = await _inspect(ctx, version, unit=unit)
+        await _memory(ctx, _resolution(attempt, before, after, candidate_version=version))
+        attempt_ids.append(attempt)
+
+    result = await _lookup(ctx)
+    assert [item["attempt"]["attempt_id"] for item in result["lessons"]] == list(reversed(attempt_ids[:2]))
+    assert [item["lesson"]["attempt"]["attempt_id"] for item in result["related_lessons"]] == [attempt_ids[-1]]
+    assert result["related_lessons"][0]["changed_scope"] == ["workflow"]
+    exact_context = await _lookup(ctx, workflow="different camera")
+    assert len(exact_context["lessons"]) == 3
+    assert exact_context["related_lessons"] == []
+    new_context = await _lookup(ctx, workflow="unseen shot")
+    assert new_context["lessons"] == []
+    assert [item["lesson"]["attempt"]["attempt_id"] for item in new_context["related_lessons"]] == list(
+        reversed(attempt_ids[-3:])
+    )
 
 
 @pytest.mark.parametrize("case", ["missing", "forged", "wrong_version", "tampered"])

@@ -329,6 +329,23 @@ def matching_verified_lessons(
     return tuple(item for item in reversed(ledger.lessons) if item.attempt.scope == scope)[:limit]
 
 
+def related_verified_lessons(
+    project_dir: Path, *, scope: CorrectionScope, limit: int = 3
+) -> tuple[VerifiedLesson, ...]:
+    """Return same-renderer evidence that still needs assessment in this input scope."""
+    if type(limit) is not int or not 1 <= limit <= 3:
+        raise CorrectionLedgerError("Lesson limit must be between one and three")
+    with _locked_ledger(project_dir) as path:
+        ledger = _load(path)
+    return tuple(
+        item
+        for item in reversed(ledger.lessons)
+        if item.attempt.scope != scope
+        and item.attempt.scope.provider == scope.provider
+        and item.attempt.scope.model == scope.model
+    )[:limit]
+
+
 def correction_attempts(project_dir: Path, *, unit_id: str) -> tuple[CorrectionAttempt, ...]:
     """Read retained attempts for a unit, including pending work after a restart."""
     with _locked_ledger(project_dir) as path:
