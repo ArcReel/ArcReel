@@ -34,6 +34,8 @@ class ContactFrame:
     palm: tuple[float, float]
     hand_angle: float
     bag: tuple[float, float]
+    body_angle: float = 0.0
+    creature_dip: float = 0.0
 
 
 def solve_elbow(shoulder, wrist, upper_arm, forearm, pole):
@@ -59,10 +61,18 @@ def smooth_between(frame, first, last):
     return t**3 * (10 + t * (-15 + 6 * t))
 
 
-def contact_sequence():
+def body_point(point, angle):
+    """Lean the upper-body proxy around its fixed hip, keeping planted legs fixed."""
+    x, y = point[0] - 480, point[1] - 245
+    return (480 + x * math.cos(angle) - y * math.sin(angle), 245 + x * math.sin(angle) + y * math.cos(angle))
+
+
+def contact_sequence(*, reaction=False):
     frames = []
-    shoulder = (439.0, 127.0)
     for frame in range(FRAME_COUNT):
+        body_angle = 0.035 * smooth_between(frame, 4, 18) * (1 - smooth_between(frame, 32, 48)) if reaction else 0
+        creature_dip = 8 * smooth_between(frame, 0, 6) * (1 - smooth_between(frame, 8, 22)) if reaction else 0
+        shoulder = body_point((439.0, 127.0), body_angle)
         dip = smooth_between(frame, 2, 10)
         bag = (385 + 12 * dip, 196 + 12 * dip)
         reach = smooth_between(frame, 8, CONTACT_FRAME)
@@ -70,7 +80,7 @@ def contact_sequence():
         hand_angle = math.pi / 2 + math.pi / 2 * reach
         palm = (wrist[0] + 13 * math.cos(hand_angle), wrist[1] + 13 * math.sin(hand_angle))
         elbow = solve_elbow(shoulder, wrist, UPPER_ARM, FOREARM, (600.0, 200.0))
-        frames.append(ContactFrame(shoulder, elbow, wrist, palm, hand_angle, bag))
+        frames.append(ContactFrame(shoulder, elbow, wrist, palm, hand_angle, bag, body_angle, creature_dip))
     validate_sequence(frames)
     return frames
 
@@ -112,6 +122,10 @@ def validate_sequence(frames):
     max_contact_gap = 0.0
     min_arm_clearance = math.inf
     for index, frame in enumerate(frames):
+        if not (math.isfinite(frame.body_angle) and abs(frame.body_angle) <= 0.05):
+            raise ValueError("Body lean outside the diagnostic's supported range")
+        if not (math.isfinite(frame.creature_dip) and 0 <= frame.creature_dip <= 10):
+            raise ValueError("Creature dip outside the diagnostic's supported range")
         points = np.array([frame.shoulder, frame.elbow, frame.wrist, frame.palm, frame.bag])
         if not np.isfinite(points).all():
             raise ValueError("Non-finite guide coordinates")
@@ -186,11 +200,13 @@ def render_depth(frame, width=384, height=224):
         front = z - np.sqrt(np.maximum(radius**2 - squared, 0))
         np.minimum(depth, np.where(squared <= radius**2, front, 600), out=depth)
 
-    # Solids remain fixed except the articulated near arm and translated prop.
-    ellipsoid((480, 187, 185), (36, 66, 30))
-    ellipsoid((475, 65, 165), (41, 39, 30))
-    ellipsoid((515, 19, 175), (22, 18, 20))
-    capsule((478, 108), (477, 131), 12, 175)
+    def upper(point):
+        return body_point(point, frame.body_angle)
+
+    ellipsoid((*upper((480, 187)), 185), (36, 66, 30), frame.body_angle)
+    ellipsoid((*upper((475, 65)), 165), (41, 39, 30), frame.body_angle)
+    ellipsoid((*upper((515, 19)), 175), (22, 18, 20), frame.body_angle)
+    capsule(upper((478, 108)), upper((477, 131)), 12, 175)
     for hip, knee, ankle, shoe in [
         ((465, 245), (454, 326), (447, 398), (449, 412, 175)),
         ((501, 246), (502, 318), (506, 387), (508, 398, 205)),
@@ -198,9 +214,9 @@ def render_depth(frame, width=384, height=224):
         capsule(hip, knee, 13, shoe[2])
         capsule(knee, ankle, 10, shoe[2])
         ellipsoid(shoe, (23, 11, 20))
-    capsule((508, 135), (516, 192), 10, 205)
-    capsule((516, 192), (514, 237), 8, 205)
-    ellipsoid((514, 247, 205), (7, 13, 7))
+    capsule(upper((508, 135)), upper((516, 192)), 10, 205)
+    capsule(upper((516, 192)), upper((514, 237)), 8, 205)
+    ellipsoid((*upper((514, 247)), 205), (7, 13, 7), frame.body_angle)
     bx, by = frame.bag
     strap_end = (bx + 25, by - 27)
     strap_joint = solve_elbow(frame.shoulder, strap_end, 32, 32, (350, 100))
@@ -209,10 +225,11 @@ def render_depth(frame, width=384, height=224):
     bag_mask = (abs(xx - bx) <= BAG_HALF_SIZE[0]) & (abs(yy - by) <= BAG_HALF_SIZE[1])
     np.minimum(depth, np.where(bag_mask, 130, 600), out=depth)
     # The small prop occupant is a stable proxy silhouette, not an identity model.
-    ellipsoid((bx, by - 42, 150), (19, 18, 20))
-    ellipsoid((bx - 17, by - 49, 158), (10, 4, 6), -0.7)
-    ellipsoid((bx + 17, by - 49, 158), (10, 4, 6), 0.7)
-    ellipsoid((bx - 4, by - 33, 129), (10, 7, 8))
+    cy = by + frame.creature_dip
+    ellipsoid((bx, cy - 42, 150), (19, 18, 20))
+    ellipsoid((bx - 17, cy - 49, 158), (10, 4, 6), -0.7)
+    ellipsoid((bx + 17, cy - 49, 158), (10, 4, 6), 0.7)
+    ellipsoid((bx - 4, cy - 33, 129), (10, 7, 8))
     capsule(frame.shoulder, frame.elbow, 10, ARM_DEPTH)
     capsule(frame.elbow, frame.wrist, 7, ARM_DEPTH)
     ellipsoid((*frame.palm, ARM_DEPTH), (13, 6, 7), frame.hand_angle)
@@ -221,8 +238,8 @@ def render_depth(frame, width=384, height=224):
     return np.repeat(np.rint(gray[:, :, None] * 255).astype(np.uint8), 3, axis=2)
 
 
-def export_guide(output_dir):
-    frames = contact_sequence()
+def export_guide(output_dir, *, reaction=False):
+    frames = contact_sequence(reaction=reaction)
     metrics = validate_sequence(frames)
     output_dir.mkdir(parents=True, exist_ok=False)
     sequence = output_dir / "performance.json"
@@ -261,6 +278,7 @@ def export_guide(output_dir):
     for index in (0, 10, CONTACT_FRAME, FRAME_COUNT - 1):
         Image.fromarray(pixels[index]).save(output_dir / f"frame-{index:02d}.png")
     metrics.update(
+        performance="reaction" if reaction else "contact_only",
         video_sha256=hashlib.sha256(video.read_bytes()).hexdigest(),
         sequence_sha256=hashlib.sha256(sequence.read_bytes()).hexdigest(),
         source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -273,8 +291,9 @@ def export_guide(output_dir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--reaction", action="store_true", help="Add a creature dip and upper-body counter-lean.")
     args = parser.parse_args()
-    print(json.dumps(export_guide(args.output_dir), indent=2))
+    print(json.dumps(export_guide(args.output_dir, reaction=args.reaction), indent=2))
 
 
 if __name__ == "__main__":

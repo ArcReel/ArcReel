@@ -11,9 +11,10 @@ from lib.infra.ffmpeg import ffmpeg_executable
 from scripts.prepare_contact_guide import contact_sequence, export_guide, render_depth
 
 
-def test_export_decodes_all_frames_and_preserves_grayscale_contact(tmp_path):
+@pytest.mark.parametrize("reaction", [False, True])
+def test_export_decodes_all_frames_and_preserves_grayscale_contact(tmp_path, reaction):
     output = tmp_path / "guide"
-    metrics = export_guide(output)
+    metrics = export_guide(output, reaction=reaction)
     video = output / "depth-guide.mp4"
     result = subprocess.run(
         [ffmpeg_executable(), "-v", "error", "-i", str(video), "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"],
@@ -21,7 +22,7 @@ def test_export_decodes_all_frames_and_preserves_grayscale_contact(tmp_path):
         capture_output=True,
     )
     decoded = np.frombuffer(result.stdout, dtype=np.uint8).reshape(-1, 224, 384, 3)
-    expected = np.stack([render_depth(frame) for frame in contact_sequence()])
+    expected = np.stack([render_depth(frame) for frame in contact_sequence(reaction=reaction)])
     assert decoded.shape == expected.shape
     # YUV/RGB round trip can round grayscale levels by one code value.
     assert np.abs(decoded.astype(int) - expected.astype(int)).max() <= 1

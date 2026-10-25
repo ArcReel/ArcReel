@@ -45,6 +45,33 @@ def test_complete_catch_preserves_arm_and_contact_through_settle():
     assert metrics["production_qualified"] is False
 
 
+def test_reaction_leads_with_creature_and_keeps_contact_and_planted_feet():
+    frames = contact_sequence(reaction=True)
+    assert frames[2].creature_dip > 0
+    assert frames[2].body_angle == 0
+    assert frames[2].bag == frames[0].bag
+    assert frames[10].body_angle > 0
+    assert frames[10].bag[1] > frames[0].bag[1]
+    assert frames[29].creature_dip == 0
+    assert frames[29].body_angle > 0
+    assert frames[-1] == contact_sequence()[-1]
+    metrics = validate_sequence(frames)
+    assert metrics["max_contact_gap"] == 0
+    assert metrics["min_arm_bag_clearance"] > 0
+    first = render_depth(frames[0])
+    middle = render_depth(frames[18])
+    assert np.array_equal(first[180:], middle[180:])
+    assert not np.array_equal(first[:120], middle[:120])
+
+
+@pytest.mark.parametrize("change", [{"body_angle": math.nan}, {"body_angle": 0.1}, {"creature_dip": -1}])
+def test_unsupported_reaction_cannot_be_rendered_as_valid_geometry(change):
+    frames = contact_sequence(reaction=True)
+    frames[18] = replace(frames[18], **change)
+    with pytest.raises(ValueError, match="outside the diagnostic"):
+        validate_sequence(frames)
+
+
 def test_length_drift_is_rejected_even_when_wrist_reaches_contact():
     frames = contact_sequence()
     frames[-1] = replace(frames[-1], elbow=(357, 193))

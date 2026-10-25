@@ -154,6 +154,12 @@ Generate a deterministic 49-frame contact diagnostic with:
 uv run python -m scripts.prepare_contact_guide --output-dir /absolute/new/guide-directory
 ```
 
+Add `--reaction` to test a creature head dip followed by a small upper-body
+counter-lean and settle. The feet stay planted, arm lengths and contact are still
+checked, and the first/last poses match the contact-only fixture. This isolates
+the performed guide from the image anchors, prompt, and seed. The proxy does not
+provide facial acting, a walk cycle, or an approved character rig.
+
 This orthographic proxy checks fixed arm lengths, arm/bag clearance, and a palm
 supporting the bag underside. It records frame coordinates, source and video
 hashes, and validation metrics; existing output directories are never replaced.
