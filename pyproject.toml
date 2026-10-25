@@ -70,6 +70,7 @@ dev = [
     "deptry>=0.24.0",
     "pytest-testmon>=2.2.0",
     "blockbuster>=1.5.29",
+    "anyio>=4.14.2",
 ]
 # 变异测试工具，不进 dev：只在按批次跑 mutmut 时 `uv sync --group mutation` 装入。
 # 独立成组是为了让版本 pin 进 uv.lock、被 dependabot 看到；流程见 docs/testing/mutmut-runbook.md。
@@ -322,6 +323,7 @@ DEP002 = [
 # DEP004（import 了 dev 依赖）——tests/ 与 scripts/ 在扫描范围内，deptry 无法按目录区分
 # dev 与生产文件，故逐项列出它们正当 import 的测试框架包；其余 dev 依赖仍受本规则守护。
 DEP004 = [
+    "anyio",          # 回归测试直接构造 httpx 所用的 anyio 取消域
     "pytest",         # 测试框架
     "_pytest",        # pytest 的内部模块，根 conftest 复用其选择参数解析器
     "pytest_asyncio", # pytest 的 asyncio 插件，测试内直接用 @pytest_asyncio.fixture（本规则按模块名匹配）

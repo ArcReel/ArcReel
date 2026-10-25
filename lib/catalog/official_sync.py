@@ -118,6 +118,7 @@ async def _fetch(client: httpx.AsyncClient, url: str, max_bytes: int, proxy_pref
     response = await fetch_bytes(
         client, url, max_bytes=max_bytes, proxy_prefix=proxy_prefix, deadline_seconds=_FETCH_DEADLINE_SECONDS
     )
+    raise_if_cancel_absorbed()
     if response.status_code == 304:
         raise MarketTransportError("HTTP 304 without If-None-Match")
     return response.content

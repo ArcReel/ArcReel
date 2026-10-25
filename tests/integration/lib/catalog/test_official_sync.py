@@ -238,12 +238,15 @@ async def test_unexpected_failure_still_shows_in_sync_status() -> None:
 
 
 class _AnyioConnectTransport(httpx.AsyncBaseTransport):
-    """同 httpcore 经 ``anyio.connect_tcp`` 建连：连接建立后 anyio 取消自己的任务组，再回 500。"""
+    """同 httpcore 经 ``anyio.connect_tcp`` 建连：连接建立后 anyio 取消自己的任务组，再返回清单响应。"""
 
-    def __init__(self) -> None:
+    def __init__(self, status_code: int) -> None:
         self.connected = asyncio.Event()
+        self.status_code = status_code
+        self.requested_urls: list[str] = []
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.requested_urls.append(str(request.url))
         async with anyio.create_task_group() as tg:
 
             async def connect() -> None:
@@ -252,11 +255,13 @@ class _AnyioConnectTransport(httpx.AsyncBaseTransport):
 
             tg.start_soon(connect)
             await anyio.sleep_forever()
-        return httpx.Response(500)
+        manifest, _ = _files(UPSTREAM)
+        return httpx.Response(self.status_code, content=manifest)
 
 
-async def test_stop_ends_the_sync_when_anyio_absorbs_the_cancellation(db_factory) -> None:
-    transport = _AnyioConnectTransport()
+@pytest.mark.parametrize("status_code", [500, 200])
+async def test_stop_ends_the_sync_when_anyio_absorbs_the_cancellation(db_factory, status_code: int) -> None:
+    transport = _AnyioConnectTransport(status_code)
     async with httpx.AsyncClient(transport=transport) as client:
         task = official_sync.start_official_sync(db_factory, lambda: client)
 
@@ -271,9 +276,10 @@ async def test_stop_ends_the_sync_when_anyio_absorbs_the_cancellation(db_factory
 
         assert stopping.done()
         assert task.cancelled()
+        assert transport.requested_urls == [official_sync.MANIFEST_URL]
 
 
-async def test_stop_returns_after_the_interrupted_database_write_is_cleaned_up(tmp_path: Path) -> None:
+async def test_stop_returns_after_the_interrupted_database_write_is_cleaned_up(tmp_path: Path, http_client) -> None:
     # 与生产库同样的文件 SQLite 配默认连接池：被打断的会话在 asyncio.shield 里回滚、归还连接
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'catalog.db'}")
     loop = asyncio.get_running_loop()
@@ -297,20 +303,28 @@ async def test_stop_returns_after_the_interrupted_database_write_is_cleaned_up(t
         )
     before = asyncio.all_tasks()
     try:
-        failing = httpx.MockTransport(lambda _request: httpx.Response(500))
-        async with httpx.AsyncClient(transport=failing) as client:
-            task = official_sync.start_official_sync(async_sessionmaker(engine), lambda: client)
+        with capture_http() as http:
+            http.get(official_sync.MANIFEST_URL).respond(status_code=500)
+            task = official_sync.start_official_sync(async_sessionmaker(engine), lambda: http_client)
             await insert_running.wait()
 
             stopping = asyncio.create_task(official_sync.stop_official_sync(task))
             # 先让 INSERT 卡一段时间再放行：只决定能否暴露收尾被重投的取消打断，不影响正确实现的结果
             await asyncio.wait({stopping}, timeout=0.2)
             release_insert.set()
-            await stopping
+            # 防挂起的上限，与上一条用例一致；挂住时由 finally 清退遗留任务
+            await asyncio.wait({stopping}, timeout=5)
+            assert stopping.done()
 
             assert task.cancelled()
             assert asyncio.all_tasks() - before == set()
             assert engine.pool.checkedout() == 0
     finally:
         release_insert.set()
+        pending = asyncio.all_tasks() - before
+        # 断言失败后终止遗留清理任务，免得坏实现让测试事件循环一直等下去。
+        while pending:
+            for task in pending:
+                task.cancel()
+            _, pending = await asyncio.wait(pending, timeout=0.05)
         await engine.dispose()

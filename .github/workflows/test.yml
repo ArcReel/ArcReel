@@ -372,9 +372,9 @@ jobs:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    # 单 worker 跑完整套截图场景约 60 分钟，按用例分五片；每片仍是单 worker，截图渲染条件不变。
+    # 按用例分五片；每片仍是单 worker，截图渲染条件不变。
     # 分片总数出现在 job 名、matrix.shard 与 --shard 三处，改动时一起改。
-    # 每片约 14 分钟（按近期实测折算最长约 15 分钟），25 分钟上限留足余量，超时只用来兜住卡死。
+    # 25 分钟上限只用来兜住卡死。
     timeout-minutes: 25
     strategy:
       fail-fast: false
