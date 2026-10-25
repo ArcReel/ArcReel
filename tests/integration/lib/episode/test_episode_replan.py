@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from lib.backends.text_backends.base import TextGenerationResult
+from lib.episode.episode_deletion import episode_trash_record
 from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY
 from lib.episode.episode_planner import EpisodePlanner
 from lib.episode.episode_replan import (
@@ -26,6 +27,7 @@ from lib.episode.episode_replan import (
 )
 from lib.episode.episode_reset import reset_episode_planning
 from lib.i18n import _ as i18n_message
+from lib.project.project_trash import trash_dir
 from lib.script.script_review import STALE_SCRIPT_PLAN_REVISION_FIELD
 
 CH = ("第一章。少年下山。", "第二章。城里起火。", "第三章。夜雨相逢。", "第四章。重逢离别。")
@@ -395,6 +397,12 @@ class TestAdoption:
         assert result.deleted == [2]
         assert _order(project_dir) == [1, 3]
         assert not (project_dir / "scripts" / "episode_2.json").exists()
+        # 退下的集连同集原文进项目回收站：恢复时这段原文是它的源文
+        record = episode_trash_record(project_dir, 2)
+        assert record is not None
+        assert {"source/episode_2.txt", "scripts/episode_2.json"} <= set(record.files)
+        stored = trash_dir(project_dir) / record.id / "files" / "source" / "episode_2.txt"
+        assert stored.read_text(encoding="utf-8") == CH[1]
 
     async def test_episodes_of_other_origins_follow_the_story_by_their_anchor(self, tmp_path: Path):
         # 番外 7 排在第 1 集之后（锚点 = 第 1 集结尾 = 起点）；番外 8 排在第 2 集之后（锚点在第二章结尾）；

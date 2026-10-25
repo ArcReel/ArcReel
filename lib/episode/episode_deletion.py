@@ -1,27 +1,27 @@
-"""删除一集：硬删除，按可恢复性确认（ADR 0096）。
+"""删除一集：移进项目回收站，按删除内容确认（ADR 0096、ADR 0107）。
 
-删除前先预览这一集会丢失的内容（:class:`EpisodeDeletionImpact`），服务端成文确认文本
+删除前先预览这一集要删除的内容（:class:`EpisodeDeletionImpact`），服务端成文确认文本
 （:func:`render_episode_deletion_text`），Web 确认框只呈现这份文本。创作者确认后带上预览的 ``revision`` 重新调用；
 锁内复核出的清单与预览不一致时退回确认，不写入。
 
 - 切出集删除后，它的原文范围变回未切分的原文：删的是按源文位置最后一个切出集时，接续规划的起点随之回退；
   删的是中间一集时留下空段，一键规划不回填空段。
-- 自带原文的集，集原文随之删除，不能恢复。
-- 正式脚本、脚本规划与草稿、条目媒体与版本历史、宫格联合图、配音字幕呈现、剪辑时间线与成片一并删除。
+- 集原文、正式脚本、脚本规划与草稿、条目媒体与版本历史、宫格联合图、配音字幕呈现、剪辑时间线与成片
+  一起成为一条删除记录（:func:`episode_content`），恢复见 :mod:`lib.episode.episode_trash`。
   集 ID 不回收，历史最高号不回退；任务与调用记录作为历史保留。
 
-账本、集文件、正式脚本与产物清单在同一把项目锁内提交；其余产物在提交后清理，清理失败只记日志——账本与清单
-已经不再引用它们。
+账本、删除记录、产物清单与版本历史在同一把项目锁内提交，任一步失败都撤回删除记录、账本回到删除前。
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import logging
-import shutil
-from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+import os
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -50,12 +50,16 @@ from lib.episode.episode_sources import (
     whole_source_files,
 )
 from lib.infra.text_metrics import count_reading_units, reading_unit_noun
+from lib.project import project_trash
 from lib.script.script_review import ForeignFormalScriptError, formal_script_filename, formal_script_overwrite
 
 if TYPE_CHECKING:
     from lib.project.project_manager import ProjectManager
 
 logger = logging.getLogger(__name__)
+
+#: 删除记录的对象类型；对象描述 ``{"kind": "episode", "id": 集 ID, "title": 标题}``。
+EPISODE_KIND = "episode"
 
 #: 条目媒体所在目录：文件名带条目 ID（``scene_E3S01.png``、``E3U1.mp4``）。
 _ITEM_MEDIA_DIRS = (
@@ -237,10 +241,78 @@ def _language(project: Mapping[str, Any]) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class EpisodeContent:
+    """一集在项目里的全部内容。"""
+
+    #: 进删除记录的普通文件（项目内相对 POSIX 路径）。
+    files: list[str]
+    #: 这一集资源的版本记录（按资源类型分桶）；快照文件在 ``files`` 里。
+    versions: dict[str, dict[str, Any]]
+    #: 锁与隐藏文件：基础设施，删集时直接删除。
+    leftovers: list[Path] = field(default_factory=list)
+    #: 按集分的目录：文件移走后清掉空目录。
+    dirs: list[Path] = field(default_factory=list)
+
+
+def episode_content(project_dir: Path, project: Mapping[str, Any], episode: int) -> EpisodeContent:
+    """``project_dir`` 里属于这一集的内容；删集时取当前项目，恢复时取迁移后的临时项目。不跟随符号链接。"""
+    files: list[Path] = []
+    leftovers: list[Path] = []
+    source_dir = project_dir / "source"
+    files.extend(discover_episode_file_aliases(project_dir).get(episode, []))
+    files.append(episode_source_path(project_dir, episode))
+    for pattern in (f"_episode_{episode}.txt*.bak", f"raw/episode_{episode}.*"):
+        files.extend(sorted(source_dir.glob(pattern)))
+    script_path = _script_path(project_dir, project, episode)
+    if script_path is not None:
+        files.append(script_path)
+    leftovers.append(project_dir / "scripts" / f".episode_{episode}.json.lock")
+    dirs = [episode_drafts_dir(project_dir, episode)]
+    for name in _EPISODE_DIRS:
+        dirs.append(project_dir / name / f"episode_{episode}")
+        leftovers.append(project_dir / name / f".episode_{episode}.lock")
+    for directory in dirs:
+        for dirpath, _dirnames, filenames in os.walk(directory):
+            for filename in sorted(filenames):
+                (leftovers if filename.startswith(".") else files).append(Path(dirpath) / filename)
+    for name in _ITEM_MEDIA_DIRS:
+        directory = project_dir / name
+        if directory.is_dir() and not directory.is_symlink():
+            files.extend(path for path in sorted(directory.iterdir()) if episode_ids_in_names([path.name]) == {episode})
+    grids = project_dir / "grids"
+    grid_ids = _grid_records(project_dir, episode)
+    for grid_id in grid_ids:
+        files.extend((grids / f"{grid_id}.json", grids / f"{grid_id}.png"))
+        leftovers.append(grids / f".{grid_id}.json.lock")
+    versions = VersionManager(project_dir)
+    records = versions.resource_records(_versioned_resources(project_dir, episode, grid_ids))
+    files.extend(project_dir / rel for rel in versions.snapshot_files(records))
+    plain = [path for path in files if path.is_file() and not path.is_symlink()]
+    return EpisodeContent(
+        files=list(dict.fromkeys(path.relative_to(project_dir).as_posix() for path in plain)),
+        versions=records,
+        leftovers=[path for path in leftovers if path.is_file() and not path.is_symlink()],
+        dirs=dirs,
+    )
+
+
+def episode_trash_record(project_dir: Path, episode: int) -> project_trash.TrashRecord | None:
+    """这一集的删除记录：集已删除、还能随集恢复时有；集 ID 不复用，至多一条。"""
+    return next(
+        (
+            record
+            for record in project_trash.list_records(project_dir)
+            if record.object.get("kind") == EPISODE_KIND and record.object.get("id") == episode
+        ),
+        None,
+    )
+
+
 def delete_episode(
     pm: ProjectManager, project_name: str, episode: int, *, revision: str | None = None
 ) -> EpisodeDeletionResult | EpisodeDeletionConfirmationRequired:
-    """删除一集。``revision`` 与当前丢失清单的指纹不符（含未传）时只返回清单，不写入。"""
+    """删除一集，移进项目回收站。``revision`` 与当前丢失清单的指纹不符（含未传）时只返回清单，不写入。"""
     project_dir = pm.get_project_path(project_name)
     project = pm.load_project(project_name)
     if project.get("content_mode") == "ad":
@@ -249,21 +321,17 @@ def delete_episode(
     if revision != impact.revision:
         return EpisodeDeletionConfirmationRequired(impact=impact)
 
-    script_path = _script_path(project_dir, project, episode)
-    source_files = [
-        *discover_episode_file_aliases(project_dir).get(episode, []),
-        episode_source_path(project_dir, episode),
-    ]
-    formal_paths = list(dict.fromkeys(source_files))
-    if script_path is not None:
-        formal_paths.append(script_path)
-    formal_paths.extend(source_snapshot_path(project_dir, rel) for rel in whole_source_files(project))
+    project_file = project_dir / "project.json"
     committed: dict[str, Any] = {}
 
     def _mutate(p: dict[str, Any]) -> None:
         locked_impact = episode_deletion_impact(project_dir, p, episode)
         if locked_impact.revision != revision:
             raise _StaleConfirmation(locked_impact)
+        # 结构快照要删除前的账本：此刻盘上的 project.json 还没改写
+        committed["before"] = project_file.read_bytes()
+        committed["content"] = episode_content(project_dir, p, episode)
+        committed["title"] = str(_ledger_entry(p, episode).get("title") or "")
         entries = p.get("episodes")
         p["episodes"] = [
             entry
@@ -282,76 +350,57 @@ def delete_episode(
     def _on_commit(_project_file: Path) -> None:
         from lib.artifacts.artifact_activation import register_artifact_entries_atomically
 
-        for path in source_files:
-            # hard-delete: pending-trash -- #3384 删集时删除集原文（切自整本源文的集原文属派生，接入时区分）
-            path.unlink(missing_ok=True)
-        if script_path is not None:
-            script_path.unlink(missing_ok=True)  # hard-delete: pending-trash -- #3384 删集时删除剧本
-        sync_source_snapshots(project_dir, committed["project"], {})
-        expected: dict[ArtifactKey, ArtifactManifestEntry | None] = committed["expected"]
-        if expected:
-            register_artifact_entries_atomically(project_dir, dict.fromkeys(expected), expected_entries=expected)
+        content: EpisodeContent = committed["content"]
+        # 删除记录先建：结构快照里的产物清单与版本历史还带着这一集的登记，恢复时从中取回
+        record = (
+            project_trash.record_deletion(
+                project_dir,
+                {"kind": EPISODE_KIND, "id": episode, "title": committed["title"]},
+                content.files,
+                snapshot=True,
+                before={"project.json": committed["before"]},
+            )
+            if content.files
+            else None
+        )
+        try:
+            sync_source_snapshots(project_dir, committed["project"], {})
+            VersionManager(project_dir).detach_resources(
+                (resource_type, resource_id)
+                for resource_type, bucket in content.versions.items()
+                for resource_id in bucket
+            )
+            expected: dict[ArtifactKey, ArtifactManifestEntry | None] = committed["expected"]
+            if expected:
+                register_artifact_entries_atomically(project_dir, dict.fromkeys(expected), expected_entries=expected)
+        except BaseException:
+            if record is not None:
+                project_trash.withdraw(project_dir, record.id)
+            raise
+        for path in content.leftovers:
+            with contextlib.suppress(OSError):
+                path.unlink()  # hard-delete: infra -- 这一集的锁文件，内容都已移进项目回收站
+        for directory in content.dirs:
+            _remove_empty_dirs(directory)
 
+    formal_paths = [source_snapshot_path(project_dir, rel) for rel in whole_source_files(project)]
     try:
         pm.update_project(project_name, _mutate, on_commit=_on_commit, formal_paths=formal_paths)
     except _StaleConfirmation as exc:
         return EpisodeDeletionConfirmationRequired(impact=exc.impact)
-    _purge_episode_products(project_dir, episode)
     result_impact: EpisodeDeletionImpact = committed["impact"]
     logger.info("已删除集：项目 %s，集 ID %s，%s", project_name, episode, result_impact.to_dict())
     return EpisodeDeletionResult(impact=result_impact)
 
 
-def _remove_tree(path: Path) -> None:
-    try:
-        if path.is_symlink() or path.is_file():
-            # hard-delete: pending-trash -- #3384 删集后清理该集的草稿、渲染与媒体（其中 .lock 属基础设施）
-            path.unlink(missing_ok=True)
-        elif path.is_dir():
-            shutil.rmtree(path)  # hard-delete: pending-trash -- #3384 删集后清理该集的草稿、渲染与媒体目录
-    except OSError:
-        logger.warning("删除集的产物清理失败：%s", path, exc_info=True)
+def _remove_empty_dirs(directory: Path) -> None:
+    for dirpath, _dirnames, _filenames in os.walk(directory, topdown=False):
+        # 还有没移走的条目（如符号链接）时目录留着
+        with contextlib.suppress(OSError):
+            os.rmdir(dirpath)  # hard-delete: derived -- 文件都已移进项目回收站，只剩空目录
 
 
-def _purge_episode_products(project_dir: Path, episode: int) -> None:
-    """提交之后清理这一集的其余产物；账本与产物清单已不再引用它们，失败只记日志。"""
-    _remove_tree(episode_drafts_dir(project_dir, episode))
-    for name in _EPISODE_DIRS:
-        root = project_dir / name
-        _remove_tree(root / f"episode_{episode}")
-        _remove_tree(root / f".episode_{episode}.lock")
-    source_dir = project_dir / "source"
-    for pattern in (f"_episode_{episode}.txt*.bak", f"raw/episode_{episode}.*"):
-        for path in source_dir.glob(pattern):
-            _remove_tree(path)
-    _remove_tree(project_dir / "scripts" / f".episode_{episode}.json.lock")
-
-    versions = VersionManager(project_dir)
-    for resource_type, resource_id in _versioned_resources(project_dir, episode):
-        try:
-            versions.purge_resource(resource_type, resource_id)
-        except (OSError, ValueError):
-            logger.warning("删除集的版本历史清理失败：%s/%s", resource_type, resource_id, exc_info=True)
-    for name in _ITEM_MEDIA_DIRS:
-        directory = project_dir / name
-        if not directory.is_dir() or directory.is_symlink():
-            continue
-        for path in directory.iterdir():
-            if path.is_file() and episode_ids_in_names([path.name]) == {episode}:
-                _remove_tree(path)
-
-    if (project_dir / "grids").is_dir():
-        from lib.script.grid.grid_manager import GridManager
-
-        grids = GridManager(project_dir)
-        for grid_id in _grid_records(project_dir, episode):
-            try:
-                grids.delete(grid_id)
-            except (OSError, ValueError, ArtifactManifestError):
-                logger.warning("删除集的宫格清理失败：%s", grid_id, exc_info=True)
-
-
-def _versioned_resources(project_dir: Path, episode: int) -> list[tuple[str, str]]:
+def _versioned_resources(project_dir: Path, episode: int, grid_ids: Iterable[str]) -> list[tuple[str, str]]:
     """版本历史里属于这一集的资源：条目 ID 带这一集的前缀，或是这一集的宫格。"""
     try:
         data = json.loads((project_dir / "versions" / "versions.json").read_text(encoding="utf-8"))
@@ -359,13 +408,13 @@ def _versioned_resources(project_dir: Path, episode: int) -> list[tuple[str, str
         return []
     if not isinstance(data, dict):
         return []
-    grid_ids = set(_grid_records(project_dir, episode))
+    grids = set(grid_ids)
     return [
         (resource_type, resource_id)
         for resource_type, bucket in data.items()
         if resource_type in VersionManager.RESOURCE_TYPES and isinstance(bucket, dict)
         for resource_id in bucket
-        if item_id_episode(resource_id) == episode or (resource_type == "grids" and resource_id in grid_ids)
+        if item_id_episode(resource_id) == episode or (resource_type == "grids" and resource_id in grids)
     ]
 
 
@@ -421,6 +470,8 @@ def render_episode_deletion_text(
         lines.append(translate("episode_delete_separator").join(render_episode_loss_items(data, project, translate)))
         if any(int(data[field] or 0) for field, _ in _LOSS_COUNTS[:5]):
             lines.append(translate("episode_delete_history"))
+        no_source = data["origin"] == SourceOrigin.NONE.value
+        lines.append(translate("episode_delete_restore_no_source" if no_source else "episode_delete_restore"))
     if data["origin"] == SourceOrigin.WHOLE_SOURCE.value and data["placed"]:
         before, after = data["cut_before"], data["cut_after"]
         if after is None:
@@ -433,11 +484,15 @@ def render_episode_deletion_text(
 
 
 __all__ = [
+    "EPISODE_KIND",
+    "EpisodeContent",
     "EpisodeDeletionConfirmationRequired",
     "EpisodeDeletionImpact",
     "EpisodeDeletionResult",
     "delete_episode",
+    "episode_content",
     "episode_deletion_impact",
+    "episode_trash_record",
     "render_episode_deletion_text",
     "render_episode_loss_items",
 ]

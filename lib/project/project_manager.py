@@ -2101,10 +2101,7 @@ class ProjectManager:
         with self._project_lock(project_name), ExitStack() as transaction:
             if on_commit is not None or formal_paths:
                 transaction.enter_context(formal_write_transaction(project_file, *formal_paths))
-            with open(project_file, encoding="utf-8") as f:
-                project = json.load(f)
-            self._apply_project_mutation_unlocked(project_name, project, mutate_fn)
-            atomic_write_json(project_file, project)
+            project = self.update_project_locked(project_name, mutate_fn)
             if on_commit is not None:
                 on_commit(project_file)
 
@@ -2113,6 +2110,16 @@ class ProjectManager:
             changed_paths=[self.PROJECT_FILE],
         )
 
+        return project
+
+    def update_project_locked(self, project_name: str, mutate_fn: Callable[[dict], None]) -> dict:
+        """:meth:`update_project` 的锁内一步：调用方已持有项目锁（不可重入），如恢复流水线的落地规则。
+
+        读、改、规整后原子写回并返回写回的项目元数据；不做失败回滚，也不发变更提示。
+        """
+        project = self._read_project_raw_unlocked(project_name)
+        self._apply_project_mutation_unlocked(project_name, project, mutate_fn)
+        atomic_write_json(self._get_project_file_path(project_name), project)
         return project
 
     def update_asset_entry(

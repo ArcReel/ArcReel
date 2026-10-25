@@ -12,7 +12,7 @@ import shutil
 import sys
 import tempfile
 import threading
-from collections.abc import Callable, Collection, Generator, Mapping, Sequence
+from collections.abc import Callable, Collection, Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -148,7 +148,7 @@ def _unlink_paths(*paths: Path | None) -> list[tuple[Path, OSError]]:
         if path is None:
             continue
         try:
-            # hard-delete: pending-trash -- #3384 #3385 #3386 purge_resource 经此删除资源的全部历史版本；其余调用方删的是暂存与回滚文件，最后一个接入的 ticket 改标 temp
+            # hard-delete: pending-trash -- #3385 #3386 purge_resource 经此删除资源的全部历史版本；其余调用方删的是暂存与回滚文件，最后一个接入的 ticket 改标 temp
             path.unlink(missing_ok=True)
         except OSError as exc:
             failures.append((path, exc))
@@ -1408,6 +1408,50 @@ class VersionManager:
                         record_project_activity(self.project_path)
                         return trashed
         raise NotFoundError("version_not_found", version=snapshot_path)
+
+    def resource_records(self, resources: Iterable[tuple[str, str]]) -> dict[str, dict[str, Any]]:
+        """这些资源的版本记录（按资源类型分桶）；没有记录的资源不出现。"""
+        data = self._load_versions()
+        found: dict[str, dict[str, Any]] = {}
+        for resource_type, resource_id in resources:
+            record = data.get(resource_type, {}).get(resource_id)
+            if isinstance(record, dict):
+                found.setdefault(resource_type, {})[resource_id] = record
+        return found
+
+    def snapshot_files(self, records: Mapping[str, Mapping[str, Any]]) -> list[str]:
+        """版本记录里各版本快照的项目内相对路径（快照文件可能已不在盘上）。"""
+        return [
+            version["file"]
+            for resource_type, bucket in records.items()
+            for record in bucket.values()
+            for version in record.get("versions", [])
+            if isinstance(version, dict) and self.is_managed_snapshot_path(resource_type, version.get("file"))
+        ]
+
+    def detach_resources(self, resources: Iterable[tuple[str, str]]) -> None:
+        """从版本历史里摘掉这些资源的记录，不动快照文件：它们已随删除记录移进项目回收站。调用方持项目锁。"""
+        with self._lock:
+            data = self._load_versions()
+            removed = [data[rt].pop(rid) for rt, rid in resources if rid in data.get(rt, {})]
+            if removed:
+                self._save_versions(data)
+                record_project_activity(self.project_path)
+
+    def attach_resources(self, records: Mapping[str, Mapping[str, Any]]) -> None:
+        """恢复删除记录时把整段版本记录加回，快照文件已放回原处；已有记录的资源保持现状。调用方持项目锁。"""
+        with self._lock:
+            data = self._load_versions()
+            added = False
+            for resource_type, bucket in records.items():
+                target = data.setdefault(resource_type, {})
+                for resource_id, record in bucket.items():
+                    if resource_id not in target:
+                        target[resource_id] = dict(record)
+                        added = True
+            if added:
+                self._save_versions(data)
+                record_project_activity(self.project_path)
 
     def purge_resource(self, resource_type: str, resource_id: str) -> int:
         """删除一个资源的全部版本记录与快照文件，返回删除的快照数。

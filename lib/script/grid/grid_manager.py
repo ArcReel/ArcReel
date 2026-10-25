@@ -145,9 +145,9 @@ class GridManager:
                 # behavior while valid records take the guarded claim path below.
                 grid = None
             with formal_write_transaction(path, image_file):
-                # hard-delete: pending-trash -- #3388 删除宫格图（删集时也经此，见 #3384）
+                # hard-delete: pending-trash -- #3388 删除宫格图
                 image_file.unlink(missing_ok=True)
-                path.unlink()  # hard-delete: pending-trash -- #3388 删除宫格记录（删集时也经此，见 #3384）
+                path.unlink()  # hard-delete: pending-trash -- #3388 删除宫格记录
                 if grid is not None:
                     from lib.artifacts.artifact_activation import register_artifact_entries_atomically
                     from lib.artifacts.artifact_manifest import ArtifactKey

@@ -54,7 +54,7 @@ describe("EpisodePage 外部替换编辑器", () => {
     expect(deletion).toHaveTextContent("集原文会一并删除");
     expect(remove).toHaveBeenCalledWith("demo", 1);
 
-    fireEvent.click(within(deletion).getByRole("button", { name: "删除" }));
+    fireEvent.click(within(deletion).getByRole("button", { name: "移入项目回收站" }));
     const guard = await screen.findByRole("alertdialog", { name: "有未保存的修改" });
     expect(remove).toHaveBeenCalledTimes(1);
     expect(screen.getByDisplayValue("未保存原文")).toHaveValue("未保存原文");

@@ -332,6 +332,36 @@ it("names a timeline record by its object and reports the name it was restored u
   await waitFor(() => expect(toasts.at(-1)?.text).toBe("原名已被占用，剪辑时间线「初剪」（第 1 集） 已改名为「初剪 (1)」恢复"));
 });
 
+it("names an episode record by its title and says the restored episode goes to the end of the order", async () => {
+  const toasts = collectToasts();
+  const episode = { kind: "episode", id: 3, title: "番外" };
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    if (init?.method === "POST") {
+      return Promise.resolve(Response.json(restoreResult(episode, [
+        { original: "scripts/episode_3.json", path: "scripts/episode_3.json", as_history: false },
+      ])));
+    }
+    if (url.pathname.endsWith("/trash")) {
+      const records = [
+        timelineRecord({ id: "ep", object: episode, files: ["scripts/episode_3.json"] }),
+        timelineRecord({ id: "ep2", object: { kind: "episode", id: 4, title: "" }, files: ["scripts/episode_4.json"] }),
+      ];
+      return Promise.resolve(Response.json({ records, total_size: 20, retention_days: 30 }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "项目回收站" }));
+  expect(await screen.findByText("集「番外」")).toBeInTheDocument();
+  expect(screen.getByText("第 4 集")).toBeInTheDocument();
+
+  await user.click(screen.getAllByRole("button", { name: "恢复" })[0]);
+
+  await waitFor(() => expect(toasts.at(-1)?.text).toBe("集「番外」 已恢复，排在播出顺序末尾"));
+});
+
 it("tells what a degraded restore recovered and offers the remaining structure files for download", async () => {
   const toasts = collectToasts();
   const downloads: string[] = [];
