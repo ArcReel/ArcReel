@@ -178,7 +178,7 @@ describe("ReferenceVideoCanvas", () => {
       .mockResolvedValue({ episode: 1, doc_type: "reference_prompt_authoring", adopted: true, draft: null });
     render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
 
-    expect(await screen.findByText("unit U2 使用了全角花括号")).toBeInTheDocument();
+    expect(await screen.findByText("视频单元 2 使用了全角花括号")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "视频单元 2 · 1" })).toBeInTheDocument();
     fireEvent.change(screen.getByRole("textbox", { name: "视频单元 2 正文" }), { target: { value: "镜头二" } });
     fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));

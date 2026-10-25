@@ -1174,6 +1174,11 @@ def use_active_tasks_lookup(monkeypatch, lookup: Callable[..., Any]) -> None:
     monkeypatch.setattr("server.services.admission.video_batch_admission.get_active_tasks_for_resources", lookup)
 
 
+def use_project_json_write(monkeypatch, write: Callable[..., Any]) -> None:
+    """``ProjectManager`` 的 JSON 文件系统写入边界改调 *write*。"""
+    monkeypatch.setattr("lib.project.project_manager.atomic_write_json", write)
+
+
 def fail_project_json_write(monkeypatch, project_file: Path) -> None:
     """``ProjectManager`` 写 *project_file* 时抛 ``OSError("injected project write failure")``，其余文件照常写。
 
@@ -1188,7 +1193,7 @@ def fail_project_json_write(monkeypatch, project_file: Path) -> None:
             raise OSError("injected project write failure")
         return real_write(path, data)
 
-    monkeypatch.setattr("lib.project.project_manager.atomic_write_json", _fail_project_write)
+    use_project_json_write(monkeypatch, _fail_project_write)
 
 
 def use_generation_queue(monkeypatch, queue: Any) -> None:

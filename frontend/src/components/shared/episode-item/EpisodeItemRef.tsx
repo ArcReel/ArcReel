@@ -2,6 +2,7 @@ import { cn } from "cn";
 
 import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
+import { TruncatedText } from "@/components/shared/TruncatedText";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { episodeItemKind, isPositionedItemId, type EpisodeItemFacts } from "@/utils/episode-item";
 import { useEpisodeItem } from "./useEpisodeItem";
@@ -60,7 +61,7 @@ export function EpisodeItemRefView({
       ) : (
         <ItemPositionBadge position={item.position} kind={kind} />
       )}
-      {item.excerpt && <span className="min-w-0 truncate text-xs text-subtle-foreground">{item.excerpt}</span>}
+      {item.excerpt && <TruncatedText text={item.excerpt} className="text-xs text-subtle-foreground" />}
     </span>
   );
 }

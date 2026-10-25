@@ -412,7 +412,7 @@ async def test_no_image_five_second_unit_uses_i2v_facts_through_conversion_and_a
     await _materialize(generator)
     await generator.generate(episode=1)
 
-    assert _formal_units(project)["E1U01"]["duration_seconds"] == 5
+    assert _formal_units(project)["E1U1"]["duration_seconds"] == 5
 
 
 @pytest.mark.asyncio
@@ -773,8 +773,8 @@ async def test_conversion_reads_legacy_script_plan_draft_without_source_text(pla
 
     receipt = await _materialize(ScriptGenerator(project))
 
-    assert receipt.entry_ids == ("E1U01",)
-    assert list(_formal_units(project)) == ["E1U01"]
+    assert receipt.entry_ids == ("E1U1",)
+    assert list(_formal_units(project)) == ["E1U1"]
 
 
 @pytest.mark.asyncio

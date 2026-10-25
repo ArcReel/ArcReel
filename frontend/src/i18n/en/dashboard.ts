@@ -2707,7 +2707,6 @@ export default {
   'trash_object_episode_untitled': "Episode {{episode}}",
   'trash_object_script_entry': "Shot {{id}} (episode {{episode}})",
   'trash_object_script_unit': "Video unit {{id}} (episode {{episode}})",
-  'trash_restored_entry_renumbered': "The original ID is taken, so {{name}} was restored as {{landed}}",
   'trash_object_source_file': "Source file \"{{name}}\"",
   'trash_object_planning_draft': "Planning draft of episode {{episode}}",
   'trash_object_grid': "Grid of episode {{episode}}",

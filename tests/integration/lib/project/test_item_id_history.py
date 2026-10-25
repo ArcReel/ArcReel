@@ -1,12 +1,10 @@
-"""分镜与视频单元编号只分配、不复用（#3430）：用过的编号从哪里认，新编号从哪里往后取。"""
+"""分镜与视频单元编号只分配、不复用：用过的编号从哪里认，新编号从哪里往后取。"""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any
-
-import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
 from lib.artifacts.version_manager import VersionManager
@@ -106,8 +104,7 @@ def test_reserved_ids_continue_after_the_highest_used_number_and_are_not_handed_
     assert _episode_entry(pm)["item_id_high_water"] == 8
 
 
-@pytest.mark.parametrize("keep_unused", [True, False])
-def test_landing_issuance_never_hands_out_a_used_number(tmp_path: Path, keep_unused: bool) -> None:
+def test_landing_issuance_never_hands_out_a_used_number(tmp_path: Path) -> None:
     pm = _narration_project(tmp_path, ["E1S01", "E1S02", "E1S03"])
     project_dir = pm.get_project_path("demo")
     script = pm.load_script("demo", "episode_1.json")
@@ -122,13 +119,10 @@ def test_landing_issuance_never_hands_out_a_used_number(tmp_path: Path, keep_unu
         "segments": [_segment(i) for i in ("E1S02", "E1S08", "E1S04", "E2S01", "E1S08")],
     }
 
-    renamed = issue_landing_item_ids(project_dir, pm.load_project("demo"), plan, keep_unused=keep_unused)
+    renamed = issue_landing_item_ids(project_dir, pm.load_project("demo"), plan)
 
     ids = [segment["segment_id"] for segment in plan["segments"]]
-    if keep_unused:
-        assert ids == ["E1S09", "E1S08", "E1S10", "E1S11", "E1S12"]
-    else:
-        assert ids == ["E1S05", "E1S06", "E1S07", "E1S08", "E1S09"]
+    assert ids == ["E1S05", "E1S06", "E1S07", "E1S08", "E1S09"]
     assert renamed["E1S02"] == ids[0]
     assert "E1S02" not in ids
     assert "E1S04" not in ids

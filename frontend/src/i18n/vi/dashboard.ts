@@ -2816,7 +2816,6 @@ export default {
   'trash_object_episode_untitled': "Tập {{episode}}",
   'trash_object_script_entry': "Phân cảnh {{id}} (tập {{episode}})",
   'trash_object_script_unit': "Đơn vị video {{id}} (tập {{episode}})",
-  'trash_restored_entry_renumbered': "Mã gốc đã được dùng, {{name}} được khôi phục với mã {{landed}}",
   'trash_object_source_file': "Tệp nguồn \"{{name}}\"",
   'trash_object_planning_draft': "Bản nháp kế hoạch của tập {{episode}}",
   'trash_object_grid': "Lưới của tập {{episode}}",

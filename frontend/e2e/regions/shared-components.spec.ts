@@ -166,7 +166,7 @@ const INVALID_DRAFT: ApiOverrides = {
             item_index: index,
           })),
         ],
-        soft_violations: [{ code: "long_text", message: `E1S02 的原文偏长，可能难以在一个分镜里讲完。`, item_index: 1 }],
+        soft_violations: [{ code: "long_text", params: {}, item_id: "E1S02", message: `E1S02 的原文偏长，可能难以在一个分镜里讲完。`, item_index: 1 }],
         formal_exists: true,
       },
     },
