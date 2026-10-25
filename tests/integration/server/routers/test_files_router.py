@@ -21,6 +21,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
 )
 from lib.backends.providers import CallPurpose
+from lib.episode.episode_sources import whole_source_files
 from lib.i18n.en import assets as en_assets
 from lib.i18n.vi import assets as vi_assets
 from lib.i18n.zh import assets as zh_assets
@@ -2260,6 +2261,58 @@ class TestSourceMultiFormatUpload:
             resp = client.delete("/api/v1/projects/demo/source/to_delete.txt")
             assert resp.status_code == 200
             assert not raw_path.exists()
+            # 源文件与原始上传件是同一条删除记录
+            (record,) = project_trash.list_records(project_dir)
+            assert sorted(record.files) == ["source/raw/to_delete.txt", "source/to_delete.txt"]
+
+            # 恢复为未纳入整本源文的源文件，原始上传件随之回原处
+            project_trash.restore(project_dir, record.id)
+            assert (project_dir / "source/to_delete.txt").is_file()
+            assert raw_path.is_file()
+            assert "source/to_delete.txt" not in whole_source_files(pm.load_project("demo"))
+
+    def test_delete_unregistered_source_file_moves_it_and_raw_to_trash(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        (project_dir / "source/raw").mkdir(parents=True)
+        (project_dir / "source/extra.txt").write_text("未纳入", encoding="utf-8")
+        (project_dir / "source/raw/extra.docx").write_bytes(b"docx")
+        with client:
+            assert client.delete("/api/v1/projects/demo/source/extra.txt").status_code == 200
+        (record,) = project_trash.list_records(project_dir)
+        assert sorted(record.files) == ["source/extra.txt", "source/raw/extra.docx"]
+        assert not (project_dir / "source/extra.txt").exists()
+
+    def test_replacing_a_source_file_moves_the_old_file_and_raw_to_trash(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        with client:
+            _upload_source(client, "demo", "old.txt", ("旧章\n" * 30).encode("gbk"))
+            resp = _upload_source(client, "demo", "old.txt", "新内容".encode(), on_conflict="replace")
+            assert resp.status_code == 200, resp.text
+        assert (project_dir / "source/old.txt").read_text(encoding="utf-8") == "新内容"
+        assert not (project_dir / "source/raw/old.txt").exists()
+        (record,) = project_trash.list_records(project_dir)
+        assert sorted(record.files) == ["source/old.txt", "source/raw/old.txt"]
+
+        # 原名已被新文件占用：旧文件与原始上传件一起换名加回，主干仍对应
+        result = project_trash.restore(project_dir, record.id)
+        assert sorted(item.path for item in result.restored) == ["source/old (1).txt", "source/raw/old (1).txt"]
+        assert (project_dir / "source/old.txt").read_text(encoding="utf-8") == "新内容"
+
+    def test_failed_replace_of_an_unregistered_file_keeps_the_old_file(self, tmp_path, monkeypatch):
+        client, pm = _client(monkeypatch, tmp_path)
+        project_dir = pm.get_project_path("demo")
+        (project_dir / "source/raw").mkdir(parents=True)
+        (project_dir / "source/extra.txt").write_text("旧内容", encoding="utf-8")
+        (project_dir / "source/raw/extra.docx").write_bytes(b"docx")
+        fail_project_json_write(monkeypatch, project_dir / "project.json")
+        with client, pytest.raises(OSError, match="injected project write failure"):
+            _upload_source(client, "demo", "extra.txt", "新内容".encode(), on_conflict="replace")
+        # 撤销时旧文件与原始上传件回到原处，删除记录撤回
+        assert (project_dir / "source/extra.txt").read_text(encoding="utf-8") == "旧内容"
+        assert (project_dir / "source/raw/extra.docx").read_bytes() == b"docx"
+        assert project_trash.list_records(project_dir) == []
 
     def test_upload_source_invalid_on_conflict_returns_422(self, tmp_path, monkeypatch):
         client, _ = _client(monkeypatch, tmp_path)

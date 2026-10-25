@@ -48,6 +48,7 @@ from lib.script.draft_quarantine import (
 )
 from lib.script.draft_violation import DraftViolation, schema_violations
 from lib.script.plan_new_assets import NEW_ASSETS_FIELD, dedupe_new_assets, planning_project, with_new_assets
+from lib.script.planning_draft_trash import discard_quarantine
 from lib.script.script_generator import ScriptGenerator
 from lib.script.script_models import (
     NarrationScriptPlanDraft,
@@ -1489,7 +1490,7 @@ class DraftWorkflow:
                     "revision_conflict",
                     f"draft revision changed: expected {base_revision}, actual {actual_revision}",
                 )
-            discarded = await run_sync_transaction(clear_quarantine, project_path, episode, resolved)
+            discarded = await run_sync_transaction(discard_quarantine, project_path, episode, resolved)
         return {"episode": episode, "doc_type": doc_type, "discarded": discarded}
 
 

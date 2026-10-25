@@ -99,7 +99,7 @@ describe("SourceFileActions", () => {
 
     openMenuItem("删除文件");
     await screen.findByText("清单一");
-    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    fireEvent.click(screen.getByRole("button", { name: "移入项目回收站" }));
 
     expect(await screen.findByText("清单二")).toBeInTheDocument();
     expect(screen.getByText("受影响的集刚刚有变化，下面是更新后的清单。确认后才会执行。")).toBeInTheDocument();
@@ -116,7 +116,7 @@ describe("SourceFileActions", () => {
 
     openMenuItem("删除文件");
     expect(remove).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    fireEvent.click(screen.getByRole("button", { name: "移入项目回收站" }));
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith("demo", "中卷.txt", null));
     await waitFor(() => expect(refresh).toHaveBeenCalledWith("demo", undefined));
@@ -129,7 +129,7 @@ describe("SourceFileActions", () => {
     render(<SourceFileActions projectName="demo" file={file(false)} index={0} total={1} />);
 
     openMenuItem("删除文件");
-    fireEvent.click(screen.getByRole("button", { name: "删除" }));
+    fireEvent.click(screen.getByRole("button", { name: "移入项目回收站" }));
 
     await waitFor(() =>
       expect(useAppStore.getState().toast).toMatchObject({

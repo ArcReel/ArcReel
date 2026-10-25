@@ -97,7 +97,7 @@ describe("UnregisteredFilesBanner", () => {
     openDialog();
     fireEvent.click(screen.getByRole("button", { name: "删除 旧稿.txt" }));
     expect(remove).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "删除文件" }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "移入项目回收站" }));
 
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
     expect(remove).toHaveBeenCalledWith("demo", "旧稿.txt");

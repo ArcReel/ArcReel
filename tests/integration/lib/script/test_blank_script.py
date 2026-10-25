@@ -4,7 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, ProjectArtifactManifestAdapter
+from lib.artifacts.artifact_registration import register_artifact_entries_atomically
 from lib.infra.json_io import atomic_write_json
+from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
 from lib.script import script_review
 from lib.script.blank_script import BlankScriptError, start_blank_script
@@ -104,6 +107,55 @@ def test_blank_start_discards_the_unconfirmed_plan_and_its_draft(tmp_path: Path)
     assert not draft.exists()
     project = pm.load_project("demo")
     assert script_review.review_status(project_path, project, 1) == "no_script_plan"
+    # 规划与草稿各成一条删除记录
+    trashed = sorted(path for record in project_trash.list_records(project_path) for path in record.files)
+    assert trashed == sorted(p.relative_to(project_path).as_posix() for p in (plan, draft))
+
+
+def _plan_claim(project_path: Path):
+    return ProjectArtifactManifestAdapter(project_path).snapshot_entries().get(ArtifactKey.episode_script_plan(1))
+
+
+def test_a_deleted_script_plan_comes_back_with_its_claim(tmp_path: Path) -> None:
+    _pm, project_path = _project(tmp_path, "drama")
+    plan = _write_plan(project_path)
+    claim = ArtifactManifestEntry(plan.relative_to(project_path).as_posix(), "sha256-v1:" + "a" * 64)
+    register_artifact_entries_atomically(project_path, {ArtifactKey.episode_script_plan(1): claim})
+    assert _plan_claim(project_path) == claim
+
+    assert script_review.delete_script_plan_file(project_path, 1, plan)
+    assert not plan.exists()
+    assert _plan_claim(project_path) is None
+    (record,) = project_trash.list_records(project_path)
+
+    result = project_trash.restore(project_path, record.id)
+    assert not result.degraded
+    assert plan.is_file()
+    assert _plan_claim(project_path) == claim
+
+
+def test_a_restored_planning_draft_takes_a_new_name_when_its_place_is_taken(tmp_path: Path) -> None:
+    _pm, project_path = _project(tmp_path, "drama")
+    plan = _write_plan(project_path)
+    assert script_review.delete_script_plan_file(project_path, 1, plan)
+    _write_plan(project_path)
+    (record,) = project_trash.list_records(project_path)
+
+    result = project_trash.restore(project_path, record.id)
+    assert [item.path for item in result.restored] == ["drafts/episode_1/script_plan_normalized_script (1).json"]
+
+
+def test_a_planning_draft_of_a_deleted_episode_is_kept_for_download(tmp_path: Path) -> None:
+    pm, project_path = _project(tmp_path, "drama")
+    plan = _write_plan(project_path)
+    assert script_review.delete_script_plan_file(project_path, 1, plan)
+    pm.update_project("demo", lambda project: project.update(episodes=[]))
+    (record,) = project_trash.list_records(project_path)
+
+    result = project_trash.restore(project_path, record.id)
+    assert result.degraded
+    assert result.download_only == (record.files[0],)
+    assert not plan.exists()
 
 
 def test_plan_generated_after_a_blank_start_waits_for_confirmation(tmp_path: Path) -> None:
