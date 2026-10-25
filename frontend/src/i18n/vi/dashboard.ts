@@ -71,7 +71,7 @@ export default {
   'duplicate_project_id': 'Phát hiện ID dự án trùng lặp',
   'overwrite_existing': 'Ghi đè dự án hiện có',
   'auto_rename_import': 'Tự đổi tên và nhập',
-  'overwrite_hint': 'Tương đương xóa dự án hiện có rồi nhập: các tác vụ đang chờ của dự án hiện có bị hủy; tác vụ, bản ghi sử dụng và phiên Agent được giữ lại dưới dự án đã xóa, không chuyển sang dự án nhập vào; bộ nhớ dự án cũng bị xóa',
+  'overwrite_hint': 'Tương đương xóa dự án hiện có rồi nhập: các tác vụ đang chờ của dự án hiện có bị hủy; tác vụ, bản ghi sử dụng, phiên Agent và bộ nhớ dự án được giữ lại trong dự án đã xóa, không chuyển sang dự án nhập vào, và có thể khôi phục toàn bộ trong 30 ngày',
   'rename_hint': 'Giữ dự án hiện có và tự sinh ID mới cho dự án nhập',
   'project_overview': 'Tổng quan dự án',
   'no_files_yet': 'Chưa có tệp nào',

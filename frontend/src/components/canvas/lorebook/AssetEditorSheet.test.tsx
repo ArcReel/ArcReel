@@ -454,7 +454,7 @@ describe("资产详情 Sheet", () => {
     expect(restore).toHaveBeenCalledWith("demo", "rec-1");
     await waitFor(() =>
       expect(useAppStore.getState().toast).toMatchObject({
-        text: "已从回收站恢复为「阿青 (1)」，可以再把它并入现有资产。",
+        text: "已从项目回收站恢复为「阿青 (1)」，可以再把它并入现有资产。",
         tone: "success",
       }),
     );
