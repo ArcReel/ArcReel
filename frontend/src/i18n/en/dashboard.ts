@@ -70,7 +70,7 @@ export default {
   'duplicate_project_id': 'Duplicate Project ID Detected',
   'overwrite_existing': 'Overwrite Existing Project',
   'auto_rename_import': 'Auto Rename and Import',
-  'overwrite_hint': 'Same as deleting the existing project and then importing: its queued tasks are cancelled; its tasks, usage records, and Agent sessions stay with the deleted project instead of carrying over; and its project memory is deleted',
+  'overwrite_hint': 'Same as deleting the existing project and then importing: its queued tasks are cancelled; its tasks, usage records, Agent sessions, and project memory stay in the deleted project instead of carrying over, and it can be restored as a whole within 30 days',
   'rename_hint': 'Keep the existing project and automatically generate a new ID for the imported one',
   'project_overview': 'Project Overview',
   'no_files_yet': 'No files yet',

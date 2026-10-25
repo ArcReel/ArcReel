@@ -71,7 +71,7 @@ export default {
   'duplicate_project_id': '项目 ID 已存在',
   'overwrite_existing': '覆盖现有项目',
   'auto_rename_import': '自动重命名导入',
-  'overwrite_hint': '等同于删除现有项目后再导入：现有项目排队中的任务取消，任务、使用记录与 Agent 会话按已删除项目保留，不带入导入的项目，项目记忆一并删除',
+  'overwrite_hint': '等同于删除现有项目后再导入：现有项目排队中的任务取消，任务、使用记录、Agent 会话与项目记忆随它留在「已删除项目」里，不带入导入的项目，30 天内可以整体恢复',
   'rename_hint': '保留现有项目，为导入的项目生成新的项目 ID',
   'project_overview': '项目概览',
   'no_files_yet': '暂无文件',

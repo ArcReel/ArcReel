@@ -13,8 +13,8 @@
 - PRIVATE-IMPORT：`from <本仓模块> import _name` 不允许，被别的模块用到的符号取公开名。`from m import 公开名 as _别名`、
   gettext 的 `_`、dunder 与私有子模块不算。
 - HARD-DELETE：lib、server 与子包中每处删除文件的调用（`unlink`、`rmdir`、`rmtree`、`os.remove`，含作为回调传出的
-  删除方法）在所在语句行尾或上一行写 `# hard-delete: <类别> -- 理由`。项目数据的删除应进项目回收站（ADR 0107），
-  尚未接入的标 `pending-trash`。
+  删除方法）在所在语句行尾或上一行写 `# hard-delete: <类别> -- 理由`。项目数据只能经项目回收站删除（ADR 0107），
+  没有“项目数据”类别：这类删除改走回收站，不能靠标注放行。
 
 `--check` 以 `规则号 file:line 修复指引` 列出全部命中，非零即退出码 1；
 `--fix` 重新生成索引表与 CodeRabbit 映射后再检查其余规则。
@@ -511,7 +511,6 @@ HARD_DELETE_CATEGORIES = {
     "derived": "可由账本或其他源数据重新生成的派生文件",
     "infra": "锁、缓存、数据库、日志、迁移备份等基础设施文件",
     "out-of-scope": "项目数据之外的文件（全局资产库、用户记忆、应用配置、供应商数据等）",
-    "pending-trash": "应进项目回收站、尚未接入的项目数据删除（Spec #3377）",
 }
 _HARD_DELETE_TAG = re.compile(r"#\s*hard-delete:\s*(?P<category>[\w-]*)(?P<rest>.*)")
 _ANY_DELETE_ATTRS = frozenset({"unlink", "rmdir", "rmtree"})
@@ -615,6 +614,11 @@ def check_hard_deletes(root: Path, out: list[Violation]) -> None:
                 guidance = (
                     f"删除文件要标注类别：在所在语句行尾或上一行写 `# hard-delete: <类别> -- 理由`，类别取 {categories}；"
                     "项目数据的删除应进项目回收站（docs/adr/0107）"
+                )
+            elif tag["category"] == "pending-trash":
+                guidance = (
+                    "`pending-trash` 已退役：项目数据只能经项目回收站删除（docs/adr/0107），"
+                    "把这处删除改为移入回收站（lib/project/project_trash.py），不要用标注放行"
                 )
             elif tag["category"] not in HARD_DELETE_CATEGORIES:
                 guidance = f"`hard-delete` 类别 `{tag['category']}` 不存在，取 {categories}"
