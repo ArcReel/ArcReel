@@ -11,6 +11,7 @@ from scripts.prepare_contact_guide import (
     FOREARM,
     UPPER_ARM,
     contact_sequence,
+    head_point,
     render_depth,
     segment_box_distance,
     solve_elbow,
@@ -64,7 +65,41 @@ def test_reaction_leads_with_creature_and_keeps_contact_and_planted_feet():
     assert not np.array_equal(first[:120], middle[:120])
 
 
-@pytest.mark.parametrize("change", [{"body_angle": math.nan}, {"body_angle": 0.1}, {"creature_dip": -1}])
+def test_expressive_source_yields_then_supports_before_looking_at_culprit():
+    frames = contact_sequence(expressive=True)
+    assert frames[2].creature_dip > 0
+    assert frames[2].body_angle == 0
+    assert frames[16].shoulder[0] < frames[0].shoulder[0] - 10
+    assert frames[16].head_angle == frames[CONTACT_FRAME].head_angle == 0
+    assert frames[44].head_angle < 0
+    assert frames[-1].body_angle == 0
+    assert frames[-1].palm == contact_sequence()[-1].palm
+    metrics = validate_sequence(frames)
+    assert metrics["max_contact_gap"] == 0
+    assert metrics["min_arm_bag_clearance"] > 0
+    first = render_depth(frames[0])
+    assert np.array_equal(first[180:], render_depth(frames[16])[180:])
+    assert np.array_equal(first[180:], render_depth(frames[-1])[180:])
+    assert not np.array_equal(render_depth(frames[-1])[:70], render_depth(contact_sequence()[-1])[:70])
+
+
+def test_head_tilt_preserves_its_neck_pivot_and_distances():
+    pivot, face = (478, 108), (475, 65)
+    assert head_point(pivot, -0.12) == pivot
+    assert math.dist(head_point(face, -0.12), pivot) == pytest.approx(math.dist(face, pivot))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"body_angle": math.nan},
+        {"body_angle": 0.1},
+        {"creature_dip": -1},
+        {"body_angle": -0.3},
+        {"head_angle": math.nan},
+        {"head_angle": -0.3},
+    ],
+)
 def test_unsupported_reaction_cannot_be_rendered_as_valid_geometry(change):
     frames = contact_sequence(reaction=True)
     frames[18] = replace(frames[18], **change)

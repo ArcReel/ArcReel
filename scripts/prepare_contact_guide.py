@@ -36,6 +36,7 @@ class ContactFrame:
     bag: tuple[float, float]
     body_angle: float = 0.0
     creature_dip: float = 0.0
+    head_angle: float = 0.0
 
 
 def solve_elbow(shoulder, wrist, upper_arm, forearm, pole):
@@ -67,11 +68,23 @@ def body_point(point, angle):
     return (480 + x * math.cos(angle) - y * math.sin(angle), 245 + x * math.sin(angle) + y * math.cos(angle))
 
 
-def contact_sequence(*, reaction=False):
+def head_point(point, angle):
+    """Tip the head toward the prop around the neck, independently of the torso."""
+    x, y = point[0] - 478, point[1] - 108
+    return (478 + x * math.cos(angle) - y * math.sin(angle), 108 + x * math.sin(angle) + y * math.cos(angle))
+
+
+def contact_sequence(*, reaction=False, expressive=False):
     frames = []
     for frame in range(FRAME_COUNT):
         body_angle = 0.035 * smooth_between(frame, 4, 18) * (1 - smooth_between(frame, 32, 48)) if reaction else 0
-        creature_dip = 8 * smooth_between(frame, 0, 6) * (1 - smooth_between(frame, 8, 22)) if reaction else 0
+        if expressive:
+            # Yield toward the pulling bag, then recover after support is established.
+            body_angle = -0.12 * smooth_between(frame, 4, 16) * (1 - smooth_between(frame, 29, 45))
+        head_angle = -0.12 * smooth_between(frame, CONTACT_FRAME, 44) if expressive else 0
+        creature_dip = (
+            8 * smooth_between(frame, 0, 6) * (1 - smooth_between(frame, 8, 22)) if reaction or expressive else 0
+        )
         shoulder = body_point((439.0, 127.0), body_angle)
         dip = smooth_between(frame, 2, 10)
         bag = (385 + 12 * dip, 196 + 12 * dip)
@@ -80,7 +93,7 @@ def contact_sequence(*, reaction=False):
         hand_angle = math.pi / 2 + math.pi / 2 * reach
         palm = (wrist[0] + 13 * math.cos(hand_angle), wrist[1] + 13 * math.sin(hand_angle))
         elbow = solve_elbow(shoulder, wrist, UPPER_ARM, FOREARM, (600.0, 200.0))
-        frames.append(ContactFrame(shoulder, elbow, wrist, palm, hand_angle, bag, body_angle, creature_dip))
+        frames.append(ContactFrame(shoulder, elbow, wrist, palm, hand_angle, bag, body_angle, creature_dip, head_angle))
     validate_sequence(frames)
     return frames
 
@@ -122,8 +135,10 @@ def validate_sequence(frames):
     max_contact_gap = 0.0
     min_arm_clearance = math.inf
     for index, frame in enumerate(frames):
-        if not (math.isfinite(frame.body_angle) and abs(frame.body_angle) <= 0.05):
+        if not (math.isfinite(frame.body_angle) and -0.14 <= frame.body_angle <= 0.05):
             raise ValueError("Body lean outside the diagnostic's supported range")
+        if not (math.isfinite(frame.head_angle) and -0.15 <= frame.head_angle <= 0.05):
+            raise ValueError("Head tilt outside the diagnostic's supported range")
         if not (math.isfinite(frame.creature_dip) and 0 <= frame.creature_dip <= 10):
             raise ValueError("Creature dip outside the diagnostic's supported range")
         points = np.array([frame.shoulder, frame.elbow, frame.wrist, frame.palm, frame.bag])
@@ -203,9 +218,12 @@ def render_depth(frame, width=384, height=224):
     def upper(point):
         return body_point(point, frame.body_angle)
 
+    def head(point):
+        return upper(head_point(point, frame.head_angle))
+
     ellipsoid((*upper((480, 187)), 185), (36, 66, 30), frame.body_angle)
-    ellipsoid((*upper((475, 65)), 165), (41, 39, 30), frame.body_angle)
-    ellipsoid((*upper((515, 19)), 175), (22, 18, 20), frame.body_angle)
+    ellipsoid((*head((475, 65)), 165), (41, 39, 30), frame.body_angle + frame.head_angle)
+    ellipsoid((*head((515, 19)), 175), (22, 18, 20), frame.body_angle + frame.head_angle)
     capsule(upper((478, 108)), upper((477, 131)), 12, 175)
     for hip, knee, ankle, shoe in [
         ((465, 245), (454, 326), (447, 398), (449, 412, 175)),
@@ -238,8 +256,8 @@ def render_depth(frame, width=384, height=224):
     return np.repeat(np.rint(gray[:, :, None] * 255).astype(np.uint8), 3, axis=2)
 
 
-def export_guide(output_dir, *, reaction=False):
-    frames = contact_sequence(reaction=reaction)
+def export_guide(output_dir, *, reaction=False, expressive=False):
+    frames = contact_sequence(reaction=reaction, expressive=expressive)
     metrics = validate_sequence(frames)
     output_dir.mkdir(parents=True, exist_ok=False)
     sequence = output_dir / "performance.json"
@@ -278,7 +296,7 @@ def export_guide(output_dir, *, reaction=False):
     for index in (0, 10, CONTACT_FRAME, FRAME_COUNT - 1):
         Image.fromarray(pixels[index]).save(output_dir / f"frame-{index:02d}.png")
     metrics.update(
-        performance="reaction" if reaction else "contact_only",
+        performance="expressive" if expressive else "reaction" if reaction else "contact_only",
         video_sha256=hashlib.sha256(video.read_bytes()).hexdigest(),
         sequence_sha256=hashlib.sha256(sequence.read_bytes()).hexdigest(),
         source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -291,9 +309,13 @@ def export_guide(output_dir, *, reaction=False):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--reaction", action="store_true", help="Add a creature dip and upper-body counter-lean.")
+    performance = parser.add_mutually_exclusive_group()
+    performance.add_argument("--reaction", action="store_true", help="Add a creature dip and upper-body counter-lean.")
+    performance.add_argument(
+        "--expressive", action="store_true", help="Yield to the bag, catch, recover, then tip the head toward it."
+    )
     args = parser.parse_args()
-    print(json.dumps(export_guide(args.output_dir, reaction=args.reaction), indent=2))
+    print(json.dumps(export_guide(args.output_dir, reaction=args.reaction, expressive=args.expressive), indent=2))
 
 
 if __name__ == "__main__":

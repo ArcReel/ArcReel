@@ -160,6 +160,13 @@ checked, and the first/last poses match the contact-only fixture. This isolates
 the performed guide from the image anchors, prompt, and seed. The proxy does not
 provide facial acting, a walk cycle, or an approved character rig.
 
+Use `--expressive` instead for a larger shoulder yield toward the pulling bag,
+recovery after palm support, and a separate neck-pivot head tilt. It keeps the
+same planted feet and contact checks. Its final head pose differs from the
+contact-only fixture: pair it with a reviewed matching end image. Eye direction
+and facial expression must come from that image; depth silhouettes do not encode
+them. Neither preset is production-qualified without reviewing its actual video.
+
 This orthographic proxy checks fixed arm lengths, arm/bag clearance, and a palm
 supporting the bag underside. It records frame coordinates, source and video
 hashes, and validation metrics; existing output directories are never replaced.
