@@ -25,6 +25,7 @@ from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.project.asset_derivatives import derivative_artifact_key
 from lib.project.asset_merge import AssetMergeEpisodeImpact, AssetMergeNotFoundError, AssetMergeRejectedError
 from lib.project.project_manager import ProjectManager
+from lib.script.grid.models import GridGeneration, ReferenceImage, build_frame_chain
 from lib.script.plan_new_assets import resolve_new_assets
 from lib.script.reference_video.request_projection import (
     FilesystemReferenceAssets,
@@ -598,6 +599,74 @@ class TestMergeWithProducedArtifacts:
 
         assert (preview.episodes[0].episode, preview.episodes[0].storyboards) == (1, 2)
         assert not self._current(produced, key, "storyboards/scene_E1S02.png")
+
+    def test_a_split_storyboard_on_a_moved_derivative_is_counted_as_outdated(self, produced: ProjectManager) -> None:
+        """切格分镜的依据取宫格记录冻结的参考图路径，合并不改写宫格记录：衍生连图迁走后照常计入、照常过期。"""
+        project_dir = produced.get_project_path(PROJECT)
+        grid_id = "grid_123456789abc"
+        script = _script(produced, 1)
+        script["segments"][2]["generated_assets"].update(grid_id=grid_id, grid_cell_index=0)
+        _write_episode(produced, 1, script)
+        grid = GridGeneration(
+            id=grid_id,
+            episode=1,
+            script_file="episode_1.json",
+            scene_ids=["E1S03"],
+            grid_image_path=f"grids/{grid_id}.png",
+            rows=2,
+            cols=2,
+            cell_count=4,
+            frame_chain=build_frame_chain(["E1S03"], 2, 2),
+            status="completed",
+            prompt="grid",
+            provider="provider",
+            model="model",
+            grid_size="grid_4",
+            created_at="2026-01-01T00:00:00Z",
+            split_at="2026-01-01T00:01:00Z",
+            video_aspect_ratio="9:16",
+            reference_images=[
+                ReferenceImage(path="characters/derivatives/老王/战损.png", name="老王/战损", ref_type="character")
+            ],
+        )
+        atomic_write_json(project_dir / "grids" / f"{grid_id}.json", grid.to_dict())
+        _write_artifact(project_dir, f"grids/{grid_id}.png")
+        key = ArtifactKey.episode_storyboard(1, "E1S03")
+        _claim_current(project_dir, key)
+        assert self._current(produced, key, "storyboards/scene_E1S03.png")
+
+        preview = produced.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
+        produced.merge_asset(PROJECT, "characters", "老王", "王建国")
+
+        assert (preview.episodes[0].episode, preview.episodes[0].storyboards) == (1, 2)
+        assert not self._current(produced, key, "storyboards/scene_E1S03.png")
+
+    @pytest.mark.parametrize("reference", ["老王", "老王/便装"])
+    @pytest.mark.parametrize("mentioned", [False, True])
+    def test_identical_reference_images_are_not_counted_as_outdated(
+        self, produced: ProjectManager, reference: str, mentioned: bool
+    ) -> None:
+        project_dir = produced.get_project_path(PROJECT)
+        source_sheet, target_sheet = (
+            ("characters/老王.png", "characters/王建国.png")
+            if reference == "老王"
+            else ("characters/derivatives/老王/便装.png", "characters/derivatives/王建国/便装.png")
+        )
+        (project_dir / target_sheet).write_bytes((project_dir / source_sheet).read_bytes())
+        script = _script(produced, 1)
+        script["segments"][0]["characters_in_segment"] = [reference]
+        if mentioned:
+            script["segments"][0]["image_prompt"] = f"@[{reference}]走进店里"
+        _write_episode(produced, 1, script)
+        key = ArtifactKey.episode_storyboard(1, "E1S01")
+        _claim_current(project_dir, key)
+        assert self._current(produced, key, "storyboards/scene_E1S01.png")
+
+        preview = produced.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
+        produced.merge_asset(PROJECT, "characters", "老王", "王建国")
+
+        assert preview.episodes[0].storyboards == 0
+        assert self._current(produced, key, "storyboards/scene_E1S01.png")
 
     def test_derivatives_move_to_the_kept_character_and_same_named_ones_fold(self, produced: ProjectManager) -> None:
         project_dir = produced.get_project_path(PROJECT)

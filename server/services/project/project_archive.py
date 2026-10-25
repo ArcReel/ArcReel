@@ -20,6 +20,8 @@ from arcreel_market_core.validation_messages import MessageRef, ValidationMessag
 from lib.artifacts.artifact_activation import (
     ensure_imported_artifact_target_state,
     snapshot_preserved_artifact_manifest,
+    stage_preserved_artifact_claims,
+    take_migrated_artifact_claims,
 )
 from lib.artifacts.artifact_manifest import (
     ArtifactKey,
@@ -495,10 +497,31 @@ class ProjectArchiveService:
                             "source_encoding_unconverted",
                             ValidationMessage("arch_source_encoding_unconverted", {"name": failed_name}),
                         )
+                    # Artifact Manifest 是 hidden sidecar，不进入归档成员。官方导出把完整
+                    # claim snapshot 放进 visible archive envelope；旧的手工归档没有该字段，
+                    # 仍走 self-proving reconstruction。迁移前先把信封里的 claim 落成暂存清单，
+                    # 迁移链像原地升级一样平移它们（如 v18→v19 改写分镜图与宫格的依据口径），
+                    # 激活时再按内容证据恢复。
+                    try:
+                        preserved_manifest = (
+                            decode_artifact_manifest_payload(manifest["artifact_manifest"])
+                            if isinstance(manifest, dict) and "artifact_manifest" in manifest
+                            else None
+                        )
+                        staged = preserved_manifest is not None and stage_preserved_artifact_claims(
+                            staging_dir, preserved_manifest
+                        )
+                    except _ARTIFACT_ACTIVATION_ERRORS as exc:
+                        self._raise_artifact_activation_validation_error(diagnostics, exc)
                     try:
                         migrate_project_dir(staging_dir)
                     except Exception as exc:
                         self._raise_migration_validation_error(diagnostics, exc)
+                    if preserved_manifest is not None and staged:
+                        try:
+                            preserved_manifest = take_migrated_artifact_claims(staging_dir, preserved_manifest)
+                        except _ARTIFACT_ACTIVATION_ERRORS as exc:
+                            self._raise_artifact_activation_validation_error(diagnostics, exc)
                     # 提及自愈跑在迁移之后：存量归档的正文是迁移折出来的，早跑读不到正文。
                     self._repair_unit_mentions_tree(staging_dir, diagnostics)
                     diagnostics.extend_validation(self.validator.validate_project_tree(staging_dir))
@@ -509,15 +532,8 @@ class ProjectArchiveService:
                             warnings=diagnostics.warning_messages(),
                             diagnostics=diagnostics,
                         )
-                    # Artifact Manifest 是 hidden sidecar，不进入归档成员。官方导出把完整
-                    # claim snapshot 放进 visible archive envelope；旧的手工归档没有该字段，
-                    # 仍走 self-proving reconstruction。两条路径均在 staging 一次性提交。
+                    # 有无信封的两条路径均在 staging 一次性提交。
                     try:
-                        preserved_manifest = (
-                            decode_artifact_manifest_payload(manifest["artifact_manifest"])
-                            if isinstance(manifest, dict) and "artifact_manifest" in manifest
-                            else None
-                        )
                         import_skipped = ensure_imported_artifact_target_state(
                             staging_dir,
                             preserved_manifest=preserved_manifest,

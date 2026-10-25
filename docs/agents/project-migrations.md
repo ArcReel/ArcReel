@@ -68,7 +68,7 @@
 - 升级路径常常跨多个版本：迁移要处理的是更早版本留下的全部变体，不只上一版写出的标准形态。
 - 备份走 `lib/project/project_migrations/backups.py`；自行备份输入的迁移器登记到 runner 的 `_MIGRATORS_WITH_OWNED_BACKUP`。
 - 改写清单的迁移用 `activate_artifact_target_state(bump_schema=True, target_schema_version=...)`，先做只读预检再落盘。
-- 整份激活会把在场产物一律登记为时新。改的只是某个依据输入、既有产物本不该因此过期时，改前改后各规划一次目标态，只把「改前正是时新、且目标登记变了」的条目改写过去（先例：v13→v14 的风格值归一），本就过期的条目不被伪造成时新。
+- 整份激活会把在场产物一律登记为时新。改的只是某个依据输入、既有产物本不该因此过期时，改前改后各规划一次目标态，只把「改前正是时新、且目标登记变了」的条目改写过去（先例：v13→v14 的风格值归一），本就过期的条目不被伪造成时新。带信封的归档导入在迁移前把信封里的 claim 落成暂存清单（`stage_preserved_artifact_claims`），迁移链像原地升级一样改写它们，改写清单的迁移步不必为归档另写路径；导入激活再按内容证据恢复迁移后的 claim。
 - 过去正常流程写出的旧形态在链首统一规整：`legacy_shapes.normalize_legacy_shapes` 在链上第一个 ≥ v6 的版本跑一次，先于 v6→v7 的剧本改写与任何一次目标态规划，之后的迁移步与规划器只见规整后的形态。新发现的这类形态加到这里，不在各步里各自拒绝。因数据拒绝整个项目只限 `project.json` 或剧本读不出、`versions.json` 或 `.arcreel_artifacts.json` 读不出、剧本条目结构损坏（v6 广告旧镜头索引或单元结构损坏、v8 单元不是对象）与导入包不安全；规划器的容错只在激活模式（`_activation_mode`）下生效，运行期行为不变。
 - 规整的每处改动记成 `MigrationAdjustment`（报告「已调整」），读不出而原样留下的文件记成带 `category` 的跳过（报告「未能带入」）；报告只有这两栏。依据算不出（生成缺口、没有版本记录、路径不规范、源文不是 UTF-8 等）的跳过不带 `category`，由 `write_migration_report` / `extend_migration_report` 滤掉；需要重新规划的单位也不进报告：带 `needs_replan` 的条目，其分镜图、视频与配音由 `write_migration_report` 统一从「未能带入」里去掉，不靠各条跳过路径各自记得。归档导入不分 schema 版本，把导入激活没能登记的产物与修复期补的占位一并并进报告（`extend_migration_report`）。链中途失败时，已做的调整写进一份 `complete: false` 的报告，重试时并入下一次报告；未完成的报告不对用户显示。链在提交当前版本之后才失败（最后一步提交后报错，或收尾那次写报告失败）时重试不再进链，runner 见到项目已在当前版本、报告仍未完成，就把它补写成完成的报告。
 - 有取舍时被替下的那份用 `backups.set_aside_as_kept_copy` 留作保留副本（`<name>.kept.v<N>-<ts>`），不被 `cleanup_stale_backups` 清理，路径写进调整条目的 `backup`；只是改写的文件照常做版本化备份。

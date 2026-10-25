@@ -3496,6 +3496,7 @@ class ProjectManager:
             current_artifact_probe,
             merge_payload_references,
             plan_derivative_merge,
+            storyboard_reference_identities,
         )
         from lib.project.data_validator import DataValidator
 
@@ -3543,6 +3544,10 @@ class ProjectManager:
                     totals[key] = totals.get(key, 0) + value
 
             is_current = current_artifact_probe(project_dir)
+            storyboard_identities = storyboard_reference_identities(project_dir, project, asset_type)
+            for new_reference, old_reference in derivative_plan.carried_references(source, target).items():
+                if old_reference in storyboard_identities:
+                    storyboard_identities[new_reference] = storyboard_identities[old_reference]
             changed_scripts: list[tuple[str, dict, dict]] = []
             for filename in script_files:
                 script, _migrated = self._read_script_unlocked(project_name, filename)
@@ -3561,7 +3566,7 @@ class ProjectManager:
                         asset_type,
                         episode,
                         is_current,
-                        carried=derivative_plan.carried_references(source, target),
+                        storyboard_identities=storyboard_identities,
                     )
                     if episode is not None
                     else (0, 0)
