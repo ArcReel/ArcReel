@@ -11,10 +11,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
 from lib.generation.generation_result import (
+    GenerationAction,
     GenerationBatchResult,
     GenerationItemResult,
     GenerationItemState,
     GenerationProblem,
+    GenerationProblemCode,
     GenerationSelectionMode,
     GenerationSkippedItem,
     GenerationTargetState,
@@ -27,6 +29,7 @@ from lib.generation.generation_result import (
     provider_checkpoint_from_task,
 )
 from lib.generation.task_terminal_events import TERMINAL_TASK_STATUSES
+from lib.i18n import _ as translate_default
 
 GenerationBatchMemberStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "blocked"]
 
@@ -264,6 +267,25 @@ def _terminal_result(
         status = task["status"]
         task_result = task.get("result") or {}
         unit_result = (task_result.get("unit_results") or {}).get(unit_id) or {}
+        if task_result.get("target_deleted"):
+            items.append(
+                GenerationItemResult(
+                    unit_id=unit_id,
+                    task_id=task["task_id"],
+                    provider_checkpoint=provider_checkpoint_from_task(task),
+                    state=GenerationItemState.FAILED,
+                    task_state=GenerationTaskState.SUCCEEDED,
+                    artifact_status=ArtifactStatus.MISSING,
+                    problem=GenerationProblem(
+                        code=GenerationProblemCode.TARGET_DELETED,
+                        detail=translate_default("generation_target_deleted"),
+                        action=GenerationAction.NONE,
+                        params={"trash_record_id": task_result.get("trash_record_id")},
+                    ),
+                    warnings=generation_warnings_from_result(task_result),
+                )
+            )
+            continue
         task_artifact_path = unit_result.get("file_path") or task_result.get("file_path") or requested.artifact_path
         if status == "succeeded" and not unit_result.get("problem"):
             artifact_status = None

@@ -175,6 +175,11 @@ def test_write_trash_denied(policy: AgentAccessPolicy, tool: str, relative: str)
         "characters/derivatives/Alice/young.png",
         "reference_videos/thumbnails/E1U1.jpg",
         "renders/episode_1/final.mp4",
+        "style_reference.png",
+        "style_reference.jpg",
+        "style_reference.jpeg",
+        "style_reference.webp",
+        "STYLE_REFERENCE.PNG",
     ],
 )
 def test_write_media_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
@@ -558,6 +563,8 @@ def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccess
     assert str(cwd / "storyboards") in deny_write
     assert str(cwd / "characters") in deny_write
     assert str(cwd / "versions") in deny_write
+    for ext in ("png", "jpg", "jpeg", "webp"):
+        assert str(cwd / f"style_reference.{ext}") in deny_write
 
 
 def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: AgentAccessPolicy) -> None:

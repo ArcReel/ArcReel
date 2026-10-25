@@ -1043,7 +1043,7 @@ export default {
   'agent_memory_new_file': 'Tệp bộ nhớ mới',
   'agent_memory_create': 'Tạo',
   'agent_memory_new_file_placeholder': 'ví dụ tone.md',
-  'agent_memory_name_invalid': 'Tên tệp phải bắt đầu bằng chữ cái hoặc chữ số, chỉ gồm chữ cái, chữ số, dấu chấm, gạch dưới hoặc gạch nối, và kết thúc bằng .md',
+  'agent_memory_name_invalid': 'Tên tệp phải bắt đầu bằng chữ cái hoặc chữ số, chỉ gồm chữ cái, chữ số, dấu cách, dấu ngoặc đơn, dấu chấm, gạch dưới hoặc gạch nối, và kết thúc bằng .md',
   'agent_memory_name_duplicate': 'Đã có tệp trùng tên',
   'agent_memory_empty_hint': 'Chưa có bộ nhớ nào. Agent sẽ tự ghi lại trong quá trình sáng tác, bạn cũng có thể tự tạo tệp.',
   'agent_memory_no_description': 'Không có mô tả',

@@ -1,5 +1,7 @@
 """删除的项目成为已删除项目：整体恢复时记录改回项目名，原名被占用时换名；彻底删除后不可恢复。"""
 
+import asyncio
+import threading
 from datetime import UTC, datetime
 from urllib.parse import quote
 
@@ -8,6 +10,8 @@ from lib.db.repositories.usage_repo import UsageFilters, UsageRepository
 from lib.project import deleted_projects
 from lib.project.project_manager import ProjectManager
 from server.auth import EMBEDDED_AGENT_SUB, CurrentUserInfo, get_current_user
+from server.routers import projects
+from server.services.project import project_retirement
 from tests.integration.server.routers.projects_router_support import (
     build_projects_client,
     override,
@@ -70,6 +74,63 @@ async def test_restore_keeps_the_original_name_when_it_is_free(tmp_path, monkeyp
     assert manager.load_project("demo")["title"] == "Old"
     async with db_factory() as session:
         assert (await TaskRepository(session).get(old["running"]) or {})["project_name"] == "demo"
+
+
+async def test_restore_cancelled_while_moving_out_still_finishes(tmp_path, monkeypatch, db_factory):
+    """目录移出途中请求被取消：恢复照常做完，记录改回、迁移照跑，不会只留下移回的目录。"""
+    manager = ProjectManager(tmp_path)
+    _create(manager, "Old")
+    old = await seed_project_records(db_factory)
+    with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
+        assert client.delete("/api/v1/projects/demo").status_code == 200
+        [entry] = client.get(DELETED).json()["projects"]
+
+    moving, release = threading.Event(), threading.Event()
+    real_move_out, real_migrate = deleted_projects.move_out, deleted_projects.migrate_restored
+    migrated: list[str] = []
+
+    def slow_move_out(layout, entry_id):
+        moving.set()
+        release.wait(5)
+        return real_move_out(layout, entry_id)
+
+    def recording_migrate(project_dir, **kwargs):
+        migrated.append(project_dir.name)
+        real_migrate(project_dir, **kwargs)
+
+    monkeypatch.setattr(deleted_projects, "move_out", slow_move_out)
+    monkeypatch.setattr(deleted_projects, "migrate_restored", recording_migrate)
+    restore = asyncio.create_task(projects.restore_deleted_project(entry["id"]))
+    assert await asyncio.to_thread(moving.wait, 5)
+    restore.cancel()
+    release.set()
+
+    assert await restore == {"name": "demo"}
+    assert migrated == ["demo"]
+    assert manager.load_project("demo")["title"] == "Old"
+    assert deleted_projects.list_entries(manager.layout) == []
+    async with db_factory() as session:
+        assert (await TaskRepository(session).get(old["running"]) or {})["project_name"] == "demo"
+
+
+async def test_project_stays_in_place_when_its_records_cannot_be_retired(tmp_path, monkeypatch, db_factory):
+    """目录已移走而记录提交失败时，目录移回原处，记录仍挂在原项目名下。"""
+    manager = ProjectManager(tmp_path)
+    _create(manager, "Old")
+    old = await seed_project_records(db_factory)
+
+    async def failing_commit(awaitable):
+        awaitable.close()
+        raise OSError("database disk is full")
+
+    monkeypatch.setattr(project_retirement, "run_noninterruptible_async", failing_commit)
+    with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
+        assert client.delete("/api/v1/projects/demo").status_code == 500
+
+    assert manager.load_project("demo")["title"] == "Old"
+    assert deleted_projects.list_entries(manager.layout) == []
+    async with db_factory() as session:
+        assert (await TaskRepository(session).get(old["queued"]) or {})["project_name"] == "demo"
 
 
 async def test_purged_project_cannot_be_restored(tmp_path, monkeypatch, db_factory):

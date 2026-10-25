@@ -20,6 +20,7 @@ from lib.project.project_migrations.runner import migrate_project_dir
 from server.error_handlers import register_error_handlers
 from server.routers import project_trash as trash_router
 from tests.auth_deps import override_auth
+from tests.fakes import use_project_manager
 from tests.legacy_project_shapes import write_legacy_storyboard_project, write_legacy_timeline_agent_turn_project
 
 TIMELINE = "tl-0000abcd"
@@ -35,9 +36,9 @@ def projects_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def client(projects_dir: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def cross_version_client(projects_dir: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     manager = ProjectManager(str(projects_dir.parent))
-    monkeypatch.setattr(trash_router, "get_project_manager", lambda: manager)
+    use_project_manager(monkeypatch, manager)
     app = FastAPI()
     app.include_router(trash_router.router, prefix="/api/v1")
     register_error_handlers(app)
@@ -78,12 +79,14 @@ def _timeline_project(projects_dir: Path) -> Path:
     return project_dir
 
 
-def test_a_record_from_an_older_schema_is_migrated_and_restored(client: TestClient, projects_dir: Path) -> None:
+def test_a_record_from_an_older_schema_is_migrated_and_restored(
+    cross_version_client: TestClient, projects_dir: Path
+) -> None:
     project_dir = _timeline_project(projects_dir)
     record_id = _old_record(project_dir, [DOCUMENT, RENDER], schema_version=17)
     migrate_project_dir(project_dir)  # 应用升级
 
-    restored = client.post(f"/api/v1/projects/{project_dir.name}/trash/{record_id}/restore")
+    restored = cross_version_client.post(f"/api/v1/projects/{project_dir.name}/trash/{record_id}/restore")
 
     assert restored.status_code == 200, restored.text
     body = restored.json()
@@ -98,11 +101,11 @@ def test_a_record_from_an_older_schema_is_migrated_and_restored(client: TestClie
     assert all("agent_turn" not in revision for revision in document["revisions"])
     assert read_timeline_document(project_dir, 1, TIMELINE) is not None
     assert (project_dir / RENDER).read_bytes() == b"final-cut"
-    assert _trash(client, project_dir.name) == []
+    assert _trash(cross_version_client, project_dir.name) == []
 
 
 def test_a_record_whose_migration_fails_restores_its_files_and_keeps_structure_for_download(
-    client: TestClient, projects_dir: Path
+    cross_version_client: TestClient, projects_dir: Path
 ) -> None:
     project_dir = _timeline_project(projects_dir)
     document_bytes = (project_dir / DOCUMENT).read_bytes()
@@ -111,7 +114,7 @@ def test_a_record_whose_migration_fails_restores_its_files_and_keeps_structure_f
     migrate_project_dir(project_dir)
     base = f"/api/v1/projects/{project_dir.name}/trash/{record_id}"
 
-    restored = client.post(f"{base}/restore")
+    restored = cross_version_client.post(f"{base}/restore")
 
     assert restored.status_code == 200, restored.text
     body = restored.json()
@@ -120,7 +123,7 @@ def test_a_record_whose_migration_fails_restores_its_files_and_keeps_structure_f
     assert body["download_only"] == [DOCUMENT]
     assert (project_dir / RENDER).read_bytes() == b"final-cut"
     assert not (project_dir / DOCUMENT).exists()
-    [record] = _trash(client, project_dir.name)
+    [record] = _trash(cross_version_client, project_dir.name)
     assert (record["id"], record["files"], record["download_only"], record["has_snapshot"]) == (
         record_id,
         [DOCUMENT],
@@ -129,15 +132,17 @@ def test_a_record_whose_migration_fails_restores_its_files_and_keeps_structure_f
     )
     assert record["size"] == len(document_bytes)
 
-    downloaded = client.get(f"{base}/files", params={"path": DOCUMENT})
+    downloaded = cross_version_client.get(f"{base}/files", params={"path": DOCUMENT})
     assert downloaded.status_code == 200
     assert downloaded.content == document_bytes
     assert downloaded.headers["content-disposition"].startswith("attachment")
-    assert client.get(f"{base}/files", params={"path": RENDER}).status_code == 404
-    assert client.post(f"{base}/restore").status_code == 409
+    assert cross_version_client.get(f"{base}/files", params={"path": RENDER}).status_code == 404
+    assert cross_version_client.post(f"{base}/restore").status_code == 409
 
 
-def test_a_degraded_restore_lands_files_where_the_migration_moved_them(client: TestClient, projects_dir: Path) -> None:
+def test_a_degraded_restore_lands_files_where_the_migration_moved_them(
+    cross_version_client: TestClient, projects_dir: Path
+) -> None:
     # 迁移链里会搬动媒体的只有 v0→v1（线索图分流到 scenes/、props/）与 v5→v6：用 v0 样本构造记录。
     project_dir = write_legacy_storyboard_project(projects_dir, schema_version=0)
     project_file = project_dir / "project.json"
@@ -149,7 +154,7 @@ def test_a_degraded_restore_lands_files_where_the_migration_moved_them(client: T
     record_id = _old_record(project_dir, ["clues/古庙.png"], schema_version=0)
     _break_snapshot_script(project_dir, record_id)
 
-    restored = client.post(f"/api/v1/projects/{project_dir.name}/trash/{record_id}/restore")
+    restored = cross_version_client.post(f"/api/v1/projects/{project_dir.name}/trash/{record_id}/restore")
 
     assert restored.status_code == 200, restored.text
     body = restored.json()
@@ -159,4 +164,4 @@ def test_a_degraded_restore_lands_files_where_the_migration_moved_them(client: T
     assert (project_dir / "scenes" / "古庙.png").read_bytes() == b"temple"
     assert not (project_dir / "clues" / "古庙.png").exists()
     # 没有只能下载的结构文件：记录随之消失
-    assert _trash(client, project_dir.name) == []
+    assert _trash(cross_version_client, project_dir.name) == []

@@ -26,7 +26,7 @@ from lib.edit_timeline.store import (
 )
 from lib.infra.api_errors import ConflictError
 from lib.project import project_trash
-from lib.project.project_manager import ProjectManager
+from lib.project.project_manager import ProjectManager, find_episode
 from lib.project.trash_restore import Landing, Restoration
 
 __all__ = ["EDIT_TIMELINE_KIND", "delete_edit_timeline", "take_edit_timeline"]
@@ -64,6 +64,15 @@ def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) 
     )
     if document is None:
         raise ConflictError("trash_restore_failed", id=timeline_id)
+    projects = ProjectManager.for_project_dir(project_dir)
+
+    def require_episode() -> None:
+        if find_episode(projects.load_project(project_dir.name), document.episode) is None:
+            # 所属的集已删除：加回的时间线打不开。
+            raise ConflictError("trash_restore_failed", id=timeline_id)
+
+    # 此处抛错按取不出对象降级；落地时在锁内再核对一次，期间被删的集让本次恢复失败、记录保留。
+    require_episode()
     staged_renders = timeline_renders_dir(document.episode, document.id)
     render_files = _files_under(staged, staged_renders)
     claims = {
@@ -71,9 +80,10 @@ def take_edit_timeline(project_dir: Path, staged: Path, obj: Mapping[str, Any]) 
         for key, entry in ProjectArtifactManifestAdapter(staged).snapshot_entries().items()
         if key.kind in _RENDER_KINDS and key.components[1] == document.id
     }
-    store = EditTimelineStore(ProjectManager.for_project_dir(project_dir), project_dir.name)
+    store = EditTimelineStore(projects, project_dir.name)
 
     def land(landing: Landing) -> Mapping[str, Any]:
+        require_episode()
         taken_ids = {existing.id for existing in store.list_documents()}
         landed_id = document.id
         while (

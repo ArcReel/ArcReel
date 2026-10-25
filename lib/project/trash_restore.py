@@ -24,7 +24,7 @@ import re
 import shutil
 import tempfile
 from collections.abc import Callable, Mapping
-from contextlib import AbstractContextManager, nullcontext
+from contextlib import AbstractContextManager, nullcontext, suppress
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -48,7 +48,7 @@ _MIGRATION_COPY_RE = re.compile(r"\.(?:bak|kept)\.v\d+-\d+")
 
 
 class Landing:
-    """一次恢复在当前项目里新建的文件；:meth:`rollback` 撤掉它们，当前项目回到恢复前。从不覆盖现有文件。"""
+    """一次恢复在当前项目里新建的文件与目录；:meth:`rollback` 撤掉它们，当前项目回到恢复前。从不覆盖现有文件。"""
 
     def __init__(self, project_dir: Path) -> None:
         self.project_dir = project_dir
@@ -72,15 +72,22 @@ class Landing:
 
     def rollback(self) -> None:
         for path in reversed(self._created):
-            # hard-delete: rollback -- 恢复落地失败时撤掉本次新建的文件，记录里的原件不动
-            path.unlink(missing_ok=True)
+            if path.is_dir() and not path.is_symlink():
+                # 新建的目录也撤掉：留下的空目录会让重试按身份冲突处理。期间被别处写进内容的目录留着。
+                with suppress(OSError):
+                    path.rmdir()  # hard-delete: rollback -- 只删本次新建且仍为空的目录
+            else:
+                # hard-delete: rollback -- 恢复落地失败时撤掉本次新建的文件，记录里的原件不动
+                path.unlink(missing_ok=True)
 
     def _target(self, rel: str) -> Path:
         project_trash.check_restore_target(self.project_dir, rel)
         target = self.project_dir / rel
         if not self.free(rel):
             raise FileExistsError(rel)
+        missing = [parent for parent in target.parents if not parent.exists()]
         target.parent.mkdir(parents=True, exist_ok=True)
+        self._created.extend(reversed(missing))
         return target
 
     def _done(self, target: Path, rel: str, original: str) -> None:

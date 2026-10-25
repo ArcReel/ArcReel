@@ -1300,10 +1300,43 @@ class VersionManager:
                 **metadata,
             )
 
+    @contextmanager
+    def history_transaction(self) -> Generator[None]:
+        """批量恢复失败时撤销新增历史快照与版本登记；调用方持项目锁，不改当前文件。"""
+
+        def snapshots() -> set[Path]:
+            data = self._load_versions()
+            return {
+                self._resolve_snapshot(resource_type, version)
+                for resource_type in self.RESOURCE_TYPES
+                for resource in data.get(resource_type, {}).values()
+                for version in resource.get("versions", [])
+            }
+
+        with self._lock:
+            before = snapshots()
+            with formal_write_transaction(self.versions_file):
+                try:
+                    yield
+                except BaseException as failure:
+                    cleanup = _unlink_paths(*(snapshots() - before))
+                    if cleanup:
+                        raise RuntimeError("history restore rollback was incomplete") from failure
+                    raise
+
     def add_history_version(
-        self, resource_type: str, resource_id: str, source_file: Path, *, current_file: Path, prompt: str = ""
+        self,
+        resource_type: str,
+        resource_id: str,
+        source_file: Path,
+        *,
+        current_file: Path,
+        prompt: str = "",
+        metadata: Mapping[str, Any] | None = None,
     ) -> str:
         """把 ``source_file`` 作为资源的一条历史版本加回，当前版本不变；返回新版本快照的项目内相对路径。
+
+        ``metadata`` 是被删版本原有的元数据（生成依据等），随版本一起加回，加回的版本才能照常选回。
 
         恢复删除记录时用：原路径已有当前文件，被恢复的文件不覆盖它。当前文件还没有版本记录时
         先补录成当前版本，否则加回的版本会成为唯一一条、看起来像是当前版本。
@@ -1321,7 +1354,7 @@ class VersionManager:
             created: list[Path] = []
             try:
                 self._append_selected_snapshot(
-                    resource_type, resource_id, resource_data, Path(source_file), prompt, {}, created
+                    resource_type, resource_id, resource_data, Path(source_file), prompt, dict(metadata or {}), created
                 )
                 resource_data["current_version"] = current_version
                 self._save_versions(data)
@@ -1360,6 +1393,12 @@ class VersionManager:
                             "resource_id": resource_id,
                             "version": record.get("version"),
                             "prompt": record.get("prompt", ""),
+                            "metadata": {
+                                key: value
+                                for key, value in record.items()
+                                if key
+                                not in {"version", "file", "prompt", VERSION_CONTENT_DIGEST, _PREVIOUS_CURRENT_VERSION}
+                            },
                         }
                         try:
                             trashed = project_trash.record_deletion(self.project_path, obj, [snapshot_path])

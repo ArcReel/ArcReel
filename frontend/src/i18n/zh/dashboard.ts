@@ -1052,7 +1052,7 @@ export default {
   'agent_memory_new_file': '新建记忆文件',
   'agent_memory_create': '创建',
   'agent_memory_new_file_placeholder': '如 tone.md',
-  'agent_memory_name_invalid': '文件名需以字母或数字开头，只含字母、数字、点、下划线或连字符，并以 .md 结尾',
+  'agent_memory_name_invalid': '文件名需以字母或数字开头，只含字母、数字、空格、括号、点、下划线或连字符，并以 .md 结尾',
   'agent_memory_name_duplicate': '已存在同名文件',
   'agent_memory_empty_hint': '暂无记忆。Agent 会在创作过程中自动记录，也可以手动新建文件。',
   'agent_memory_no_description': '无说明',

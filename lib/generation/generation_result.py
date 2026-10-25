@@ -111,6 +111,7 @@ class GenerationProblemCode(StrEnum):
     TASK_CANCELLED = "generation_task_cancelled"
     TASK_INTERRUPTED = "generation_task_interrupted"
     POST_PROCESSING_FAILED = "generation_post_processing_failed"
+    TARGET_DELETED = "generation_target_deleted"
 
 
 class GenerationAction(StrEnum):

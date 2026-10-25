@@ -90,6 +90,10 @@ Only directories under `projects/` whose names contain letters, digits, or hyphe
 
 > Back up the entire data root, not just the database. The database stores tasks, configuration, and index information, while the project directories store source media and generated files. They must remain consistent.
 
+The project trash is stored in `projects/<project-name>/.arcreel/trash/`. A full data-root backup keeps its deletion records; a project ZIP export does not include it. Deletion records are kept for 30 days from deletion and are cleared at application startup and periodically while it runs. Restoring a backup does not reset a record's retention period.
+
+A deleted project moves as a whole, together with its project trash, to `deleted_projects/<project-name>#deleted-<deletion-time>/`. It is also kept for 30 days and cleared the same way. You can restore or permanently delete it from Deleted projects on the project list page. If the original name is already taken, the project is restored under a new name with a suffix.
+
 ## 2. Production Deployment: PostgreSQL {#postgresql-deployment}
 
 ### 2.1 Start {#postgresql-start}

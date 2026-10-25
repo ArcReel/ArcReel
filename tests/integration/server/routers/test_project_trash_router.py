@@ -15,12 +15,14 @@ from lib.artifacts.version_manager import VersionManager
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.auth import EMBEDDED_AGENT_SUB, CurrentUserInfo, get_current_user
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.routers import file_view
 from server.routers import project_trash as trash_router
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+from tests.fakes import use_project_manager
 
 FILES = "/api/v1/projects/demo/file-view"
 TRASH = "/api/v1/projects/demo/trash"
@@ -32,7 +34,13 @@ def trash_project_dir(tmp_path):
     (root / "storyboards").mkdir(parents=True)
     (root / "scripts").mkdir()
     (root / "project.json").write_text(
-        json.dumps({"title": "demo", "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}]}),
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "title": "demo",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        ),
         encoding="utf-8",
     )
     script = {
@@ -51,7 +59,7 @@ def trash_project_dir(tmp_path):
 def trash_client(trash_project_dir, monkeypatch):
     manager = ProjectManager(str(trash_project_dir.parents[1]))
     monkeypatch.setattr(file_view, "get_project_manager", lambda: manager)
-    monkeypatch.setattr(trash_router, "get_project_manager", lambda: manager)
+    use_project_manager(monkeypatch, manager)
     app = FastAPI()
     for module in (file_view, trash_router):
         app.include_router(
@@ -246,6 +254,40 @@ def test_a_multi_file_record_is_restored_whole_or_not_at_all(trash_client, trash
     assert _records(trash_client) == []
 
 
+@pytest.mark.parametrize("tracked", [False, True])
+def test_failed_multi_file_restore_rolls_back_history_and_current_registration(trash_project_dir, monkeypatch, tracked):
+    target = trash_project_dir / "storyboards/scene_E1S02.png"
+    manager = VersionManager(trash_project_dir)
+    if tracked:
+        manager.add_version("storyboards", "E1S02", "existing", source_file=target)
+    with project_metadata_lock(trash_project_dir):
+        record = project_trash.record_deletion(
+            trash_project_dir, {"kind": "bundle"}, ["storyboards/scene_E1S02.png", "notes.txt"]
+        )
+    target.write_bytes(b"new current")
+    versions = trash_project_dir / "versions/versions.json"
+    before = versions.read_bytes() if versions.exists() else None
+    snapshots = {path for path in (trash_project_dir / "versions").rglob("*") if path.is_file()}
+    replace = project_trash.os.replace
+    stored_notes = project_trash.trash_dir(trash_project_dir) / record.id / "files/notes.txt"
+
+    def fail_second_file(source, destination):
+        if source == stored_notes:
+            raise OSError("disk full")
+        return replace(source, destination)
+
+    monkeypatch.setattr(project_trash.os, "replace", fail_second_file)
+    with pytest.raises(OSError, match="disk full"):
+        project_trash.restore(trash_project_dir, record.id)
+
+    assert (versions.read_bytes() if versions.exists() else None) == before
+    assert {path for path in (trash_project_dir / "versions").rglob("*") if path.is_file()} == snapshots
+    assert target.read_bytes() == b"new current"
+    assert project_trash.require_record(trash_project_dir, record.id).files == record.files
+    monkeypatch.setattr(project_trash.os, "replace", replace)
+    assert len(project_trash.restore(trash_project_dir, record.id).restored) == 2
+
+
 def test_purge_and_empty_remove_records(trash_client):
     trash_client.delete(FILES, params={"path": "notes.txt"})
     trash_client.delete(FILES, params={"path": "storyboards/scene_E1S02.png"})
@@ -297,7 +339,7 @@ def _history(project_dir) -> dict:
 def test_history_version_moves_to_trash_and_restores_into_version_history(trash_client, trash_project_dir):
     current = trash_project_dir / "storyboards/scene_E1S01.png"
     manager = VersionManager(trash_project_dir)
-    manager.add_version("storyboards", "E1S01", "old prompt", source_file=current)
+    manager.add_version("storyboards", "E1S01", "old prompt", source_file=current, aspect_ratio="9:16")
     current.write_bytes(b"in-use v2")
     manager.add_version("storyboards", "E1S01", "new prompt", source_file=current)
     old, latest = _history(trash_project_dir)["versions"]
@@ -319,5 +361,8 @@ def test_history_version_moves_to_trash_and_restores_into_version_history(trash_
     assert history["current_version"] == latest["version"]
     back = next(v for v in history["versions"] if v["file"] == restored["path"])
     assert back["prompt"] == "old prompt"
+    # 原版本的元数据（生成依据等）随版本加回，否则视频、音频版本加回后无法选回。
+    assert back["aspect_ratio"] == "9:16"
+    assert back["created_at"] == old["created_at"]
     assert (trash_project_dir / back["file"]).read_bytes() == b"in-use"
     assert current.read_bytes() == b"in-use v2"

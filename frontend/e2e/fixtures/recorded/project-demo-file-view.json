@@ -9,7 +9,7 @@
         "name": ".claude",
         "path": ".claude",
         "type": "directory",
-        "size": 208068,
+        "size": 208174,
         "modified_at": "2026-01-01T08:00:00.000Z"
       },
       {
@@ -121,7 +121,7 @@
         "name": "CLAUDE.md",
         "path": "CLAUDE.md",
         "type": "file",
-        "size": 20798,
+        "size": 21804,
         "modified_at": "2026-01-01T08:00:00.000Z",
         "role": "agent_config",
         "owner": null

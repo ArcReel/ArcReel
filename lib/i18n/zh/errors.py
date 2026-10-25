@@ -136,6 +136,7 @@ MESSAGES = {
     "empty_speaker": "该单元有台词未指定角色，请补齐说话人",
     "generation_batch_admission_withheld": "同批其它单元未通过准入，本次未创建任何任务；修复后重试即可一并提交",
     "generation_active_task_conflict": "该单元已有在途任务，请等待完成后再提交本次批量请求",
+    "generation_target_deleted": "生成完成时目标已删除，结果已移入项目回收站；可在「文件」视图中找回",
     "generation_unit_not_found": "该单元不在本集脚本中",
     "generation_unit_input_unusable": "该单元的生成输入不可用，请先补齐依赖",
     "generation_unit_request_invalid": "该单元的请求内容无效，请修正后重试",

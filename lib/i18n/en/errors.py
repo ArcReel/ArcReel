@@ -138,6 +138,7 @@ MESSAGES = {
     "empty_speaker": "This unit has a line with no speaker assigned; name the character and retry",
     "generation_batch_admission_withheld": "Another unit in this batch failed admission, so no task was created; fix it and retry to submit them together",
     "generation_active_task_conflict": "This unit already has a task in flight; wait for it to finish before submitting this batch",
+    "generation_target_deleted": "The target was deleted during generation. The result is in the project trash and can be recovered from Files.",
     "generation_unit_not_found": "This unit is not part of the episode script",
     "generation_unit_input_unusable": "This unit's generation input is unusable; generate its dependency first",
     "generation_unit_request_invalid": "This unit's request content is invalid; fix it and retry",

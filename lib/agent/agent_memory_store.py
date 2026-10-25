@@ -204,8 +204,10 @@ class AgentMemoryStore:
                 if files:
                     obj = {"kind": "memory", "path": self.directory.relative_to(self.project_dir).as_posix()}
                     project_trash.record_deletion(self.project_dir, obj, files)
-        # hard-delete: out-of-scope -- 用户记忆不属于任何项目；项目记忆的文件已进回收站，只剩空目录与符号链接
-        shutil.rmtree(self.directory, ignore_errors=True)
+        if self.project_dir is None:
+            # hard-delete: out-of-scope -- 用户记忆不属于任何项目
+            shutil.rmtree(self.directory, ignore_errors=True)
+        # 项目记忆可被 Agent 并发写入；回收后保留目录，避免硬删枚举之后新写入的内容。
         self.directory.mkdir(parents=True, exist_ok=True)
         self._record_activity()
 

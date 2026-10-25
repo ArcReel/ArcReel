@@ -401,24 +401,48 @@ describe("ProjectsPage", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("项目名称 'second' 非法");
   });
 
+  const deletedDemo = {
+    id: "demo#deleted-20261020T080000Z",
+    name: "demo",
+    title: "Old",
+    deleted_at: "2026-10-20T08:00:00+00:00",
+    expires_at: "2026-11-19T08:00:00+00:00",
+  };
+
+  it("reloads deleted projects after a restore cancels the reopened dialog's in-flight listing", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+    const deletedMeanwhile = { ...deletedDemo, id: "other#deleted-20261021T080000Z", name: "other", title: "Other" };
+    vi.spyOn(API, "listDeletedProjects")
+      .mockResolvedValueOnce({ projects: [deletedDemo], retention_days: 30 })
+      .mockReturnValueOnce(new Promise(() => {}))
+      .mockResolvedValue({ projects: [deletedMeanwhile], retention_days: 30 });
+    vi.spyOn(API, "restoreDeletedProject").mockResolvedValue({ name: "demo" });
+
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "已删除项目" }));
+    const first = await screen.findByRole("dialog", { name: "已删除项目" });
+    await within(first).findByRole("button", { name: "恢复「Old」" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "已删除项目" })).not.toBeInTheDocument());
+
+    // 重开时先显示缓存的列表，新的列表请求还在途；恢复缓存里的项目会作废它，之后要补拉
+    await user.click(screen.getByRole("button", { name: "已删除项目" }));
+    const dialog = await screen.findByRole("dialog", { name: "已删除项目" });
+    await user.click(await within(dialog).findByRole("button", { name: "恢复「Old」" }));
+
+    expect(await within(dialog).findByRole("button", { name: "恢复「Other」" })).toBeInTheDocument();
+  });
+
   it("restores a deleted project under a new name when the original is taken, and reloads the grid", async () => {
     vi.spyOn(API, "listProjects")
       .mockResolvedValueOnce({ projects: [summary("demo", { title: "New" })] })
       .mockResolvedValueOnce({
         projects: [summary("demo", { title: "New" }), summary("demo-2", { title: "Old" })],
       });
-    vi.spyOn(API, "listDeletedProjects").mockResolvedValue({
-      projects: [
-        {
-          id: "demo#deleted-20261020T080000Z",
-          name: "demo",
-          title: "Old",
-          deleted_at: "2026-10-20T08:00:00+00:00",
-          expires_at: "2026-11-19T08:00:00+00:00",
-        },
-      ],
-      retention_days: 30,
-    });
+    vi.spyOn(API, "listDeletedProjects")
+      .mockResolvedValueOnce({ projects: [deletedDemo], retention_days: 30 })
+      .mockResolvedValue({ projects: [], retention_days: 30 });
     vi.spyOn(API, "restoreDeletedProject").mockResolvedValue({ name: "demo-2" });
 
     renderPage();
@@ -436,20 +460,34 @@ describe("ProjectsPage", () => {
     await waitFor(() => expect(API.listProjects).toHaveBeenCalledTimes(2));
   });
 
+  it("does not report a restore as successful when the project list fails to reload", async () => {
+    vi.spyOn(API, "listProjects")
+      .mockResolvedValueOnce({ projects: [] })
+      .mockRejectedValueOnce(new Error("network down"));
+    vi.spyOn(API, "listDeletedProjects")
+      .mockResolvedValueOnce({ projects: [deletedDemo], retention_days: 30 })
+      .mockResolvedValue({ projects: [], retention_days: 30 });
+    vi.spyOn(API, "restoreDeletedProject").mockResolvedValue({ name: "demo" });
+    const toasts: string[] = [];
+    const unsubscribe = useAppStore.subscribe((state, previous) => {
+      if (state.toast && state.toast !== previous.toast) toasts.push(state.toast.text);
+    });
+
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "已删除项目" }));
+    const dialog = await screen.findByRole("dialog", { name: "已删除项目" });
+    await user.click(await within(dialog).findByRole("button", { name: "恢复「Old」" }));
+
+    await waitFor(() => expect(toasts).toEqual(["项目列表加载失败：network down"]));
+    unsubscribe();
+  });
+
   it("purges a deleted project only after a second confirmation", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
-    vi.spyOn(API, "listDeletedProjects").mockResolvedValue({
-      projects: [
-        {
-          id: "demo#deleted-20261020T080000Z",
-          name: "demo",
-          title: "Old",
-          deleted_at: "2026-10-20T08:00:00+00:00",
-          expires_at: "2026-11-19T08:00:00+00:00",
-        },
-      ],
-      retention_days: 30,
-    });
+    vi.spyOn(API, "listDeletedProjects")
+      .mockResolvedValueOnce({ projects: [deletedDemo], retention_days: 30 })
+      .mockResolvedValue({ projects: [], retention_days: 30 });
     vi.spyOn(API, "purgeDeletedProject").mockResolvedValue({ success: true });
 
     renderPage();

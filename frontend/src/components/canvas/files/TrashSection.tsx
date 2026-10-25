@@ -292,7 +292,7 @@ function DownloadOnlyFiles({ projectName, record }: { projectName: string; recor
               ) : (
                 <Download data-icon="inline-start" aria-hidden />
               )}
-              <TruncatedText text={path} className="font-mono text-xs" />
+              <TruncatedText text={path} focusable={false} className="font-mono text-xs" />
             </Button>
           </li>
         ))}
