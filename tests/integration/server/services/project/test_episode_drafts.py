@@ -145,7 +145,7 @@ async def test_adopted_reference_plan_keeps_its_soft_violations(narration, set_v
     assert result["adopted"] is True, result
     state = await ScriptReviewService(pm).get_state("demo", 1)
 
-    # 软违规带的是视频单元的真实编号，不再按位置拼出 E1U01
+    # 软违规带的是视频单元的真实编号，而不是按位置拼出的 E1U01
     assert ("ref_warn_speaker_without_audio", 0, "E1U1") in {
         (soft["code"], soft["item_index"], soft["item_id"]) for soft in state["soft_violations"]
     }

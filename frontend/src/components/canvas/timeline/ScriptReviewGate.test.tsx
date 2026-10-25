@@ -503,7 +503,7 @@ describe("ScriptReviewGate", () => {
     render(<ScriptReviewGate projectName="p" episode={1} contentMode="narration" />);
 
     // 违约挂在所在分镜卡上，整集层面的违约置顶；面板呈现的是草稿而非正式内容，也不提供确认。
-    await waitFor(() => expect(screen.getByText("segment S01 的原文为空")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("分镜 1 的原文为空")).toBeInTheDocument());
     expect(screen.getByText("源文末尾有一段未被任何分镜覆盖")).toBeInTheDocument();
     expect(screen.queryByDisplayValue("裴与出征后的第二年。")).not.toBeInTheDocument();
     expect(screen.queryByText("确认并继续")).not.toBeInTheDocument();

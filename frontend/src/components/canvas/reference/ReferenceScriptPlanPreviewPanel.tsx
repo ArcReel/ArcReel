@@ -16,7 +16,7 @@ import { useDraftEditor } from "@/hooks/useDraftEditor";
 import { useModelCapabilities } from "@/hooks/useModelCapabilities";
 import { useScriptReviewDraft } from "@/hooks/useScriptReviewDraft";
 import { voidPromise } from "@/utils/async";
-import { groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
+import { draftViolationMessage, groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
 import {
   AgentDraftBar,
   DiscardDraftDialog,
@@ -43,7 +43,7 @@ import { dialogueSpeakers, extractMentions, normalizeAssetName } from "@/utils/r
 import { NewAssetsSection, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
 import { hasValidNewAssets } from "@/utils/plan-new-assets";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
-import { episodeAgentRef, itemIdsInEpisodeText } from "@/utils/episode-display";
+import { episodeAgentRef } from "@/utils/episode-display";
 import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
 import { tierProblemText } from "./unit-tier-problem";
 import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
@@ -246,7 +246,7 @@ function InlineViolations({ violations, position }: { violations: ScriptReviewVi
           .join(", ");
         const message = speechKey && location
           ? t(speechKey, { position, location })
-          : itemIdsInEpisodeText(v.message);
+          : draftViolationMessage(v, t, position);
         return (
           // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 违约由服务端整表算出、没有 ID，同一 code 可重复出现；只读文本、行内无状态
           <p key={`${v.code}-${i}`} className="mt-1 flex items-start gap-1.5 pl-1 text-xs leading-snug text-destructive">
@@ -412,7 +412,7 @@ function UnitCard({
           <span>{t("reference_script_plan_unit_without_scene")}</span>
         </p>
       )}
-      <DraftSoftViolationList softViolations={softViolations} />
+      <DraftSoftViolationList softViolations={softViolations} position={unit.position} />
     </article>
   );
 }

@@ -187,8 +187,8 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
               disabled={busy}
               aria-label={t("reference_script_plan_unit_text_label", { unit: unitLabel(i) })}
             />
-            <DraftViolationList violations={violations} />
-            <DraftSoftViolationList softViolations={softByUnit.get(i) ?? []} />
+            <DraftViolationList violations={violations} position={unitPositions[i]} />
+            <DraftSoftViolationList softViolations={softByUnit.get(i) ?? []} position={unitPositions[i]} />
           </article>
         );
       })}

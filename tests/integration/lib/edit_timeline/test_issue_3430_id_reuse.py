@@ -1,8 +1,8 @@
-"""#3430 的复现用例：编号复用让旧剪辑时间线的片段与裁切接到新单元上。
+"""新增条目与覆盖剧本不复用编号，旧剪辑片段保持已删除。
 
 每个用例：E1U1..E1U3 各有视频 v1 → 按脚本建时间线并裁切 c3（E1U3）→ 删掉/替换 E1U3 → 新单元登记 v1 → 读时间线。
-断言写的是期望行为（不复用编号、旧片段判 unit_deleted）。修复后编号由服务端在落盘时发出，新单元的编号
-取自提交结果，不再是调用方自带的占位编号。
+断言写的是期望行为（不复用编号、旧片段判 unit_deleted）。编号由服务端在落盘前发出：批量插入请求里的编号
+只是占位，新单元的编号从提交结果或落盘后的剧本读取。
 """
 
 from __future__ import annotations
@@ -157,7 +157,7 @@ async def test_overwrite_formal_script_keeps_old_ids(
         {"unit_id": f"E1U{n}", "text": f"{NEW_UNIT_TEXT}{n}", "duration_seconds": 4, "generated_assets": {}}
         for n in (1, 2, 3)
     ]
-    issue_landing_item_ids(pm.get_project_path("demo"), pm.load_project("demo"), script, keep_unused=True)
+    issue_landing_item_ids(pm.get_project_path("demo"), pm.load_project("demo"), script)
     pm.save_script("demo", script, "episode_1.json")
     versions = VersionManager(pm.get_project_path("demo"))
     assert versions.get_current_version("reference_videos", "E1U3") == 0, "旧版本历史应已移进回收站"

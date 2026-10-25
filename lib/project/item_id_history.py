@@ -1,8 +1,8 @@
 """项目里出现过的条目编号（``docs/adr/0090``：编号只分配、不复用）。
 
 五个来源：剧本、版本历史（``versions/versions.json``）、产物清单、项目回收站里的删除记录（含快照里的剧本
-与剪辑时间线）、剪辑时间线的片段引用。迁移按它写入每集用过的最大号；内容确认按它判断脚本规划里的编号
-是否已被正式内容用过。脚本规划草稿不在其中：草稿编号只是占号，转出正式脚本前不算用过。
+与剪辑时间线）、剪辑时间线的片段引用。迁移与整份剧本落盘按它确定发号下界；脚本规划已占的号
+由账本高水位保留，内容确认另发新号，不依赖会被清理的历史记录来判断编号能否沿用。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any
 
 from lib.artifacts.artifact_manifest import decode_artifact_key_parts
 from lib.project.project_trash import trash_dir
-from lib.script.item_ids import ITEM_ID_RE, ItemIdIssuer, episode_item_id_high_water, item_id_number
+from lib.script.item_ids import ITEM_ID_RE, ItemIdIssuer, episode_item_id_high_water, reissue_item_ids
 from lib.script.script_skeleton import resolve_kind_items
 
 #: 条目编号所在的字段：剧本条目的 id 字段与剪辑片段的 ``unit_id``。
@@ -98,14 +98,10 @@ def max_used_item_numbers(project_dir: Path) -> dict[int, int]:
     return {episode: max(numbers) for episode, numbers in used_item_numbers(project_dir).items() if numbers}
 
 
-def issue_landing_item_ids(
-    project_dir: Path, project: Mapping[str, Any], script: dict[str, Any], *, keep_unused: bool
-) -> dict[str, str]:
+def issue_landing_item_ids(project_dir: Path, project: Mapping[str, Any], script: dict[str, Any]) -> dict[str, str]:
     """生成产出落盘前给整份剧本的条目发号，就地改写并返回 ``{原 ID: 新 ID}``。
 
-    ``keep_unused`` 为真时（内容确认转出脚本规划），本集编号且从没被正式内容用过的条目沿用原编号，
-    其余条目（用过的、不属于本集的、重复的）发新号；为假时（整份生成）一律发新号。新号取在本集记录的
-    最大号、五个来源里用过的编号与沿用下来的编号之后。
+    每次整份转出或生成都发新号，取在本集账本记录与五个来源里用过的最大号之后。
     """
 
     episode = script.get("episode")
@@ -114,26 +110,9 @@ def issue_landing_item_ids(
     items, id_field, kind = resolve_kind_items(script)
     entries = [item for item in items if isinstance(item, dict)] if isinstance(items, list) else []
     used = used_item_numbers(project_dir).get(episode, set())
-    kept: set[int] = set()
-    if keep_unused:
-        for item in entries:
-            number = item_id_number(item.get(id_field), episode)
-            if number is not None and number not in used and number not in kept:
-                kept.add(number)
-    floor = max(episode_item_id_high_water(project, episode), *used, *kept, 0)
+    floor = max(episode_item_id_high_water(project, episode), *used, 0)
     issuer = ItemIdIssuer(episode, kind, floor)
-    renamed: dict[str, str] = {}
-    claimed: set[int] = set()
-    for item in entries:
-        previous = item.get(id_field)
-        number = item_id_number(previous, episode)
-        if number is not None and number in kept and number not in claimed:
-            claimed.add(number)
-            continue
-        item[id_field] = issuer.issue()
-        if isinstance(previous, str) and previous not in renamed:
-            renamed[previous] = item[id_field]
-    return renamed
+    return reissue_item_ids(entries, id_field, issuer)
 
 
 __all__ = ["issue_landing_item_ids", "max_used_item_numbers", "used_item_numbers"]

@@ -475,7 +475,7 @@ async def _promote_reference_script_plan(
     )
     unit_ids = formal_ids[: len(flat_units)]
     if len(flat_units) > len(unit_ids):
-        unit_ids += await asyncio.to_thread(
+        unit_ids += await run_sync_transaction(
             ctx.pm.reserve_item_ids, ctx.project_name, episode, "video_units", len(flat_units) - len(unit_ids)
         )
     units = build_reference_units_from_flat(

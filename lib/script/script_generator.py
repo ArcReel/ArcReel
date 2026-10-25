@@ -373,12 +373,10 @@ class ScriptGenerator:
         filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
         return filename, content_fingerprint(self.project_path / "scripts" / filename)
 
-    def _issue_landing_item_ids(self, script_data: dict[str, Any], *, keep_unused: bool) -> None:
+    def _issue_landing_item_ids(self, script_data: dict[str, Any]) -> None:
         """落盘前由服务端给生成产出的条目发号（见 ``item_id_history.issue_landing_item_ids``）；须在线程里调用。"""
         pm = ProjectManager.for_project_dir(self.project_path)
-        issue_landing_item_ids(
-            self.project_path, pm.load_project(self.project_path.name), script_data, keep_unused=keep_unused
-        )
+        issue_landing_item_ids(self.project_path, pm.load_project(self.project_path.name), script_data)
 
     def _save_script(self, script_data: dict[str, Any], filename: str, **kwargs: Any) -> Path:
         """经写盘统一入口保存剧本；ProjectManager 构造时会建目录，须在线程里调用。"""
@@ -732,8 +730,7 @@ class ScriptGenerator:
     ) -> ScriptPlanMaterializationReceipt:
         """内容确认时把脚本规划整份转为正式剧本：旧剧本（若有）整份被替换，不沿用任何条目。
 
-        条目编号沿用规划里的编号，但已被正式内容用过的（同一份规划再次确认、规划编号与旧条目相同）
-        在落盘时另发新号，编号只分配、不复用（``docs/adr/0090``）。
+        条目编号在落盘时一律另发新号，编号只分配、不复用（``docs/adr/0090``）。
 
         投影见 ``lib.script.script_document.build_materialized_script``。``expected_plan_revision`` 是确认记录的脚本规划指纹，加载到的
         规划不是这份即抛 ``ScriptPlanWriteConflict``；``expected_script_fingerprint`` 是调用方认可覆盖时
@@ -788,9 +785,8 @@ class ScriptGenerator:
                     )
                 if claim is not None:
                     assert_current_artifact_input_claims_usable(self.project_path, (claim,))
-                # 编号只分配、不复用：规划里已被正式内容用过的编号（如重新确认同一份规划）发新号，
-                # 旧剧本的条目整份移进项目回收站，不把旧产物与剪辑片段接到新内容上。
-                self._issue_landing_item_ids(script_data, keep_unused=True)
+                # 规划只提供内容：正式身份另发新号，旧条目整份移进项目回收站。
+                self._issue_landing_item_ids(script_data)
                 self._save_script(
                     script_data,
                     filename,
@@ -926,7 +922,7 @@ class ScriptGenerator:
         # 本次新增资产与正式剧本在同一写事务里登记进项目。
         # 模型给出的编号只是占位：整份生成的条目一律由服务端发本集从没用过的新编号，旧剧本的条目整份移进项目回收站。
         def _issue_and_save() -> Path:
-            self._issue_landing_item_ids(script_data, keep_unused=False)
+            self._issue_landing_item_ids(script_data)
             return self._save_script(
                 script_data,
                 filename,

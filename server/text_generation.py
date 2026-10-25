@@ -359,7 +359,7 @@ async def reissue_plan_item_ids(
             fresh.append(item)
     if not fresh:
         return
-    issued = await asyncio.to_thread(projects.reserve_item_ids, project_name, episode, kind, len(fresh))
+    issued = await run_sync_transaction(projects.reserve_item_ids, project_name, episode, kind, len(fresh))
     for item, item_id in zip(fresh, issued, strict=True):
         item[id_field] = item_id
 
@@ -1572,7 +1572,7 @@ def collect_narration_violations(
     """
     violations: list[DraftViolation] = []
 
-    expected_id = re.compile(rf"E{episode}S\d{{2}}")
+    expected_id = re.compile(rf"E{episode}S\d{{2,}}")
     for index, segment in enumerate(segments):
         segment_id = segment.get("segment_id")
         if not isinstance(segment_id, str) or expected_id.fullmatch(segment_id) is None:
@@ -1788,7 +1788,7 @@ async def generate_reference_script_plan(
             )
 
         # 编号只分配、不复用：落盘前由服务端发本集从没用过的编号，回执里的降级提示按发出的编号定位。
-        unit_ids = await asyncio.to_thread(
+        unit_ids = await run_sync_transaction(
             projects.reserve_item_ids, project_name, episode, "video_units", len(flat_units)
         )
         raw_units = build_reference_units_from_flat(

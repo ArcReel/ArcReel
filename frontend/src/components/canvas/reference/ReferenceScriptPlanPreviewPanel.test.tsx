@@ -574,8 +574,8 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByRole("img", { name: "视频单元 1" })).toBeInTheDocument());
-    expect(screen.getByText("unit U01 使用了全角花括号")).toBeInTheDocument();
-    expect(screen.getByText("unit U01 的台词念不完")).toBeInTheDocument();
+    expect(screen.getByText("视频单元 1 使用了全角花括号")).toBeInTheDocument();
+    expect(screen.getByText("视频单元 1 的台词念不完")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "视频单元 1 · 2" })).toBeInTheDocument();
   });

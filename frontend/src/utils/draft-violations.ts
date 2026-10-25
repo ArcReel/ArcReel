@@ -1,4 +1,21 @@
 import type { DraftSoftViolation, ScriptReviewViolation } from "@/types";
+import type { TFunction } from "i18next";
+import { itemPositionLabel } from "@/utils/episode-display";
+import { episodeItemKind } from "@/utils/episode-item";
+
+/** 草稿诊断按草稿下标称呼条目；提示词草稿可传正式剧本中的位置，避免按内部编号推算。 */
+export function draftViolationMessage(
+  violation: Pick<ScriptReviewViolation, "message" | "label" | "item_id" | "item_index"> | DraftSoftViolation,
+  t: TFunction,
+  position?: number | null,
+): string {
+  const current = position === undefined ? (violation.item_index == null ? null : violation.item_index + 1) : position;
+  const label = ("label" in violation ? violation.label : undefined) || violation.item_id;
+  if (!label || (current === null && position === undefined)) return violation.message;
+  const itemId = violation.item_id ?? /E\d+[SU]\d+(?:_\d+)?/.exec(label)?.[0];
+  const kind = itemId ? episodeItemKind(itemId) : label.startsWith("unit ") ? "unit" : "shot";
+  return violation.message.replace(label, itemPositionLabel(kind, current, t));
+}
 
 /** 草稿违约按条目分组：带条目定位的挂到对应条目，其余是整集层面的违约。 */
 export interface DraftViolationGroups {

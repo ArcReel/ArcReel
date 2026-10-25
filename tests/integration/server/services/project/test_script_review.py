@@ -527,7 +527,7 @@ class TestConfirmMaterializesScript:
 
         [unit] = _formal_script(pm)["video_units"]
         planned = _rv_script_plan()["units"][0]
-        assert unit["unit_id"] == "E1U01"
+        assert unit["unit_id"] == "E1U1"
         assert unit["text"] == planned["text"]
         assert unit["duration_seconds"] == planned["duration_seconds"]
         assert unit["source_text"] == planned["source_text"]

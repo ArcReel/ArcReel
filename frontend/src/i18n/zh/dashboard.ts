@@ -2706,7 +2706,6 @@ export default {
   'trash_object_episode_untitled': "第 {{episode}} 集",
   'trash_object_script_entry': "分镜 {{id}}（第 {{episode}} 集）",
   'trash_object_script_unit': "视频单元 {{id}}（第 {{episode}} 集）",
-  'trash_restored_entry_renumbered': "原编号已被占用，{{name}} 已以新编号 {{landed}} 恢复",
   'trash_object_source_file': "源文件「{{name}}」",
   'trash_object_planning_draft': "第 {{episode}} 集的规划草稿",
   'trash_object_grid': "第 {{episode}} 集的宫格",

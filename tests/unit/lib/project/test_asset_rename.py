@@ -50,6 +50,7 @@ from lib.script.script_review import (
     review_status,
     script_plan_path,
 )
+from tests.fakes import use_project_json_write
 
 
 def _narration_script(**overrides: Any) -> dict[str, Any]:
@@ -626,7 +627,7 @@ class TestRenameAssetCascade:
             original_atomic_write_json(path, payload)
             raise OSError("project write failed")
 
-        monkeypatch.setattr("lib.project.project_manager.atomic_write_json", _write_project_then_fail)
+        use_project_json_write(monkeypatch, _write_project_then_fail)
 
         with pytest.raises(OSError, match="project write failed"):
             pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
