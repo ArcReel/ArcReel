@@ -324,14 +324,17 @@ def _rewrite_legacy_markdown_drafts(project_dir: Path, occurrences: list[_AssetO
 def _record_for_stem(
     records: list[_AssetOccurrence], stem: str, *, allow_sequence: bool
 ) -> tuple[_AssetOccurrence, str] | None:
-    for item in records:
-        if stem == item.old_name:
-            return item, ""
     if allow_sequence:
+        # 按序号命名的目录里文件只会是 ``名_<n>``；资产名本身可以以 ``_数字`` 结尾，
+        # 精确同名或归一同名的匹配会把 ``Cup`` 的 ``Cup_1`` 认成资产 ``Cup_1`` 自己的文件。
         for item in sorted(records, key=lambda value: len(value.old_name), reverse=True):
             prefix = f"{item.old_name}_"
             if stem.startswith(prefix) and stem[len(prefix) :].isdigit():
                 return item, stem[len(item.old_name) :]
+        return None
+    for item in records:
+        if stem == item.old_name:
+            return item, ""
     key = asset_name_comparison_key(stem)
     matches = [item for item in records if item.key == key]
     if matches:
