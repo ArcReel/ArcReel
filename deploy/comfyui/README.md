@@ -98,7 +98,7 @@ The runner decodes and probes that reference before loading the model, rejecting
 short, unreadable, or mismatched-size/rate videos. `validate_identity_reference`
 is also available to resource-reservation wrappers before they pause services.
 
-These modes use the dev transformer, control LoRA strength 1.0, distilled LoRA
+By default these modes use the dev transformer, control LoRA strength 1.0, distilled LoRA
 strength 0.5, and single-stage full-resolution generation. Unlike the keyframe
 strength-1.0 shortcut above, these modes **read the separate distilled LoRA file**.
 This weight composition follows the official single-stage distilled workflows
@@ -116,9 +116,21 @@ passing sampler tests does not establish motion or character quality. Sampler
 controls on ordinary generation modes and negative text with Euler are rejected
 instead of silently ignored.
 
+For a separate Ingredients qualification, `"recipe": "ingredients-distilled"`
+matches the weight composition of the [published fast Ingredients demo](https://huggingface.co/spaces/ltx-community/ltx-2.3-ingredients-distilled/blob/main/app.py):
+the complete distilled 1.1 checkpoint, Ingredients strength 1.4, eight-step Euler,
+and reference-only conditioning at 768×448, 121 frames, 24 fps. Omit `image`,
+`end_image`, and `distilled_lora`; the runner rejects them for this recipe instead
+of mixing in the development-model experiment. Use the pinned model pack with
+`transformer-distilled-1.1.safetensors`. Author a sheet containing character and
+location panels, and the two-part `Reference sheet: … / Generated video: …`
+prompt. This is a local MLX/q8 qualification of that recipe, **not** numerical
+parity with its PyTorch/bf16 implementation or a guarantee of scene continuity.
+It does not change the installed endpoint or promote any render automatically.
+
 Motion and structure tests accept 49/97/121 frames at 768×448 or 1024×576; identity tests accept
-only 121 frames at 768×448. These modes reject alternative recipes and missing
-control files or a missing dev transformer. Motion tests reject an end anchor.
+only 121 frames at 768×448. These modes reject unsupported recipes and missing
+control files or the recipe's required transformer. Motion tests reject an end anchor.
 Identity tests can pair `image` and `end_image` with the identity
 reference: both images go to the IC pipeline as temporal anchors at frame 0 and
 the last frame. They do not switch to the separate keyframe pipeline or replace

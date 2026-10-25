@@ -107,6 +107,51 @@ def test_identity_reference_can_condition_a_new_composition_without_a_start_imag
     assert "--image" not in command
 
 
+@pytest.fixture
+def ingredients_distilled_config(motion_config, tmp_path):
+    motion_config.update(mode="identity-reference", width=768, height=448, frames=121, recipe="ingredients-distilled")
+    motion_config.pop("image")
+    motion_config.pop("distilled_lora")
+    model = tmp_path / "models/mlx/ltx-2.3-22b-q8-distilled-1.1"
+    (model / "transformer-dev.safetensors").unlink()
+    (model / "transformer-distilled-1.1.safetensors").touch()
+    return motion_config
+
+
+def test_published_ingredients_recipe_uses_full_distilled_checkpoint(renderer, ingredients_distilled_config, tmp_path):
+    command = renderer.build_command(ingredients_distilled_config, tmp_path)
+    assert command[3] == "ic-lora"
+    assert command[command.index("--lora") + 2] == "1.4"
+    assert command[command.index("--video-conditioning") + 1] == ingredients_distilled_config["control_video"]
+    assert "--single-stage" in command
+    assert not {"--dev-transformer", "--distilled-lora", "--image", "--sampler"}.intersection(command)
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"mode": "structural-control"},
+        {"image": "unused.png"},
+        {"end_image": "unused.png"},
+        {"distilled_lora": "unused.safetensors"},
+        {"sampler": "euler_ancestral_cfg_pp"},
+        {"control_video": None},
+    ],
+)
+def test_ingredients_recipe_does_not_silently_mix_other_controls(
+    renderer, ingredients_distilled_config, tmp_path, override
+):
+    ingredients_distilled_config.update(override)
+    with pytest.raises(ValueError, match=r"[Ii]ngredients"):
+        renderer.build_command(ingredients_distilled_config, tmp_path)
+
+
+def test_ingredients_recipe_refuses_missing_distilled_checkpoint(renderer, ingredients_distilled_config, tmp_path):
+    (tmp_path / "models/mlx/ltx-2.3-22b-q8-distilled-1.1/transformer-distilled-1.1.safetensors").unlink()
+    with pytest.raises(ValueError, match=r"requires installed transformer-distilled-1\.1"):
+        renderer.build_command(ingredients_distilled_config, tmp_path)
+
+
 def test_explicit_cfgpp_sampler_reaches_cli_without_changing_default(renderer, motion_config, tmp_path):
     assert "--sampler" not in renderer.build_command(motion_config, tmp_path)
     motion_config.update(sampler="euler_ancestral_cfg_pp", negative_prompt="unwanted movement")

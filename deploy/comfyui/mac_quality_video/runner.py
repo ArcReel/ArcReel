@@ -90,6 +90,9 @@ def build_command(config, root):
     if config["mode"] not in ("distilled", "two-stage", "motion-track", "structural-control", "identity-reference"):
         raise ValueError("This adapter supports distilled or two-stage generation, or IC-LoRA qualification.")
     controlled = config["mode"] in ("motion-track", "structural-control", "identity-reference")
+    ingredients_distilled = config.get("recipe") == "ingredients-distilled"
+    if ingredients_distilled and config["mode"] != "identity-reference":
+        raise ValueError("ingredients-distilled requires identity-reference mode.")
     sampler = config.get("sampler", "euler")
     if sampler not in ("euler", "euler_ancestral_cfg_pp"):
         raise ValueError("Unsupported qualification sampler.")
@@ -100,7 +103,12 @@ def build_command(config, root):
     if config.get("negative_prompt") and sampler != "euler_ancestral_cfg_pp":
         raise ValueError("negative_prompt requires euler_ancestral_cfg_pp.")
     if controlled:
-        if not all(config.get(key) for key in ("control_lora", "control_video", "distilled_lora")):
+        if ingredients_distilled:
+            if not all(config.get(key) for key in ("control_lora", "control_video")):
+                raise ValueError("Ingredients distilled qualification requires control_lora and control_video.")
+            if any(config.get(key) for key in ("image", "end_image", "distilled_lora")) or sampler != "euler":
+                raise ValueError("Ingredients distilled qualification uses reference-only conditioning and Euler.")
+        elif not all(config.get(key) for key in ("control_lora", "control_video", "distilled_lora")):
             raise ValueError("IC-LoRA qualification requires control_lora, control_video and distilled_lora.")
         if config["mode"] == "motion-track" and not config.get("image"):
             raise ValueError("Motion-track qualification requires a starting image.")
@@ -108,7 +116,7 @@ def build_command(config, root):
             raise ValueError("Motion-track qualification cannot use an end anchor.")
         if config["mode"] == "structural-control" and not config.get("image"):
             raise ValueError("Structural-control qualification requires a starting image.")
-        if config.get("recipe"):
+        if config.get("recipe") and not ingredients_distilled:
             raise ValueError("IC-LoRA qualification cannot use another recipe.")
         if config["mode"] == "identity-reference" and (config["width"], config["height"], config["frames"]) != (
             768,
@@ -138,7 +146,11 @@ def build_command(config, root):
             raise ValueError(f"Missing {key}: {config[key]}")
     runtime = root / "user/runtimes/ltx-2-mlx"
     model = root / "models/mlx/ltx-2.3-22b-q8-distilled-1.1"
-    if controlled and not (model / "transformer-dev.safetensors").is_file():
+    if ingredients_distilled and not (model / "transformer-distilled-1.1.safetensors").is_file():
+        raise ValueError(
+            "Ingredients distilled qualification requires installed transformer-distilled-1.1.safetensors."
+        )
+    if controlled and not ingredients_distilled and not (model / "transformer-dev.safetensors").is_file():
         raise ValueError("IC-LoRA qualification requires installed transformer-dev.safetensors; no render started.")
     keyframe = bool(config.get("end_image")) and not controlled
     if keyframe:
@@ -175,18 +187,21 @@ def build_command(config, root):
         args += [
             "--lora",
             str(config["control_lora"]),
-            "1.0",
+            "1.4" if ingredients_distilled else "1.0",
             "--video-conditioning",
             str(config["control_video"]),
             "1.0",
             "--single-stage",
-            "--dev-transformer",
-            "transformer-dev.safetensors",
-            "--distilled-lora",
-            str(config["distilled_lora"]),
-            "--distilled-lora-strength",
-            "0.5",
         ]
+        if not ingredients_distilled:
+            args += [
+                "--dev-transformer",
+                "transformer-dev.safetensors",
+                "--distilled-lora",
+                str(config["distilled_lora"]),
+                "--distilled-lora-strength",
+                "0.5",
+            ]
         if config.get("image"):
             args += ["--image", str(config["image"]), "0", "1.0"]
         if config.get("end_image"):
