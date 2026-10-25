@@ -237,3 +237,60 @@ async def test_frames_outside_the_per_unit_range_are_invalid(tmp_path: Path, fra
     problem = problem_of(await run_declared_tool(INSPECT_VIDEO_UNITS, ctx, {"unit_ids": ["E1S01"], "frames": frames}))
 
     assert problem.code == "invalid_request"
+
+
+async def test_consecutive_windows_cover_each_frame_once_and_pin_the_requested_version(tmp_path: Path) -> None:
+    ctx = _harness(tmp_path, ["E1S01"])
+    _install(ctx, "E1S01", "red")
+    _install(ctx, "E1S01", "blue")
+    start = 0
+    times: list[float] = []
+    receipts: list[str] = []
+    while True:
+        outcome, envelope = await _inspect(
+            ctx, {"unit_ids": ["E1S01"], "version": 1, "frames": 8, "start_frame": start}
+        )
+        assert outcome.problem is None
+        (unit,) = envelope.structured["inspect_video_units"]["units"]
+        assert (unit["status"], unit["version"]) == ("ok", 1)
+        window = unit["frame_window"]
+        assert window["start_frame"] == start
+        assert window["source_frame_count"] == 25
+        assert window["end_frame_exclusive"] == start + unit["frame_count"]
+        assert all(_dominant(image.data) == "red" for image in envelope.images)
+        times.extend(time for sheet in unit["sheets"] for time in sheet["times"])
+        receipts.append(unit["review_receipt"])
+        if window["next_start_frame"] is None:
+            break
+        assert window["next_start_frame"] > start
+        start = window["next_start_frame"]
+    assert times == pytest.approx([index / 25 for index in range(25)])
+    assert unit["frame_count"] == 1
+    assert len(set(receipts)) == 4
+
+
+async def test_consecutive_window_outside_video_returns_its_length_without_a_review_receipt(tmp_path: Path) -> None:
+    ctx = _harness(tmp_path, ["E1S01"])
+    _install(ctx, "E1S01", "red")
+
+    outcome, envelope = await _inspect(ctx, {"unit_ids": ["E1S01"], "frames": 8, "start_frame": 25})
+
+    assert outcome.problem is None
+    (unit,) = envelope.structured["inspect_video_units"]["units"]
+    assert unit["status"] == "frame_out_of_range"
+    assert unit["frame_window"]["source_frame_count"] == 25
+    assert unit["frame_window"]["next_start_frame"] is None
+    assert unit["frame_count"] == 0
+    assert unit["review_receipt"] is None
+    assert not envelope.images
+
+
+@pytest.mark.parametrize("start_frame", [-1, True, 1.5])
+async def test_consecutive_window_start_requires_a_nonnegative_integer(tmp_path: Path, start_frame: Any) -> None:
+    ctx = _harness(tmp_path, ["E1S01"])
+
+    problem = problem_of(
+        await run_declared_tool(INSPECT_VIDEO_UNITS, ctx, {"unit_ids": ["E1S01"], "start_frame": start_frame})
+    )
+
+    assert problem.code == "invalid_request"

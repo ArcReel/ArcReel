@@ -114,3 +114,18 @@ async def test_requesting_more_frames_than_the_video_has_uses_every_frame_once(t
     sheets = await build_contact_sheets(video, unit_id="E1S02", version=1, frames=12)
 
     assert [frame.time_seconds for frame in sheets[0].frames] == pytest.approx([0.0, 0.04, 0.08, 0.12, 0.16])
+
+
+async def test_consecutive_window_keeps_every_frame_across_a_color_transition(tmp_path: Path):
+    video = _color_segments(tmp_path / "clip.mp4")
+
+    sheets = await build_contact_sheets(video, unit_id="E1S01", version=1, frames=6, start_frame=23)
+
+    (sheet,) = sheets
+    assert [frame.time_seconds for frame in sheet.frames] == pytest.approx([index / 25 for index in range(23, 29)])
+    image = _decoded(sheet.jpeg)
+    for frame in sheet.frames:
+        left, top, right, bottom = frame.box
+        center = image.getpixel(((left + right) // 2, (top + bottom) // 2))
+        assert isinstance(center, tuple)
+        assert _close(center, _expected_color(frame.time_seconds))

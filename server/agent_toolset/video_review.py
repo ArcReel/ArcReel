@@ -43,6 +43,10 @@ INSPECT_VIDEO_UNITS = ToolDeclaration(
         "cuts（切换点时刻）和 shots（镜头数，等于 cuts 数加 1）。"
         "model_review 为预留字段，恒为 null。"
         "成功检查还返回 review_receipt，绑定该版本的内容指纹和抽帧时刻；它证明素材曾被抽帧，不代表画面、声音或创作质量通过。"
+        "指定 start_frame（零起点帧号）后，从该帧起连续取 frames 帧，不再均匀抽样或按信号增加帧数。"
+        "逐帧窗口用于检查短暂变形、接触和动作先后；frame_window 返回 start_frame、end_frame_exclusive、source_frame_count、next_start_frame。"
+        "下一次固定本次返回的 version，并用 next_start_frame 继续；null 表示到达片尾。起点超出素材返回 frame_out_of_range，图片和回执为空。"
+        "窗口仍受每单元与每调用帧数上限约束。逐帧图像不能证明原速节奏或音频通过，也不能把一个窗口当作整片审阅。"
         "视频单元不存在返回 video_unit_not_found，params.unit_ids 列出不存在的 ID；指定版本不存在返回 version_not_found，"
         "params.available_versions 列出该单元现有版本。"
     ),

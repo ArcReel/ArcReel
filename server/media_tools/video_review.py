@@ -38,7 +38,7 @@ DEFAULT_FRAMES_PER_UNIT = 8
 _EXTRACT_CONCURRENCY = 3
 _SIGNALS_CACHE_DIR = Path(".cache") / "video_signals"
 
-type UnitStatus = Literal["ok", "video_missing", "video_unreadable"]
+type UnitStatus = Literal["ok", "video_missing", "video_unreadable", "frame_out_of_range"]
 
 
 class InspectVideoUnitsRequest(BaseModel):
@@ -63,6 +63,11 @@ class InspectVideoUnitsRequest(BaseModel):
             f"{MAX_FRAMES_PER_UNIT}）"
         ),
     )
+    start_frame: StrictInt | None = Field(
+        default=None,
+        ge=0,
+        description="零起点帧号；指定后从该帧起连续取 frames 帧。省略时保持全片抽样。固定 version 后按返回的 next_start_frame 继续。",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +82,8 @@ class InspectedUnit:
     #: 该单元现有的全部视频版本号，用来发现还没看过的候选版本。
     available_versions: tuple[int, ...] = ()
     review_receipt: str | None = None
+    start_frame: int | None = None
+    source_frame_count: int | None = None
 
     @property
     def frame_count(self) -> int:
@@ -122,20 +129,42 @@ async def _inspect_unit(
     version: int | None,
     frames: int,
     limiter: asyncio.Semaphore,
+    start_frame: int | None = None,
 ) -> InspectedUnit:
     if video is None or version is None or cache_file is None:
         return InspectedUnit(unit_id=unit_id, version=version, status="video_missing")
     async with limiter:
         try:
             frame_times = await probe_video_frame_times(video)
+            if start_frame is not None and start_frame >= len(frame_times):
+                return InspectedUnit(
+                    unit_id=unit_id,
+                    version=version,
+                    status="frame_out_of_range",
+                    start_frame=start_frame,
+                    source_frame_count=len(frame_times),
+                )
             signals, cached = await signals_for(video, frame_times, cache_file=cache_file)
             sheets = await build_contact_sheets(
-                video, unit_id=unit_id, version=version, frames=frames, frame_times=frame_times, signals=signals
+                video,
+                unit_id=unit_id,
+                version=version,
+                frames=frames,
+                frame_times=frame_times,
+                signals=signals,
+                start_frame=start_frame,
             )
         except (MediaProbeError, ContactSheetError, SignalDetectionError) as exc:
             return InspectedUnit(unit_id=unit_id, version=version, status="video_unreadable", detail=str(exc))
     return InspectedUnit(
-        unit_id=unit_id, version=version, status="ok", sheets=sheets, signals=signals, signals_cached=cached
+        unit_id=unit_id,
+        version=version,
+        status="ok",
+        sheets=sheets,
+        signals=signals,
+        signals_cached=cached,
+        start_frame=start_frame,
+        source_frame_count=len(frame_times),
     )
 
 
@@ -212,6 +241,7 @@ async def inspect_video_units(
                     version=version,
                     frames=frames,
                     limiter=limiter,
+                    start_frame=request.value.start_frame,
                 )
                 for unit_id, version, video in targets
             )
@@ -280,6 +310,14 @@ def inspect_video_units_projection(value: InspectVideoUnitsResult) -> dict[str, 
             entry["signals"] = _signals_projection(unit.signals)
         if unit.detail is not None:
             entry["detail"] = unit.detail
+        if unit.start_frame is not None and unit.source_frame_count is not None:
+            end_frame = unit.start_frame + unit.frame_count
+            entry["frame_window"] = {
+                "start_frame": unit.start_frame,
+                "end_frame_exclusive": end_frame,
+                "source_frame_count": unit.source_frame_count,
+                "next_start_frame": end_frame if end_frame < unit.source_frame_count else None,
+            }
         units.append(entry)
     return {
         "inspect_video_units": {
