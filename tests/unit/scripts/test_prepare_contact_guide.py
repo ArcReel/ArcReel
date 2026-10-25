@@ -12,6 +12,7 @@ from scripts.prepare_contact_guide import (
     UPPER_ARM,
     contact_sequence,
     head_point,
+    performed_reaction_sequence,
     render_depth,
     segment_box_distance,
     solve_elbow,
@@ -111,6 +112,33 @@ def test_continuation_rejects_contact_loss_at_its_first_frame():
         validate_sequence(frames, continuation=True)
 
 
+def test_performed_reaction_moves_supported_load_after_creature_impulse():
+    frames = performed_reaction_sequence()
+    assert frames[0] == contact_sequence(expressive=True)[-1]
+    assert frames[10].creature_angle < 0 < frames[18].creature_angle
+    assert frames[10].creature_dip < 0 < frames[18].creature_dip
+    assert frames[18].body_angle == 0
+    assert frames[25].shoulder[0] - frames[0].shoulder[0] > 13
+    assert frames[25].head_angle > frames[0].head_angle
+    assert frames[-1].body_angle == frames[-1].creature_angle == frames[-1].creature_dip == 0
+    metrics = validate_sequence(frames, performed=True)
+    assert metrics["contact_frames"] == [0, 72]
+    assert metrics["max_contact_gap"] < 1e-10
+    assert metrics["max_bone_length_error"] < 1e-10
+    for frame in frames:
+        assert np.subtract(frame.bag, frame.palm) == pytest.approx(np.subtract(frames[0].bag, frames[0].palm))
+    first, peak = render_depth(frames[0]), render_depth(frames[25])
+    assert np.array_equal(first[180:], peak[180:])
+    assert not np.array_equal(first[:130], peak[:130])
+
+
+def test_performed_recoil_cannot_leave_the_supported_load_behind():
+    frames = performed_reaction_sequence()
+    frames[25] = replace(frames[25], bag=frames[0].bag)
+    with pytest.raises(ValueError, match=r"penetrates|loses underside contact"):
+        validate_sequence(frames, performed=True)
+
+
 def test_viewport_matches_same_camera_crop_without_moving_geometry():
     frame = supported_reaction_sequence()[0]
     full = render_depth(frame, width=768, height=448)
@@ -127,6 +155,8 @@ def test_viewport_matches_same_camera_crop_without_moving_geometry():
         {"body_angle": -0.3},
         {"head_angle": math.nan},
         {"head_angle": -0.3},
+        {"creature_angle": math.nan},
+        {"creature_angle": 0.5},
     ],
 )
 def test_unsupported_reaction_cannot_be_rendered_as_valid_geometry(change):

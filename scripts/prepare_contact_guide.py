@@ -37,6 +37,7 @@ class ContactFrame:
     body_angle: float = 0.0
     creature_dip: float = 0.0
     head_angle: float = 0.0
+    creature_angle: float = 0.0
 
 
 def solve_elbow(shoulder, wrist, upper_arm, forearm, pole):
@@ -122,6 +123,39 @@ def supported_reaction_sequence():
     return frames
 
 
+def performed_reaction_sequence():
+    """Anticipate, snap, recoil with the supported load, then look back at it."""
+    anchor = contact_sequence(expressive=True)[-1]
+    frames = []
+    for index in range(73):
+        anticipation = smooth_between(index, 2, 10) * (1 - smooth_between(index, 12, 18))
+        impulse = smooth_between(index, 12, 18) * (1 - smooth_between(index, 18, 28))
+        recoil = smooth_between(index, 19, 25) * (1 - smooth_between(index, 29, 49))
+        body_angle = 0.12 * recoil
+        shoulder = body_point((439.0, 127.0), body_angle)
+        shift = (shoulder[0] - anchor.shoulder[0], shoulder[1] - anchor.shoulder[1])
+
+        def carried(point, offset=shift):
+            return (point[0] + offset[0], point[1] + offset[1])
+
+        frames.append(
+            replace(
+                anchor,
+                shoulder=shoulder,
+                elbow=carried(anchor.elbow),
+                wrist=carried(anchor.wrist),
+                palm=carried(anchor.palm),
+                bag=carried(anchor.bag),
+                body_angle=body_angle,
+                creature_dip=-6 * anticipation + 6 * impulse,
+                creature_angle=-0.14 * anticipation + 0.32 * impulse,
+                head_angle=-0.12 + 0.16 * recoil + 0.04 * smooth_between(index, 38, 63),
+            )
+        )
+    validate_sequence(frames, performed=True)
+    return frames
+
+
 def segment_box_distance(start, end, box_min, box_max):
     """Exact 2D segment/rectangle distance for the arm's shared depth plane."""
     delta = np.asarray(end) - start
@@ -151,22 +185,24 @@ def segment_box_distance(start, end, box_min, box_max):
     )
 
 
-def validate_sequence(frames, *, continuation=False):
+def validate_sequence(frames, *, continuation=False, performed=False):
     """Validate the declared planar contact fixture, not inferred video motion."""
-    expected_frames = 97 if continuation else FRAME_COUNT
-    contact_start = 0 if continuation else CONTACT_FRAME
+    expected_frames = 73 if performed else 97 if continuation else FRAME_COUNT
+    contact_start = 0 if continuation or performed else CONTACT_FRAME
     if len(frames) != expected_frames:
         raise ValueError(f"The contact fixture requires exactly {expected_frames} frames")
     max_length_error = 0.0
     max_contact_gap = 0.0
     min_arm_clearance = math.inf
     for index, frame in enumerate(frames):
-        if not (math.isfinite(frame.body_angle) and -0.14 <= frame.body_angle <= 0.05):
+        if not (math.isfinite(frame.body_angle) and -0.14 <= frame.body_angle <= (0.14 if performed else 0.05)):
             raise ValueError("Body lean outside the diagnostic's supported range")
         if not (math.isfinite(frame.head_angle) and -0.15 <= frame.head_angle <= 0.05):
             raise ValueError("Head tilt outside the diagnostic's supported range")
-        if not (math.isfinite(frame.creature_dip) and 0 <= frame.creature_dip <= 10):
+        if not (math.isfinite(frame.creature_dip) and (-6 if performed else 0) <= frame.creature_dip <= 10):
             raise ValueError("Creature dip outside the diagnostic's supported range")
+        if not (math.isfinite(frame.creature_angle) and -0.15 <= frame.creature_angle <= 0.35):
+            raise ValueError("Creature rotation outside the diagnostic's supported range")
         points = np.array([frame.shoulder, frame.elbow, frame.wrist, frame.palm, frame.bag])
         if not np.isfinite(points).all():
             raise ValueError("Non-finite guide coordinates")
@@ -205,7 +241,9 @@ def validate_sequence(frames, *, continuation=False):
             raise ValueError(f"Palm loses underside contact at frame {index}")
         if index >= contact_start:
             max_contact_gap = max(max_contact_gap, abs(hand_top - bag_bottom))
-    if not continuation and (frames[10].bag[1] <= frames[0].bag[1] or frames[8].wrist != frames[0].wrist):
+    if not (continuation or performed) and (
+        frames[10].bag[1] <= frames[0].bag[1] or frames[8].wrist != frames[0].wrist
+    ):
         raise ValueError("The bag dip must precede the catch")
     return {
         "frames": len(frames),
@@ -274,10 +312,15 @@ def render_depth(frame, width=384, height=224, *, viewport=None):
     np.minimum(depth, np.where(bag_mask, 130, 600), out=depth)
     # The small prop occupant is a stable proxy silhouette, not an identity model.
     cy = by + frame.creature_dip
-    ellipsoid((bx, cy - 42, 150), (19, 18, 20))
-    ellipsoid((bx - 17, cy - 49, 158), (10, 4, 6), -0.7)
-    ellipsoid((bx + 17, cy - 49, 158), (10, 4, 6), 0.7)
-    ellipsoid((bx - 4, cy - 33, 129), (10, 7, 8))
+
+    def creature(x, y, z):
+        angle = frame.creature_angle
+        return (bx + x * math.cos(angle) - y * math.sin(angle), cy - 20 + x * math.sin(angle) + y * math.cos(angle), z)
+
+    ellipsoid(creature(0, -22, 150), (19, 18, 20), frame.creature_angle)
+    ellipsoid(creature(-17, -29, 158), (10, 4, 6), -0.7 + frame.creature_angle)
+    ellipsoid(creature(17, -29, 158), (10, 4, 6), 0.7 + frame.creature_angle)
+    ellipsoid(creature(-4, -13, 129), (10, 7, 8), frame.creature_angle)
     capsule(frame.shoulder, frame.elbow, 10, ARM_DEPTH)
     capsule(frame.elbow, frame.wrist, 7, ARM_DEPTH)
     ellipsoid((*frame.palm, ARM_DEPTH), (13, 6, 7), frame.hand_angle)
@@ -286,12 +329,16 @@ def render_depth(frame, width=384, height=224, *, viewport=None):
     return np.repeat(np.rint(gray[:, :, None] * 255).astype(np.uint8), 3, axis=2)
 
 
-def export_guide(output_dir, *, reaction=False, expressive=False, continuation=False):
+def export_guide(output_dir, *, reaction=False, expressive=False, continuation=False, performed=False):
     frames = (
-        supported_reaction_sequence() if continuation else contact_sequence(reaction=reaction, expressive=expressive)
+        performed_reaction_sequence()
+        if performed
+        else supported_reaction_sequence()
+        if continuation
+        else contact_sequence(reaction=reaction, expressive=expressive)
     )
-    viewport = (240, 0, 480, 280) if continuation else None
-    metrics = validate_sequence(frames, continuation=continuation)
+    viewport = (240, 0, 480, 280) if continuation or performed else None
+    metrics = validate_sequence(frames, continuation=continuation, performed=performed)
     output_dir.mkdir(parents=True, exist_ok=False)
     sequence = output_dir / "performance.json"
     sequence.write_text(
@@ -330,11 +377,15 @@ def export_guide(output_dir, *, reaction=False, expressive=False, continuation=F
         input=pixels.tobytes(),
         check=True,
     )
-    for index in (0, 33, 41, 96) if continuation else (0, 10, CONTACT_FRAME, FRAME_COUNT - 1):
+    for index in (
+        (0, 18, 25, 72) if performed else (0, 33, 41, 96) if continuation else (0, 10, CONTACT_FRAME, FRAME_COUNT - 1)
+    ):
         Image.fromarray(pixels[index]).save(output_dir / f"frame-{index:02d}.png")
     metrics.update(
         viewport=list(viewport) if viewport is not None else None,
-        performance="supported_reaction"
+        performance="performed_reaction"
+        if performed
+        else "supported_reaction"
         if continuation
         else "expressive"
         if expressive
@@ -361,11 +412,20 @@ def main():
     performance.add_argument(
         "--continuation", action="store_true", help="Keep the caught load supported in a closer creature/reaction shot."
     )
+    performance.add_argument(
+        "--performed",
+        action="store_true",
+        help="Anticipate and recoil with the supported load; effects are a separate stage.",
+    )
     args = parser.parse_args()
     print(
         json.dumps(
             export_guide(
-                args.output_dir, reaction=args.reaction, expressive=args.expressive, continuation=args.continuation
+                args.output_dir,
+                reaction=args.reaction,
+                expressive=args.expressive,
+                continuation=args.continuation,
+                performed=args.performed,
             ),
             indent=2,
         )

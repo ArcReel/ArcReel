@@ -167,7 +167,16 @@ contact-only fixture: pair it with a reviewed matching end image. Eye direction
 and facial expression must come from that image; depth silhouettes do not encode
 them. Neither preset is production-qualified without reviewing its actual video.
 
-Use `--continuation` to test an adjoining 97-frame supported reaction. Its first
+Use `--performed` for a 73-frame acting diagnostic: the creature anticipates and
+nods, then the human recoils while carrying the supported prop, recovers, and
+looks back. This avoids asking for a visible recoil with an almost fully extended
+arm locked to a stationary prop. Review the source performance before inference.
+Generate the character motion without glitter or other effects; any later effect
+must be timed against the actual reviewed output action, not the requested frame.
+The proxy has no facial rig and cannot establish eye acting or a convincing sneeze.
+Do not promote it or its neural output on geometry tests alone.
+
+Use `--continuation` to reproduce the earlier 97-frame supported reaction. Its first
 pose equals the expressive catch's final pose, and contact is required from frame
 zero. A creature head pulse precedes a small human recoil and recovery. Its fixed
 viewport is `(240, 0, 480, 280)` in the 768x448 source camera: use the same crop of
