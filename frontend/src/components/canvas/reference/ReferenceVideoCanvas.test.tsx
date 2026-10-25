@@ -215,7 +215,7 @@ describe("ReferenceVideoCanvas", () => {
     expect(within(dialog).getByText(/U1/)).toBeInTheDocument();
     expect(deleteSpy).not.toHaveBeenCalled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^(Move to project trash|移入项目回收站)$/ }));
 
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
     await waitFor(() => expect(screen.queryByTestId("unit-row-E1U1")).not.toBeInTheDocument());
@@ -244,7 +244,7 @@ describe("ReferenceVideoCanvas", () => {
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(discard).not.toHaveBeenCalled();
 
-    fireEvent.click(within(await removal()).getByRole("button", { name: /^(Remove unit|移除单元)$/ }));
+    fireEvent.click(within(await removal()).getByRole("button", { name: /^(Move to project trash|移入项目回收站)$/ }));
     fireEvent.click(within(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).getByRole("button", { name: "放弃修改" }));
 
     await waitFor(() => expect(deleteSpy).toHaveBeenCalledWith("proj", 1, "E1U1"));
@@ -260,7 +260,7 @@ describe("ReferenceVideoCanvas", () => {
     act(() => {
       useTasksStore.setState({ tasks: [runningTask("E1U1")] as never });
     });
-    const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: /^(Remove unit|移除单元)$/ });
+    const confirm = within(screen.getByRole("alertdialog")).getByRole("button", { name: /^(Move to project trash|移入项目回收站)$/ });
     await waitFor(() => expect(confirm).toBeDisabled());
     fireEvent.click(confirm);
 
@@ -270,12 +270,13 @@ describe("ReferenceVideoCanvas", () => {
   describe("确认移除并放弃正文修改后", () => {
     const UNITS = [mkUnit("E1U1", "server text"), mkUnit("E1U2", "next unit")];
     const removeButton = /^(Remove unit|移除单元)$/;
+    const confirmButton = /^(Move to project trash|移入项目回收站)$/;
 
     async function editThenConfirmRemoval() {
       render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
       fireEvent.change(await screen.findByRole("combobox"), { target: { value: "unsaved edit" } });
       fireEvent.click(screen.getByRole("button", { name: removeButton }));
-      fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: removeButton }));
+      fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: confirmButton }));
       return screen.findByRole("alertdialog", { name: /有未保存的修改/ });
     }
 

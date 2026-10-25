@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from lib.artifacts.formal_write import project_metadata_lock
-from lib.infra.api_errors import BadRequestError
+from lib.infra.api_errors import BadRequestError, ConflictError
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.json_io import atomic_write_json
 from lib.project import project_trash
@@ -38,7 +38,7 @@ from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_trash import RestoredFile, RestoreResult, TrashRecord
 from lib.script.source_loader.migration import migrate_project_source_encoding
 
-__all__ = ["Landing", "Restoration", "TakeRule", "restore_structural"]
+__all__ = ["Landing", "Restoration", "RestoreBlocked", "TakeRule", "restore_structural"]
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,10 @@ logger = logging.getLogger(__name__)
 _COPIED_SUFFIXES = frozenset({".json", ".md", ".txt"})
 #: 迁移步留下的备份（``<名>.bak.v<N>-<ts>``）与规整时搁置的副本（``.kept.``），不是被删的文件。
 _MIGRATION_COPY_RE = re.compile(r"\.(?:bak|kept)\.v\d+-\d+")
+
+
+class RestoreBlocked(ConflictError):
+    """对象此刻不能恢复、但之后可以（如所属的集也在项目回收站里）：取出规则抛它时不降级，记录原样保留。"""
 
 
 class Landing:
@@ -120,6 +124,7 @@ def _rules() -> Mapping[str, TakeRule]:
     from lib.episode.source_trash import SOURCE_FILE_KIND, take_source_file
     from lib.project import media_trash
     from lib.project.asset_trash import ASSET_DERIVATIVE_KIND, ASSET_KIND, take_asset, take_asset_derivative
+    from lib.project.script_entry_trash import SCRIPT_ENTRY_KIND, take_script_entry
     from lib.script.planning_draft_trash import PLANNING_DRAFT_KIND, take_planning_draft
 
     return {
@@ -128,6 +133,7 @@ def _rules() -> Mapping[str, TakeRule]:
         media_trash.GRID_KIND: media_trash.take_grid,
         media_trash.END_FRAME_KIND: media_trash.take_end_frame,
         media_trash.REFERENCE_AUDIO_KIND: media_trash.take_reference_audio,
+        SCRIPT_ENTRY_KIND: take_script_entry,
         SOURCE_FILE_KIND: take_source_file,
         PLANNING_DRAFT_KIND: take_planning_draft,
         ASSET_KIND: take_asset,
@@ -152,6 +158,8 @@ def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:
             migrate_project_source_encoding(staged)
             migrate_project_dir(staged)
             restoration = rule(project_dir, staged, record.object)
+        except RestoreBlocked:
+            raise
         except Exception:
             # 失败原因记在日志里；创作者看到的是降级结果。
             logger.warning("删除记录 %s 无法按原结构恢复，降级为只恢复文件", record.id, exc_info=True)

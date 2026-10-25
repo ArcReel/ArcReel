@@ -526,7 +526,7 @@ class OverwrittenScriptEntry:
 
 @dataclass(frozen=True, slots=True)
 class FormalScriptOverwrite:
-    """内容确认将覆盖的正式脚本：确认后旧条目全部移除，产物按分镜移除的口径撤登记。
+    """内容确认将覆盖的正式脚本：确认后旧条目全部移除，产物按分镜移除的口径撤登记、连同版本历史移进项目回收站。
 
     ``fingerprint`` 是读取时正式脚本的内容指纹，对外作 ``revision``：调用方认可覆盖时回传它，
     与确认时读到的正式脚本不符即视为未认可、按新清单重新拒绝；覆盖写入也以它为基线，认可只对应

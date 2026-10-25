@@ -117,29 +117,6 @@ class TestSnapshotSinksRejectUnmanagedPaths:
         assert (project / "versions" / "versions.json").read_bytes() == before
         assert sorted(path.name for path in (project / "characters").iterdir()) == ["Hero.png"]
 
-    @pytest.mark.parametrize("snapshot", _UNMANAGED_FILES)
-    def test_purge_rejects_unmanaged_snapshot_path(self, tmp_path, snapshot):
-        project = _project(tmp_path)
-        sentinel = _sentinel(tmp_path)
-        managed = project / "versions" / "characters" / "Hero_v2_20260101T000000.png"
-        managed.parent.mkdir(parents=True, exist_ok=True)
-        managed.write_bytes(b"v2")
-        before = _write_history(
-            project,
-            "characters",
-            "Hero",
-            [{"version": 1, "file": snapshot}, {"version": 2, "file": managed.relative_to(project).as_posix()}],
-            current=2,
-        )
-
-        with pytest.raises(UnmanagedSnapshotPathError):
-            VersionManager(project).purge_resource("characters", "Hero")
-
-        assert sentinel.read_bytes() == b"sentinel"
-        assert (project / "project.json").is_file()
-        assert managed.read_bytes() == b"v2"
-        assert (project / "versions" / "versions.json").read_bytes() == before
-
     @pytest.mark.parametrize("dry_run", [True, False])
     @pytest.mark.parametrize("snapshot", _UNMANAGED_FILES)
     def test_rename_rejects_unmanaged_snapshot_path(self, tmp_path, snapshot, dry_run):
@@ -157,19 +134,6 @@ class TestSnapshotSinksRejectUnmanagedPaths:
 
 
 class TestSnapshotSinksKeepManagedBehavior:
-    def test_purge_removes_managed_snapshots_and_the_record(self, tmp_path):
-        project = _project(tmp_path)
-        vm = VersionManager(project)
-        current = project / "characters" / "Hero.png"
-        current.write_bytes(b"v1")
-        vm.add_version("characters", "Hero", "p", source_file=current)
-        snapshot = project / vm.get_versions("characters", "Hero")["versions"][0]["file"]
-
-        assert vm.purge_resource("characters", "Hero") == 1
-
-        assert not snapshot.exists()
-        assert vm.get_versions("characters", "Hero") == {"current_version": 0, "versions": []}
-
     def test_rename_moves_managed_snapshots_to_the_new_id(self, tmp_path):
         project = _project(tmp_path)
         vm = VersionManager(project)
@@ -210,15 +174,6 @@ class TestSnapshotSinksActOnTheRecordedPath:
         _write_history(project, "characters", "Hero", [{"version": 1, "file": rel}], current=1)
         return VersionManager(project), link
 
-    def test_purge_removes_a_symlinked_snapshot_without_touching_its_target(self, tmp_path):
-        project = _project(tmp_path)
-        vm, link = self._linked_snapshot(project)
-
-        assert vm.purge_resource("characters", "Hero") == 1
-
-        assert not link.is_symlink()
-        assert (project / "project.json").read_text(encoding="utf-8") == "{}"
-
     def test_rename_moves_a_symlinked_snapshot_without_moving_its_target(self, tmp_path):
         project = _project(tmp_path)
         vm, link = self._linked_snapshot(project)
@@ -242,13 +197,12 @@ class TestSnapshotSinksRejectUnknownResourceTypes:
     @pytest.mark.parametrize(
         "operation",
         [
-            lambda vm, project: vm.purge_resource("clues", "Key"),
             lambda vm, project: vm.rename_resource("clues", "Key", "Lock"),
             lambda vm, project: vm.reject_current_version(
                 "clues", "Key", rejected_version=1, current_file=project / "props" / "Key.png"
             ),
         ],
-        ids=["purge", "rename", "reject"],
+        ids=["rename", "reject"],
     )
     def test_mutating_sinks_reject_unknown_resource_type(self, tmp_path, operation):
         project = _project(tmp_path)

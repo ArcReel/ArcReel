@@ -4,7 +4,7 @@
 剧本、规划草稿、剪辑时间线与成片、宫格、媒体按原路径加回；版本历史与产物清单的登记取自迁移后的临时项目，
 产物照常按产物时效判定，删除之后输入变过的读为过期。
 
-所属集已删除的剪辑时间线、分镜等对象，在集恢复之后才能按原结构恢复。
+所属集已删除的剪辑时间线、分镜等对象，在集恢复之后才能按原结构恢复（:func:`require_live_episode`）。
 """
 
 from __future__ import annotations
@@ -18,16 +18,16 @@ from lib.artifacts.artifact_manifest import ArtifactManifestEntry, ProjectArtifa
 from lib.artifacts.artifact_registration import register_artifact_entries_atomically
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.artifacts.version_manager import VersionManager
-from lib.episode.episode_deletion import EPISODE_KIND, episode_content
+from lib.episode.episode_deletion import EPISODE_KIND, episode_content, episode_trash_record
 from lib.episode.episode_paths import episode_source_path
 from lib.episode.episode_sources import SOURCE_ORIGIN_FIELD, SourceOrigin
 from lib.episode.source_kinds import SOURCE_KIND_FIELD, entry_source_kind, record_episode_kind
 from lib.infra.api_errors import ConflictError
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_manager import ProjectManager, find_episode
-from lib.project.trash_restore import Landing, Restoration
+from lib.project.trash_restore import Landing, Restoration, RestoreBlocked
 
-__all__ = ["EPISODE_KIND", "take_episode"]
+__all__ = ["EPISODE_KIND", "require_live_episode", "take_episode"]
 
 
 def take_episode(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
@@ -80,3 +80,22 @@ def take_episode(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Res
         land=land,
         after=lambda: emit_project_change_hint(project_dir.name, changed_paths=[ProjectManager.PROJECT_FILE]),
     )
+
+
+def require_live_episode(project_dir: Path, episode: object, identity: str) -> None:
+    """恢复挂在集上的对象前核对所属的集仍在。
+
+    集也在项目回收站里时抛 :class:`RestoreBlocked`：只能随集恢复，先恢复集、再恢复这条记录，记录不降级。
+    集已不在、也没有删除记录（已彻底删除）时抛 ``trash_restore_failed``，按取不出对象降级。
+    """
+    number = episode if isinstance(episode, int) and not isinstance(episode, bool) else None
+    project = ProjectManager.for_project_dir(project_dir).load_project(project_dir.name)
+    if find_episode(project, number) is not None:
+        return
+    record = episode_trash_record(project_dir, number) if number is not None else None
+    if record is None:
+        raise ConflictError("trash_restore_failed", id=identity)
+    title = record.object.get("title")
+    if isinstance(title, str) and title:
+        raise RestoreBlocked("trash_restore_needs_episode", name=title)
+    raise RestoreBlocked("trash_restore_needs_episode_untitled", episode=number)

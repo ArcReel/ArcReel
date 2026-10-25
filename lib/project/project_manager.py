@@ -20,7 +20,7 @@ import time
 import unicodedata
 from collections import Counter
 from collections.abc import AsyncGenerator, Callable, Generator, Mapping, Sequence
-from contextlib import ExitStack, asynccontextmanager, contextmanager
+from contextlib import AbstractContextManager, ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -103,7 +103,7 @@ from lib.project.asset_types import (
 )
 from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_schema import parse_project_schema_version
-from lib.project.script_entry_cleanup import purge_replaced_entry_media
+from lib.project.script_entry_cleanup import trash_entries
 from lib.project.task_project_claim import ensure_task_project_claim
 from lib.references.reference_catalog import derivative_reference
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
@@ -761,7 +761,8 @@ class ProjectManager:
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
             artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
             expected_fingerprint: 可选的正式剧本内容基线；在剧本锁内不匹配时拒绝写入。
-            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；撤销产物登记，并在剧本锁内清理旧媒体与历史。
+            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；撤销产物登记。它们与旧剧本里不再有的条目一样，
+                旧媒体与版本历史在同一写事务里移进项目回收站。
             project_update: 与剧本、集索引同一写事务内对 project.json 的额外修改；仅带集号的剧本可用。
 
         Returns:
@@ -786,9 +787,10 @@ class ProjectManager:
                 from lib.artifacts.artifact_activation import prepare_episode_script_manifest_commit
 
                 project_path = self.get_project_path(project_name)
+                project_file = self._get_project_file_path(project_name)
                 script_path = Path(self._safe_subpath(project_path / "scripts", filename))
                 before_script = self._load_script_or_none(script_path)
-                items, id_field, _kind = resolve_items(script)
+                items, id_field, script_kind = resolve_items(script)
                 resource_ids = tuple(
                     resource_id
                     for item in items
@@ -797,9 +799,10 @@ class ProjectManager:
                     and resource_id
                 )
                 previous_resource_ids: tuple[str, ...] = ()
+                previous_kind = script_kind
                 if before_script is not None:
                     try:
-                        previous_items, previous_id_field, _previous_kind = resolve_items(before_script)
+                        previous_items, previous_id_field, previous_kind = resolve_items(before_script)
                     except ScriptEditError:
                         pass
                     else:
@@ -821,17 +824,35 @@ class ProjectManager:
                         replaced_resource_ids=replaced_resource_ids,
                         basis=artifact_basis,
                     )
-                    if manifest_commit is None:
-                        return None
+                    # 项目锁内、写入之前：删除记录的快照要改写前的剧本与 project.json。
+                    before_files = {
+                        rel: path.read_bytes()
+                        for rel, path in ((f"scripts/{filename}", script_path), (self.PROJECT_FILE, project_file))
+                        if path.is_file()
+                    }
 
                     def _register_manifest(_script_path: Path) -> None:
-                        manifest_commit()
+                        # 被移除与被新身份替换的旧条目移进项目回收站，再撤登记；仍持剧本锁，新条目的媒体不能先落盘。
+                        trash_entries(
+                            project_path,
+                            episode=episode,
+                            script_file=filename,
+                            entries=dict.fromkeys(
+                                [
+                                    *(rid for rid in previous_resource_ids if rid not in resource_ids),
+                                    *replaced_resource_ids,
+                                ],
+                                previous_kind,
+                            ),
+                            before=before_files,
+                            then=manifest_commit,
+                        )
 
                     return _register_manifest
 
                 prepare_on_commit = _prepare_manifest_commit
 
-            output = self._commit_script_unlocked(
+            return self._commit_script_unlocked(
                 project_name,
                 script,
                 filename,
@@ -840,9 +861,6 @@ class ProjectManager:
                 prepare_on_commit=prepare_on_commit,
                 project_update=project_update,
             )
-            # 替换已提交，仍持剧本锁：新条目的媒体不能在旧身份清理完成前落盘。
-            purge_replaced_entry_media(self.get_project_path(project_name), replaced_resource_ids)
-            return output
 
     def _commit_script_unlocked(
         self,
@@ -1041,6 +1059,29 @@ class ProjectManager:
                 on_commit=on_commit,
                 prepare_on_commit=(lambda: prepare_on_commit(script)) if prepare_on_commit is not None else None,
             )
+
+    def script_lock(self, project_name: str, script_filename: str) -> AbstractContextManager[None]:
+        """剧本的排他锁（不可重入），供要在项目锁之外先取剧本锁、再在锁内调用 :meth:`update_script_locked` 的调用方。"""
+        return self._script_lock(project_name, script_filename)
+
+    def update_script_locked(self, project_name: str, script_filename: str, mutate_fn: Callable[[dict], None]) -> dict:
+        """调用方依次持剧本锁与项目锁（如恢复流水线的落地规则）：读-改-写剧本并同步集索引，返回写回的剧本。
+
+        写回经「不更坏」结构校验；与 :meth:`update_project_locked` 一样不做失败回滚，也不发变更提示。
+        """
+        norm = self.normalize_script_filename(script_filename)
+        script, _migrated = self._read_script_unlocked(project_name, norm)
+        before = copy.deepcopy(script)
+        mutate_fn(script)
+        self._write_script_unlocked(
+            project_name, script, norm, sync_project=False, validate=True, before=before, emit_change=False
+        )
+        project = self._read_project_raw_unlocked(project_name)
+        if isinstance(script.get("episode"), int):
+            self._apply_episode_sync(project, script, norm)
+        self._touch_metadata(project)
+        atomic_write_json(self._get_project_file_path(project_name), project)
+        return script
 
     @contextmanager
     def locked_project_script_snapshot(self, project_name: str, script_filename: str):

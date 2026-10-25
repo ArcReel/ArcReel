@@ -52,6 +52,10 @@ function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): 
   if (object.kind === "asset_derivative" && typeof object.name === "string") {
     return t("trash_object_asset_derivative", { name: object.name, owner: object.owner });
   }
+  if (object.kind === "script_entry") {
+    const key = object.item_kind === "video_units" ? "trash_object_script_unit" : "trash_object_script_entry";
+    return t(key, { id: object.id, episode: object.episode });
+  }
   return object.path;
 }
 
@@ -68,6 +72,11 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
       : t("trash_restored_degraded_files", { name, count: result.restored.length });
   }
   if (record.object.kind === "episode") return t("trash_restored_episode", { name });
+  if (record.object.kind === "script_entry") {
+    return result.object.id !== record.object.id
+      ? t("trash_restored_entry_renumbered", { name, landed: result.object.id })
+      : t("trash_restored_object", { name });
+  }
   // 带名字的对象（剪辑时间线）按名字说明是否改名；其余按文件落点说明。
   if (record.has_snapshot && typeof record.object.name === "string") {
     const landed = result.object.name;

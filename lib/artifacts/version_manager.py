@@ -148,7 +148,7 @@ def _unlink_paths(*paths: Path | None) -> list[tuple[Path, OSError]]:
         if path is None:
             continue
         try:
-            # hard-delete: pending-trash -- #3386 purge_resource 经此删除资源的全部历史版本；其余调用方删的是暂存与回滚文件，最后一个接入的 ticket 改标 temp
+            # hard-delete: temp -- 暂存、回滚与恢复失败时撤下的快照文件；数据删除都经项目回收站
             path.unlink(missing_ok=True)
         except OSError as exc:
             failures.append((path, exc))
@@ -1192,7 +1192,7 @@ class VersionManager:
             raise ValueError(f"不支持的资源类型: {resource_type}")
 
         from lib.project.asset_rename import AssetRenameHistoryCollisionError
-        from lib.project.asset_types import normalize_asset_name, rekey_equivalent_entries, resolve_asset_key
+        from lib.project.asset_types import normalize_asset_name, rekey_equivalent_entries
 
         with self._lock:
             data = self._load_versions()
@@ -1452,36 +1452,6 @@ class VersionManager:
             if added:
                 self._save_versions(data)
                 record_project_activity(self.project_path)
-
-    def purge_resource(self, resource_type: str, resource_id: str) -> int:
-        """删除一个资源的全部版本记录与快照文件，返回删除的快照数。
-
-        只服务「资源本身随之消失」的删除路径：留着记录会让重建的同名资源接上一段不属于它的历史。
-        资产与衍生的删除不经此，它们的版本历史随删除记录进项目回收站。
-        快照文件删不掉时记录并继续——记录已经删了，留在盘上的文件不再被任何版本引用。
-        """
-        if resource_type not in self.RESOURCE_TYPES:
-            raise ValueError(f"不支持的资源类型: {resource_type}")
-
-        with self._lock:
-            data = self._load_versions()
-            bucket = data.get(resource_type)
-            if not isinstance(bucket, dict):
-                return 0
-            key = resolve_asset_key(bucket, resource_id)
-            record = bucket.get(key) if key is not None else None
-            if key is None or not isinstance(record, dict):
-                return 0
-            snapshots = [
-                self._resolve_snapshot(resource_type, version)
-                for version in record.get("versions", [])
-                if isinstance(version, dict) and isinstance(version.get("file"), str)
-            ]
-            del bucket[key]
-            self._save_versions(data)
-            record_project_activity(self.project_path)
-            _report_cleanup_failures(_unlink_paths(*snapshots), active_failure=sys.exception())
-            return len(snapshots)
 
     def restore_version(
         self,
