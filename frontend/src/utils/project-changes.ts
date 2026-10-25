@@ -1,7 +1,7 @@
 import type { TFunction } from "i18next";
 
 import type { EpisodeMeta, ProjectChange } from "@/types";
-import { episodeDisplayName, episodeItemLabel } from "@/utils/episode-display";
+import { episodeDisplayName, episodeItemLabel, type ProjectScripts } from "@/utils/episode-display";
 
 const GROUP_NAME_LIMIT = 5;
 
@@ -66,14 +66,14 @@ const EPISODE_ITEM_ENTITY_TYPES = new Set(["segment", "drama_scene", "shot", "re
 
 // 事件携带的稳定 label_key + label_params 是文案真相源；label 是后端按默认语言渲染的兜底，
 // 只在事件来自不认识该 key 的旧发布方时兜住，不参与常规渲染。
-// 集 ID 与带集前缀的条目 ID 不直接露给创作者：集换成标题（或播出位置），条目换成「标题 · S01」。
-function resolveChangeLabel(change: ProjectChange, t: EventsT, episodes: EpisodeLedger): string {
+// 集 ID 与带集前缀的条目 ID 不直接露给创作者：集换成标题（或播出位置），条目换成「标题 · 5」（本集里的当前位置）。
+function resolveChangeLabel(change: ProjectChange, t: EventsT, episodes: EpisodeLedger, scripts: ProjectScripts): string {
   if (!change.label_key) {
     return change.label;
   }
   const params: Record<string, unknown> = { ...change.label_params };
   if (typeof params.id === "string" && EPISODE_ITEM_ENTITY_TYPES.has(change.entity_type)) {
-    params.id = episodeItemLabel(params.id, episodes, t);
+    params.id = episodeItemLabel(params.id, scripts, episodes, t);
   }
   if (typeof params.episode === "number") {
     params.episode_name = episodeDisplayName(episodes, params.episode, t);
@@ -105,7 +105,7 @@ function getEntityLabel(group: GroupedProjectChange, t: EventsT): string {
   });
 }
 
-function getChangeListLabel(change: ProjectChange, t: EventsT, episodes: EpisodeLedger): string {
+function getChangeListLabel(change: ProjectChange, t: EventsT, episodes: EpisodeLedger, scripts: ProjectScripts): string {
   if (
     change.entity_type === "character" ||
     change.entity_type === "scene" ||
@@ -120,15 +120,20 @@ function getChangeListLabel(change: ProjectChange, t: EventsT, episodes: Episode
     change.entity_type === "shot" ||
     change.entity_type === "reference_unit"
   ) {
-    return episodeItemLabel(change.entity_id, episodes, t);
+    return episodeItemLabel(change.entity_id, scripts, episodes, t);
   }
-  return resolveChangeLabel(change, t, episodes);
+  return resolveChangeLabel(change, t, episodes, scripts);
 }
 
-function summarizeGroupNames(group: GroupedProjectChange, t: EventsT, episodes: EpisodeLedger): string {
+function summarizeGroupNames(
+  group: GroupedProjectChange,
+  t: EventsT,
+  episodes: EpisodeLedger,
+  scripts: ProjectScripts,
+): string {
   const names = group.changes
     .slice(0, GROUP_NAME_LIMIT)
-    .map((change) => getChangeListLabel(change, t, episodes));
+    .map((change) => getChangeListLabel(change, t, episodes, scripts));
   const suffix = group.changes.length > GROUP_NAME_LIMIT ? t("list.more_suffix") : "";
   return `${names.join(t("list.separator"))}${suffix}`;
 }
@@ -169,18 +174,19 @@ export function formatGroupedNotificationText(
   group: GroupedProjectChange,
   t: EventsT,
   episodes: EpisodeLedger = [],
+  scripts: ProjectScripts = {},
 ): string {
   if (group.changes.length === 1) {
     const change = group.changes[0];
     return t(`single.${singleTextKey(change.action)}`, {
-      label: resolveChangeLabel(change, t, episodes),
+      label: resolveChangeLabel(change, t, episodes, scripts),
     });
   }
 
   return t(`group.${groupTextKey(group)}`, {
     count: group.changes.length,
     entity: getEntityLabel(group, t),
-    summary: summarizeGroupNames(group, t, episodes),
+    summary: summarizeGroupNames(group, t, episodes, scripts),
   });
 }
 
@@ -188,17 +194,18 @@ export function formatGroupedDeferredText(
   group: GroupedProjectChange,
   t: EventsT,
   episodes: EpisodeLedger = [],
+  scripts: ProjectScripts = {},
 ): string {
   if (group.changes.length === 1) {
     const change = group.changes[0];
     return t(`deferred.${singleTextKey(change.action)}`, {
-      label: resolveChangeLabel(change, t, episodes),
+      label: resolveChangeLabel(change, t, episodes, scripts),
     });
   }
 
   return t(`group_deferred.${groupTextKey(group)}`, {
     count: group.changes.length,
     entity: getEntityLabel(group, t),
-    summary: summarizeGroupNames(group, t, episodes),
+    summary: summarizeGroupNames(group, t, episodes, scripts),
   });
 }

@@ -11,7 +11,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { ReferenceDurationPrecheck } from "@/types";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 import { advisoryProblems } from "./advisory-problems";
 
 /** 需确认的单元及其取档结果。 */
@@ -29,19 +29,20 @@ interface Props {
 
 /** 一行「剧本档位 → 申请档位」对照，秒数等宽以便多行纵向对齐。 */
 function DurationRow({
-  label,
+  showUnit,
   item,
   diffText,
 }: {
-  label: string | null;
+  /** 批量确认时逐行指认单元；单个确认不重复。 */
+  showUnit: boolean;
   item: DurationConfirmItem;
   diffText: string;
 }) {
   const { t } = useTranslation("dashboard");
   const seconds = (value: number) => t("reference_duration_seconds", { value });
   return (
-    <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-      {label && <span className="font-mono text-xs text-muted-foreground">{label}</span>}
+    <li className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+      {showUnit && <EpisodeItemRef itemId={item.unitId} />}
       <span className="tabular-nums text-subtle-foreground">{seconds(item.precheck.script_duration)}</span>
       <span aria-hidden className="text-muted-foreground">
         →
@@ -88,7 +89,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
   const durationSection = single ? (
     <div className="space-y-2">
       <ul className="space-y-1">
-        <DurationRow label={null} item={single} diffText={diffText(single)} />
+        <DurationRow showUnit={false} item={single} diffText={diffText(single)} />
       </ul>
       <p>
         {single.precheck.request_duration < baseline(single)
@@ -105,12 +106,7 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
       <p>{t("reference_duration_batch_summary", { count: durationItems.length })}</p>
       <ul className="space-y-1">
         {durationItems.map((item) => (
-          <DurationRow
-            key={item.unitId}
-            label={itemIdWithinEpisode(item.unitId)}
-            item={item}
-            diffText={diffText(item)}
-          />
+          <DurationRow key={item.unitId} showUnit item={item} diffText={diffText(item)} />
         ))}
       </ul>
       <p>{t("reference_duration_note_no_trim")}</p>
@@ -127,11 +123,9 @@ export function ReferenceDurationConfirmDialog({ open, items, onConfirm, onCance
               // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 单元内的提示由服务端算出、没有 ID，确认框打开期间只读不变、行内无状态
               <li
                 key={`${unitId}-${index}`}
-                className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5"
+                className="flex flex-wrap items-center gap-x-2 gap-y-0.5"
               >
-                {items.length > 1 && (
-                  <span className="font-mono text-xs text-muted-foreground">{itemIdWithinEpisode(unitId)}</span>
-                )}
+                {items.length > 1 && <EpisodeItemRef itemId={unitId} />}
                 <span className="text-subtle-foreground">{problem.message}</span>
               </li>
             )),

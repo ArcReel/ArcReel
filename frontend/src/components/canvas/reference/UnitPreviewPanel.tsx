@@ -11,7 +11,6 @@ import { formatCost } from "@/utils/cost-format";
 import { resolveUnitStatus } from "./unit-status";
 import { UnitStatusBadge } from "./UnitStatusBadge";
 import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
 import { previewAspect } from "@/utils/preview-aspect";
 import { Button } from "@/components/ui/button";
 
@@ -286,10 +285,6 @@ export function UnitPreviewPanel({
       <section className="rounded-lg border border-border bg-card p-3">
         <h3 className="mb-2 text-xs font-medium text-muted-foreground">{t("reference_preview_metadata")}</h3>
         <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3.5 gap-y-1.5 text-xs">
-          <dt className="text-muted-foreground">{t("reference_meta_unit")}</dt>
-          <dd className="font-mono text-subtle-foreground" translate="no">
-            {itemIdWithinEpisode(unit.unit_id)}
-          </dd>
           <dt className="text-muted-foreground">{t("reference_meta_duration")}</dt>
           <dd className="font-mono tabular-nums text-subtle-foreground">
             {t("reference_editor_unit_meta", { duration: unit.duration_seconds })}

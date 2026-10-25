@@ -17,7 +17,7 @@ import {
 import { useDemoWorkbench } from "@/onboarding/use-demo-workbench";
 import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 import { ImageEditButton } from "./ImageEditButton";
 import { VersionTimeMachine } from "./VersionTimeMachine";
 
@@ -88,6 +88,7 @@ export function MediaCard({
   checkBusy,
 }: MediaCardProps) {
   const { t } = useTranslation("dashboard");
+  const itemLabel = useItemPositionLabel(segmentId);
   const [restoring, setRestoring] = useState(false);
   const restoringRef = useRef(false);
   const freshBusy = () => restoringRef.current || Boolean(checkBusy?.()) || isResourceBusy(kind, projectName, segmentId);
@@ -173,13 +174,13 @@ export function MediaCard({
 
       {assetUrl ? (
         kind === "storyboard" ? (
-          <PreviewableImageFrame src={assetUrl} alt={`${itemIdWithinEpisode(segmentId)} ${title}`}>
+          <PreviewableImageFrame src={assetUrl} alt={`${itemLabel} ${title}`}>
             <AspectFrame ratio={aspectRatio}>
               <img
                 src={assetUrl}
                 srcSet={storyboardSrcSet}
                 sizes="(min-width: 1280px) 720px, 640px"
-                alt={`${itemIdWithinEpisode(segmentId)} ${title}`}
+                alt={`${itemLabel} ${title}`}
                 loading="lazy"
                 decoding="async"
                 className="size-full object-cover"

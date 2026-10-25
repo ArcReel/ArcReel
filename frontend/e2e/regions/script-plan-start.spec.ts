@@ -398,11 +398,11 @@ defineRegionScenarios("重新规划与内容确认", [
     path: `${EPISODE_PATH}?view=plan`,
     api: REVIEW_STRESS,
     ready: async (page) => {
-      await planPanel(page).getByText("S24", { exact: true }).waitFor();
+      await planPanel(page).getByRole("img", { name: "分镜 24" }).waitFor();
     },
     act: async (page) => {
       await clearAgentOverlay(page);
-      await expect(planPanel(page).getByRole("combobox", { name: "S01 时长" })).toBeVisible();
+      await expect(planPanel(page).getByRole("combobox", { name: "分镜 1 时长" })).toBeVisible();
     },
     screenshot: { name: "script-plan-review", target: planPanel },
   },
@@ -411,11 +411,11 @@ defineRegionScenarios("重新规划与内容确认", [
     path: `${EPISODE_PATH}?view=plan`,
     api: REVIEW_STRESS,
     ready: async (page) => {
-      await planPanel(page).getByText("S24", { exact: true }).waitFor();
+      await planPanel(page).getByRole("img", { name: "分镜 24" }).waitFor();
     },
     act: async (page) => {
       await clearAgentOverlay(page);
-      await planPanel(page).getByRole("combobox", { name: "S01 时长" }).click();
+      await planPanel(page).getByRole("combobox", { name: "分镜 1 时长" }).click();
       const listbox = page.getByRole("listbox");
       await expect(listbox.getByRole("option")).toHaveText(["4 秒", "6 秒", "8 秒"]);
       await waitForEntrance(listbox);

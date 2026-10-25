@@ -125,6 +125,10 @@ export interface StepListContext {
   episodeId: number;
   /** 集名连同集 ID 的指称，预填给 Agent 用（`episodeAgentRef`）。 */
   episodeRef: string;
+  /** 界面上称呼条目：「视频单元 5」，按本集里的当前位置。 */
+  itemLabel: (itemId: string) => string;
+  /** 预填给 Agent 的条目指称：位置连同条目 ID（`episodeItemAgentRef`）。 */
+  itemAgentRef: (itemId: string) => string;
   /** 本集正式脚本的总时长（秒），项目摘要给出；未知时为 null。 */
   episodeDurationSeconds: number | null;
   /** 广告/短片的目标时长（秒）；未设或非广告为 null。 */
@@ -438,9 +442,9 @@ function buildRows(facts: Facts, ctx: StepListContext): StepRowView[] {
     promptsNotes.push({
       key: "replan",
       tone: "warn",
-      text: t("workflow:note_needs_replan", { count: replan.length, ids: formatNameList(replan, ctx.lang) }),
+      text: t("workflow:note_needs_replan", { count: replan.length, ids: formatNameList(replan.map(ctx.itemLabel), ctx.lang) }),
       act: ctx.canViewUnit
-        ? { key: "view-replan", label: t("workflow:act_view_unit", { id: replan[0] }), kind: "nav", intent: { type: "view_unit", unitId: replan[0] } }
+        ? { key: "view-replan", label: t("workflow:act_view_unit", { id: ctx.itemLabel(replan[0]) }), kind: "nav", intent: { type: "view_unit", unitId: replan[0] } }
         : undefined,
     });
   }
@@ -863,14 +867,23 @@ function buildNext(facts: Facts, rows: StepRowView[], ctx: StepListContext): Nex
     case "repair_video_units": {
       const first = action.requested_ids[0];
       const primary: StepAct[] = [
-        agentAct(t, t("workflow:agent_prefill_repair_video_units", { episodeRef, ids: formatNameList(action.requested_ids, ctx.lang) })),
+        agentAct(
+          t,
+          t("workflow:agent_prefill_repair_video_units", {
+            episodeRef,
+            ids: formatNameList(action.requested_ids.map(ctx.itemAgentRef), ctx.lang),
+          }),
+        ),
       ];
       if (first && ctx.canViewUnit) {
-        primary.push({ key: "view", label: t("workflow:act_view_unit", { id: first }), kind: "nav", intent: { type: "view_unit", unitId: first } });
+        primary.push({ key: "view", label: t("workflow:act_view_unit", { id: ctx.itemLabel(first) }), kind: "nav", intent: { type: "view_unit", unitId: first } });
       }
       return {
         ...base,
-        detail: t("workflow:next_detail_repair_video_units", { count, ids: formatNameList(action.requested_ids, ctx.lang) }),
+        detail: t("workflow:next_detail_repair_video_units", {
+          count,
+          ids: formatNameList(action.requested_ids.map(ctx.itemLabel), ctx.lang),
+        }),
         primary,
       };
     }

@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import type { EpisodeDraftView } from "@/types";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
 import { useDraftEditor } from "@/hooks/useDraftEditor";
 import { voidPromise } from "@/utils/async";
 import { groupDraftViolations, groupSoftViolations } from "@/utils/draft-violations";
@@ -18,7 +19,9 @@ import {
 import { draftFallbackText, draftFixRequestText } from "@/components/shared/draft-text";
 import { prefillAssistant } from "@/components/shared/prefill-assistant";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
-import { episodeAgentRef, itemIdWithinEpisode } from "@/utils/episode-display";
+import { episodeAgentRef, itemPositionLabel } from "@/utils/episode-display";
+import { findEpisodeItem } from "@/utils/episode-item";
+import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
 
 const DOC_TYPE = "reference_prompt_authoring";
 
@@ -80,6 +83,7 @@ interface PromptAuthoringDraftPanelProps {
 export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettled }: PromptAuthoringDraftPanelProps) {
   const { t } = useTranslation("dashboard");
   const episodeLedger = useEpisodeLedger();
+  const scripts = useProjectsStore((s) => s.currentScripts);
   const episodeRef = episodeAgentRef(episodeLedger, episode, t);
   const [discardOpen, setDiscardOpen] = useState(false);
   const editor = useDraftEditor<PromptAuthoringDraft>({
@@ -123,6 +127,11 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
 
   const content = editor.content;
   const unitIds = (content?.units ?? []).map((_, i) => view.item_ids?.[i] ?? `#${i + 1}`);
+  // 草稿可能只覆盖本集的一部分单元：位置按正式剧本现算，草稿没写单元 ID 时退回草稿里的序号。
+  const unitPositions = unitIds.map((id, i) =>
+    view.item_ids?.[i] ? (findEpisodeItem(scripts, id)?.position ?? null) : i + 1,
+  );
+  const unitLabel = (i: number) => itemPositionLabel("unit", unitPositions[i], t);
   const groups = groupDraftViolations(view.violations, unitIds);
   const softByUnit = groupSoftViolations(view.soft_violations);
   const updateText = (index: number, text: string) =>
@@ -135,7 +144,7 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
         violationCount={view.violations.length}
         itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
           index,
-          label: itemIdWithinEpisode(unitIds[index]),
+          label: unitLabel(index),
           count: list.length,
         }))}
         episodeLevelCount={groups.episodeLevel.length}
@@ -171,14 +180,12 @@ export function PromptAuthoringDraftPanel({ projectName, episode, view, onSettle
             }}
             className={`scroll-mt-28 rounded-lg border bg-card p-3.5 ${violations.length > 0 ? "border-destructive/45" : "border-border"}`}
           >
-            <span className="mb-2 inline-block rounded-sm bg-card/70 px-1.5 py-0.5 font-mono text-xs text-subtle-foreground">
-              {itemIdWithinEpisode(unitIds[i])}
-            </span>
+            <ItemPositionBadge position={unitPositions[i]} kind="unit" className="mb-2" />
             <Textarea
               value={unit.text}
               onChange={(e) => updateText(i, e.target.value)}
               disabled={busy}
-              aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unitIds[i]) })}
+              aria-label={t("reference_script_plan_unit_text_label", { unit: unitLabel(i) })}
             />
             <DraftViolationList violations={violations} />
             <DraftSoftViolationList softViolations={softByUnit.get(i) ?? []} />

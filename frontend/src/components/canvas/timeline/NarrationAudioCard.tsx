@@ -8,7 +8,7 @@ import { API } from "@/api";
 import { useProjectsStore } from "@/stores/projects-store";
 import { formatCost } from "@/utils/cost-format";
 import type { CostBreakdown } from "@/types";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 import { VersionTimeMachine } from "./VersionTimeMachine";
 
 interface NarrationAudioCardProps {
@@ -47,6 +47,7 @@ export function NarrationAudioCard({
   generateLabel: generateLabelOverride,
 }: NarrationAudioCardProps) {
   const { t } = useTranslation("dashboard");
+  const itemLabel = useItemPositionLabel(segmentId);
   const demo = useDemoWorkbench();
   const [restoring, setRestoring] = useState(false);
   const restoringRef = useRef(false);
@@ -94,7 +95,7 @@ export function NarrationAudioCard({
             controls
             src={audioUrl}
             preload="metadata"
-            aria-label={t("narration_audio_player_label", { id: itemIdWithinEpisode(segmentId) })}
+            aria-label={t("narration_audio_player_label", { id: itemLabel })}
             className="mt-2.5 h-9 w-full"
           />
         ) : (

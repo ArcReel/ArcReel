@@ -81,4 +81,9 @@ export default {
   'episode_position_name': 'Episode {{position}}',
   'episode_unlisted_name': 'Untitled episode',
   'episode_agent_ref': '"{{name}}" (episode ID {{id}})',
+  'item_position_shot': 'Shot {{position}}',
+  'item_position_unit': 'Video unit {{position}}',
+  'item_position_of_total': '{{position}} / {{total}}',
+  'item_internal_id': 'Internal ID {{id}}',
+  'item_agent_ref': '{{label}} (ID {{id}})',
 };

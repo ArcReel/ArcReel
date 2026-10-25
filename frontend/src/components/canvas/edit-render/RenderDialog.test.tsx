@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { API } from "@/api";
 import { useAppStore } from "@/stores/app-store";
-import type { EditTimelineIssueRef, FinalCutStatus, JianyingDraftStatus, TaskItem } from "@/types";
+import { useProjectsStore } from "@/stores/projects-store";
+import type { EditTimelineIssueRef, EpisodeScript, FinalCutStatus, JianyingDraftStatus, TaskItem } from "@/types";
 import { RenderButton } from "./RenderButton";
 import { RenderDialog } from "./RenderDialog";
 
@@ -46,6 +47,18 @@ const NARRATION_MISSING: EditTimelineIssueRef = {
   unit_id: "E1S04",
 };
 
+/** 本集正式脚本：E1S04 排第 3 个、E1S03 排第 4 个，阻断原因按位置称呼分镜。 */
+function seedEpisodeScript() {
+  useProjectsStore.setState({
+    currentScripts: {
+      "episode_1.json": {
+        episode: 1,
+        segments: ["E1S01", "E1S02", "E1S04", "E1S03"].map((segment_id) => ({ segment_id })),
+      },
+    } as unknown as Record<string, EpisodeScript>,
+  });
+}
+
 function renderDialog({
   issues = [],
   narrationAvailable = false,
@@ -71,6 +84,7 @@ describe("RenderDialog", () => {
   beforeEach(() => {
     localStorage.clear();
     useAppStore.setState({ toast: null });
+    seedEpisodeScript();
     vi.spyOn(API, "listTasks").mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50 });
     downloads = [];
     anchorClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
@@ -346,7 +360,7 @@ describe("RenderDialog", () => {
 
     expect(within(screen.getByRole("radiogroup", { name: "旁白版本" })).getByRole("radio", { name: "带旁白" })).toBeChecked();
     expect(await screen.findByRole("button", { name: "渲染成片" })).toBeDisabled();
-    expect(screen.getByText("当前剪辑时间线有 1 个问题阻断出片，涉及 S04，处理后才能出片")).toBeInTheDocument();
+    expect(screen.getByText("当前剪辑时间线有 1 个问题阻断出片，涉及 分镜 3，处理后才能出片")).toBeInTheDocument();
     expect(API.getFinalCutStatus).toHaveBeenCalledWith(
       "demo",
       "tl-1",
@@ -366,6 +380,10 @@ describe("RenderDialog", () => {
 });
 
 describe("RenderButton", () => {
+  beforeEach(() => {
+    seedEpisodeScript();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -387,7 +405,7 @@ describe("RenderButton", () => {
     );
 
     const button = screen.getByRole("button", { name: "出片" });
-    const reason = "当前剪辑时间线有 1 个问题阻断出片，涉及 S03，处理后才能出片";
+    const reason = "当前剪辑时间线有 1 个问题阻断出片，涉及 分镜 4，处理后才能出片";
     expect(button).toBeDisabled();
     expect(button.parentElement).toHaveAttribute("title", reason);
     expect(button).toHaveAccessibleDescription(reason);

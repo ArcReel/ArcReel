@@ -272,9 +272,9 @@ defineRegionScenarios("工作区顶栏", [
         panel.getByRole("listitem").filter({ hasText: text }).getByRole("button", { name: "查看" });
 
       await bell(page).click();
-      await view(`分镜「第一集 · S05」`).click();
+      await view(`分镜「第一集 · 5」`).click();
       await expect(page).toHaveURL(/\/app\/projects\/demo\/episodes\/1$/);
-      await expect(page.getByRole("navigation", { name: "分镜列表" }).getByRole("button", { name: /^S05/ })).toHaveAttribute(
+      await expect(page.getByRole("navigation", { name: "分镜列表" }).getByRole("button", { name: /^分镜 5(?!\d)/ })).toHaveAttribute(
         "aria-current",
         "true",
       );

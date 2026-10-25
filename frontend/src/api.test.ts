@@ -9,6 +9,7 @@ import {
   SpeechAdmissionError,
 } from "@/api";
 import i18n from "@/i18n";
+import { useProjectsStore } from "@/stores/projects-store";
 import { clearToken, setToken } from "@/utils/auth";
 import { flushStream, stubSseFetch } from "@/test/fakeSseFetch";
 
@@ -52,6 +53,7 @@ describe("API", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    useProjectsStore.setState({ currentScripts: {} });
   });
 
   it.each([
@@ -212,19 +214,23 @@ describe("API", () => {
     });
 
     it("preserves and presents a structured speech admission blocker", async () => {
+      // 文案按单元在本集里的当前位置称呼：E1U2 排在第 2 位。
+      useProjectsStore.setState({
+        currentScripts: { "episode_1.json": { episode: 1, video_units: [{ unit_id: "E1U5" }, { unit_id: "E1U2" }] } as never },
+      });
       const admission = {
         allowed: false as const,
-        unit_id: "E1S01",
+        unit_id: "E1U2",
         mode: null,
         problems: [{
           code: "needs_replan" as const,
-          unit_id: "E1S01",
+          unit_id: "E1U2",
           locations: [{ path: ["needs_replan"], line: null }],
           reason: "unit_marked_needs_replan",
           action: "replan_unit",
         }, {
           code: "mixed_speech" as const,
-          unit_id: "E1S01",
+          unit_id: "E1U2",
           locations: [
             { path: ["utterances", 0, "text"], line: null },
             { path: ["utterances", 1, "text"], line: null },
@@ -239,16 +245,15 @@ describe("API", () => {
 
       const error: SpeechAdmissionError = await API.generateVideo(
         "demo",
-        "E1S01",
+        "E1U2",
         "vid",
         "episode_1.json",
       ).catch((e) => e);
 
       expect(error).toBeInstanceOf(SpeechAdmissionError);
       expect(error.admission).toEqual(admission);
-      expect(error.message).toContain("S01");
-      expect(error.message).not.toContain("E1S01");
-      expect(error.message).toContain("utterances.0.text");
+      expect(error.message).toContain("视频单元 2 在 utterances.0.text, utterances.1.text 同时包含角色台词和旁白");
+      expect(error.message).not.toContain("U2");
     });
 
     it("preserves the shared script-edit result from compatibility endpoints", async () => {

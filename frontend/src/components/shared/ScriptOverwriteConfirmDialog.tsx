@@ -12,7 +12,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { ScriptOverwrite } from "@/types";
-import { itemIdsInEpisodeText } from "@/utils/episode-display";
+import { itemIdsAsPositionsInText } from "@/utils/episode-display";
+import { useProjectsStore } from "@/stores/projects-store";
 
 interface ScriptOverwriteConfirmDialogProps {
   open: boolean;
@@ -44,6 +45,7 @@ export function ScriptOverwriteConfirmDialog({
   onCancel,
 }: ScriptOverwriteConfirmDialogProps) {
   const { t } = useTranslation("dashboard");
+  const scripts = useProjectsStore((s) => s.currentScripts);
 
   return (
     <AlertDialog
@@ -59,7 +61,7 @@ export function ScriptOverwriteConfirmDialog({
         </AlertDialogHeader>
         <AlertDialogBody tabIndex={0} role="region" aria-label={title ?? t("review_overwrite_title")}>
           <AlertDialogDescription>
-            <span className="whitespace-pre-line wrap-break-word">{itemIdsInEpisodeText(overwrite.text)}</span>
+            <span className="whitespace-pre-line wrap-break-word">{itemIdsAsPositionsInText(overwrite.text, scripts, t)}</span>
           </AlertDialogDescription>
         </AlertDialogBody>
         <AlertDialogFooter>

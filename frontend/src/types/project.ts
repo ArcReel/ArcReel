@@ -119,14 +119,20 @@ export interface ProjectStatus {
 }
 
 /**
- * 集页面之外指称条目所需的结构（后端 `episode_item_ref`）：条目 ID 里的集 ID 不给创作者看，
- * 界面拼成「标题 · S01」，标题为空时用播出位置。
+ * 集页面之外指称条目所需的结构（后端 `with_episode_item_refs`）：条目 ID 不给创作者看，
+ * 界面拼成「标题 · 5」，标题为空时用播出位置。
  */
 export interface EpisodeItemRef {
   episode_title: string;
   episode_position: number;
-  /** 集内 ID，如 S01 / U02。 */
+  /** 集内 ID，如 S01 / U02；只用于宫格这类不按位置指称的条目。 */
   item_id: string;
+  /** 分镜或视频单元在本集里的当前位置，从 1 起；条目已不在剧本里时为 null。 */
+  item_position: number | null;
+  /** 正文前十几个字；条目已不在剧本里时为空串。 */
+  item_excerpt: string;
+  /** 缩略图的项目内相对路径。 */
+  item_thumbnail: string | null;
 }
 
 export interface EpisodeMeta {

@@ -36,6 +36,7 @@ import {
   isReferenceVideoScript,
   issueClipIds,
   pickDefaultTimeline,
+  unitPositions,
   unitThumbnails,
   unitVideoPath,
   unusedUnitIds,
@@ -398,6 +399,7 @@ function TimelinePreview({
   const trimIgnored = useMemo(() => issueClipIds(readout, "trim_ignored"), [readout]);
   const unused = useMemo(() => unusedUnitIds(readout), [readout]);
   const thumbnails = useMemo(() => unitThumbnails(script), [script]);
+  const positions = useMemo(() => unitPositions(script), [script]);
   const activeClipId = plan.segments[playback.index]?.clipId ?? null;
   const currentClip = readout.clips.find((clip) => clip.id === activeClipId);
   const selectedClip = readout.clips.find((clip) => clip.id === selectedClipId);
@@ -412,6 +414,7 @@ function TimelinePreview({
           playback={playback}
           aspect={aspect}
           current={currentClip}
+          positions={positions}
           trimIgnored={currentClip ? trimIgnored.has(currentClip.id) : false}
           subtitles={subtitles}
           showSubtitles={showSubtitles}
@@ -432,10 +435,11 @@ function TimelinePreview({
             clip={selectedClip}
             trimIgnored={selectedClip ? trimIgnored.has(selectedClip.id) : false}
             thumbnail={selectedClip ? thumbnails.get(selectedClip.unit_id) : undefined}
+            positions={positions}
           />
         </section>
         <div className="shrink-0 border-t border-border pt-4">
-          <IssueList issues={readout.issues} clipIds={clipIds} onSelectClip={setSelectedClipId} />
+          <IssueList issues={readout.issues} clipIds={clipIds} positions={positions} onSelectClip={setSelectedClipId} />
         </div>
       </div>
       <div className="col-span-2 min-w-0">
@@ -447,6 +451,7 @@ function TimelinePreview({
           activeClipId={activeClipId}
           trimIgnored={trimIgnored}
           unusedUnits={unused}
+          positions={positions}
           thumbnails={thumbnails}
           narration={narration}
           subtitles={subtitles}

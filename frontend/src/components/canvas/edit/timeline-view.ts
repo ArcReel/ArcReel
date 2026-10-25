@@ -1,6 +1,10 @@
-/** 剪辑视图的展示辅助：默认选中哪条剪辑时间线、片段的失效标记、时间格式与视频单元的缩略图。 */
+/** 剪辑视图的展示辅助：默认选中哪条剪辑时间线、片段的失效标记、时间格式，视频单元的位置与缩略图。 */
+
+import type { TFunction } from "i18next";
 
 import { parseIsoTimestamp } from "@/utils/date-format";
+import { itemPositionLabel } from "@/utils/episode-display";
+import { episodeItemKind } from "@/utils/episode-item";
 import type { EditTimelineIssue, EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
 
 /** 默认选最近剪辑过的那条；修改时间相同时取列表里靠后（创建较晚）的一条。 */
@@ -67,6 +71,16 @@ function itemsOf(script: unknown): { id: string; assets: UnitAssets | undefined 
     );
   }
   return [];
+}
+
+/** 视频单元 ID → 它在本集里的当前位置（从 1 起）；不在剧本里的单元（已删除）没有条目。 */
+export function unitPositions(script: unknown): Map<string, number> {
+  return new Map(itemsOf(script).map(({ id }, index) => [id, index + 1]));
+}
+
+/** 称呼视频单元：「分镜 5」「视频单元 5」，已不在剧本里时「已删除」。 */
+export function unitPositionLabel(positions: ReadonlyMap<string, number>, unitId: string, t: TFunction): string {
+  return itemPositionLabel(episodeItemKind(unitId), positions.get(unitId) ?? null, t);
 }
 
 /** 视频单元 ID → 缩略图的项目内路径：优先视频首帧，其次分镜图。 */

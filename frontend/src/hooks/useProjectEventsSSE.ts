@@ -432,19 +432,20 @@ export function useProjectEventsSSE(projectName?: string | null): void {
         if (entityChanges.length > 0) {
           void refreshProject().finally(() => {
             if (disposed || !notifyChanges) return;
-            const episodeLedger = useProjectsStore.getState().currentProjectData?.episodes ?? [];
+            const { currentProjectData, currentScripts } = useProjectsStore.getState();
+            const episodeLedger = currentProjectData?.episodes ?? [];
             for (const group of groupedChanges) {
               if (!hasImportantChanges(group)) {
                 continue;
               }
               pushNotification(
-                formatGroupedNotificationText(group, tEventsRef.current, episodeLedger),
+                formatGroupedNotificationText(group, tEventsRef.current, episodeLedger, currentScripts),
                 "success",
               );
             }
             for (const { group, target } of workspaceNotifications) {
               pushWorkspaceNotification({
-                text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger),
+                text: formatGroupedDeferredText(group, tEventsRef.current, episodeLedger, currentScripts),
                 target,
               });
             }

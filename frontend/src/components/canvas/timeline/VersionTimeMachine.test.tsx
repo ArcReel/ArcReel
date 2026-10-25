@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { makeNarrationSegment } from "@/test/factories";
 import userEvent from "@testing-library/user-event";
 import { createDeferred } from "@/test/deferred";
 import { API } from "@/api";
@@ -407,13 +408,24 @@ describe("VersionTimeMachine", () => {
       subtitles_webvtt: null,
     });
 
+    // 预览的可访问名称按本集位置称呼分镜：E1S01 排在第 2 位
+    useProjectsStore.setState({
+      currentScripts: {
+        "episode_1.json": {
+          episode: 1,
+          content_mode: "narration",
+          segments: [makeNarrationSegment({ segment_id: "E1S00" }), makeNarrationSegment({ segment_id: "E1S01" })],
+        } as never,
+      },
+    });
+    onTestFinished(() => useProjectsStore.setState({ currentScripts: {} }));
     render(
       <VersionTimeMachine projectName="demo" resourceType="videos" resourceId="E1S01" />,
     );
     fireEvent.click(screen.getByRole("button", { name: /版本/ }));
     fireEvent.click(await screen.findByRole("button", { name: "v1" }));
 
-    const previewSource = (await screen.findByLabelText("S01 成片预览")).getAttribute("src");
+    const previewSource = (await screen.findByLabelText("分镜 2 成片预览")).getAttribute("src");
     expect(previewSource?.startsWith("/api/v1/files/demo/versions/videos/E1S01_v1.mp4")).toBe(true);
     expect(presentation).toHaveBeenCalledWith(
       "demo",

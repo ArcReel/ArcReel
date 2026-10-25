@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTitle, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 
 interface NotesDrawerProps {
   /** 当前 shot 的 ID（用于 placeholder） */
@@ -21,6 +21,7 @@ interface NotesDrawerProps {
  */
 export function NotesDrawer({ shotId, value, onChange }: NotesDrawerProps) {
   const { t } = useTranslation("dashboard");
+  const itemLabel = useItemPositionLabel(shotId);
   const titleId = useId();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -45,7 +46,7 @@ export function NotesDrawer({ shotId, value, onChange }: NotesDrawerProps) {
           aria-labelledby={titleId}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={t("shot_notes_placeholder", { id: itemIdWithinEpisode(shotId) })}
+          placeholder={t("shot_notes_placeholder", { id: itemLabel })}
           className="min-h-36"
         />
       </PopoverContent>

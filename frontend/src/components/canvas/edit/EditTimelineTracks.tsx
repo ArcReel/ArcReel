@@ -11,8 +11,10 @@ import { errMsg } from "@/utils/async";
 import type { EditClip, EditTimelineReadout } from "@/types/edit-timeline";
 
 import type { AudioPlacement, NarrationSpan, PlacedSubtitle } from "./preview-tracks";
-import { formatSeconds, rulerStep, unitHue } from "./timeline-view";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
+import { itemPositionLabel } from "@/utils/episode-display";
+import { episodeItemKind } from "@/utils/episode-item";
+import { formatSeconds, rulerStep, unitHue, unitPositionLabel } from "./timeline-view";
 
 function percentOf(seconds: number, duration: number): string {
   return duration > 0 ? `${(seconds / duration) * 100}%` : "0%";
@@ -31,6 +33,8 @@ interface EditTimelineTracksProps {
   activeClipId: string | null;
   trimIgnored: ReadonlySet<string>;
   unusedUnits: readonly string[];
+  /** 视频单元 ID → 它在本集里的当前位置；轨道上以位置称呼单元。 */
+  positions: ReadonlyMap<string, number>;
   thumbnails: ReadonlyMap<string, string>;
   narration: readonly NarrationSpan[];
   subtitles: readonly PlacedSubtitle[];
@@ -51,6 +55,7 @@ export function EditTimelineTracks({
   activeClipId,
   trimIgnored,
   unusedUnits,
+  positions,
   thumbnails,
   narration,
   subtitles,
@@ -92,11 +97,12 @@ export function EditTimelineTracks({
                 selectedClipId={selectedClipId}
                 activeClipId={activeClipId}
                 trimIgnored={trimIgnored}
+                positions={positions}
                 onSelectClip={onSelectClip}
               />
             </TrackRow>
             <TrackRow label={translate("edit_view_track_narration")} height="h-10 edit-short:h-7">
-              <NarrationBlocks spans={narration} duration={duration} />
+              <NarrationBlocks spans={narration} duration={duration} positions={positions} />
             </TrackRow>
             <TrackRow label={translate("edit_view_track_subtitles")} height="h-8 edit-short:h-6">
               <SubtitleBlocks subtitles={subtitles} duration={duration} />
@@ -143,7 +149,7 @@ export function EditTimelineTracks({
                 className="inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-dashed border-border px-1.5 py-0.5"
               >
                 {thumbnail && <UnusedUnitThumbnail projectName={projectName} path={thumbnail} />}
-                {itemIdWithinEpisode(unitId)}
+                <ItemPositionBadge position={positions.get(unitId) ?? null} kind={episodeItemKind(unitId)} />
               </span>
             );
           })}
@@ -265,6 +271,7 @@ interface VideoClipsProps {
   selectedClipId: string | null;
   activeClipId: string | null;
   trimIgnored: ReadonlySet<string>;
+  positions: ReadonlyMap<string, number>;
   onSelectClip: (clipId: string) => void;
 }
 
@@ -278,6 +285,7 @@ const VideoClips = memo(function VideoClips({
   selectedClipId,
   activeClipId,
   trimIgnored,
+  positions,
   onSelectClip,
 }: VideoClipsProps) {
   const { t } = useTranslation("dashboard");
@@ -296,6 +304,7 @@ const VideoClips = memo(function VideoClips({
           selected={selectedClipId === clip.id}
           active={activeClipId === clip.id}
           trimIgnored={trimIgnored.has(clip.id)}
+          position={positions.get(clip.unit_id) ?? null}
           onSelect={() => onSelectClip(clip.id)}
         />
       ))}
@@ -349,12 +358,15 @@ interface ClipBlockProps {
   selected: boolean;
   active: boolean;
   trimIgnored: boolean;
+  /** 片段所用单元在本集里的当前位置。 */
+  position: number | null;
   onSelect: () => void;
 }
 
-function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect }: ClipBlockProps) {
+function ClipBlock({ clip, left, width, selected, active, trimIgnored, position, onSelect }: ClipBlockProps) {
   const { t } = useTranslation("dashboard");
   const missingVideo = clip.status === "video_missing";
+  const unit = itemPositionLabel(episodeItemKind(clip.unit_id), position, t);
   return (
     <button
       type="button"
@@ -362,7 +374,7 @@ function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect 
       aria-pressed={selected}
       title={t("edit_view_clip_title", {
         clip: clip.id,
-        unit: itemIdWithinEpisode(clip.unit_id),
+        unit,
         duration: formatSeconds(clip.duration),
       })}
       data-testid={`edit-clip-${clip.id}`}
@@ -382,7 +394,10 @@ function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect 
       <span className="flex h-full flex-col justify-between p-1 text-xs leading-none text-white">
         <span className="flex items-center gap-1 whitespace-nowrap">
           <b>{clip.id}</b>
-          <span>{itemIdWithinEpisode(clip.unit_id)}</span>
+          <span className="sr-only">{unit}</span>
+          <span className="num" aria-hidden>
+            {position ?? t("common:deleted")}
+          </span>
           {trimIgnored && <AlertTriangle aria-hidden className="size-3 shrink-0 text-warn" />}
         </span>
         {/* 视图矮时轨道变矮，只留第一行；时长仍在悬停提示里 */}
@@ -399,21 +414,24 @@ function ClipBlock({ clip, left, width, selected, active, trimIgnored, onSelect 
 const NarrationBlocks = memo(function NarrationBlocks({
   spans,
   duration,
+  positions,
 }: {
   spans: readonly NarrationSpan[];
   duration: number;
+  positions: ReadonlyMap<string, number>;
 }) {
   const { t } = useTranslation("dashboard");
   const lanes = Math.max(1, ...spans.map((span) => span.lane + 1));
   return (
     <>
       {spans.map((span) => {
+        const unit = unitPositionLabel(positions, span.unitId, t);
         const title = span.postProduction
-          ? t("edit_view_narration_post_production", { unit: itemIdWithinEpisode(span.unitId), clip: span.clipId })
+          ? t("edit_view_narration_post_production", { unit, clip: span.clipId })
           : span.missingAudio
-            ? t("edit_view_narration_missing", { unit: itemIdWithinEpisode(span.unitId), clip: span.clipId })
+            ? t("edit_view_narration_missing", { unit, clip: span.clipId })
             : t("edit_view_narration_title", {
-                unit: itemIdWithinEpisode(span.unitId),
+                unit,
                 clip: span.clipId,
                 start: formatSeconds(span.start),
                 end: formatSeconds(span.end),
@@ -443,7 +461,7 @@ const NarrationBlocks = memo(function NarrationBlocks({
               } as CSSProperties
             }
           >
-            {itemIdWithinEpisode(span.unitId)}
+            {positions.get(span.unitId) ?? t("common:deleted")}
           </span>
         );
       })}

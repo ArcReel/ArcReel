@@ -225,11 +225,14 @@ describe("EditTimelineView", () => {
     expect(stale).toHaveAttribute("data-trim-ignored", "true");
     expect(screen.queryByTestId("edit-clip-c2")).not.toBeInTheDocument();
     expect(screen.getByTestId("edit-clip-deleted-c2")).toBeInTheDocument();
-    expect(screen.getByText("未使用").parentElement).toHaveTextContent("U4");
+    // 剧本里 E1U4 排第 3 个：以位置称呼，不露出单元 ID
+    const unused = screen.getByText("未使用").parentElement as HTMLElement;
+    expect(within(unused).getByRole("img", { name: "视频单元 3" })).toBeInTheDocument();
+    expect(unused).not.toHaveTextContent("U4");
 
     const issues = screen.getByRole("heading", { name: "问题（3）" }).parentElement as HTMLElement;
     expect(within(issues).getByText("c2：素材已删除，已跳过")).toBeInTheDocument();
-    expect(within(issues).getByText("视频单元 U4 未使用")).toBeInTheDocument();
+    expect(within(issues).getByText("视频单元 3 未使用")).toBeInTheDocument();
 
     fireEvent.click(within(issues).getByText("c3：素材已更新，暂用完整视频"));
     const inspector = screen.getByTestId("edit-clip-inspector");
@@ -325,7 +328,7 @@ describe("EditTimelineView", () => {
     expect(within(issues).getByText("c1、c3：旁白与下一段旁白重叠 0.5s")).toBeInTheDocument();
     expect(within(issues).getByText("c3：旁白超出时间线末尾 1.2s")).toBeInTheDocument();
     expect(within(issues).getByText("c1、c3：旁白延伸到台词片段上 0.8s，可能与原声相撞")).toBeInTheDocument();
-    expect(within(issues).getByText("c3：视频单元 U3 还没有旁白配音，带旁白版本无法出片")).toBeInTheDocument();
+    expect(within(issues).getByText("c3：视频单元 2 还没有旁白配音，带旁白版本无法出片")).toBeInTheDocument();
   });
 
   it("lists a missing BGM as plain text, since a BGM clip is not a timeline clip to select", async () => {
@@ -516,14 +519,14 @@ describe("EditTimelineView", () => {
     const dashed = await screen.findByTestId("edit-narration-c1");
     expect(dashed).toHaveAttribute("data-missing-audio", "true");
     expect(dashed).not.toHaveAttribute("data-post-production");
-    expect(dashed).toHaveAttribute("title", "U1 还没有旁白配音，挂在 c1 上");
+    expect(dashed).toHaveAttribute("title", "视频单元 1 还没有旁白配音，挂在 c1 上");
     tts.unmount();
 
     renderView(false);
     const neutral = await screen.findByTestId("edit-narration-c1");
     expect(neutral).not.toHaveAttribute("data-missing-audio");
     expect(neutral).toHaveAttribute("data-post-production", "true");
-    expect(neutral).toHaveAttribute("title", "U1 的旁白由后期配音，预览不出声，挂在 c1 上");
+    expect(neutral).toHaveAttribute("title", "视频单元 1 的旁白由后期配音，预览不出声，挂在 c1 上");
   });
 
   it("shows narration over the clips it runs across, subtitles that can be hidden, and BGM once there is any", async () => {
@@ -563,7 +566,7 @@ describe("EditTimelineView", () => {
     renderView();
 
     const span = await screen.findByTestId("edit-narration-c1");
-    expect(span).toHaveAttribute("title", "U1 的旁白，挂在 c1 上：0～4.5s");
+    expect(span).toHaveAttribute("title", "视频单元 1 的旁白，挂在 c1 上：0～4.5s");
     expect(await screen.findByTestId("edit-player-subtitle")).toHaveTextContent("门后传来脚步声。");
     expect(screen.getByTestId("edit-bgm-b1")).toHaveAttribute(
       "title",

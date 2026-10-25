@@ -13,13 +13,22 @@ const EMPTY_PAGE: UsageRecordPage = { items: [], next_cursor: null, total: 0 };
 const PROJECT = "星海列车";
 const PROJECT_QUERY = `section=usage&u_project=${encodeURIComponent(PROJECT)}`;
 
-function queuedTask(taskId: string, resourceId: string) {
+/** 排队中的分镜图任务；后端附上的指称说它在第 1 集里排第 `position` 位。 */
+function queuedTask(taskId: string, resourceId: string, position = 3) {
   return makeTask({
     task_id: taskId,
     project_name: PROJECT,
     task_type: "storyboard",
     media_type: "image",
     resource_id: resourceId,
+    resource_ref: {
+      episode_title: "",
+      episode_position: 1,
+      item_id: resourceId.replace(/^E\d+/, ""),
+      item_position: position,
+      item_excerpt: "",
+      item_thumbnail: null,
+    },
     status: "queued",
   });
 }
@@ -55,7 +64,7 @@ describe("UsageRecordsSection cancel-all", () => {
       return { cancelled_count: 2, skipped_running_count: 0 };
     });
     useTasksStore.setState({
-      tasks: [queuedTask("t-q1", "E1S10"), queuedTask("t-q2", "E1S11")],
+      tasks: [queuedTask("t-q1", "E1S10", 3), queuedTask("t-q2", "E1S11", 4)],
     });
     vi.mocked(API.listTasks).mockImplementation(async () => {
       const tasks = cancelled ? [] : useTasksStore.getState().tasks;
@@ -84,7 +93,7 @@ describe("UsageRecordsSection cancel-all", () => {
 
     renderUsageRecordsSection(PROJECT_QUERY);
 
-    expect(await screen.findByText("S10")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "分镜 3" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "全部取消" })).not.toBeInTheDocument();
   });
 
@@ -93,7 +102,7 @@ describe("UsageRecordsSection cancel-all", () => {
 
     renderUsageRecordsSection("section=usage");
 
-    expect(await screen.findByText("S10")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "分镜 3" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "全部取消" })).not.toBeInTheDocument();
   });
 

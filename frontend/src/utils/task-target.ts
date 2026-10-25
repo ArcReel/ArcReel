@@ -6,7 +6,7 @@ import {
   WORKSPACE_ROUTE_SCENES,
 } from "@/app-routes";
 import type { ProjectData, TaskItem, WorkspaceNotificationTarget } from "@/types";
-import { episodeDisplayName, episodeItemLabel, itemIdsInEpisodeText } from "@/utils/episode-display";
+import { episodeDisplayName, episodeItemLabel, itemIdsInEpisodeText, type ProjectScripts } from "@/utils/episode-display";
 
 /**
  * 由失败任务构建可点击回跳的通知 target，以及人类可读的失败文案。
@@ -61,10 +61,11 @@ function failureTarget(
   idParam: "id" | "unitId" | "episode",
   task: TaskItem,
   projectData: ProjectData | null,
+  scripts: ProjectScripts,
   t: TFunction,
 ): string {
   const episodes = projectData?.episodes ?? [];
-  if (idParam !== "episode") return episodeItemLabel(task.resource_id, episodes, t);
+  if (idParam !== "episode") return episodeItemLabel(task.resource_id, scripts, episodes, t);
   const match = EPISODE_RESOURCE_ID.exec(task.resource_id);
   return match ? episodeDisplayName(episodes, Number(match[1]), t) : task.resource_id;
 }
@@ -177,17 +178,18 @@ function truncateProviderReason(reason: string): string {
 
 /**
  * 失败任务的通知文案。未知 task_type 返回 null（调用方据此跳过推送）。
- * 条目按「标题 · S01」指称；有上游拒因摘要时追加在按 task_type 选出的文案之后。
+ * 条目按「标题 · 5」（本集里的当前位置）指称；有上游拒因摘要时追加在按 task_type 选出的文案之后。
  */
 export function describeTaskFailure(
   t: TFunction,
   task: TaskItem,
   projectData: ProjectData | null = null,
+  scripts: ProjectScripts = {},
 ): string | null {
   const reason = task.error_message ?? t("reference_status_failed");
   const config = FAILURE_TEXT_KEYS[task.task_type];
   if (!config) return null;
-  const target = failureTarget(config.idParam, task, projectData, t);
+  const target = failureTarget(config.idParam, task, projectData, scripts, t);
   const message = t(config.key, { [config.idParam]: target, reason });
   const providerReason = providerReasonOf(task);
   if (!providerReason) return message;

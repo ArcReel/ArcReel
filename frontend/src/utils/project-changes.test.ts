@@ -20,6 +20,16 @@ afterAll(async () => {
   await i18n.changeLanguage("zh");
 });
 
+// 条目按本集里的当前位置称呼，排列故意与 ID 序号错开。
+const SCRIPTS = {
+  "episode_1.json": { episode: 1, segments: [{ segment_id: "E1S02" }, { segment_id: "E1S01" }] },
+  "episode_3.json": { episode: 3, segments: [{ segment_id: "E3S01" }, { segment_id: "E3S04" }] },
+  "episode_7.json": {
+    episode: 7,
+    segments: [{ segment_id: "E7S01" }, { segment_id: "E7S03" }, { segment_id: "E7S02" }],
+  },
+};
+
 function makeChange(overrides: Partial<ProjectChange> = {}): ProjectChange {
   return {
     entity_type: "character",
@@ -117,7 +127,7 @@ describe("project-changes utils", () => {
     expect(formatGroupedNotificationText(group, t, ledger)).toContain("角色「E3S01」");
   });
 
-  it("names episodes and episode items by title and inner id instead of episode ids", () => {
+  it("names episodes by title and episode items by their current position instead of ids", () => {
     const ledger = [
       { episode: 7, title: "山门" },
       { episode: 3, title: "" },
@@ -155,9 +165,21 @@ describe("project-changes utils", () => {
       ),
     );
 
-    expect(formatGroupedNotificationText(single, t, ledger)).toBe("分镜「山门 · S02」的分镜图已生成");
-    expect(formatGroupedNotificationText(draft, t, ledger)).toBe("第 2 集的脚本规划草稿已更新");
-    expect(formatGroupedNotificationText(grouped, t, ledger)).toContain("山门 · S01、第 2 集 · S04");
+    const [removed] = groupChangesByType([
+      makeChange({
+        entity_type: "segment",
+        action: "storyboard_ready",
+        entity_id: "E7S09",
+        label: "分镜「E7S09」",
+        label_key: "skeleton_segments",
+        label_params: { id: "E7S09" },
+      }),
+    ]);
+
+    expect(formatGroupedNotificationText(single, t, ledger, SCRIPTS)).toBe("分镜「山门 · 3」的分镜图已生成");
+    expect(formatGroupedNotificationText(draft, t, ledger, SCRIPTS)).toBe("第 2 集的脚本规划草稿已更新");
+    expect(formatGroupedNotificationText(grouped, t, ledger, SCRIPTS)).toContain("山门 · 1、第 2 集 · 2");
+    expect(formatGroupedNotificationText(removed, t, ledger, SCRIPTS)).toBe("分镜「山门 · 已删除」的分镜图已生成");
   });
 
   it("falls back to the payload label when the event carries no label_key", () => {
@@ -263,24 +285,24 @@ describe("project-changes utils", () => {
       });
 
     const [singleTts] = groupChangesByType([ttsChange("E1S01")]);
-    expect(formatGroupedNotificationText(singleTts, t)).toBe("旁白配音「未命名集 · S01」已生成");
-    expect(formatGroupedDeferredText(singleTts, t)).toBe("旁白配音「未命名集 · S01」 已生成");
+    expect(formatGroupedNotificationText(singleTts, t, [], SCRIPTS)).toBe("旁白配音「未命名集 · 2」已生成");
+    expect(formatGroupedDeferredText(singleTts, t, [], SCRIPTS)).toBe("旁白配音「未命名集 · 2」 已生成");
 
     const [groupedTts] = groupChangesByType([
       ttsChange("E1S01"),
       ttsChange("E1S02"),
     ]);
-    expect(formatGroupedNotificationText(groupedTts, t)).toBe(
-      "已生成 2 个旁白配音：未命名集 · S01、未命名集 · S02",
+    expect(formatGroupedNotificationText(groupedTts, t, [], SCRIPTS)).toBe(
+      "已生成 2 个旁白配音：未命名集 · 2、未命名集 · 1",
     );
-    expect(formatGroupedNotificationText(groupedTts, t)).not.toContain("更新了");
+    expect(formatGroupedNotificationText(groupedTts, t, [], SCRIPTS)).not.toContain("更新了");
   });
 
   // 缺 key 时 i18next 回落到裸 key，同样不含中文，所以「无中文残留」之外还断言两条代表性
   // 全等文案（单条句式 + 分组句式），缺 key 才会被这条护栏抓住。
   it.each([
-    ["en", 'Character "hero" created', "Generated 2 storyboard images: Untitled episode · S01, Untitled episode · S02"],
-    ["vi", 'Đã tạo Nhân vật "hero"', "Đã tạo 2 ảnh phân cảnh: Tập chưa đặt tên · S01, Tập chưa đặt tên · S02"],
+    ["en", 'Character "hero" created', "Generated 2 storyboard images: Untitled episode · 2, Untitled episode · 1"],
+    ["vi", 'Đã tạo Nhân vật "hero"', "Đã tạo 2 ảnh phân cảnh: Tập chưa đặt tên · 2, Tập chưa đặt tên · 1"],
   ])(
     "renders every notification sentence in %s without Chinese leftovers",
     async (language, expectedSingle, expectedGroup) => {
@@ -319,8 +341,8 @@ describe("project-changes utils", () => {
       ]);
 
       const rendered = groups.flatMap((group) => [
-        formatGroupedNotificationText(group, localized),
-        formatGroupedDeferredText(group, localized),
+        formatGroupedNotificationText(group, localized, [], SCRIPTS),
+        formatGroupedDeferredText(group, localized, [], SCRIPTS),
       ]);
 
       expect(rendered).toHaveLength(8);

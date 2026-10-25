@@ -25,7 +25,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { TooltipIconButton } from "./TooltipIconButton";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 
 type StructureContentMode = "narration" | "drama" | "ad";
 
@@ -169,6 +169,7 @@ export function ShotStructureActions({
   onRemove,
 }: ShotStructureActionsProps) {
   const { t } = useTranslation(["dashboard", "common"]);
+  const itemLabel = useItemPositionLabel(segmentId);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [removing, setRemoving] = useState(false);
 
@@ -217,7 +218,7 @@ export function ShotStructureActions({
           >
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>{t("shot_remove_title", { id: itemIdWithinEpisode(segmentId) })}</AlertDialogTitle>
+                <AlertDialogTitle>{t("shot_remove_title", { id: itemLabel })}</AlertDialogTitle>
                 <AlertDialogDescription>{t("shot_remove_desc")}</AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

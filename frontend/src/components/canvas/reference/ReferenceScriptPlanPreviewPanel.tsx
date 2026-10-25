@@ -43,7 +43,8 @@ import { dialogueSpeakers, extractMentions, normalizeAssetName } from "@/utils/r
 import { NewAssetsSection, type NewAssetEntryRefs } from "@/components/canvas/shared/NewAssetsSection";
 import { hasValidNewAssets } from "@/utils/plan-new-assets";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
-import { episodeAgentRef, itemIdsInEpisodeText, itemIdWithinEpisode } from "@/utils/episode-display";
+import { episodeAgentRef, itemIdsInEpisodeText } from "@/utils/episode-display";
+import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
 import { tierProblemText } from "./unit-tier-problem";
 import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
 
@@ -71,6 +72,8 @@ const SPEECH_VIOLATION_KEYS: Record<string, string> = {
 /** unit 卡的统一显示形状：结构化（已晋升）与扁平（草稿）两种来源在这里收敛。 */
 interface DisplayUnit {
   key: string;
+  /** 在规划里的位置，从 1 起；界面以它称呼单元。 */
+  position: number;
   duration_seconds: number;
   sourceText: string;
   scriptText: string;
@@ -87,8 +90,9 @@ function unitStats(scriptText: string, lookup: MentionLookup): { utterances: num
 }
 
 function structuredDisplayUnits(draft: ReferenceScriptPlanDraft): DisplayUnit[] {
-  return draft.units.map((u) => ({
+  return draft.units.map((u, i) => ({
     key: u.unit_id,
+    position: i + 1,
     duration_seconds: u.duration_seconds,
     sourceText: u.source_text,
     scriptText: u.text,
@@ -122,6 +126,8 @@ function narrowFlatUnitsDraft(content: Record<string, unknown> | null): FlatUnit
 function newAssetEntries(units: DisplayUnit[]): NewAssetEntryRefs[] {
   return units.map((unit) => ({
     id: unit.key,
+    position: unit.position,
+    kind: "unit" as const,
     names: [...extractMentions(unit.scriptText), ...dialogueSpeakers(unit.scriptText)],
     snippet: unit.sourceText,
   }));
@@ -149,6 +155,7 @@ function draftUnitKey(episode: number, index: number): string {
 function flatDisplayUnits(draft: FlatUnitsDraft, episode: number): DisplayUnit[] {
   return draft.units.map((u, i) => ({
     key: draftUnitKey(episode, i),
+    position: i + 1,
     duration_seconds: u.duration_seconds,
     sourceText: u.source_text,
     scriptText: u.text,
@@ -169,6 +176,7 @@ function brokenDraftDisplayUnits(content: Record<string, unknown> | null, episod
     return [
       {
         key: draftUnitKey(episode, i),
+        position: i + 1,
         duration_seconds: typeof u.duration_seconds === "number" ? u.duration_seconds : 0,
         sourceText: typeof u.source_text === "string" ? u.source_text : "",
         scriptText: typeof u.text === "string" ? u.text : "",
@@ -226,7 +234,7 @@ function unitLacksSceneReference(scriptText: string, lookup: MentionLookup, proj
   return !extractMentions(scriptText).some((name) => lookup[name] === "scene");
 }
 
-function InlineViolations({ violations, unitKey }: { violations: ScriptReviewViolation[]; unitKey: string }) {
+function InlineViolations({ violations, position }: { violations: ScriptReviewViolation[]; position: number }) {
   const { t } = useTranslation("dashboard");
   if (!violations.length) return null;
   return (
@@ -237,7 +245,7 @@ function InlineViolations({ violations, unitKey }: { violations: ScriptReviewVio
           ?.map(({ path, line }) => `${path.join(".")}${line === null ? "" : `:${line + 1}`}`)
           .join(", ");
         const message = speechKey && location
-          ? t(speechKey, { unitId: itemIdWithinEpisode(unitKey), location })
+          ? t(speechKey, { position, location })
           : itemIdsInEpisodeText(v.message);
         return (
           // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 违约由服务端整表算出、没有 ID，同一 code 可重复出现；只读文本、行内无状态
@@ -293,6 +301,7 @@ function UnitCard({
   busy: boolean;
 }) {
   const { t } = useTranslation("dashboard");
+  const unitLabel = t("common:item_position_unit", { position: unit.position });
   const hasViolation = violations.anchorSource.length + violations.byLine.size + violations.aggregate.length > 0;
   const anchorBroken = violations.anchorSource.length > 0;
   const stats = useMemo(() => unitStats(unit.scriptText, lookup), [unit.scriptText, lookup]);
@@ -310,7 +319,7 @@ function UnitCard({
       className={`scroll-mt-28 rounded-lg border bg-card p-4 ${hasViolation ? "border-destructive/45" : "border-border"}`}
     >
       <div className="flex items-center gap-2">
-        <span className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-xs text-subtle-foreground">{itemIdWithinEpisode(unit.key)}</span>
+        <ItemPositionBadge position={unit.position} kind="unit" />
         {durationProblem ? (
           <span className="text-xs font-medium text-warn">
             {durationProblem.label}
@@ -322,7 +331,7 @@ function UnitCard({
             options={durationOptions}
             onChange={(seconds) => onDurationChange?.(seconds)}
             disabled={busy}
-            label={t("reference_script_plan_duration_label", { unit: itemIdWithinEpisode(unit.key) })}
+            label={t("reference_script_plan_duration_label", { unit: unitLabel })}
             endpointFixed={durationEndpointFixed}
           />
         )}
@@ -372,7 +381,7 @@ function UnitCard({
         >
           {unit.sourceText}
         </p>
-        <InlineViolations violations={violations.anchorSource} unitKey={unit.key} />
+        <InlineViolations violations={violations.anchorSource} position={unit.position} />
       </details>
 
       <div className="mt-3">
@@ -381,20 +390,20 @@ function UnitCard({
             value={unit.scriptText}
             onChange={(e) => onTextChange(e.target.value)}
             disabled={busy}
-            aria-label={t("reference_script_plan_unit_text_label", { unit: itemIdWithinEpisode(unit.key) })}
+            aria-label={t("reference_script_plan_unit_text_label", { unit: unitLabel })}
           />
         ) : (
           <ScriptHighlight
             text={unit.scriptText}
             lookup={lookup}
             renderAfterLine={(sourceLine) => (
-              <InlineViolations violations={violations.byLine.get(sourceLine) ?? []} unitKey={unit.key} />
+              <InlineViolations violations={violations.byLine.get(sourceLine) ?? []} position={unit.position} />
             )}
           />
         )}
       </div>
 
-      <InlineViolations violations={violations.aggregate} unitKey={unit.key} />
+      <InlineViolations violations={violations.aggregate} position={unit.position} />
 
       {/* 降级提示（不阻断确认），与违约的红标区分开：正文合法，只是画面地点没被钉住。 */}
       {lacksScene && (
@@ -612,7 +621,7 @@ export function ReferenceScriptPlanPreviewPanel({
           violationCount={quarantine.violations.length}
           itemJumps={[...groups.byItem.entries()].map(([index, list]) => ({
             index,
-            label: itemIdWithinEpisode(displayUnits[index].key),
+            label: t("common:item_position_unit", { position: index + 1 }),
             count: list.length,
           }))}
           episodeLevelCount={groups.episodeLevel.length}

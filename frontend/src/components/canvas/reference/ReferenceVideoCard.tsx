@@ -13,7 +13,6 @@ import {
   type AssetKind,
   type ReferenceVideoUnit,
 } from "@/types/reference-video";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
 
 // mention 胶囊改用 inline box-shadow 伪描边 + 背景色，不额外占宽：以前用 `px-0.5`
 // 每遇到一个 mention 视觉层比 textarea 字符宽度多 4px，导致光标定位与可见字符偏移。
@@ -314,10 +313,7 @@ export function ReferenceVideoCard({
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className="mb-1 flex items-center justify-between text-xs text-muted-foreground">
-        <span className="font-mono" translate="no">
-          {itemIdWithinEpisode(unit.unit_id)}
-        </span>
+      <div className="mb-1 flex items-center justify-end text-xs text-muted-foreground">
         <div className="flex items-center gap-2">
           <PromptPreviewButton
             title={t("reference_prompt_preview_title")}
