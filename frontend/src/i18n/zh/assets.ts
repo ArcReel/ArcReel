@@ -150,6 +150,7 @@ export default {
   "sheet_batch_done": "资产图批量生成完成：{{count}} 张已生成",
   "sheet_batch_done_with_failures": "资产图批量生成结束：{{succeeded}} 张已生成，{{failed}} 张失败",
   "sheet_batch_owner_missing": "其中 {{count}} 张衍生图因本体资产图未生成而未提交",
+  "sheet_batch_target_deleted": "其中 {{count}} 张生成完成时资产已删除，结果已移入项目回收站",
   "sheet_regenerate_stale_title": "重新生成这张资产图？",
   "sheet_regenerate_stale_impact": "重新生成后，用到它的 {{storyboards}} 张分镜图、{{videos}} 段视频会转为过期。",
   "sheet_regenerate_stale_derivatives": "它的 {{count}} 张衍生图也会过期。",

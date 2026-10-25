@@ -9,7 +9,7 @@ import type { TaskStatus } from "@/types";
 
 /**
  * 全局后台任务失败通知：监听任务队列，任务转入 failed 时推送一条持久（可点击回跳）
- * 通知。这是后台任务失败的唯一通知来源——用户可能已离开出错的页面，因此用
+ * 通知；任务成功但生成完成时目标已删除（结果进了项目回收站）时同样推送一条提示。这是后台任务失败的唯一通知来源——用户可能已离开出错的页面，因此用
  * pushNotification 而非瞬时 toast（入队同步失败仍由调用点用 toast 反馈，那类任务
  * 从未进入队列，不会被这里捕获）。覆盖 storyboard/video/character/scene/prop/grid/
  * reference_video/image_edit。
@@ -69,10 +69,15 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
       // 只跟踪当前项目的任务：其余项目的任务既不通知也不进 prevStatus。
       if (tk.project_name !== projectName) continue;
       const before = prev.get(tk.task_id);
-      const isTransition = before !== undefined && before !== "failed";
-      const isFreshFailure = seeded && before === undefined;
+      // 状态转换，或基线建立后首次出现即处于该状态的新任务。
+      const isNew = before === undefined ? seeded : before !== tk.status;
       // 资产图批次的成员由 useAssetSheetBatchNotifications 整批汇总成一条通知。
-      if (tk.status === "failed" && (isTransition || isFreshFailure) && !isAssetSheetBatchTask(tk.task_id)) {
+      const notify = isNew && !isAssetSheetBatchTask(tk.task_id);
+      if (notify && tk.status === "succeeded" && tk.result?.target_deleted === true) {
+        // 生成完成时目标已删除：任务成功但没有写回，结果进了项目回收站。
+        useAppStore.getState().pushNotification(tRef.current("task_target_deleted"), "warning");
+      }
+      if (notify && tk.status === "failed") {
         const text = describeTaskFailure(tRef.current, tk, projectDataRef.current);
         if (text) {
           useAppStore.getState().pushNotification(text, "error", {
@@ -85,7 +90,7 @@ export function useTaskFailureNotifications(projectName?: string | null): void {
     prevStatusRef.current = next;
     // 非过渡 commit 才建立基线——即使本轮 tasks 为空（项目就是没有任务），也代表
     // 已经收到当前项目的真实响应；后续若有 task 在两 poll 间快速失败被首次观测即
-    // failed，仍能走 isFreshFailure 通道触发通知。
+    // failed，仍能按新任务触发通知。
     if (!isTransitionCommit) {
       seededRef.current = true;
     }

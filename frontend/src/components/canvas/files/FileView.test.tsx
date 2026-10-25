@@ -332,6 +332,28 @@ it("names a timeline record by its object and reports the name it was restored u
   await waitFor(() => expect(toasts.at(-1)?.text).toBe("原名已被占用，剪辑时间线「初剪」（第 1 集） 已改名为「初剪 (1)」恢复"));
 });
 
+it("names source file and planning draft records by their object", async () => {
+  const record = (id: string, object: TrashRecord["object"]) => timelineRecord({ id, object, files: [String(object.path)] });
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("/trash")) {
+      return Promise.resolve(Response.json({
+        records: [
+          record("s", { kind: "source_file", path: "source/第一章.txt", raw: [] }),
+          record("p", { kind: "planning_draft", path: "drafts/episode_2/plan.json", episode: 2 }),
+        ],
+        total_size: 20,
+        retention_days: 30,
+      }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  await userEvent.setup().click(screen.getByRole("tab", { name: "项目回收站" }));
+  expect(await screen.findByText("源文件「第一章.txt」")).toBeInTheDocument();
+  expect(screen.getByText("第 2 集的规划草稿")).toBeInTheDocument();
+});
+
 it("names an episode record by its title and says the restored episode goes to the end of the order", async () => {
   const toasts = collectToasts();
   const episode = { kind: "episode", id: 3, title: "番外" };

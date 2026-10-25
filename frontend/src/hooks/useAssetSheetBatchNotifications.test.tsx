@@ -111,6 +111,28 @@ describe("useAssetSheetBatchNotifications", () => {
     });
   });
 
+  it("counts results whose asset was deleted during generation apart from generated sheets", async () => {
+    useTasksStore.setState({
+      tasks: [makeTask({ ...OWNER, status: "running" }), makeTask({ ...DERIVATIVE, status: "running" })],
+    });
+    render(<Harness />);
+
+    act(() => {
+      useTasksStore.setState({
+        tasks: [
+          makeTask({ ...OWNER, status: "succeeded" }),
+          makeTask({ ...DERIVATIVE, status: "succeeded", result: { target_deleted: true, trash_record_id: "r1" } }),
+        ],
+      });
+    });
+
+    await waitFor(() => expect(useAppStore.getState().workspaceNotifications).toHaveLength(1));
+    expect(useAppStore.getState().workspaceNotifications[0]).toMatchObject({
+      tone: "warning",
+      text: "资产图批量生成完成：1 张已生成；其中 1 张生成完成时资产已删除，结果已移入项目回收站",
+    });
+  });
+
   it.each([true, false])("reports submission failures alongside queued members: queued=%s", async (queued) => {
     useAssetSheetBatchStore.setState({ batches: {}, trackedTaskIds: new Set() });
     useAssetSheetBatchStore.getState().track({
