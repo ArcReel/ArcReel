@@ -355,16 +355,16 @@ After the merge, references in every episode's script plan, final script, drafts
 
 For characters, you can also choose **Derivative**: the merged character becomes a derivative of the kept character, keeping its description, and the derivative sheet needs generating. If the kept character already has a derivative with the same name (ignoring case), no new one is created: the merge goes into the existing derivative, whose description and sheet do not change. Visual references point to that derivative, dialogue speakers change to the kept character, and the merged character's name is not recorded as an alias.
 
-The merged asset's description, sheet and version history, voice settings, reference image, and reference audio are not kept, and a merge can't be undone. Before you confirm, the dialog lists, per episode, how many references will be rewritten and how many storyboard images and videos will become stale. It also shows the merged asset's description so you can copy what you need into the kept asset.
+The merged asset's description, sheet and version history, voice settings, reference image, and reference audio are not merged into the kept asset. They move to the project trash and are kept for 30 days. Restoring them does not change references that were already rewritten to the kept asset back; see [Restoring after an asset merge](./files-and-trash.md#after-merge). Before you confirm, the dialog lists, per episode, how many references will be rewritten and how many storyboard images and videos will become stale. It also shows the merged asset's description so you can copy what you need into the kept asset.
 
 #### Delete assets {#delete-assets}
 
 Open the menu on an asset card and choose **Delete**. Before you confirm, the dialog checks references in every episode's script plan, final script, drafts, and prompt text:
 
 - If the asset is referenced, the dialog says which episodes reference it and how many times. Deleting doesn't rewrite those references, so shots that reference the asset will be blocked at generation. To keep the references, choose **Merge instead…** to [merge it into another asset of the same type](#merge-assets). Products can't be merged, so they don't have this button.
-- If nothing references the asset, the dialog only warns that deletion can't be undone.
+- If nothing references the asset, the dialog only says the asset moves to the project trash.
 
-Deleting a character also deletes its derivatives. Deletion can't be undone.
+The asset moves to the project trash together with its sheet, version history, and derivatives, and is kept for 30 days. During that time you can restore it from the project trash in the **Files** view; see [File View and Project Trash](./files-and-trash.md#assets).
 
 ### Stage 4: Small Sample {#stage-sample-clips}
 

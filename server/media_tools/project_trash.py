@@ -100,7 +100,10 @@ async def restore_trash_record(
     record_id = request.value.record_id
 
     def restore() -> dict[str, Any]:
-        return project_trash.restore(services.projects.get_project_path(scope.project_name), record_id).to_dict()
+        project_dir = services.projects.get_project_path(scope.project_name)
+        # 摘要要对比删除时与恢复后的对象描述，才能说明换了名或换了编号。
+        original = dict(project_trash.require_record(project_dir, record_id).object)
+        return {**project_trash.restore(project_dir, record_id).to_dict(), "original_object": original}
 
     return await _run("restore_trash_record", True, restore)
 
@@ -110,13 +113,26 @@ def delete_project_file_summary(value: dict[str, Any]) -> str:
     return f"已移入项目回收站：{'、'.join(record['files'])}（删除记录 {record['id']}，保留 {project_trash.RETENTION.days} 天）"
 
 
+def _identity_notes(value: dict[str, Any]) -> list[str]:
+    """对象恢复后换了名或编号时的说明；降级时对象没有按原结构恢复，不说。"""
+    original, landed = value.get("original_object", {}), value["object"]
+    notes = [
+        f"{label}已换：{original[key]} → {landed[key]}"
+        for key, label in (("name", "名称"), ("id", "编号"))
+        if key in original and landed.get(key) != original[key]
+    ]
+    if landed.get("kind") == "episode":
+        notes.append("这一集排在播出顺序末尾")
+    return notes
+
+
 def restore_trash_record_summary(value: dict[str, Any]) -> str:
     lines = [
         f"{item['original']} → {item['path']}" + ("（作为历史版本加回）" if item["as_history"] else "")
         for item in value["restored"]
     ]
     if not value.get("degraded"):
-        return "已恢复：\n" + "\n".join(lines)
+        return "已恢复：\n" + "\n".join([*lines, *_identity_notes(value)])
     kept = "、".join(value["download_only"])
     return (
         "无法按原结构恢复，只加回了其中的文件"
