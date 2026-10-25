@@ -15,6 +15,7 @@ from scripts.prepare_contact_guide import (
     render_depth,
     segment_box_distance,
     solve_elbow,
+    supported_reaction_sequence,
     validate_sequence,
 )
 
@@ -87,6 +88,34 @@ def test_head_tilt_preserves_its_neck_pivot_and_distances():
     pivot, face = (478, 108), (475, 65)
     assert head_point(pivot, -0.12) == pivot
     assert math.dist(head_point(face, -0.12), pivot) == pytest.approx(math.dist(face, pivot))
+
+
+def test_supported_continuation_preserves_join_and_contact_before_reaction():
+    frames = supported_reaction_sequence()
+    assert frames[0] == contact_sequence(expressive=True)[-1]
+    assert frames[33].creature_dip == 9
+    assert frames[33].body_angle == 0
+    assert frames[41].body_angle > 0
+    assert frames[-1].body_angle == 0
+    metrics = validate_sequence(frames, continuation=True)
+    assert metrics["contact_frames"] == [0, 96]
+    assert metrics["max_contact_gap"] == 0
+    assert metrics["min_arm_bag_clearance"] > 0
+    assert all(frame.bag == frames[0].bag and frame.palm == frames[0].palm for frame in frames)
+
+
+def test_continuation_rejects_contact_loss_at_its_first_frame():
+    frames = supported_reaction_sequence()
+    frames[0] = replace(frames[0], bag=(397, 204))
+    with pytest.raises(ValueError, match="loses underside contact"):
+        validate_sequence(frames, continuation=True)
+
+
+def test_viewport_matches_same_camera_crop_without_moving_geometry():
+    frame = supported_reaction_sequence()[0]
+    full = render_depth(frame, width=768, height=448)
+    cropped = render_depth(frame, width=480, height=280, viewport=(240, 0, 480, 280))
+    assert np.array_equal(cropped, full[:280, 240:720])
 
 
 @pytest.mark.parametrize(

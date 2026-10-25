@@ -11,7 +11,7 @@ import hashlib
 import json
 import math
 import subprocess
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import numpy as np
@@ -98,6 +98,30 @@ def contact_sequence(*, reaction=False, expressive=False):
     return frames
 
 
+def supported_reaction_sequence():
+    """Continue the caught pose with a creature head pulse and delayed human recoil."""
+    anchor = contact_sequence(expressive=True)[-1]
+    frames = []
+    for index in range(97):
+        pulse = smooth_between(index, 26, 33) * (1 - smooth_between(index, 33, 44))
+        recoil = smooth_between(index, 34, 41) * (1 - smooth_between(index, 48, 64))
+        body_angle = 0.03 * recoil
+        shoulder = body_point((439.0, 127.0), body_angle)
+        elbow = solve_elbow(shoulder, anchor.wrist, UPPER_ARM, FOREARM, (600.0, 200.0))
+        frames.append(
+            replace(
+                anchor,
+                shoulder=shoulder,
+                elbow=elbow,
+                body_angle=body_angle,
+                creature_dip=9 * pulse,
+                head_angle=-0.12 + 0.08 * smooth_between(index, 34, 58),
+            )
+        )
+    validate_sequence(frames, continuation=True)
+    return frames
+
+
 def segment_box_distance(start, end, box_min, box_max):
     """Exact 2D segment/rectangle distance for the arm's shared depth plane."""
     delta = np.asarray(end) - start
@@ -127,10 +151,12 @@ def segment_box_distance(start, end, box_min, box_max):
     )
 
 
-def validate_sequence(frames):
+def validate_sequence(frames, *, continuation=False):
     """Validate the declared planar contact fixture, not inferred video motion."""
-    if len(frames) != FRAME_COUNT:
-        raise ValueError("The contact fixture requires exactly 49 frames")
+    expected_frames = 97 if continuation else FRAME_COUNT
+    contact_start = 0 if continuation else CONTACT_FRAME
+    if len(frames) != expected_frames:
+        raise ValueError(f"The contact fixture requires exactly {expected_frames} frames")
     max_length_error = 0.0
     max_contact_gap = 0.0
     min_arm_clearance = math.inf
@@ -172,30 +198,34 @@ def validate_sequence(frames):
             min_arm_clearance = min(min_arm_clearance, clearance)
             if clearance < -1e-6:
                 raise ValueError(f"Arm penetrates the bag at frame {index}")
-        if index >= CONTACT_FRAME and (
+        if index >= contact_start and (
             not math.isclose(hand_top, bag_bottom, abs_tol=1e-6)
             or abs(frame.palm[0] - frame.bag[0]) >= BAG_HALF_SIZE[0]
         ):
             raise ValueError(f"Palm loses underside contact at frame {index}")
-        if index >= CONTACT_FRAME:
+        if index >= contact_start:
             max_contact_gap = max(max_contact_gap, abs(hand_top - bag_bottom))
-    if frames[10].bag[1] <= frames[0].bag[1] or frames[8].wrist != frames[0].wrist:
+    if not continuation and (frames[10].bag[1] <= frames[0].bag[1] or frames[8].wrist != frames[0].wrist):
         raise ValueError("The bag dip must precede the catch")
     return {
         "frames": len(frames),
         "max_bone_length_error": max_length_error,
-        "contact_frames": [CONTACT_FRAME, FRAME_COUNT - 1],
+        "contact_frames": [contact_start, len(frames) - 1],
         "max_contact_gap": max_contact_gap,
         "min_arm_bag_clearance": min_arm_clearance,
-        "coordinate_units": "Proxy scene units; camera maps one unit to one output pixel. Not meters.",
+        "coordinate_units": "Proxy scene units, not meters; viewport and output size determine the pixel mapping.",
         "production_qualified": False,
         "scope": "Planar arm lengths and palm/bag underside contact only; not a complete character rig or acting review.",
     }
 
 
-def render_depth(frame, width=384, height=224):
+def render_depth(frame, width=384, height=224, *, viewport=None):
     """Ray cast fixed-depth proxy solids with a clip-wide depth mapping."""
-    xx, yy = np.meshgrid((np.arange(width) + 0.5) * WIDTH / width, (np.arange(height) + 0.5) * HEIGHT / height)
+    left, top, span_x, span_y = viewport or (0, 0, WIDTH, HEIGHT)
+    xx, yy = np.meshgrid(
+        left + (np.arange(width) + 0.5) * span_x / width,
+        top + (np.arange(height) + 0.5) * span_y / height,
+    )
     depth = np.full((height, width), 600.0)
 
     def ellipsoid(center, radii, angle=0.0):
@@ -256,15 +286,22 @@ def render_depth(frame, width=384, height=224):
     return np.repeat(np.rint(gray[:, :, None] * 255).astype(np.uint8), 3, axis=2)
 
 
-def export_guide(output_dir, *, reaction=False, expressive=False):
-    frames = contact_sequence(reaction=reaction, expressive=expressive)
-    metrics = validate_sequence(frames)
+def export_guide(output_dir, *, reaction=False, expressive=False, continuation=False):
+    frames = (
+        supported_reaction_sequence() if continuation else contact_sequence(reaction=reaction, expressive=expressive)
+    )
+    viewport = (240, 0, 480, 280) if continuation else None
+    metrics = validate_sequence(frames, continuation=continuation)
     output_dir.mkdir(parents=True, exist_ok=False)
     sequence = output_dir / "performance.json"
     sequence.write_text(
-        json.dumps({"schema_version": 1, "fps": FPS, "frames": [asdict(frame) for frame in frames]}, indent=2) + "\n"
+        json.dumps(
+            {"schema_version": 1, "fps": FPS, "viewport": viewport, "frames": [asdict(frame) for frame in frames]},
+            indent=2,
+        )
+        + "\n"
     )
-    pixels = np.stack([render_depth(frame) for frame in frames])
+    pixels = np.stack([render_depth(frame, viewport=viewport) for frame in frames])
     video = output_dir / "depth-guide.mp4"
     subprocess.run(
         [
@@ -293,10 +330,17 @@ def export_guide(output_dir, *, reaction=False, expressive=False):
         input=pixels.tobytes(),
         check=True,
     )
-    for index in (0, 10, CONTACT_FRAME, FRAME_COUNT - 1):
+    for index in (0, 33, 41, 96) if continuation else (0, 10, CONTACT_FRAME, FRAME_COUNT - 1):
         Image.fromarray(pixels[index]).save(output_dir / f"frame-{index:02d}.png")
     metrics.update(
-        performance="expressive" if expressive else "reaction" if reaction else "contact_only",
+        viewport=viewport,
+        performance="supported_reaction"
+        if continuation
+        else "expressive"
+        if expressive
+        else "reaction"
+        if reaction
+        else "contact_only",
         video_sha256=hashlib.sha256(video.read_bytes()).hexdigest(),
         sequence_sha256=hashlib.sha256(sequence.read_bytes()).hexdigest(),
         source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
@@ -314,8 +358,18 @@ def main():
     performance.add_argument(
         "--expressive", action="store_true", help="Yield to the bag, catch, recover, then tip the head toward it."
     )
+    performance.add_argument(
+        "--continuation", action="store_true", help="Keep the caught load supported in a closer creature/reaction shot."
+    )
     args = parser.parse_args()
-    print(json.dumps(export_guide(args.output_dir, reaction=args.reaction, expressive=args.expressive), indent=2))
+    print(
+        json.dumps(
+            export_guide(
+                args.output_dir, reaction=args.reaction, expressive=args.expressive, continuation=args.continuation
+            ),
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

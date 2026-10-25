@@ -167,6 +167,14 @@ contact-only fixture: pair it with a reviewed matching end image. Eye direction
 and facial expression must come from that image; depth silhouettes do not encode
 them. Neither preset is production-qualified without reviewing its actual video.
 
+Use `--continuation` to test an adjoining 97-frame supported reaction. Its first
+pose equals the expressive catch's final pose, and contact is required from frame
+zero. A creature head pulse precedes a small human recoil and recovery. Its fixed
+viewport is `(240, 0, 480, 280)` in the 768x448 source camera: use the same crop of
+the actual preceding video endpoint as its starting image. This is a same-axis
+cut-in, not a newly solved camera angle. The depth guide supplies body motion;
+facial acting, particles and sound still need independent output review.
+
 This orthographic proxy checks fixed arm lengths, arm/bag clearance, and a palm
 supporting the bag underside. It records frame coordinates, source and video
 hashes, and validation metrics; existing output directories are never replaced.
