@@ -352,16 +352,12 @@ def delete_episode(
 
         content: EpisodeContent = committed["content"]
         # 删除记录先建：结构快照里的产物清单与版本历史还带着这一集的登记，恢复时从中取回
-        record = (
-            project_trash.record_deletion(
-                project_dir,
-                {"kind": EPISODE_KIND, "id": episode, "title": committed["title"]},
-                content.files,
-                snapshot=True,
-                before={"project.json": committed["before"]},
-            )
-            if content.files
-            else None
+        record = project_trash.record_deletion(
+            project_dir,
+            {"kind": EPISODE_KIND, "id": episode, "title": committed["title"]},
+            content.files,
+            snapshot=True,
+            before={"project.json": committed["before"]},
         )
         try:
             sync_source_snapshots(project_dir, committed["project"], {})
@@ -374,8 +370,7 @@ def delete_episode(
             if expected:
                 register_artifact_entries_atomically(project_dir, dict.fromkeys(expected), expected_entries=expected)
         except BaseException:
-            if record is not None:
-                project_trash.withdraw(project_dir, record.id)
+            project_trash.withdraw(project_dir, record.id)
             raise
         for path in content.leftovers:
             with contextlib.suppress(OSError):
@@ -383,7 +378,11 @@ def delete_episode(
         for directory in content.dirs:
             _remove_empty_dirs(directory)
 
-    formal_paths = [source_snapshot_path(project_dir, rel) for rel in whole_source_files(project)]
+    # 摘版本记录之后的步骤失败时，版本历史随账本一起回到删除前。
+    formal_paths = [
+        VersionManager(project_dir).versions_file,
+        *(source_snapshot_path(project_dir, rel) for rel in whole_source_files(project)),
+    ]
     try:
         pm.update_project(project_name, _mutate, on_commit=_on_commit, formal_paths=formal_paths)
     except _StaleConfirmation as exc:

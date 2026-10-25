@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,9 +10,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
+from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.artifact_planner import TargetStatePlanner
-from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.artifact_registration import register_current_artifact
 from lib.artifacts.version_manager import VersionManager
 from lib.episode.episode_deletion import delete_episode
 from lib.infra.api_errors import ApiError
@@ -75,12 +75,18 @@ def _remove(http: TestClient, item_id: str) -> dict[str, Any]:
     return record
 
 
+@pytest.mark.parametrize("changed_input", [False, True])
 def test_a_removed_shot_comes_back_after_its_predecessor_with_media_and_history(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, changed_input: bool
 ) -> None:
     manager, http = _project(tmp_path, monkeypatch)
     project_dir = manager.get_project_path("demo")
     history = VersionManager(project_dir).get_versions("storyboards", "E1S02")
+    key = ArtifactKey.episode_storyboard(1, "E1S02")
+    register_current_artifact(project_dir, key)
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    claim = adapter.get_entry(key)
+    assert claim is not None
     with http:
         record = _remove(http, "E1S02")
 
@@ -93,6 +99,9 @@ def test_a_removed_shot_comes_back_after_its_predecessor_with_media_and_history(
         assert {"storyboards/scene_E1S02.png", history["versions"][0]["file"]} <= set(record["files"])
         assert not (project_dir / "storyboards" / "scene_E1S02.png").exists()
         assert not VersionManager(project_dir).has_versions("storyboards", "E1S02")
+        assert adapter.get_entry(key) is None
+        if changed_input:
+            manager.update_project("demo", lambda project: project.update(style="水彩"))
 
         restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
 
@@ -103,6 +112,9 @@ def test_a_removed_shot_comes_back_after_its_predecessor_with_media_and_history(
         assert segments[1]["generated_assets"]["storyboard_image"] == "storyboards/scene_E1S02.png"
         assert (project_dir / "storyboards" / "scene_E1S02.png").read_bytes() == b"image-E1S02"
         assert VersionManager(project_dir).get_versions("storyboards", "E1S02") == history
+        assert adapter.get_entry(key) == claim
+        status = ArtifactCurrencyResolver(project_dir).compare(key, artifact_path=claim.artifact_path).status
+        assert status == (ArtifactStatus.STALE if changed_input else ArtifactStatus.CURRENT)
         assert http.get("/api/v1/projects/demo/trash").json()["records"] == []
 
 
@@ -160,14 +172,34 @@ def test_a_renumbered_grid_member_comes_back_as_a_plain_shot_that_the_planner_pl
     assert TargetStatePlanner(project_dir).resolve_basis(ArtifactKey.episode_storyboard(1, "E1S04")) is not None
 
 
+@pytest.mark.parametrize("degraded", [False, True])
 def test_two_concurrent_restores_of_one_record_put_it_back_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, degraded: bool
 ) -> None:
     manager, http = _project(tmp_path, monkeypatch)
     project_dir = manager.get_project_path("demo")
+    source = project_dir / "source" / "race.txt"
+    source.write_text("恢复时的迁移屏障", encoding="utf-8")
     with http:
-        record = _remove(http, "E1S03")
+        if degraded:
+            impact = delete_episode(manager, "demo", 1)
+            delete_episode(manager, "demo", 1, revision=impact.impact.revision)
+            [record] = http.get("/api/v1/projects/demo/trash").json()["records"]
+        else:
+            record = _remove(http, "E1S03")
     outcomes: list[object] = []
+    staged = threading.Barrier(2)
+    read_bytes = Path.read_bytes
+
+    def read_staged_source(path: Path) -> bytes:
+        if path.name == source.name and any(p.name.startswith(".restore-") for p in path.parents):
+            # 编码迁移在铺设完成、释放项目锁之后读源文：两次恢复都到达后才允许继续。
+            staged.wait(timeout=30)
+            if degraded:
+                raise OSError("source read failed")
+        return read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", read_staged_source)
 
     def restore() -> None:
         try:
@@ -176,23 +208,23 @@ def test_two_concurrent_restores_of_one_record_put_it_back_once(
             outcomes.append(exc)
 
     racers = [threading.Thread(target=restore) for _ in range(2)]
-    # 两个标签页同时点恢复：两次都铺设完临时项目、停在剧本锁前，之后才先后落地。
-    with manager.script_lock("demo", "episode_1.json"):
-        for racer in racers:
-            racer.start()
-        deadline = time.monotonic() + 30
-        while len(list(project_trash.trash_dir(project_dir).glob(".restore-*/projects/demo/project.json"))) < 2:
-            assert time.monotonic() < deadline, "两次恢复没有都开始铺设"
-            time.sleep(0.01)
-        with project_metadata_lock(project_dir):
-            pass  # 铺设在项目锁内进行：拿到锁时两次铺设都已完成
+    for racer in racers:
+        racer.start()
     for racer in racers:
         racer.join(timeout=30)
+        assert not racer.is_alive()
 
     [failure] = [o for o in outcomes if isinstance(o, ApiError)]
-    assert failure.key == "trash_record_not_found"
+    assert failure.key == ("trash_restore_download_only" if degraded else "trash_record_not_found")
     assert len(outcomes) == 2
-    assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S03"]
+    if degraded:
+        [kept] = project_trash.list_records(project_dir)
+        assert kept.download_only
+        assert kept.files == ("scripts/episode_1.json",)
+        assert not (project_dir / "scripts/episode_1.json").exists()
+        assert manager.load_project("demo")["episodes"] == []
+    else:
+        assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S03"]
     assert sorted(p.name for p in (project_dir / "storyboards").iterdir()) == ["scene_E1S02.png", "scene_E1S03.png"]
     assert not VersionManager(project_dir).has_versions("storyboards", "E1S04")
 
@@ -257,3 +289,55 @@ def test_a_removed_shot_without_media_still_becomes_a_record_and_returns_to_the_
 
     assert restored.status_code == 200, restored.text
     assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S03"]
+
+
+def test_a_shot_without_media_that_cannot_be_taken_out_keeps_its_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """没有被删文件的记录降级后什么都加回不了：恢复失败、记录保留，修好后可以重试。"""
+    manager, http = _project(tmp_path, monkeypatch)
+    project_dir = manager.get_project_path("demo")
+    with http:
+        record = _remove(http, "E1S01")
+        snapshot_script = (
+            project_trash.trash_dir(project_dir)
+            / record["id"]
+            / project_trash.SNAPSHOT_DIRNAME
+            / "scripts"
+            / "episode_1.json"
+        )
+        intact = snapshot_script.read_bytes()
+        snapshot_script.write_text("{broken", encoding="utf-8")
+
+        refused = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+        kept = [r["id"] for r in http.get("/api/v1/projects/demo/trash").json()["records"]]
+        snapshot_script.write_bytes(intact)
+        retried = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+
+    assert refused.status_code == 409, refused.text
+    assert kept == [record["id"]]
+    assert retried.status_code == 200, retried.text
+    assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S02", "E1S03"]
+
+
+def test_a_renumbered_shot_does_not_take_the_history_its_new_id_had_when_it_was_deleted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """删除时的快照里，新编号还属于另一个分镜：换编号恢复不能把那个分镜的版本历史带回来。"""
+    manager, http = _project(tmp_path, monkeypatch)
+    project_dir = manager.get_project_path("demo")
+    with http:
+        record = _remove(http, "E1S01")
+        _remove(http, "E1S02")
+        _remove(http, "E1S03")
+        inserted = http.post(
+            "/api/v1/projects/demo/script-items", json={"script_file": "episode_1.json", "novel_text": "新的一镜。"}
+        )
+        assert inserted.json()["item"]["segment_id"] == "E1S01", inserted.text
+
+        restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["object"]["id"] == "E1S02"
+    assert [s["segment_id"] for s in _segments(manager)] == ["E1S02", "E1S01"]
+    assert not VersionManager(project_dir).has_versions("storyboards", "E1S02")

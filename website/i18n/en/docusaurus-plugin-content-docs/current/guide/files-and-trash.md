@@ -42,7 +42,7 @@ To delete an unreferenced file or a past version, select it and click **Move to 
 
 ### General restore rules {#restore-rules}
 
-- A restore only adds. The restored object comes back as new content: it does not overwrite existing content, does not merge with it, and is not refused because of a conflict.
+- A restore only adds. The restored object comes back as new content: it does not overwrite existing content and does not merge with it. If its original name or number is taken, it comes back under a new name or number. The few cases where it cannot be put back are covered later in this section.
 - If the original name or number is free, it is reused. If it is already taken, the object comes back under a new name or number. The notification after the restore states the new name or number.
 - Restored artifacts are checked for freshness as usual: if their inputs changed after the deletion, they show as stale and need regenerating.
 - Content you just restored can be deleted again and goes back to the project trash.

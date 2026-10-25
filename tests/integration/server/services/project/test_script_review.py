@@ -631,6 +631,21 @@ class TestConfirmMaterializesScript:
         assert set(records) == {"E1S01", "E1S09"}
         assert "storyboards/scene_E1S09.png" in records["E1S09"].files
 
+    async def test_acknowledged_overwrite_keeps_old_entries_without_media_recoverable(
+        self, tmp_path, video_request_facts
+    ):
+        """覆盖时旧分镜都按结构移除处置：没有生成媒体、只有文字的旧条目同样成为删除记录。"""
+        pm = _make_project(tmp_path, "narration")
+        _write_script_plan(pm, "narration", _narration_script_plan())
+        _write_script(pm, _narration_script(_narration_script_segment("E1S01"), _narration_script_segment("E1S09")))
+        project_path = pm.get_project_path("demo")
+
+        await _confirm_over_existing_script(pm)
+
+        records = {record.object["id"]: record for record in project_trash.list_records(project_path)}
+        assert set(records) == {"E1S01", "E1S09"}
+        assert all(record.has_snapshot for record in records.values())
+
     async def test_overwrite_is_refused_untouched_when_version_history_is_unreadable(
         self, tmp_path, video_request_facts
     ):

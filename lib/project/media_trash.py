@@ -12,8 +12,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Generator, Mapping
-from contextlib import contextmanager
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -24,6 +23,7 @@ from lib.artifacts.version_manager import VersionManager
 from lib.infra.api_errors import ConflictError
 from lib.project import project_trash
 from lib.project.asset_types import resolve_asset_key
+from lib.project.project_change_hints import emit_project_change_hint
 from lib.project.project_manager import ProjectManager, find_episode
 from lib.project.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.project.trash_restore import Landing, Restoration
@@ -168,24 +168,27 @@ def take_end_frame(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> R
         shot_of(projects.load_script(project_dir.name, script_file))
     except (FileNotFoundError, ValueError) as exc:
         raise _failed(rel) from exc
-    held: dict[str, dict] = {}
-
-    @contextmanager
-    def locks() -> Generator[None]:
-        # 剧本锁跨过落地：字段与快照文件一起变，正常退出时剧本照常写回。
-        with projects.locked_script(project_dir.name, script_file, validate=False) as script:
-            held["script"] = script
-            yield
 
     def land(landing: Landing) -> Mapping[str, Any]:
-        shot = shot_of(held["script"])
         landed = rel if landing.free(rel) else _new_name(landing, rel)
-        landing.place(staged / rel, landed, original=rel)
-        if landed == rel:
-            shot["end_frame_image"] = rel
+
+        def relink(script: dict) -> None:
+            shot = shot_of(script)
+            if landed == rel:
+                shot["end_frame_image"] = rel
+
+        with formal_write_transaction(project_dir / "scripts" / script_file, project_dir / ProjectManager.PROJECT_FILE):
+            landing.place(staged / rel, landed, original=rel)
+            projects.update_script_locked(project_dir.name, script_file, relink)
         return {**obj, "path": landed}
 
-    return Restoration(land=land, locks=locks)
+    return Restoration(
+        land=land,
+        locks=lambda: projects.script_lock(project_dir.name, script_file),
+        after=lambda: emit_project_change_hint(
+            project_dir.name, changed_paths=[f"scripts/{script_file}", ProjectManager.PROJECT_FILE]
+        ),
+    )
 
 
 def take_reference_audio(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
@@ -205,34 +208,26 @@ def take_reference_audio(project_dir: Path, staged: Path, obj: Mapping[str, Any]
         return not (isinstance(current, str) and current and _is_plain_file(project_dir / current))
 
     slot_free()
-    landed: list[str] = []
 
     def land(landing: Landing) -> Mapping[str, Any]:
         link = slot_free()
         target = rel if landing.free(rel) else _new_name(landing, rel)
-        landing.place(staged / rel, target, original=rel)
-        if link:
-            landed.append(target)
-        return {**obj, "path": target}
-
-    def after() -> None:
-        # 项目锁不可重入、由流水线持有到落地结束，字段只能在锁外改；改前再核对一次角色与文件。
-        if not landed:
-            return
 
         def relink(project: dict) -> None:
             key = resolve_asset_key(project.get("characters"), character)
-            current = project["characters"][key].get("reference_audio") if key is not None else None
-            if (
-                key is not None
-                and _is_plain_file(project_dir / landed[0])
-                and not (isinstance(current, str) and current and _is_plain_file(project_dir / current))
-            ):
-                ProjectManager._set_character_reference_audio(project, key, landed[0])
+            if key is not None:
+                ProjectManager._set_character_reference_audio(project, key, target)
 
-        projects.update_project(project_dir.name, relink)
+        with formal_write_transaction(project_dir / ProjectManager.PROJECT_FILE):
+            landing.place(staged / rel, target, original=rel)
+            if link:
+                projects.update_project_locked(project_dir.name, relink)
+        return {**obj, "path": target}
 
-    return Restoration(land=land, after=after)
+    return Restoration(
+        land=land,
+        after=lambda: emit_project_change_hint(project_dir.name, changed_paths=[ProjectManager.PROJECT_FILE]),
+    )
 
 
 # ---------------------------------------------------------------- 内部
