@@ -1,8 +1,10 @@
 """Verify the exported guide actually contains the checked performance frames."""
 
 import hashlib
+import importlib.util
 import json
 import subprocess
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -57,8 +59,34 @@ def test_export_decodes_all_frames_and_preserves_grayscale_contact(
     assert np.array_equal(decoded[:, :, :, 0], decoded[:, :, :, 2])
     assert metrics["video_sha256"] == hashlib.sha256(video.read_bytes()).hexdigest()
     assert json.loads((output / "validation.json").read_text()) == metrics
-    assert len(json.loads((output / "performance.json").read_text())["frames"]) == (
-        73 if performed else 97 if continuation else 49
+    assert len(json.loads((output / "performance.json").read_text())["frames"]) == (97 if continuation else 49)
+    runner_path = Path(__file__).resolve().parents[3] / "deploy/comfyui/mac_quality_video/runner.py"
+    spec = importlib.util.spec_from_file_location("guide_runner_contract", runner_path)
+    assert spec is not None
+    assert spec.loader is not None
+    runner = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(runner)
+    # Only the command boundary runs here; these files do not stand in for inference.
+    model = tmp_path / "models/mlx/ltx-2.3-22b-q8-distilled-1.1"
+    model.mkdir(parents=True)
+    weights = model / "transformer-dev.safetensors"
+    weights.touch()
+    command = runner.build_command(
+        {
+            "name": "guide-contract",
+            "mode": "structural-control",
+            "width": 768,
+            "height": 448,
+            "frames": len(decoded),
+            "seed": 1,
+            "prompt": "A supported prop moves with its carrier.",
+            "image": str(output / "frame-00.png"),
+            "control_video": str(video),
+            "control_lora": str(weights),
+            "distilled_lora": str(weights),
+        },
+        tmp_path,
     )
+    assert command[command.index("--frames") + 1] == str(len(decoded))
     with pytest.raises(FileExistsError):
         export_guide(output)

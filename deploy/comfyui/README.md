@@ -167,7 +167,7 @@ contact-only fixture: pair it with a reviewed matching end image. Eye direction
 and facial expression must come from that image; depth silhouettes do not encode
 them. Neither preset is production-qualified without reviewing its actual video.
 
-Use `--performed` for a 73-frame acting diagnostic: the creature anticipates and
+Use `--performed` for a 49-frame acting diagnostic: the creature anticipates and
 nods, then the human recoils while carrying the supported prop, recovers, and
 looks back. This avoids asking for a visible recoil with an almost fully extended
 arm locked to a stationary prop. Review the source performance before inference.

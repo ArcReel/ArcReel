@@ -115,26 +115,26 @@ def test_continuation_rejects_contact_loss_at_its_first_frame():
 def test_performed_reaction_moves_supported_load_after_creature_impulse():
     frames = performed_reaction_sequence()
     assert frames[0] == contact_sequence(expressive=True)[-1]
-    assert frames[10].creature_angle < 0 < frames[18].creature_angle
-    assert frames[10].creature_dip < 0 < frames[18].creature_dip
-    assert frames[18].body_angle == 0
-    assert frames[25].shoulder[0] - frames[0].shoulder[0] > 13
-    assert frames[25].head_angle > frames[0].head_angle
+    assert frames[7].creature_angle < 0 < frames[12].creature_angle
+    assert frames[7].creature_dip < 0 < frames[12].creature_dip
+    assert frames[12].body_angle == 0
+    assert frames[17].shoulder[0] - frames[0].shoulder[0] > 13
+    assert frames[17].head_angle > frames[0].head_angle
     assert frames[-1].body_angle == frames[-1].creature_angle == frames[-1].creature_dip == 0
     metrics = validate_sequence(frames, performed=True)
-    assert metrics["contact_frames"] == [0, 72]
+    assert metrics["contact_frames"] == [0, 48]
     assert metrics["max_contact_gap"] < 1e-10
     assert metrics["max_bone_length_error"] < 1e-10
     for frame in frames:
         assert np.subtract(frame.bag, frame.palm) == pytest.approx(np.subtract(frames[0].bag, frames[0].palm))
-    first, peak = render_depth(frames[0]), render_depth(frames[25])
+    first, peak = render_depth(frames[0]), render_depth(frames[17])
     assert np.array_equal(first[180:], peak[180:])
     assert not np.array_equal(first[:130], peak[:130])
 
 
 def test_performed_recoil_cannot_leave_the_supported_load_behind():
     frames = performed_reaction_sequence()
-    frames[25] = replace(frames[25], bag=frames[0].bag)
+    frames[17] = replace(frames[17], bag=frames[0].bag)
     with pytest.raises(ValueError, match=r"penetrates|loses underside contact"):
         validate_sequence(frames, performed=True)
 

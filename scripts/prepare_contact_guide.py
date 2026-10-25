@@ -127,7 +127,9 @@ def performed_reaction_sequence():
     """Anticipate, snap, recoil with the supported load, then look back at it."""
     anchor = contact_sequence(expressive=True)[-1]
     frames = []
-    for index in range(73):
+    for frame in range(FRAME_COUNT):
+        # Sample the source performance into the renderer's supported 49-frame slot.
+        index = frame * 1.5
         anticipation = smooth_between(index, 2, 10) * (1 - smooth_between(index, 12, 18))
         impulse = smooth_between(index, 12, 18) * (1 - smooth_between(index, 18, 28))
         recoil = smooth_between(index, 19, 25) * (1 - smooth_between(index, 29, 49))
@@ -187,7 +189,7 @@ def segment_box_distance(start, end, box_min, box_max):
 
 def validate_sequence(frames, *, continuation=False, performed=False):
     """Validate the declared planar contact fixture, not inferred video motion."""
-    expected_frames = 73 if performed else 97 if continuation else FRAME_COUNT
+    expected_frames = 97 if continuation else FRAME_COUNT
     contact_start = 0 if continuation or performed else CONTACT_FRAME
     if len(frames) != expected_frames:
         raise ValueError(f"The contact fixture requires exactly {expected_frames} frames")
@@ -378,7 +380,7 @@ def export_guide(output_dir, *, reaction=False, expressive=False, continuation=F
         check=True,
     )
     for index in (
-        (0, 18, 25, 72) if performed else (0, 33, 41, 96) if continuation else (0, 10, CONTACT_FRAME, FRAME_COUNT - 1)
+        (0, 12, 17, 48) if performed else (0, 33, 41, 96) if continuation else (0, 10, CONTACT_FRAME, FRAME_COUNT - 1)
     ):
         Image.fromarray(pixels[index]).save(output_dir / f"frame-{index:02d}.png")
     metrics.update(
