@@ -19,7 +19,7 @@ import shutil
 import time
 import unicodedata
 from collections import Counter
-from collections.abc import AsyncGenerator, Callable, Generator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Generator, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -82,6 +82,7 @@ from lib.project.asset_rename import (
     AssetRenameReport,
     plan_asset_file_renames,
     rewrite_entry_paths,
+    rewrite_grid_reference_images,
     rewrite_payload_references,
 )
 from lib.project.asset_types import (
@@ -126,6 +127,7 @@ from lib.speech.narration_config import (
 
 if TYPE_CHECKING:
     from lib.project.asset_merge import AssetMergeReport
+    from lib.script.grid.models import GridGeneration
 
 logger = logging.getLogger(__name__)
 
@@ -3283,6 +3285,9 @@ class ProjectManager:
             self._carry_script_plan_confirmations(project_dir, mutated, changed_drafts)
             for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
+            self._rename_grid_references(
+                project_dir, asset_type, old_key, new_clean, moves=(*moves, *derivatives.moves)
+            )
             for src, dst in moves:
                 if src.exists():
                     os.replace(src, dst)
@@ -3298,6 +3303,50 @@ class ProjectManager:
 
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
         return report
+
+    @staticmethod
+    def _rename_grid_references(
+        project_dir: Path,
+        asset_type: str,
+        old_name: str,
+        new_name: str,
+        *,
+        moves: Iterable[tuple[Path, Path]],
+    ) -> None:
+        """宫格记录冻结的参考图随改名改写名字与路径（规则见 ``rewrite_grid_reference_images``）。
+
+        在文件迁移之前写：中途失败重跑同一次改名时，已改写的记录不再命中旧名，未改写的记录
+        对应的文件迁移也还在规划里，两种情况都能收敛。读不出的记录原样留下。
+        """
+        from lib.script.grid.grid_manager import GridManager
+
+        grids_dir = project_dir / "grids"
+        if not grids_dir.is_dir():
+            return
+        path_rewrites = {
+            unicodedata.normalize("NFC", src.relative_to(project_dir).as_posix()): dst.relative_to(
+                project_dir
+            ).as_posix()
+            for src, dst in moves
+        }
+
+        def rewrite(grid: "GridGeneration") -> int:
+            return rewrite_grid_reference_images(
+                grid.reference_images or [], asset_type, old_name, new_name, path_rewrites
+            )
+
+        def mutate(grid: "GridGeneration") -> None:
+            rewrite(grid)
+
+        manager = GridManager(project_dir)
+        for record in sorted(grids_dir.glob("grid_*.json")):
+            grid_id = record.name.removesuffix(".json")
+            try:
+                grid = manager.get(grid_id)
+            except (OSError, KeyError, TypeError, ValueError):
+                continue
+            if grid is not None and rewrite(grid):
+                manager.update(grid_id, mutate, ignore_invalid=True)
 
     def rename_asset_derivative(
         self, asset_type: str, project_name: str, entry_name: str, old_name: str, new_name: str
@@ -3389,6 +3438,7 @@ class ProjectManager:
             self._carry_script_plan_confirmations(project_dir, project, changed_drafts)
             for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
+            self._rename_grid_references(project_dir, asset_type, old_reference, new_reference, moves=relocation.moves)
             relocation.relocate()
             self._touch_metadata(project)
             project_file = self._get_project_file_path(project_name)
@@ -3505,7 +3555,14 @@ class ProjectManager:
                 changed_scripts.append((filename, script, before))
                 episode = self.canonical_script_episode(filename)
                 storyboards, videos = (
-                    count_outdated_artifacts(before, script, asset_type, episode, is_current)
+                    count_outdated_artifacts(
+                        before,
+                        script,
+                        asset_type,
+                        episode,
+                        is_current,
+                        carried=derivative_plan.carried_references(source, target),
+                    )
                     if episode is not None
                     else (0, 0)
                 )

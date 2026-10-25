@@ -62,7 +62,8 @@ class ReferenceImageSlot(Protocol):
     def logical_id(self) -> str | None: ...
 
 
-def _image_label(position: int) -> str:
+def reference_image_label(position: int) -> str:
+    """参考图在请求数组中的位置（从 0 起）对应的「图N」。"""
     return f"图{position + 1}"
 
 
@@ -78,7 +79,7 @@ def reference_images_declaration(references: Sequence[ReferenceImageSlot]) -> st
     """``Reference_Images`` 行的值：按类型分组的编号声明；无参考图时为空串。"""
     groups: dict[str, list[str]] = {}
     for position, slot in enumerate(references):
-        groups.setdefault(_describe(slot), []).append(_image_label(position))
+        groups.setdefault(_describe(slot), []).append(reference_image_label(position))
     if not groups:
         return ""
     return "；".join(f"{'、'.join(labels)}为{description}" for description, labels in groups.items()) + "。"
@@ -156,7 +157,7 @@ def mention_replacements(references: Sequence[ReferenceImageSlot]) -> dict[str, 
     for position, slot in enumerate(references):
         if slot.role == PREVIOUS_STORYBOARD_ROLE or slot.logical_id is None:
             continue
-        replacements.setdefault(asset_name_comparison_key(slot.logical_id), _image_label(position))
+        replacements.setdefault(asset_name_comparison_key(slot.logical_id), reference_image_label(position))
     return replacements
 
 
@@ -175,6 +176,7 @@ __all__ = [
     "ReferenceImageSlot",
     "clamp_reference_images",
     "mention_replacements",
+    "reference_image_label",
     "reference_images_declaration",
     "render_reference_mentions",
 ]

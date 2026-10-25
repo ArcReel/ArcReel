@@ -133,6 +133,18 @@ class DerivativeMergePlan:
         """被并方名下的衍生（比对坐标）合并后在保留方名下叫什么；不是被并方的衍生时原样返回。"""
         return self.derivative_names.get(derivative, derivative)
 
+    def carried_references(self, source: str, target: str) -> dict[str, str]:
+        """迁到保留方名下的衍生：合并后的引用名 → 合并前的引用名（比对坐标）。
+
+        迁移的衍生连图带过来，引用只是换了名字；并入已有衍生的换成了另一张图，不在其列。
+        """
+        return {
+            derivative_reference(asset_name_comparison_key(target), asset_name_comparison_key(name)): (
+                derivative_reference(asset_name_comparison_key(source), asset_name_comparison_key(name))
+            )
+            for name in self.moved
+        }
+
 
 def merged_reference(
     name: str,
@@ -267,6 +279,34 @@ def visual_reference_signature(item: Mapping[str, Any], asset_type: str) -> tupl
     return (lists, scene if isinstance(scene, str) else None, text_mentions)
 
 
+def storyboard_reference_signature(
+    item: Mapping[str, Any], asset_type: str, carried: Mapping[str, str] | None = None
+) -> tuple[object, ...]:
+    """一个条目里决定其分镜图的引用，按引用到的图比较。
+
+    分镜图依据不记资产名、只记参考图内容（``without_asset_names``）：随图迁来的衍生只是换了名字，
+    按 *carried*（合并后的引用名 → 合并前的引用名，比对坐标）换回迁来前的名字再比。
+    """
+    if not carried:
+        return visual_reference_signature(item, asset_type)
+    remapped = dict(item)
+    spec = ASSET_SPECS[asset_type]
+    for name in spec.reference_list_fields:
+        names = item.get(name)
+        if isinstance(names, list):
+            remapped[name] = [
+                carried.get(asset_name_comparison_key(value), value) if isinstance(value, str) else value
+                for value in names
+            ]
+    image_prompt = item.get("image_prompt")
+    scene = image_prompt.get("scene") if isinstance(image_prompt, Mapping) else image_prompt
+    if isinstance(scene, str):
+        remapped["image_prompt"] = remap_mentions(
+            scene, lambda name, _speaker: f"@[{carried[name]}]" if name in carried else None
+        )
+    return visual_reference_signature(remapped, asset_type)
+
+
 #: 问「这件产物此刻是现行的吗」：``(清单键, 产物路径字段值) → bool``。
 CurrentArtifactProbe = Callable[[ArtifactKey, object], bool]
 
@@ -312,12 +352,14 @@ def count_outdated_artifacts(
     asset_type: str,
     episode: int,
     is_current: CurrentArtifactProbe,
+    *,
+    carried: Mapping[str, str] | None = None,
 ) -> tuple[int, int]:
     """一份正式剧本经合并改写后，将从现行转为过期的 ``(分镜图数, 视频数)``。
 
     只数此刻是现行的产物，判据取各自登记依据里与引用有关的部分：
 
-    - 分镜图：画面引用变了（:func:`visual_reference_signature`）。
+    - 分镜图：引用到的图变了（:func:`storyboard_reference_signature`）；随图迁来的衍生只换了名字，不算。
     - 参考生视频：画面引用变了，或角色台词的说话人变了（:func:`speech_signature`）。
     - 分镜图生视频：说话人变了。它的画面输入是分镜图本身，分镜图重新生成之前不受画面引用影响。
     """
@@ -334,10 +376,13 @@ def count_outdated_artifacts(
         if not isinstance(resource_id, str):
             continue
         visual_changed = visual_reference_signature(old, asset_type) != visual_reference_signature(new, asset_type)
+        storyboard_changed = storyboard_reference_signature(old, asset_type) != storyboard_reference_signature(
+            new, asset_type, carried
+        )
         speech_changed = speech_signature(kind, old) != speech_signature(kind, new)
         generated = old.get("generated_assets")
         generated = generated if isinstance(generated, Mapping) else {}
-        if kind != "video_units" and visual_changed:
+        if kind != "video_units" and storyboard_changed:
             storyboard_key = ArtifactKey.episode_storyboard(episode, resource_id)
             storyboards += is_current(storyboard_key, generated.get("storyboard_image"))
         if speech_changed or (kind == "video_units" and visual_changed):
@@ -406,5 +451,6 @@ __all__ = [
     "merged_reference",
     "plan_derivative_merge",
     "speech_signature",
+    "storyboard_reference_signature",
     "visual_reference_signature",
 ]

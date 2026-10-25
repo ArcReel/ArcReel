@@ -33,6 +33,16 @@ MP4_BYTES = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mp4-bytes"
 PNG_BYTES = b"\x89PNG\r\n\x1a\npng-bytes"
 
 
+@contextmanager
+def failing_manifest_replace(error: BaseException) -> Generator[None]:
+    """让清单的条件替换（迁移改写登记的提交点）抛出 *error*：模拟写入失败，或进程在提交点被杀。"""
+
+    from lib.artifacts.artifact_manifest import ProjectArtifactManifestAdapter
+
+    with patch.object(ProjectArtifactManifestAdapter, "replace_entries_if_matches_atomically", side_effect=error):
+        yield
+
+
 async def write_backend_output(path: Path, data: bytes) -> None:
     """后端替身落产物：生产后端在工作线程里写产物文件，替身照同一契约放进线程，不占事件循环。"""
 

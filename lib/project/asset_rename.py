@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
@@ -25,6 +27,7 @@ from lib.project.asset_types import (
     rekey_equivalent_entries,
 )
 from lib.references.reference_catalog import renamed_reference, split_derivative_reference
+from lib.script.grid.models import ReferenceImage
 from lib.script.reference_video.text_parser import rewrite_mentions
 from lib.script.script_references import iter_reference_sites
 
@@ -150,6 +153,36 @@ def rewrite_payload_references(payload: dict, asset_type: str, old_name: str, ne
         renamed = renamed_reference(value, old_name, new_name)
         if renamed is not None and renamed != value:
             write(renamed)
+            count += 1
+    return count
+
+
+def rewrite_grid_reference_images(
+    references: list[ReferenceImage],
+    asset_type: str,
+    old_name: str,
+    new_name: str,
+    path_rewrites: Mapping[str, str],
+) -> int:
+    """就地把宫格记录冻结的参考图里指向 *old_name* 的条目改写为 *new_name*，返回改写数。
+
+    宫格记录冻结的是生成那一刻实际发出的参考图（路径、名字、类型），宫格与切格分镜的依据
+    按它重放；改名搬走了资产图却不改记录，重放就读不到图，宫格因此误判过期。名字按
+    :func:`renamed_reference` 判定（本体改名连带衍生），路径只在命中 *path_rewrites*
+    （本次改名实际迁移的文件，键与值都是项目相对路径）时改写——不是按名命名的文件不会被搬走，
+    原路径仍然有效。
+    """
+    count = 0
+    for reference in references:
+        if reference.ref_type != asset_type:
+            continue
+        renamed = renamed_reference(reference.name, old_name, new_name)
+        if renamed is None:
+            continue
+        path = path_rewrites.get(unicodedata.normalize("NFC", reference.path), reference.path)
+        if renamed != reference.name or path != reference.path:
+            reference.name = renamed
+            reference.path = path
             count += 1
     return count
 
@@ -303,5 +336,6 @@ __all__ = [
     "renamed_file_stem",
     "renamed_relpath",
     "rewrite_entry_paths",
+    "rewrite_grid_reference_images",
     "rewrite_payload_references",
 ]
