@@ -273,7 +273,7 @@ export default {
   "original_alt_indexed": "Ảnh gốc sản phẩm {{index}} của \"{{name}}\"",
   "reference_audio_replace": "Thay âm thanh tham chiếu",
   "reference_audio_delete_title": "Xóa âm thanh tham chiếu?",
-  "reference_audio_delete_description": "Âm thanh tham chiếu của \"{{name}}\" sẽ bị xóa và không thể khôi phục.",
+  "reference_audio_delete_description": "Âm thanh tham chiếu của \"{{name}}\" sẽ được chuyển vào thùng rác dự án, có thể khôi phục trong 30 ngày.",
   "create_more_hint.character": "Sau khi tạo, bạn có thể tải ảnh gốc và âm thanh tham chiếu lên, thêm bí danh trong phần chi tiết.",
   "create_more_hint.scene": "Sau khi tạo, bạn có thể thêm bí danh và tạo hình tài nguyên trong phần chi tiết.",
   "create_more_hint.prop": "Sau khi tạo, bạn có thể thêm bí danh và tạo hình tài nguyên trong phần chi tiết.",

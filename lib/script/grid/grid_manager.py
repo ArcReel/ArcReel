@@ -130,32 +130,20 @@ class GridManager:
         with portalocker.Lock(lock_path, flags=portalocker.LOCK_EX):
             yield
 
-    def delete(self, grid_id: str) -> bool:
-        """Delete one grid record, image, and active typed claim atomically."""
+    def move_to_trash(self, grid_id: str) -> bool:
+        """把一条宫格记录连同联合图、版本历史与清单登记移进项目回收站；记录不在时返回 False。"""
         path = self._path(grid_id)
         with project_metadata_lock(self._project_dir), self._record_lock(path):
             if not path.exists():
                 return False
-            image_file = self.image_path(grid_id)
             try:
                 grid = self._get_unlocked(path)
             except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError):
-                # Invalid legacy records were deletable before Manifest activation.
-                # They cannot carry a provable typed claim, so preserve that cleanup
-                # behavior while valid records take the guarded claim path below.
-                grid = None
-            with formal_write_transaction(path, image_file):
-                # hard-delete: pending-trash -- #3388 删除宫格图
-                image_file.unlink(missing_ok=True)
-                path.unlink()  # hard-delete: pending-trash -- #3388 删除宫格记录
-                if grid is not None:
-                    from lib.artifacts.artifact_activation import register_artifact_entries_atomically
-                    from lib.artifacts.artifact_manifest import ArtifactKey
+                grid = None  # 读不出的旧记录没有可证明的清单登记
+            # 回收站的落地规则依赖 ProjectManager，顶层导入会成环。
+            from lib.project.media_trash import trash_grid
 
-                    register_artifact_entries_atomically(
-                        self._project_dir,
-                        {ArtifactKey.episode_grid(grid.episode, grid.id): None},
-                    )
+            trash_grid(self._project_dir, grid_id, grid.episode if grid is not None else None)
         record_project_activity(self._project_dir)
         return True
 
@@ -193,7 +181,7 @@ class GridManager:
         This is the single cleanup rule shared by the HTTP route and the Agent tool so
         both regenerate paths stop accumulating stale grid generations.
 
-        Returns the number of deleted records.
+        Superseded records go to the project trash. Returns the number of removed records.
         """
         touched = scene_ids if regenerated is None else regenerated
         deleted = 0
@@ -205,6 +193,6 @@ class GridManager:
                 and old.scene_ids
                 and set(old.scene_ids) <= scene_ids
                 and not touched.isdisjoint(old.scene_ids)
-            ) and self.delete(old.id):
+            ) and self.move_to_trash(old.id):
                 deleted += 1
         return deleted

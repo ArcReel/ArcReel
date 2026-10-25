@@ -37,6 +37,9 @@ function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): 
       ? t("trash_object_episode", { name: object.title })
       : t("trash_object_episode_untitled", { episode: object.id });
   }
+  if (object.kind === "grid") return t("trash_object_grid", { episode: object.episode });
+  if (object.kind === "end_frame") return t("trash_object_end_frame", { shot: object.shot_id });
+  if (object.kind === "reference_audio") return t("trash_object_reference_audio", { name: object.character });
   return object.path;
 }
 
@@ -53,7 +56,8 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
       : t("trash_restored_degraded_files", { name, count: result.restored.length });
   }
   if (record.object.kind === "episode") return t("trash_restored_episode", { name });
-  if (record.has_snapshot) {
+  // 带名字的对象（剪辑时间线）按名字说明是否改名；其余按文件落点说明。
+  if (record.has_snapshot && typeof record.object.name === "string") {
     const landed = result.object.name;
     return typeof landed === "string" && landed !== record.object.name
       ? t("trash_restored_object_renamed", { name, landed })

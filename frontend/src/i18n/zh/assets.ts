@@ -273,7 +273,7 @@ export default {
   "original_alt_indexed": "「{{name}}」的商品原图 {{index}}",
   "reference_audio_replace": "更换参考音频",
   "reference_audio_delete_title": "删除参考音频？",
-  "reference_audio_delete_description": "「{{name}}」的参考音频会被删除，删除后无法恢复。",
+  "reference_audio_delete_description": "「{{name}}」的参考音频将移入项目回收站，30 天内可以恢复。",
   "create_more_hint.character": "创建后，可以在详情里上传原图与参考音频、添加别名。",
   "create_more_hint.scene": "创建后，可以在详情里添加别名、生成资产图。",
   "create_more_hint.prop": "创建后，可以在详情里添加别名、生成资产图。",
