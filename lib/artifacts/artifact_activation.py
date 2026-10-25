@@ -402,14 +402,13 @@ def prepare_episode_script_manifest_commit(
     artifact_path: str,
     resource_ids: Sequence[str],
     removed_resource_ids: Sequence[str] = (),
-    replaced_resource_ids: Sequence[str] = (),
     basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
     adapter: ArtifactManifestAdapter | None = None,
 ) -> Callable[[], None] | None:
     """Preflight one script replacement and return its atomic claim commit.
 
-    The script claim and every claim orphaned by removal or identity replacement
-    share one Manifest compare-and-swap. Callers invoke the returned closure
+    The script claim and every claim orphaned by removal share one Manifest
+    compare-and-swap. Callers invoke the returned closure
     inside the same formal-write transaction that selects the script bytes.
     """
 
@@ -417,8 +416,7 @@ def prepare_episode_script_manifest_commit(
         raise ValueError("episode must be a positive integer")
     remaining_ids = frozenset(resource_ids)
     removed_ids = frozenset(removed_resource_ids)
-    replaced_ids = frozenset(replaced_resource_ids)
-    if any(not resource_id for resource_id in (*remaining_ids, *removed_ids, *replaced_ids)):
+    if any(not resource_id for resource_id in (*remaining_ids, *removed_ids)):
         raise ValueError("script resource identities must be non-empty strings")
 
     storage = adapter or ProjectArtifactManifestAdapter(project_dir)
@@ -437,11 +435,6 @@ def prepare_episode_script_manifest_commit(
     orphaned_keys.extend(
         key
         for resource_id in sorted(removed_ids - remaining_ids)
-        for key in ArtifactKey.episode_resource_artifacts(episode, resource_id)
-    )
-    orphaned_keys.extend(
-        key
-        for resource_id in sorted(replaced_ids)
         for key in ArtifactKey.episode_resource_artifacts(episode, resource_id)
     )
     orphaned_keys = list(dict.fromkeys(orphaned_keys))

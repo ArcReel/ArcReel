@@ -41,6 +41,7 @@ from lib.project.project_migration_failure import (
     load_migration_verdict,
 )
 from lib.project.script_entry_cleanup import trash_entries
+from lib.script.item_ids import item_id_number
 from lib.script.prompt_authoring_scope import VISUAL_LAYER_FIELDS, visual_layer_complete
 from lib.script.reference_video.draft_validation import is_verbatim_source_anchor
 from lib.script.script_editor import ScriptEditError, new_item_id, patch_field, resolve_items
@@ -211,10 +212,13 @@ class ScriptBatchEditor:
         *,
         fresh_insert_indexes: frozenset[int] = frozenset(),
     ) -> ScriptBatchEditResult:
-        """Commit a command; inserts create fresh identities even when an ID is reused.
+        """Commit a command; every fresh insert gets a server-issued ID.
 
-        An insert keeps the media of an item only when the same batch removed that ID first
-        and the index is not marked in ``fresh_insert_indexes``.
+        Item IDs are allocated, never reused: a fresh insert ignores the ID it carries and takes
+        the next number after the highest one the episode has ever used. Later operations in
+        the same batch that name the carried ID address the inserted item. An insert keeps its
+        ID and the media of an item only when the same batch removed that ID first and the index
+        is not marked in ``fresh_insert_indexes`` (a re-insert of the same identity).
         """
 
         # 迁移裁决先于任何解析与写入：清单是读取已生成产物的唯一口径，未升级的项目没有
@@ -243,7 +247,6 @@ class ScriptBatchEditor:
         episode_number: int | None = command.episode
         before_revision = command.expected_revision
         affected_ids: list[str] = []
-        fresh_insert_ids: set[str] = set()
         commit_manifest: Callable[[], None] | None = None
         resolved_project: dict[str, Any] = {}
 
@@ -276,7 +279,7 @@ class ScriptBatchEditor:
         before_files: dict[str, bytes] = {}
 
         def finalize_manifest(_script_path: Path) -> None:
-            # 仍持剧本锁：新条目的媒体不能在同号旧身份移走之前落盘。删除记录先建，快照里的清单还带着登记。
+            # 仍持剧本锁：被移除条目的媒体移走之前，不能有新产物落盘。删除记录先建，快照里的清单还带着登记。
             trash_entries(
                 self._pm.get_project_path(project_name),
                 episode=episode_number or 0,
@@ -344,13 +347,30 @@ class ScriptBatchEditor:
                 last_touch: dict[str, int] = {}
                 speech_change: dict[str, int] = {}
                 removed_items: dict[str, dict[str, Any]] = {}
+                # 本批新增条目的编号由服务端发：调用方带来的编号 → 发出的编号，本批之后的操作按它改指。
+                issued_ids: dict[str, str] = {}
+                id_floor = (
+                    self._pm.item_id_floor(project, candidate, episode_value)
+                    if isinstance(episode_value, int) and not isinstance(episode_value, bool)
+                    else 0
+                )
+                operations: list[ScriptBatchOperation] = []
 
-                for index, operation in enumerate(command.operations):
-                    # 插入的 id 不是本批先删后插的同一条目时，就是一个全新身份：同号旧条目留下的
-                    # 产物登记、媒体与版本历史都不属于它。
-                    fresh_insert = isinstance(operation, InsertAfterOperation) and (
-                        index in fresh_insert_indexes or _operation_id(operation) not in removed_items
+                for index, requested in enumerate(command.operations):
+                    # 插入的 id 不是本批先删后插的同一条目时，就是一个全新身份：发一个本集从没用过的新编号。
+                    fresh_insert = isinstance(requested, InsertAfterOperation) and (
+                        index in fresh_insert_indexes or _operation_id(requested) not in removed_items
                     )
+                    operation = _with_issued_ids(requested, issued_ids)
+                    if fresh_insert and isinstance(operation, InsertAfterOperation):
+                        new_id = new_item_id(candidate, floor=id_floor)
+                        id_floor = max(id_floor, item_id_number(new_id) or 0)
+                        carried = _operation_id(operation)
+                        if carried is not None:
+                            issued_ids[carried] = new_id
+                        _items, insert_id_field, _insert_kind = resolve_items(candidate)
+                        operation = operation.model_copy(update={"item": {**operation.item, insert_id_field: new_id}})
+                    operations.append(operation)
                     try:
                         item_id, before_admission, after_admission = _apply_operation(
                             candidate,
@@ -373,8 +393,6 @@ class ScriptBatchEditor:
                             )
                         ) from exc
                     if item_id is not None:
-                        if fresh_insert:
-                            fresh_insert_ids.add(item_id)
                         last_touch[item_id] = index
                         if item_id not in affected_ids:
                             affected_ids.append(item_id)
@@ -408,7 +426,7 @@ class ScriptBatchEditor:
                     operation_index = _responsible_operation(
                         item_id,
                         location.path,
-                        command.operations,
+                        operations,
                     )
                     raise _AbortEdit(
                         self._failure(
@@ -431,7 +449,7 @@ class ScriptBatchEditor:
                     episode_number,
                     original,
                     candidate,
-                    command.operations,
+                    operations,
                 )
                 if source_text_problems:
                     raise _AbortEdit(
@@ -460,7 +478,7 @@ class ScriptBatchEditor:
                     operation_index = _responsible_operation(
                         item_id,
                         location.path,
-                        command.operations,
+                        operations,
                     )
                     raise _AbortEdit(
                         self._failure(
@@ -488,7 +506,6 @@ class ScriptBatchEditor:
                         script_file=resolved_script,
                         resource_ids=frozenset(final_ids),
                         removed_resource_ids=frozenset(affected_ids) - final_ids,
-                        replaced_resource_ids=frozenset(fresh_insert_ids),
                     )
                     original_items, original_id_field, original_kind = resolve_items(original)
                     original_ids = [
@@ -496,17 +513,8 @@ class ScriptBatchEditor:
                         for item in original_items
                         if isinstance(item, Mapping) and isinstance(item.get(original_id_field), str)
                     ]
-                    # 被移除的条目，加上本批以新身份沿用旧编号的条目（旧条目可能在更早的批次里已移除）。
                     removed_ids.update(item_id for item_id in original_ids if item_id not in final_ids)
-                    departed.update(
-                        dict.fromkeys(
-                            [
-                                *(item_id for item_id in original_ids if item_id in removed_ids),
-                                *(item_id for item_id in affected_ids if item_id in fresh_insert_ids),
-                            ],
-                            original_kind,
-                        )
-                    )
+                    departed.update(dict.fromkeys(removed_ids, original_kind))
                     for rel in (f"scripts/{resolved_script}", ProjectManager.PROJECT_FILE):
                         before_files[rel] = (project_dir / rel).read_bytes()
                 except ProjectMigrationError:
@@ -580,7 +588,6 @@ class ScriptBatchEditor:
         script_file: str,
         resource_ids: frozenset[str],
         removed_resource_ids: frozenset[str],
-        replaced_resource_ids: frozenset[str],
     ) -> Callable[[], None] | None:
         episode = script.get("episode")
         if not isinstance(episode, int) or isinstance(episode, bool) or episode < 1:
@@ -592,7 +599,6 @@ class ScriptBatchEditor:
             artifact_path=artifact_path,
             resource_ids=tuple(sorted(resource_ids)),
             removed_resource_ids=tuple(sorted(removed_resource_ids)),
-            replaced_resource_ids=tuple(sorted(replaced_resource_ids)),
             adapter=self._manifest_adapter_factory(project_dir),
         )
 
@@ -659,7 +665,7 @@ _BLANK_ITEM_FIELDS: dict[str, dict[str, Any]] = {
 def blank_item_after(script: dict[str, Any], after_id: str | None) -> dict[str, Any]:
     """构造紧随 ``after_id`` 插入的空分镜（分镜图生视频的 segments / scenes / shots）。
 
-    id 由 ``new_item_id`` 分配，与 Agent 新增同一取号规则。时长沿用锚点分镜；``after_id`` 为
+    id 只是占位：批量编辑提交时为新增条目另发编号（``ScriptBatchEditor.execute``）。时长沿用锚点分镜；``after_id`` 为
     ``None``（空脚本里的第一条）时取 8 秒。视觉层留空，由批量编辑 insert 置待编写。
     """
     items, id_field, kind = resolve_items(script)
@@ -676,6 +682,19 @@ def blank_item_after(script: dict[str, Any], after_id: str | None) -> dict[str, 
         "image_prompt": None,
         "video_prompt": None,
     }
+
+
+def _with_issued_ids(operation: ScriptBatchOperation, issued_ids: Mapping[str, str]) -> ScriptBatchOperation:
+    """把操作里指向本批新增条目的编号（调用方带来的编号）改指服务端发出的编号。"""
+    if not issued_ids:
+        return operation
+    update: dict[str, Any] = {}
+    if not isinstance(operation, InsertAfterOperation) and operation.id in issued_ids:
+        update["id"] = issued_ids[operation.id]
+    after_id = operation.after_id if isinstance(operation, InsertAfterOperation | MoveAfterOperation) else None
+    if after_id is not None and after_id in issued_ids:
+        update["after_id"] = issued_ids[after_id]
+    return operation.model_copy(update=update) if update else operation
 
 
 def _operation_id(operation: ScriptBatchOperation) -> str | None:

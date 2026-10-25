@@ -227,7 +227,7 @@ mcp__arcreel__promote_draft({"episode_id": N, "doc_type": "drama_script_plan", "
 
 ## 注意事项
 
-- 分镜 ID 格式：E{集 ID}S{两位序号}；如需拆分同一主分镜，用 E{集 ID}S{两位序号}_{子序号}（如 `E3S05_1`），与共享模型 `scene_id` 接受的形态一致（集 ID = 调用工具时的 `episode_id` 参数 N）
+- 分镜 ID 格式：E{集 ID}S{两位序号}，按顺序编号即可（集 ID = 调用工具时的 `episode_id` 参数 N）；落盘时由服务端重新发号，编号不连续是正常的
 - 每个分镜宜为一个独立的视觉画面，可在指定时长内完成
 - 时长决策序（高到低）：硬约束（取值必须在 Step 0 查得的 `supported_durations` 内，不超过 `max_duration`）> `default_duration` 偏好（非 null 时优先贴近）与本集体量（本集各单元时长合计向 `episode_target_duration` 靠拢（非 null 时；软目标，内容不足宁少拆、内容需要可超出））> 按内容取值（复杂画面如打斗 / 大场面 / 情绪铺陈可取更长值）
 - segment_break 标记真正的镜头切换点（场景、时间、地点的重大变化）

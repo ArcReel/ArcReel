@@ -145,10 +145,14 @@ async def test_adopted_reference_plan_keeps_its_soft_violations(narration, set_v
     assert result["adopted"] is True, result
     state = await ScriptReviewService(pm).get_state("demo", 1)
 
-    assert ("ref_warn_speaker_without_audio", 0, "E1U01") in {
+    # 软违规带的是视频单元的真实编号，不再按位置拼出 E1U01
+    assert ("ref_warn_speaker_without_audio", 0, "E1U1") in {
         (soft["code"], soft["item_index"], soft["item_id"]) for soft in state["soft_violations"]
     }
-    assert state["soft_violations"] == draft["soft_violations"]
+    # 隔离草稿还没发号，按位置定位；采纳后同一条软违规指向发下来的编号
+    assert [{**soft, "item_id": None} for soft in state["soft_violations"]] == [
+        {**soft, "item_id": None} for soft in draft["soft_violations"]
+    ]
 
 
 async def test_save_that_still_violates_keeps_the_draft_with_refreshed_violations(narration) -> None:

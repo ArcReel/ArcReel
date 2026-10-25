@@ -22,6 +22,7 @@ from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_generator as script_generator_module
 from lib.script import script_review
+from lib.script.item_ids import format_item_id
 from lib.script.prompt_authoring_scope import PromptOverwriteRequired
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
 from lib.script.script_document import SCRIPT_PLAN_CONVERSION_GENERATOR
@@ -857,9 +858,12 @@ class TestScriptPlanMaterialization:
 
         receipt = await _materialize(project_dir, plan_path)
 
-        assert (receipt.entry_ids, receipt.removed) == ((third, second), (first,))
+        # 规划里没被正式内容用过的编号（third）沿用；second 已被旧剧本用过，换成用过的最大号之后的新编号，
+        # 旧剧本的两条都按移除处置
+        renewed = format_item_id(1, variant.items_key, 4)
+        assert (receipt.entry_ids, receipt.removed) == ((third, renewed), (first, second))
         script = _script(project_dir)
-        assert [entry[variant.id_field] for entry in script[variant.items_key]] == [third, second]
+        assert [entry[variant.id_field] for entry in script[variant.items_key]] == [third, renewed]
         after = _entries(script, variant)
         for entry in after.values():
             assert entry[PENDING_AUTHORING_FIELD] is True
@@ -867,7 +871,7 @@ class TestScriptPlanMaterialization:
             if variant is not REFERENCE:
                 assert entry["image_prompt"] is None
         if variant is not REFERENCE:
-            assert after[second][_plan_text_field(variant)] == "改了一个错别字。"
+            assert after[renewed][_plan_text_field(variant)] == "改了一个错别字。"
 
     async def test_materialization_rejects_a_plan_edit_that_landed_after_loading(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variant: _Variant

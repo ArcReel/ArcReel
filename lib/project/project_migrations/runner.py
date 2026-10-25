@@ -62,6 +62,7 @@ from lib.project.project_migrations.v17_to_v18_timeline_agent_turn import (
     migrate_v17_to_v18,
     timeline_backup_sources,
 )
+from lib.project.project_migrations.v18_to_v19_item_id_high_water import migrate_v18_to_v19
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -439,3 +440,4 @@ MIGRATORS[14] = migrate_v14_to_v15
 MIGRATORS[15] = migrate_v15_to_v16
 MIGRATORS[16] = migrate_v16_to_v17
 MIGRATORS[17] = migrate_v17_to_v18
+MIGRATORS[18] = migrate_v18_to_v19

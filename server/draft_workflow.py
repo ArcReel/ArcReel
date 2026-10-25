@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any, Literal, NamedTuple, Protocol, cast
 
@@ -73,8 +73,10 @@ from server.text_generation import (
     load_script_plan_source_with_basis,
     narration_script_plan_path,
     narration_script_plan_result_text,
+    plan_item_ids,
     reference_result_text,
     reference_soft_violations,
+    reissue_plan_item_ids,
     render_soft_violation_lines,
     render_soft_violation_section,
     uses_reference_video_units,
@@ -466,11 +468,22 @@ async def _promote_reference_script_plan(
         )
         raise DraftWorkflowError("draft_invalid", report + _soft_violation_section(revalidation), draft_refreshed=True)
 
+    # 编号只由服务端发、只分配不复用：沿用盘上正式规划按位置已发的编号（原样晋升因此逐字不变），
+    # 多出的单元另发新号；回执里的降级提示按落盘的编号定位。
+    formal_ids = await asyncio.to_thread(
+        plan_item_ids, script_review.official_reference_script_plan_path(project_path, episode)
+    )
+    unit_ids = formal_ids[: len(flat_units)]
+    if len(flat_units) > len(unit_ids):
+        unit_ids += await asyncio.to_thread(
+            ctx.pm.reserve_item_ids, ctx.project_name, episode, "video_units", len(flat_units) - len(unit_ids)
+        )
     units = build_reference_units_from_flat(
         flat_units,
         planning_project(project, revalidation.new_assets),
         episode=episode,
         max_refs=split_caps.max_refs,
+        unit_ids=unit_ids,
     )
     # 写盘经单一出口（lib.script.script_review.write_script_plan_locked）：锁、基线比对、prompt_authoring 草稿清理
     # 只存在那一处。基线指纹取自取回 / 草稿产出时记进 meta 的 base_fingerprint——正式文件在草稿
@@ -501,7 +514,9 @@ async def _promote_reference_script_plan(
     return reference_result_text(
         script_review.official_reference_script_plan_path(project_path, episode),
         units,
-        render_soft_violation_lines(revalidation.soft_violations),
+        render_soft_violation_lines(
+            [replace(soft, item_id=unit_ids[soft.item_index]) for soft in revalidation.soft_violations]
+        ),
         action="晋升",
     )
 
@@ -747,6 +762,9 @@ async def _promote_drama_script_plan(
     # （Web 端保存、重跑 normalize）改过时晋升中止、返回冲突报告让 Agent 合并，不静默覆盖。
     expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
     script_plan_path = episode_drafts_dir(project_path, episode) / SCRIPT_PLAN_FILENAMES["drama"]
+    await reissue_plan_item_ids(
+        ctx.pm, ctx.project_name, episode, content, keep=await asyncio.to_thread(plan_item_ids, script_plan_path)
+    )
     try:
         await run_sync_transaction(
             commit_single_script_plan,
@@ -949,6 +967,13 @@ async def _promote_narration_script_plan(
     # 缺少 base_fingerprint 的草稿按无基线晋升。
     expected = draft.meta.get("base_fingerprint", script_review.UNCHECKED_FINGERPRINT)
     script_plan_path = narration_script_plan_path(project_path, episode)
+    await reissue_plan_item_ids(
+        ctx.pm,
+        ctx.project_name,
+        episode,
+        revalidation.content,
+        keep=await asyncio.to_thread(plan_item_ids, script_plan_path),
+    )
     try:
         await run_sync_transaction(
             commit_single_script_plan,

@@ -228,8 +228,18 @@ class ScriptReviewService:
                 return state
             units = content.get("units") or []
             texts = [str(unit.get("text") or "") if isinstance(unit, dict) else "" for unit in units]
+            unit_ids = [
+                unit_id for unit in units if isinstance(unit, dict) and isinstance(unit_id := unit.get("unit_id"), str)
+            ]
             state["soft_violations"] = soft_violation_entries(
-                reference_soft_violations(texts, project, episode=episode, voice=caps.voice)
+                reference_soft_violations(
+                    texts,
+                    project,
+                    episode=episode,
+                    voice=caps.voice,
+                    # 正式 script_plan 的单元带着落盘时发出的编号，提示按它定位
+                    unit_ids=unit_ids if len(unit_ids) == len(units) else None,
+                )
             )
         return state
 
