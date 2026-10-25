@@ -10,6 +10,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from lib.artifacts import artifact_activation
 from lib.artifacts.artifact_manifest import ProjectArtifactManifestAdapter
 from lib.artifacts.version_manager import VersionManager
 from lib.edit_timeline import EditTimelineService
@@ -118,6 +119,28 @@ async def test_a_deleted_episode_comes_back_with_its_timelines_media_versions_an
     assert await _records(episode_client) == []
 
 
+async def test_an_episode_without_files_keeps_its_title_and_hook_when_restored(
+    episode_client: AsyncClient, timeline_project: ProjectManager
+) -> None:
+    created = await episode_client.post("/api/v1/projects/demo/episodes", json={"title": "开场", "hook": "伏笔"})
+    assert created.status_code == 201, created.text
+    episode = created.json()["episode"]
+    before = next(e for e in timeline_project.load_project("demo")["episodes"] if e["episode"] == episode)
+    url = f"/api/v1/projects/demo/episodes/{episode}/delete"
+    preview = await episode_client.post(url, json={})
+    deleted = await episode_client.post(url, json={"revision": preview.json()["impact"]["revision"]})
+    assert deleted.json()["status"] == "deleted", deleted.text
+    [record] = await _records(episode_client)
+    assert (record["files"], record["has_snapshot"]) == ([], True)
+
+    restored = await episode_client.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["degraded"] is False
+    assert timeline_project.load_project("demo")["episodes"][-1] == before
+    assert await _records(episode_client) == []
+
+
 async def test_a_timeline_deleted_before_its_episode_restores_normally_once_the_episode_is_back(
     episode_client: AsyncClient, timeline_project: ProjectManager
 ) -> None:
@@ -139,8 +162,20 @@ async def test_a_timeline_deleted_before_its_episode_restores_normally_once_the_
     assert (await episode_client.get(f"/api/v1/projects/demo/edit-timelines/{timeline_id}")).status_code == 200
 
 
+@pytest.mark.parametrize(
+    "failing_step",
+    [
+        (VersionManager, "detach_resources"),
+        # 版本记录已摘掉之后才失败：版本历史也要回到删除前
+        (artifact_activation, "register_artifact_entries_atomically"),
+    ],
+    ids=["detach-versions", "manifest-after-detach"],
+)
 def test_a_failed_deletion_commit_withdraws_the_record_and_keeps_the_episode(
-    tmp_path: Path, timeline_project: ProjectManager, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    timeline_project: ProjectManager,
+    monkeypatch: pytest.MonkeyPatch,
+    failing_step: tuple[object, str],
 ) -> None:
     _install_videos(timeline_project, tmp_path)
     project_dir = timeline_project.get_project_path("demo")
@@ -151,7 +186,7 @@ def test_a_failed_deletion_commit_withdraws_the_record_and_keeps_the_episode(
     def fail(*_args: object, **_kwargs: object) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(VersionManager, "detach_resources", fail)
+    monkeypatch.setattr(*failing_step, fail)
     with pytest.raises(OSError, match="disk full"):
         delete_episode(timeline_project, "demo", 1, revision=preview.impact.revision)
 
@@ -160,3 +195,4 @@ def test_a_failed_deletion_commit_withdraws_the_record_and_keeps_the_episode(
     assert (project_dir / "scripts" / "episode_1.json").is_file()
     assert (project_dir / "reference_videos" / "E1U1.mp4").is_file()
     assert (project_dir / versions["versions"][0]["file"]).is_file()
+    assert VersionManager(project_dir).get_versions("reference_videos", "E1U1") == versions

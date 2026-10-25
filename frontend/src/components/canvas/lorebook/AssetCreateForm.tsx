@@ -30,8 +30,9 @@ async function restoreFromTrash(projectName: string, recordId: string, t: TFunct
   const { pushToast } = useAppStore.getState();
   try {
     const result = await API.restoreTrashRecord(projectName, recordId);
-    await refreshAfterWrite(projectName, t);
-    pushToast(t("assets:create_trash_restored", { name: result.object.name }), "success");
+    if ((await refreshAfterWrite(projectName, t)) === "success") {
+      pushToast(t("assets:create_trash_restored", { name: result.object.name }), "success");
+    }
   } catch (error) {
     pushToast(t("assets:create_trash_restore_failed", { message: errMsg(error) }), "error");
   }

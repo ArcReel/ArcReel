@@ -833,6 +833,7 @@ class ProjectManager:
 
                     def _register_manifest(_script_path: Path) -> None:
                         # 被移除与被新身份替换的旧条目移进项目回收站，再撤登记；仍持剧本锁，新条目的媒体不能先落盘。
+                        # 覆盖时旧剧本里的条目都按结构移除建记录（ADR 0080），没有媒体的也能找回。
                         trash_entries(
                             project_path,
                             episode=episode,
@@ -845,6 +846,7 @@ class ProjectManager:
                                 previous_kind,
                             ),
                             before=before_files,
+                            removed=previous_resource_ids,
                             then=manifest_commit,
                         )
 

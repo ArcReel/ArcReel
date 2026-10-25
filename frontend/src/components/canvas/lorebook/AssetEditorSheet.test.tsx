@@ -460,6 +460,36 @@ describe("资产详情 Sheet", () => {
     );
   });
 
+  it("only warns about the refresh when it fails after restoring the same-named asset", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "addCharacter").mockImplementation((_p, name, description, voiceStyle) => {
+      server.characters[name] = { description, voice_style: voiceStyle };
+      return Promise.resolve({ success: true, trash_record_id: "rec-1" });
+    });
+    vi.spyOn(API, "restoreTrashRecord").mockResolvedValue({
+      object: { kind: "asset", asset_type: "character", name: "阿青 (1)" },
+      restored: [],
+      degraded: false,
+      download_only: [],
+    });
+    renderGallery();
+
+    await user.click(screen.getByRole("button", { name: "添加角色" }));
+    const form = await screen.findByRole("dialog", { name: "添加角色" });
+    await user.type(within(form).getByRole("textbox", { name: "名称" }), "阿青");
+    await user.click(within(form).getByRole("button", { name: "创建" }));
+    await waitFor(() => expect(useAppStore.getState().toast?.action).toBeDefined());
+    vi.mocked(API.getProject).mockRejectedValue(new Error("网络错误"));
+    useAppStore.getState().toast?.action?.onClick();
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "操作已完成，但页面数据刷新失败，请手动刷新查看最新状态",
+        tone: "warning",
+      }),
+    );
+  });
+
   it("says the asset was created when refreshing the project afterwards fails", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });

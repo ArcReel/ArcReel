@@ -7,7 +7,7 @@
 4. 先取规则声明的领域锁、再取项目锁，再核对一次记录仍在，按落地规则把对象加回当前项目，并为加回的产物补录。
    落地失败时撤掉本次新建的文件，记录原样保留。
 
-迁移失败、或迁移后的临时项目里取不出对象时降级：被删的媒体等文件按迁移后（迁移中途失败时为失败那一刻）的路径，
+迁移失败、或迁移后的临时项目里取不出对象时降级（没有被删文件的记录不降级，记录保留）：被删的媒体等文件按迁移后（迁移中途失败时为失败那一刻）的路径，
 照只涉及文件的记录的规则加回（原路径空闲则回原路径，否则作为历史版本或换新名）；被删的结构文件不加回，
 留在记录里只能下载。
 
@@ -160,7 +160,11 @@ def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:
             restoration = rule(project_dir, staged, record.object)
         except RestoreBlocked:
             raise
-        except Exception:
+        except Exception as exc:
+            if not record.files:
+                # 只存在于结构里的对象降级后什么都加回不了，消耗记录就丢了它：记录保留，之后可以重试。
+                logger.warning("删除记录 %s 无法按原结构恢复，记录保留", record.id, exc_info=True)
+                raise ConflictError("trash_restore_unsupported") from exc
             # 失败原因记在日志里；创作者看到的是降级结果。
             logger.warning("删除记录 %s 无法按原结构恢复，降级为只恢复文件", record.id, exc_info=True)
             return _restore_files_only(project_dir, record, staged)

@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from lib.artifacts.version_manager import VersionManager
+from lib.generation.deleted_target import GenerationTargetDeletedError, trash_result_if_target_deleted
 from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
@@ -91,6 +92,23 @@ def test_deleting_an_asset_moves_its_sheet_and_history_into_one_record(asset_cli
     assert "阿岚" not in _project(asset_dir)["characters"]
 
 
+def test_deleting_a_character_keeps_reference_audio_another_character_still_uses(asset_client, asset_pm, asset_dir):
+    _create(asset_client, "阿岚")
+    _create(asset_client, "阿青")
+    audio = asset_dir / "characters" / "refs_audio" / "阿岚.wav"
+    audio.parent.mkdir(parents=True, exist_ok=True)
+    audio.write_bytes(b"voice")
+    for name in ("阿岚", "阿青"):
+        asset_pm.update_asset_entry(
+            "character", "demo", name, lambda entry: entry.update(reference_audio="characters/refs_audio/阿岚.wav")
+        )
+
+    assert asset_client.delete(f"{CHARACTERS}/阿岚").status_code == 200
+
+    assert audio.read_bytes() == b"voice"
+    assert "characters/refs_audio/阿岚.wav" not in _only_record(asset_client)["files"]
+
+
 def test_restore_with_free_name_brings_back_sheet_history_and_name(asset_client, asset_pm, asset_dir):
     _create(asset_client, "阿岚")
     _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
@@ -106,6 +124,36 @@ def test_restore_with_free_name_brings_back_sheet_history_and_name(asset_client,
     history = VersionManager(asset_dir).get_versions("characters", "阿岚")
     assert (history["current_version"], len(history["versions"])) == (2, 2)
     assert history["versions"][0]["aspect_ratio"] == "3:4"
+    assert asset_client.get(TRASH).json()["records"] == []
+
+
+@pytest.mark.parametrize("target_first", [False, True])
+def test_restoring_a_deleted_asset_before_its_late_generation_keeps_the_original_name(
+    asset_client, asset_pm, asset_dir, tmp_path, target_first
+):
+    _create(asset_client, "阿岚")
+    _with_sheet(asset_pm, asset_dir, "阿岚", b"old")
+    asset_client.delete(f"{CHARACTERS}/阿岚")
+    asset_record = _only_record(asset_client)
+    staged = tmp_path / "generated.png"
+    staged.write_bytes(b"late-generation")
+    with pytest.raises(GenerationTargetDeletedError) as deleted:
+        trash_result_if_target_deleted(asset_dir, resource_type="characters", resource_id="阿岚", staged_file=staged)
+    generation_id = deleted.value.record.id
+    order = [asset_record["id"], generation_id] if target_first else [generation_id, asset_record["id"]]
+    results = {}
+    for record_id in order:
+        restored = asset_client.post(f"{TRASH}/{record_id}/restore")
+        assert restored.status_code == 200, restored.text
+        results[record_id] = restored.json()
+
+    name = "阿岚" if target_first else "阿岚 (1)"
+    assert results[asset_record["id"]]["object"]["name"] == name
+    entry = _project(asset_dir)["characters"][name]
+    assert (asset_dir / entry["character_sheet"]).read_bytes() == b"old"
+    [result_file] = results[generation_id]["restored"]
+    assert result_file["as_history"] is target_first
+    assert (asset_dir / result_file["path"]).read_bytes() == b"late-generation"
     assert asset_client.get(TRASH).json()["records"] == []
 
 
