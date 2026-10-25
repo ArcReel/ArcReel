@@ -102,6 +102,35 @@ def test_identity_reference_can_condition_a_new_composition_without_a_start_imag
     assert "--image" not in command
 
 
+def test_identity_reference_keeps_both_temporal_anchors_in_the_ic_pipeline(renderer, motion_config, tmp_path):
+    end = tmp_path / "end.png"
+    end.touch()
+    motion_config.update(mode="identity-reference", width=768, height=448, frames=121, end_image=str(end))
+    command = renderer.build_command(motion_config, tmp_path)
+    anchors = [command[i + 1 : i + 4] for i, arg in enumerate(command) if arg == "--image"]
+    assert command[3] == "ic-lora"
+    assert anchors == [[motion_config["image"], "0", "1.0"], [str(end), "120", "1.0"]]
+    assert command[command.index("--video-conditioning") + 1] == motion_config["control_video"]
+    assert command[command.index("--distilled-lora") + 1] == motion_config["distilled_lora"]
+    assert "--start" not in command
+    assert "--end" not in command
+
+
+@pytest.mark.parametrize("missing", ["image", "end_image"])
+def test_identity_temporal_anchors_require_a_real_start_and_end(renderer, motion_config, tmp_path, missing):
+    end = tmp_path / "end.png"
+    end.touch()
+    motion_config.update(mode="identity-reference", width=768, height=448, frames=121, end_image=str(end))
+    if missing == "image":
+        motion_config.pop("image")
+        message = "An end anchor requires a starting image"
+    else:
+        end.unlink()
+        message = "Missing end_image"
+    with pytest.raises(ValueError, match=message):
+        renderer.build_command(motion_config, tmp_path)
+
+
 @pytest.mark.parametrize("override", [{"frames": 49}, {"frames": 97}, {"width": 1024, "height": 576}])
 def test_identity_rejects_motion_presets_outside_its_trained_bucket(renderer, motion_config, tmp_path, override):
     motion_config.update(mode="identity-reference", width=768, height=448, frames=121)
@@ -118,7 +147,7 @@ def test_identity_rejects_motion_presets_outside_its_trained_bucket(renderer, mo
         ({"distilled_lora": None}, "requires control_lora"),
         ({"image": None}, "requires a starting image"),
         ({"end_image": "end.png"}, "cannot use an end anchor"),
-        ({"recipe": "animated-dialogue"}, "cannot use an end anchor"),
+        ({"recipe": "animated-dialogue"}, "cannot use another recipe"),
         ({"control_video": "missing.mp4"}, "Missing control_video"),
         ({"control_lora": "missing.safetensors"}, "Missing control_lora"),
         ({"distilled_lora": "missing.safetensors"}, "Missing distilled_lora"),

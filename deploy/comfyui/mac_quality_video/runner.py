@@ -42,8 +42,10 @@ def build_command(config, root):
             raise ValueError("IC-LoRA qualification requires control_lora, control_video and distilled_lora.")
         if config["mode"] == "motion-track" and not config.get("image"):
             raise ValueError("Motion-track qualification requires a starting image.")
-        if config.get("end_image") or config.get("recipe"):
-            raise ValueError("IC-LoRA qualification cannot use an end anchor or another recipe.")
+        if config["mode"] == "motion-track" and config.get("end_image"):
+            raise ValueError("Motion-track qualification cannot use an end anchor.")
+        if config.get("recipe"):
+            raise ValueError("IC-LoRA qualification cannot use another recipe.")
         if config["mode"] == "identity-reference" and (config["width"], config["height"], config["frames"]) != (
             768,
             448,
@@ -74,7 +76,7 @@ def build_command(config, root):
     model = root / "models/mlx/ltx-2.3-22b-q8-distilled-1.1"
     if controlled and not (model / "transformer-dev.safetensors").is_file():
         raise ValueError("IC-LoRA qualification requires installed transformer-dev.safetensors; no render started.")
-    keyframe = bool(config.get("end_image"))
+    keyframe = bool(config.get("end_image")) and not controlled
     if keyframe:
         for filename in ("transformer-dev.safetensors", "transformer-distilled-1.1.safetensors"):
             if not (model / filename).is_file():
@@ -123,6 +125,8 @@ def build_command(config, root):
         ]
         if config.get("image"):
             args += ["--image", str(config["image"]), "0", "1.0"]
+        if config.get("end_image"):
+            args += ["--image", str(config["end_image"]), str(config["frames"] - 1), "1.0"]
     elif keyframe:
         # The pinned low-RAM runtime swaps to the pre-fused distilled transformer
         # at strength 1.0. The explicit LoRA name enables that refinement path;
@@ -185,7 +189,9 @@ def run(config_path, check_interrupt=None):
     report = {
         "config": config,
         "command": args,
-        "pipeline": "keyframe" if config.get("end_image") else config["mode"],
+        "pipeline": "keyframe"
+        if config.get("end_image") and config["mode"] != "identity-reference"
+        else config["mode"],
         "output": str(out),
         "status": "running",
         "started_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),

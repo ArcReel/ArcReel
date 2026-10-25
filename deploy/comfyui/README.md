@@ -104,8 +104,14 @@ The pinned MLX runtime uses deterministic Euler rather than the workflows'
 Euler ancestral CFG++ sampler; this is not numerical parity with ComfyUI.
 
 Motion tests accept 49/97/121 frames at 768×448 or 1024×576; identity tests accept
-only 121 frames at 768×448. An end anchor or another
-recipe is rejected, as are missing control files or a missing dev transformer.
+only 121 frames at 768×448. Both modes reject alternative recipes and missing
+control files or a missing dev transformer. Motion tests reject an end anchor.
+Identity tests can pair `image` and `end_image` with the identity
+reference: both images go to the IC pipeline as temporal anchors at frame 0 and
+the last frame. They do not switch to the separate keyframe pipeline or replace
+identity conditioning. An ending guide requires a starting image. This combined
+route remains a qualification experiment; matching two stills does not prove
+correct movement between them.
 The 19 GiB start requirement, 8 GiB reserve, swap guard, timeout, and cancellation
 handling apply. Do not run simultaneous GPU experiments.
 
