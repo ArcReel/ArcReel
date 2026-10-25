@@ -222,6 +222,7 @@ import {
 } from "./api/errors";
 import type {
   AgentProfileStatus,
+  AssetCreateResult,
   AssetDeletionPreview,
   AssetMergeResult,
   AssetRenameResult,
@@ -254,6 +255,7 @@ export {
 } from "./api/errors";
 export type {
   AgentProfileStatus,
+  AssetCreateResult,
   AssetDeletionPreview,
   AssetMergeEpisodeImpact,
   AssetMergeResult,
@@ -1007,7 +1009,7 @@ class API {
     name: string,
     description: string,
     voiceStyle: string = ""
-  ): Promise<SuccessResponse> {
+  ): Promise<AssetCreateResult> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/characters`,
       {
@@ -1214,7 +1216,7 @@ class API {
     projectName: string,
     name: string,
     description: string
-  ): Promise<SuccessResponse> {
+  ): Promise<AssetCreateResult> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/scenes`,
       {
@@ -1244,7 +1246,7 @@ class API {
     projectName: string,
     name: string,
     description: string
-  ): Promise<SuccessResponse> {
+  ): Promise<AssetCreateResult> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/props`,
       {
@@ -1276,7 +1278,7 @@ class API {
     description: string,
     brand?: string,
     sellingPoints?: string[]
-  ): Promise<SuccessResponse> {
+  ): Promise<AssetCreateResult> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/products`,
       {

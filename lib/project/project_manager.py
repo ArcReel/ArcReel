@@ -80,7 +80,6 @@ from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameNotFoundError,
     AssetRenameReport,
-    asset_files_named,
     plan_asset_file_renames,
     rewrite_entry_paths,
     rewrite_payload_references,
@@ -2130,6 +2129,7 @@ class ProjectManager:
         mutate_fn: Callable[[dict], None],
         *,
         on_commit: Callable[[Path], None] | None = None,
+        formal_paths: Sequence[Path] = (),
     ) -> dict:
         """Update one asset and reconcile a moved formal sheet claim.
 
@@ -2182,7 +2182,7 @@ class ProjectManager:
             if on_commit is not None:
                 on_commit(project_file)
 
-        self.update_project(project_name, _mutate, on_commit=_commit)
+        self.update_project(project_name, _mutate, on_commit=_commit, formal_paths=formal_paths)
         return result
 
     def update_project_reconciling_episode_bindings(
@@ -2846,21 +2846,20 @@ class ProjectManager:
         }
 
     def delete_asset(self, project_name: str, table: str, name: str) -> dict:
-        """Delete one project asset and its formal sheet claim in one commit.
+        """删除一个项目资产：条目、资产图、原图与参考音频、版本历史与名下衍生一起成为一条删除记录。
 
-        The project entry owns the identity of an asset-sheet claim. Leaving
-        that claim behind would make a complete Manifest snapshot refer to an
-        asset that no longer exists, so every caller shares this write seam.
+        资产条目拥有资产图清单登记的身份，登记留着会让清单指向不存在的资产，所以全部调用方共用这一处；
+        project.json、版本记录与清单在同一个正式写入事务里改写，删除记录建不成时一起回滚。
         """
 
-        from lib.artifacts.artifact_activation import forget_current_resource_artifact
-        from lib.project.asset_derivative_cleanup import purge_owner_derivative_sheets
+        from lib.project import asset_trash
 
         asset_type = self._resolve_asset_type(table)
         spec = ASSET_SPECS[asset_type]
         project_dir = self.get_project_path(project_name)
         deleted_name: str | None = None
         deleted_entry: dict[str, Any] = {}
+        before: dict[str, bytes] = {}
 
         def _mutate(project: dict) -> None:
             nonlocal deleted_name
@@ -2868,26 +2867,21 @@ class ProjectManager:
             key = resolve_asset_key(bucket, name)
             if not isinstance(bucket, dict) or key is None:
                 raise KeyError(f"{spec.label_zh} '{name}' 不存在")
+            before.update(asset_trash.state_before(project_dir))
             deleted_name = key
             entry = bucket[key]
             if isinstance(entry, dict):
                 deleted_entry.update(entry)
             del bucket[key]
 
-        def _forget_claim(_project_file: Path) -> None:
+        def _trash(_project_file: Path) -> None:
             if deleted_name is None:  # pragma: no cover - mutate contract
                 raise RuntimeError("asset deletion did not resolve a canonical identity")
-            forget_current_resource_artifact(
-                project_dir,
-                resource_type=spec.bucket_key,
-                resource_id=deleted_name,
-            )
-            # 本体的资产图与历史留存（可被重建的同名资产接上），衍生的不留：删掉本体后
-            # 衍生已无任何入口，见 lib/project/asset_derivative_cleanup。
-            if spec.supports_derivatives:
-                purge_owner_derivative_sheets(project_dir, deleted_name, deleted_entry)
+            asset_trash.trash_asset(project_dir, spec, deleted_name, deleted_entry, before)
 
-        return self.update_project(project_name, _mutate, on_commit=_forget_claim)
+        return self.update_project(
+            project_name, _mutate, on_commit=_trash, formal_paths=asset_trash.state_paths(project_dir)
+        )
 
     def preview_asset_deletion(self, project_name: str, table: str, name: str) -> AssetDeletionPreview:
         """删除资产前的引用预览（只读）：剧本与草稿里有多少处引用会在删除后悬空。
@@ -3365,10 +3359,10 @@ class ProjectManager:
         与 :meth:`rename_asset` 同一组锁、同一套「先扫描、再落盘」：全部剧集剧本与 script_plan 草稿里
         指向被并方的引用改指保留方（规则见 :mod:`lib.project.asset_merge`），保留方原样不动，只追加
         别名（并为本体）或衍生（并为衍生）。被并方的描述、资产图及版本历史、声音设置、原图与参考音频
-        都不保留，资产图撤销登记；它名下的衍生迁到保留方，与保留方已有衍生同名（只差大小写也算）的并入那个。
+        不并入，连同条目成为一条删除记录；它名下的衍生迁到保留方，与保留方已有衍生同名（只差大小写也算）的并入那个。
         ``dry_run=True`` 时只返回影响报告，预览与执行共用同一次扫描，数字必然一致。
 
-        落盘顺序：剧本 → 草稿 → 衍生资产图搬迁 → project.json 与清单 → 被并方的版本历史与文件。
+        落盘顺序：剧本 → 草稿 → 衍生资产图搬迁 → 同一个正式写入事务里的 project.json、清单与被并方的删除记录。
         project.json 提交前中途失败时，重跑同一次合并即可收敛（已改写的引用不再计数）。
 
         Raises:
@@ -3379,9 +3373,7 @@ class ProjectManager:
             AssetRenameHistoryCollisionError: 迁移衍生的目标 id 下已有别的版本历史。
         """
         # 衍生与产物模块经产物规划反向依赖本模块，惰性 import 破环（与 rename_asset 同理）。
-        from lib.artifacts.artifact_activation import forget_current_resource_artifact
-        from lib.artifacts.version_manager import VersionManager
-        from lib.project.asset_derivative_cleanup import purge_derivative_sheets
+        from lib.project import asset_trash
         from lib.project.asset_derivative_rename import (
             plan_derivative_sheet_relocation,
             rewrite_derivative_sheet_paths,
@@ -3552,6 +3544,7 @@ class ProjectManager:
                 return report
 
             # —— 落盘 ——
+            state_before = asset_trash.state_before(project_dir)
             for filename, script, before in changed_scripts:
                 self._write_script_unlocked(project_name, script, filename, sync_project=False, before=before)
             self._carry_script_plan_confirmations(project_dir, mutated, changed_drafts)
@@ -3560,19 +3553,20 @@ class ProjectManager:
             relocation.relocate()
             self._touch_metadata(mutated)
             project_file = self._get_project_file_path(project_name)
-            with formal_write_transaction(project_file):
+            # 被并方的资产图、版本历史、按名命名的文件与并入已有同名衍生的那些衍生进项目回收站：留在原处
+            # 会让以后同名的资产接上不属于它的历史。迁到保留方名下的衍生此时已搬走，记录不收它们。
+            with formal_write_transaction(*asset_trash.state_paths(project_dir)):
                 atomic_write_json(project_file, mutated)
                 relocation.commit_manifest()
-                forget_current_resource_artifact(project_dir, resource_type=spec.bucket_key, resource_id=source)
-                if spec.supports_derivatives:
-                    purge_derivative_sheets(project_dir, source, derivative_plan.folded)
-            # 被并方的版本历史与按名命名的文件不保留：留着会让以后同名的资产接上不属于它的历史。
-            VersionManager(project_dir).purge_resource(spec.bucket_key, source)
-            for path in asset_files_named(project_dir, spec, source):
-                try:
-                    path.unlink(missing_ok=True)  # hard-delete: pending-trash -- #3385 合并资产时删除被并资产名下的文件
-                except OSError:
-                    logger.warning("被并资产的文件删除失败，已解除登记: %s", path, exc_info=True)
+                asset_trash.trash_asset(
+                    project_dir,
+                    spec,
+                    source,
+                    discarded,
+                    state_before,
+                    merged_into=target,
+                    derivatives_moved=list(derivative_plan.moved),
+                )
 
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
         return report

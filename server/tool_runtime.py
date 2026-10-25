@@ -3642,9 +3642,9 @@ def _merge_asset_message(project: Mapping[str, Any], report: AssetMergeReport) -
     if report.derivatives_folded:
         lines.append("与保留方已有衍生同名、并入已有衍生：" + "、".join(report.derivatives_folded))
     lines.append(
-        "被并方的描述、资产图及版本历史、声音设置、原图与参考音频不保留。"
+        "被并方的描述、资产图及版本历史、声音设置、原图与参考音频不并入保留方，将移入项目回收站。"
         if report.dry_run
-        else "被并方的描述、资产图及版本历史、声音设置、原图与参考音频已删除。"
+        else "被并方的描述、资产图及版本历史、声音设置、原图与参考音频已移入项目回收站。"
     )
     return "\n".join(lines)
 

@@ -77,7 +77,7 @@ MERGE_ASSET = ToolDeclaration(
         "source 的名字与别名记为 target 的别名，source 名下的衍生迁到 target，与 target 已有衍生同名的并入已有的那个。"
         "as_derivative=true（仅 characters）时 source 改为 target 的衍生：画面引用改写为 target/source，"
         "speaker 改为 target，source 的名字不记为别名。source 的描述、资产图及版本历史、声音设置、原图与参考音频"
-        "都不保留，合并不可撤销：先用 dry_run=true 取得按集列出的影响，转述给用户并得到同意后再执行。"
+        "不并入，移入项目回收站；引用的改写不随恢复撤销：先用 dry_run=true 取得按集列出的影响，转述给用户并得到同意后再执行。"
         "资产改名用 rename_asset。项目数据升级失败时仍可调用，用于修复。"
     ),
     request_model=MergeAssetRequest,

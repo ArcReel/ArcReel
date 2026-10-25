@@ -31,6 +31,7 @@ from typing import Any
 
 from lib.artifacts.formal_write import project_metadata_lock
 from lib.infra.api_errors import BadRequestError
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.json_io import atomic_write_json
 from lib.project import project_trash
 from lib.project.project_migrations.runner import migrate_project_dir
@@ -118,6 +119,7 @@ def _rules() -> Mapping[str, TakeRule]:
     from lib.episode.episode_trash import EPISODE_KIND, take_episode
     from lib.episode.source_trash import SOURCE_FILE_KIND, take_source_file
     from lib.project import media_trash
+    from lib.project.asset_trash import ASSET_DERIVATIVE_KIND, ASSET_KIND, take_asset, take_asset_derivative
     from lib.script.planning_draft_trash import PLANNING_DRAFT_KIND, take_planning_draft
 
     return {
@@ -128,6 +130,8 @@ def _rules() -> Mapping[str, TakeRule]:
         media_trash.REFERENCE_AUDIO_KIND: media_trash.take_reference_audio,
         SOURCE_FILE_KIND: take_source_file,
         PLANNING_DRAFT_KIND: take_planning_draft,
+        ASSET_KIND: take_asset,
+        ASSET_DERIVATIVE_KIND: take_asset_derivative,
     }
 
 
@@ -138,7 +142,8 @@ def restore_structural(project_dir: Path, record: TrashRecord) -> RestoreResult:
         raise BadRequestError("trash_restore_unsupported")
     record_dir = project_trash.trash_dir(project_dir) / record.id
     with tempfile.TemporaryDirectory(prefix=".restore-", dir=record_dir.parent) as tmp:
-        staged = Path(tmp) / project_dir.name
+        # 临时项目按数据根布局摆放，落地规则可以在其中用 ProjectManager 走领域流程（如资产换名的改名级联）。
+        staged = DataRootLayout(Path(tmp)).projects_dir / project_dir.name
         with project_metadata_lock(project_dir):
             # 铺设期间记录不能被彻底删除或被另一次恢复拿走。
             project_trash.require_record(project_dir, record.id)

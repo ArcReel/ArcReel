@@ -427,6 +427,39 @@ describe("资产详情 Sheet", () => {
     expect(within(sheet).getByRole("textbox", { name: "描述" })).toHaveValue("青衣少年");
   });
 
+  it("offers to restore a same-named asset from the project trash after creating it", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(API, "addCharacter").mockImplementation((_p, name, description, voiceStyle) => {
+      server.characters[name] = { description, voice_style: voiceStyle };
+      return Promise.resolve({ success: true, trash_record_id: "rec-1" });
+    });
+    const restore = vi.spyOn(API, "restoreTrashRecord").mockResolvedValue({
+      object: { kind: "asset", asset_type: "character", name: "阿青 (1)" },
+      restored: [],
+      degraded: false,
+      download_only: [],
+    });
+    renderGallery();
+
+    await user.click(screen.getByRole("button", { name: "添加角色" }));
+    const form = await screen.findByRole("dialog", { name: "添加角色" });
+    await user.type(within(form).getByRole("textbox", { name: "名称" }), "阿青");
+    await user.click(within(form).getByRole("button", { name: "创建" }));
+
+    await waitFor(() =>
+      expect(useAppStore.getState().toast?.text).toBe("项目回收站里有之前删除的「阿青」，恢复可以找回它的资产图与版本历史。"),
+    );
+    useAppStore.getState().toast?.action?.onClick();
+
+    expect(restore).toHaveBeenCalledWith("demo", "rec-1");
+    await waitFor(() =>
+      expect(useAppStore.getState().toast).toMatchObject({
+        text: "已从回收站恢复为「阿青 (1)」，可以再把它并入现有资产。",
+        tone: "success",
+      }),
+    );
+  });
+
   it("says the asset was created when refreshing the project afterwards fails", async () => {
     const user = userEvent.setup();
     vi.spyOn(API, "addCharacter").mockResolvedValue({ success: true });

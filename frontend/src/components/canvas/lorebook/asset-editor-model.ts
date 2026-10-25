@@ -1,4 +1,4 @@
-import { API } from "@/api";
+import { API, type AssetCreateResult } from "@/api";
 import type { AssetSheetType, Character, Product } from "@/types";
 import type { GalleryAssetSource } from "./gallery-model";
 
@@ -84,7 +84,11 @@ export function updateAssetFields(
   }
 }
 
-export function createAsset(projectName: string, type: AssetSheetType, fields: NewAssetFields): Promise<unknown> {
+export function createAsset(
+  projectName: string,
+  type: AssetSheetType,
+  fields: NewAssetFields,
+): Promise<AssetCreateResult> {
   const name = fields.name.trim();
   switch (type) {
     case "character":
