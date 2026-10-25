@@ -15,3 +15,4 @@ ArcReel 不接受以推广某项商业服务为主要目的的 PR：为某家第
 - PR #2500 — feat: add MuAPI video endpoint
 - PR #3311、#1445 等 — octo-patch 账号的 MiniMax 系列 PR（在 ArcReel 共 12 个，仅 #1298 修复已有供应商缺陷被合并）；该账号在 GitHub 上批量提交 MiniMax 接入 PR
 - PR #3348 — feat(provider): add DreamAPI BYOK image and video endpoints
+- PR #3419 — feat(backends): 内置 Higgsfield 供应商，接入 Soul 2 / Qwen Image 3 图片与可灵 3.0 / 可灵 O3 / Seedance 2.5 视频（另附 ArcReel/arcreel-catalog#2 的目录数据）
