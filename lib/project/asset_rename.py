@@ -158,21 +158,22 @@ def renamed_file_stem(stem: str, old_name: str, new_name: str, *, allow_sequence
     """按「文件 stem = 资产名」不变式推导改名后的 stem；与旧名无关时返回 None。
 
     默认只认 stem 归一后**精确等于**旧名（sheet / 参考图 / 参考音频）。``allow_sequence``
-    额外放行 ``旧名_{序号}`` 形态（product 多图序列，见 server/routers/files.py 的
-    sequenced 命名），仅可用于确实按序号累积命名的位置：资产名本身允许下划线加数字
-    （``validate_asset_name`` 不禁），在普通目录放行该形态会把兄弟资产「旧名_2」的文件
-    一并卷走、把它的路径字段改成悬空。
+    表示该位置的文件全部按 ``名_{序号}`` 机械命名（product 多图序列，见
+    server/routers/files.py 的 sequenced 命名），此时**只**认 ``旧名_{序号}``，不再认 stem
+    恰好等于旧名的文件：资产名本身允许下划线加数字（``validate_asset_name`` 不禁），
+    商品 ``Cup_1`` 与 ``Cup`` 并存时，``Cup`` 的第 1 张原图 ``Cup_1.png`` 的 stem 恰好等于
+    ``Cup_1``，按精确同名认会把它当成 ``Cup_1`` 自己的文件。普通目录不要开 ``allow_sequence``，
+    否则兄弟资产「旧名_2」的文件会被一并卷走、路径字段改成悬空。
 
     比对与拼接都在归一坐标系上进行——macOS 落盘的文件名可能是 NFD。
     """
     normalized = normalize_asset_name(stem)
     target = normalize_asset_name(old_name)
-    if normalized == target:
-        return new_name
-    if allow_sequence:
-        prefix = f"{target}_"
-        if normalized.startswith(prefix) and normalized[len(prefix) :].isdigit():
-            return f"{new_name}_{normalized[len(prefix) :]}"
+    if not allow_sequence:
+        return new_name if normalized == target else None
+    prefix = f"{target}_"
+    if normalized.startswith(prefix) and normalized[len(prefix) :].isdigit():
+        return f"{new_name}_{normalized[len(prefix) :]}"
     return None
 
 
