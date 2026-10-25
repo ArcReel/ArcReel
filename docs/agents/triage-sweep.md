@@ -22,7 +22,7 @@
 
 ## 2. 外部 PR 的前置检查
 
-外部 PR 的请求明显命中 `.out-of-scope/` 条目时，评论引用该条目，打 `wontfix` 并关闭，不再做以下检查。
+外部 PR 的请求明显命中 `.out-of-scope/` 条目，或关联 issue 带 `ready-for-agent`（理由见 `CONTRIBUTING.md`）时，评论引用对应条目或理由，打类别标签与 `wontfix` 并关闭，不再做以下检查。
 
 其余外部 PR 在审查前依次检查以下两项。未通过的 PR 停在这一步，打 `needs-info`；`needs-info` 超过 14 天仍未通过的，不论期间有无回复，评论说明补齐后可以重开，然后关闭：
 
