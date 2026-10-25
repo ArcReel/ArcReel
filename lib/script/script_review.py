@@ -42,6 +42,7 @@ from lib.infra.content_digest import canonical_json_digest
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
+from lib.project import project_trash
 from lib.project.project_activity import record_project_activity
 from lib.project.project_manager import ProjectManager, find_episode, is_reference_video_project
 from lib.script.draft_quarantine import (
@@ -50,7 +51,6 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
     QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
-    clear_quarantine,
     draft_owner,
     quarantine_path,
     read_quarantine,
@@ -368,15 +368,29 @@ def formal_script_plan_write_transaction(
 
 
 def delete_script_plan_file(project_path: Path, episode: int, path: Path) -> bool:
-    """Delete a formal script_plan and forget its active claim through the same transaction."""
+    """把正式 script_plan 移进项目回收站，并在同一事务里撤掉它的产物登记。"""
 
     pm = ProjectManager.for_project_dir(project_path)
     with pm.file_lock(path):
         if not path.exists():
             return False
-        with formal_script_plan_write_transaction(project_path, episode, path):
-            path.unlink()  # hard-delete: pending-trash -- #3387 删除规划草稿或规划文件
+        trash_script_plan_locked(project_path, episode, path)
     return True
+
+
+def trash_script_plan_locked(project_path: Path, episode: int, path: Path) -> None:
+    """:func:`delete_script_plan_file` 的锁内主体：调用方已持有该文件的 per-path 锁。"""
+    from lib.script.planning_draft_trash import trash_planning_draft
+
+    record = None
+    try:
+        with formal_script_plan_write_transaction(project_path, episode, path):
+            record = trash_planning_draft(project_path, episode, path)
+    except BaseException:
+        # 撤登记失败时事务已把文件按字节写回，记录随之撤掉；写回也失败时记录留着，内容不丢。
+        if record is not None and path.is_file():
+            project_trash.purge(project_path, record.id)
+        raise
 
 
 def write_formal_script_plan_locked(
@@ -414,11 +428,21 @@ def write_formal_script_plan_locked(
     changed = previous != content
     quarantine = None if dependent_quarantine is None else quarantine_path(project_path, episode, dependent_quarantine)
     paths = (path,) if quarantine is None else (path, quarantine)
-    with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
-        atomic_write_json(path, content)
-        if changed and clear_dependent_quarantine and dependent_quarantine is not None:
-            # 内容变了才清，提交后由事务按内容变化记账
-            clear_quarantine(project_path, episode, dependent_quarantine, record_activity=False)
+    from lib.script.planning_draft_trash import trash_planning_draft
+
+    record = None
+    try:
+        with formal_script_plan_write_transaction(project_path, episode, *paths, basis=basis, record_activity=changed):
+            atomic_write_json(path, content)
+            if changed and clear_dependent_quarantine and quarantine is not None:
+                # 内容变了才作废：草稿进项目回收站，提交后由事务按内容变化记账
+                record = trash_planning_draft(project_path, episode, quarantine)
+    except BaseException:
+        # 事务已把草稿按字节写回，记录随之撤掉。
+        # shortcut: 外层另有 formal_write_transaction 包住草稿、在本函数返回后失败时，外层写回草稿而记录留着（多一条可恢复的记录，内容不丢）；需要严格时把记录建在最外层事务里。
+        if record is not None and quarantine is not None and quarantine.is_file():
+            project_trash.purge(project_path, record.id)
+        raise
     return changed
 
 

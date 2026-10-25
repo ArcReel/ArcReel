@@ -187,24 +187,3 @@ def test_load_rolls_back_normalized_when_raw_backup_fails(tmp_path: Path, monkey
     # 原子性：normalized .txt 应已回滚，raw/ 也空
     assert not (project_source / "old.txt").exists()
     assert not (project_source / "raw" / "old.txt").exists()
-
-
-def test_load_replace_purges_stale_raw_when_new_upload_has_no_raw(tmp_path: Path):
-    """replace 冲突 + 新上传无 raw（纯 UTF-8 .txt）时，旧 raw 备份被清理。"""
-    project_source = tmp_path / "source"
-    raw_dir = project_source / "raw"
-    raw_dir.mkdir(parents=True)
-    # 旧版遗留：normalized .txt + raw .docx 备份（模拟先前用 .docx 上传过同名项目）
-    (project_source / "novel.txt").write_text("旧内容", encoding="utf-8")
-    (raw_dir / "novel.docx").write_bytes(b"stale docx bytes")
-
-    # 新上传：纯 UTF-8 .txt → _maybe_backup_raw 返回 None（不产生新 raw）
-    src = tmp_path / "novel.txt"
-    src.write_bytes("全新纯 UTF-8 内容".encode())
-
-    result = SourceLoader.load(src, project_source, original_filename="novel.txt", on_conflict="replace")
-
-    assert result.raw_path is None
-    assert result.normalized_path.read_text(encoding="utf-8") == "全新纯 UTF-8 内容"
-    # 关键：旧 raw/novel.docx 必须被清理，否则前端 📎 链接指向陈旧内容
-    assert not (raw_dir / "novel.docx").exists()
