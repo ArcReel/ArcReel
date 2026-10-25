@@ -4,6 +4,8 @@
 
 以推广某项商业服务为主要目的的贡献（例如新增某家服务的接入，或在文档中加入服务推荐与链接）不走 PR 流程，这类 PR 会被关闭；合作请联系 support@arc-reel.com。
 
+带 `ready-for-agent` 标签的 issue 已写好实现说明，由维护方的 coding Agent 实现。外部 PR 不会让它更快完成，只会多一轮审查，这类 PR 会被关闭。
+
 开发新功能或进行规模较大的改动前，先开 issue 讨论方向。
 
 PR 合并前，作者需要签署 CLA。签署入口由 CLA Assistant 在 PR 评论中给出。
