@@ -2392,6 +2392,7 @@ export default {
   'tool_name_generate_videos': 'Generate videos',
   'tool_name_set_video_end_frame': 'Set ending frame',
   'tool_name_select_storyboard_version': 'Select storyboard version',
+  'tool_name_reuse_storyboard_image': 'Reuse storyboard image',
   'tool_name_select_video_version': 'Select video version',
   'tool_name_inspect_video_units': 'Inspect video units',
   'tool_name_video_correction_memory': 'Manage video correction history',

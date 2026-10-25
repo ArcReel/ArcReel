@@ -113,3 +113,74 @@ async def test_only_positive_integer_versions_are_accepted(tmp_path: Path, versi
     ctx = _harness(tmp_path)
     result = await run_declared_tool("select_storyboard_version", ctx, {"shot_id": "E1S01", "version": version})
     assert problem_of(result).code == "invalid_request"
+
+
+async def test_reuse_image_preserves_source_end_guide_video_and_restorable_history(tmp_path: Path) -> None:
+    ctx = _harness(tmp_path / "owned")
+    other = _harness(tmp_path / "other")
+    original = _version(ctx, "red", "start")
+    other_image = _version(other, "green", "other")
+    source = ctx.project_path / "storyboards/scene_E1S02.png"
+    Image.new("RGB", (16, 16), "blue").save(source)
+    source_bytes = source.read_bytes()
+    video = ctx.project_path / "videos/scene_E1S01.mp4"
+    video.parent.mkdir(exist_ok=True)
+    video.write_bytes(b"existing video")
+    end = await run_declared_tool(
+        "set_video_end_frame",
+        ctx,
+        {"script": "episode_1.json", "shot_id": "E1S01", "source_path": "storyboards/scene_E1S01.png"},
+    )
+    assert end.problem is None
+    reused = await run_declared_tool(
+        "reuse_storyboard_image",
+        ctx,
+        {"script": "episode_1.json", "shot_id": "E1S01", "source_path": "storyboards/scene_E1S02.png"},
+    )
+    assert reused.problem is None
+    assert reused.value == {"shot_id": "E1S01", "current_version": 2, "file_path": "storyboards/scene_E1S01.png"}
+    assert (ctx.project_path / "storyboards/scene_E1S01.png").read_bytes() == source_bytes
+    assert source.read_bytes() == source_bytes
+    assert (ctx.project_path / "end_frames/scene_E1S01.png").read_bytes() == original
+    assert video.read_bytes() == b"existing video"
+    assert (other.project_path / "storyboards/scene_E1S01.png").read_bytes() == other_image
+    entry = ProjectArtifactManifestAdapter(ctx.project_path).get_entry(ArtifactKey.episode_storyboard(1, "E1S01"))
+    assert entry is not None
+    assert entry.artifact_path == "storyboards/scene_E1S01.png"
+    restored = await run_declared_tool("select_storyboard_version", ctx, {"shot_id": "E1S01", "version": 1})
+    assert restored.problem is None
+    assert (ctx.project_path / "storyboards/scene_E1S01.png").read_bytes() == original
+    assert not list((ctx.project_path / "storyboards").glob(".*.tmp.png"))
+
+
+@pytest.mark.parametrize("source_path", ["../outside.png", "missing.png", "not-image.png", "escape.png"])
+async def test_invalid_reuse_source_does_not_change_selected_image(tmp_path: Path, source_path: str) -> None:
+    ctx = _harness(tmp_path / "owned")
+    original = _version(ctx, "red", "start")
+    outside = tmp_path / "outside.png"
+    Image.new("RGB", (16, 16), "blue").save(outside)
+    (ctx.project_path / "not-image.png").write_bytes(b"not an image")
+    (ctx.project_path / "escape.png").symlink_to(outside)
+    result = await run_declared_tool(
+        "reuse_storyboard_image",
+        ctx,
+        {"script": "episode_1.json", "shot_id": "E1S01", "source_path": source_path},
+    )
+    assert result.problem is not None
+    assert (ctx.project_path / "storyboards/scene_E1S01.png").read_bytes() == original
+    versions = VersionManager(ctx.project_path).get_versions("storyboards", "E1S01")
+    assert len(versions["versions"]) == 1
+    assert not list((ctx.project_path / "storyboards").glob(".*.tmp.png"))
+
+
+@pytest.mark.parametrize(("reference", "shot_id"), [(True, "E1S01"), (False, "E1S99"), (False, "../../outside")])
+async def test_reuse_requires_an_existing_storyboard_shot(tmp_path: Path, reference: bool, shot_id: str) -> None:
+    ctx = _harness(tmp_path, reference=reference)
+    original = _version(ctx, "red", "start")
+    result = await run_declared_tool(
+        "reuse_storyboard_image",
+        ctx,
+        {"script": "episode_1.json", "shot_id": shot_id, "source_path": "storyboards/scene_E1S01.png"},
+    )
+    assert problem_of(result).code == "segment_not_found"
+    assert (ctx.project_path / "storyboards/scene_E1S01.png").read_bytes() == original

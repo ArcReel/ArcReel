@@ -21,6 +21,8 @@ Inspect the actual provider request preview, not only the script notes. Planning
 
 Before rendering, inspect the planned start images together in narrative order. Correct conflicting scale, layout, or action state before spending on motion. This is a visual planning check, not proof that the later video will stay stable.
 
+When a new shot needs to derive from an approved composition, use `reuse_storyboard_image` to select that project image as a new version of the target shot, then `edit_images` for the required state change. Merely naming another shot's image inside an edit instruction does not bind it as the edit source. Preserve the source and frozen ending guide, and inspect both actual guides before generating motion.
+
 For walking or driving, trace the intended path on the visible ground plane. Screen-left-to-right is a projection, not a route: on a receding sidewalk it can direct a pedestrian across the curb into traffic. Check that the subject's forward direction follows the intended support surface and that approaching vehicles do not intersect that path unless the story calls for it. If the frame contradicts the motion direction, change the starting composition and motion instructions together before rendering. Keep incidental traffic out of the action when it adds no story value; do not substitute a frozen moving vehicle.
 
 ## Prove a connected passage

@@ -2593,6 +2593,7 @@ export default {
   'tool_name_generate_videos': 'Tạo video',
   'tool_name_set_video_end_frame': 'Đặt khung hình kết thúc',
   'tool_name_select_storyboard_version': 'Chọn phiên bản ảnh phân cảnh',
+  'tool_name_reuse_storyboard_image': 'Tái sử dụng ảnh phân cảnh',
   'tool_name_select_video_version': 'Chọn phiên bản video',
   'tool_name_inspect_video_units': 'Xem hình ảnh đơn vị video',
   'tool_name_video_correction_memory': 'Quản lý lịch sử sửa video',
