@@ -62,9 +62,14 @@ def motion_config(tmp_path):
     }
 
 
-@pytest.mark.parametrize("mode", ["motion-track", "identity-reference"])
-def test_control_reaches_single_stage_cli_with_dev_recipe_and_reference(renderer, motion_config, tmp_path, mode):
-    motion_config["mode"] = mode
+@pytest.mark.parametrize(
+    ("mode", "width", "height", "frames"),
+    [("motion-track", 1024, 576, 49), ("motion-track", 768, 448, 121), ("identity-reference", 768, 448, 121)],
+)
+def test_control_reaches_single_stage_cli_with_dev_recipe_and_reference(
+    renderer, motion_config, tmp_path, mode, width, height, frames
+):
+    motion_config.update(mode=mode, width=width, height=height, frames=frames)
     command = renderer.build_command(motion_config, tmp_path)
     assert command[3] == "ic-lora"
     assert command[command.index("--lora") + 1 : command.index("--lora") + 3] == [
@@ -89,12 +94,20 @@ def test_control_reaches_single_stage_cli_with_dev_recipe_and_reference(renderer
 
 
 def test_identity_reference_can_condition_a_new_composition_without_a_start_image(renderer, motion_config, tmp_path):
-    motion_config["mode"] = "identity-reference"
+    motion_config.update(mode="identity-reference", width=768, height=448, frames=121)
     motion_config.pop("image")
     command = renderer.build_command(motion_config, tmp_path)
     assert command[3] == "ic-lora"
     assert command[command.index("--video-conditioning") + 1] == motion_config["control_video"]
     assert "--image" not in command
+
+
+@pytest.mark.parametrize("override", [{"frames": 49}, {"frames": 97}, {"width": 1024, "height": 576}])
+def test_identity_rejects_motion_presets_outside_its_trained_bucket(renderer, motion_config, tmp_path, override):
+    motion_config.update(mode="identity-reference", width=768, height=448, frames=121)
+    motion_config.update(override)
+    with pytest.raises(ValueError, match="Ingredients qualification requires 121 frames at 768x448"):
+        renderer.build_command(motion_config, tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -124,7 +137,7 @@ def test_motion_control_invalid_or_dropped_inputs_fail_before_launch(
 
 @pytest.mark.parametrize("mode", ["motion-track", "identity-reference"])
 def test_control_never_falls_back_when_dev_model_is_missing(renderer, motion_config, tmp_path, mode):
-    motion_config["mode"] = mode
+    motion_config.update(mode=mode, width=768, height=448, frames=121)
     (tmp_path / "models/mlx/ltx-2.3-22b-q8-distilled-1.1/transformer-dev.safetensors").unlink()
     with pytest.raises(ValueError, match="IC-LoRA qualification requires installed transformer-dev"):
         renderer.build_command(motion_config, tmp_path)
@@ -132,7 +145,7 @@ def test_control_never_falls_back_when_dev_model_is_missing(renderer, motion_con
 
 @pytest.mark.parametrize("mode", ["motion-track", "identity-reference"])
 def test_control_keeps_stricter_memory_admission(renderer, motion_config, tmp_path, monkeypatch, mode):
-    motion_config["mode"] = mode
+    motion_config.update(mode=mode, width=768, height=448, frames=121)
     path = tmp_path / "config.json"
     path.write_text(json.dumps(motion_config))
     monkeypatch.setattr(renderer, "ROOT", tmp_path)

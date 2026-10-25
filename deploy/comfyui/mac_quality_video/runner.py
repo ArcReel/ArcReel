@@ -44,6 +44,12 @@ def build_command(config, root):
             raise ValueError("Motion-track qualification requires a starting image.")
         if config.get("end_image") or config.get("recipe"):
             raise ValueError("IC-LoRA qualification cannot use an end anchor or another recipe.")
+        if config["mode"] == "identity-reference" and (config["width"], config["height"], config["frames"]) != (
+            768,
+            448,
+            121,
+        ):
+            raise ValueError("Ingredients qualification requires 121 frames at 768x448.")
         if config["frames"] not in (49, 97, 121) or (config["width"], config["height"]) not in (
             (768, 448),
             (1024, 576),

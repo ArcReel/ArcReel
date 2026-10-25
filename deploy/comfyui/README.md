@@ -91,8 +91,9 @@ with the official track rasterizer. Identity tests instead use the Ingredients
 LoRA and a static reference video; `image` is optional so a test can ask for a new
 composition rather than merely preserve its starting frame. Prepare clean
 identity references without conflicting character panels. Match control video
-dimensions, frame rate, and duration to the output. Start short, then qualify the
-intended production duration; the Ingredients model card recommends 121 frames.
+dimensions, frame rate, and duration to the output. Motion tests can start short;
+Ingredients tests require the trained bucket of 768×448, 121 frames at 24 fps,
+with the still reference repeated across the full clip.
 
 Both modes use the dev transformer, control LoRA strength 1.0, distilled LoRA
 strength 0.5, and single-stage full-resolution generation. Unlike the keyframe
@@ -102,7 +103,8 @@ at ComfyUI-LTXVideo revision `220e1d45aa0469f518e982102fca4dca92a61862`.
 The pinned MLX runtime uses deterministic Euler rather than the workflows'
 Euler ancestral CFG++ sampler; this is not numerical parity with ComfyUI.
 
-Only 49/97/121 frames at 768×448 or 1024×576 are accepted. An end anchor or another
+Motion tests accept 49/97/121 frames at 768×448 or 1024×576; identity tests accept
+only 121 frames at 768×448. An end anchor or another
 recipe is rejected, as are missing control files or a missing dev transformer.
 The 19 GiB start requirement, 8 GiB reserve, swap guard, timeout, and cancellation
 handling apply. Do not run simultaneous GPU experiments.
