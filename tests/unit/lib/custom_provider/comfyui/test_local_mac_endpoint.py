@@ -102,6 +102,30 @@ def test_identity_reference_can_condition_a_new_composition_without_a_start_imag
     assert "--image" not in command
 
 
+def test_explicit_cfgpp_sampler_reaches_cli_without_changing_default(renderer, motion_config, tmp_path):
+    assert "--sampler" not in renderer.build_command(motion_config, tmp_path)
+    motion_config.update(sampler="euler_ancestral_cfg_pp", negative_prompt="unwanted movement")
+    command = renderer.build_command(motion_config, tmp_path)
+    assert command[command.index("--sampler") + 1] == "euler_ancestral_cfg_pp"
+    assert command[command.index("--negative-prompt") + 1] == "unwanted movement"
+    assert "--single-stage" in command
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"sampler": "other"}, "Unsupported qualification sampler"),
+        ({"mode": "distilled", "sampler": "euler"}, "require IC-LoRA"),
+        ({"negative_prompt": 3}, "must be text"),
+        ({"negative_prompt": "blur"}, "requires euler_ancestral_cfg_pp"),
+    ],
+)
+def test_sampler_controls_are_never_silently_dropped(renderer, motion_config, tmp_path, override, message):
+    motion_config.update(override)
+    with pytest.raises(ValueError, match=message):
+        renderer.build_command(motion_config, tmp_path)
+
+
 def test_identity_reference_keeps_both_temporal_anchors_in_the_ic_pipeline(renderer, motion_config, tmp_path):
     end = tmp_path / "end.png"
     end.touch()

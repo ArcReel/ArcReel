@@ -103,6 +103,16 @@ at ComfyUI-LTXVideo revision `220e1d45aa0469f518e982102fca4dca92a61862`.
 The pinned MLX runtime uses deterministic Euler rather than the workflows'
 Euler ancestral CFG++ sampler; this is not numerical parity with ComfyUI.
 
+An isolated runtime that explicitly supports `ic-lora --sampler` can be tested
+with `"sampler": "euler_ancestral_cfg_pp"` and an optional `"negative_prompt"`
+string in the runner configuration. The default remains Euler. CFG++ evaluates
+an additional negative prediction at each nonterminal step, so budget for the
+extra compute. It does not use OpenAI or alter approved audio stems. The current
+installed runtime must be qualified separately before enabling this option;
+passing sampler tests does not establish motion or character quality. Sampler
+controls on ordinary generation modes and negative text with Euler are rejected
+instead of silently ignored.
+
 Motion tests accept 49/97/121 frames at 768×448 or 1024×576; identity tests accept
 only 121 frames at 768×448. Both modes reject alternative recipes and missing
 control files or a missing dev transformer. Motion tests reject an end anchor.

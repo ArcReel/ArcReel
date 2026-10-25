@@ -28,6 +28,8 @@ def build_command(config, root):
         "control_lora",
         "control_video",
         "distilled_lora",
+        "sampler",
+        "negative_prompt",
     }
     unknown = set(config) - allowed
     if unknown:
@@ -37,6 +39,15 @@ def build_command(config, root):
     if config["mode"] not in ("distilled", "two-stage", "motion-track", "identity-reference"):
         raise ValueError("This adapter supports distilled or two-stage generation, or IC-LoRA qualification.")
     controlled = config["mode"] in ("motion-track", "identity-reference")
+    sampler = config.get("sampler", "euler")
+    if sampler not in ("euler", "euler_ancestral_cfg_pp"):
+        raise ValueError("Unsupported qualification sampler.")
+    if ("sampler" in config or "negative_prompt" in config) and not controlled:
+        raise ValueError("Explicit sampler controls require IC-LoRA qualification.")
+    if "negative_prompt" in config and not isinstance(config["negative_prompt"], str):
+        raise ValueError("negative_prompt must be text.")
+    if config.get("negative_prompt") and sampler != "euler_ancestral_cfg_pp":
+        raise ValueError("negative_prompt requires euler_ancestral_cfg_pp.")
     if controlled:
         if not all(config.get(key) for key in ("control_lora", "control_video", "distilled_lora")):
             raise ValueError("IC-LoRA qualification requires control_lora, control_video and distilled_lora.")
@@ -127,6 +138,8 @@ def build_command(config, root):
             args += ["--image", str(config["image"]), "0", "1.0"]
         if config.get("end_image"):
             args += ["--image", str(config["end_image"]), str(config["frames"] - 1), "1.0"]
+        if sampler == "euler_ancestral_cfg_pp":
+            args += ["--sampler", sampler, "--negative-prompt", config.get("negative_prompt", "")]
     elif keyframe:
         # The pinned low-RAM runtime swaps to the pre-fused distilled transformer
         # at strength 1.0. The explicit LoRA name enables that refinement path;
