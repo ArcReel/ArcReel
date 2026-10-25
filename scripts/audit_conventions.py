@@ -501,8 +501,10 @@ def check_private_imports(root: Path, out: list[Violation]) -> None:
 # ---------------------------------------------------------------- 硬删除类别
 
 HARD_DELETE_SCAN_GLOBS = ("lib/**/*.py", "server/**/*.py", "packages/*/src/**/*.py")
-# 项目回收站模块本身负责真正删除（彻底删除、清空、过期清理）
-HARD_DELETE_EXEMPT: frozenset[Path] = frozenset({Path("lib/project/project_trash.py")})
+# 项目回收站与已删除项目模块本身负责真正删除（彻底删除、清空、过期清理）
+HARD_DELETE_EXEMPT: frozenset[Path] = frozenset(
+    {Path("lib/project/project_trash.py"), Path("lib/project/deleted_projects.py")}
+)
 HARD_DELETE_CATEGORIES = {
     "temp": "本流程自己创建的临时、暂存文件",
     "rollback": "失败时撤销未完成的写入",

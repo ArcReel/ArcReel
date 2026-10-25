@@ -58,6 +58,7 @@ def _layout_location(pick: Callable[[DataRootLayout], Path]) -> Callable[[], str
 _DATA_ROOT_FIELDS: list[tuple[str, Callable[[], object]]] = [
     ("Data directory", _layout_location(lambda layout: layout.root)),
     ("Projects directory", _layout_location(lambda layout: layout.projects_dir)),
+    ("Deleted projects directory", _layout_location(lambda layout: layout.deleted_projects_dir)),
     ("Global assets directory", _layout_location(lambda layout: layout.global_assets_dir)),
     ("User data directory", _layout_location(lambda layout: layout.users_dir)),
     ("Log directory", _layout_location(lambda layout: layout.log_dir)),

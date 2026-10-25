@@ -64,7 +64,7 @@ from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.repositories.usage_repo import SettlementInput, UsageRepository
 from lib.generation.media_generator import MediaGenerator
 from tests.catalog_support import catalog_of, install_catalog
-from tests.fakes import FakeConfigResolver, write_backend_output
+from tests.fakes import FakeConfigResolver, write_backend_output, write_generation_targets
 
 # ---------------------------------------------------------------------------
 # 冻结时钟：写入侧（usage_repo.utc_now）是 aware datetime，SQLite 回读为 naive。
@@ -696,6 +696,7 @@ class TestAudioChannel:
             audio_backend=_FakeAudioBackend(provider="dashscope", model="qwen3-tts-flash"),
         )
         text = "念" * 6000 + "a" * 3000
+        write_generation_targets(gen.project_path, segments=("E1S01",))
 
         await gen.generate_audio_async(text=text, resource_id="E1S01", voice="Cherry", task_id="T-1")
 

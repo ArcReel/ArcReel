@@ -142,7 +142,13 @@ import type {
 } from "@/types/presentation";
 import type { Asset, AssetType, AssetCreatePayload, AssetListPage, AssetUpdatePayload } from "@/types/asset";
 import type { AgentMemoryOverview, AgentMemoryScope } from "@/types/agent-memory";
-import type { FileViewListing, RestoredFile, TrashListing, TrashRecord } from "@/types/file-view";
+import type {
+  DeletedProjectListing,
+  FileViewListing,
+  RestoreResult,
+  TrashListing,
+  TrashRecord,
+} from "@/types/file-view";
 import type {
   EpisodeNextStep,
   WorkflowMigrationReport,
@@ -596,11 +602,20 @@ class API {
     return this.request(`/projects/${encodeURIComponent(projectName)}/trash`, { signal: options.signal });
   }
 
-  static async restoreTrashRecord(projectName: string, recordId: string): Promise<{ restored: RestoredFile[] }> {
+  static async restoreTrashRecord(projectName: string, recordId: string): Promise<RestoreResult> {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/trash/${encodeURIComponent(recordId)}/restore`,
       { method: "POST" },
     );
+  }
+
+  /** 下载删除记录里的一个被删文件（降级恢复后只能下载的结构文件）。 */
+  static async downloadTrashRecordFile(projectName: string, recordId: string, path: string): Promise<Blob> {
+    const query = new URLSearchParams({ path }).toString();
+    const url = `/projects/${encodeURIComponent(projectName)}/trash/${encodeURIComponent(recordId)}/files?${query}`;
+    const response = await fetch(`${API_BASE}${url}`, withAuth(url));
+    await throwIfNotOk(response, i18n.t("errors:file_view_load_failed"));
+    return response.blob();
   }
 
   static async purgeTrashRecord(projectName: string, recordId: string): Promise<{ success: boolean }> {
@@ -672,6 +687,19 @@ class API {
     return this.request(`/projects/${encodeURIComponent(name)}`, {
       method: "DELETE",
     });
+  }
+
+  static async listDeletedProjects(options: { signal?: AbortSignal } = {}): Promise<DeletedProjectListing> {
+    return this.request("/deleted-projects", { signal: options.signal });
+  }
+
+  /** 整体恢复已删除项目；原名被占用时服务端加后缀，返回恢复后的项目名。 */
+  static async restoreDeletedProject(id: string): Promise<{ name: string }> {
+    return this.request(`/deleted-projects/${encodeURIComponent(id)}/restore`, { method: "POST" });
+  }
+
+  static async purgeDeletedProject(id: string): Promise<{ success: boolean }> {
+    return this.request(`/deleted-projects/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
 
   /**

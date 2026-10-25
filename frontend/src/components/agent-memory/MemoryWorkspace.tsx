@@ -125,9 +125,17 @@ export function MemoryDetail({ workspace, layout }: { workspace: MemoryWorkspace
   const requestDelete = (name: string) =>
     setConfirm({
       title: t("agent_memory_delete_confirm_title", { name }),
-      description:
-        name === INDEX_FILENAME ? t("agent_memory_delete_index_confirm_desc") : t("agent_memory_delete_confirm_desc"),
-      confirmLabel: t("common:delete"),
+      // 项目记忆进项目回收站，用户记忆直接删除
+      description: t(
+        name === INDEX_FILENAME
+          ? scope.level === "user"
+            ? "agent_memory_delete_index_confirm_desc"
+            : "agent_memory_delete_index_project_confirm_desc"
+          : scope.level === "user"
+            ? "agent_memory_delete_confirm_desc"
+            : "agent_memory_delete_project_confirm_desc",
+      ),
+      confirmLabel: scope.level === "user" ? t("common:delete") : t("file_view_move_to_trash"),
       run: async () => {
         await API.deleteAgentMemoryFile(scope, name);
         await reload();
@@ -140,7 +148,10 @@ export function MemoryDetail({ workspace, layout }: { workspace: MemoryWorkspace
         scope.level === "user"
           ? t("agent_memory_clear_user_confirm_title")
           : t("agent_memory_clear_project_confirm_title"),
-      description: t("agent_memory_clear_confirm_desc", { count: entries.length }),
+      description: t(
+        scope.level === "user" ? "agent_memory_clear_confirm_desc" : "agent_memory_clear_project_confirm_desc",
+        { count: entries.length },
+      ),
       confirmLabel: t("agent_memory_clear"),
       run: async () => {
         await API.clearAgentMemory(scope);

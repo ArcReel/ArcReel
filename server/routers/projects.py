@@ -59,8 +59,15 @@ from lib.generation.task_failure import FAILURE_CODE_KEYS
 from lib.generation.video_request_facts import ResolutionOverride, VideoRequestFactsError, planning_durations
 from lib.i18n import render_generation_input_error, render_message
 from lib.infra.api_errors import ApiError, BadRequestError, ConflictError, NotFoundError, UnprocessableError
-from lib.infra.async_thread import EventLoopBridge, run_noninterruptible_sync, run_sync_transaction
+from lib.infra.async_thread import (
+    EventLoopBridge,
+    run_noninterruptible_async,
+    run_noninterruptible_sync,
+    run_sync_transaction,
+)
+from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.json_io import domain_error_on_value_error
+from lib.project import deleted_projects
 from lib.project.asset_fingerprints import compute_asset_fingerprints
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.project_change_hints import project_change_source
@@ -91,7 +98,7 @@ from lib.workflow.workflow_state import (
     WorkflowStateService,
     WorkflowStatus,
 )
-from server.auth import CurrentUser, create_download_token, verify_download_token
+from server.auth import CurrentUser, create_download_token, reject_embedded_agent, verify_download_token
 from server.dependencies import require_project_migration_ok
 from server.i18n import DisplayNamesCatalog, Locale, Translator
 from server.routers._coalesce import RequestCoalescer
@@ -105,6 +112,7 @@ from server.routers._validators import split_video_backend_query, validate_backe
 from server.services.admission.prompt_preview import ScriptItemNotFound, preview_item_prompts
 from server.services.project import workflow_planner as workflow_plan_service
 from server.services.project.episode_display import present_episode_diagnostics
+from server.services.project.episode_id_records import recorded_episode_ids_on
 from server.services.project.narration_settings import (
     NarrationSettingsInput,
     new_project_narration_fields,
@@ -117,7 +125,7 @@ from server.services.project.project_archive import (
     ProjectArchiveValidationError,
 )
 from server.services.project.project_cover import resolve_project_cover
-from server.services.project.project_retirement import retire_project, retire_project_on
+from server.services.project.project_retirement import restore_retired_project, retire_project_on, retiring_project
 from server.services.tasks.video_caps import (
     capability_request_facts,
     duration_constraints_payload,
@@ -1185,13 +1193,20 @@ async def update_project(name: str, req: UpdateProjectRequest, _t: Translator):
 
 @router.delete("/projects/{name}")
 async def delete_project(name: str, _t: Translator):
-    """删除项目"""
+    """删除项目：整体移入「已删除项目」，保留期内可以恢复"""
     try:
         manager = get_project_manager()
         project_dir = await asyncio.to_thread(manager.get_project_path, name)
-        # 先收尾记录再删目录：排队任务不会在删了一半的目录上开跑，执行中的任务照常跑完但放弃落盘。
-        await retire_project(async_session_factory, project_dir.name)
-        await run_sync_transaction(manager.delete_project_directory, name)
+        # 收尾记录与移走目录在同一个事务里：移走或提交失败时记录回滚，目录移回原处。
+        # 排队任务不会在移走的目录上开跑，执行中的任务照常跑完但放弃落盘。
+        tombstone: str | None = None
+        try:
+            async with retiring_project(async_session_factory, project_dir.name) as tombstone:
+                await run_sync_transaction(deleted_projects.move_in, manager.layout, project_dir, tombstone)
+        except BaseException:
+            if tombstone is not None:
+                await run_sync_transaction(deleted_projects.move_back, manager.layout, project_dir, tombstone)
+            raise
         return {"success": True, "message": _t("project_deleted", name=name)}
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=name) from exc
@@ -1200,6 +1215,47 @@ async def delete_project(name: str, _t: Translator):
     except Exception as exc:
         logger.exception("请求处理失败")
         raise HTTPException(status_code=500, detail=_t("internal_server_error")) from exc
+
+
+@router.get("/deleted-projects")
+async def list_deleted_projects():
+    """已删除项目，最近删除的在前"""
+    entries = await asyncio.to_thread(deleted_projects.list_entries, get_project_manager().layout)
+    return {
+        "projects": [entry.to_dict() for entry in entries],
+        "retention_days": deleted_projects.RETENTION.days,
+    }
+
+
+@router.post("/deleted-projects/{deleted_id}/restore")
+async def restore_deleted_project(deleted_id: str):
+    """整体恢复已删除项目：原名被占用时加后缀，记录改回恢复后的名字，再走启动时的迁移链"""
+    # 整段不可中断：移出途中被取消时落点随返回值丢弃，目录已回原位而记录仍挂在墓碑名下。
+    project_dir = await run_noninterruptible_async(_restore_deleted_project(get_project_manager().layout, deleted_id))
+    return {"name": project_dir.name}
+
+
+async def _restore_deleted_project(layout: DataRootLayout, deleted_id: str) -> Path:
+    project_dir = await run_sync_transaction(deleted_projects.move_out, layout, deleted_id)
+    try:
+        await restore_retired_project(async_session_factory, deleted_id, project_dir.name)
+    except BaseException:
+        await run_sync_transaction(project_dir.rename, layout.deleted_projects_dir / deleted_id)
+        raise
+    # 记录先改回：迁移链按项目名查历史集 ID。
+    await run_sync_transaction(
+        deleted_projects.migrate_restored,
+        project_dir,
+        recorded_episode_ids=recorded_episode_ids_on(asyncio.get_running_loop()),
+    )
+    return project_dir
+
+
+@router.delete("/deleted-projects/{deleted_id}", dependencies=[Depends(reject_embedded_agent)])
+async def purge_deleted_project(deleted_id: str):
+    """彻底删除已删除项目（只开放给创作者，不给 Agent 工具）"""
+    await run_sync_transaction(deleted_projects.purge, get_project_manager().layout, deleted_id)
+    return {"success": True}
 
 
 @router.get("/projects/{name}/scripts/{script_file}")

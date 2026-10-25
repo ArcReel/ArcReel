@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import run_sync_transaction
-from lib.project.file_view import delete_unreferenced_file, iter_file_chunks, list_directory, open_project_file
+from lib.project.file_view import iter_file_chunks, list_directory, move_file_to_trash, open_project_file
 from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from server.routers._file_responses import guess_media_type
@@ -59,7 +59,7 @@ async def delete_file_view_entry(project_name: str, path: str = Query(...)):
         project_dir = _project_dir(project_name)
         try:
             with project_change_source("webui"):
-                record = delete_unreferenced_file(project_dir, path)
+                record = move_file_to_trash(project_dir, path)
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise NotFoundError("file_not_found", path=path) from exc
         return {"record": record.to_dict()}
@@ -79,10 +79,19 @@ async def read_file_view_content(project_name: str, path: str = Query(...), down
             handle, info = open_project_file(project_dir, path)
         except (FileNotFoundError, NotADirectoryError) as exc:
             raise NotFoundError("file_not_found", path=path) from exc
-        text = Path(name).suffix.lower() in _TEXT_SUFFIXES
-        return handle, info.st_size, "text/plain; charset=utf-8" if text else guess_media_type(name)
+        return handle, info.st_size, content_media_type(name)
 
     handle, size, media_type = await asyncio.to_thread(_sync)
+    return stream_file(handle, size, name, media_type, download=download)
+
+
+def content_media_type(name: str) -> str:
+    """文本类文件按 UTF-8 文本返回，便于预览；其余按扩展名推断（首次调用读系统 mime 表，放进工作线程）。"""
+    return "text/plain; charset=utf-8" if Path(name).suffix.lower() in _TEXT_SUFFIXES else guess_media_type(name)
+
+
+def stream_file(handle: BinaryIO, size: int, name: str, media_type: str, *, download: bool) -> StreamingResponse:
+    """把已打开的文件流式返回；项目回收站的下载共用。"""
     disposition = "attachment" if download else "inline"
     headers = {
         "Content-Length": str(size),

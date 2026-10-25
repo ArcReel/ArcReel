@@ -168,6 +168,40 @@ def test_write_trash_denied(policy: AgentAccessPolicy, tool: str, relative: str)
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize(
+    "relative",
+    [
+        "storyboards/scene_E1S01.png",
+        "videos/scene_E1S01.mp4",
+        "characters/derivatives/Alice/young.png",
+        "reference_videos/thumbnails/E1U1.jpg",
+        "renders/episode_1/final.mp4",
+        "style_reference.png",
+        "style_reference.jpg",
+        "style_reference.jpeg",
+        "style_reference.webp",
+        "STYLE_REFERENCE.PNG",
+    ],
+)
+def test_write_media_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """媒体只经生成与编辑工具写入，Agent 直写或删除会绕过项目回收站；报错指向回收站删除工具。"""
+    cwd = _cwd(policy)
+    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert "delete_project_file" in (reason or "")
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize("relative", ["versions/versions.json", "versions/storyboards/scene_E1S01_v1_20261025.png"])
+def test_write_version_history_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """版本历史只经版本管理维护，Agent 直写或删除会绕过项目回收站。"""
+    cwd = _cwd(policy)
+    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert not allowed, f"{tool} {relative} 应被拒"
+    assert "versions/" in (reason or "")
+
+
+@pytest.mark.parametrize("tool", ["Write", "Edit"])
+@pytest.mark.parametrize(
     "relative", ["source/novel.txt", "source/episode_1.txt", "source/snapshots/novel.txt", "source/new.md"]
 )
 def test_write_source_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
@@ -516,7 +550,7 @@ def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) 
 
 
 def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccessPolicy) -> None:
-    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json、edit_timelines/、drafts/、source/ 与 .arcreel/trash/（Bash 子进程内核级封堵）。"""
+    """sandbox 启用时 denyWrite 覆盖 scripts/、project.json、edit_timelines/、drafts/、source/、.arcreel/trash/、媒体目录与 versions/（Bash 子进程内核级封堵）。"""
     cwd = _cwd(policy)
     settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
     deny_write = settings["filesystem"]["denyWrite"]
@@ -526,6 +560,11 @@ def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccess
     assert str(cwd / "edit_timelines") in deny_write
     assert str(cwd / "source") in deny_write
     assert str(cwd / ".arcreel/trash") in deny_write
+    assert str(cwd / "storyboards") in deny_write
+    assert str(cwd / "characters") in deny_write
+    assert str(cwd / "versions") in deny_write
+    for ext in ("png", "jpg", "jpeg", "webp"):
+        assert str(cwd / f"style_reference.{ext}") in deny_write
 
 
 def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: AgentAccessPolicy) -> None:

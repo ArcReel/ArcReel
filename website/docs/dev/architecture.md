@@ -371,6 +371,7 @@ ArcReel 的项目不仅是一条数据库记录，还包括文件系统中的媒
 ```text
 <数据根>/
 ├── projects/<项目名>/         项目与生成资产
+├── deleted_projects/          已删除项目（保留期内可整体恢复）
 ├── global_assets/             全局资产库
 ├── users/<user_id>/memory/    Agent 用户记忆
 ├── arcreel.db                 默认 SQLite 数据库

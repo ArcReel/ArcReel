@@ -32,7 +32,7 @@ from lib.final_cut.basis import FinalCutVariant, final_cut_artifact_path, final_
 from lib.i18n import _
 from lib.infra.validation_messages import default_translate
 from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
-from lib.project import project_trash
+from lib.project import deleted_projects, project_trash
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations.runner import migrate_project_dir
@@ -58,9 +58,9 @@ class _RetireRecorder:
         self._fail_after_replace = fail_after_replace
 
     @contextmanager
-    def __call__(self, project_name: str) -> Generator[None]:
+    def __call__(self, project_name: str) -> Generator[str]:
         self.retired.append(project_name)
-        yield
+        yield f"{project_name}#deleted-20261025T000000Z"
         if self._fail_after_replace:
             raise RuntimeError("commit failed")
 
@@ -1790,9 +1790,14 @@ class TestProjectArchiveService:
         assert (pm.get_project_path("demo") / "source" / "chapter.txt").read_text(encoding="utf-8") == "source"
         assert retire.retired == ["demo"]
         assert not list(pm.projects_dir.glob(".import-*"))
+        # 被覆盖的旧项目成为已删除项目
+        [replaced] = deleted_projects.list_entries(pm.layout)
+        assert replaced.name == "demo"
+        replaced_dir = pm.layout.deleted_projects_dir / replaced.id
+        assert json.loads((replaced_dir / "project.json").read_text(encoding="utf-8"))["style"] == "Stale"
 
     def test_import_overwrite_drops_the_project_memory_of_the_replaced_project(self, tmp_path):
-        """覆盖导入等同于删除现有项目再导入：旧项目的记忆随旧目录删除，不带进新项目。"""
+        """覆盖导入等同于删除现有项目再导入：旧项目的记忆随旧项目进入已删除项目，不带进新项目。"""
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm, style="Fresh")
         service = ProjectArchiveService(pm, retire_project=_RetireRecorder())

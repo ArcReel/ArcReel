@@ -3,11 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 
 import { useAppStore, type Toast } from "@/stores/app-store";
-import type { FileViewEntry } from "@/types";
+import type { FileViewEntry, RestoredFile, RestoreResult, TrashRecord } from "@/types";
 
 import { FileView } from "./FileView";
 
 afterEach(() => vi.unstubAllGlobals());
+
+function restoreResult(
+  object: TrashRecord["object"], restored: RestoredFile[], download_only: string[] = [], degraded = false,
+): RestoreResult {
+  return { object, restored, degraded, download_only };
+}
 
 it("deletes checked files individually, retains a failed selection and restores one record", async () => {
   const entry = (name: string, role: FileViewEntry["role"] = "unreferenced"): FileViewEntry => ({
@@ -36,7 +42,7 @@ it("deletes checked files individually, retains a failed selection and restores 
     if (init?.method === "POST") {
       restored.push(url.pathname);
       files.set("c.txt", entry("c.txt"));
-      return Response.json({ restored: [{ original: "c.txt", path: "c.txt", as_history: false }] });
+      return Response.json(restoreResult({ kind: "file", path: "c.txt" }, [{ original: "c.txt", path: "c.txt", as_history: false }]));
     }
     return Response.json({ path: "", entries: [...files.values()] });
   });
@@ -134,7 +140,7 @@ it("refreshes the selected file's details and preview when it changed on disk", 
 it("keeps each in-flight restore protected until its own request finishes", async () => {
   const record = (id: string) => ({
     id, object: { kind: "file", path: `${id}.txt` }, files: [`${id}.txt`], schema_version: 1,
-    deleted_at: "2026-01-01T00:00:00Z", origin: "user", size: 1, has_snapshot: false,
+    deleted_at: "2026-01-01T00:00:00Z", origin: "user", size: 1, has_snapshot: false, download_only: false,
   });
   const pending = new Map<string, () => void>();
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
@@ -142,7 +148,7 @@ it("keeps each in-flight restore protected until its own request finishes", asyn
     if (init?.method === "POST") {
       const id = url.pathname.split("/").at(-2) ?? "";
       return new Promise<Response>((resolve) => {
-        pending.set(id, () => resolve(Response.json({ restored: [{ original: `${id}.txt`, path: `${id}.txt`, as_history: false }] })));
+        pending.set(id, () => resolve(Response.json(restoreResult({ kind: "file", path: `${id}.txt` }, [{ original: `${id}.txt`, path: `${id}.txt`, as_history: false }]))));
       });
     }
     if (url.pathname.endsWith("/trash")) {
@@ -173,13 +179,13 @@ it("keeps each in-flight restore protected until its own request finishes", asyn
 it("removes a restored record at once instead of waiting for a slow listing refresh", async () => {
   const record = {
     id: "a", object: { kind: "file", path: "a.txt" }, files: ["a.txt"], schema_version: 1,
-    deleted_at: "2026-01-01T00:00:00Z", origin: "user", size: 2048, has_snapshot: false,
+    deleted_at: "2026-01-01T00:00:00Z", origin: "user", size: 2048, has_snapshot: false, download_only: false,
   };
   let trashCalls = 0;
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     if (init?.method === "POST") {
-      return Promise.resolve(Response.json({ restored: [{ original: "a.txt", path: "a.txt", as_history: false }] }));
+      return Promise.resolve(Response.json(restoreResult({ kind: "file", path: "a.txt" }, [{ original: "a.txt", path: "a.txt", as_history: false }])));
     }
     if (!url.pathname.endsWith("/trash")) return Promise.resolve(Response.json({ path: "", entries: [] }));
     trashCalls++;
@@ -202,7 +208,7 @@ it("drops a retried trash listing once a newer load has started", async () => {
   const listing = (path: string) => ({
     records: [{
       id: path, object: { kind: "file", path }, files: [path], schema_version: 1,
-      deleted_at: "2026-01-01T00:00:00Z", origin: "user", size: 1, has_snapshot: false,
+      deleted_at: "2026-01-01T00:00:00Z", origin: "user", size: 1, has_snapshot: false, download_only: false,
     }],
     total_size: 1,
     retention_days: 30,
@@ -233,7 +239,7 @@ it("drops a retried trash listing once a newer load has started", async () => {
 it("keeps in-flight writes protected when switching between sections", async () => {
   const record = {
     id: "r", object: { kind: "file", path: "r.txt" }, files: ["r.txt"], schema_version: 1,
-    deleted_at: "2026-01-01T00:00:00Z", origin: "user", size: 1, has_snapshot: false,
+    deleted_at: "2026-01-01T00:00:00Z", origin: "user", size: 1, has_snapshot: false, download_only: false,
   };
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
@@ -261,4 +267,111 @@ it("keeps in-flight writes protected when switching between sections", async () 
   expect(screen.getByRole("button", { name: "恢复" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "彻底删除" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "清空项目回收站" })).toBeDisabled();
+});
+
+it("labels a generation result whose target was deleted instead of naming who deleted it", async () => {
+  const record = {
+    id: "g",
+    object: { kind: "generation_result", path: "characters/阿岚.png", note: "target_deleted_during_generation" },
+    files: ["characters/阿岚.png"], schema_version: 1,
+    deleted_at: "2026-01-01T00:00:00Z", origin: "agent", size: 1, has_snapshot: false, download_only: false,
+  };
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (!url.pathname.endsWith("/trash")) return Promise.resolve(Response.json({ path: "", entries: [] }));
+    return Promise.resolve(Response.json({ records: [record], total_size: 1, retention_days: 30 }));
+  });
+  render(<FileView projectName="demo" />);
+  await userEvent.setup().click(screen.getByRole("tab", { name: "项目回收站" }));
+
+  expect(await screen.findByText(/生成完成，目标已删除/)).toBeInTheDocument();
+  expect(screen.queryByText(/由 Agent 删除/)).not.toBeInTheDocument();
+});
+
+const TIMELINE_DOCUMENT = "edit_timelines/episode_1/tl-1.json";
+
+function timelineRecord(overrides: Partial<TrashRecord> = {}): TrashRecord {
+  return {
+    id: "tl", object: { kind: "edit_timeline", id: "tl-1", episode: 1, name: "初剪" },
+    files: [TIMELINE_DOCUMENT, "renders/episode_1/tl-1/final.mp4"], schema_version: 17,
+    deleted_at: "2026-01-01T00:00:00Z", origin: "user", size: 10, has_snapshot: true, download_only: false,
+    ...overrides,
+  };
+}
+
+function collectToasts(): Toast[] {
+  const toasts: Toast[] = [];
+  onTestFinished(useAppStore.subscribe((state, previous) => {
+    if (state.toast && state.toast !== previous.toast) toasts.push(state.toast);
+  }));
+  return toasts;
+}
+
+it("names a timeline record by its object and reports the name it was restored under", async () => {
+  const toasts = collectToasts();
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    if (init?.method === "POST") {
+      return Promise.resolve(Response.json(restoreResult(
+        { kind: "edit_timeline", id: "tl-1", episode: 1, name: "初剪 (1)" },
+        [{ original: TIMELINE_DOCUMENT, path: TIMELINE_DOCUMENT, as_history: false }],
+      )));
+    }
+    if (url.pathname.endsWith("/trash")) {
+      return Promise.resolve(Response.json({ records: [timelineRecord()], total_size: 10, retention_days: 30 }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "项目回收站" }));
+  expect(await screen.findByText("剪辑时间线「初剪」（第 1 集）")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "恢复" }));
+
+  await waitFor(() => expect(toasts.at(-1)?.text).toBe("原名已被占用，剪辑时间线「初剪」（第 1 集） 已改名为「初剪 (1)」恢复"));
+});
+
+it("tells what a degraded restore recovered and offers the remaining structure files for download", async () => {
+  const toasts = collectToasts();
+  const downloads: string[] = [];
+  let restoredOnce = false;
+  vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: () => "blob:x", revokeObjectURL: () => {} }));
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    if (init?.method === "POST") {
+      restoredOnce = true;
+      return Promise.resolve(Response.json(restoreResult(
+        timelineRecord().object,
+        [{ original: "renders/episode_1/tl-1/final.mp4", path: "renders/episode_1/tl-1/final.mp4", as_history: false }],
+        [TIMELINE_DOCUMENT],
+        true,
+      )));
+    }
+    if (url.pathname.endsWith("/files")) {
+      downloads.push(url.searchParams.get("path") ?? "");
+      return Promise.resolve(new Response("{}"));
+    }
+    if (url.pathname.endsWith("/trash")) {
+      const record = restoredOnce
+        ? timelineRecord({ files: [TIMELINE_DOCUMENT], has_snapshot: false, download_only: true })
+        : timelineRecord();
+      return Promise.resolve(Response.json({ records: [record], total_size: 10, retention_days: 30 }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("tab", { name: "项目回收站" }));
+  await user.click(await screen.findByRole("button", { name: "恢复" }));
+
+  const download = await screen.findByRole("button", { name: `下载 ${TIMELINE_DOCUMENT}` });
+  expect(toasts.at(-1)).toMatchObject({
+    tone: "warning",
+    text: "剪辑时间线「初剪」（第 1 集） 无法按原结构恢复，已找回其中 1 个文件；结构文件留在项目回收站里，只能下载",
+  });
+  expect(screen.getByText("无法按原结构恢复，以下结构文件只能下载")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "恢复" })).not.toBeInTheDocument();
+  await user.click(download);
+  await waitFor(() => expect(downloads).toEqual([TIMELINE_DOCUMENT]));
 });

@@ -10,7 +10,7 @@ export const MEMORY_FILE_PARAM = "file";
 export const NEW_MEMORY_FILE = "new";
 
 /** 与 `lib/agent/agent_memory_store.py` 同一把尺子；本地预校验只为让重名与拼错就地可见，判据仍在服务端。 */
-const FILENAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
+const FILENAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._() -]*\.md$/;
 const FILENAME_MAX_LENGTH = 100;
 
 export type MemoryEntry =

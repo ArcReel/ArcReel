@@ -1,9 +1,10 @@
 import type { Page } from "@playwright/test";
-import { FIXED_NOW } from "../support/recorded.ts";
+import type { DeletedProjectListing } from "../../src/types/file-view.ts";
+import { FIXED_NOW, recorded } from "../support/recorded.ts";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 
-// 项目大厅：铺满档，没有侧栏。顶栏是品牌、搜索、资产库、外部 Agent 接入、「新建项目」分体按钮与设置；
+// 项目大厅：铺满档，没有侧栏。顶栏是品牌、搜索、资产库、外部 Agent 接入、已删除项目、「新建项目」分体按钮与设置；
 // 主体是问候区、吸顶的筛选工具栏与海报卡网格。
 
 const LOBBY_PATH = "/app/projects";
@@ -56,6 +57,28 @@ const PROJECTS = Array.from({ length: 24 }, (_, index) => {
 
 const MANY: ApiOverrides = { "GET /api/v1/projects": { status: 200, body: { projects: PROJECTS } } };
 const EMPTY: ApiOverrides = { "GET /api/v1/projects": { status: 200, body: { projects: [] } } };
+
+// 压力变体：十二个已删除项目，标题很长。
+const deletedProjects = recorded<DeletedProjectListing>("deleted-projects.json");
+const DELETED: ApiOverrides = {
+  "GET /api/v1/deleted-projects": {
+    status: 200,
+    body: {
+      ...deletedProjects,
+      projects: Array.from({ length: 12 }, (_, index) => {
+        const deletedAt = new Date(Date.parse(FIXED_NOW) - (index + 1) * DAY_MS);
+        return {
+          ...deletedProjects.projects[0],
+          id: `project-${index}#deleted-20261020T08000${index % 10}Z`,
+          name: `project-${index}`,
+          title: `${LONG_TITLE} ${index + 1}`,
+          deleted_at: deletedAt.toISOString(),
+          expires_at: new Date(deletedAt.getTime() + 30 * DAY_MS).toISOString(),
+        };
+      }),
+    },
+  },
+};
 
 const main = (page: Page) => page.getByRole("main");
 const projectList = (page: Page) => page.getByRole("list", { name: "项目" });
@@ -174,6 +197,19 @@ defineRegionScenarios("项目大厅", [
       const confirm = page.getByRole("alertdialog");
       await expect(confirm.getByRole("button", { name: "删除项目" })).toBeInViewport({ ratio: 1 });
     },
+  },
+  {
+    name: "已删除项目：标题很长时恢复与彻底删除按钮留在视口内",
+    path: LOBBY_PATH,
+    api: DELETED,
+    ready: lobbyReady,
+    act: async (page) => {
+      await page.getByRole("button", { name: "已删除项目" }).click();
+      const dialog = page.getByRole("dialog", { name: "已删除项目" });
+      await expect(dialog.getByRole("button", { name: `恢复「${LONG_TITLE} 1」` })).toBeInViewport({ ratio: 1 });
+      await expect(dialog.getByRole("button", { name: `彻底删除「${LONG_TITLE} 1」` })).toBeInViewport({ ratio: 1 });
+    },
+    screenshot: { name: "lobby-deleted-projects", target: (page) => page.getByRole("dialog") },
   },
   {
     name: "从项目卡导出：导出范围对话框的操作按钮留在视口内",

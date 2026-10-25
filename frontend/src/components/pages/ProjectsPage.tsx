@@ -8,7 +8,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { OnboardingDemoCard } from "@/onboarding/OnboardingDemoCard";
 import { useAppStore } from "@/stores/app-store";
 import { useOnboardingStore } from "@/stores/onboarding-store";
-import { useProjectsStore } from "@/stores/projects-store";
+import { type RefreshProjectResult, useProjectsStore } from "@/stores/projects-store";
 import { errMsg } from "@/utils/async";
 import type { ProjectSummary } from "@/types";
 import { CreateProjectModal } from "./CreateProjectModal";
@@ -16,6 +16,7 @@ import { LobbyGreeting } from "./lobby/LobbyGreeting";
 import { LobbyHeader } from "./lobby/LobbyHeader";
 import { LobbyToolbar } from "./lobby/LobbyToolbar";
 import { ProjectCard, type ProjectCardActions } from "./lobby/ProjectCard";
+import { DeletedProjectsDialog } from "./lobby/DeletedProjectsDialog";
 import { DeleteProjectDialog, RenameProjectDialog } from "./lobby/ProjectDialogs";
 import { LOBBY_FILTERS, asProjectStatus, matchesFilter, type LobbyFilter } from "./lobby/lobby-projects";
 import { useProjectExport } from "@/components/layout/useProjectExport";
@@ -31,18 +32,20 @@ function useLobbyProjects() {
   const controllerRef = useRef<AbortController | null>(null);
 
   const load = useCallback(
-    async (quiet: boolean) => {
+    async (quiet: boolean): Promise<RefreshProjectResult> => {
       controllerRef.current?.abort();
       const controller = new AbortController();
       controllerRef.current = controller;
       if (!quiet) setProjectsLoading(true);
       try {
         const res = await API.listProjects({ signal: controller.signal });
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return "cancelled";
         setProjects(res.projects);
+        return "success";
       } catch (err) {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) return "cancelled";
         useAppStore.getState().pushToast(t("lobby_load_failed", { message: errMsg(err) }), "error");
+        return "failed";
       } finally {
         if (!controller.signal.aborted) setProjectsLoading(false);
       }
@@ -56,12 +59,14 @@ function useLobbyProjects() {
   }, [load]);
 
   const reload = useCallback(() => void load(true), [load]);
-  return { projects, loading: projectsLoading, reload };
+  /** 同 ``reload``，返回刷新的结算值，供只在刷新成功后才提示的调用方使用。 */
+  const reloadSettled = useCallback(() => load(true), [load]);
+  return { projects, loading: projectsLoading, reload, reloadSettled };
 }
 
 export function ProjectsPage() {
   const { t } = useTranslation("dashboard");
-  const { projects, loading, reload } = useLobbyProjects();
+  const { projects, loading, reload, reloadSettled } = useLobbyProjects();
   const showCreateModal = useProjectsStore((s) => s.showCreateModal);
   const setShowCreateModal = useProjectsStore((s) => s.setShowCreateModal);
   const tourActive = useOnboardingStore((s) => s.active);
@@ -69,6 +74,7 @@ export function ProjectsPage() {
   const [query, setQuery] = useState("");
   const [renaming, setRenaming] = useState<ProjectSummary | null>(null);
   const [deleting, setDeleting] = useState<ProjectSummary | null>(null);
+  const [showDeleted, setShowDeleted] = useState(false);
   const projectImport = useProjectImport({ onImported: reload });
   const projectExport = useProjectExport();
 
@@ -187,6 +193,7 @@ export function ProjectsPage() {
           onCreate={openCreate}
           onImport={projectImport.openPicker}
           importing={projectImport.importing}
+          onOpenDeleted={() => setShowDeleted(true)}
         />
       }
     >
@@ -208,6 +215,7 @@ export function ProjectsPage() {
       {projectExport.element}
       <RenameProjectDialog project={renaming} onClose={() => setRenaming(null)} onDone={reload} />
       <DeleteProjectDialog project={deleting} onClose={() => setDeleting(null)} onDone={reload} />
+      <DeletedProjectsDialog open={showDeleted} onClose={() => setShowDeleted(false)} onRestored={reloadSettled} />
       {showCreateModal && <CreateProjectModal />}
     </PageShell>
   );

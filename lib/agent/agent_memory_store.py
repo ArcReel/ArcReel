@@ -9,7 +9,8 @@
 之前打开记忆页不应看到错误。
 
 无锁、无冲突检测：单文件写入走同目录临时文件 + rename 原子落盘，并发的两次 PUT
-后写胜出，读到的永远是某一次完整写入的内容而不是半截文件。
+后写胜出，读到的永远是某一次完整写入的内容而不是半截文件。项目记忆的删除与清空持项目锁
+移进项目回收站（``docs/adr/0107``），用户记忆直接删除。
 """
 
 from __future__ import annotations
@@ -26,9 +27,11 @@ import yaml
 
 from lib.agent.agent_memory_index import INDEX_FILENAME, memory_index_stats
 from lib.agent.agent_memory_paths import project_memory_dir
+from lib.artifacts.formal_write import project_metadata_lock
 from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
+from lib.project import project_trash
 from lib.project.project_activity import record_project_activity
 
 #: 单个记忆文件的正文上限。超限拒绝写入，让创作者拆分而不是让 Agent 每轮都读进一个大文件。
@@ -40,7 +43,8 @@ MEMORY_TYPES = frozenset({"user", "feedback", "project", "reference"})
 #: 文件名上限：与 ``_FILENAME_PATTERN`` 一起构成可见性与可读写性的同一把尺子。
 FILENAME_MAX_LENGTH = 100
 
-_FILENAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]*\.md$"
+# 允许空格与括号：回收站恢复到被占用的原名时换成 ``name (n).md``。
+_FILENAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._() -]*\.md$"
 
 
 def is_valid_memory_filename(filename: str) -> bool:
@@ -174,8 +178,12 @@ class AgentMemoryStore:
         if not path.is_file():
             raise NotFoundError("memory_file_not_found", filename=filename)
         try:
-            # hard-delete: pending-trash -- #3381 项目记忆文件的删除；同一方法服务的用户记忆不在回收站范围
-            path.unlink()
+            if self.project_dir is None:
+                path.unlink()  # hard-delete: out-of-scope -- 用户记忆不属于任何项目
+            else:
+                rel = self._project_rel(self.project_dir, filename)
+                with project_metadata_lock(self.project_dir):
+                    project_trash.record_deletion(self.project_dir, {"kind": "memory", "path": rel}, [rel])
         except FileNotFoundError as exc:
             raise NotFoundError("memory_file_not_found", filename=filename) from exc
         self._record_activity()
@@ -186,10 +194,25 @@ class AgentMemoryStore:
         索引由 Agent 在写第一条记忆时重建；预置一个空 ``MEMORY.md`` 只会让列表显示
         一个 0 行的索引，与「什么都没有」不可区分。
         """
-        # hard-delete: pending-trash -- #3381 清空项目记忆；同一方法服务的用户记忆不在回收站范围
-        shutil.rmtree(self.directory, ignore_errors=True)
+        if self.project_dir is not None and self.directory.is_dir() and not self.directory.is_symlink():
+            with project_metadata_lock(self.project_dir):
+                files = [
+                    self._project_rel(self.project_dir, path.relative_to(self.directory).as_posix())
+                    for path in sorted(self.directory.rglob("*"))
+                    if path.is_file() and not path.is_symlink()
+                ]
+                if files:
+                    obj = {"kind": "memory", "path": self.directory.relative_to(self.project_dir).as_posix()}
+                    project_trash.record_deletion(self.project_dir, obj, files)
+        if self.project_dir is None:
+            # hard-delete: out-of-scope -- 用户记忆不属于任何项目
+            shutil.rmtree(self.directory, ignore_errors=True)
+        # 项目记忆可被 Agent 并发写入；回收后保留目录，避免硬删枚举之后新写入的内容。
         self.directory.mkdir(parents=True, exist_ok=True)
         self._record_activity()
+
+    def _project_rel(self, project_dir: Path, name: str) -> str:
+        return f"{self.directory.relative_to(project_dir).as_posix()}/{name}"
 
     def _record_activity(self) -> None:
         if self.project_dir is not None:

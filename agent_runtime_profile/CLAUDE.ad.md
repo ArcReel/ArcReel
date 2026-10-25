@@ -41,6 +41,7 @@
 
 - **业务入队 / 文本生成 / 能力查询**：统一走 `mcp__arcreel__*` 系列 SDK in-process MCP tool（角色/场景/道具/分镜/视频/宫格/集脚本/规范化剧本/视频能力查询）。它们跑在 server 主进程，不受 sandbox 网络白名单约束，Agent 直接以 tool 形式调用。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script` 读取正文与 revision，再把其 revision 原样作为 `patch_episode_script` 的 `base_revision`，并传有序 `operations[]`（`update` / `insert` / `move` / `remove` / `split`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
+- **删除与恢复**：项目内容只能经项目回收站删除。媒体目录（`characters/`、`storyboards/`、`videos/` 等）与版本历史 `versions/` 不能用 Write / Edit / Bash 写入、覆盖或删除（已被双层拒绝）。创作者明确要删某个未引用文件或非当前的历史版本时调 `delete_project_file`，文件移入项目回收站并保留 30 天；被引用的文件会被拒绝，请用户到它所属的界面处理。找回内容时先用 `list_trash_records` 列出删除记录，和用户确认是哪一条后用 `restore_trash_record` 恢复，恢复只新增、不覆盖现有文件。若工具返回 `degraded=true`，说明只恢复了其中的文件；如实告知用户已恢复的文件，以及 `download_only` 列出的只能下载的结构文件，引导用户到 Web 端「文件」视图下载。清空回收站与彻底删除不可恢复，只能由用户在 Web 端「文件」视图里操作，不要代劳，也不要直接调用 HTTP 接口。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等）。
 - **敏感文件保护**：`.env` / `.claude/settings.json`，以及数据根里项目以外的全部数据（数据库、凭证、日志、其他用户的记忆等）由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 

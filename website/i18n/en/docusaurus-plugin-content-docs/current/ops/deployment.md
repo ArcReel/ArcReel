@@ -76,6 +76,7 @@ The default Compose configuration mounts:
 ```text
 deploy/projects/               data root
 ├── projects/<project-name>/   projects and generated assets
+├── deleted_projects/          deleted projects, kept for 30 days
 ├── global_assets/             global asset library
 ├── users/<user_id>/memory/    Agent user memory
 ├── arcreel.db                 default SQLite database (with -wal / -shm)
@@ -88,6 +89,10 @@ deploy/projects/               data root
 Only directories under `projects/` whose names contain letters, digits, or hyphens and that contain a `project.json` file count as projects. No other entry in the data root appears in the project list. The diagnostic logs downloaded from Settings → About list the actual locations of the data root and each kind of data above.
 
 > Back up the entire data root, not just the database. The database stores tasks, configuration, and index information, while the project directories store source media and generated files. They must remain consistent.
+
+The project trash is stored in `projects/<project-name>/.arcreel/trash/`. A full data-root backup keeps its deletion records; a project ZIP export does not include it. Deletion records are kept for 30 days from deletion and are cleared at application startup and periodically while it runs. Restoring a backup does not reset a record's retention period.
+
+A deleted project moves as a whole, together with its project trash, to `deleted_projects/<project-name>#deleted-<deletion-time>/`. It is also kept for 30 days and cleared the same way. You can restore or permanently delete it from Deleted projects on the project list page. If the original name is already taken, the project is restored under a new name with a suffix.
 
 ## 2. Production Deployment: PostgreSQL {#postgresql-deployment}
 

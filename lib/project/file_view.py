@@ -17,12 +17,13 @@ from pathlib import Path
 from typing import BinaryIO
 
 from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.version_manager import VersionManager
 from lib.infra.api_errors import ConflictError
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project import project_trash
 from lib.project.reference_index import FileReference, FileRole, ReferenceIndex, is_infrastructure_path
 
-__all__ = ["FileViewEntry", "delete_unreferenced_file", "iter_file_chunks", "list_directory", "open_project_file"]
+__all__ = ["FileViewEntry", "iter_file_chunks", "list_directory", "move_file_to_trash", "open_project_file"]
 
 _O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
@@ -179,10 +180,10 @@ def _open_checked(project_dir: Path, parts: tuple[str, ...]) -> int:
     return fd
 
 
-def delete_unreferenced_file(project_dir: Path, rel: str) -> project_trash.TrashRecord:
-    """把一个未引用文件移进项目回收站，成为一条只含它的删除记录。
+def move_file_to_trash(project_dir: Path, rel: str) -> project_trash.TrashRecord:
+    """把一个未引用文件或历史版本移进项目回收站，成为一条只含它的删除记录。
 
-    在项目锁内重建引用索引再判定：其余角色一律拒绝；未纳入整本源文的源文件交给分集视图处理。
+    在项目锁内重建引用索引再判定：历史版本经版本管理删除（当前版本拒绝），其余角色一律拒绝；未纳入整本源文的源文件交给分集视图处理。
     """
     parts = _parts(rel)
     with project_metadata_lock(project_dir):
@@ -190,6 +191,8 @@ def delete_unreferenced_file(project_dir: Path, rel: str) -> project_trash.Trash
         if not path.is_file():
             raise FileNotFoundError(rel)
         reference = ReferenceIndex.build(project_dir).reference_of(rel)
+        if reference.role is FileRole.HISTORY:
+            return VersionManager(project_dir).delete_history_version(rel)
         if reference.role is not FileRole.UNREFERENCED:
             raise ConflictError("file_view_delete_not_allowed", path=rel)
         if reference.owner is not None and reference.owner.kind == "source":

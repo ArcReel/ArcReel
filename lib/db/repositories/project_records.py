@@ -2,12 +2,14 @@
 
 任务、批次、调用记录与助手会话只按项目名关联项目。项目删除后这些行改挂到墓碑名上：费用统计仍按
 已删除项目保留，同名新建或导入的项目查不到它们，活动任务的去重也不会把新请求并到旧任务上。
-墓碑名带 ``#``，项目名只允许字母、数字与中划线，墓碑名不会与任何项目同名。
+墓碑名带 ``#``，项目名只允许字母、数字与中划线，墓碑名不会与任何项目同名。已删除项目恢复时，记录从墓碑名
+改回恢复后的项目名。
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+import re
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +20,7 @@ from lib.db.models.session import AgentSession
 from lib.db.models.task import GenerationBatch, Task
 
 _DELETED_MARKER = "#deleted-"
+_DELETED_NAME_RE = re.compile(r"^([A-Za-z0-9-]+)#deleted-(\d{8}T\d{6}Z)$")
 
 
 def _deleted_project_name(project_name: str, deleted_at: datetime) -> str:
@@ -33,8 +36,16 @@ def is_deleted_project_name(project_name: str) -> bool:
     return _DELETED_MARKER in project_name
 
 
-async def retire_project_records(session: AsyncSession, project_name: str) -> list[str]:
-    """在 ``session`` 的事务里取消项目排队中的任务，并把项目的全部记录改挂到墓碑名，返回执行中任务的 id。
+def parse_deleted_project_name(tombstone: str) -> tuple[str, datetime] | None:
+    """墓碑名拆回原项目名与删除时间（UTC）；不是墓碑名时为 ``None``。"""
+    match = _DELETED_NAME_RE.fullmatch(tombstone)
+    if match is None:
+        return None
+    return match[1], datetime.strptime(match[2], "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
+
+
+async def retire_project_records(session: AsyncSession, project_name: str) -> tuple[str, list[str]]:
+    """在 ``session`` 的事务里取消项目排队中的任务，并把项目的全部记录改挂到墓碑名，返回墓碑名与执行中任务的 id。
 
     不提交：调用方提交事务，取消与改名一起生效，读侧看不到只做了一半的记录。执行中的任务不可取消，
     照常跑完，结算落在墓碑名下；调用方据返回的 id 作废它们对项目的认领，让它们放弃落盘。不按用户
@@ -54,7 +65,18 @@ async def retire_project_records(session: AsyncSession, project_name: str) -> li
     running_task_ids = list(running.scalars())
     for model in (Task, GenerationBatch, ApiCall, AgentSession):
         await session.execute(update(model).where(model.project_name == project_name).values(project_name=tombstone))
-    return running_task_ids
+    return tombstone, running_task_ids
 
 
-__all__ = ["is_deleted_project_name", "retire_project_records"]
+async def restore_project_records(session: AsyncSession, tombstone: str, project_name: str) -> None:
+    """把挂在墓碑名 ``tombstone`` 下的全部记录改回 ``project_name``。不提交；删除时取消的任务保持已取消。"""
+    for model in (Task, GenerationBatch, ApiCall, AgentSession):
+        await session.execute(update(model).where(model.project_name == tombstone).values(project_name=project_name))
+
+
+__all__ = [
+    "is_deleted_project_name",
+    "parse_deleted_project_name",
+    "restore_project_records",
+    "retire_project_records",
+]

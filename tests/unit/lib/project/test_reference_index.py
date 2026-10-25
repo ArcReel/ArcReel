@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -217,11 +218,25 @@ def test_contains_resource_tracks_project_data(indexed_project_dir: Path) -> Non
     assert index.contains_resource("storyboards", "E1S01")
     assert index.contains_resource("videos", "E1S01")
     assert index.contains_resource("reference_videos", "E2U1")
+    # 视频单元的旁白配音同样按单元 ID 登记。
+    assert index.contains_resource("audio", "E2U1")
     assert index.contains_resource("grids", "grid_0123456789ab")
     # 只剩版本历史的资产、已移除的分镜都不在项目中。
     assert not index.contains_resource("characters", "旧人")
     assert not index.contains_resource("storyboards", "E1S09")
     assert not index.contains_resource("reference_videos", "E1S01")
+
+
+def test_contains_resource_compares_asset_names_in_nfc(tmp_path: Path) -> None:
+    nfd = unicodedata.normalize("NFD", "Thảo")
+    (tmp_path / "project.json").write_text(
+        json.dumps({"characters": {nfd: {"derivatives": {nfd: {}}}}}), encoding="utf-8"
+    )
+    index = ReferenceIndex.build(tmp_path)
+
+    nfc = unicodedata.normalize("NFC", "Thảo")
+    assert index.contains_resource("characters", nfc)
+    assert index.contains_resource("character_derivatives", f"{nfc}/{nfc}")
 
 
 def test_pending_grid_record_is_structure_before_any_reference(indexed_project_dir: Path) -> None:

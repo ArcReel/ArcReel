@@ -22,7 +22,7 @@ const DEMO_PROJECT = "demo";
 interface Recording {
   /** 替身文件名（不含扩展名）。 */
   file: string;
-  method: "GET" | "POST";
+  method: "GET" | "POST" | "DELETE";
   /** 页面实际请求的路径；带查询串时写全，参数顺序不限。查询串不同的请求分别录制。 */
   path: string;
   /** 不带令牌请求。 */
@@ -50,6 +50,7 @@ const RECORDINGS: Recording[] = [
   { file: "custom-providers-endpoints", method: "GET", path: "/api/v1/custom-providers/endpoints" },
   { file: "onboarding-status", method: "GET", path: "/api/v1/onboarding/status" },
   { file: "projects", method: "GET", path: "/api/v1/projects" },
+  { file: "deleted-projects", method: "GET", path: "/api/v1/deleted-projects" },
   { file: "project-demo", method: "GET", path: `/api/v1/projects/${DEMO_PROJECT}` },
   // 工作区与集页的启动请求（项目事件流是 SSE，不录制，场景里按需替换）。
   { file: "tasks", method: "GET", path: "/api/v1/tasks?page_size=200" },
@@ -167,7 +168,8 @@ function normalize(value: unknown, dataDir: string): unknown {
   if (typeof value === "string") {
     if (ISO_TIMESTAMP.test(value)) return FIXED_NOW;
     if (UUID.test(value)) return fixedUuid(value);
-    return value.replaceAll(dataDir, "<data-dir>").replaceAll(REPO_ROOT, "<repo-root>");
+    return value.replaceAll(dataDir, "<data-dir>").replaceAll(REPO_ROOT, "<repo-root>")
+      .replace(/#deleted-\d{8}T\d{6}Z$/, "#deleted-20260101T080000Z");
   }
   if (Array.isArray(value)) return value.map((item) => normalize(item, dataDir));
   if (value && typeof value === "object") {
@@ -280,6 +282,8 @@ async function main() {
     // 一集还没有分镜的空正式脚本，集页显示「新增第一个分镜」。
     await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes`, { title: "第一集" });
     await postJson(baseUrl, token, `/api/v1/projects/${DEMO_PROJECT}/episodes/1/blank-script`, {});
+    await postJson(baseUrl, token, "/api/v1/projects", { name: "deleted-demo", title: "已删除演示项目", generation_mode: "storyboard" });
+    await request(baseUrl, token, { method: "DELETE", path: "/api/v1/projects/deleted-demo" });
     // 资产库按更新时间倒序列出，逐个创建使顺序与 LIBRARY_ASSETS 相反、且每次录制一致。
     for (const asset of LIBRARY_ASSETS) await postForm(baseUrl, token, "/api/v1/assets", asset);
 

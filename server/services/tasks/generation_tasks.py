@@ -51,6 +51,7 @@ from lib.artifacts.visual_artifact_provenance import (
 from lib.config.resolver import video_bucket_for_generation_mode
 from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 from lib.db.base import DEFAULT_USER_ID
+from lib.generation.deleted_target import GenerationTargetDeletedError
 from lib.generation.generation_queue import (
     DispatchProviderChanged,
     ensure_dispatch_provider,
@@ -972,6 +973,8 @@ async def execute_character_voice_sample_task(
         voice=voice.strip(),
         speed=None,
         task_id=task_id,
+        # 试听样本属于角色：角色被删时样本进回收站。
+        target_resource=("characters", character_name),
     )
 
     audio_rel = resource_relative_path("audio", sample_id)
@@ -1827,6 +1830,9 @@ async def execute_grid_task(
 
         await run_sync_transaction(_restore_status_before_claim)
         raise
+    except GenerationTargetDeletedError:
+        # 宫格已被删除：不再写回失败状态，免得重建出宫格记录。
+        raise
     except Exception:
         import traceback
 
@@ -1905,26 +1911,30 @@ async def execute_generation_task(task: dict[str, Any], *, claimed_provider_id: 
         # 能力类异常（Image/VideoCapabilityError、ReferencePayloadFloorError）原样上抛：
         # worker 的 encode_task_failure_message 按 code + params 落库，渲染留到读侧
         # Translator，同一失败任务按 Accept-Language 显示 zh/en/vi。
-        if task_type in ("video", "reference_video"):
-            result = await executor(
-                project_name,
-                resource_id,
-                payload,
-                script_file=task.get("script_file"),
-                user_id=user_id,
-                task_id=queue_task_id,
-                claimed_provider_id=claimed_provider_id,
-                poll_timeout_seconds=video_poll_timeout_seconds,
-            )
-        else:
-            result = await executor(
-                project_name,
-                resource_id,
-                payload,
-                user_id=user_id,
-                task_id=queue_task_id,
-                claimed_provider_id=claimed_provider_id,
-            )
+        try:
+            if task_type in ("video", "reference_video"):
+                result = await executor(
+                    project_name,
+                    resource_id,
+                    payload,
+                    script_file=task.get("script_file"),
+                    user_id=user_id,
+                    task_id=queue_task_id,
+                    claimed_provider_id=claimed_provider_id,
+                    poll_timeout_seconds=video_poll_timeout_seconds,
+                )
+            else:
+                result = await executor(
+                    project_name,
+                    resource_id,
+                    payload,
+                    user_id=user_id,
+                    task_id=queue_task_id,
+                    claimed_provider_id=claimed_provider_id,
+                )
+        except GenerationTargetDeletedError as deleted:
+            # 结果已进项目回收站，任务照常成功；没有写回任何资源，不发生成成功事件。
+            return deleted.result
         # 成功事件发出失败时不回滚产物：已写入的产物保持有效，异常照常上抛。
         # 发事件要读剧本、算产物指纹，放进工作线程；to_thread 复制上下文，事件来源仍是 worker。
         # 产物已提交，发事件不可打断：取消不能把已付费成功的任务改判为中断。

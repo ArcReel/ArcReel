@@ -39,6 +39,7 @@ from lib.infra.content_digest import digest_stream, sha256_file
 from lib.infra.json_io import load_json
 from lib.infra.path_safety import PathTraversalError, safe_join, try_safe_join
 from lib.infra.validation_messages import ValidationResult, default_translate
+from lib.project import deleted_projects
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, build_asset_entry, normalize_asset_name
 from lib.project.data_validator import DataValidator
 from lib.project.project_change_hints import emit_project_change_hint
@@ -2211,30 +2212,25 @@ class ProjectArchiveService:
                 shutil.rmtree(prepared_dir, ignore_errors=True)  # hard-delete: temp -- 导入暂存目录
 
     def _replace_project_dir(self, prepared_dir: Path, target_dir: Path) -> None:
-        """覆盖导入等同于删除现有项目再导入：现有项目的记录按删除收尾，目录连同项目记忆一并换掉。
+        """覆盖导入等同于删除现有项目再导入：现有项目的记录按删除收尾，旧目录连同项目记忆成为已删除项目。
 
         收尾里只做两次改名，数据库事务持有的时间不随项目大小增长。替换目录或提交记录失败时，
-        记录回滚，旧目录原样还原；还原也只用改名，不会因删不净新目录而卡在备份名下。
+        记录回滚，旧目录原样还原；还原也只用改名，不会因删不净新目录而卡在已删除项目里。
         """
         if self._retire_project is None:
             raise RuntimeError("覆盖导入需要收尾现有项目的记录")
-        backup_dir = target_dir.with_name(f".import-backup-{target_dir.name}-{secrets.token_hex(4)}")
+        deleted_dir: Path | None = None
 
         try:
-            with self._retire_project(target_dir.name):
-                target_dir.rename(backup_dir)
+            with self._retire_project(target_dir.name) as tombstone:
+                deleted_dir = deleted_projects.move_in(self.project_manager.layout, target_dir, tombstone)
                 prepared_dir.rename(target_dir)
         except BaseException:
-            if backup_dir.exists():
+            if deleted_dir is not None and deleted_dir.exists():
                 if target_dir.exists():
                     discarded_dir = target_dir.with_name(f".import-discard-{target_dir.name}-{secrets.token_hex(4)}")
                     target_dir.rename(discarded_dir)
                     # hard-delete: rollback -- 交换失败时移除新装的导入
                     shutil.rmtree(discarded_dir, ignore_errors=True)
-                backup_dir.rename(target_dir)
+                deleted_dir.rename(target_dir)
             raise
-        try:
-            shutil.rmtree(backup_dir)  # hard-delete: pending-trash -- #3389 归档覆盖导入时删除被覆盖的旧项目
-        except OSError:
-            # 覆盖已经生效，记录也已收尾；残留的旧目录不改变导入结果。
-            logger.warning("覆盖导入后旧项目目录删除失败: %s", backup_dir, exc_info=True)

@@ -13,6 +13,7 @@ from lib.agent.agent_memory_store import (
     parse_memory_frontmatter,
 )
 from lib.infra.api_errors import BadRequestError, NotFoundError
+from lib.project import project_trash
 from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
 
 
@@ -40,7 +41,7 @@ class TestFilenameRule:
             "sub/notes.md",
             "..\\notes.md",
             "../notes.md",
-            "note s.md",
+            "note*s.md",
             "n" * 98 + ".md",
         ],
     )
@@ -317,3 +318,67 @@ class TestProjectActivity:
 
         assert not (tmp_path / ACTIVITY_FILENAME).exists()
         assert not (store.directory / ACTIVITY_FILENAME).exists()
+
+
+class TestProjectMemoryTrash:
+    """项目记忆的删除与清空进项目回收站；恢复时原名被占用则换成仍可见的新名。"""
+
+    def test_long_memory_name_remains_readable_after_conflict_restore(self, tmp_path):
+        project_store = AgentMemoryStore.for_project(tmp_path)
+        name = "a" * 97 + ".md"
+        project_store.write(name, b"old")
+        project_store.delete(name)
+        project_store.write(name, b"new")
+        [record] = project_trash.list_records(tmp_path)
+
+        [restored] = project_trash.restore(tmp_path, record.id).restored
+
+        restored_name = Path(restored.path).name
+        assert restored_name != name
+        assert project_store.read(restored_name) == b"old"
+        assert {entry["name"] for entry in project_store.overview()["files"]} == {name, restored_name}
+
+    def test_clear_keeps_memory_written_after_the_deletion_snapshot(self, tmp_path, monkeypatch):
+        project_store = AgentMemoryStore.for_project(tmp_path)
+        project_store.write("old.md", b"old")
+        record_deletion = project_trash.record_deletion
+
+        def record_and_write(*args, **kwargs):
+            record = record_deletion(*args, **kwargs)
+            project_store.write("new.md", b"new")
+            return record
+
+        monkeypatch.setattr(project_trash, "record_deletion", record_and_write)
+        project_store.clear()
+
+        assert project_store.read("new.md") == b"new"
+        [record] = project_trash.list_records(tmp_path)
+        assert record.files == (".arcreel/memory/old.md",)
+
+    def test_deleted_memory_restores_under_a_new_visible_name(self, tmp_path):
+        project_store = AgentMemoryStore.for_project(tmp_path)
+        project_store.write("notes.md", b"old")
+        project_store.delete("notes.md")
+        project_store.write("notes.md", b"new")
+
+        [record] = project_trash.list_records(tmp_path)
+        assert record.object == {"kind": "memory", "path": ".arcreel/memory/notes.md"}
+        project_trash.restore(tmp_path, record.id)
+
+        assert project_store.read("notes.md") == b"new"
+        assert project_store.read("notes (1).md") == b"old"
+        assert [entry["name"] for entry in project_store.overview()["files"]] == ["notes (1).md", "notes.md"]
+
+    def test_clear_becomes_one_record_that_restores_every_file(self, tmp_path):
+        project_store = AgentMemoryStore.for_project(tmp_path)
+        project_store.write(INDEX_FILENAME, b"- [a](a.md)")
+        project_store.write("a.md", b"a")
+        project_store.clear()
+
+        [record] = project_trash.list_records(tmp_path)
+        assert record.files == (".arcreel/memory/MEMORY.md", ".arcreel/memory/a.md")
+        assert project_store.overview()["files"] == []
+        project_trash.restore(tmp_path, record.id)
+
+        assert project_store.read("a.md") == b"a"
+        assert project_store.read(INDEX_FILENAME) == b"- [a](a.md)"

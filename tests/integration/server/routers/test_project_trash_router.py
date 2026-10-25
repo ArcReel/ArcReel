@@ -10,14 +10,19 @@ import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
+from lib.artifacts.formal_write import project_metadata_lock
+from lib.artifacts.version_manager import VersionManager
 from lib.infra.data_root_layout import DataRootLayout
 from lib.project import project_trash
 from lib.project.project_manager import ProjectManager
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
+from server.auth import EMBEDDED_AGENT_SUB, CurrentUserInfo, get_current_user
 from server.dependencies import require_project_migration_ok
 from server.error_handlers import register_error_handlers
 from server.routers import file_view
 from server.routers import project_trash as trash_router
 from tests.auth_deps import AUTH_DEPENDENCIES, override_auth
+from tests.fakes import use_project_manager
 
 FILES = "/api/v1/projects/demo/file-view"
 TRASH = "/api/v1/projects/demo/trash"
@@ -29,7 +34,13 @@ def trash_project_dir(tmp_path):
     (root / "storyboards").mkdir(parents=True)
     (root / "scripts").mkdir()
     (root / "project.json").write_text(
-        json.dumps({"title": "demo", "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}]}),
+        json.dumps(
+            {
+                "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                "title": "demo",
+                "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json"}],
+            }
+        ),
         encoding="utf-8",
     )
     script = {
@@ -48,7 +59,7 @@ def trash_project_dir(tmp_path):
 def trash_client(trash_project_dir, monkeypatch):
     manager = ProjectManager(str(trash_project_dir.parents[1]))
     monkeypatch.setattr(file_view, "get_project_manager", lambda: manager)
-    monkeypatch.setattr(trash_router, "get_project_manager", lambda: manager)
+    use_project_manager(monkeypatch, manager)
     app = FastAPI()
     for module in (file_view, trash_router):
         app.include_router(
@@ -218,6 +229,65 @@ def test_restore_onto_an_occupied_plain_path_takes_a_new_name(trash_client, tras
     assert (trash_project_dir / "notes (1).txt").read_text(encoding="utf-8") == "agent notes"
 
 
+def test_a_multi_file_record_is_restored_whole_or_not_at_all(trash_client, trash_project_dir, tmp_path):
+    (trash_project_dir / "extras").mkdir()
+    (trash_project_dir / "extras/b.txt").write_text("b", encoding="utf-8")
+    with project_metadata_lock(trash_project_dir):
+        record = project_trash.record_deletion(trash_project_dir, {"kind": "bundle"}, ["notes.txt", "extras/b.txt"])
+    # 删除之后途经目录被换成符号链接：第二个文件无处可落
+    (tmp_path / "outside").mkdir()
+    (trash_project_dir / "extras").rmdir()
+    (trash_project_dir / "extras").symlink_to(tmp_path / "outside")
+
+    blocked = trash_client.post(f"{TRASH}/{record.id}/restore")
+
+    assert blocked.status_code == 409
+    assert not (trash_project_dir / "notes.txt").exists()
+    assert [item["id"] for item in _records(trash_client)] == [record.id]
+
+    (trash_project_dir / "extras").unlink()
+    restored = trash_client.post(f"{TRASH}/{record.id}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert (trash_project_dir / "notes.txt").read_text(encoding="utf-8") == "agent notes"
+    assert (trash_project_dir / "extras/b.txt").read_text(encoding="utf-8") == "b"
+    assert _records(trash_client) == []
+
+
+@pytest.mark.parametrize("tracked", [False, True])
+def test_failed_multi_file_restore_rolls_back_history_and_current_registration(trash_project_dir, monkeypatch, tracked):
+    target = trash_project_dir / "storyboards/scene_E1S02.png"
+    manager = VersionManager(trash_project_dir)
+    if tracked:
+        manager.add_version("storyboards", "E1S02", "existing", source_file=target)
+    with project_metadata_lock(trash_project_dir):
+        record = project_trash.record_deletion(
+            trash_project_dir, {"kind": "bundle"}, ["storyboards/scene_E1S02.png", "notes.txt"]
+        )
+    target.write_bytes(b"new current")
+    versions = trash_project_dir / "versions/versions.json"
+    before = versions.read_bytes() if versions.exists() else None
+    snapshots = {path for path in (trash_project_dir / "versions").rglob("*") if path.is_file()}
+    replace = project_trash.os.replace
+    stored_notes = project_trash.trash_dir(trash_project_dir) / record.id / "files/notes.txt"
+
+    def fail_second_file(source, destination):
+        if source == stored_notes:
+            raise OSError("disk full")
+        return replace(source, destination)
+
+    monkeypatch.setattr(project_trash.os, "replace", fail_second_file)
+    with pytest.raises(OSError, match="disk full"):
+        project_trash.restore(trash_project_dir, record.id)
+
+    assert (versions.read_bytes() if versions.exists() else None) == before
+    assert {path for path in (trash_project_dir / "versions").rglob("*") if path.is_file()} == snapshots
+    assert target.read_bytes() == b"new current"
+    assert project_trash.require_record(trash_project_dir, record.id).files == record.files
+    monkeypatch.setattr(project_trash.os, "replace", replace)
+    assert len(project_trash.restore(trash_project_dir, record.id).restored) == 2
+
+
 def test_purge_and_empty_remove_records(trash_client):
     trash_client.delete(FILES, params={"path": "notes.txt"})
     trash_client.delete(FILES, params={"path": "storyboards/scene_E1S02.png"})
@@ -228,6 +298,19 @@ def test_purge_and_empty_remove_records(trash_client):
     assert trash_client.delete(TRASH).json() == {"purged": 1}
     assert _records(trash_client) == []
     assert trash_client.post(f"{TRASH}/{first['id']}/restore").status_code == 404
+
+
+def test_embedded_agent_token_cannot_purge_or_empty(trash_client):
+    """内嵌 Agent 持有本地服务的令牌：彻底删除与清空在服务端拒绝它，不只靠不提供 MCP 工具。"""
+    trash_client.delete(FILES, params={"path": "notes.txt"})
+    [record] = _records(trash_client)
+    trash_client.app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(
+        id="default", sub=EMBEDDED_AGENT_SUB, role="admin"
+    )
+
+    assert trash_client.delete(f"{TRASH}/{record['id']}").status_code == 403
+    assert trash_client.delete(TRASH).status_code == 403
+    assert [r["id"] for r in _records(trash_client)] == [record["id"]]
 
 
 def test_records_are_kept_until_the_retention_period_ends(trash_client, trash_project_dir):
@@ -247,3 +330,39 @@ def test_trash_is_hidden_from_the_file_view(trash_client):
     names = {entry["name"] for entry in trash_client.get(FILES, params={"path": ".arcreel"}).json()["entries"]}
     assert "trash" not in names
     assert trash_client.get(FILES, params={"path": ".arcreel/trash"}).status_code == 404
+
+
+def _history(project_dir) -> dict:
+    return json.loads((project_dir / "versions/versions.json").read_text(encoding="utf-8"))["storyboards"]["E1S01"]
+
+
+def test_history_version_moves_to_trash_and_restores_into_version_history(trash_client, trash_project_dir):
+    current = trash_project_dir / "storyboards/scene_E1S01.png"
+    manager = VersionManager(trash_project_dir)
+    manager.add_version("storyboards", "E1S01", "old prompt", source_file=current, aspect_ratio="9:16")
+    current.write_bytes(b"in-use v2")
+    manager.add_version("storyboards", "E1S01", "new prompt", source_file=current)
+    old, latest = _history(trash_project_dir)["versions"]
+
+    refused = trash_client.delete(FILES, params={"path": latest["file"]})
+    assert refused.status_code == 409, refused.text
+    response = trash_client.delete(FILES, params={"path": old["file"]})
+    assert response.status_code == 200, response.text
+
+    assert not (trash_project_dir / old["file"]).exists()
+    assert [v["version"] for v in _history(trash_project_dir)["versions"]] == [latest["version"]]
+    [record] = _records(trash_client)
+    assert record["object"]["kind"] == "version"
+
+    [restored] = trash_client.post(f"{TRASH}/{record['id']}/restore").json()["restored"]
+
+    assert restored["as_history"] is True
+    history = _history(trash_project_dir)
+    assert history["current_version"] == latest["version"]
+    back = next(v for v in history["versions"] if v["file"] == restored["path"])
+    assert back["prompt"] == "old prompt"
+    # 原版本的元数据（生成依据等）随版本加回，否则视频、音频版本加回后无法选回。
+    assert back["aspect_ratio"] == "9:16"
+    assert back["created_at"] == old["created_at"]
+    assert (trash_project_dir / back["file"]).read_bytes() == b"in-use"
+    assert current.read_bytes() == b"in-use v2"

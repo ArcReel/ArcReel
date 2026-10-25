@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -74,3 +75,40 @@ def migrate_project_source_encoding(project_dir: Path) -> MigrationSummary:
         summary.migrated.append(file_path.name)
 
     return summary
+
+
+def migrate_project_source_encoding_once(
+    project_dir: Path, *, migrate: Callable[[Path], MigrationSummary] = migrate_project_source_encoding
+) -> dict:
+    """对一个项目执行一次编码迁移，以 ``.arcreel/source_encoding_migrated`` 标记只做一次。
+
+    启动时逐项目调用，恢复已删除项目时也调用。失败被捕获并写日志与 ``.arcreel/migration_errors.log``，不抛出。
+    """
+    marker_dir = project_dir / ".arcreel"
+    marker = marker_dir / "source_encoding_migrated"
+    if marker.exists():
+        return {"skipped": True}
+    try:
+        result = migrate(project_dir)
+        marker_dir.mkdir(exist_ok=True)
+        marker.touch()
+        if result.failed:
+            err_log = marker_dir / "migration_errors.log"
+            err_log.write_text(
+                "\n".join(f"FAILED: {name}" for name in result.failed) + "\n",
+                encoding="utf-8",
+            )
+        return {
+            "migrated": result.migrated,
+            "skipped": result.skipped,
+            "failed": result.failed,
+        }
+    except Exception as exc:
+        logger.exception("源文件编码迁移失败 project=%s，已跳过", project_dir.name)
+        try:
+            marker_dir.mkdir(exist_ok=True)
+            (marker_dir / "migration_errors.log").write_text(f"FATAL: {exc}\n", encoding="utf-8")
+            marker.touch()
+        except Exception:
+            pass
+        return {"error": str(exc)}

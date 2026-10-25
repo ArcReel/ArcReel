@@ -61,6 +61,11 @@ class DataRootLayout:
         return self.root / "projects"
 
     @property
+    def deleted_projects_dir(self) -> Path:
+        """已删除项目：被整体删除的项目以 ``<本目录>/<墓碑名>/`` 存放，保留期内可整体恢复。"""
+        return self.root / "deleted_projects"
+
+    @property
     def global_assets_dir(self) -> Path:
         """全局资产库；资产记录里的路径以数据根为基准，前缀即本目录名。"""
         return self.root / "global_assets"
@@ -122,6 +127,7 @@ class DataRootLayout:
         会话启动之后才出现的目录不在 ``denyRead`` 中（内置读工具仍按数据根默认拒绝）。
         """
         return (
+            self.deleted_projects_dir,
             self.global_assets_dir,
             self.users_dir,
             self.log_dir,

@@ -361,6 +361,7 @@ Layout of the data root ([ADR 0088](https://github.com/ArcReel/ArcReel/blob/main
 ```text
 <data root>/
 ├── projects/<project-name>/   projects and generated assets
+├── deleted_projects/          deleted projects (restorable during the retention period)
 ├── global_assets/             global asset library
 ├── users/<user_id>/memory/    Agent user memory
 ├── arcreel.db                 default SQLite database

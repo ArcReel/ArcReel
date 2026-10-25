@@ -1,7 +1,7 @@
 """剪辑时间线的文件存储：``edit_timelines/episode_{N}/{timeline_id}.json``，每条一个文件。
 
-剪辑时间线是正式内容，随项目归档导出，不进产物清单。同一集的新建、改名、删除与写入修订在该集的
-目录锁下串行，保证显示名在集内不重名、修订号连续。
+剪辑时间线是正式内容，随项目归档导出，不进产物清单。同一集的新建、改名、删除、从回收站恢复与写入修订在该集的
+目录锁下串行，保证显示名在集内不重名、修订号连续。删除与恢复见 :mod:`lib.edit_timeline.trash`。
 """
 
 from __future__ import annotations
@@ -24,6 +24,11 @@ from lib.project.project_manager import ProjectManager
 logger = logging.getLogger(__name__)
 
 EDIT_TIMELINES_DIRNAME = "edit_timelines"
+
+
+def document_relpath(episode: int, timeline_id: str) -> str:
+    """一条剪辑时间线文档的项目内相对路径。"""
+    return f"{EDIT_TIMELINES_DIRNAME}/episode_{episode}/{timeline_id}.json"
 
 
 def _parse_document(path: Path) -> EditTimelineDocument:
@@ -115,15 +120,10 @@ class EditTimelineStore:
         path = self._episode_dir(document.episode) / f"{document.id}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_json(path, document.model_dump(mode="json"))
-        self._changed(document.episode)
+        self.changed(document.episode)
 
-    def delete(self, document: EditTimelineDocument) -> None:
-        """删除一条剪辑时间线的文件；调用方须持有该集的锁。"""
-        # hard-delete: pending-trash -- #3382 删除剪辑时间线文档
-        (self._episode_dir(document.episode) / f"{document.id}.json").unlink(missing_ok=True)
-        self._changed(document.episode)
-
-    def _changed(self, episode: int) -> None:
+    def changed(self, episode: int) -> None:
+        """该集的剪辑时间线有增删改：记项目活动并发刷新信号。"""
         # 剪辑时间线是 JSON，修改时间不计入项目活动；删除后连文件都不在了，所以在这里记账。
         record_project_activity(self._project_dir)
         emit_project_change_batch(
@@ -159,4 +159,4 @@ def read_timeline_document(project_dir: Path, episode: int, timeline_id: str) ->
     return document if document.episode == episode else None
 
 
-__all__ = ["EDIT_TIMELINES_DIRNAME", "EditTimelineStore", "read_timeline_document"]
+__all__ = ["EDIT_TIMELINES_DIRNAME", "EditTimelineStore", "document_relpath", "read_timeline_document"]
