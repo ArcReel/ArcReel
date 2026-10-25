@@ -122,6 +122,7 @@ Published pages also declare their documentation-refresh coverage tier via the `
 | `website/docs/guide/comfyui.md` | Importing ComfyUI workflows, node binding, conversion semantics for size/duration/seed, testing, and runtime limits | Deploying ComfyUI itself or installing custom nodes |
 | `website/docs/guide/market.md` | Managing market sources, confirming installation of market entries, updating, and uninstalling | Contribution workflow and steps for hosting a market source (the official market source repository docs are authoritative) |
 | `website/docs/guide/jianying-export.md` | Locating the Jianying draft directory, exporting, and further editing steps | The video generation process itself |
+| `website/docs/guide/files-and-trash.md` | File view roles and actions, deletion and restore rules per object type, project trash retention and cleanup, deleted projects, and what the Agent can delete and restore | Deployment-level backup and directory layout (covered by the deployment page) |
 | `website/docs/guide/faq.md` | Frequently asked questions and short answers | Long tutorials |
 | `website/docs/ops/deployment.md` | Deployment, upgrades, backup, recovery, monitoring, and security | Product marketing copy |
 | `website/docs/ops/migrate-to-postgres.md` | SQLite-to-PostgreSQL migration, verification, and rollback steps | Day-to-day PostgreSQL deployment and operations guidance |

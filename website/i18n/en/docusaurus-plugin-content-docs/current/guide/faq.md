@@ -1,7 +1,7 @@
 ---
 id: faq
 title: Frequently Asked Questions
-sidebar_position: 7
+sidebar_position: 8
 update_docs: fact-check
 ---
 
@@ -277,13 +277,21 @@ Validate the model, prompts, and reference-image results with a few shots before
 
 There is no fixed “price per minute” that applies to every project. Evaluate costs using the project estimate, actual call details, and provider bill.
 
+### Can I recover content I deleted by mistake? {#recover-deleted-content}
+
+Yes. Every deletion inside a project, whether you or the Agent starts it, becomes a deletion record in the project trash and is kept for 30 days. Open the **Project trash** section under **Files** in the workspace, select a record, and click **Restore**. A restore only adds and does not overwrite existing content. If the original name or number is already taken, the restored object gets a new name or number, and the notification states it.
+
+Deleting a whole project moves it to **Deleted projects** on the project list page. For how each type of object is deleted and restored, restoring after an asset merge, and what the Agent can delete and restore, see [File View and Project Trash](./files-and-trash.md).
+
 ### What is the difference between a project ZIP and a full-instance backup? {#project-zip-vs-full-backup}
 
 A project ZIP imports or migrates a single project and can include only the current version or the complete version history. It does not include global provider settings, login configuration, task and cost records, Agent sessions, or Agent memory.
 
-A deleted project goes to **Deleted Projects** on the project list page, together with its project trash, and is kept for 30 days. You can restore it as a whole or delete it permanently. If a new project already uses the original name, the restored project gets a suffixed name.
+The project trash is not included in a project ZIP, while a full data-root backup keeps its deletion records. For how to use the project trash, see [File View and Project Trash](./files-and-trash.md).
 
-When an imported project has the same name as an existing one, choosing **Overwrite Existing Project** is the same as deleting the existing project and then importing: the existing project's queued tasks are cancelled; its tasks, usage records, and Agent sessions stay with the deleted project instead of carrying over to the imported one; and the existing project, including its Agent memory, goes to **Deleted Projects**. To keep both projects, choose **Auto Rename and Import**.
+A deleted project goes to **Deleted projects** on the project list page, together with its project trash, and is kept for 30 days. You can restore it as a whole or delete it permanently; see [Deleted projects](./files-and-trash.md#deleted-projects).
+
+When an imported project has the same name as an existing one, choosing **Overwrite Existing Project** is the same as deleting the existing project and then importing: the existing project's queued tasks are cancelled; its tasks, usage records, and Agent sessions stay with the deleted project instead of carrying over to the imported one; and the existing project, including its Agent memory, goes to **Deleted projects**. To keep both projects, choose **Auto Rename and Import**.
 
 For disaster recovery, use the full-instance backup approach described above and save the project directory, database, and required credentials together.
 
