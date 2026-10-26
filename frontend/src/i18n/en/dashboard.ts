@@ -2787,7 +2787,7 @@ export default {
   'deleted_projects_loading': 'Loading deleted projects…',
   'deleted_projects_load_failed': 'Couldn\'t load deleted projects: {{message}}',
   'deleted_projects_empty': 'No deleted projects',
-  'deleted_projects_meta': 'Deleted {{time}} · Cleared {{expires}}',
+  'deleted_projects_meta': 'Deleted {{time}} · Cleared {{expires}} · Uses {{size}}',
   'deleted_projects_restore_label': 'Restore “{{title}}”',
   'deleted_projects_purge_label': 'Delete “{{title}}” permanently',
   'deleted_projects_restored': '“{{title}}” restored',

@@ -111,7 +111,8 @@ def cleanup_completed_swap_dirs(projects_dir: Path, cutoff: float) -> None:
             logger.warning("无法删除迁移中间目录：%s", child)
 
 
-def _tree_size(root: Path) -> int:
+def tree_size(root: Path) -> int:
+    """目录树里文件占用的字节数，不跟随符号链接；读不到的条目跳过。"""
     total = 0
     stack = [root]
     while stack:
@@ -138,7 +139,7 @@ def ensure_disk_headroom(project_dir: Path) -> None:
     except OSError:
         logger.warning("无法读取 %s 的磁盘可用空间，跳过迁移前容量预检", project_dir.parent, exc_info=True)
         return
-    size = _tree_size(project_dir)
+    size = tree_size(project_dir)
     required = size + max(size * _HEADROOM_PERCENT // 100, _MIN_HEADROOM_BYTES)
     if free >= required:
         return
@@ -159,4 +160,5 @@ __all__ = [
     "new_staging_dir",
     "rollback_project_name",
     "staging_project_name",
+    "tree_size",
 ]

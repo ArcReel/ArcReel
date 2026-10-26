@@ -9,7 +9,8 @@
         "name": "deleted-demo",
         "title": "已删除演示项目",
         "deleted_at": "2026-01-01T08:00:00.000Z",
-        "expires_at": "2026-01-01T08:00:00.000Z"
+        "expires_at": "2026-01-01T08:00:00.000Z",
+        "size": 244468
       }
     ],
     "retention_days": 30

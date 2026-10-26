@@ -2406,7 +2406,7 @@ export default {
   'deleted_projects_loading': 'Đang tải dự án đã xóa…',
   'deleted_projects_load_failed': 'Không thể tải dự án đã xóa: {{message}}',
   'deleted_projects_empty': 'Không có dự án đã xóa',
-  'deleted_projects_meta': 'Xóa lúc {{time}} · Tự dọn lúc {{expires}}',
+  'deleted_projects_meta': 'Xóa lúc {{time}} · Tự dọn lúc {{expires}} · Chiếm {{size}}',
   'deleted_projects_restore_label': 'Khôi phục “{{title}}”',
   'deleted_projects_purge_label': 'Xóa vĩnh viễn “{{title}}”',
   'deleted_projects_restored': 'Đã khôi phục “{{title}}”',
