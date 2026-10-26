@@ -2571,7 +2571,6 @@ export default {
   'shot_remove_title': '移除{{id}}？',
   'shot_remove_desc': '该分镜将从剧本中移除，已生成的分镜图、视频等产物连同版本历史随分镜移入项目回收站，保留 30 天，期间可以恢复。',
   'shot_remove_blocked_generating': '该分镜有生成任务进行中，完成后才能移除',
-  'shot_remove_blocked_last': '本集只剩这一个分镜，不能移除',
   'shot_remove_confirm': '移入项目回收站',
   'shot_remove_failed': '移除分镜失败：{{message}}',
   'shot_structure_refresh_failed': '已保存，但时间线刷新失败，请刷新页面查看最新结果。',
