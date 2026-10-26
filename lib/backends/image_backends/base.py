@@ -35,7 +35,7 @@ async def save_image_from_response_item(item, output_path: Path) -> None:
 
     供应商响应已到手，解码与写盘属 docs/standards/backend.md「供应商返回之后的落账段不可中断」：
     取消落在写盘期间时线程照常写完，取消随之消失，调用方后续的转码与产物提交照常执行。
-    复用本助手即满足该规则。URL 路径的下载在 ``with_artifact_retry`` 的墙钟预算之内，见规范中的说明。
+    复用本助手即满足该规则。URL 路径的网络取件仍可中断，最终改名不可中断，见规范中的说明。
     """
     b64 = getattr(item, "b64_json", None)
     if b64:
