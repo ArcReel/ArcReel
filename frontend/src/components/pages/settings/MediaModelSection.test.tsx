@@ -348,6 +348,22 @@ describe("MediaModelSection", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
+    // 各层全空时执行期用自动选中的模型，勾选框判据与规格条要按它取，否则恒有声的自动模型
+    // 配上「关闭」时一路到入队预检才被拒。
+    it("judges the checkbox and shows the spec bar by the auto-selected model when every layer is unset", async () => {
+      mockConfig({ default_video_backend: "" });
+      vi.spyOn(API, "getAutoBackends").mockResolvedValue({ ...NO_AUTO, i2v: "dashscope/wan", r2v: "gemini/veo-3" });
+      vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+        videoProvider("gemini", "veo-3", { audio_track: "controllable" }),
+        videoProvider("dashscope", "wan", { audio_track: "always_on" }),
+      ]);
+      render(<MediaModelSection />);
+      const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
+      expect(box).toBeEnabled();
+      expect(screen.getByRole("alert")).toHaveTextContent(/无法关闭声音/);
+      expect(screen.getByText("支持时长")).toBeInTheDocument();
+    });
+
     it("locks the checkbox on a model without an audio track", async () => {
       mockProviders("always_off");
       render(<MediaModelSection />);

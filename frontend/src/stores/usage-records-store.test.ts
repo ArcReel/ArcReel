@@ -111,4 +111,39 @@ describe("usage-records-store", () => {
     expect(listCursors(API.getUsageRecords)).toEqual([undefined, "rec-cursor-2", undefined, "rec-cursor-2"]);
     expect(listCursors(API.getUsageSessions)).toEqual([undefined, "sess-cursor-2"]);
   });
+
+  it.each([AGENT, { ...GENERATION, model: "another-model" }])(
+    "refreshes the first page while a changed query is still loading (%j)",
+    async (filters) => {
+      const firstPage = createDeferred<Page<UsageRecord>>();
+      const sessions = createDeferred<Page<UsageAgentSession>>();
+      vi.spyOn(API, "getUsageRecords").mockImplementation((query = {}, options) => {
+        if (isPending(query)) return Promise.resolve(EMPTY_RECORDS);
+        if (query.models) return abortable(firstPage.promise, options?.signal);
+        return Promise.resolve(recordPage(query.cursor ? null : "rec-cursor-2"));
+      });
+      vi.spyOn(API, "getUsageSessions").mockImplementation((_query, options) =>
+        abortable(sessions.promise, options?.signal),
+      );
+      const store = useUsageRecordsStore.getState();
+      await store.applyFilters(GENERATION);
+      await store.goToPage("next");
+      expect(useUsageRecordsStore.getState().pageIndex).toBe(1);
+
+      const switching = store.applyFilters(filters);
+      const refreshing = store.refresh();
+      firstPage.resolve(recordPage(null));
+      sessions.resolve(sessionPage(null));
+      await Promise.all([switching, refreshing]);
+
+      const requests = filters.view === "agent"
+        ? listCursors(API.getUsageSessions)
+        : vi.mocked(API.getUsageRecords).mock.calls
+          .filter(([query]) => query?.models && !isPending(query))
+          .map(([query]) => query?.cursor);
+      expect(requests.length).toBeGreaterThan(0);
+      expect(requests.every((cursor) => cursor === undefined)).toBe(true);
+      expect(useUsageRecordsStore.getState()).toMatchObject({ pageIndex: 0, cursors: [null] });
+    },
+  );
 });

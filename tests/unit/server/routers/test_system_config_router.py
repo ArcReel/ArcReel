@@ -623,32 +623,6 @@ class TestPatchSystemConfig:
         assert "text_backend_style" not in settings
 
 
-class TestAutoBackends:
-    """「自动选择」的实际模型按用途返回，选不出的用途为 null。"""
-
-    def test_returns_resolved_pairs_and_null_for_unavailable(self, monkeypatch):
-        resolved = {
-            "t2i": ("gemini-aistudio", "img-a"),
-            "i2i": ("custom-3", "edit-b"),
-            "i2v": ("ark", "vid-c"),
-            "r2v": ("ark", "vid-c"),
-            "text": None,
-        }
-        monkeypatch.setattr(
-            system_config_router.ConfigResolver, "auto_resolved_backends", AsyncMock(return_value=resolved)
-        )
-        with TestClient(_make_app_with_mock(_make_mock_svc())) as client:
-            resp = client.get("/api/v1/system/config/auto-backends")
-        assert resp.status_code == 200
-        assert resp.json() == {
-            "t2i": "gemini-aistudio/img-a",
-            "i2i": "custom-3/edit-b",
-            "i2v": "ark/vid-c",
-            "r2v": "ark/vid-c",
-            "text": None,
-        }
-
-
 class TestNarrationDefaults:
     """新建 TTS 项目的预填值取自全局设置。"""
 

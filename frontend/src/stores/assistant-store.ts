@@ -311,6 +311,7 @@ export const useAssistantStore = create<AssistantState>((set, get) => {
         historySeq: -1,
         startupFailure: null,
         startupFailureOrigin: null,
+        interrupting: false,
         // 编辑态锚在被清空的那条时间线上，重建后锚点不再存在
         editingTurnUuid: null,
       });

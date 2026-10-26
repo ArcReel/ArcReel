@@ -274,10 +274,12 @@ export function MediaModelSection() {
     !!candidates,
   );
 
+  // 默认模型留空时按后端预览的自动选中模型取能力，与下拉显示的 defaultAuto 同取图生视频。
+  const videoSpecBackend = currentVideo || auto?.i2v || "";
   // 全局设置页无项目上下文，档位读目录端点的服务端派生值（generation_mode 未知，native 恒降格），
   // 不打 /video-capabilities——该端点按项目解析。
-  const videoSpecTier = currentVideo
-    ? (lookupCatalogVideoAudio(providers, currentVideo)?.voiceConsistency ?? null)
+  const videoSpecTier = videoSpecBackend
+    ? (lookupCatalogVideoAudio(providers, videoSpecBackend)?.voiceConsistency ?? null)
     : null;
   // 音频勾选框按两个生效桶（细分桶留空即回退基础默认）的开关可控性判定：两桶同为恒有声或
   // 同为恒无声时，无论选择哪种生成模式都收不到音轨开关，置灰并展示成片的实际音轨状态。只要还有一个
@@ -288,8 +290,9 @@ export function MediaModelSection() {
   // 可控、参考生无开关），按无路径上下文的值取会让 r2v 桶报出一个执行期不存在的开关。
   const bucketAudioControl = (backend: string, route: VideoRoute) =>
     backend ? lookupVideoAudioControl(providers, backend, route) : null;
-  const i2vAudioControl = bucketAudioControl(currentVideoI2V || currentVideo, "i2v");
-  const r2vAudioControl = bucketAudioControl(currentVideoR2V || currentVideo, "r2v");
+  // 各层全空时执行期用自动选中的模型，判据同样接上预览。
+  const i2vAudioControl = bucketAudioControl(currentVideoI2V || currentVideo || auto?.i2v || "", "i2v");
+  const r2vAudioControl = bucketAudioControl(currentVideoR2V || currentVideo || auto?.r2v || "", "r2v");
   const audioLockedControl =
     i2vAudioControl === r2vAudioControl &&
     (i2vAudioControl === "always_on" || i2vAudioControl === "always_off")
@@ -298,9 +301,11 @@ export function MediaModelSection() {
   const audioLocked = audioLockedControl !== null;
   const audioConflict =
     !currentAudio && (i2vAudioControl === "always_on" || r2vAudioControl === "always_on");
-  const videoSpecDurations = currentVideo ? catalogDurations(providers, customProviders, currentVideo) : null;
-  const videoSpecResolutions = currentVideo
-    ? lookupResolutions(providers, currentVideo, customProviders, endpointToMediaType).options
+  const videoSpecDurations = videoSpecBackend
+    ? catalogDurations(providers, customProviders, videoSpecBackend)
+    : null;
+  const videoSpecResolutions = videoSpecBackend
+    ? lookupResolutions(providers, videoSpecBackend, customProviders, endpointToMediaType).options
     : [];
 
   // 不传 defaultRoute：全局默认模型两条路径都会用到，取任一条都会误报另一条；无项目上下文
@@ -348,7 +353,7 @@ export function MediaModelSection() {
             subFields={videoSubFields}
             subFieldsError={candidatesSubFieldsError}
           >
-            {currentVideo && (
+            {videoSpecBackend && (
               <VideoModelSpecBar
                 durations={videoSpecDurations}
                 resolutions={videoSpecResolutions}

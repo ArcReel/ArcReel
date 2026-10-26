@@ -655,12 +655,13 @@ export function useAssistantSession(projectName: string | null) {
   // 中断会话
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
-    if (!projectName || !sessionId || statusRef.current !== "running") return;
+    if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName || statusRef.current !== "running") return;
 
     store.getState().setInterrupting(true);
     try {
       await API.interruptAssistantSession(projectName, sessionId);
     } catch (err) {
+      if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
       store.getState().setError(errMsg(err, "中断失败"));
       store.getState().setInterrupting(false);
     }
