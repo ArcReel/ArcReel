@@ -24,6 +24,7 @@ interface TrashListing {
 
 const root = recorded<Listing>("project-demo-file-view.json");
 const trash = recorded<TrashListing>("project-demo-trash.json");
+const project = recorded<{ project: { episodes: Record<string, unknown>[] } }>("project-demo.json");
 const scripts = recorded<Listing>("project-demo-file-view-scripts.json");
 const scriptFile = scripts.entries[0];
 
@@ -117,6 +118,7 @@ const TRASH_DEGRADED: ApiOverrides = {
 };
 
 const sections = (page: Page) => page.getByRole("tablist", { name: "文件视图分区" });
+const LONG_EPISODE_TITLE = "雨夜里的旧城茶馆与修表匠的约定".repeat(8);
 
 defineRegionScenarios("文件视图", [
   {
@@ -215,6 +217,38 @@ defineRegionScenarios("文件视图", [
       await expect(dialog).toBeHidden();
     },
     screenshot: { name: "file-view-trash", target: (page) => page.getByRole("main") },
+  },
+  {
+    name: "项目回收站分区：长集名不遮住删除时的位置和正文",
+    path: PATH,
+    api: {
+      ...EVENT_STREAM,
+      "GET /api/v1/projects/demo": {
+        status: 200,
+        body: { ...project, project: { ...project.project, episodes: [{ ...project.project.episodes[0], title: LONG_EPISODE_TITLE }] } },
+      },
+      "GET /api/v1/projects/demo/trash": {
+        status: 200,
+        body: {
+          ...trash,
+          total_size: 0,
+          records: [5, 6].map((position) => ({
+            id: `deleted-shot-${position}`,
+            object: { kind: "script_entry", id: `E1S0${position + 2}`, episode: 1, item_kind: "segments", item_position: position, item_excerpt: "他推开门…" },
+            files: [], schema_version: 19, deleted_at: "2026-10-24T08:00:00+00:00", origin: "user", size: 0, has_snapshot: true, download_only: false,
+          })),
+        },
+      },
+    },
+    ready: (page) => sections(page).waitFor(),
+    act: async (page) => {
+      await sections(page).getByRole("tab", { name: "项目回收站" }).click();
+      for (const position of [5, 6]) {
+        const title = page.getByText(`分镜 ${LONG_EPISODE_TITLE} · ${position}：他推开门…`, { exact: true });
+        await expect(title).toBeVisible();
+        await expect.poll(() => title.evaluate((el) => el.scrollWidth <= el.clientWidth && el.scrollHeight <= el.clientHeight)).toBe(true);
+      }
+    },
   },
   {
     name: "项目回收站分区：降级恢复后只能下载的记录",

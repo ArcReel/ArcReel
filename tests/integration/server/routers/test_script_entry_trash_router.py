@@ -393,7 +393,7 @@ def test_overwriting_the_script_records_each_dropped_shot_at_its_position_before
 def test_a_record_without_a_position_snapshot_still_lists_and_restores(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """位置与摘录是后加的可选字段：之前建的记录没有它们，照常列出与恢复。"""
+    """位置与摘录是可选字段；缺少这些字段的记录照常列出与恢复。"""
     manager, http = _project(tmp_path, monkeypatch)
     project_dir = manager.get_project_path("demo")
     with http:
