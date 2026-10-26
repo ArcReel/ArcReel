@@ -32,6 +32,7 @@ from starlette.background import BackgroundTask
 
 logger = logging.getLogger(__name__)
 
+from lib.agent.agent_session_store import default_sdk_config_dir
 from lib.agent.profile_manifest import ContentMode
 from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.catalog.errors import ModelNotInCatalogError
@@ -1238,7 +1239,9 @@ async def restore_deleted_project(deleted_id: str):
 async def _restore_deleted_project(layout: DataRootLayout, deleted_id: str) -> Path:
     project_dir = await run_sync_transaction(deleted_projects.move_out, layout, deleted_id)
     try:
-        await restore_retired_project(async_session_factory, deleted_id, project_dir.name)
+        await restore_retired_project(
+            async_session_factory, deleted_id, project_dir, sdk_config_dir=default_sdk_config_dir()
+        )
     except BaseException:
         await run_sync_transaction(project_dir.rename, layout.deleted_projects_dir / deleted_id)
         raise

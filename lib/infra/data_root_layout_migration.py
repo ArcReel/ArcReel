@@ -508,12 +508,6 @@ _STEPS: tuple[MigrationStep, ...] = (
 )
 
 
-def default_sdk_config_dir() -> Path:
-    """Claude SDK 配置目录：``CLAUDE_CONFIG_DIR`` > ``~/.claude``。"""
-    raw = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
-    return Path(raw).expanduser() if raw else Path.home() / ".claude"
-
-
 async def migrate_data_root_layout(
     data_root: Path,
     *,
