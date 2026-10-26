@@ -605,6 +605,76 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     );
   });
 
+  function anchorBrokenState(): ScriptReviewState {
+    return {
+      ...quarantinedState(),
+      quarantine: draftView({
+        content: { units: [{ duration_seconds: 8, source_text: "阿离撑伞走过。", text: "@[阿离] 撑伞走过 @[长街]" }] },
+        violations: [
+          {
+            code: "source_text_not_verbatim",
+            label: "unit E1U01",
+            message: "unit E1U01 的 source_text 不是小说原文的逐字片段（存在改写、翻译或杜撰）",
+            line: null,
+            item_index: 0,
+          },
+        ],
+      }),
+    };
+  }
+
+  it("hand-fixes a broken source anchor in the draft, then unblocks confirmation once adopted", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValueOnce(anchorBrokenState()).mockResolvedValue(pendingState());
+    const save = vi
+      .spyOn(API, "saveEpisodeDraft")
+      .mockResolvedValue({ episode: 1, doc_type: "reference_script_plan", adopted: true, draft: null });
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    expect(await screen.findByText("非源文逐字子串")).toBeInTheDocument();
+    expect(screen.getByText(/视频单元 1 的 source_text 不是小说原文的逐字片段/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
+    const source = screen.getByRole("textbox", { name: "视频单元 1 原文" });
+    expect(source).toHaveAttribute("aria-invalid", "true");
+    fireEvent.change(source, { target: { value: "阿离撑伞走过长街。" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        "p",
+        1,
+        "reference_script_plan",
+        { units: [{ duration_seconds: 8, source_text: "阿离撑伞走过长街。", text: "@[阿离] 撑伞走过 @[长街]" }] },
+        "rev-1",
+      ),
+    );
+    expect(await screen.findByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
+    expect(screen.queryByText("非源文逐字子串")).not.toBeInTheDocument();
+  });
+
+  it("keeps blocking on the server's verbatim check when the edited source text is still not in the novel", async () => {
+    const stillBroken = anchorBrokenState();
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(stillBroken);
+    const save = vi.spyOn(API, "saveEpisodeDraft").mockResolvedValue({
+      episode: 1,
+      doc_type: "reference_script_plan",
+      adopted: false,
+      draft: { ...stillBroken.quarantine!, revision: "rev-2", episode: 1, item_ids: ["E1U01"] },
+    });
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "视频单元 1 原文" }), { target: { value: "杜撰的一句话。" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][3]).toMatchObject({ units: [{ source_text: "杜撰的一句话。" }] });
+    expect(await screen.findByText(/视频单元 1 的 source_text 不是小说原文的逐字片段/)).toBeInTheDocument();
+    expect(screen.getByText("非源文逐字子串")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
+  });
+
   it("shows server soft violations on their unit without blocking a save", async () => {
     const state = quarantinedState();
     state.quarantine = draftView({
@@ -687,6 +757,21 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     });
     // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
     expect(baseFingerprint).toBe("fp1");
+  });
+
+  it("edits the unit source text in the non-quarantined state and saves it with the units", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "视频单元 1 原文" }), { target: { value: "阿离撑伞。" } });
+    fireEvent.click(await screen.findByText("保存"));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][2]).toMatchObject({
+      units: [{ unit_id: "E1U01", source_text: "阿离撑伞。", text: "@[阿离] 撑伞走过 @[长街]" }],
+    });
   });
 
   it("renders the spoken-line count in the unit header", async () => {

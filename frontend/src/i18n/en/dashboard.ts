@@ -2071,6 +2071,7 @@ export default {
   'reference_script_plan_unit_stats': '{{utterances}} spoken lines',
   'reference_script_plan_duration_label': '{{unit}} duration',
   'reference_script_plan_unit_text_label': '{{unit}} body',
+  'reference_script_plan_unit_source_text_label': '{{unit}} source text',
   'reference_script_plan_duration_option': '{{seconds}}s',
   'reference_script_plan_confirm_continue': 'Confirm split, continue generating',
   'reference_script_plan_duration_out_of_tier': 'Tier no longer valid',

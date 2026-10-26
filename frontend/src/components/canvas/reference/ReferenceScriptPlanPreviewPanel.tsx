@@ -77,7 +77,7 @@ interface DisplayUnit {
   duration_seconds: number;
   sourceText: string;
   scriptText: string;
-  /** 正文与时长可就地修改（未确认的正式内容，或结构完好的待修复草稿）。 */
+  /** 正文、原文与时长可就地修改（未确认的正式内容，或结构完好的待修复草稿）。 */
   editable: boolean;
 }
 
@@ -269,6 +269,7 @@ function UnitCard({
   editing,
   onToggleEdit,
   onTextChange,
+  onSourceTextChange,
   supportedDurations,
   durationEndpointFixed,
   durationProblem,
@@ -288,6 +289,8 @@ function UnitCard({
   editing: boolean;
   onToggleEdit: () => void;
   onTextChange: ((text: string) => void) | null;
+  /** 原文与正文同进编辑态；是否逐字摘录由服务端在保存后校验，结论回流为「原文」小节的红标。 */
+  onSourceTextChange: ((sourceText: string) => void) | null;
   supportedDurations: number[] | null;
   durationEndpointFixed: boolean;
   /** 所落桶的视频请求事实失败：标签与带修复指引的提示，由 `tierProblemText` 按桶生成。 */
@@ -374,13 +377,25 @@ function UnitCard({
             </span>
           )}
         </summary>
-        <p
-          className={`mt-1.5 border-l pl-3 text-xs leading-relaxed ${
-            anchorBroken ? "border-destructive/50 text-destructive" : "border-border text-muted-foreground"
-          }`}
-        >
-          {unit.sourceText}
-        </p>
+        {editing && unit.editable && onSourceTextChange ? (
+          <Textarea
+            value={unit.sourceText}
+            onChange={(e) => onSourceTextChange(e.target.value)}
+            disabled={busy}
+            placeholder={t("review_source_text_placeholder")}
+            aria-label={t("reference_script_plan_unit_source_text_label", { unit: unitLabel })}
+            aria-invalid={anchorBroken || undefined}
+            className="mt-1.5"
+          />
+        ) : (
+          <p
+            className={`mt-1.5 border-l pl-3 text-xs leading-relaxed ${
+              anchorBroken ? "border-destructive/50 text-destructive" : "border-border text-muted-foreground"
+            }`}
+          >
+            {unit.sourceText}
+          </p>
+        )}
         <InlineViolations violations={violations.anchorSource} position={unit.position} />
       </details>
 
@@ -431,7 +446,7 @@ const LIVE_SOFT_VIOLATION_CODES: ReadonlySet<string> = new Set(["ref_warn_unit_w
  * 干净态仅需确认放行 prompt_authoring。
  *
  * 待修复草稿在场时面板呈现草稿本身：违约挂到所在 unit（语法类行内锚定到出问题的行）、整集层面的
- * 违约置顶，正文与时长可就地修改后保存并校验，违约清零即采用。Agent 的可编辑草稿在场时只提示有一份
+ * 违约置顶，正文、原文与时长可就地修改后保存并校验，违约清零即采用。Agent 的可编辑草稿在场时只提示有一份
  * 未完成的修改，正式内容只读。确认之后脚本规划只读，指引到时间线修改。
  */
 export function ReferenceScriptPlanPreviewPanel({
@@ -508,7 +523,7 @@ export function ReferenceScriptPlanPreviewPanel({
   const onDraft = quarantine != null;
 
   const updateUnit = useCallback(
-    (unitIndex: number, patch: { text?: string; duration_seconds?: number }) => {
+    (unitIndex: number, patch: { text?: string; source_text?: string; duration_seconds?: number }) => {
       if (onDraft) {
         setDraftContent((prev) => ({
           ...prev,
@@ -677,6 +692,7 @@ export function ReferenceScriptPlanPreviewPanel({
               editing={unit.editable && editingUnitKey === unit.key}
               onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
               onTextChange={unit.editable ? (text) => updateUnit(i, { text }) : null}
+              onSourceTextChange={unit.editable ? (sourceText) => updateUnit(i, { source_text: sourceText }) : null}
               // 草稿的 unit 尚未定桶，时长可选档位取结构区间全集；采用时由服务端按同一判据重判。
               supportedDurations={supportedDurations}
               durationEndpointFixed={false}
@@ -887,6 +903,7 @@ export function ReferenceScriptPlanPreviewPanel({
               editing={!readOnly && editingUnitKey === unit.key}
               onToggleEdit={() => setEditingUnitKey((prev) => (prev === unit.key ? null : unit.key))}
               onTextChange={readOnly ? null : (text) => updateUnit(i, { text })}
+              onSourceTextChange={readOnly ? null : (sourceText) => updateUnit(i, { source_text: sourceText })}
               supportedDurations={unitTiers(capability)}
               durationEndpointFixed={capability?.duration_endpoint_fixed ?? false}
               durationProblem={
