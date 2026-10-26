@@ -7,6 +7,7 @@ import { API, ApiRequestError } from "@/api";
 import i18n from "@/i18n";
 import { createDeferred } from "@/test/deferred";
 import type {
+  ComfyuiEndpointDefinition,
   CustomEndpointInfo,
   EndpointValidateResponse,
   MarketEntry,
@@ -398,6 +399,99 @@ describe("MarketInstallDialog", () => {
       await userEvent.click(screen.getByRole("button", { name: "打开端点" }));
       expect(location.history?.at(-1)).toContain("section=endpoints&endpoint=ce-7");
       expect(onClose).toHaveBeenCalledOnce();
+    });
+  });
+  describe("ComfyUI entries", () => {
+    const comfyui: ComfyuiEndpointDefinition = {
+      kind: "comfyui",
+      schema_version: "1.0.0",
+      meta: { name: "Demo", author: "Author", version: "1.0.0", hints: { base_url: "http://127.0.0.1:8188" } },
+      media_type: "image",
+      auth: { headers: { "X-Proxy-Key": "{{ api_key }}" } },
+      workflow: {
+        "3": { class_type: "KSampler", inputs: {} },
+        "6": { class_type: "CLIPTextEncode", inputs: { text: "" } },
+        "7": { class_type: "CLIPTextEncode", inputs: { text: "" } },
+        "9": { class_type: "SaveImage", inputs: {} },
+      },
+      bindings: { prompt: [{ node: "6", input: "text", class_type: "CLIPTextEncode" }], output: [{ node: "9", class_type: "SaveImage" }] },
+    };
+    const comfyuiEntry: MarketEntry = { ...entry, media_type: "image" };
+    const comfyuiEndpoint: CustomEndpointInfo = { ...endpoint, kind: "comfyui", media_type: "image", definition: comfyui };
+
+    function showComfyui(
+      selected: MarketEntryInstallation | null = null,
+      definitionOverride: unknown = comfyui,
+      errors: EndpointValidateResponse["errors"] = [],
+    ) {
+      const current = { ...comfyuiEntry, installation: selected };
+      vi.mocked(API.getMarketEntry).mockResolvedValue({ ...detail, entry: current });
+      vi.mocked(API.getMarketEntryDefinition).mockResolvedValue({
+        definition: definitionOverride,
+        entry_matches_definition: true,
+        definition_digest: "comfyui-digest",
+      });
+      vi.mocked(API.validateCustomEndpoint).mockResolvedValue({ ...validation, errors, hints: comfyui.meta.hints! });
+      vi.mocked(API.listCustomEndpoints).mockResolvedValue({ endpoints: selected ? [comfyuiEndpoint] : [] });
+      vi.mocked(API.installMarketEntry).mockResolvedValue({ endpoint: comfyuiEndpoint, installation });
+      return show(current);
+    }
+
+    it("shows the auth section and a workflow summary, then installs", async () => {
+      const { onInstallationChange } = showComfyui();
+      const confirm = await screen.findByRole("button", { name: "确认安装" });
+      await waitFor(() => expect(confirm).toBeEnabled());
+      expect(screen.getByText("Workflow 摘要")).toBeInTheDocument();
+      expect(screen.getByText("4 个节点")).toBeInTheDocument();
+      expect(screen.getByText("CLIPTextEncode × 2")).toBeInTheDocument();
+      expect(screen.getByText("SaveImage × 1")).toBeInTheDocument();
+      expect(screen.getByText(/X-Proxy-Key/)).toBeVisible();
+      expect(screen.queryByText("轮询地址")).not.toBeInTheDocument();
+      await userEvent.click(confirm);
+      expect(await screen.findByText("安装成功")).toBeInTheDocument();
+      expect(API.installMarketEntry).toHaveBeenCalledWith(1, "demo", "comfyui-digest", undefined);
+      expect(onInstallationChange).toHaveBeenCalledWith(installation);
+    });
+
+    it("says no credentials are sent when the definition has no auth section", async () => {
+      const { auth: _auth, ...withoutAuth } = comfyui;
+      showComfyui(null, withoutAuth);
+      expect(await screen.findByText("定义没有 auth 节，请求不携带凭证")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole("button", { name: "确认安装" })).toBeEnabled());
+    });
+
+    it("updates an installed entry and exports the local ComfyUI definition first", async () => {
+      const downloads: Blob[] = [];
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        value: vi.fn((blob: Blob) => {
+          downloads.push(blob);
+          return "blob:definition";
+        }),
+      });
+      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+      showComfyui({ ...installation, installed_version: "0.9.0", state: "update_available", modified: true });
+      const update = await screen.findByRole("button", { name: "更新到 v1.0.0" });
+      await waitFor(() => expect(update).toBeEnabled());
+      await userEvent.click(screen.getByRole("button", { name: "先导出当前定义" }));
+      expect(JSON.parse(await downloads[0].text())).toEqual(comfyui);
+      await userEvent.click(update);
+      expect(await screen.findByText("已更新到 v1.0.0")).toBeInTheDocument();
+      expect(API.installMarketEntry).toHaveBeenCalledWith(1, "demo", "comfyui-digest", 7);
+    });
+
+    it("still blocks an entry the validator rejects", async () => {
+      showComfyui(null, comfyui, [{ path: "bindings.output", code: "required", message: "Missing output binding" }]);
+      expect(await screen.findByText("Missing output binding")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "确认安装" })).toBeDisabled();
+    });
+
+    it("blocks a ComfyUI definition without a workflow object", async () => {
+      showComfyui(null, { ...comfyui, workflow: "broken" });
+      await screen.findByText("该定义未发现问题。");
+      expect(screen.getByRole("button", { name: "确认安装" })).toBeDisabled();
+      expect(screen.queryByText("Workflow 摘要")).not.toBeInTheDocument();
     });
   });
   describe("official service rating", () => {
