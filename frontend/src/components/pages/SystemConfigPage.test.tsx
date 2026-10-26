@@ -105,6 +105,7 @@ describe("SystemConfigPage", () => {
     vi.spyOn(API, "getSystemConfig").mockResolvedValue(makeConfigResponse());
     vi.spyOn(API, "getProviders").mockResolvedValue(makeProviders());
     vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
+    vi.spyOn(API, "getAutoBackends").mockResolvedValue({ t2i: null, i2i: null, i2v: null, r2v: null, text: null });
     vi.spyOn(API, "getSystemVersion").mockResolvedValue(makeVersionResponse());
     vi.spyOn(API, "getProviderConfig").mockResolvedValue({
       id: "gemini",

@@ -369,6 +369,8 @@ export default {
   'default_models_configure_providers': 'Set up in Providers',
   'default_video_model': 'Default Video Model',
   'auto_select': 'Auto-select',
+  'auto_select_current': 'Auto-select (current: {{model}})',
+  'auto_select_unavailable': 'Auto-select (no provider available)',
   'no_video_providers_hint': 'No provider can generate video yet.',
   'default_audio_model': 'Default Narration Audio Model',
   'narration_voice_label': 'Narration Voice ID',

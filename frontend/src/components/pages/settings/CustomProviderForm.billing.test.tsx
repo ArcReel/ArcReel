@@ -71,7 +71,6 @@ function model(id: number, modelId: string, extra: Partial<CustomProviderModelIn
     path_overrides: null,
     requests: [],
     system_capabilities: null,
-    global_bucket_refs: [],
     ...extra,
   };
 }

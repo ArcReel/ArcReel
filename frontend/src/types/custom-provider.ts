@@ -101,8 +101,6 @@ export interface CustomProviderModelInfo {
   path_overrides: PathOverrides | null;
   /** 当前端点可修改地址的请求。 */
   requests: EndpointRequest[];
-  /** 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为 null。 */
-  global_bucket_refs: string[] | null;
 }
 
 /** 供应商模型对应到的模型条目摘要。`priced` 为 false 时条目没有可用的价目表，调用同样记为未定价。 */

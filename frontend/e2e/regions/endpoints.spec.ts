@@ -97,7 +97,6 @@ const MANY_ENDPOINTS: ApiOverrides = {
           matched_entry: null,
           system_capabilities: null,
           capability_overrides: null,
-          global_bucket_refs: null,
         })),
       })),
     },

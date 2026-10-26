@@ -42,12 +42,14 @@ const EMPTY_MODELS: ModelConfigValue = {
 
 /** 读取第二步的可选模型与全局默认；供应商与模型名由后端按界面语言成文。 */
 async function loadGenerationData(signal: AbortSignal) {
-  const [sysConfig, providersRes, customRes, narrationDefaults] = await Promise.all([
+  const [sysConfig, providersRes, customRes, narrationDefaults, auto] = await Promise.all([
     API.getSystemConfig({ signal }),
     API.getProviders({ signal }),
     API.listCustomProviders({ signal }),
     // 预填只是便利：读不到全局默认时 TTS 字段留空，由用户自选
     API.getNarrationDefaults({ signal }).catch(() => null),
+    // 自动选择的实际模型只用于展示与能力查询，读不到时退回只显示「自动选择」
+    API.getAutoBackends({ signal }).catch(() => null),
   ]);
   const catalogNames = catalogDisplayNames(providersRes.providers, customRes.providers);
   const data: WizardGenerationData = {
@@ -72,6 +74,7 @@ async function loadGenerationData(signal: AbortSignal) {
       textDefault: sysConfig.settings.default_text_backend ?? "",
       textSimple: sysConfig.settings.text_backend_simple ?? "",
       textComplex: sysConfig.settings.text_backend_complex ?? "",
+      auto,
     },
   };
   return { data, narrationDefaults };

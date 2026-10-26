@@ -76,6 +76,8 @@ const RECORDINGS: Recording[] = [
   { file: "provider-gemini-aistudio-multiplier", method: "GET", path: "/api/v1/providers/gemini-aistudio/multiplier" },
   { file: "provider-gemini-aistudio-models", method: "GET", path: "/api/v1/providers/gemini-aistudio/models" },
   { file: "system-config-model-candidates", method: "GET", path: "/api/v1/system/config/model-candidates" },
+  // 默认模型「自动选择」的实际模型（录制环境没有供应商，各用途都选不出），全局设置、项目设置与新建项目向导共用。
+  { file: "system-config-auto-backends", method: "GET", path: "/api/v1/system/config/auto-backends" },
   // 全局设置：访问令牌列表（录制环境没有令牌，多条目由场景替换）。
   { file: "api-keys", method: "GET", path: "/api/v1/api-keys" },
   // 全局设置「ArcReel Agent」：Agent 供应商列表（录制环境为空）与添加对话框的预设供应商目录。

@@ -1,0 +1,12 @@
+{
+  "method": "GET",
+  "path": "/api/v1/system/config/auto-backends",
+  "status": 200,
+  "body": {
+    "t2i": null,
+    "i2i": null,
+    "i2v": null,
+    "r2v": null,
+    "text": null
+  }
+}
