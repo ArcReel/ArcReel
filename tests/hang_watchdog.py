@@ -28,6 +28,8 @@ from typing import TextIO
 import pytest
 
 DUMP_DIR_ENV = "ARCREEL_TEST_HANG_DUMP_DIR"
+# 覆盖无进展阈值（秒），供本插件自身的契约测试缩短等待。
+IDLE_SECONDS_ENV = "ARCREEL_TEST_HANG_IDLE_SECONDS"
 # 单个用例的超时是 120s（pyproject 的 timeout），这里留出余量，只在用例超时也没能收场时转储。
 IDLE_DUMP_SECONDS = 180.0
 
@@ -44,15 +46,10 @@ class HangWatchdog:
         self._idle_seconds = idle_seconds
         self._phase = "startup"
         self._last_progress = time.monotonic()
-        self._stopped = threading.Event()
         self._thread = threading.Thread(target=self._run, name="hang-watchdog", daemon=True)
 
     def start(self) -> None:
         self._thread.start()
-
-    def stop(self) -> None:
-        self._stopped.set()
-        self._thread.join()
 
     def mark(self, phase: str, *, record: bool = False) -> None:
         """记下当前阶段并重新计时；``record`` 为真时同时追加到进展文件。"""
@@ -62,7 +59,8 @@ class HangWatchdog:
             self._progress.write(f"{_timestamp()} {phase}\n")
 
     def _run(self) -> None:
-        while not self._stopped.wait(min(self._idle_seconds, 5.0)):
+        while True:
+            time.sleep(min(self._idle_seconds / 4, 5.0))
             idle = time.monotonic() - self._last_progress
             if idle < self._idle_seconds:
                 continue
@@ -87,7 +85,8 @@ def pytest_configure(config: pytest.Config) -> None:
     # 行缓冲：进程被直接杀掉时，已写下的每一行都已落到内核。
     progress = (directory / f"{stem}.progress").open("a", buffering=1, encoding="utf-8")
     stacks = (directory / f"{stem}.stacks").open("a", buffering=1, encoding="utf-8")
-    _watchdog = HangWatchdog(progress, stacks, IDLE_DUMP_SECONDS)
+    idle_seconds = float(os.environ.get(IDLE_SECONDS_ENV) or IDLE_DUMP_SECONDS)
+    _watchdog = HangWatchdog(progress, stacks, idle_seconds)
     _watchdog.mark("configure")
     _watchdog.start()
 
