@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver
@@ -38,6 +38,16 @@ from tests.http_capture import capture_http
 PARAMETERS = {"model": "video-x", "prompt": "纸船顺流而下", "duration_seconds": 5}
 INLINE_CREDENTIALS = {"base_url": "https://relay.test", "api_key": "sk-secret-key-1234"}
 COMFYUI_CREDENTIALS = {"base_url": "https://comfy.test", "api_key": ""}
+
+
+@pytest.fixture
+def db_engine(file_db_factory: async_sessionmaker[AsyncSession]) -> AsyncEngine:
+    """本文件的库换成文件库：每个连接独立。
+
+    ``TestClient`` 在响应体发完即返回，请求依赖的 session 收尾与后台 trial run 的落账并发；
+    内存库的共享连接上，一方回滚会连带撤销另一方未提交的写。
+    """
+    return file_db_factory.kw["bind"]
 
 
 @pytest.fixture
