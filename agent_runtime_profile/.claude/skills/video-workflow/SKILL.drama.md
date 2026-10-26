@@ -162,8 +162,9 @@ dispatch `generate-assets` 子智能体：
   验证方式：按返回的 requested / succeeded / failed / blocked 逐 ID 汇报
 ```
 
-子智能体返回后，把摘要展示给用户，进入动作间确认。`blocked` 项的处理见
-[workflow-plan](../../references/workflow-plan.md) 的 `generate_asset_sheets` 行。
+子智能体返回后，按 [generate-assets](../generate-assets/SKILL.md) 的「审核检查点：审图」为生成成功的资产派发
+`review-images` 审图，把生成摘要与审图报告一起展示给用户，再进入动作间确认；用户要处理的资产按该节执行。
+`blocked` 项的处理见 [workflow-plan](../../references/workflow-plan.md) 的 `generate_asset_sheets` 行。
 
 ---
 
@@ -182,6 +183,9 @@ dispatch `generate-assets` 子智能体：
   点名 `scene_ids` 会把它们当作重做请求再付一次费
 
 `generate_storyboards` 把 `next_action.args` 与 `requested_ids` 原样传给子智能体；`generate_grid` 只传剧本文件名。
+
+子智能体返回后，按 [generate-storyboard](../generate-storyboard/SKILL.md) 的「审核检查点：审图」为写入了分镜图的分镜派发
+`review-images` 审图（宫格在切分落格之后），把生成摘要与审图报告一起展示给用户，再进入动作间确认。
 
 > **宫格是两段式**：`generate_grid` 只产出联合图，分镜图要经切分落格才会写入，所以在切分之前计划会继续
 > 给出 `generate_grid`。结果里的 `grid_ids_awaiting_split`（或摘要里「联合图已就绪、未切分」的宫格）
