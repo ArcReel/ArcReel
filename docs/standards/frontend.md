@@ -106,6 +106,8 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 
 移除、移动、隐藏这类可以恢复的操作不弹确认，执行后调用 `pushToast(text, tone, { action: { label: t("common:undo"), onClick } })`。点击「撤销」会执行回调并关闭这条提示。
 
+提示按钮也可用于打开刚完成的结果：耗时操作（如导入项目）完成时用户已经离开发起页，就不强行跳转，改推带「打开项目」这类按钮的提示。「已离开」在 await 之后复核卸载时 abort 的 `signal.aborted` 判断，发起的写入请求本身不接这个 signal。已离开时每个结果分支（成功、失败、需确认）都要有提示，不能因为对话框随页面卸载而静默丢失。参考实现：`frontend/src/components/pages/lobby/useProjectImport.tsx`。
+
 ## 按钮
 
 ### 按钮使用 `components/ui/button` 的 `Button`，按操作语义选择变体
