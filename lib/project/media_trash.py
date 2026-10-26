@@ -24,10 +24,11 @@ from lib.infra.api_errors import ConflictError
 from lib.project import project_trash
 from lib.project.asset_types import resolve_asset_key
 from lib.project.project_change_hints import emit_project_change_hint
-from lib.project.project_manager import ProjectManager, find_episode
+from lib.project.project_manager import ProjectManager, find_episode, is_episode_number
 from lib.project.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.project.trash_restore import Landing, Restoration
 from lib.script.grid.models import GridGeneration
+from lib.script.item_excerpt import position_snapshot
 from lib.script.storyboard_sequence import find_storyboard_item, get_storyboard_items
 
 __all__ = [
@@ -80,10 +81,26 @@ def trash_grid(project_dir: Path, grid_id: str, episode: int | None) -> project_
     return record
 
 
-def trash_end_frame(project_dir: Path, script_file: str, shot_id: str) -> project_trash.TrashRecord:
-    """把分镜的尾帧快照移进项目回收站；调用方持该剧本的锁与项目锁，字段已在同一临界区里置空。"""
+def trash_end_frame(
+    project_dir: Path, script_file: str, shot_id: str, script: Mapping[str, Any]
+) -> project_trash.TrashRecord:
+    """把分镜的尾帧快照移进项目回收站；调用方持该剧本的锁与项目锁，字段已在同一临界区里置空。
+
+    ``script`` 是同一临界区里写回的剧本：记录带上分镜所在的集与它此刻的位置、正文摘录，回收站凭它们称呼分镜。
+    剧本内没有整数 ``episode`` 时，集号取自规范的 ``script_file`` 文件名。
+    """
     rel = resource_relative_path(END_FRAME_RESOURCE_TYPE, shot_id)
-    obj = {"kind": END_FRAME_KIND, "script_file": script_file, "shot_id": shot_id, "path": rel}
+    episode = script.get("episode")
+    if not is_episode_number(episode):
+        episode = ProjectManager.canonical_script_episode(script_file)
+    obj = {
+        "kind": END_FRAME_KIND,
+        "script_file": script_file,
+        "shot_id": shot_id,
+        "path": rel,
+        "episode": episode,
+        **position_snapshot(script, shot_id),
+    }
     return project_trash.record_deletion(project_dir, obj, [rel], snapshot=True)
 
 

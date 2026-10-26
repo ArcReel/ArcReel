@@ -21,7 +21,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
-import { episodeItemLabel } from "@/utils/episode-display";
+import { episodeDisplayName, episodeItemLabel, type EpisodeLedger } from "@/utils/episode-display";
 import type { RestoreResult, TrashListing, TrashRecord } from "@/types";
 import { errMsg } from "@/utils/async";
 import { formatShortDateTime } from "@/utils/date-format";
@@ -30,14 +30,35 @@ import { formatFileSize } from "@/utils/file-size";
 
 type ListingState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; listing: TrashListing };
 
+const NO_EPISODES: EpisodeLedger = [];
+
 const ASSET_TYPES = ["character", "scene", "prop", "product"] as const;
 
 function isAssetType(value: unknown): value is (typeof ASSET_TYPES)[number] {
   return ASSET_TYPES.includes(value as (typeof ASSET_TYPES)[number]);
 }
 
+/**
+ * 分镜与视频单元按删除时的称呼快照指称：「集名 · 5」，集名取当前账本。
+ * 没有快照的旧记录返回 null，由调用方退回编号显示。
+ */
+function itemAtDeletion(t: TFunction<"dashboard">, object: TrashRecord["object"], episodes: EpisodeLedger) {
+  if (typeof object.episode !== "number" || typeof object.item_position !== "number") return null;
+  return `${episodeDisplayName(episodes, object.episode, t)} · ${object.item_position}`;
+}
+
+/** 名称后接删除时的正文摘录，同一集的多条记录凭它区分；没有摘录时只有名称。 */
+function withExcerpt(t: TFunction<"dashboard">, name: string, object: TrashRecord["object"]): string {
+  const excerpt = object.item_excerpt;
+  return typeof excerpt === "string" && excerpt !== "" ? t("trash_object_with_excerpt", { name, excerpt }) : name;
+}
+
 /** 对象名：按对象类型显示，只涉及文件的对象取被删文件的路径。 */
-function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): string | undefined {
+function objectTitle(
+  t: TFunction<"dashboard">,
+  object: TrashRecord["object"],
+  episodes: EpisodeLedger,
+): string | undefined {
   if (object.kind === "edit_timeline" && typeof object.name === "string") {
     return t("trash_object_edit_timeline", { name: object.name, episode: object.episode });
   }
@@ -47,7 +68,12 @@ function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): 
       : t("trash_object_episode_untitled", { episode: object.id });
   }
   if (object.kind === "grid") return t("trash_object_grid", { episode: object.episode });
-  if (object.kind === "end_frame") return t("trash_object_end_frame", { shot: object.shot_id });
+  if (object.kind === "end_frame") {
+    const shot = itemAtDeletion(t, object, episodes);
+    return shot === null
+      ? t("trash_object_end_frame", { shot: object.shot_id })
+      : withExcerpt(t, t("trash_object_end_frame", { shot }), object);
+  }
   if (object.kind === "reference_audio") return t("trash_object_reference_audio", { name: object.character });
   if (object.kind === "asset" && isAssetType(object.asset_type) && typeof object.name === "string") {
     return t(`trash_object_asset.${object.asset_type}`, { name: object.name });
@@ -60,19 +86,25 @@ function objectTitle(t: TFunction<"dashboard">, object: TrashRecord["object"]): 
   }
   if (object.kind === "planning_draft") return t("trash_object_planning_draft", { episode: object.episode });
   if (object.kind === "script_entry") {
-    const key = object.item_kind === "video_units" ? "trash_object_script_unit" : "trash_object_script_entry";
-    return t(key, { id: object.id, episode: object.episode });
+    const unit = object.item_kind === "video_units";
+    const item = itemAtDeletion(t, object, episodes);
+    if (item === null) {
+      return t(unit ? "trash_object_script_unit" : "trash_object_script_entry", { id: object.id, episode: object.episode });
+    }
+    return withExcerpt(t, t(unit ? "trash_object_script_unit_at" : "trash_object_script_entry_at", { item }), object);
   }
   return object.path;
 }
 
-function recordTitle(t: TFunction<"dashboard">, record: TrashRecord): string {
-  return objectTitle(t, record.object) ?? record.files[0] ?? record.id;
+function recordTitle(t: TFunction<"dashboard">, record: TrashRecord, episodes: EpisodeLedger): string {
+  return objectTitle(t, record.object, episodes) ?? record.files[0] ?? record.id;
 }
 
 /** 恢复结果的提示：降级时说明找回了什么、哪些只能下载；对象换了名时给出新名，文件换了位置时给出真实落点。 */
 function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result: RestoreResult): string {
-  const name = recordTitle(t, record);
+  const { currentScripts, currentProjectData } = useProjectsStore.getState();
+  const episodes = currentProjectData?.episodes ?? [];
+  const name = recordTitle(t, record, episodes);
   if (result.degraded) {
     return result.download_only.length > 0
       ? t("trash_restored_degraded", { name, count: result.restored.length })
@@ -80,8 +112,7 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
   }
   if (record.object.kind === "episode") return t("trash_restored_episode", { name });
   if (record.object.kind === "script_entry") {
-    const { currentScripts, currentProjectData } = useProjectsStore.getState();
-    const label = episodeItemLabel(String(result.object.id), currentScripts, currentProjectData?.episodes ?? [], t);
+    const label = episodeItemLabel(String(result.object.id), currentScripts, episodes, t);
     return t("trash_restored_object", { name: label });
   }
   // 带名字的对象（剪辑时间线）按名字说明是否改名；其余按文件落点说明。
@@ -119,6 +150,7 @@ interface PurgeRequest {
 export function TrashSection({ projectName, refreshKey }: { projectName: string; refreshKey: number }) {
   const { t } = useTranslation("dashboard");
   const trashRevision = useAppStore((s) => s.trashRevision);
+  const episodes = useProjectsStore((s) => s.currentProjectData?.episodes) ?? NO_EPISODES;
   const [state, setState] = useState<ListingState>({ status: "loading" });
   // 可以同时恢复多条记录：每条记录各自占用，完成时只释放自己。
   const [busyIds, setBusyIds] = useState<ReadonlySet<string>>(new Set());
@@ -242,7 +274,11 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
             return (
               <li key={record.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/40">
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <TruncatedText text={recordTitle(t, record)} className="text-sm" />
+                  {itemAtDeletion(t, record.object, episodes) === null ? (
+                    <TruncatedText text={recordTitle(t, record, episodes)} className="text-sm" />
+                  ) : (
+                    <span className="wrap-break-word text-sm">{recordTitle(t, record, episodes)}</span>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     {t(recordMetaKey(record), {
                       time: formatShortDateTime(record.deleted_at) ?? record.deleted_at,
@@ -272,7 +308,7 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
                     setPurge({
                       recordId: record.id,
                       title: t("trash_purge_title"),
-                      description: t("trash_purge_description", { name: recordTitle(t, record) }),
+                      description: t("trash_purge_description", { name: recordTitle(t, record, episodes) }),
                       confirmLabel: t("trash_purge"),
                       run: () => API.purgeTrashRecord(projectName, record.id),
                     })

@@ -19,9 +19,11 @@ from unittest.mock import AsyncMock
 import pytest
 from mcp import types
 from mcp.server import Server
+from PIL import Image
 
 from lib.artifacts.artifact_activation import register_current_artifact
 from lib.artifacts.artifact_manifest import ArtifactKey
+from lib.artifacts.version_manager import VersionManager
 from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation.generation_queue import GenerationQueue
@@ -55,6 +57,7 @@ from server.agent_toolset.embedded import embedded_server
 from server.agent_toolset.envelope import json_value
 from server.agent_toolset.generation_batches import CANCEL_GENERATION_BATCH, GET_GENERATION_BATCH
 from server.agent_toolset.grid_storyboards import GENERATE_GRID, SPLIT_GRIDS
+from server.agent_toolset.image_review import INSPECT_IMAGES
 from server.agent_toolset.orientation import GET_PROMPT_PREVIEW, GET_VIDEO_CAPABILITIES
 from server.agent_toolset.project_entry import CREATE_PROJECT, EDIT_SOURCE_TEXT
 from server.agent_toolset.project_trash import DELETE_PROJECT_FILE, RESTORE_TRASH_RECORD
@@ -141,6 +144,7 @@ SAMPLE_ARGUMENTS: dict[str, dict[str, Any]] = {
     "generate_videos": {"script": "episode_1.json", "target": {"scope": "all"}},
     "select_video_version": {"unit_id": "E1S01", "version": 1},
     "inspect_video_units": {"unit_ids": ["E1S01"]},
+    "inspect_images": {"resource_type": "character", "ids": ["甲"]},
     "create_timeline": {"from": "script", "episode": 1, "name": "完整版"},
     "list_timelines": {"episode": 1},
     "read_timeline": {"timeline": "tl-0000abcd"},
@@ -617,6 +621,31 @@ async def test_contact_sheets_reach_both_hosts_as_the_same_image_blocks(
         (image.mimeType, image.data) for image in remote_images
     ]
     assert embedded_images[0].mimeType == "image/jpeg"
+    assert base64.b64decode(embedded_images[0].data).startswith(b"\xff\xd8")
+    assert isinstance(embedded.content[-1], types.ImageContent)
+
+
+async def test_inspected_images_reach_both_hosts_as_the_same_image_blocks(
+    seeded_projects: ProjectManager, services: Services
+) -> None:
+    project_path = seeded_projects.get_project_path("demo")
+    sheet = project_path / ".staging" / "甲.png"
+    sheet.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (160, 90), "red").save(sheet)
+    VersionManager(project_path).add_version("characters", "甲", "主角", source_file=sheet)
+    arguments = {"resource_type": "character", "ids": ["甲"]}
+
+    embedded = await _call_embedded(INSPECT_IMAGES, arguments, services)
+    remote = await _call_remote(INSPECT_IMAGES, {"project": "demo", **arguments}, services)
+
+    assert embedded.isError is remote.isError is False
+    assert _embedded_json(embedded) == remote.structuredContent
+    embedded_images = [block for block in embedded.content if isinstance(block, types.ImageContent)]
+    remote_images = [block for block in remote.content if isinstance(block, types.ImageContent)]
+    assert len(embedded_images) == 1
+    assert [(image.mimeType, image.data) for image in embedded_images] == [
+        (image.mimeType, image.data) for image in remote_images
+    ]
     assert base64.b64decode(embedded_images[0].data).startswith(b"\xff\xd8")
     assert isinstance(embedded.content[-1], types.ImageContent)
 
