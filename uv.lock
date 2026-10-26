@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -323,7 +323,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "socksio", specifier = ">=1.0.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.48" },
-    { name = "starlette", specifier = ">=1.6.0" },
+    { name = "starlette", specifier = ">=1.8.0" },
     { name = "uvicorn", specifier = ">=0.41.0" },
     { name = "volcengine-python-sdk", extras = ["ark"], specifier = ">=5.0.17" },
     { name = "xai-sdk", specifier = ">=1.20.0" },
