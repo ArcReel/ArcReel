@@ -24,6 +24,7 @@ from lib.backends.image_backends.base import ImageCapability
 from lib.catalog.model_id import has_dot_segment
 from lib.catalog.query import binding_key, find_bound_entry
 from lib.config.repository import mask_secret
+from lib.config.retired_model_ids import PROJECT_MODEL_SETTING_KEYS
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
@@ -600,23 +601,84 @@ async def _clear_global_provider_refs(
             await svc.set_setting(key, "")
 
 
-def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...]) -> None:
-    """删除 provider 后，清理所有项目 project.json 中的悬空引用。"""
+async def _rename_global_provider_refs(session: AsyncSession, provider_id: int, old_id: str, new_id: str) -> None:
+    """模型改 ID 后，把全局 settings 里指向旧 ID 的引用改写成新 ID（含视频桶键）；不提交事务。"""
+    from lib.config.service import ConfigService
+
+    svc = ConfigService(session)
+    prefix = make_provider_id(provider_id)
+    old_ref, new_ref = f"{prefix}/{old_id}", f"{prefix}/{new_id}"
+    for key in _GLOBAL_BUCKET_REFERENCE_KEYS:
+        if await svc.get_setting(key, "") == old_ref:
+            await svc.set_setting(key, new_ref)
+
+
+def _mutate_all_projects(mutate: Callable[[dict], None]) -> None:
+    """对每个项目的 project.json 应用 ``mutate``；读取失败或项目不可写的跳过（非致命）。"""
     from lib.config.resolver import get_project_manager
 
     pm = get_project_manager()
     for proj_name in pm.list_projects():
         try:
-
-            def _mutate(p: dict, _prefix=prefix, _keys=setting_keys) -> None:
-                for key in _keys:
-                    val = p.get(key, "")
-                    if isinstance(val, str) and val.startswith(_prefix):
-                        p.pop(key, None)
-
-            pm.update_project(proj_name, _mutate)
+            pm.update_project(proj_name, mutate)
         except Exception:
-            pass  # 读取失败或项目不可写，跳过（非致命）
+            logger.warning("同步项目 %s 的模型引用失败，已跳过", proj_name, exc_info=True)
+
+
+def _cleanup_project_refs(prefix: str, setting_keys: tuple[str, ...], model_ids: set[str] | None = None) -> None:
+    """删除 provider 或其中的模型后，清理所有项目 project.json 中的悬空引用。
+
+    ``model_ids`` 为 None 时清理指向该 provider 任一模型的引用（删除供应商），否则只清指向其中模型的引用。
+    ``model_settings`` 里这些模型的条目不受 ``setting_keys`` 约束一律清掉：被删模型的分辨率覆盖已没有用处，
+    留着还会被之后同 ID 的新模型接管。
+    """
+    if model_ids is not None and not model_ids:
+        return
+
+    def _hits(ref: object) -> bool:
+        return (
+            isinstance(ref, str) and ref.startswith(prefix) and (model_ids is None or ref[len(prefix) :] in model_ids)
+        )
+
+    def _mutate(p: dict) -> None:
+        for key in setting_keys:
+            if _hits(p.get(key, "")):
+                p.pop(key, None)
+        model_settings = p.get("model_settings")
+        if isinstance(model_settings, dict):
+            for ref in [r for r in model_settings if _hits(r)]:
+                del model_settings[ref]
+
+    _mutate_all_projects(_mutate)
+
+
+def _rename_project_refs(prefix: str, old_id: str, new_id: str) -> None:
+    """模型改 ID 后，把所有项目里指向旧 ID 的引用改写成新 ID：10 个引用键与 ``model_settings`` 的键。"""
+    old_ref, new_ref = f"{prefix}{old_id}", f"{prefix}{new_id}"
+
+    def _mutate(p: dict) -> None:
+        for key in PROJECT_MODEL_SETTING_KEYS:
+            if p.get(key) == old_ref:
+                p[key] = new_ref
+        model_settings = p.get("model_settings")
+        if isinstance(model_settings, dict) and old_ref in model_settings:
+            model_settings[new_ref] = model_settings.pop(old_ref)
+
+    _mutate_all_projects(_mutate)
+
+
+async def cleanup_project_model_refs(provider_id: int, model_ids: set[str]) -> None:
+    """已提交的模型删除之后，清理项目里指向这些模型的引用（同步文件 I/O，放到线程池）。"""
+    if model_ids:
+        await run_sync_transaction(
+            _cleanup_project_refs, f"{make_provider_id(provider_id)}/", _PROJECT_BACKEND_KEYS, model_ids
+        )
+
+
+async def rename_project_model_refs(provider_id: int, old_id: str, new_id: str) -> None:
+    """已提交的模型改 ID 之后，把项目里指向旧 ID 的引用改写成新 ID（同步文件 I/O，放到线程池）。"""
+    if old_id != new_id:
+        await run_sync_transaction(_rename_project_refs, f"{make_provider_id(provider_id)}/", old_id, new_id)
 
 
 def _check_duplicate_model_ids(models: list[ModelInput], _t: Callable[..., str]) -> None:
@@ -991,7 +1053,7 @@ async def update_custom_model(
 
     ``changes`` 只含要改的字段（见 :data:`CUSTOM_MODEL_SETTING_FIELDS`），校验规则与整表保存相同。停用时同时
     取消默认；设为默认时同时启用，并取消同一默认分组里其他模型的默认。改了模型 ID 时，全局设置里指向旧 ID 的
-    引用随之清空，与整表保存删掉一个模型同一口径。
+    引用随之改写成新 ID；项目里的引用由调用方在提交后用 :func:`rename_project_model_refs` 改写。
 
     条目绑定只校验形状；是否在目录里、是否与保存后的调用端点同媒体类型，由调用方在提交前核对（见
     ``server/routers/provider_models.py`` 的 ``_apply_binding``），因为同一次保存新建的条目这时还不在目录里。
@@ -1048,7 +1110,7 @@ async def update_custom_model(
         setattr(row, key, value)
     await session.flush()
     if target.model_id != old_model_id:
-        await _clear_global_provider_refs(session, provider_id, {old_model_id})
+        await _rename_global_provider_refs(session, provider_id, old_model_id, target.model_id)
     return row
 
 
@@ -1062,7 +1124,10 @@ def _model_input_rejected(
 
 
 async def remove_custom_model(session: AsyncSession, provider_id: int, model_id: str, _t: Callable[..., str]) -> None:
-    """从自定义供应商移除一个模型，并清空全局设置里指向它的引用；不提交事务。"""
+    """从自定义供应商移除一个模型，并清空全局设置里指向它的引用；不提交事务。
+
+    项目里的引用由调用方在提交后用 :func:`cleanup_project_model_refs` 清理。
+    """
     repo = CustomProviderRepository(session)
     row = await repo.get_model_by_ids(provider_id, model_id)
     if row is None:
@@ -1380,6 +1445,7 @@ async def full_update_provider(
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     stored_models = {m.model_id: m for m in await repo.list_models(provider_id)}
     models: list[ModelInput] | None = None
+    removed_model_ids: set[str] = set()
     specs: dict[str, EndpointSpec] = {}
     if body.models is not None:
         _check_duplicate_model_ids(body.models, _t)
@@ -1404,9 +1470,11 @@ async def full_update_provider(
         raise HTTPException(status_code=404, detail=_t("provider_not_found"))
     if models is not None:
         await repo.replace_models(provider_id, [m.to_db_dict(specs[m.endpoint]) for m in models])
-        await _clear_global_provider_refs(session, provider_id, stored_models.keys() - {m.model_id for m in models})
+        removed_model_ids = stored_models.keys() - {m.model_id for m in models}
+        await _clear_global_provider_refs(session, provider_id, removed_model_ids)
     await session.commit()
     await invalidate_provider_caches(request)
+    await cleanup_project_model_refs(provider_id, removed_model_ids)
     await session.refresh(provider)
     saved_models = await repo.list_models(provider_id)
     return _provider_to_response(
