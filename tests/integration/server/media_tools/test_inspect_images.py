@@ -6,6 +6,7 @@ import io
 from pathlib import Path
 from typing import Any
 
+import pytest
 from PIL import Image
 
 from lib.artifacts.version_manager import VersionManager
@@ -156,6 +157,19 @@ async def test_unknown_ids_are_rejected_with_the_missing_ids_listed(tmp_path: Pa
     )
 
 
+async def test_derivative_ids_not_shaped_owner_slash_derivative_are_rejected_as_not_found(tmp_path: Path) -> None:
+    ctx = _harness(tmp_path)
+
+    outcome, _envelope = await _inspect(
+        ctx, {"resource_type": "character_derivative", "ids": ["阿岚/战斗装", "战斗装", "阿岚/战斗装/破损"]}
+    )
+
+    assert (problem_of(outcome).code, problem_of(outcome).params) == (
+        "resource_not_found",
+        {"resource_type": "character_derivative", "ids": ["战斗装", "阿岚/战斗装/破损"]},
+    )
+
+
 async def test_a_version_the_item_does_not_have_is_rejected_with_its_versions(tmp_path: Path) -> None:
     ctx = _harness(tmp_path)
     _install(ctx, "scenes", "城门", "red")
@@ -188,3 +202,54 @@ async def test_large_images_are_downscaled_to_the_long_edge_limit(tmp_path: Path
     _outcome, envelope = await _inspect(ctx, {"resource_type": "scene", "ids": ["城门"]})
 
     assert _picture(envelope.images[0].data) == ("green", (2000, 500))
+
+
+@pytest.mark.parametrize("resource_type", ["character", "storyboard"])
+async def test_current_images_without_history_remain_viewable_and_read_only(tmp_path: Path, resource_type: str) -> None:
+    ctx = _harness(tmp_path)
+    if resource_type == "character":
+        item_id, pointer = "阿岚", "characters/阿岚.png"
+        ctx.pm.update_project_character_sheet("demo", item_id, pointer)
+    else:
+        item_id, pointer = "E1S01", "storyboards/scene_E1S01.png"
+        script = ctx.pm.load_script_readonly("demo", "episode_1.json")
+        script["segments"][0]["generated_assets"] = {"storyboard_image": pointer}
+        ctx.pm.save_script("demo", script, "episode_1.json", validate=False)
+    image_path = ctx.project_path / pointer
+    image_path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", (160, 90), "red").save(image_path)
+    before = {
+        path.relative_to(ctx.project_path): path.read_bytes() for path in ctx.project_path.rglob("*") if path.is_file()
+    }
+
+    outcome, envelope = await _inspect(ctx, {"resource_type": resource_type, "ids": [item_id]})
+    explicit, _ = await _inspect(ctx, {"resource_type": resource_type, "ids": [item_id], "version": 1})
+
+    assert outcome.problem is None
+    assert envelope.structured["inspect_images"]["images"] == [
+        {"id": item_id, "version": None, "available_versions": [], "status": "ok", "image": 1}
+    ]
+    assert _picture(envelope.images[0].data) == ("red", (160, 90))
+    assert problem_of(explicit).code == "version_not_found"
+    assert {
+        path.relative_to(ctx.project_path): path.read_bytes() for path in ctx.project_path.rglob("*") if path.is_file()
+    } == before
+
+
+@pytest.mark.parametrize("pointer", [None, "../outside.png"])
+async def test_untracked_images_require_a_registered_path_inside_the_project(
+    tmp_path: Path, pointer: str | None
+) -> None:
+    ctx = _harness(tmp_path)
+    for path in (ctx.project_path / "characters/阿岚.png", ctx.project_path.parent / "outside.png"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (160, 90), "red").save(path)
+    project = ctx.pm.load_project("demo")
+    project["characters"]["阿岚"]["character_sheet"] = pointer
+    ctx.pm.save_project("demo", project)
+
+    outcome, envelope = await _inspect(ctx, {"resource_type": "character", "ids": ["阿岚"]})
+
+    assert outcome.problem is None
+    assert envelope.structured["inspect_images"]["images"][0]["status"] == "image_missing"
+    assert envelope.images == ()

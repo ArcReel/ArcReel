@@ -1,8 +1,8 @@
 """Host-neutral read-only tool that hands asset sheets and storyboard images to an Agent so it can look at them.
 
-Each image is read from the version snapshot of the chosen version (current by default), downscaled to
-JPEG in memory and returned as an image content block after the JSON. Nothing is written and no model is
-called: reviewing what was generated costs nothing.
+Images are read from the chosen version snapshot, or the metadata-owned current image when no history
+is registered, downscaled to JPEG in memory and returned as image content blocks after the JSON.
+Nothing is written and no model is called.
 """
 
 from __future__ import annotations
@@ -19,7 +19,9 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt
 from lib.artifacts.version_manager import VersionManager
 from lib.final_cut.basis import version_snapshot
 from lib.infra.image_utils import compress_image_bytes
+from lib.infra.path_safety import try_safe_join
 from lib.script.script_editor import ScriptEditError
+from lib.script.script_models import get_generated_assets
 from lib.script.storyboard_sequence import get_storyboard_items
 from server.agent_toolset.declaration import ToolImage
 from server.media_tools.context import tool_error, tool_problem
@@ -84,9 +86,9 @@ class InspectImagesResult:
     images: tuple[InspectedImage, ...]
 
 
-def _storyboard_ids(services: Services, project_name: str) -> set[str]:
-    """项目全部剧本里的分镜 ID；参考生视频的剧本没有分镜。"""
-    found: set[str] = set()
+def _storyboard_images(services: Services, project_name: str) -> dict[str, str | None]:
+    """项目全部剧本里的分镜 ID 与登记的当前图；参考生视频的剧本没有分镜。"""
+    found: dict[str, str | None] = {}
     for script_name in sorted(services.projects.list_scripts(project_name)):
         try:
             script = services.projects.load_script_readonly(project_name, script_name)
@@ -95,24 +97,32 @@ def _storyboard_ids(services: Services, project_name: str) -> set[str]:
             # 读不出的剧本无法证明分镜存在，跳过；其余剧本照常判定
             logger.warning("查找分镜时跳过无法读取的剧本: %s", script_name, exc_info=True)
             continue
-        found.update(str(item.get(id_field)) for item in items if isinstance(item, dict) and item.get(id_field))
+        for item in items:
+            if isinstance(item, dict) and item.get(id_field):
+                pointer = get_generated_assets(item).get("storyboard_image")
+                found[str(item[id_field])] = pointer if isinstance(pointer, str) and pointer else None
     return found
 
 
 def _resolve_ids(
     services: Services, project_name: str, resource_type: str, ids: list[str]
-) -> tuple[list[str], list[str]]:
-    """请求 ID → 版本记录所用的 ID（资产名按落盘 key 归一）；返回 (归一后的 ID, 不存在的请求 ID)。"""
+) -> tuple[list[tuple[str, str | None]], list[str]]:
+    """返回归一后的 ID 与登记的当前图，以及不存在的请求 ID。"""
     if resource_type == "storyboard":
-        known = _storyboard_ids(services, project_name)
-        return [item_id for item_id in ids if item_id in known], [item_id for item_id in ids if item_id not in known]
+        known = _storyboard_images(services, project_name)
+        return [(item_id, known[item_id]) for item_id in ids if item_id in known], [
+            item_id for item_id in ids if item_id not in known
+        ]
     project = services.projects.load_project(project_name)
-    resolved: list[str] = []
+    resolved: list[tuple[str, str | None]] = []
     missing: list[str] = []
     for item_id in ids:
         try:
-            resolved.append(resolve_current_image_pointer(project, resource_type, item_id, None)[0])
+            resolved.append(resolve_current_image_pointer(project, resource_type, item_id, None))
         except KeyError:
+            missing.append(item_id)
+        except ValueError:
+            # 衍生 ID 不是「本体名/衍生名」时不指向任何资产，与不存在同样处理
             missing.append(item_id)
     return resolved, missing
 
@@ -164,8 +174,8 @@ async def inspect_images(
         def inspect_all() -> list[InspectedImage] | ToolOutcome[Any]:
             versions = VersionManager(services.projects.get_project_path(scope.project_name))
             project_path = services.projects.get_project_path(scope.project_name)
-            targets: list[tuple[str, int | None, list[int]]] = []
-            for item_id in resolved:
+            targets: list[tuple[str, int | None, list[int], str | None]] = []
+            for item_id, pointer in resolved:
                 available = _available_versions(versions, version_type, item_id)
                 version = request.value.version
                 if version is None:
@@ -177,14 +187,18 @@ async def inspect_images(
                         code="version_not_found",
                         params={"id": item_id, "available_versions": available},
                     )
-                targets.append((item_id, version, available))
+                targets.append((item_id, version, available, pointer))
             images: list[InspectedImage] = []
-            for item_id, version, available in targets:
+            for item_id, version, available, pointer in targets:
                 found = (
                     version_snapshot(project_path, versions, version_type, item_id, version)
                     if version is not None
                     else None
                 )
+                # 仅当前产物归档可省略历史；无版本时只读登记的当前图，不补写版本记录。
+                if version is None and pointer:
+                    current_path = try_safe_join(project_path, pointer, require_file=True)
+                    found = (current_path, {}) if current_path is not None else None
                 if found is None:
                     images.append(
                         InspectedImage(
