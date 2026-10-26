@@ -407,7 +407,20 @@ describe("ProjectsPage", () => {
     title: "Old",
     deleted_at: "2026-10-20T08:00:00+00:00",
     expires_at: "2026-11-19T08:00:00+00:00",
+    size: 3 * 1024 * 1024,
   };
+
+  it("shows how much space each deleted project takes", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+    vi.spyOn(API, "listDeletedProjects").mockResolvedValue({ projects: [deletedDemo], retention_days: 30 });
+
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "已删除项目" }));
+    const dialog = await screen.findByRole("dialog", { name: "已删除项目" });
+
+    expect(await within(dialog).findByText(/占用 3\.0 MB$/)).toBeInTheDocument();
+  });
 
   it("reloads deleted projects after a restore cancels the reopened dialog's in-flight listing", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });

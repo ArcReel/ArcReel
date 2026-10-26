@@ -76,6 +76,49 @@ async def test_restore_keeps_the_original_name_when_it_is_free(tmp_path, monkeyp
         assert (await TaskRepository(session).get(old["running"]) or {})["project_name"] == "demo"
 
 
+def _files_size(root) -> int:
+    return sum(path.stat().st_size for path in root.rglob("*") if path.is_file() and not path.is_symlink())
+
+
+async def test_deleted_projects_report_the_space_they_take(tmp_path, monkeypatch, db_factory):
+    """列表给出每个已删除项目目录占用的字节数，包括里面的子目录。"""
+    manager = ProjectManager(tmp_path)
+    _create(manager, "Old")
+    project_dir = manager.get_project_path("demo")
+    (project_dir / "source" / "chapter.txt").write_bytes(b"x" * 5000)
+    expected = _files_size(project_dir)
+
+    with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
+        assert client.delete("/api/v1/projects/demo").status_code == 200
+        [entry] = client.get(DELETED).json()["projects"]
+
+    assert entry["size"] == expected
+    assert entry["size"] >= 5000
+
+
+async def test_deleted_project_sizes_are_counted_off_the_event_loop(tmp_path, monkeypatch, db_factory):
+    """统计目录大小是阻塞的磁盘遍历，不在事件循环线程上执行。"""
+    manager = ProjectManager(tmp_path)
+    _create(manager, "Old")
+    with build_projects_client(monkeypatch, manager, session_factory=db_factory) as client:
+        assert client.delete("/api/v1/projects/demo").status_code == 200
+
+    loop_thread = threading.get_ident()
+    counted_on: list[int] = []
+    real_tree_size = deleted_projects.tree_size
+
+    def recording_tree_size(root):
+        counted_on.append(threading.get_ident())
+        return real_tree_size(root)
+
+    monkeypatch.setattr(deleted_projects, "tree_size", recording_tree_size)
+    listing = await projects.list_deleted_projects()
+
+    assert listing["projects"][0]["size"] > 0
+    assert counted_on
+    assert loop_thread not in counted_on
+
+
 async def test_restore_cancelled_while_moving_out_still_finishes(tmp_path, monkeypatch, db_factory):
     """目录移出途中请求被取消：恢复照常做完，记录改回、迁移照跑，不会只留下移回的目录。"""
     manager = ProjectManager(tmp_path)

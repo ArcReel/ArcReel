@@ -23,6 +23,7 @@ from lib.db.repositories.project_records import parse_deleted_project_name
 from lib.infra.api_errors import NotFoundError
 from lib.infra.data_root_layout import PROJECT_FILENAME, DataRootLayout
 from lib.project.project_migrations.runner import RecordedEpisodeIds, migrate_project_with_verdict
+from lib.project.project_migrations.staged_swap import tree_size
 from lib.project.project_trash import RETENTION
 from lib.script.source_loader.migration import migrate_project_source_encoding_once
 
@@ -44,12 +45,13 @@ _PURGING_PREFIX = ".purging-"
 
 @dataclass(frozen=True, slots=True)
 class DeletedProject:
-    """一个已删除项目。``id`` 是它的墓碑名，``name`` 是删除前的项目名。"""
+    """一个已删除项目。``id`` 是它的墓碑名，``name`` 是删除前的项目名，``size`` 是目录占用的字节数。"""
 
     id: str
     name: str
     title: str
     deleted_at: datetime
+    size: int
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -58,6 +60,7 @@ class DeletedProject:
             "title": self.title,
             "deleted_at": self.deleted_at.isoformat(),
             "expires_at": (self.deleted_at + RETENTION).isoformat(),
+            "size": self.size,
         }
 
 
@@ -80,7 +83,10 @@ def move_back(layout: DataRootLayout, project_dir: Path, tombstone: str) -> None
 
 
 def list_entries(layout: DataRootLayout) -> list[DeletedProject]:
-    """全部已删除项目，最近删除的在前。"""
+    """全部已删除项目，最近删除的在前。
+
+    逐个遍历项目目录统计占用空间，是阻塞的磁盘 I/O：异步调用方放进线程执行。
+    """
     try:
         children = list(layout.deleted_projects_dir.iterdir())
     except FileNotFoundError:
@@ -91,7 +97,15 @@ def list_entries(layout: DataRootLayout) -> list[DeletedProject]:
         if parsed is None or child.is_symlink() or not child.is_dir():
             continue
         name, deleted_at = parsed
-        entries.append(DeletedProject(id=child.name, name=name, title=_title(child) or name, deleted_at=deleted_at))
+        entries.append(
+            DeletedProject(
+                id=child.name,
+                name=name,
+                title=_title(child) or name,
+                deleted_at=deleted_at,
+                size=tree_size(child),
+            )
+        )
     return sorted(entries, key=lambda entry: (entry.deleted_at, entry.id), reverse=True)
 
 

@@ -29,6 +29,7 @@ import type { RefreshProjectResult } from "@/stores/projects-store";
 import type { DeletedProject, DeletedProjectListing } from "@/types";
 import { errMsg } from "@/utils/async";
 import { formatShortDateTime } from "@/utils/date-format";
+import { formatFileSize } from "@/utils/file-size";
 import { getProjectDisplayName } from "@/utils/project-display";
 
 type ListingState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; listing: DeletedProjectListing };
@@ -152,6 +153,7 @@ export function DeletedProjectsDialog({ open, onClose, onRestored }: DeletedProj
                   {t("dashboard:deleted_projects_meta", {
                     time: formatShortDateTime(project.deleted_at) ?? project.deleted_at,
                     expires: formatShortDateTime(project.expires_at) ?? project.expires_at,
+                    size: formatFileSize(project.size),
                   })}
                 </span>
               </div>

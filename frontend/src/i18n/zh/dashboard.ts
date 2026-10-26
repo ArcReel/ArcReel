@@ -2786,7 +2786,7 @@ export default {
   'deleted_projects_loading': '正在读取已删除项目…',
   'deleted_projects_load_failed': '无法读取已删除项目：{{message}}',
   'deleted_projects_empty': '没有已删除项目',
-  'deleted_projects_meta': '{{time}} 删除 · {{expires}} 自动清除',
+  'deleted_projects_meta': '{{time}} 删除 · {{expires}} 自动清除 · 占用 {{size}}',
   'deleted_projects_restore_label': '恢复「{{title}}」',
   'deleted_projects_purge_label': '彻底删除「{{title}}」',
   'deleted_projects_restored': '「{{title}}」已恢复',
