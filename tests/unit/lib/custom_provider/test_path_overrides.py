@@ -68,17 +68,20 @@ def test_layer_matches_base_url_paths_with_percent_escapes_and_keeps_them():
     assert request.url.raw_path == b"/proxy%2Ftenant/tasks/a%2Fb"
 
 
-async def test_resume_after_base_path_change_still_hits_the_overrides(tmp_path: Path):
+@pytest.mark.parametrize("version", ["", "/v1"])
+async def test_resume_after_base_path_change_still_hits_the_overrides(tmp_path: Path, version: str):
     # 提交时 base_url 是 relay.test/old，在途改成 /new 后重启续跑：轮询与取件按提交时的 base 命中覆盖
     overrides = {"poll": "/api/tasks/{{ task_id }}", "download": "/api/tasks/{{ task_id }}/file"}
-    provider = SimpleNamespace(provider_id="cp", base_url="https://relay.test/new", api_key="k")
+    provider = SimpleNamespace(provider_id="cp", base_url=f"https://relay.test/new{version}", api_key="k")
     backend = ENDPOINT_REGISTRY["openai-video"].build_backend(cast("Any", provider), "sora-2", overrides)
     video = {"id": "vid-a", "object": "video", "model": "sora-2", "status": "completed", "progress": 100}
     video |= {"seconds": "8", "size": "720x1280", "created_at": 1}
 
     with capture_http() as router, bounded_poll_clock():
-        poll = router.get("https://relay.test/old/api/tasks/vid-a").mock(return_value=httpx.Response(200, json=video))
-        router.get("https://relay.test/old/api/tasks/vid-a/file").mock(
+        poll = router.get(f"https://relay.test/old{version}/api/tasks/vid-a").mock(
+            return_value=httpx.Response(200, json=video)
+        )
+        router.get(f"https://relay.test/old{version}/api/tasks/vid-a/file").mock(
             return_value=httpx.Response(200, content=b"resumed")
         )
 
@@ -89,6 +92,30 @@ async def test_resume_after_base_path_change_still_hits_the_overrides(tmp_path: 
                 output_path=tmp_path / "out.mp4",
                 duration_seconds=8,
                 submitted_base_url="https://relay.test/old/v1",
+            ),
+        )
+
+    assert poll.call_count == 1
+    assert (tmp_path / "out.mp4").read_bytes() == b"resumed"
+
+
+async def test_dashscope_resume_restores_the_replaced_base_suffix(tmp_path: Path):
+    provider = SimpleNamespace(provider_id="cp", base_url="https://relay.test/new/compatible-mode/v1", api_key="k")
+    backend = ENDPOINT_REGISTRY["dashscope-async-video"].build_backend(
+        cast("Any", provider), "wan2.6-t2v", {"poll": "/proxy/tasks/{{ task_id }}"}
+    )
+    with capture_http() as router, bounded_poll_clock():
+        poll = router.get("https://relay.test/old/compatible-mode/v1/proxy/tasks/t").mock(
+            return_value=httpx.Response(
+                200, json={"output": {"task_status": "SUCCEEDED", "video_url": "https://cdn.test/resumed.mp4"}}
+            )
+        )
+        router.get("https://cdn.test/resumed.mp4").mock(return_value=httpx.Response(200, content=b"resumed"))
+
+        await backend.resume_video(
+            "t",
+            VideoGenerationRequest(
+                prompt="p", output_path=tmp_path / "out.mp4", submitted_base_url="https://relay.test/old/api/v1"
             ),
         )
 

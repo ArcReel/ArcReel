@@ -167,6 +167,8 @@ class DeclarativeImageBackend:
     def _reference_limit(self) -> int:
         """定义声明的参考图上限；未声明时为 ``0``。校验器保证声明了图生图就有正数上限。"""
         value = (self._definition.get("capabilities") or {}).get("max_reference_images")
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
         return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:

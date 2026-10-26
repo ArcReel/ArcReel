@@ -19,7 +19,7 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.backends.gemini_shared import GEMINI_DEFAULT_VIDEO_MODEL, VERTEX_SCOPES
-from tests.fakes import bounded_poll_clock, captured_provider_job_ids
+from tests.fakes import bounded_poll_clock, captured_provider_job_ids, captured_vertex_credentials
 from tests.http_capture import PathPrefixRewrite, capture_http
 from tests.unit.lib.backends.write_cancel_gate import GatedWritePath, WriteGate, cancel_during_write
 
@@ -123,7 +123,7 @@ class TestGeminiVideoBackendProperties:
                 "lib.backends.video_backends.gemini.resolve_vertex_credentials_path",
                 return_value=creds_file,
             ),
-            patch("google.oauth2.service_account.Credentials.from_service_account_file") as from_service_account_file,
+            captured_vertex_credentials() as from_service_account_file,
         ):
             from lib.backends.video_backends.gemini import GeminiVideoBackend
 
