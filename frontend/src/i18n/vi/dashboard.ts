@@ -2319,7 +2319,6 @@ export default {
   'shot_remove_title': 'Gỡ {{id}}?',
   'shot_remove_desc': 'Phân cảnh này sẽ bị gỡ khỏi kịch bản. Ảnh phân cảnh, video và các sản phẩm đã tạo cùng lịch sử phiên bản được chuyển vào thùng rác dự án và giữ trong 30 ngày, trong thời gian đó có thể khôi phục.',
   'shot_remove_blocked_generating': 'Phân cảnh này đang có tác vụ tạo; hãy gỡ sau khi tác vụ hoàn tất',
-  'shot_remove_blocked_last': 'Đây là phân cảnh duy nhất của tập nên không thể gỡ',
   'shot_remove_confirm': 'Chuyển vào thùng rác dự án',
   'shot_remove_failed': 'Gỡ phân cảnh thất bại: {{message}}',
   'shot_structure_refresh_failed': 'Đã lưu nhưng không làm mới được dòng thời gian. Hãy tải lại trang để xem kết quả mới nhất.',

@@ -2572,7 +2572,6 @@ export default {
   'shot_remove_title': 'Remove {{id}}?',
   'shot_remove_desc': 'This shot will be removed from the script. Its generated storyboard images, videos and other outputs, with their version history, move to the project trash with it and are kept for 30 days, during which you can restore them.',
   'shot_remove_blocked_generating': 'A generation task is running for this shot; remove it after the task finishes',
-  'shot_remove_blocked_last': 'This is the only shot in the episode and cannot be removed',
   'shot_remove_confirm': 'Move to project trash',
   'shot_remove_failed': 'Failed to remove shot: {{message}}',
   'shot_structure_refresh_failed': 'Saved, but the timeline failed to refresh. Reload the page to see the latest result.',

@@ -144,7 +144,7 @@ describe("ShotDetail 旁白正文", () => {
     await waitFor(() => expect(onInsertShot).toHaveBeenCalledWith("E1S01", "风停了。"));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
-  it("本集唯一的分镜禁止移除并说明原因，新增仍可用", () => {
+  it("本集唯一的分镜也可以移除，新增仍可用", () => {
     render(
       detailElement(makeNarrationSegment(), {
         onUpdatePrompt: vi.fn(),
@@ -153,9 +153,7 @@ describe("ShotDetail 旁白正文", () => {
       })
     );
 
-    const remove = screen.getByRole("button", { name: "移除分镜" });
-    expect(remove).toBeDisabled();
-    expect(remove).toHaveAccessibleDescription("本集只剩这一个分镜，不能移除");
+    expect(screen.getByRole("button", { name: "移除分镜" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "在此后插入" })).toBeEnabled();
   });
   it("旁白配音生成进行中时移除分镜禁用并说明原因，新增仍可用", () => {
