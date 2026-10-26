@@ -71,7 +71,8 @@ async def assemble_backend(
     if model_id is not None:
         _ensure_listed(provider_id, model_id, media_type)
     config = await _load_builtin_config(resolver, provider_id, rate_limiter)
-    # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。
+    # 构造闭包可能读凭证文件（Vertex 服务账号 JSON），放线程里跑，不阻塞事件循环。工作线程里没有事件循环，
+    # backend 构造时不能创建要求事件循环的 SDK 客户端（xai_sdk.AsyncClient 的做法见 grok_shared.LazyGrokClient）。
     return await asyncio.to_thread(spec.build_backend, config, model_id)
 
 

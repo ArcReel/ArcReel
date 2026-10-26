@@ -4,11 +4,13 @@ Grok (xAI) 共享工具模块
 供 text_backends / image_backends / video_backends 复用。
 
 包含：
-- create_grok_client — xAI AsyncClient 客户端工厂
+- create_grok_client — xAI AsyncClient 客户端工厂（惰性创建，见 LazyGrokClient）
 - grok_should_retry — gRPC 感知的重试谓词
 """
 
 from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 from lib.infra.retry import BASE_RETRYABLE_ERRORS, should_retry
 
@@ -26,6 +28,10 @@ try:
     }
 except ImportError:
     pass  # grpc is optional; fall back to pattern-based retry below
+
+if TYPE_CHECKING:
+    import xai_sdk
+    from xai_sdk.aio import chat, image, video
 
 
 def grok_should_retry(exc: Exception) -> bool:
@@ -47,8 +53,39 @@ def resolve_grok_api_key(api_key: str | None = None) -> str:
     return api_key.strip()
 
 
-def create_grok_client(*, api_key: str | None = None):
-    """创建 xAI AsyncClient，统一校验和构造。"""
-    import xai_sdk
+class LazyGrokClient:
+    """xAI AsyncClient 的惰性包装：首次访问 chat / image / video 时才创建 SDK 客户端。
 
-    return xai_sdk.AsyncClient(api_key=resolve_grok_api_key(api_key))
+    ``xai_sdk.AsyncClient`` 构造时就创建 grpc.aio 通道，要求当前线程有事件循环；而内置 backend 在
+    ``asyncio.to_thread`` 的工作线程里构造（见 ``lib.backends.backend_assembly.assembler``）。backend 只在
+    async 生成方法里访问这三个子客户端，此时位于事件循环线程，通道也随之绑定到实际使用它的事件循环。
+    API Key 在构造时校验，缺失仍立即报错。
+    """
+
+    def __init__(self, *, api_key: str | None) -> None:
+        self._api_key = resolve_grok_api_key(api_key)
+        self._sdk_client: xai_sdk.AsyncClient | None = None
+
+    def _sdk(self) -> xai_sdk.AsyncClient:
+        if self._sdk_client is None:
+            import xai_sdk
+
+            self._sdk_client = xai_sdk.AsyncClient(api_key=self._api_key)
+        return self._sdk_client
+
+    @property
+    def chat(self) -> chat.Client:
+        return self._sdk().chat
+
+    @property
+    def image(self) -> image.Client:
+        return self._sdk().image
+
+    @property
+    def video(self) -> video.Client:
+        return self._sdk().video
+
+
+def create_grok_client(*, api_key: str | None = None) -> LazyGrokClient:
+    """创建 xAI 客户端，统一校验和构造；SDK 客户端推迟到首次使用时创建，backend 可在任意线程构造。"""
+    return LazyGrokClient(api_key=api_key)
