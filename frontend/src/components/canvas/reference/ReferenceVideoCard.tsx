@@ -19,6 +19,11 @@ import {
 // 该类只应用颜色/背景/圆角，不改变盒模型宽度。
 const MENTION_SPAN_CLASS = "rounded-sm";
 
+// 着色镜像层与输入框必须逐像素同排版：preflight 给 pre 等宽字体、给 textarea `font: inherit`，
+// 两层都显式用正文比例字体，否则字宽不同，光标与选区落在可见字符旁边；输入框出现滚动条时
+// 可用宽度变窄、折行位置也会分叉，所以两层都预留滚动条槽位。
+const EDITOR_LAYER_CLASS = "p-3 font-sans text-sm leading-6 [scrollbar-gutter:stable]";
+
 /**
  * 渲染 pre 层的 token span 串；当 caretOffset 命中某个 token 内部或边界时，在该位置
  * 切一刀并插入一个零尺寸 caret anchor（给 picker 定位用）。
@@ -357,7 +362,7 @@ export function ReferenceVideoCard({
           aria-hidden
           // 着色镜像层：只显示与输入框同步滚动的那一段，溢出部分由输入框自己滚动到达。
           data-overflow-ok="与输入框同步滚动的着色镜像层"
-          className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words p-3 text-sm leading-6"
+          className={`pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words ${EDITOR_LAYER_CLASS}`}
         >
           {pickerOpen
             ? renderHighlightedTokens(tokens, atStart, setAnchorEl, voiceoverLabel)
@@ -384,7 +389,7 @@ export function ReferenceVideoCard({
           placeholder={t("reference_editor_placeholder")}
           aria-label={t("reference_editor_aria_name")}
           spellCheck={false}
-          className="absolute inset-0 h-full w-full resize-none bg-transparent p-3 text-sm leading-6 text-transparent caret-foreground placeholder:text-muted-foreground focus:outline-none"
+          className={`absolute inset-0 h-full w-full resize-none bg-transparent ${EDITOR_LAYER_CLASS} text-transparent caret-foreground placeholder:text-muted-foreground focus:outline-none`}
         />
 
         {pickerOpen && anchorEl && (
