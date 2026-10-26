@@ -757,7 +757,8 @@ class _SemanticChecker:
 
 def _capability_is_on(capability: str, value: object) -> bool:
     if capability == "max_reference_images":
-        return isinstance(value, int) and value > 0
+        # 与 schema 的 integer 同口径：1.0 这类整数值浮点数按整数计，布尔值不算数。
+        return isinstance(value, int | float) and not isinstance(value, bool) and value == int(value) and value > 0
     if capability == "reference_audio_mode":
         return value is not None and value != "none"
     return value is True

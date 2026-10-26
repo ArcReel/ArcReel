@@ -657,3 +657,32 @@ class TestDiagnosticPayload:
 
         assert payload["errors"][0]["code"] == "schema_violation"
         assert "detail=val_ce_schema_forbidden_constraint" in payload["errors"][0]["message"]
+
+
+def _with_reference_images(limit: object) -> dict[str, Any]:
+    definition = custom_endpoint_definition()
+    definition["inputs"]["refs"] = {"source": "reference_images", "encoding": "base64"}
+    definition["submit"]["body"]["images"] = [{"$each": {"in": "inputs.refs", "as": "ref", "item": "{{ ref }}"}}]
+    definition["capabilities"]["max_reference_images"] = limit
+    return definition
+
+
+@pytest.mark.parametrize("limit", [1, 1.0])
+def test_integral_float_reference_limit_counts_as_its_integer(limit: object):
+    """schema 的 integer 放行 1.0，一致性校验按同一口径把它当作 1。"""
+    assert validate_definition(_with_reference_images(limit)).errors == ()
+
+
+@pytest.mark.parametrize("limit", [0, 0.0])
+def test_zero_reference_limit_turns_the_capability_off(limit: object):
+    assert ("capabilities.max_reference_images", "capability_input_without_declaration") in _codes(
+        validate_definition(_with_reference_images(limit))
+    )
+
+
+@pytest.mark.parametrize("limit", [1.5, True])
+def test_non_integer_reference_limit_is_rejected(limit: object):
+    diagnostics = validate_definition(_with_reference_images(limit))
+
+    assert not diagnostics.valid
+    assert any(path == "capabilities.max_reference_images" for path, _ in _codes(diagnostics))
