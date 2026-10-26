@@ -844,6 +844,7 @@ MESSAGES = {
     "trash_restore_failed": "Dự án không còn chỗ trống để đặt lại mục này nên chưa có gì được khôi phục và bản ghi xóa vẫn được giữ: hãy giải phóng vị trí rồi thử lại, hoặc tải xuống các tệp trong bản ghi",
     "trash_restore_needs_episode": "Tập «{name}» chứa mục này cũng đã bị xóa nên chỉ có thể khôi phục cùng tập: hãy khôi phục tập từ thùng rác dự án trước, rồi khôi phục bản ghi này",
     "trash_restore_needs_episode_untitled": "Tập {episode} chứa mục này cũng đã bị xóa nên chỉ có thể khôi phục cùng tập: hãy khôi phục tập từ thùng rác dự án trước, rồi khôi phục bản ghi này",
+    "trash_restore_needs_character": "Nhân vật «{name}» chứa mục này cũng đã bị xóa nên chỉ có thể khôi phục cùng nhân vật: hãy khôi phục nhân vật từ thùng rác dự án trước, rồi khôi phục bản ghi này",
     "trash_restore_download_only": "Không thể khôi phục bản ghi xóa này nữa; các tệp cấu trúc trong đó chỉ có thể tải xuống",
     "trash_restore_target_blocked": "Không thể khôi phục về {path}: một thư mục trên đường dẫn đã bị thay bằng liên kết",
 }

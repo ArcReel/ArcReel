@@ -781,6 +781,7 @@ MESSAGES = {
     "trash_restore_failed": "当前项目里没有空出的位置放回它，这次什么都没有恢复，删除记录仍保留：腾出位置后重试，或下载记录中的文件",
     "trash_restore_needs_episode": "所属的集「{name}」也已删除，只能随集恢复：先在项目回收站里恢复这一集，再恢复这条记录",
     "trash_restore_needs_episode_untitled": "所属的第 {episode} 集也已删除，只能随集恢复：先在项目回收站里恢复这一集，再恢复这条记录",
+    "trash_restore_needs_character": "所属的角色「{name}」也已删除，只能随角色恢复：先在项目回收站里恢复这个角色，再恢复这条记录",
     "trash_restore_download_only": "这条删除记录已无法恢复，其中的结构文件只能下载",
     "trash_restore_target_blocked": "无法恢复到 {path}：路径上的目录已被替换为链接",
 }

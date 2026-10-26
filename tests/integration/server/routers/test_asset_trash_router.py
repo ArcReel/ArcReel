@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from lib.artifacts.version_manager import VersionManager
 from lib.generation.deleted_target import GenerationTargetDeletedError, trash_result_if_target_deleted
-from lib.project import project_trash
+from lib.project import asset_trash, project_trash, trash_restore
 from lib.project.project_manager import ProjectManager
 from server.error_handlers import register_error_handlers
 from server.routers import characters, scenes
@@ -74,6 +75,17 @@ def _only_record(asset_client: TestClient) -> dict:
     records = asset_client.get(TRASH).json()["records"]
     assert len(records) == 1, records
     return records[0]
+
+
+def _record_of(asset_client: TestClient, **match) -> dict:
+    records = asset_client.get(TRASH).json()["records"]
+    found = [r for r in records if all(r["object"].get(k) == v for k, v in match.items())]
+    assert len(found) == 1, records
+    return found[0]
+
+
+def _record_ids(asset_client: TestClient) -> set[str]:
+    return {record["id"] for record in asset_client.get(TRASH).json()["records"]}
 
 
 def test_deleting_an_asset_moves_its_sheet_and_history_into_one_record(asset_client, asset_pm, asset_dir):
@@ -222,6 +234,54 @@ def test_deleting_a_derivative_is_one_record_and_restores_onto_its_owner(asset_c
     assert VersionManager(asset_dir).has_versions("character_derivatives", "阿岚/战甲")
 
 
+def _with_derivative_sheet(asset_client, asset_dir) -> Path:
+    asset_client.post(f"{CHARACTERS}/阿岚/derivatives", json={"name": "战甲", "description": "穿战甲"})
+    sheet = asset_dir / "characters/derivatives/阿岚/战甲.png"
+    sheet.parent.mkdir(parents=True)
+    sheet.write_bytes(b"armor")
+    VersionManager(asset_dir).add_version("character_derivatives", "阿岚/战甲", "p", source_file=sheet)
+    return sheet
+
+
+def test_a_derivative_deleted_before_its_owner_restores_only_after_the_owner_is_back(asset_client, asset_pm, asset_dir):
+    _create(asset_client, "阿岚")
+    sheet = _with_derivative_sheet(asset_client, asset_dir)
+    asset_client.delete(f"{CHARACTERS}/阿岚/derivatives/战甲")
+    derivative = _record_of(asset_client, kind="asset_derivative")["id"]
+    asset_client.delete(f"{CHARACTERS}/阿岚")
+    owner = _record_of(asset_client, kind="asset")["id"]
+
+    # 本体还在项目回收站里：衍生只能随本体恢复，不降级成未登记的文件。
+    too_early = asset_client.post(f"{TRASH}/{derivative}/restore")
+    assert too_early.status_code == 409
+    assert "阿岚" in too_early.json()["detail"]
+    assert derivative in _record_ids(asset_client)
+
+    assert asset_client.post(f"{TRASH}/{owner}/restore").status_code == 200
+    restored = asset_client.post(f"{TRASH}/{derivative}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["degraded"] is False
+    assert _project(asset_dir)["characters"]["阿岚"]["derivatives"]["战甲"]["description"] == "穿战甲"
+    assert sheet.read_bytes() == b"armor"
+    assert VersionManager(asset_dir).has_versions("character_derivatives", "阿岚/战甲")
+
+
+def test_a_derivative_whose_owner_was_purged_restores_only_its_files(asset_client, asset_pm, asset_dir):
+    _create(asset_client, "阿岚")
+    sheet = _with_derivative_sheet(asset_client, asset_dir)
+    asset_client.delete(f"{CHARACTERS}/阿岚/derivatives/战甲")
+    derivative = _record_of(asset_client, kind="asset_derivative")["id"]
+    asset_client.delete(f"{CHARACTERS}/阿岚")
+    assert asset_client.delete(f"{TRASH}/{_record_of(asset_client, kind='asset')['id']}").status_code == 200
+
+    restored = asset_client.post(f"{TRASH}/{derivative}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["degraded"] is True
+    assert sheet.read_bytes() == b"armor"
+
+
 def test_deleting_an_asset_takes_its_derivatives_into_the_same_record(asset_client, asset_pm, asset_dir):
     _create(asset_client, "阿岚")
     asset_client.post(f"{CHARACTERS}/阿岚/derivatives", json={"name": "战甲", "description": "穿战甲"})
@@ -274,3 +334,103 @@ def test_a_failed_record_leaves_the_asset_in_place(asset_client, asset_pm, asset
     assert "阿岚" in _project(asset_dir)["characters"]
     assert (asset_dir / "characters/阿岚.png").read_bytes() == b"sheet"
     assert VersionManager(asset_dir).get_versions("characters", "阿岚") == before
+
+
+def test_a_suffixed_restore_lands_even_when_the_snapshot_already_held_the_suffixed_name(
+    asset_client, asset_pm, asset_dir
+):
+    """删除第二个「Alice」时项目里有「Alice (1)」（条目与历史）；之后它也被删，恢复时这个名字只在临时项目里被占。"""
+    _create(asset_client, "Alice", "first")
+    _with_sheet(asset_pm, asset_dir, "Alice", b"first")
+    asset_client.delete(f"{CHARACTERS}/Alice")
+    first = _record_of(asset_client, name="Alice")["id"]
+    _create(asset_client, "Alice", "second")
+    _with_sheet(asset_pm, asset_dir, "Alice", b"second")
+    assert asset_client.post(f"{TRASH}/{first}/restore").json()["object"]["name"] == "Alice (1)"
+    asset_client.delete(f"{CHARACTERS}/Alice")
+    second = _record_of(asset_client, name="Alice")["id"]
+    asset_client.delete(f"{CHARACTERS}/Alice (1)")
+    _create(asset_client, "Alice", "third")
+
+    restored = asset_client.post(f"{TRASH}/{second}/restore")
+
+    assert restored.status_code == 200, restored.text
+    landed = restored.json()["object"]["name"]
+    assert _project(asset_dir)["characters"][landed]["description"] == "second"
+    assert (asset_dir / f"characters/{landed}.png").read_bytes() == b"second"
+    assert len(VersionManager(asset_dir).get_versions("characters", landed)["versions"]) == 2
+
+
+def test_a_suffixed_restore_lands_when_the_snapshot_holds_only_leftover_history_of_the_suffixed_name(
+    asset_client, asset_pm, asset_dir
+):
+    _create(asset_client, "Alice", "old")
+    _with_sheet(asset_pm, asset_dir, "Alice", b"old")
+    leftover = asset_dir / "characters" / "leftover.png"
+    leftover.write_bytes(b"x")
+    VersionManager(asset_dir).add_version("characters", "Alice (1)", "p", source_file=leftover)
+    leftover.unlink()
+    asset_client.delete(f"{CHARACTERS}/Alice")
+    record = _record_of(asset_client, name="Alice")["id"]
+    # 当前项目里清掉这份残留历史，「Alice (1)」只在临时项目里被占
+    VersionManager(asset_dir).detach_resources([("characters", "Alice (1)")])
+    _create(asset_client, "Alice", "new")
+
+    restored = asset_client.post(f"{TRASH}/{record}/restore")
+
+    assert restored.status_code == 200, restored.text
+
+
+def _deleted_with_sheet(asset_client, asset_pm, asset_dir) -> str:
+    _create(asset_client, "阿岚")
+    _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
+    asset_client.delete(f"{CHARACTERS}/阿岚")
+    return _only_record(asset_client)["id"]
+
+
+def _disk_full(*_args, **_kwargs):
+    raise OSError(errno.ENOSPC, "No space left on device")
+
+
+@pytest.mark.parametrize(
+    "failing_step",
+    [
+        (trash_restore, "_stage"),
+        (trash_restore, "migrate_project_dir"),
+        (asset_trash, "_read_project"),
+        (trash_restore.Landing, "place"),
+    ],
+    ids=["staging", "migration", "take-rule", "placing"],
+)
+def test_an_io_error_keeps_the_record_for_a_retry(asset_client, asset_pm, asset_dir, monkeypatch, failing_step):
+    """磁盘满等读写故障排除后重试就能按原结构恢复：哪一步出错都不降级、不消耗记录。"""
+    record_id = _deleted_with_sheet(asset_client, asset_pm, asset_dir)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(*failing_step, _disk_full)
+        with TestClient(asset_client.app, raise_server_exceptions=False) as failing:
+            assert failing.post(f"{TRASH}/{record_id}/restore").status_code == 500
+
+    assert _only_record(asset_client)["has_snapshot"] is True
+    assert "阿岚" not in _project(asset_dir).get("characters", {})
+    restored = asset_client.post(f"{TRASH}/{record_id}/restore")
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["degraded"] is False
+    assert (asset_dir / "characters/阿岚.png").read_bytes() == b"sheet"
+
+
+def test_a_missing_file_during_migration_still_degrades_to_restoring_the_files(
+    asset_client, asset_pm, asset_dir, monkeypatch
+):
+    """记录里的文件缺失是永久状态，重试也不会成功：仍降级，至少把还在的文件加回。"""
+    record_id = _deleted_with_sheet(asset_client, asset_pm, asset_dir)
+
+    def missing(*_args, **_kwargs):
+        raise FileNotFoundError(errno.ENOENT, "No such file or directory")
+
+    monkeypatch.setattr(trash_restore, "migrate_project_dir", missing)
+    restored = asset_client.post(f"{TRASH}/{record_id}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["degraded"] is True
+    assert (asset_dir / "characters/阿岚.png").read_bytes() == b"sheet"

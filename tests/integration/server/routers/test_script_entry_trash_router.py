@@ -206,7 +206,8 @@ def test_two_concurrent_restores_of_one_record_put_it_back_once(
             # 编码迁移在铺设完成、释放项目锁之后读源文：两次恢复都到达后才允许继续。
             staged.wait(timeout=30)
             if degraded:
-                raise OSError("source read failed")
+                # 文件缺失是永久状态，迁移失败照常降级；磁盘满这类可重试的读写故障不降级。
+                raise FileNotFoundError(path)
         return read_bytes(path)
 
     monkeypatch.setattr(Path, "read_bytes", read_staged_source)
