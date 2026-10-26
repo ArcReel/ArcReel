@@ -52,6 +52,7 @@ function useFieldSizingFallback(
 // 另加 variant="plain"：画布里直接编辑的正文字段（如故事设定），静止时没有边框与底色、行高放宽，悬停或聚焦时显出边框。
 // 长页面里的正文字段由调用处传 max-h-none，随内容撑高、由页面滚动，不在框内再嵌套滚动。
 // 另加 mono：换成等宽字体，用于 JSON、代码与请求体；它管字体、variant 管外观，两者独立，可同时使用。
+// 相对上游：降低 input 填充不透明度以保留文字对比度；失败态用完整红色描边与较强光晕。
 function Textarea({
   className,
   ref,
@@ -77,7 +78,7 @@ function Textarea({
       // 补 relative：与其他滚动容器一致写成定位元素（textarea 没有子元素，不影响布局）
       data-slot="textarea"
       className={cn(
-        "relative flex field-sizing-content min-h-16 max-h-[40cqh] w-full resize-none overflow-y-auto rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+        "relative flex field-sizing-content min-h-16 max-h-[40cqh] w-full resize-none overflow-y-auto rounded-lg border border-input bg-transparent px-2.5 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:bg-input/20 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/40 dark:bg-input/12 dark:disabled:bg-input/32",
         variant === "plain" && "border-transparent bg-transparent leading-relaxed hover:border-input dark:bg-transparent",
         mono && "font-mono",
         className
