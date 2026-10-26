@@ -441,12 +441,11 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
       const previous = get().filters;
       const summaryStale = sharedDimensions(previous) !== sharedDimensions(filters);
       const first = get().summary === null && !get().summaryLoading;
-      // 换视图时旧视图的列表与总数不再适用：先清空，免得新视图加载期间显示旧内容。
-      if (previous.view !== filters.view) {
-        set({ filters, records: [], sessions: [], total: 0, nextCursor: null, pendingRecords: [] });
-      } else {
-        set({ filters });
-      }
+      // 新查询先重置游标，避免第一页返回前的刷新沿用旧查询的分页位置。
+      set({
+        filters, pageIndex: 0, cursors: [null], nextCursor: null,
+        ...(previous.view !== filters.view ? { records: [], sessions: [], total: 0, pendingRecords: [] } : {}),
+      });
       await Promise.all([
         summaryStale || first || options.refetchSummary
           ? fetchSummary(filters)

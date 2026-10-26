@@ -458,6 +458,8 @@ export function ReferenceVideoCanvas({
   const [addTarget, setAddTarget] = useState<{ afterUnitId?: string } | null>(null);
   const [addPrompt, setAddPrompt] = useState("");
   const [addingUnit, setAddingUnit] = useState(false);
+  const finishCreation = useCallback(() => Promise.resolve(true), []);
+  useLeaveGuard({ dirty: false, saving: addingUnit, save: finishCreation });
   const handleAdd = useCallback((afterUnitId?: string) => {
     setAddPrompt("");
     setAddTarget({ afterUnitId });

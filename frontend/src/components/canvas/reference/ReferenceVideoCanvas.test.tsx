@@ -3,7 +3,7 @@ import { render as rtlRender, screen, waitFor, fireEvent, act, within } from "@t
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { Router, useLocation } from "wouter";
-import { LeaveGuardProvider, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
+import { LeaveGuardProvider, useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { EpisodeViewFactsProvider } from "@/components/canvas/episode-page/EpisodeViewScope";
 import type { EpisodeViewFacts } from "@/components/canvas/episode-page/episode-view";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
@@ -15,6 +15,7 @@ import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
 import { makeReferenceUnitCapability } from "@/test/factories";
 import addUnitContract from "@/test/contracts/reference-unit-add-requests.json";
+import { createDeferred } from "@/test/deferred";
 import type {
   ReferenceDurationPrecheck,
   ReferenceUnitCapabilityMap,
@@ -1076,6 +1077,37 @@ describe("ReferenceVideoCanvas", () => {
 
       await waitFor(() => expect(addSpy).toHaveBeenCalledTimes(1));
       expect(discard).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits for an in-flight creation before leaving the canvas", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [], unit_capabilities: {} });
+      const created = {
+        unit: mkUnit("E1U1", addUnitContract.append.prompt),
+        unit_capability: makeReferenceUnitCapability("E1U1"),
+      };
+      const pending = createDeferred<typeof created>();
+      const addSpy = vi.spyOn(API, "addReferenceVideoUnit").mockReturnValue(pending.promise);
+      let leave: ReturnType<typeof useConfirmLeave> = () => {};
+      function Navigation() {
+        leave = useConfirmLeave();
+        return null;
+      }
+      render(<><Navigation /><ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} hasScript /></>);
+      fireEvent.click(await screen.findByRole("button", { name: "新增第一个视频单元" }));
+      const dialog = await addDialog();
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "正文" }), {
+        target: { value: addUnitContract.append.prompt },
+      });
+      fireEvent.click(confirmAdd(dialog));
+      await waitFor(() => expect(addSpy).toHaveBeenCalledTimes(1));
+
+      const left = vi.fn();
+      act(() => leave(left));
+      const leftBeforeCreation = left.mock.calls.length;
+      await act(async () => { pending.resolve(created); });
+      await waitFor(() => expect(left).toHaveBeenCalledTimes(1));
+      expect(leftBeforeCreation).toBe(0);
+      expect(await screen.findByTestId("unit-row-E1U1")).toBeInTheDocument();
     });
 
     it("新增失败时保留对话框与已填写的正文，并提示原因", async () => {

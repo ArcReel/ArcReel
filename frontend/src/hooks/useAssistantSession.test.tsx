@@ -2605,6 +2605,35 @@ describe("useAssistantSession", () => {
     },
   );
 
+  it.each(["project", "new-session"] as const)(
+    "ignores the old session's interrupt failure after switching %s",
+    async (navigation) => {
+      vi.spyOn(API, "listAssistantSessions").mockResolvedValue({ sessions: [makeSession("session-1", "running")] });
+      vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+      const interrupted = createDeferred<Awaited<ReturnType<typeof API.interruptAssistantSession>>>();
+      vi.spyOn(API, "interruptAssistantSession").mockReturnValue(interrupted.promise);
+      const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+        initialProps: { projectName: "demo" },
+      });
+      await waitFor(() => expect(FakeSseStream.instances).toHaveLength(1));
+      let request: Promise<void>;
+      act(() => { request = result.current.interrupt(); });
+
+      if (navigation === "project") {
+        rerender({ projectName: "other" });
+      } else {
+        act(() => { result.current.createNewSession(); });
+      }
+      await waitFor(() => expect(FakeSseStream.instances).toHaveLength(navigation === "project" ? 2 : 1));
+      expect(useAssistantStore.getState().interrupting).toBe(false);
+      await act(async () => {
+        interrupted.reject(new Error("old interrupt failed"));
+        await request!;
+      });
+      expect(useAssistantStore.getState().error).toBeNull();
+    },
+  );
+
   it("invalidates a pending rewrite as soon as the current session is deleted", async () => {
     mockIdleSession([userEntry(0, "原始消息")]);
     // DELETE 挂起，让改写的受理落在它在途的那段窗口里

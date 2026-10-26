@@ -93,6 +93,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
         "frontend/src/i18n/*/events.ts",
         "frontend/src/types/workflow.ts",
         "frontend/src/data/example-templates/*",
+        "frontend/src/test/contracts/*",
     ),
     "market-core": ("packages/arcreel-market-core/*",),
     "catalog-core": ("packages/arcreel-catalog-core/*",),
