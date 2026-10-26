@@ -1,0 +1,4 @@
+{
+  "append": { "prompt": "镜头1：@[张三] 推门而入" },
+  "insert_after": { "prompt": "镜头1：@[张三] 推门而入", "after_unit_id": "E1U1" }
+}
