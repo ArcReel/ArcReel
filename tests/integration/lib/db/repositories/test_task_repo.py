@@ -528,6 +528,28 @@ class TestTaskRepository:
         result = await repo.list_tasks()
         assert result["total"] == 2
 
+    async def test_list_tasks_attaches_model_only_to_running_tasks(self, db_session):
+        usage = UsageRepository(db_session)
+        repo = TaskRepository(db_session)
+        running = await repo.enqueue(
+            project_name="demo", task_type="video", media_type="video", resource_id="E1S01", payload={}
+        )
+        await repo.claim_next("video")
+        queued = await repo.enqueue(
+            project_name="demo", task_type="video", media_type="video", resource_id="E1S02", payload={}
+        )
+        await usage.start_call(
+            project_name="demo", call_type="video", model="veo-old", provider="gemini", task_id=running["task_id"]
+        )
+        await usage.start_call(
+            project_name="demo", call_type="video", model="veo-3", provider="gemini", task_id=running["task_id"]
+        )
+
+        items = {item["task_id"]: item for item in (await repo.list_tasks(project_name="demo"))["items"]}
+
+        assert items[running["task_id"]]["model"] == "veo-3"
+        assert items[queued["task_id"]]["model"] is None
+
     async def test_task_has_cancelled_by_field(self, db_session):
         repo = TaskRepository(db_session)
         task = await repo.enqueue(

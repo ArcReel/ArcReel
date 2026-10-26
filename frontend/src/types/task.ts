@@ -44,6 +44,8 @@ export interface TaskItem {
   error_detail?: string;
   cancelled_by: "user" | "cascade" | "interrupted" | null;
   provider_id: string | null;
+  /** 运行中任务最近一次调用的模型；排队中或尚未发出调用时为 null。仅任务列表接口返回。 */
+  model?: string | null;
   provider_job_id: string | null;
   source: "webui" | "agent";
   queued_at: string;

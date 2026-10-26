@@ -267,6 +267,22 @@ describe("UsageRecordsSection records", () => {
     expect(await screen.findByRole("img", { name: "分镜 2" })).toBeInTheDocument();
   });
 
+  it("keeps only running tasks whose model matches the model filter", async () => {
+    useTasksStore.setState({
+      tasks: [
+        makeTask({ task_id: "t-match", status: "running", model: "veo-3", resource_id: "E1S01", resource_ref: itemRef("S01", 1) }),
+        makeTask({ task_id: "t-other", status: "running", model: "kling", resource_id: "E1S02", resource_ref: itemRef("S02", 2) }),
+        makeTask({ task_id: "t-queued", status: "queued", resource_id: "E1S03", resource_ref: itemRef("S03", 3) }),
+      ],
+    });
+    renderUsageRecordsSection("section=usage&u_model=veo-3");
+
+    expect(await screen.findByRole("img", { name: "分镜 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "分镜 2" })).not.toBeInTheDocument();
+    // 排队中的任务还没解析出模型，按模型筛选时不列出。
+    expect(screen.queryByRole("img", { name: "分镜 3" })).not.toBeInTheDocument();
+  });
+
   it("leaves local render tasks out of the in-progress block", async () => {
     useTasksStore.setState({
       tasks: [
