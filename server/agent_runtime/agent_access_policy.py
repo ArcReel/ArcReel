@@ -545,6 +545,7 @@ class AgentAccessPolicy:
     # 定义被改宽或 CLI 未按 frontmatter 收窄时，子智能体照样碰不到写入工具。两处名单须一致。
     READ_ONLY_SUBAGENT_TOOLS: ClassVar[dict[str, frozenset[str]]] = {
         "review-footage": frozenset({"Read", "Glob", "Grep", "mcp__arcreel__inspect_video_units"}),
+        "review-images": frozenset({"Read", "Glob", "Grep", "mcp__arcreel__inspect_images"}),
     }
 
     def check_subagent_tool(self, agent_type: object, tool_name: str) -> str | None:

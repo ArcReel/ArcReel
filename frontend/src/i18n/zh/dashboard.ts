@@ -2362,6 +2362,7 @@ export default {
   'tool_name_generate_videos': '生成视频',
   'tool_name_select_video_version': '切换视频版本',
   'tool_name_inspect_video_units': '查看视频单元画面',
+  'tool_name_inspect_images': '查看图片',
   'tool_name_create_timeline': '新建剪辑时间线',
   'tool_name_list_timelines': '列出剪辑时间线',
   'tool_name_read_timeline': '读取剪辑时间线',
