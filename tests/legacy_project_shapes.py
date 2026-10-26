@@ -1210,6 +1210,33 @@ def add_asset_names_differing_only_in_case(project_dir: Path, bucket: str, sheet
     return variant
 
 
+def write_legacy_shared_reference_project(root: Path, *, padded_names: bool = False) -> Path:
+    """schema 5 的跨资产共用：角色共用图与音频，同名商品也引用角色的图。"""
+    project_dir = root / "demo"
+    owner, borrower = (" Alice ", " Bob ") if padded_names else ("Alice", "Bob")
+    image, audio = f"characters/refs/{owner}.png", f"characters/refs_audio/{owner}.wav"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "title": "旧共用参考文件项目",
+            "characters": {
+                owner: {"description": "owner", "reference_image": image, "reference_audio": audio},
+                borrower: {"description": "borrower", "reference_image": image, "reference_audio": audio},
+            },
+            "scenes": {},
+            "props": {},
+            "products": {borrower: {"description": "product", "reference_images": [image]}},
+            "episodes": [],
+        },
+    )
+    for rel, content in ((image, b"image"), (audio, b"audio")):
+        path = project_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    return project_dir
+
+
 def share_reference_files(project_dir: Path) -> dict[str, bytes]:
     """旧版资产 PATCH 接受任意路径，参考图与参考音频可以指向别的资产名下的文件。
 

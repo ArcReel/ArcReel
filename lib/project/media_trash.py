@@ -6,7 +6,7 @@
 
 - 宫格：记录收宫格记录、联合图与它的版本历史快照。原 ID 空闲时整体加回，版本历史与产物清单登记取自迁移后的临时项目，
   照常按产物时效判定；ID 被占用时按取不出对象降级。
-- 尾帧、参考音频：原位置空闲则回原位，被占用则换新名加回。上级对象此刻没有指向可用文件时重新指向加回的文件，
+- 尾帧、参考音频：原位置空闲则回原位，被占用则换新名加回。回原位且上级对象此刻没有指向可用文件时重新指向加回的文件，
   否则加回的文件不被引用。
 """
 
@@ -208,7 +208,7 @@ def take_end_frame(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> R
 
 
 def take_reference_audio(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
-    """取出角色的参考音频：原位置空闲则回原位、被占用则换新名；角色此刻没有可用的参考音频时让它重新指向加回的文件。"""
+    """取出角色的参考音频：原位置空闲则回原位、被占用则换新名；回原位且角色没有可用参考音频时重新关联。"""
     rel, character = str(obj.get("path")), str(obj.get("character"))
     if not _is_plain_file(staged / rel):
         raise _failed(rel)
@@ -236,7 +236,8 @@ def take_reference_audio(project_dir: Path, staged: Path, obj: Mapping[str, Any]
 
         with formal_write_transaction(project_dir / ProjectManager.PROJECT_FILE):
             landing.place(staged / rel, target, original=rel)
-            if link:
+            # 换名后的文件不在角色自己名下，不能重新关联为参考音频。
+            if link and target == rel:
                 projects.update_project_locked(project_dir.name, relink)
         return {**obj, "path": target}
 
