@@ -22,6 +22,7 @@ from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
 from server.agent_toolset.repair_channel import MERGE_ASSET, PATCH_EPISODE_META, PATCH_PROJECT, RENAME_ASSET
 from server.agent_toolset.script_editing import PATCH_EPISODE_SCRIPT
 from server.tool_runtime import ScriptPatchResult, ToolMessage, ToolOutcome
+from tests.factories import make_sequence_direction, make_shot_continuity
 from tests.integration.server.agent_tool_support import ToolHarness, run_declared_tool
 
 
@@ -1771,3 +1772,60 @@ class TestMergeAssetTool:
         out = await run_declared_tool(MERGE_ASSET, merge_ctx, {"table": "products", "source": "甲", "target": "乙"})
 
         assert out.problem is not None
+
+
+async def test_native_director_revises_shared_direction_and_shot_continuity(drama_ctx: ToolHarness) -> None:
+    before = _load(drama_ctx)
+    direction = make_sequence_direction()
+    result = _committed(
+        await _patch(
+            drama_ctx,
+            [
+                {"op": "set_sequence_direction", "direction": direction},
+                {"op": "update", "id": "E1S01", "fields": {"continuity": make_shot_continuity()}},
+            ],
+        )
+    )
+    after = _load(drama_ctx)
+    assert after["sequence_direction"] == direction
+    assert after["scenes"][0]["continuity"] == make_shot_continuity()
+    assert after["scenes"][1] == before["scenes"][1]
+    assert result.revision != result.before_revision
+    assert result.regeneration_required_ids == ()
+
+
+async def test_native_director_can_insert_then_revise_shared_direction(drama_ctx: ToolHarness) -> None:
+    before = _load(drama_ctx)
+    direction = make_sequence_direction()
+    inserted = {**before["scenes"][0], "scene_id": "E1S99"}
+    result = _committed(
+        await _patch(
+            drama_ctx,
+            [
+                {"op": "insert", "after_id": "E1S01", "item": inserted},
+                {"op": "set_sequence_direction", "direction": direction},
+            ],
+        )
+    )
+    after = _load(drama_ctx)
+    assert after["sequence_direction"] == direction
+    assert len(after["scenes"]) == len(before["scenes"]) + 1
+    assert after["scenes"][1]["scene_id"] != "E1S99"
+    assert after["scenes"][0] == before["scenes"][0]
+    assert after["scenes"][2:] == before["scenes"][1:]
+    assert result.revision != result.before_revision
+
+
+async def test_sequence_direction_rejected_for_narration_without_partial_write(ctx: ToolHarness) -> None:
+    before = _load(ctx)
+    result = _rejected(
+        await _patch(
+            ctx,
+            [
+                {"op": "update", "id": "E1S01", "fields": {"duration_seconds": 8}},
+                {"op": "set_sequence_direction", "direction": make_sequence_direction()},
+            ],
+        )
+    )
+    assert result.problems[0].code == "operation_invalid"
+    assert _load(ctx) == before

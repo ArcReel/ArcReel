@@ -93,6 +93,19 @@ protected: false
 {% endif %}
 # 字段写作指引
 
+## Direct the sequence before dividing it into shots
+
+Write `sequence_direction` first. This is the shared filmmaking plan for the episode, not a list of unrelated pictures:
+
+- `dramatic_intent`: what the audience should understand or feel by the end, preserving the source story.
+- `action_arc`: the causal progression from setup through complication to consequence and reaction. A cut must advance this progression, not repeat a pose or action.
+- `geography`: the few spatial relationships and movement directions needed to understand the scene. Keep pedestrians on the sidewalk and vehicles in their lane. Avoid invented landmarks, exact step counts, pixel placement, and incidental left/right accessory rules.
+- `identity_anchors`: reference the registered characters, wardrobe, proportions and relative creature scale. Do not redesign them or repeat the entire reference sheet.
+- `audio_continuity`: identify the continuous narration/dialogue performance, the scene's musical development and sound bridges across cuts. Individual clips must not restart the score or invent a new voice. Describe the intended mix; do not claim audio controls the renderer does not have.
+- `allowed_adaptations`: filming choices that may change to avoid generation failures while retaining the story's cause and effect, dialogue and canon. Prefer a simpler motivated angle or separate readable action to overloaded choreography; do not silently remove the payoff.
+
+Give every scene a `continuity` object: its narrative `purpose`, observable `entry_state`, observable `exit_state`, and `cut_motivation` (why the audience should look at the next shot; for the last shot, how the ending resolves). Carry ongoing action and prop ownership across a cut. Use normal movement speed and enough time for speech; never plan slow-motion filler to meet the episode duration. One clear primary action per render does not mean one static pose per shot. These are editable directing decisions, not immutable canon or rigid exact-pose quality gates.
+
 把源文拆为有序分镜，逐条产出结构化分镜内容。当前正在生成第 {{ episode }} 集。
 
 ## 基础字段

@@ -62,6 +62,7 @@ from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import asset_name_comparison_key
 from lib.project.item_id_history import issue_landing_item_ids
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
+from lib.project.reference_library import append_reference_context, current_reference_context
 from lib.prompts.prompt_builders_ad import (
     build_ad_prompt,
     build_ad_reference_prompt,
@@ -153,6 +154,7 @@ from lib.script.script_review import (
 )
 from lib.script.script_skeleton import resolve_declared_kind, resolve_kind_items, rewrite_episode_prefix
 from lib.script.script_structure_validator import validate_script_structure
+from lib.script.sequence_direction import SequenceDirection, render_sequence_context
 from lib.speech.speech_composition import require_script_unit_admitted
 from lib.speech.speech_rate import project_speech_rate_override
 
@@ -285,9 +287,9 @@ class PlanningVideoFacts:
         """该桶的成功事实；解析不出即抛 :class:`VideoRequestFactsError`。"""
         return require_video_request_facts(self.result(generation_type))
 
-    def planning_durations(self, generation_type: VideoGenerationType) -> list[int]:
+    def planning_durations(self, generation_type: VideoGenerationType, planned_duration: object = None) -> list[int]:
         """该桶规划可选的时长档位（端点固定时借规划档位）；解析不出即抛。"""
-        return planning_durations(self.require(generation_type))
+        return planning_durations(self.require(generation_type), planned_duration)
 
 
 def _require_overwrite_acknowledged(
@@ -327,6 +329,7 @@ class ScriptGenerator:
         self.project_path = Path(project_path)
         self.generator = generator
         self.config_resolver = config_resolver
+        self._script_plan_direction: dict | None = None
         self._script_plan_fingerprint: str | None = None
         #: 加载器读到的脚本规划顶层 ``new_assets``，物化时据此改写引用并登记。
         self._script_plan_new_assets: object = None
@@ -587,10 +590,18 @@ class ScriptGenerator:
     async def _build_visual_prompt(
         self, episode: int, targets: PromptAuthoringTargets, instructions: str | None
     ) -> str:
+        references = await asyncio.to_thread(current_reference_context, self.project_path)
+        prompt = self._build_visual_prompt_content(episode, targets, instructions)
+        return append_reference_context(prompt, references)
+
+    def _build_visual_prompt_content(
+        self, episode: int, targets: PromptAuthoringTargets, instructions: str | None
+    ) -> str:
         """分镜类条目（segments / scenes / shots）的视觉层 prompt：输入是正式剧本里这些条目的内容字段。"""
         entries = list(targets.entries)
         if targets.kind == "scenes":
-            return self._build_drama_prompt_authoring_prompt(entries, episode, instructions)
+            prompt = self._build_drama_prompt_authoring_prompt(entries, episode, instructions)
+            return prompt + render_sequence_context(targets.script, set(targets.ids))
         if targets.kind == "shots":
             return self._build_ad_shot_prompt_authoring_prompt(episode, targets, instructions)
         return build_narration_prompt(
@@ -738,6 +749,7 @@ class ScriptGenerator:
         随本次写入撤登记，历史版本与当前媒体文件移进项目回收站。``project_update`` 与剧本在同一写事务内修改
         project.json，确认记录借此与正式剧本一起落盘。
         """
+        self._script_plan_direction = None
         self._script_plan_fingerprint = None
         self._script_plan_new_assets = None
         self._artifact_basis = None
@@ -763,7 +775,12 @@ class ScriptGenerator:
         filename = await asyncio.to_thread(formal_script_filename, self.project_path, self.project_json, episode)
         # 集标题取分集账本：drama 规划里模型起的标题照填、不采用，免得冻结派生集名或覆盖用户的标题。
         script_data = build_materialized_script(
-            self.project_json, episode, plan_kind=plan_kind, plan_entries=plan_entries, title=None
+            self.project_json,
+            episode,
+            plan_kind=plan_kind,
+            plan_entries=plan_entries,
+            title=None,
+            sequence_direction=self._script_plan_direction,
         )
         items_key = plan_variant(plan_kind).skeleton_kind
         id_field = entry_id_field(plan_kind)
@@ -1072,7 +1089,7 @@ class ScriptGenerator:
         if self.content_mode == "ad":
             return self._build_ad_reference_prompt_authoring_prompt(episode, targets, instructions)
         facts = await self._fetch_video_request_facts()
-        return self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions)
+        return await self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions)
 
     @property
     def _storyboard_bucket(self) -> VideoGenerationType:
@@ -1112,7 +1129,7 @@ class ScriptGenerator:
         1080p 的 Veo 项目的剧本会产出 4/6 秒分镜，到视频入队时才被 backend 拒，用户已无统一纠正
         入口。解析不出即抛 :class:`VideoRequestFactsError`。
         """
-        return facts.planning_durations(self._storyboard_bucket)
+        return facts.planning_durations(self._storyboard_bucket, self.project_json.get("default_duration"))
 
     def _unit_duration_off_every_tier(
         self, duration: int, *, facts: PlanningVideoFacts, generation_type: VideoGenerationType
@@ -1126,7 +1143,7 @@ class ScriptGenerator:
         for candidate in ("r2v", "i2v"):
             if self._unit_duration_off_tier(duration, facts=facts, generation_type=candidate) is None:
                 return None
-        return facts.planning_durations(generation_type)
+        return facts.planning_durations(generation_type, self.project_json.get("default_duration"))
 
     def _unit_duration_off_tier(
         self, duration: int, *, facts: PlanningVideoFacts, generation_type: VideoGenerationType
@@ -1138,7 +1155,7 @@ class ScriptGenerator:
         result = facts.result(generation_type)
         if not isinstance(result, VideoRequestFacts):
             return []
-        tiers = planning_durations(result)
+        tiers = planning_durations(result, self.project_json.get("default_duration"))
         return None if resolve_duration_slot(duration, tiers).seconds == duration else tiers
 
     def _hydrate_reference_units(self, units: Sequence[dict]) -> tuple[ReferenceUnitHydration, ...]:
@@ -1430,6 +1447,10 @@ class ScriptGenerator:
             raise ValueError("脚本规划内容文件结构异常：顶层应为对象 {title, scenes}")
         self._script_plan_fingerprint = content_fingerprint_of_data(data)
         self._script_plan_new_assets = data.get(NEW_ASSETS_FIELD)
+        direction = data.get("sequence_direction")
+        self._script_plan_direction = (
+            SequenceDirection.model_validate(direction).model_dump() if direction is not None else None
+        )
         scenes = data.get("scenes")
         if not isinstance(scenes, list) or not scenes:
             raise ValueError("脚本规划内容文件结构异常：scenes 必须是非空的分镜对象数组")
@@ -1535,7 +1556,14 @@ class ScriptGenerator:
                     raise enriched[0] from exc
                 raise DraftViolations(enriched) from exc
 
-    def _build_reference_prompt_authoring_prompt(
+    async def _build_reference_prompt_authoring_prompt(
+        self, episode: int, targets: PromptAuthoringTargets, facts: PlanningVideoFacts, instructions: str | None
+    ) -> str:
+        references = await asyncio.to_thread(current_reference_context, self.project_path)
+        prompt = self._build_reference_prompt_content(episode, targets, facts, instructions)
+        return append_reference_context(prompt, references)
+
+    def _build_reference_prompt_content(
         self, episode: int, targets: PromptAuthoringTargets, facts: PlanningVideoFacts, instructions: str | None
     ) -> str:
         return build_reference_video_prompt(
@@ -1590,7 +1618,7 @@ class ScriptGenerator:
         logger.info("正在为第 %d 集编写提示词（video_units，%d/%d 个单元）...", episode, len(units), len(targets.items))
         result = await self._generate_text(
             TextGenerationRequest(
-                prompt=self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions),
+                prompt=await self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions),
                 response_schema=ReferencePromptAuthoringFlatScript,
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             )

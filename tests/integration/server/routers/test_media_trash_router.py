@@ -77,7 +77,9 @@ def _set_end_frame(media_trash_pm: ProjectManager, content: bytes) -> None:
 
 def _clear_end_frame(media_trash_pm: ProjectManager) -> None:
     project_dir = media_trash_pm.get_project_path("demo")
-    end_frame_service._clear_snapshot_and_field("demo", "episode_1.json", "E1S01", project_dir / END_FRAME)
+    end_frame_service._clear_snapshot_and_field(
+        media_trash_pm, "demo", "episode_1.json", "E1S01", project_dir / END_FRAME
+    )
 
 
 def test_a_superseded_grid_comes_back_with_its_version_history_and_claim(media_trash_pm, media_trash_client):

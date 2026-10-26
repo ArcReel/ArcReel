@@ -27,6 +27,7 @@ from lib.script.item_ids import format_item_id
 from lib.script.reference_video.draft_validation import DraftViolation
 from server.draft_workflow import DraftContext, DraftWorkflow
 from server.text_generation import TextGenerationError, TextGenerationRequest, generate_reference_script_plan
+from tests.factories import make_sequence_direction, make_shot_continuity
 from tests.fakes import FakeTextGenerator, use_text_generator
 from tests.integration.server.agent_tool_support import (
     _RV_NOVEL,
@@ -1167,6 +1168,8 @@ async def test_normalize_drama_script_clears_quarantine_on_regeneration(fake_ctx
     assert drama_quarantine_path(fake_ctx).exists()
 
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重新规范化后的描述。")]}
+    regenerated["sequence_direction"] = make_sequence_direction()
+    regenerated["scenes"][0]["continuity"] = make_shot_continuity()
 
     use_fake_caps(fake_ctx)
     use_text_generator(monkeypatch, FakeTextGenerator(json.dumps(regenerated, ensure_ascii=False)).create)
@@ -1187,6 +1190,8 @@ async def test_normalize_drama_script_serializes_commit_with_draft_edits(fake_ct
     await open_drama_for_edit(fake_ctx, source="source/episode_1.txt")
 
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重新规范化后的描述。")]}
+    regenerated["sequence_direction"] = make_sequence_direction()
+    regenerated["scenes"][0]["continuity"] = make_shot_continuity()
 
     use_fake_caps(fake_ctx)
     use_text_generator(monkeypatch, FakeTextGenerator(json.dumps(regenerated, ensure_ascii=False)).create)
@@ -1225,6 +1230,8 @@ async def test_normalize_drama_script_preserves_draft_edited_during_model_call(
     started = asyncio.Event()
     release = asyncio.Event()
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="重生成内容")]}
+    regenerated["sequence_direction"] = make_sequence_direction()
+    regenerated["scenes"][0]["continuity"] = make_shot_continuity()
 
     class _Generator:
         async def generate(self, _request, project_name=None):
@@ -1278,6 +1285,8 @@ async def test_normalize_drama_script_preserves_output_when_formal_changes_durin
     started = asyncio.Event()
     release = asyncio.Event()
     regenerated = {"title": "第一集", "scenes": [drama_scene(scene_description="本次生成内容")]}
+    regenerated["sequence_direction"] = make_sequence_direction()
+    regenerated["scenes"][0]["continuity"] = make_shot_continuity()
 
     class _Generator:
         async def generate(self, _request, project_name=None):

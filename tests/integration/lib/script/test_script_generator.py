@@ -846,7 +846,11 @@ class TestScriptGenerator:
         generator = ScriptGenerator(project_path, generator=fake, config_resolver=_resolver())
         await generator.generate(1, instructions="打斗场面多给全景")
 
-        assert fake.backend.last_request.prompt.endswith("# 附加指令\n打斗场面多给全景")
+        assert (
+            fake.backend.last_request.prompt.split("## Sequence continuity context")[0]
+            .rstrip()
+            .endswith("# 附加指令\n打斗场面多给全景")
+        )
 
     async def test_generate_drama_prompt_authoring_rejects_mixed_scene_before_backend_call(self, tmp_path):
         """待编写分镜的台词混入旁白：发声准入在调用文本模型之前拒绝，正式剧本不动。"""

@@ -8,6 +8,15 @@
 /** Claude CLI 固定追加的路径段。 */
 export const MESSAGES_PATH = "/v1/messages";
 
+export function isDirectOpenAIAgentBaseUrl(raw: string): boolean {
+  return [
+    "https://api.openai.com",
+    "https://api.openai.com/",
+    "https://api.openai.com/v1",
+    "https://api.openai.com/v1/",
+  ].includes(raw.trim());
+}
+
 /**
  * 去首尾空白、去尾部斜杠；末尾恰好是 /v1/messages 时去掉这一段。
  *

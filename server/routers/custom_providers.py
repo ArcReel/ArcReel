@@ -18,12 +18,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from arcreel_market_core.endpoint_definition import COMFYUI_KIND
 from arcreel_market_core.video_backend_contract import ReferenceAudioMode, audio_capability_pair_is_coherent
+from lib.agent.agent_provider_catalog import OPENAI_DIRECT_PRESET_ID
 from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.backends.image_backends.base import ImageCapability
 from lib.catalog.model_id import has_dot_segment
 from lib.catalog.query import binding_key, find_bound_entry
 from lib.config.repository import mask_secret
+from lib.config.url_utils import is_direct_openai_agent_base_url
 from lib.custom_provider import is_custom_endpoint, make_provider_id
 from lib.custom_provider.capabilities import (
     AUDIO_OVERRIDE_KEYS,
@@ -1477,6 +1479,13 @@ async def discover_anthropic_models_endpoint(
         raise HTTPException(status_code=400, detail=_t("anthropic_discovery_no_key"))
 
     base_url = body.base_url if not needs_url else (_credential_discovery_base(cred) if cred else None)
+    if (
+        needs_key
+        and cred is not None
+        and (cred.preset_id == OPENAI_DIRECT_PRESET_ID or is_direct_openai_agent_base_url(cred.base_url))
+        and not is_direct_openai_agent_base_url(base_url)
+    ):
+        raise HTTPException(status_code=422, detail=_t("agent_openai_base_url_required"))
     if base_url:
         from lib.config.url_utils import InvalidAnthropicBaseUrlError, validate_anthropic_base_url
 

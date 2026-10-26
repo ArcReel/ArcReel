@@ -541,3 +541,24 @@ def register_project_sources(
             register_whole_source_file(project, f"source/{filename}")
         episode_ids.extend(add_own_source_episode(project_dir, project, text, undo=undo) for text in own_episodes)
     return episode_ids
+
+
+def make_sequence_direction() -> dict[str, str]:
+    return {
+        "dramatic_intent": "Reveal the hidden visitor through its effect on the owner.",
+        "action_arc": "A quiet walk is interrupted by a rustle; the visitor appears; the owner reacts.",
+        "geography": "Stay on the same sidewalk, walking toward school.",
+        "identity_anchors": "Use the registered character and creature references at consistent scale.",
+        "audio_continuity": "One narration performance and continuous score; rustle bridges the cut.",
+        "allowed_adaptations": "Simplify coverage and gestures while retaining the discovery and reaction.",
+    }
+
+
+def make_shot_continuity(**overrides: str) -> dict[str, str]:
+    return {
+        "purpose": "Motivate the discovery with a sound from the bag.",
+        "entry_state": "The owner walks with a closed bag.",
+        "exit_state": "The owner hears the bag rustle and looks toward it.",
+        "cut_motivation": "Follow attention to the source of the rustle.",
+        **overrides,
+    }

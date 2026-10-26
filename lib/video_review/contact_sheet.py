@@ -184,12 +184,14 @@ async def build_contact_sheets(
     frames: int,
     frame_times: Sequence[float] | None = None,
     signals: VideoSignals | None = None,
+    start_frame: int | None = None,
 ) -> tuple[ContactSheet, ...]:
     """为一个视频版本抽约 ``frames`` 帧，按顺序拼成一张或几张联系表。
 
     抽帧按 :func:`lib.video_review.sampling.plan_frame_indices` 计划：有 ``signals`` 时每个镜头至少一帧、
     信号两侧加密，镜头数超过 ``frames`` 时总帧数提到镜头数（不超过 :data:`MAX_SHOT_FRAMES`）；
     视频帧数更少时全取。``frame_times`` 缺省时现场探测。
+    ``start_frame`` 指定时改为连续帧窗口，不跨过中间帧；窗口最多取 ``MAX_SHOT_FRAMES`` 帧。
 
     Raises:
         FfmpegUnavailableError: 随包 ffmpeg 不可用。
@@ -197,7 +199,12 @@ async def build_contact_sheets(
         ContactSheetError: 抽帧失败或超时。
     """
     times = frame_times if frame_times is not None else await probe_video_frame_times(video_path)
-    indices = plan_frame_indices(times, signals, frames, max_count=MAX_SHOT_FRAMES)
+    if start_frame is None:
+        indices = plan_frame_indices(times, signals, frames, max_count=MAX_SHOT_FRAMES)
+    else:
+        if not 0 <= start_frame < len(times) or frames < 1:
+            raise ContactSheetError("Invalid consecutive frame window")
+        indices = list(range(start_frame, min(start_frame + min(frames, MAX_SHOT_FRAMES), len(times))))
     images = await _extract_frames(video_path, indices)
     chunks = [
         (

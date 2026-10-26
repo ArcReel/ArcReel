@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from tests.factories import make_sequence_direction, make_shot_continuity
 from tests.fakes import use_text_generator
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
@@ -171,7 +172,13 @@ async def test_drama_plan_references_must_be_registered_or_listed(
         characters_in_scene=["阿离", "小桃"],
         utterances=[{"kind": "dialogue", "speaker": "小桃", "text": "姐姐回来了。"}],
     )
-    content = {"title": "第一集", "scenes": [scene], "new_assets": new_assets}
+    scene["continuity"] = make_shot_continuity()
+    content = {
+        "title": "第一集",
+        "sequence_direction": make_sequence_direction(),
+        "scenes": [scene],
+        "new_assets": new_assets,
+    }
     use_text_generator(monkeypatch, _drama_generator(content))
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})

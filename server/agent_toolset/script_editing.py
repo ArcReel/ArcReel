@@ -33,7 +33,8 @@ def _script_patch_summary(result: ScriptPatchResult) -> str:
 PATCH_EPISODE_SCRIPT = ToolDeclaration(
     name="patch_episode_script",
     description=(
-        "按 canonical revision 原子执行有序剧本 operations（update / insert / move / remove / split）。"
+        "按 canonical revision 原子执行有序剧本 operations（update / insert / move / remove / split / set_sequence_direction）。"
+        "set_sequence_direction revises the shared drama directing plan; update continuity on affected shots and reauthor their prompts. "
         "先在内存形成完整 candidate，再统一校验 schema、项目引用、Artifact Manifest 与 SpeechComposition；"
         "任一问题整批零写入，结果 success=false，problems 给出稳定 code、operation_index、unit/field location 与 "
         "next_action，发声组合问题另附 speech_admission。insert 与 split 的新条目 id 由服务端分配：取本集用过的最大序号之后的号，"

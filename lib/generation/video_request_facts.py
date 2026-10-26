@@ -236,7 +236,7 @@ def require_video_request_facts(result: VideoRequestFacts | VideoRequestFactsFai
     return result
 
 
-def planning_durations(facts: VideoRequestFacts) -> list[int]:
+def planning_durations(facts: VideoRequestFacts, planned_duration: object = None) -> list[int]:
     """剧本规划可选的时长档位：收窄后的档位；时长由端点固定时借 :data:`ENDPOINT_FIXED_PLANNING_DURATIONS`。
 
     成功事实的 ``allowed_durations`` 只在端点固定时为空（收成空集是失败），本函数因此对成功事实
@@ -247,6 +247,9 @@ def planning_durations(facts: VideoRequestFacts) -> list[int]:
     if facts.allowed_durations:
         return list(facts.allowed_durations)
     if facts.duration_endpoint_fixed:
+        # A configured planning length is not a claim that the endpoint can vary its output.
+        if isinstance(planned_duration, int) and not isinstance(planned_duration, bool) and planned_duration > 0:
+            return [planned_duration]
         return list(ENDPOINT_FIXED_PLANNING_DURATIONS)
     return []
 

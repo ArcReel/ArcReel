@@ -139,6 +139,13 @@ Test runs appear in the ComfyUI queue as `endpoint-test-…`, with a random suff
 
 ## 7. Operations and Storage {#operations}
 
+The optional Mac adapter in `deploy/comfyui/` selects dedicated keyframe interpolation
+when both starting and ending images are supplied. It requires the development and
+pre-fused refinement weights and more available memory than its start-only preset;
+missing resources fail before generation. See that directory's installation guide
+for the pinned runtime and memory requirements. Visually distinct, achievable
+end states still need motion review: successful generation is not creative approval.
+
 - Uploaded assets are stored under ComfyUI's `input/arcreel/`, separate from images you upload yourself. ArcReel **does not clean them up automatically** and they accumulate with use; monitor disk space according to your own retention policy and delete the directory's contents when needed.
 - Default concurrency is 1. On a single-GPU ComfyUI instance, raising it usually only creates a longer remote queue; increase it only when the machine has capacity.
 - **The video poll timeout is configurable** under Settings → Video poll timeout (seconds), minimum 60, applying to tasks that start processing after the change. ComfyUI runs on your own GPU and queues work, so the default may be too short for large graphs — set it from your real generation times. Image tasks have no such setting and use a fixed, generous limit.

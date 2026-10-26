@@ -45,6 +45,7 @@ from lib.episode.episode_sources import (
     whole_source_files,
 )
 from lib.project.asset_types import ASSET_SPECS, DERIVATIVES_FIELD, normalize_asset_name
+from lib.project.reference_library import REFERENCE_DIRECTORY, ReferenceLibrary
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE, END_FRAME_RESOURCE_TYPE
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
 from lib.script.script_models import get_generated_assets
@@ -189,6 +190,7 @@ class ReferenceIndex:
         index._index_project_files(project)
         index._index_scripts(project_dir, project)
         index._index_sources(project)
+        index._index_reference_library(project_dir)
         index._index_manifest(project_dir)
         index._index_versions(project_dir)
         index._index_grid_records(project_dir)
@@ -296,7 +298,8 @@ class ReferenceIndex:
                     continue
                 owner = FileOwner("asset", id=str(name), asset_type=asset_type)
                 self._resources.add((spec.bucket_key, normalize_asset_name(str(name))))
-                for field in (spec.sheet_field, *spec.extra_string_fields, *spec.original_image_fields):
+                audio_fields = ("reference_audio",) if asset_type == "character" else ()
+                for field in (spec.sheet_field, *spec.original_image_fields, *audio_fields):
                     for value in _as_list(asset.get(field)):
                         self._mark(value, FileRole.REFERENCED, owner)
                 derivatives = asset.get(DERIVATIVES_FIELD) if spec.supports_derivatives else None
@@ -315,6 +318,25 @@ class ReferenceIndex:
         for track in bgm.values() if isinstance(bgm, Mapping) else ():
             if isinstance(track, Mapping):
                 self._mark(track.get("file"), FileRole.REFERENCED, _PROJECT)
+
+    def _index_reference_library(self, project_dir: Path) -> None:
+        manifest = f"{REFERENCE_DIRECTORY}/index.json"
+        data = _read_json(project_dir / manifest)
+        if data is None:
+            return
+        library = ReferenceLibrary.model_validate(data)
+        self._mark(manifest, FileRole.STRUCTURE, _PROJECT)
+        for document in library.documents:
+            for revision in document.revisions:
+                directory = f"{REFERENCE_DIRECTORY}/{document.id}/{revision.digest}"
+                role = FileRole.REFERENCED if revision.digest == document.latest else FileRole.HISTORY
+                self._mark(f"{directory}/original.pdf", role, _PROJECT)
+                for context in (project_dir / directory).glob("context-*.md"):
+                    if re.fullmatch(r"context-[a-f0-9]{64}\.md", context.name):
+                        self._mark(context.relative_to(project_dir).as_posix(), FileRole.HISTORY, _PROJECT)
+            if document.context_digest:
+                current = f"{REFERENCE_DIRECTORY}/{document.id}/{document.latest}/context-{document.context_digest}.md"
+                self._mark(current, FileRole.REFERENCED, _PROJECT)
 
     def _index_scripts(self, project_dir: Path, project: Mapping[str, Any]) -> None:
         for entry in _ledger(project):

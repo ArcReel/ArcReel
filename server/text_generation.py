@@ -50,6 +50,7 @@ from lib.infra.schema_guards import is_int, is_str
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import ASSET_SPECS, BUCKET_KEY, asset_name_comparison_key
 from lib.project.project_manager import ProjectManager, is_reference_video_project
+from lib.project.reference_library import append_reference_context, current_reference_context
 from lib.prompts.prompt_builders_reference import build_reference_units_split_prompt
 from lib.prompts.prompt_builders_script import build_narration_split_prompt, build_normalize_prompt
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
@@ -459,7 +460,7 @@ async def fetch_storyboard_durations(
     fail-loud 的——不归 None 会把「已保存的越界默认时长」变成整个工具的硬失败。
     """
     facts = require_video_request_facts(await storyboard_request_facts(project, config_resolver))
-    durations = planning_durations(facts)
+    durations = planning_durations(facts, project.get("default_duration"))
     default = _project_default_duration(project)
     return (default if default in durations else None), durations
 
@@ -550,6 +551,7 @@ def load_script_plan_source_with_basis(
         episode=episode,
         project=project,
         expected_variant=expected_variant,
+        reference_context=current_reference_context(project_path),
     )
     return novel_text, prompt_inputs, basis
 
@@ -978,6 +980,10 @@ async def generate_drama_script_plan(
             instructions=instructions,
         )
 
+        prompt = append_reference_context(
+            prompt, cast(list[dict[str, str]], prompt_inputs.get("reference_context", []))
+        )
+
         if request.dry_run:
             return TextGenerationResult(
                 f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}\n\nPrompt 长度: {len(prompt)} 字符"
@@ -993,7 +999,7 @@ async def generate_drama_script_plan(
                 draft_path,
                 script_plan_path,
             )
-        schema = build_drama_normalized_script_model(supported_durations)
+        schema = build_drama_normalized_script_model(supported_durations, require_direction=True)
         generator = await TextGenerator.create(
             TextTaskType.SCRIPT, project_name=project_name, purpose=CallPurpose.SCRIPT_GENERATION
         )
@@ -1129,8 +1135,12 @@ async def fetch_reference_split_caps(
     request_facts = reference_request_facts_lookup(project, config_resolver)
     with_ref_facts = require_video_request_facts(await request_facts("r2v"))
     without_ref_facts = await request_facts("i2v")
-    with_refs = planning_durations(with_ref_facts)
-    without_refs = planning_durations(without_ref_facts) if isinstance(without_ref_facts, VideoRequestFacts) else []
+    with_refs = planning_durations(with_ref_facts, project.get("default_duration"))
+    without_refs = (
+        planning_durations(without_ref_facts, project.get("default_duration"))
+        if isinstance(without_ref_facts, VideoRequestFacts)
+        else []
+    )
     unit_durations = sorted(set(with_refs) | set(without_refs))
     default = _project_default_duration(project)
     return ReferenceSplitCaps(
@@ -1719,6 +1729,10 @@ async def generate_reference_script_plan(
             instructions=instructions,
         )
 
+        prompt = append_reference_context(
+            prompt, cast(list[dict[str, str]], prompt_inputs.get("reference_context", []))
+        )
+
         if request.dry_run:
             return TextGenerationResult(
                 f"DRY RUN — 以下是将发送给文本模型的 Prompt:\n\n{prompt}\n\nPrompt 长度: {len(prompt)} 字符"
@@ -1886,6 +1900,10 @@ async def generate_narration_script_plan(
             target_language=cast(str, prompt_inputs["target_language"]),
             episode_target_duration=cast(int | None, prompt_inputs["episode_target_duration"]),
             instructions=instructions,
+        )
+
+        prompt = append_reference_context(
+            prompt, cast(list[dict[str, str]], prompt_inputs.get("reference_context", []))
         )
 
         if request.dry_run:

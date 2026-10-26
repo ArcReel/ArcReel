@@ -48,12 +48,20 @@ from lib.script.script_editor import ScriptEditError, new_item_id, patch_field, 
 from lib.script.script_models import PENDING_AUTHORING_FIELD
 from lib.script.script_review import content_fingerprint_of_data
 from lib.script.script_structure_validator import validate_script_structure
+from lib.script.sequence_direction import SequenceDirection
 from lib.script.storyboard_mentions import storyboard_mention_warnings
 from lib.speech.speech_composition import SpeechAdmission, admit_script_unit, refresh_video_unit_replan_state
 
 _REVISION_PATTERN = r"^sha256-v1:[0-9a-f]{64}$"
 
 logger = logging.getLogger(__name__)
+
+
+class SetSequenceDirectionOperation(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    op: Literal["set_sequence_direction"]
+    direction: SequenceDirection
 
 
 class UpdateOperation(BaseModel):
@@ -88,7 +96,7 @@ class RemoveOperation(BaseModel):
 
 
 ScriptBatchOperation = Annotated[
-    UpdateOperation | InsertAfterOperation | MoveAfterOperation | RemoveOperation,
+    UpdateOperation | InsertAfterOperation | MoveAfterOperation | RemoveOperation | SetSequenceDirectionOperation,
     Field(discriminator="op"),
 ]
 
@@ -689,7 +697,7 @@ def _with_issued_ids(operation: ScriptBatchOperation, issued_ids: Mapping[str, s
     if not issued_ids:
         return operation
     update: dict[str, Any] = {}
-    if not isinstance(operation, InsertAfterOperation) and operation.id in issued_ids:
+    if not isinstance(operation, InsertAfterOperation | SetSequenceDirectionOperation) and operation.id in issued_ids:
         update["id"] = issued_ids[operation.id]
     after_id = operation.after_id if isinstance(operation, InsertAfterOperation | MoveAfterOperation) else None
     if after_id is not None and after_id in issued_ids:
@@ -698,6 +706,8 @@ def _with_issued_ids(operation: ScriptBatchOperation, issued_ids: Mapping[str, s
 
 
 def _operation_id(operation: ScriptBatchOperation) -> str | None:
+    if isinstance(operation, SetSequenceDirectionOperation):
+        return None
     if isinstance(operation, InsertAfterOperation):
         _items = operation.item
         for field in ("segment_id", "scene_id", "shot_id", "unit_id"):
@@ -735,6 +745,12 @@ def _apply_operation(
     *,
     preserve_removed_assets: bool,
 ) -> tuple[str | None, SpeechAdmission | None, SpeechAdmission | None]:
+    if isinstance(operation, SetSequenceDirectionOperation):
+        _items, _id_field, kind = resolve_items(script)
+        if kind != "scenes":
+            raise _OperationApplyError("sequence direction requires a drama script", location=("direction",))
+        script["sequence_direction"] = operation.direction.model_dump()
+        return None, None, None
     if isinstance(operation, UpdateOperation):
         item_id = operation.id
         before = _admission_for(script, item_id)

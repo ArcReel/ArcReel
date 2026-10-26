@@ -437,6 +437,7 @@ async def test_remote_mcp_returns_typed_workflow_plan_and_rejects_bad_project(
         "move",
         "remove",
         "split",
+        "set_sequence_direction",
     }
     assert all(branch["additionalProperties"] is False for branch in operation_branches)
     assert result.structuredContent is not None

@@ -185,6 +185,10 @@ flowchart TD
 
 其中前三项是脚本规划，规划时同时识别本集新增资产。
 
+剧情演绎的新脚本规划还须包含整集 `sequence_direction` 和各分镜的 `continuity`：前者记录戏剧意图、因果推进、空间关系、身份锚点、连续声音及允许的拍摄调整；后者记录分镜目的、起始状态、结束状态和切换动机。内容确认将这些字段带入正式脚本。为指定分镜编写提示词时，输入包含共享方向及相邻分镜的内容，输出仍只更新指定分镜的视觉提示词。旧脚本可继续读取，不会被自动补写这些字段。
+
+`patch_episode_script` 的 `set_sequence_direction` 操作可与分镜 `continuity` 更新放在同一批次，沿用 revision 校验与原子提交。调整后需重新编写受影响的提示词；操作本身不重新生成或删除媒体。字段完整只证明计划结构有效，连续性仍须通过实际运动、镜头衔接和声音审查确认。
+
 大量小说原文和中间推理尽量保留在子智能体内部，主 Agent 接收摘要和结果引用。
 
 子智能体 `.md` 中的速查或浓缩清单不得省略规则的例外分支；无法完整保留时只引用规则的真相源，不复述规则。
@@ -203,6 +207,10 @@ flowchart TD
 这类操作不应反复交给语言模型自由生成。
 
 Agent 工具在 `server/agent_toolset/` 只声明一次：内嵌会话经 `server/agent_runtime/arcreel_mcp.py` 构建进程内 MCP server，外部 Agent 经远程 MCP，两侧都从这份声明投影（[ADR 0087](https://github.com/ArcReel/ArcReel/blob/main/docs/adr/0087-agent-toolset-single-declaration.md)）。`tests/integration/server/agent_toolset/test_host_consistency.py` 校验两侧宿主注册的工具集合与声明相同。
+
+分镜图生视频可通过 `set_video_end_frame` 选择项目内已有图片作为尾帧，显式传 `source_path: null` 清除。Agent 与 Web 共用 `server/services/project/end_frame.py` 的快照、路径校验、剧本锁与失败回滚；工具绑定调用方的项目管理器，不从模型参数选择项目根目录。设置只影响下一次生成，不会修改现有视频。参考生视频不接受尾帧；生成前核对模型能力，生成后核对请求实际包含尾帧，并审阅中间运动。
+
+`select_storyboard_version` 通过 `server/services/currency/image_version_restore.py` 与 Web 共用还原事务，按元数据、版本文件与指针、产物依据的顺序持锁写入。工具限定当前项目中的分镜；还原首帧不修改已冻结的尾帧。Agent 可先记录首帧版本，编辑并检查尾帧、保存尾帧快照，再还原首帧版本，最后检查两帧并生成视频。
 
 ### 5.4 会话串行 {#session-actor}
 
@@ -521,6 +529,8 @@ HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id
 ### 看素材 {#video-review}
 
 Agent 工具 `inspect_video_units` 让 Agent 看图审阅视频单元。服务端为每个视频单元的一个视频版本（默认 current，可指定历史版本，读该版本的快照）出联系表：用随包 ffmpeg 先只解复用读出逐帧时刻，按抽帧计划选帧，再一次解码取出选中的帧，因此每帧标注的时刻就是该帧自身的起点，与剪辑时间线的入出点同一时间轴。每张联系表最多 12 帧，长边不超过 2000 px，顶部标视频单元 ID 与版本号，每帧标视频单元 ID 与时刻；一次调用最多 96 帧，单元多时按单元数平分，不另设单元数上限。联系表不落盘，由 `lib/video_review/` 生成。
+
+指定可选的 `start_frame`（零起点非负整数）时，从该帧起连续取 `frames` 帧，片尾不足时返回剩余帧，不再均匀取样或按信号增加帧数，仍遵守上述预算。返回的 `frame_window` 包含 `start_frame`、`end_frame_exclusive`、`source_frame_count` 与 `next_start_frame`；固定返回的 `version`，使用 `next_start_frame` 可以连续检查短暂变形、接触与动作先后，值为 null 表示片尾。起点超出素材返回 `frame_out_of_range`，不生成图片或审阅回执。省略 `start_frame` 时保持原抽样行为。回执只证明对应版本和时间点被抽帧，不代表画面通过；逐帧联系表也不能证明原速节奏、声音或整片质量通过。
 
 联系表附带三类机器检查信号：黑屏段、卡帧段和镜头切换点，同样由随包 ffmpeg 在本地算出（`blackdetect`、`freezedetect` 与 `scene` 打分，一次解码完成）。黑屏段与卡帧段是疑似缺陷，黑屏不重复计入卡帧；镜头切换点是结构信息，不是缺陷。信号只作提示，不自动裁切或废弃素材。信号按视频版本惰性计算：版本第一次被看时才算，结果以 JSON 缓存在项目目录的 `.cache/video_signals/` 下，以视频文件的大小与修改时间作指纹，不接入生成链路。抽帧计划保证每个镜头至少一帧，并在信号两侧加密，预算有余时补均匀取样点；镜头数超过帧数预算时，每单元实际帧数提到镜头数，上限 24 帧。命中信号的帧在联系表上标 `CUT`、`BLACK` 或 `FREEZE`，信号区间也随结果返回。
 

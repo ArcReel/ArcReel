@@ -22,7 +22,9 @@ The Agent is responsible for:
 - Normalizing screenplays;
 - Orchestrating subsequent generation tasks.
 
-ArcReel's Agent Runtime is based on the Claude Agent SDK and supports Anthropic's official service as well as compatible configurations supported by the project.
+ArcReel's Agent Runtime uses the local Claude Agent SDK for tools, sessions, and permissions. It supports OpenAI Direct, Anthropic's official service, and compatible configurations supported by the project.
+
+To use existing OpenAI API credits, add **OpenAI Direct** in Settings → Agent providers, enter an OpenAI API key, choose an available model, test the connection, and activate the provider. Requests go directly to OpenAI; no Anthropic account or external gateway account is needed. The official address is fixed, and empty model tiers use the main model. **ArcReel API** is a separate gateway with its own billing and does not spend your OpenAI credits. Image and video generation providers remain configured separately.
 
 The Agent provider does not necessarily handle the actual image and video generation.
 

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "wouter";
+import { Link, useSearchParams } from "wouter";
 
+import { buttonVariants } from "@/components/ui/button";
 import { useConfirmLeave } from "@/components/shared/edit-unit/LeaveGuard";
 import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
 import { EPISODE_VIEW_PARAM } from "@/app-routes";
@@ -210,8 +211,9 @@ function EpisodePageContent({
             />
           }
           progress={
-            // 演示态没有真实项目事实可投影，制作进度不挂载。
             demo ? null : (
+              <>
+              <Link href={`/reel/${episode}`} className={buttonVariants({ variant: "outline", size: "sm" })}>{t("reel_open")}</Link>
               <WorkflowPanel
                 projectName={projectName}
                 episode={episode}
@@ -219,6 +221,7 @@ function EpisodePageContent({
                 onRegenerate={onRegenerate}
                 onAuthorPrompts={script ? openAuthorPrompts : undefined}
               />
+              </>
             )
           }
           tabs={tabs}

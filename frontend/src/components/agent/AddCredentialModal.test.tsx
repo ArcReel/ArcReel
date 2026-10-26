@@ -11,6 +11,21 @@ beforeEach(() => {
   vi.spyOn(API, "listCustomProviders").mockResolvedValue({ providers: [] });
 });
 
+it("OpenAI Direct locks the official URL and previews Responses", () => {
+  const openai: PresetProvider = {
+    id: "openai-official", display_name: "OpenAI Direct", icon_key: "OpenAI",
+    messages_url: "https://api.openai.com", discovery_url: "https://api.openai.com",
+    default_model: "gpt-6.1-sol", suggested_models: ["gpt-6.1-sol"], docs_url: null,
+    api_key_url: null, notes: "Uses your OpenAI credits directly.", api_key_pattern: null, is_recommended: false,
+  };
+  render(<AddCredentialModal open presets={[openai]} customSentinelId="__custom__" onSubmit={vi.fn()} onClose={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: /OpenAI Direct/ }));
+  expect(screen.getByLabelText(/base[_ ]url|代理地址/i)).toHaveAttribute("readonly");
+  expect(screen.getByDisplayValue("https://api.openai.com")).toBeInTheDocument();
+  expect(screen.getByText("https://api.openai.com/v1/responses")).toBeInTheDocument();
+  expect(screen.getByText("Uses your OpenAI credits directly.")).toBeInTheDocument();
+});
+
 const presets: PresetProvider[] = [
   {
     id: "deepseek",

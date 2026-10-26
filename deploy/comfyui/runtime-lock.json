@@ -1,0 +1,9 @@
+{
+  "runtime_commit": "90f76c2",
+  "dependencies": {
+    "user/video_engine_entry.py": "8d348a80b29382462a27be8483ba1d9371df39ff1d9b55c326afac31853bbf4c",
+    "user/video_memory.py": "773f4e4a7f8fc903f00edb2e652e2a4556e7ddb96df1fab5931fbb461dd92195",
+    "user/video-quality-balanced.json": "ca01fff637b9363295b05c9e2ce65489f8a8090d28b0c019888c04f0bcc3985b",
+    "user/video-quality-high.json": "f5a132f1f71887bf09b5b912e8a0c8b0ff5cedcfc388a4b66411889179083f15"
+  }
+}

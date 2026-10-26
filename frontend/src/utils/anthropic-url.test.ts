@@ -3,8 +3,23 @@ import { describe, expect, it } from "vitest";
 import {
   anthropicMessagesUrl,
   hasUnsupportedUrlComponents,
+  isDirectOpenAIAgentBaseUrl,
   normalizeAnthropicBaseUrl,
 } from "./anthropic-url";
+
+describe("direct OpenAI agent endpoint", () => {
+  it.each(["", "/", "/v1", "/v1/"])("accepts the official root with %s", (suffix) => {
+    expect(isDirectOpenAIAgentBaseUrl(`https://api.openai.com${suffix}`)).toBe(true);
+  });
+
+  it.each([
+    "", "http://api.openai.com", "https://api.openai.com:443",
+    "https://api.openai.com.evil.test", "https://user@api.openai.com",
+    "https://api.openai.com/v1/messages", "https://api.openai.com?", "https://api.openai.com#",
+  ])("rejects %s", (url) => {
+    expect(isDirectOpenAIAgentBaseUrl(url)).toBe(false);
+  });
+});
 
 describe("normalizeAnthropicBaseUrl", () => {
   it.each([

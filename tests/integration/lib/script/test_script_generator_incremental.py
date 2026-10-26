@@ -29,6 +29,7 @@ from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEdit
 from lib.script.script_document import SCRIPT_PLAN_CONVERSION_GENERATOR
 from lib.script.script_generator import PromptAuthoringTargetError, ScriptGenerator
 from lib.script.script_models import PENDING_AUTHORING_FIELD
+from tests.factories import make_sequence_direction, make_shot_continuity
 from tests.fakes import FakeConfigResolver
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("video_request_facts")]
@@ -743,7 +744,30 @@ class TestDryRunPrompt:
 
         first_needle, second_needle = variant.prompt_needles
         assert second_needle in prompt
-        assert first_needle not in prompt
+        target_prompt = prompt.split("## Sequence continuity context")[0]
+        assert first_needle not in target_prompt
+        if variant is DRAMA:
+            assert first_needle in prompt.split("## Sequence continuity context")[1]
+
+    async def test_authoring_refreshes_versioned_reference_context(self, tmp_path: Path, variant: _Variant) -> None:
+        from lib.project.reference_library import publish_reference_context, register_pdf_reference
+
+        project_dir = await self._converted_with_pending(tmp_path, variant, *variant.entry_ids)
+        pdf = tmp_path / "world.pdf"
+        pdf.write_bytes(b"%PDF-1.7 old")
+        old = register_pdf_reference(project_dir, "world", pdf)
+        publish_reference_context(project_dir, "world", expected_revision=old.latest, context="OLD_CANON")
+        generator = variant.generator(project_dir, [])
+        assert "OLD_CANON" in await generator.build_prompt(1)
+        pdf.write_bytes(b"%PDF-1.7 new")
+        new = register_pdf_reference(project_dir, "world", pdf)
+        with pytest.raises(ValueError, match="needs a consolidated map"):
+            await generator.build_prompt(1)
+        publish_reference_context(project_dir, "world", expected_revision=new.latest, context="NEW_CANON")
+        prompt = await generator.build_prompt(1)
+        assert prompt.count("NEW_CANON") == 1
+        assert "OLD_CANON" not in prompt
+        assert new.latest in prompt
 
     async def test_prompt_says_so_when_nothing_is_pending(self, tmp_path: Path, variant: _Variant) -> None:
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
@@ -1011,3 +1035,65 @@ class TestScriptPlanMaterialization:
         assert _script(project_dir)["title"] == ledger_title
         ledger = json.loads((project_dir / "project.json").read_text(encoding="utf-8"))["episodes"][0]
         assert ledger["title"] == ledger_title
+
+
+async def test_sequence_direction_survives_materialization_and_targeted_rewrite(tmp_path: Path) -> None:
+    project_dir, plan_path = DRAMA.build(tmp_path)
+    plan = json.loads(plan_path.read_text())
+    plan["sequence_direction"] = make_sequence_direction()
+    plan["scenes"][0]["continuity"] = make_shot_continuity()
+    plan["scenes"][1]["continuity"] = make_shot_continuity(
+        entry_state=plan["scenes"][0]["continuity"]["exit_state"],
+        exit_state="The visitor appears in the bag opening.",
+    )
+    plan_path.write_text(json.dumps(plan))
+    await _materialize(project_dir, plan_path)
+    assert _script(project_dir)["sequence_direction"] == plan["sequence_direction"]
+    before = copy.deepcopy(_script(project_dir)["scenes"][0])
+    generator = DRAMA.generator(project_dir, [DRAMA.visual_factory("E1S02")])
+    prompt = await generator.build_prompt(1, entry_ids=["E1S02"])
+    assert plan["sequence_direction"]["action_arc"] in prompt
+    assert plan["scenes"][0]["continuity"]["exit_state"] in prompt
+    await generator.generate(1, entry_ids=["E1S02"])
+    saved = _script(project_dir)
+    assert saved["scenes"][0] == before
+    assert saved["scenes"][1]["continuity"] == plan["scenes"][1]["continuity"]
+    assert saved["sequence_direction"] == plan["sequence_direction"]
+
+
+async def test_director_can_revise_sequence_and_shot_state_atomically(tmp_path: Path) -> None:
+    project_dir, plan_path = DRAMA.build(tmp_path)
+    await _materialize(project_dir, plan_path)
+    pm = ProjectManager(str(project_dir.parent.parent))
+    before = _script(project_dir)
+    direction = make_sequence_direction()
+    result = ScriptBatchEditor(pm).execute(
+        project_dir.name,
+        ScriptBatchEditCommand.model_validate(
+            {
+                "script": "episode_1.json",
+                "expected_revision": script_revision(before),
+                "operations": [
+                    {"op": "set_sequence_direction", "direction": direction},
+                    {"op": "update", "id": "E1S01", "fields": {"continuity": make_shot_continuity()}},
+                ],
+            }
+        ),
+    )
+    assert result.success, result
+    saved = _script(project_dir)
+    assert saved["sequence_direction"] == direction
+    assert saved["scenes"][0]["continuity"] == make_shot_continuity()
+    assert saved["scenes"][1] == before["scenes"][1]
+    stale = ScriptBatchEditor(pm).execute(
+        project_dir.name,
+        ScriptBatchEditCommand.model_validate(
+            {
+                "script": "episode_1.json",
+                "expected_revision": script_revision(before),
+                "operations": [{"op": "set_sequence_direction", "direction": direction}],
+            }
+        ),
+    )
+    assert not stale.success
+    assert _script(project_dir) == saved

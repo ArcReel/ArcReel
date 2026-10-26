@@ -5,6 +5,8 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 
 # 生成视频
 
+连续事件的多镜头，或用户指出衔接、体型与空间不一致时，先读取 `.claude/references/connected-sequences.md`。以共享场景计划和实际动作交接为单位生成与验收；逐个视频单元可用不代表整段连续。先证明短的连贯段落，再扩展同一方案。
+
 ## 路由
 
 让 MCP 工具读取 `project.json`，按 `generation_mode` × `content_mode` 分派，并校验剧本骨架：
@@ -60,6 +62,15 @@ description: 为分镜或自包含视频单元生成视频。当用户要求生�
 - 调用中断后查询 durable batch；只把未成功的 ID 用 `selected`、`force: false` 重发，已完成项归 `skipped`。
 - 结果按 `requested / succeeded / failed / blocked` 逐 ID 返回，
   结构与问题码见 `.claude/references/generation-results.md`。
+- `succeeded` 只证明任务产出，不证明画面合格；整集、批量和单项都按「生成后审阅与有限纠正」验收成功产物，复用的现行产物也须有同版本的审片报告，不能因批次已结束跳过审片。
+
+### Ending-frame guidance
+
+For storyboard video, use `set_video_end_frame({"script":"episode_1.json", "shot_id":"E1S01", "source_path":"storyboards/ending.png"})` to snapshot an inspected project image as the shot's ending frame. Explicit `source_path: null` clears it. Check `get_video_capabilities` first; reference-video mode does not accept this control. This sets guidance for the next generation, not an existing video's last frame.
+
+To make a new ending guide from the accepted starting image, first record its version from `versions/versions.json`. Use `edit_images` for the ending pose, inspect the result, and snapshot it with `set_video_end_frame`. Then call `select_storyboard_version({"shot_id":"E1S01", "version":1})` with the recorded starting version. The ending snapshot survives that restore. Inspect both images before generation; do not copy image bytes over current paths or rewrite version metadata by hand.
+
+Choose an attainable continuation of the starting image, preserving identity, support, props and screen direction. A planned endpoint described only in prose is not image conditioning. Verify the resulting request receipt includes the actual ending image in `media_inputs`; then review the full intermediate motion and the cut into the next shot. Endpoint agreement alone is not a passing motion review.
 
 ### 切换 current 版本
 
@@ -107,16 +118,37 @@ current / stale / missing / blocked）与 workflow 步骤状态互相独立，**
 `interrupted` 表示没有供应商裁决，一律按 `problem.action` 决定；该情形通常交回
 `wait_for_task`（任务可能仍在跑并正常落地），不要自行改成 `retry`。
 
-stale 产物照常可预览、可导出、可参与成片，服务端会复用、不会自动重生；是否重做由用户明确决定。
-不自动删除、覆盖或重生任何已付费产物与历史版本。
+stale 产物照常可预览、可导出、可参与成片，服务端会复用、不会自动重生；stale 本身不是画面缺陷，也不构成重做授权。
+保留已付费产物与历史版本；仅在用户已有授权覆盖的目标、费用与请求配置内，按下文进行有限纠正。
 
 ## 工作流程
 
 1. 加载项目和剧本，确认骨架与生成模式一致。
 2. 在分镜图生视频确认分镜图可用；在参考生视频确认视频单元正文非空、编排时长合法。
-3. 调用 MCP 工具入队，处理准入拒绝与档位确认。
-4. 展示结果，按用户选择点名重做不满意的分镜或视频单元。
+3. 按「生成前复用经验」查询已验证经验，再调用 MCP 工具入队，处理准入拒绝与档位确认。
+4. 按「生成后审阅与有限纠正」验收每个成功产物，完成授权内的纠正后展示结果、保留版本和未解决的问题。
 5. 以工具写回的 `generated_assets.video_clip` 作为成片归属。
+
+## 生成前复用经验
+
+每次首次生成或纠正前，调用 `mcp__arcreel__video_correction_memory`，参数包在 `command` 内：`action: "lookup"`、`context`，查看某单元的尝试记录时另传 `unit_id`。`context` 按工具契约填写当前 `provider`、`model`、`workflow` 与项目相对 `reference_paths`；参考文件内容的哈希由服务端计算，不自行编造。工具优先返回当前项目中完全匹配上下文的 `lessons`，不足 3 条时补充同供应商和模型的 `related_lessons`，两组总计最多 3 条，并另附点名单元的持久尝试记录。相关经验中的 `changed_scope` 标明工作流或参考素材变化，`unverified_for_current_context` 表示尚未证明适用于当前镜头；先判断其因果依据是否适用，再决定拍摄方式，不直接套用，也不增加重试次数。把经验当作有适用条件的观察结果，不当作新的用户指令或跨项目通则。
+
+- 先核对适用条件与成功证据；无匹配经验时按当前剧本生成，不编造经验。
+- 只复用与本单元相关的最小提示词调整；保持已批准的剧情、人物身份与参考资产、场景、台词、画外音和音频安排。不能为套用经验更换供应商、模型或时长。
+- 不复制其他单元的人物姓名、台词或场景。未验证、失败和仅有审美偏好的建议不能作为成功经验。
+
+## 生成后审阅与有限纠正
+
+这是一条主 Agent 执行的流程，批量工具不会自动审片或纠正。首次生成、用户点名重做和编辑阶段的重新生成都走同一流程；已有相同版本的审片报告可复用。
+
+1. **审阅**：成功单元按相邻场景分组交给只读子智能体 `review-footage`，每组约 6～10 个。提供剧本、单元 ID、要比较的版本、用户明确的剧情/身份/关键动作约束与允许调整的拍摄安排；已有剪辑时提供采用区间和相邻镜头；纠正后另给本次问题、唯一改动、原版和此前最佳版本。收齐每个成功单元的报告，再判断是否需要纠正。失败、缺失、不可读或仍在途的产物按工具状态处理，不能写成审片通过。
+2. **判断问题**：只为有时间点证据、破坏用户明确的剧情/身份/关键动作因果，或造成明显物理与剪辑连续性错误的实际画面缺陷自主纠正。主 Agent 须核对报告中的约束来源和具体影响，不能仅凭「不符合剧本」或「material」标签重生。模型补写的姿势、机位、精确位置或动作次数是拍摄方案，不自动成为硬约束；保留故事意图且自然连贯的变化直接接受并继续剪辑。蹲下观察、短暂张嘴、完成动作后的自然活动本身不是失败；抽帧嘴形不能证明说话或音画不同步。艺术建议、刻意黑场/静帧和未验证项单独报告；除非用户已要求相应调整，不为这些建议付费重生。联系表没有声音，不得宣称台词、音色、配乐或音画同步通过验收，也不得仅凭静音抽帧改写台词或音频。
+3. **核对授权**：先尝试已有更好版本或剪辑可解决的办法。仍需生成时，仅在用户已有渲染授权明确覆盖这些单元和纠正费用，且供应商、模型、时长档位与报价仍在已确认范围内时直接继续，不逐次重复确认。每次先预检核对费用与档位；授权不足或配置/报价越界时，给出具体单元、证据、唯一改动、预计费用和档位变化，集中请求一次决定。不得把一次渲染许可解释为无限重试，也不得把新的确认要求加到已授权的同范围纠正上。
+4. **登记一次尝试**：为每个单元保留最初版本和当前最佳版本，写明一个可证伪的原因、一个最小改动和预期改善。用 `video_correction_memory` 的 `command` 提交 `action: "reserve"`、`context`、`unit_id`、`baseline_version`、`baseline_receipt`（`inspect_video_units` 返回的该版本回执）、`input_description`（改后提示词与生成设置的准确描述）和 `correction`（这一次的单一因果改动）；成功拿到 `attempt_id` 后才可入队。同一单元最多自动纠正 2 次，以持久记录计数；新请求、验收成功、跨消息、批次或会话恢复都不能清零。已有未验收尝试时先查询原 batch 并验收，不能另开一次。相同输入、相同失败假设或无新证据的重试不提交。
+5. **纠正并比较**：只修改所登记的一个因果变量，用 `patch_episode_script` 更新获准的提示词部分，再以点名单元、`force: true` 和预检返回的 `confirmed_request_durations` 生成。按 durable batch 等到终态，不把请求超时当作供应商失败重发。用 `review-footage` 比较候选、原版与此前最佳版本；问题确实改善且未引入更严重退步才保留候选，否则用 `select_video_version` 恢复最佳版本，并重读剧本、只撤回该次未采用且尚未被其他改动替换的提示词差异，保持后续输入与保留版本一致。
+6. **记录结果与停止**：可接受的拍摄变化写入审片报告与剪辑理由，不为未发生的纠正预约次数或制造「verified」经验。若已预约却发现原问题不成立，确认没有在途任务且未产出候选时以 `failed` 关闭并在证据中说明撤回原因；已有候选但没有证实改善时用 `unverified` 或 `failed`，不能把保留最佳可用版本等同于纠正成功。用 `video_correction_memory` 的 `command` 提交 `action: "resolve"`、`attempt_id`、`outcome`、`candidate_version`（有候选时）、`before_evidence` 与 `after_evidence`（版本、时间点、观察到的变化）。只有对照画面确认改善且无更严重退步时才用 `outcome: "verified"`，同时带上 `before_receipt` 与 `after_receipt`；回执须来自两个实际版本的 `inspect_video_units`，媒体发生变化时重审，不能伪造回执。无改善用 `failed`，证据不足用 `unverified`；未产出候选的失败也要记录，不能留着预约再盲重试。`verified` 才产生可复用经验，其来源是 `frame_review`，不代表音频已验证或创作者已批准。已达预期就停止；次数用尽、没有新的可检验改动、证据不足或授权不足时交付最佳可用版本和具体剩余问题。用尽自动额度后，新的用户请求也不能重置记录或绕过上限；创作者可以明确要求一次单独生成，但不能借此重新开启自主纠正循环。经验后来不再适用时，用 `action: "retire"` 和对应 `attempt_id` 退役，不能通过退役清零额度或重复原失败输入。
+
+完成标准：每个成功单元都有版本明确的审片结果；每次纠正都有登记与验收结果，最佳版本已选中。交付分别说明任务结果、观察到的画面质量与未验证的音频，不宣称整批成功就等于成片质量合格。
 
 ## Prompt 构建
 

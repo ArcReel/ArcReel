@@ -147,6 +147,7 @@ def build_materialized_script(
     plan_kind: ScriptPlanKind,
     plan_entries: Sequence[Mapping[str, Any]],
     title: str | None,
+    sequence_direction: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """把脚本规划条目投影成一份整集正式剧本，不写盘、不读脚本规划文件。
 
@@ -163,6 +164,8 @@ def build_materialized_script(
         items.append(content)
     items_key = plan_variant(plan_kind).skeleton_kind
     script_data: dict[str, Any] = {"title": title or episode_title(project, episode), items_key: items}
+    if sequence_direction is not None:
+        script_data["sequence_direction"] = dict(sequence_direction)
     prepare_script_entries(script_data, project=project, episode=episode)
     finish_script_document(script_data, project=project, episode=episode, generator=SCRIPT_PLAN_CONVERSION_GENERATOR)
     for item in script_data[items_key]:

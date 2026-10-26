@@ -300,6 +300,33 @@ def _stage_legacy_narration_archive(pm: ProjectManager, project_dir: Path, archi
 
 
 class TestProjectArchiveService:
+    @pytest.mark.parametrize("scope", ["full", "current"])
+    def test_reference_editions_round_trip_with_only_current_context(self, tmp_path, scope):
+        from lib.project.reference_library import (
+            current_reference_context,
+            publish_reference_context,
+            register_pdf_reference,
+        )
+
+        manager = ProjectManager(tmp_path / "original")
+        project_dir = _create_project(manager)
+        pdf = tmp_path / "world.pdf"
+        revisions = []
+        for edition in ("old", "current"):
+            pdf.write_bytes(b"%PDF-1.7\n" + edition.encode())
+            revision = register_pdf_reference(project_dir, "world", pdf)
+            revisions.append(revision.latest)
+            publish_reference_context(project_dir, "world", expected_revision=revision.latest, context=edition)
+        expected = current_reference_context(project_dir)
+        archive, _ = ProjectArchiveService(manager).export_project("demo", scope=scope)
+        restored = ProjectManager(tmp_path / "restored")
+        result = ProjectArchiveService(restored).import_project_archive(archive, uploaded_filename="demo.zip")
+        restored_dir = restored.get_project_path(result.project_name)
+        assert current_reference_context(restored_dir) == expected
+        assert expected[0]["context"] == "current"
+        for revision in revisions:
+            assert (restored_dir / "source/reference-library/world" / revision / "original.pdf").is_file()
+
     def test_export_includes_full_snapshot_and_empty_dirs(self, tmp_path):
         pm = ProjectManager(tmp_path / "projects")
         _create_project(pm)

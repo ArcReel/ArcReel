@@ -103,6 +103,8 @@
     "PrimitiveStringMultiline": "value"
   },
   "optional_inputs": [
+    { "class_type": "MacQualityVideo", "input": "reference_image" },
+    { "class_type": "MacQualityVideo", "input": "end_image" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image1" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image2" },
     { "class_type": "TextEncodeQwenImageEditPlus", "input": "image3" },

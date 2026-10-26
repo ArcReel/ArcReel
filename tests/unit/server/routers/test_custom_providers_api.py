@@ -1765,6 +1765,66 @@ def test_check_unique_defaults_text_still_media_type_exclusive():
 
 
 class TestDiscoverAnthropic:
+    @pytest.mark.parametrize("preset_id", ["openai-official", "__custom__"])
+    @pytest.mark.parametrize("base_url", ["https://api.openai.com", "https://api.openai.com/v1/"])
+    async def test_stored_openai_key_cannot_be_sent_to_custom_discovery_url(
+        self,
+        custom_providers_client: TestClient,
+        db_session: AsyncSession,
+        preset_id: str,
+        base_url: str,
+    ):
+        from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+        from tests.http_capture import capture_http
+
+        repo = AgentCredentialRepository(db_session)
+        credential = await repo.create(
+            preset_id=preset_id,
+            display_name="OpenAI Direct",
+            base_url=base_url,
+            api_key="fake-openai-key",
+        )
+        await repo.set_active(credential.id)
+        await db_session.commit()
+
+        with capture_http() as requests:
+            response = custom_providers_client.post(
+                "/api/v1/custom-providers/discover-anthropic",
+                json={"base_url": "https://relay.example.test"},
+            )
+            assert len(requests.calls) == 0
+        assert response.status_code == 422
+        assert "fake-openai-key" not in response.text
+
+    @pytest.mark.parametrize("base_url", [None, "https://api.openai.com/v1/"])
+    async def test_custom_openai_credential_discovers_from_official_endpoint(
+        self,
+        custom_providers_client: TestClient,
+        db_session: AsyncSession,
+        base_url: str | None,
+    ):
+        from lib.db.repositories.agent_credential_repo import AgentCredentialRepository
+
+        repo = AgentCredentialRepository(db_session)
+        credential = await repo.create(
+            preset_id="__custom__",
+            display_name="OpenAI Direct",
+            base_url="https://api.openai.com",
+            api_key="fake-openai-key",
+        )
+        await repo.set_active(credential.id)
+        await db_session.commit()
+
+        with capture_http() as requests:
+            route = requests.get("https://api.openai.com/v1/models").respond(json={"data": []})
+            response = custom_providers_client.post(
+                "/api/v1/custom-providers/discover-anthropic",
+                json={"base_url": base_url} if base_url else {},
+            )
+
+        assert response.status_code == 200
+        assert only_request(route).headers["authorization"] == "Bearer fake-openai-key"
+
     def test_explicit_credentials(self, custom_providers_client: TestClient):
         """显式传入 base_url + api_key，调用 _run_discover('anthropic', ...)。"""
         mock_models = [

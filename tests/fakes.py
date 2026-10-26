@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import itertools
 import json
+import os
 import threading
 from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
@@ -31,6 +32,11 @@ _STREAM_EOF = object()
 #: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
 MP4_BYTES = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mp4-bytes"
 PNG_BYTES = b"\x89PNG\r\n\x1a\npng-bytes"
+
+
+def use_os_open(monkeypatch: Any, replacement: Callable[..., int]) -> None:
+    """Share the file-descriptor boundary hook for read counting and path-race tests."""
+    monkeypatch.setattr(os, "open", replacement)
 
 
 @contextmanager
@@ -1206,6 +1212,20 @@ def fail_project_json_write(monkeypatch, project_file: Path) -> None:
         return real_write(path, data)
 
     use_project_json_write(monkeypatch, _fail_project_write)
+
+
+def fail_file_replace(monkeypatch, destination: Path, *, message: str) -> None:
+    """Fail replacement of one destination while retaining real filesystem writes elsewhere."""
+    import os
+
+    real_replace = os.replace
+
+    def _fail_replace(source, target, **kwargs) -> None:
+        if Path(target) == destination:
+            raise OSError(message)
+        real_replace(source, target, **kwargs)
+
+    monkeypatch.setattr(os, "replace", _fail_replace)
 
 
 def use_generation_queue(monkeypatch, queue: Any) -> None:

@@ -29,6 +29,7 @@ MESSAGES: dict[str, str] = {
     "provider_desc_kling": "快手可灵 Kling 视频与图像生成平台。API Key 鉴权适用于全部模型；Access Key + Secret Key（JWT）仅适用于 3.0 及更早模型，二者二选一，同时填写时 API Key 优先。",
     "provider_desc_agnes": "Agnes 多模态平台（OpenAI 风格），使用 Bearer API Key 鉴权；当前支持图像 / 文本 / 视频生成。",
     # Agent preset notes (lib/agent/agent_provider_catalog.py)
+    "preset_notes_openai_direct": "直接使用你的 OpenAI API 密钥与额度，与 ArcReel API 网关单独计费。本地 Claude SDK 负责工具与会话，无需 Anthropic 账户。",
     "preset_notes_deepseek": "DeepSeek 官方 Anthropic 兼容端点，需 sk- 开头的 API Key",
     "preset_notes_xiaomi_mimo": "小米 MiMo 仅支持已知模型名，未公开模型列表",
     "preset_notes_ark_coding_plan": "火山方舟 Coding Plan 套餐；不提供模型列表接口，请从建议模型中选择已在控制台开通的模型",

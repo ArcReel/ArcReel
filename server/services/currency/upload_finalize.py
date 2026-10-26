@@ -218,6 +218,7 @@ async def commit_manual_storyboard_upload(
     current_image: Path,
     versions: VersionManager,
     original_filename: str | None,
+    project_manager: ProjectManager | None = None,
 ) -> int:
     """Atomically select an uploaded storyboard with its metadata, version, and claim."""
 
@@ -237,7 +238,7 @@ async def commit_manual_storyboard_upload(
             task_id=None,
             basis=None,
             outcome_box=outcomes,
-            project_manager=get_project_manager(),
+            project_manager=project_manager if project_manager is not None else get_project_manager(),
             selected_upload=True,
         )
         version = commit(staged_image, current_image, metadata)

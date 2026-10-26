@@ -50,6 +50,7 @@ from lib.infra.loop_stall_probe import start_loop_stall_probe, stop_loop_stall_p
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.script.source_loader.migration import migrate_project_source_encoding, migrate_project_source_encoding_once
+from server.agent_runtime.openai_transport import router as openai_director_router
 from server.auth import ensure_auth_password, get_current_user, warn_if_auth_disabled
 from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok, require_valid_project_name
@@ -813,6 +814,7 @@ app.include_router(edit_timelines.self_auth_router, prefix="/api/v1", tags=["剪
 
 
 mount_remote_mcp(app, remote_mcp_host)
+app.include_router(openai_director_router)
 
 
 def create_generation_worker() -> GenerationWorker:

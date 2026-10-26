@@ -27,7 +27,12 @@ from server.tool_runtime import (
     ToolRequest,
     generate_script_plan,
 )
-from tests.factories import make_video_request_facts, seed_endpoint_fixed_video_model
+from tests.factories import (
+    make_sequence_direction,
+    make_shot_continuity,
+    make_video_request_facts,
+    seed_endpoint_fixed_video_model,
+)
 from tests.fakes import FakeTextGenerator, use_text_generator
 from tests.integration.server.agent_tool_support import (
     ToolHarness,
@@ -774,8 +779,23 @@ async def test_fetch_storyboard_durations_drops_out_of_range_default(set_video_r
     assert await mod.fetch_storyboard_durations({"default_duration": True}) == (None, [8])
 
 
-async def test_fetch_storyboard_durations_borrows_planning_tiers_when_endpoint_fixed(set_video_request_facts) -> None:
-    """时长由端点固定的桶没有档位可选，剧本规划借共享的规划档位出篇幅。"""
+@pytest.mark.parametrize("planned", [5, 8])
+async def test_fetch_storyboard_durations_uses_project_plan_when_endpoint_fixed(
+    set_video_request_facts, planned
+) -> None:
+    """An endpoint-fixed source respects the saved planning duration without adding request tiers."""
+    from server import text_generation as mod
+
+    set_video_request_facts(
+        make_video_request_facts(supported_durations=(), allowed_durations=(), duration_endpoint_fixed=True)
+    )
+
+    assert await mod.fetch_storyboard_durations({"default_duration": planned}) == (planned, [planned])
+
+
+async def test_fetch_storyboard_durations_borrows_planning_tiers_without_a_project_plan(
+    set_video_request_facts,
+) -> None:
     from lib.generation.video_request_facts import ENDPOINT_FIXED_PLANNING_DURATIONS
     from server import text_generation as mod
 
@@ -783,9 +803,9 @@ async def test_fetch_storyboard_durations_borrows_planning_tiers_when_endpoint_f
         make_video_request_facts(supported_durations=(), allowed_durations=(), duration_endpoint_fixed=True)
     )
 
-    default, durations = await mod.fetch_storyboard_durations({"default_duration": 8})
+    default, durations = await mod.fetch_storyboard_durations({})
     assert durations == ENDPOINT_FIXED_PLANNING_DURATIONS
-    assert default == 8
+    assert default is None
 
 
 async def test_fetch_storyboard_durations_reads_the_bucket_of_the_generation_mode(set_video_request_facts) -> None:
@@ -953,9 +973,11 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
                 text = json.dumps(
                     {
                         "title": "第一集",
+                        "sequence_direction": make_sequence_direction(),
                         "scenes": [
                             {
                                 "scene_id": "E1S01",
+                                "continuity": make_shot_continuity(),
                                 "duration_seconds": 4,
                                 "segment_break": False,
                                 "characters_in_scene": [],
@@ -1032,9 +1054,11 @@ async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis
                     "text": json.dumps(
                         {
                             "title": "第一集",
+                            "sequence_direction": make_sequence_direction(),
                             "scenes": [
                                 {
                                     "scene_id": "E1S01",
+                                    "continuity": make_shot_continuity(),
                                     "duration_seconds": 4,
                                     "segment_break": False,
                                     "characters_in_scene": [],
@@ -1083,7 +1107,13 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
         "source_kind": "novel",
         "source_language": "中文",
         "overview": {},
-        "episodes": [{"episode": 1, "title": "第一集", "script_file": "scripts/episode_1.json"}],
+        "episodes": [
+            {
+                "episode": 1,
+                "title": "第一集",
+                "script_file": "scripts/episode_1.json",
+            }
+        ],
     }
     fake_ctx.pm.project_payload = project
     project_file = fake_ctx.project_path / "project.json"
@@ -1109,9 +1139,11 @@ async def test_normalize_drama_script_preserves_legacy_request_basis_when_manife
                     "text": json.dumps(
                         {
                             "title": "第一集",
+                            "sequence_direction": make_sequence_direction(),
                             "scenes": [
                                 {
                                     "scene_id": "E1S01",
+                                    "continuity": make_shot_continuity(),
                                     "duration_seconds": 4,
                                     "segment_break": False,
                                     "characters_in_scene": [],
@@ -1165,9 +1197,11 @@ async def test_normalize_drama_script_marks_mixed_machine_candidate_before_revie
                 text = json.dumps(
                     {
                         "title": "第一集",
+                        "sequence_direction": make_sequence_direction(),
                         "scenes": [
                             {
                                 "scene_id": "E1S01",
+                                "continuity": make_shot_continuity(),
                                 "duration_seconds": 4,
                                 "segment_break": False,
                                 "characters_in_scene": ["阿离"],
@@ -1444,3 +1478,39 @@ async def test_generate_episode_script_truncation_offers_the_way_out(fake_ctx: T
         GenerationAction.CONFIGURE_PROVIDER,
         _TRUNCATION_PARAMS,
     )
+
+
+@pytest.mark.parametrize("mode", ["drama", "narration", "reference_video"])
+async def test_script_planning_reads_only_the_current_reference_edition(
+    fake_ctx: ToolHarness, video_request_facts, tmp_path: Path, mode: str
+) -> None:
+    from lib.project.reference_library import publish_reference_context, register_pdf_reference
+
+    fake_ctx.pm.project_payload["content_mode"] = "narration" if mode == "narration" else "drama"
+    fake_ctx.pm.project_payload["generation_mode"] = "reference_video" if mode == "reference_video" else "storyboard"
+    source_dir = fake_ctx.project_path / "source"
+    source_dir.mkdir(parents=True)
+    (source_dir / "episode_1.txt").write_text("A quiet walk.")
+    pdf = tmp_path / "world.pdf"
+    pdf.write_bytes(b"%PDF-1.7 old")
+    old = register_pdf_reference(fake_ctx.project_path, "world", pdf)
+    publish_reference_context(fake_ctx.project_path, "world", expected_revision=old.latest, context="RETIRED_FACT")
+    pdf.write_bytes(b"%PDF-1.7 new")
+    latest = register_pdf_reference(fake_ctx.project_path, "world", pdf)
+    blocked = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
+    assert blocked.problem is not None
+    assert "needs a consolidated map" in said(blocked)
+    publish_reference_context(
+        fake_ctx.project_path, "world", expected_revision=latest.latest, context="CURRENT_FACT p54"
+    )
+    result = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1, "dry_run": True})
+    assert result.problem is None, said(result)
+    text = said(result)
+    assert text.count("CURRENT_FACT p54") == 1
+    assert latest.latest in text
+    assert "RETIRED_FACT" not in text
+    assert old.latest not in text
+    read = await run_declared_tool("get_project_content", fake_ctx, {})
+    assert read.problem is None
+    assert "CURRENT_FACT p54" in said(read)
+    assert "RETIRED_FACT" not in said(read)

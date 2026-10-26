@@ -82,6 +82,48 @@ async def test_list_preset_providers_requires_auth(unauth_client) -> None:
 # ── Task 10: /agent/credentials CRUD ─────────────────────────────
 
 
+async def test_openai_credential_uses_official_url_and_default_model(agent_config_client) -> None:
+    response = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={
+            "preset_id": "openai-official",
+            "api_key": "fake-openai-key",
+            "base_url": "https://api.openai.com/v1/",
+        },
+    )
+    assert response.status_code == 201
+    credential = response.json()
+    assert credential["base_url"] == "https://api.openai.com"
+    assert credential["model"] == "gpt-6.1-sol"
+    assert credential["icon_key"] == "OpenAI"
+
+    rejected = await agent_config_client.patch(
+        f"/api/v1/agent/credentials/{credential['id']}",
+        json={
+            "base_url": "https://relay.example.test",
+        },
+    )
+    assert rejected.status_code == 422
+    stored = (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"][0]
+    assert stored["base_url"] == "https://api.openai.com"
+
+
+@pytest.mark.parametrize(
+    "base_url", ["https://relay.example.test", "http://api.openai.com", "https://api.openai.com/v1/messages"]
+)
+async def test_openai_credential_rejects_custom_url_on_create(agent_config_client, base_url: str) -> None:
+    response = await agent_config_client.post(
+        "/api/v1/agent/credentials",
+        json={
+            "preset_id": "openai-official",
+            "api_key": "fake-openai-key",
+            "base_url": base_url,
+        },
+    )
+    assert response.status_code == 422
+    assert (await agent_config_client.get("/api/v1/agent/credentials")).json()["credentials"] == []
+
+
 @pytest.mark.asyncio
 async def test_list_credentials_initially_empty(agent_config_client) -> None:
     resp = await agent_config_client.get("/api/v1/agent/credentials")

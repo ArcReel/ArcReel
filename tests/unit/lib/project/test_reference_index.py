@@ -11,8 +11,50 @@ import pytest
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, encode_artifact_key_parts
 from lib.infra.content_digest import HASH_ALGORITHM
 from lib.project.reference_index import FileOwner, FileReference, FileRole, ReferenceIndex
+from lib.project.reference_library import publish_reference_context, register_pdf_reference
 
 _DIGEST = "sha256-v1:" + "0" * 64
+
+
+def test_reference_editions_are_protected_without_loading_old_context(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    source = tmp_path / "handoff.pdf"
+    source.write_bytes(b"%PDF-first")
+    old = register_pdf_reference(project, "world", source)
+    old = publish_reference_context(project, "world", expected_revision=old.latest, context="Old map")
+    source.write_bytes(b"%PDF-second")
+    current = register_pdf_reference(project, "world", source)
+    current = publish_reference_context(project, "world", expected_revision=current.latest, context="Current map")
+    prefix = "source/reference-library"
+    index = ReferenceIndex.build(project)
+
+    assert index.role_of(f"{prefix}/index.json") is FileRole.STRUCTURE
+    assert index.role_of(f"{prefix}/world/{current.latest}/original.pdf") is FileRole.REFERENCED
+    assert index.role_of(f"{prefix}/world/{current.latest}/context-{current.context_digest}.md") is FileRole.REFERENCED
+    assert index.role_of(f"{prefix}/world/{old.latest}/original.pdf") is FileRole.HISTORY
+    assert index.role_of(f"{prefix}/world/{old.latest}/context-{old.context_digest}.md") is FileRole.HISTORY
+    assert index.role_of(f"{prefix}/unregistered/original.pdf") is FileRole.UNREFERENCED
+
+
+def test_asset_descriptive_strings_are_not_file_references(tmp_path: Path) -> None:
+    _write(
+        tmp_path / "project.json",
+        {
+            "characters": {
+                "Narrator": {
+                    "voice_style": "A natural conversational voice. " * 20,
+                    "reference_audio": "characters/voice.wav",
+                    "voice_notice_dismissed_at": "unused.txt",
+                }
+            },
+            "products": {"Book": {"brand": "unused.txt", "reference_images": ["products/book.png"]}},
+        },
+    )
+    index = ReferenceIndex.build(tmp_path)
+
+    assert index.role_of("characters/voice.wav") is FileRole.REFERENCED
+    assert index.role_of("products/book.png") is FileRole.REFERENCED
+    assert index.role_of("unused.txt") is FileRole.UNREFERENCED
 
 
 def _write(path: Path, content: object) -> None:

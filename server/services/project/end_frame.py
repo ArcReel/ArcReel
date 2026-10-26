@@ -92,7 +92,7 @@ class EndFrameError(Exception):
         self.params = params
 
 
-def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
+def _locate_shot(manager: ProjectManager, project_name: str, script_file: str, shot_id: str) -> Path:
     """校验该分镜可设尾帧，返回项目绝对路径；不可设时抛领域错误。
 
     参考生视频路径无首尾帧概念，一律拒绝。该判定按 project.json 的生成模式
@@ -100,7 +100,6 @@ def _locate_shot(project_name: str, script_file: str, shot_id: str) -> Path:
     剧本骨架不携带该戳（见 ``script_generator``），只看剧本会放过「ad + 参考生视频」组合，让用户
     设下一个生成时永不被消费的尾帧。各创作类型共用这一口径。
     """
-    manager = get_project_manager()
     try:
         project_path = manager.get_project_path(project_name)
     except FileNotFoundError as exc:
@@ -188,6 +187,7 @@ def _restore_after_persist_failure(
 
 
 def _write_snapshot_and_field(
+    manager: ProjectManager,
     project_name: str,
     script_file: str,
     shot_id: str,
@@ -203,8 +203,7 @@ def _write_snapshot_and_field(
     并发写入抢先成功落盘，预读到的就是比"操作前"更早的陈旧内容，失败时会用它把那次
     已成功的写入覆盖掉。
     """
-    manager = get_project_manager()
-    key = (project_name, ProjectManager.normalize_script_filename(script_file), shot_id)
+    key = (str(manager.get_project_path(project_name)), ProjectManager.normalize_script_filename(script_file), shot_id)
     generation = 0
     old_bytes: bytes | None = None
     entered = False
@@ -227,15 +226,16 @@ def _write_snapshot_and_field(
         raise
 
 
-def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str, target: Path) -> None:
+def _clear_snapshot_and_field(
+    manager: ProjectManager, project_name: str, script_file: str, shot_id: str, target: Path
+) -> None:
     """在剧本锁临界区内完成「置空字段 + 把快照文件移进项目回收站」，与设置操作互斥。
 
     快照文件在剧本写回之后才移进回收站，剧本持久化失败时它仍在原处；补偿照旧按代次
     条件回写，保证字段回滚后不指向缺失的文件。读旧字节须在取得剧本锁之后，理由同
     `_write_snapshot_and_field`。
     """
-    manager = get_project_manager()
-    key = (project_name, ProjectManager.normalize_script_filename(script_file), shot_id)
+    key = (str(manager.get_project_path(project_name)), ProjectManager.normalize_script_filename(script_file), shot_id)
     generation = 0
     old_bytes: bytes | None = None
     entered = False
@@ -302,6 +302,7 @@ def read_project_image(project_path: Path, source_path: str) -> bytes:
 
 async def _apply_snapshot(
     *,
+    manager: ProjectManager,
     project_path: Path,
     project_name: str,
     script_file: str,
@@ -320,7 +321,7 @@ async def _apply_snapshot(
         raise EndFrameError("invalid_image_file") from exc
 
     await run_sync_transaction(
-        _write_snapshot_and_field, project_name, script_file, shot_id, target, png_bytes, relative
+        _write_snapshot_and_field, manager, project_name, script_file, shot_id, target, png_bytes, relative
     )
     return relative
 
@@ -331,10 +332,13 @@ async def set_end_frame_from_bytes(
     script_file: str,
     shot_id: str,
     content: bytes,
+    manager: ProjectManager | None = None,
 ) -> str:
     """上传通道：把上传的图片字节落成该分镜的尾帧快照。"""
-    project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
+    manager = manager if manager is not None else get_project_manager()
+    project_path = await run_sync_transaction(_locate_shot, manager, project_name, script_file, shot_id)
     return await _apply_snapshot(
+        manager=manager,
         project_path=project_path,
         project_name=project_name,
         script_file=script_file,
@@ -349,11 +353,14 @@ async def set_end_frame_from_project_image(
     script_file: str,
     shot_id: str,
     source_path: str,
+    manager: ProjectManager | None = None,
 ) -> str:
     """项目内选图通道：读源图字节后走与上传完全相同的归一 + 快照落点。"""
-    project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
+    manager = manager if manager is not None else get_project_manager()
+    project_path = await run_sync_transaction(_locate_shot, manager, project_name, script_file, shot_id)
     content = await asyncio.to_thread(read_project_image, project_path, source_path)
     return await _apply_snapshot(
+        manager=manager,
         project_path=project_path,
         project_name=project_name,
         script_file=script_file,
@@ -362,8 +369,11 @@ async def set_end_frame_from_project_image(
     )
 
 
-async def clear_end_frame(*, project_name: str, script_file: str, shot_id: str) -> None:
+async def clear_end_frame(
+    *, project_name: str, script_file: str, shot_id: str, manager: ProjectManager | None = None
+) -> None:
     """清除分镜尾帧：在同一剧本锁临界区内把字段置空并把快照文件移进项目回收站，与设置操作互斥。"""
-    project_path = await run_sync_transaction(_locate_shot, project_name, script_file, shot_id)
+    manager = manager if manager is not None else get_project_manager()
+    project_path = await run_sync_transaction(_locate_shot, manager, project_name, script_file, shot_id)
     target, _ = _snapshot_target(project_path, shot_id)
-    await run_sync_transaction(_clear_snapshot_and_field, project_name, script_file, shot_id, target)
+    await run_sync_transaction(_clear_snapshot_and_field, manager, project_name, script_file, shot_id, target)

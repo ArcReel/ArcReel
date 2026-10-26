@@ -146,6 +146,7 @@ from lib.project.project_migration_failure import (
 )
 from lib.project.project_migration_guard import project_migration_failure
 from lib.project.project_migrations import migrate_project_with_verdict
+from lib.project.reference_library import current_reference_context
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.script_batch_edit import (
     ScriptBatchEditCommand,
@@ -153,6 +154,7 @@ from lib.script.script_batch_edit import (
     ScriptBatchEditor,
     ScriptBatchEditProblem,
     ScriptBatchEditResult,
+    SetSequenceDirectionOperation,
     script_revision,
 )
 from lib.script.script_editor import (
@@ -509,7 +511,12 @@ class PatchSplitOperation(BaseModel):
 
 
 PatchEpisodeScriptOperation = Annotated[
-    PatchUpdateOperation | PatchInsertOperation | PatchMoveOperation | PatchRemoveOperation | PatchSplitOperation,
+    PatchUpdateOperation
+    | PatchInsertOperation
+    | PatchMoveOperation
+    | PatchRemoveOperation
+    | PatchSplitOperation
+    | SetSequenceDirectionOperation,
     Field(discriminator="op"),
 ]
 
@@ -524,7 +531,8 @@ class PatchEpisodeScriptRequest(BaseModel):
         pattern=r"^sha256-v1:[0-9a-f]{64}$", description="get_episode_script 返回的当前 revision"
     )
     operations: list[PatchEpisodeScriptOperation] = Field(
-        min_length=1, description="按顺序执行的编辑操作，整批原子提交：update / insert / move / remove / split"
+        min_length=1,
+        description="按顺序执行的编辑操作，整批原子提交：update / insert / move / remove / split / set_sequence_direction",
     )
 
     @field_validator("script")
@@ -1075,6 +1083,8 @@ class ProjectFileRequest(BaseModel):
 class ProjectContent(BaseModel):
     revision: str
     project: dict[str, Any]
+    reference_context: list[dict[str, str]] = Field(default_factory=list)
+    reference_warning: str | None = None
 
 
 class EpisodeScriptContent(BaseModel):
@@ -1270,7 +1280,18 @@ def _file_problem(name: str, exc: BaseException) -> ToolProblem:
 
 def _get_project_content_sync(project_name: str, projects: ProjectManager) -> ProjectContent:
     project = projects.load_project(project_name)
-    return ProjectContent(revision=prefixed_canonical_json_digest(project), project=project)
+    warning = None
+    try:
+        references = current_reference_context(projects.get_project_path(project_name))
+    except (ValueError, OSError) as exc:
+        references = []
+        warning = str(exc)
+    return ProjectContent(
+        revision=prefixed_canonical_json_digest(project),
+        project=project,
+        reference_context=references,
+        reference_warning=warning,
+    )
 
 
 async def get_project_content(
@@ -2246,6 +2267,11 @@ def _project_patch_operations(
             except ScriptEditError as exc:
                 exc.params.update(operation_index=operation_index, location=location, unit_id=unit_id)
                 raise
+
+        if isinstance(operation, SetSequenceDirectionOperation):
+            preview["sequence_direction"] = operation.direction.model_dump()
+            append(operation.model_dump(mode="python"), index)
+            continue
 
         if isinstance(operation, PatchUpdateOperation):
             item_id = operation.id
