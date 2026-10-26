@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { API } from "@/api";
 import i18n from "@/i18n";
@@ -13,6 +13,11 @@ const CALLS_NAME = "按天堆叠的调用次数";
 const COST_NAME = "按天堆叠的参考费用";
 
 describe("UsageRecordsSection trend", () => {
+  beforeAll(async () => {
+    // 数值断言等待真实图表渲染，不把冷 chunk 的加载耗时算进查询等待。
+    await import("./UsageTrendChart");
+  });
+
   beforeEach(() => {
     useUsageRecordsStore.setState(useUsageRecordsStore.getInitialState(), true);
     useTasksStore.setState(useTasksStore.getInitialState(), true);

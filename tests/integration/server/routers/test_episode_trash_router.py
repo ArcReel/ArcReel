@@ -181,6 +181,7 @@ async def test_a_grid_deleted_before_its_episode_restores_normally_once_the_epis
         video_aspect_ratio="9:16",
     )
     grid.status = "completed"
+    grid.grid_image_path = f"grids/{grid.id}.png"
     grids.save(grid)
     grids.image_path(grid.id).write_bytes(b"grid-image")
     VersionManager(project_dir).add_version("grids", grid.id, "prompt", source_file=grids.image_path(grid.id))
@@ -200,7 +201,9 @@ async def test_a_grid_deleted_before_its_episode_restores_normally_once_the_epis
     assert episode_back.status_code == 200, episode_back.text
     assert grid_back.status_code == 200, grid_back.text
     assert grid_back.json()["degraded"] is False
-    assert grids.get(grid.id) is not None
+    restored = grids.get(grid.id)
+    assert restored is not None
+    assert restored.grid_image_path == f"grids/{grid.id}.png"
     assert grids.image_path(grid.id).read_bytes() == b"grid-image"
     assert VersionManager(project_dir).has_versions("grids", grid.id)
 

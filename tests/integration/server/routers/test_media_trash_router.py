@@ -191,6 +191,35 @@ def test_reference_audio_of_a_deleted_character_restores_only_its_file(media_tra
     assert project_trash.list_records(media_trash_pm.get_project_path("demo")) == []
 
 
+def test_a_reference_audio_restored_to_a_new_name_does_not_relink_to_another_characters_file(
+    media_trash_pm, media_trash_client
+):
+    project_dir = media_trash_pm.get_project_path("demo")
+    media_trash_pm.add_project_character("demo", "Alice (1)", "another", "soft")
+    record_ids: list[str] = []
+    for content in (b"first", b"second"):
+        media_trash_pm.install_character_reference_audio("demo", "Alice", AUDIO, content)
+        media_trash_pm.clear_character_reference_audio("demo", "Alice")
+        record_ids.append(
+            next(record.id for record in project_trash.list_records(project_dir) if record.id not in record_ids)
+        )
+    first, second = record_ids
+    mp3 = "characters/refs_audio/Alice.mp3"
+    media_trash_pm.install_character_reference_audio("demo", "Alice", mp3, b"current")
+    # 当前音色仍有效：先恢复的一份只作为未引用文件加回原位。
+    project_trash.restore(project_dir, first)
+    media_trash_pm.clear_character_reference_audio("demo", "Alice")
+
+    restored = media_trash_client.post(f"{TRASH}/{second}/restore")
+
+    assert restored.status_code == 200, restored.text
+    renamed = "characters/refs_audio/Alice (1).wav"
+    assert restored.json()["object"]["path"] == renamed
+    assert (project_dir / renamed).read_bytes() == b"second"
+    assert (project_dir / AUDIO).read_bytes() == b"first"
+    assert media_trash_pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == ""
+
+
 @pytest.mark.parametrize("kind", ["end_frame", "reference_audio"])
 def test_failed_relink_keeps_the_record_and_retracts_the_restored_file(
     media_trash_pm, media_trash_client, monkeypatch, kind
