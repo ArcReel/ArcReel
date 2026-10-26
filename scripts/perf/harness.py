@@ -621,3 +621,88 @@ def new_request(name: str, started: float) -> dict[str, Any]:
         "lock_wait": 0.0,
         "abandoned": False,
     }
+
+
+# ---------------------------------------------------------------- 栈采样
+# 叶子帧落在这些位置的线程视为空闲：等队列、等锁、等 IO 多路复用，以及 aiosqlite 工作线程在 C 层等队列。
+_IDLE_LEAVES = {
+    ("threading.py", "wait"),
+    ("queue.py", "get"),
+    ("selectors.py", "select"),
+    ("thread.py", "_worker"),
+    ("core.py", "_connection_worker_thread"),
+}
+
+
+class StackSampler(threading.Thread):
+    """py-spy 的进程内替代：每隔 ``interval`` 秒记下所有忙线程的调用栈。
+
+    采样线程本身也要拿 GIL，持有 GIL 的线程跑得越久采样越稀疏，所以只看比例不看绝对次数。
+    同一时刻忙线程的份数说明多份计算是否在同时推进；它们是否真在并行，看进程 CPU 占用。
+    """
+
+    def __init__(self, interval: float) -> None:
+        super().__init__(name="perf-stack-sampler", daemon=True)
+        self.interval = interval
+        self.stacks: dict[str, int] = defaultdict(int)
+        self.busy_hist: dict[int, int] = defaultdict(int)
+        self.ticks = 0
+        self._stop_event = threading.Event()
+
+    @staticmethod
+    def _frame_label(frame) -> str:
+        code = frame.f_code
+        name = os.path.basename(code.co_filename)
+        return f"{name}:{code.co_qualname}"
+
+    def run(self) -> None:
+        me = threading.get_ident()
+        while not self._stop_event.wait(self.interval):
+            busy = 0
+            for ident, frame in sys._current_frames().items():
+                if ident == me:
+                    continue
+                if (os.path.basename(frame.f_code.co_filename), frame.f_code.co_name) in _IDLE_LEAVES:
+                    continue
+                labels = []
+                f = frame
+                while f is not None:
+                    labels.append(self._frame_label(f))
+                    f = f.f_back
+                self.stacks[";".join(reversed(labels))] += 1
+                busy += 1
+            self.busy_hist[busy] += 1
+            self.ticks += 1
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        self.join()
+
+    def summary(self, top: int = 25) -> dict[str, Any]:
+        """自身（叶子帧）与累计（栈上出现过）占比最高的函数，以及同时忙的线程份数分布。"""
+
+        total = sum(self.stacks.values()) or 1
+        self_counts: dict[str, int] = defaultdict(int)
+        incl_counts: dict[str, int] = defaultdict(int)
+        for stack, n in self.stacks.items():
+            frames = stack.split(";")
+            self_counts[frames[-1]] += n
+            for label in set(frames):
+                incl_counts[label] += n
+
+        def ranked(counts: dict[str, int]) -> list[tuple[str, float]]:
+            return [(k, round(v / total, 4)) for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:top]]
+
+        return {
+            "ticks": self.ticks,
+            "busy_samples": total,
+            "busy_threads_hist": dict(sorted(self.busy_hist.items())),
+            "self": ranked(self_counts),
+            "inclusive": ranked(incl_counts),
+        }
+
+    def write_collapsed(self, path: Path) -> None:
+        """flamegraph.pl / speedscope 可读的折叠栈格式。"""
+
+        ranked = sorted(self.stacks.items(), key=lambda kv: -kv[1])
+        path.write_text("".join(f"{stack} {n}\n" for stack, n in ranked), encoding="utf-8")

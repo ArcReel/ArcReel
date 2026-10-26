@@ -677,6 +677,33 @@ def test_verified_manifest_parses_do_not_grow_with_the_artifact_count(
     assert parses[8] == parses[4] == 1
 
 
+def test_verified_summary_opens_each_formal_video_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """完整口径判一条视频的时效只打开正式文件一次：准入、比对与内容事实证明共用同一次观察。
+
+    项目详情逐件比对上千条视频，每多开一次文件就多一轮逐级打开目录的系统调用。
+    """
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _episode_with_storyboards(pm, project_path, 3)
+    names = {path.name for path in (project_path / "videos").glob("*.mp4")}
+    assert len(names) == 3
+    opens = dict.fromkeys(names, 0)
+    original_os_open = os.open
+
+    def _counted_os_open(path: object, *args: object, **kwargs: object) -> int:
+        if isinstance(path, (str, Path)) and Path(path).name in opens:
+            opens[Path(path).name] += 1
+        return original_os_open(path, *args, **kwargs)
+
+    reset_manifest_read_cache_for_tests()
+    monkeypatch.setattr(os, "open", _counted_os_open)
+    summary = WorkflowStateService(pm).get_project_summary("demo", currency="verified")
+    monkeypatch.undo()
+
+    assert summary.episodes[0].videos.available == 3
+    assert opens == dict.fromkeys(names, 1)
+
+
 def test_verified_summary_does_not_wait_for_a_writer_holding_the_manifest_lock(tmp_path: Path) -> None:
     """写入方持有清单锁期间，项目摘要照常返回：读取不拿清单锁，不等待也不失败。"""
 

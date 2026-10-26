@@ -25,6 +25,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestEntry,
     ArtifactManifestError,
     ArtifactManifestSnapshot,
+    ArtifactObservation,
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.artifact_provenance import (
@@ -263,6 +264,7 @@ class TargetStatePlanner:
         legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
         shared_versions: SharedVersionMetadata | None = None,
         manifest_snapshot: ArtifactManifestSnapshot | None = None,
+        shared_observations: dict[str, ArtifactObservation] | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
@@ -274,6 +276,9 @@ class TargetStatePlanner:
         #: given one judges currency: video and audio prove their formal file against the claim's recorded
         #: content facts and never read the version snapshot.
         self.manifest_snapshot = manifest_snapshot
+        #: Request-scoped inspections shared with the currency resolver that owns this planner: the
+        #: resolver's admission and the media proof open each formal file once.  ``None`` outside a resolver.
+        self.shared_observations = shared_observations
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
         self.episode_scope = episode_scope
@@ -1248,7 +1253,7 @@ class TargetStatePlanner:
         assert self.manifest_snapshot is not None
         entry = self.manifest_snapshot.entries.get(key)
         facts = entry.content if entry is not None and entry.artifact_path == artifact_path else None
-        artifact = self._safe_present_path(artifact_path) if facts is not None else None
+        artifact = self._shared_present_path(artifact_path) if facts is not None else None
         if facts is None or artifact is None:
             return None
         manifest_stat = self.manifest_snapshot.file_stat
@@ -1884,6 +1889,18 @@ class TargetStatePlanner:
 
     def _safe_present_path(self, relative_path: str) -> Path | None:
         observation = self.adapter.inspect_artifact(relative_path)
+        if observation.blocker is not None or not observation.present:
+            return None
+        return self.project_dir.joinpath(*Path(observation.artifact_path).parts)
+
+    def _shared_present_path(self, relative_path: str) -> Path | None:
+        """:meth:`_safe_present_path` through the owning resolver's request-scoped inspections."""
+
+        if self.shared_observations is None:
+            return self._safe_present_path(relative_path)
+        observation = self.shared_observations.get(relative_path)
+        if observation is None:
+            observation = self.shared_observations[relative_path] = self.adapter.inspect_artifact(relative_path)
         if observation.blocker is not None or not observation.present:
             return None
         return self.project_dir.joinpath(*Path(observation.artifact_path).parts)

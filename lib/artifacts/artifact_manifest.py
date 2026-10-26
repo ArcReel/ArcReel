@@ -498,7 +498,23 @@ class ArtifactManifest:
         it the claim is read from storage.
         """
 
-        observation = self._adapter.inspect_artifact(artifact_path)
+        return self.compare_observed_entry(
+            key,
+            observation=self._adapter.inspect_artifact(artifact_path),
+            expected=expected,
+            entries=entries,
+        )
+
+    def compare_observed_entry(
+        self,
+        key: ArtifactKey,
+        *,
+        observation: ArtifactObservation,
+        expected: ArtifactManifestEntry | None,
+        entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
+    ) -> ArtifactComparison:
+        """:meth:`compare_entry` on an inspection the caller already made in this request."""
+
         if observation.blocker is not None:
             return ArtifactComparison(
                 status=ArtifactStatus.BLOCKED,
