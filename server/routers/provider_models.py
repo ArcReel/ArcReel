@@ -71,10 +71,12 @@ from server.routers.custom_providers import (
     CUSTOM_MODEL_SETTING_FIELDS,
     EndpointRequestDescriptor,
     add_custom_model,
+    cleanup_project_model_refs,
     custom_model_settings,
     discover_custom_provider_models,
     invalidate_provider_caches,
     remove_custom_model,
+    rename_project_model_refs,
     update_custom_model,
 )
 
@@ -637,13 +639,14 @@ async def remove_provider_model(
     _t: Translator,
     session: AsyncSession = Depends(get_async_session),
 ) -> Response:
-    """移除用户负责的模型：自定义供应商的模型（同时清空全局设置里指向它的引用），或内置供应商下用户添加的模型。
+    """移除用户负责的模型：自定义供应商的模型（同时清空全局设置与项目里指向它的引用），或内置供应商下用户添加的模型。
     官方收录的模型只能停用。"""
     if is_custom_provider(provider_id):
         db_id = await _custom_db_id(session, provider_id, _t)
         await remove_custom_model(session, db_id, model_id, _t)
         await session.commit()
         await invalidate_provider_caches(request)
+        await cleanup_project_model_refs(db_id, {model_id})
         return Response(status_code=204)
     _require_builtin(provider_id, _t)
     try:
@@ -996,6 +999,7 @@ async def update_provider_model(
         if entry_saved or (binding is not None and binding.created is not None):
             await reload_user_entries(session)
         await invalidate_provider_caches(request)
+        await rename_project_model_refs(db_id, model_id, saved_model_id)
         return await _custom_detail(session, provider_id, db_id, saved_model_id, _t)
     saved_model_id = await _save_builtin_settings(session, provider_id, model_id, body, binding, _t)
     await session.commit()

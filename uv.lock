@@ -150,16 +150,16 @@ wheels = [
 
 [[package]]
 name = "alembic"
-version = "1.20.0"
+version = "1.20.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "mako" },
     { name = "sqlalchemy" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ed/aa/02910bdb8e2f1444f6654d5b296cd827d126f82209050ee7b1000f92ac4b/alembic-1.20.0.tar.gz", hash = "sha256:db505480647bc60386c5369402f4a57a506b7539c9e9ef5e270d45cbbe4939bf", size = 2093272, upload-time = "2026-09-11T19:09:11.126Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/1c/00909e0fbebad2121d916fdcab044cae988146680e9ee4387ba25fef8747/alembic-1.20.1.tar.gz", hash = "sha256:83490def1f723413db5096591f7609ac52544805be93849170088ed04f5a2e0b", size = 2103576, upload-time = "2026-10-22T03:24:35.93Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3f/27/78a89b55b0904d222183164e079b4ca56208e94eff1d35ad1f1ad5be9b06/alembic-1.20.0-py3-none-any.whl", hash = "sha256:77eb101048d95f982c0353e9233404889dcd7a6fc244c107836c0e2fc9cf7d9d", size = 268719, upload-time = "2026-09-11T19:09:12.88Z" },
+    { url = "https://files.pythonhosted.org/packages/11/3c/8740f5b4e1bd57333e4f84265b9b6363da4f7cf70f5622dd1e2fde7a0bd5/alembic-1.20.1-py3-none-any.whl", hash = "sha256:9970712cfb81ea26c8658d378aaa5b8f6ff9146e5bb111d70497c164016cf598", size = 270355, upload-time = "2026-10-22T03:24:37.667Z" },
 ]
 
 [[package]]
@@ -1691,15 +1691,15 @@ wheels = [
 
 [[package]]
 name = "jsonpath-rfc9535"
-version = "2.0.0"
+version = "2.0.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "iregexp-check" },
     { name = "regex" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/9b/1e/77a5b855f63c52e5e295a55bc4592bf7cf36186ae009587ec80fa743e417/jsonpath_rfc9535-2.0.0.tar.gz", hash = "sha256:42eb669ba7c270723011306c07ee5620fd4f6def42e22c22710778a3b4dc4e35", size = 146067, upload-time = "2026-10-03T08:09:06.002Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1d/0c/4a274cfb022464458be05a5029388a85c10536de2524ee49b3b01806d4ad/jsonpath_rfc9535-2.0.2.tar.gz", hash = "sha256:07e5ba16067905b5e8c0ff3a49184908f6e90f8cde473638f9f387b4f24d4e00", size = 146809, upload-time = "2026-10-10T10:40:48.334Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c0/1c/fb696ba39c62e566641b84be05104b2ee68a063f70d15ab621864b87acff/jsonpath_rfc9535-2.0.0-py3-none-any.whl", hash = "sha256:245ff25d8e8d134a969a37d207369371fdba96d8968316a1dfe0f4806b0af63b", size = 32411, upload-time = "2026-10-03T08:09:04.251Z" },
+    { url = "https://files.pythonhosted.org/packages/e8/fa/3d124fe4cc1f48190555df4288e83a004977bd4adaa333b40abad479587a/jsonpath_rfc9535-2.0.2-py3-none-any.whl", hash = "sha256:a8fd8054619bef2cac7ad04fc3a686ad8a3c552aa9a40f246bd7acef75ac779c", size = 32330, upload-time = "2026-10-10T10:40:46.922Z" },
 ]
 
 [[package]]
