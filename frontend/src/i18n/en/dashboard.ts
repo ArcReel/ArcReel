@@ -2479,6 +2479,7 @@ export default {
   'migration_adjustment_duplicate_asset_derivative_moved': 'The derivative “{{derivative}}” of the character “{{name}}” is moved to “{{kept}}”.',
   'migration_adjustment_duplicate_asset_derivative_folded': 'The derivative “{{derivative}}” of the character “{{name}}” has the same name as the derivative “{{into}}” of “{{kept}}”. It is merged into “{{into}}”.',
   'migration_adjustment_duplicate_asset_references_rewritten': 'In {{episode}}, references to the {{assetType}} “{{name}}” now point to “{{kept}}”.',
+  'migration_adjustment_shared_reference_file_copied': 'The {{assetType}} “{{name}}” used {{from}}, a file under “{{owner}}”. It now uses its own copy, {{file}}.',
   'migration_adjustment_placeholder_asset_added': 'The script uses the {{assetType}} “{{name}}”, which was not defined. An empty definition is added for it.',
   'migration_asset_type_character': 'character',
   'migration_asset_type_scene': 'scene',

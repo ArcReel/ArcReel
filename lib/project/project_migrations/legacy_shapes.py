@@ -18,6 +18,9 @@ v6→v7 的剧本改写、产物目标态规划（v7→v8 起的各步与归档�
   留第一条，其余从资产表去掉；资产图文件不动，改前的 ``project.json`` 留作保留副本。去掉的条目
   名下的衍生按资产合并的规则并进保留条目（迁走的衍生图搬到保留名下），各集剧本与草稿里指向只差
   大小写那条的引用改写为保留名。
+- **参考图或参考音频指向别的资产名下的文件**（旧版资产 PATCH 接受任意路径）：复制一份到本资产名下并改指
+  过去，原文件留给它的主人。本资产名下的落点已被另一份内容占着时，那一份先挪成保留副本。参考文件按名归属，
+  之后的改名、删除与恢复只处理本资产名下的文件。
 - **剧本条目缺 id 或 id 重复**：缺的补新 id，重复的从第二条起换新 id（取号规则同新增条目）；换号
   条目上指向原 id 规范媒体路径的产物引用清空——那些文件属于保留原 id 的条目；只描述这些媒体的
   生成状态一并清空，换号条目读作尚未生成。
@@ -37,7 +40,7 @@ import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from lib.artifacts.artifact_manifest import (
@@ -47,7 +50,7 @@ from lib.artifacts.artifact_manifest import (
     normalize_artifact_path,
 )
 from lib.episode.episode_paths import episode_drafts_dir, episode_script_relpath
-from lib.infra.json_io import atomic_write_json
+from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.infra.path_safety import try_safe_join
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
@@ -58,9 +61,11 @@ from lib.project.asset_derivatives import (
     ensure_derivative_table,
 )
 from lib.project.asset_merge import DerivativeMergePlan, merge_payload_references, plan_derivative_merge
+from lib.project.asset_rename import REFERENCE_FILE_FIELDS, owns_named_file
 from lib.project.asset_types import (
     ASSET_SPECS,
     DERIVATIVES_FIELD,
+    AssetSpec,
     asset_name_comparison_key,
     asset_name_namespace_key,
     normalize_asset_name,
@@ -713,6 +718,128 @@ def _relocate_derivative_sheet(work: _Work, derivative: object, owner: str, kept
     return {normalize_artifact_path(value): normalize_artifact_path(new_rel)}
 
 
+#: 参考文件字段 → 本资产名下的落点（资产类型目录下的子目录）；多图序列按 ``名字_{序号}`` 命名。
+_REFERENCE_FILE_SUBDIRS = {"reference_image": "refs", "reference_audio": "refs_audio", "reference_images": "refs"}
+
+
+def _copy_shared_reference_files(work: _Work) -> None:
+    """指向别的资产名下文件的参考图与参考音频复制一份到本资产名下，字段改指过去；原文件不动。
+
+    复制先于改写 ``project.json``，调整随复制记下；提交前失败时重跑找到同字节的副本直接改指，不再复制。
+    """
+
+    for asset_type, spec in ASSET_SPECS.items():
+        bucket = work.project.get(spec.bucket_key)
+        if not isinstance(bucket, dict):
+            continue
+        for name, entry in bucket.items():
+            if not isinstance(name, str) or not isinstance(entry, dict):
+                continue
+            for field_name in REFERENCE_FILE_FIELDS:
+                if field_name not in spec.extra_string_fields and field_name not in spec.extra_list_fields:
+                    continue
+                value = entry.get(field_name)
+                if isinstance(value, list):
+                    for index, item in enumerate(value):
+                        copied = _own_reference_copy(work, asset_type, name, field_name, item, siblings=value)
+                        if copied is not None:
+                            value[index] = copied
+                elif (copied := _own_reference_copy(work, asset_type, name, field_name, value)) is not None:
+                    entry[field_name] = copied
+
+
+def _own_reference_copy(
+    work: _Work,
+    asset_type: str,
+    name: str,
+    field_name: str,
+    value: object,
+    *,
+    siblings: list[Any] | None = None,
+) -> str | None:
+    """*value* 是别的资产名下的文件时复制到 *name* 名下，返回新路径；不必复制时返回 ``None``。"""
+
+    spec = ASSET_SPECS[asset_type]
+    if not isinstance(value, str) or not value or owns_named_file(spec, name, value):
+        return None
+    rel = value.replace("\\", "/")
+    owner = _named_file_owner(work.project, rel)
+    target_dir = PurePosixPath(spec.subdir) / _REFERENCE_FILE_SUBDIRS[field_name]
+    # 参考音频只认角色参考音频目录里的文件，别处的值本就不生效，复制过来反倒让它生效。
+    if owner is None or (field_name == "reference_audio" and PurePosixPath(rel).parent != target_dir):
+        return None
+    source = try_safe_join(work.project_dir, rel)
+    if source is None or not source.is_file() or source.is_symlink():
+        return None
+    content = source.read_bytes()
+    stem, suffix = normalize_asset_name(name), PurePosixPath(rel).suffix
+    backup: str | None = None
+    if siblings is None:
+        target_rel = (target_dir / f"{stem}{suffix}").as_posix()
+        target = work.project_dir / target_rel
+        if target.exists() and not (target.is_file() and target.read_bytes() == content):
+            backup = work.rel(set_aside_as_kept_copy(target, work.schema_version))
+    else:
+        target_rel = _sequenced_copy_target(work, spec, target_dir, stem, suffix, content, siblings)
+        target = work.project_dir / target_rel
+    if not target.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_bytes(target, content)
+    work.project_changed = True
+    work.adjusted.append(
+        MigrationAdjustment(
+            code="shared_reference_file_copied",
+            file=target_rel,
+            backup=backup,
+            params={"asset_type": asset_type, "name": name, "owner": owner[1], "from": rel},
+        )
+    )
+    return target_rel
+
+
+def _sequenced_copy_target(
+    work: _Work,
+    spec: AssetSpec,
+    target_dir: PurePosixPath,
+    stem: str,
+    suffix: str,
+    content: bytes,
+    siblings: list[Any],
+) -> str:
+    """多图序列里新副本的落点：已有同字节、尚未登记的本资产文件就用它（重跑收敛），否则取最小的空闲序号。"""
+
+    listed = {item.replace("\\", "/") for item in siblings if isinstance(item, str)}
+    directory = work.project_dir.joinpath(*target_dir.parts)
+    taken: set[str] = set()
+    for existing in sorted(directory.iterdir()) if directory.is_dir() else ():
+        existing_rel = (target_dir / existing.name).as_posix()
+        if not owns_named_file(spec, stem, existing_rel):
+            continue
+        taken.add(normalize_asset_name(existing.stem))
+        if (
+            existing_rel not in listed
+            and existing.suffix == suffix
+            and existing.is_file()
+            and existing.read_bytes() == content
+        ):
+            return existing_rel
+    sequence = 1
+    while f"{stem}_{sequence}" in taken:
+        sequence += 1
+    return (target_dir / f"{stem}_{sequence}{suffix}").as_posix()
+
+
+def _named_file_owner(project: dict[str, Any], rel: str) -> tuple[str, str] | None:
+    """按名归属 *rel* 的资产（类型、名字）；不在任何资产名下时为 ``None``。"""
+
+    for asset_type, spec in ASSET_SPECS.items():
+        bucket = project.get(spec.bucket_key)
+        for name in bucket if isinstance(bucket, dict) else ():
+            if isinstance(name, str) and owns_named_file(spec, name, rel):
+                return asset_type, name
+    return None
+
+
 #: 条目 id 的集号前缀（与 ``script_editor`` 的条目 id 形态一致，含 ``_N`` 拆分后缀）。
 _ITEM_ID_EPISODE = re.compile(r"\AE(\d+)[SU]\d+(?:_\d+)?\Z")
 #: ``new_item_id`` 取出的号：集号、字母、序号。
@@ -885,6 +1012,7 @@ def normalize_legacy_shapes(project_dir: Path, *, schema_version: int, record: l
         # 资产去重先于改绑：第一次提交 project.json 时，它的规整项已在待提交之列，留下的就是保留副本，
         # 能覆盖全部 project.json 规整项。它平移确认指纹时自己先行提交，同样留保留副本。
         _drop_duplicate_assets(work)
+        _copy_shared_reference_files(work)
         _canonicalize_bindings(work)
         _correct_script_episodes(work)
         _repair_item_ids(work)

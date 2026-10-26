@@ -14,6 +14,8 @@ from lib.artifacts.version_manager import VersionManager
 from lib.generation.deleted_target import GenerationTargetDeletedError, trash_result_if_target_deleted
 from lib.project import asset_trash, project_trash, trash_restore
 from lib.project.project_manager import ProjectManager
+from lib.project.project_migrations.legacy_shapes import normalize_legacy_shapes
+from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from server.error_handlers import register_error_handlers
 from server.routers import characters, scenes
 from server.routers import project_trash as trash_router
@@ -104,21 +106,82 @@ def test_deleting_an_asset_moves_its_sheet_and_history_into_one_record(asset_cli
     assert "阿岚" not in _project(asset_dir)["characters"]
 
 
-def test_deleting_a_character_keeps_reference_audio_another_character_still_uses(asset_client, asset_pm, asset_dir):
+def _with_reference_files(asset_pm: ProjectManager, asset_dir: Path, name: str) -> dict[str, str]:
+    """给角色装上自己名下的参考图与参考音频，返回字段 → 路径。"""
+    fields = {"reference_image": f"characters/refs/{name}.png", "reference_audio": f"characters/refs_audio/{name}.wav"}
+    for field, rel in fields.items():
+        (asset_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+        (asset_dir / rel).write_bytes(f"{name}:{field}".encode())
+    asset_pm.update_asset_entry("character", "demo", name, lambda entry: entry.update(fields))
+    return fields
+
+
+def test_reference_files_cannot_point_at_files_of_another_asset(asset_client, asset_pm, asset_dir):
     _create(asset_client, "阿岚")
+    shared = _with_reference_files(asset_pm, asset_dir, "阿岚")
     _create(asset_client, "阿青")
-    audio = asset_dir / "characters" / "refs_audio" / "阿岚.wav"
-    audio.parent.mkdir(parents=True, exist_ok=True)
-    audio.write_bytes(b"voice")
-    for name in ("阿岚", "阿青"):
-        asset_pm.update_asset_entry(
-            "character", "demo", name, lambda entry: entry.update(reference_audio="characters/refs_audio/阿岚.wav")
-        )
+
+    for field, rel in shared.items():
+        response = asset_client.patch(f"{CHARACTERS}/阿青", json={field: rel})
+        assert response.status_code == 422, response.text
+        assert "阿青" in response.json()["detail"]
+    created = asset_client.post(CHARACTERS, json={"name": "阿紫", "description": "", **shared})
+    assert created.status_code == 422, created.text
+
+    project = _project(asset_dir)
+    assert "阿紫" not in project["characters"]
+    assert (project["characters"]["阿青"]["reference_image"], project["characters"]["阿青"]["reference_audio"]) == (
+        "",
+        "",
+    )
+    own = asset_client.patch(f"{CHARACTERS}/阿青", json={"reference_audio": "characters/refs_audio/阿青.mp3"})
+    assert own.status_code == 200, own.text
+    # 已经指着的值原样提交不算新写入：只改描述的请求带着整份条目也能保存。
+    unchanged = asset_client.patch(f"{CHARACTERS}/阿岚", json={"description": "新的", **shared})
+    assert unchanged.status_code == 200, unchanged.text
+
+
+def test_deleting_a_character_takes_its_own_reference_files(asset_client, asset_pm, asset_dir):
+    _create(asset_client, "阿岚")
+    files = _with_reference_files(asset_pm, asset_dir, "阿岚")
 
     assert asset_client.delete(f"{CHARACTERS}/阿岚").status_code == 200
 
-    assert audio.read_bytes() == b"voice"
-    assert "characters/refs_audio/阿岚.wav" not in _only_record(asset_client)["files"]
+    assert set(files.values()) <= set(_only_record(asset_client)["files"])
+    assert not any((asset_dir / rel).exists() for rel in files.values())
+
+
+def test_a_character_restored_under_a_new_name_points_at_files_that_exist(asset_client, asset_pm, asset_dir):
+    """删除、新建同名、再恢复：换名恢复的资产，每个文件字段都指向随它改名加回的文件。
+
+    升级前「阿青」共用「阿岚」的参考图与参考音频（旧版 PATCH 接受任意路径）；升级时它得到自己的一份，
+    删除「阿岚」于是带走它名下的全部文件，换名恢复时随改名级联一起改名加回。
+    """
+    _create(asset_client, "阿岚", "旧的")
+    _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
+    shared = _with_reference_files(asset_pm, asset_dir, "阿岚")
+    _create(asset_client, "阿青")
+    asset_pm.update_asset_entry("character", "demo", "阿青", lambda entry: entry.update(shared))
+    normalize_legacy_shapes(asset_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=[])
+    asset_client.delete(f"{CHARACTERS}/阿岚")
+    record = _only_record(asset_client)["id"]
+    _create(asset_client, "阿岚", "新的")
+
+    restored = asset_client.post(f"{TRASH}/{record}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert restored.json()["object"]["name"] == "阿岚 (1)"
+    characters = _project(asset_dir)["characters"]
+    entry = characters["阿岚 (1)"]
+    assert (entry["character_sheet"], entry["reference_image"], entry["reference_audio"]) == (
+        "characters/阿岚 (1).png",
+        "characters/refs/阿岚 (1).png",
+        "characters/refs_audio/阿岚 (1).wav",
+    )
+    assert (asset_dir / entry["character_sheet"]).read_bytes() == b"sheet"
+    for field in shared:
+        assert (asset_dir / entry[field]).read_bytes() == f"阿岚:{field}".encode()
+        assert (asset_dir / characters["阿青"][field]).read_bytes() == f"阿岚:{field}".encode()
 
 
 def test_restore_with_free_name_brings_back_sheet_history_and_name(asset_client, asset_pm, asset_dir):

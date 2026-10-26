@@ -2478,6 +2478,7 @@ export default {
   'migration_adjustment_duplicate_asset_derivative_moved': '角色「{{name}}」的衍生「{{derivative}}」已移到「{{kept}}」名下。',
   'migration_adjustment_duplicate_asset_derivative_folded': '角色「{{name}}」的衍生「{{derivative}}」与「{{kept}}」已有的衍生「{{into}}」重名，已并入「{{into}}」。',
   'migration_adjustment_duplicate_asset_references_rewritten': '{{episode}}里引用{{assetType}}「{{name}}」的地方已改为「{{kept}}」。',
+  'migration_adjustment_shared_reference_file_copied': '{{assetType}}「{{name}}」用的是「{{owner}}」名下的文件 {{from}}，已复制一份为 {{file}} 改用。',
   'migration_adjustment_placeholder_asset_added': '剧本用到的{{assetType}}「{{name}}」没有定义，已补一条空白定义。',
   'migration_asset_type_character': '角色',
   'migration_asset_type_scene': '场景',
