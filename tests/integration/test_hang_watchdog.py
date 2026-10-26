@@ -45,11 +45,20 @@ def test_dumps_thread_blocking_process_exit(tmp_path: Path) -> None:
     result = _run(
         tmp_path,
         """
+        import os
         import threading
         import time
+        from pathlib import Path
 
         def linger_after_session():
-            time.sleep(2)
+            # 握手：一直挡住进程退出，直到转储里出现本线程的栈；30 秒上限只防看门狗失效时挂住用例。
+            dump_dir = Path(os.environ["ARCREEL_TEST_HANG_DUMP_DIR"])
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                dumped = "".join(path.read_text(encoding="utf-8") for path in dump_dir.glob("*.stacks"))
+                if "linger_after_session" in dumped:
+                    return
+                time.sleep(0.05)
 
         def test_leaks_non_daemon_thread():
             threading.Thread(target=linger_after_session).start()
