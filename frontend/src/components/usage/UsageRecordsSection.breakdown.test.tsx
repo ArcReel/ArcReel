@@ -287,4 +287,17 @@ describe("UsageRecordsSection attention", () => {
 
     await waitFor(() => expect(lastQuery(location.history).has("u_segment")).toBe(false));
   });
+
+  it("names a video unit filter chip as a video unit", async () => {
+    mockAttention([]);
+    const ref: EpisodeItemRef = { ...E1S10_REF, item_id: "U4", item_position: 2 };
+    vi.mocked(API.getUsageRecords).mockResolvedValue({
+      items: [makeUsageRecord({ id: 6, segment_id: "E1U4", segment_ref: ref })],
+      next_cursor: null,
+      total: 1,
+    });
+    renderUsageRecordsSection("section=usage&u_segment=E1U4");
+
+    expect(await screen.findByRole("button", { name: "清除筛选：视频单元 第 1 集 · 2" })).toBeInTheDocument();
+  });
 });

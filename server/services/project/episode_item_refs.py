@@ -15,6 +15,7 @@ from typing import Any
 from lib.episode.episode_ids import episode_item_ref, find_ledger_entry, item_id_episode
 from lib.i18n import _
 from lib.project.project_manager import ProjectManager
+from lib.script.item_excerpt import find_item, item_excerpt
 from server.services.project.episode_display import present_episode_diagnostics
 
 
@@ -50,9 +51,6 @@ def with_episode_item_refs(
 
 # 分镜（segment / scene / shot）与视频单元的条目 ID；宫格（E3G01）不按位置指称。
 _POSITIONED_ITEM_ID = re.compile(r"^E\d+[SU]\d")
-_ITEM_ARRAYS = (("segments", "segment_id"), ("scenes", "scene_id"), ("shots", "shot_id"), ("video_units", "unit_id"))
-_EXCERPT_LENGTH = 16
-_MENTION = re.compile(r"@\[([^\]]*)\]")
 _NO_FACTS: dict[str, Any] = {"item_position": None, "item_excerpt": "", "item_thumbnail": None}
 
 
@@ -75,41 +73,15 @@ def _item_facts(
     script = cache[key]
     if script is None:
         return dict(_NO_FACTS)
-    for array_key, id_field in _ITEM_ARRAYS:
-        items = script.get(array_key)
-        if not isinstance(items, list):
-            continue
-        for index, item in enumerate(items, start=1):
-            if isinstance(item, Mapping) and item.get(id_field) == item_id:
-                return {"item_position": index, "item_excerpt": _excerpt(item), "item_thumbnail": _thumbnail(item)}
-    return dict(_NO_FACTS)
+    found = find_item(script, item_id)
+    if found is None:
+        return dict(_NO_FACTS)
+    position, item = found
+    return {"item_position": position, "item_excerpt": item_excerpt(item), "item_thumbnail": _thumbnail(item)}
 
 
 def _text(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
-
-
-def _image_prompt_scene(item: Mapping[str, Any]) -> str:
-    prompt = item.get("image_prompt")
-    if isinstance(prompt, Mapping):
-        return _text(prompt.get("scene"))
-    return _text(prompt)
-
-
-def _body(item: Mapping[str, Any]) -> str:
-    """条目正文：旁白取原文，剧情演绎取画面描述，广告/短片取口播，视频单元取正文（与前端 ``itemExcerpt`` 同口径）。"""
-    if "segment_id" in item:
-        return _text(item.get("novel_text"))
-    if "unit_id" in item:
-        return _MENTION.sub(r"@\1", _text(item.get("text")))
-    if "shot_id" in item:
-        return _text(item.get("voiceover_text")) or _image_prompt_scene(item)
-    return _text(item.get("scene_description")) or _image_prompt_scene(item) or _text(item.get("source_text"))
-
-
-def _excerpt(item: Mapping[str, Any]) -> str:
-    body = " ".join(_body(item).split())
-    return body if len(body) <= _EXCERPT_LENGTH else f"{body[:_EXCERPT_LENGTH]}…"
 
 
 def _thumbnail(item: Mapping[str, Any]) -> str | None:
