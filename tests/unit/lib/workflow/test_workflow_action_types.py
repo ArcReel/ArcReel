@@ -9,10 +9,13 @@ import re
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from lib.generation.generation_result import GenerationAction
 from lib.project.project_migration_failure import RETRY_MIGRATION_ACTION
 from lib.workflow.workflow_state import WorkflowActionType
+from server.text_generation import PromptOverwriteRequiredError
+from server.tool_runtime import GenerateEpisodeScriptRequest, _prompt_overwrite_problem
 
 REPO = Path(__file__).resolve().parents[4]
 FRONTEND_TYPES = REPO / "frontend" / "src" / "types" / "workflow.ts"
@@ -62,12 +65,29 @@ def test_author_prompts_action_is_mirrored_in_the_profile(relative_path: str) ->
     )
 
 
-def test_generate_script_skill_pins_the_author_prompts_contract() -> None:
-    """补提示词默认只填待编写条目、``entry_ids`` 是显式重写；已取消的 ``scope`` 参数不再出现在 skill 里。"""
-    md = (REPO / "agent_runtime_profile/.claude/skills/generate-script/SKILL.md").read_text(encoding="utf-8")
-    section = md.split("### 补充提示词", 1)[1].split("\n## ", 1)[0]
+def _author_prompts_section(md: str) -> str:
+    """取标题里点名 ``author_prompts`` 动作的那一小节，到下一个同级或更高级标题为止。"""
+    action = f"`{WorkflowActionType.AUTHOR_PROMPTS.value}`"
+    match = re.search(rf"^### [^\n]*{re.escape(action)}[^\n]*\n(.*?)(?=^#{{1,3}} |\Z)", md, re.DOTALL | re.MULTILINE)
+    assert match is not None, f"generate-script skill 没有以 {action} 为标题的小节"
+    return match.group(1)
 
-    assert "`entry_ids`" in section
-    assert "待编写" in section
-    assert "手写" in section
+
+def test_generate_script_skill_pins_the_author_prompts_contract() -> None:
+    """补提示词小节点名的参数与问题码都取自请求模型与工具问题：改名或删字段而 skill 没跟上会红。
+
+    默认补缺、``entry_ids`` 只划范围、``rewrite`` 显式重写、覆盖前经 ``overwrite_revision`` 确认，
+    这几条规则落在参数上；已取消的 ``scope`` 由请求模型拒绝，skill 里也不得再出现。
+    """
+    md = (REPO / "agent_runtime_profile/.claude/skills/generate-script/SKILL.md").read_text(encoding="utf-8")
+    section = _author_prompts_section(md)
+    fields = GenerateEpisodeScriptRequest.model_fields
+    overwrite_code = _prompt_overwrite_problem(PromptOverwriteRequiredError("", {"revision": "r"})).code
+
+    for field in ("entry_ids", "rewrite", "overwrite_revision"):
+        assert field in fields, field
+        assert f"`{field}" in section, field
+    assert f"`{overwrite_code}`" in section
+    with pytest.raises(ValidationError):
+        GenerateEpisodeScriptRequest.model_validate({"episode_id": 1, "scope": "all"})
     assert "scope" not in md

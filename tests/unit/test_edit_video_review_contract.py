@@ -12,6 +12,7 @@ from pathlib import Path
 import yaml
 
 from server.agent_runtime.agent_access_policy import AgentAccessPolicy
+from server.agent_runtime.session_manager import SessionManager
 from server.media_tools.narration_audio import GenerateNarrationAudioRequest
 from server.media_tools.videos import GenerateVideosRequest
 
@@ -21,6 +22,8 @@ REVIEWER = REPO / "agent_runtime_profile/.claude/agents/review-footage.md"
 APP_LINK = REPO / "frontend/src/utils/app-link.ts"
 
 _LINK_TEMPLATE = re.compile(r"`(/app/projects/\{项目名\}/episodes/[^`]+)`")
+#: 勾选清单的类目是缩进列表项开头的加粗名，交付与执行两节用同一组名字对上。
+_CHECKLIST_CATEGORY = re.compile(r"^\s*- \*\*([^*]+)\*\*", re.MULTILINE)
 
 
 def _section(text: str, heading: str) -> str:
@@ -65,17 +68,38 @@ def test_jump_links_in_the_delivery_use_the_formats_the_app_parses() -> None:
     assert skill_formats == app_formats
 
 
-def test_delivery_carries_summary_links_and_a_checklist_with_every_required_field() -> None:
+def test_checklist_is_asked_through_a_registered_multi_select_question() -> None:
+    """勾选清单经 AskUserQuestion 多选一次问完：工具名与参数都是 SDK 契约，写错 Agent 就问不出清单。"""
+
     delivery = _section(SKILL.read_text(encoding="utf-8"), "一轮结束的交付")
 
-    for part in ("改动总结", "「跳到这里看」链接", "勾选清单", "AskUserQuestion", "`multiSelect: true`"):
-        assert part in delivery, part
-    regenerate = next(line for line in delivery.splitlines() if "**重新生成**" in line)
-    for field in ("视频单元", "问题与时间点", "是否修改提示词", "预计费用", "时长档位", "「全部重新生成」"):
-        assert field in regenerate, field
-    rewrite = next(line for line in delivery.splitlines() if "**改写画外音**" in line)
-    for field in ("原文", "改后文字", "预计缩短的秒数"):
-        assert field in rewrite, field
+    assert "AskUserQuestion" in SessionManager.DEFAULT_ALLOWED_TOOLS
+    assert "AskUserQuestion" in delivery
+    assert "`multiSelect: true`" in delivery
+
+
+def test_every_checklist_category_has_an_execution_rule() -> None:
+    """清单里的每类待决定事项都要在「执行勾选项」里有对应的执行办法，反之亦然：
+    多出一类就是创作者勾了却没人执行，少一类就是执行规则无从触发。只比对两处的加粗类目名，不看措辞。"""
+
+    skill = SKILL.read_text(encoding="utf-8")
+    offered = set(_CHECKLIST_CATEGORY.findall(_section(skill, "一轮结束的交付")))
+    executed = set(_CHECKLIST_CATEGORY.findall(_section(skill, "执行勾选项")))
+
+    assert offered, "交付一节没有勾选清单类目，断言失去意义"
+    assert offered == executed
+
+
+def test_paid_regeneration_option_quotes_the_previewed_cost() -> None:
+    """重新生成是付费动作，选项须带预检报价让创作者勾选前知道花多少。
+    这是费用防线，按 #3445 的豁免只断言该类目行同时点名预检工具与「费用」，不锁整句。"""
+
+    delivery = _section(SKILL.read_text(encoding="utf-8"), "一轮结束的交付")
+    paid = [line for line in delivery.splitlines() if _CHECKLIST_CATEGORY.match(line) and "generate_videos" in line]
+
+    assert len(paid) == 1
+    assert "`preview: true`" in paid[0]
+    assert "费用" in paid[0]
 
 
 def test_preview_and_submission_name_real_generate_videos_parameters() -> None:
