@@ -274,7 +274,11 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
             return (
               <li key={record.id} className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-muted/40">
                 <div className="flex min-w-0 flex-1 flex-col">
-                  <TruncatedText text={recordTitle(t, record, episodes)} className="text-sm" />
+                  {itemAtDeletion(t, record.object, episodes) === null ? (
+                    <TruncatedText text={recordTitle(t, record, episodes)} className="text-sm" />
+                  ) : (
+                    <span className="wrap-break-word text-sm">{recordTitle(t, record, episodes)}</span>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     {t(recordMetaKey(record), {
                       time: formatShortDateTime(record.deleted_at) ?? record.deleted_at,

@@ -142,6 +142,17 @@ def test_an_end_frame_record_names_its_shot_by_position_and_text(media_trash_pm)
     assert (record.object["episode"], record.object["item_position"], record.object["item_excerpt"]) == (1, 1, "t")
 
 
+def test_an_end_frame_record_takes_its_episode_from_the_script_file_when_the_script_has_none(media_trash_pm):
+    """剧本内没有整数 episode 时，尾帧记录的集号取自规范文件名，回收站仍按位置称呼分镜。"""
+    _set_end_frame(media_trash_pm, b"frame")
+    with media_trash_pm.locked_script("demo", "episode_1.json", validate=False) as script:
+        del script["episode"]
+    _clear_end_frame(media_trash_pm)
+
+    [record] = project_trash.list_records(media_trash_pm.get_project_path("demo"))
+    assert (record.object["episode"], record.object["item_position"], record.object["item_excerpt"]) == (1, 1, "t")
+
+
 def test_an_end_frame_restored_onto_a_newer_one_takes_a_new_name(media_trash_pm, media_trash_client):
     _set_end_frame(media_trash_pm, b"old")
     _clear_end_frame(media_trash_pm)
