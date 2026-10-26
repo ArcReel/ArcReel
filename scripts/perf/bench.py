@@ -320,11 +320,15 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         async def sampler():
             while True:
                 t = time.perf_counter()
+                cpu = time.process_time()
                 await asyncio.sleep(0.5)
+                wall = time.perf_counter() - t
                 samples.append(
                     {
                         "t": time.perf_counter() - t0,
-                        "loop_lag": time.perf_counter() - t - 0.5,
+                        "loop_lag": wall - 0.5,
+                        # 进程占用的 CPU 核数：多份计算同时在算却始终贴着 1，说明它们被 GIL 串行。
+                        "cpu_cores": (time.process_time() - cpu) / wall,
                         "qsize": executor._work_queue.qsize() if executor else 0,
                         "inflight": dict(inflight),
                         "computing": dict(probe.computing),
@@ -337,6 +341,9 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
             asyncio.create_task(light("auth_verify", "GET", f"{h.API}/auth/verify", {}, 200)),
         ]
         smp = asyncio.create_task(sampler())
+        stacks = h.StackSampler(1 / a.sample_hz) if a.sample_hz else None
+        if stacks is not None:
+            stacks.start()
         while time.perf_counter() - t0 < a.duration:
             await asyncio.sleep(10)
             s = samples[-1] if samples else {}
@@ -347,6 +354,9 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
             )
         stop.set()
         t_stop = time.perf_counter()
+        if stacks is not None:
+            stacks.stop()
+            stacks.write_collapsed(_out_dir() / f"peak-{a.tag}.stacks.txt")
         await asyncio.gather(*bg, return_exceptions=True)
         # 最后一次写入触发的费用估算还在防抖里，等它发出后再判断是否有在途请求。
         await asyncio.gather(*(cl.cost_timer for cl in clients if cl.cost_timer), return_exceptions=True)
@@ -387,6 +397,9 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
             "mean_thread_hops": statistics.mean(r["hops"] for r in rs) if rs else 0,
             "mean_thread_qwait_s": statistics.mean(r["qwait"] for r in rs) if rs else 0,
             "mean_lock_wait_s": statistics.mean(r["lock_wait"] for r in rs) if rs else 0,
+            # 工作线程里的墙钟与线程 CPU：CPU 远小于墙钟说明在等 GIL 或 IO。
+            "mean_thread_run_s": statistics.mean(r["run"] for r in rs) if rs else 0,
+            "mean_thread_cpu_s": statistics.mean(r["cpu"] for r in rs) if rs else 0,
         }
     return {
         "duration_s": a.duration,
@@ -400,6 +413,9 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         "video_facts_after": h.video_fact_coverage(),
         "thread_queue_max": max((s["qsize"] for s in samples), default=0),
         "loop_lag_max_s": max((s["loop_lag"] for s in samples), default=0),
+        "cpu_cores_mean": statistics.mean(s["cpu_cores"] for s in samples) if samples else 0,
+        "cpu_cores_max": max((s["cpu_cores"] for s in samples), default=0),
+        "stack_samples": stacks.summary() if stacks is not None else None,
         "endpoints": endpoints,
         "probes": {
             k: {"n": len(v), "p95": pct(v, 95), "max": max(v), "errors": probe_errors[k]} for k, v in probes.items()
@@ -416,19 +432,26 @@ def cmd_peak(a: argparse.Namespace) -> dict[str, Any]:
         f"\n=== peak {a.duration:.0f}s: writes={result['writes']} drain_after_stop={result['drain_s']:.1f}s"
         f"{' (capped, leftover=' + str(result['leftover']) + ')' if result['drain_capped'] else ''} "
         f"thread_queue_max={result['thread_queue_max']} manifest_lock_nb_failures={result['manifest_lock_nb_failures']} "
-        f"video_facts_after={result['video_facts_after']}"
+        f"video_facts_after={result['video_facts_after']} "
+        f"cpu_cores mean={result['cpu_cores_mean']:.2f} max={result['cpu_cores_max']:.2f}"
     )
     for name, e in result["endpoints"].items():
         print(
             f"  {name:10s} n={e['n']:4d} p50={e['p50']:7.2f}s p95={e['p95']:7.2f}s max={e['max']:7.2f}s "
             f"delivered_p95={e['delivered_p95']:7.2f}s abandoned={e['abandoned']} unfinished={e['unfinished']} errors={e['errors']} "
             f"inflight_max={e['inflight_max']} computing_max={e['computing_max']} "
-            f"hops={e['mean_thread_hops']:.0f} qwait={e['mean_thread_qwait_s']:.2f}s lock_wait={e['mean_lock_wait_s']:.2f}s"
+            f"hops={e['mean_thread_hops']:.0f} qwait={e['mean_thread_qwait_s']:.2f}s lock_wait={e['mean_lock_wait_s']:.2f}s "
+            f"thread_run={e['mean_thread_run_s']:.2f}s thread_cpu={e['mean_thread_cpu_s']:.2f}s"
         )
     for name, p in result["probes"].items():
         print(
             f"  {name:12s} n={p['n']:4d} p95={p['p95'] * 1000:7.1f}ms max={p['max'] * 1000:7.1f}ms errors={p['errors']}"
         )
+    if result["stack_samples"]:
+        st = result["stack_samples"]
+        print(f"  stack samples: busy threads per tick {st['busy_threads_hist']}")
+        for label, share in st["self"][:15]:
+            print(f"    self {share:6.1%} {label}")
     (_out_dir() / f"peak-{a.tag}.json").write_text(json.dumps(result, indent=1))
     sys.stdout.flush()
     # 放弃的请求可能仍在线程里跑（drain 被截断时），正常退出会等它们，这里直接结束进程。
@@ -494,7 +517,7 @@ def cmd_all(a: argparse.Namespace) -> None:
         passthrough += ["--only", *a.only]
     peak_args = [
         "--duration", str(a.duration), "--drain", str(a.drain), "--interval", *map(str, a.interval),
-        "--clients", str(a.clients),
+        "--clients", str(a.clients), "--sample-hz", str(a.sample_hz),
     ]  # fmt: skip
     for sub, extra in (
         ("idle", ["--reps", str(a.reps)]),
@@ -533,6 +556,9 @@ def main() -> None:
     peak_opts.add_argument("--interval", type=float, nargs=2, default=[2.0, 5.0], help="两次视频完成的间隔范围（秒）")
     peak_opts.add_argument("--drain", type=float, default=300, help="排空等待上限（秒）")
     peak_opts.add_argument("--clients", type=int, default=1)
+    peak_opts.add_argument(
+        "--sample-hz", type=float, default=0, help="高峰期栈采样频率，0 为关闭；折叠栈写入 out/peak-<tag>.stacks.txt"
+    )
     sub.add_parser("build", parents=[common])
     sub.add_parser("idle", parents=[common, idle_opts])
     prof = sub.add_parser("profile", parents=[common])

@@ -43,8 +43,10 @@ from lib.script.grid.grid_resolution import grid_image_size, resolve_image_resol
 from lib.script.grid.layout import large_grid_allowed, plan_grid_chunks
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.request_projection import (
+    MemoizedReferenceAssets,
     ProjectionProblem,
     ReferenceAssetAvailability,
+    ReferenceExpansionCache,
     ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
     ReferenceUnitHydration,
@@ -363,22 +365,6 @@ class _AssumeResolvedAssetsAvailable:
         return True
 
 
-class _MemoizedAvailability:
-    """一次估算内按图片记住可用性：成本随设计图数量增长，而不是随被引用次数增长。"""
-
-    def __init__(self, inner: ReferenceAssetAvailability) -> None:
-        self._inner = inner
-        self._known: dict[tuple[Path, str, str, str], bool] = {}
-
-    def is_available(self, asset: ResolvedReferenceAsset) -> bool:
-        # 判定依赖路径、候选种类与认领键（引用类型 + 名称），四者共同决定一张图。
-        key = (asset.path, asset.kind, asset.reference.type, asset.reference.name)
-        known = self._known.get(key)
-        if known is None:
-            known = self._known[key] = self._inner.is_available(asset)
-        return known
-
-
 class CostEstimationService:
     def __init__(
         self,
@@ -590,10 +576,13 @@ class CostEstimationService:
         # 生成路径以项目生成模式为唯一真相源，整个项目同一种生成模式、逐集不变（剧本不携带生成模式信息）；
         # 参考生视频内的定桶再由 request projection 按当前资产逐 unit 分流。
         availability: ReferenceAssetAvailability = _AssumeResolvedAssetsAvailable()
+        expansion: ReferenceExpansionCache | None = None
         if is_reference_video and self._project_path is not None:
             # 整次估算共用一份判定：构造时读一份清单快照，只读，放进工作线程。
             current = await asyncio.to_thread(CurrentReferenceAssets, self._project_path, project_data)
-            availability = _MemoizedAvailability(current)
+            availability = MemoizedReferenceAssets(current)
+            # 引用目录与候选路径解析同样整次估算共用一份，不随单元数重复构造。
+            expansion = ReferenceExpansionCache(project_data, self._project_path)
 
         for ep_meta in episodes_meta:
             script_file = ep_meta.get("script_file", "")
@@ -612,6 +601,7 @@ class CostEstimationService:
                     script_file=script_file,
                     units=video_units,
                     availability=availability,
+                    expansion=expansion,
                     request_facts_lookup=request_facts_lookup,
                     video_prices=video_prices,
                     actual_by_segment=actual_by_segment,
@@ -886,6 +876,7 @@ class CostEstimationService:
         script_file: str,
         units: list[Any],
         availability: ReferenceAssetAvailability,
+        expansion: ReferenceExpansionCache | None,
         request_facts_lookup: ReferenceRequestFactsLookup,
         video_prices: dict[tuple[str, str], VideoPriceSource],
         actual_by_segment: ActualBySegment,
@@ -953,7 +944,7 @@ class CostEstimationService:
                     hydrations.append(hydration)
                     continue
                 try:
-                    if self._project_path is None:
+                    if self._project_path is None or expansion is None:
                         resolved_assets: Sequence[ResolvedReferenceAsset] = [
                             ResolvedReferenceAsset(
                                 path=Path(f"{reference.type}/{reference.name}.png"),
@@ -962,8 +953,16 @@ class CostEstimationService:
                             for reference in unit_reference_declarations(project, unit)
                         ]
                     else:
-                        resolved_assets = resolve_reference_assets(project, self._project_path, unit)
-                    hydration = hydrate_unit_references(project, unit, resolved_assets, availability)
+                        resolved_assets = resolve_reference_assets(
+                            project, self._project_path, unit, expansion=expansion
+                        )
+                    hydration = hydrate_unit_references(
+                        project,
+                        unit,
+                        resolved_assets,
+                        availability,
+                        catalog=expansion.catalog if expansion is not None else None,
+                    )
                 except (ValueError, TypeError):
                     logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
                 hydrations.append(hydration)
