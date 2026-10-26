@@ -18,7 +18,12 @@ from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
-from tests.fakes import captured_backend_construction, captured_openai_clients, patched_instructor_from_openai
+from tests.fakes import (
+    captured_backend_construction,
+    captured_openai_clients,
+    captured_vertex_credentials,
+    patched_instructor_from_openai,
+)
 
 
 async def _seed_provider_config(factory, provider: str, **kv: str) -> None:
@@ -250,7 +255,7 @@ class TestAssembleBuiltinWithRealSdkClients:
             gcs_bucket="demo-bucket",
         )
         # 服务账号私钥解析与事件循环无关，替掉它免得在测试里生成真私钥。
-        with patch("google.oauth2.service_account.Credentials.from_service_account_file"):
+        with captured_vertex_credentials():
             backend = await assemble_backend(
                 provider_id=provider_id,
                 media_type=media_type,

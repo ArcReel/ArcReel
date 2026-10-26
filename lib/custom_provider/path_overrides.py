@@ -13,7 +13,6 @@ from collections.abc import Generator, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
-from functools import lru_cache
 from types import MappingProxyType
 from typing import Literal
 from urllib.parse import urlsplit
@@ -121,7 +120,6 @@ def replaying_base_url(base_url: str | None) -> Generator[None]:
         _replay_base_url.reset(token)
 
 
-@lru_cache(maxsize=256)
 def _path_pattern(prefix: str, default_path: str, placeholder: str) -> re.Pattern[str]:
     """``prefix + default_path`` 的整串匹配式，占位符按 ``placeholder`` 匹配。"""
     parts = _PLACEHOLDER.split(default_path)  # 字面量与占位符名交替
@@ -152,12 +150,18 @@ class PathOverrideLayer:
 
         落库的提交 base 是归一化后的值；用户只改了路径前缀时差量不变，还原结果与提交时的原样路径一致。
         """
-        if self._prefix.startswith(self._raw_path):
-            appended = self._prefix[len(self._raw_path) :]
-            return prefix[: len(prefix) - len(appended)] if appended and prefix.endswith(appended) else prefix
-        if self._raw_path.startswith(self._prefix):
-            return prefix + self._raw_path[len(self._prefix) :]
-        return prefix
+        shared = 0
+        for normalized_char, raw_char in zip(self._prefix, self._raw_path, strict=False):
+            if normalized_char != raw_char:
+                break
+            shared += 1
+        normalized_suffix = self._prefix[shared:]
+        raw_suffix = self._raw_path[shared:]
+        if normalized_suffix:
+            if not prefix.endswith(normalized_suffix):
+                return prefix
+            prefix = prefix[: -len(normalized_suffix)]
+        return prefix + raw_suffix
 
     def _bases(self) -> Iterator[tuple[str, str]]:
         """依次尝试的（归一化路径前缀, 原样路径）：续跑时先提交时的 base，再当下配置的。"""

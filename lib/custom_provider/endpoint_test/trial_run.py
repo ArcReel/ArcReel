@@ -414,6 +414,9 @@ class TrialRunManager:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        # backend 的产物落盘可能吞掉取消并成功返回；等任务结束后重新核验，不能再删掉已结算的结果。
+        if run.status in (TrialRunStatus.SUCCEEDED, TrialRunStatus.FAILED):
+            return False
         # 被 shield 保护的诊断写入在任务停下后可能还在跑：结算前等它写完，否则 resume_cancelled
         # 会与它并发写同一行，关停路径还可能在写入未完时就关库。
         for write in list(self._response_writes.get(run_id, ())):

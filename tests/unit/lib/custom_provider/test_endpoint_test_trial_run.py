@@ -36,7 +36,6 @@ from lib.custom_provider.endpoint_test import (
     model_ref_target,
     provider_from_base_url,
 )
-from lib.custom_provider.endpoint_test import trial_run as trial_run_module
 from lib.db.models.api_call import ApiCall
 from tests.factories import custom_endpoint_definition, image_endpoint_definition
 from tests.fakes import PNG_BYTES, bounded_poll_clock
@@ -119,14 +118,16 @@ def _hold_result_write(monkeypatch) -> tuple[asyncio.Event, threading.Event]:
     loop = asyncio.get_running_loop()
     writing = asyncio.Event()
     release = threading.Event()
-    settle = trial_run_module._settle_files
+    write_text = Path.write_text
 
-    def _held(*args, **kwargs) -> None:
-        loop.call_soon_threadsafe(writing.set)
-        release.wait(timeout=10)
-        settle(*args, **kwargs)
+    def _held(path: Path, *args, **kwargs) -> int:
+        if path.name == "result.json":
+            loop.call_soon_threadsafe(writing.set)
+            if not release.wait(timeout=10):
+                raise TimeoutError("result write was not released")
+        return write_text(path, *args, **kwargs)
 
-    monkeypatch.setattr(trial_run_module, "_settle_files", _held)
+    monkeypatch.setattr(Path, "write_text", _held)
     return writing, release
 
 
@@ -775,6 +776,54 @@ class TestConcurrencyAndCancel:
         run = trial_runs.get(started.id)
         assert run is not None
         assert run.status is TrialRunStatus.SUCCEEDED
+        async with db_factory() as session:
+            rows = (await session.execute(select(ApiCall))).scalars().all()
+        assert [row.status for row in rows] == ["success"]
+
+    @pytest.mark.parametrize("stop", ["cancel", "shutdown"])
+    async def test_cancellation_during_backend_artifact_write_keeps_the_success(
+        self, trial_runs: TrialRunManager, db_factory: async_sessionmaker, monkeypatch, stop: str
+    ):
+        loop = asyncio.get_running_loop()
+        writing = asyncio.Event()
+        release = threading.Event()
+        write_bytes = Path.write_bytes
+
+        def held_write(path: Path, data: bytes) -> int:
+            loop.call_soon_threadsafe(writing.set)
+            if not release.wait(timeout=10):
+                raise TimeoutError("artifact write was not released")
+            return write_bytes(path, data)
+
+        monkeypatch.setattr(Path, "write_bytes", held_write)
+        definition = image_endpoint_definition()
+        definition["poll"]["extract"]["image_b64"] = ["$.data.result.images[0].b64_json"]
+        with capture_http() as router, bounded_poll_clock():
+            _mock_image_submit(router)
+            router.get("https://relay.test/v1/tasks/task_9").mock(
+                return_value=_image_task(
+                    "completed", result={"images": [{"b64_json": base64.b64encode(PNG_BYTES).decode("ascii")}]}
+                )
+            )
+            started = await trial_runs.start(
+                declarative_target(definition, CREDENTIALS, IMAGE_PARAMETERS), IMAGE_PARAMETERS
+            )
+            try:
+                await writing.wait()
+                stopping = asyncio.create_task(
+                    trial_runs.cancel(started.id) if stop == "cancel" else trial_runs.shutdown()
+                )
+                await asyncio.sleep(0)
+            finally:
+                release.set()
+            stopped = await stopping
+
+        if stop == "cancel":
+            assert stopped is False
+        run = trial_runs.get(started.id)
+        assert run is not None
+        assert run.status is TrialRunStatus.SUCCEEDED
+        assert trial_runs.artifact_path(started.id).read_bytes() == PNG_BYTES
         async with db_factory() as session:
             rows = (await session.execute(select(ApiCall))).scalars().all()
         assert [row.status for row in rows] == ["success"]
