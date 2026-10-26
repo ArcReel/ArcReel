@@ -100,3 +100,45 @@ async def test_data_root_layout_migration_runs_before_every_project_walk(tmp_pat
     )
     assert not (project_dir / stale_backup.name).exists()
     assert (project_dir / "CLAUDE.md").is_file()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("store_mode", "store_enabled"), [("db", True), ("off", False)])
+async def test_session_keys_are_aligned_between_layout_migration_and_transcript_import(
+    tmp_path, monkeypatch, store_mode, store_enabled
+):
+    data_root = tmp_path / "data"
+    steps: list[str] = []
+    align_kwargs: dict = {}
+
+    async def migrate_layout(_root: Path, **_kwargs) -> None:
+        steps.append("layout")
+
+    async def align_keys(_session_factory, **kwargs) -> None:
+        steps.append("align")
+        align_kwargs.update(kwargs)
+
+    async def import_transcripts(_store, **_kwargs) -> None:
+        steps.append("import")
+
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
+    monkeypatch.setenv("ARCREEL_SDK_SESSION_STORE", store_mode)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cfg"))
+    monkeypatch.setattr(app_module, "migrate_data_root_layout", migrate_layout)
+    monkeypatch.setattr(app_module, "align_session_keys", align_keys)
+    monkeypatch.setattr(app_module, "migrate_local_transcripts_to_store", import_transcripts)
+    monkeypatch.setattr("lib.project.project_manager.get_project_manager", lambda: ProjectManager(data_root))
+    stub_lifespan_dependencies(monkeypatch)
+
+    app = app_module.app
+    app.state = SimpleNamespace()
+
+    async with app_module.lifespan(app):
+        pass
+
+    assert steps == (["layout", "align", "import"] if store_enabled else ["layout", "align"])
+    assert align_kwargs == {
+        "projects_dir": DataRootLayout(data_root.resolve()).projects_dir,
+        "sdk_config_dir": tmp_path / "cfg",
+        "store_enabled": store_enabled,
+    }
