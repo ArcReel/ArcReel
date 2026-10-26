@@ -80,19 +80,24 @@ def test_checklist_is_asked_through_a_registered_multi_select_question() -> None
 
 def test_every_checklist_category_has_an_execution_rule() -> None:
     """清单里的每类待决定事项都要在「执行勾选项」里有对应的执行办法，反之亦然：
-    多出一类就是创作者勾了却没人执行，少一类就是执行规则无从触发。只比对两处的加粗类目名，不看措辞。"""
+    多出一类就是创作者勾了却没人执行，少一类就是执行规则无从触发。只比对两处的加粗类目名，不看措辞。
+    重新生成视频与重配旁白两类付费事项须各有一条执行规则点名对应工具，两节同删一类也会红。"""
 
     skill = SKILL.read_text(encoding="utf-8")
     offered = set(_CHECKLIST_CATEGORY.findall(_section(skill, "一轮结束的交付")))
-    executed = set(_CHECKLIST_CATEGORY.findall(_section(skill, "执行勾选项")))
+    execution = _section(skill, "执行勾选项")
+    executed = set(_CHECKLIST_CATEGORY.findall(execution))
+    rule_lines = [line for line in execution.splitlines() if _CHECKLIST_CATEGORY.match(line)]
 
     assert offered, "交付一节没有勾选清单类目，断言失去意义"
     assert offered == executed
+    for tool in ("generate_videos", "generate_narration_audio"):
+        assert any(re.search(rf"`(?:mcp__arcreel__)?{tool}`", line) for line in rule_lines), tool
 
 
 def test_paid_regeneration_option_quotes_the_previewed_cost() -> None:
     """重新生成是付费动作，选项须带预检报价让创作者勾选前知道花多少。
-    这是费用防线，按 #3445 的豁免只断言该类目行同时点名预检工具与「费用」，不锁整句。"""
+    这是费用防线，只断言该类目行同时点名预检工具与「费用」，不锁整句。"""
 
     delivery = _section(SKILL.read_text(encoding="utf-8"), "一轮结束的交付")
     paid = [line for line in delivery.splitlines() if _CHECKLIST_CATEGORY.match(line) and "generate_videos" in line]
