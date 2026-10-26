@@ -153,7 +153,7 @@ async def test_retired_sessions_follow_the_original_name_so_restore_still_finds_
         session_factory, projects_dir=new_projects, sdk_config_dir=tmp_path / "cfg", store_enabled=True
     )
 
-    # 已删除项目恢复时按「当前数据根下的原目录」找旧键（#3435），所以挂墓碑名的会话对齐到原名目录的键
+    # 已删除项目恢复时按「当前数据根下的原目录」找旧键，所以挂墓碑名的会话对齐到原名目录的键
     assert result.rewritten == {RETIRED_SID}
     restore_source_key = make_project_key(new_projects / "demo")
     assert len(await store.load({"project_key": restore_source_key, "session_id": RETIRED_SID}) or []) == 2
