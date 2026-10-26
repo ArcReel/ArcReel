@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type {
+  AutoBackendsResponse,
   SystemConfigSettings,
   SystemConfigOptions,
   SystemConfigPatch,
@@ -132,6 +133,8 @@ export function MediaModelSection() {
   } = useModelCandidates();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [customProviders, setCustomProviders] = useState<CustomProviderInfo[]>([]);
+  // 「自动选择」的实际模型；读不到时为 null，下拉退回只显示「自动选择」。
+  const [auto, setAuto] = useState<AutoBackendsResponse | null>(null);
   // 轮询超时编辑期的原始字符串（null = 未在编辑）：受控 value 若直接取数字，
   // 「60.」等中间态与清空会被数字化吞掉；失焦时统一解析写回未保存修改。
   const [pollTimeoutInput, setPollTimeoutInput] = useState<string | null>(null);
@@ -154,15 +157,17 @@ export function MediaModelSection() {
   // 也让重试不必重取整页配置。启动后不等它落地——候选接口
   // 慢或悬挂时，整页 spinner 和保存流程都会跟着卡住，而细分区本就有自己的加载叙事。
   const fetchConfig = useCallback(async () => {
-    const [res, catalog, custom] = await Promise.all([
+    const [res, catalog, custom, autoBackends] = await Promise.all([
       API.getSystemConfig(),
       getProviderModels().catch(() => [] as ProviderInfo[]),
       getCustomProviderModels().catch(() => [] as CustomProviderInfo[]),
+      API.getAutoBackends().catch(() => null),
     ]);
     setSettings(res.settings);
     setOptions(res.options);
     setProviders(catalog);
     setCustomProviders(custom);
+    setAuto(autoBackends);
   }, []);
 
   useEffect(() => {
@@ -220,7 +225,7 @@ export function MediaModelSection() {
     fields.video_poll_timeout_seconds;
 
   // 全局层是解析链的基准，细分项留空即回退全局默认模型；默认模型也留空时是自动推断，
-  // 前端算不出具体模型，故不显示生效值（下拉里显示「自动选择」）。
+  // 显示后端预览的自动选中模型（预览缺席时只显示「自动选择」）。
   const videoSubFields: LayeredSubField[] = degradeSubFieldsToSaved(
     [
         {
@@ -229,6 +234,7 @@ export function MediaModelSection() {
           value: currentVideoI2V,
           options: candidates?.video.buckets.i2v ?? [],
           effective: currentVideo || undefined,
+          auto: auto?.i2v,
           onChange: (v) => setFields((prev) => ({ ...prev, default_video_backend_i2v: v })),
         },
         {
@@ -237,6 +243,7 @@ export function MediaModelSection() {
           value: currentVideoR2V,
           options: candidates?.video.buckets.r2v ?? [],
           effective: currentVideo || undefined,
+          auto: auto?.r2v,
           onChange: (v) => setFields((prev) => ({ ...prev, default_video_backend_r2v: v })),
         },
     ],
@@ -251,6 +258,7 @@ export function MediaModelSection() {
           value: currentImageT2I,
           options: candidates?.image.buckets.t2i ?? [],
           effective: currentImage || undefined,
+          auto: auto?.t2i,
           onChange: (v) => setFields((prev) => ({ ...prev, default_image_backend_t2i: v })),
         },
         {
@@ -259,6 +267,7 @@ export function MediaModelSection() {
           value: currentImageI2I,
           options: candidates?.image.buckets.i2i ?? [],
           effective: currentImage || undefined,
+          auto: auto?.i2i,
           onChange: (v) => setFields((prev) => ({ ...prev, default_image_backend_i2i: v })),
         },
     ],
@@ -331,6 +340,8 @@ export function MediaModelSection() {
             onDefaultChange={(v) => setFields((prev) => ({ ...prev, default_video_backend: v }))}
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
+            // 默认层跨两条路径，与无项目上下文时的路径口径一致，取图生视频
+            defaultAuto={auto?.i2v}
             providerNames={allProviderNames}
             modelNames={allModelNames}
             renderOptionMeta={renderVideoOptionMeta}
@@ -425,6 +436,8 @@ export function MediaModelSection() {
             onDefaultChange={(v) => setFields((prev) => ({ ...prev, default_image_backend: v }))}
             emptyLabel={t("auto_select")}
             emptyHint={t("auto")}
+            // 默认层跨两条路径，与无用途调用方的解析口径一致，取文生图
+            defaultAuto={auto?.t2i}
             providerNames={allProviderNames}
             modelNames={allModelNames}
             subFields={imageSubFields}
@@ -457,6 +470,7 @@ export function MediaModelSection() {
               simple: currentTextDefault || undefined,
               complex: currentTextDefault || undefined,
             }}
+            auto={auto?.text}
           />
         ) : (
           <NoProviders message={t("no_text_providers_hint")} />

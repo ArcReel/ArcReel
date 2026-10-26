@@ -55,6 +55,12 @@ export interface GetSystemConfigResponse {
 /** 任务类型桶键（docs/adr/0054）。代码内部术语，界面文案不直接呈现。 */
 export type GenerationTypeBucket = "t2i" | "i2i" | "i2v" | "r2v";
 
+/**
+ * 各用途在项目与全局各层都留空时后端自动选中的模型（provider/model），与执行期解析同口径；
+ * 没有可用供应商时为 null。文本各档位的自动推断相同，合为一项。
+ */
+export type AutoBackendsResponse = Record<GenerationTypeBucket | "text", string | null>;
+
 /** 单一 media_type 的候选：默认层全量 + 各任务类型桶按能力过滤后的子集。 */
 export interface MediaCandidates {
   default: string[];

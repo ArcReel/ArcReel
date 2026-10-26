@@ -372,6 +372,8 @@ export default {
   'default_models_configure_providers': 'Cấu hình tại Nhà cung cấp',
   'default_video_model': 'Mô hình video mặc định',
   'auto_select': 'Tự chọn',
+  'auto_select_current': 'Tự chọn (hiện tại: {{model}})',
+  'auto_select_unavailable': 'Tự chọn (không có nhà cung cấp khả dụng)',
   'no_video_providers_hint': 'Chưa có nhà cung cấp nào tạo được video.',
   'default_audio_model': 'Mô hình âm thanh thuyết minh mặc định',
   'narration_voice_label': 'ID giọng thuyết minh',

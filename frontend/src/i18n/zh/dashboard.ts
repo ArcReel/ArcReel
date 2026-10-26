@@ -369,6 +369,8 @@ export default {
   'default_models_configure_providers': '前往「供应商」配置',
   'default_video_model': '默认视频模型',
   'auto_select': '自动选择',
+  'auto_select_current': '自动选择（当前：{{model}}）',
+  'auto_select_unavailable': '自动选择（没有可用的供应商）',
   'no_video_providers_hint': '还没有可生成视频的供应商。',
   'default_audio_model': '默认旁白配音模型',
   'narration_voice_label': '旁白音色 ID',
