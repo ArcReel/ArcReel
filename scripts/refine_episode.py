@@ -2,6 +2,11 @@
 
 No models are called. Approved picture, narration, and music inputs stay unchanged.
 Run with: python -m scripts.refine_episode recipe.json --output-dir exports
+
+Optional review_feedback_file points to a relative JSON file:
+{"schema_version": 1, "rejected_sources": [{"sha256": "<64 lowercase hex>", "reason": "..."}]}
+Rejected source bytes cannot be exported, even under another filename or trim.
+Re-encoded or regenerated media still needs a new visual review.
 """
 
 from __future__ import annotations
@@ -49,6 +54,16 @@ class Music(RecipeModel):
     fade_out_seconds: float = Field(default=0.0, ge=0)
 
 
+class RejectedSource(RecipeModel):
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reason: str = Field(min_length=1)
+
+
+class ReviewFeedback(RecipeModel):
+    schema_version: Literal[1]
+    rejected_sources: list[RejectedSource]
+
+
 class Recipe(RecipeModel):
     schema_version: Literal[1]
     width: int = Field(ge=64, le=4096)
@@ -58,6 +73,7 @@ class Recipe(RecipeModel):
     required_tracks: list[Literal["narration", "music"]]
     narration: Narration | None = None
     music: Music | None = None
+    review_feedback_file: str | None = Field(default=None, min_length=1)
 
 
 def source_path(base: Path, filename: str) -> Path:
@@ -73,17 +89,36 @@ def digest(path: Path) -> str:
 
 
 def recipe_sources(recipe: Recipe, base: Path) -> list[Path]:
+    review = [source_path(base, recipe.review_feedback_file)] if recipe.review_feedback_file is not None else []
     return list(
         dict.fromkeys(
-            source_path(base, item.file) for item in [*recipe.shots, recipe.narration, recipe.music] if item is not None
+            [
+                source_path(base, item.file)
+                for item in [*recipe.shots, recipe.narration, recipe.music]
+                if item is not None
+            ]
+            + review
         )
     )
 
 
 def input_fingerprint(recipe: Recipe, base: Path) -> tuple[str, dict[str, str]]:
     sources = {str(path): digest(path) for path in recipe_sources(recipe, base)}
-    payload = {"recipe": recipe.model_dump(), "sources": sources, "pass_version": 2}
+    # Preserve existing recipe fingerprints when no review ledger is attached.
+    excluded = {"review_feedback_file"} if recipe.review_feedback_file is None else set()
+    payload = {"recipe": recipe.model_dump(exclude=excluded), "sources": sources, "pass_version": 2}
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest(), sources
+
+
+def check_review_feedback(recipe: Recipe, base: Path, sources: dict[str, str]) -> None:
+    if recipe.review_feedback_file is None:
+        return
+    feedback = ReviewFeedback.model_validate_json(source_path(base, recipe.review_feedback_file).read_text("utf-8"))
+    rejected = {item.sha256: item.reason for item in feedback.rejected_sources}
+    for shot in recipe.shots:
+        reason = rejected.get(sources[str(source_path(base, shot.file))])
+        if reason is not None:
+            raise ValueError(f"Shot {shot.id} uses rejected footage: {reason}")
 
 
 async def prepare_plan(
@@ -161,6 +196,7 @@ def refine(recipe_file: Path, output_dir: Path) -> dict:
     recipe = Recipe.model_validate_json(recipe_file.read_text(encoding="utf-8"))
     base = recipe_file.resolve().parent
     fingerprint, sources = input_fingerprint(recipe, base)
+    check_review_feedback(recipe, base, sources)
     destination = output_dir.resolve() / fingerprint
     destination.mkdir(parents=True, exist_ok=True)
     with portalocker.Lock(destination / "run.lock", timeout=0):

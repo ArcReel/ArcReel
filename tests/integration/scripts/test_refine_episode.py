@@ -113,6 +113,77 @@ def test_duplicate_shot_ids_prevent_publication(recipe_file: Path) -> None:
     _assert_rejected(recipe_file, "Shot IDs must be unique")
 
 
+def _attach_feedback(recipe_file: Path, rejected: list[dict[str, str]]) -> Path:
+    path = recipe_file.parent / "review-feedback.json"
+    path.write_text(json.dumps({"schema_version": 1, "rejected_sources": rejected}), encoding="utf-8")
+    recipe = _read_recipe(recipe_file)
+    recipe["review_feedback_file"] = path.name
+    _write_recipe(recipe_file, recipe)
+    return path
+
+
+def test_rejected_source_is_blocked_even_when_renamed_and_trimmed(recipe_file: Path) -> None:
+    rejected = refine_episode.digest(recipe_file.parent / "picture.mp4")
+    _attach_feedback(recipe_file, [{"sha256": rejected, "reason": "A hand appears without an attached arm."}])
+    shutil.copy2(recipe_file.parent / "picture.mp4", recipe_file.parent / "renamed.mp4")
+    recipe = _read_recipe(recipe_file)
+    recipe["shots"][0].update(file="renamed.mp4", in_frame=1, out_frame=20)
+    _write_recipe(recipe_file, recipe)
+
+    _assert_rejected(recipe_file, "Shot shot-1 uses rejected footage")
+
+
+def test_new_rejection_blocks_cached_export_without_deleting_it(recipe_file: Path) -> None:
+    feedback = _attach_feedback(recipe_file, [])
+    output_dir = recipe_file.parent / "exports"
+    first = refine(recipe_file, output_dir)
+    output = Path(first["output"])
+    original_bytes = output.read_bytes()
+    feedback.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "rejected_sources": [
+                    {"sha256": refine_episode.digest(recipe_file.parent / "picture.mp4"), "reason": "Face changes."}
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="uses rejected footage"):
+        refine(recipe_file, output_dir)
+
+    assert output.read_bytes() == original_bytes
+    assert list(output_dir.glob("*/finished/episode.mp4")) == [output]
+
+
+@pytest.mark.parametrize("contents", [None, '{"schema_version":1,"rejected_sources":[{"sha256":"bad","reason":"x"}]}'])
+def test_missing_or_malformed_feedback_cannot_silently_disable_rejections(
+    recipe_file: Path, contents: str | None
+) -> None:
+    feedback = _attach_feedback(recipe_file, [])
+    if contents is None:
+        feedback.unlink()
+    else:
+        feedback.write_text(contents, encoding="utf-8")
+
+    _assert_rejected(recipe_file, "Required input is missing" if contents is None else "String should match pattern")
+
+
+def test_unrelated_rejection_preserves_valid_export_and_cache(recipe_file: Path) -> None:
+    _attach_feedback(recipe_file, [{"sha256": "f" * 64, "reason": "A different take was rejected."}])
+    output_dir = recipe_file.parent / "exports"
+
+    first = refine(recipe_file, output_dir)
+    second = refine(recipe_file, output_dir)
+
+    assert first["reused"] is False
+    assert second["reused"] is True
+    assert second["output_sha256"] == first["output_sha256"]
+    assert refine_episode.digest(recipe_file.parent / "review-feedback.json") in first["source_sha256"].values()
+
+
 def _tone_amplitude(samples: tuple[int, ...], frequency: int) -> float:
     # Project onto each fixture tone; phases can change during AAC encoding.
     phase = 2 * math.pi * frequency / 8000
