@@ -14,9 +14,10 @@ const API: ApiOverrides = {
 
 interface RecordedProject {
   project: Record<string, unknown>;
+  scripts: Record<string, Record<string, unknown>>;
 }
 
-const project = recorded<RecordedProject>("project-demo.json");
+const recordedProject = recorded<RecordedProject>("project-demo.json");
 
 // 压力变体：多条长名称的剪辑时间线，36 个片段约 2 分半，旁白、长字幕、两段 BGM、40 多条问题与 30 个未使用的视频单元。
 const TIMELINE_ID = "tl-00000006";
@@ -157,8 +158,29 @@ const videoMissing = (index: number) => ({
   [`GET /api/v1/files/demo/videos/scene_${unit(index)}.mp4?v=1`]: { status: 404, body: { detail: "页面级套件不回放媒体" } },
 });
 
+// 片段按视频单元在本集的当前位置指称：剧本放进时间线用到的 36 个与未使用的 30 个。
+const project: RecordedProject = {
+  ...recordedProject,
+  scripts: {
+    "episode_1.json": {
+      ...recordedProject.scripts["episode_1.json"],
+      segments: Array.from({ length: 66 }, (_, index) => ({
+        segment_id: unit(index),
+        episode: 1,
+        duration_seconds: 4,
+        segment_break: false,
+        novel_text: `第 ${index + 1} 段原文。`,
+        characters_in_segment: [],
+        image_prompt: null,
+        video_prompt: null,
+      })),
+    },
+  },
+};
+
 const TIMELINE: ApiOverrides = {
   ...API,
+  "GET /api/v1/projects/demo": { status: 200, body: project },
   "GET /api/v1/projects/demo/edit-timelines?episode=1": { status: 200, body: { timelines } },
   [`GET ${TIMELINE_BASE}`]: { status: 200, body: readout },
   [`GET ${TIMELINE_BASE}/preview-media`]: { status: 200, body: previewMedia },

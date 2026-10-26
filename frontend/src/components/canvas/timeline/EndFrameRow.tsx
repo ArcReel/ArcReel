@@ -13,7 +13,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import { isResourceBusy, useActiveResourceIds } from "@/stores/tasks-store";
 import type { EditorContentMode } from "@/utils/script-shape";
 import { errMsg } from "@/utils/async";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 import { EndFramePicker } from "./EndFramePicker";
 
 interface EndFrameRowProps {
@@ -64,6 +64,7 @@ export function EndFrameRow({
   shotSaving = false,
 }: EndFrameRowProps) {
   const { t } = useTranslation("dashboard");
+  const itemLabel = useItemPositionLabel(segmentId);
   const panelId = useId();
   const [expanded, setExpanded] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -233,7 +234,7 @@ export function EndFrameRow({
               {previewUrl ? (
                 <img
                   src={previewUrl}
-                  alt={t("end_frame_preview_alt", { id: itemIdWithinEpisode(segmentId) })}
+                  alt={t("end_frame_preview_alt", { id: itemLabel })}
                   className="size-full object-cover"
                   decoding="async"
                 />

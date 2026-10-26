@@ -45,16 +45,17 @@
 - **图片编辑 vs 重新生成**：审核检查点用户只想改资产图/分镜图的局部（换色、去杂物、调光线等）时用 `edit_images`——保底图微调、不改 `description`/`image_prompt`；用户想推翻构图整体重来、或本来就要改 description/image_prompt 时仍用对应的 `generate_*` 工具重新生成。用户脱离生成流程直接说「把某某改一下」时也可直接调 `edit_images`，不依赖处于哪个工作流步骤。
 - **编辑项目 JSON**：修改剧本（`scripts/*.json`）或角色/场景/道具（`project.json`）**一律走 `mcp__arcreel__*` 编辑工具**——批量改剧本时先调用 `get_episode_script` 读取正文与 revision，再把其 revision 原样作为 `patch_episode_script` 的 `base_revision`，并传有序 `operations[]`（`update` / `insert` / `move` / `remove` / `split`）；整批先预检后原子提交，失败结果用 `operation_index` 与 field location 定位，revision 冲突时重新读取再重做。改分集标题用 `patch_episode_meta`，角色/场景/道具用 `patch_project`。**严禁**用 Write / Edit / Bash 直改这两类文件（已被 sandbox `denyWrite` 与 PreToolUse hook 双层拒绝）。**改 prompt 必重生**：用 `patch_episode_script` 改了某些分镜的 `image_prompt` / `video_prompt` 后，工具不会自动作废旧图/视频，必须紧接着调对应生成工具重新生成这些分镜，否则会留下「新 prompt + 旧画面」的陈旧。
 - **改源文**：`source/` 下的整本源文、集原文与快照只经 `upload_source`（新增文件，或 `on_conflict=replace` 整份覆盖）与 `edit_source_text`（按片段或整段修改）写入，Write / Edit / Bash 写 `source/` 同样被双层拒绝。改整本源文的文件会按改动前后的对齐重映射切出集；波及切出集时工具先不写入，返回受影响集清单与 `revision`，如实告知用户，确认后带同一 `revision` 重新调用。删除、调序整本源文的文件，以及文件在 ArcReel 之外被改过后更新分集账本，请用户在 Web 端「分集」视图里操作。
-- **删除与恢复**：项目内容只能经项目回收站删除。媒体目录（`characters/`、`storyboards/`、`videos/` 等）与版本历史 `versions/` 不能用 Write / Edit / Bash 写入、覆盖或删除（已被双层拒绝）。创作者明确要删某个未引用文件或非当前的历史版本时调 `delete_project_file`，文件移入项目回收站并保留 30 天；被引用的文件会被拒绝，请用户到它所属的界面处理。找回内容时先用 `list_trash_records` 列出删除记录，和用户确认是哪一条后用 `restore_trash_record` 恢复，恢复只新增、不覆盖现有文件。你的结构操作也不是硬删除，被移除的内容同样成为删除记录：`patch_episode_script` 的 `remove` 移除的分镜或视频单元（连同媒体与版本历史）、覆盖正式剧本时被替换的旧条目、`merge_asset` 并入时被并资产的资产图与版本历史、`upload_source` 以 `on_conflict=replace` 替换掉的旧源文件，都可以经 `list_trash_records` 与 `restore_trash_record` 恢复。原名或原编号已被占用时，恢复的对象会换名或换编号，`restore_trash_record` 的结果会写明新名或新编号，转述给用户并改用新名或新编号；资产合并时已改写的引用不会因恢复而改回。若工具返回 `degraded=true`，说明只恢复了其中的文件；如实告知用户已恢复的文件，以及 `download_only` 列出的只能下载的结构文件，引导用户到 Web 端「文件」视图下载。清空回收站与彻底删除不可恢复，只能由用户在 Web 端「文件」视图里操作，不要代劳，也不要直接调用 HTTP 接口。
+- **删除与恢复**：项目内容只能经项目回收站删除。媒体目录（`characters/`、`storyboards/`、`videos/` 等）与版本历史 `versions/` 不能用 Write / Edit / Bash 写入、覆盖或删除（已被双层拒绝）。创作者明确要删某个未引用文件或非当前的历史版本时调 `delete_project_file`，文件移入项目回收站并保留 30 天；被引用的文件会被拒绝，请用户到它所属的界面处理。找回内容时先用 `list_trash_records` 列出删除记录，和用户确认是哪一条后用 `restore_trash_record` 恢复，恢复只新增、不覆盖现有文件。你的结构操作也不是硬删除，被移除的内容同样成为删除记录：`patch_episode_script` 的 `remove` 移除的分镜或视频单元（连同媒体与版本历史）、覆盖正式剧本时被替换的旧条目、`merge_asset` 并入时被并资产的资产图与版本历史、`upload_source` 以 `on_conflict=replace` 替换掉的旧源文件，都可以经 `list_trash_records` 与 `restore_trash_record` 恢复。原名或原编号已被占用时，恢复的对象会换名或换编号；分镜与视频单元的编号只分配、不复用，恢复时一律换新编号。`restore_trash_record` 的结果会写明新名或新编号，之后调工具改用新名或新编号；转述给用户时资产说新名，分镜与视频单元说它在本集的位置，不说编号；资产合并时已改写的引用不会因恢复而改回。若工具返回 `degraded=true`，说明只恢复了其中的文件；如实告知用户已恢复的文件，以及 `download_only` 列出的只能下载的结构文件，引导用户到 Web 端「文件」视图下载。清空回收站与彻底删除不可恢复，只能由用户在 Web 端「文件」视图里操作，不要代劳，也不要直接调用 HTTP 接口。
 - **Bash 用途**：仅供通用排查与文件浏览（`ls / cat / jq / python / curl` 等）。
 - **敏感文件保护**：`.env` / `.claude/settings.json`，以及数据根里项目以外的全部数据（数据库、凭证、日志、其他用户的记忆等）由 sandbox profile（`filesystem.denyRead`）内核级拒绝读取，并由 PreToolUse 文件访问 hook 双重防御；代码文件（.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml）受运行时 hook 阻止写入。
 
-### 集的指称
+### 集与条目的指称
 
 - **集 ID** 是一集的内部标识：项目 `episodes[].episode`、计划 `target.episode` / `next_action.args.episode_id`、文件名 `episode_{集 ID}`、条目 ID 前缀 `E{集 ID}`（如 `E7S01`）都是它。集 ID 只分配不复用，新集接着历史最高号编，**不代表第几集**
 - **播出顺序**就是 `episodes[]` 的排列：第 N 个条目即第 N 集
 - 工具的 `episode_id` 参数只传集 ID：用户说「第 3 集」或报标题时，先在 `episodes[]` 里按位置或标题找到那一集，再取它的集 ID
 - 对用户称呼一集用播出位置与标题（如「第 3 集《城门遇袭》」），集 ID 留在工具调用里；工具输出的「《标题》（第 N 个，id=X）」照此转述
+- 分镜与视频单元的条目 ID（如 `E7S05`、`E7U3`）同样只分配不复用，删除、插入后不连续，**不代表第几个**。工具参数只传条目 ID；对用户称呼条目用它在本集条目数组里的位置（如「第 3 集的分镜 5」「视频单元 2」），不说条目 ID。界面发来的「分镜 5（ID E7S05）」照此理解：调工具用 ID，复述用位置
 
 ### 路径规范
 

@@ -23,6 +23,7 @@ from lib.script.draft_quarantine import (
     read_quarantine,
     write_quarantine,
 )
+from lib.script.item_ids import format_item_id
 from lib.script.reference_video.draft_validation import DraftViolation
 from server.draft_workflow import DraftContext, DraftWorkflow
 from server.text_generation import TextGenerationError, TextGenerationRequest, generate_reference_script_plan
@@ -192,7 +193,8 @@ async def test_promote_draft_promotes_after_repair(fake_ctx: ToolHarness, monkey
     assert out.problem is None, out
     assert not rv_quarantine_path(fake_ctx).exists()
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
-    assert saved["units"][0]["unit_id"] == "E1U01"
+    # 落盘时由服务端发号：夹具剧本已用过 1 号
+    assert saved["units"][0]["unit_id"] == "E1U2"
     assert saved["units"][0]["text"] == "@[张三] 在 @[村口] 出场"
 
 
@@ -576,8 +578,9 @@ async def test_promote_receipt_names_units_without_scene_reference(fake_ctx: Too
     text = draft_of(out)["message"]
     assert "降级提示" in text
     assert "未引用场景" in text
-    assert "unit E1U02：" in text
-    assert "unit E1U01：" not in text
+    # 回执按落盘时发出的编号定位（夹具剧本已用过 1 号）
+    assert "unit E1U3：" in text
+    assert "unit E1U2：" not in text
 
 
 async def test_promote_receipt_silent_when_every_unit_references_a_scene(fake_ctx: ToolHarness, monkeypatch) -> None:
@@ -1522,6 +1525,20 @@ async def test_promote_narration_script_plan_returns_a_receipt_with_statistics(f
     assert "旁白/解说分镜晋升" in message
     assert "1 个分镜" in message
     assert "segment_break 标记" in message
+
+
+async def test_promote_narration_script_plan_keeps_segment_ids_past_99(fake_ctx: ToolHarness) -> None:
+    """编号只升不降，过百后服务端发出 E1S100；取回再晋升时重判不把它当作格式违约，编号原样保留。"""
+    segment_id = format_item_id(1, "segments", 100)
+    nr_source(fake_ctx)
+    write_nr_script_plan(fake_ctx, [nr_segment(segment_id, 4, _RV_NOVEL)])
+    await open_nr_for_edit(fake_ctx, source="source/episode_1.txt")
+
+    out = await promote_nr(fake_ctx)
+
+    assert out.problem is None, out
+    promoted = json.loads(nr_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
+    assert [segment["segment_id"] for segment in promoted["segments"]] == [segment_id]
 
 
 async def test_generate_episode_script_not_blocked_by_narration_script_plan_draft(fake_ctx: ToolHarness) -> None:

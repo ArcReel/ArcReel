@@ -84,7 +84,7 @@ from lib.artifacts.visual_artifact_provenance import (
 from lib.infra.content_digest import TextModeDigest
 from lib.infra.json_io import atomic_write_bytes, atomic_write_json
 from lib.project.project_migration_report import MigrationSkippedArtifact, skipped_artifact_identity
-from lib.project.project_schema import project_schema_is_current
+from lib.project.project_schema import parse_project_schema_version, project_schema_is_current
 
 _EPISODE_RESOURCE_KINDS = frozenset(
     {
@@ -241,6 +241,53 @@ def ensure_imported_artifact_target_state(
     plan = plan_artifact_target_state(project_dir)
     activate_artifact_target_state(project_dir, bump_schema=False, plan=plan)
     return plan.skipped
+
+
+def stage_preserved_artifact_claims(project_dir: Path, preserved: ArtifactManifestArchiveSnapshot) -> bool:
+    """把归档信封里的 claim 落成暂存项目的清单，迁移链随后像原地升级一样平移它们。
+
+    归档 schema 早于清单引入（v8）时不落，返回 ``False``：那一步迁移自己从项目状态建清单。``project.json``
+    读不出时同样不落，由迁移链报告它。
+    """
+
+    try:
+        project = json.loads((project_dir / "project.json").read_bytes().decode("utf-8"))
+        if not isinstance(project, Mapping) or parse_project_schema_version(project) < ARTIFACT_MANIFEST_SCHEMA_VERSION:
+            return False
+    except (OSError, UnicodeError, ValueError):
+        return False
+    ProjectArtifactManifestAdapter(project_dir).replace_entries_atomically(preserved.entries)
+    return True
+
+
+def take_migrated_artifact_claims(
+    project_dir: Path, preserved: ArtifactManifestArchiveSnapshot
+) -> ArtifactManifestArchiveSnapshot:
+    """读回迁移链平移后的 claim，撤下暂存清单，交给 :func:`ensure_imported_artifact_target_state`。
+
+    内容摘要按键沿用信封。迁移给 claim 换键并搬图（如链首规整把重名资产的衍生迁到保留名下）时依据摘要
+    不变、图的字节不变：新键的图若与某条依据相同、已消失的旧 claim 的内容摘要一致，就沿用这个摘要。
+    迁移撤掉的 claim 一并丢弃；迁移补录的条目对不上旧 claim，不在其列，由导入激活按缺口规则重新补录。
+    """
+
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    entries = adapter.snapshot_entries()
+    departed: dict[str, set[str]] = {}
+    for key, entry in preserved.entries.items():
+        if key not in entries and key in preserved.content_digests:
+            departed.setdefault(entry.basis_digest, set()).add(preserved.content_digests[key])
+    digests = {key: digest for key, digest in preserved.content_digests.items() if key in entries}
+    for key, entry in entries.items():
+        candidates = departed.get(entry.basis_digest) if key not in preserved.entries else None
+        if candidates:
+            digest = read_artifact_content_digest(adapter, entry.artifact_path)
+            if digest in candidates:
+                digests[key] = digest
+    (project_dir / MANIFEST_FILENAME).unlink(missing_ok=True)  # hard-delete: temp -- 归档导入暂存目录里给迁移链用的清单
+    return ArtifactManifestArchiveSnapshot(
+        entries={key: entry for key, entry in entries.items() if key in digests},
+        content_digests=digests,
+    )
 
 
 def snapshot_preserved_artifact_manifest(
@@ -402,14 +449,13 @@ def prepare_episode_script_manifest_commit(
     artifact_path: str,
     resource_ids: Sequence[str],
     removed_resource_ids: Sequence[str] = (),
-    replaced_resource_ids: Sequence[str] = (),
     basis: ArtifactBasis | ArtifactBasisDescriptor | None = None,
     adapter: ArtifactManifestAdapter | None = None,
 ) -> Callable[[], None] | None:
     """Preflight one script replacement and return its atomic claim commit.
 
-    The script claim and every claim orphaned by removal or identity replacement
-    share one Manifest compare-and-swap. Callers invoke the returned closure
+    The script claim and every claim orphaned by removal share one Manifest
+    compare-and-swap. Callers invoke the returned closure
     inside the same formal-write transaction that selects the script bytes.
     """
 
@@ -417,8 +463,7 @@ def prepare_episode_script_manifest_commit(
         raise ValueError("episode must be a positive integer")
     remaining_ids = frozenset(resource_ids)
     removed_ids = frozenset(removed_resource_ids)
-    replaced_ids = frozenset(replaced_resource_ids)
-    if any(not resource_id for resource_id in (*remaining_ids, *removed_ids, *replaced_ids)):
+    if any(not resource_id for resource_id in (*remaining_ids, *removed_ids)):
         raise ValueError("script resource identities must be non-empty strings")
 
     storage = adapter or ProjectArtifactManifestAdapter(project_dir)
@@ -437,11 +482,6 @@ def prepare_episode_script_manifest_commit(
     orphaned_keys.extend(
         key
         for resource_id in sorted(removed_ids - remaining_ids)
-        for key in ArtifactKey.episode_resource_artifacts(episode, resource_id)
-    )
-    orphaned_keys.extend(
-        key
-        for resource_id in sorted(replaced_ids)
         for key in ArtifactKey.episode_resource_artifacts(episode, resource_id)
     )
     orphaned_keys = list(dict.fromkeys(orphaned_keys))
@@ -593,4 +633,6 @@ __all__ = [
     "resolve_usable_storyboard_video_inputs",
     "snapshot_preserved_artifact_manifest",
     "snapshot_usable_artifact_input_claim",
+    "stage_preserved_artifact_claims",
+    "take_migrated_artifact_claims",
 ]

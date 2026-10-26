@@ -5,6 +5,7 @@ import type { TFunction } from "i18next";
 import type { CallType, EpisodeItemRef, UsageRecordStatus, UsageSummary } from "@/types";
 import { parseIsoTimestamp } from "@/utils/date-format";
 import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { episodeItemKind, isPositionedItemId, type EpisodeItemKind } from "@/utils/episode-item";
 import { formatElapsedMs } from "@/utils/task-elapsed";
 import type { ElapsedTranslate } from "@/utils/task-elapsed";
 
@@ -77,7 +78,18 @@ export function purposeKey(purpose: string | null): string | null {
  * 目标列拆成两段：分镜号（集内 ID）作为不截断的前缀，集名在后、放不下时截断。
  * 没有分镜的调用按用途显示，前缀为空。
  */
+export interface TargetItem {
+  kind: EpisodeItemKind;
+  /** 在本集里的当前位置；条目已不在剧本里时为 null。 */
+  position: number | null;
+  excerpt: string;
+  thumbnail: string | null;
+}
+
 export interface TargetParts {
+  /** 分镜或视频单元：以位置、缩略图与正文摘录指认。 */
+  item: TargetItem | null;
+  /** 不按位置指称的条目（宫格）的集内 ID。 */
   prefix: string | null;
   name: string;
 }
@@ -89,20 +101,29 @@ export function targetParts(
   t: TFunction,
 ): TargetParts {
   if (segmentId) {
+    const positioned = isPositionedItemId(segmentId);
     if (segmentRef) {
       const name =
         segmentRef.episode_title.trim() ||
         t("common:episode_position_name", { position: segmentRef.episode_position });
-      return { prefix: segmentRef.item_id, name };
+      if (!positioned) return { item: null, prefix: segmentRef.item_id, name };
+      const item = {
+        kind: episodeItemKind(segmentId),
+        position: segmentRef.item_position ?? null,
+        excerpt: segmentRef.item_excerpt ?? "",
+        thumbnail: segmentRef.item_thumbnail ?? null,
+      };
+      return { item, prefix: null, name };
     }
     const itemId = itemIdWithinEpisode(segmentId);
-    // 带集前缀却没有指称：集已移出账本，集名用「未命名集」，仍不显示集 ID。
-    return itemId === segmentId
-      ? { prefix: segmentId, name: "" }
-      : { prefix: itemId, name: t("common:episode_unlisted_name") };
+    if (itemId === segmentId) return { item: null, prefix: segmentId, name: "" };
+    // 带集前缀却没有指称：集已移出账本，集名用「未命名集」；条目随集一起不在了，显示「已删除」。
+    const name = t("common:episode_unlisted_name");
+    if (!positioned) return { item: null, prefix: itemId, name };
+    return { item: { kind: episodeItemKind(segmentId), position: null, excerpt: "", thumbnail: null }, prefix: null, name };
   }
   const key = purposeKey(purpose);
-  return { prefix: null, name: key ? t(`dashboard:${key}`) : DASH };
+  return { item: null, prefix: null, name: key ? t(`dashboard:${key}`) : DASH };
 }
 
 /** 供应商显示名优先取筛选候选值里的 label，查不到回退 id。 */

@@ -14,6 +14,9 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from lib.project.project_manager import ProjectManager
 from server.routers import usage
 
+# 这些用例的项目没有剧本文件：条目找不到，位置为 None。
+_NO_SCRIPT = {"item_position": None, "item_excerpt": "", "item_thumbnail": None}
+
 BASE_TIME = datetime(2026, 3, 1, 12, 0, tzinfo=UTC)
 
 
@@ -297,8 +300,8 @@ class TestUsageRecordEpisodeItemRefs:
         items = client.get("/api/v1/usage/records").json()["items"]
 
         assert {item["segment_id"]: item["segment_ref"] for item in items} == {
-            "E7S02": {"episode_title": "山门", "episode_position": 1, "item_id": "S02"},
-            "E3U01": {"episode_title": "", "episode_position": 2, "item_id": "U01"},
+            "E7S02": {"episode_title": "山门", "episode_position": 1, "item_id": "S02", **_NO_SCRIPT},
+            "E3U01": {"episode_title": "", "episode_position": 2, "item_id": "U01", **_NO_SCRIPT},
             "E9S01": None,
             "E7S01": None,
         }
@@ -308,7 +311,7 @@ class TestUsageRecordEpisodeItemRefs:
 
         detail = client.get(f"/api/v1/usage/records/{record_id}").json()
 
-        assert detail["segment_ref"] == {"episode_title": "山门", "episode_position": 1, "item_id": "S02"}
+        assert detail["segment_ref"] == {"episode_title": "山门", "episode_position": 1, "item_id": "S02", **_NO_SCRIPT}
 
 
 class TestUsageRecordProjectTitles:

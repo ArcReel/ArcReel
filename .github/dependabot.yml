@@ -113,6 +113,7 @@ updates:
           - "patch"
       dev-dependencies:
         patterns:
+          - "anyio"
           - "pytest*"
           - "ruff"
           - "basedpyright"

@@ -1,8 +1,8 @@
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
-import { UnitTag } from "./UnitTag";
+import { useItemPositionLabeler } from "@/components/shared/episode-item/useEpisodeItem";
+import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 
 interface Props {
   staleIds: string[];
@@ -23,6 +23,7 @@ interface Props {
  */
 export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) {
   const { t } = useTranslation("workflow");
+  const itemLabel = useItemPositionLabeler();
   const headingId = useId();
   if (staleIds.length === 0) return null;
 
@@ -35,13 +36,13 @@ export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) 
       <ul className="flex flex-col gap-1">
         {staleIds.map((unitId) => (
           <li key={unitId} className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <UnitTag unitId={unitId} />
+            <EpisodeItemRef itemId={unitId} />
             {onView && (
               <Button
                 variant="link"
                 size="xs"
                 onClick={() => onView(unitId)}
-                aria-label={t("stale_view_unit", { id: itemIdWithinEpisode(unitId) })}
+                aria-label={t("stale_view_unit", { id: itemLabel(unitId) })}
               >
                 {t("stale_view")}
               </Button>
@@ -52,7 +53,7 @@ export function StaleArtifacts({ staleIds, onView, onRegenerate, busy }: Props) 
                 size="xs"
                 disabled={busy}
                 onClick={() => onRegenerate([unitId])}
-                aria-label={t("stale_regenerate_unit", { id: itemIdWithinEpisode(unitId) })}
+                aria-label={t("stale_regenerate_unit", { id: itemLabel(unitId) })}
               >
                 {t("stale_regenerate")}
               </Button>

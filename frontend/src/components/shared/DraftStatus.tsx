@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { itemIdsInEpisodeText } from "@/utils/episode-display";
+import { draftViolationMessage } from "@/utils/draft-violations";
 
 export interface DraftItemJump {
   index: number;
@@ -312,7 +312,8 @@ export function DraftEpisodeViolations({
 }
 
 /** 逐条违约（红）。 */
-export function DraftViolationList({ violations }: { violations: ScriptReviewViolation[] }) {
+export function DraftViolationList({ violations, position }: { violations: ScriptReviewViolation[]; position?: number | null }) {
+  const { t } = useTranslation();
   if (violations.length === 0) return null;
   return (
     <ul className="mt-1.5 flex flex-col gap-1">
@@ -320,7 +321,7 @@ export function DraftViolationList({ violations }: { violations: ScriptReviewVio
         // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 校验结果的只读列表，条目没有唯一标识、不带状态，界面不重排也不筛选，整份随校验结果替换
         <li key={`${v.code}-${i}`} className="flex items-start gap-1.5 text-xs leading-snug text-destructive">
           <OctagonAlert className="mt-px size-3 shrink-0" aria-hidden="true" />
-          <span>{itemIdsInEpisodeText(v.message)}</span>
+          <span>{draftViolationMessage(v, t, position)}</span>
         </li>
       ))}
     </ul>
@@ -328,7 +329,8 @@ export function DraftViolationList({ violations }: { violations: ScriptReviewVio
 }
 
 /** 逐条降级提示（琥珀）：只提示、不阻断。 */
-export function DraftSoftViolationList({ softViolations }: { softViolations: DraftSoftViolation[] }) {
+export function DraftSoftViolationList({ softViolations, position }: { softViolations: DraftSoftViolation[]; position?: number | null }) {
+  const { t } = useTranslation();
   if (softViolations.length === 0) return null;
   return (
     <ul className="mt-1.5 flex flex-col gap-1">
@@ -336,7 +338,7 @@ export function DraftSoftViolationList({ softViolations }: { softViolations: Dra
         // react-doctor-disable-next-line react-doctor/no-array-index-as-key -- 校验结果的只读列表，条目没有唯一标识、不带状态，界面不重排也不筛选，整份随校验结果替换
         <li key={`${soft.code}-${i}`} className="flex items-start gap-1.5 text-xs leading-snug text-warn">
           <AlertTriangle className="mt-px size-3 shrink-0" aria-hidden="true" />
-          <span>{itemIdsInEpisodeText(soft.message)}</span>
+          <span>{draftViolationMessage(soft, t, position)}</span>
         </li>
       ))}
     </ul>

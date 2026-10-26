@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import type { ReferenceDurationPrecheck } from "@/types";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { useProjectsStore } from "@/stores/projects-store";
+import type { EpisodeScript, ReferenceDurationPrecheck } from "@/types";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 
 /** 预检对参考图取前 N 张的非阻断告知；后端已把 message 渲染成当前语言。 */
@@ -32,7 +33,24 @@ function precheck(overrides: Partial<ReferenceDurationPrecheck> = {}): Reference
   };
 }
 
+/** 正式剧本里的视频单元：E1U1、E1U2 前面还有一个单元，位置与 ID 里的数字错开。 */
+function seedReferenceScript() {
+  const script = {
+    episode: 1,
+    title: "",
+    content_mode: "reference_video",
+    video_units: [
+      { unit_id: "E1U5", text: "开场" },
+      { unit_id: "E1U1", text: "推门进来" },
+      { unit_id: "E1U2", text: "雨夜里走向吧台" },
+    ],
+  };
+  useProjectsStore.setState({ currentScripts: { "episode_1.json": script as unknown as EpisodeScript } });
+}
+
 describe("ReferenceDurationConfirmDialog", () => {
+  afterEach(() => useProjectsStore.setState({ currentScripts: {} }));
+
   it("compares the script tier with the requested tier", () => {
     render(
       <ReferenceDurationConfirmDialog
@@ -69,6 +87,7 @@ describe("ReferenceDurationConfirmDialog", () => {
   });
 
   it("lists advisory problems per unit under the duration rows", () => {
+    seedReferenceScript();
     render(
       <ReferenceDurationConfirmDialog
         open
@@ -98,10 +117,15 @@ describe("ReferenceDurationConfirmDialog", () => {
     expect(screen.getByText("以下调整将在本次生成中生效：")).toBeInTheDocument();
     expect(screen.getByText("参考图数量 3 超出 openai/sora-2 上限 1")).toBeInTheDocument();
     expect(screen.getByText("参考图数量 5 超出 openai/sora-2 上限 1")).toBeInTheDocument();
-    expect(screen.getByText("U2")).toBeInTheDocument();
+    // 多个单元时逐行按位置指认：E1U1 的时长行与告知行各一处，E1U2 只有告知行
+    expect(screen.getAllByRole("img", { name: "视频单元 2" })).toHaveLength(2);
+    expect(screen.getByRole("img", { name: "视频单元 3" })).toBeInTheDocument();
+    expect(screen.getByText("雨夜里走向吧台")).toBeInTheDocument();
+    expect(screen.queryByText("U2")).not.toBeInTheDocument();
   });
 
   it("stands on its own when only advisory problems need confirming", () => {
+    seedReferenceScript();
     render(
       <ReferenceDurationConfirmDialog
         open
@@ -123,7 +147,7 @@ describe("ReferenceDurationConfirmDialog", () => {
     expect(screen.getByText("参考图数量 3 超出 openai/sora-2 上限 1")).toBeInTheDocument();
     // 没有档位偏离就不画对照行，也不出现单元标签
     expect(screen.queryByText("4 秒")).not.toBeInTheDocument();
-    expect(screen.queryByText("U1")).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "视频单元 2" })).not.toBeInTheDocument();
   });
 
   it("renders nothing when no item needs confirming", () => {

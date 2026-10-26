@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { LeaveGuardProvider } from "@/components/shared/edit-unit/LeaveGuard";
+import { useProjectsStore } from "@/stores/projects-store";
 import { makeNarrationSegment } from "@/test/factories";
 import { ShotSplitView } from "./ShotSplitView";
 
@@ -11,7 +12,15 @@ const segments = [
   makeNarrationSegment({ segment_id: "E1S02", image_prompt: "清晨码头" }),
 ];
 
+afterEach(() => {
+  useProjectsStore.setState(useProjectsStore.getInitialState(), true);
+});
+
 function renderView(onUpdatePrompt = vi.fn().mockResolvedValue(true)) {
+  // 分镜视图展示的是项目里的正式剧本，称呼分镜时按它在剧本里的位置
+  useProjectsStore.setState({
+    currentScripts: { "episode_1.json": { episode: 1, content_mode: "narration", segments } as never },
+  });
   render(
     <LeaveGuardProvider>
       <ShotSplitView
@@ -36,7 +45,7 @@ describe("ShotSplitView 切换拦截与快捷键", () => {
     fireEvent.change(screen.getByDisplayValue("雨夜街道"), { target: { value: "雨后的街道" } });
 
     fireEvent.keyDown(document.body, { key: "j" });
-    const dialog = await screen.findByRole("alertdialog", { name: "「S01」有未保存的修改" });
+    const dialog = await screen.findByRole("alertdialog", { name: "「分镜 1」有未保存的修改" });
     expect(within(dialog).getByRole("button", { name: "保存并切换" })).toBeInTheDocument();
     expect(position()).toBe("1 / 2");
 

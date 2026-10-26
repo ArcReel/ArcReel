@@ -390,7 +390,7 @@ class TestAssetWritebackExemption:
 
     def test_read_helpers_skip_non_dict_items(self, tmp_path: Path):
         """读取侧：数组混入非 dict 元素（"foo"）时跳过它、只返回合法 dict 项，不抛 AttributeError。
-        与 script_editor._existing_ids 的 isinstance 过滤一致。"""
+        与 script_editor.new_item_ids 的 isinstance 过滤一致。"""
         pm = _pm(tmp_path)
         self._seed_non_dict_element(tmp_path)
         pending = pm.get_pending_scenes("demo", "episode_1.json", "storyboard_image")

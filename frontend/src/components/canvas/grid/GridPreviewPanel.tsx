@@ -229,7 +229,7 @@ export function GridPreviewPanel({
         if (res.missing_scene_ids.length > 0) {
           useAppStore
             .getState()
-            .pushToast(t("grid_split_missing_skipped", { ids: res.missing_scene_ids.join(", ") }), "error");
+            .pushToast(t("grid_split_missing_skipped", { count: res.missing_scene_ids.length }), "error");
         }
       })
       .catch((err: unknown) => {

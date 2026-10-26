@@ -166,7 +166,7 @@ const INVALID_DRAFT: ApiOverrides = {
             item_index: index,
           })),
         ],
-        soft_violations: [{ code: "long_text", message: `E1S02 的原文偏长，可能难以在一个分镜里讲完。`, item_index: 1 }],
+        soft_violations: [{ code: "long_text", params: {}, item_id: "E1S02", message: `E1S02 的原文偏长，可能难以在一个分镜里讲完。`, item_index: 1 }],
         formal_exists: true,
       },
     },
@@ -228,7 +228,7 @@ const discardDialog = (page: Page) => page.getByRole("alertdialog", { name: "丢
 const newAssets = (page: Page) => page.getByRole("region", { name: "本集新增资产" });
 const authoringDialog = (page: Page) => page.getByRole("dialog", { name: "编写提示词" });
 const adScriptDialog = (page: Page) => page.getByRole("dialog", { name: "重新生成脚本" });
-const viewer = (page: Page) => page.getByRole("dialog", { name: /E1S01|S01/ });
+const viewer = (page: Page) => page.getByRole("dialog", { name: "分镜 1 分镜图" });
 const failureNote = (page: Page) => page.getByRole("alert").filter({ hasText: "上一次 AI 规划脚本失败" });
 
 async function draftReady(page: Page) {

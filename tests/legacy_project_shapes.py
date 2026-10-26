@@ -21,9 +21,12 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
+from lib.artifacts.artifact_planner import TargetStatePlanner
+from lib.artifacts.artifact_version_provenance import IMAGE_ARTIFACT_BASIS_FIELD
 from lib.artifacts.version_manager import VERSION_CONTENT_DIGEST, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.visual_artifact_provenance import build_storyboard_video_artifact_visual_basis
+from lib.project import project_trash
 from lib.project.project_migrations.runner import MIGRATORS
 from lib.project.source_revision import SourceScope, compute_source_revision
 from lib.script.grid.models import GridGeneration, build_frame_chain
@@ -256,6 +259,55 @@ def write_legacy_timeline_agent_turn_project(root: Path) -> Path:
                     "content": {"clips": [{**clip, "source_volume": 0.6}]},
                     "changed_clip_ids": ["c1"],
                 },
+            ],
+        },
+    )
+    return project_dir
+
+
+def write_legacy_item_id_reuse_project(root: Path, name: str = "legacy-item-id-reuse") -> Path:
+    """schema 18 项目：新增条目只避开剧本里现存的编号，删掉的条目在别处留下更大的编号。
+
+    剧本里是 E1S1、E1S2；删掉的 E1S5 只剩版本历史，E1S7 在项目回收站的删除记录里，剪辑时间线的片段还引用
+    已删掉的 E1S9。升级前在剧本末尾新增会取 E1S3，接上这些旧编号的历史。
+    """
+
+    project_dir = write_legacy_storyboard_project(root, name=name)
+    advance_project_schema(project_dir, to_version=18)
+    removed_image = project_dir / "storyboards" / "scene_E1S5.png"
+    removed_image.write_bytes(b"removed-E1S5")
+    VersionManager(project_dir).add_version("storyboards", "E1S5", "删掉的分镜", source_file=removed_image)
+    removed_image.unlink()
+    trashed_audio = project_dir / "audio" / "segment_E1S7.wav"
+    trashed_audio.parent.mkdir(parents=True, exist_ok=True)
+    trashed_audio.write_bytes(b"removed-E1S7")
+    project_trash.record_deletion(
+        project_dir,
+        {"kind": "script_entry", "id": "E1S7", "episode": 1, "script_file": "episode_1.json", "item_kind": "segments"},
+        ["audio/segment_E1S7.wav"],
+    )
+    _write_json(
+        project_dir / "edit_timelines" / "episode_1" / "tl-00000e19.json",
+        {
+            "schema_version": 1,
+            "id": "tl-00000e19",
+            "episode": 1,
+            "name": "初剪",
+            "created_at": "2026-09-01T00:00:00Z",
+            "next_clip_number": 3,
+            "revisions": [
+                {
+                    "number": 1,
+                    "author": {"kind": "creator", "user_id": "u1"},
+                    "summary": "按脚本新建",
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "content": {
+                        "clips": [
+                            {"id": "c1", "unit_id": "E1S1", "source_volume": 1.0},
+                            {"id": "c2", "unit_id": "E1S9", "source_volume": 1.0},
+                        ]
+                    },
+                }
             ],
         },
     )
@@ -781,6 +833,56 @@ def write_legacy_style_project(
     (project_dir / "scenes" / "雨巷.png").write_bytes(b"scene-sheet")
     _write_versions(project_dir, {})
     _mark_asset_inventory_current(project_dir)
+    return project_dir
+
+
+def write_legacy_named_reference_bases_project(root: Path, name: str = "legacy-named-references") -> Path:
+    """schema 18 项目：分镜图、宫格与切格分镜的依据记着资产名（v19 起不记）。
+
+    在 :func:`write_legacy_style_project` 上让三格分镜都引用角色「阿离」、画面描述用 ``@[阿离]`` 指认它，
+    宫格记录冻结同一张角色资产图；按迁移链推进到 v18，清单按那时记名的口径登记。再按 v18 口径给宫格与
+    E1S03 写一条选中的版本记录（冻结依据），给 E1S01 写两版、选中第 2 版。
+    """
+
+    project_dir = write_legacy_style_project(root, name, style="写实电影感")
+    script_path = project_dir / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    for segment in script["segments"]:
+        segment["characters_in_segment"] = ["阿离"]
+        segment["image_prompt"]["scene"] = f"@[阿离]站在{segment['segment_id']}的雨巷里"
+    _write_json(script_path, script)
+    grid_path = next((project_dir / "grids").glob("grid_*.json"))
+    grid = json.loads(grid_path.read_text(encoding="utf-8"))
+    grid["reference_images"] = [{"path": "characters/阿离.png", "name": "阿离", "ref_type": "character"}]
+    _write_json(grid_path, grid)
+    advance_project_schema(project_dir, to_version=18)
+
+    project_bytes = (project_dir / "project.json").read_bytes()
+    planner = TargetStatePlanner(project_dir, project_bytes=project_bytes)
+    planner.plan()
+    versions_path = project_dir / "versions" / "versions.json"
+    versions = json.loads(versions_path.read_text(encoding="utf-8"))
+    for bucket, resource_id, key, source in (
+        ("grids", grid["id"], ArtifactKey.episode_grid(1, grid["id"]), f"grids/{grid['id']}.png"),
+        ("storyboards", "E1S03", ArtifactKey.episode_storyboard(1, "E1S03"), "storyboards/scene_E1S03.png"),
+        ("storyboards", "E1S01", ArtifactKey.episode_storyboard(1, "E1S01"), "storyboards/scene_E1S01.png"),
+    ):
+        records = []
+        for version in range(1, 3 if resource_id == "E1S01" else 2):
+            snapshot = f"versions/{bucket}/{resource_id}_v{version}_20260101T000000.png"
+            (project_dir / snapshot).parent.mkdir(parents=True, exist_ok=True)
+            (project_dir / snapshot).write_bytes((project_dir / source).read_bytes())
+            records.append(
+                {
+                    "version": version,
+                    "file": snapshot,
+                    "prompt": resource_id,
+                    "created_at": f"2026-01-0{version}T00:00:00Z",
+                    IMAGE_ARTIFACT_BASIS_FIELD: planner.bases[key].to_evidence_dict(),
+                }
+            )
+        versions[bucket][resource_id] = {"current_version": len(records), "versions": records}
+    _write_json(versions_path, versions)
     return project_dir
 
 
@@ -1481,6 +1583,8 @@ __all__ = [
     "write_legacy_ad_reference_video_project",
     "write_legacy_drama_storyboard_project",
     "write_legacy_episode_id_remnants_project",
+    "write_legacy_item_id_reuse_project",
+    "write_legacy_named_reference_bases_project",
     "write_legacy_presentation_project",
     "write_legacy_reference_video_project",
     "write_legacy_retired_flash_lite_project",

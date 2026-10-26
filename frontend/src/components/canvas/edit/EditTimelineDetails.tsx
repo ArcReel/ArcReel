@@ -7,8 +7,7 @@ import type { EditClip, EditTimelineIssue, EditTimelineIssueCode } from "@/types
 
 import { formatNameList } from "@/utils/list-format";
 
-import { formatClock, formatSeconds } from "./timeline-view";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { formatClock, formatSeconds, unitPositionLabel } from "./timeline-view";
 
 const ISSUE_DOT: Record<EditTimelineIssueCode, string> = {
   trim_ignored: "bg-warn",
@@ -28,10 +27,12 @@ interface ClipInspectorProps {
   clip: EditClip | undefined;
   trimIgnored: boolean;
   thumbnail: string | undefined;
+  /** 视频单元 ID → 它在本集里的当前位置。 */
+  positions: ReadonlyMap<string, number>;
 }
 
 /** 选中片段的位置、截取、转场与说明。截取作废时旧的截取加删除线，并说明暂用完整视频。 */
-export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: ClipInspectorProps) {
+export function ClipInspector({ projectName, clip, trimIgnored, thumbnail, positions }: ClipInspectorProps) {
   const { t } = useTranslation("dashboard");
   const thumbnailFp = useProjectsStore((s) => (thumbnail ? s.getAssetFingerprint(thumbnail) : null));
   if (!clip) {
@@ -54,7 +55,7 @@ export function ClipInspector({ projectName, clip, trimIgnored, thumbnail }: Cli
       )}
       <div className="min-w-0 flex-1">
         <h3 className="text-sm font-medium text-foreground">
-          {clip.id} <span className="text-muted-foreground">· {itemIdWithinEpisode(clip.unit_id)}</span>
+          {clip.id} <span className="text-muted-foreground">· {unitPositionLabel(positions, clip.unit_id, t)}</span>
         </h3>
         <dl className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs tabular-nums">
           <dt className="text-muted-foreground">{t("edit_view_field_position")}</dt>
@@ -123,11 +124,13 @@ interface IssueListProps {
   issues: readonly EditTimelineIssue[];
   /** 可选中的剪辑片段 ID；BGM 片段（如 b1）不在其中，相关 issue 不带定位按钮。 */
   clipIds: ReadonlySet<string>;
+  /** 视频单元 ID → 它在本集里的当前位置。 */
+  positions: ReadonlyMap<string, number>;
   onSelectClip: (clipId: string) => void;
 }
 
-/** 「问题（N）」列表：每条带片段或视频单元编号，指向剪辑片段的点击选中该片段。 */
-export function IssueList({ issues, clipIds, onSelectClip }: IssueListProps) {
+/** 「问题（N）」列表：每条带片段编号或视频单元的位置，指向剪辑片段的点击选中该片段。 */
+export function IssueList({ issues, clipIds, positions, onSelectClip }: IssueListProps) {
   const { t, i18n } = useTranslation("dashboard");
   return (
     <section aria-labelledby={ISSUE_LIST_HEADING_ID}>
@@ -147,7 +150,7 @@ export function IssueList({ issues, clipIds, onSelectClip }: IssueListProps) {
             const params = {
               ...issue.params,
               clip: formatNameList(issue.clip_ids, i18n.language),
-              unit: issue.unit_id ? itemIdWithinEpisode(issue.unit_id) : "",
+              unit: issue.unit_id ? (positions.get(issue.unit_id) ?? t("common:deleted")) : "",
               code: issue.code,
             };
             // 同一种 issue 按 params.cause 分成几种说法，如旁白越界分「压到下一段旁白」与「超出末尾」。

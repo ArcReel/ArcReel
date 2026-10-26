@@ -14,6 +14,7 @@ const API: ApiOverrides = {
 
 interface RecordedProject {
   project: { episodes: Record<string, unknown>[] } & Record<string, unknown>;
+  scripts: Record<string, Record<string, unknown>>;
 }
 interface RecordedPlan {
   status: { artifacts: Record<string, Record<string, unknown>> } & Record<string, unknown>;
@@ -118,8 +119,31 @@ const LONG_MESSAGE =
 const BLOCKED_VIDEOS = ids(40).slice(4);
 
 // 制作进度的内容压力：结构问题、正在生成的分镜图与大量过期产物、整批被拒的四十个视频单元。
+// 剧本放进这四十个分镜，问题按分镜在本集的当前位置指称。
+const stressProject = (STRESS["GET /api/v1/projects/demo"] as { body: RecordedProject }).body;
 const PROGRESS_STRESS: ApiOverrides = {
   ...STRESS,
+  "GET /api/v1/projects/demo": {
+    status: 200,
+    body: {
+      ...stressProject,
+      scripts: {
+        "episode_1.json": {
+          ...project.scripts["episode_1.json"],
+          segments: ids(40).map((segmentId, index) => ({
+            segment_id: segmentId,
+            episode: 1,
+            duration_seconds: 6,
+            segment_break: false,
+            novel_text: `第 ${index + 1} 段原文。`,
+            characters_in_segment: [],
+            image_prompt: null,
+            video_prompt: null,
+          })),
+        },
+      },
+    },
+  },
   "POST /api/v1/projects/demo/workflow-plan": {
     status: 200,
     body: {
@@ -294,7 +318,7 @@ defineRegionScenarios("集页页头", [
       await waitForEntrance(popover);
       const script = popover.getByTestId("workflow-row-script");
       await expect(popover.getByText("这个单元同时有角色台词和旁白，需要拆开。")).toHaveCount(1);
-      await expect(script.getByText("S02", { exact: true })).toBeVisible();
+      await expect(script.getByRole("img", { name: "分镜 2" })).toBeVisible();
       // 正在生成的分镜图是进度，不是问题；不露出任务号与供应商
       const boards = popover.getByTestId("workflow-row-boards");
       await expect(boards.getByText("已提交给供应商，重试可能再次计费。")).toBeVisible();

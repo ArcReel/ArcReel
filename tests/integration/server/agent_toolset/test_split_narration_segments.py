@@ -100,7 +100,8 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
     script_plan_path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
     assert script_plan_path.exists()
     saved = json.loads(script_plan_path.read_text(encoding="utf-8"))
-    assert [s["segment_id"] for s in saved["segments"]] == ["E1S01", "E1S02"]
+    # 模型写的编号只是占位，落盘时由服务端发号：夹具剧本已用过 E1S01
+    assert [s["segment_id"] for s in saved["segments"]] == ["E1S02", "E1S03"]
     # novel_text 逐字保留
     assert saved["segments"][0]["novel_text"] == "张三走向村口。"
     assert captured["task_type"] is mod.TextTaskType.SCRIPT

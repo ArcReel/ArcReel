@@ -19,7 +19,7 @@ import shutil
 import time
 import unicodedata
 from collections import Counter
-from collections.abc import AsyncGenerator, Callable, Generator, Mapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Generator, Iterable, Mapping, Sequence
 from contextlib import AbstractContextManager, ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -82,6 +82,7 @@ from lib.project.asset_rename import (
     AssetRenameReport,
     plan_asset_file_renames,
     rewrite_entry_paths,
+    rewrite_grid_reference_images,
     rewrite_payload_references,
 )
 from lib.project.asset_types import (
@@ -107,6 +108,12 @@ from lib.project.script_entry_cleanup import trash_entries
 from lib.project.task_project_claim import ensure_task_project_claim
 from lib.references.reference_catalog import derivative_reference
 from lib.script.draft_quarantine import QUARANTINE_FILENAMES
+from lib.script.item_ids import (
+    ItemIdIssuer,
+    episode_item_id_high_water,
+    max_item_number,
+    raise_item_id_high_water,
+)
 from lib.script.reference_video.duration_migration import migrate_script_unit_durations
 from lib.script.script_editor import ScriptEditError, resolve_items
 from lib.script.script_models import get_generated_assets
@@ -120,6 +127,7 @@ from lib.speech.narration_config import (
 
 if TYPE_CHECKING:
     from lib.project.asset_merge import AssetMergeReport
+    from lib.script.grid.models import GridGeneration
 
 logger = logging.getLogger(__name__)
 
@@ -746,7 +754,6 @@ class ProjectManager:
         validate: bool = True,
         artifact_basis: ArtifactBasisDescriptor | None = None,
         expected_fingerprint: str | _Unset | None = _UNSET,
-        replaced_resource_ids: Sequence[str] = (),
         project_update: Callable[[dict[str, Any]], None] | None = None,
     ) -> Path:
         """
@@ -761,8 +768,6 @@ class ProjectManager:
                 改前剧本，由写盘统一入口按需读盘取改前（已存在则不更坏，全新保存则严格校验）。
             artifact_basis: 生成调用开始前冻结的剧本来源 basis；普通编辑不传，按提交时现值解析。
             expected_fingerprint: 可选的正式剧本内容基线；在剧本锁内不匹配时拒绝写入。
-            replaced_resource_ids: 新旧剧本都有、但身份已换成新条目的 id；撤销产物登记。它们与旧剧本里不再有的条目一样，
-                旧媒体与版本历史在同一写事务里移进项目回收站。
             project_update: 与剧本、集索引同一写事务内对 project.json 的额外修改；仅带集号的剧本可用。
 
         Returns:
@@ -821,7 +826,6 @@ class ProjectManager:
                         artifact_path=f"scripts/{filename}",
                         resource_ids=resource_ids,
                         removed_resource_ids=tuple(set(previous_resource_ids) - set(resource_ids)),
-                        replaced_resource_ids=replaced_resource_ids,
                         basis=artifact_basis,
                     )
                     # 项目锁内、写入之前：删除记录的快照要改写前的剧本与 project.json。
@@ -832,17 +836,14 @@ class ProjectManager:
                     }
 
                     def _register_manifest(_script_path: Path) -> None:
-                        # 被移除与被新身份替换的旧条目移进项目回收站，再撤登记；仍持剧本锁，新条目的媒体不能先落盘。
+                        # 被移除的旧条目移进项目回收站，再撤登记；仍持剧本锁，新条目的媒体不能先落盘。
                         # 覆盖时旧剧本里的条目都按结构移除建记录（ADR 0080），没有媒体的也能找回。
                         trash_entries(
                             project_path,
                             episode=episode,
                             script_file=filename,
                             entries=dict.fromkeys(
-                                [
-                                    *(rid for rid in previous_resource_ids if rid not in resource_ids),
-                                    *replaced_resource_ids,
-                                ],
+                                (rid for rid in previous_resource_ids if rid not in resource_ids),
                                 previous_kind,
                             ),
                             before=before_files,
@@ -1352,8 +1353,52 @@ class ProjectManager:
         # 同步核心元数据（不包含统计字段，统计字段由项目摘要读时计算）
         episode_entry["title"] = episode_title
         episode_entry["script_file"] = script_file
+        # 条目编号只分配、不复用：落盘的剧本里出现过的编号都记进本集用过的最大号
+        try:
+            items, id_field, _kind = resolve_items(script)
+        except ScriptEditError:
+            items, id_field = [], ""
+        if episode_num is not None:
+            raise_item_id_high_water(
+                episode_entry,
+                max_item_number((item.get(id_field) for item in items if isinstance(item, Mapping)), episode_num),
+            )
 
         logger.info("已同步剧集信息: Episode %d - %s", episode_num, episode_title)
+
+    def item_id_floor(self, project: Mapping[str, Any], script: Mapping[str, Any], episode: int) -> int:
+        """本集条目编号已用过的最大主序号：账本记录的最大号与剧本现存编号取大。"""
+        try:
+            items, id_field, _kind = resolve_items(dict(script))
+        except ScriptEditError:
+            items, id_field = [], ""
+        return max(
+            episode_item_id_high_water(project, episode),
+            max_item_number((item.get(id_field) for item in items if isinstance(item, Mapping)), episode),
+        )
+
+    def reserve_item_ids(self, project_name: str, episode: int, kind: str, count: int) -> list[str]:
+        """为剧本之外先占号的写入点（脚本规划草稿）发 ``count`` 个新编号，并把本集最大号推进到最后一个。
+
+        集不在账本里时不记最大号：剧本首次落盘时建条目，届时按剧本里的编号补记。
+        """
+        issued: list[str] = []
+
+        def _mutate(project: dict) -> None:
+            entry = find_episode(project, episode)
+            script: Mapping[str, Any] = {}
+            script_file = entry.get("script_file") if entry is not None else None
+            if isinstance(script_file, str):
+                scripts_dir = self.get_project_path(project_name) / "scripts"
+                script_path = Path(self._safe_subpath(scripts_dir, self.normalize_script_filename(script_file)))
+                script = self._load_script_or_none(script_path) or {}
+            issuer = ItemIdIssuer(episode, kind, self.item_id_floor(project, script, episode))
+            issued[:] = [issuer.issue() for _ in range(count)]
+            if entry is not None and issued:
+                raise_item_id_high_water(entry, issuer.last)
+
+        self.update_project(project_name, _mutate)
+        return issued
 
     def load_script(self, project_name: str, filename: str) -> dict:
         """
@@ -1599,36 +1644,6 @@ class ProjectManager:
 
     # ==================== 场景管理 ====================
 
-    def add_scene(self, project_name: str, script_filename: str, scene: dict) -> dict:
-        """
-        向剧本添加场景
-
-        Args:
-            project_name: 项目名称
-            script_filename: 剧本文件名
-            scene: 场景字典
-
-        Returns:
-            更新后的剧本
-        """
-        # legacy helper：产出数字 scene_id 的旧结构 scene，与现行 Pydantic 模型不兼容，豁免结构校验。
-        with self.locked_script(project_name, script_filename, validate=False) as script:
-            # 自动生成场景 ID
-            existing_ids = [s["scene_id"] for s in script["scenes"]]
-            next_id = f"{len(existing_ids) + 1:03d}"
-            scene["scene_id"] = next_id
-
-            # 确保有 generated_assets 字段
-            if "generated_assets" not in scene:
-                scene["generated_assets"] = {
-                    "storyboard_image": None,
-                    "video_clip": None,
-                    "status": "pending",
-                }
-
-            script["scenes"].append(scene)
-        return script
-
     def update_scene_asset(
         self,
         project_name: str,
@@ -1829,7 +1844,7 @@ class ProjectManager:
             items, id_field, _kind = resolve_items(script)
 
             # 建立 scene_id → item 索引，避免 O(N*M) 查找。损坏脚本的非 dict 元素过滤掉
-            # （镜像 script_editor._existing_ids），命中这类 id 的 update 会落 missing → KeyError fail-loud。
+            # （镜像 script_editor.new_item_ids），命中这类 id 的 update 会落 missing → KeyError fail-loud。
             item_by_id: dict[str, dict] = {str(item.get(id_field)): item for item in items if isinstance(item, dict)}
             missing: list[str] = []
 
@@ -1882,7 +1897,7 @@ class ProjectManager:
         def _missing(item: dict) -> bool:
             return not get_generated_assets(item).get(asset_type)
 
-        # 损坏脚本的非 dict 元素直接剔除（镜像 script_editor._existing_ids 的过滤），UI 不渲染垃圾项。
+        # 损坏脚本的非 dict 元素直接剔除（镜像 script_editor.new_item_ids 的过滤），UI 不渲染垃圾项。
         return [item for item in items if isinstance(item, dict) and _missing(item)]
 
     # ==================== 文件路径工具 ====================
@@ -1927,7 +1942,7 @@ class ProjectManager:
         def _missing_storyboard(item: dict) -> bool:
             return not get_generated_assets(item).get("storyboard_image")
 
-        # 同 get_pending_scenes：非 dict 元素剔除，镜像 script_editor._existing_ids。
+        # 同 get_pending_scenes：非 dict 元素剔除，镜像 script_editor.new_item_ids。
         return [item for item in items if isinstance(item, dict) and _missing_storyboard(item)]
 
     # ==================== 项目级元数据管理 ====================
@@ -3270,6 +3285,9 @@ class ProjectManager:
             self._carry_script_plan_confirmations(project_dir, mutated, changed_drafts)
             for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
+            self._rename_grid_references(
+                project_dir, asset_type, old_key, new_clean, moves=(*moves, *derivatives.moves)
+            )
             for src, dst in moves:
                 if src.exists():
                     os.replace(src, dst)
@@ -3285,6 +3303,50 @@ class ProjectManager:
 
         emit_project_change_hint(project_name, changed_paths=[self.PROJECT_FILE])
         return report
+
+    @staticmethod
+    def _rename_grid_references(
+        project_dir: Path,
+        asset_type: str,
+        old_name: str,
+        new_name: str,
+        *,
+        moves: Iterable[tuple[Path, Path]],
+    ) -> None:
+        """宫格记录冻结的参考图随改名改写名字与路径（规则见 ``rewrite_grid_reference_images``）。
+
+        在文件迁移之前写：中途失败重跑同一次改名时，已改写的记录不再命中旧名，未改写的记录
+        对应的文件迁移也还在规划里，两种情况都能收敛。读不出的记录原样留下。
+        """
+        from lib.script.grid.grid_manager import GridManager
+
+        grids_dir = project_dir / "grids"
+        if not grids_dir.is_dir():
+            return
+        path_rewrites = {
+            unicodedata.normalize("NFC", src.relative_to(project_dir).as_posix()): dst.relative_to(
+                project_dir
+            ).as_posix()
+            for src, dst in moves
+        }
+
+        def rewrite(grid: "GridGeneration") -> int:
+            return rewrite_grid_reference_images(
+                grid.reference_images or [], asset_type, old_name, new_name, path_rewrites
+            )
+
+        def mutate(grid: "GridGeneration") -> None:
+            rewrite(grid)
+
+        manager = GridManager(project_dir)
+        for record in sorted(grids_dir.glob("grid_*.json")):
+            grid_id = record.name.removesuffix(".json")
+            try:
+                grid = manager.get(grid_id)
+            except (OSError, KeyError, TypeError, ValueError):
+                continue
+            if grid is not None and rewrite(grid):
+                manager.update(grid_id, mutate, ignore_invalid=True)
 
     def rename_asset_derivative(
         self, asset_type: str, project_name: str, entry_name: str, old_name: str, new_name: str
@@ -3376,6 +3438,7 @@ class ProjectManager:
             self._carry_script_plan_confirmations(project_dir, project, changed_drafts)
             for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
+            self._rename_grid_references(project_dir, asset_type, old_reference, new_reference, moves=relocation.moves)
             relocation.relocate()
             self._touch_metadata(project)
             project_file = self._get_project_file_path(project_name)
@@ -3433,6 +3496,7 @@ class ProjectManager:
             current_artifact_probe,
             merge_payload_references,
             plan_derivative_merge,
+            storyboard_reference_identities,
         )
         from lib.project.data_validator import DataValidator
 
@@ -3480,6 +3544,10 @@ class ProjectManager:
                     totals[key] = totals.get(key, 0) + value
 
             is_current = current_artifact_probe(project_dir)
+            storyboard_identities = storyboard_reference_identities(project_dir, project, asset_type)
+            for new_reference, old_reference in derivative_plan.carried_references(source, target).items():
+                if old_reference in storyboard_identities:
+                    storyboard_identities[new_reference] = storyboard_identities[old_reference]
             changed_scripts: list[tuple[str, dict, dict]] = []
             for filename in script_files:
                 script, _migrated = self._read_script_unlocked(project_name, filename)
@@ -3492,7 +3560,14 @@ class ProjectManager:
                 changed_scripts.append((filename, script, before))
                 episode = self.canonical_script_episode(filename)
                 storyboards, videos = (
-                    count_outdated_artifacts(before, script, asset_type, episode, is_current)
+                    count_outdated_artifacts(
+                        before,
+                        script,
+                        asset_type,
+                        episode,
+                        is_current,
+                        storyboard_identities=storyboard_identities,
+                    )
                     if episode is not None
                     else (0, 0)
                 )

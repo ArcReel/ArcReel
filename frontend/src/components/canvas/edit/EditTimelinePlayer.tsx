@@ -6,10 +6,10 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import type { EditClip } from "@/types/edit-timeline";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
 import type { PreviewAspect } from "@/utils/preview-aspect";
 
 import { transitionOpacity, type PlaybackPlan } from "./playback-schedule";
+import { unitPositionLabel } from "./timeline-view";
 import { subtitleAt, subtitleLayout, type PlacedSubtitle } from "./preview-tracks";
 import { formatClock } from "./timeline-view";
 import type { TimelinePlayback } from "./useTimelinePlayback";
@@ -20,6 +20,8 @@ interface EditTimelinePlayerProps {
   aspect: PreviewAspect;
   /** 当前片段；定格与占位期间同样有值，没有可播放片段时为 undefined。 */
   current: EditClip | undefined;
+  /** 视频单元 ID → 它在本集里的当前位置。 */
+  positions: ReadonlyMap<string, number>;
   trimIgnored: boolean;
   subtitles: readonly PlacedSubtitle[];
   showSubtitles: boolean;
@@ -35,6 +37,7 @@ export function EditTimelinePlayer({
   playback,
   aspect,
   current,
+  positions,
   trimIgnored,
   subtitles,
   showSubtitles,
@@ -104,7 +107,7 @@ export function EditTimelinePlayer({
           {current && (
             <div className="pointer-events-none absolute inset-x-2.5 top-2.5 flex flex-wrap gap-1.5 text-xs">
               <span className="max-w-full truncate rounded-sm bg-black/60 px-1.5 py-0.5 text-white tabular-nums">
-                {current.id} · {itemIdWithinEpisode(current.unit_id)}
+                {current.id} · {unitPositionLabel(positions, current.unit_id, t)}
               </span>
               {trimIgnored && (
                 <span className="inline-flex max-w-full items-center gap-1 rounded-sm bg-warn px-1.5 py-0.5 text-black">

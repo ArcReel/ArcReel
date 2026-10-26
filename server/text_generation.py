@@ -8,7 +8,7 @@ import logging
 import re
 import unicodedata
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -104,6 +104,7 @@ from lib.script.script_models import (
     build_drama_normalized_script_model,
     build_reference_units_script_plan_model,
 )
+from lib.script.script_skeleton import resolve_kind_items
 from lib.script.storyboard_mentions import render_storyboard_mention_warnings, storyboard_mention_warnings
 from lib.speech.speech_composition import admit_script_unit
 from lib.speech.speech_rate import project_speech_rate_override
@@ -314,6 +315,54 @@ def _commit_generated_reference_script_plan(
             basis=basis,
         )
         clear_quarantine(project_path, episode, QUARANTINE_KIND_SCRIPT_PLAN)
+
+
+def plan_item_ids(path: Path) -> list[str]:
+    """盘上那份脚本规划的条目编号（按顺序）；文件不在或读不出时为空。参考生视频规划的单元数组键是 ``units``。"""
+    try:
+        content = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(content, dict) and "units" in content:
+            items, id_field = content["units"], "unit_id"
+        else:
+            items, id_field, _kind = resolve_kind_items(content)
+    except (OSError, ValueError):
+        return []
+    if not isinstance(items, list):
+        return []
+    return [item[id_field] for item in items if isinstance(item, dict) and isinstance(item.get(id_field), str)]
+
+
+async def reissue_plan_item_ids(
+    projects: ProjectManager,
+    project_name: str,
+    episode: int,
+    content: dict[str, Any],
+    *,
+    keep: Collection[str] = (),
+) -> None:
+    """脚本规划落盘前由服务端给条目发号，就地改写：编号只由服务端发，只分配、不复用。
+
+    ``keep`` 是此前已由服务端发给这份脚本规划的编号（晋升时盘上正式规划的编号）：条目带着其中之一且不重复时
+    沿用，原样晋升的规划因此逐字不变；模型或草稿里自己写的编号一律换成新发的号。
+    """
+    items, id_field, kind = resolve_kind_items(content)
+    if not isinstance(items, list):
+        return
+    kept: set[str] = set()
+    fresh: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        item_id = item.get(id_field)
+        if isinstance(item_id, str) and item_id in keep and item_id not in kept:
+            kept.add(item_id)
+        else:
+            fresh.append(item)
+    if not fresh:
+        return
+    issued = await run_sync_transaction(projects.reserve_item_ids, project_name, episode, kind, len(fresh))
+    for item, item_id in zip(fresh, issued, strict=True):
+        item[id_field] = item_id
 
 
 def commit_single_script_plan(
@@ -992,6 +1041,7 @@ async def generate_drama_script_plan(
                 )
             raise TextGenerationError(report)
 
+        await reissue_plan_item_ids(projects, project_name, episode, content)
         async with draft_locks.async_file_lock(draft_path):
             try:
                 await run_sync_transaction(
@@ -1141,12 +1191,15 @@ def _validate_unit_duration_tier(label: str, duration: int, *, has_references: b
     )
 
 
-def _reference_unit_id(episode: int, index: int) -> str:
+def _reference_unit_id(episode: int, index: int, unit_ids: Sequence[str] | None = None) -> str:
     """扁平产出第 ``index`` 个 unit（1 起）的 ``unit_id``。
 
     落盘内容、违约报告与降级提示三者指的必须是同一个 unit：各自拼一遍格式串时，改一处编号
-    口径就会让报告指偏到另一个 unit。
+    口径就会让报告指偏到另一个 unit。落盘前由服务端发号（``ProjectManager.reserve_item_ids``，
+    编号只分配、不复用），发出的编号经 ``unit_ids`` 传入；还没发号的扁平草稿按位置给出定位用的编号。
     """
+    if unit_ids is not None:
+        return unit_ids[index - 1]
     return f"E{episode}U{index:02d}"
 
 
@@ -1221,17 +1274,19 @@ def build_reference_units_from_flat(
     *,
     episode: int,
     max_refs: int | None,
+    unit_ids: Sequence[str],
 ) -> list[dict]:
     """把已校验通过的扁平产出派生为落盘的结构化 unit 表。
 
-    LLM 只写内容，机器写结构：``unit_id`` 按数组序号编号，正文原样落盘。参考图不落盘——
+    LLM 只写内容，机器写结构：``unit_id`` 取服务端为本次落盘发出的编号（``unit_ids``，与扁平产出一一对应），
+    正文原样落盘。参考图不落盘——
     执行期再按正文 ``@[名称]`` 的首现顺序解析。调用方须先经
     ``collect_reference_flat_violations`` 确认无违约；此处仍复判一次正文，让「校验看到的
     文本」与「落盘的正文」出自同一次解析。
     """
     units: list[dict] = []
     for index, flat in enumerate(flat_units, start=1):
-        unit_id = _reference_unit_id(episode, index)
+        unit_id = _reference_unit_id(episode, index, unit_ids)
         validate_unit_text(f"unit {unit_id}", flat["text"], project, max_refs=max_refs)
         units.append(
             {
@@ -1265,7 +1320,12 @@ class SoftViolation:
 
 
 def _reference_voice_warnings(
-    unit_texts: list[str], project: dict[str, Any], voice: VoiceRenderSettings, *, episode: int
+    unit_texts: list[str],
+    project: dict[str, Any],
+    voice: VoiceRenderSettings,
+    *,
+    episode: int,
+    unit_ids: Sequence[str] | None,
 ) -> list[SoftViolation]:
     """逐 unit 派生声音绑定，取容忍类 warning。
 
@@ -1287,11 +1347,15 @@ def _reference_voice_warnings(
         for warning in bindings.warnings:
             key = str(warning["key"])
             if key in _TOLERATED_VOICE_WARNINGS:
-                found.append(SoftViolation(key, dict(warning["params"]), index - 1, _reference_unit_id(episode, index)))
+                found.append(
+                    SoftViolation(key, dict(warning["params"]), index - 1, _reference_unit_id(episode, index, unit_ids))
+                )
     return found
 
 
-def _reference_scene_warnings(unit_texts: list[str], project: dict[str, Any], *, episode: int) -> list[SoftViolation]:
+def _reference_scene_warnings(
+    unit_texts: list[str], project: dict[str, Any], *, episode: int, unit_ids: Sequence[str] | None
+) -> list[SoftViolation]:
     """逐 unit 取「未引用任何场景资产」的提示。
 
     与声音降级同属容忍类：地点由模型自由决定不是格式错误，正文照常落盘；但室内外交替的相邻
@@ -1301,7 +1365,7 @@ def _reference_scene_warnings(unit_texts: list[str], project: dict[str, Any], *,
     正文在回执与面板上必须给出同一个结论。
     """
     return [
-        SoftViolation(WARN_UNIT_WITHOUT_SCENE, {}, index - 1, _reference_unit_id(episode, index))
+        SoftViolation(WARN_UNIT_WITHOUT_SCENE, {}, index - 1, _reference_unit_id(episode, index, unit_ids))
         for index, text in enumerate(unit_texts, start=1)
         if unit_lacks_scene_reference(text, project)
     ]
@@ -1313,6 +1377,7 @@ def reference_soft_violations(
     *,
     episode: int,
     voice: VoiceRenderSettings,
+    unit_ids: Sequence[str] | None = None,
 ) -> list[SoftViolation]:
     """一份扁平产出的全部软违约（声音降级 + 未引用场景），拆分与草稿流共用的单一出口。
 
@@ -1323,9 +1388,9 @@ def reference_soft_violations(
     顺序固定为「声音在前、场景在后」：报告与回执并排比对时，同一份产物在不同路径上给出的
     行序不该抖动。
     """
-    return _reference_voice_warnings(unit_texts, project, voice, episode=episode) + _reference_scene_warnings(
-        unit_texts, project, episode=episode
-    )
+    return _reference_voice_warnings(
+        unit_texts, project, voice, episode=episode, unit_ids=unit_ids
+    ) + _reference_scene_warnings(unit_texts, project, episode=episode, unit_ids=unit_ids)
 
 
 def render_soft_violation_lines(soft_violations: list[SoftViolation]) -> list[str]:
@@ -1363,9 +1428,12 @@ def _reference_soft_violation_lines(
     *,
     episode: int,
     voice: VoiceRenderSettings,
+    unit_ids: Sequence[str] | None = None,
 ) -> list[str]:
     """一份扁平产出的软违约文本行（拆分回执用）。"""
-    return render_soft_violation_lines(reference_soft_violations(unit_texts, project, episode=episode, voice=voice))
+    return render_soft_violation_lines(
+        reference_soft_violations(unit_texts, project, episode=episode, voice=voice, unit_ids=unit_ids)
+    )
 
 
 #: 晋升被违约挡下时，软违约段的处置说明：草稿仍在场、这些提示不是要修的违约。
@@ -1514,7 +1582,7 @@ def collect_narration_violations(
     """
     violations: list[DraftViolation] = []
 
-    expected_id = re.compile(rf"E{episode}S\d{{2}}")
+    expected_id = re.compile(rf"E{episode}S\d{{2,}}")
     for index, segment in enumerate(segments):
         segment_id = segment.get("segment_id")
         if not isinstance(segment_id, str) or expected_id.fullmatch(segment_id) is None:
@@ -1733,11 +1801,19 @@ async def generate_reference_script_plan(
                 report + render_soft_violation_section(soft_violations, note=SOFT_VIOLATION_NOTE_QUARANTINED)
             )
 
+        # 编号只分配、不复用：落盘前由服务端发本集从没用过的编号，回执里的降级提示按发出的编号定位。
+        unit_ids = await run_sync_transaction(
+            projects.reserve_item_ids, project_name, episode, "video_units", len(flat_units)
+        )
         raw_units = build_reference_units_from_flat(
             flat_units,
             planning,
             episode=episode,
             max_refs=split_caps.max_refs,
+            unit_ids=unit_ids,
+        )
+        soft_violations = _reference_soft_violation_lines(
+            unit_texts, planning, episode=episode, voice=split_caps.voice, unit_ids=unit_ids
         )
         async with draft_locks.async_file_lock(draft_path):
             try:
@@ -1893,6 +1969,7 @@ async def generate_narration_script_plan(
                 )
             raise TextGenerationError(report)
 
+        await reissue_plan_item_ids(projects, project_name, episode, content)
         async with draft_locks.async_file_lock(draft_path):
             try:
                 await run_sync_transaction(

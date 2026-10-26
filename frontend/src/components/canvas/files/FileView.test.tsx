@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, onTestFinished, vi } from "vitest";
 
 import { useAppStore, type Toast } from "@/stores/app-store";
-import type { FileViewEntry, RestoredFile, RestoreResult, TrashRecord } from "@/types";
+import { useProjectsStore } from "@/stores/projects-store";
+import type { FileViewEntry, ProjectData, RestoredFile, RestoreResult, TrashRecord } from "@/types";
 
 import { FileView } from "./FileView";
 
@@ -451,9 +452,15 @@ it("tells what a degraded restore recovered and offers the remaining structure f
   await waitFor(() => expect(downloads).toEqual([TIMELINE_DOCUMENT]));
 });
 
-it("names a removed shot or video unit by its id and says when it came back under a new id", async () => {
+it("uses the current position after restoring a shot under a new ID", async () => {
   const toasts = collectToasts();
   const shot = { kind: "script_entry", id: "E1S03", episode: 1, item_kind: "segments" };
+  const project: ProjectData = {
+    title: "演示", content_mode: "narration", style: "Anime", characters: {},
+    episodes: [{ episode: 1, title: "雨夜", script_file: "scripts/episode_1.json" }],
+  };
+  useProjectsStore.getState().setCurrentProject("demo", project, {}, {});
+  onTestFinished(() => useProjectsStore.getState().setCurrentProject(null, null));
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     if (init?.method === "POST") {
@@ -472,6 +479,16 @@ it("names a removed shot or video unit by its id and says when it came back unde
       ];
       return Promise.resolve(Response.json({ records, total_size: 20, retention_days: 30 }));
     }
+    if (url.pathname.endsWith("/projects/demo")) {
+      return Promise.resolve(Response.json({
+        project,
+        scripts: { "episode_1.json": {
+          episode: 1,
+          segments: [{ segment_id: "E1S01" }, { segment_id: "E1S04" }, { segment_id: "E1S02" }],
+        } },
+        asset_fingerprints: {},
+      }));
+    }
     return Promise.resolve(Response.json({ path: "", entries: [] }));
   });
   render(<FileView projectName="demo" />);
@@ -482,5 +499,5 @@ it("names a removed shot or video unit by its id and says when it came back unde
 
   await user.click(screen.getAllByRole("button", { name: "恢复" })[0]);
 
-  await waitFor(() => expect(toasts.at(-1)?.text).toBe("原编号已被占用，分镜 E1S03（第 1 集） 已以新编号 E1S04 恢复"));
+  await waitFor(() => expect(toasts.at(-1)?.text).toBe("雨夜 · 2 已恢复"));
 });

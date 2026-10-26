@@ -19,6 +19,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { useAppStore } from "@/stores/app-store";
+import { useProjectsStore } from "@/stores/projects-store";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
+import { episodeItemLabel } from "@/utils/episode-display";
 import type { RestoreResult, TrashListing, TrashRecord } from "@/types";
 import { errMsg } from "@/utils/async";
 import { formatShortDateTime } from "@/utils/date-format";
@@ -77,9 +80,9 @@ function restoredMessage(t: TFunction<"dashboard">, record: TrashRecord, result:
   }
   if (record.object.kind === "episode") return t("trash_restored_episode", { name });
   if (record.object.kind === "script_entry") {
-    return result.object.id !== record.object.id
-      ? t("trash_restored_entry_renumbered", { name, landed: result.object.id })
-      : t("trash_restored_object", { name });
+    const { currentScripts, currentProjectData } = useProjectsStore.getState();
+    const label = episodeItemLabel(String(result.object.id), currentScripts, currentProjectData?.episodes ?? [], t);
+    return t("trash_restored_object", { name: label });
   }
   // 带名字的对象（剪辑时间线）按名字说明是否改名；其余按文件落点说明。
   if (record.has_snapshot && typeof record.object.name === "string") {
@@ -165,6 +168,9 @@ export function TrashSection({ projectName, refreshKey }: { projectName: string;
       const result = await API.restoreTrashRecord(projectName, record.id);
       // 降级后留下只能下载的结构文件时记录还在，由随后的重拉换成只能下载的样子
       if (result.download_only.length === 0) dropRecords((item) => item.id !== record.id);
+      if (record.object.kind === "script_entry" && !result.degraded) {
+        if (await refreshAfterWrite(projectName, t) !== "success") return;
+      }
       useAppStore.getState().pushToast(restoredMessage(t, record, result), result.degraded ? "warning" : "success");
     } catch (error) {
       useAppStore.getState().pushToast(t("trash_action_failed", { message: errMsg(error) }), "error");

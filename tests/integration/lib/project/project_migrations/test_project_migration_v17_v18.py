@@ -28,6 +28,7 @@ from lib.project.project_migrations import CURRENT_SCHEMA_VERSION, v17_to_v18_ti
 from lib.project.project_migrations.runner import cleanup_stale_backups, migrate_project_dir
 from lib.speech.speech_composition import SpeechProblemCode, admit_script_unit
 from lib.workflow.workflow_state import WorkflowStateService
+from tests.fakes import failing_manifest_replace
 from tests.legacy_project_shapes import (
     advance_project_schema,
     without_version_content_digests,
@@ -66,6 +67,8 @@ async def test_schema_17_renamed_model_references_resolve_to_successors(db_facto
             "gemini-vertex/gemini-3-pro-image-preview": {"resolution": "2K"},
             "gemini-vertex/gemini-3-pro-image": {"resolution": "1K"},
         },
+        # v18→v19 记下本集用过的最大分镜号（样本剧本到 E1S02）
+        "episodes": [{**entry, "item_id_high_water": 2} for entry in legacy["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
     migrated = _read_json(project_dir / "project.json")
@@ -101,6 +104,7 @@ def test_schema_17_retired_text_model_references_resolve_to_successors(
     assert _read_json(project_path) == {
         **project,
         **dict.fromkeys(TEXT_BACKEND_SETTING_KEYS, successor),
+        "episodes": [{**entry, "item_id_high_water": 2} for entry in project["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
 
@@ -498,22 +502,15 @@ def test_a_step_that_fails_after_the_backfill_committed_reruns_to_completion(
     _assert_content_recorded(project_dir, ArtifactKey.episode_audio(1, "E1S2"), "audio")
 
 
-def test_a_failed_content_digest_backfill_leaves_nothing_half_written_and_reruns(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_failed_content_digest_backfill_leaves_nothing_half_written_and_reruns(tmp_path: Path) -> None:
     """清单提交失败：版本记录回到改写前、项目停在 17；重跑补录完整。"""
     project_dir = write_legacy_tts_narration_project(tmp_path / "projects")
     advance_project_schema(project_dir, to_version=17)
     versions_before = (project_dir / "versions" / "versions.json").read_bytes()
     manifest_before = (project_dir / MANIFEST_FILENAME).read_bytes()
 
-    def refuse(*_args: object, **_kwargs: object) -> bool:
-        raise OSError("disk full")
-
-    with monkeypatch.context() as patch:
-        patch.setattr(ProjectArtifactManifestAdapter, "replace_entries_if_matches_atomically", refuse)
-        with pytest.raises(OSError, match="disk full"):
-            migrate_project_dir(project_dir)
+    with failing_manifest_replace(OSError("disk full")), pytest.raises(OSError, match="disk full"):
+        migrate_project_dir(project_dir)
 
     assert _read_json(project_dir / "project.json")["schema_version"] == 17
     assert (project_dir / "versions" / "versions.json").read_bytes() == versions_before

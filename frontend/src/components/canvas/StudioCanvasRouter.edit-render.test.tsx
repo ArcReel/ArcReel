@@ -39,7 +39,7 @@ function readout(issues: EditTimelineReadout["issues"]): EditTimelineReadout {
     clips: [
       {
         id: "c1",
-        unit_id: "SEG-1",
+        unit_id: "E1S03",
         status: issues.length > 0 ? "video_missing" : "ready",
         start: 0,
         duration: 4,
@@ -67,7 +67,7 @@ function makeScript(videoClip: string | null): EpisodeScript {
     novel: { title: "n", chapter: "1" },
     segments: [
       {
-        segment_id: "SEG-1",
+        segment_id: "E1S03",
         episode: 1,
         duration_seconds: 4,
         segment_break: false,
@@ -132,7 +132,7 @@ describe("StudioCanvasRouter edit view mounts", () => {
     vi.spyOn(API, "getEditTimeline").mockResolvedValue(readout([]));
     useAppStore.setState({ assistantPanelOpen: false });
 
-    renderEditView(makeScript("videos/scene_SEG-1.mp4"));
+    renderEditView(makeScript("videos/scene_E1S03.mp4"));
 
     fireEvent.click(await screen.findByRole("button", { name: "新建剪辑时间线" }));
 
@@ -162,7 +162,7 @@ describe("StudioCanvasRouter edit view mounts", () => {
           severity: "blocking",
           applies_to: "all",
           clip_ids: ["c1"],
-          unit_id: "SEG-1",
+          unit_id: "E1S03",
           params: {},
         },
       ]),
@@ -170,11 +170,15 @@ describe("StudioCanvasRouter edit view mounts", () => {
     const scrollIntoView = vi.fn();
     Element.prototype.scrollIntoView = scrollIntoView;
 
-    renderEditView(makeScript("videos/scene_SEG-1.mp4"));
+    renderEditView(makeScript("videos/scene_E1S03.mp4"));
 
     const renderButton = await screen.findByRole("button", { name: "出片" });
     expect(renderButton).toBeDisabled();
-    expect(renderButton.parentElement).toHaveAttribute("title", expect.stringContaining("SEG-1"));
+    // 本集唯一的分镜 E1S03 以位置称呼
+    expect(renderButton.parentElement).toHaveAttribute(
+      "title",
+      "当前剪辑时间线有 1 个问题阻断出片，涉及 分镜 1，处理后才能出片",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "查看问题（1）" }));
     expect(scrollIntoView).toHaveBeenCalled();

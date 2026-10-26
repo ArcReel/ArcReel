@@ -162,7 +162,7 @@ export default {
   'agent_prefill_generate_script': 'Tạo kịch bản cho {{episodeRef}} theo ý tưởng và sản phẩm',
   'agent_prefill_add_script_items_storyboard': 'Thêm phân cảnh vào kịch bản chính thức của {{episodeRef}}',
   'agent_prefill_add_script_items_unit': 'Thêm đơn vị video vào kịch bản chính thức của {{episodeRef}}',
-  'agent_prefill_repair_video_units': 'Sửa các đơn vị video {{ids}} của {{episodeRef}} để có thể tạo video',
+  'agent_prefill_repair_video_units': 'Sửa {{ids}} của {{episodeRef}} để có thể tạo video',
   'agent_prefill_patch_episode_script': 'Sửa các trường chưa đạt yêu cầu trong kịch bản chính thức của {{episodeRef}}',
   'agent_prefill_generate_asset_sheets': 'Tạo ảnh tài sản cho các tài sản chờ tạo được {{episodeRef}} tham chiếu',
   'agent_prefill_generate_storyboards': 'Tạo ảnh phân cảnh cho các phân cảnh chưa có ảnh của {{episodeRef}}',

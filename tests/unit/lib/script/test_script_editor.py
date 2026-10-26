@@ -257,11 +257,16 @@ class TestRemoveSegment:
 
 
 class TestSplitSegment:
-    def test_split_keeps_first_id_and_suffixes_rest(self):
+    def test_split_keeps_first_id_and_issues_new_numbers_for_the_rest(self):
         parts = [_segment("a"), _segment("b"), _segment("c")]
         script = split_segment(_narration(), "E1S01", parts)
         ids = [s["segment_id"] for s in script["segments"]]
-        assert ids == ["E1S01", "E1S01_1", "E1S01_2", "E1S02"]
+        assert ids == ["E1S01", "E1S03", "E1S04", "E1S02"]
+
+    def test_split_issues_numbers_after_the_floor(self):
+        # floor 是本集用过的最大号（含已删除的编号），拆出的新分镜从它之后取号
+        script = split_segment(_narration(), "E1S01", [_segment("a"), _segment("b")], floor=7)
+        assert [s["segment_id"] for s in script["segments"]] == ["E1S01", "E1S08", "E1S02"]
 
     def test_split_keeps_anchor_assets_clears_new_parts(self):
         # 锚点(parts[0],保留原 id)的 generated_assets 不动,与 insert_segment 的「锚点资产
@@ -300,7 +305,7 @@ class TestSplitSegment:
         anchor_assets = _reference()["video_units"][0]["generated_assets"]
         script = split_segment(_reference(), "E1U1", [_unit("a"), _unit("b")])
         ids = [u["unit_id"] for u in script["video_units"]]
-        assert ids == ["E1U1", "E1U1_1", "E1U2"]
+        assert ids == ["E1U1", "E1U3", "E1U2"]
         # 锚点 video_unit 保留原 generated_assets,新派生 unit 清空
         assert script["video_units"][0]["generated_assets"] == anchor_assets
         assert script["video_units"][1]["generated_assets"] == {}

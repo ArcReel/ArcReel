@@ -82,4 +82,9 @@ export default {
   'episode_position_name': '第 {{position}} 集',
   'episode_unlisted_name': '未命名集',
   'episode_agent_ref': '《{{name}}》（集 ID {{id}}）',
+  'item_position_shot': '分镜 {{position}}',
+  'item_position_unit': '视频单元 {{position}}',
+  'item_position_of_total': '{{position}} / {{total}}',
+  'item_internal_id': '内部编号 {{id}}',
+  'item_agent_ref': '{{label}}（ID {{id}}）',
 } satisfies Record<keyof typeof enCommon, string>;

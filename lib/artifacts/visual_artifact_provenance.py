@@ -15,13 +15,14 @@ from pathlib import Path
 from lib.artifacts.artifact_manifest import ArtifactBasis
 from lib.artifacts.input_gap import InputGap, add_absent_inputs
 from lib.infra.content_digest import sha256_file
-from lib.project.asset_types import ASSET_TYPES, normalize_asset_name
+from lib.project.asset_types import ASSET_TYPES, asset_name_comparison_key, normalize_asset_name
 from lib.project.project_schema import parse_project_schema_version
 from lib.prompts.prompt_style import normalize_style_value
 from lib.prompts.prompt_utils import project_storyboard_image_prompt
+from lib.prompts.reference_image_numbering import reference_image_label
 from lib.script.grid.prompt_builder import project_grid_image_prompt
 from lib.script.reference_video.request_projection import ResolvedReferenceAsset
-from lib.script.reference_video.text_parser import strip_speech_marks
+from lib.script.reference_video.text_parser import render_matched_mentions, strip_speech_marks
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,11 +221,14 @@ def build_storyboard_image_visual_basis(
     style_description: str = "",
     references: Sequence[VisualReference] = (),
     absent: Sequence[InputGap] = (),
+    asset_names: bool = False,
 ) -> ArtifactBasis:
     """Describe one ordinary storyboard image and its actual ordered image inputs.
 
     ``absent`` records the generation-input gaps (``docs/adr/0098``). A pending
     ``image_prompt`` (``None``) is accepted only together with recorded gaps.
+    ``asset_names`` keeps the pre-v19 shape that records asset names (see
+    :func:`project_basis_records_asset_names`).
     """
 
     identity = _require_non_empty("resource_id", resource_id)
@@ -247,11 +251,7 @@ def build_storyboard_image_visual_basis(
         inputs["style"] = style_input
     _add_style_description(inputs, style_description)
     add_absent_inputs(inputs, absent)
-    return ArtifactBasis.build(
-        "artifact-visual/storyboard-image",
-        kind_version=1,
-        inputs=inputs,
-    )
+    return _build_image_basis(_STORYBOARD_IMAGE_KIND, inputs, asset_names=asset_names)
 
 
 def build_grid_composite_visual_basis(
@@ -265,10 +265,12 @@ def build_grid_composite_visual_basis(
     style_description: str = "",
     references: Sequence[VisualReference] = (),
     absent: Sequence[InputGap] = (),
+    asset_names: bool = False,
 ) -> ArtifactBasis:
     """Describe one grid composite without hashing its rendered provider prompt.
 
     ``absent`` records reference images that are no longer available (``docs/adr/0098``).
+    ``asset_names`` keeps the pre-v19 shape that records asset names.
     """
 
     member_tuple = _validate_grid_members(members, rows=rows, columns=columns)
@@ -286,11 +288,7 @@ def build_grid_composite_visual_basis(
     }
     _add_style_description(inputs, style_description)
     add_absent_inputs(inputs, absent)
-    return ArtifactBasis.build(
-        "artifact-visual/grid-composite",
-        kind_version=1,
-        inputs=inputs,
-    )
+    return _build_image_basis(_GRID_COMPOSITE_KIND, inputs, asset_names=asset_names)
 
 
 def build_grid_member_storyboard_visual_basis(
@@ -307,13 +305,15 @@ def build_grid_member_storyboard_visual_basis(
     references: Sequence[VisualReference] = (),
     source_composite_digest: str | None = None,
     absent: Sequence[InputGap] = (),
+    asset_names: bool = False,
 ) -> ArtifactBasis:
     """Describe one split cell while preserving grid dependency locality.
 
     The member does not embed the composite's target basis. It records only the
     selected cell's semantic inputs plus the actual composite bytes it was split
     from. Editing a different cell therefore leaves this member current until a
-    replacement composite is really produced.
+    replacement composite is really produced. ``asset_names`` keeps the pre-v19
+    shape that records asset names.
     """
 
     member_tuple = _validate_grid_members(members, rows=rows, columns=columns)
@@ -334,11 +334,7 @@ def build_grid_member_storyboard_visual_basis(
     }
     _add_style_description(inputs, style_description)
     add_absent_inputs(inputs, absent)
-    return ArtifactBasis.build(
-        "artifact-visual/grid-member",
-        kind_version=1,
-        inputs=inputs,
-    )
+    return _build_image_basis(_GRID_MEMBER_KIND, inputs, asset_names=asset_names)
 
 
 def build_stale_grid_member_storyboard_visual_basis(
@@ -512,6 +508,92 @@ def project_basis_style_description(project: Mapping[str, object]) -> str:
     return normalize_style_value(project.get("style_description"))
 
 
+#: 分镜图与宫格（联合图、切格分镜）的依据从这一 schema 起不记资产名。
+ASSET_NAME_FREE_IMAGE_BASIS_SCHEMA_VERSION = 19
+
+_STORYBOARD_IMAGE_KIND = "artifact-visual/storyboard-image"
+_GRID_COMPOSITE_KIND = "artifact-visual/grid-composite"
+_GRID_MEMBER_KIND = "artifact-visual/grid-member"
+
+#: 不记资产名的依据种类。参考生视频与资产图的模型输入含资产名，依据照记。
+ASSET_NAME_FREE_IMAGE_BASIS_KINDS = frozenset({_STORYBOARD_IMAGE_KIND, _GRID_COMPOSITE_KIND, _GRID_MEMBER_KIND})
+
+
+def project_basis_records_asset_names(project: Mapping[str, object]) -> bool:
+    """分镜图与宫格的依据是否仍按记资产名的口径投影。
+
+    schema 低于 19 的项目只在迁移链中出现：v18→v19 之前各步的整份激活与改前改后规划沿用当时
+    记资产名的口径，与清单里存量的登记同源；v18→v19 把改写前时新的登记连同版本记录一并平移。
+    """
+
+    return parse_project_schema_version(project) < ASSET_NAME_FREE_IMAGE_BASIS_SCHEMA_VERSION
+
+
+def _build_image_basis(kind: str, inputs: dict[str, object], *, asset_names: bool) -> ArtifactBasis:
+    return ArtifactBasis.build(
+        kind,
+        kind_version=1,
+        inputs=inputs if asset_names else without_asset_names(kind, inputs),
+    )
+
+
+def without_asset_names(kind: str, inputs: Mapping[str, object]) -> dict[str, object]:
+    """把分镜图或宫格依据的输入改写成不含资产名的形态。
+
+    这些产物的模型输入不含资产名：类型声明行只按类型列「图N」，正文 ``@[名称]`` 渲染成该资产
+    首张参考图的「图N」（``lib/prompts/reference_image_numbering.py``）。依据因此与之对齐：
+    资产参考图的证据去掉逻辑身份里的名字，只留类型、角色、种类与内容指纹；图像提示词里指认
+    资产参考图的 mention 换成「图N」，对不上参考图的 mention 原样保留（模型看到的就是名字）。
+    上一分镜图等非资产参考图的身份不是资产名，原样保留。
+
+    构造器与 v18→v19 迁移共用这一函数：迁移按版本记录冻结的记名依据改写出的形态，与构造器
+    直接投影的形态逐字一致。已不含资产名的输入原样返回。
+    """
+
+    if kind not in ASSET_NAME_FREE_IMAGE_BASIS_KINDS:
+        raise ValueError(f"basis kind does not drop asset names: {kind!r}")
+    references = inputs.get("references")
+    if not isinstance(references, list):
+        raise ValueError("image basis references must be a list")
+    labels: dict[str, str] = {}
+    stripped: list[object] = []
+    for position, reference in enumerate(references):
+        identity = reference.get("logical_identity") if isinstance(reference, Mapping) else None
+        if isinstance(identity, Mapping) and identity.get("type") in ASSET_TYPES and "id" in identity:
+            name = identity["id"]
+            if not isinstance(name, str) or not name:
+                raise ValueError("visual reference logical identity id must be a non-empty string")
+            labels.setdefault(asset_name_comparison_key(name), reference_image_label(position))
+            reference = {**reference, "logical_identity": {"type": identity["type"]}}
+        stripped.append(reference)
+    rewritten: dict[str, object] = {**inputs, "references": stripped}
+    if not labels:
+        return rewritten
+
+    def render(prompt: object) -> object:
+        if isinstance(prompt, str):
+            return render_matched_mentions(prompt, labels.get)
+        if isinstance(prompt, Mapping) and isinstance(scene := prompt.get("scene"), str):
+            return {**prompt, "scene": render_matched_mentions(scene, labels.get)}
+        return prompt
+
+    def render_cell(cell: object) -> object:
+        if not isinstance(cell, Mapping):
+            raise ValueError("grid cell must be an object")
+        return {**cell, "image_prompt": render(cell.get("image_prompt"))}
+
+    if kind == _STORYBOARD_IMAGE_KIND:
+        rewritten["image_prompt"] = render(inputs.get("image_prompt"))
+    elif kind == _GRID_COMPOSITE_KIND:
+        cells = inputs.get("cells")
+        if not isinstance(cells, list):
+            raise ValueError("grid composite cells must be a list")
+        rewritten["cells"] = [render_cell(cell) for cell in cells]
+    else:
+        rewritten["cell"] = render_cell(inputs.get("cell"))
+    return rewritten
+
+
 def _add_style_description(inputs: dict[str, object], style_description: str) -> None:
     """风格描述非空才入依据：描述为空的项目摘要与不记描述时逐字一致，存量产物不因此过期。"""
 
@@ -624,6 +706,8 @@ def _require_string(field: str, value: object) -> str:
 
 
 __all__ = [
+    "ASSET_NAME_FREE_IMAGE_BASIS_KINDS",
+    "ASSET_NAME_FREE_IMAGE_BASIS_SCHEMA_VERSION",
     "GridStoryboardVisual",
     "VisualReference",
     "build_asset_sheet_visual_basis",
@@ -636,7 +720,9 @@ __all__ = [
     "build_uploaded_asset_sheet_basis",
     "build_uploaded_storyboard_basis",
     "build_uploaded_video_basis",
+    "project_basis_records_asset_names",
     "snapshot_visual_references",
     "visual_file_digest",
     "visual_references_match_snapshot",
+    "without_asset_names",
 ]

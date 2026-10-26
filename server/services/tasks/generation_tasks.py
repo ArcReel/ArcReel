@@ -46,6 +46,7 @@ from lib.artifacts.visual_artifact_provenance import (
     GridStoryboardVisual,
     build_grid_composite_visual_basis,
     build_storyboard_video_artifact_visual_basis,
+    project_basis_records_asset_names,
     project_basis_style_description,
 )
 from lib.config.resolver import video_bucket_for_generation_mode
@@ -1772,6 +1773,7 @@ async def execute_grid_task(
             style_description=project_basis_style_description(project),
             grid_aspect_ratio=grid_aspect_ratio,
             references=frozen_references.visual_references,
+            asset_names=project_basis_records_asset_names(project),
         )
         generator = ctx.generator
         aspect_ratio = grid_aspect_ratio

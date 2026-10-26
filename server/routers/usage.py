@@ -55,11 +55,15 @@ _CALL_STATUS_DESCRIPTION = f"状态 ({'/'.join(CallStatus)})"
 
 
 class EpisodeItemRef(BaseModel):
-    """条目所属集的标题与播出位置、集内 ID；界面据此显示「标题 · S01」，不显示集 ID。"""
+    """条目所属集的标题与播出位置、条目在本集里的当前位置；界面据此显示「标题 · 5」，不显示条目 ID。"""
 
     episode_title: str
     episode_position: int
     item_id: str
+    # 分镜或视频单元在本集条目数组里的当前位置（从 1 起）；条目已不在剧本里时为 None。
+    item_position: int | None = None
+    item_excerpt: str = ""
+    item_thumbnail: str | None = None
 
 
 class UsageRecord(BaseModel):

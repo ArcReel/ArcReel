@@ -41,10 +41,10 @@ import {
 } from "@/stores/tasks-store";
 import { episodeItemLabel } from "@/utils/episode-display";
 
-/** toast 不局限在集页面：条目按「标题 · S01」指称。 */
+/** toast 不局限在集页面：条目按「标题 · 5」指称。 */
 function itemLabel(itemId: string): string {
-  const episodes = useProjectsStore.getState().currentProjectData?.episodes ?? [];
-  return episodeItemLabel(itemId, episodes, i18n.t);
+  const { currentProjectData, currentScripts } = useProjectsStore.getState();
+  return episodeItemLabel(itemId, currentScripts, currentProjectData?.episodes ?? [], i18n.t);
 }
 
 export interface EnqueueResult {

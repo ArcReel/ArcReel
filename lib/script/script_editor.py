@@ -15,10 +15,10 @@ id 分配与资产作废。MCP 工具与测试都复用它。
 from __future__ import annotations
 
 import logging
-import re
 from copy import deepcopy
 from typing import Any
 
+from lib.script.item_ids import ITEM_ID_RE, ItemIdIssuer, max_item_number
 from lib.script.script_models import PENDING_AUTHORING_FIELD
 from lib.script.script_skeleton import resolve_kind_items
 
@@ -70,28 +70,6 @@ def _find_index(items: list[Any], id_field: str, item_id: str) -> int:
         if isinstance(item, dict) and str(item.get(id_field)) == str(item_id):
             return idx
     raise ScriptEditError(f"未找到 id={item_id!r} 的分镜（{id_field}）")
-
-
-def _existing_ids(items: list[Any], id_field: str) -> set[str]:
-    return {str(item.get(id_field)) for item in items if isinstance(item, dict)}
-
-
-def _next_suffixed_id(base: str, taken: set[str]) -> str:
-    """在 ``base`` 后追加 ``_{k}`` 生成不与 ``taken`` 冲突的稳定新 id（k 从 1 起）。
-
-    id 稳定不重排：新 id 由锚点 id 派生 ``_{子序号}`` 后缀，不触动其余分镜的 id，
-    序列顺序由数组位决定。
-
-    先把 ``base`` 收敛到 stem（首个 ``_`` 之前的部分）再追加子序号——否则锚点本身已含
-    后缀（如 ``E1S01_1``）时会产生 ``E1S01_1_1`` 这种多层嵌套，违反 ``data_validator.ID_PATTERN``
-    （``^E\\d+S\\d+(?:_\\d+)?$``，archive 层）。base 一律 segment_id 形式
-    ``E\\d+S\\d+`` / ``E\\d+U\\d+`` 不含 ``_``，``split('_')[0]`` 取 stem 是安全的。
-    """
-    stem = base.split("_")[0]
-    k = 1
-    while f"{stem}_{k}" in taken:
-        k += 1
-    return f"{stem}_{k}"
 
 
 def _set_nested(obj: dict[str, Any], field_path: str, value: Any) -> None:
@@ -155,45 +133,43 @@ def patch_field(script: dict[str, Any], item_id: str, field_path: str, value: An
     return script
 
 
-#: 条目 id 的主序号前缀：分镜族骨架用 ``S``，参考生视频单元用 ``U``。
-_ITEM_ID_LETTERS: dict[str, str] = {"segments": "S", "scenes": "S", "shots": "S", "video_units": "U"}
-_ITEM_ID_RE = re.compile(r"^E(\d+)([SU])(\d+)(?:_\d+)?$")
-
-
 def _script_episode(script: dict[str, Any], ids: list[str]) -> int:
     episode = script.get("episode")
     if isinstance(episode, int) and not isinstance(episode, bool) and episode >= 1:
         return episode
     for item_id in ids:
-        if (match := _ITEM_ID_RE.match(item_id)) is not None:
+        if (match := ITEM_ID_RE.match(item_id)) is not None:
             return int(match.group(1))
     return 1
 
 
-def new_item_id(script: dict[str, Any]) -> str:
-    """新增条目的 id：本集现存主序号的最大值顺延，Web 与 Agent 的新增都经这里取号。
+def new_item_ids(script: dict[str, Any], count: int, *, floor: int = 0) -> list[str]:
+    """新增条目的 id：从本集用过的最大主序号之后依次取 ``count`` 个，Web 与 Agent 的新增都经这里取号。
 
-    分镜族为 ``E{集}S{序号:02d}``，参考生视频单元为 ``E{集}U{序号}``；序号不回填中间空缺，也不从
-    锚点派生，条目顺序只由数组位置决定。只看现存条目，所以末尾条目删掉后再新增会取回它的序号；
-    同号旧条目留下的媒体与版本历史由批量编辑在提交时移进项目回收站，新条目是全新的身份。
+    ``floor`` 是本集用过的最大主序号（``ProjectManager.item_id_floor``：账本记录的最大号与剧本现存编号
+    取大）；编号只分配、不复用，删掉的条目的序号不会再发给新条目。序号不回填中间空缺，也不从锚点派生，
+    条目顺序只由数组位置决定。分镜族为 ``E{集}S{序号:02d}``，参考生视频单元为 ``E{集}U{序号}``。
     """
     items, id_field, kind = resolve_items(script)
     ids = [str(item.get(id_field)) for item in items if isinstance(item, dict)]
     episode = _script_episode(script, ids)
-    letter = _ITEM_ID_LETTERS[kind]
-    numbers = [
-        int(match.group(3))
-        for item_id in ids
-        if (match := _ITEM_ID_RE.match(item_id)) is not None and int(match.group(1)) == episode
-    ]
-    number = max(numbers, default=0) + 1
+    issuer = ItemIdIssuer(episode, kind, max(floor, max_item_number(ids, episode)))
     taken = set(ids)
-    while (item_id := f"E{episode}{letter}{number:02d}" if letter == "S" else f"E{episode}U{number}") in taken:
-        number += 1
-    return item_id
+    issued: list[str] = []
+    while len(issued) < count:
+        if (item_id := issuer.issue()) not in taken:
+            issued.append(item_id)
+    return issued
 
 
-def insert_segment(script: dict[str, Any], after_id: str | None, new_item: dict[str, Any]) -> dict[str, Any]:
+def new_item_id(script: dict[str, Any], *, floor: int = 0) -> str:
+    """新增一个条目的 id，见 :func:`new_item_ids`。"""
+    return new_item_ids(script, 1, floor=floor)[0]
+
+
+def insert_segment(
+    script: dict[str, Any], after_id: str | None, new_item: dict[str, Any], *, floor: int = 0
+) -> dict[str, Any]:
     """在 ``after_id`` 之后插入一个新条目；``after_id`` 为 ``None`` 时插到最前。
 
     新条目的 id 字段一律由 ``new_item_id`` 分配，``generated_assets`` 与 ``end_frame_image`` 清空。
@@ -202,7 +178,7 @@ def insert_segment(script: dict[str, Any], after_id: str | None, new_item: dict[
     items, id_field, _ = resolve_items(script)
     idx = -1 if after_id is None else _find_index(items, id_field, after_id)
     item = deepcopy(new_item)
-    item[id_field] = new_item_id(script)
+    item[id_field] = new_item_id(script, floor=floor)
     item["generated_assets"] = {}
     # 尾帧快照按分镜 id 命名，新 id 名下还没有快照；Agent 自带的值只会指向别人的快照或空路径。
     item.pop("end_frame_image", None)
@@ -229,12 +205,14 @@ def move_segment(script: dict[str, Any], item_id: str, after_id: str | None) -> 
     return script
 
 
-def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, Any]]) -> dict[str, Any]:
+def split_segment(
+    script: dict[str, Any], item_id: str, parts: list[dict[str, Any]], *, floor: int = 0
+) -> dict[str, Any]:
     """把 ``item_id`` 分镜按 Agent 提供的各部分内容拆成多个。
 
     首个部分保留原 id 且**保留** ``generated_assets`` 与 ``end_frame_image`` 不清空——视为
     "锚点延续",与 ``insert_segment`` 的锚点资产不动语义对齐(同族结构操作,资产作废粒度统一)。
-    其余 parts 取 ``{item_id}_{k}`` 后缀的新 id 且清空 ``generated_assets`` 与
+    其余 parts 按新增条目的取号规则（:func:`new_item_ids`，``floor`` 同义）各取一个新主序号且清空 ``generated_assets`` 与
     ``end_frame_image``(身份变化,旧资产无归属,退回 pending 待重生)。Agent 想微调原分镜内容请用 ``patch_episode_script`` 改字段,
     用 split 时锚点资产被保留是为了避免误用一次 split 把已生成的图/视频全部失效。
 
@@ -249,7 +227,7 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
     anchor_assets = items[idx].get("generated_assets")
     anchor_end_frame = items[idx].get("end_frame_image")
 
-    taken = _existing_ids(items, id_field)
+    fresh_ids = iter(new_item_ids(script, len(parts) - 1, floor=floor))
     new_parts: list[dict[str, Any]] = []
     for offset, raw in enumerate(parts):
         part = deepcopy(raw)
@@ -277,9 +255,7 @@ def split_segment(script: dict[str, Any], item_id: str, parts: list[dict[str, An
             else:
                 part["end_frame_image"] = anchor_end_frame
         else:
-            new_id = _next_suffixed_id(str(item_id), taken)
-            taken.add(new_id)
-            part[id_field] = new_id
+            part[id_field] = next(fresh_ids)
             part["generated_assets"] = {}
             # 新 id 名下没有快照，Agent 自带的值只会指向锚点的快照。
             part.pop("end_frame_image", None)

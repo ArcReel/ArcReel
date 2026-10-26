@@ -181,7 +181,7 @@ defineRegionScenarios("参考视频工作台", [
     ready: workbenchReady,
     act: async (page) => {
       // 窄画布下列表收成图标栏，从图标栏展开完整列表再排序
-      const handle = page.getByRole("button", { name: "调整「U2」的顺序" });
+      const handle = page.getByRole("button", { name: "调整「视频单元 2」的顺序" });
       if (!(await handle.isVisible())) {
         await clearAgentOverlay(page);
         await page.getByRole("button", { name: "展开列表" }).click();
@@ -193,14 +193,15 @@ defineRegionScenarios("参考视频工作台", [
       await handle.focus();
       await expect(handle).toBeFocused();
       await page.keyboard.press("Space");
-      await expect(page.getByText("已拿起「U2」，位于第 2 项，共 14 项。")).toBeAttached();
+      await expect(page.getByText("已拿起「视频单元 2」，位于第 2 项，共 14 项。")).toBeAttached();
       await page.keyboard.press("ArrowUp");
-      await expect(page.getByText("「U2」移到第 1 项，共 14 项。")).toBeAttached();
+      await expect(page.getByText("「视频单元 2」移到第 1 项，共 14 项。")).toBeAttached();
       await page.keyboard.press("Space");
       expect((await moved).postDataJSON()).toEqual({ after_unit_id: null });
-      await expect(page.getByRole("button", { name: /^调整「.+」的顺序$/ }).first()).toHaveAccessibleName(
-        "调整「U2」的顺序",
-      );
+      // 移到最前后它成了视频单元 1：编号跟着位置走，正文跟着单元走
+      const first = page.getByRole("list", { name: "视频单元" }).getByRole("listitem").first();
+      await expect(first.getByRole("img", { name: "视频单元 1" })).toBeVisible();
+      await expect(first).toContainText("镜头 2：");
     },
   },
   {
@@ -212,7 +213,7 @@ defineRegionScenarios("参考视频工作台", [
       await clearAgentOverlay(page);
       await page.getByRole("button", { name: "移除单元" }).click();
       const dialog = page.getByRole("alertdialog");
-      await expect(dialog.getByText("移除单元 U1？")).toBeVisible();
+      await expect(dialog.getByText("移除视频单元 1？")).toBeVisible();
       await expect(dialog.getByRole("button", { name: "取消" })).toBeFocused();
     },
     screenshot: { name: "reference-workbench-remove", target: (page) => page.getByRole("alertdialog") },

@@ -51,12 +51,22 @@ describe("ShotDetail 媒体上传", () => {
   });
 
   it("上传后项目数据已刷新时报告上传完成", async () => {
+    // 提示里按本集位置称呼分镜：E1S01 排在第 2 位
+    useProjectsStore.setState({
+      currentScripts: {
+        "episode_1.json": {
+          episode: 1,
+          content_mode: "narration",
+          segments: [makeNarrationSegment({ segment_id: "E1S00" }), makeNarrationSegment()],
+        } as never,
+      },
+    });
     const restore = vi.fn().mockResolvedValue(true);
     renderDetail(restore);
 
     chooseStoryboard();
 
-    await waitFor(() => expect(useAppStore.getState().toast).toMatchObject({ text: "「E1S01」上传完成", tone: "success" }));
+    await waitFor(() => expect(useAppStore.getState().toast).toMatchObject({ text: "「分镜 2」上传完成", tone: "success" }));
     expect(API.uploadShotMedia).toHaveBeenCalledWith("demo", "episode_1.json", "E1S01", "storyboard", expect.any(File));
   });
 

@@ -341,7 +341,9 @@ flowchart LR
 
 以下三件事不打断执行中的协程：正常关停时，`GenerationWorker.stop()` 等在飞任务跑完；用户取消只作用于排队任务；客户端断开只置标志位。
 
-这一范围之外，有些场景会自己发起取消：SSE 流式响应在客户端断开时取消事件生产协程，`TrialRunManager.cancel()` 取消进行中的供应商试跑，`SessionManager` 在会话驱逐或启动失败时取消收件处理任务。在这些场景里写对取消敏感的代码之前，先从代码找出全部取消来源。线程调用怎样防取消，见[后端规范](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/backend.md)「线程里写入正式文件或创建临时产物时，用 `run_sync_transaction`」与「供应商返回之后的落账段不可中断」。
+这一范围之外，有些场景会自己发起取消：SSE 流式响应在客户端断开时取消事件生产协程，`TrialRunManager.cancel()` 取消进行中的供应商试跑，`SessionManager` 在会话驱逐或启动失败时取消收件处理任务，应用关停时取消模型目录官方同步、回收站过期清理等后台循环。在这些场景里写对取消敏感的代码之前，先从代码找出全部取消来源。
+
+取消正在经 httpx 发请求的任务时，一次 `Task.cancel()` 可能被 anyio 吞掉：建立连接时 httpcore 进入 anyio 的任务组，anyio 恰在同一轮调度里取消自己的域时，两次取消合并成一次，在域出口一并消失，任务照常往下跑。不要从外部反复取消来补发：重投的取消会打断任务在 `asyncio.shield` 里的收尾，例如 SQLAlchemy 会话的回滚与连接归还，等待方返回时收尾还没做完。由任务自己在 httpx 调用之后的检查点调用 `lib/infra/task_cancel.py` 的 `raise_if_cancel_absorbed`，等待方只取消一次，一直等到任务结束。线程调用怎样防取消，见[后端规范](https://github.com/ArcReel/ArcReel/blob/main/docs/standards/backend.md)「线程里写入正式文件或创建临时产物时，用 `run_sync_transaction`」与「供应商返回之后的落账段不可中断」。
 
 ## 9. 项目和资产模型 {#project-and-asset-model}
 

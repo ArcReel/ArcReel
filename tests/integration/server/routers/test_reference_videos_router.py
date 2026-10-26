@@ -116,6 +116,21 @@ def test_add_unit_creates_minimal_entry(reference_videos_client: TestClient):
     assert payload["unit"]["text"] == "镜头1：@张三 推门"
 
 
+def test_unit_added_after_deleting_the_last_one_gets_a_new_id(reference_videos_client: TestClient):
+    url = "/api/v1/projects/demo/reference-videos/episodes/1/units"
+    first = reference_videos_client.post(url, json={"prompt": "镜头1：@张三 推门", "duration_seconds": 3})
+    second = reference_videos_client.post(url, json={"prompt": "镜头1：@张三 坐下", "duration_seconds": 3})
+    removed_id = second.json()["unit"]["unit_id"]
+    assert reference_videos_client.delete(f"{url}/{removed_id}").status_code == 204
+
+    added = reference_videos_client.post(url, json={"prompt": "镜头1：@张三 起身", "duration_seconds": 3})
+
+    assert added.status_code == 201, added.text
+    assert [first.json()["unit"]["unit_id"], removed_id, added.json()["unit"]["unit_id"]] == ["E1U1", "E1U2", "E1U3"]
+    units = reference_videos_client.get(url).json()["units"]
+    assert [unit["unit_id"] for unit in units] == ["E1U1", "E1U3"]
+
+
 def test_added_unit_written_by_the_user_is_not_pending_authoring(reference_videos_client: TestClient):
     resp = reference_videos_client.post(
         "/api/v1/projects/demo/reference-videos/episodes/1/units",

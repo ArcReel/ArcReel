@@ -37,6 +37,7 @@ from lib.project.asset_rename import (
     AssetRenameFileCollisionError,
     AssetRenameHistoryCollisionError,
     AssetRenameNotFoundError,
+    renamed_file_stem,
     rewrite_entry_paths,
     rewrite_payload_references,
 )
@@ -50,6 +51,7 @@ from lib.script.script_review import (
     review_status,
     script_plan_path,
 )
+from tests.fakes import use_project_json_write
 
 
 def _narration_script(**overrides: Any) -> dict[str, Any]:
@@ -626,7 +628,7 @@ class TestRenameAssetCascade:
             original_atomic_write_json(path, payload)
             raise OSError("project write failed")
 
-        monkeypatch.setattr("lib.project.project_manager.atomic_write_json", _write_project_then_fail)
+        use_project_json_write(monkeypatch, _write_project_then_fail)
 
         with pytest.raises(OSError, match="project write failed"):
             pm_with_assets.rename_asset("demo", "characters", "角色A", "主角甲")
@@ -1013,6 +1015,53 @@ def test_path_field_outside_migrated_dirs_is_left_alone() -> None:
         "products/商品A_1.png",
         "products/refs/新品甲_2.png",
     ]
+
+
+class TestRenamedFileStem:
+    def test_exact_match_without_sequence(self) -> None:
+        assert renamed_file_stem("商品A", "商品A", "爆款") == "爆款"
+        assert renamed_file_stem("商品A_1", "商品A", "爆款") is None
+
+    def test_sequence_form_is_renamed(self) -> None:
+        assert renamed_file_stem("商品A_3", "商品A", "爆款", allow_sequence=True) == "爆款_3"
+        assert renamed_file_stem("商品A_x", "商品A", "爆款", allow_sequence=True) is None
+
+    def test_sequence_mode_rejects_stem_equal_to_name(self) -> None:
+        """序号目录里的文件都是 ``名_<n>``，stem 恰好等于资产名的文件属于别人。"""
+        assert renamed_file_stem("商品A", "商品A", "爆款", allow_sequence=True) is None
+
+    def test_name_ending_in_digits_does_not_claim_sibling_sequence_file(self) -> None:
+        """Cup_1 与 Cup 并存：Cup 的第 1 张原图 Cup_1 不是商品 Cup_1 的文件。"""
+        assert renamed_file_stem("Cup_1", "Cup_1", "X", allow_sequence=True) is None
+        assert renamed_file_stem("Cup_1_1", "Cup_1", "X", allow_sequence=True) == "X_1"
+        assert renamed_file_stem("Cup_1", "Cup", "X", allow_sequence=True) == "X_1"
+        assert renamed_file_stem("Cup_1_1", "Cup", "X", allow_sequence=True) is None
+
+    def test_sequence_mode_matches_nfd_stem(self) -> None:
+        nfd = unicodedata.normalize("NFD", "café_2")
+        assert renamed_file_stem(nfd, "café", "x", allow_sequence=True) == "x_2"
+
+
+def test_entry_paths_and_files_for_name_ending_in_digits(tmp_path: Path) -> None:
+    """资产名以 ``_数字`` 结尾时，路径字段改写与文件扫描都不认兄弟资产的序号文件。"""
+    from lib.project.asset_rename import asset_files_named, plan_asset_file_renames
+
+    spec = ASSET_SPECS["product"]
+    refs = tmp_path / "products" / "refs"
+    refs.mkdir(parents=True)
+    (refs / "Cup_1.png").write_bytes(b"cup")
+    (refs / "Cup_1_1.png").write_bytes(b"cup1")
+
+    assert [f.name for f in asset_files_named(tmp_path, spec, "Cup_1")] == ["Cup_1_1.png"]
+    assert [(src.name, dst.name) for src, dst in plan_asset_file_renames(tmp_path, spec, "Cup_1", "X")] == [
+        ("Cup_1_1.png", "X_1.png")
+    ]
+    entry = {"reference_images": ["products/refs/Cup_1.png"]}
+    assert rewrite_entry_paths(entry, spec, "Cup_1", "X") == 0
+    assert entry["reference_images"] == ["products/refs/Cup_1.png"]
+    cup_entry = {"reference_images": ["products/refs/Cup_1.png"]}
+    assert rewrite_entry_paths(cup_entry, spec, "Cup", "Y") == 1
+    assert cup_entry["reference_images"] == ["products/refs/Y_1.png"]
 
 
 class TestDerivativeReferenceCascade:

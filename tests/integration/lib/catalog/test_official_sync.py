@@ -5,18 +5,24 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import threading
 from collections.abc import AsyncGenerator, Iterable
 from dataclasses import replace
+from pathlib import Path
 
+import anyio
 import httpx
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from arcreel_catalog_core import CatalogData, CatalogEntry, EntryKey, TextFacts, dump_entry
 from lib.catalog import builtin_models, official_sync
 from lib.catalog import query as catalog
 from lib.config.repository import SystemSettingRepository
+from lib.db.base import Base
 from lib.db.models.catalog_official_sync import CatalogOfficialSync
+from lib.db.models.config import SystemSetting
 from lib.market.sources import PROXY_PREFIX_SETTING
 from server.routers.provider_models import reload_user_added_models
 from tests.catalog_support import catalog_of, install_catalog
@@ -229,3 +235,96 @@ async def test_unexpected_failure_still_shows_in_sync_status() -> None:
     finally:
         await official_sync.stop_official_sync(task)
     assert official_sync.sync_status().last_error == "database is locked"
+
+
+class _AnyioConnectTransport(httpx.AsyncBaseTransport):
+    """同 httpcore 经 ``anyio.connect_tcp`` 建连：连接建立后 anyio 取消自己的任务组，再返回清单响应。"""
+
+    def __init__(self, status_code: int) -> None:
+        self.connected = asyncio.Event()
+        self.status_code = status_code
+        self.requested_urls: list[str] = []
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.requested_urls.append(str(request.url))
+        async with anyio.create_task_group() as tg:
+
+            async def connect() -> None:
+                self.connected.set()
+                tg.cancel_scope.cancel()
+
+            tg.start_soon(connect)
+            await anyio.sleep_forever()
+        manifest, _ = _files(UPSTREAM)
+        return httpx.Response(self.status_code, content=manifest)
+
+
+@pytest.mark.parametrize("status_code", [500, 200])
+async def test_stop_ends_the_sync_when_anyio_absorbs_the_cancellation(db_factory, status_code: int) -> None:
+    transport = _AnyioConnectTransport(status_code)
+    async with httpx.AsyncClient(transport=transport) as client:
+        task = official_sync.start_official_sync(db_factory, lambda: client)
+
+        async def stop_once_connected() -> None:
+            await transport.connected.wait()
+            # 关停的取消与 anyio 的任务组取消落在同一轮调度，被 anyio 一并吞掉
+            await official_sync.stop_official_sync(task)
+
+        stopping = asyncio.create_task(stop_once_connected())
+        # 防挂起的上限：不用 asyncio.timeout 包住 await，它的超时取消会经 await 转给同步任务，掩盖挂起
+        await asyncio.wait({stopping}, timeout=5)
+
+        assert stopping.done()
+        assert task.cancelled()
+        assert transport.requested_urls == [official_sync.MANIFEST_URL]
+
+
+async def test_stop_returns_after_the_interrupted_database_write_is_cleaned_up(tmp_path: Path, http_client) -> None:
+    # 与生产库同样的文件 SQLite 配默认连接池：被打断的会话在 asyncio.shield 里回滚、归还连接
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'catalog.db'}")
+    loop = asyncio.get_running_loop()
+    insert_running = asyncio.Event()
+    release_insert = threading.Event()
+
+    def hold_insert() -> int:
+        # 在 aiosqlite 的工作线程里执行：记录同步失败的 INSERT 停在这里，直到用例放行
+        loop.call_soon_threadsafe(insert_running.set)
+        release_insert.wait()
+        return 0
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _register(dbapi_conn, _record) -> None:
+        dbapi_conn.create_function("hold_insert", 0, hold_insert)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all, [CatalogOfficialSync.__table__, SystemSetting.__table__])
+        await conn.exec_driver_sql(
+            "CREATE TRIGGER hold BEFORE INSERT ON catalog_official_sync BEGIN SELECT hold_insert(); END"
+        )
+    before = asyncio.all_tasks()
+    try:
+        with capture_http() as http:
+            http.get(official_sync.MANIFEST_URL).respond(status_code=500)
+            task = official_sync.start_official_sync(async_sessionmaker(engine), lambda: http_client)
+            await insert_running.wait()
+
+            stopping = asyncio.create_task(official_sync.stop_official_sync(task))
+            # 先让 INSERT 卡一段时间再放行：只决定能否暴露收尾被重投的取消打断，不影响正确实现的结果
+            await asyncio.wait({stopping}, timeout=0.2)
+            release_insert.set()
+            # 防挂起的上限，与上一条用例一致；挂住时由 finally 清退遗留任务
+            await asyncio.wait({stopping}, timeout=5)
+            assert stopping.done()
+
+            assert task.cancelled()
+            assert asyncio.all_tasks() - before == set()
+            assert engine.pool.checkedout() == 0
+    finally:
+        release_insert.set()
+        pending = asyncio.all_tasks() - before
+        # 断言失败后终止遗留清理任务，免得坏实现让测试事件循环一直等下去。
+        while pending:
+            for task in pending:
+                task.cancel()
+            _, pending = await asyncio.wait(pending, timeout=0.05)
+        await engine.dispose()

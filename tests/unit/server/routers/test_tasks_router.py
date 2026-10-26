@@ -10,6 +10,9 @@ from server.routers import tasks as tasks_router
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.factories import make_display_names
 
+# 这些用例的项目没有剧本文件：条目找不到，位置为 None。
+_NO_SCRIPT = {"item_position": None, "item_excerpt": "", "item_thumbnail": None}
+
 
 class _FakeQueue:
     def __init__(self, *, task=None):
@@ -395,11 +398,16 @@ class TestTaskResourceRefs:
         preview = client.get("/api/v1/tasks/a/cancel-preview").json()
 
         assert {task["task_id"]: task["resource_ref"] for task in listed} == {
-            "a": {"episode_title": "下山", "episode_position": 2, "item_id": "S02"},
+            "a": {"episode_title": "下山", "episode_position": 2, "item_id": "S02", **_NO_SCRIPT},
             "b": None,
             "c": None,
         }
-        assert preview["task"]["resource_ref"] == {"episode_title": "下山", "episode_position": 2, "item_id": "S02"}
+        assert preview["task"]["resource_ref"] == {
+            "episode_title": "下山",
+            "episode_position": 2,
+            "item_id": "S02",
+            **_NO_SCRIPT,
+        }
         assert [task["resource_ref"] for task in preview["cascaded"]] == [
-            {"episode_title": "山门", "episode_position": 1, "item_id": "U01"}
+            {"episode_title": "山门", "episode_position": 1, "item_id": "U01", **_NO_SCRIPT}
         ]

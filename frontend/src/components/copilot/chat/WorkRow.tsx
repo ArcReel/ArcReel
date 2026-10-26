@@ -22,11 +22,12 @@ export function useSessionDone(): boolean {
   return sessionStatus != null && TERMINAL_SESSION_STATUSES.has(sessionStatus);
 }
 
-/** 工具调用的显示名与摘要；集名取自当前项目的集清单。 */
+/** 工具调用的显示名与摘要；集名取自当前项目的集清单，条目位置取自当前项目剧本。 */
 export function useToolLabel(name: string, input: Record<string, unknown> | undefined): WorkLabel {
   const { t } = useTranslation("dashboard");
   const episodes = useProjectsStore((s) => s.currentProjectData?.episodes) ?? NO_EPISODES;
-  return useMemo(() => toolLabel(name, input, t, episodes), [name, input, t, episodes]);
+  const scripts = useProjectsStore((s) => s.currentScripts);
+  return useMemo(() => toolLabel(name, input, t, episodes, scripts), [name, input, t, episodes, scripts]);
 }
 
 interface WorkRowProps {

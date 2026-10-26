@@ -1,5 +1,7 @@
 """Web 的诊断改写不改变机器定位、正文或 Agent 诊断原文。"""
 
+import json
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -85,3 +87,73 @@ def test_diagnostic_rewrite_preserves_identifiers_and_user_text() -> None:
     assert "雨夜 · S01" in shown["problems"][0]["reason"]
     assert "episode_9" not in shown["problems"][0]["reason"]
     assert shown["problems"][0]["unit_id"] == "E9S01"
+
+
+def _write_script(projects: ProjectManager, filename: str, script: dict) -> None:
+    path = projects.get_project_path("demo") / "scripts" / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(script, ensure_ascii=False), encoding="utf-8")
+
+
+def test_item_refs_carry_current_position_excerpt_and_thumbnail(tmp_path) -> None:
+    """条目指称带上它在本集数组里的当前位置、正文摘录与缩略图；条目已不在剧本里时位置为 None。"""
+    projects = ProjectManager(tmp_path / "projects")
+    projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.add_episode("demo", 9, "雨夜", "scripts/episode_9.json")
+    projects.add_episode("demo", 3, "", "scripts/episode_3.json")
+    _write_script(
+        projects,
+        "episode_9.json",
+        {
+            "episode": 9,
+            "content_mode": "narration",
+            "segments": [
+                {"segment_id": "E9S04", "novel_text": "第一段"},
+                {
+                    "segment_id": "E9S01",
+                    "novel_text": "风从城门外灌进来，吹灭了所有的灯笼和火把",
+                    "generated_assets": {"storyboard_image": "storyboards/s1.png", "video_thumbnail": None},
+                },
+            ],
+        },
+    )
+    _write_script(
+        projects,
+        "episode_3.json",
+        {
+            "episode": 3,
+            "video_units": [
+                {"unit_id": "E3U7", "text": "@[张三] 推门", "generated_assets": {"video_thumbnail": "thumbs/u7.jpg"}}
+            ],
+        },
+    )
+    tasks = [
+        {"project_name": "demo", "resource_id": "E9S01"},
+        {"project_name": "demo", "resource_id": "E9S02"},
+        {"project_name": "demo", "resource_id": "E3U7"},
+    ]
+
+    refs = [
+        task["resource_ref"]
+        for task in with_episode_item_refs(tasks, id_field="resource_id", ref_field="resource_ref", projects=projects)
+    ]
+
+    assert refs[0] == {
+        "episode_title": "雨夜",
+        "episode_position": 1,
+        "item_id": "S01",
+        "item_position": 2,
+        "item_excerpt": "风从城门外灌进来，吹灭了所有的灯…",
+        "item_thumbnail": "storyboards/s1.png",
+    }
+    assert refs[1]["item_position"] is None
+    assert refs[1]["item_excerpt"] == ""
+    assert refs[2] == {
+        "episode_title": "",
+        "episode_position": 2,
+        "item_id": "U7",
+        "item_position": 1,
+        "item_excerpt": "@张三 推门",
+        "item_thumbnail": "thumbs/u7.jpg",
+    }

@@ -27,7 +27,7 @@ from typing import Any, Literal
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestError, ArtifactStatus
 from lib.project.asset_derivatives import derivative_table, find_derivative_name
 from lib.project.asset_types import ALIASES_FIELD, ASSET_SPECS, asset_name_comparison_key, resolve_asset_key
-from lib.references.reference_catalog import derivative_reference, split_derivative_reference
+from lib.references.reference_catalog import build_reference_catalog, derivative_reference, split_derivative_reference
 from lib.script.reference_video.text_parser import extract_mentions, remap_mentions
 from lib.script.script_editor import ScriptEditError, resolve_items
 from lib.script.script_references import iter_reference_lists, iter_reference_sites
@@ -132,6 +132,18 @@ class DerivativeMergePlan:
     def kept_derivative(self, derivative: str) -> str:
         """被并方名下的衍生（比对坐标）合并后在保留方名下叫什么；不是被并方的衍生时原样返回。"""
         return self.derivative_names.get(derivative, derivative)
+
+    def carried_references(self, source: str, target: str) -> dict[str, str]:
+        """迁到保留方名下的衍生：合并后的引用名 → 合并前的引用名（比对坐标）。
+
+        迁移的衍生连图带过来，引用只是换了名字；并入已有衍生的换成了另一张图，不在其列。
+        """
+        return {
+            derivative_reference(asset_name_comparison_key(target), asset_name_comparison_key(name)): (
+                derivative_reference(asset_name_comparison_key(source), asset_name_comparison_key(name))
+            )
+            for name in self.moved
+        }
 
 
 def merged_reference(
@@ -267,6 +279,64 @@ def visual_reference_signature(item: Mapping[str, Any], asset_type: str) -> tupl
     return (lists, scene if isinstance(scene, str) else None, text_mentions)
 
 
+def storyboard_reference_signature(
+    item: Mapping[str, Any], asset_type: str, identities: Mapping[str, str]
+) -> tuple[object, ...]:
+    """一个条目里决定其分镜图的引用，按引用到的图比较。
+
+    分镜图依据不记资产名、只记参考图内容（``without_asset_names``）：可用参考图的名字换成
+    *identities* 中的内容身份；缺图仍按名字区分缺口。正文只替换引用数组里实际选中的参考图。
+    """
+    remapped = dict(item)
+    spec = ASSET_SPECS[asset_type]
+    selected: dict[str, str] = {}
+    for name in spec.reference_list_fields:
+        names = item.get(name)
+        if isinstance(names, list):
+            selected.update(
+                (key, identities[key])
+                for value in names
+                if isinstance(value, str) and (key := asset_name_comparison_key(value)) in identities
+            )
+            remapped[name] = [
+                identities.get(asset_name_comparison_key(value), value) if isinstance(value, str) else value
+                for value in names
+            ]
+    image_prompt = item.get("image_prompt")
+    scene = image_prompt.get("scene") if isinstance(image_prompt, Mapping) else image_prompt
+    if isinstance(scene, str):
+        remapped["image_prompt"] = remap_mentions(
+            scene, lambda name, _speaker: f"@[{selected[name]}]" if name in selected else None
+        )
+    return visual_reference_signature(remapped, asset_type)
+
+
+def storyboard_reference_identities(project_dir: Path, project: dict[str, Any], asset_type: str) -> dict[str, str]:
+    """已登记且可用的资产参考图：引用名 → 内容身份；没有图的引用不在映射里。"""
+    # 生成输入经规划器依赖 ProjectManager，惰性导入避免环。
+    from lib.artifacts.generation_input import project_input_observation
+    from lib.artifacts.visual_artifact_provenance import visual_file_digest
+
+    observation = project_input_observation(project_dir)
+    catalog = build_reference_catalog(project)
+    identities: dict[str, str] = {}
+    for name in catalog.reference_names(asset_type):
+        reference = catalog.lookup(asset_type, name)
+        if reference is None or not isinstance(reference.asset, Mapping):
+            continue
+        sheet = reference.asset.get(reference.spec.sheet_field)
+        registered = observation.registered(ArtifactKey.asset_sheet(asset_type, name))
+        if not isinstance(sheet, str) or registered is None or registered.artifact_path != sheet:
+            continue
+        observed = observation.observe(sheet)
+        if observed is not None:
+            try:
+                identities[name] = f"sha256:{visual_file_digest(observed.path)}"
+            except OSError:
+                continue
+    return identities
+
+
 #: 问「这件产物此刻是现行的吗」：``(清单键, 产物路径字段值) → bool``。
 CurrentArtifactProbe = Callable[[ArtifactKey, object], bool]
 
@@ -312,12 +382,15 @@ def count_outdated_artifacts(
     asset_type: str,
     episode: int,
     is_current: CurrentArtifactProbe,
+    *,
+    storyboard_identities: Mapping[str, str],
 ) -> tuple[int, int]:
     """一份正式剧本经合并改写后，将从现行转为过期的 ``(分镜图数, 视频数)``。
 
     只数此刻是现行的产物，判据取各自登记依据里与引用有关的部分：
 
-    - 分镜图：画面引用变了（:func:`visual_reference_signature`）。
+    - 分镜图：引用到的图变了（:func:`storyboard_reference_signature`）；随图迁来的衍生只换了名字，不算。
+      切格分镜的依据取宫格记录冻结的参考图路径，合并不改写宫格记录，引用一变就计入。
     - 参考生视频：画面引用变了，或角色台词的说话人变了（:func:`speech_signature`）。
     - 分镜图生视频：说话人变了。它的画面输入是分镜图本身，分镜图重新生成之前不受画面引用影响。
     """
@@ -337,7 +410,13 @@ def count_outdated_artifacts(
         speech_changed = speech_signature(kind, old) != speech_signature(kind, new)
         generated = old.get("generated_assets")
         generated = generated if isinstance(generated, Mapping) else {}
-        if kind != "video_units" and visual_changed:
+        if generated.get("grid_id") is not None or generated.get("grid_cell_index") is not None:
+            storyboard_changed = visual_changed
+        else:
+            storyboard_changed = storyboard_reference_signature(
+                old, asset_type, storyboard_identities
+            ) != storyboard_reference_signature(new, asset_type, storyboard_identities)
+        if kind != "video_units" and storyboard_changed:
             storyboard_key = ArtifactKey.episode_storyboard(episode, resource_id)
             storyboards += is_current(storyboard_key, generated.get("storyboard_image"))
         if speech_changed or (kind == "video_units" and visual_changed):
@@ -406,5 +485,7 @@ __all__ = [
     "merged_reference",
     "plan_derivative_merge",
     "speech_signature",
+    "storyboard_reference_identities",
+    "storyboard_reference_signature",
     "visual_reference_signature",
 ]

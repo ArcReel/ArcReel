@@ -28,6 +28,7 @@ from lib.artifacts.visual_artifact_provenance import (
     build_storyboard_image_visual_basis,
     build_storyboard_video_artifact_visual_basis,
     project_basis_style_description,
+    without_asset_names,
 )
 from lib.project.asset_derivatives import build_derivative_sheet_basis
 from lib.script.reference_video.request_projection import ResolvedReferenceAsset
@@ -441,7 +442,10 @@ def test_grid_composite_tracks_only_the_aspect_ratio_sent_for_the_composite(tmp_
 
 
 def _style_bound_bases(tmp_path: Path, *, style_description: str | None) -> tuple[str, str, str]:
-    """宫格联合图、切格分镜、参考视频三类依据的固定输入；``None`` 表示调用方不传描述。"""
+    """宫格联合图、切格分镜、参考视频三类依据的固定输入；``None`` 表示调用方不传描述。
+
+    宫格两类依据按 v19 之前记资产名的口径构造：固定样本是那时登记的存量摘要。
+    """
     tmp_path.mkdir(parents=True, exist_ok=True)
     reference = tmp_path / "ref.png"
     composite = tmp_path / "grid.png"
@@ -457,6 +461,7 @@ def _style_bound_bases(tmp_path: Path, *, style_description: str | None) -> tupl
         style="水墨",
         grid_aspect_ratio="1:1",
         references=references,
+        asset_names=True,
         **described,
     )
     member_basis = build_grid_member_storyboard_visual_basis(
@@ -469,6 +474,7 @@ def _style_bound_bases(tmp_path: Path, *, style_description: str | None) -> tupl
         style="水墨",
         member_aspect_ratio="16:9",
         references=references,
+        asset_names=True,
         **described,
     )
     video_basis = build_reference_video_artifact_visual_basis(
@@ -942,6 +948,7 @@ _COMPLETE_INPUT_DIGESTS = {
 
 
 def _complete_input_digests(tmp_path: Path, *, absent: tuple[InputGap, ...] = ()) -> dict[str, str]:
+    """固定样本是缺口记录之前登记的存量摘要；分镜图与宫格因此按 v19 之前记资产名的口径构造。"""
     image = tmp_path / "a.png"
     end_frame = tmp_path / "b.png"
     image.write_bytes(b"image-a")
@@ -967,6 +974,7 @@ def _complete_input_digests(tmp_path: Path, *, absent: tuple[InputGap, ...] = ()
             aspect_ratio="9:16",
             references=(sheet,),
             absent=absent,
+            asset_names=True,
         ).digest,
         "derivative": build_derivative_sheet_basis(
             owner_name="张三",
@@ -986,6 +994,7 @@ def _complete_input_digests(tmp_path: Path, *, absent: tuple[InputGap, ...] = ()
             style_description="电影感",
             references=(sheet,),
             absent=absent,
+            asset_names=True,
         ).digest,
         "video_visual": build_storyboard_video_artifact_visual_basis(
             resource_id="E1S1",
@@ -1049,3 +1058,89 @@ def test_storyboard_video_basis_without_a_storyboard_records_the_gap(tmp_path: P
             end_frame_image=None,
             aspect_ratio="16:9",
         )
+
+
+def _named_image_bases(tmp_path: Path, name: str, *, asset_names: bool = False, sheet: bytes = b"sheet") -> dict:
+    """引用同一张角色资产图的分镜图、宫格联合图与切格分镜；正文用 ``@[name]`` 指认它。"""
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    image = tmp_path / "sheet.png"
+    image.write_bytes(sheet)
+    composite = tmp_path / "grid.png"
+    composite.write_bytes(b"composite")
+    previous = tmp_path / "previous.png"
+    previous.write_bytes(b"previous")
+    references = (
+        VisualReference(path=image, role="asset_sheet", logical_type="character", logical_id=name, kind="sheet"),
+        VisualReference(path=previous, role="previous_storyboard", logical_type="storyboard", logical_id="E1S00"),
+    )
+    members = [
+        GridStoryboardVisual("E1S1", {"scene": f"@[{name}]推门，@[路人]回头"}, {"action": "走"}),
+        GridStoryboardVisual("E1S2", f"@[{name}]坐下", {"action": "坐"}),
+    ]
+    grid_references = references[:1]
+    return {
+        "storyboard": build_storyboard_image_visual_basis(
+            resource_id="E1S1",
+            image_prompt={"scene": f"@[{name}]推门，@[路人]回头"},
+            style="写实",
+            aspect_ratio="9:16",
+            references=references,
+            asset_names=asset_names,
+        ),
+        "grid": build_grid_composite_visual_basis(
+            group_id="grid_1",
+            members=members,
+            rows=1,
+            columns=2,
+            style="写实",
+            grid_aspect_ratio="18:16",
+            references=grid_references,
+            asset_names=asset_names,
+        ),
+        "member": build_grid_member_storyboard_visual_basis(
+            group_id="grid_1",
+            members=members,
+            cell_index=1,
+            composite_image=composite,
+            rows=1,
+            columns=2,
+            style="写实",
+            member_aspect_ratio="9:16",
+            references=grid_references,
+            asset_names=asset_names,
+        ),
+    }
+
+
+def test_storyboard_and_grid_bases_do_not_depend_on_asset_names(tmp_path: Path) -> None:
+    """模型看到的是「图N」而不是资产名：只改名不改依据，换图仍改依据。"""
+    alice = _named_image_bases(tmp_path / "alice", "Alice")
+    alicia = _named_image_bases(tmp_path / "alicia", "Alicia")
+    redrawn = _named_image_bases(tmp_path / "redrawn", "Alicia", sheet=b"redrawn")
+
+    for kind, basis in alice.items():
+        assert alicia[kind].digest == basis.digest, kind
+        assert redrawn[kind].digest != basis.digest, kind
+        assert "Alice" not in basis.normalized_bytes().decode("utf-8"), kind
+    inputs = json.loads(alice["storyboard"].normalized_bytes())["inputs"]
+    # 对不上参考图的 mention 发给模型时就是名字，依据照记；上一分镜图的身份不是资产名，照记。
+    assert inputs["image_prompt"]["scene"] == "图1推门，@[路人]回头"
+    assert inputs["references"][1]["logical_identity"] == {"type": "storyboard", "id": "E1S00"}
+
+
+def test_dropping_asset_names_from_a_frozen_basis_matches_the_builder(tmp_path: Path) -> None:
+    """v18→v19 按版本记录冻结的记名依据改写，结果与构造器直接投影的不记名依据逐字一致。"""
+    named = _named_image_bases(tmp_path / "named", "Alice", asset_names=True)
+    unnamed = _named_image_bases(tmp_path / "unnamed", "Alice")
+
+    for kind, basis in named.items():
+        evidence = basis.to_evidence_dict()
+        rewritten = ArtifactBasis.build(
+            basis.kind, kind_version=basis.kind_version, inputs=without_asset_names(basis.kind, evidence["inputs"])
+        )
+        assert rewritten.digest == unnamed[kind].digest, kind
+        assert rewritten.digest != basis.digest, kind
+        assert (
+            without_asset_names(basis.kind, unnamed[kind].to_evidence_dict()["inputs"])
+            == json.loads(unnamed[kind].normalized_bytes())["inputs"]
+        ), kind

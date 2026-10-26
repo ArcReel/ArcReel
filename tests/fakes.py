@@ -39,6 +39,16 @@ def use_os_open(monkeypatch: Any, replacement: Callable[..., int]) -> None:
     monkeypatch.setattr(os, "open", replacement)
 
 
+@contextmanager
+def failing_manifest_replace(error: BaseException) -> Generator[None]:
+    """让清单的条件替换（迁移改写登记的提交点）抛出 *error*：模拟写入失败，或进程在提交点被杀。"""
+
+    from lib.artifacts.artifact_manifest import ProjectArtifactManifestAdapter
+
+    with patch.object(ProjectArtifactManifestAdapter, "replace_entries_if_matches_atomically", side_effect=error):
+        yield
+
+
 async def write_backend_output(path: Path, data: bytes) -> None:
     """后端替身落产物：生产后端在工作线程里写产物文件，替身照同一契约放进线程，不占事件循环。"""
 
@@ -1109,8 +1119,10 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("lib.config.resolver.get_project_manager", for_pm)
     monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.characters.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.files.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.generate.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.grids.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.products.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.projects.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.project_trash.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.reference_videos.get_project_manager", for_pm)
@@ -1180,6 +1192,11 @@ def use_active_tasks_lookup(monkeypatch, lookup: Callable[..., Any]) -> None:
     monkeypatch.setattr("server.services.admission.video_batch_admission.get_active_tasks_for_resources", lookup)
 
 
+def use_project_json_write(monkeypatch, write: Callable[..., Any]) -> None:
+    """``ProjectManager`` 的 JSON 文件系统写入边界改调 *write*。"""
+    monkeypatch.setattr("lib.project.project_manager.atomic_write_json", write)
+
+
 def fail_project_json_write(monkeypatch, project_file: Path) -> None:
     """``ProjectManager`` 写 *project_file* 时抛 ``OSError("injected project write failure")``，其余文件照常写。
 
@@ -1194,7 +1211,7 @@ def fail_project_json_write(monkeypatch, project_file: Path) -> None:
             raise OSError("injected project write failure")
         return real_write(path, data)
 
-    monkeypatch.setattr("lib.project.project_manager.atomic_write_json", _fail_project_write)
+    use_project_json_write(monkeypatch, _fail_project_write)
 
 
 def fail_file_replace(monkeypatch, destination: Path, *, message: str) -> None:

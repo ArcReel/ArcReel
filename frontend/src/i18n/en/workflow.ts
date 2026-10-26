@@ -160,7 +160,7 @@ export default {
   'agent_prefill_generate_script': 'Generate the script of {{episodeRef}} from the brief and products',
   'agent_prefill_add_script_items_storyboard': 'Add shots to the final script of {{episodeRef}}',
   'agent_prefill_add_script_items_unit': 'Add video units to the final script of {{episodeRef}}',
-  'agent_prefill_repair_video_units': 'Revise video units {{ids}} of {{episodeRef}} so that videos can be generated',
+  'agent_prefill_repair_video_units': 'Revise {{ids}} of {{episodeRef}} so that videos can be generated',
   'agent_prefill_patch_episode_script': 'Fix the fields in the final script of {{episodeRef}} that do not meet the requirements',
   'agent_prefill_generate_asset_sheets': 'Generate asset sheets for the pending assets referenced by {{episodeRef}}',
   'agent_prefill_generate_storyboards': 'Generate storyboards for the shots of {{episodeRef}} that have none',

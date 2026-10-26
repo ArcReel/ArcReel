@@ -24,6 +24,7 @@ from lib.project.project_migrations.runner import migrate_project_dir
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.prompts.style_templates import resolve_template_prompt
 from lib.workflow.workflow_state import WorkflowStateService
+from tests.fakes import failing_manifest_replace
 from tests.legacy_project_shapes import (
     advance_project_schema,
     without_version_content_digests,
@@ -377,11 +378,7 @@ def test_failed_manifest_commit_rolls_back_version_records(tmp_path: Path) -> No
     manifest_before = _entries(project_dir)
 
     with (
-        patch.object(
-            ProjectArtifactManifestAdapter,
-            "replace_entries_if_matches_atomically",
-            side_effect=OSError("manifest write failed"),
-        ),
+        failing_manifest_replace(OSError("manifest write failed")),
         pytest.raises(OSError, match="manifest write failed"),
     ):
         migrate_project_dir(project_dir)
@@ -396,9 +393,7 @@ def test_killed_after_version_records_are_written_resumes_on_rerun(tmp_path: Pat
 
     project_dir = write_undescribed_style_bases_project(tmp_path / "projects", "reference", route="reference_video")
     with (
-        patch.object(
-            ProjectArtifactManifestAdapter, "replace_entries_if_matches_atomically", side_effect=KeyboardInterrupt
-        ),
+        failing_manifest_replace(KeyboardInterrupt()),
         patch("lib.project.project_migrations.v13_to_v14_legacy_style_values.atomic_write_bytes"),
         pytest.raises(KeyboardInterrupt),
     ):

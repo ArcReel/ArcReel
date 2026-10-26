@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { defineRegionScenarios } from "../support/scenarios.ts";
 import { expect, type ApiOverrides } from "../support/test.ts";
 import { idleSessionApi } from "../support/assistant-session.ts";
+import { recorded } from "../support/recorded.ts";
 
 // Agent 面板的工序行：ArcReel 工具的显示名与摘要、失败与运行中的收起状态、长结果的截断与
 // 「显示全部」、子智能体的子时间线与结论。会话是手写的压力数据：长命令、长结果、长错误、
@@ -136,9 +137,31 @@ const SESSION = {
   updated_at: "2026-01-01T07:00:00.000Z",
 };
 
+interface RecordedProject {
+  project: Record<string, unknown>;
+  scripts: Record<string, Record<string, unknown>>;
+}
+const project = recorded<RecordedProject>("project-demo.json");
+
+// 工序行按条目在本集的当前位置指称分镜；剧本放进会话里提到的六个分镜。
+const segments = Array.from({ length: 6 }, (_, i) => ({
+  segment_id: `E1S0${i + 1}`,
+  episode: 1,
+  duration_seconds: 6,
+  segment_break: false,
+  novel_text: `第 ${i + 1} 段原文。`,
+  characters_in_segment: [],
+  image_prompt: null,
+  video_prompt: null,
+}));
+
 const API: ApiOverrides = {
-  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在录制的项目数据上。
+  // 项目事件流是 SSE，没有录制；按不可重试的状态拒绝，页面停在替换后的项目数据上。
   "GET /api/v1/projects/demo/events/stream": { status: 404, body: { detail: "页面级套件不回放事件流" } },
+  "GET /api/v1/projects/demo": {
+    status: 200,
+    body: { ...project, scripts: { "episode_1.json": { ...project.scripts["episode_1.json"], segments } } },
+  },
   [`GET ${SESSIONS_PATH}`]: { status: 200, body: { sessions: [SESSION] } },
   [`GET ${SESSIONS_PATH}/${SESSION_ID}`]: { status: 200, body: { session: SESSION } },
   ...idleSessionApi(SESSIONS_PATH, SESSION_ID, buildEntries()),
@@ -183,7 +206,7 @@ defineRegionScenarios("Agent 工序行", [
     ready: rowsReady,
     act: async (page) => {
       await expect(row(page, /读取文件.*失败/)).toHaveAttribute("aria-expanded", "false");
-      await expect(row(page, /生成视频.*第一集 · S03.*运行中/)).toBeVisible();
+      await expect(row(page, /生成视频.*第一集 · 3.*运行中/)).toBeVisible();
       await expect(row(page, /修改剪辑时间线.*压低开场原声/)).toBeVisible();
       // 原始英文工具名不出现在界面上
       await expect(transcript(page).getByText(/mcp__arcreel__/)).toHaveCount(0);
@@ -221,7 +244,7 @@ defineRegionScenarios("Agent 工序行", [
       const subagent = row(page, /子智能体.*审阅第 1 集的视频单元/);
       await subagent.scrollIntoViewIfNeeded();
       await subagent.click();
-      await expect(row(page, /查看视频单元画面.*第一集 · S01、S02、S03 等 4 个/)).toBeVisible();
+      await expect(row(page, /查看视频单元画面.*第一集 · 1、2、3 等 4 个/)).toBeVisible();
       await expect(transcript(page).getByText("子智能体结论")).toBeVisible();
       await expect(transcript(page).getByText(/建议重新生成 E1S03/)).toBeVisible();
     },

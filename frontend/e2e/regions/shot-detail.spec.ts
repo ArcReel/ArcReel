@@ -158,7 +158,7 @@ const API_WITH_DURATIONS: ApiOverrides = {
 const shotList = (page: Page) => page.getByRole("navigation", { name: "分镜列表" });
 const detail = (page: Page) => page.getByRole("tabpanel");
 const agentToggle = (page: Page) => page.getByRole("button", { name: "Agent", exact: true });
-const storyboard = (page: Page) => page.getByRole("img", { name: "S01 分镜图" });
+const storyboard = (page: Page) => page.getByRole("img", { name: "分镜 1 分镜图" });
 
 
 
@@ -178,7 +178,7 @@ defineRegionScenarios("分镜详情", [
     api: API,
     ready: boardReady,
     act: async (page) => {
-      await expect(shotList(page).getByRole("button", { name: /^S01/ })).toHaveAttribute("aria-current", "true");
+      await expect(shotList(page).getByRole("button", { name: /^分镜 1(?!\d)/ })).toHaveAttribute("aria-current", "true");
       const { width } = viewport(page);
       // 1440 宽、Agent 面板展开时，引用与台词区同屏可见（提示词随内容撑高，长台词可能在首屏之下）
       if (width === 1440) {
@@ -290,7 +290,7 @@ defineRegionScenarios("分镜详情", [
       // 焦点在输入框里时 J 是要输入的字符；移开焦点再按
       await page.getByRole("textbox", { name: "分镜图提示词" }).blur();
       await page.keyboard.press("j");
-      const dialog = page.getByRole("alertdialog", { name: "「S01」有未保存的修改" });
+      const dialog = page.getByRole("alertdialog", { name: "「分镜 1」有未保存的修改" });
       await expect(dialog.getByRole("button", { name: "保存并切换" })).toBeVisible();
       await waitForEntrance(dialog);
     },
@@ -350,11 +350,11 @@ defineRegionScenarios("分镜详情", [
       const move = page.waitForRequest(
         (request) => request.method() === "POST" && request.url().endsWith("/script-items/E1S02/move"),
       );
-      await shotList(page).getByRole("button", { name: "调整 S02 的顺序" }).focus();
+      await shotList(page).getByRole("button", { name: "调整「分镜 2」的顺序" }).focus();
       await page.keyboard.press("Space");
-      await expect(page.getByText(/已拿起「S02」/)).toBeAttached();
+      await expect(page.getByText(/已拿起「分镜 2」/)).toBeAttached();
       await page.keyboard.press("ArrowUp");
-      await expect(page.getByText(/「S02」移到第 1 项/)).toBeAttached();
+      await expect(page.getByText(/「分镜 2」移到第 1 项/)).toBeAttached();
       await page.keyboard.press("Space");
       expect((await move).postDataJSON()).toEqual({ script_file: "episode_1.json", after_id: null });
     },
@@ -380,7 +380,7 @@ defineRegionScenarios("分镜详情", [
     slow: true,
     act: async (page) => {
       const list = shotList(page);
-      await expect(list.getByRole("button", { name: /^调整 S/ })).toHaveCount(500);
+      await expect(list.getByRole("button", { name: /^调整「分镜 \d+」的顺序$/ })).toHaveCount(500);
       const scroll = list.locator("div.overflow-y-auto");
       const frames = await scroll.evaluate(async (el) => {
         const intervals: number[] = [];
@@ -402,7 +402,7 @@ defineRegionScenarios("分镜详情", [
       } else {
         test.info().annotations.push({ type: "skip-frame-budget", description: `多 worker 并行，未断言帧耗时：${JSON.stringify(frames)}` });
       }
-      const handle = list.getByRole("button", { name: "调整 S500 的顺序" });
+      const handle = list.getByRole("button", { name: "调整「分镜 500」的顺序" });
       await handle.scrollIntoViewIfNeeded();
       await handle.focus();
       const move = page.waitForRequest((request) => request.method() === "POST" && request.url().endsWith("/script-items/E1S500/move"));
@@ -412,7 +412,7 @@ defineRegionScenarios("分镜详情", [
           el.dispatchEvent(new KeyboardEvent("keydown", { key, code, bubbles: true, cancelable: true }));
         }
       });
-      await expect(page.getByText(/「S500」移到第 499 项/)).toBeAttached();
+      await expect(page.getByText(/「分镜 500」移到第 499 项/)).toBeAttached();
       await page.keyboard.press("Space");
       expect((await move).postDataJSON()).toEqual({ script_file: "episode_1.json", after_id: "E1S498" });
     },

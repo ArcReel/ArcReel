@@ -329,6 +329,34 @@ def test_migration_uses_declared_owner_for_ambiguous_product_reference(tmp_path:
     assert (refs / "Hero_1_1.jpg").read_bytes() == b"hero-1"
 
 
+def test_migration_does_not_claim_sibling_sequence_file_without_declaration(tmp_path: Path) -> None:
+    """未被任何条目声明的序号文件：Hero 的 Hero_1.jpg 不能被认成商品 Hero_1 自己的文件。"""
+    project_dir = tmp_path / "demo"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "characters": {"Hero": _asset("character", "character_sheet")},
+            "scenes": {},
+            "props": {},
+            "products": {
+                "Hero": _asset("product", "product_sheet"),
+                "Hero_1": _asset("second product", "product_sheet"),
+            },
+        },
+    )
+    refs = project_dir / "products" / "refs"
+    refs.mkdir(parents=True)
+    (refs / "Hero_1.jpg").write_bytes(b"hero")
+    (refs / "Hero_1_1.jpg").write_bytes(b"hero-1")
+
+    migrate_v5_to_v6(project_dir)
+
+    assert (refs / "Hero_product_1.jpg").read_bytes() == b"hero"
+    assert (refs / "Hero_1_1.jpg").read_bytes() == b"hero-1"
+    assert not (refs / "Hero_1.jpg").exists()
+
+
 def test_migration_preserves_distinct_nfd_and_nfc_declared_media(tmp_path: Path) -> None:
     project_dir = tmp_path / "demo"
     nfd_cafe = unicodedata.normalize("NFD", "café")

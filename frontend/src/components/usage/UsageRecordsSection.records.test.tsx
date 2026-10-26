@@ -8,11 +8,28 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageRecordsStore } from "@/stores/usage-records-store";
 import { createDeferred } from "@/test/deferred";
 import { makeTask } from "@/test/factories";
-import type { UsageRecordPage } from "@/types";
+import type { EpisodeItemRef, UsageRecordPage } from "@/types";
 import { makeUsageRecord, makeUsageSummary } from "./usage-fixtures";
 import { renderUsageRecordsSection } from "./usage-test-utils";
 
 const EMPTY_PAGE: UsageRecordPage = { items: [], next_cursor: null, total: 0 };
+
+/** 后端附上的条目指称：第 1 集（无标题）里排第 `position` 位的分镜。 */
+function itemRef(itemId: string, position: number): EpisodeItemRef {
+  return {
+    episode_title: "",
+    episode_position: 1,
+    item_id: itemId,
+    item_position: position,
+    item_excerpt: "",
+    item_thumbnail: null,
+  };
+}
+
+/** 目标列以位置角标指认分镜，按角标的可访问名称找到所在行。 */
+async function rowOfItem(label: string): Promise<HTMLTableRowElement> {
+  return (await screen.findByRole("img", { name: label })).closest("tr") as HTMLTableRowElement;
+}
 
 /** 进行中区的取数不带时间范围，记录表的取数带；两者走同一个客户端方法。 */
 function isPendingQuery(query: UsageRecordsQuery | undefined): boolean {
@@ -65,6 +82,7 @@ describe("UsageRecordsSection records", () => {
           error_code: "content_policy",
           error_message: "HTTP 400",
           segment_id: "E2S07",
+          segment_ref: itemRef("S07", 2),
           duration_ms: 41_000,
           cost_amount: 3.6,
           currency: "CNY",
@@ -75,9 +93,10 @@ describe("UsageRecordsSection records", () => {
     };
     renderUsageRecordsSection();
 
-    const row = (await screen.findByText("S07")).closest("tr");
+    const row = await rowOfItem("分镜 2");
     expect(row).not.toBeNull();
-    const cells = within(row as HTMLTableRowElement);
+    expect(row).not.toHaveTextContent("S07");
+    const cells = within(row);
     // 项目列显示标题，不显示目录名。
     expect(cells.getByText("雨夜侦探")).toBeInTheDocument();
     expect(cells.queryByText("rain-detective")).not.toBeInTheDocument();
@@ -92,20 +111,24 @@ describe("UsageRecordsSection records", () => {
   it("tells an unpriced call (null cost) from a free one (0) in the cost column", async () => {
     recordsPage = {
       items: [
-        makeUsageRecord({ id: 1, segment_id: "E1S01", cost_amount: null, unpriced_reason: "missing_rate" }),
-        makeUsageRecord({ id: 2, segment_id: "E1S02", cost_amount: 0 }),
-        makeUsageRecord({ id: 3, segment_id: "E1S03", cost_amount: 0.5 }),
+        makeUsageRecord({
+          id: 1,
+          segment_id: "E1S01",
+          segment_ref: itemRef("S01", 4),
+          cost_amount: null,
+          unpriced_reason: "missing_rate",
+        }),
+        makeUsageRecord({ id: 2, segment_id: "E1S02", segment_ref: itemRef("S02", 5), cost_amount: 0 }),
+        makeUsageRecord({ id: 3, segment_id: "E1S03", segment_ref: itemRef("S03", 6), cost_amount: 0.5 }),
       ],
       next_cursor: null,
       total: 3,
     };
     renderUsageRecordsSection();
 
-    const rowOf = async (segment: string) =>
-      within((await screen.findByText(segment)).closest("tr") as HTMLTableRowElement);
-    const unpriced = await rowOf("S01");
-    const free = await rowOf("S02");
-    const paid = await rowOf("S03");
+    const unpriced = within(await rowOfItem("分镜 4"));
+    const free = within(await rowOfItem("分镜 5"));
+    const paid = within(await rowOfItem("分镜 6"));
     expect(unpriced.getByText("未定价")).toBeInTheDocument();
     expect(free.queryByText("未定价")).not.toBeInTheDocument();
     expect(free.getByText("$0.00")).toBeInTheDocument();
@@ -116,6 +139,7 @@ describe("UsageRecordsSection records", () => {
     recordsPage = {
       items: [
         makeUsageRecord({
+          segment_ref: itemRef("S10", 3),
           status: "failed",
           error_code: null,
           error_message: "provider exploded",
@@ -127,7 +151,7 @@ describe("UsageRecordsSection records", () => {
     renderUsageRecordsSection();
 
     // 状态列只放状态与失败短语；原始报错只在详情里显示。
-    const row = (await screen.findByText("S10")).closest("tr");
+    const row = await rowOfItem("分镜 3");
     expect(row).toHaveTextContent("失败");
     expect(row).not.toHaveTextContent("provider exploded");
   });
@@ -185,6 +209,7 @@ describe("UsageRecordsSection records", () => {
           project_name: "星海列车",
           media_type: "video",
           resource_id: "E1S13",
+          resource_ref: itemRef("S13", 6),
           started_at: "2026-03-15T09:00:00+00:00",
         }),
       ],
@@ -204,24 +229,21 @@ describe("UsageRecordsSection records", () => {
       total: 1,
     };
     recordsPage = {
-      items: [makeUsageRecord({ id: 1, segment_id: "E1S01" })],
+      items: [makeUsageRecord({ id: 1, segment_id: "E1S01", segment_ref: itemRef("S01", 1) })],
       next_cursor: null,
       total: 1,
     };
     renderUsageRecordsSection();
 
-    await screen.findByText("S13");
-    const targets = screen
-      .getAllByRole("row")
-      .slice(1)
-      .map((row) => row.textContent ?? "");
+    await screen.findByRole("img", { name: "分镜 6" });
+    const rows = screen.getAllByRole("row").slice(1);
+    const indexOfItem = (label: string) =>
+      rows.findIndex((row) => within(row).queryByRole("img", { name: label }) !== null);
+    const scriptIndex = rows.findIndex((row) => row.textContent?.includes("剧本生成"));
     // 进行中的两行排在最前，任务行按开始时刻在无任务的 pending 调用之前。
-    expect(targets.findIndex((text) => text.includes("S13"))).toBeLessThan(
-      targets.findIndex((text) => text.includes("剧本生成")),
-    );
-    expect(targets.findIndex((text) => text.includes("剧本生成"))).toBeLessThan(
-      targets.findIndex((text) => text.includes("S01")),
-    );
+    expect(indexOfItem("分镜 6")).toBeGreaterThanOrEqual(0);
+    expect(indexOfItem("分镜 6")).toBeLessThan(scriptIndex);
+    expect(scriptIndex).toBeLessThan(indexOfItem("分镜 1"));
     // 排队中的任务还没有解析出模型。
     expect(screen.getByText("待解析")).toBeInTheDocument();
   });
@@ -235,19 +257,20 @@ describe("UsageRecordsSection records", () => {
           project_name: "星海列车",
           queued_at: "2020-01-01T00:00:00+00:00",
           resource_id: "E9S99",
+          resource_ref: itemRef("S99", 2),
         }),
       ],
     });
     renderUsageRecordsSection("section=usage&u_range=7d");
 
     // 任务排队于七天窗口之外，但进行中区照样列出它。
-    expect(await screen.findByText("S99")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "分镜 2" })).toBeInTheDocument();
   });
 
   it("leaves local render tasks out of the in-progress block", async () => {
     useTasksStore.setState({
       tasks: [
-        makeTask({ task_id: "t-video", status: "running", resource_id: "E1S01" }),
+        makeTask({ task_id: "t-video", status: "running", resource_id: "E1S01", resource_ref: itemRef("S01", 1) }),
         makeTask({
           task_id: "t-render",
           status: "running",
@@ -260,7 +283,7 @@ describe("UsageRecordsSection records", () => {
     });
     renderUsageRecordsSection();
 
-    expect(await screen.findByText("S01")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "分镜 1" })).toBeInTheDocument();
     expect(screen.queryByText(/tl-0000abcd/)).not.toBeInTheDocument();
     expect(screen.getAllByText("待解析")).toHaveLength(1);
   });

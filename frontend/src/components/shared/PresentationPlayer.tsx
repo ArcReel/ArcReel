@@ -13,7 +13,7 @@ import type {
 } from "@/types/presentation";
 import { errMsg } from "@/utils/async";
 import { downloadBlob } from "@/utils/download";
-import { itemIdWithinEpisode } from "@/utils/episode-display";
+import { useItemPositionLabel } from "@/components/shared/episode-item/useEpisodeItem";
 
 interface PresentationPlayerProps {
   projectName: string;
@@ -57,6 +57,7 @@ export function PresentationPlayer({
   className = "",
 }: PresentationPlayerProps) {
   const { t } = useTranslation("dashboard");
+  const itemLabel = useItemPositionLabel(resourceId);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const retainedVideoRef = useRef<HTMLVideoElement>(null);
@@ -379,7 +380,7 @@ export function PresentationPlayer({
         ref={bindVideo}
         src={videoUrl}
         poster={posterUrl}
-        aria-label={t("presentation_video_aria", { id: itemIdWithinEpisode(presentation.unit_id) })}
+        aria-label={t("presentation_video_aria", { id: itemLabel })}
         controls
         playsInline
         preload="metadata"
@@ -418,7 +419,7 @@ export function PresentationPlayer({
         <audio
           ref={bindNarration}
           src={narrationUrl}
-          aria-label={t("presentation_tts_track_aria", { id: itemIdWithinEpisode(presentation.unit_id) })}
+          aria-label={t("presentation_tts_track_aria", { id: itemLabel })}
           preload="metadata"
           className="hidden"
         >

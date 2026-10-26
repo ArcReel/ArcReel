@@ -1,6 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
-import { UnitTag } from "./UnitTag";
+import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
 import type { ProblemView } from "./problem-views";
 
 interface Props {
@@ -25,7 +25,7 @@ export function ProblemList({ problems, labelledBy, className }: Props) {
       {problems.map((problem) => (
         <li key={problem.key} className="flex flex-col gap-0.5">
           <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            {problem.unitId && <UnitTag unitId={problem.unitId} />}
+            {problem.unitId && <EpisodeItemRef itemId={problem.unitId} />}
             {problem.field && (
               <code translate="no" className="rounded-sm bg-muted px-1 font-mono text-subtle-foreground">
                 {problem.field}

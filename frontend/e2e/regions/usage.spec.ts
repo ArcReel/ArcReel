@@ -11,7 +11,7 @@ import { expect, test, type ApiOverrides } from "../support/test.ts";
 test.beforeEach(async ({ page }, testInfo) => {
   if (!testInfo.title.includes("趋势、构成")) return;
   await page.route("**/*inter-latin-wght-normal*.woff2", async (route) => {
-    await page.getByText("S19", { exact: true }).waitFor();
+    await page.getByRole("img", { name: "分镜 19" }).waitFor();
     await route.continue();
   });
 });
@@ -58,7 +58,15 @@ function record(index: number) {
     segment_ref:
       index % 5 === 4
         ? null
-        : { episode_title: "第一集：码头上的最后一班渡轮与消失的灯塔看守人", episode_position: 1, item_id: `S${String(index + 1).padStart(2, "0")}` },
+        : {
+            episode_title: "第一集：码头上的最后一班渡轮与消失的灯塔看守人",
+            episode_position: 1,
+            item_id: `S${String(index + 1).padStart(2, "0")}`,
+            // 每七条有一条的分镜已从剧本删除，其余按本集当前位置显示，正文截到前十六个字
+            item_position: index % 7 === 3 ? null : index + 1,
+            item_excerpt: index % 7 === 3 ? "" : "渡轮靠岸时，看守人提着马灯走下栈…",
+            item_thumbnail: null,
+          },
     output_path: null,
     started_at: FIXED_NOW,
     finished_at: FIXED_NOW,
@@ -124,7 +132,14 @@ const SUMMARY = {
       project_name: "rain-detective-0",
       media_type: "video",
       segment_id: "E1S07",
-      segment_ref: { episode_title: "第一集：码头上的最后一班渡轮", episode_position: 1, item_id: "S07" },
+      segment_ref: {
+        episode_title: "第一集：码头上的最后一班渡轮",
+        episode_position: 1,
+        item_id: "S07",
+        item_position: 7,
+        item_excerpt: "渡轮靠岸时，看守人提着马灯走下栈…",
+        item_thumbnail: null,
+      },
       count: 5,
       first_failed_at: FIXED_NOW,
       last_failed_at: FIXED_NOW,
@@ -255,7 +270,7 @@ async function usageReady(page: Page) {
 
 async function recordsReady(page: Page) {
   await usageReady(page);
-  await page.getByText("S19", { exact: true }).waitFor();
+  await page.getByRole("img", { name: "分镜 19" }).waitFor();
 }
 
 defineRegionScenarios("使用记录", [
@@ -349,7 +364,7 @@ defineRegionScenarios("使用记录", [
     act: async (page) => {
       await page.getByRole("button", { name: /^使用记录 · 参考费用/ }).click();
       const popover = page.getByRole("dialog", { name: "使用记录" });
-      await popover.getByText("S09", { exact: true }).first().waitFor();
+      await popover.getByRole("img", { name: "分镜 9" }).first().waitFor();
       await expect(popover).toBeInViewport({ ratio: 1 });
       await expect(popover.getByRole("link", { name: "查看全部记录" })).toBeInViewport();
     },

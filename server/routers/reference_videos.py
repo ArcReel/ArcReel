@@ -316,6 +316,7 @@ async def add_unit(
     units = current.get("video_units") if isinstance(current.get("video_units"), list) else []
     if req.after_unit_id is not None:
         _find_unit(current, req.after_unit_id, _t)
+    # 编号只是占位：批量编辑提交时由服务端另发本集从没用过的编号，回读按结果里的编号取。
     unit = _build_unit_dict(
         unit_id=new_item_id(current),
         prompt=req.prompt,
@@ -337,7 +338,7 @@ async def add_unit(
     )
     require_script_edit_result(result)
     saved = await _read_script(project_name, result.script)
-    inserted = _find_unit(saved, unit["unit_id"], _t)
+    inserted = _find_unit(saved, result.affected_ids[0], _t)
     return {
         "unit": inserted,
         "unit_capability": await _unit_capability(project_name, project, inserted, request_facts),

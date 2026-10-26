@@ -11,6 +11,7 @@ import { ReferenceScriptPlanPreviewPanel } from "./ReferenceScriptPlanPreviewPan
 import { makeReferenceUnitCapability, makeScriptOverwrite, makeScriptOverwriteEntry } from "@/test/factories";
 import type { MentionLookup } from "@/hooks/useUnitPromptHighlight";
 import type {
+  EpisodeScript,
   ReferenceScriptPlanDraft,
   ReferenceUnitCapability,
   ScriptReviewQuarantine,
@@ -28,7 +29,7 @@ const VIDEO_CAPS = {
 } as VideoCapabilities;
 
 /** 展开单元时长下拉，读出可选秒数后收起。 */
-async function durationOptions(name = "U01 时长"): Promise<string[]> {
+async function durationOptions(name = "视频单元 1 时长"): Promise<string[]> {
   const user = userEvent.setup();
   await user.click(await screen.findByRole("combobox", { name }));
   const values = (await screen.findAllByRole("option")).map((option) => option.textContent?.replace(/\D/g, "") ?? "");
@@ -37,7 +38,7 @@ async function durationOptions(name = "U01 时长"): Promise<string[]> {
   return values;
 }
 
-async function pickDuration(seconds: number, name = "U01 时长") {
+async function pickDuration(seconds: number, name = "视频单元 1 时长") {
   const user = userEvent.setup();
   await user.click(await screen.findByRole("combobox", { name }));
   await user.click(await screen.findByRole("option", { name: `${seconds} 秒` }));
@@ -150,14 +151,17 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     // 用的 projectName="p"，需要同步告诉 store 当前正在看的就是它。
     useProjectsStore.setState({ currentProjectName: "p" });
   });
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    useProjectsStore.setState({ currentScripts: {} });
+  });
 
   // `@[名称]` 在正文里高亮；参考图仅在执行期解析，无独立参考图清单。
   it("renders the clean pending state with the highlighted body and no reference list", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    await waitFor(() => expect(screen.getByText("U01")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("img", { name: "视频单元 1" })).toBeInTheDocument());
     expect(screen.getByText("阿离撑伞走过长街。")).toBeInTheDocument();
     expect(screen.getByText("@[阿离]")).toBeInTheDocument();
     expect(screen.getByText("@[长街]")).toBeInTheDocument();
@@ -189,7 +193,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("当前模型不支持图生视频（无参考图）");
     expect(screen.getByRole("alert")).not.toHaveTextContent("video_capability_missing_i2v");
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
-    expect(screen.queryByRole("combobox", { name: "U01 时长" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "视频单元 1 时长" })).not.toBeInTheDocument();
   });
 
   function endpointFixedState(durationSeconds: number): ScriptReviewState {
@@ -238,8 +242,8 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       pendingState({ duration_tiers: { with_references: [4, 8], units: {} } }),
     );
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    expect(await screen.findByText("U01")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "U01 时长" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "视频单元 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "视频单元 1 时长" })).not.toBeInTheDocument();
   });
 
   it("localizes structured speech violations with their unit and field locations", async () => {
@@ -261,7 +265,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
 
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    expect(await screen.findByText(/视频单元 U01.*同时包含角色台词和旁白/)).toHaveTextContent("text:2");
+    expect(await screen.findByText(/^视频单元 1 在 .*同时包含角色台词和旁白/)).toHaveTextContent("text:2");
     expect(screen.queryByText("raw agent message")).not.toBeInTheDocument();
   });
 
@@ -285,7 +289,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
 
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
     fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "U01 正文" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "视频单元 1 正文" }), {
       target: { value: "@[阿离] 推门走进 @[长街]。" },
     });
 
@@ -320,7 +324,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
 
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={{ 阿离: "character" }} />);
 
-    await waitFor(() => expect(screen.getByText("U01")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("img", { name: "视频单元 1" })).toBeInTheDocument());
     expect(screen.queryByText("本单元未引用场景，画面地点将由模型自由决定")).not.toBeInTheDocument();
   });
 
@@ -348,9 +352,9 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       <ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} onOpenTimeline={openTimeline} />,
     );
 
-    expect(await screen.findByText("U01")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "视频单元 1" })).toBeInTheDocument();
     expect(screen.getByText("8 秒")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "U01 时长" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "视频单元 1 时长" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑文稿" })).not.toBeInTheDocument();
     expect(screen.getByText("内容已确认，此处只读。请在时间线上修改；要整集重做，请重跑脚本规划后再确认。")).toBeInTheDocument();
 
@@ -367,7 +371,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     const button = await screen.findByRole("button", { name: "重新确认并生成正式脚本" });
     expect(button).toBeEnabled();
     expect(screen.getByText("内容已确认，但本集还没有正式脚本。重新确认即按脚本规划转出正式脚本。")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox", { name: "U01 时长" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "视频单元 1 时长" })).not.toBeInTheDocument();
 
     fireEvent.click(button);
 
@@ -415,6 +419,15 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       video_count: 2,
       text: "现有 2 条分镜全部移除。视频 2 段。E1U05（视频）",
     });
+    // 正式剧本里 E1U05 排在第 3 位
+    useProjectsStore.setState({
+      currentScripts: {
+        "episode_1.json": {
+          episode: 1,
+          video_units: [{ unit_id: "E1U01" }, { unit_id: "E1U03" }, { unit_id: "E1U05" }],
+        } as unknown as EpisodeScript,
+      },
+    });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState({ script_overwrite: listed }));
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
@@ -425,8 +438,11 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "确认并覆盖正式脚本" }));
     fireEvent.click(await screen.findByRole("button", { name: "覆盖并确认" }));
 
-    await waitFor(() => expect(screen.getByRole("alertdialog")).toHaveTextContent("U05"));
-    expect(screen.getByRole("alertdialog")).toHaveTextContent(itemIdsInEpisodeText(refreshed.text));
+    // 丢失清单里的正式剧本条目按它在正式剧本里的位置称呼
+    await waitFor(() =>
+      expect(screen.getByRole("alertdialog")).toHaveTextContent("现有 2 条分镜全部移除。视频 2 段。视频单元 3（视频）"),
+    );
+    expect(screen.getByRole("alertdialog")).not.toHaveTextContent("U05");
 
     fireEvent.click(screen.getByRole("button", { name: "覆盖并确认" }));
     await waitFor(() => expect(confirm).toHaveBeenLastCalledWith("p", 1, { overwriteRevision: "sha256-v1:refreshed" }));
@@ -557,11 +573,11 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(quarantinedState());
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    await waitFor(() => expect(screen.getByText("U01")).toBeInTheDocument());
-    expect(screen.getByText("unit U01 使用了全角花括号")).toBeInTheDocument();
-    expect(screen.getByText("unit U01 的台词念不完")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("img", { name: "视频单元 1" })).toBeInTheDocument());
+    expect(screen.getByText("视频单元 1 使用了全角花括号")).toBeInTheDocument();
+    expect(screen.getByText("视频单元 1 的台词念不完")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "U01 · 2" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "视频单元 1 · 2" })).toBeInTheDocument();
   });
 
   it("hand-fixes the draft's unit body and duration, then saves it for validation", async () => {
@@ -572,7 +588,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "U01 正文" }), {
+    fireEvent.change(screen.getByRole("textbox", { name: "视频单元 1 正文" }), {
       target: { value: "门开了\n@[阿离]：我来了。" },
     });
     await pickDuration(4);
@@ -655,7 +671,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
 
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    await waitFor(() => expect(screen.getByText("U01")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("img", { name: "视频单元 1" })).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
     const textarea = await screen.findByDisplayValue("@[阿离] 撑伞走过 @[长街]");
@@ -709,7 +725,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     await waitFor(() => expect(screen.getByText("8 秒")).toBeInTheDocument());
-    expect(screen.queryByRole("combobox", { name: "U01 时长" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: "视频单元 1 时长" })).not.toBeInTheDocument();
   });
 
   it("keeps the duration select on a stored value that is no longer a supported tier, sorted into place", async () => {
@@ -722,7 +738,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     }));
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    expect(await screen.findByRole("combobox", { name: "U01 时长" })).toHaveTextContent("8 秒");
+    expect(await screen.findByRole("combobox", { name: "视频单元 1 时长" })).toHaveTextContent("8 秒");
     // 越档兜底项插入选项时按数值排序，不是简单地把当前值塞到最前面（那样 8/4/6 的
     // 显示顺序会乱）。
     expect(await durationOptions()).toEqual(["4", "6", "8"]);
@@ -759,7 +775,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
     const textarea = await screen.findByDisplayValue("@[阿离] 撑伞走过 @[长街]");
     fireEvent.change(textarea, { target: { value: "@[阿离] 缓步走过 @[长街]" } });
-    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "U01 时长" });
+    const select = await screen.findByRole<HTMLSelectElement>("combobox", { name: "视频单元 1 时长" });
 
     fireEvent.click(await screen.findByText("保存"));
 
@@ -859,7 +875,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     );
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    expect(await screen.findByRole("combobox", { name: "U01 时长" })).toHaveTextContent("8 秒");
+    expect(await screen.findByRole("combobox", { name: "视频单元 1 时长" })).toHaveTextContent("8 秒");
     expect(screen.getByText("档位已失效")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /确认拆分，继续生成/ })).toBeDisabled();
   });
@@ -936,7 +952,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
     expect(await screen.findByText("Agent 有一份未完成的修改")).toBeInTheDocument();
-    expect(screen.getByText("U01")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "视频单元 1" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "编辑文稿" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
     act(() => useAppStore.getState().setAssistantPanelOpen(false));
@@ -962,14 +978,14 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
       }),
     });
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
-    const firstLink = await screen.findByRole("button", { name: "U01 · 1" });
+    const firstLink = await screen.findByRole("button", { name: "视频单元 1 · 1" });
 
-    // 两个按钮之间的可见文本要有分隔符，不能粘连成 "U01 · 1U02 · 1"——按钮各自的可访问名
+    // 两个按钮之间的可见文本要有分隔符，不能粘连成 "视频单元 1 · 1视频单元 2 · 1"——按钮各自的可访问名
     // 本身不受这个 bug 影响（那是每个元素独立算的），只有渲染出的原始文本会粘连，所以这里
     // 直接断言状态条的 textContent。
     const statusBar = firstLink.parentElement?.parentElement;
-    expect(statusBar?.textContent).toMatch(/U01 · 1.+U02 · 1/);
-    expect(statusBar?.textContent).not.toContain("1U02");
+    expect(statusBar?.textContent).toMatch(/视频单元 1 · 1.+视频单元 2 · 1/);
+    expect(statusBar?.textContent).not.toContain("1视频单元 2");
   });
 
   it("compares the episode total against the project target", async () => {
@@ -984,7 +1000,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
 
-    await waitFor(() => expect(screen.getByText("U01")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("img", { name: "视频单元 1" })).toBeInTheDocument());
     expect(screen.queryByText(/本集合计/)).not.toBeInTheDocument();
   });
 });

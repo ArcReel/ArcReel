@@ -240,7 +240,7 @@ MESSAGES = {
     "script_overwrite_loss_narration_audio": "配音 {count} 段",
     "script_overwrite_loss_end_frame": "尾帧 {count} 张",
     "script_overwrite_loss_grid": "宫格归属 {count} 处（涉及 {grids} 张联合图，联合图随之失去登记）",
-    "script_overwrite_history": "旧条目产物的版本历史一并移入项目回收站，新脚本里沿用相同编号的条目不会接上旧历史；30 天内可以在「文件」视图的项目回收站里恢复旧条目。",
+    "script_overwrite_history": "旧条目产物的版本历史一并移入项目回收站，新脚本的条目不会接上旧历史；30 天内可以在「文件」视图的项目回收站里恢复旧条目。",
     "script_overwrite_entries": "将被移除的脚本条目：{entries}",
     "script_overwrite_entry": "{id}（{kinds}）",
     "script_overwrite_kind_storyboard": "分镜图",

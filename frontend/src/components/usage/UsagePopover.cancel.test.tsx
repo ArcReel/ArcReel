@@ -7,7 +7,7 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { useUsageHeaderStore } from "@/stores/usage-header-store";
 import { createDeferred } from "@/test/deferred";
 import { makeTask } from "@/test/factories";
-import type { TaskItem } from "@/types";
+import type { EpisodeItemRef, TaskItem } from "@/types";
 import { makeUsageSummary } from "./usage-fixtures";
 import {
   HEADER_PROJECT,
@@ -16,6 +16,18 @@ import {
 } from "./usage-header-test-utils";
 
 const STARTED_AT = "2026-04-20T00:00:00Z";
+
+/** 后端附上的条目指称：「雨夜」这一集里排第 `position` 位的分镜。 */
+function itemRef(itemId: string, position: number): EpisodeItemRef {
+  return {
+    episode_title: "雨夜",
+    episode_position: 1,
+    item_id: itemId,
+    item_position: position,
+    item_excerpt: "",
+    item_thumbnail: null,
+  };
+}
 
 function openWithTasks(tasks: TaskItem[]) {
   useTasksStore.setState({ tasks });
@@ -67,7 +79,7 @@ describe("UsagePopover cancellation", () => {
   it("previews the cascade before cancelling a queued task", async () => {
     vi.spyOn(API, "cancelPreview").mockResolvedValue({
       task: { task_id: "t-q", task_type: "storyboard", resource_id: "E1S10", status: "queued" },
-      cascaded: [{ task_id: "t-dep", task_type: "video", resource_id: "E1S11" }],
+      cascaded: [{ task_id: "t-dep", task_type: "video", resource_id: "E1S11", resource_ref: itemRef("S11", 4) }],
     });
     const cancelSpy = vi
       .spyOn(API, "cancelTask")
@@ -78,7 +90,8 @@ describe("UsagePopover cancellation", () => {
 
     const dialog = await screen.findByRole("alertdialog", { name: "取消确认" });
     expect(dialog).toHaveTextContent("取消此任务将同时取消 1 个依赖任务");
-    expect(dialog).toHaveTextContent("未命名集 · S11");
+    expect(dialog).toHaveTextContent("雨夜 · 4");
+    expect(dialog).not.toHaveTextContent("S11");
 
     fireEvent.click(screen.getByRole("button", { name: "确认取消" }));
 
@@ -88,7 +101,7 @@ describe("UsagePopover cancellation", () => {
   it("keeps the latest cancellation preview when an older response arrives late", async () => {
     const first = createDeferred<{
       task: { task_id: string; task_type: string; resource_id: string; status: string };
-      cascaded: { task_id: string; task_type: string; resource_id: string }[];
+      cascaded: { task_id: string; task_type: string; resource_id: string; resource_ref: EpisodeItemRef }[];
     }>();
     vi.spyOn(API, "cancelPreview").mockImplementation((taskId) =>
       taskId === "t-first"
@@ -100,7 +113,9 @@ describe("UsagePopover cancellation", () => {
               resource_id: "E1S11",
               status: "queued",
             },
-            cascaded: [{ task_id: "t-new", task_type: "video", resource_id: "E1S12" }],
+            cascaded: [
+              { task_id: "t-new", task_type: "video", resource_id: "E1S12", resource_ref: itemRef("S12", 5) },
+            ],
           }),
     );
     openWithTasks([
@@ -112,7 +127,7 @@ describe("UsagePopover cancellation", () => {
     fireEvent.click(cancelButtons[0]);
     fireEvent.click(cancelButtons[1]);
     const dialog = await screen.findByRole("alertdialog", { name: "取消确认" });
-    expect(dialog).toHaveTextContent("未命名集 · S12");
+    expect(dialog).toHaveTextContent("雨夜 · 5");
 
     await act(async () => {
       first.resolve({
@@ -122,13 +137,13 @@ describe("UsagePopover cancellation", () => {
           resource_id: "E1S10",
           status: "queued",
         },
-        cascaded: [{ task_id: "t-old", task_type: "video", resource_id: "E1S99" }],
+        cascaded: [{ task_id: "t-old", task_type: "video", resource_id: "E1S99", resource_ref: itemRef("S99", 9) }],
       });
       await first.promise;
     });
     expect(dialog).toBeInTheDocument();
-    expect(dialog).toHaveTextContent("未命名集 · S12");
-    expect(dialog).not.toHaveTextContent("未命名集 · S99");
+    expect(dialog).toHaveTextContent("雨夜 · 5");
+    expect(dialog).not.toHaveTextContent("雨夜 · 9");
   });
 
   it("keeps the confirmation open with a failure notice until a retry succeeds", async () => {

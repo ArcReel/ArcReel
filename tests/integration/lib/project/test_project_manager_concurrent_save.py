@@ -71,7 +71,7 @@ def _make_script(episode: int, payload_size: int) -> dict:
 
 
 class TestSaveScriptConcurrency:
-    def test_replacement_media_cleanup_keeps_script_writers_locked_out(self, tmp_path: Path, monkeypatch) -> None:
+    def test_removed_entry_media_cleanup_keeps_script_writers_locked_out(self, tmp_path: Path, monkeypatch) -> None:
         pm = ProjectManager(tmp_path)
         _seed_project(pm, "demo")
         script = _make_script(1, 1)
@@ -97,7 +97,8 @@ class TestSaveScriptConcurrency:
             return original_record(project_dir, obj, files, **kwargs)
 
         monkeypatch.setattr(project_trash, "record_deletion", guarded_record)
-        pm.save_script("demo", script, "episode_1.json", replaced_resource_ids=("E1S0",))
+        script["segments"][0]["segment_id"] = "E1S1"
+        pm.save_script("demo", script, "episode_1.json")
 
         assert checked == ["E1S0"]
         assert not current.exists()

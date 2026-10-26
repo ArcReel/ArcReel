@@ -35,6 +35,8 @@ async def test_schema_16_project_with_retired_flash_lite_resolves_the_formal_id(
         **legacy,
         "default_text_backend": f"{provider_id}/gemini-3.1-flash-lite",
         "text_backend_simple": f"{provider_id}/gemini-3.1-flash-lite",
+        # v18→v19 记下本集用过的最大分镜号（样本剧本到 E1S02）
+        "episodes": [{**entry, "item_id_high_water": 2} for entry in legacy["episodes"]],
         "schema_version": CURRENT_SCHEMA_VERSION,
     }
     assert migrated["text_backend_complex"] == "gemini-aistudio/gemini-3-flash-preview"

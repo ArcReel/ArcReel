@@ -39,7 +39,9 @@ import { isResourceBusy } from "@/stores/tasks-store";
 import type { PromptOverwrite } from "@/types";
 import { errMsg } from "@/utils/async";
 import { useEpisodeLedger } from "@/hooks/useEpisodeLedger";
-import { episodeAgentRef, itemIdsInEpisodeText } from "@/utils/episode-display";
+import { episodeAgentRef, episodeItemAgentRef, itemIdsAsPositionsInText } from "@/utils/episode-display";
+import { EpisodeItemRef } from "@/components/shared/episode-item/EpisodeItemRef";
+import { useProjectsStore } from "@/stores/projects-store";
 import { promptAuthoringEntries, type PromptAuthoringEntry } from "./prompt-authoring-entries";
 import { promptAuthoringHandoffText } from "./prompt-authoring-handoff";
 
@@ -104,6 +106,7 @@ export function PromptAuthoringDialog({
   onClose,
 }: DialogProps) {
   const { t } = useTranslation("dashboard");
+  const scripts = useProjectsStore((s) => s.currentScripts);
   const episodeLedger = useEpisodeLedger();
   const scopeLabelId = useId();
   const rewriteId = useId();
@@ -138,7 +141,7 @@ export function PromptAuthoringDialog({
   const scopeLabel =
     scope === "pending"
       ? t("prompt_authoring_scope_pending_prefill", { count: pendingCount })
-      : (entryIds ?? []).join(t("prompt_authoring_id_separator"));
+      : (entryIds ?? []).map((id) => episodeItemAgentRef(id, scripts, t)).join(t("prompt_authoring_id_separator"));
 
   const guardBusy = (): boolean => {
     if (isResourceBusy("text_episode_script", projectName, promptAuthoringResourceId(episode))) {
@@ -256,7 +259,7 @@ export function PromptAuthoringDialog({
                             disabled={submitting}
                             onCheckedChange={() => toggle(entry.id)}
                           />
-                          <span className="font-mono text-foreground">{entry.id}</span>
+                          <EpisodeItemRef itemId={entry.id} className="min-w-0" />
                           <span className="ml-auto text-xs text-muted-foreground">
                             {entry.pending
                               ? t("prompt_authoring_entry_pending")
@@ -336,7 +339,7 @@ export function PromptAuthoringDialog({
           <AlertDialogBody tabIndex={0} role="region" aria-label={t("prompt_authoring_overwrite_title")}>
             <AlertDialogDescription>
               <span className="whitespace-pre-line wrap-break-word">
-                {overwrite ? itemIdsInEpisodeText(overwrite.text) : null}
+                {overwrite ? itemIdsAsPositionsInText(overwrite.text, scripts, t) : null}
               </span>
             </AlertDialogDescription>
           </AlertDialogBody>

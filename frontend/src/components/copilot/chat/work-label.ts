@@ -19,7 +19,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ContentBlock, EpisodeMeta, TodoItem } from "@/types";
-import { episodeDisplayName, episodeItemLabel } from "@/utils/episode-display";
+import { episodeDisplayName, episodeItemLabel, type ProjectScripts } from "@/utils/episode-display";
 import { ARCREEL_TOOL_SUMMARIES } from "./arcreel-tool-summaries";
 
 // ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ export interface SummaryFormat {
   join: (...parts: string[]) => string;
 }
 
-export function createSummaryFormat(t: TFunction, episodes: EpisodeRefs): SummaryFormat {
+export function createSummaryFormat(t: TFunction, episodes: EpisodeRefs, scripts: ProjectScripts = {}): SummaryFormat {
   const list = (value: unknown): string => {
     const names = strings(value);
     if (names.length === 0) return "";
@@ -139,13 +139,13 @@ export function createSummaryFormat(t: TFunction, episodes: EpisodeRefs): Summar
     },
     item: (value) => {
       const id = str(value);
-      return id ? episodeItemLabel(id, episodes, t) : "";
+      return id ? episodeItemLabel(id, scripts, episodes, t) : "";
     },
     items: (value) => {
       const ids = strings(value);
       if (ids.length === 0) return "";
-      const labels = ids.map((id) => episodeItemLabel(id, episodes, t));
-      // 同一集的条目只写一次集名：「第 1 集 · S01、S02」
+      const labels = ids.map((id) => episodeItemLabel(id, scripts, episodes, t));
+      // 同一集的条目只写一次集名：「第 1 集 · 1、2」
       const prefixes = new Set(labels.map((label) => label.split(SUMMARY_JOINER)[0]));
       if (prefixes.size === 1 && labels.every((label) => label.includes(SUMMARY_JOINER))) {
         const [prefix] = prefixes;
@@ -246,9 +246,15 @@ export interface WorkLabel {
 }
 
 /** 工具调用的显示名、图标与摘要。ArcReel 工具与内置工具都有本地化名称，其余工具保留原名。 */
-export function toolLabel(name: string, input: ToolInput | undefined, t: TFunction, episodes: EpisodeRefs): WorkLabel {
+export function toolLabel(
+  name: string,
+  input: ToolInput | undefined,
+  t: TFunction,
+  episodes: EpisodeRefs,
+  scripts: ProjectScripts = {},
+): WorkLabel {
   const args = input ?? {};
-  const f = createSummaryFormat(t, episodes);
+  const f = createSummaryFormat(t, episodes, scripts);
 
   const arcreel = ARCREEL_TOOL_PREFIX.exec(name);
   if (arcreel) {

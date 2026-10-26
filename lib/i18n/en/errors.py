@@ -251,7 +251,7 @@ MESSAGES = {
     "script_overwrite_loss_narration_audio": "{count} voice-over clip(s)",
     "script_overwrite_loss_end_frame": "{count} end frame(s)",
     "script_overwrite_loss_grid": "{count} grid membership(s) across {grids} composite image(s), which lose their registration",
-    "script_overwrite_history": "The version history of the old entries' outputs moves to the project trash with them, so entries in the new script that reuse the same ID do not inherit it. For 30 days you can restore the old entries from the project trash in the Files view.",
+    "script_overwrite_history": "The version history of the old entries' outputs moves to the project trash with them, and entries in the new script do not inherit it. For 30 days you can restore the old entries from the project trash in the Files view.",
     "script_overwrite_entries": "Script entries to be removed: {entries}",
     "script_overwrite_entry": "{id} ({kinds})",
     "script_overwrite_kind_storyboard": "storyboard image",

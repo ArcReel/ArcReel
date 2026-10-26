@@ -1393,7 +1393,7 @@ async def insert_script_item(
     _t: Translator,
     make_script_batch_editor: ScriptBatchEditorFactoryDep,
 ):
-    """新增一条待编写分镜，按当前剧本 revision 执行 ``insert_after``；新分镜不继承同号旧分镜的产物。"""
+    """新增一条待编写分镜，按当前剧本 revision 执行 ``insert_after``；新分镜的编号由服务端另发，取本集从没用过的号。"""
     try:
 
         def _sync():
@@ -1422,8 +1422,10 @@ async def insert_script_item(
             require_script_edit_result(result, operation_not_found=True)
             saved_items, _id_field, _kind = resolve_items(manager.load_script(name, req.script_file))
             # 提交后到回读之间条目可能已被并发移除，此时 item 为 null。
+            # 批量编辑提交时由服务端发编号，blank_item_after 给的只是占位。
+            inserted_id = result.affected_ids[0] if result.affected_ids else None
             inserted = next(
-                (entry for entry in saved_items if isinstance(entry, dict) and entry.get(id_field) == item[id_field]),
+                (entry for entry in saved_items if isinstance(entry, dict) and entry.get(id_field) == inserted_id),
                 None,
             )
             return {"success": True, "item": inserted, "edit_result": result.model_dump(mode="json")}

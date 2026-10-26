@@ -10,7 +10,15 @@ const EPISODES: EpisodeRefs = [
   { episode: 3, title: "雨夜", script_file: "scripts/episode_3.json" },
 ];
 
-const label = (name: string, input?: Record<string, unknown>) => toolLabel(name, input, t, EPISODES);
+// 本集分镜的排列与 ID 序号不一致：E3S04 被挪到了最前，摘要按当前位置称呼。
+const SCRIPTS = {
+  "episode_3.json": {
+    episode: 3,
+    segments: [{ segment_id: "E3S04" }, { segment_id: "E3S01" }, { segment_id: "E3S02" }, { segment_id: "E3S03" }],
+  },
+};
+
+const label = (name: string, input?: Record<string, unknown>) => toolLabel(name, input, t, EPISODES, SCRIPTS);
 
 describe("toolLabel", () => {
   it("names ArcReel tools in the UI language and refers to episodes by name, not by id", () => {
@@ -24,10 +32,16 @@ describe("toolLabel", () => {
   it("writes the episode once for item ids of the same episode and lists at most three", () => {
     expect(
       label("mcp__arcreel__generate_storyboards", { script: "episode_3.json", segment_ids: ["E3S01", "E3S02"] }).summary,
-    ).toBe("雨夜 · S01、S02");
+    ).toBe("雨夜 · 2、3");
     expect(label("mcp__arcreel__inspect_video_units", { unit_ids: ["E3S01", "E3S02", "E3S03", "E3S04"] }).summary).toBe(
-      "雨夜 · S01、S02、S03 等 4 个",
+      "雨夜 · 2、3、4 等 4 个",
     );
+  });
+
+  it("says an item is deleted once it is no longer in the script", () => {
+    expect(
+      label("mcp__arcreel__generate_storyboards", { script: "episode_3.json", segment_ids: ["E3S09"] }).summary,
+    ).toBe("雨夜 · 已删除");
   });
 
   it("keeps opaque ids such as timeline ids out of the summary", () => {

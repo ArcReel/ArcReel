@@ -18,10 +18,12 @@ import pytest
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.config.resolver import ConfigResolver
+from lib.project import project_trash
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_generator as script_generator_module
 from lib.script import script_review
+from lib.script.item_ids import format_item_id
 from lib.script.prompt_authoring_scope import PromptOverwriteRequired
 from lib.script.script_batch_edit import ScriptBatchEditCommand, ScriptBatchEditor, blank_item_after, script_revision
 from lib.script.script_document import SCRIPT_PLAN_CONVERSION_GENERATOR
@@ -284,7 +286,7 @@ REFERENCE = _Variant(
     id_field="unit_id",
     plan_factory=_reference_plan,
     visual_factory=_reference_visual,
-    entry_ids=("E1U01", "E1U02"),
+    entry_ids=("E1U1", "E1U2"),
     omissible_field="source_text",
     prompt_needles=("第1镜", "第2镜"),
 )
@@ -412,7 +414,7 @@ class TestPromptAuthoring:
         first, second = variant.entry_ids
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
         _stamp_user_fields(project_dir, variant, first)
-        third = first.replace("01", "03")
+        third = format_item_id(1, variant.items_key, 3)
 
         def add_pending_entry(script: dict[str, Any]) -> None:
             entry = copy.deepcopy(script[variant.items_key][1])
@@ -786,6 +788,58 @@ class TestDryRunPrompt:
 class TestScriptPlanMaterialization:
     """内容确认转换：整份投影内容层、全部条目待编写，只认确认过的规划与调用方认可覆盖的剧本。"""
 
+    async def test_narration_plan_ids_past_99_still_materialize(self, tmp_path: Path) -> None:
+        """编号只升不降，过百后正式规划里是 E1S100 这类服务端发出的编号，内容确认照常转出。"""
+        project_dir, plan_path = NARRATION.build(tmp_path)
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        for number, segment in enumerate(plan["segments"], start=100):
+            segment["segment_id"] = format_item_id(1, "segments", number)
+        plan_path = _write_plan(project_dir, NARRATION.plan_filename, plan)
+
+        receipt = await _materialize(project_dir, plan_path)
+
+        assert len(receipt.entry_ids) == len(plan["segments"])
+
+    async def test_reconfirm_after_purging_deleted_entries_uses_new_ids_and_keeps_confirmation(
+        self, tmp_path: Path, variant: _Variant
+    ) -> None:
+        project_dir, plan_path = variant.build(tmp_path)
+        pm = ProjectManager.for_project_dir(project_dir)
+        pm.reserve_item_ids(project_dir.name, 1, variant.items_key, 2)
+        plan_before = plan_path.read_bytes()
+        revision = script_review.content_fingerprint(plan_path)
+        assert revision is not None
+
+        def record_confirmation(project: dict[str, Any]) -> None:
+            assert script_review.apply_confirmation(project, 1, revision, "2026-01-01T00:00:00Z")
+
+        async def confirm():
+            return await _converter(project_dir).materialize_script_plan(
+                1,
+                expected_plan_revision=revision,
+                expected_script_fingerprint=_revision(project_dir),
+                project_update=record_confirmation,
+            )
+
+        first = await confirm()
+        assert first.entry_ids == tuple(format_item_id(1, variant.items_key, n) for n in (3, 4))
+        current = pm.load_script(project_dir.name, "episode_1.json")
+        current[variant.items_key] = []
+        pm.save_script(project_dir.name, current, "episode_1.json")
+        records = project_trash.list_records(project_dir)
+        assert len(records) == 2
+        for record in records:
+            project_trash.purge(project_dir, record.id)
+
+        second = await confirm()
+        assert second.entry_ids == tuple(format_item_id(1, variant.items_key, n) for n in (5, 6))
+        assert set(first.entry_ids).isdisjoint(second.entry_ids)
+        await variant.generator(project_dir, [variant.visual_factory(*second.entry_ids)]).generate(1)
+        project = pm.load_project(project_dir.name)
+        assert script_review.formal_script_plan_confirmed(project_dir, project, 1)
+        assert plan_path.read_bytes() == plan_before
+        assert all(PENDING_AUTHORING_FIELD not in item for item in _script(project_dir)[variant.items_key])
+
     async def test_materialization_projects_every_entry_with_pending_prompts(
         self, tmp_path: Path, variant: _Variant
     ) -> None:
@@ -800,7 +854,7 @@ class TestScriptPlanMaterialization:
         assert list(entries) == [first, second]
         assert script["metadata"]["generator"] == SCRIPT_PLAN_CONVERSION_GENERATOR
         document = json.loads(plan_path.read_text(encoding="utf-8"))
-        plan_entries = {e[variant.id_field]: e for e in document[_PLAN_ENTRIES_KEY[variant.name]]}
+        plan_entries = dict(zip(entries, document[_PLAN_ENTRIES_KEY[variant.name]], strict=True))
         for entry_id, entry in entries.items():
             assert entry[PENDING_AUTHORING_FIELD] is True
             if variant is REFERENCE:
@@ -862,7 +916,7 @@ class TestScriptPlanMaterialization:
         entries_key = _PLAN_ENTRIES_KEY[variant.name]
         document = json.loads(plan_path.read_text(encoding="utf-8"))
         third = dict(document[entries_key][0])
-        third[variant.id_field] = variant.entry_ids[0].replace("01", "03")
+        third[variant.id_field] = format_item_id(1, variant.items_key, 3)
         changed = dict(document[entries_key][1])
         changed[_plan_text_field(variant)] = "改了一个错别字。"
         document[entries_key] = [third, changed]
@@ -877,13 +931,16 @@ class TestScriptPlanMaterialization:
         first, second = variant.entry_ids
         project_dir, plan_path = await _converted_and_authored(tmp_path, variant)
         _stamp_user_fields(project_dir, variant, second)
-        third = self._edit_plan(plan_path, project_dir, variant)
+        self._edit_plan(plan_path, project_dir, variant)
 
         receipt = await _materialize(project_dir, plan_path)
 
-        assert (receipt.entry_ids, receipt.removed) == ((third, second), (first,))
+        # 正式身份一律从高水位后另发，旧剧本的两条都按移除处置。
+        third = format_item_id(1, variant.items_key, 3)
+        renewed = format_item_id(1, variant.items_key, 4)
+        assert (receipt.entry_ids, receipt.removed) == ((third, renewed), (first, second))
         script = _script(project_dir)
-        assert [entry[variant.id_field] for entry in script[variant.items_key]] == [third, second]
+        assert [entry[variant.id_field] for entry in script[variant.items_key]] == [third, renewed]
         after = _entries(script, variant)
         for entry in after.values():
             assert entry[PENDING_AUTHORING_FIELD] is True
@@ -891,7 +948,7 @@ class TestScriptPlanMaterialization:
             if variant is not REFERENCE:
                 assert entry["image_prompt"] is None
         if variant is not REFERENCE:
-            assert after[second][_plan_text_field(variant)] == "改了一个错别字。"
+            assert after[renewed][_plan_text_field(variant)] == "改了一个错别字。"
 
     async def test_materialization_rejects_a_plan_edit_that_landed_after_loading(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, variant: _Variant

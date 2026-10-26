@@ -7,17 +7,24 @@ import stat
 import zipfile
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 from threading import Event, Thread
 
 import pytest
 
-from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
+from lib.artifacts.artifact_activation import (
+    ArtifactCurrencyResolver,
+    stage_preserved_artifact_claims,
+    take_migrated_artifact_claims,
+)
+from lib.artifacts.artifact_currency import read_artifact_content_digest
 from lib.artifacts.artifact_manifest import (
     MANIFEST_FILENAME,
     ArtifactBasis,
     ArtifactBasisDescriptor,
     ArtifactKey,
+    ArtifactManifestArchiveSnapshot,
     ArtifactManifestEntry,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
@@ -33,6 +40,7 @@ from lib.i18n import _
 from lib.infra.validation_messages import default_translate
 from lib.jianying_draft.basis import jianying_draft_artifact_path, jianying_draft_key
 from lib.project import deleted_projects, project_trash
+from lib.project.asset_derivatives import derivative_artifact_key
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import load_migration_report
 from lib.project.project_migrations.runner import migrate_project_dir
@@ -48,6 +56,7 @@ from server.services.project.project_archive import (
     ProjectArchiveValidationError,
 )
 from tests.factories import wav_bytes
+from tests.legacy_project_shapes import write_legacy_named_reference_bases_project
 
 
 class _RetireRecorder:
@@ -2543,3 +2552,79 @@ class TestArchiveDiagnosticsLocalization:
             manifest = json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
         messages = [item["message"] for item in manifest["export_diagnostics"]["warnings"]]
         assert any("notes.txt" in message and re.search(r"[一-鿿]", message) for message in messages)
+
+
+def test_an_archive_exported_at_schema_18_keeps_storyboards_and_grids_current_after_import(tmp_path, monkeypatch):
+    """信封里的 claim 与原地升级一样经迁移链平移：v18→v19 改了分镜图与宫格的依据口径，导入后它们仍是 current。"""
+    source = ProjectManager(tmp_path / "source")
+    write_legacy_named_reference_bases_project(source.projects_dir, name="demo")
+    # 模拟 schema 18 发行版的导出器：它把 18 当作当前版本，把清单放进信封。
+    monkeypatch.setattr(project_archive_module, "project_schema_is_current", lambda _project: True)
+    archive_path, _ = ProjectArchiveService(source).export_project("demo")
+    monkeypatch.undo()
+    with zipfile.ZipFile(archive_path) as archive:
+        assert "artifact_manifest" in json.loads(archive.read(f"demo/{ARCHIVE_MANIFEST_NAME}"))
+    target = ProjectManager(tmp_path / "target")
+
+    ProjectArchiveService(target).import_project_archive(
+        archive_path, uploaded_filename="demo.zip", confirm_report=True
+    )
+
+    project_dir = target.get_project_path("demo")
+    entries = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
+    resolver = ArtifactCurrencyResolver(project_dir)
+    for key in (
+        ArtifactKey.episode_grid(1, "grid_123456789abc"),
+        ArtifactKey.episode_storyboard(1, "E1S01"),
+        ArtifactKey.episode_storyboard(1, "E1S02"),
+        ArtifactKey.episode_storyboard(1, "E1S03"),
+    ):
+        assert resolver.compare(key, artifact_path=entries[key].artifact_path).status is ArtifactStatus.CURRENT
+
+
+def test_claims_the_migration_chain_rekeys_keep_their_archived_content_digests(tmp_path):
+    """迁移给 claim 换键并搬图（依据摘要与字节不变）时，新键沿用信封里旧键的内容摘要；同字节的两条各自沿用。
+
+    迁移补录的条目对不上旧 claim，不带摘要。
+    """
+    project_dir = tmp_path / "staging"
+    _write_json(project_dir / "project.json", {"schema_version": CURRENT_PROJECT_SCHEMA_VERSION - 1})
+    basis = ArtifactBasis.build("test/uploaded-sheet", kind_version=1, inputs={"bytes": "same"})
+    moves = {
+        derivative_artifact_key("Ann", name): (
+            derivative_artifact_key("Alice", name),
+            f"characters/derivatives/Ann/{name}.png",
+            f"characters/derivatives/Alice/{name}.png",
+        )
+        for name in ("Hat", "Cap")
+    }
+    for _new_key, old_path, _new_path in moves.values():
+        _write_bytes(project_dir / old_path, b"same bytes")
+    _write_bytes(project_dir / "characters/Bob.png", b"bob")
+    claims = {
+        old_key: ArtifactManifestEntry(artifact_path=old_path, basis_digest=basis.digest)
+        for old_key, (_new_key, old_path, _new_path) in moves.items()
+    }
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    digest = read_artifact_content_digest(adapter, next(iter(claims.values())).artifact_path)
+    preserved = ArtifactManifestArchiveSnapshot(entries=claims, content_digests=dict.fromkeys(claims, digest))
+
+    assert stage_preserved_artifact_claims(project_dir, preserved)
+    (project_dir / "characters/derivatives/Alice").mkdir(parents=True)
+    replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
+    for old_key, (new_key, old_path, new_path) in moves.items():
+        (project_dir / old_path).rename(project_dir / new_path)
+        replacements[old_key] = None
+        replacements[new_key] = replace(claims[old_key], artifact_path=new_path)
+    bob_basis = ArtifactBasis.build("test/asset-sheet", kind_version=1, inputs={"sheet": "bob"})
+    replacements[_BOB_SHEET] = ArtifactManifestEntry(artifact_path="characters/Bob.png", basis_digest=bob_basis.digest)
+    assert adapter.replace_entries_if_matches_atomically(expected=claims, replacements=replacements)
+
+    carried = take_migrated_artifact_claims(project_dir, preserved)
+
+    assert carried.entries == {new_key: replacements[new_key] for new_key, _old, _new in moves.values()}
+    assert carried.content_digests == {new_key: digest for new_key, _old, _new in moves.values()}
+    assert not (project_dir / MANIFEST_FILENAME).exists()
+
+
+_BOB_SHEET = ArtifactKey.asset_sheet("character", "Bob")

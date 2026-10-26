@@ -80,7 +80,7 @@ def _client(monkeypatch, tmp_path):
     pm.add_prop("demo", "玉佩", "古玉")
     pm.add_product("demo", "保温杯", "不锈钢保温杯")
 
-    monkeypatch.setattr(files, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     monkeypatch.setattr("lib.backends.text_generator.create_text_backend_for_task", _fake_create_backend)
 
     app = FastAPI()

@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { ShotDetail } from "./ShotDetail";
 import { useProjectsStore } from "@/stores/projects-store";
 import type { DramaScene, ProjectData, Utterance } from "@/types";
@@ -202,12 +202,19 @@ describe("ShotDetail 剧情演绎", () => {
     });
 
     it("移除分镜先弹 danger 确认框说明产物去向，确认后才移除", async () => {
+      // 标题按本集位置称呼分镜：E1S01 排在第 2 位
+      useProjectsStore.setState({
+        currentScripts: {
+          "episode_1.json": { episode: 1, content_mode: "drama", scenes: [makeScene({ scene_id: "E1S00" }), makeScene()] } as never,
+        },
+      });
+      onTestFinished(() => useProjectsStore.setState(useProjectsStore.getInitialState(), true));
       const onRemoveShot = vi.fn().mockResolvedValue(true);
       renderDetail({ onUpdatePrompt: vi.fn(), onInsertShot: vi.fn(), onRemoveShot });
 
       fireEvent.click(screen.getByRole("button", { name: "移除分镜" }));
       const dialog = await screen.findByRole("alertdialog");
-      expect(within(dialog).getByText("移除分镜 S01？")).toBeInTheDocument();
+      expect(within(dialog).getByText("移除分镜 2？")).toBeInTheDocument();
       expect(within(dialog).getByText(/随分镜移入项目回收站/)).toBeInTheDocument();
       expect(onRemoveShot).not.toHaveBeenCalled();
 

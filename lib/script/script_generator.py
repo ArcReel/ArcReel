@@ -60,6 +60,7 @@ from lib.infra.async_thread import run_sync_transaction
 from lib.infra.content_digest import sha256_file
 from lib.infra.text_utils import strip_json_code_fences
 from lib.project.asset_types import asset_name_comparison_key
+from lib.project.item_id_history import issue_landing_item_ids
 from lib.project.project_manager import ProjectManager, ScriptWriteConflict
 from lib.project.reference_library import append_reference_context, current_reference_context
 from lib.prompts.prompt_builders_ad import (
@@ -374,6 +375,11 @@ class ScriptGenerator:
         """该集正式剧本的文件名与写入基线指纹（文件不存在时指纹为 None）。"""
         filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)
         return filename, content_fingerprint(self.project_path / "scripts" / filename)
+
+    def _issue_landing_item_ids(self, script_data: dict[str, Any]) -> None:
+        """落盘前由服务端给生成产出的条目发号（见 ``item_id_history.issue_landing_item_ids``）；须在线程里调用。"""
+        pm = ProjectManager.for_project_dir(self.project_path)
+        issue_landing_item_ids(self.project_path, pm.load_project(self.project_path.name), script_data)
 
     def _save_script(self, script_data: dict[str, Any], filename: str, **kwargs: Any) -> Path:
         """经写盘统一入口保存剧本；ProjectManager 构造时会建目录，须在线程里调用。"""
@@ -735,10 +741,12 @@ class ScriptGenerator:
     ) -> ScriptPlanMaterializationReceipt:
         """内容确认时把脚本规划整份转为正式剧本：旧剧本（若有）整份被替换，不沿用任何条目。
 
+        条目编号在落盘时一律另发新号，编号只分配、不复用（``docs/adr/0090``）。
+
         投影见 ``lib.script.script_document.build_materialized_script``。``expected_plan_revision`` 是确认记录的脚本规划指纹，加载到的
         规划不是这份即抛 ``ScriptPlanWriteConflict``；``expected_script_fingerprint`` 是调用方认可覆盖时
-        看到的正式剧本指纹（无剧本为 None），落盘时不匹配抛 ``ScriptWriteConflict``。旧剧本的条目即使
-        与新条目同 id，名下产物也随本次写入撤登记，并清理其历史版本与当前媒体文件。``project_update`` 与剧本在同一写事务内修改
+        看到的正式剧本指纹（无剧本为 None），落盘时不匹配抛 ``ScriptWriteConflict``。旧剧本的条目名下产物
+        随本次写入撤登记，历史版本与当前媒体文件移进项目回收站。``project_update`` 与剧本在同一写事务内修改
         project.json，确认记录借此与正式剧本一起落盘。
         """
         self._script_plan_direction = None
@@ -776,7 +784,6 @@ class ScriptGenerator:
         )
         items_key = plan_variant(plan_kind).skeleton_kind
         id_field = entry_id_field(plan_kind)
-        entry_ids = tuple(str(item[id_field]) for item in script_data[items_key])
         previous = await asyncio.to_thread(formal_script_overwrite, self.project_path, self.project_json, episode)
         previous_ids = tuple(entry.entry_id for entry in previous.entries) if previous is not None else ()
         plan_path = script_plan_path(self.project_path, self.project_json, episode)
@@ -795,16 +802,18 @@ class ScriptGenerator:
                     )
                 if claim is not None:
                     assert_current_artifact_input_claims_usable(self.project_path, (claim,))
+                # 规划只提供内容：正式身份另发新号，旧条目整份移进项目回收站。
+                self._issue_landing_item_ids(script_data)
                 self._save_script(
                     script_data,
                     filename,
                     validate=True,
                     expected_fingerprint=expected_script_fingerprint,
-                    replaced_resource_ids=tuple(entry_id for entry_id in previous_ids if entry_id in entry_ids),
                     project_update=update_project,
                 )
 
         await run_sync_transaction(_commit)
+        entry_ids = tuple(str(item[id_field]) for item in script_data[items_key])
         removed = tuple(entry_id for entry_id in previous_ids if entry_id not in entry_ids)
         logger.info(
             "第 %d 集已在内容确认时按脚本规划整份转为正式剧本（%d 条，移出旧条目 %d 条）",
@@ -887,7 +896,8 @@ class ScriptGenerator:
 
         产出违约（解析不出、结构不合、引用落不到资产上、新增资产的处理决定解析不出、条目为空）一律抛
         ``AdScriptRejected``：不写正式脚本、不登记资产、不落草稿。``needs_replan`` 单元照常写入。
-        ``previous`` 是用户认可覆盖的旧正式剧本：以它的指纹为写入基线，同 id 条目名下的旧产物随写入撤登记。
+        ``previous`` 是用户认可覆盖的旧正式剧本：以它的指纹为写入基线，旧条目名下的产物随写入撤登记。
+        条目编号在落盘时由服务端另发（编号只分配、不复用）。
         """
         assert self.generator is not None  # generate() 入口已检查
         if previous is None:
@@ -922,28 +932,24 @@ class ScriptGenerator:
             raise AdScriptRejected(structure.errors)
         # 依据含资产表：按登记本次新增资产后的项目冻结，写入后的正式剧本即为当前。
         self._freeze_ad_artifact_basis(episode, registered_project)
-        previous_ids = {entry.entry_id for entry in previous.entries} if previous is not None else set()
-        settled, _id_field, _kind = resolve_kind_items(script_data)
-        replaced_ids = tuple(
-            str(item[id_field]) for item in cast(list[dict[str, Any]], settled) if str(item[id_field]) in previous_ids
-        )
 
         # 经写盘统一入口保存：整集生成无「改前」，按严格结构校验（等价原 response_schema 的
         # Pydantic 校验），并继承 metadata 重算、加锁、filename↔episode 一致性与 project.json
         # 同步——消除「裸 json.dump 旁路」，使 _write_script_unlocked 成为剧本唯一写入点。
         # 本次新增资产与正式剧本在同一写事务里登记进项目。
-        output_path = await run_sync_transaction(
-            functools.partial(
-                self._save_script,
+        # 模型给出的编号只是占位：整份生成的条目一律由服务端发本集从没用过的新编号，旧剧本的条目整份移进项目回收站。
+        def _issue_and_save() -> Path:
+            self._issue_landing_item_ids(script_data)
+            return self._save_script(
                 script_data,
                 filename,
                 validate=True,
                 artifact_basis=self._artifact_basis,
                 expected_fingerprint=formal_baseline,
-                replaced_resource_ids=replaced_ids,
                 project_update=new_assets.apply_to_project,
             )
-        )
+
+        output_path = await run_sync_transaction(_issue_and_save)
         if registered_assets is not None:
             registered_assets[:] = new_assets.registered()
         self._quality_probe(script_data, episode)

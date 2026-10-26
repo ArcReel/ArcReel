@@ -11,7 +11,7 @@ import { useTasksStore } from "@/stores/tasks-store";
 import { useWorkflowStore } from "@/stores/workflow-store";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { makeContent, makePlan, makeStatus, makeStep, makeTask } from "@/test/factories";
-import type { ProjectData } from "@/types";
+import type { EpisodeScript, ProjectData } from "@/types";
 import type { EditTimelineReadout, EditTimelineSummary } from "@/types/edit-timeline";
 import type {
   WorkflowActionType,
@@ -85,7 +85,7 @@ async function renderExpanded(plan: WorkflowPlan, props: Partial<React.Component
 beforeEach(() => {
   useWorkflowStore.getState().resetTarget();
   useAssistantStore.getState().setInput("");
-  useProjectsStore.setState({ currentProjectData: null });
+  useProjectsStore.setState({ currentProjectData: null, currentScripts: {} });
   useEpisodeSurfaceStore.setState({ request: null });
 });
 
@@ -772,6 +772,16 @@ describe("WorkflowPanel 分镜图与视频批量入口", () => {
   });
 });
 
+/** 第 1 集正式脚本只有条目 ID，界面按它们在数组里的位置称呼条目。 */
+function seedEpisodeScript(arrayKey: "segments" | "video_units", ids: string[]) {
+  const idKey = arrayKey === "segments" ? "segment_id" : "unit_id";
+  useProjectsStore.setState({
+    currentScripts: {
+      "episode_1.json": { episode: 1, [arrayKey]: ids.map((id) => ({ [idKey]: id })) },
+    } as unknown as Record<string, EpisodeScript>,
+  });
+}
+
 describe("WorkflowPanel 过期产物、任务与准入", () => {
   const videoScenario = (step: Partial<WorkflowPlanStep>) =>
     scenario({ next: nextAction("generate_videos"), steps: [makeStep({ id: "video", ...step })] });
@@ -779,14 +789,15 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
   it("视频行的过期产物给出查看与显式重生入口", async () => {
     const onRegenerate = vi.fn();
     const onViewUnit = vi.fn();
+    seedEpisodeScript("video_units", ["E1U1", "E1U3", "E1U2"]);
     await renderExpanded(
       videoScenario({ artifacts: { current_ids: ["E1U1"], stale_ids: ["E1U2"], missing_ids: [] } }),
       { onRegenerate, onViewUnit },
     );
-    fireEvent.click(screen.getByRole("button", { name: "重新生成 U2" }));
+    fireEvent.click(screen.getByRole("button", { name: "重新生成 视频单元 3" }));
     expect(onRegenerate).toHaveBeenCalledWith("video", ["E1U2"]);
     // 查看会跳到画布，弹层随之收起
-    fireEvent.click(screen.getByRole("button", { name: "在画布上查看 U2" }));
+    fireEvent.click(screen.getByRole("button", { name: "在画布上查看 视频单元 3" }));
     expect(onViewUnit).toHaveBeenCalledWith("E1U2");
     await waitFor(() => expect(screen.queryByTestId("workflow-row-videos")).not.toBeInTheDocument());
   });
@@ -812,6 +823,7 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
       status: "running",
       provider_checkpoint: { submitted },
     });
+    seedEpisodeScript("segments", ["E1S03", "E1S01", "E1S02"]);
     await renderExpanded(
       scenario({
         next: nextAction("wait_for_task", { args: {} }),
@@ -827,11 +839,12 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
     const row = screen.getByTestId("workflow-row-videos");
     expect(within(row).getAllByText(/视频 · 生成中/)).toHaveLength(3);
     const note = within(row).getByText("已提交给供应商，重试可能再次计费。").parentElement as HTMLElement;
-    expect(within(note).getAllByText(/^S0\d$/).map((tag) => tag.textContent)).toEqual(["S01", "S02"]);
+    expect(within(note).getAllByRole("img").map((badge) => badge.getAttribute("aria-label"))).toEqual(["分镜 2", "分镜 3"]);
     expect(within(row).getByText("下一步：等待生成完成")).toBeInTheDocument();
   });
 
   it("脚本结构的问题只在正式脚本行陈述一次，并标出是哪个单元", async () => {
+    seedEpisodeScript("segments", ["E1S01", "E1S05", "E1S02"]);
     await renderExpanded(
       scenario({
         next: nextAction("patch_episode_script", { requested_ids: ["E1S02"] }),
@@ -849,10 +862,11 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
     const row = screen.getByTestId("workflow-row-script");
     const line = within(row).getByText(summary).closest("li");
     expect(line).not.toBeNull();
-    expect(within(line as HTMLElement).getByText("S02")).toBeInTheDocument();
+    expect(within(line as HTMLElement).getByRole("img", { name: "分镜 3" })).toBeInTheDocument();
   });
 
   it("视频整批被拒时逐单元的原因只在准入结论里出现一次，不露出服务端原文", async () => {
+    seedEpisodeScript("segments", ["E1S04", "E1S03"]);
     await renderExpanded(
       videoScenario({
         state: "blocked",
@@ -878,8 +892,8 @@ describe("WorkflowPanel 过期产物、任务与准入", () => {
     );
     const row = screen.getByTestId("workflow-row-videos");
     expect(screen.getAllByText("这个单元有台词没有指定说话的角色。")).toHaveLength(1);
-    expect(within(row).getByText("S03")).toBeInTheDocument();
-    expect(within(row).getByText("S04")).toBeInTheDocument();
+    expect(within(row).getByRole("img", { name: "分镜 2" })).toBeInTheDocument();
+    expect(within(row).getByRole("img", { name: "分镜 1" })).toBeInTheDocument();
     expect(screen.queryByText(/character_speaker_empty/)).not.toBeInTheDocument();
   });
 
