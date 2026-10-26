@@ -2070,6 +2070,7 @@ export default {
   'reference_script_plan_unit_stats': '{{utterances}} 句台词',
   'reference_script_plan_duration_label': '{{unit}} 时长',
   'reference_script_plan_unit_text_label': '{{unit}} 正文',
+  'reference_script_plan_unit_source_text_label': '{{unit}} 原文',
   'reference_script_plan_duration_option': '{{seconds}} 秒',
   'reference_script_plan_confirm_continue': '确认拆分，继续生成',
   'reference_script_plan_duration_out_of_tier': '档位已失效',

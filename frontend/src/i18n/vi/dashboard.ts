@@ -2061,6 +2061,7 @@ export default {
   'reference_script_plan_unit_stats': '{{utterances}} lời thoại',
   'reference_script_plan_duration_label': 'Thời lượng {{unit}}',
   'reference_script_plan_unit_text_label': 'Nội dung {{unit}}',
+  'reference_script_plan_unit_source_text_label': 'Văn bản gốc {{unit}}',
   'reference_script_plan_duration_option': '{{seconds}} giây',
   'reference_script_plan_confirm_continue': 'Xác nhận chia, tiếp tục tạo',
   'reference_script_plan_duration_out_of_tier': 'Mức thời lượng không còn hợp lệ',
