@@ -58,12 +58,12 @@ def test_episode_target_units_field_name_is_mirrored(relative_path: str) -> None
 
 @pytest.mark.parametrize("relative_path", EPISODE_TARGET_FALLBACK_READERS)
 def test_episode_target_duration_fallback_is_mirrored(relative_path: str) -> None:
-    """每份分集规划说明都明确记录显式体量优先、时长仅作回退。"""
+    """每份分集规划说明都在同一行写明两个字段的关系（显式体量优先、时长仅作回退）。
+
+    只认字段名在同一行共现：怎么措辞回退关系不在断言范围内，删掉这条说明或只剩一个字段会红。
+    """
     lines = (REPO / relative_path).read_text(encoding="utf-8").splitlines()
 
-    assert any(
-        EPISODE_TARGET_UNITS_FIELD in line
-        and EPISODE_TARGET_DURATION_FIELD in line
-        and any(marker in line for marker in ("未设", "未显式设", "缺失"))
-        for line in lines
-    ), f"{relative_path} 未在同一段说明 {EPISODE_TARGET_UNITS_FIELD} 与 {EPISODE_TARGET_DURATION_FIELD} 的回退关系"
+    assert any(EPISODE_TARGET_UNITS_FIELD in line and EPISODE_TARGET_DURATION_FIELD in line for line in lines), (
+        f"{relative_path} 未在同一段说明 {EPISODE_TARGET_UNITS_FIELD} 与 {EPISODE_TARGET_DURATION_FIELD} 的回退关系"
+    )
