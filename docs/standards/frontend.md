@@ -83,6 +83,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 原始色值和内联颜色由 `@shadcn/lint` 的 `no-raw-colors`、`no-inline-styles` 拦截。以下几点 lint 判断不了，由审查核对：
 
 - 浅底、描边、选中态写成基色加透明度修饰（`bg-primary/15`、`border-border/50`），不为某种深浅新增变体 token：变体 token 会让同一语义出现多个近似色，旧色板的变体色已按这一原则删除。CSS 中需要透明度时写 `color-mix(in oklab, var(--primary) 15%, transparent)`。
+- 表单控件的描边用 `border-input`，不加透明度修饰：`--input` 在浅色与深色下对页面底、卡片和弹层都不低于 3:1（WCAG 1.4.11），半透明会让对比度随底色漂移。填充可以用 `bg-input/12` 这类透明度，不要把控件填充调到让占位符低于 4.5:1。卡片、分隔线等装饰性描边仍用 `border`。
 - 语义不混用：危险操作用 `destructive`，琥珀色 `warn` 只表示警告与过期。
 - 文字只分 `foreground`、`subtle-foreground`、`muted-foreground` 三档。`muted-foreground` 上不再叠加透明度或 `opacity`：它在页面底色上的对比度浅色与深色下都只略高于 5:1，再降就低于 WCAG AA 要求的 4.5:1。
 - 按集、按视频单元、按资产类型着色时用身份色 token（`episode`、`unit-clip`、`unit-narration`、`asset-*`），色相和配色经 `episodeHue`、`unitHue`、`assetColor` 取值，不在调用处另算颜色。
