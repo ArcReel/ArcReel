@@ -42,17 +42,17 @@ COMFYUI_CREDENTIALS = {"base_url": "https://comfy.test", "api_key": ""}
 
 @pytest.fixture
 def file_db_engine(file_db_factory: async_sessionmaker[AsyncSession]) -> AsyncEngine:
-    """本文件的库换成文件库：每个连接独立。
+    """本文件各夹具共用的文件库 engine，每个连接独立。
 
-    ``TestClient`` 在响应体发完即返回，请求依赖的 session 收尾与后台 trial run 的落账并发；
-    内存库的共享连接上，一方回滚会连带撤销另一方未提交的写。
+    ``TestClient`` 在响应体发完即返回，请求依赖的 session 收尾与后台 trial run 的落账并发写库；
+    独立连接让两边的事务互不连带。
     """
     return file_db_factory.kw["bind"]
 
 
 @pytest.fixture
 def trial_runs(tmp_path, file_db_engine) -> TrialRunManager:
-    """隔离到 tmp_path 与内存库的登记处，经依赖覆盖注入。"""
+    """隔离到 tmp_path 与文件库的登记处，经依赖覆盖注入。"""
     return TrialRunManager(
         root=tmp_path / "trial_runs",
         ledger=Ledger(session_factory=async_sessionmaker(file_db_engine, expire_on_commit=False)),
