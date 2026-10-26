@@ -40,6 +40,11 @@ paths:
 
 它吞掉取消，调用点放在 `asyncio.timeout` 块与 `asyncio.wait_for` 之外，否则超时失效。
 
+图片、视频、音频后端落盘时按下面分工：
+
+- 内存里已有供应商返回的字节（`b64_json`、SDK 响应、已读完的响应体）时，解码、写盘、转码都放进 `run_noninterruptible_sync`。图片后端共用的 `lib/backends/image_backends/base.py::save_image_from_response_item` 的 b64 路径已满足本条，后端复用即可，不必自己绕开。
+- 产物地址的下载（`stream_to_file`）中，分片写入保持 `run_sync_transaction`：此时产物还没有成形，取消把下载整体回退（`.part` 被清掉），没有成形的产物可丢。网络取件保留可中断语义；使用 `with_artifact_retry` 的通道整体受墙钟预算（`asyncio.timeout`）约束，放进不可中断段会让预算失效，慢速出数据的下载不再有终点。产物成形的那一步，`.part` 改名为成品，是一次耗时可忽略的原子操作，用 `run_noninterruptible_sync`，取消不能落在成品已就位、调用方却按取消处理的间隙。下载返回之后的线程步骤（转 PNG、写盘）在预算之外，同样用 `run_noninterruptible_sync`。
+
 这条规则只护住段内的线程调用。段内的异步写入只保证写入本身不被中断，取消照常向外传播，其后的步骤随之跳过：`Ledger.record()` 的结算写入被取消后等写入落地再重新抛出，产物提交就不再执行；裸 `asyncio.shield` 被取消时立即抛出，写入与调用方的后续处理并发执行。生成链路的超时块都在供应商调用一侧，眼下只有事件循环拆除会打进这一段。给执行中的任务新增 `cancel()` 之前，先用 `run_noninterruptible_async` 把整段收进不可中断的异步边界。
 
 ## 路径与删除

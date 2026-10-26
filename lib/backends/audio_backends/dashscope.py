@@ -41,7 +41,7 @@ from lib.backends.dashscope_shared import (
 )
 from lib.backends.providers import PROVIDER_DASHSCOPE
 from lib.backends.transport_layer import TransportLayer
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -185,13 +185,18 @@ class DashScopeAudioBackend:
         预签发 URL 的 4xx 是确定性错误一律 fail-fast），5xx/传输/网络错误重试，业务错误
         fail-fast；200-空体（``_EmptyDownloadError``）属瞬态另行重试。
         """
-        await with_artifact_retry(
-            lambda: self._fetch_audio(url, output_path),
+        content = await with_artifact_retry(
+            lambda: self._fetch_audio(url),
             label="DashScope 音频",
             retry_if=lambda e: isinstance(e, _EmptyDownloadError) or should_retry_signed_download(e),
         )
+        # 落盘放在重试的墙钟预算之外：不可中断的线程调用若落在 asyncio.timeout 块内，超时就失效。
+        # 取消落在写盘期间时线程照常写完，取消随之消失，调用方 MediaGenerator.generate_audio_async
+        # 的 finally 清理 staging 路径与后续产物提交都在写入结算之后进行（docs/standards/backend.md
+        # 「供应商返回之后的落账段不可中断」）。
+        await run_noninterruptible_sync(output_path.write_bytes, content)
 
-    async def _fetch_audio(self, url: str, output_path: Path) -> None:
+    async def _fetch_audio(self, url: str) -> bytes:
         # 日志与异常只带去掉 query 的 URL：预签名参数在有效期内等同下载凭证
         safe_url = url.split("?", 1)[0]
         async with (
@@ -211,8 +216,4 @@ class DashScopeAudioBackend:
         if not content:
             # 200 但空体：不写 0 字节 wav
             raise _EmptyDownloadError(f"DashScope 音频下载返回空内容: {safe_url}")
-        # 走 run_sync_transaction 而非裸 to_thread：调用方 MediaGenerator.generate_audio_async
-        # 的 finally 会 unlink staging 路径，取消时线程若仍在写就会与该清理交错
-        # （POSIX 下写出孤儿文件，Windows 下 unlink 报 PermissionError）。写入先结算、
-        # 再放取消传出去。
-        await run_sync_transaction(output_path.write_bytes, content)
+        return content
