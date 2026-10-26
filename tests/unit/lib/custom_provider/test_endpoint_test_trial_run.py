@@ -10,6 +10,7 @@ import asyncio
 import base64
 import json
 import os
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -35,6 +36,7 @@ from lib.custom_provider.endpoint_test import (
     model_ref_target,
     provider_from_base_url,
 )
+from lib.custom_provider.endpoint_test import trial_run as trial_run_module
 from lib.db.models.api_call import ApiCall
 from tests.factories import custom_endpoint_definition, image_endpoint_definition
 from tests.fakes import PNG_BYTES, bounded_poll_clock
@@ -107,6 +109,25 @@ def _mock_pending_run(router) -> asyncio.Event:
     router.post("https://relay.test/v1/video/create").mock(side_effect=_create)
     router.get("https://relay.test/v1/video/fetch/job-42").mock(side_effect=_fetch)
     return submitted
+
+
+def _hold_result_write(monkeypatch) -> tuple[asyncio.Event, threading.Event]:
+    """把终态写盘停在线程里：返回「写盘已开始」与「放行写盘」两个信号。
+
+    写盘窗口在真实运行里只有毫秒级，停住它才能确定地把取消落进这个窗口。
+    """
+    loop = asyncio.get_running_loop()
+    writing = asyncio.Event()
+    release = threading.Event()
+    settle = trial_run_module._settle_files
+
+    def _held(*args, **kwargs) -> None:
+        loop.call_soon_threadsafe(writing.set)
+        release.wait(timeout=10)
+        settle(*args, **kwargs)
+
+    monkeypatch.setattr(trial_run_module, "_settle_files", _held)
+    return writing, release
 
 
 class _TierAwareBackend(DeclarativeVideoBackend):
@@ -715,6 +736,48 @@ class TestConcurrencyAndCancel:
             rows = (await session.execute(select(ApiCall))).scalars().all()
         assert [row.status for row in rows] == ["cancelled"]
         assert trial_runs.get(started.id) is None
+
+    async def test_a_cancel_after_the_provider_succeeded_keeps_the_result(
+        self, trial_runs: TrialRunManager, db_factory: async_sessionmaker, monkeypatch
+    ):
+        """供应商已经成功返回、正在写盘时才到的取消：钱已花、账已记成功，结果不能被删。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_run(router)
+            writing, release = _hold_result_write(monkeypatch)
+            started = await trial_runs.start(_target(), PARAMETERS)
+            await writing.wait()
+
+            assert await trial_runs.cancel(started.id) is False
+            release.set()
+            run = await _await_terminal(trial_runs, started.id)
+
+        assert run.status is TrialRunStatus.SUCCEEDED
+        assert trial_runs.artifact_path(started.id) is not None
+        async with db_factory() as session:
+            rows = (await session.execute(select(ApiCall))).scalars().all()
+        assert [row.status for row in rows] == ["success"]
+
+    async def test_shutdown_keeps_a_run_that_is_already_settling(
+        self, trial_runs: TrialRunManager, db_factory: async_sessionmaker, monkeypatch
+    ):
+        """关停排空遇到正在写盘的 run：等它写完，不按取消删目录。"""
+        with capture_http() as router, bounded_poll_clock():
+            _mock_successful_run(router)
+            writing, release = _hold_result_write(monkeypatch)
+            started = await trial_runs.start(_target(), PARAMETERS)
+            await writing.wait()
+
+            shutdown = asyncio.create_task(trial_runs.shutdown())
+            await asyncio.sleep(0)
+            release.set()
+            await shutdown
+
+        run = trial_runs.get(started.id)
+        assert run is not None
+        assert run.status is TrialRunStatus.SUCCEEDED
+        async with db_factory() as session:
+            rows = (await session.execute(select(ApiCall))).scalars().all()
+        assert [row.status for row in rows] == ["success"]
 
 
 class TestRunIdShape:
