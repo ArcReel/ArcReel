@@ -21,6 +21,7 @@ INSPECT_IMAGES = ToolDeclaration(
         "用来判断生成结果能否使用：有没有崩坏，与设定或提示词是否相符，同一角色是否前后一致。"
         "一次调用只看同一类型（resource_type）；version 对列表中的每一项都生效，省略时取各项的 current 版本，"
         "比较同一项的历史版本时，每个版本各调用一次。"
+        "默认 current 没有版本记录但登记了当前图时仍可看图，version 为 null、available_versions 为空；不补写版本记录。"
         f"每次调用最多 {MAX_IMAGES_PER_CALL} 张图，超出返回 image_limit_exceeded，请分批调用；"
         f"图片按原比例缩到长边不超过 {MAX_IMAGE_EDGE} px 的 JPEG。"
         "结果 images 按请求顺序排列，每项带 id、version、available_versions（该项现有的全部版本号）、status，"
