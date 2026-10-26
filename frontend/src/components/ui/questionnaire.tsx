@@ -95,6 +95,7 @@ function QuestionnaireChoices({
   )
 }
 
+// 相对上游：降低 input 填充不透明度以保留文字对比度，选项与指示器保留浅底层级。
 function QuestionnaireChoice({
   children,
   className,
@@ -152,6 +153,7 @@ function QuestionnaireChoiceDescription({
   )
 }
 
+// 相对上游：降低 input 填充不透明度以保留文字对比度；失败态用完整红色描边与较强光晕。
 function QuestionnaireInput({
   className,
   ...props

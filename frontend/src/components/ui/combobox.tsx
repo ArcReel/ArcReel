@@ -84,6 +84,7 @@ function ComboboxInput({
   )
 }
 
+// 相对上游：搜索框保留不透明描边以满足 3:1，降低 input 填充不透明度以保留文字对比度。
 function ComboboxContent({
   className,
   side = "bottom",
@@ -216,6 +217,7 @@ function ComboboxSeparator({
   )
 }
 
+// 相对上游：降低 input 填充不透明度以保留文字对比度；失败态用完整红色描边与较强光晕。
 function ComboboxChips({
   className,
   ...props

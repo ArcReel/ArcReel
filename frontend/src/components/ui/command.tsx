@@ -62,6 +62,7 @@ function CommandDialog({
   )
 }
 
+// 相对上游：搜索框保留 InputGroup 的不透明描边，降低 input 填充不透明度以保留文字对比度。
 function CommandInput({
   className,
   ...props
