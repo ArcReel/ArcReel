@@ -76,7 +76,7 @@ importers:
         version: 19.3.0(react@19.3.0)
       react-i18next:
         specifier: ^17.0.11
-        version: 17.0.20(i18next@26.4.7(typescript@6.0.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
+        version: 17.0.21(i18next@26.4.7(typescript@6.0.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3)
       react-resizable-panels:
         specifier: ^4.14.2
         version: 4.14.4(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -4449,8 +4449,8 @@ packages:
     peerDependencies:
       react: ^19.3.0
 
-  react-i18next@17.0.20:
-    resolution: {integrity: sha512-rzSSirf0NP9vfcUXHZAksIuyMWl7L/T/7nm8S+sSIFuIzku54qcyyVAOZXbawPNpUxGkDx/eosSv4DrpzcxuOQ==}
+  react-i18next@17.0.21:
+    resolution: {integrity: sha512-bcOTaZQKsNb4KKIc+T6Dx1Cf0x3UTV5io8X1PyaC38oOeNEbU5CNkW+5QmOGEyDSEbK/QC2kLXOgL9zeCIxR3g==}
     peerDependencies:
       i18next: '>= 26.2.0'
       react: '>= 16.8.0'
@@ -10003,7 +10003,7 @@ snapshots:
       react: 19.3.0
       scheduler: 0.28.0
 
-  react-i18next@17.0.20(i18next@26.4.7(typescript@6.0.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3):
+  react-i18next@17.0.21(i18next@26.4.7(typescript@6.0.3))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(typescript@6.0.3):
     dependencies:
       '@babel/runtime': 7.29.10
       html-parse-stringify: 4.0.1
