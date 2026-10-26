@@ -84,6 +84,7 @@ def test_generate_script_skill_pins_the_author_prompts_contract() -> None:
     fields = GenerateEpisodeScriptRequest.model_fields
     overwrite_code = _prompt_overwrite_problem(PromptOverwriteRequiredError("", {"revision": "r"})).code
 
+    assert fields["rewrite"].default is False, "省略 rewrite 的请求须走默认补缺"
     for field in ("entry_ids", "rewrite", "overwrite_revision"):
         assert field in fields, field
         assert f"`{field}" in section, field

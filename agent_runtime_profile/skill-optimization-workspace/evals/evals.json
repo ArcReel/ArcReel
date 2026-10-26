@@ -94,14 +94,14 @@
     {
       "id": 4,
       "prompt": "这集视频生成到一半断了，帮我接着来",
-      "expected_output": "应调 get_generation_batch 查询 durable batch，只把未成功的 ID 用 selected scope 和 force=false 重发，已入队的任务照常执行不重发",
+      "expected_output": "应调 get_generation_batch 查询 durable batch，按 problem.action 决定下一步：只把 action 为 retry 的 ID 用 selected scope 和 force=false 重发；wait_for_task 的 ID 等待其结果，fix_input 等需先处理的 ID 不直接重发；已入队的任务照常执行不重发",
       "target_skills": [
         "generate-video"
       ],
       "assertions": [
         {
           "name": "resends_remaining_ids",
-          "text": "调用 mcp__arcreel__get_generation_batch 查询批次后，只重发未成功的 ID",
+          "text": "调用 mcp__arcreel__get_generation_batch 查询批次后，只重发 problem.action 为 retry 的 ID；wait_for_task、fix_input 等其他 action 的 ID 不直接重发",
           "type": "behavior"
         },
         {

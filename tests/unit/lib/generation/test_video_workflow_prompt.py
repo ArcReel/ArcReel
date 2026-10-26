@@ -131,17 +131,25 @@ def test_edit_step_names_the_registered_timeline_tool() -> None:
     assert "mcp__arcreel__create_timeline" in content
 
 
+def _forbids_force(line: str) -> bool:
+    """这一行点名 force 的分句都带否定词，且至少有一处。"""
+    force_clauses = [clause for clause in re.split(r"[，,；;。！？!?]", line) if "force" in clause]
+    return bool(force_clauses) and all(
+        any(negation in clause for negation in ("不", "勿", "禁止", "别")) for clause in force_clauses
+    )
+
+
 def test_generate_video_waits_on_the_durable_batch_without_forcing_completed_targets() -> None:
     content = _reference(VIDEO_SKILL)
 
     assert "get_generation_batch" in content
     assert "poll_after_seconds" in content
     # 「在途不自动 force」是费用防线：在途任务刚完成时再 force，会对同一目标再付一次费。
-    # 措辞本身就是规则，所以按 #3445 的豁免只断言同一行同时出现 force、「在途」与否定词，不锁整句。
-    assert any(
-        "force" in line and "在途" in line and any(negation in line for negation in ("不", "勿", "禁止", "别"))
-        for line in content.splitlines()
-    ), "generate-video skill 未写明已有在途任务时不自动 force 重做"
+    # 只锁关键词：「在途」那一行里每个点名 force 的分句都须带否定词，
+    # 避免「自动 force；不必等待」或「在途时自动 force；其他情况不要 force」被当成禁止重做。
+    assert any("在途" in line and _forbids_force(line) for line in content.splitlines()), (
+        "generate-video skill 未写明已有在途任务时不自动 force 重做"
+    )
 
 
 def test_preexisting_tasks_use_bounded_plan_polling() -> None:

@@ -136,6 +136,8 @@ def _validate_eval_targets(label: str, record: dict[str, object], skills: set[st
     target_skills = record.get("target_skills", [])
     if isinstance(target_skills, list):
         errors.extend(f"{label}: unknown target skill {skill!r}" for skill in target_skills if str(skill) not in skills)
+    else:
+        errors.append(f"{label}: target_skills must be a list")
     text = json.dumps(record, ensure_ascii=False)
     tool_names = {match.rstrip(_MCP_SENTENCE_PUNCTUATION) for match in _MCP_RE.findall(text)}
     errors.extend(

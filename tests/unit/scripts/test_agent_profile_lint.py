@@ -125,6 +125,17 @@ def test_reports_evals_targeting_missing_skills_or_unregistered_tools(tmp_path: 
     assert not any("'ok'" in error for error in errors)
 
 
+def test_reports_eval_target_skills_that_are_not_a_list(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / "evals" / "cases.json").write_text(
+        json.dumps({"evals": [{"id": "scalar", "target_skills": "retired-skill"}]}), encoding="utf-8"
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"})
+
+    assert any("target_skills must be a list" in error for error in errors)
+
+
 def test_rejects_non_standard_json_constants_in_eval_ids(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / "evals" / "constants.json").write_text('{"evals":[{"id":NaN}]}', encoding="utf-8")
