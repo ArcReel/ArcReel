@@ -697,7 +697,7 @@ def _with_issued_ids(operation: ScriptBatchOperation, issued_ids: Mapping[str, s
     if not issued_ids:
         return operation
     update: dict[str, Any] = {}
-    if not isinstance(operation, InsertAfterOperation) and operation.id in issued_ids:
+    if not isinstance(operation, InsertAfterOperation | SetSequenceDirectionOperation) and operation.id in issued_ids:
         update["id"] = issued_ids[operation.id]
     after_id = operation.after_id if isinstance(operation, InsertAfterOperation | MoveAfterOperation) else None
     if after_id is not None and after_id in issued_ids:

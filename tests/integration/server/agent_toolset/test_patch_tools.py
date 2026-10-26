@@ -1794,6 +1794,28 @@ async def test_native_director_revises_shared_direction_and_shot_continuity(dram
     assert result.regeneration_required_ids == ()
 
 
+async def test_native_director_can_insert_then_revise_shared_direction(drama_ctx: ToolHarness) -> None:
+    before = _load(drama_ctx)
+    direction = make_sequence_direction()
+    inserted = {**before["scenes"][0], "scene_id": "E1S99"}
+    result = _committed(
+        await _patch(
+            drama_ctx,
+            [
+                {"op": "insert", "after_id": "E1S01", "item": inserted},
+                {"op": "set_sequence_direction", "direction": direction},
+            ],
+        )
+    )
+    after = _load(drama_ctx)
+    assert after["sequence_direction"] == direction
+    assert len(after["scenes"]) == len(before["scenes"]) + 1
+    assert after["scenes"][1]["scene_id"] != "E1S99"
+    assert after["scenes"][0] == before["scenes"][0]
+    assert after["scenes"][2:] == before["scenes"][1:]
+    assert result.revision != result.before_revision
+
+
 async def test_sequence_direction_rejected_for_narration_without_partial_write(ctx: ToolHarness) -> None:
     before = _load(ctx)
     result = _rejected(
