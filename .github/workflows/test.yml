@@ -223,7 +223,8 @@ jobs:
           --cov-report=xml:coverage-${{ matrix.suite }}.xml
 
       - name: Hang and crash diagnostics
-        # tests/hang_watchdog.py 写下的各进程最后执行的用例与无进展时的线程栈；
+        # tests/hang_watchdog.py 写下的各进程最后的进展（开始执行的用例与 sessionfinish/unconfigure 阶段）与无进展时的线程栈；
+        # 末尾是阶段记录的进程已跑完会话，末尾停在某条用例的进程就卡在那条用例上。
         # worker 被直接杀掉（node down: Not properly terminated）时，内核日志能看出是否 OOM。
         if: failure() || cancelled()
         env:
@@ -231,7 +232,7 @@ jobs:
         run: |
           shopt -s nullglob
           for f in "$DUMP_DIR"/*.progress; do
-            echo "::group::$(basename "$f") 最后执行的用例"
+            echo "::group::$(basename "$f") 最后的进展"
             tail -n 5 "$f"
             echo "::endgroup::"
           done

@@ -28,4 +28,4 @@ worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文�
 
 ## CI 挂起诊断
 
-后端测试 job 设了 `ARCREEL_TEST_HANG_DUMP_DIR`，根 conftest 加载的 `tests/hang_watchdog.py` 让 xdist 的 controller 与每个 worker 记下开始执行的用例，进程 180 秒无进展时转储全部线程的调用栈，会话收尾与进程退出阶段同样覆盖。测试步骤超时短于 job 超时，步骤失败或被取消后，「Hang and crash diagnostics」步骤输出每个进程最后执行的用例、线程栈与内核的 OOM 记录。排查挂起或 `node down: Not properly terminated` 先看这一步：被直接杀掉的 worker 没有线程栈，它的最后一条用例就是崩溃时在跑的用例。本地复现时设同一个环境变量即可得到同样的文件。
+后端测试 job 设了 `ARCREEL_TEST_HANG_DUMP_DIR`，根 conftest 加载的 `tests/hang_watchdog.py` 让 xdist 的 controller 与每个 worker 记下开始执行的用例，进程 180 秒无进展时转储全部线程的调用栈，会话收尾与进程退出阶段同样覆盖。测试步骤超时短于 job 超时，步骤失败或被取消后，「Hang and crash diagnostics」步骤输出每个进程最后的进展、线程栈与内核的 OOM 记录。进展末尾是 `sessionfinish`、`unconfigure` 的进程已跑完会话，末尾停在某条 `run` 用例的进程就卡在或死在那条用例上。排查挂起或 `node down: Not properly terminated` 先看这一步：被直接杀掉的 worker 没有线程栈，它的最后一条用例就是崩溃时在跑的用例。本地复现时设同一个环境变量即可得到同样的文件。
