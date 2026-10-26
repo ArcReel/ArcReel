@@ -6,13 +6,17 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
 
+import pytest
 from claude_agent_sdk import ClaudeAgentOptions, get_session_messages
 from claude_agent_sdk._internal.session_resume import materialize_resume_session
 from httpx import ASGITransport, AsyncClient
 
 from lib.agent.agent_session_store import make_project_key
+from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
+from lib.agent.agent_session_store.key_alignment import align_session_keys
 from lib.agent.agent_session_store.store import DbSessionStore
 from lib.db.repositories.session_repo import SessionRepository
+from lib.infra.data_root_layout_migration import migrate_data_root_layout
 from lib.project.project_manager import ProjectManager
 from server.agent_runtime.event_log import EventLogService, EventLogStore
 from server.agent_runtime.sdk_transcript_adapter import SdkTranscriptAdapter
@@ -181,3 +185,74 @@ async def test_restore_under_the_original_name_keeps_the_session_key(tmp_path, m
         assert (await client.post(f"{DELETED}/{quote(entry['id'], safe='')}/restore")).json()["name"] == "demo"
 
     assert len(await store.load({"project_key": old_key, "session_id": SID}) or []) == 2
+
+
+@pytest.mark.parametrize("store_enabled", [True, False])
+async def test_moved_data_root_then_renamed_restore_keeps_both_projects_sessions(
+    tmp_path, monkeypatch, session_factory, store_enabled
+):
+    sdk_config_dir = tmp_path / "cfg"
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(sdk_config_dir))
+    monkeypatch.setenv("ARCREEL_SDK_SESSION_STORE", "db" if store_enabled else "off")
+    old_root = tmp_path / "A"
+    manager = ProjectManager(old_root)
+    old_dir = _create(manager, "Old")
+    old_key = make_project_key(old_dir)
+    store = DbSessionStore(session_factory)
+    _write_local_transcript(sdk_config_dir / "projects", old_key, SID, old_dir)
+    if store_enabled:
+        await store.append({"project_key": old_key, "session_id": SID}, _transcript(SID, old_dir))
+    async with session_factory() as session:
+        await SessionRepository(session).create("demo", SID)
+    async with _client(monkeypatch, manager, session_factory) as client:
+        assert (await client.delete("/api/v1/projects/demo")).status_code == 200
+
+    new_root = tmp_path / "B"
+    old_root.rename(new_root)
+    manager = ProjectManager(new_root)
+    occupied_dir = _create(manager, "New")
+    occupied_key = make_project_key(occupied_dir)
+    _write_local_transcript(sdk_config_dir / "projects", occupied_key, NEW_DEMO_SID, occupied_dir)
+    if store_enabled:
+        await store.append(
+            {"project_key": occupied_key, "session_id": NEW_DEMO_SID}, _transcript(NEW_DEMO_SID, occupied_dir)
+        )
+    async with session_factory() as session:
+        await SessionRepository(session).create("demo", NEW_DEMO_SID)
+
+    # 启动迁移链使用真实实现：布局迁移 → 会话键对齐 → 本地 transcript 导入。
+    await migrate_data_root_layout(new_root, session_factory=session_factory, sdk_config_dir=sdk_config_dir)
+    await align_session_keys(
+        session_factory,
+        projects_dir=manager.layout.projects_dir,
+        sdk_config_dir=sdk_config_dir,
+        store_enabled=store_enabled,
+    )
+    if store_enabled:
+        await migrate_local_transcripts_to_store(store, data_root=new_root)
+
+    async with _client(monkeypatch, manager, session_factory) as client:
+        [entry] = (await client.get(DELETED)).json()["projects"]
+        restored = await client.post(f"{DELETED}/{quote(entry['id'], safe='')}/restore")
+        assert restored.json()["name"] == "demo-2"
+
+    restored_dir = manager.get_project_path("demo-2")
+    restored_key = make_project_key(restored_dir)
+    assert len(get_session_messages(SID, directory=str(restored_dir))) == 2
+    assert len(get_session_messages(NEW_DEMO_SID, directory=str(occupied_dir))) == 2
+    assert get_session_messages(SID, directory=str(occupied_dir)) == []
+    assert (sdk_config_dir / "projects" / restored_key / SID / "subagents" / "agent-1.jsonl").is_file()
+    async with session_factory() as session:
+        repo = SessionRepository(session)
+        assert (await repo.get(SID) or {})["project_name"] == "demo-2"
+        assert (await repo.get(NEW_DEMO_SID) or {})["project_name"] == "demo"
+    if store_enabled:
+        assert len(await store.load({"project_key": restored_key, "session_id": SID}) or []) == 2
+        assert await store.load({"project_key": old_key, "session_id": SID}) is None
+        assert await store.load({"project_key": occupied_key, "session_id": SID}) is None
+        assert len(await store.load({"project_key": occupied_key, "session_id": NEW_DEMO_SID}) or []) == 2
+        materialized = await materialize_resume_session(
+            ClaudeAgentOptions(cwd=str(restored_dir), resume=SID, session_store=store)
+        )
+        assert materialized is not None
+        await materialized.cleanup()
