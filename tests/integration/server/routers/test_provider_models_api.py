@@ -396,7 +396,7 @@ async def test_custom_unmatched_video_model_detail_and_settings(
     assert resp.status_code == 422
 
 
-async def test_custom_model_rename_and_remove_clear_global_references(
+async def test_custom_model_rename_rewrites_and_remove_clears_references(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     db_id = await _custom_provider(
@@ -432,10 +432,16 @@ async def test_custom_model_rename_and_remove_clear_global_references(
         == 422
     )
     async with db_factory() as session:
+        assert await ConfigService(session).get_setting("default_text_backend", "") == f"{provider_id}/house-v2"
+    assert pm.load_project("demo")["text_backend_simple"] == f"{provider_id}/house-v2"
+
+    assert models_client.delete(f"/api/v1/providers/{provider_id}/models/house-v2").status_code == 204
+    async with db_factory() as session:
         assert await ConfigService(session).get_setting("default_text_backend", "") == ""
+    assert "text_backend_simple" not in pm.load_project("demo")
 
     assert models_client.delete(f"/api/v1/providers/{provider_id}/models/spare").status_code == 204
-    assert set(_models(models_client, provider_id)) == {"house-v2"}
+    assert set(_models(models_client, provider_id)) == set()
 
 
 # ---------------------------------------------------------------------------

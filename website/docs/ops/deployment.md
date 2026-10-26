@@ -426,6 +426,8 @@ image: arcreel/arcreel:X.Y.Z
 
 ## 6. 备份与恢复 {#backup-and-restore}
 
+迁移整个站点到不同的绝对路径后，应用启动时会按当前项目目录调整已有 Agent 会话的存储位置，保留续聊上下文；已删除项目的会话也会随其恢复到的新名称调整。使用 `ARCREEL_SDK_SESSION_STORE=off` 时，会话仅保存在 SDK 本地目录，迁移时须一并保留该目录（Docker 为 `claude_data/`，原生部署为 `CLAUDE_CONFIG_DIR` 或默认的 `~/.claude`）。同一会话在多个来源位置都有记录，或目标位置已有记录时，不会自动合并；移动失败会记录告警，服务仍会启动。
+
 ### 6.1 SQLite 部署备份 {#backup-sqlite}
 
 数据根已经包含项目、默认 SQLite 数据库、日志和 Vertex 凭据，文件系统备份只需归档数据根，外加 `.env` 与 `claude_data/`。
