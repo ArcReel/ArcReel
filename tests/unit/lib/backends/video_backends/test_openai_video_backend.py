@@ -21,6 +21,7 @@ from tests.fakes import (
     captured_provider_job_ids,
 )
 from tests.http_capture import capture_http, only_request
+from tests.unit.lib.backends.write_cancel_gate import GatedWritePath, WriteGate, cancel_during_write
 
 
 def _make_mock_video(status="completed", seconds="8", video_id="vid_123"):
@@ -595,6 +596,30 @@ class TestOpenAIVideoBackend:
         mock_client.videos.retrieve.assert_called_with("vid_existing")
         assert result.video_path == output_path
         assert output_path.read_bytes() == video_data
+
+    async def test_download_write_settles_through_cancellation(self, tmp_path: Path):
+        """成片字节已到手：取消落在写盘期间时，写入先结算，取消随之消失，后续 faststart 与产物提交照常执行。"""
+        mock_client = AsyncMock()
+        mock_client.videos.retrieve = AsyncMock(return_value=_make_mock_video(status="completed", seconds="8"))
+        mock_client.videos.download_content = AsyncMock(return_value=_make_mock_content(b"resumed-content"))
+        gate = WriteGate()
+        output_path = GatedWritePath(tmp_path / "out.mp4").attach(gate)
+        written = tmp_path / "out.mp4"
+
+        with (
+            captured_openai_clients(mock_client),
+            bounded_poll_clock(),
+        ):
+            from lib.backends.video_backends.openai import OpenAIVideoBackend
+
+            backend = OpenAIVideoBackend(api_key="test-key", model="sora-2")
+            request = VideoGenerationRequest(
+                prompt="resumed", output_path=output_path, aspect_ratio="9:16", duration_seconds=8
+            )
+            steps = await cancel_during_write(lambda: backend.resume_video("vid_existing", request), gate)
+
+        assert steps == ["follow-up"]
+        assert written.read_bytes() == b"resumed-content"
 
     async def test_poll_recognizes_expired_status(self, tmp_path: Path):
         """retrieve 返回 status='expired' → 抛 ResumeExpiredError，而不是白等 max_wait。"""

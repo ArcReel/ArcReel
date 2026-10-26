@@ -21,7 +21,7 @@ from lib.backends.audio_backends.base import (
 from lib.backends.openai_shared import OPENAI_RETRYABLE_ERRORS, create_openai_client
 from lib.backends.providers import PROVIDER_OPENAI
 from lib.backends.transport_layer import TransportLayer
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.retry import with_retry_async
 
 logger = logging.getLogger(__name__)
@@ -110,7 +110,7 @@ class OpenAIAudioBackend:
         # language_type 是 DashScope 特有字段，/v1/audio/speech 无对应参数（语种随输入文本），不发送。
         # 计费调用与写盘分离：重试只包 API 调用，写盘瞬态失败绝不回头重跑会再次计费的合成请求。
         audio_bytes = await self._request_speech(request)
-        await run_sync_transaction(request.output_path.write_bytes, audio_bytes)
+        await run_noninterruptible_sync(request.output_path.write_bytes, audio_bytes)
 
         logger.info("OpenAI 兼容语音合成完成: %s", request.output_path)
 
