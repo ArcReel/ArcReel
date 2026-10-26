@@ -30,7 +30,7 @@ from lib.backends.image_backends.base import (
 )
 from lib.backends.providers import PROVIDER_AGNES
 from lib.billing.metering import Usage
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -283,4 +283,4 @@ async def _write_base64_image(b64: str, output_path: Path) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_bytes(image_bytes)
 
-    await run_sync_transaction(_decode_and_save)
+    await run_noninterruptible_sync(_decode_and_save)

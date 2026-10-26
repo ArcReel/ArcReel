@@ -33,6 +33,7 @@ from lib.backends.http_status_errors import (
     provider_rejected_error,
     redacted_status_error,
 )
+from lib.infra.async_thread import run_noninterruptible_async
 from lib.infra.logging_utils import redact_diagnostic_text, sanitize_diagnostic_payload
 from lib.infra.mp4_faststart import FASTSTART_SUFFIXES, ensure_faststart
 from lib.infra.retry import (
@@ -850,7 +851,8 @@ async def faststart_video_artifact(output_path: Path) -> None:
     随之作废、生成失败。重封装有自己的期限，经临时文件原子替换产物，失败时原文件不变。
     """
     if output_path.suffix.lower() in FASTSTART_SUFFIXES:
-        await ensure_faststart(output_path)
+        # 已下载的成片必须继续提交；重封装仍受其内部子进程期限约束。
+        await run_noninterruptible_async(ensure_faststart(output_path))
 
 
 async def download_video(
