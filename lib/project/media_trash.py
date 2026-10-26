@@ -2,6 +2,7 @@
 
 三类对象都挂在上级对象上：宫格属于集，尾帧属于剧本里的分镜，参考音频属于角色。删除成为一条带结构快照的删除记录；
 恢复时上级对象已不在，按取不出对象降级为只加回文件；落地时在锁内再核对一次，期间上级被删则本次恢复失败、记录保留。
+宫格所属的集也在项目回收站里时不降级：先恢复集、再恢复宫格（:func:`~lib.episode.episode_trash.require_live_episode`）。
 
 - 宫格：记录收宫格记录、联合图与它的版本历史快照。原 ID 空闲时整体加回，版本历史与产物清单登记取自迁移后的临时项目，
   照常按产物时效判定；ID 被占用时按取不出对象降级。
@@ -20,11 +21,12 @@ from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactManifestEntry, 
 from lib.artifacts.artifact_registration import register_artifact_entries_atomically
 from lib.artifacts.formal_write import formal_write_transaction
 from lib.artifacts.version_manager import VersionManager
+from lib.episode.episode_trash import require_live_episode
 from lib.infra.api_errors import ConflictError
 from lib.project import project_trash
 from lib.project.asset_types import resolve_asset_key
 from lib.project.project_change_hints import emit_project_change_hint
-from lib.project.project_manager import ProjectManager, find_episode, is_episode_number
+from lib.project.project_manager import ProjectManager, is_episode_number
 from lib.project.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
 from lib.project.trash_restore import Landing, Restoration
 from lib.script.grid.models import GridGeneration
@@ -138,17 +140,14 @@ def take_grid(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restor
     ]
     key = ArtifactKey.episode_grid(grid.episode, grid.id)
     claim = ProjectArtifactManifestAdapter(staged).snapshot_entries().get(key)
-    projects = ProjectManager.for_project_dir(project_dir)
     versions = VersionManager(project_dir)
 
     def require_free() -> None:
-        if find_episode(projects.load_project(project_dir.name), grid.episode) is None:
-            # 所属的集已删除：加回的宫格没有归属。
-            raise _failed(grid_id)
+        require_live_episode(project_dir, grid.episode, grid_id)
         if any(not _free(project_dir, rel) for rel in rels) or versions.resource_records(resource):
             raise _failed(grid_id)
 
-    # 此处抛错按取不出对象降级；落地时在锁内再核对一次。
+    # 此处按取不出对象降级（集已彻底删除、位置被占）或拒绝（集在回收站里）；落地时在锁内再核对一次。
     require_free()
 
     def land(landing: Landing) -> None:

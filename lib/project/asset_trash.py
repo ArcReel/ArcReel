@@ -56,7 +56,7 @@ from lib.project.asset_types import (
 )
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
-from lib.project.trash_restore import Landing, Restoration
+from lib.project.trash_restore import Landing, Restoration, RestoreBlocked
 from lib.speech.audio_utils import resolve_audio_ref_path
 
 __all__ = [
@@ -278,7 +278,11 @@ def take_asset(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Resto
 
 
 def take_asset_derivative(project_dir: Path, staged: Path, obj: Mapping[str, Any]) -> Restoration:
-    """按本体名与衍生名从临时项目取出衍生；本体已不在时无法按原结构恢复，名字被占用时在临时项目里改名后加回。"""
+    """按本体名与衍生名从临时项目取出衍生；名字被占用时在临时项目里改名后加回。
+
+    本体也在项目回收站里时抛 :class:`RestoreBlocked`：先恢复本体、再恢复衍生，记录不降级。
+    本体已彻底删除时无法按原结构恢复，按取不出对象降级。
+    """
     spec = ASSET_SPECS["character"]
     owner = resolve_asset_key(_read_project(staged).get(spec.bucket_key), str(obj.get("owner")))
     original = (
@@ -295,11 +299,13 @@ def take_asset_derivative(project_dir: Path, staged: Path, obj: Mapping[str, Any
         bucket = projects.load_project(project_dir.name).get(spec.bucket_key)
         key = resolve_asset_key(bucket, owner)
         if key is None or not isinstance(bucket, dict) or not isinstance(bucket[key], dict):
-            # 本体已删除：加回的衍生没有归属。
+            if deleted_asset_record(project_dir, spec.asset_type, owner) is not None:
+                raise RestoreBlocked("trash_restore_needs_character", name=owner)
+            # 本体已彻底删除：加回的衍生没有归属。
             raise ConflictError("trash_restore_failed", id=str(obj.get("name")))
         return key, bucket[key]
 
-    # 此处抛错按取不出对象降级；落地时在锁内再核对一次。
+    # 此处按取不出对象降级（本体已彻底删除）或拒绝（本体在回收站里）；落地时在锁内再核对一次。
     current_owner()
 
     def free(name: str) -> bool:
