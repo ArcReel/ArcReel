@@ -4,6 +4,7 @@ import { cn } from "cn"
 
 // 相对生成代码的改动：variant="plain" 是正文样式的字段（如故事设定），静止时没有边框与底色，悬停或聚焦时显出边框。
 // mono 换成等宽字体，用于代码、模型 ID、令牌与请求路径；它管字体、variant 管外观，两者独立，可同时使用。
+// 相对上游：降低 input 填充不透明度以保留文字对比度；失败态用完整红色描边与较强光晕。
 function Input({
   className,
   type,

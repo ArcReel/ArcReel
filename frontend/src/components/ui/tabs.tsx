@@ -51,6 +51,7 @@ function TabsList({
 }
 
 // 相对生成代码的改动：未选中项文字用 muted-foreground，不用 foreground/60，浅色下在 muted 底上达到 4.5:1。
+// 相对上游：降低 input 填充不透明度以保持选中项的浅底层级。
 function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
   return (
     <TabsPrimitive.Tab

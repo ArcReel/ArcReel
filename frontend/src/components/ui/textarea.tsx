@@ -52,6 +52,7 @@ function useFieldSizingFallback(
 // 另加 variant="plain"：画布里直接编辑的正文字段（如故事设定），静止时没有边框与底色、行高放宽，悬停或聚焦时显出边框。
 // 长页面里的正文字段由调用处传 max-h-none，随内容撑高、由页面滚动，不在框内再嵌套滚动。
 // 另加 mono：换成等宽字体，用于 JSON、代码与请求体；它管字体、variant 管外观，两者独立，可同时使用。
+// 相对上游：降低 input 填充不透明度以保留文字对比度；失败态用完整红色描边与较强光晕。
 function Textarea({
   className,
   ref,
