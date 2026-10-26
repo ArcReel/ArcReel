@@ -30,14 +30,15 @@ from starlette.middleware.gzip import GZipResponder, IdentityResponder
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from lib import PROJECT_ROOT
-from lib.agent.agent_session_store import session_store_enabled
+from lib.agent.agent_session_store import default_sdk_config_dir, session_store_enabled
 from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
+from lib.agent.agent_session_store.key_alignment import align_session_keys
 from lib.agent.agent_session_store.store import DbSessionStore
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation.generation_worker import GenerationWorker
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
-from lib.infra.data_root_layout_migration import default_sdk_config_dir, migrate_data_root_layout
+from lib.infra.data_root_layout_migration import migrate_data_root_layout
 from lib.infra.ffmpeg import log_ffmpeg_status
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from lib.infra.logging_config import (
@@ -405,6 +406,20 @@ async def lifespan(app: FastAPI):
             migration_summary.failed,
         )
     await asyncio.to_thread(cleanup_stale_backups, layout.projects_dir, 7)
+
+    # 会话存储键对齐（幂等；失败不阻塞启动）：数据根换了绝对路径后，会话的 Agent 上下文改到当前项目目录派生的键下。
+    # 排在数据根布局迁移之后：布局迁移把旧布局的键改到 projects/ 下的目录，这里才按当前布局重算。
+    # 排在本地 transcript 导入之前：导入按当前键列本地会话、按当前键判断是否已导入，键没对齐时会在新键下
+    # 再导入一份，同一会话两个键下都有记录，对齐就不再改它。
+    try:
+        await align_session_keys(
+            async_session_factory,
+            projects_dir=layout.projects_dir,
+            sdk_config_dir=default_sdk_config_dir(),
+            store_enabled=session_store_enabled(),
+        )
+    except Exception:
+        logger.exception("会话存储键对齐失败（不阻塞启动）")
 
     # Migrate any pre-existing local SDK jsonl transcripts into the DbSessionStore.
     # Runs once (marker-gated); failures are non-fatal and logged.
