@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -46,6 +46,14 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
   const { t } = useTranslation("dashboard");
   const [, navigate] = useLocation();
   const inputRef = useRef<HTMLInputElement>(null);
+  // 大厅卸载时 abort；导入请求本身不接这个 signal（它是写入请求，abort 只会断开客户端），
+  // 仅在 await 之后据此判断用户是否已离开大厅。
+  const unmountAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    unmountAbortRef.current = controller;
+    return () => controller.abort();
+  }, []);
   const [importing, setImporting] = useState(false);
   const [conflict, setConflict] = useState<{ attempt: ImportAttempt; projectName: string } | null>(null);
   const [reportConfirm, setReportConfirm] = useState<{ attempt: ImportAttempt; pending: PendingImportReport } | null>(
@@ -55,28 +63,38 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
 
   const importFile = async (attempt: ImportAttempt) => {
     const { file, policy, confirmReport } = attempt;
+    const leftSignal = unmountAbortRef.current?.signal;
+    const { pushToast } = useAppStore.getState();
     setImporting(true);
     try {
       const result = await API.importProject(file, policy, { confirmReport });
-      setConflict(null);
-      setReportConfirm(null);
+      const left = leftSignal?.aborted ?? false;
+      if (!left) {
+        setConflict(null);
+        setReportConfirm(null);
+      }
       onImported();
 
       const navigateTo = `/app/projects/${result.project_name}`;
       const { auto_fixed: autoFixed, warnings } = result.diagnostics;
-      if (autoFixed.length === 0 && warnings.length === 0) {
+      const hasFindings = autoFixed.length > 0 || warnings.length > 0;
+      if (!hasFindings && !left) {
         navigate(navigateTo);
         return;
       }
       const title = getProjectDisplayName(result.project.title, t("untitled_project"));
-      useAppStore
-        .getState()
-        .pushToast(
-          autoFixed.length > 0
-            ? t("import_auto_fixed", { title, count: autoFixed.length })
-            : t("lobby_import_succeeded", { title }),
-          "success",
-        );
+      const text =
+        autoFixed.length > 0
+          ? t("import_auto_fixed", { title, count: autoFixed.length })
+          : t("lobby_import_succeeded", { title });
+      if (left) {
+        // 用户已不在大厅：不把人拉回新项目，也没有对话框可展示诊断，结果改以带「打开项目」按钮的提示告知。
+        pushToast(text, "success", {
+          action: { label: t("lobby_import_open_project"), onClick: () => navigate(navigateTo) },
+        });
+        return;
+      }
+      pushToast(text, "success");
       setDiagnostics({
         source: "success",
         diagnostics: { blocking: [], auto_fixable: autoFixed, warnings },
@@ -84,11 +102,24 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
       });
     } catch (err) {
       const error = err as ImportError;
+      const left = leftSignal?.aborted ?? false;
       if (error.status === 409 && error.confirmation_required && error.migration_report && !confirmReport) {
+        if (left) {
+          pushToast(t("lobby_import_confirm_left"), "warning");
+          return;
+        }
         setReportConfirm({
           attempt,
           pending: { report: error.migration_report, episodes: error.migration_report_episodes ?? [] },
         });
+        return;
+      }
+      if (error.status === 409 && error.conflict_project_name && policy === "prompt" && left) {
+        pushToast(t("lobby_import_conflict_left", { name: error.conflict_project_name }), "warning");
+        return;
+      }
+      if (left) {
+        pushToast(t("lobby_import_failed_left", { message: error.message }), "error");
         return;
       }
       setReportConfirm(null);
@@ -101,7 +132,7 @@ export function useProjectImport({ onImported }: { onImported: () => void }): {
       if (hasDiagnostics(error.diagnostics)) {
         setDiagnostics({ source: "failure", diagnostics: error.diagnostics });
       } else {
-        useAppStore.getState().pushToast(t("lobby_import_failed", { message: error.message }), "error");
+        pushToast(t("lobby_import_failed", { message: error.message }), "error");
       }
     } finally {
       setImporting(false);
