@@ -40,6 +40,9 @@ class GatedWritePath(type(Path())):
         self._gate.block()
         return super().write_bytes(data)
 
+    def with_name(self, name: str) -> GatedWritePath:
+        return super().with_name(name).attach(self._gate)
+
 
 async def cancel_during_write(operation: Callable[[], Awaitable[object]], gate: WriteGate) -> list[str]:
     """运行 ``operation``，在它的写盘线程卡住期间取消任务，放行后返回后续步骤的执行记录。

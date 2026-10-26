@@ -18,9 +18,11 @@ import pytest
 from arcreel_market_core.video_backend_contract import ProviderJobStatus
 from lib.backends import artifact_download_guard
 from lib.backends.artifact_download_guard import artifact_http_client, stream_body_to_file
+from lib.backends.backend_runtime import faststart_video_artifact
 from lib.backends.image_backends import agnes, minimax
 from lib.backends.image_backends.base import save_image_from_response_item
 from lib.custom_provider.declarative_image_backend import ImageJobState, _write_inline_image
+from lib.generation.media_generator import _remove_staged_output_on_error
 from tests.fakes import PNG_BYTES
 from tests.http_capture import capture_http
 from tests.unit.lib.backends.write_cancel_gate import GatedWritePath, WriteGate, cancel_during_write
@@ -103,6 +105,27 @@ async def test_downloaded_artifact_rename_settles_through_cancellation(tmp_path:
     assert steps == ["follow-up"]
     assert output.read_bytes() == PNG_BYTES
     assert not output.with_name(f"{output.name}.part").exists()
+
+
+async def test_faststart_cancellation_preserves_staged_video_for_commit(tmp_path: Path):
+    gate = WriteGate()
+
+    class GatedReadPath(type(Path())):
+        def stat(self, *, follow_symlinks=True):
+            gate.block()
+            return super().stat(follow_symlinks=follow_symlinks)
+
+    output = tmp_path / "video.mp4"
+    output.write_bytes(b"paid-video")
+
+    async def postprocess() -> None:
+        async with _remove_staged_output_on_error(output):
+            await faststart_video_artifact(GatedReadPath(output))
+
+    steps = await cancel_during_write(postprocess, gate)
+
+    assert steps == ["follow-up"]
+    assert output.read_bytes() == b"paid-video"
 
 
 def _resolver(address: str):
