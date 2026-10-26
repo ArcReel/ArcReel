@@ -13,7 +13,6 @@ from __future__ import annotations
 import contextlib
 import copy
 import json
-import os
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -57,7 +56,6 @@ from lib.project.asset_types import (
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.project.trash_restore import Landing, Restoration, RestoreBlocked
-from lib.speech.audio_utils import resolve_audio_ref_path
 
 __all__ = [
     "ASSET_DERIVATIVE_KIND",
@@ -124,29 +122,11 @@ def trash_asset(
         owner=name,
         resources=[(spec.bucket_key, name), *_derivative_resources(name, derivatives)],
         files=[
-            *_relative(project_dir, _unshared(project_dir, asset_files_named(project_dir, spec, name))),
+            *_relative(project_dir, asset_files_named(project_dir, spec, name)),
             *_derivative_sheets(project_dir, name, derivatives),
         ],
         before=before,
     )
-
-
-def _unshared(project_dir: Path, paths: Sequence[Path]) -> list[Path]:
-    """去掉仍有现存角色引用的参考音频：角色可以指向别人名下的音频，移走会让它的参考音色失效。
-
-    此刻 project.json 已去掉被删资产，读到的就是删除后仍在的角色。
-    """
-    project = json.loads((project_dir / ProjectManager.PROJECT_FILE).read_text(encoding="utf-8"))
-    characters = project.get("characters")
-    refs_audio_dir = project_dir / "characters" / "refs_audio"
-    shared = {
-        os.path.realpath(current)
-        for entry in (characters.values() if isinstance(characters, dict) else ())
-        if isinstance(entry, dict)
-        and isinstance(reference := entry.get("reference_audio"), str)
-        and (current := resolve_audio_ref_path(project_dir, refs_audio_dir, reference)) is not None
-    }
-    return [path for path in paths if os.path.realpath(path) not in shared]
 
 
 def trash_asset_derivative(

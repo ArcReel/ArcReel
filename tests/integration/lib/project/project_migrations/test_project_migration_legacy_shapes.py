@@ -48,6 +48,7 @@ from tests.legacy_project_shapes import (
     reuse_item_id_across_episodes,
     set_script_episode,
     share_episode_script,
+    share_reference_files,
     write_legacy_ad_reference_video_project,
     write_legacy_reference_video_project,
     write_legacy_script_plan_project,
@@ -174,6 +175,93 @@ def test_asset_names_that_differ_only_in_case_keep_the_first(tmp_path: Path) -> 
     entries = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
     assert ArtifactKey.asset_sheet("prop", "Umbrella") in entries
     assert ArtifactKey.asset_sheet("prop", variant) not in entries
+
+
+_SHARED_REFERENCE_COPIES = [
+    (
+        "characters/refs/阿青.png",
+        {"asset_type": "character", "name": "阿青", "owner": "阿离", "from": "characters/refs/阿离.png"},
+    ),
+    (
+        "characters/refs_audio/阿青.wav",
+        {"asset_type": "character", "name": "阿青", "owner": "阿离", "from": "characters/refs_audio/阿离.wav"},
+    ),
+    (
+        "products/refs/茶_1.png",
+        {"asset_type": "product", "name": "茶", "owner": "咖啡", "from": "products/refs/咖啡_1.png"},
+    ),
+]
+
+
+def _copied_reference_files(project_dir: Path) -> list[tuple[str | None, dict[str, str]]]:
+    report = load_migration_report(project_dir)
+    assert report is not None
+    return [(item.file, item.params) for item in report.adjusted if item.code == "shared_reference_file_copied"]
+
+
+@pytest.mark.parametrize("from_version", [7, CURRENT_PROJECT_SCHEMA_VERSION - 1])
+def test_reference_files_shared_with_another_asset_get_their_own_copy(tmp_path: Path, from_version: int) -> None:
+    project_dir, *_ = _project(tmp_path)
+    advance_project_schema(project_dir, to_version=from_version)
+    contents = share_reference_files(project_dir)
+
+    _migrate(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    qing, ali = project["characters"]["阿青"], project["characters"]["阿离"]
+    assert (qing["reference_image"], qing["reference_audio"]) == (
+        "characters/refs/阿青.png",
+        "characters/refs_audio/阿青.wav",
+    )
+    assert (ali["reference_image"], ali["reference_audio"]) == (
+        "characters/refs/阿离.png",
+        "characters/refs_audio/阿离.wav",
+    )
+    assert project["products"]["茶"]["reference_images"] == ["products/refs/茶_1.png"]
+    assert project["products"]["咖啡"]["reference_images"] == ["products/refs/咖啡_1.png"]
+    copies = {"characters/refs/阿青.png": "characters/refs/阿离.png"} | {
+        target: params["from"] for target, params in _SHARED_REFERENCE_COPIES
+    }
+    for target, source in copies.items():
+        assert (project_dir / target).read_bytes() == contents[source]
+        assert (project_dir / source).read_bytes() == contents[source]
+    assert _copied_reference_files(project_dir) == _SHARED_REFERENCE_COPIES
+    report = load_migration_report(project_dir)
+    assert report is not None
+    [stray_backup] = [item.backup for item in report.adjusted if item.backup is not None]
+    assert (project_dir / stray_backup).read_bytes() == b"qing-stray"
+    shown = WorkflowStateService(ProjectManager(str(tmp_path))).get_status("demo").migration_report
+    assert shown is not None
+    assert [item.code for item in shown.adjusted] == ["shared_reference_file_copied"] * 3
+
+
+def test_copying_shared_reference_files_converges_after_a_failed_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir, *_ = _project(tmp_path)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION - 1)
+    share_reference_files(project_dir)
+    record: list[Any] = []
+    write = legacy_shapes.atomic_write_json
+
+    def fail_on_project(path: Path, payload: Any) -> None:
+        if path.name == "project.json":
+            raise OSError("disk full")
+        write(path, payload)
+
+    # 副本都已落盘、保留副本也已挪出，改指的 project.json 提交失败。
+    with monkeypatch.context() as patch:
+        patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project)
+        with pytest.raises(OSError, match="disk full"):
+            normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=record)
+    normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=record)
+
+    assert [(item.file, item.params) for item in record] == _SHARED_REFERENCE_COPIES
+    assert record[0].backup is not None
+    assert (project_dir / record[0].backup).read_bytes() == b"qing-stray"
+    assert _read_json(project_dir / "project.json")["products"]["茶"]["reference_images"] == ["products/refs/茶_1.png"]
+    assert not (project_dir / "products" / "refs" / "茶_2.png").exists()
+    assert len(list((project_dir / "characters" / "refs").glob("阿青.png.kept.*"))) == 1
 
 
 def _issue_codes(tmp_path: Path) -> set[str]:

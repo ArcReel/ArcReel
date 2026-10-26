@@ -80,6 +80,7 @@ from lib.project.asset_rename import (
     AssetRenameConflictError,
     AssetRenameNotFoundError,
     AssetRenameReport,
+    owns_named_file,
     plan_asset_file_renames,
     rewrite_entry_paths,
     rewrite_grid_reference_images,
@@ -3907,7 +3908,7 @@ class ProjectManager:
         target = Path(self._safe_subpath(project_dir, ref_path))
         if os.path.realpath(target.parent) != os.path.realpath(refs_audio_dir):
             raise ValueError("reference audio target must be inside characters/refs_audio")
-        stale: list[tuple[dict, str, Path]] = []
+        stale: list[tuple[str, Path]] = []
 
         def _mutate(project: dict) -> None:
             key = resolve_asset_key(project.get("characters"), char_name)
@@ -3917,41 +3918,36 @@ class ProjectManager:
             stale_audio = resolve_stale_reference_audio(project_dir, refs_audio_dir, old_audio, target)
             self._set_character_reference_audio(project, char_name, ref_path)
             if stale_audio is not None:
-                stale.append((project, key, stale_audio))
+                stale.append((key, stale_audio))
 
         return self._update_project_with_files(
             project_name,
             _mutate,
             writes=[(content, target)],
-            on_commit=lambda _file: self._trash_unreferenced_reference_audio(project_dir, *stale[0]) if stale else None,
+            on_commit=lambda _file: self._trash_stale_reference_audio(project_dir, *stale[0]) if stale else None,
         )
 
     @staticmethod
-    def _trash_unreferenced_reference_audio(project_dir: Path, project: dict, character: str, stale: Path) -> None:
-        """Move a reference audio no character points at any more to the project trash; the caller holds the lock."""
+    def _trash_stale_reference_audio(project_dir: Path, character: str, stale: Path) -> None:
+        """Move the replaced or cleared audio to the project trash when it is the character's own file.
 
-        refs_audio_dir = project_dir / "characters" / "refs_audio"
-        stale_identity = os.path.realpath(stale)
-        characters = project.get("characters")
-        for entry in characters.values() if isinstance(characters, dict) else ():
-            reference_audio = entry.get("reference_audio") if isinstance(entry, dict) else None
-            current = resolve_audio_ref_path(
-                project_dir, refs_audio_dir, reference_audio if isinstance(reference_audio, str) else None
-            )
-            if current is not None and os.path.realpath(current) == stale_identity:
-                return
-        if stale.is_file() and not stale.is_symlink():
+        Reference audio is owned by name and never shared, so a file under another name is not this character's to
+        remove; the caller holds the lock.
+        """
+
+        rel = f"characters/refs_audio/{stale.name}"
+        if owns_named_file(ASSET_SPECS["character"], character, rel) and stale.is_file() and not stale.is_symlink():
             # 回收站的落地规则依赖本模块，顶层导入会成环。
             from lib.project.media_trash import trash_reference_audio
 
-            trash_reference_audio(project_dir, character, f"characters/refs_audio/{stale.name}")
+            trash_reference_audio(project_dir, character, rel)
 
     def clear_character_reference_audio(self, project_name: str, char_name: str) -> dict:
-        """Clear the reference and move the now-unreferenced audio file to the project trash in one commit."""
+        """Clear the reference and move the character's own audio file to the project trash in one commit."""
 
         project_dir = self.get_project_path(project_name)
         refs_audio_dir = project_dir / "characters" / "refs_audio"
-        stale: list[tuple[dict, str, Path]] = []
+        stale: list[tuple[str, Path]] = []
 
         def _mutate(project: dict) -> None:
             key = resolve_asset_key(project.get("characters"), char_name)
@@ -3965,12 +3961,12 @@ class ProjectManager:
             )
             self._set_character_reference_audio(project, char_name, "")
             if stale_audio is not None:
-                stale.append((project, key, stale_audio))
+                stale.append((key, stale_audio))
 
         return self.update_project(
             project_name,
             _mutate,
-            on_commit=lambda _file: self._trash_unreferenced_reference_audio(project_dir, *stale[0]) if stale else None,
+            on_commit=lambda _file: self._trash_stale_reference_audio(project_dir, *stale[0]) if stale else None,
         )
 
     def get_project_character(self, project_name: str, name: str) -> dict:
