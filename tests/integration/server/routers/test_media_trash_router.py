@@ -133,6 +133,15 @@ def test_a_cleared_end_frame_returns_to_its_shot(media_trash_pm, media_trash_cli
     assert (media_trash_pm.get_project_path("demo") / END_FRAME).read_bytes() == b"frame"
 
 
+def test_an_end_frame_record_names_its_shot_by_position_and_text(media_trash_pm):
+    """回收站按分镜在集里的位置与正文摘录称呼尾帧，不露分镜的内部编号。"""
+    _set_end_frame(media_trash_pm, b"frame")
+    _clear_end_frame(media_trash_pm)
+
+    [record] = project_trash.list_records(media_trash_pm.get_project_path("demo"))
+    assert (record.object["episode"], record.object["item_position"], record.object["item_excerpt"]) == (1, 1, "t")
+
+
 def test_an_end_frame_restored_onto_a_newer_one_takes_a_new_name(media_trash_pm, media_trash_client):
     _set_end_frame(media_trash_pm, b"old")
     _clear_end_frame(media_trash_pm)

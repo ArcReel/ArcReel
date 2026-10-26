@@ -35,7 +35,7 @@ To delete an unreferenced file or a past version, select it and click **Move to 
 
 - Deleting project content is no longer a hard delete. The confirmation dialogs for deleting an episode, deleting an asset, removing a storyboard, deleting a source file, deleting an edit timeline, and similar operations all state that the content moves to the project trash and is kept for 30 days.
 - Older versions produced by regeneration or editing stay in the version history and do not go to the project trash. The project trash holds only content that was deleted on purpose.
-- The project trash is the **Project trash** section under **Files** in the workspace. Each deletion record shows the object, the deletion time, who started it (you or the Agent), and the space it uses. The object is shown by type and name, for example Episode "title", Source file "name", or Planning draft of episode N; file records show the path.
+- The project trash is the **Project trash** section under **Files** in the workspace. Each deletion record shows the object, the deletion time, who started it (you or the Agent), and the space it uses. The object is shown by type and name, for example Episode "title", Source file "name", or Planning draft of episode N; file records show the path. Shots, video units, and end frames are shown by their position and opening text at deletion, for example "Shot title · 5: opening text…", so several records from the same episode can be told apart.
 - The project trash is not project content: it does not appear in the file tree, and a project ZIP does not include it.
 
 ## Deleting and restoring each type of object {#objects}

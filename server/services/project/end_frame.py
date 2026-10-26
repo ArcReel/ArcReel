@@ -241,13 +241,13 @@ def _clear_snapshot_and_field(project_name: str, script_file: str, shot_id: str,
     entered = False
     trash = False
 
-    def prepare_trash(_script: dict) -> Callable[[Path], None] | None:
+    def prepare_trash(script: dict) -> Callable[[Path], None] | None:
         # 删除记录在剧本写回之后、同一把项目锁内建立：任一步失败时剧本回滚、快照留在原处。
         if not trash:
             return None
 
         def record(_output: Path) -> None:
-            trash_end_frame(manager.get_project_path(project_name), key[1], shot_id)
+            trash_end_frame(manager.get_project_path(project_name), key[1], shot_id, script)
 
         return record
 
