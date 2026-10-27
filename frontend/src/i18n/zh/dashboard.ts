@@ -2818,7 +2818,7 @@ export default {
   'ext_agent_mcp_endpoint': 'MCP 端点',
   'ext_agent_copy_mcp_endpoint': '复制 MCP 端点',
   'ext_agent_step_token_title': '准备访问令牌',
-  'ext_agent_step_token_desc': 'setup skill 还需要一个访问令牌。完整令牌只在创建时显示一次，请立即保存，并只交给你信任的外部 Agent。setup skill 会把令牌明文写入 MCP 配置与 .arcreel/settings.json；这些文件位于代码仓库内时，将其加入 .gitignore，避免令牌随代码提交。',
+  'ext_agent_step_token_desc': 'setup skill 还需要一个访问令牌。完整令牌只在创建时显示一次，请立即保存，并只交给你信任的外部 Agent。setup skill 会把令牌明文写入 MCP 配置与 .arcreel/settings.json；这些文件位于代码仓库内时，将其加入 .gitignore；已被 Git 跟踪的还需停止跟踪，避免令牌随代码提交。',
   'ext_agent_manage_tokens': '管理访问令牌',
   'ext_agent_prompt_title': '让 AI Agent 代为接入',
   'ext_agent_prompt_desc': '把以下提示词发给你的 AI Agent。它会读取专用安装指引，带你完成 skills、MCP 与连通验证。',

@@ -392,6 +392,8 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     assert out.problem is None
     # handler 不传 output_path —— ScriptGenerator 自己决定写到哪里
     assert "output_path" not in captured["calls"]
+    assert "scripts/episode_1.json" in said(out)
+    assert str(project_path) not in said(out)
 
 
 async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolHarness, monkeypatch) -> None:
@@ -495,7 +497,9 @@ async def test_generate_episode_script_rewrite_over_existing_prompts_returns_the
     assert out.problem is not None
     assert out.problem.code == "prompt_overwrite_required"
     overwrite = (out.problem.params or {})["prompt_overwrite"]
-    assert overwrite["revision"] == script_review.content_fingerprint(scripts / "episode_1.json")
+    assert overwrite["revision"] == script_review.published_revision(
+        script_review.content_fingerprint(scripts / "episode_1.json")
+    )
     assert overwrite["entries"] == [{"id": "E1S01", "fields": ["image_prompt"]}]
     assert overwrite["text"] in said(out)
 
@@ -993,6 +997,8 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
         f"normalize_drama_script 必须向 TextGenerator.generate 传入 project_name，"
         f"实际传入: {captured.get('generate_project_name')!r}"
     )
+    assert "drafts/episode_1/script_plan_normalized_script.json" in said(out)
+    assert str(project_path) not in said(out)
 
 
 async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis(

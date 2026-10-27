@@ -76,8 +76,18 @@ def relativize_project_paths(text: str, spellings: Iterable[str]) -> str:
     return text
 
 
+def _relativize_payload(value: Any, spellings: tuple[str, ...]) -> Any:
+    if isinstance(value, str):
+        return relativize_project_paths(value, spellings)
+    if isinstance(value, dict):
+        return {key: _relativize_payload(item, spellings) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return type(value)(_relativize_payload(item, spellings) for item in value)
+    return value
+
+
 def _project_relative_outcome(outcome: ToolOutcome[Any], spellings: tuple[str, ...]) -> ToolOutcome[Any]:
-    """远程错误消息不外泄服务端文件系统布局：problem 的 detail / action 只用项目内相对路径。"""
+    """远程错误消息不外泄服务端文件系统布局：problem 的 detail / action / params 只用项目内相对路径。"""
     problem = outcome.problem
     if problem is None:
         return outcome
@@ -86,6 +96,7 @@ def _project_relative_outcome(outcome: ToolOutcome[Any], spellings: tuple[str, .
             problem,
             detail=relativize_project_paths(problem.detail, spellings),
             action=relativize_project_paths(problem.action, spellings) if problem.action is not None else None,
+            params=_relativize_payload(problem.params, spellings),
         )
     )
 

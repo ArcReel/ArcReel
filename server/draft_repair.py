@@ -24,6 +24,7 @@ from lib.backends.text_backends.base import TextGenerationRequest as BackendText
 from lib.backends.text_generator import TextGenerator
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.generation.video_request_facts import VideoRequestFactsError
+from lib.infra.content_digest import unprefixed
 from lib.infra.text_utils import strip_json_code_fences
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.script.draft_quarantine import (
@@ -187,7 +188,7 @@ class DraftRepair:
                 "draft_agent_owned", f"集（id={episode}）{doc_type} draft is being edited by the agent"
             )
         actual_revision = draft_revision(draft)
-        if base_revision != actual_revision:
+        if unprefixed(base_revision) != unprefixed(actual_revision):
             raise DraftWorkflowError(
                 "revision_conflict", f"draft revision changed: expected {base_revision}, actual {actual_revision}"
             )

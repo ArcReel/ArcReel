@@ -306,6 +306,8 @@ async def test_split_reference_video_units_happy_derives_structure(
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is None, out
+    assert "drafts/episode_1/script_plan_reference_units.json" in said(out)
+    assert str(fake_ctx.project_path) not in said(out)
 
     saved = json.loads(rv_script_plan_path(fake_ctx).read_text(encoding="utf-8"))
     unit = saved["units"][0]

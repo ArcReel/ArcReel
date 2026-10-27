@@ -112,7 +112,7 @@ EPISODE_ID_DESCRIPTION = (
 )
 
 
-_DRAFT_REVISION_DESCRIPTION = "open_draft / 上次 patch_draft 返回的 revision"
+_DRAFT_REVISION_DESCRIPTION = "open_draft / 上次 patch_draft 返回的 revision；带 sha256-v1: 前缀与裸 hex 两种写法等价"
 
 
 class _DraftRequest(BaseModel):
@@ -156,7 +156,7 @@ class PatchDraftRequest(_DraftRequest):
 
 
 class PromoteDraftRequest(_DraftRequest):
-    base_revision: str = Field(description="open_draft 返回的当前草稿 revision")
+    base_revision: str = Field(description=_DRAFT_REVISION_DESCRIPTION)
 
 
 class DiscardDraftRequest(_DraftRequest):
@@ -1333,7 +1333,9 @@ class DraftWorkflow:
         if draft is None:
             return self._read(episode, resolved)
         actual_revision = draft_revision(draft)
-        if base_revision != actual_revision:
+        if script_review.fingerprint_of_revision(base_revision) != script_review.fingerprint_of_revision(
+            actual_revision
+        ):
             raise DraftWorkflowError(
                 "revision_conflict",
                 f"draft revision changed: expected {base_revision}, actual {actual_revision}",
@@ -1429,7 +1431,9 @@ class DraftWorkflow:
             )
             if draft is None:
                 return await asyncio.to_thread(self._read, episode, resolved)
-            if base_revision != actual_revision:
+            if script_review.fingerprint_of_revision(base_revision) != script_review.fingerprint_of_revision(
+                actual_revision
+            ):
                 raise DraftWorkflowError(
                     "revision_conflict",
                     f"draft revision changed: expected {base_revision}, actual {actual_revision}",
@@ -1527,7 +1531,9 @@ class DraftWorkflow:
                 episode,
                 resolved,
             )
-            if draft is not None and base_revision != actual_revision:
+            if draft is not None and script_review.fingerprint_of_revision(
+                base_revision
+            ) != script_review.fingerprint_of_revision(actual_revision):
                 raise DraftWorkflowError(
                     "revision_conflict",
                     f"draft revision changed: expected {base_revision}, actual {actual_revision}",

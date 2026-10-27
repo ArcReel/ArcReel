@@ -696,8 +696,9 @@ async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(f
     "doc_type",
     ["drama_script_plan", "narration_script_plan", "reference_script_plan", "reference_prompt_authoring"],
 )
+@pytest.mark.parametrize("spelling", ["prefixed", "bare"])
 async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
-    fake_ctx: ToolHarness, doc_type: str
+    fake_ctx: ToolHarness, doc_type: str, spelling: str
 ) -> None:
     if doc_type == "drama_script_plan":
         drama_project(fake_ctx)
@@ -720,6 +721,9 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
             },
         )
 
+    def revision(value: str) -> str:
+        return value.removeprefix("sha256-v1:") if spelling == "bare" else value
+
     args = {"episode_id": 1, "doc_type": doc_type}
     opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
 
@@ -739,7 +743,7 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
         await run_declared_tool(
             "patch_draft",
             fake_ctx,
-            {**args, "content": first_content, "base_revision": opened["revision"]},
+            {**args, "content": first_content, "base_revision": revision(opened["revision"])},
         )
     )
     second_content = first["content"]
@@ -748,23 +752,20 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
         await run_declared_tool(
             "patch_draft",
             fake_ctx,
-            {**args, "content": second_content, "base_revision": first["revision"]},
+            {**args, "content": second_content, "base_revision": revision(first["revision"])},
         )
     )
     assert second["revision"] != first["revision"]
 
     if doc_type == "reference_prompt_authoring":
         discarded = draft_of(
-            await run_declared_tool("discard_draft", fake_ctx, {**args, "base_revision": second["revision"]})
+            await run_declared_tool("discard_draft", fake_ctx, {**args, "base_revision": revision(second["revision"])})
         )
         assert discarded["discarded"] is True
     else:
-        if doc_type == "drama_script_plan":
-            result = await promote_drama(fake_ctx)
-        elif doc_type == "narration_script_plan":
-            result = await promote_nr(fake_ctx)
-        else:
-            result = await promote_reference_draft(fake_ctx)
+        result = await run_declared_tool(
+            "promote_draft", fake_ctx, {**args, "base_revision": revision(second["revision"])}
+        )
         assert result.problem is None, result
 
 
