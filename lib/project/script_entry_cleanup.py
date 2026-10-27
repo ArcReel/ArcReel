@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable, Collection, Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -23,10 +24,12 @@ from lib.artifacts.version_manager import VersionManager
 from lib.infra.path_safety import try_safe_join
 from lib.project import project_trash
 from lib.project.resource_paths import END_FRAME_RESOURCE_TYPE, resource_relative_path
+from lib.script.item_excerpt import position_snapshot
 from lib.speech.narration_config import POST_PRODUCTION, USE_TTS
 from lib.speech.speech_presentation import presentation_artifact_paths
 
-#: 删除记录的对象类型；对象描述 ``{"kind", "id": 条目编号, "episode", "script_file", "item_kind": 条目数组键}``。
+#: 删除记录的对象类型；对象描述 ``{"kind", "id": 条目编号, "episode", "script_file", "item_kind": 条目数组键}``，
+#: 条目在改写前的剧本里时另带删除时的称呼快照 ``item_position`` / ``item_excerpt``，回收站凭它们称呼条目。
 SCRIPT_ENTRY_KIND = "script_entry"
 
 #: 按条目编号命名的媒体资源类型：分镜图、尾帧快照、分镜视频、参考生视频单元视频、旁白配音。
@@ -98,6 +101,7 @@ def trash_entries(
     """
     versions = VersionManager(project_dir)
     records: list[project_trash.TrashRecord] = []
+    script_before = _script_before(before, script_file)
     with formal_write_transaction(versions.versions_file):
         try:
             for entry_id, item_kind in entries.items():
@@ -110,6 +114,7 @@ def trash_entries(
                     "episode": episode,
                     "script_file": script_file,
                     "item_kind": item_kind,
+                    **position_snapshot(script_before, entry_id),
                 }
                 records.append(project_trash.record_deletion(project_dir, obj, files, snapshot=True, before=before))
                 # 快照文件已随记录移走，只摘版本记录。
@@ -121,6 +126,15 @@ def trash_entries(
                 project_trash.withdraw(project_dir, record.id)
             raise
     return records
+
+
+def _script_before(before: Mapping[str, bytes], script_file: str) -> Mapping[str, Any]:
+    """改写前的剧本；读不出时为空，记录不带称呼快照。"""
+    try:
+        script = json.loads(before.get(f"scripts/{script_file}", b"{}"))
+    except ValueError:
+        return {}
+    return script if isinstance(script, Mapping) else {}
 
 
 def _resources(history: Mapping[str, Mapping[str, Any]]) -> Iterable[tuple[str, str]]:

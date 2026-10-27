@@ -677,6 +677,33 @@ def test_verified_manifest_parses_do_not_grow_with_the_artifact_count(
     assert parses[8] == parses[4] == 1
 
 
+def test_verified_summary_opens_each_formal_video_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """完整口径判一条视频的时效只打开正式文件一次：准入、比对与内容事实证明共用同一次观察。
+
+    项目详情逐件比对上千条视频，每多开一次文件就多一轮逐级打开目录的系统调用。
+    """
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _episode_with_storyboards(pm, project_path, 3)
+    names = {path.name for path in (project_path / "videos").glob("*.mp4")}
+    assert len(names) == 3
+    opens = dict.fromkeys(names, 0)
+    original_os_open = os.open
+
+    def _counted_os_open(path: object, *args: object, **kwargs: object) -> int:
+        if isinstance(path, (str, Path)) and Path(path).name in opens:
+            opens[Path(path).name] += 1
+        return original_os_open(path, *args, **kwargs)
+
+    reset_manifest_read_cache_for_tests()
+    monkeypatch.setattr(os, "open", _counted_os_open)
+    summary = WorkflowStateService(pm).get_project_summary("demo", currency="verified")
+    monkeypatch.undo()
+
+    assert summary.episodes[0].videos.available == 3
+    assert opens == dict.fromkeys(names, 1)
+
+
 def test_verified_summary_does_not_wait_for_a_writer_holding_the_manifest_lock(tmp_path: Path) -> None:
     """写入方持有清单锁期间，项目摘要照常返回：读取不拿清单锁，不等待也不失败。"""
 
@@ -712,6 +739,46 @@ def test_one_resolver_answers_every_comparison_from_one_manifest_snapshot(tmp_pa
     assert ArtifactCurrencyResolver(project_path).compare(key, artifact_path=video_path).status is (
         ArtifactStatus.MISSING
     )
+
+
+@pytest.mark.parametrize(
+    ("swap", "expected"),
+    [("removed", ArtifactStatus.MISSING), ("symlinked", ArtifactStatus.BLOCKED)],
+)
+def test_video_swapped_after_admission_is_judged_by_the_newer_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, swap: str, expected: ArtifactStatus
+) -> None:
+    """准入看到正式视频之后、完整比对之前，文件被删或换成指向项目外的符号链接：按完整比对读到的
+    新观察判 MISSING 或 BLOCKED，不沿用准入时的观察判成 STALE。
+
+    项目外的文件是正式文件的副本：证明若跟随了链接，指纹会对上并判成 CURRENT。
+    """
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _episode_with_storyboards(pm, project_path, 1)
+    key = ArtifactKey.episode_video(1, "E1S01")
+    video_path = resource_relative_path("videos", "E1S01")
+    # 清单 mtime 早于登记的视频 mtime，同一时间戳内的改写无从排除，证明退化为完整比对。
+    os.utime(project_path / MANIFEST_FILENAME, ns=(0, 0))
+    outside = tmp_path / "outside.mp4"
+    shutil.copyfile(project_path / video_path, outside)
+    original_inspect = ProjectArtifactManifestAdapter.inspect_artifact
+    swapped: list[str] = []
+
+    def _inspect_then_swap(self: ProjectArtifactManifestAdapter, relative_path: str) -> Any:
+        observation = original_inspect(self, relative_path)
+        if relative_path == video_path and not swapped:
+            swapped.append(relative_path)
+            formal = project_path / video_path
+            formal.unlink()
+            if swap == "symlinked":
+                formal.symlink_to(outside)
+        return observation
+
+    resolver = ArtifactCurrencyResolver(project_path)
+    monkeypatch.setattr(ProjectArtifactManifestAdapter, "inspect_artifact", _inspect_then_swap)
+
+    assert resolver.compare(key, artifact_path=video_path).status is expected
 
 
 def test_verified_versions_parses_do_not_grow_with_the_episode_count(

@@ -142,16 +142,21 @@ def resolve_current_image_rel(
       指向 ``scene_{id}_first.png``）；没有登记指针即没有产物，不按同名文件推断
       current；条目不存在抛 ``KeyError``。
     """
-    return _resolve_current_image_pointer(project, resource_type, resource_id, script)[1]
+    return resolve_current_image_pointer(project, resource_type, resource_id, script)[1]
 
 
-def _resolve_current_image_pointer(
+def resolve_current_image_pointer(
     project: dict[str, Any],
     resource_type: str,
     resource_id: str,
     script: dict[str, Any] | None,
 ) -> tuple[str, str | None]:
-    """Resolve the canonical resource identity and its metadata-owned image pointer."""
+    """Resolve the canonical resource identity and its metadata-owned image pointer.
+
+    The identity is the key the resource's versions are recorded under: the asset's on-disk
+    name (NFC/NFD tolerant), ``本体/衍生`` for a derivative, the item ID for a storyboard.
+    A resource that does not exist raises ``KeyError``.
+    """
 
     if resource_type == "storyboard":
         items, id_field, _, _, _ = get_storyboard_items(script or {})
@@ -207,7 +212,7 @@ def resolve_usable_image_edit_source(
     resolution and immediately before provider submission.
     """
 
-    resolved_id, artifact_path = _resolve_current_image_pointer(project, resource_type, resource_id, script)
+    resolved_id, artifact_path = resolve_current_image_pointer(project, resource_type, resource_id, script)
     if not artifact_path:
         return None
     if resource_type == "storyboard":

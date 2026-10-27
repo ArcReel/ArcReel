@@ -181,7 +181,8 @@ flowchart TD
 - 参考生视频单元拆分；
 - 单集结构化剧本；
 - 资产生成；
-- 审片。
+- 审片；
+- 审图。
 
 其中前三项是脚本规划，规划时同时识别本集新增资产。
 
@@ -419,6 +420,8 @@ ArcReel 使用 SQLAlchemy 2.0 异步 ORM。
 - 为项目归档提供完整上下文。
 
 服务层应通过统一的资产版本接口操作，而不是让各供应商适配器自行决定如何覆盖文件。
+
+Agent 工具 `inspect_images` 让 Agent 看资产图与分镜图：按 ID 读指定版本（默认 current）的版本快照；默认 current 没有版本记录时，读取元数据登记的当前图，返回 `version: null`，不补写版本记录。图片在内存里等比缩成长边不超过 2000 px 的 JPEG，以 MCP 图片内容块随结果返回，与[看素材](#video-review)的联系表走同一个 `images` 钩子。工具只读、不收费、不触发生成，一次调用最多 20 张图。资产图与分镜图生成后的审核检查点交给审图子智能体 `review-images`：它对照设定与提示词看图，只回文字报告，是否重新生成由用户决定。它与审片子智能体一样是只读的，frontmatter 的 `tools` 与 `AgentAccessPolicy.READ_ONLY_SUBAGENT_TOOLS` 两份名单都只开放 Read、Glob、Grep 与 `inspect_images`。
 
 ## 12. 用量和费用 {#usage-and-cost}
 

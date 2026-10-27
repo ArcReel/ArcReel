@@ -74,9 +74,16 @@ async def restore_project_records(session: AsyncSession, tombstone: str, project
         await session.execute(update(model).where(model.project_name == tombstone).values(project_name=project_name))
 
 
+async def retired_agent_session_ids(session: AsyncSession, tombstone: str) -> list[str]:
+    """挂在墓碑名 ``tombstone`` 下的助手会话的 SDK 会话 id。"""
+    rows = await session.scalars(select(AgentSession.sdk_session_id).where(AgentSession.project_name == tombstone))
+    return list(rows)
+
+
 __all__ = [
     "is_deleted_project_name",
     "parse_deleted_project_name",
     "restore_project_records",
     "retire_project_records",
+    "retired_agent_session_ids",
 ]

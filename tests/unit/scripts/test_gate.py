@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 import pytest
@@ -44,6 +45,12 @@ def test_select_domains_follows_domain_order(path: str, expected: list[str]) -> 
 
 def test_select_domains_merges_paths() -> None:
     assert select_domains(["frontend/src/a.tsx", "alembic.ini"]) == ["backend", "tests", "conventions", "frontend"]
+
+
+def test_shared_request_contract_triggers_backend_in_ci_and_locally() -> None:
+    path = "frontend/src/test/contracts/reference-unit-add-requests.json"
+    assert "backend" in select_domains([path])
+    assert any(fnmatchcase(path, pattern) for pattern in _ci_filters()["backend"])
 
 
 @pytest.mark.parametrize(

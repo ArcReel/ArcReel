@@ -130,7 +130,7 @@ export function taskToUsageRecordView(task: TaskItem): UsageRecordView | null {
     projectTitle: null,
     mediaType: task.media_type,
     provider: task.provider_id,
-    model: null,
+    model: task.model ?? null,
     status: "pending",
     purpose: "generation_task",
     segmentId: taskSegmentId(task),

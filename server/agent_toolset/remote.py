@@ -9,8 +9,11 @@ schema 头部追加必填 ``project``，每次调用显式定位项目；任何�
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Awaitable, Callable, Iterable
 from copy import deepcopy
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -61,6 +64,43 @@ def resolve_project_scope(project: object, projects: ProjectManager) -> ProjectS
     return ProjectScope(project_name=project_name, data_root=projects.data_root)
 
 
+def project_path_spellings(project_dir: Path) -> tuple[str, ...]:
+    """项目目录在消息里可能出现的绝对路径写法：原样与解析符号链接后的（macOS 的 /tmp → /private/tmp），长者在前。"""
+    return tuple(sorted({str(project_dir), str(project_dir.resolve())}, key=len, reverse=True))
+
+
+def relativize_project_paths(text: str, spellings: Iterable[str]) -> str:
+    """把消息里的项目目录绝对路径改写为项目内相对路径；项目目录本身写作 ``.``。"""
+    for root in spellings:
+        text = re.sub(re.escape(root) + r"(?:([\\/])|(?![\w.\-]))", lambda m: "" if m.group(1) else ".", text)
+    return text
+
+
+def _relativize_payload(value: Any, spellings: tuple[str, ...]) -> Any:
+    if isinstance(value, str):
+        return relativize_project_paths(value, spellings)
+    if isinstance(value, dict):
+        return {key: _relativize_payload(item, spellings) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return type(value)(_relativize_payload(item, spellings) for item in value)
+    return value
+
+
+def _project_relative_outcome(outcome: ToolOutcome[Any], spellings: tuple[str, ...]) -> ToolOutcome[Any]:
+    """远程错误消息不外泄服务端文件系统布局：problem 的 detail / action / params 只用项目内相对路径。"""
+    problem = outcome.problem
+    if problem is None:
+        return outcome
+    return ToolOutcome(
+        problem=replace(
+            problem,
+            detail=relativize_project_paths(problem.detail, spellings),
+            action=relativize_project_paths(problem.action, spellings) if problem.action is not None else None,
+            params=_relativize_payload(problem.params, spellings),
+        )
+    )
+
+
 def remote_input_schema(declaration: AgentToolDeclaration) -> dict[str, Any]:
     schema = deepcopy(declaration.input_schema)
     if isinstance(declaration, UnscopedToolDeclaration):
@@ -102,6 +142,11 @@ class _DeclaredRemoteTool(FastMCPTool):
         return await self.invoke(arguments)
 
 
+def _locate_project(project: object, projects: ProjectManager) -> tuple[ProjectScope, tuple[str, ...]]:
+    scope = resolve_project_scope(project, projects)
+    return scope, project_path_spellings(projects.get_project_path(scope.project_name))
+
+
 def remote_tool(
     declaration: AgentToolDeclaration,
     *,
@@ -117,12 +162,11 @@ def remote_tool(
         request_arguments = dict(arguments)
         project = request_arguments.pop("project", None)
         try:
-            scope = await asyncio.to_thread(resolve_project_scope, project, projects)
+            scope, spellings = await asyncio.to_thread(_locate_project, project, projects)
         except (FileNotFoundError, ValueError) as exc:
             return remote_result(declaration, ToolOutcome(problem=ToolProblem("invalid_project", str(exc))))
-        return remote_result(
-            declaration, await invoke_declaration(declaration, request_arguments, scope, caller(), services)
-        )
+        outcome = await invoke_declaration(declaration, request_arguments, scope, caller(), services)
+        return remote_result(declaration, _project_relative_outcome(outcome, spellings))
 
     async def unused() -> CallToolResult:
         raise RuntimeError("declared remote tools override run")
@@ -155,6 +199,8 @@ __all__ = [
     "LONG_TASK_NOTE",
     "PROJECT_PROPERTY",
     "authenticated_caller",
+    "project_path_spellings",
+    "relativize_project_paths",
     "remote_description",
     "remote_input_schema",
     "remote_result",

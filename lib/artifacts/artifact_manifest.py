@@ -205,7 +205,7 @@ class ArtifactObservation:
     content_digest: str | None = None
     content_bytes: bytes | None = None
     file_stat: os.stat_result | None = None
-    """读取内容摘要时打开的那个文件版本的 stat；只在算了摘要时给出。"""
+    """经受约束的描述符打开的那个文件版本的 stat；文件存在且可安全打开时给出，算了摘要时与摘要同属一个版本。"""
 
 
 class ArtifactManifestAdapter(Protocol):
@@ -498,7 +498,23 @@ class ArtifactManifest:
         it the claim is read from storage.
         """
 
-        observation = self._adapter.inspect_artifact(artifact_path)
+        return self.compare_observed_entry(
+            key,
+            observation=self._adapter.inspect_artifact(artifact_path),
+            expected=expected,
+            entries=entries,
+        )
+
+    def compare_observed_entry(
+        self,
+        key: ArtifactKey,
+        *,
+        observation: ArtifactObservation,
+        expected: ArtifactManifestEntry | None,
+        entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
+    ) -> ArtifactComparison:
+        """:meth:`compare_entry` on an inspection the caller already made in this request."""
+
         if observation.blocker is not None:
             return ArtifactComparison(
                 status=ArtifactStatus.BLOCKED,
@@ -1097,7 +1113,7 @@ class ProjectArtifactManifestAdapter:
             present=True,
             content_digest=content_digest,
             content_bytes=content_bytes,
-            file_stat=opened_file_stat if content_digest is not None else None,
+            file_stat=opened_file_stat,
         )
 
     def _inspect_artifact_portable(
@@ -1218,7 +1234,7 @@ class ProjectArtifactManifestAdapter:
             present=True,
             content_digest=content_digest,
             content_bytes=content_bytes,
-            file_stat=opened_stat if content_digest is not None else None,
+            file_stat=opened_stat,
         )
 
     @staticmethod

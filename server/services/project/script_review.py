@@ -516,7 +516,7 @@ class ScriptReviewService:
         fingerprint = await run_sync_transaction(
             self._confirm_sync, project_name, project, episode, supported_durations
         )
-        if overwrite is not None and overwrite_revision != overwrite.fingerprint:
+        if overwrite is not None and script_review.fingerprint_of_revision(overwrite_revision) != overwrite.fingerprint:
             raise ScriptReviewError("overwrite_required", overwrite=overwrite.to_dict())
         await self._materialize(
             project_path,

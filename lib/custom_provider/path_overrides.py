@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Generator, Iterable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal
@@ -41,6 +43,9 @@ BaseUrlRule = Literal[
 #: 路径中的占位符写法，与声明式定义的模板同形：``{{ model }}``、``{{ task_id }}``。
 _PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\}\}")
 _MAX_PATH_LENGTH = 512
+
+#: 续跑回放的提交时 base_url（任务行的 ``submitted_base_url``）；路径覆盖层据此认出发往提交时 base 的请求。
+_replay_base_url: ContextVar[str | None] = ContextVar("path_override_replay_base_url", default=None)
 
 PathProblem = Literal["path_override_invalid_path", "path_override_placeholder_not_allowed"]
 
@@ -101,6 +106,20 @@ def endpoint_guard(endpoint: str, overrides: PathOverrides) -> str:
     return f"{endpoint} paths={json.dumps(dict(overrides), sort_keys=True, ensure_ascii=False, separators=(',', ':'))}"
 
 
+@contextmanager
+def replaying_base_url(base_url: str | None) -> Generator[None]:
+    """续跑期间告诉路径覆盖层：请求按提交时的 base_url 回放。
+
+    backend 续跑时把轮询与取件发往提交时的 base；用户在途只改了 base 的路径时，这些请求的路径前缀不再是
+    当下配置的，覆盖层要按提交时的前缀认出请求，并按提交时的原样路径拼覆盖路径。
+    """
+    token = _replay_base_url.set(base_url)
+    try:
+        yield
+    finally:
+        _replay_base_url.reset(token)
+
+
 def _path_pattern(prefix: str, default_path: str, placeholder: str) -> re.Pattern[str]:
     """``prefix + default_path`` 的整串匹配式，占位符按 ``placeholder`` 匹配。"""
     parts = _PLACEHOLDER.split(default_path)  # 字面量与占位符名交替
@@ -112,26 +131,65 @@ class PathOverrideLayer:
     """Python 端点的路径覆盖：按请求路径认出请求名，有覆盖时把路径换成「原样 base_url 的路径 + 覆盖路径」。
 
     只认「归一化 base_url 的路径 + 默认路径」整串相符的请求，取自响应的下载地址不会被认成任何请求。
-    不改域名：续跑回放提交时的域名照旧生效。
+    不改域名：续跑回放提交时的域名照旧生效。续跑处在 :func:`replaying_base_url` 之内时，先按提交时的
+    base 认请求。
     """
 
-    def __init__(self, routes: list[tuple[re.Pattern[str], str]], raw_path: str, model: str) -> None:
+    def __init__(self, routes: list[tuple[str, str]], prefix: str, raw_path: str, model: str, placeholder: str) -> None:
         self._routes = routes
+        self._prefix = prefix
         self._raw_path = raw_path
         self._model = model
+        self._placeholder = placeholder
 
     def __call__(self, inner: httpx.AsyncBaseTransport | httpx.BaseTransport, /) -> _PathOverrideTransport:
         return _PathOverrideTransport(inner, self)
 
+    def _replayed_raw_path(self, prefix: str) -> str:
+        """提交时 base 的原样路径：按当下配置「原样路径 → 归一化路径」的差量从提交时的归一化路径还原。
+
+        落库的提交 base 是归一化后的值；用户只改了路径前缀时差量不变，还原结果与提交时的原样路径一致。
+        """
+        shared = 0
+        for normalized_char, raw_char in zip(self._prefix, self._raw_path, strict=False):
+            if normalized_char != raw_char:
+                break
+            shared += 1
+        normalized_suffix = self._prefix[shared:]
+        raw_suffix = self._raw_path[shared:]
+        if normalized_suffix:
+            if not prefix.endswith(normalized_suffix):
+                return prefix
+            prefix = prefix[: -len(normalized_suffix)]
+        return prefix + raw_suffix
+
+    def _bases(self) -> Iterator[tuple[str, str]]:
+        """依次尝试的（归一化路径前缀, 原样路径）：续跑时先提交时的 base，再当下配置的。"""
+        replayed = _replay_base_url.get()
+        if replayed:
+            prefix = urlsplit(replayed).path.rstrip("/")
+            if prefix != self._prefix:
+                yield prefix, self._replayed_raw_path(prefix)
+        yield self._prefix, self._raw_path
+
     def rewrite(self, request: httpx.Request) -> None:
         # 按未解码的路径匹配：前缀取自 base_url 原文，%2F 这类转义解码后就对不上；捕获的占位符值也原样写回
         raw_path = request.url.raw_path.decode("ascii").partition("?")[0]
-        found = next(((m, override) for pattern, override in self._routes if (m := pattern.fullmatch(raw_path))), None)
+        found = next(
+            (
+                (m, override, base_raw_path)
+                for prefix, base_raw_path in self._bases()
+                for default_path, override in self._routes
+                if (m := _path_pattern(prefix, default_path, self._placeholder).fullmatch(raw_path))
+            ),
+            None,
+        )
         if found is None:
             return
-        match, override = found
+        match, override, base_raw_path = found
         values = {"model": self._model, **match.groupdict()}
-        target = self._raw_path + _PLACEHOLDER.sub(lambda p: values.get(p.group(1), p.group(0)), override)
+        target = base_raw_path + _PLACEHOLDER.sub(lambda p: values.get(p.group(1), p.group(0)), override)
+        # 覆盖带 query 时整体替换原 query（docs/adr/0101）
         path, has_query, query = target.partition("?")
         request.url = (
             request.url.copy_with(path=path, query=query.encode()) if has_query else request.url.copy_with(path=path)
@@ -175,10 +233,13 @@ def path_override_layer(
     ``normalized_base_url`` 是端点没有覆盖时实际使用的 base_url，默认路径相对它匹配。``placeholder`` 是占位符的
     匹配式，默认只匹配一段路径；值本身含 ``/`` 的家族（Google 的 operation name）按自己的路径形态另给。
     """
-    prefix = urlsplit(normalized_base_url or "").path.rstrip("/")
-    routes = [
-        (_path_pattern(prefix, r.default_path, placeholder), overrides[r.name]) for r in requests if r.name in overrides
-    ]
+    routes = [(r.default_path, overrides[r.name]) for r in requests if r.name in overrides]
     if not routes:
         return None
-    return PathOverrideLayer(routes, urlsplit(raw_base_url(base_url or "")).path, model)
+    return PathOverrideLayer(
+        routes,
+        urlsplit(normalized_base_url or "").path.rstrip("/"),
+        urlsplit(raw_base_url(base_url or "")).path,
+        model,
+        placeholder,
+    )

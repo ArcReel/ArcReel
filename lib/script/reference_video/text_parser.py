@@ -10,7 +10,12 @@ from collections.abc import Callable, Collection, Iterable, Iterator
 from dataclasses import dataclass
 
 from lib.project.asset_types import asset_name_comparison_key
-from lib.references.reference_catalog import build_reference_catalog, renamed_reference, split_derivative_reference
+from lib.references.reference_catalog import (
+    ReferenceCatalog,
+    build_reference_catalog,
+    renamed_reference,
+    split_derivative_reference,
+)
 from lib.script.script_models import ReferenceResource
 
 #: BOM / ZWNBSP。前端按 JS 的 ``\s`` 判行首空白，U+FEFF 属之；Python 的 ``str.strip()``
@@ -407,7 +412,9 @@ def _remap_line(line: str, remap: Callable[[str, bool], str | None]) -> str | No
     return "".join(out) if changed else None
 
 
-def derive_references_from_text(text: str, project: dict) -> tuple[list[ReferenceResource], list[str]]:
+def derive_references_from_text(
+    text: str, project: dict, *, catalog: ReferenceCatalog | None = None
+) -> tuple[list[ReferenceResource], list[str]]:
     """引用语法正文 → ``(references, missing)`` 的唯一派生入口。
 
     参考图是纯派生物、不落盘：机器产物校验（``lib.script.reference_video.draft_validation
@@ -416,8 +423,10 @@ def derive_references_from_text(text: str, project: dict) -> tuple[list[Referenc
     人写产物只警告、照常生成——但**派生本身**必须同一套：分成多处各自 ``extract_mentions`` +
     ``resolve_references`` 时，任一侧的口径调整（如台词记号的说话人位不计入参考图）都会让同一份
     正文在编辑器与生成侧派生出不同的 ``图N`` 编号。
+
+    ``catalog`` 是调用方已从同一份 ``project`` 构造的引用目录，批量派生时传入以免逐条重建。
     """
-    return resolve_references(extract_mentions(text), project)
+    return resolve_references(extract_mentions(text), project, catalog=catalog)
 
 
 def render_mentions(text: str, render: Callable[[str], str]) -> str:
@@ -489,6 +498,8 @@ def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
 def resolve_references(
     names: list[str],
     project: dict,
+    *,
+    catalog: ReferenceCatalog | None = None,
 ) -> tuple[list[ReferenceResource], list[str]]:
     """按引用目录把 mention 名字分派成 ReferenceResource。
 
@@ -504,7 +515,8 @@ def resolve_references(
     Returns:
         (refs, missing): refs 保持入参顺序；missing 是目录里没有的名字
     """
-    catalog = build_reference_catalog(project)
+    if catalog is None:
+        catalog = build_reference_catalog(project)
     refs: list[ReferenceResource] = []
     missing: list[str] = []
     seen: set[str] = set()

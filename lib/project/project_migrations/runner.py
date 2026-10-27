@@ -213,6 +213,8 @@ def migrate_project_dir(project_dir: Path, *, recorded_episode_ids: RecordedEpis
                 raise RuntimeError(f"no migrator from v{version}")
             if migrator is migrate_v15_to_v16:
                 step_outcome = migrate_v15_to_v16(project_dir, recorded_episode_ids=recorded_episode_ids)
+            elif migrator is migrate_v5_to_v6:
+                step_outcome = migrate_v5_to_v6(project_dir, record=adjusted)
             elif migrator is migrate_v6_to_v7:
                 step_outcome = migrate_v6_to_v7(project_dir, record=adjusted)
             else:

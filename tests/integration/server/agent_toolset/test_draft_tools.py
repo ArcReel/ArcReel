@@ -18,6 +18,7 @@ import pytest
 
 from lib.project import project_trash
 from lib.project.project_activity import ACTIVITY_FILENAME, recorded_project_activity
+from lib.project.project_manager import ProjectManager
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script import script_review
 from lib.script.draft_quarantine import (
@@ -29,6 +30,7 @@ from lib.script.draft_quarantine import (
     quarantine_path,
     write_quarantine,
 )
+from lib.workflow.workflow_state import WorkflowStateService
 from server.draft_workflow import DraftContext, DraftWorkflow, DraftWorkflowError
 from server.tool_runtime import ToolOutcome
 from tests.integration.server.agent_tool_support import (
@@ -694,8 +696,9 @@ async def test_patch_draft_supports_multiple_rounds_and_rejects_stale_revision(f
     "doc_type",
     ["drama_script_plan", "narration_script_plan", "reference_script_plan", "reference_prompt_authoring"],
 )
+@pytest.mark.parametrize("spelling", ["prefixed", "bare"])
 async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
-    fake_ctx: ToolHarness, doc_type: str
+    fake_ctx: ToolHarness, doc_type: str, spelling: str
 ) -> None:
     if doc_type == "drama_script_plan":
         drama_project(fake_ctx)
@@ -718,6 +721,9 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
             },
         )
 
+    def revision(value: str) -> str:
+        return value.removeprefix("sha256-v1:") if spelling == "bare" else value
+
     args = {"episode_id": 1, "doc_type": doc_type}
     opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
 
@@ -737,7 +743,7 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
         await run_declared_tool(
             "patch_draft",
             fake_ctx,
-            {**args, "content": first_content, "base_revision": opened["revision"]},
+            {**args, "content": first_content, "base_revision": revision(opened["revision"])},
         )
     )
     second_content = first["content"]
@@ -746,27 +752,26 @@ async def test_each_doc_type_completes_multi_patch_then_promote_or_discard(
         await run_declared_tool(
             "patch_draft",
             fake_ctx,
-            {**args, "content": second_content, "base_revision": first["revision"]},
+            {**args, "content": second_content, "base_revision": revision(first["revision"])},
         )
     )
     assert second["revision"] != first["revision"]
 
     if doc_type == "reference_prompt_authoring":
         discarded = draft_of(
-            await run_declared_tool("discard_draft", fake_ctx, {**args, "base_revision": second["revision"]})
+            await run_declared_tool("discard_draft", fake_ctx, {**args, "base_revision": revision(second["revision"])})
         )
         assert discarded["discarded"] is True
     else:
-        if doc_type == "drama_script_plan":
-            result = await promote_drama(fake_ctx)
-        elif doc_type == "narration_script_plan":
-            result = await promote_nr(fake_ctx)
-        else:
-            result = await promote_reference_draft(fake_ctx)
+        result = await run_declared_tool(
+            "promote_draft", fake_ctx, {**args, "base_revision": revision(second["revision"])}
+        )
         assert result.problem is None, result
 
 
-async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolHarness) -> None:
+@pytest.mark.parametrize("spelling", ["prefixed", "bare"])
+async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolHarness, spelling: str) -> None:
+    """formal_revision 对外带 sha256-v1: 前缀；早先拿到的裸 hex 写法同样被接受。"""
     rv_source(fake_ctx)
     write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
     opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
@@ -783,14 +788,70 @@ async def test_patch_draft_can_accept_a_merged_formal_revision(fake_ctx: ToolHar
             "doc_type": "reference_script_plan",
             "content": merged,
             "base_revision": opened["revision"],
-            "accept_formal_revision": refreshed["formal_revision"],
+            "accept_formal_revision": (
+                refreshed["formal_revision"]
+                if spelling == "prefixed"
+                else refreshed["formal_revision"].removeprefix("sha256-v1:")
+            ),
         },
     )
 
     assert patched.problem is None, patched
-    assert read_rv_quarantine(fake_ctx)["meta"]["base_fingerprint"] == refreshed["formal_revision"]
+    assert f"sha256-v1:{read_rv_quarantine(fake_ctx)['meta']['base_fingerprint']}" == refreshed["formal_revision"]
     promoted = await promote_reference_draft(fake_ctx)
     assert promoted.problem is None, promoted
+
+
+async def test_formal_revision_matches_the_script_plan_content_and_workflow_plan_revisions(
+    fake_ctx: ToolHarness,
+) -> None:
+    """同一份正式 script_plan，远程读取面只用一种 revision 写法，客户端可直接比较字符串。"""
+    rv_source(fake_ctx)
+    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
+
+    content = await run_declared_tool("get_script_plan_content", fake_ctx, {"episode_id": 1})
+    opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+    # 制作计划的闸门与产物取自制作状态；状态服务要真实的项目管理器。
+    status = WorkflowStateService(ProjectManager(fake_ctx.data_root)).get_status(fake_ctx.project_name, 1)
+
+    assert content.problem is None, content
+    revision = content.value.revision
+    assert revision.startswith("sha256-v1:")
+    assert opened["formal_revision"] == revision
+    assert status.artifacts["script_plan"]["revision"] == revision
+    assert status.gates["script_plan_review"]["revision"] == revision
+
+
+async def test_patch_draft_receipt_omits_the_stale_violation_report(fake_ctx: ToolHarness) -> None:
+    """草稿里的违约是针对旧正文的判定；patch 回执不带它，以免把旧报告当成这次修改的结果。"""
+    rv_source(fake_ctx)
+    write_rv_script_plan(fake_ctx, [rv_saved_unit("@[张三] 起身")])
+    opened = draft_of(await open_for_edit(fake_ctx, source="source/episode_1.txt"))
+    # 模拟上一次晋升失败留下的报告。
+    envelope = read_rv_quarantine(fake_ctx)
+    stale = [{"code": "novel_text_coverage", "label": "", "message": "旧正文的违约", "line": None}]
+    rv_quarantine_path(fake_ctx).write_text(
+        json.dumps({**envelope, "violations": stale}, ensure_ascii=False), encoding="utf-8"
+    )
+    reopened = draft_of(await open_for_edit(fake_ctx))
+    assert reopened["violations"] == stale
+
+    patched = draft_of(
+        await run_declared_tool(
+            "patch_draft",
+            fake_ctx,
+            {
+                "episode_id": 1,
+                "doc_type": "reference_script_plan",
+                "content": opened["content"],
+                "base_revision": reopened["revision"],
+            },
+        )
+    )
+
+    assert "violations" not in patched
+    assert patched["revision"].startswith("sha256-v1:")
+    assert patched["content"] == opened["content"]
 
 
 async def test_patch_draft_without_accept_formal_revision_keeps_the_old_baseline(fake_ctx: ToolHarness) -> None:
@@ -1027,4 +1088,4 @@ async def test_open_reference_prompt_authoring_returns_flat_editable_content(fak
     envelope = json.loads(
         quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).read_text(encoding="utf-8")
     )
-    assert envelope["meta"]["base_fingerprint"] == draft["formal_revision"]
+    assert draft["formal_revision"] == f"sha256-v1:{envelope['meta']['base_fingerprint']}"

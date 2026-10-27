@@ -158,6 +158,8 @@ def video_capabilities_from_definition(definition: Mapping[str, object]) -> Vide
     capabilities = raw_capabilities if isinstance(raw_capabilities, Mapping) else {}
     applied: dict[str, object] = {}
     for key, value in capabilities.items():
+        if key == "max_reference_images" and isinstance(value, float) and value.is_integer():
+            value = int(value)
         expected = CAPABILITY_OVERRIDE_FIELDS.get(key)
         if expected is None or not capability_value_matches(value, expected):
             raise ValueError(f"invalid capability in endpoint definition: {key}={value!r}")

@@ -25,7 +25,7 @@ from typing import Any
 import httpx
 
 from lib.backends.transport_layer import TransportLayer, layer_async_client
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.retry import NonRetryableError
 
 #: 解析器：``(host, port)`` → 该主机解析出的地址文本。
@@ -172,8 +172,9 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
 
     先写同目录 ``.part``、成功后原子改名；任何失败（含超限与取消）都删掉 ``.part``，产物路径上
     不会留下截断的文件。攒够 8 MiB 再一次放进线程落盘：既不为每个分片调度一次线程池任务，
-    也不把整段产物留在内存里。写入与改名走 ``run_sync_transaction``：取消时等线程写完再传出，
-    下方 ``.part`` 清理与调用方对产物路径的清理不会与仍在运行的线程交错。
+    也不把整段产物留在内存里。分片写入走 ``run_sync_transaction``：取消时等线程写完再传出，
+    下方 ``.part`` 清理与调用方对产物路径的清理不会与仍在运行的线程交错；这一段在调用方的墙钟预算
+    （``asyncio.timeout``）之内，不能吞掉取消。改名走 ``run_noninterruptible_sync``，见下方注释。
     """
     chunks = _capped_chunks(response, max_bytes)
     # 先取首块：声明超限在此抛出，不建 .part
@@ -200,7 +201,10 @@ async def stream_body_to_file(response: httpx.Response, output_path: Path, *, ma
                 if buffered_bytes >= _WRITE_BUFFER_BYTES:
                     await flush()
             await flush()
-        await run_sync_transaction(os.replace, partial_path, output_path)
+        # 改名是产物成形的那一步：一次原子改名耗时可忽略，不会拖垮外层墙钟预算。取消落在这一刻时改名
+        # 照常完成、取消随之消失，调用方后续的转码与产物提交继续（docs/standards/backend.md
+        # 「供应商返回之后的落账段不可中断」）。
+        await run_noninterruptible_sync(os.replace, partial_path, output_path)
     except BaseException:
         await asyncio.to_thread(partial_path.unlink, True)  # hard-delete: temp -- 下载中断留下的 .partial 文件
         raise

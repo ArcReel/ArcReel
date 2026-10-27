@@ -19,8 +19,9 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationResult,
 )
 from lib.backends.gemini_shared import GEMINI_DEFAULT_VIDEO_MODEL, VERTEX_SCOPES
-from tests.fakes import bounded_poll_clock, captured_provider_job_ids
+from tests.fakes import bounded_poll_clock, captured_provider_job_ids, captured_vertex_credentials
 from tests.http_capture import PathPrefixRewrite, capture_http
+from tests.unit.lib.backends.write_cancel_gate import GatedWritePath, WriteGate, cancel_during_write
 
 
 class _RecordingRateLimiter:
@@ -122,7 +123,7 @@ class TestGeminiVideoBackendProperties:
                 "lib.backends.video_backends.gemini.resolve_vertex_credentials_path",
                 return_value=creds_file,
             ),
-            patch("google.oauth2.service_account.Credentials.from_service_account_file") as from_service_account_file,
+            captured_vertex_credentials() as from_service_account_file,
         ):
             from lib.backends.video_backends.gemini import GeminiVideoBackend
 
@@ -456,6 +457,19 @@ class TestPrepareImageParam:
 
 
 class TestDownloadVideo:
+    async def test_vertex_inline_video_settles_through_cancellation(self, gemini_backend, tmp_path):
+        gate = WriteGate()
+        gemini_backend._backend_type = "vertex"
+        operation = _make_done_operation()
+        output = tmp_path / "video.mp4"
+        request = VideoGenerationRequest(prompt="p", output_path=GatedWritePath(output).attach(gate))
+
+        steps = await cancel_during_write(lambda: gemini_backend._collect_video(operation, request), gate)
+
+        assert steps == ["follow-up"]
+        assert output.read_bytes() == b"fake-video-bytes"
+        assert list(tmp_path.iterdir()) == [output]
+
     def test_aistudio_download_streams_to_destination(self, gemini_backend, tmp_path):
         output = tmp_path / "video.mp4"
         ref = MagicMock()

@@ -490,7 +490,10 @@ class TestPromptAuthoring:
         assert rewritten == []
         assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before
 
-    async def test_entry_ids_rewrite_keeps_content_and_user_fields(self, tmp_path: Path, variant: _Variant) -> None:
+    @pytest.mark.parametrize("spelling", ["prefixed", "bare"])
+    async def test_entry_ids_rewrite_keeps_content_and_user_fields(
+        self, tmp_path: Path, variant: _Variant, spelling: str
+    ) -> None:
         """点名已有视觉层的条目：只重写这些条目的视觉层，内容字段与用户字段原样保留。"""
         first, second = variant.entry_ids
         project_dir, _plan_path = await _converted_and_authored(tmp_path, variant)
@@ -500,8 +503,11 @@ class TestPromptAuthoring:
 
         rewritten: list[str] = []
         rerun = variant.generator(project_dir, [variant.visual_factory(first, mark="点名")])
+        revision = _revision(project_dir)
+        if spelling == "prefixed":
+            revision = "sha256-v1:" + revision
         await rerun.generate(
-            1, entry_ids=[first], rewrite=True, overwrite_revision=_revision(project_dir), rewritten_entry_ids=rewritten
+            1, entry_ids=[first], rewrite=True, overwrite_revision=revision, rewritten_entry_ids=rewritten
         )
 
         assert rewritten == [first]
@@ -625,7 +631,7 @@ class TestFillAndRewrite:
 
         expected_fields = list(_VISUAL_FIELDS[variant.name])
         assert caught.value.overwrite.to_dict() == {
-            "revision": _revision(project_dir),
+            "revision": script_review.published_revision(_revision(project_dir)),
             "entries": [{"id": first, "fields": expected_fields}],
         }
         assert (project_dir / "scripts" / "episode_1.json").read_bytes() == before

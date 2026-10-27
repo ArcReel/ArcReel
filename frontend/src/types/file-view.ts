@@ -74,6 +74,8 @@ export interface DeletedProject {
   deleted_at: string;
   /** 到期自动清除的时间，同为 UTC ISO 8601。 */
   expires_at: string;
+  /** 项目目录占用的字节数。 */
+  size: number;
 }
 
 export interface DeletedProjectListing {

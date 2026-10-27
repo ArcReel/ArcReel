@@ -29,7 +29,7 @@ from lib.backends.image_backends.base import (
 from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.billing.metering import Usage
 from lib.custom_provider.metering import custom_video_usage, with_image_counts
-from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, endpoint_guard
+from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides, endpoint_guard, replaying_base_url
 
 
 class CustomTextBackend:
@@ -284,5 +284,6 @@ class CustomVideoBackend:
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         # 透传到下游 backend；下游不支持 resume 时抛 NotImplementedError，
-        # 由 orphan handler 标 [resume_unsupported]
-        return await self._delegate.resume_video(job_id, request)
+        # 由 orphan handler 标 [resume_unsupported]。回放提交时的 base，让路径覆盖按它认出续跑请求。
+        with replaying_base_url(request.submitted_base_url):
+            return await self._delegate.resume_video(job_id, request)

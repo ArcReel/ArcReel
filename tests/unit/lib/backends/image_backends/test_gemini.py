@@ -10,6 +10,7 @@ import pytest
 from PIL import Image as PILImage
 
 from lib.backends.image_backends.base import ImageCapability, ImageGenerationRequest, ReferenceImage
+from tests.unit.lib.backends.write_cancel_gate import WriteGate, cancel_during_write
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -145,6 +146,31 @@ class TestGenerate:
         assert result.usage is not None
         assert result.usage.quantities == {"output_images": 1}
         assert result.usage.dimensions == {}
+
+    async def test_save_settles_through_cancellation(self, backend_aistudio, tmp_path):
+        """供应商已返回图片：取消落在解码保存期间时，保存先结算，取消随之消失，后续转码与产物提交照常执行。"""
+        gate = WriteGate()
+        output_file = tmp_path / "out.png"
+
+        class _BlockingImage:
+            def save(self, path):
+                gate.block()
+                PILImage.new("RGB", (8, 8), "red").save(path)
+
+        mock_part = MagicMock()
+        mock_part.inline_data = b"fake"
+        mock_part.as_image.return_value = _BlockingImage()
+        mock_response = MagicMock()
+        mock_response.parts = [mock_part]
+        backend_aistudio._client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        steps = await cancel_during_write(
+            lambda: backend_aistudio.generate(ImageGenerationRequest(prompt="a red ball", output_path=output_file)),
+            gate,
+        )
+
+        assert steps == ["follow-up"]
+        assert PILImage.open(output_file).size == (8, 8)
 
     async def test_generate_with_reference_images(self, backend_aistudio, tmp_path):
         """参考图按顺序作为图片内容送入 SDK，prompt 置于末尾，中间不夹任何名称标签。"""

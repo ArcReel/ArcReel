@@ -59,6 +59,7 @@ runs:
             - 'frontend/src/i18n/*/events.ts'
             - 'frontend/src/types/workflow.ts'
             - 'frontend/src/data/example-templates/**'
+            - 'frontend/src/test/contracts/**'
           frontend:
             - 'frontend/**'
           # public/ 目录与根目录 README.md 是 Dockerfile 的 COPY 源且不属于

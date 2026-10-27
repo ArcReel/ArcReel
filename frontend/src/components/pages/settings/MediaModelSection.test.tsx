@@ -40,6 +40,8 @@ const CANDIDATES = {
   provider_names: {},
 };
 
+const NO_AUTO = { t2i: null, i2i: null, i2v: null, r2v: null, text: null };
+
 function mockConfig(settings: Record<string, unknown> = {}) {
   vi.spyOn(API, "getSystemConfig").mockResolvedValue({
     ...CONFIG,
@@ -52,6 +54,7 @@ describe("MediaModelSection", () => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     vi.restoreAllMocks();
     mockConfig();
+    vi.spyOn(API, "getAutoBackends").mockResolvedValue(NO_AUTO);
     vi.spyOn(API, "getModelCandidates").mockResolvedValue(
       CANDIDATES as unknown as Awaited<ReturnType<typeof API.getModelCandidates>>,
     );
@@ -185,6 +188,22 @@ describe("MediaModelSection", () => {
     expect(screen.getByRole("combobox", { name: "文生图" })).toHaveTextContent(
       /跟随默认 · gemini · nano-banana/,
     );
+  });
+
+  it("shows the auto-selected model when the default model is unset", async () => {
+    const user = userEvent.setup();
+    mockConfig({ default_video_backend: "", default_image_backend: "" });
+    vi.spyOn(API, "getAutoBackends").mockResolvedValue({ ...NO_AUTO, i2v: "ark/seedance", t2i: "gemini/nano-banana" });
+    render(<MediaModelSection />);
+    expect(await screen.findByRole("combobox", { name: "默认视频模型" })).toHaveTextContent(
+      "自动选择（当前：ark · seedance）",
+    );
+    expect(screen.getByRole("combobox", { name: "默认图片模型" })).toHaveTextContent(
+      "自动选择（当前：gemini · nano-banana）",
+    );
+    // 自动推断按用途过滤：图生图选不出模型时如实说没有可用供应商
+    await user.click(screen.getAllByText("按用途指定模型")[1]);
+    expect(screen.getByRole("combobox", { name: "图生图" })).toHaveTextContent("自动选择（没有可用的供应商）");
   });
 
   it("persists a sub-field selection to its own settings key", async () => {
@@ -329,6 +348,22 @@ describe("MediaModelSection", () => {
       expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     });
 
+    // 各层全空时执行期用自动选中的模型，勾选框判据与规格条要按它取，否则恒有声的自动模型
+    // 配上「关闭」时一路到入队预检才被拒。
+    it("judges the checkbox and shows the spec bar by the auto-selected model when every layer is unset", async () => {
+      mockConfig({ default_video_backend: "" });
+      vi.spyOn(API, "getAutoBackends").mockResolvedValue({ ...NO_AUTO, i2v: "dashscope/wan", r2v: "gemini/veo-3" });
+      vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([
+        videoProvider("gemini", "veo-3", { audio_track: "controllable" }),
+        videoProvider("dashscope", "wan", { audio_track: "always_on" }),
+      ]);
+      render(<MediaModelSection />);
+      const box = await screen.findByRole("checkbox", { name: /生成有声视频/ });
+      expect(box).toBeEnabled();
+      expect(screen.getByRole("alert")).toHaveTextContent(/无法关闭声音/);
+      expect(screen.getByText("支持时长")).toBeInTheDocument();
+    });
+
     it("locks the checkbox on a model without an audio track", async () => {
       mockProviders("always_off");
       render(<MediaModelSection />);
@@ -409,6 +444,7 @@ describe("MediaModelSection – 语言切换", () => {
     useAppStore.setState(useAppStore.getInitialState(), true);
     vi.restoreAllMocks();
     mockConfig();
+    vi.spyOn(API, "getAutoBackends").mockResolvedValue(NO_AUTO);
     vi.spyOn(API, "getModelCandidates").mockImplementation(async () => candidatesFor(i18n.language));
     vi.spyOn(providerModels, "getProviderModels").mockResolvedValue([]);
     vi.spyOn(providerModels, "getCustomProviderModels").mockResolvedValue([]);

@@ -6,6 +6,7 @@ from sqlalchemy import select
 
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import (
+    _VIDEO_LAYERED_KEYS,
     ConfigResolver,
     VideoBucketCapabilityError,
     VideoGenerationType,
@@ -1909,3 +1910,76 @@ class TestPayloadPinnedVideoModel:
 
         assert excinfo.value.model_id == "pinned-model"
         assert excinfo.value.generation_type == "i2v"
+
+
+class TestAutoResolvedBackendsPreview:
+    """全层留空时自动选中模型的只读预览，与执行期解析同一口径（自动推断层 ``_auto_resolve_backend``）。"""
+
+    @staticmethod
+    async def _execution_pairs(resolver: ConfigResolver, svc, session) -> dict[str, tuple[str, str] | None]:
+        """各用途在全部层留空时执行路径解析出的模型；选不出即 None。"""
+        from lib.backends.text_backends.base import TextTaskType
+
+        async def _or_none(coro):
+            try:
+                return await coro
+            except ValueError:
+                return None
+
+        return {
+            "t2i": await _or_none(resolver._resolve_default_image_backend(svc, session, "t2i")),
+            "i2i": await _or_none(resolver._resolve_default_image_backend(svc, session, "i2i")),
+            "i2v": await _or_none(resolver._resolve_layered_backend(svc, session, None, _VIDEO_LAYERED_KEYS["i2v"])),
+            "r2v": await _or_none(resolver._resolve_layered_backend(svc, session, None, _VIDEO_LAYERED_KEYS["r2v"])),
+            "text": await _or_none(resolver._resolve_text_backend(svc, session, TextTaskType.SCRIPT, None)),
+        }
+
+    async def test_builtin_provider_preview_matches_execution(self, db_factory):
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={})
+        async with db_factory() as session:
+            preview = await resolver._resolve_auto_backends(fake_svc, session)
+            executed = await self._execution_pairs(resolver, fake_svc, session)
+        assert preview == executed
+        assert all(pair is not None and pair[0] == "gemini-aistudio" for pair in preview.values())
+
+    async def test_custom_fallback_filters_by_bucket_and_reports_missing_media(self, db_factory):
+        """无就绪内置供应商时按桶取自定义默认；该媒体一个候选都没有时为 None，不报错。"""
+        from lib.custom_provider import make_provider_id
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        resolver = ConfigResolver.__new__(ConfigResolver)
+        fake_svc = _FakeConfigService(settings={}, ready_providers=[])
+        async with db_factory() as session:
+            provider = CustomProvider(
+                display_name="Prov", discovery_format="openai", base_url="https://api.example.com", api_key="k"
+            )
+            session.add(provider)
+            await session.flush()
+            session.add_all(
+                [
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="t2i-m",
+                        display_name="T2I",
+                        endpoint="openai-images-generations",
+                        is_default=True,
+                        is_enabled=True,
+                    ),
+                    CustomProviderModel(
+                        provider_id=provider.id,
+                        model_id="i2i-m",
+                        display_name="I2I",
+                        endpoint="openai-images-edits",
+                        is_default=True,
+                        is_enabled=True,
+                    ),
+                ]
+            )
+            await session.flush()
+
+            preview = await resolver._resolve_auto_backends(fake_svc, session)
+            executed = await self._execution_pairs(resolver, fake_svc, session)
+        pid = make_provider_id(provider.id)
+        assert preview == {"t2i": (pid, "t2i-m"), "i2i": (pid, "i2i-m"), "i2v": None, "r2v": None, "text": None}
+        assert preview == executed

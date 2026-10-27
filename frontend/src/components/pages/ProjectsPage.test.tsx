@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -407,7 +407,20 @@ describe("ProjectsPage", () => {
     title: "Old",
     deleted_at: "2026-10-20T08:00:00+00:00",
     expires_at: "2026-11-19T08:00:00+00:00",
+    size: 3 * 1024 * 1024,
   };
+
+  it("shows how much space each deleted project takes", async () => {
+    vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+    vi.spyOn(API, "listDeletedProjects").mockResolvedValue({ projects: [deletedDemo], retention_days: 30 });
+
+    renderPage();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "已删除项目" }));
+    const dialog = await screen.findByRole("dialog", { name: "已删除项目" });
+
+    expect(await within(dialog).findByText(/占用 3\.0 MB$/)).toBeInTheDocument();
+  });
 
   it("reloads deleted projects after a restore cancels the reopened dialog's in-flight listing", async () => {
     vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
@@ -687,5 +700,92 @@ describe("ProjectsPage", () => {
     );
 
     await waitFor(() => expect(API.importProject).toHaveBeenNthCalledWith(3, file, "rename", { confirmReport: true }));
+  });
+
+  describe("when the user has left the lobby before the import finishes", () => {
+    /** 选好文件后让导入请求悬起，卸载页面（离开大厅），再返回收尾导入请求的 resolve / reject。 */
+    async function leaveWhileImporting() {
+      vi.spyOn(API, "listProjects").mockResolvedValue({ projects: [] });
+      let resolve!: (value: Awaited<ReturnType<typeof API.importProject>>) => void;
+      let reject!: (error: Error) => void;
+      vi.spyOn(API, "importProject").mockImplementation(
+        () =>
+          new Promise((res, rej) => {
+            resolve = res;
+            reject = rej;
+          }),
+      );
+      const { container, location, unmount } = renderPage();
+      await screen.findByText("还没有项目");
+      chooseZip(container);
+      await waitFor(() => expect(API.importProject).toHaveBeenCalledTimes(1));
+      unmount();
+      return { location, resolve: (v: Awaited<ReturnType<typeof API.importProject>>) => act(async () => resolve(v)), reject: (e: Error) => act(async () => reject(e)) };
+    }
+
+    it("does not navigate after a clean import, and offers to open the new project", async () => {
+      const { location, resolve } = await leaveWhileImporting();
+      await resolve(importResult("imported-demo", { auto_fixed: [], warnings: [] }));
+
+      expect(location.history?.at(-1)).toBe("/app/projects");
+      const toast = useAppStore.getState().toast;
+      expect(toast?.tone).toBe("success");
+      expect(toast?.text).toBe("项目「Imported Demo」已导入");
+      expect(toast?.action?.label).toBe("打开项目");
+      act(() => toast?.action?.onClick());
+      expect(location.history?.at(-1)).toBe("/app/projects/imported-demo");
+    });
+
+    it("reports the auto-fixed issues in the toast instead of a dialog", async () => {
+      const { location, resolve } = await leaveWhileImporting();
+      await resolve(
+        importResult("imported-demo", {
+          auto_fixed: [{ code: "missing_clues_field", message: "补全缺失字段" }],
+          warnings: [],
+        }),
+      );
+
+      expect(location.history?.at(-1)).toBe("/app/projects");
+      expect(useAppStore.getState().toast?.text).toContain("自动修复 1 个问题");
+      expect(useAppStore.getState().toast?.action?.label).toBe("打开项目");
+    });
+
+    it("says the import failed and what to do next", async () => {
+      const { reject } = await leaveWhileImporting();
+      await reject(
+        importError("导入包校验失败", {
+          diagnostics: { blocking: [{ code: "validation_error", message: "缺少 project.json" }], auto_fixable: [], warnings: [] },
+        }),
+      );
+
+      const toast = useAppStore.getState().toast;
+      expect(toast?.tone).toBe("error");
+      expect(toast?.text).toBe("项目导入失败：导入包校验失败。回到项目大厅可以重新导入。");
+    });
+
+    it("says the import did not happen because of a duplicate project ID", async () => {
+      const { reject } = await leaveWhileImporting();
+      await reject(importError("检测到项目编号冲突", { status: 409, conflict_project_name: "demo" }));
+
+      const toast = useAppStore.getState().toast;
+      expect(toast?.tone).toBe("warning");
+      expect(toast?.text).toContain("项目未导入");
+      expect(toast?.text).toContain("项目 ID「demo」已被现有项目占用");
+    });
+
+    it("says the import needs the upgrade report confirmed", async () => {
+      const { reject } = await leaveWhileImporting();
+      await reject(
+        importError("导入包升级时调整了部分内容，请确认后再导入", {
+          status: 409,
+          confirmation_required: true,
+          migration_report: UPGRADE_REPORT,
+        }),
+      );
+
+      const toast = useAppStore.getState().toast;
+      expect(toast?.tone).toBe("warning");
+      expect(toast?.text).toContain("需要确认");
+    });
   });
 });

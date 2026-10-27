@@ -75,6 +75,29 @@ describe("MigrationReportContent", () => {
     ).toBeInTheDocument();
   });
 
+  it("names the asset a shared reference file belonged to and the copy that replaced it", () => {
+    render(
+      <MigrationReportContent
+        report={report([
+          {
+            code: "shared_reference_file_copied",
+            episode: null,
+            file: "characters/refs_audio/阿青.wav",
+            backup: null,
+            params: { asset_type: "character", name: "阿青", owner: "阿离", from: "characters/refs_audio/阿离.wav" },
+          },
+        ])}
+        episodes={EPISODES}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "角色「阿青」用的是「阿离」名下的文件 characters/refs_audio/阿离.wav，已复制一份为 characters/refs_audio/阿青.wav 改用。",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("says where references and derivatives of a removed case variant went", () => {
     const variant = { name: "ALICE", kept: "Alice" };
     render(

@@ -1210,6 +1210,64 @@ def add_asset_names_differing_only_in_case(project_dir: Path, bucket: str, sheet
     return variant
 
 
+def write_legacy_shared_reference_project(root: Path, *, padded_names: bool = False) -> Path:
+    """schema 5 的跨资产共用：角色共用图与音频，同名商品也引用角色的图。"""
+    project_dir = root / "demo"
+    owner, borrower = (" Alice ", " Bob ") if padded_names else ("Alice", "Bob")
+    image, audio = f"characters/refs/{owner}.png", f"characters/refs_audio/{owner}.wav"
+    _write_json(
+        project_dir / "project.json",
+        {
+            "schema_version": 5,
+            "title": "旧共用参考文件项目",
+            "characters": {
+                owner: {"description": "owner", "reference_image": image, "reference_audio": audio},
+                borrower: {"description": "borrower", "reference_image": image, "reference_audio": audio},
+            },
+            "scenes": {},
+            "props": {},
+            "products": {borrower: {"description": "product", "reference_images": [image]}},
+            "episodes": [],
+        },
+    )
+    for rel, content in ((image, b"image"), (audio, b"audio")):
+        path = project_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    return project_dir
+
+
+def share_reference_files(project_dir: Path) -> dict[str, bytes]:
+    """旧版资产 PATCH 接受任意路径，参考图与参考音频可以指向别的资产名下的文件。
+
+    角色「阿离」带自己名下的参考图与参考音频，新加的角色「阿青」两个字段都指着这两份；「阿青」名下另有
+    一张没被引用的参考图。商品「咖啡」带第 1 张原图，新加的商品「茶」的原图列表指着它。返回各份文件的内容。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    contents = {
+        "characters/refs/阿离.png": b"ali-image",
+        "characters/refs_audio/阿离.wav": b"ali-voice",
+        "characters/refs/阿青.png": b"qing-stray",
+        "products/refs/咖啡_1.png": b"coffee-1",
+    }
+    for rel, content in contents.items():
+        (project_dir / rel).parent.mkdir(parents=True, exist_ok=True)
+        (project_dir / rel).write_bytes(content)
+    shared = {"reference_image": "characters/refs/阿离.png", "reference_audio": "characters/refs_audio/阿离.wav"}
+    project["characters"]["阿离"].update(shared)
+    project["characters"]["阿青"] = {"description": "青衣少年", "character_sheet": "", **shared}
+    project["products"]["咖啡"]["reference_images"] = ["products/refs/咖啡_1.png"]
+    project["products"]["茶"] = {
+        "description": "冷泡茶",
+        "product_sheet": "",
+        "reference_images": ["products/refs/咖啡_1.png"],
+    }
+    _write_json(project_path, project)
+    return contents
+
+
 def refer_to_asset_in_episode(project_dir: Path, episode: int, field: str, name: str) -> None:
     """只差大小写的两条资产并存时，剧本与草稿可以写其中任何一个的名字。
 
@@ -1579,6 +1637,7 @@ __all__ = [
     "bind_episode_script_to_filename",
     "legacy_transition_presentation_basis",
     "refer_to_asset_in_episode",
+    "share_reference_files",
     "without_version_content_digests",
     "write_legacy_ad_reference_video_project",
     "write_legacy_drama_storyboard_project",

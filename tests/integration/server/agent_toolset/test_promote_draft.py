@@ -113,7 +113,8 @@ async def test_split_reference_video_units_quarantines_each_violation_class(
     report = said(out)
     assert f"[{code}]" in report
     assert "unit E1U01" in report
-    assert str(rv_quarantine_path(fake_ctx)) in report
+    assert rv_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path).as_posix() in report
+    assert str(fake_ctx.project_path) not in report
     assert "promote_draft" in report
 
 
@@ -1333,7 +1334,8 @@ async def test_split_narration_segments_quarantines_violation_instead_of_discard
 
     assert out.problem is not None
     report = said(out)
-    assert str(nr_quarantine_path(fake_ctx)) in report
+    assert nr_quarantine_path(fake_ctx).relative_to(fake_ctx.project_path).as_posix() in report
+    assert str(fake_ctx.project_path) not in report
     assert "[duration_off_tier]" in report
     assert "[unregistered_asset]" in report
     assert "segment E1S01" in report

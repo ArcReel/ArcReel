@@ -30,14 +30,15 @@ from starlette.middleware.gzip import GZipResponder, IdentityResponder
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from lib import PROJECT_ROOT
-from lib.agent.agent_session_store import session_store_enabled
+from lib.agent.agent_session_store import default_sdk_config_dir, session_store_enabled
 from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
+from lib.agent.agent_session_store.key_alignment import align_session_keys
 from lib.agent.agent_session_store.store import DbSessionStore
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation.generation_worker import GenerationWorker
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
-from lib.infra.data_root_layout_migration import default_sdk_config_dir, migrate_data_root_layout
+from lib.infra.data_root_layout_migration import migrate_data_root_layout
 from lib.infra.ffmpeg import log_ffmpeg_status
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from lib.infra.logging_config import (
@@ -405,6 +406,20 @@ async def lifespan(app: FastAPI):
             migration_summary.failed,
         )
     await asyncio.to_thread(cleanup_stale_backups, layout.projects_dir, 7)
+
+    # 会话存储键对齐（幂等；失败不阻塞启动）：数据根换了绝对路径后，会话的 Agent 上下文改到当前项目目录派生的键下。
+    # 排在数据根布局迁移之后：布局迁移把旧布局的键改到 projects/ 下的目录，这里才按当前布局重算。
+    # 排在本地 transcript 导入之前：导入按当前键列本地会话、按当前键判断是否已导入，键没对齐时会在新键下
+    # 再导入一份，同一会话两个键下都有记录，对齐就不再改它。
+    try:
+        await align_session_keys(
+            async_session_factory,
+            projects_dir=layout.projects_dir,
+            sdk_config_dir=default_sdk_config_dir(),
+            store_enabled=session_store_enabled(),
+        )
+    except Exception:
+        logger.exception("会话存储键对齐失败（不阻塞启动）")
 
     # Migrate any pre-existing local SDK jsonl transcripts into the DbSessionStore.
     # Runs once (marker-gated); failures are non-fatal and logged.
@@ -897,36 +912,12 @@ class FrontendCacheHeadersMiddleware:
 app.add_middleware(FrontendCacheHeadersMiddleware)
 
 
-class _IdentityResponder(IdentityResponder):
-    """内容类型不压缩（事件流、已压缩的媒体）的响应，响应头到达即放行。
-
-    Starlette 的 responder 要等到第一个 body 块才放行响应头，以便决定是否改写编码相关的头；
-    不压缩的类型无需改写，事件流却会因此在首个事件前一直收不到响应头。按响应的
-    Content-Type 判断，不依赖请求是否声明 ``Accept: text/event-stream``。
-    """
-
-    async def send_with_compression(self, message: Message) -> None:
-        if message["type"] == "http.response.start":
-            await super().send_with_compression(message)
-            if self.content_type_is_excluded:
-                self.started = True
-                await self.send(self.initial_message)
-        elif message["type"] == "http.response.pathsend" and self.started:
-            await self.send(message)
-        else:
-            await super().send_with_compression(message)
-
-
-class _GZipResponder(_IdentityResponder, GZipResponder):
-    """在 :class:`_IdentityResponder` 的响应头放行之上做 gzip 压缩。"""
-
-
 class ResponseCompressionMiddleware:
     """JSON / JS / CSS / HTML 等文本响应的 gzip 压缩。
 
     沿用 Starlette GZip 的默认排除清单（text/event-stream 与 image/audio/video 等已压缩的
     媒体类型），206 分段响应原样透传；流式响应按块 Z_SYNC_FLUSH，不攒批。排除类型的响应头
-    即时放行，见 :class:`_IdentityResponder`。compresslevel 取 zlib 默认档 6：
+    由 Starlette（>= 1.8）即时放行，事件流在首个事件前就能收到响应头。compresslevel 取 zlib 默认档 6：
     JSON/JS 的体积收益与 9 相差无几，CPU 开销低得多。
     """
 
@@ -939,9 +930,9 @@ class ResponseCompressionMiddleware:
             return
         responder: ASGIApp
         if "gzip" in Headers(scope=scope).get("accept-encoding", ""):
-            responder = _GZipResponder(self.app, minimum_size=500, compresslevel=6)
+            responder = GZipResponder(self.app, minimum_size=500, compresslevel=6)
         else:
-            responder = _IdentityResponder(self.app, minimum_size=500)
+            responder = IdentityResponder(self.app, minimum_size=500)
         await responder(scope, receive, send)
 
 
