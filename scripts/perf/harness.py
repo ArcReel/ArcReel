@@ -651,9 +651,10 @@ class StackSampler(threading.Thread):
 
     @staticmethod
     def _frame_label(frame) -> str:
+        # 用模块名而非文件名：不同包下的同名文件（如两个 utils.py）不会并成一个热点。
         code = frame.f_code
-        name = os.path.basename(code.co_filename)
-        return f"{name}:{code.co_qualname}"
+        module = frame.f_globals.get("__name__") or os.path.basename(code.co_filename)
+        return f"{module}:{code.co_qualname}"
 
     def run(self) -> None:
         me = threading.get_ident()
