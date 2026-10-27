@@ -2082,7 +2082,6 @@ export default {
   'reference_unit_bucket_changed': 'Đơn vị này sẽ chạy theo {{hydrated}} thay vì {{declared}} như đã khai báo',
   'reference_unit_unavailable_references': 'Tài sản được tham chiếu chưa có ảnh: {{names}}',
   'reference_unit_unregistered_references': 'Tham chiếu chưa đăng ký: {{names}}',
-  'reference_script_plan_confirm_continue_prefill': 'Đã xác nhận việc chia {{episodeRef}}, hãy tiếp tục tạo kịch bản và video từ ảnh tham chiếu.',
   'image_prompt_placeholder': 'Mô tả phân cảnh...',
   'video_prompt_placeholder': 'Mô tả hành động video...',
 

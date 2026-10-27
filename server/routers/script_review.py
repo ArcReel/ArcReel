@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from lib.i18n import render_message
 from lib.i18n.display_names import DisplayNames
 from lib.infra.api_errors import NotFoundError
+from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from lib.script.script_review import overwrite_with_text
 from server.dependencies import require_project_migration_ok
@@ -126,7 +127,8 @@ async def update_script_review_content(
     """
     try:
         service = ScriptReviewService(get_project_manager())
-        state = await service.save_content(project_name, episode, content, base_fingerprint)
+        with project_change_source("webui"):
+            state = await service.save_content(project_name, episode, content, base_fingerprint)
         quarantine = await service.get_quarantine_info(project_name, episode)
         await _attach_duration_tiers(service, project_name, episode, state, _t, names)
         _attach_overwrite_text(state, _t)
@@ -168,9 +170,11 @@ async def confirm_script_review(
     """
     try:
         service = ScriptReviewService(get_project_manager())
-        state = await service.confirm(
-            project_name, episode, overwrite_revision=req.overwrite_revision if req is not None else None
-        )
+        # 确认会写正式脚本并登记新资产；不标来源时变更按 filesystem 广播，前端当作外部改动跳到资产窗格。
+        with project_change_source("webui"):
+            state = await service.confirm(
+                project_name, episode, overwrite_revision=req.overwrite_revision if req is not None else None
+            )
         await _attach_duration_tiers(service, project_name, episode, state, _t, names)
         _attach_overwrite_text(state, _t)
         state["quarantine"] = localize_draft_view(await service.get_quarantine_info(project_name, episode), _t, names)

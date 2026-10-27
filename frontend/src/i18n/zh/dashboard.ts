@@ -2091,7 +2091,6 @@ export default {
   'reference_unit_bucket_changed': '本单元将按{{hydrated}}执行，而非声明的{{declared}}',
   'reference_unit_unavailable_references': '引用的资产缺图：{{names}}',
   'reference_unit_unregistered_references': '未登记的引用：{{names}}',
-  'reference_script_plan_confirm_continue_prefill': '{{episodeRef}}的拆分已确认，请继续生成脚本与参考生视频。',
   'image_prompt_placeholder': '分镜图描述…',
   'video_prompt_placeholder': '视频动作描述…',
 
