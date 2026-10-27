@@ -1857,7 +1857,9 @@ def test_stale_episode_is_stated_but_stays_out_of_the_next_step(tmp_path: Path) 
     assert status.artifacts["script_plan"]["state"] == "stale"
     assert status.content is not None
     assert status.content.episode_plan_stale is True
-    assert status.content.expected_stale_script_plan_revision == script_review.content_fingerprint(script_plan_path)
+    assert status.content.expected_stale_script_plan_revision == script_review.published_revision(
+        script_review.content_fingerprint(script_plan_path)
+    )
     assert status.next_action.type == "none"
 
 
@@ -1892,7 +1894,8 @@ def test_stale_episode_advances_after_script_plan_is_rebuilt(tmp_path: Path) -> 
     assert rebuilt.next_action.requires_confirmation is True
 
 
-def test_identical_stale_script_plan_rebuild_advances_after_explicit_completion(tmp_path: Path) -> None:
+@pytest.mark.parametrize("spelling", ["prefixed", "bare"])
+def test_identical_stale_script_plan_rebuild_advances_after_explicit_completion(tmp_path: Path, spelling: str) -> None:
     pm, project_path = _make_project(tmp_path, "narration")
     _write_source(pm, project_path)
     draft_dir = project_path / "drafts" / "episode_1"
@@ -1920,14 +1923,19 @@ def test_identical_stale_script_plan_rebuild_advances_after_explicit_completion(
     before = service.get_status("demo", 1)
     assert before.content is not None
     assert before.content.episode_plan_stale is True
-    assert before.content.expected_stale_script_plan_revision == baseline
+    assert before.content.expected_stale_script_plan_revision == script_review.published_revision(baseline)
 
     atomic_write_json(script_plan_path, content)
     _register_script_plan(project_path)
     still_pending = service.get_status("demo", 1)
     assert still_pending.content is not None
     assert still_pending.content.episode_plan_stale is True
-    script_review.complete_stale_script_plan_rebuild(pm, "demo", 1, baseline)
+    # 制作计划给出带前缀的 revision，原样回传即可；早先拿到的裸 hex 写法同样被接受。
+    expected = before.content.expected_stale_script_plan_revision
+    assert expected is not None
+    script_review.complete_stale_script_plan_rebuild(
+        pm, "demo", 1, expected if spelling == "prefixed" else expected.removeprefix("sha256-v1:")
+    )
 
     completed = service.get_status("demo")
     assert completed.next_action.type == "confirm_script_plan"

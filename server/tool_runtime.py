@@ -2689,7 +2689,7 @@ class CompleteScriptPlanRebuildRequest(BaseModel):
     expected_stale_script_plan_revision: str | None = Field(
         description=(
             "重建基线，原样取自制作计划 next_action.args.expected_stale_script_plan_revision（可能为 null，"
-            "null 也须显式传）；与项目记录不一致时拒绝"
+            "null 也须显式传；带 sha256-v1: 前缀与裸 hex 两种写法等价）；与项目记录不一致时拒绝"
         )
     )
 
@@ -3805,7 +3805,7 @@ async def complete_script_plan_rebuild(
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("complete_script_plan_rebuild", exc))
     return ToolOutcome(
-        value=CompleteScriptPlanRebuildResult(episode_id=value.episode_id, script_plan_revision=revision)
+        value=CompleteScriptPlanRebuildResult(episode_id=value.episode_id, script_plan_revision=prefixed(revision))
     )
 
 

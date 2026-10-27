@@ -1928,9 +1928,10 @@ class ScriptGenerator:
     ) -> Path:
         draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         if draft is None:
+            draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
             raise FileNotFoundError(
                 f"集（id={episode}）没有可晋升的 prompt_authoring 待修复草稿"
-                f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)} 缺失或内容不是合法信封）"
+                f"（{draft_path.relative_to(self.project_path).as_posix()} 缺失或内容不是合法信封）"
             )
 
         filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)

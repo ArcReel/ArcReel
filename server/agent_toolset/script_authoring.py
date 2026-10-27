@@ -96,7 +96,11 @@ CONFIRM_SCRIPT_REVIEW = ToolDeclaration(
 
 OPEN_DRAFT = ToolDeclaration(
     name=OPEN_DRAFT_TOOL_NAME,
-    description="读取指定草稿；草稿不存在时从对应正式文档创建编辑副本。返回完整正文、违约与 canonical revision。",
+    description=(
+        "读取指定草稿；草稿不存在时从对应正式文档创建编辑副本。返回完整正文、上一轮产出或晋升判定的违约、"
+        "canonical revision，以及正式文档的 formal_revision（与 get_script_plan_content、"
+        "制作计划给出的 revision 同一写法）。"
+    ),
     request_model=DraftLocator,
     migration=BLOCKED,
     domain_key=_DRAFT,
@@ -108,6 +112,7 @@ PATCH_DRAFT = ToolDeclaration(
     description=(
         "按 canonical revision 原子替换草稿正文；revision 冲突时拒绝且不写入。"
         "给出 accept_formal_revision 即接受正式文档的并发修改，给出 source 即更新重判范围，二者显式传 null 同样生效。"
+        "回执带新正文与 revision，不含违约：本工具不重判，修改后的违约以 promote_draft 的全量重判为准。"
     ),
     request_model=PatchDraftRequest,
     migration=BLOCKED,

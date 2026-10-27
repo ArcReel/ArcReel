@@ -37,7 +37,7 @@ async def test_script_plan_rebuild_forwards_the_explicit_baseline(tmp_path: Path
 
     def complete(*args: object) -> str:
         calls.append(args)
-        return "rebuilt-revision"
+        return "ab" * 32
 
     outcome = await run_declared_tool(
         COMPLETE_SCRIPT_PLAN_REBUILD,
@@ -47,7 +47,7 @@ async def test_script_plan_rebuild_forwards_the_explicit_baseline(tmp_path: Path
     )
 
     assert outcome.problem is None
-    assert outcome.value == CompleteScriptPlanRebuildResult(episode_id=2, script_plan_revision="rebuilt-revision")
+    assert outcome.value == CompleteScriptPlanRebuildResult(episode_id=2, script_plan_revision=f"sha256-v1:{'ab' * 32}")
     assert calls == [(projects, "demo", 2, "baseline")]
 
 

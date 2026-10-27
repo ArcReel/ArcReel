@@ -38,7 +38,7 @@ from lib.episode.episode_paths import (
     episode_drafts_dir,
     episode_script_filename,
 )
-from lib.infra.content_digest import canonical_json_digest
+from lib.infra.content_digest import canonical_json_digest, prefixed, unprefixed
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
@@ -185,6 +185,20 @@ def content_fingerprint(path: Path) -> str | None:
     return content_fingerprint_of_data(parsed)
 
 
+def published_revision(fingerprint: str | None) -> str | None:
+    """内容指纹对外的 revision 写法：带 ``sha256-v1:`` 前缀，与读取面其余 revision 同一种表示。
+
+    指纹本身（落盘的基线、草稿 meta、项目记录）仍是裸 hexdigest；只在交给客户端时加前缀，
+    入参经 ``fingerprint_of_revision`` 去前缀后再与指纹比对。
+    """
+    return prefixed(fingerprint) if fingerprint is not None else None
+
+
+def fingerprint_of_revision(revision: str | None) -> str | None:
+    """客户端传回的 revision → 内容指纹：带前缀与裸 hexdigest 两种写法都接受。"""
+    return unprefixed(revision) if revision is not None else None
+
+
 class _UncheckedFingerprint(enum.Enum):
     """``write_script_plan_locked`` 的 ``expected_fingerprint`` 哨兵类型：区分「不做基线比对」与
     「基线是 None（写入方取基线时正式文件不存在）」——两者都要能表达，``None`` 只够表达后者。"""
@@ -248,7 +262,7 @@ def complete_stale_script_plan_rebuild(
             raise ScriptPlanRebuildCompletionError("not_stale", "episode is not awaiting a stale script_plan rebuild")
         if STALE_SCRIPT_PLAN_REVISION_FIELD not in entry:
             raise ScriptPlanRebuildCompletionError("missing_baseline", "stale episode has no rebuild baseline")
-        if entry.get(STALE_SCRIPT_PLAN_REVISION_FIELD) != expected_stale_revision:
+        if entry.get(STALE_SCRIPT_PLAN_REVISION_FIELD) != fingerprint_of_revision(expected_stale_revision):
             raise ScriptPlanRebuildCompletionError(
                 "baseline_conflict", "stale script_plan baseline changed; refresh workflow status"
             )

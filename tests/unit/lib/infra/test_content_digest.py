@@ -29,6 +29,7 @@ from lib.infra.content_digest import (
     reset_file_digest_cache_for_tests,
     sha256_file,
     sha256_file_with_size,
+    unprefixed,
 )
 
 
@@ -63,6 +64,15 @@ def test_prefixed_sha256_file_carries_algorithm(tmp_path: Path) -> None:
     target = tmp_path / "media.bin"
     target.write_bytes(b"payload")
     assert prefixed_sha256_file(target) == f"{HASH_ALGORITHM}:{sha256_file(target)}"
+
+
+def test_unprefixed_strips_only_a_valid_algorithm_prefix() -> None:
+    hexdigest = "ab" * 32
+    assert unprefixed(prefixed(hexdigest)) == hexdigest
+    assert unprefixed(hexdigest) == hexdigest
+    # 前缀后不是合法 hexdigest 时原样返回，交给调用方的比对判为不一致。
+    assert unprefixed(f"{HASH_ALGORITHM}:xyz") == f"{HASH_ALGORITHM}:xyz"
+    assert unprefixed(f"{HASH_ALGORITHM}:{hexdigest}\n") == f"{HASH_ALGORITHM}:{hexdigest}\n"
 
 
 def test_digest_stream_can_retain_content() -> None:
