@@ -2819,7 +2819,7 @@ export default {
   'ext_agent_mcp_endpoint': 'MCP endpoint',
   'ext_agent_copy_mcp_endpoint': 'Copy MCP endpoint',
   'ext_agent_step_token_title': 'Prepare an access token',
-  'ext_agent_step_token_desc': 'The setup skill also needs an access token. The full token is shown only once, when it is created. Save it immediately and share it only with an external agent you trust.',
+  'ext_agent_step_token_desc': 'The setup skill also needs an access token. The full token is shown only once, when it is created. Save it immediately and share it only with an external agent you trust. The setup skill saves the token in plain text to the MCP configuration and .arcreel/settings.json. If these files are inside a code repository, add them to .gitignore so the token is not committed.',
   'ext_agent_manage_tokens': 'Manage access tokens',
   'ext_agent_prompt_title': 'Let an AI agent connect for you',
   'ext_agent_prompt_desc': 'Send this prompt to your AI agent. It reads the dedicated installation guide and walks you through skills, MCP, and connection verification.',
