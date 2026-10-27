@@ -43,6 +43,7 @@ from lib.project.asset_types import (
     resolve_asset_key,
     validate_asset_name,
 )
+from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from server.i18n import Translator
@@ -888,13 +889,14 @@ async def apply_to_project(
             VersionManager(project_dir).commit_installed_versions(commits, on_commit=_register_imported_sheet_claims)
 
         try:
-            await run_sync_transaction(
-                project_manager.update_project_with_file_copies,
-                req.target_project,
-                _apply_all,
-                file_copies,
-                on_commit=_select_imported_sheets,
-            )
+            with project_change_source("webui"):
+                await run_sync_transaction(
+                    project_manager.update_project_with_file_copies,
+                    req.target_project,
+                    _apply_all,
+                    file_copies,
+                    on_commit=_select_imported_sheets,
+                )
         except ProjectAssetNameConflictError as exc:
             raise HTTPException(status_code=409, detail=localize_project_asset_name_conflict(exc, _t)) from exc
 

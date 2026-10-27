@@ -504,14 +504,14 @@ export async function enqueuePromptAuthoring(
 
 /**
  * 提示词编写以空操作收尾（范围内没有待编写的条目，未调用文本模型）时弹提示，说明勾选覆盖可以重写。
- * 编写入口提交后即关闭，只能在入队层跟踪任务结果；任务都到达终态，或任务列表切到别的项目后停止跟踪。
+ * 编写入口提交后即关闭，只能在入队层跟踪任务结果；任务都到达终态，或任务列表不再跟踪本项目
+ * （切到别的项目、离开工作室）后停止跟踪，回来时不补弹过期的提示。
  */
 function watchPromptAuthoringNoop(projectName: string, taskIds: readonly string[]): void {
   const pending = new Set(taskIds);
   if (pending.size === 0) return;
   const check = (state: ReturnType<typeof useTasksStore.getState>): void => {
-    const scope = state.refreshScope;
-    if (scope !== null && scope.projectName !== projectName) {
+    if (state.refreshScope?.projectName !== projectName) {
       unsubscribe();
       return;
     }

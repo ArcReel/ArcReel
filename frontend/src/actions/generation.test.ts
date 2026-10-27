@@ -423,15 +423,24 @@ describe("enqueueScriptPlan", () => {
 });
 
 describe("enqueuePromptAuthoring", () => {
-  const AUTHORING_BATCH = {
-    batch: { batch_id: "b1", members: [{ unit_id: "episode-1", task_id: "t-author" }] },
-  };
+  /** 入队时任务列表正在跟踪本项目：编写入口都在工作室内，刷新范围即当前项目。 */
+  beforeEach(() => {
+    useTasksStore.setState({ refreshScope: { projectName: "demo" } });
+  });
 
-  function finish(result: Record<string, unknown> | null, status: "succeeded" | "failed" = "succeeded"): void {
+  function authoringBatch(taskId: string) {
+    return { batch: { batch_id: "b1", members: [{ unit_id: "episode-1", task_id: taskId }] } };
+  }
+
+  function finish(
+    result: Record<string, unknown> | null,
+    status: "succeeded" | "failed" = "succeeded",
+    taskId = "t-author",
+  ): void {
     useTasksStore.setState({
       tasks: [
         makeTask({
-          task_id: "t-author",
+          task_id: taskId,
           project_name: "demo",
           task_type: "text_episode_script",
           resource_id: "episode-1",
@@ -443,7 +452,7 @@ describe("enqueuePromptAuthoring", () => {
   }
 
   it("任务以空操作收尾时提示没有待编写的条目，并说明勾选覆盖可以重写", async () => {
-    vi.spyOn(API, "authorPrompts").mockResolvedValue(AUTHORING_BATCH);
+    vi.spyOn(API, "authorPrompts").mockResolvedValue(authoringBatch("t-author"));
 
     await enqueuePromptAuthoring("demo", 1, { entry_ids: ["E1U01"], rewrite: false });
     expect(useAppStore.getState().toast?.text).toBe(i18n.t("dashboard:prompt_authoring_queued"));
@@ -455,22 +464,35 @@ describe("enqueuePromptAuthoring", () => {
     expect(text).toContain(i18n.t("dashboard:prompt_authoring_rewrite_toggle"));
   });
 
-  it("任务实际编写了条目或失败时不追加提示", async () => {
-    vi.spyOn(API, "authorPrompts").mockResolvedValue(AUTHORING_BATCH);
+  it.each([
+    ["实际编写了条目", { message: "完成" }, "succeeded"],
+    ["失败", null, "failed"],
+  ] as const)("任务%s时不追加提示", async (_label, result, status) => {
+    vi.spyOn(API, "authorPrompts").mockResolvedValue(authoringBatch("t-author"));
 
     await enqueuePromptAuthoring("demo", 1, { entry_ids: null, rewrite: false });
     useAppStore.setState({ toast: null });
-    finish({ message: "完成" });
+    finish(result, status);
     expect(useAppStore.getState().toast).toBeNull();
+    // 本次任务已结束，监听器随之退订：后续同项目的空操作任务行不归它管。
+    finish({ message: "没有待编写的条目", no_pending_authoring: true }, "succeeded", "t-other");
+    expect(useAppStore.getState().toast).toBeNull();
+  });
+
+  it("任务列表不再跟踪本项目后停止跟踪：离开工作室再回来不补弹过期提示", async () => {
+    vi.spyOn(API, "authorPrompts").mockResolvedValue(authoringBatch("t-author"));
 
     await enqueuePromptAuthoring("demo", 1, { entry_ids: null, rewrite: false });
     useAppStore.setState({ toast: null });
-    finish(null, "failed");
+    useTasksStore.setState({ refreshScope: null });
+    useTasksStore.setState({ refreshScope: { projectName: "demo" } });
+    finish({ message: "没有待编写的条目", no_pending_authoring: true });
+
     expect(useAppStore.getState().toast).toBeNull();
   });
 
   it("任务结束后停止跟踪：同一任务行再次刷新不重复提示", async () => {
-    vi.spyOn(API, "authorPrompts").mockResolvedValue(AUTHORING_BATCH);
+    vi.spyOn(API, "authorPrompts").mockResolvedValue(authoringBatch("t-author"));
 
     await enqueuePromptAuthoring("demo", 1, { entry_ids: null, rewrite: false });
     finish({ message: "没有待编写的条目", no_pending_authoring: true });
