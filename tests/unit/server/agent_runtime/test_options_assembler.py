@@ -303,8 +303,8 @@ async def test_append_prompt_carries_user_memory_dir_and_index(tmp_path: Path) -
     assert "## 用户记忆" in prompt
     assert memory_dir.as_posix() in prompt
     assert "拿不准留项目记忆" in prompt
-    # Bash 侧对数据根整棵 denyRead，记忆读写只能走内置文件工具
-    assert "Bash 读不到记忆目录" in prompt
+    # 内核沙箱对用户记忆目录拒读且不放行写，记忆读写只能走内置文件工具
+    assert "Bash 读写不了该目录" in prompt
     assert "- [配音偏好](voice.md) — 固定用女声" in prompt
 
 

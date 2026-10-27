@@ -90,7 +90,7 @@ def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, mo
     cwd = sm.layout.projects_dir / "demo"
     allowed, _ = policy.check_path_access(str(data_logs / "arcreel.log"), "Read", cwd, user_id=_USER_ID)
     assert not allowed
-    deny_read = policy.build_sandbox_settings(cwd, user_id=_USER_ID)["filesystem"]["denyRead"]
+    deny_read = policy.build_sandbox_settings(cwd)["filesystem"]["denyRead"]
     assert str(data_logs.resolve()) in deny_read
     assert policy.is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())
     # ARCREEL_LOG_DIR 指向的目录与 repo/logs 都不是日志位置，不进 denyRead
@@ -103,13 +103,13 @@ def test_configure_sandbox_runtime_swaps_policy(tmp_path: Path) -> None:
     后续 settings 编译 / hook 裁决立即消费新规则。"""
     sm = _make_session_manager(tmp_path, sandbox_enabled=True)
     cwd = sm.layout.projects_dir / "demo"
-    assert sm.access_policy.build_sandbox_settings(cwd, user_id=_USER_ID)["enabled"] is True
+    assert sm.access_policy.build_sandbox_settings(cwd)["enabled"] is True
 
     sm.configure_sandbox_runtime(in_docker=True, sandbox_enabled=False)
 
     assert sm.access_policy.sandbox_enabled is False
     assert sm.access_policy.in_docker is True
-    assert sm.access_policy.build_sandbox_settings(cwd, user_id=_USER_ID) == {"enabled": False}
+    assert sm.access_policy.build_sandbox_settings(cwd) == {"enabled": False}
 
 
 @pytest.mark.asyncio
