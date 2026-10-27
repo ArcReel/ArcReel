@@ -1505,7 +1505,8 @@ describe("ReferenceVideoCanvas", () => {
     fireEvent.click(batch);
     // 上传在途的单元列为跳过项并写明原因，不进预览请求
     const dialog = within(await screen.findByRole("alertdialog"));
-    expect(dialog.getByText(/跳过 1 个视频单元|Skipped 1 video unit/)).toBeInTheDocument();
+    // 跳过清单随预览结果渲染，等它出现而不是只等弹窗挂载
+    expect(await dialog.findByText(/跳过 1 个视频单元|Skipped 1 video unit/)).toBeInTheDocument();
     expect(dialog.getByText(/正在上传视频|Uploading a video/)).toBeInTheDocument();
     expect(API.previewReferenceVideoBatch).toHaveBeenCalledWith("proj", 1, { unit_ids: ["E1U2"] }, expect.anything());
     await confirmBatchPreview();

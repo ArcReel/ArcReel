@@ -1435,6 +1435,15 @@ def test_preview_batch_lists_the_targets_and_totals_their_quotes_without_creatin
     second = _seed_second_unit(reference_videos_client)
     enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9], quote_amount=0.8)
 
+    from server.routers import reference_videos
+
+    project_path = reference_videos.get_project_manager().get_project_path("demo")
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["duration_override"] = 3
+    script_path.write_text(json.dumps(script), encoding="utf-8")
+    before = {path.relative_to(project_path): path.read_bytes() for path in project_path.rglob("*") if path.is_file()}
+
     resp = reference_videos_client.post(PREVIEW_ENDPOINT, json={"unit_ids": [first, second]})
 
     assert resp.status_code == 200, resp.text
@@ -1446,6 +1455,9 @@ def test_preview_batch_lists_the_targets_and_totals_their_quotes_without_creatin
     assert body["unpriced_count"] == 0
     assert "task_ids" not in body
     assert enqueued == []
+    assert {
+        path.relative_to(project_path): path.read_bytes() for path in project_path.rglob("*") if path.is_file()
+    } == before
 
 
 def test_preview_batch_awaiting_consent_totals_the_cost_at_the_tiers_to_accept(

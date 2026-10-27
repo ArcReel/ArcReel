@@ -139,7 +139,9 @@ class GenerateUnitsBatchRequest(BaseModel):
 # ============ 辅助 ============
 
 
-def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tuple[dict, dict, str]:
+def _load_episode_script(
+    project_name: str, episode: int, _t: Translator, *, readonly: bool = False
+) -> tuple[dict, dict, str]:
     """加载 project.json + 指定集的剧本。返回 (project, script, script_file)。"""
     try:
         project = get_project_manager().load_project(project_name)
@@ -151,7 +153,9 @@ def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tup
         raise HTTPException(status_code=404, detail=_t("ref_episode_not_found", episode=episode))
     script_file = meta["script_file"]
     try:
-        script = get_project_manager().load_script(project_name, script_file)
+        pm = get_project_manager()
+        load = pm.load_script_readonly if readonly else pm.load_script
+        script = load(project_name, script_file)
     except FileNotFoundError as exc:
         raise NotFoundError("script_not_found", name=script_file) from exc
     if not is_reference_video_project(project):
@@ -647,7 +651,9 @@ async def _admit_units_batch(
     lists are the units the submission would request.
     """
 
-    project, script, script_file = await _read_episode_script(project_name, episode, _t)
+    project, script, script_file = await asyncio.to_thread(
+        _load_episode_script, project_name, episode, _t, readonly=True
+    )
     try:
         requested_ids = normalize_requested_ids(body.unit_ids, field="unit_ids")
     except ValueError as exc:
