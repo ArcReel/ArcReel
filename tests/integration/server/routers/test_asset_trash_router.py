@@ -141,6 +141,63 @@ def test_reference_files_cannot_point_at_files_of_another_asset(asset_client, as
     assert unchanged.status_code == 200, unchanged.text
 
 
+def test_an_asset_sheet_cannot_point_at_files_of_another_asset(asset_client, asset_pm, asset_dir):
+    _create(asset_client, "阿岚")
+    _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
+    _create(asset_client, "阿青")
+
+    for rel in ("characters/阿岚.png", "characters/refs/阿岚.png", "characters/../characters/阿岚.png"):
+        response = asset_client.patch(f"{CHARACTERS}/阿青", json={"character_sheet": rel})
+        assert response.status_code == 422, response.text
+        assert "阿青" in response.json()["detail"]
+    created = asset_client.post(
+        CHARACTERS, json={"name": "阿紫", "description": "", "character_sheet": "characters/阿岚.png"}
+    )
+    assert created.status_code == 422, created.text
+
+    project = _project(asset_dir)
+    assert "阿紫" not in project["characters"]
+    assert project["characters"]["阿青"]["character_sheet"] == ""
+    own = asset_client.patch(f"{CHARACTERS}/阿青", json={"character_sheet": "characters/阿青.png"})
+    assert own.status_code == 200, own.text
+    # 已经指着的值原样提交不算新写入：只改描述的请求带着整份条目也能保存。
+    unchanged = asset_client.patch(
+        f"{CHARACTERS}/阿岚", json={"description": "新的", "character_sheet": "characters/阿岚.png"}
+    )
+    assert unchanged.status_code == 200, unchanged.text
+
+
+def test_deleting_an_asset_whose_sheet_another_shared_leaves_the_other_sheet_in_place(
+    asset_client, asset_pm, asset_dir
+):
+    """升级前「阿青」的资产图指着「阿岚」的图（旧版 PATCH 接受任意路径）；升级时它得到自己的一份。
+
+    之后删除「阿岚」只带走它名下的图，「阿青」的资产图不悬空；恢复「阿岚」后两边各指自己的图。
+    """
+    _create(asset_client, "阿岚")
+    _with_sheet(asset_pm, asset_dir, "阿岚", b"sheet")
+    _create(asset_client, "阿青")
+    asset_pm.update_asset_entry(
+        "character", "demo", "阿青", lambda entry: entry.update(character_sheet="characters/阿岚.png")
+    )
+    normalize_legacy_shapes(asset_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=[])
+
+    assert asset_client.delete(f"{CHARACTERS}/阿岚").status_code == 200
+
+    sheet = _project(asset_dir)["characters"]["阿青"]["character_sheet"]
+    assert sheet == "characters/阿青.png"
+    assert (asset_dir / sheet).read_bytes() == b"sheet"
+    assert not (asset_dir / "characters/阿岚.png").exists()
+
+    restored = asset_client.post(f"{TRASH}/{_only_record(asset_client)['id']}/restore")
+
+    assert restored.status_code == 200, restored.text
+    characters = _project(asset_dir)["characters"]
+    for name in ("阿岚", "阿青"):
+        assert characters[name]["character_sheet"] == f"characters/{name}.png"
+        assert (asset_dir / f"characters/{name}.png").read_bytes() == b"sheet"
+
+
 def test_deleting_a_character_takes_its_own_reference_files(asset_client, asset_pm, asset_dir):
     _create(asset_client, "阿岚")
     files = _with_reference_files(asset_pm, asset_dir, "阿岚")
