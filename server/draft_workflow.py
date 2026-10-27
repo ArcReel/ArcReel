@@ -145,8 +145,8 @@ class PatchDraftRequest(_DraftRequest):
     accept_formal_revision: str | None = Field(
         default=None,
         description=(
-            "合并正式文档并发修改后，显式接受 open_draft 返回的 formal_revision；"
-            "正式文档已不存在时该值为 null，同样显式传 null。省略表示不接受"
+            "合并正式文档并发修改后，显式接受 open_draft 返回的 formal_revision（带 sha256-v1: 前缀与裸 hex "
+            "两种写法等价）；正式文档已不存在时该值为 null，同样显式传 null。省略表示不接受"
         ),
     )
     source: str | None = Field(
@@ -322,6 +322,14 @@ async def revalidate_reference_script_plan_draft(
         soft_violations=soft_violations,
         new_assets=new_assets,
     )
+
+
+def _project_relative(path: Path, project_path: Path) -> str:
+    """回执里的路径只写项目内相对路径，不外泄服务端文件系统布局；不在项目目录下时只给文件名。"""
+    try:
+        return path.relative_to(project_path).as_posix()
+    except ValueError:
+        return path.name
 
 
 def _commit_reference_script_plan(
@@ -512,7 +520,7 @@ async def _promote_reference_script_plan(
             ),
         ) from conflict
     return reference_result_text(
-        script_review.official_reference_script_plan_path(project_path, episode),
+        script_review.official_reference_script_plan_path(project_path, episode).relative_to(project_path),
         units,
         render_soft_violation_lines(
             [replace(soft, item_id=unit_ids[soft.item_index]) for soft in revalidation.soft_violations]
@@ -545,12 +553,13 @@ def _render_script_plan_conflict_report(
         latest_block = "当前正式文件不存在或不是合法的 script_plan JSON，无法附上最新内容；请自行读取该文件确认。"
     # 指纹按 JSON 字面量给：正式文件已被删除时现值是 null，写成 "None" 会让 Agent
     # 接受错误的基线，之后每次重晋升都比对不上、拿到同一份报告，冲突再也解不掉。
-    actual_literal = json.dumps(conflict.actual)
+    actual_literal = json.dumps(script_review.published_revision(conflict.actual))
     doc_type = QUARANTINE_KIND_TO_DOC_TYPE[draft.kind]
     return (
         "❌ 晋升中止（并发冲突）：正式 script_plan 在本草稿产出后已被其他写入方（如 Web 端保存）修改，"
         "直接晋升会覆盖对方的修改，本次未写盘、草稿仍在场。\n"
-        f"草稿基线指纹: {json.dumps(conflict.expected)}；盘上现值指纹: {actual_literal}\n\n"
+        f"草稿基线指纹: {json.dumps(script_review.published_revision(conflict.expected))}；"
+        f"盘上现值指纹: {actual_literal}\n\n"
         f"{latest_block}\n\n"
         f"处置：调用 open_draft 读取当前草稿与 formal_revision，对照上方最新内容合并 {field_hint}；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
@@ -572,7 +581,8 @@ def _render_prompt_authoring_conflict_report(
     )
     return (
         "❌ 晋升中止（并发冲突）：正式剧本在本草稿产出后已被修改，本次未写盘、草稿仍在场。\n"
-        f"草稿基线指纹: {json.dumps(conflict.expected)}；盘上现值指纹: {json.dumps(conflict.actual)}\n\n"
+        f"草稿基线指纹: {json.dumps(script_review.published_revision(conflict.expected))}；"
+        f"盘上现值指纹: {json.dumps(script_review.published_revision(conflict.actual))}\n\n"
         f"当前正式剧本的最新内容：\n{latest}\n\n"
         "处置：调用 open_draft 读取当前草稿与 formal_revision，合并最新正式内容；"
         "再调用 patch_draft 提交完整 content，并把 formal_revision 作为 accept_formal_revision；"
@@ -789,7 +799,7 @@ async def _promote_drama_script_plan(
         ) from conflict
     raw_scenes = content.get("scenes")
     return drama_script_plan_result_text(
-        script_plan_path,
+        script_plan_path.relative_to(project_path),
         raw_scenes if isinstance(raw_scenes, list) else [],
         action="晋升",
     )
@@ -996,7 +1006,7 @@ async def _promote_narration_script_plan(
         raise DraftWorkflowError("formal_revision_conflict", conflict_report) from conflict
     raw_segments = revalidation.content.get("segments")
     return narration_script_plan_result_text(
-        script_plan_path,
+        script_plan_path.relative_to(project_path),
         raw_segments if isinstance(raw_segments, list) else [],
         action="晋升",
     )
@@ -1211,7 +1221,9 @@ class DraftWorkflow:
         draft = read_quarantine(self.ctx.project_path, episode, kind)
         if draft is not None:
             payload = draft_payload(draft)
-            payload["formal_revision"] = script_review.content_fingerprint(self._formal_path(episode, kind))
+            payload["formal_revision"] = script_review.published_revision(
+                script_review.content_fingerprint(self._formal_path(episode, kind))
+            )
             return payload
         if quarantine_exists(self.ctx.project_path, episode, kind):
             detail = f"集（id={episode}）{doc_type_for_kind(kind)} draft is not a valid JSON envelope"
@@ -1335,11 +1347,12 @@ class DraftWorkflow:
             meta = {**meta, "source": source}
         if accepts_formal_revision:
             actual_formal_revision = script_review.content_fingerprint(self._formal_path(episode, resolved))
-            if accept_formal_revision != actual_formal_revision:
+            if script_review.fingerprint_of_revision(accept_formal_revision) != actual_formal_revision:
                 raise DraftWorkflowError(
                     "formal_revision_conflict",
                     "formal document changed again: "
-                    f"expected {accept_formal_revision}, actual {actual_formal_revision}",
+                    f"expected {accept_formal_revision}, "
+                    f"actual {script_review.published_revision(actual_formal_revision)}",
                 )
             meta = {**meta, "base_fingerprint": actual_formal_revision}
         if before_commit is not None:
@@ -1355,7 +1368,11 @@ class DraftWorkflow:
             ),
         )
         record_project_activity(self.ctx.project_path)
-        return self._read(episode, resolved)
+        receipt = self._read(episode, resolved)
+        # 草稿里的违约是上一轮产出 / 晋升针对旧正文的判定，修改后不再对应现值：回执不带它，
+        # 免得调用方把旧报告当成这次修改的结果。现值的违约以晋升时的全量重判为准。
+        receipt.pop("violations", None)
+        return receipt
 
     async def patch(
         self,
@@ -1444,7 +1461,7 @@ class DraftWorkflow:
                         _prompt_authoring_lock_held=True,
                         **promote_kwargs,
                     )
-                    message = f"✅ 提示词编写晋升（正式剧本）已保存: {result_path}"
+                    message = f"✅ 提示词编写晋升（正式剧本）已保存: {_project_relative(result_path, project_path)}"
             except (DraftWorkflowError, ModelNotInCatalogError):
                 # ModelNotInCatalogError 原样上抛：调用方据此给出「重新选择模型」指引
                 raise
@@ -1464,7 +1481,7 @@ class DraftWorkflow:
             "message": message,
         }
         if result_path is not None:
-            value["path"] = str(result_path)
+            value["path"] = _project_relative(result_path, project_path)
         return value
 
     async def save(

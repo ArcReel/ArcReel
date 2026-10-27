@@ -593,7 +593,7 @@ def _prompt_authoring_draft_action(project_path: Path, episode: int) -> str:
         action = translate("operation_draft_repair_violations", tool=PROMOTE_TOOL_NAME)
     else:
         action = translate("operation_draft_finish", tool=PROMOTE_TOOL_NAME)
-    return translate("operation_draft_action", path=path, action=action)
+    return translate("operation_draft_action", path=path.relative_to(project_path).as_posix(), action=action)
 
 
 def _ad_overwrite_error(
