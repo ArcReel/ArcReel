@@ -142,10 +142,21 @@ export function useTrialRun(): TrialRunHandle {
     try {
       await API.cancelTrialRun(runId);
     } catch (e) {
-      // 404 即 run 已不在服务端，无可取消——照常清理本地状态解除锁定。
       if (!(e instanceof ApiRequestError && e.status === 404)) {
         setError(errMsg(e));
         return;
+      }
+      // 404 有两种：供应商已经返回、取消来晚了，服务端保留着结果；或 run 已过期不在。
+      // 先回读一次，读到就展示（未到终态时轮询照常接手），回读也 404 才当作已取消清空。
+      try {
+        setRun(await API.getTrialRun(runId));
+        setError(null);
+        return;
+      } catch (readError) {
+        if (!(readError instanceof ApiRequestError && readError.status === 404)) {
+          setError(errMsg(readError));
+          return;
+        }
       }
     }
     setRun(null);
