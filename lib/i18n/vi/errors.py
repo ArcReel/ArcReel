@@ -216,6 +216,7 @@ MESSAGES = {
     "asset_field_must_be_string": "giá trị trường này phải là văn bản",
     "asset_field_must_be_string_list": "giá trị trường này phải là danh sách văn bản",
     "asset_field_invalid_value": "giá trị trường này không hợp lệ",
+    "asset_sheet_file_not_owned": "Hình tài sản của “{name}” chỉ được dùng ảnh mang tên của chính nó. Hãy tải lên hoặc tạo riêng cho nó",
     "asset_reference_file_not_owned": "Ảnh tham chiếu và âm thanh tham chiếu của “{name}” chỉ được dùng tệp mang tên của chính nó. Hãy tải lên riêng cho nó",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",

@@ -37,7 +37,7 @@ from lib.project.asset_rename import (
     AssetRenameFileCollisionError,
     AssetRenameHistoryCollisionError,
     AssetRenameNotFoundError,
-    foreign_reference_file_field,
+    foreign_named_file_field,
 )
 from lib.project.asset_types import (
     ALIASES_FIELD,
@@ -101,13 +101,12 @@ def _require_string_list_fields(values: Mapping[str, Any], fields: Iterable[str]
             )
 
 
-def _require_owned_reference_files(
-    spec: AssetSpec, name: str, entry: Mapping[str, Any], values: Mapping[str, Any]
-) -> None:
-    """参考图与参考音频只能指向本资产名下的文件：共用别的资产的文件，改名、删除与恢复之后会悬空。"""
-    field = foreign_reference_file_field(spec, name, entry, values)
+def _require_owned_files(spec: AssetSpec, name: str, entry: Mapping[str, Any], values: Mapping[str, Any]) -> None:
+    """资产图、参考图与参考音频只能指向本资产名下的文件：共用别的资产的文件，改名、删除与恢复之后会悬空。"""
+    field = foreign_named_file_field(spec, name, entry, values)
     if field is not None:
-        raise UnprocessableError("asset_reference_file_not_owned", name=name).with_diagnostic(
+        key = "asset_sheet_file_not_owned" if field == spec.sheet_field else "asset_reference_file_not_owned"
+        raise UnprocessableError(key, name=name).with_diagnostic(
             f"field '{field}' must point at a file named after the asset"
         )
 
@@ -248,7 +247,7 @@ def build_asset_router(
                 # 同名校验一样须走翻译。
                 raise UnprocessableError("asset_voice_notice_dismissed_at_stale")
         _require_string_list_fields(extras, spec.extra_list_fields)
-        _require_owned_reference_files(spec, name, {}, extras)
+        _require_owned_files(spec, name, {}, extras)
         try:
 
             def _sync():
@@ -310,7 +309,7 @@ def build_asset_router(
                 manager = pm_getter()
 
                 def _mutate(entry: dict) -> None:
-                    _require_owned_reference_files(spec, entry_name, entry, req)
+                    _require_owned_files(spec, entry_name, entry, req)
                     for field in (*update_fields, *update_list_fields):
                         if req.get(field) is not None:
                             # voice_notice_dismissed_at 语义是「已确认到的声音版本」，必须原样

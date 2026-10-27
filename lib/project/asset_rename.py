@@ -275,10 +275,22 @@ def _named_file_dirs(project_dir: Path, spec: AssetSpec) -> list[tuple[Path, boo
 REFERENCE_FILE_FIELDS = ("reference_image", "reference_audio", "reference_images")
 
 
+def named_file_fields(spec: AssetSpec) -> tuple[str, ...]:
+    """该类型条目里按名归属的文件字段：资产图字段，与该类型登记的参考文件字段。"""
+    return (
+        spec.sheet_field,
+        *(
+            field
+            for field in REFERENCE_FILE_FIELDS
+            if field in spec.extra_string_fields or field in spec.extra_list_fields
+        ),
+    )
+
+
 def owns_named_file(spec: AssetSpec, name: str, rel: str) -> bool:
     """项目相对路径 *rel* 是 *name* 名下的文件，与 :func:`asset_files_named` 同一判据。
 
-    参考图与参考音频按名归属、不跨资产共用：改名只迁移、删除只带走、恢复只加回本资产名下的文件，
+    资产图、参考图与参考音频按名归属、不跨资产共用：改名只迁移、删除只带走、恢复只加回本资产名下的文件，
     指向别处的字段在这些操作之后可能悬空，所以写入时只接受本资产名下的路径。
     """
     path = PurePosixPath(rel.replace("\\", "/"))
@@ -346,16 +358,14 @@ def plan_asset_file_renames(
     return moves
 
 
-def foreign_reference_file_field(
+def foreign_named_file_field(
     spec: AssetSpec, name: str, entry: Mapping[str, object], values: Mapping[str, object]
 ) -> str | None:
-    """*values* 新写进参考文件字段的路径里有不在 *name* 名下的，返回第一个这样的字段；都在则为 ``None``。
+    """*values* 新写进按名归属的文件字段的路径里有不在 *name* 名下的，返回第一个这样的字段；都在则为 ``None``。
 
     只看新写入的值：条目里已有的值原样提交不算新写入。
     """
-    for field in REFERENCE_FILE_FIELDS:
-        if field not in spec.extra_string_fields and field not in spec.extra_list_fields:
-            continue
+    for field in named_file_fields(spec):
         value, current = values.get(field), entry.get(field)
         written = value if isinstance(value, list) else [value]
         kept = current if isinstance(current, list) else [current]
@@ -375,7 +385,8 @@ __all__ = [
     "AssetRenameNotFoundError",
     "AssetRenameReport",
     "asset_files_named",
-    "foreign_reference_file_field",
+    "foreign_named_file_field",
+    "named_file_fields",
     "owns_named_file",
     "plan_asset_file_renames",
     "renamed_file_stem",

@@ -211,6 +211,7 @@ MESSAGES = {
     "asset_field_must_be_string": "该字段的值必须是文本",
     "asset_field_must_be_string_list": "该字段的值必须是文本列表",
     "asset_field_invalid_value": "该字段的值不合法",
+    "asset_sheet_file_not_owned": "「{name}」的资产图只能用它自己名下的图，请为它单独上传或生成",
     "asset_reference_file_not_owned": "「{name}」的参考图和参考音频只能用它自己名下的文件，请为它单独上传",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",

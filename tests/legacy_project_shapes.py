@@ -1268,6 +1268,41 @@ def share_reference_files(project_dir: Path) -> dict[str, bytes]:
     return contents
 
 
+def share_asset_sheets(project_dir: Path) -> dict[str, bytes]:
+    """旧版资产 PATCH 接受任意路径，资产图字段也可以指向别的资产名下的图。
+
+    角色「阿离」带自己名下的参考图，新加的角色「阿青」的资产图指着它，「阿青」名下另有一张没被引用的资产图。
+    在 v8 之前写下时，v7→v8 的整份激活按这个共用的路径登记「阿青」的资产图（同一路径没有别的登记）。
+    返回参考图的内容（样本取 ``write_legacy_storyboard_project`` 一类带角色「阿离」的项目）。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    reference = "characters/refs/阿离.png"
+    (project_dir / reference).parent.mkdir(parents=True, exist_ok=True)
+    (project_dir / reference).write_bytes(b"ali-image")
+    (project_dir / "characters/阿青.png").write_bytes(b"qing-stray")
+    project["characters"]["阿离"]["reference_image"] = reference
+    project["characters"]["阿青"] = {"description": "青衣少年", "character_sheet": reference}
+    _write_json(project_path, project)
+    return {reference: b"ali-image"}
+
+
+def repoint_registered_asset_sheet(project_dir: Path) -> dict[str, bytes]:
+    """资产图登记之后才经 PATCH 改指别的资产名下的图：场景「雨巷」的资产图改指道具「伞」的资产图。
+
+    「雨巷」自己的图与登记留在原处，登记因路径对不上读作缺失；两个条目声明同一张图，改指前的规划器拒绝整个项目。
+    返回两张图改指前的内容（样本取带场景「雨巷」与道具「伞」、已有清单登记的项目）。
+    """
+
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    contents = {rel: (project_dir / rel).read_bytes() for rel in ("scenes/雨巷.png", "props/伞.png")}
+    project["scenes"]["雨巷"]["scene_sheet"] = "props/伞.png"
+    _write_json(project_path, project)
+    return contents
+
+
 def refer_to_asset_in_episode(project_dir: Path, episode: int, field: str, name: str) -> None:
     """只差大小写的两条资产并存时，剧本与草稿可以写其中任何一个的名字。
 
@@ -1637,6 +1672,8 @@ __all__ = [
     "bind_episode_script_to_filename",
     "legacy_transition_presentation_basis",
     "refer_to_asset_in_episode",
+    "repoint_registered_asset_sheet",
+    "share_asset_sheets",
     "share_reference_files",
     "without_version_content_digests",
     "write_legacy_ad_reference_video_project",

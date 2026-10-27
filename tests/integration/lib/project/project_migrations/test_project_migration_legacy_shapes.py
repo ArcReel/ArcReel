@@ -13,7 +13,14 @@ from typing import Any
 
 import pytest
 
-from lib.artifacts.artifact_manifest import ArtifactBasis, ArtifactKey, ArtifactManifest, ProjectArtifactManifestAdapter
+from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
+from lib.artifacts.artifact_manifest import (
+    MANIFEST_FILENAME,
+    ArtifactBasis,
+    ArtifactKey,
+    ArtifactManifest,
+    ProjectArtifactManifestAdapter,
+)
 from lib.project.asset_derivatives import derivative_artifact_key
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migration_report import (
@@ -45,8 +52,10 @@ from tests.legacy_project_shapes import (
     cross_bind_episode_scripts,
     duplicate_legacy_ad_ids,
     refer_to_asset_in_episode,
+    repoint_registered_asset_sheet,
     reuse_item_id_across_episodes,
     set_script_episode,
+    share_asset_sheets,
     share_episode_script,
     share_reference_files,
     write_legacy_ad_reference_video_project,
@@ -417,6 +426,126 @@ def test_copying_shared_reference_files_converges_after_a_failed_commit(
     assert _read_json(project_dir / "project.json")["products"]["茶"]["reference_images"] == ["products/refs/茶_1.png"]
     assert not (project_dir / "products" / "refs" / "茶_2.png").exists()
     assert len(list((project_dir / "characters" / "refs").glob("阿青.png.kept.*"))) == 1
+
+
+def _sheet_claim(project_dir: Path, asset_type: str, name: str) -> tuple[str, str] | None:
+    entry = ProjectArtifactManifestAdapter(project_dir).get_entry(ArtifactKey.asset_sheet(asset_type, name))
+    return None if entry is None else (entry.artifact_path, entry.basis_digest)
+
+
+def _sheet_status(project_dir: Path, asset_type: str, name: str, rel: str) -> str:
+    comparison = ArtifactCurrencyResolver(project_dir).compare(
+        ArtifactKey.asset_sheet(asset_type, name), artifact_path=rel
+    )
+    return comparison.status.value
+
+
+def _project_sharing_sheets(tmp_path: Path) -> tuple[Path, dict[str, bytes], str]:
+    """「阿青」在 v7 共用「阿离」的参考图作资产图，推进到上一版后「雨巷」又改指「伞」的资产图。
+
+    返回样本、各图改指前的内容与「阿青」按共用路径登记的依据摘要。
+    """
+    project_dir, *_ = _project(tmp_path)
+    contents = share_asset_sheets(project_dir)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION - 1)
+    claim = _sheet_claim(project_dir, "character", "阿青")
+    assert claim is not None
+    assert claim[0] == "characters/refs/阿离.png"
+    scene_claim = _sheet_claim(project_dir, "scene", "雨巷")
+    assert scene_claim is not None
+    assert scene_claim[0] == "scenes/雨巷.png"
+    contents |= repoint_registered_asset_sheet(project_dir)
+    return project_dir, contents, claim[1]
+
+
+def _assert_sheets_keep_their_currency(
+    tmp_path: Path, project_dir: Path, contents: dict[str, bytes], qing_digest: str
+) -> None:
+    project = _read_json(project_dir / "project.json")
+    assert project["characters"]["阿青"]["character_sheet"] == "characters/阿青.png"
+    assert project["scenes"]["雨巷"]["scene_sheet"] == "scenes/雨巷.png"
+    assert project["characters"]["阿离"]["reference_image"] == "characters/refs/阿离.png"
+    assert project["props"]["伞"]["prop_sheet"] == "props/伞.png"
+    assert (project_dir / "characters/阿青.png").read_bytes() == contents["characters/refs/阿离.png"]
+    assert (project_dir / "scenes/雨巷.png").read_bytes() == contents["props/伞.png"]
+    assert (project_dir / "characters/refs/阿离.png").read_bytes() == contents["characters/refs/阿离.png"]
+    assert (project_dir / "props/伞.png").read_bytes() == contents["props/伞.png"]
+    # 登记在共用路径上的随改指换到副本，依据摘要不变：副本与原文件同字节，仍读作时新。
+    assert _sheet_claim(project_dir, "character", "阿青") == ("characters/阿青.png", qing_digest)
+    assert _sheet_status(project_dir, "character", "阿青", "characters/阿青.png") == "current"
+    # 「雨巷」原有的登记描述的是被挪成保留副本的那张图：撤掉，改指前后都读作缺失，不借副本伪造成时新。
+    assert _sheet_claim(project_dir, "scene", "雨巷") is None
+    assert _sheet_status(project_dir, "scene", "雨巷", "scenes/雨巷.png") == "missing"
+    sheets = WorkflowStateService(ProjectManager(str(tmp_path))).get_status("demo").artifacts["asset_sheets"]
+    assert "阿青" in sheets["character"]["current_ids"]
+    assert "雨巷" in sheets["scene"]["missing_ids"]
+
+
+def test_an_asset_sheet_shared_with_another_asset_gets_its_own_copy_and_keeps_its_currency(tmp_path: Path) -> None:
+    project_dir, contents, qing_digest = _project_sharing_sheets(tmp_path)
+
+    _migrate(project_dir)
+
+    _assert_sheets_keep_their_currency(tmp_path, project_dir, contents, qing_digest)
+    copied = _copied_reference_files(project_dir)
+    assert copied == [
+        (
+            "characters/阿青.png",
+            {"asset_type": "character", "name": "阿青", "owner": "阿离", "from": "characters/refs/阿离.png"},
+        ),
+        ("scenes/雨巷.png", {"asset_type": "scene", "name": "雨巷", "owner": "伞", "from": "props/伞.png"}),
+    ]
+    report = load_migration_report(project_dir)
+    assert report is not None
+    backups = {item.file: item.backup for item in report.adjusted if item.code == "shared_reference_file_copied"}
+    assert (project_dir / str(backups["characters/阿青.png"])).read_bytes() == b"qing-stray"
+    assert (project_dir / str(backups["scenes/雨巷.png"])).read_bytes() == contents["scenes/雨巷.png"]
+
+
+def test_a_failed_sheet_copy_commit_rolls_the_claims_back_and_the_retry_converges(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir, contents, qing_digest = _project_sharing_sheets(tmp_path)
+    manifest = (project_dir / MANIFEST_FILENAME).read_bytes()
+    project = (project_dir / "project.json").read_bytes()
+    write = legacy_shapes.atomic_write_json
+
+    def fail_on_project(path: Path, payload: Any) -> None:
+        if path.name == "project.json":
+            raise OSError("disk full")
+        write(path, payload)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project)
+        with pytest.raises(OSError, match="disk full"):
+            runner.migrate_project_dir(project_dir)
+
+    # 改指没能提交：登记与 project.json 一并回到改前。
+    assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest
+    assert (project_dir / "project.json").read_bytes() == project
+
+    _migrate(project_dir)
+
+    _assert_sheets_keep_their_currency(tmp_path, project_dir, contents, qing_digest)
+    assert len(list((project_dir / "characters").glob("阿青.png.kept.*"))) == 1
+    assert len(list((project_dir / "scenes").glob("雨巷.png.kept.*"))) == 1
+
+
+def test_schema_five_shared_asset_sheets_get_their_own_copy(tmp_path: Path) -> None:
+    project_dir = write_legacy_shared_reference_project(ProjectManager(tmp_path).projects_dir)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    for name in ("Alice", "Bob"):
+        project["characters"][name]["character_sheet"] = "characters/Alice.png"
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    (project_dir / "characters/Alice.png").write_bytes(b"alice-sheet")
+
+    _migrate(project_dir)
+
+    characters = _read_json(project_path)["characters"]
+    for name in ("Alice", "Bob"):
+        assert characters[name]["character_sheet"] == f"characters/{name}.png"
+        assert (project_dir / f"characters/{name}.png").read_bytes() == b"alice-sheet"
 
 
 def _issue_codes(tmp_path: Path) -> set[str]:

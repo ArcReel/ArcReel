@@ -216,6 +216,7 @@ MESSAGES = {
     "asset_field_must_be_string": "this field must be a text value",
     "asset_field_must_be_string_list": "this field must be a list of text values",
     "asset_field_invalid_value": "this field has an invalid value",
+    "asset_sheet_file_not_owned": "The asset sheet for “{name}” can only use an image under its own name. Upload or generate one for it separately",
     "asset_reference_file_not_owned": "Reference images and reference audio for “{name}” can only use files under its own name. Upload them for it separately",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",
