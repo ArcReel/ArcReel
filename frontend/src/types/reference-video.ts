@@ -6,6 +6,7 @@
  * execution time and never persisted or transported.
  */
 
+import type { CostBreakdown } from "./cost";
 import type { DurationExclusionReason, VideoCapabilityProblem } from "./project";
 import type { PlanNewAsset, RenderedPromptPreview } from "./script";
 import type {
@@ -174,6 +175,16 @@ export interface ReferenceBatchAdmission extends WorkflowAdmission {
   /** 入队中断时没轮到的 unit；整批入队成功时为空数组。 */
   enqueue_failures: ReferenceBatchEnqueueFailure[];
   deduped: boolean;
+}
+
+/** 批量预览：与提交同一份准入结论，外加已定价部分的预估费用；一个任务也不建。 */
+export interface ReferenceBatchPreview extends WorkflowAdmission {
+  /** 已有成片、本次跳过的 unit。 */
+  skipped_unit_ids: string[];
+  /** 只合计已报价的单元，按币种分开；一个都没报价时为 `null`。 */
+  estimated_cost: CostBreakdown | null;
+  /** 没有报价、未计入 `estimated_cost` 的单元数。 */
+  unpriced_count: number;
 }
 
 /** 批量端点请求体：省略 unit_ids 表示「缺失即生成」，空数组会被后端拒绝。 */
