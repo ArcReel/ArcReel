@@ -2196,6 +2196,7 @@ export default {
   'prompt_authoring_busy': 'Tập này đang được viết prompt. Hãy đợi hoàn tất.',
   'prompt_authoring_queued': 'Đã gửi yêu cầu viết prompt',
   'prompt_authoring_rewrite_queued': 'Đã gửi yêu cầu viết lại prompt',
+  'prompt_authoring_nothing_pending': 'Không có mục nào chờ viết prompt nên AI chưa thay đổi gì. Để viết lại prompt hiện có, hãy chọn “Ghi đè prompt hiện có” rồi gửi lại',
   'prompt_authoring_id_separator': ', ',
   'prompt_authoring_scope_pending_prefill': 'tất cả mục chờ viết ({{count}})',
   'prompt_authoring_agent_prefill': 'Hãy viết prompt cho {{episodeRef}}. Phạm vi: {{scope}}.',

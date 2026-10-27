@@ -638,6 +638,79 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
     assert "generate_episode_script 失败" not in text
 
 
+def _narration_formal_script(project_path: Path) -> None:
+    _write_formal_script(project_path)
+    (project_path / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
+    )
+    _prepare_script_admission(project_path)
+
+
+async def test_generate_episode_script_unit_rejected_before_the_model_is_an_input_problem(
+    fake_ctx: ToolHarness, monkeypatch
+) -> None:
+    """正式脚本单元没过编写前的预判：问题码与参数原样透出、归为修改输入，不冒成 internal_error 引导重试。"""
+    from lib.script.script_generator import PromptAuthoringUnitRejected
+    from server import text_generation as mod
+
+    _narration_formal_script(fake_ctx.project_path)
+    params = {"unit_id": "E1U04", "position": 2, "spoken_seconds": "4.2", "duration_seconds": 1}
+
+    class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+
+        @classmethod
+        async def create(cls, _path, **_kwargs):
+            return cls()
+
+        async def generate(self, **_kwargs) -> Path:
+            raise PromptAuthoringUnitRejected(
+                "正式脚本 的 unit E1U04 的台词念完约需 4.2 秒", code="prompt_authoring_dialogue_overload", params=params
+            )
+
+    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
+
+    problem = problem_of(out).model_dump()
+    assert (problem["code"], problem["action"], problem["params"]) == (
+        "prompt_authoring_dialogue_overload",
+        GenerationAction.FIX_INPUT.value,
+        params,
+    )
+    assert "generate_episode_script 失败" not in said(out)
+    assert "台词念完约需 4.2 秒" in said(out)
+
+
+async def test_generate_episode_script_without_anything_to_write_marks_the_result(
+    fake_ctx: ToolHarness, monkeypatch
+) -> None:
+    """只补缺而范围内没有待编写的条目：未调用文本模型，结果带上空操作标记，Web 据此提示勾选覆盖。"""
+    from server import text_generation as mod
+
+    _narration_formal_script(fake_ctx.project_path)
+    project_path = fake_ctx.project_path
+
+    class _FakeGenerator:
+        project_json: ClassVar[dict[str, Any]] = {}
+        content_mode = "narration"
+
+        @classmethod
+        async def create(cls, _path, **_kwargs):
+            return cls()
+
+        async def generate(self, **kwargs) -> Path:
+            kwargs["skipped_entry_ids"].append("E1S01")
+            return project_path / "scripts" / "episode_1.json"
+
+    monkeypatch.setattr(mod, "ScriptGenerator", _FakeGenerator)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "entry_ids": ["E1S01"]})
+
+    assert out.problem is None
+    assert isinstance(out.value, TextGenerationResult)
+    assert out.value.no_pending_authoring is True
+    assert "没有待编写的条目" in out.value.message
+
+
 async def test_generate_episode_script_facts_failure_reports_the_real_problem(
     fake_ctx: ToolHarness, set_video_request_facts
 ) -> None:

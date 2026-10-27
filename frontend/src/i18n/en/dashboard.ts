@@ -2193,6 +2193,7 @@ export default {
   'prompt_authoring_busy': 'Prompt writing for this episode is already running. Wait for it to finish.',
   'prompt_authoring_queued': 'Prompt writing submitted',
   'prompt_authoring_rewrite_queued': 'Prompt rewrite submitted',
+  'prompt_authoring_nothing_pending': 'No entries are awaiting prompts, so AI didn’t change anything. To rewrite existing prompts, select “Overwrite existing prompts” and submit again',
   'prompt_authoring_id_separator': ', ',
   'prompt_authoring_scope_pending_prefill': 'all pending entries ({{count}})',
   'prompt_authoring_agent_prefill': 'Write prompts for {{episodeRef}}. Scope: {{scope}}.',

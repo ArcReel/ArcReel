@@ -2192,6 +2192,7 @@ export default {
   'prompt_authoring_busy': '本集正在编写提示词，请等待完成',
   'prompt_authoring_queued': '已提交提示词编写',
   'prompt_authoring_rewrite_queued': '已提交提示词重写',
+  'prompt_authoring_nothing_pending': '没有待编写的条目，AI 未改动提示词。要重写已有提示词，请勾选「覆盖已有提示词」后再提交',
   'prompt_authoring_id_separator': '、',
   'prompt_authoring_scope_pending_prefill': '全部待编写条目（{{count}} 条）',
   'prompt_authoring_agent_prefill': '请为{{episodeRef}}编写提示词，范围：{{scope}}。',

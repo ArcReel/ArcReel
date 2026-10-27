@@ -24,6 +24,7 @@ import {
   enqueueImageEdit,
   enqueueNarration,
   enqueueProduct,
+  enqueuePromptAuthoring,
   enqueueProp,
   enqueueReferenceVideoBatch,
   enqueueReferenceVideoUnit,
@@ -33,6 +34,7 @@ import {
   enqueueStoryboardBatch,
   enqueueVideo,
 } from "@/actions/generation";
+import { makeTask } from "@/test/factories";
 
 const SINGLE_OK = { success: true, task_id: "t1", deduped: false, message: "ok" };
 
@@ -417,6 +419,65 @@ describe("enqueueScriptPlan", () => {
     await enqueueScriptPlan("demo", 1, {});
 
     expect(useAppStore.getState().toast?.text).toBe(i18n.t("dashboard:enqueue_deduped_toast"));
+  });
+});
+
+describe("enqueuePromptAuthoring", () => {
+  const AUTHORING_BATCH = {
+    batch: { batch_id: "b1", members: [{ unit_id: "episode-1", task_id: "t-author" }] },
+  };
+
+  function finish(result: Record<string, unknown> | null, status: "succeeded" | "failed" = "succeeded"): void {
+    useTasksStore.setState({
+      tasks: [
+        makeTask({
+          task_id: "t-author",
+          project_name: "demo",
+          task_type: "text_episode_script",
+          resource_id: "episode-1",
+          status,
+          result,
+        }),
+      ],
+    });
+  }
+
+  it("任务以空操作收尾时提示没有待编写的条目，并说明勾选覆盖可以重写", async () => {
+    vi.spyOn(API, "authorPrompts").mockResolvedValue(AUTHORING_BATCH);
+
+    await enqueuePromptAuthoring("demo", 1, { entry_ids: ["E1U01"], rewrite: false });
+    expect(useAppStore.getState().toast?.text).toBe(i18n.t("dashboard:prompt_authoring_queued"));
+
+    finish({ message: "没有待编写的条目", no_pending_authoring: true });
+
+    const text = useAppStore.getState().toast?.text;
+    expect(text).toBe(i18n.t("dashboard:prompt_authoring_nothing_pending"));
+    expect(text).toContain(i18n.t("dashboard:prompt_authoring_rewrite_toggle"));
+  });
+
+  it("任务实际编写了条目或失败时不追加提示", async () => {
+    vi.spyOn(API, "authorPrompts").mockResolvedValue(AUTHORING_BATCH);
+
+    await enqueuePromptAuthoring("demo", 1, { entry_ids: null, rewrite: false });
+    useAppStore.setState({ toast: null });
+    finish({ message: "完成" });
+    expect(useAppStore.getState().toast).toBeNull();
+
+    await enqueuePromptAuthoring("demo", 1, { entry_ids: null, rewrite: false });
+    useAppStore.setState({ toast: null });
+    finish(null, "failed");
+    expect(useAppStore.getState().toast).toBeNull();
+  });
+
+  it("任务结束后停止跟踪：同一任务行再次刷新不重复提示", async () => {
+    vi.spyOn(API, "authorPrompts").mockResolvedValue(AUTHORING_BATCH);
+
+    await enqueuePromptAuthoring("demo", 1, { entry_ids: null, rewrite: false });
+    finish({ message: "没有待编写的条目", no_pending_authoring: true });
+    useAppStore.setState({ toast: null });
+    finish({ message: "没有待编写的条目", no_pending_authoring: true });
+
+    expect(useAppStore.getState().toast).toBeNull();
   });
 });
 

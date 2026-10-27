@@ -299,6 +299,18 @@ def _speech_problem_violation(problem: SpeechProblem) -> DraftViolation:
     )
 
 
+def dialogue_spoken_seconds(text: str, language: object, speech_rate_override: float | None = None) -> float:
+    """该 unit 全部台词的口播估算秒数；``speech_rate_override`` 为 None 时按语言默认语速。"""
+    # language 取自 project.json，可能是非字符串脏数据；非字符串回退 None（按默认语速估算），
+    # 与 prompt 构造侧同口径——否则 ``count_reading_units`` 的 ``language.strip()`` 会在一次
+    # 已付费的调用之后抛 AttributeError，草稿一并丢失。
+    language = language if isinstance(language, str) else None
+    # 台词取自 normative_lines，已归一到 NFC：``count_reading_units`` 的 en / vi 分支按
+    # ``\b\w+\b`` 数词，NFD 形式下组合附加符不算词字符，一个越南语词会被拆成数个单位
+    # （9 词的句子计成 16 个），估算随之虚高、把念得完的 unit 判成超载。
+    return sum(estimate_spoken_seconds(line[2], language, speech_rate_override) for line in normative_lines(text))
+
+
 def validate_dialogue_load(
     label: str,
     text: str,
@@ -313,14 +325,7 @@ def validate_dialogue_load(
     ``speech_rate_override`` 是项目级语速覆盖，None 即回退语言默认——与 prompt 构造侧同源，
     prompt 给的下界与此处判的上界始终是同一把尺。
     """
-    # language 取自 project.json，可能是非字符串脏数据；非字符串回退 None（按默认语速估算），
-    # 与 prompt 构造侧同口径——否则 ``count_reading_units`` 的 ``language.strip()`` 会在一次
-    # 已付费的调用之后抛 AttributeError，草稿一并丢失。
-    language = language if isinstance(language, str) else None
-    # 台词取自 normative_lines，已归一到 NFC：``count_reading_units`` 的 en / vi 分支按
-    # ``\b\w+\b`` 数词，NFD 形式下组合附加符不算词字符，一个越南语词会被拆成数个单位
-    # （9 词的句子计成 16 个），估算随之虚高、把念得完的 unit 判成超载。
-    spoken = sum(estimate_spoken_seconds(line[2], language, speech_rate_override) for line in normative_lines(text))
+    spoken = dialogue_spoken_seconds(text, language, speech_rate_override)
     budget = duration_seconds * (1 + SPEECH_OVERFLOW_TOLERANCE)
     if spoken > budget:
         raise DraftViolation(
@@ -367,6 +372,7 @@ __all__ = [
     "assert_dialogue_preserved",
     "collect_violations",
     "dialogue_speakers",
+    "dialogue_spoken_seconds",
     "is_verbatim_source_anchor",
     "normative_lines",
     "render_violation_report",

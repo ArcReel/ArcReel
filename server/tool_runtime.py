@@ -226,6 +226,7 @@ from server.text_generation import (
     SCOPE_REMOVED_MESSAGE,
     AdScriptRejectedError,
     OperationNotAdmittedError,
+    PromptAuthoringInputError,
     PromptOverwriteRequiredError,
     ScriptOverwriteRequiredError,
     TextGenerationError,
@@ -690,6 +691,10 @@ async def _run_text_generation(
         return ToolOutcome(problem=truncation_problem(exc))
     except VideoRequestFactsUnavailableError as exc:
         return ToolOutcome(problem=video_facts_problem(exc.failure, str(exc)))
+    except PromptAuthoringInputError as exc:
+        return ToolOutcome(
+            problem=ToolProblem(exc.code, str(exc), action=GenerationAction.FIX_INPUT, params=dict(exc.params))
+        )
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except ModelNotInCatalogError as exc:
@@ -3212,12 +3217,14 @@ async def stop_episode_planning(
 
 
 def _text_result_payload(value: TextGenerationResult) -> dict[str, Any]:
-    """任务结果里的文本回执：``warnings`` 与 ``new_assets`` 只在非空时写入，读侧按 ``result.warnings`` 渲染。"""
+    """任务结果里的文本回执：``warnings``、``new_assets`` 与 ``no_pending_authoring`` 只在非空时写入，读侧按 ``result.warnings`` 渲染。"""
     payload: dict[str, Any] = {"message": value.message}
     if value.warnings:
         payload["warnings"] = list(value.warnings)
     if value.new_assets:
         payload["new_assets"] = list(value.new_assets)
+    if value.no_pending_authoring:
+        payload["no_pending_authoring"] = True
     return payload
 
 
