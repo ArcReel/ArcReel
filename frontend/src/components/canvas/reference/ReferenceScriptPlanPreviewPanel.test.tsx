@@ -328,7 +328,9 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.queryByText("本单元未引用场景，画面地点将由模型自由决定")).not.toBeInTheDocument();
   });
 
-  it("confirms, then prefills a continue message into the assistant input without sending", async () => {
+  it("confirms without opening the assistant panel or prefilling a message", async () => {
+    // Web 全流程不打开 Agent 面板：确认后由页面的下一步接续，与 ScriptReviewGate 一致。
+    useAppStore.setState({ assistantPanelOpen: false });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
@@ -340,8 +342,10 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /确认拆分，继续生成/ }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
-    await waitFor(() => expect(useAssistantStore.getState().input).toContain("（集 ID 1）"));
-    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+    await waitFor(() => expect(screen.getByRole("button", { name: "已确认" })).toBeDisabled());
+    expect(useAppStore.getState().toast?.text).toBe("已确认 — 视觉生成已放行");
+    expect(useAssistantStore.getState().input).toBe("");
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
   it("renders confirmed units without edit controls and offers the timeline", async () => {
@@ -522,8 +526,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(button).toBeEnabled();
   });
 
-  it("suppresses the confirm toast/prefill if the user has switched to a different project mid-request", async () => {
-    useAppStore.setState({ assistantPanelOpen: false });
+  it("suppresses the confirm toast if the user has switched to a different project mid-request", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     let resolveConfirm: (value: ScriptReviewState) => void = () => {};
     vi.spyOn(API, "confirmScriptReview").mockReturnValue(
@@ -543,14 +546,13 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     // adopt() 运行在守卫之前，确认本身已生效——用按钮态的变化确认异步流程真的跑完了，
     // 而不是靠一个从始至终都为空的断言碰巧「通过」。
     await waitFor(() => expect(screen.getByRole("button", { name: "已确认" })).toBeDisabled());
-    expect(useAssistantStore.getState().input).toBe("");
     expect(useAppStore.getState().toast).toBeNull();
-    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
-  it("still shows the confirm toast/prefill after switching tabs within the same project", async () => {
+  it("still shows the confirm toast after switching tabs within the same project", async () => {
     // 同项目内切 tab（本组件会被卸载，但 useProjectsStore.currentProjectName 不变）不该被
-    // 当成「切走了」而抑制全局副作用——预填文案本身带着具体集号，写进全局输入框依然准确。
+    // 当成「切走了」而抑制确认提示。
+    useAppStore.setState({ assistantPanelOpen: false });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     let resolveConfirm: (value: ScriptReviewState) => void = () => {};
     vi.spyOn(API, "confirmScriptReview").mockReturnValue(
@@ -565,8 +567,9 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     unmount();
     resolveConfirm(pendingState(CONFIRMED));
 
-    await waitFor(() => expect(useAssistantStore.getState().input).toContain("（集 ID 1）"));
-    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("已确认 — 视觉生成已放行"));
+    expect(useAssistantStore.getState().input).toBe("");
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
   it("draft state anchors a line-level violation inline and aggregates the unit-level one, without a confirm", async () => {

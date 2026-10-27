@@ -2092,7 +2092,6 @@ export default {
   'reference_unit_bucket_changed': 'This unit will run as {{hydrated}} instead of the declared {{declared}}',
   'reference_unit_unavailable_references': 'Referenced assets without an image: {{names}}',
   'reference_unit_unregistered_references': 'Unregistered references: {{names}}',
-  'reference_script_plan_confirm_continue_prefill': 'The split for {{episodeRef}} is confirmed — please continue generating the script and reference-to-video outputs.',
   'image_prompt_placeholder': 'Storyboard description...',
   'video_prompt_placeholder': 'Video action description...',
 

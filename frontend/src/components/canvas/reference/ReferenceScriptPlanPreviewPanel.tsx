@@ -481,14 +481,11 @@ export function ReferenceScriptPlanPreviewPanel({
 
   const handleConfirmed = useCallback(() => {
     // 保存 / 确认两次 await 期间用户可能已切走项目（本组件所在的 tab 可能因此被卸载）：只在项目
-    // 本身变了才抑制全局副作用，否则会把续写消息写进用户切换到的别的项目/会话。同项目内切
-    // tab（如切到「视频单元」，本面板同样会被卸载）不属于这种情况——预填文案本身带着具体
-    // 集 ID，写进全局 assistant 输入框依然准确，不该被同一份卸载信号误伤。
+    // 本身变了才抑制确认提示，同项目内切 tab 照常提示。确认后不打开 Agent 面板，由页面的下一步
+    // 接续，与 ScriptReviewGate 一致。
     if (useProjectsStore.getState().currentProjectName !== projectName) return;
     pushToast(t("dashboard:review_confirmed"), "success");
-    // 确认放行 + 预填继续消息到会话输入框——只填不发送，用户自行核对后发送。
-    prefillAssistant(t("reference_script_plan_confirm_continue_prefill", { episodeRef }));
-  }, [projectName, episodeRef, pushToast, t]);
+  }, [projectName, pushToast, t]);
 
   const {
     state,
