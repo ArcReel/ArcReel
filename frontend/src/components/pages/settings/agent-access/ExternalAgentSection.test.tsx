@@ -40,6 +40,8 @@ describe("ExternalAgentSection", () => {
       "配置远程 MCP",
       "准备访问令牌",
     ]);
+    // setup skill 明文保存令牌，第三步提醒把配置文件排除在版本控制之外
+    expect(within(steps[2]).getByText(/加入 \.gitignore/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "复制安装命令" }));
     expect(writeText).toHaveBeenLastCalledWith("npx skills add ArcReel/skills");
