@@ -158,6 +158,29 @@ def test_a_fully_quoted_tier_has_no_unpriced_members():
     assert admission.confirmation_tiers()[0].unpriced_count == 0
 
 
+def test_quoted_total_sums_every_unit_by_currency_and_counts_the_unquoted():
+    """确认框的预估费用覆盖整批：已通过与待确认的单元都按各自报价计入，币种分开，没有报价的另数。"""
+
+    admission = _admission(
+        UnitAdmissionTicket(unit_id="E1U1", request_cost={"amount": 0.5, "currency": "USD"}),
+        _confirmation_ticket("E1U2", request=8, amount=0.8),
+        _confirmation_ticket("E1U3", request=8, amount=7.0, currency="CNY"),
+        _confirmation_ticket("E1U4", request=8, unpriced_reason="missing_rate"),
+        UnitAdmissionTicket(unit_id="E1U5"),
+    )
+
+    total, unpriced = admission.quoted_total()
+
+    assert total == {"USD": pytest.approx(1.3), "CNY": pytest.approx(7.0)}
+    assert unpriced == 2
+
+
+def test_quoted_total_drops_zero_amounts():
+    admission = _admission(UnitAdmissionTicket(unit_id="E1U1", request_cost={"amount": 0, "currency": "USD"}))
+
+    assert admission.quoted_total() == ({}, 0)
+
+
 def test_a_tier_quoted_in_two_currencies_reports_no_total():
     """币种不一的报价加不出一个数：合计与币种一起留空，不给出无从解读的金额。"""
 

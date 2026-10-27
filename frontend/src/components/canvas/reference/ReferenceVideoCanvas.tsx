@@ -44,6 +44,11 @@ import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
 import { ReferenceUnitAddDialog } from "./ReferenceUnitAddDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
+import {
+  ReferenceBatchPreviewDialog,
+  type ReferenceBatchSkip,
+  type ReferenceBatchSkipReason,
+} from "./ReferenceBatchPreviewDialog";
 import { referenceBatchOutcome } from "./batch-outcome";
 import { AdScriptButton, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
 import { BatchFillButton, useBatchGap } from "@/components/canvas/episode-page/BatchFillButton";
@@ -85,6 +90,7 @@ import type {
   ReferenceUnitCapabilityMap,
   ReferenceVideoUnit,
   UnitStatus,
+  WorkflowAdmission,
 } from "@/types";
 import { itemPositionLabel } from "@/utils/episode-display";
 import { ItemPositionOfTotal } from "@/components/shared/episode-item/ItemPositionOfTotal";
@@ -584,19 +590,21 @@ export function ReferenceVideoCanvas({
    * 生成、重复计费并覆盖刚出的成片。实时读 store 而非渲染期 units 快照。
    *
    * 本地写入（成片上传、版本恢复、时长保存）服务端看不见，也即将改写该 unit，同样排除。
+   *
+   * 返回排除的原因，确认框据此列出跳过项；`null` 表示可以提交。
    */
-  const canEnqueueBatchUnit = useCallback(
-    (unitId: string) => {
+  const batchSkipReason = useCallback(
+    (unitId: string): ReferenceBatchSkipReason | null => {
       // 只排除本画布自己的写入（服务端看不到它们）：生成占用与 needs_replan 交给准入去报告。
       const hasLocalWrite =
         uploading.ref.current.has(unitId) ||
         restoring.ref.current.has(unitId) ||
         durationSaving.ref.current.has(unitId);
-      if (hasLocalWrite) return false;
+      if (hasLocalWrite) return "local_write";
       const fresh = useReferenceVideoStore
         .getState()
         .unitsByEpisode[referenceVideoCacheKey(projectName, episode)]?.find((u) => u.unit_id === unitId);
-      return !fresh?.generated_assets?.video_clip;
+      return fresh?.generated_assets?.video_clip ? "has_video" : null;
     },
     [projectName, episode, uploading.ref, restoring.ref, durationSaving.ref],
   );
@@ -604,6 +612,8 @@ export function ReferenceVideoCanvas({
   const durationGate = useReferenceDurationGate({ projectName, episode });
   /** 整批准入判定的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
   const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
+  /** 提交前确认框的输入：本轮要预览的单元与画布摘掉的跳过项。 */
+  const [batchPlan, setBatchPlan] = useState<{ unitIds: string[]; skipped: ReferenceBatchSkip[] } | null>(null);
 
   const enqueue = useCallback(
     async (unitId: string, confirmedRequestDuration: number | undefined) => {
@@ -762,8 +772,11 @@ export function ReferenceVideoCanvas({
           unit_ids: unitIds,
           ...(confirmedDurations ? { confirmed_request_durations: confirmedDurations } : {}),
         });
+        // 确认框与结论弹窗在同一次渲染里交接，不叠两层弹窗。
+        setBatchPlan(null);
         setBatchAdmission(referenceBatchOutcome(admission) === "queued" ? null : admission);
       } catch (e) {
+        setBatchPlan(null);
         setBatchAdmission(null);
         toastError(e, (msg) => t("reference_batch_request_failed", { error: msg }));
       }
@@ -771,7 +784,7 @@ export function ReferenceVideoCanvas({
     [projectName, episode, t],
   );
 
-  const handleBatchGenerate = useCallback(async () => {
+  const handleBatchGenerate = useCallback(() => {
     if (batchTargets.length === 0) {
       useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
       return;
@@ -779,49 +792,66 @@ export function ReferenceVideoCanvas({
     setStackTab("preview");
     // 实时复核而非用渲染期快照：其它入口（单元按钮、Agent 入队、SSE 落库）可能已占用
     // 同一 unit。命中即跳过，不当作错误提示——批量入口的语义是「把还能生成的都排上」，
-    // 逐个报错只会刷屏。
-    const targets = batchTargets.map((u) => u.unit_id).filter(canEnqueueBatchUnit);
-    if (targets.length === 0) {
+    // 逐个报错只会刷屏；跳过的单元连同原因列在确认框里。
+    const skipped = batchTargets.flatMap((unit): ReferenceBatchSkip[] => {
+      const reason = batchSkipReason(unit.unit_id);
+      return reason === null ? [] : [{ unit_id: unit.unit_id, reason }];
+    });
+    const skippedIds = new Set(skipped.map((item) => item.unit_id));
+    const unitIds = batchTargets.map((u) => u.unit_id).filter((unitId) => !skippedIds.has(unitId));
+    if (unitIds.length === 0) {
       useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
       return;
     }
-    await runBatch(targets);
-  }, [batchTargets, canEnqueueBatchUnit, runBatch, t]);
+    // 付费视频先确认再提交：确认框列出名单、跳过项与预估费用，时长档位待确认时一并拍板。
+    setBatchPlan({ unitIds, skipped });
+  }, [batchTargets, batchSkipReason, t]);
 
   /**
-   * 聚合确认后重发同一端点完成入队：档位按 tier 摊回各 unit，目标集合仍是本轮全部
-   * 目标（无需确认的单元也在其中，否则它们永远排不上）。
+   * 按一份准入结论提交：档位按 tier 摊回各 unit，目标集合是结论里的全部单元（无需确认的
+   * 单元也在其中，否则它们永远排不上）。
    *
-   * 提交时刻再复核一次：弹窗停留期间（用户思考时长，可以很长）清单里的单元可能已被
+   * 提交时刻再复核一次：确认框停留期间（用户思考时长，可以很长）清单里的单元可能已被
    * 别处生成完成——按冻结清单原样重发会重复计费并覆盖刚出的成片。
+   */
+  const submitAdmitted = useCallback(
+    async (admission: WorkflowAdmission) => {
+      const durationByUnit = new Map<string, number>();
+      for (const tier of admission.confirmation?.tiers ?? []) {
+        // 档位没解析出来的组没有可确认的值：略过后重发，服务端会照旧把它算成缺口，
+        // 而不是收到一个空档位当成用户已拍板。
+        if (tier.request_duration_seconds == null) continue;
+        for (const unitId of tier.unit_ids) durationByUnit.set(unitId, tier.request_duration_seconds);
+      }
+      const targets = Array.from(
+        new Set([...admission.units.map((u) => u.unit_id), ...durationByUnit.keys()]),
+      ).filter((unitId) => batchSkipReason(unitId) === null);
+      if (targets.length === 0) {
+        setBatchPlan(null);
+        // 弹窗此刻已关闭，不给反馈的话界面只是静静地什么也没发生。
+        useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
+        return;
+      }
+      const confirmed: Record<string, number> = {};
+      for (const unitId of targets) {
+        const duration = durationByUnit.get(unitId);
+        if (duration != null) confirmed[unitId] = duration;
+      }
+      await runBatch(targets, Object.keys(confirmed).length > 0 ? confirmed : undefined);
+    },
+    [batchSkipReason, runBatch, t],
+  );
+
+  /**
+   * 提交时档位与预览时不同（预览之后剧本或模型配置有变），结论弹窗会再请一次确认：
+   * 那是一份新的结论，确认后按它重发。
    */
   const handleBatchConfirm = useCallback(() => {
     const admission = batchAdmission;
     setBatchAdmission(null);
-    const tiers = admission?.confirmation?.tiers ?? [];
-    if (!admission || tiers.length === 0) return;
-    const durationByUnit = new Map<string, number>();
-    for (const tier of tiers) {
-      // 档位没解析出来的组没有可确认的值：略过后重发，服务端会照旧把它算成缺口，
-      // 而不是收到一个空档位当成用户已拍板。
-      if (tier.request_duration_seconds == null) continue;
-      for (const unitId of tier.unit_ids) durationByUnit.set(unitId, tier.request_duration_seconds);
-    }
-    const targets = Array.from(
-      new Set([...admission.units.map((u) => u.unit_id), ...durationByUnit.keys()]),
-    ).filter(canEnqueueBatchUnit);
-    if (targets.length === 0) {
-      // 弹窗此刻已关闭，不给反馈的话界面只是静静地什么也没发生。
-      useAppStore.getState().pushToast(t("reference_batch_nothing_to_do"), "info");
-      return;
-    }
-    const confirmed: Record<string, number> = {};
-    for (const unitId of targets) {
-      const duration = durationByUnit.get(unitId);
-      if (duration != null) confirmed[unitId] = duration;
-    }
-    void runBatch(targets, confirmed);
-  }, [batchAdmission, canEnqueueBatchUnit, runBatch, t]);
+    if (!admission || (admission.confirmation?.tiers ?? []).length === 0) return;
+    void submitAdmitted(admission);
+  }, [batchAdmission, submitAdmitted]);
 
   const onAdd = useCallback(() => handleAdd(), [handleAdd]);
 
@@ -1189,7 +1219,7 @@ export function ReferenceVideoCanvas({
             count={videoGap}
             units
             disabled={batchTargets.length === 0}
-            onClick={() => void handleBatchGenerate()}
+            onClick={() => handleBatchGenerate()}
           />
         </EpisodeHeaderActions>
       )}
@@ -1392,6 +1422,16 @@ export function ReferenceVideoCanvas({
         onClose={() => setAddTarget(null)}
       />
       <ReferenceDurationConfirmDialog {...durationGate.dialogProps} />
+      {batchPlan && (
+        <ReferenceBatchPreviewDialog
+          projectName={projectName}
+          episode={episode}
+          unitIds={batchPlan.unitIds}
+          skipped={batchPlan.skipped}
+          onConfirm={submitAdmitted}
+          onClose={() => setBatchPlan(null)}
+        />
+      )}
       <ReferenceBatchAdmissionDialog
         admission={batchAdmission}
         onConfirm={handleBatchConfirm}
