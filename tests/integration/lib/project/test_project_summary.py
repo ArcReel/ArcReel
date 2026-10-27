@@ -741,6 +741,46 @@ def test_one_resolver_answers_every_comparison_from_one_manifest_snapshot(tmp_pa
     )
 
 
+@pytest.mark.parametrize(
+    ("swap", "expected"),
+    [("removed", ArtifactStatus.MISSING), ("symlinked", ArtifactStatus.BLOCKED)],
+)
+def test_video_swapped_after_admission_is_judged_by_the_newer_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, swap: str, expected: ArtifactStatus
+) -> None:
+    """准入看到正式视频之后、完整比对之前，文件被删或换成指向项目外的符号链接：按完整比对读到的
+    新观察判 MISSING 或 BLOCKED，不沿用准入时的观察判成 STALE。
+
+    项目外的文件是正式文件的副本：证明若跟随了链接，指纹会对上并判成 CURRENT。
+    """
+
+    pm, project_path = _make_project(tmp_path, "narration")
+    _episode_with_storyboards(pm, project_path, 1)
+    key = ArtifactKey.episode_video(1, "E1S01")
+    video_path = resource_relative_path("videos", "E1S01")
+    # 清单 mtime 早于登记的视频 mtime，同一时间戳内的改写无从排除，证明退化为完整比对。
+    os.utime(project_path / MANIFEST_FILENAME, ns=(0, 0))
+    outside = tmp_path / "outside.mp4"
+    shutil.copyfile(project_path / video_path, outside)
+    original_inspect = ProjectArtifactManifestAdapter.inspect_artifact
+    swapped: list[str] = []
+
+    def _inspect_then_swap(self: ProjectArtifactManifestAdapter, relative_path: str) -> Any:
+        observation = original_inspect(self, relative_path)
+        if relative_path == video_path and not swapped:
+            swapped.append(relative_path)
+            formal = project_path / video_path
+            formal.unlink()
+            if swap == "symlinked":
+                formal.symlink_to(outside)
+        return observation
+
+    resolver = ArtifactCurrencyResolver(project_path)
+    monkeypatch.setattr(ProjectArtifactManifestAdapter, "inspect_artifact", _inspect_then_swap)
+
+    assert resolver.compare(key, artifact_path=video_path).status is expected
+
+
 def test_verified_versions_parses_do_not_grow_with_the_episode_count(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

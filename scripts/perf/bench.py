@@ -12,6 +12,7 @@ import contextlib
 import cProfile
 import io
 import json
+import math
 import os
 import pstats
 import random
@@ -356,7 +357,6 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
         t_stop = time.perf_counter()
         if stacks is not None:
             stacks.stop()
-            stacks.write_collapsed(_out_dir() / f"peak-{a.tag}.stacks.txt")
         await asyncio.gather(*bg, return_exceptions=True)
         # 最后一次写入触发的费用估算还在防抖里，等它发出后再判断是否有在途请求。
         await asyncio.gather(*(cl.cost_timer for cl in clients if cl.cost_timer), return_exceptions=True)
@@ -366,6 +366,9 @@ async def _peak(a: argparse.Namespace) -> dict[str, Any]:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(drained.wait(), a.drain)
         drain_s = time.perf_counter() - t_stop
+        if stacks is not None:
+            # 排空计时之后、在事件循环外写盘，不拖慢仍在途的请求。
+            await asyncio.to_thread(stacks.write_collapsed, _out_dir() / f"peak-{a.tag}.stacks.txt")
         smp.cancel()
         leftover = {k: v for k, v in inflight.items() if v}
         # 排空截止时仍未完成的请求按截止时刻计耗时（真实值只会更大），并标记 unfinished。
@@ -534,6 +537,14 @@ def cmd_all(a: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------- CLI
+def _sample_hz(value: str) -> float:
+    # 负数或 inf 会得到不正的采样间隔，采样线程空转、挤占被测进程的 CPU。
+    hz = float(value)
+    if hz != 0 and not (math.isfinite(hz) and hz > 0):
+        raise argparse.ArgumentTypeError("采样频率须为 0 或有限正数")
+    return hz
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(prog="python -m scripts.perf.bench")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -557,7 +568,10 @@ def main() -> None:
     peak_opts.add_argument("--drain", type=float, default=300, help="排空等待上限（秒）")
     peak_opts.add_argument("--clients", type=int, default=1)
     peak_opts.add_argument(
-        "--sample-hz", type=float, default=0, help="高峰期栈采样频率，0 为关闭；折叠栈写入 out/peak-<tag>.stacks.txt"
+        "--sample-hz",
+        type=_sample_hz,
+        default=0,
+        help="高峰期栈采样频率，0 为关闭；折叠栈写入 out/peak-<tag>.stacks.txt",
     )
     sub.add_parser("build", parents=[common])
     sub.add_parser("idle", parents=[common, idle_opts])

@@ -205,7 +205,7 @@ class ArtifactObservation:
     content_digest: str | None = None
     content_bytes: bytes | None = None
     file_stat: os.stat_result | None = None
-    """读取内容摘要时打开的那个文件版本的 stat；只在算了摘要时给出。"""
+    """经受约束的描述符打开的那个文件版本的 stat；文件存在且可安全打开时给出，算了摘要时与摘要同属一个版本。"""
 
 
 class ArtifactManifestAdapter(Protocol):
@@ -1113,7 +1113,7 @@ class ProjectArtifactManifestAdapter:
             present=True,
             content_digest=content_digest,
             content_bytes=content_bytes,
-            file_stat=opened_file_stat if content_digest is not None else None,
+            file_stat=opened_file_stat,
         )
 
     def _inspect_artifact_portable(
@@ -1234,7 +1234,7 @@ class ProjectArtifactManifestAdapter:
             present=True,
             content_digest=content_digest,
             content_bytes=content_bytes,
-            file_stat=opened_stat if content_digest is not None else None,
+            file_stat=opened_stat,
         )
 
     @staticmethod
