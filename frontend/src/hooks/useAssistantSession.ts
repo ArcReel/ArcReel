@@ -377,6 +377,8 @@ export function useAssistantSession(projectName: string | null) {
       // 的空 entries 推导（等效从头订阅），不被上一个项目的残留条目污染，也不会
       // 把旧项目条目混排进新会话时间线。
       store.getState().resetTimeline();
+      // 上一个项目会话的错误提示不跟到新项目里（与 switchSession 同口径）
+      store.getState().setError(null);
       const writeVersion = sessionsWriteVersionRef.current;
       try {
         // 获取会话列表（项目级数据：即便自动选择已被用户操作作废，列表照常落地）
@@ -653,12 +655,13 @@ export function useAssistantSession(projectName: string | null) {
   // 中断会话
   const interrupt = useCallback(async () => {
     const sessionId = store.getState().currentSessionId;
-    if (!projectName || !sessionId || statusRef.current !== "running") return;
+    if (!projectName || !sessionId || projectAbortOwnerRef.current !== projectName || statusRef.current !== "running") return;
 
     store.getState().setInterrupting(true);
     try {
       await API.interruptAssistantSession(projectName, sessionId);
     } catch (err) {
+      if (projectAbortOwnerRef.current !== projectName || store.getState().currentSessionId !== sessionId) return;
       store.getState().setError(errMsg(err, "中断失败"));
       store.getState().setInterrupting(false);
     }
@@ -672,6 +675,7 @@ export function useAssistantSession(projectName: string | null) {
     invalidatePendingSend();
     closeStream();
     store.getState().resetTimeline();
+    store.getState().setError(null);
     store.getState().setSessionStatus("idle");
     clearPendingQuestion();
     store.getState().setCurrentSessionId(null);
@@ -845,6 +849,7 @@ export function useAssistantSession(projectName: string | null) {
           closeStream();
           store.getState().setCurrentSessionId(null);
           store.getState().resetTimeline();
+          store.getState().setError(null);
           store.getState().setSessionStatus(null);
           clearPendingQuestion();
           // 清空到无会话后无加载过程，复位被作废加载链遗留的 loading

@@ -2575,6 +2575,65 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().error).toBeNull();
   });
 
+  it.each(["project", "new-session", "delete-last"] as const)(
+    "drops the previous session's error after navigating away (%s)",
+    async (navigation) => {
+      vi.spyOn(API, "listAssistantSessions").mockResolvedValue({ sessions: [makeSession("session-1", "running")] });
+      vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+      vi.spyOn(API, "interruptAssistantSession").mockRejectedValue(new Error("中断请求失败"));
+      vi.spyOn(API, "deleteAssistantSession").mockResolvedValue({ success: true });
+      const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+        initialProps: { projectName: "demo" },
+      });
+      await waitFor(() => expect(FakeSseStream.instances).toHaveLength(1));
+
+      await act(async () => { await result.current.interrupt(); });
+      // 同一会话内错误照常显示
+      expect(useAssistantStore.getState().error).toBe("中断请求失败");
+
+      if (navigation === "project") {
+        rerender({ projectName: "other" });
+      } else if (navigation === "new-session") {
+        act(() => { result.current.createNewSession(); });
+      } else {
+        await act(async () => { await result.current.deleteSession("session-1"); });
+      }
+      // 切项目后新项目的会话载入完成（接上新流）；新建与删光后落在无会话状态
+      await waitFor(() => expect(FakeSseStream.instances).toHaveLength(navigation === "project" ? 2 : 1));
+      expect(useAssistantStore.getState().currentSessionId).toBe(navigation === "project" ? "session-1" : null);
+      expect(useAssistantStore.getState().error).toBeNull();
+    },
+  );
+
+  it.each(["project", "new-session"] as const)(
+    "ignores the old session's interrupt failure after switching %s",
+    async (navigation) => {
+      vi.spyOn(API, "listAssistantSessions").mockResolvedValue({ sessions: [makeSession("session-1", "running")] });
+      vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+      const interrupted = createDeferred<Awaited<ReturnType<typeof API.interruptAssistantSession>>>();
+      vi.spyOn(API, "interruptAssistantSession").mockReturnValue(interrupted.promise);
+      const { result, rerender } = renderHook(({ projectName }) => useAssistantSession(projectName), {
+        initialProps: { projectName: "demo" },
+      });
+      await waitFor(() => expect(FakeSseStream.instances).toHaveLength(1));
+      let request: Promise<void>;
+      act(() => { request = result.current.interrupt(); });
+
+      if (navigation === "project") {
+        rerender({ projectName: "other" });
+      } else {
+        act(() => { result.current.createNewSession(); });
+      }
+      await waitFor(() => expect(FakeSseStream.instances).toHaveLength(navigation === "project" ? 2 : 1));
+      expect(useAssistantStore.getState().interrupting).toBe(false);
+      await act(async () => {
+        interrupted.reject(new Error("old interrupt failed"));
+        await request!;
+      });
+      expect(useAssistantStore.getState().error).toBeNull();
+    },
+  );
+
   it("invalidates a pending rewrite as soon as the current session is deleted", async () => {
     mockIdleSession([userEntry(0, "原始消息")]);
     // DELETE 挂起，让改写的受理落在它在途的那段窗口里

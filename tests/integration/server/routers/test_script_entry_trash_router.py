@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
 from typing import Any, cast
@@ -205,7 +206,8 @@ def test_two_concurrent_restores_of_one_record_put_it_back_once(
             # 编码迁移在铺设完成、释放项目锁之后读源文：两次恢复都到达后才允许继续。
             staged.wait(timeout=30)
             if degraded:
-                raise OSError("source read failed")
+                # 文件缺失是永久状态，迁移失败照常降级；磁盘满这类可重试的读写故障不降级。
+                raise FileNotFoundError(path)
         return read_bytes(path)
 
     monkeypatch.setattr(Path, "read_bytes", read_staged_source)
@@ -357,3 +359,54 @@ def test_a_renumbered_shot_does_not_take_the_history_its_new_id_had_when_it_was_
     assert restored.json()["object"]["id"] == "E1S05"
     assert [s["segment_id"] for s in _segments(manager)] == ["E1S05", "E1S04"]
     assert not VersionManager(project_dir).has_versions("storyboards", "E1S05")
+
+
+def test_records_name_removed_shots_by_their_position_and_text_at_removal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """回收站按删除时的位置与正文摘录称呼条目：同一集删掉的多条记录凭它们区分，不靠内部编号。"""
+    manager, http = _project(tmp_path, monkeypatch)
+    with manager.locked_script("demo", "episode_1.json") as script:
+        script["segments"][2]["novel_text"] = "夜色里  一盏灯\n亮了很久很久，直到天明。"
+    with http:
+        last = _remove(http, "E1S03")
+        first = _remove(http, "E1S01")
+
+    assert (last["object"]["item_position"], last["object"]["item_excerpt"]) == (3, "夜色里 一盏灯 亮了很久很久，直…")
+    assert (first["object"]["item_position"], first["object"]["item_excerpt"]) == (1, "风吹过旷野。")
+
+
+def test_overwriting_the_script_records_each_dropped_shot_at_its_position_before_the_overwrite(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, _http = _project(tmp_path, monkeypatch)
+    script = manager.load_script("demo", "episode_1.json")
+
+    manager.save_script("demo", {**script, "segments": script["segments"][:1]}, "episode_1.json")
+
+    records = project_trash.list_records(manager.get_project_path("demo"))
+    assert sorted((r.object["id"], r.object["item_position"], r.object["item_excerpt"]) for r in records) == [
+        ("E1S02", 2, "风吹过旷野。"),
+        ("E1S03", 3, "风吹过旷野。"),
+    ]
+
+
+def test_a_record_without_a_position_snapshot_still_lists_and_restores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """位置与摘录是可选字段；缺少这些字段的记录照常列出与恢复。"""
+    manager, http = _project(tmp_path, monkeypatch)
+    project_dir = manager.get_project_path("demo")
+    with http:
+        record = _remove(http, "E1S02")
+        stored_path = project_trash.trash_dir(project_dir) / record["id"] / "record.json"
+        stored = json.loads(stored_path.read_text(encoding="utf-8"))
+        del stored["object"]["item_position"], stored["object"]["item_excerpt"]
+        stored_path.write_text(json.dumps(stored), encoding="utf-8")
+        [listed] = http.get("/api/v1/projects/demo/trash").json()["records"]
+        assert "item_position" not in listed["object"]
+
+        restored = http.post(f"/api/v1/projects/demo/trash/{record['id']}/restore")
+
+    assert restored.status_code == 200, restored.text
+    assert [s["segment_id"] for s in _segments(manager)] == ["E1S01", "E1S04", "E1S03"]

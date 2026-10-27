@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 from pathlib import Path
 
 import httpx
@@ -10,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
-from mcp.types import ImageContent
+from mcp.types import ImageContent, TextContent
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state, register_current_artifact_if_provable
 from lib.artifacts.artifact_manifest import ArtifactKey
@@ -1053,6 +1054,43 @@ async def test_remote_mcp_draft_preserves_explicit_null_updates(remote_server, r
     assert draft is not None
     assert draft.meta["base_fingerprint"] is None
     assert draft.meta["source"] is None
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_remote_mcp_draft_errors_name_only_project_relative_paths(remote_server, remote_projects) -> None:
+    """违约报告会原样回给远程 Agent：只指名项目内相对路径，不带服务端目录（含解析符号链接后的写法）。"""
+    (remote_projects.get_project_path("demo") / "scripts" / "episode_1.json").unlink()
+    project_dir = remote_projects.get_project_path("demo")
+    app = _mounted(remote_server)
+    async with (
+        remote_server.session_manager.run(),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        args = {"project": "demo", "episode_id": 1, "doc_type": "drama_script_plan"}
+        opened = await session.call_tool("open_draft", {**args, "source": "source/episode_1.txt"})
+        patched = await session.call_tool(
+            "patch_draft",
+            {**args, "content": {"scenes": [{}]}, "base_revision": opened.structuredContent["draft"]["revision"]},
+        )
+        promoted = await session.call_tool(
+            "promote_draft", {**args, "base_revision": patched.structuredContent["draft"]["revision"]}
+        )
+
+    assert promoted.isError
+    message = json.dumps(promoted.structuredContent, ensure_ascii=False) + "".join(
+        block.text for block in promoted.content if isinstance(block, TextContent)
+    )
+    assert "drafts/episode_1/script_plan_normalized_script.invalid.json" in message
+    assert str(project_dir) not in message
+    assert str(project_dir.resolve()) not in message
 
 
 async def test_remote_mcp_host_initializes_first_request_and_can_restart() -> None:

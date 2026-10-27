@@ -149,10 +149,8 @@ _PROJECT_BACKEND_KEYS = (
     "default_text_backend",
 )
 
-# 全局 DB settings 中可能引用自定义模型的全部键，供能力编辑界面只读提示影响面用（`docs/adr/0054`：
-# 提示不拦截保存）。与 _BACKEND_SETTING_KEYS 分开维护：后者界定删除时的级联清理范围，视频桶键按
-# ADR 0054 不在清理之列，但仍需提示。每个键须在 frontend/src/i18n/*/dashboard.ts 有
-# global_bucket_label_<key> 文案，由 test_global_bucket_keys_have_i18n_labels 守住。
+# 全局 DB settings 中可能引用自定义模型的全部键，模型改 ID 时据此改写引用。与 _BACKEND_SETTING_KEYS
+# 分开维护：后者界定删除时的级联清理范围，视频桶键按 ADR 0054 不在清理之列，但改 ID 仍要跟随。
 _GLOBAL_BUCKET_REFERENCE_KEYS = (
     *_BACKEND_SETTING_KEYS,
     "default_video_backend_i2v",
@@ -314,9 +312,6 @@ class ModelResponse(BaseModel):
     # 对应到的条目摘要（maker / name / media_type / display_name / priced）；对应不上条目时为 None，
     # 这个模型的调用记为未定价。
     matched_entry: dict[str, object] | None = None
-    # 正在引用该模型的全局 system_settings 键名（如 default_video_backend_i2v）；未被引用为
-    # None。只查 DB 全局配置，不扫描项目文件（`docs/adr/0054`）；前端据此渲染非阻塞提示。
-    global_bucket_refs: list[str] | None = None
 
 
 class ProviderResponse(BaseModel):
@@ -479,24 +474,6 @@ def _effective_overrides_for_response(
     return filtered or None
 
 
-def _extract_global_bucket_refs(all_settings: dict[str, str], provider_id: int) -> dict[str, list[str]]:
-    """从一次性拉取的全局 settings 中挑出引用该 provider 模型的键，按 model_id 分组。"""
-    prefix = f"{make_provider_id(provider_id)}/"
-    refs: dict[str, list[str]] = {}
-    for key in _GLOBAL_BUCKET_REFERENCE_KEYS:
-        val = all_settings.get(key, "")
-        if val and val.startswith(prefix):
-            refs.setdefault(val[len(prefix) :], []).append(key)
-    return refs
-
-
-async def _global_bucket_refs_for_provider(session: AsyncSession, provider_id: int) -> dict[str, list[str]]:
-    from lib.config.service import ConfigService
-
-    all_settings = await ConfigService(session).get_all_settings()
-    return _extract_global_bucket_refs(all_settings, provider_id)
-
-
 async def _read_endpoint_specs(
     session: AsyncSession,
     models,
@@ -522,7 +499,6 @@ async def _read_endpoint_specs(
 
 def _model_to_response(
     m,
-    global_bucket_refs: list[str] | None = None,
     endpoint_spec: EndpointSpec | None = None,
 ) -> ModelResponse:
     requests = endpoint_spec.requests if endpoint_spec is not None else ()
@@ -549,17 +525,14 @@ def _model_to_response(
         matched_entry=(
             matched_entry_summary(m.model_id, media_type, m.entry_binding) if media_type is not None else None
         ),
-        global_bucket_refs=global_bucket_refs or None,
     )
 
 
 def _provider_to_response(
     provider,
     models,
-    global_bucket_refs: dict[str, list[str]] | None = None,
     endpoint_specs: Mapping[str, EndpointSpec] | None = None,
 ) -> ProviderResponse:
-    refs = global_bucket_refs or {}
     return ProviderResponse(
         id=provider.id,
         display_name=provider.display_name,
@@ -569,7 +542,6 @@ def _provider_to_response(
         models=[
             _model_to_response(
                 m,
-                refs.get(m.model_id),
                 None if endpoint_specs is None else endpoint_specs.get(m.endpoint),
             )
             for m in models
@@ -1275,16 +1247,12 @@ async def list_providers(
     """列出所有自定义供应商（含模型列表）。"""
     repo = CustomProviderRepository(session)
     pairs = await repo.list_providers_with_models()
-    from lib.config.service import ConfigService
-
-    all_settings = await ConfigService(session).get_all_settings()
     endpoint_specs = await _read_endpoint_specs(session, [model for _, models in pairs for model in models])
     return {
         "providers": [
             _provider_to_response(
                 p,
                 models,
-                _extract_global_bucket_refs(all_settings, p.id),
                 endpoint_specs,
             )
             for p, models in pairs
@@ -1362,7 +1330,6 @@ async def create_provider(
     return _provider_to_response(
         provider,
         models,
-        await _global_bucket_refs_for_provider(session, provider.id),
         await _read_endpoint_specs(session, models),
     )
 
@@ -1382,7 +1349,6 @@ async def get_provider(
     return _provider_to_response(
         provider,
         models,
-        await _global_bucket_refs_for_provider(session, provider_id),
         await _read_endpoint_specs(session, models),
     )
 
@@ -1419,7 +1385,6 @@ async def update_provider(
     return _provider_to_response(
         provider,
         models,
-        await _global_bucket_refs_for_provider(session, provider_id),
         await _read_endpoint_specs(session, models),
     )
 
@@ -1480,7 +1445,6 @@ async def full_update_provider(
     return _provider_to_response(
         provider,
         saved_models,
-        await _global_bucket_refs_for_provider(session, provider_id),
         await _read_endpoint_specs(session, saved_models),
     )
 

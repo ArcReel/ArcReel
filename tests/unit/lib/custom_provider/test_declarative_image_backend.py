@@ -26,7 +26,7 @@ def _backend(definition: dict[str, Any] | None = None) -> DeclarativeImageBacken
     )
 
 
-def _image_to_image_definition(*, encoding: str = "data_uri", max_reference_images: int = 2) -> dict[str, Any]:
+def _image_to_image_definition(*, encoding: str = "data_uri", max_reference_images: int | float = 2) -> dict[str, Any]:
     """同时声明文生图与图生图、参考图可选的定义：参考图逐张铺进 ``image_urls``。"""
     definition = image_endpoint_definition(
         capabilities={"text_to_image": True, "image_to_image": True, "max_reference_images": max_reference_images},
@@ -90,8 +90,9 @@ class TestDeclarativeImageBackend:
     def test_text_to_image_is_the_declared_capability(self):
         assert _backend().capabilities == {ImageCapability.TEXT_TO_IMAGE}
 
-    def test_declared_image_to_image_and_reference_limit_are_the_backend_capabilities(self):
-        backend = _backend(_image_to_image_definition(max_reference_images=3))
+    @pytest.mark.parametrize("limit", [3, 3.0])
+    def test_declared_image_to_image_and_reference_limit_are_the_backend_capabilities(self, limit: int | float):
+        backend = _backend(_image_to_image_definition(max_reference_images=limit))
 
         assert backend.capabilities == {ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}
         assert asyncio.run(backend.reference_image_limit()) == 3
@@ -109,7 +110,7 @@ class TestDeclarativeImageBackend:
             router.get("https://relay.test/v1/tasks/task_9").mock(return_value=_completed())
             router.get("https://cdn.test/img/first.png").mock(return_value=httpx.Response(200, content=PNG_BYTES))
 
-            await _backend(_image_to_image_definition(encoding=encoding, max_reference_images=2)).generate(
+            await _backend(_image_to_image_definition(encoding=encoding, max_reference_images=2.0)).generate(
                 _request(tmp_path, prompt="把头发改成红色", reference_images=references)
             )
 

@@ -14,7 +14,7 @@ The market lets you browse call endpoints that others have already adapted, from
 - **Market**: the "Market" section of global settings, with three tabs: "Browse", "My shares", and "Settings". Browsing and installing run only on your local ArcReel and the market source repositories. They do not depend on any central service, and no account is required. Install counts and ratings come from an official service you can turn off; see [Install Counts, Ratings, and the Official Service](#official-service). In the first release, the only market entry type is call endpoints.
 - **Market source**: a GitHub repository (or an equivalent `https://` direct link) whose root index file `arcreel-market.json` lists its market entries. The ArcReel backend fetches the index and definitions on your behalf and only accesses raw file URLs.
 - **Official market source**: [`ArcReel/arcreel-market`](https://github.com/ArcReel/arcreel-market) ships preconfigured. It can be disabled, renamed, and reordered, but not deleted. Every other source you add yourself is a third-party market source.
-- **Market entry**: an installable item in an index, whose payload is a call endpoint definition. An entry is uniquely identified by its slug within its market source. The same slug in different market sources does not mean the same definition; such entries are displayed side by side.
+- **Market entry**: an installable item in an index, whose payload is a call endpoint definition, either a declarative endpoint or a ComfyUI endpoint. An entry is uniquely identified by its slug within its market source. The same slug in different market sources does not mean the same definition; such entries are displayed side by side.
 
 The market is a user feature: the embedded Agent does not browse or install market entries for you.
 
@@ -54,9 +54,9 @@ A market entry determines where your API key is sent, so only add market sources
 
 When you open the "Market" section, enabled market sources last refreshed more than 1 hour ago are refreshed automatically in the background, while the page shows cached content first. If a refresh fails, the last successful snapshot is kept, and a banner above the grid lists each affected source's status, error, and snapshot time. Market source statuses are "OK", "Not refreshed yet", "Unreachable", "Invalid index", and "Requires a newer ArcReel".
 
-### 2.3 GitHub Raw Proxy Prefix {#github-proxy-prefix}
+### 2.3 GitHub Access Proxy {#github-proxy-prefix}
 
-If your deployment cannot reach `raw.githubusercontent.com` directly, find "GitHub raw proxy prefix" on the "Settings" tab in the "Market" section of global settings. When set, ArcReel prepends the prefix to every `raw.githubusercontent.com` address, covering index, definition, and icon fetches as well as the model catalog's official sync. Leave it empty to connect directly.
+If your deployment cannot reach `raw.githubusercontent.com` directly, find "GitHub access proxy" on the "Settings" tab in the "Market" section of global settings and enter a proxy prefix. When set, ArcReel prepends the prefix to every `raw.githubusercontent.com` address, covering index, definition, and icon fetches as well as the model catalog's official sync. Leave it empty to connect directly.
 
 This is a single global setting, empty by default, and ArcReel does not preconfigure any proxy address. Once set, failed requests do not fall back to a direct connection. The proxy can see the requests passing through it, so only use a proxy you trust.
 
@@ -66,15 +66,20 @@ You can also enter the "Market" section by clicking "Get from market" in the "En
 
 ### 3.1 Browse Entries {#browse-entries}
 
-The entry grid lists entries from all enabled sources in market source order, without grouping by source. Each card shows the icon, name, `author · vversion`, description, market source (entries from the official market source also show install counts and ratings next to it), and a primary button in the lower-right corner ("Install", "Update", or "Installed"). Endpoint entries show their media type, "Image" or "Video", in the upper-right corner of the image area.
+The entry grid lists entries from all enabled sources in market source order, without grouping by source. Each card shows the icon, name, `author, vversion`, and description. Below the description is a row of badges: media type ("Image" or "Video"), installation status, and any version requirement. At the bottom of the card, the market source is on the left (entries from the official market source also show install counts and ratings next to it), and the primary button is on the right:
+
+- "Install" when the entry is not installed, which opens the installation confirmation dialog;
+- "Update" when an update is available, which opens the same dialog in update mode;
+- "Open endpoint" when the installed version is current, which goes straight to the endpoint in the "Endpoints" section.
+
+Clicking anywhere else on the card opens the installation confirmation dialog.
 
 - **Search**: filter by name, author, and description.
-- **Entry type**: only "Endpoints" is currently available; "Prompts" and "Style templates" are marked as coming soon.
 - **Filter by media type**: choose one of "All", "Image", and "Video". The default is "All".
-- **Filter by source**: one filter per enabled market source, multi-select, all selected by default.
+- **Filter by source**: shown when two or more market sources are enabled. One filter per market source, multi-select, all selected by default.
 - **Installed only**: show only installed entries.
 
-When an entry requires a newer app version, the whole card is dimmed, its button is disabled, and it is labeled "Requires ArcReel ≥ x.y.z". Upgrade ArcReel before installing it.
+When an entry requires a newer app version, the card is labeled "Requires ArcReel ≥ x.y.z" and its "Install" or "Update" button is disabled. You can still open the card to view its details. Upgrade ArcReel before installing it.
 
 ### 3.2 Confirm Installation {#confirm-install}
 
@@ -82,13 +87,24 @@ Click a card or "Install" to open the installation confirmation dialog. Check ea
 
 1. **Header**: name, author, version, market source, and homepage. For entries from a third-party market source, the dialog shows "This source has not been reviewed by ArcReel".
 2. **Validation**: the definition's errors and warnings. "Confirm installation" is disabled, with the reason shown, when the index and definition do not match, validation reports errors, or the app version is lower than "Requires ArcReel ≥ x.y.z".
-3. **Hints**: the base URL and models suggested by the author. They are only suggestions, for reference when you later create a provider.
-4. **Trust**: the most important part to check before installing.
+3. **Configuration hints**: the base URL and models suggested by the author. They are only suggestions, for reference when you later create a provider.
+4. **Where credentials go**: the most important part to check before installing. Its content depends on the endpoint type.
+
+   Declarative endpoints:
+
    - **Credentials sent to**: the original `submit.url` from the definition, the address your API key is sent to with the submit request;
    - **Polling URL**: the original `poll.url` from the definition;
    - **Authentication (original auth JSON)**: the original `auth` JSON from the definition, expanded by default, which describes how and where in the request your API key is sent.
 
    Confirm that these addresses belong to the provider or gateway you intend to use before continuing.
+
+   ComfyUI endpoints:
+
+   - The definition contains no request URL. Requests and credentials go to the ComfyUI server address you later enter in the provider;
+   - **Authentication (original auth JSON)**: when the definition has an `auth` section, its original JSON is shown. This is usually for a ComfyUI server behind a reverse proxy. Without an `auth` section, the dialog shows "The definition has no auth section, so requests carry no credentials";
+   - **Workflow summary**: the number of nodes in the workflow and how many times each node type (`class_type`) appears. When you submit a task after installation, ArcReel writes the prompt and other parameters into this workflow according to the node bindings, then submits it.
+
+   Confirm that the node types match the custom nodes and models available on your ComfyUI server before continuing.
 
 If an endpoint from the same author with the same name already exists locally, the dialog lists those endpoints for you to choose from:
 
@@ -103,7 +119,7 @@ Only endpoints installed through the market count as "Installed". A definition i
 
 ## 4. Updates and Local Changes {#updates-and-local-changes}
 
-Installed endpoints carry two-axis status badges, shown on market cards, in the installation confirmation dialog, and in the endpoint detail header of the "Endpoints" section:
+Installed endpoints carry two-axis status badges, shown on market cards, in the installation confirmation dialog, and in the detail header of declarative endpoints in the "Endpoints" section:
 
 | Market status | Meaning |
 |---|---|
@@ -113,11 +129,11 @@ Installed endpoints carry two-axis status badges, shown on market cards, in the 
 
 "Modified" is a separate axis, independent of market status: it appears when the current definition differs from the installed definition. You can edit an installed endpoint directly, like any other custom call endpoint, and editing does not unbind it from the market entry.
 
-The metadata row of the endpoint detail header shows "From market <market source display name>". When the market source is disabled, "(market source disabled)" is appended. When it is deleted, the row shows the canonical form of the market source address instead, followed by "(market source deleted)".
+The metadata row of a declarative endpoint's detail header shows "From market <market source display name>". When the market source is disabled, "(market source disabled)" is appended. When it is deleted, the row shows the canonical form of the market source address instead, followed by "(market source deleted)".
 
 ### 4.1 Run an Update {#run-update}
 
-When the status is "Update available", click "Update" on the market card or "Update" in the endpoint detail action row to open the same confirmation dialog:
+When the status is "Update available", click "Update" on the market card or "Update" in the action row of a declarative endpoint's detail to open the same confirmation dialog. ComfyUI endpoint details do not yet show market status badges or "Update"; update them from the market card.
 
 - The header shows "Installed vX → Market vY". Validation, hints, and trust information are the same as during installation, so check where credentials are sent again before updating.
 - When the endpoint carries the "Modified" badge, or its detail has unsaved changes, "Your local changes will be overwritten" appears above the primary button. Click "Export current definition first" to keep a copy.
@@ -129,7 +145,7 @@ An update discards your local changes to the endpoint. To keep your own version 
 
 Uninstalling means deleting the call endpoint. The following two entry points have the same effect:
 
-- Click "Uninstall" in the footer of an installed entry's installation confirmation dialog; it runs immediately.
+- Click "Uninstall" in the footer of an installed entry's installation confirmation dialog, then click "Uninstall" again in the "Uninstall “name”?" confirmation.
 - Click "Delete" in the endpoint detail of the "Endpoints" section; it runs after confirmation.
 
 The endpoint and its installation record are deleted together. If models still use the endpoint, it cannot be deleted; the interface lists the models that reference it, so switch those models to another endpoint before uninstalling.

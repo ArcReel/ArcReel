@@ -47,7 +47,7 @@ function imagePromptScene(item: Item): string {
 
 /**
  * 条目正文：旁白取原文，剧情演绎取画面描述，广告/短片取口播（没有口播取画面描述），视频单元取正文。
- * 与后端 `server/services/project/episode_item_refs.py` 的 `_body` 同口径。
+ * 与后端 `lib/script/item_excerpt.py` 的 `_body` 同口径。
  */
 function itemBody(item: Item): string {
   if ("segment_id" in item) return str(item.novel_text);

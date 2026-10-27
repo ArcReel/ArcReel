@@ -30,6 +30,11 @@ export interface TextTierFieldsProps {
    * 触发按钮以「跟随…· 生效值」呈现，让用户看到继承结果。全局设置的默认档不传（它即基准）。
    */
   fallbacks?: Partial<TextTierValue>;
+  /**
+   * 各档与其继承来源全空时自动选中的文本模型（各档位的自动推断相同）；null 表示没有可用供应商。
+   * 只在某档的 `fallbacks` 缺席时显示——`fallbacks` 须已穿透到全局默认模型。
+   */
+  auto?: string | null;
   /** 省略即只渲染默认档——创建向导只暴露默认层（docs/adr/0054）。 */
   showTiers?: boolean;
 }
@@ -48,6 +53,7 @@ export function TextTierFields({
   defaultLabel,
   defaultHint,
   fallbacks,
+  auto,
   showTiers = true,
 }: TextTierFieldsProps) {
   const { t } = useTranslation("templates");
@@ -59,6 +65,7 @@ export function TextTierFields({
     value: value[key],
     options,
     effective: fallbacks?.[key] || undefined,
+    auto,
     onChange: (next: string) => onChange({ ...value, [key]: next }),
   }));
 
@@ -71,6 +78,7 @@ export function TextTierFields({
       emptyLabel={defaultLabel}
       emptyHint={defaultHint}
       defaultEffective={fallbacks?.default || undefined}
+      defaultAuto={auto}
       providerNames={providerNames}
       modelNames={modelNames}
       subFields={showTiers ? subFields : undefined}

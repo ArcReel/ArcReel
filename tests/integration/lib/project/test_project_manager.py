@@ -807,6 +807,29 @@ class TestProjectManager:
         assert sorted(record.files[0] for record in records) == [mp3_rel, wav_rel]
         assert {record.object["kind"] for record in records} == {"reference_audio"}
 
+    def test_clearing_reference_audio_under_another_name_leaves_the_file(self, tmp_path):
+        """参考音频按名归属：清空或替换只回收角色自己名下的旧文件，指向别处的旧值只是解除引用。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo")
+        pm.add_project_character("demo", "Alice", "hero", "soft")
+        pm.add_project_character("demo", "Bob", "friend", "calm")
+        foreign_rel = "characters/refs_audio/Alice.wav"
+        pm.install_character_reference_audio("demo", "Alice", foreign_rel, b"alice")
+
+        def point_bob_at_alice(entry: dict) -> None:
+            entry["reference_audio"] = foreign_rel
+
+        pm.update_asset_entry("character", "demo", "Bob", point_bob_at_alice)
+        pm.install_character_reference_audio("demo", "Bob", "characters/refs_audio/Bob.mp3", b"bob")
+        pm.update_asset_entry("character", "demo", "Bob", point_bob_at_alice)
+        pm.clear_character_reference_audio("demo", "Bob")
+
+        project_dir = pm.get_project_path("demo")
+        assert pm.load_project("demo")["characters"]["Bob"]["reference_audio"] == ""
+        assert (project_dir / foreign_rel).read_bytes() == b"alice"
+        assert project_trash.list_records(project_dir) == []
+
     @pytest.mark.asyncio
     async def test_reference_read_source_and_generate_overview(self, tmp_path, monkeypatch):
         pm = ProjectManager(tmp_path / "projects")

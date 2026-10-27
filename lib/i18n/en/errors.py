@@ -216,6 +216,7 @@ MESSAGES = {
     "asset_field_must_be_string": "this field must be a text value",
     "asset_field_must_be_string_list": "this field must be a list of text values",
     "asset_field_invalid_value": "this field has an invalid value",
+    "asset_reference_file_not_owned": "Reference images and reference audio for “{name}” can only use files under its own name. Upload them for it separately",
     "invalid_asset_type": "asset type must be character / scene / prop",
     "invalid_asset_filename": "filename must not contain path separators or ..",
     "invalid_draft_stage": "Invalid draft stage: {stage}",
@@ -842,6 +843,7 @@ MESSAGES = {
     "trash_restore_failed": "There is no free place in the project to put it back, so nothing was restored and the deletion record is kept: free up the spot and try again, or download the files in the record",
     "trash_restore_needs_episode": "Its episode “{name}” was deleted too, so it can only be restored with the episode: restore the episode from the project trash first, then this record",
     "trash_restore_needs_episode_untitled": "Its episode {episode} was deleted too, so it can only be restored with the episode: restore the episode from the project trash first, then this record",
+    "trash_restore_needs_character": "Its character “{name}” was deleted too, so it can only be restored with the character: restore the character from the project trash first, then this record",
     "trash_restore_download_only": "This deletion record can no longer be restored; its structure files can only be downloaded",
     "trash_restore_target_blocked": "Cannot restore to {path}: a folder on the path has been replaced with a link",
 }

@@ -145,6 +145,7 @@ from lib.script.script_review import (
     ScriptPlanWriteConflict,
     content_fingerprint,
     content_fingerprint_of_data,
+    fingerprint_of_revision,
     formal_script_filename,
     formal_script_overwrite,
     formal_script_plan_lock,
@@ -295,7 +296,7 @@ def _require_overwrite_acknowledged(
 ) -> None:
     """显式重写会替换已有视觉层内容时，覆盖令牌须与读取目标时的正式剧本指纹一致。"""
     overwritten = targets.selection.overwritten
-    if overwritten and (overwrite_revision is None or overwrite_revision != baseline):
+    if overwritten and (overwrite_revision is None or fingerprint_of_revision(overwrite_revision) != baseline):
         raise PromptOverwriteRequired(PromptOverwrite(fingerprint=baseline, entries=overwritten))
 
 
@@ -495,7 +496,7 @@ class ScriptGenerator:
             if entry_ids or rewrite:
                 raise PromptAuthoringTargetError("整份重做不能与 entry_ids / rewrite 同时使用")
             overwrite = await asyncio.to_thread(formal_script_overwrite, self.project_path, self.project_json, episode)
-            if overwrite is not None and overwrite_revision != overwrite.fingerprint:
+            if overwrite is not None and fingerprint_of_revision(overwrite_revision) != overwrite.fingerprint:
                 raise AdScriptOverwriteRequired(overwrite)
             prompt, schema = await self._compose_ad(episode, gen_mode, instructions)
             return await self._generate_and_save(
@@ -1928,9 +1929,10 @@ class ScriptGenerator:
     ) -> Path:
         draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         if draft is None:
+            draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
             raise FileNotFoundError(
                 f"集（id={episode}）没有可晋升的 prompt_authoring 待修复草稿"
-                f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)} 缺失或内容不是合法信封）"
+                f"（{draft_path.relative_to(self.project_path).as_posix()} 缺失或内容不是合法信封）"
             )
 
         filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)

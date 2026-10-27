@@ -42,6 +42,7 @@ import { STATUS_CONF, deriveUnitStatus } from "./unit-status";
 import { tierProblemText } from "./unit-tier-problem";
 import { ReferenceSplitAlert } from "./ReferenceSplitAlert";
 import { ReferenceDurationConfirmDialog } from "./ReferenceDurationConfirmDialog";
+import { ReferenceUnitAddDialog } from "./ReferenceUnitAddDialog";
 import { ReferenceBatchAdmissionDialog } from "./ReferenceBatchAdmissionDialog";
 import { referenceBatchOutcome } from "./batch-outcome";
 import { AdScriptButton, AdScriptProgress } from "@/components/canvas/shared/AdScriptDialog";
@@ -452,21 +453,43 @@ export function ReferenceVideoCanvas({
     [confirmLeave, select, t],
   );
 
-  // afterUnitId 缺省时追加到末尾；新单元不继承同号旧单元的产物与版本历史。
-  // store 新增后选中新单元，同样先经离开拦截。
-  const handleAdd = useCallback(
-    (afterUnitId?: string) => {
+  // 新增先弹框填写正文：空正文的单元服务端以 needs_replan 拒绝创建。
+  // `afterUnitId` 缺省时追加到末尾；新单元不继承同号旧单元的产物与版本历史。
+  const [addTarget, setAddTarget] = useState<{ afterUnitId?: string } | null>(null);
+  const [addPrompt, setAddPrompt] = useState("");
+  const [addingUnit, setAddingUnit] = useState(false);
+  const finishCreation = useCallback(() => Promise.resolve(true), []);
+  useLeaveGuard({ dirty: false, saving: addingUnit, save: finishCreation });
+  const handleAdd = useCallback((afterUnitId?: string) => {
+    setAddPrompt("");
+    setAddTarget({ afterUnitId });
+  }, []);
+  // store 新增后选中新单元：离开拦截放在提交这一步，取消新增不会白丢当前单元的修改。
+  const handleAddSubmit = useCallback(
+    (prompt: string) => {
+      if (!addTarget || addingUnit) return;
+      const { afterUnitId } = addTarget;
       confirmLeave(
-        () => {
-          void addUnit(projectName, episode, {
-            prompt: "",
-            ...(afterUnitId !== undefined ? { after_unit_id: afterUnitId } : {}),
-          }).catch((e: unknown) => toastError(e));
+        async () => {
+          setAddingUnit(true);
+          try {
+            await addUnit(projectName, episode, {
+              prompt,
+              ...(afterUnitId !== undefined ? { after_unit_id: afterUnitId } : {}),
+            });
+            setAddTarget(null);
+            return true;
+          } catch (e) {
+            toastError(e, (message) => t("reference_unit_add_failed", { message }));
+            return false;
+          } finally {
+            setAddingUnit(false);
+          }
         },
         { saveLabel: t("common:save_and_switch") },
       );
     },
-    [confirmLeave, addUnit, projectName, episode, t],
+    [addTarget, addingUnit, confirmLeave, addUnit, projectName, episode, t],
   );
 
   // 改序不弹确认；请求在途时丢弃后续操作，避免基于过期顺序计算锚点。
@@ -1360,6 +1383,14 @@ export function ReferenceVideoCanvas({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <ReferenceUnitAddDialog
+        open={addTarget !== null}
+        prompt={addPrompt}
+        submitting={addingUnit}
+        onPromptChange={setAddPrompt}
+        onSubmit={handleAddSubmit}
+        onClose={() => setAddTarget(null)}
+      />
       <ReferenceDurationConfirmDialog {...durationGate.dialogProps} />
       <ReferenceBatchAdmissionDialog
         admission={batchAdmission}

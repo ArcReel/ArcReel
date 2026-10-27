@@ -211,6 +211,7 @@ MESSAGES = {
     "asset_field_must_be_string": "该字段的值必须是文本",
     "asset_field_must_be_string_list": "该字段的值必须是文本列表",
     "asset_field_invalid_value": "该字段的值不合法",
+    "asset_reference_file_not_owned": "「{name}」的参考图和参考音频只能用它自己名下的文件，请为它单独上传",
     "invalid_asset_type": "资产类型必须为 character / scene / prop",
     "invalid_asset_filename": "文件名不能包含路径分隔符或 ..",
     "invalid_draft_stage": "无效的草稿阶段：{stage}",
@@ -781,6 +782,7 @@ MESSAGES = {
     "trash_restore_failed": "当前项目里没有空出的位置放回它，这次什么都没有恢复，删除记录仍保留：腾出位置后重试，或下载记录中的文件",
     "trash_restore_needs_episode": "所属的集「{name}」也已删除，只能随集恢复：先在项目回收站里恢复这一集，再恢复这条记录",
     "trash_restore_needs_episode_untitled": "所属的第 {episode} 集也已删除，只能随集恢复：先在项目回收站里恢复这一集，再恢复这条记录",
+    "trash_restore_needs_character": "所属的角色「{name}」也已删除，只能随角色恢复：先在项目回收站里恢复这个角色，再恢复这条记录",
     "trash_restore_download_only": "这条删除记录已无法恢复，其中的结构文件只能下载",
     "trash_restore_target_blocked": "无法恢复到 {path}：路径上的目录已被替换为链接",
 }

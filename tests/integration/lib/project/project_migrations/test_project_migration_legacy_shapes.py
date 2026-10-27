@@ -48,9 +48,11 @@ from tests.legacy_project_shapes import (
     reuse_item_id_across_episodes,
     set_script_episode,
     share_episode_script,
+    share_reference_files,
     write_legacy_ad_reference_video_project,
     write_legacy_reference_video_project,
     write_legacy_script_plan_project,
+    write_legacy_shared_reference_project,
     write_legacy_storyboard_project,
     write_non_utf8_episode_source,
     write_unreadable_grid_record,
@@ -174,6 +176,247 @@ def test_asset_names_that_differ_only_in_case_keep_the_first(tmp_path: Path) -> 
     entries = ProjectArtifactManifestAdapter(project_dir).snapshot_entries()
     assert ArtifactKey.asset_sheet("prop", "Umbrella") in entries
     assert ArtifactKey.asset_sheet("prop", variant) not in entries
+
+
+_SHARED_REFERENCE_COPIES = [
+    (
+        "characters/refs/阿青.png",
+        {"asset_type": "character", "name": "阿青", "owner": "阿离", "from": "characters/refs/阿离.png"},
+    ),
+    (
+        "characters/refs_audio/阿青.wav",
+        {"asset_type": "character", "name": "阿青", "owner": "阿离", "from": "characters/refs_audio/阿离.wav"},
+    ),
+    (
+        "products/refs/茶_1.png",
+        {"asset_type": "product", "name": "茶", "owner": "咖啡", "from": "products/refs/咖啡_1.png"},
+    ),
+]
+
+
+def _copied_reference_files(project_dir: Path) -> list[tuple[str | None, dict[str, str]]]:
+    report = load_migration_report(project_dir)
+    assert report is not None
+    return [(item.file, item.params) for item in report.adjusted if item.code == "shared_reference_file_copied"]
+
+
+@pytest.mark.parametrize("padded_names", [False, True])
+def test_schema_five_shared_references_survive_namespace_renames(tmp_path: Path, padded_names: bool) -> None:
+    project_dir = write_legacy_shared_reference_project(
+        ProjectManager(tmp_path).projects_dir, padded_names=padded_names
+    )
+    original = (project_dir / "project.json").read_bytes()
+
+    _migrate(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    for name in ("Alice", "Bob"):
+        entry = project["characters"][name]
+        assert entry["reference_image"] == f"characters/refs/{name}.png"
+        assert entry["reference_audio"] == f"characters/refs_audio/{name}.wav"
+        assert (project_dir / entry["reference_image"]).read_bytes() == b"image"
+        assert (project_dir / entry["reference_audio"]).read_bytes() == b"audio"
+    product = project["products"]["Bob_product"]
+    assert product["reference_images"] == ["products/refs/Bob_product_1.png"]
+    assert (project_dir / product["reference_images"][0]).read_bytes() == b"image"
+    assert len(_copied_reference_files(project_dir)) == 3
+    for rel, params in _copied_reference_files(project_dir):
+        assert rel is not None
+        assert (project_dir / rel).is_file()
+        assert params["name"] == ("Bob_product" if params["asset_type"] == "product" else "Bob")
+    assert original in [path.read_bytes() for path in project_dir.glob("project.json.bak.v5-*")]
+    shown = WorkflowStateService(ProjectManager(str(tmp_path))).get_status("demo").migration_report
+    assert shown is not None
+    assert [item.code for item in shown.adjusted] == ["shared_reference_file_copied"] * 3
+
+
+@pytest.mark.parametrize("fail_commit", [False, True])
+def test_swapped_shared_references_keep_each_original_content(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_commit: bool
+) -> None:
+    project_dir = write_legacy_shared_reference_project(ProjectManager(tmp_path).projects_dir)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project["characters"]["Alice"]["reference_image"] = "characters/refs/Bob.png"
+    project["products"] = {}
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    (project_dir / "characters/refs/Bob.png").write_bytes(b"bob-image")
+    write = legacy_shapes.atomic_write_json
+
+    def fail_on_project(path: Path, payload: Any) -> None:
+        if path.name == "project.json":
+            raise OSError("disk full")
+        write(path, payload)
+
+    if fail_commit:
+        with monkeypatch.context() as patch:
+            patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project)
+            with pytest.raises(OSError, match="disk full"):
+                runner.migrate_project_dir(project_dir)
+
+    _migrate(project_dir)
+
+    migrated = _read_json(project_path)
+    for name, expected in (("Alice", b"bob-image"), ("Bob", b"image")):
+        assert migrated["characters"][name]["reference_image"] == f"characters/refs/{name}.png"
+        assert (project_dir / f"characters/refs/{name}.png").read_bytes() == expected
+
+
+def test_shared_reference_copy_failure_keeps_the_displaced_original_in_the_retry_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir = write_legacy_shared_reference_project(ProjectManager(tmp_path).projects_dir)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    target = project_dir / "characters/refs/Bob.png"
+    target.write_bytes(b"displaced-original")
+    write = legacy_shapes.atomic_write_bytes
+
+    def disk_full_on_copy(path: Path, content: bytes) -> None:
+        if path == target:
+            raise OSError("disk full")
+        write(path, content)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(legacy_shapes, "atomic_write_bytes", disk_full_on_copy)
+        with pytest.raises(OSError, match="disk full"):
+            runner.migrate_project_dir(project_dir)
+    _migrate(project_dir)
+
+    report = load_migration_report(project_dir)
+    assert report is not None
+    [copied] = [item for item in report.adjusted if item.file == "characters/refs/Bob.png"]
+    assert copied.backup is not None
+    assert (project_dir / copied.backup).read_bytes() == b"displaced-original"
+    assert target.read_bytes() == b"image"
+    assert len(list(target.parent.glob("Bob.png.kept.*"))) == 1
+
+
+@pytest.mark.parametrize("from_version", [7, CURRENT_PROJECT_SCHEMA_VERSION - 1])
+def test_reference_files_shared_with_another_asset_get_their_own_copy(tmp_path: Path, from_version: int) -> None:
+    project_dir, *_ = _project(tmp_path)
+    advance_project_schema(project_dir, to_version=from_version)
+    contents = share_reference_files(project_dir)
+
+    _migrate(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    qing, ali = project["characters"]["阿青"], project["characters"]["阿离"]
+    assert (qing["reference_image"], qing["reference_audio"]) == (
+        "characters/refs/阿青.png",
+        "characters/refs_audio/阿青.wav",
+    )
+    assert (ali["reference_image"], ali["reference_audio"]) == (
+        "characters/refs/阿离.png",
+        "characters/refs_audio/阿离.wav",
+    )
+    assert project["products"]["茶"]["reference_images"] == ["products/refs/茶_1.png"]
+    assert project["products"]["咖啡"]["reference_images"] == ["products/refs/咖啡_1.png"]
+    copies = {"characters/refs/阿青.png": "characters/refs/阿离.png"} | {
+        target: params["from"] for target, params in _SHARED_REFERENCE_COPIES
+    }
+    for target, source in copies.items():
+        assert (project_dir / target).read_bytes() == contents[source]
+        assert (project_dir / source).read_bytes() == contents[source]
+    assert _copied_reference_files(project_dir) == _SHARED_REFERENCE_COPIES
+    report = load_migration_report(project_dir)
+    assert report is not None
+    [stray_backup] = [item.backup for item in report.adjusted if item.backup is not None]
+    assert (project_dir / stray_backup).read_bytes() == b"qing-stray"
+    shown = WorkflowStateService(ProjectManager(str(tmp_path))).get_status("demo").migration_report
+    assert shown is not None
+    assert [item.code for item in shown.adjusted] == ["shared_reference_file_copied"] * 3
+
+
+@pytest.mark.parametrize("resolved_project_dir", [False, True])
+def test_a_reference_spelled_differently_still_gets_its_own_copy(tmp_path: Path, resolved_project_dir: bool) -> None:
+    # 旧版 PATCH 原样收下任意字符串：带 ``..`` / ``.`` 段、反斜杠或项目内绝对路径，运行时照样读到别的资产名下的文件。
+    project_dir, *_ = _project(tmp_path)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION - 1)
+    contents = share_reference_files(project_dir)
+    project = _read_json(project_dir / "project.json")
+    base = Path(os.path.realpath(project_dir)) if resolved_project_dir else project_dir
+    project["characters"]["阿青"]["reference_image"] = "characters/./refs/阿离.png"
+    project["characters"]["阿青"]["reference_audio"] = (
+        base / "characters/refs_audio/../refs_audio/阿离.wav"
+    ).as_posix()
+    project["products"]["茶"]["reference_images"] = ["products\\refs\\..\\refs\\咖啡_1.png"]
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    project = _read_json(project_dir / "project.json")
+    qing = project["characters"]["阿青"]
+    assert (qing["reference_image"], qing["reference_audio"]) == (
+        "characters/refs/阿青.png",
+        "characters/refs_audio/阿青.wav",
+    )
+    assert project["products"]["茶"]["reference_images"] == ["products/refs/茶_1.png"]
+    assert (project_dir / qing["reference_image"]).read_bytes() == contents["characters/refs/阿离.png"]
+    assert (project_dir / qing["reference_audio"]).read_bytes() == contents["characters/refs_audio/阿离.wav"]
+    assert (project_dir / "products/refs/茶_1.png").read_bytes() == contents["products/refs/咖啡_1.png"]
+    assert [params["from"] for _, params in _copied_reference_files(project_dir)] == [
+        "characters/refs/阿离.png",
+        "characters/refs_audio/阿离.wav",
+        "products/refs/咖啡_1.png",
+    ]
+
+
+@pytest.mark.parametrize("from_version", [5, CURRENT_PROJECT_SCHEMA_VERSION - 1])
+def test_an_asset_name_with_path_separators_gets_no_copy_outside_its_directory(
+    tmp_path: Path, from_version: int
+) -> None:
+    # 导入包在校验资产名之前跑迁移链：名字里的 ``..`` 段不能把共用参考文件的副本带出项目目录。
+    if from_version == 5:
+        project_dir = write_legacy_shared_reference_project(ProjectManager(tmp_path).projects_dir)
+        image, audio = "characters/refs/Alice.png", "characters/refs_audio/Alice.wav"
+    else:
+        project_dir, *_ = _project(tmp_path)
+        advance_project_schema(project_dir, to_version=from_version)
+        share_reference_files(project_dir)
+        image, audio = "characters/refs/阿离.png", "characters/refs_audio/阿离.wav"
+    project = _read_json(project_dir / "project.json")
+    escaping = {"description": "escaping", "reference_image": image, "reference_audio": audio}
+    project["characters"]["../../../../escaped"] = escaping
+    (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    migrate_project_with_verdict(project_dir)
+
+    assert list(tmp_path.rglob("escaped*")) == []
+    entry = _read_json(project_dir / "project.json")["characters"]["../../../../escaped"]
+    assert (entry["reference_image"], entry["reference_audio"]) == (image, audio)
+
+
+def test_copying_shared_reference_files_converges_after_a_failed_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_dir, *_ = _project(tmp_path)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION - 1)
+    share_reference_files(project_dir)
+    record: list[Any] = []
+    write = legacy_shapes.atomic_write_json
+
+    def fail_on_project(path: Path, payload: Any) -> None:
+        if path.name == "project.json":
+            raise OSError("disk full")
+        write(path, payload)
+
+    # 副本都已落盘、保留副本也已挪出，改指的 project.json 提交失败。
+    with monkeypatch.context() as patch:
+        patch.setattr(legacy_shapes, "atomic_write_json", fail_on_project)
+        with pytest.raises(OSError, match="disk full"):
+            normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=record)
+    normalize_legacy_shapes(project_dir, schema_version=CURRENT_PROJECT_SCHEMA_VERSION - 1, record=record)
+
+    assert [(item.file, item.params) for item in record] == _SHARED_REFERENCE_COPIES
+    assert record[0].backup is not None
+    assert (project_dir / record[0].backup).read_bytes() == b"qing-stray"
+    assert _read_json(project_dir / "project.json")["products"]["茶"]["reference_images"] == ["products/refs/茶_1.png"]
+    assert not (project_dir / "products" / "refs" / "茶_2.png").exists()
+    assert len(list((project_dir / "characters" / "refs").glob("阿青.png.kept.*"))) == 1
 
 
 def _issue_codes(tmp_path: Path) -> set[str]:

@@ -689,6 +689,71 @@ describe("ModelConfigSection", () => {
     expect(API.getModelVideoCapabilities).not.toHaveBeenCalled();
   });
 
+  describe("各层全空时的自动选择", () => {
+    const AUTO = { t2i: "gemini/veo-3", i2i: "gemini/veo-3", i2v: "ark/seedance", r2v: "gemini/veo-3", text: "gemini/veo-3" };
+
+    it("shows the auto-selected model and asks its capabilities for durations", async () => {
+      render(
+        <ModelConfigSection
+          value={EMPTY_VALUE}
+          onChange={() => {}}
+          providers={PROVIDERS}
+          options={OPTIONS}
+          globalDefaults={{ ...EMPTY_GLOBALS, auto: AUTO }}
+        />,
+      );
+      expect(screen.getByRole("combobox", { name: "默认视频模型" })).toHaveTextContent("自动选择（当前：Ark · seedance）");
+      expect(screen.getByRole("combobox", { name: "默认模型" })).toHaveTextContent("自动选择（当前：Gemini · veo-3）");
+      expect(await screen.findByRole("radio", { name: "5 秒" })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "10 秒" })).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "4 秒" })).not.toBeInTheDocument();
+    });
+
+    it("follows the bucket of the reference-video path", async () => {
+      render(
+        <ModelConfigSection
+          value={EMPTY_VALUE}
+          onChange={() => {}}
+          providers={PROVIDERS}
+          options={OPTIONS}
+          globalDefaults={{ ...EMPTY_GLOBALS, auto: { ...AUTO, i2v: "gemini/veo-3", r2v: "ark/seedance" } }}
+          usesReferenceImages
+        />,
+      );
+      expect(screen.getByRole("combobox", { name: "默认视频模型" })).toHaveTextContent("自动选择（当前：Ark · seedance）");
+      expect(await screen.findByRole("radio", { name: "5 秒" })).toBeInTheDocument();
+    });
+
+    it("prefers a configured global bucket over the auto-selected model", async () => {
+      render(
+        <ModelConfigSection
+          value={EMPTY_VALUE}
+          onChange={() => {}}
+          providers={PROVIDERS}
+          options={OPTIONS}
+          globalDefaults={{ ...EMPTY_GLOBALS, videoI2V: "gemini/veo-3", auto: AUTO }}
+        />,
+      );
+      expect(screen.getByRole("combobox", { name: "默认视频模型" })).not.toHaveTextContent("自动选择");
+      expect(await screen.findByRole("radio", { name: "4 秒" })).toBeInTheDocument();
+      expect(screen.queryByRole("radio", { name: "5 秒" })).not.toBeInTheDocument();
+    });
+
+    it("says no provider is available when nothing can be auto-selected", () => {
+      render(
+        <ModelConfigSection
+          value={EMPTY_VALUE}
+          onChange={() => {}}
+          providers={PROVIDERS}
+          options={OPTIONS}
+          globalDefaults={{ ...EMPTY_GLOBALS, auto: { ...AUTO, i2v: null } }}
+        />,
+      );
+      expect(screen.getByRole("combobox", { name: "默认视频模型" })).toHaveTextContent("自动选择（没有可用的供应商）");
+      expect(screen.queryByRole("radio", { name: "5 秒" })).not.toBeInTheDocument();
+    });
+  });
+
   it("renders slider when supported_durations is continuous integer range ≥ 5", async () => {
     const continuousProviders: ProviderInfo[] = [
       {
@@ -1367,7 +1432,6 @@ describe("dimensions a ComfyUI workflow fixes", () => {
         matched_entry: null,
         system_capabilities: null,
         capability_overrides: null,
-        global_bucket_refs: [],
         path_overrides: null,
         requests: [],
       },

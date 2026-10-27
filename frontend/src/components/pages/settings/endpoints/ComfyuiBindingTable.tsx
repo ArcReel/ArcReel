@@ -159,7 +159,7 @@ function ManualPicker({ bindingKey, nodes, onPick }: ManualPickerProps) {
   return (
     // 原生下拉：选项是带节点号与字面值的一长串落点，值选中即生效、随即回到占位项
     <select
-      className="h-8 w-full max-w-72 min-w-0 rounded-lg border border-input bg-input/30 px-2.5 font-mono text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+      className="h-8 w-full max-w-72 min-w-0 rounded-lg border border-input bg-input/12 px-2.5 font-mono text-xs text-foreground outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       translate="no"
       value=""
       aria-label={t("ce_cf_manual_pick_label", { key: bindingKey })}

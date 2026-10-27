@@ -36,6 +36,7 @@ import type {
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
   AssistantSessionResumedPayload,
+  AutoBackendsResponse,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
   NarrationDefaultsResponse,
@@ -430,6 +431,11 @@ class API {
     options: { signal?: AbortSignal } = {}
   ): Promise<ModelCandidatesResponse> {
     return this.request("/system/config/model-candidates", { signal: options.signal });
+  }
+
+  /** 「自动选择」的实际模型：各用途在全部层留空时后端自动选中的模型，供应商配置变化后需重取。 */
+  static async getAutoBackends(options: { signal?: AbortSignal } = {}): Promise<AutoBackendsResponse> {
+    return this.request("/system/config/auto-backends", { signal: options.signal });
   }
 
   /** 新建 TTS 项目的预填值（全局默认的 TTS 模型、音色与语速）。 */

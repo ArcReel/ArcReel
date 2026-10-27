@@ -205,7 +205,10 @@ async def test_reference_units_with_an_unlisted_mention_are_rejected(tmp_path: P
     assert not (project_dir / "scripts" / "episode_1.json").exists()
 
 
-async def test_regenerating_replaces_the_formal_script_after_the_loss_list_is_acknowledged(tmp_path: Path) -> None:
+@pytest.mark.parametrize("spelling", ["prefixed", "bare"])
+async def test_regenerating_replaces_the_formal_script_after_the_loss_list_is_acknowledged(
+    tmp_path: Path, spelling: str
+) -> None:
     project_dir = _write_ad_project(tmp_path)
     first = {
         "title": "共伞",
@@ -221,9 +224,11 @@ async def test_regenerating_replaces_the_formal_script_after_the_loss_list_is_ac
     assert [entry.entry_id for entry in caught.value.overwrite.entries] == ["E1S01", "E1S02"]
     assert (project_dir / "scripts" / "episode_1.json").read_bytes() == first_script
 
-    await _generator(project_dir, second).generate(
-        1, regenerate=True, overwrite_revision=caught.value.overwrite.fingerprint
-    )
+    revision = caught.value.overwrite.to_dict()["revision"]
+    assert revision.startswith("sha256-v1:")
+    if spelling == "bare":
+        revision = revision.removeprefix("sha256-v1:")
+    await _generator(project_dir, second).generate(1, regenerate=True, overwrite_revision=revision)
 
     script = _script(project_dir)
     assert script["title"] == ""

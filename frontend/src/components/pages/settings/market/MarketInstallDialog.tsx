@@ -5,7 +5,10 @@ import { AlertTriangle, Check, ChevronRight, Download, ExternalLink, Loader2 } f
 import { API } from "@/api";
 import { endpointSettingsPath, providerSettingsPath } from "@/app-routes";
 import type {
+  AnyEndpointDefinition,
+  ComfyuiEndpointDefinition,
   CustomEndpointInfo,
+  EndpointAuth,
   EndpointDefinition,
   EndpointReference,
   EndpointValidateResponse,
@@ -30,7 +33,8 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import { errMsg } from "@/utils/async";
-import { isDeclarativeDefinition, isRenderableDefinition } from "../endpoints/endpoint-definition-draft";
+import { classTypeCounts, workflowNodes } from "../endpoints/comfyui-bindings";
+import { isRenderableComfyuiDefinition, isRenderableDefinition } from "../endpoints/endpoint-definition-draft";
 import { EndpointDuplicateChoices } from "../endpoints/EndpointDuplicateChoices";
 import { endpointReferences } from "../endpoints/endpoint-references";
 import { EndpointReferenceList } from "../endpoints/EndpointReferenceList";
@@ -63,8 +67,71 @@ function InfoBlock({ title, children }: { title: string; children: ReactNode }) 
   );
 }
 
+function AuthSource({ auth }: { auth: EndpointAuth | undefined }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <Collapsible defaultOpen>
+      <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="-ml-2.5" />}>
+        <ChevronRight aria-hidden className="transition-transform group-aria-expanded/button:rotate-90" />
+        {t("market_auth")}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        {/* 自动换行而不是横向滚动：横向滚动区拿不到键盘焦点。 */}
+        <pre className="mt-1 rounded-md bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
+          {JSON.stringify(auth, null, 2)}
+        </pre>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+/** 声明式定义的信任信息：凭证发往的提交与轮询地址，以及 auth 原文。 */
+function DeclarativeTrust({ definition }: { definition: EndpointDefinition }) {
+  const { t } = useTranslation("dashboard");
+  return (
+    <>
+      <dl className="flex flex-col gap-2">
+        <div className="flex flex-col gap-0.5">
+          <dt>{t("market_submit_url")}</dt>
+          <dd className="font-mono break-all text-foreground">{displayValue(definition.submit.url)}</dd>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <dt>{t("market_poll_url")}</dt>
+          <dd className="font-mono break-all text-foreground">{displayValue(definition.poll.url)}</dd>
+        </div>
+      </dl>
+      <AuthSource auth={definition.auth} />
+    </>
+  );
+}
+
+/**
+ * ComfyUI 定义的信任信息。定义里没有请求地址，请求发往供应商填写的服务地址；
+ * 定义决定的是携带什么凭证，以及提交哪些节点。
+ */
+function ComfyuiTrust({ definition }: { definition: ComfyuiEndpointDefinition }) {
+  const { t } = useTranslation("dashboard");
+  const nodes = workflowNodes(definition.workflow);
+  return (
+    <>
+      <p>{t("market_comfyui_target")}</p>
+      {definition.auth ? <AuthSource auth={definition.auth} /> : <p>{t("market_comfyui_no_auth")}</p>}
+      <div className="flex flex-col gap-0.5">
+        <p className="font-medium text-foreground">{t("market_workflow_summary")}</p>
+        <p>{t("market_workflow_nodes", { count: nodes.length })}</p>
+        <ul className="flex flex-wrap gap-x-3 gap-y-0.5 font-mono text-xs">
+          {classTypeCounts(nodes).map(({ classType, count }) => (
+            <li key={classType} className="break-all">{`${classType} × ${count}`}</li>
+          ))}
+        </ul>
+      </div>
+    </>
+  );
+}
+
 /**
  * 安装与更新共用的确认弹窗：先完整展示来源、校验和凭证去向，安装、更新与卸载由服务端原子执行。
+ * 信任信息按定义类型分支：声明式展示请求地址与 auth 原文，ComfyUI 展示 auth 与 workflow 摘要。
  * 可更新时进入更新态，确认后经同一安装接口原地覆盖持有记录的端点；本地改过的定义先提示会被覆盖并可先导出。
  * 卸载会删除端点，先用 AlertDialog 确认。
  * 传入 `official` 时（官方服务开启且条目来自官方市场源）头部显示安装量与评分，并提供评分控件。
@@ -78,7 +145,7 @@ export function MarketInstallDialog({
   onInstallationChange,
 }: {
   entry: MarketEntry;
-  currentEndpointDefinition?: EndpointDefinition;
+  currentEndpointDefinition?: AnyEndpointDefinition;
   hasUnsavedEndpointChanges?: boolean;
   official?: { aggregate: MarketEntryAggregate | null; onRated?: () => void };
   onClose: () => void;
@@ -125,7 +192,10 @@ export function MarketInstallDialog({
     return () => controller.abort();
   }, [entry.source_id, entry.slug, i18n.language]);
 
-  const definition = preview && isRenderableDefinition(preview.definition) ? preview.definition : null;
+  const definition =
+    preview && (isRenderableComfyuiDefinition(preview.definition) || isRenderableDefinition(preview.definition))
+      ? preview.definition
+      : null;
   const validation = preview?.validation;
   const source = preview?.detail.source;
   const blockedSources = Object.fromEntries(
@@ -153,11 +223,8 @@ export function MarketInstallDialog({
         }
       : shown;
   const marketVersion = header.version;
-  // 市场条目恒为声明式定义；导出按钮吃的也是它，非声明式的保存记录在此没有可导出的东西。
-  const installedRecord = preview?.endpoints.find((item) => item.id === installed?.endpoint_id)?.definition;
   const installedDefinition =
-    currentEndpointDefinition ??
-    (installedRecord && isDeclarativeDefinition(installedRecord) ? installedRecord : undefined);
+    currentEndpointDefinition ?? preview?.endpoints.find((item) => item.id === installed?.endpoint_id)?.definition;
   const close = () => {
     if (!busy) onClose();
   };
@@ -315,28 +382,11 @@ export function MarketInstallDialog({
                 </div>
                 {definition && (
                   <InfoBlock title={t("market_section_trust")}>
-                    <dl className="flex flex-col gap-2">
-                      <div className="flex flex-col gap-0.5">
-                        <dt>{t("market_submit_url")}</dt>
-                        <dd className="font-mono break-all text-foreground">{displayValue(definition.submit.url)}</dd>
-                      </div>
-                      <div className="flex flex-col gap-0.5">
-                        <dt>{t("market_poll_url")}</dt>
-                        <dd className="font-mono break-all text-foreground">{displayValue(definition.poll.url)}</dd>
-                      </div>
-                    </dl>
-                    <Collapsible defaultOpen>
-                      <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="-ml-2.5" />}>
-                        <ChevronRight aria-hidden className="transition-transform group-aria-expanded/button:rotate-90" />
-                        {t("market_auth")}
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        {/* 自动换行而不是横向滚动：横向滚动区拿不到键盘焦点。 */}
-                        <pre className="mt-1 rounded-md bg-muted p-3 font-mono text-xs break-all whitespace-pre-wrap">
-                          {JSON.stringify(definition.auth, null, 2)}
-                        </pre>
-                      </CollapsibleContent>
-                    </Collapsible>
+                    {isRenderableComfyuiDefinition(definition) ? (
+                      <ComfyuiTrust definition={definition} />
+                    ) : (
+                      <DeclarativeTrust definition={definition} />
+                    )}
                   </InfoBlock>
                 )}
                 {!installed && validation && (

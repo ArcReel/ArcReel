@@ -12,11 +12,18 @@ import pytest
 
 from lib.backends.backend_assembly import assemble_backend
 from lib.backends.backend_assembly.assembler import OutputLimitFacts, _load_builtin_config, output_limit_facts
+from lib.backends.backend_assembly.specs import PROVIDER_SPEC_REGISTRY
 from lib.backends.text_backends.base import TextCapability, TextGenerationRequest
+from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ConfigResolver
 from lib.config.service import ConfigService
-from tests.fakes import captured_backend_construction, captured_openai_clients, patched_instructor_from_openai
+from tests.fakes import (
+    captured_backend_construction,
+    captured_openai_clients,
+    captured_vertex_credentials,
+    patched_instructor_from_openai,
+)
 
 
 async def _seed_provider_config(factory, provider: str, **kv: str) -> None:
@@ -214,6 +221,48 @@ class TestAssembleBuiltinEndToEnd:
                 },
             }
         ]
+
+
+def _any_listed_model(provider_id: str, media_type: str) -> str | None:
+    """该供应商该媒体类型的默认模型；目录没指定默认时取清单里第一个同媒体类型的模型，一个都没有时为 None。"""
+    default = catalog.default_model(provider_id, media_type)
+    if default is not None:
+        return default
+    return next(
+        (key for key, model in catalog.list_models(provider_id).items() if model.media_type == media_type), None
+    )
+
+
+class TestAssembleBuiltinWithRealSdkClients:
+    """不替换任何 SDK 客户端，经 assemble_backend 的线程构造路径造出每个内置 backend。
+
+    构造在 asyncio.to_thread 的工作线程里跑，那里没有事件循环：构造时就要求事件循环的 SDK 客户端
+    （如 xai_sdk.AsyncClient 的 grpc.aio 通道）会在这里失败。
+    """
+
+    @pytest.mark.parametrize(("provider_id", "media_type"), sorted(PROVIDER_SPEC_REGISTRY))
+    async def test_builtin_backend_constructs_off_the_event_loop(self, db_factory, tmp_path, provider_id, media_type):
+        model_id = _any_listed_model(provider_id, media_type)
+        if model_id is None:
+            pytest.skip(f"模型目录里没有 {provider_id} 的 {media_type} 模型，无从构造")
+        credentials_file = tmp_path / "vertex.json"
+        credentials_file.write_text('{"project_id": "demo-project"}', encoding="utf-8")
+        await _seed_provider_config(
+            db_factory,
+            provider_id,
+            api_key="secret",
+            credentials_path=str(credentials_file),
+            gcs_bucket="demo-bucket",
+        )
+        # 服务账号私钥解析与事件循环无关，替掉它免得在测试里生成真私钥。
+        with captured_vertex_credentials():
+            backend = await assemble_backend(
+                provider_id=provider_id,
+                media_type=media_type,
+                model_id=model_id,
+                resolver=ConfigResolver(db_factory),
+            )
+        assert backend is not None
 
 
 class TestAssembleCustomEndToEnd:

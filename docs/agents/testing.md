@@ -25,3 +25,7 @@ worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文�
 根 conftest 加载 `tests/blocking_guard`：同步与异步用例全程记录 lib/server 代码在事件循环线程上的阻塞调用（含同步 `TestClient` 背后的应用线程），用例结束时豁免清单外的违规让该用例失败，失败信息给出条目和调用栈。调用栈由内向外列出 lib/server/tests 帧，前面按真实调用顺序附上阻塞点到第一个仓库帧之间最内层的几条非仓库帧（标准库与第三方包，路径取包内相对形式，超出的注明省略条数），用来分辨业务代码 `await` 处被调起的非仓库代码里是谁在阻塞。条目是离阻塞点最近的 lib/server async 函数（`<文件>::<限定名>`），阻塞发生在 `tests/` 下的替身里也一样：换成生产依赖后，同一位置同样会阻塞事件循环。替身误报时，按生产实现的线程契约修替身：能用内存实现的就改成内存实现；替身的职责本身就要落盘的（后端写产物、模拟并发写方、调用会写正式文件的生产回调），把这段 I/O 放进 `asyncio.to_thread`。外层没有 lib/server async 函数的阻塞（测试函数直接调用同步 lib 代码）不计。
 
 - `tests/blocking_guard/exemptions.toml` 是永久豁免，只收应用启动与关停路径上的一次性阻塞，每条写明理由。除此之外没有豁免途径，新增的阻塞调用一律修掉。完整运行时，本次未触发的豁免条目会让会话失败：启动与关停路径改了，就同步删掉对应条目。每条豁免都必须由 `tests/unit` 下的用例触发：CI 的 unit job 按路径只跑 `tests/unit`，带 `--blocking-guard-expect-all-exemptions` 后同样做这项检查，未触发的条目报为过期；integration job 不带。
+
+## CI 挂起诊断
+
+后端测试 job 设了 `ARCREEL_TEST_HANG_DUMP_DIR`，根 conftest 加载的 `tests/hang_watchdog.py` 让 xdist 的 controller 与每个 worker 记下开始执行的用例，进程 180 秒无进展时转储全部线程的调用栈，会话收尾与进程退出阶段同样覆盖。测试步骤超时短于 job 超时，步骤失败或被取消后，「Hang and crash diagnostics」步骤输出每个进程最后的进展、线程栈与内核的 OOM 记录。进展末尾是 `sessionfinish`、`unconfigure` 的进程已跑完会话，末尾停在某条 `run` 用例的进程就卡在或死在那条用例上。排查挂起或 `node down: Not properly terminated` 先看这一步：被直接杀掉的 worker 没有线程栈，它的最后一条用例就是崩溃时在跑的用例。本地复现时设同一个环境变量即可得到同样的文件。

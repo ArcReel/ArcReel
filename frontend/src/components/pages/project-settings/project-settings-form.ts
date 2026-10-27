@@ -3,7 +3,13 @@ import type { ProjectSettingsTab } from "@/app-routes";
 import { executingImageModel, executingVideoModel } from "@/components/shared/model-layers";
 import type { ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import type { NarrationDeliveryValue } from "@/components/shared/narration-delivery";
-import type { CharacterVoiceBinding, ModelSettingEntry, NarrationDelivery, ProjectData } from "@/types";
+import type {
+  AutoBackendsResponse,
+  CharacterVoiceBinding,
+  ModelSettingEntry,
+  NarrationDelivery,
+  ProjectData,
+} from "@/types";
 import { DEFAULT_CHARACTER_VOICE_BINDING } from "@/types";
 import { normalizeRoute, type GenerationRoute } from "@/utils/generation-mode";
 
@@ -18,6 +24,8 @@ export interface GlobalModelDefaults {
   textDefault: string;
   textSimple: string;
   textComplex: string;
+  /** 各层全空时后端自动选中的模型（与执行期同口径）；拉取失败即缺席，演算退回「算不出」。 */
+  auto?: AutoBackendsResponse | null;
 }
 
 /** 项目的风格：模版与参考图二选一，也可以都不设。 */

@@ -25,6 +25,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifestEntry,
     ArtifactManifestError,
     ArtifactManifestSnapshot,
+    ArtifactObservation,
     ProjectArtifactManifestAdapter,
 )
 from lib.artifacts.artifact_provenance import (
@@ -263,6 +264,7 @@ class TargetStatePlanner:
         legacy_audio_entries: Mapping[ArtifactKey, ArtifactManifestEntry] | None = None,
         shared_versions: SharedVersionMetadata | None = None,
         manifest_snapshot: ArtifactManifestSnapshot | None = None,
+        shared_observations: dict[str, ArtifactObservation] | None = None,
     ) -> None:
         self.project_dir = project_dir.resolve(strict=True)
         self.adapter = ProjectArtifactManifestAdapter(self.project_dir)
@@ -274,6 +276,9 @@ class TargetStatePlanner:
         #: given one judges currency: video and audio prove their formal file against the claim's recorded
         #: content facts and never read the version snapshot.
         self.manifest_snapshot = manifest_snapshot
+        #: Request-scoped inspections shared with the currency resolver that owns this planner: the
+        #: resolver's admission and the media proof open each formal file once.  ``None`` outside a resolver.
+        self.shared_observations = shared_observations
         if episode_scope is not None and (type(episode_scope) is not int or episode_scope < 1):
             raise ValueError("episode scope must be a positive integer or null")
         self.episode_scope = episode_scope
@@ -1248,19 +1253,23 @@ class TargetStatePlanner:
         assert self.manifest_snapshot is not None
         entry = self.manifest_snapshot.entries.get(key)
         facts = entry.content if entry is not None and entry.artifact_path == artifact_path else None
-        artifact = self._safe_present_path(artifact_path) if facts is not None else None
-        if facts is None or artifact is None:
+        if facts is None:
+            return None
+        # stat 取自安全打开文件时的描述符，不按路径重新 stat，路径事后换成符号链接也不会被跟随。
+        observation = self._observe(artifact_path)
+        if observation.blocker is not None or not observation.present or observation.file_stat is None:
             return None
         manifest_stat = self.manifest_snapshot.file_stat
         racy = manifest_stat is None or facts.mtime_ns >= manifest_stat.st_mtime_ns
-        try:
-            file_stat = artifact.stat()
-            if not racy and (file_stat.st_size, file_stat.st_mtime_ns) == (facts.size, facts.mtime_ns):
-                return facts.digest
-            digest = visual_file_digest(artifact)
-        except OSError:
-            return None
-        return facts.digest if digest == facts.digest else None
+        file_stat = observation.file_stat
+        if not racy and (file_stat.st_size, file_stat.st_mtime_ns) == (facts.size, facts.mtime_ns):
+            return facts.digest
+        # 完整比对同样经受约束的描述符读取。这次读到的是更新的观察：文件已删除或被换成符号链接时，
+        # 所属解析器的末次比对据此判 MISSING 或 BLOCKED，不沿用准入时的观察。
+        observation = self.adapter.inspect_artifact_content(artifact_path)
+        if self.shared_observations is not None:
+            self.shared_observations[artifact_path] = observation
+        return facts.digest if observation.content_digest == facts.digest else None
 
     def _media_entry(self, artifact_path: str, basis_digest: str, proven_digest: str) -> ArtifactManifestEntry:
         """视频与音频的规划条目。激活模式下证明成立时顺带记下正式文件的内容事实（与 v18 补录同一条规则）：
@@ -1887,6 +1896,16 @@ class TargetStatePlanner:
         if observation.blocker is not None or not observation.present:
             return None
         return self.project_dir.joinpath(*Path(observation.artifact_path).parts)
+
+    def _observe(self, relative_path: str) -> ArtifactObservation:
+        """Inspect a formal path, through the owning resolver's request-scoped inspections when there is one."""
+
+        if self.shared_observations is None:
+            return self.adapter.inspect_artifact(relative_path)
+        observation = self.shared_observations.get(relative_path)
+        if observation is None:
+            observation = self.shared_observations[relative_path] = self.adapter.inspect_artifact(relative_path)
+        return observation
 
     def _read_required_control_file(self, relative_path: str, label: str) -> bytes:
         observation = self.adapter.inspect_artifact(relative_path)
