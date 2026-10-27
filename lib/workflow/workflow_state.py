@@ -1432,7 +1432,7 @@ class WorkflowStateService:
         path = script_review.script_plan_path(project_path, project, number)
         live_revision = script_review.content_fingerprint(path) if path is not None else None
         if live_revision is None or (live_revision == stale_revision and rebuilt_revision != live_revision):
-            return True, stale_revision if isinstance(stale_revision, str) else None
+            return True, script_review.published_revision(stale_revision) if isinstance(stale_revision, str) else None
         return False, None
 
     def _script_plan_artifact(
@@ -1456,7 +1456,7 @@ class WorkflowStateService:
         return {
             "state": state,
             "path": str(path.relative_to(project_path)) if path is not None else None,
-            "revision": revision,
+            "revision": script_review.published_revision(revision),
         }
 
     @staticmethod

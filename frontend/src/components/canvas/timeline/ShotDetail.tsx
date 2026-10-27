@@ -1095,9 +1095,7 @@ export function ShotDetail({
           removeBlockedHint={
             generatingStoryboard || generatingVideo || generatingNarration
               ? t("shot_remove_blocked_generating")
-              : totalCount <= 1
-                ? t("shot_remove_blocked_last")
-                : undefined
+              : undefined
           }
           onInsert={onInsertShot}
           onRemove={onRemoveShot}

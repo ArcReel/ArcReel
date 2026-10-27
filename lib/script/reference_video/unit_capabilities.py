@@ -19,7 +19,9 @@ from lib.config.resolver import VideoGenerationType, duration_endpoint_fixed_rea
 from lib.generation.video_request_facts import VideoRequestFacts, VideoRequestFactsFailure
 from lib.script.reference_video.artifact_selection import CurrentReferenceAssets
 from lib.script.reference_video.request_projection import (
+    MemoizedReferenceAssets,
     ReferenceAssetAvailability,
+    ReferenceExpansionCache,
     ReferenceRequestFactsLookup,
     ReferenceUnitHydration,
     hydrate_unit_references,
@@ -80,15 +82,24 @@ def hydrate_reference_units(
     """按执行侧同款判据逐单元水合声明引用，给出各单元此刻所落的桶与分裂问题。
 
     ``availability`` 缺省为产物清单感知判定（文件存在且清单认领），整批只构造一次；没有单元时
-    不触碰项目资产。
+    不触碰项目资产。整批共用一份引用目录、路径解析与按图片记住的可用性。
     """
 
     pending = list(units)
     if not pending:
         return ()
-    assets = availability if availability is not None else CurrentReferenceAssets(project_path, project)
+    assets = MemoizedReferenceAssets(
+        availability if availability is not None else CurrentReferenceAssets(project_path, project)
+    )
+    expansion = ReferenceExpansionCache(project, project_path)
     return tuple(
-        hydrate_unit_references(project, unit, resolve_reference_assets(project, project_path, unit), assets)
+        hydrate_unit_references(
+            project,
+            unit,
+            resolve_reference_assets(project, project_path, unit, expansion=expansion),
+            assets,
+            catalog=expansion.catalog,
+        )
         for unit in pending
     )
 

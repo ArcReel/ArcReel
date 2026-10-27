@@ -409,6 +409,20 @@ _TEXT_LAYERED_KEYS: dict[TextTaskTier, _LayeredBackendKeys] = {
 }
 
 
+#: 自动选模预览的用途（``ConfigResolver.auto_resolved_backends``）。
+AutoResolvePurpose = Literal["t2i", "i2i", "i2v", "r2v", "text"]
+
+#: 用途 → 执行期解析该用途时消费的键位。自动推断层只读键位的 media_type 与 generation_type，
+#: 预览取同一份键位即与执行同口径；文本各档位这两项相同，合为一个用途。
+_AUTO_RESOLVE_PURPOSE_KEYS: dict[AutoResolvePurpose, _LayeredBackendKeys] = {
+    "t2i": _IMAGE_LAYERED_KEYS["t2i"],
+    "i2i": _IMAGE_LAYERED_KEYS["i2i"],
+    "i2v": _VIDEO_LAYERED_KEYS["i2v"],
+    "r2v": _VIDEO_LAYERED_KEYS["r2v"],
+    "text": _TEXT_LAYERED_KEYS[TextTaskTier.COMPLEX],
+}
+
+
 #: 请求里不下发 ``generate_audio`` 开关、供应商恒按含音档出账的 video provider。
 _VIDEO_AUDIO_ALWAYS_BILLED_PROVIDERS = frozenset({"gemini-aistudio"})
 
@@ -1079,6 +1093,14 @@ class ConfigResolver:
     async def default_image_backend(self) -> tuple[str, str]:
         """兼容 shim：旧调用方仍可调；返回 T2I 变体。"""
         return await self.default_image_backend_t2i()
+
+    async def auto_resolved_backends(self) -> dict[AutoResolvePurpose, tuple[str, str] | None]:
+        """各用途在项目与全局各层都留空时自动推断选中的 (provider_id, model_id)，选不出即 None。
+
+        只读预览，供设置界面显示「自动选择」的实际模型、并按它查询能力。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_auto_backends(svc, session)
 
     async def provider_config(self, provider_id: str) -> dict[str, str]:
         """获取单个供应商配置。"""
@@ -1788,6 +1810,21 @@ class ConfigResolver:
             is False
         ):
             raise VisionCapabilityError(task_type=task_type, provider_id=provider_id, model_id=model_id)
+
+    async def _resolve_auto_backends(
+        self, svc: ConfigService, session: AsyncSession
+    ) -> dict[AutoResolvePurpose, tuple[str, str] | None]:
+        """按各用途的键位调用自动推断层，与执行期解析落到这一层时的入参一致。"""
+        resolved: dict[AutoResolvePurpose, tuple[str, str] | None] = {}
+        for purpose, keys in _AUTO_RESOLVE_PURPOSE_KEYS.items():
+            try:
+                # 逐项串行：同一 session 不支持并发查询
+                resolved[purpose] = await self._auto_resolve_backend(
+                    svc, session, keys.media_type, keys.generation_type
+                )
+            except ValueError:
+                resolved[purpose] = None
+        return resolved
 
     async def _auto_resolve_backend(
         self,

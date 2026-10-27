@@ -18,6 +18,7 @@ from lib.artifacts.artifact_manifest import (
     ArtifactManifest,
     ArtifactManifestEntry,
     ArtifactManifestError,
+    ArtifactObservation,
     ArtifactStatus,
     ProjectArtifactManifestAdapter,
 )
@@ -137,6 +138,8 @@ class ArtifactCurrencyResolver:
         # permission to fall back to filesystem existence.
         self.manifest_snapshot = root_planner.adapter.read_snapshot()
         root_planner.manifest_snapshot = self.manifest_snapshot
+        self._observations: dict[str, ArtifactObservation] = {}
+        root_planner.shared_observations = self._observations
         self._project_bytes = root_planner.project_bytes
         self._planners: dict[int | None, TargetStatePlanner] = {None: root_planner}
         self._adapter = root_planner.adapter
@@ -152,6 +155,7 @@ class ArtifactCurrencyResolver:
                 project_bytes=self._project_bytes,
                 shared_versions=self._shared_versions,
                 manifest_snapshot=self.manifest_snapshot,
+                shared_observations=self._observations,
             )
             self._planners[scope] = planner
         return planner
@@ -160,12 +164,27 @@ class ArtifactCurrencyResolver:
         # Admission precedes basis reconstruction.  An unclaimed or unsafe
         # formal path is not an input to the planner, so malformed orphan files
         # cannot block the workflow that is responsible for replacing them.
+        #
+        # A formal file is opened once per request: admission, the final
+        # comparison and the planners' media proof share one observation.  A
+        # proof that has to reread the file replaces it with what it saw, so the
+        # final comparison does not trust the admission-time observation.
         entries = self.manifest_snapshot.entries
-        admission = self._manifest.compare_entry(key, artifact_path=artifact_path, expected=None, entries=entries)
+        admission = self._manifest.compare_observed_entry(
+            key, observation=self._observe(artifact_path), expected=None, entries=entries
+        )
         if admission.status in {ArtifactStatus.MISSING, ArtifactStatus.BLOCKED}:
             return admission
         expected = self._planner_for(key).resolve_key(key)
-        return self._manifest.compare_entry(key, artifact_path=artifact_path, expected=expected, entries=entries)
+        return self._manifest.compare_observed_entry(
+            key, observation=self._observe(artifact_path), expected=expected, entries=entries
+        )
+
+    def _observe(self, artifact_path: str) -> ArtifactObservation:
+        observation = self._observations.get(artifact_path)
+        if observation is None:
+            observation = self._observations[artifact_path] = self._adapter.inspect_artifact(artifact_path)
+        return observation
 
     def resolve_usable_entry(self, key: ArtifactKey, *, artifact_path: str) -> ArtifactManifestEntry | None:
         """Return the exact registered entry selected through canonical admission."""

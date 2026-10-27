@@ -96,6 +96,8 @@ async def test_split_narration_segments_happy(fake_ctx: ToolHarness, monkeypatch
 
     out = await run_declared_tool("generate_script_plan", fake_ctx, {"episode_id": 1})
     assert out.problem is None, out
+    assert "drafts/episode_1/script_plan_segments.json" in said(out)
+    assert str(fake_ctx.project_path) not in said(out)
 
     script_plan_path = fake_ctx.project_path / "drafts" / "episode_1" / "script_plan_segments.json"
     assert script_plan_path.exists()

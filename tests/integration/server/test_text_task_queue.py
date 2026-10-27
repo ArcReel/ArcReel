@@ -249,11 +249,14 @@ def _narration_project_with_draft(segments: list[dict[str, Any]]) -> tuple[Proje
 
 
 @pytest.mark.usefixtures("video_request_facts")
+@pytest.mark.parametrize("spelling", ["prefixed", "bare"])
 async def test_web_draft_repair_queues_a_text_task_that_adopts_the_repaired_draft(
-    file_db_factory, monkeypatch: pytest.MonkeyPatch
+    file_db_factory, monkeypatch: pytest.MonkeyPatch, spelling: str
 ) -> None:
     """AI 修复以排队文本任务提交，占用本份草稿的槽；worker 修完照常重判，违约清零即采用。"""
     projects, revision = _narration_project_with_draft([_narration_segment(characters_in_segment=["王五"])])
+    if spelling == "bare":
+        revision = revision.removeprefix("sha256-v1:")
     queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
     assert await queue.acquire_or_renew_worker_lease(name="default", owner_id="test-worker", ttl_seconds=60)
     services = Services(

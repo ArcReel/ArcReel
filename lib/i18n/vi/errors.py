@@ -216,6 +216,7 @@ MESSAGES = {
     "asset_field_must_be_string": "giá trị trường này phải là văn bản",
     "asset_field_must_be_string_list": "giá trị trường này phải là danh sách văn bản",
     "asset_field_invalid_value": "giá trị trường này không hợp lệ",
+    "asset_reference_file_not_owned": "Ảnh tham chiếu và âm thanh tham chiếu của “{name}” chỉ được dùng tệp mang tên của chính nó. Hãy tải lên riêng cho nó",
     "invalid_asset_type": "Loại tài nguyên phải là character / scene / prop",
     "invalid_asset_filename": "Tên tệp không được chứa ký tự phân tách đường dẫn hoặc ..",
     "invalid_draft_stage": "Giai đoạn bản nháp không hợp lệ: {stage}",
@@ -844,6 +845,7 @@ MESSAGES = {
     "trash_restore_failed": "Dự án không còn chỗ trống để đặt lại mục này nên chưa có gì được khôi phục và bản ghi xóa vẫn được giữ: hãy giải phóng vị trí rồi thử lại, hoặc tải xuống các tệp trong bản ghi",
     "trash_restore_needs_episode": "Tập «{name}» chứa mục này cũng đã bị xóa nên chỉ có thể khôi phục cùng tập: hãy khôi phục tập từ thùng rác dự án trước, rồi khôi phục bản ghi này",
     "trash_restore_needs_episode_untitled": "Tập {episode} chứa mục này cũng đã bị xóa nên chỉ có thể khôi phục cùng tập: hãy khôi phục tập từ thùng rác dự án trước, rồi khôi phục bản ghi này",
+    "trash_restore_needs_character": "Nhân vật «{name}» chứa mục này cũng đã bị xóa nên chỉ có thể khôi phục cùng nhân vật: hãy khôi phục nhân vật từ thùng rác dự án trước, rồi khôi phục bản ghi này",
     "trash_restore_download_only": "Không thể khôi phục bản ghi xóa này nữa; các tệp cấu trúc trong đó chỉ có thể tải xuống",
     "trash_restore_target_blocked": "Không thể khôi phục về {path}: một thư mục trên đường dẫn đã bị thay bằng liên kết",
 }

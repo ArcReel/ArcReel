@@ -1,5 +1,6 @@
 import type {
   AnyEndpointDefinition,
+  ComfyuiEndpointDefinition,
   EndpointDefinition,
   EndpointExtractSpec,
   EndpointInputEncoding,
@@ -218,6 +219,14 @@ export function isRenderableDefinition(value: unknown): value is EndpointDefinit
     isRecord(value.poll) &&
     isRecord(value.poll.extract)
   );
+}
+
+/**
+ * ComfyUI 定义的结构闸，与 {@link isRenderableDefinition} 同一用途：只认展示时会解引用的
+ * meta 与 workflow 两个容器，字段级问题交给服务端校验。
+ */
+export function isRenderableComfyuiDefinition(value: unknown): value is ComfyuiEndpointDefinition {
+  return isRecord(value) && value.kind === "comfyui" && isRecord(value.meta) && isRecord(value.workflow);
 }
 
 /**

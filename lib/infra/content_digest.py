@@ -35,6 +35,14 @@ def prefixed(hexdigest: str) -> str:
     return f"{HASH_ALGORITHM}:{hexdigest}"
 
 
+def unprefixed(digest: str) -> str:
+    """去掉合法的算法前缀，得到裸 hexdigest；不带合法前缀的输入原样返回，由调用方的比对判为不一致。"""
+
+    if PREFIXED_DIGEST_RE.match(digest):
+        return digest[len(HASH_ALGORITHM) + 1 :]
+    return digest
+
+
 def digest_stream(
     read: Callable[[int], bytes],
     *,
@@ -261,4 +269,5 @@ __all__ = [
     "reset_file_digest_cache_for_tests",
     "sha256_file",
     "sha256_file_with_size",
+    "unprefixed",
 ]

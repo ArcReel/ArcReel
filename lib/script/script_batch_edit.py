@@ -29,7 +29,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.episode.episode_ledger import normalize_source_text
 from lib.episode.episode_paths import episode_script_filename, episode_source_relpath
 from lib.episode.episode_sources import SourceOrigin, discover_sources, episode_entry, episode_source_origin
-from lib.infra.content_digest import prefixed
+from lib.infra.content_digest import prefixed, unprefixed
 from lib.infra.path_safety import try_safe_join
 from lib.infra.validation_messages import default_translate
 from lib.project.data_validator import DataValidator
@@ -51,7 +51,7 @@ from lib.script.script_structure_validator import validate_script_structure
 from lib.script.storyboard_mentions import storyboard_mention_warnings
 from lib.speech.speech_composition import SpeechAdmission, admit_script_unit, refresh_video_unit_replan_state
 
-_REVISION_PATTERN = r"^sha256-v1:[0-9a-f]{64}$"
+_REVISION_PATTERN = r"^(?:sha256-v1:)?[0-9a-f]{64}$"
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +109,11 @@ class ScriptBatchEditCommand(BaseModel):
     expected_script_file: str | None = Field(default=None, min_length=1)
     expected_revision: str = Field(pattern=_REVISION_PATTERN)
     operations: list[ScriptBatchOperation] = Field(min_length=1)
+
+    @field_validator("expected_revision")
+    @classmethod
+    def _normalize_revision(cls, value: str) -> str:
+        return prefixed(unprefixed(value))
 
     @field_validator("script", "expected_script_file")
     @classmethod

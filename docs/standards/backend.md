@@ -81,6 +81,12 @@ paths:
 
 放行条件：所有写入方与枚举、删除持同一把锁。
 
+## 标识与引用
+
+### 改变对象标识时，按旧标识键控或引用的记录一起改写
+
+对象的名称、条目编号、模型 ID 和所在目录的绝对路径都是标识。换名恢复、换号恢复、改模型 ID 这类改变标识的写入路径，除了改对象本身，还要把按旧标识派生键的记录（SDK 会话按项目目录绝对路径派生的 `project_key`、产物清单按条目编号的登记）和引用旧标识的设置（项目与全局的模型设置键、`model_settings`）一起改到新标识下：先按旧标识搜出全部持有方，在 PR 里列明。漏掉的记录留在旧标识下，Agent 续聊报找不到对话，已有产物读作缺失、界面引导用户重新生成，悬空的模型引用在之后出现同 ID 的新模型时被静默接管。旧标识可能已被同名的新对象占用（新建的同名项目与旧路径共用一个 key），改写按对象自己的记录限定范围，例如按 session_id，不整键替换。标识在进程之外改变时（数据根搬到别的绝对路径），在启动时对齐。参考 `lib/agent/agent_session_store/rekey.py`、`lib/agent/agent_session_store/key_alignment.py` 与 `server/routers/custom_providers.py` 的 `rename_project_model_refs`。
+
 ## Windows 兼容
 
 主开发平台是 macOS / Linux，server（连同它依赖的 workspace 子包）同时要在 Windows 原生环境完成项目创建与基础流程。CI 只跑 Linux，下面这些问题在 Linux 上全部静默通过，只会在用户的 Windows 机器上出现。

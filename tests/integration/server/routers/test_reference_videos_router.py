@@ -27,6 +27,11 @@ from tests.fakes import (
 )
 from tests.speech_contract_cases import SPEECH_CONTRACT_CASES, SpeechContractCase
 
+#: Web 画布新增视频单元时发出的请求体，前端组件测试逐字比对同一份文件。
+_ADD_UNIT_CONTRACT = (
+    Path(__file__).resolve().parents[4] / "frontend" / "src" / "test" / "contracts" / "reference-unit-add-requests.json"
+)
+
 
 @pytest.fixture
 def reference_videos_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
@@ -155,6 +160,25 @@ def test_add_unit_refuses_a_blank_body(reference_videos_client: TestClient):
         "units": [],
         "unit_capabilities": {},
     }
+
+
+def test_add_unit_accepts_the_request_bodies_the_web_canvas_sends(reference_videos_client: TestClient):
+    """画布新增单元的请求体：前端组件测试逐字比对同一份契约，这里证明它能通过后端校验。
+
+    两边各自通过、契约却相反的回归（前端发空正文、后端拒绝空正文）由这对测试一起挡住。
+    """
+    contract = json.loads(_ADD_UNIT_CONTRACT.read_text(encoding="utf-8"))
+    url = "/api/v1/projects/demo/reference-videos/episodes/1/units"
+
+    first = reference_videos_client.post(url, json=contract["append"])
+    assert first.status_code == 201, first.text
+    assert first.json()["unit"]["unit_id"] == contract["insert_after"]["after_unit_id"]
+
+    inserted = reference_videos_client.post(url, json=contract["insert_after"])
+    assert inserted.status_code == 201, inserted.text
+    units = reference_videos_client.get(url).json()["units"]
+    assert [unit["unit_id"] for unit in units] == ["E1U1", inserted.json()["unit"]["unit_id"]]
+    assert [unit["text"] for unit in units] == [contract["append"]["prompt"], contract["insert_after"]["prompt"]]
 
 
 def test_add_unit_rejects_a_stored_reference_list(reference_videos_client: TestClient):

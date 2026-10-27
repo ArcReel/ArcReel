@@ -7,7 +7,7 @@ import { SpeechRateField } from "@/components/shared/SpeechRateField";
 import { ModelConfigSection, type ModelConfigValue } from "@/components/shared/ModelConfigSection";
 import { NarrationDeliveryFields } from "@/components/shared/NarrationDeliveryFields";
 import type { NarrationDeliveryValue } from "@/components/shared/narration-delivery";
-import type { ProviderInfo } from "@/types";
+import type { AutoBackendsResponse, ProviderInfo } from "@/types";
 import type { CustomProviderInfo } from "@/types/custom-provider";
 import { WizardSection } from "./WizardSection";
 
@@ -32,6 +32,8 @@ export interface WizardGenerationData {
     textDefault: string;
     textSimple: string;
     textComplex: string;
+    /** 各层全空时后端自动选中的模型；拉取失败即缺席。 */
+    auto?: AutoBackendsResponse | null;
   };
 }
 

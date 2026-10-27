@@ -38,6 +38,16 @@ describe("toolLabel", () => {
     );
   });
 
+  it("summarizes inspected images by type, then storyboards by position or assets by name", () => {
+    expect(
+      label("mcp__arcreel__inspect_images", { resource_type: "storyboard", ids: ["E3S04", "E3S01"], version: 2 }).summary,
+    ).toBe("分镜图 · 雨夜 · 1、2 · 第 2 版");
+    expect(label("mcp__arcreel__inspect_images", { resource_type: "character", ids: ["阿岚"] })).toMatchObject({
+      name: "查看图片",
+      summary: "角色 · 阿岚",
+    });
+  });
+
   it("says an item is deleted once it is no longer in the script", () => {
     expect(
       label("mcp__arcreel__generate_storyboards", { script: "episode_3.json", segment_ids: ["E3S09"] }).summary,

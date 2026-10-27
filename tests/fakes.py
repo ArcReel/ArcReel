@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequenc
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from instructor.core import InstructorRetryException
 
@@ -31,6 +31,13 @@ _STREAM_EOF = object()
 #: ``lib.custom_provider.comfyui.artifacts.container_matches``），裸占位字节会被判容器不符。
 MP4_BYTES = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mp4-bytes"
 PNG_BYTES = b"\x89PNG\r\n\x1a\npng-bytes"
+
+
+@contextmanager
+def captured_vertex_credentials() -> Generator[MagicMock]:
+    """替换服务账号私钥解析，保留凭证路径与 scopes 供装配测试断言。"""
+    with patch("google.oauth2.service_account.Credentials.from_service_account_file", autospec=True) as load:
+        yield load
 
 
 @contextmanager

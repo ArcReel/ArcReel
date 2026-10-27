@@ -213,10 +213,35 @@ jobs:
         # psutil，CI worker 数会静默减半。loadfile 而非默认 load：仓库根共享路径
         # （PROJECT_ROOT 下 mkdir/rmdir、module 级 autouse fixture）要求同文件用例
         # 留在同一 worker。
+        # 步骤超时短于 job 超时，挂起时留出时间给下一步输出诊断。
+        timeout-minutes: 20
+        env:
+          ARCREEL_TEST_HANG_DUMP_DIR: ${{ runner.temp }}/pytest-hang
         run: >-
           uv run python -m pytest ${{ matrix.path }} ${{ matrix.extra_args }} -n 4 --dist loadfile
           --cov=lib --cov=server --cov=arcreel_market_core --cov=arcreel_catalog_core --cov-report=term-missing
           --cov-report=xml:coverage-${{ matrix.suite }}.xml
+
+      - name: Hang and crash diagnostics
+        # tests/hang_watchdog.py 写下的各进程最后的进展（开始执行的用例与 sessionfinish/unconfigure 阶段）与无进展时的线程栈；
+        # 末尾是阶段记录的进程已跑完会话，末尾停在某条用例的进程就卡在那条用例上。
+        # worker 被直接杀掉（node down: Not properly terminated）时，内核日志能看出是否 OOM。
+        if: failure() || cancelled()
+        env:
+          DUMP_DIR: ${{ runner.temp }}/pytest-hang
+        run: |
+          shopt -s nullglob
+          for f in "$DUMP_DIR"/*.progress; do
+            echo "::group::$(basename "$f") 最后的进展"
+            tail -n 5 "$f"
+            echo "::endgroup::"
+          done
+          for f in "$DUMP_DIR"/*.stacks; do
+            [ -s "$f" ] || continue
+            echo "===== $(basename "$f")"
+            cat "$f"
+          done
+          sudo dmesg --ctime | grep -iE 'out of memory|oom|killed process|segfault' || echo "内核日志里没有 OOM 或段错误记录"
 
       - name: Upload backend coverage
         # unit/integration 使用同一 flag；Codecov 按 commit 合并，无需本地聚合作业。

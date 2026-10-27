@@ -3,7 +3,7 @@ import { render as rtlRender, screen, waitFor, fireEvent, act, within } from "@t
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { Router, useLocation } from "wouter";
-import { LeaveGuardProvider, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
+import { LeaveGuardProvider, useConfirmLeave, useLeaveGuard } from "@/components/shared/edit-unit/LeaveGuard";
 import { EpisodeViewFactsProvider } from "@/components/canvas/episode-page/EpisodeViewScope";
 import type { EpisodeViewFacts } from "@/components/canvas/episode-page/episode-view";
 import { ReferenceVideoCanvas } from "./ReferenceVideoCanvas";
@@ -14,6 +14,8 @@ import { useAppStore } from "@/stores/app-store";
 import { useCostStore } from "@/stores/cost-store";
 import { API } from "@/api";
 import { makeReferenceUnitCapability } from "@/test/factories";
+import addUnitContract from "@/test/contracts/reference-unit-add-requests.json";
+import { createDeferred } from "@/test/deferred";
 import type {
   ReferenceDurationPrecheck,
   ReferenceUnitCapabilityMap,
@@ -977,15 +979,167 @@ describe("ReferenceVideoCanvas", () => {
     });
   });
 
-  it("adds a new unit via the store when the button is clicked", async () => {
-    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [], unit_capabilities: {} });
-    const addSpy = vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValue({ unit: mkUnit("E1U1"), unit_capability: makeReferenceUnitCapability("E1U1") });
-    render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: /Add video unit|新增视频单元/ })).toBeInTheDocument(),
-    );
-    fireEvent.click(screen.getByRole("button", { name: /Add video unit|新增视频单元/ }));
-    await waitFor(() => expect(addSpy).toHaveBeenCalled());
+  // 空正文的单元不可执行，服务端以 needs_replan 拒绝创建：新增入口先填正文再提交。
+  // 请求体逐字比对共享契约，后端路由测试用同一份文件验证它能通过校验。
+  describe("新增视频单元", () => {
+    // 全屏按可访问名查询在大 DOM 上很慢：先按角色取唯一的对话框，再在框内核对标题。
+    const addDialog = async () => {
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByText("新增视频单元")).toBeInTheDocument();
+      return dialog;
+    };
+    const confirmAdd = (dialog: HTMLElement) => within(dialog).getByRole("button", { name: "新增单元" });
+
+    it("从空白开始的集填写正文后建出第一个单元，正文为空时不发请求", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [], unit_capabilities: {} });
+      const created = mkUnit("E1U1", addUnitContract.append.prompt);
+      const addSpy = vi
+        .spyOn(API, "addReferenceVideoUnit")
+        .mockResolvedValue({ unit: created, unit_capability: makeReferenceUnitCapability("E1U1") });
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} hasScript />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "新增第一个视频单元" }));
+      const dialog = await addDialog();
+      const prompt = within(dialog).getByRole("textbox", { name: "正文" });
+      expect(confirmAdd(dialog)).toBeDisabled();
+      fireEvent.change(prompt, { target: { value: "   " } });
+      expect(confirmAdd(dialog)).toBeDisabled();
+      fireEvent.click(confirmAdd(dialog));
+      expect(addSpy).not.toHaveBeenCalled();
+
+      fireEvent.change(prompt, { target: { value: addUnitContract.append.prompt } });
+      fireEvent.click(confirmAdd(dialog));
+
+      await waitFor(() => expect(addSpy).toHaveBeenCalledTimes(1));
+      expect(addSpy.mock.calls[0]!.slice(0, 2)).toEqual(["proj", 1]);
+      expect(addSpy.mock.calls[0]![2]).toStrictEqual(addUnitContract.append);
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(await screen.findByTestId("unit-row-E1U1")).toBeInTheDocument();
+    });
+
+    it("在选中单元之后插入：请求带上锚点，新单元排在锚点之后", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+        units: [mkUnit("E1U1"), mkUnit("E1U2")],
+        unit_capabilities: {},
+      });
+      const addSpy = vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValue({
+        unit: mkUnit("E1U3", addUnitContract.insert_after.prompt),
+        unit_capability: makeReferenceUnitCapability("E1U3"),
+      });
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} hasScript />);
+      await screen.findByTestId("unit-row-E1U1");
+
+      fireEvent.click(screen.getByRole("button", { name: "在此后插入" }));
+      const dialog = await addDialog();
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "正文" }), {
+        target: { value: addUnitContract.insert_after.prompt },
+      });
+      fireEvent.click(confirmAdd(dialog));
+
+      await waitFor(() => expect(addSpy).toHaveBeenCalledTimes(1));
+      expect(addSpy.mock.calls[0]![2]).toStrictEqual(addUnitContract.insert_after);
+      await waitFor(() =>
+        expect(screen.getAllByTestId(/^unit-row-/).map((row) => row.dataset.testid)).toEqual([
+          "unit-row-E1U1",
+          "unit-row-E1U3",
+          "unit-row-E1U2",
+        ]),
+      );
+    });
+
+    it("有未保存修改时只在提交新增时询问，取消新增保留修改", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")], unit_capabilities: {} });
+      const addSpy = vi.spyOn(API, "addReferenceVideoUnit").mockResolvedValue({
+        unit: mkUnit("E1U2", addUnitContract.insert_after.prompt),
+        unit_capability: makeReferenceUnitCapability("E1U2"),
+      });
+      const discard = vi.fn();
+      function DirtyUnit() {
+        useLeaveGuard({ dirty: true, save: async () => true, discard });
+        return null;
+      }
+      render(<><DirtyUnit /><ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} hasScript /></>);
+      await screen.findByTestId("unit-row-E1U1");
+
+      fireEvent.click(screen.getByRole("button", { name: "在此后插入" }));
+      fireEvent.click(within(await addDialog()).getByRole("button", { name: "取消" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(discard).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "在此后插入" }));
+      const dialog = await addDialog();
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "正文" }), {
+        target: { value: addUnitContract.insert_after.prompt },
+      });
+      fireEvent.click(confirmAdd(dialog));
+      expect(addSpy).not.toHaveBeenCalled();
+      fireEvent.click(within(await screen.findByRole("alertdialog", { name: "有未保存的修改" })).getByRole("button", { name: "放弃修改" }));
+
+      await waitFor(() => expect(addSpy).toHaveBeenCalledTimes(1));
+      expect(discard).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits for an in-flight creation before leaving the canvas", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [], unit_capabilities: {} });
+      const created = {
+        unit: mkUnit("E1U1", addUnitContract.append.prompt),
+        unit_capability: makeReferenceUnitCapability("E1U1"),
+      };
+      const pending = createDeferred<typeof created>();
+      const addSpy = vi.spyOn(API, "addReferenceVideoUnit").mockReturnValue(pending.promise);
+      let leave: ReturnType<typeof useConfirmLeave> = () => {};
+      function Navigation() {
+        leave = useConfirmLeave();
+        return null;
+      }
+      render(<><Navigation /><ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} hasScript /></>);
+      fireEvent.click(await screen.findByRole("button", { name: "新增第一个视频单元" }));
+      const dialog = await addDialog();
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "正文" }), {
+        target: { value: addUnitContract.append.prompt },
+      });
+      fireEvent.click(confirmAdd(dialog));
+      await waitFor(() => expect(addSpy).toHaveBeenCalledTimes(1));
+
+      const left = vi.fn();
+      act(() => leave(left));
+      const leftBeforeCreation = left.mock.calls.length;
+      await act(async () => { pending.resolve(created); });
+      await waitFor(() => expect(left).toHaveBeenCalledTimes(1));
+      expect(leftBeforeCreation).toBe(0);
+      expect(await screen.findByTestId("unit-row-E1U1")).toBeInTheDocument();
+    });
+
+    it("新增失败时保留对话框与已填写的正文，并提示原因", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [], unit_capabilities: {} });
+      vi.spyOn(API, "addReferenceVideoUnit").mockRejectedValue(new Error("混用了台词写法"));
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} hasScript />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "新增第一个视频单元" }));
+      const dialog = await addDialog();
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "正文" }), { target: { value: "镜头1：推门" } });
+      fireEvent.click(confirmAdd(dialog));
+
+      await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("新增视频单元失败：混用了台词写法"));
+      expect(within(dialog).getByRole("textbox", { name: "正文" })).toHaveValue("镜头1：推门");
+      expect(confirmAdd(dialog)).toBeEnabled();
+    });
+
+    it("取消对话框不发新增请求，再次打开时正文清空", async () => {
+      vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [], unit_capabilities: {} });
+      const addSpy = vi.spyOn(API, "addReferenceVideoUnit");
+      render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} hasScript />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "新增第一个视频单元" }));
+      const dialog = await addDialog();
+      fireEvent.change(within(dialog).getByRole("textbox", { name: "正文" }), { target: { value: "草稿" } });
+      fireEvent.click(within(dialog).getByRole("button", { name: "取消" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+      fireEvent.click(screen.getByRole("button", { name: "新增第一个视频单元" }));
+      expect(within(await addDialog()).getByRole("textbox", { name: "正文" })).toHaveValue("");
+      expect(addSpy).not.toHaveBeenCalled();
+    });
   });
 
   // 视图由集页路由给出：脚本规划视图下不渲染 UnitList，切回视频单元视图时单元列表仍在。

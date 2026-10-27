@@ -95,6 +95,47 @@ def test_reports_duplicate_eval_ids_in_root_array(tmp_path: Path) -> None:
     assert any("duplicate eval id" in error for error in errors)
 
 
+def test_reports_evals_targeting_missing_skills_or_unregistered_tools(tmp_path: Path) -> None:
+    """eval 是验收资产：点名的 skill 与工具不存在，按它验收就是在验一份不存在的契约。"""
+    profile = _valid_profile(tmp_path)
+    (profile / "evals" / "cases.json").write_text(
+        json.dumps(
+            {
+                "evals": [
+                    {
+                        "id": "ok",
+                        "target_skills": ["demo"],
+                        "expected_output": "调 mcp__arcreel__patch_project",
+                    },
+                    {
+                        "id": "stale",
+                        "target_skills": ["retired-skill"],
+                        "assertions": [{"text": "调 mcp__arcreel__retired_tool。"}],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"})
+
+    assert any("unknown target skill 'retired-skill'" in error for error in errors)
+    assert any("unregistered MCP tool mcp__arcreel__retired_tool" in error for error in errors)
+    assert not any("'ok'" in error for error in errors)
+
+
+def test_reports_eval_target_skills_that_are_not_a_list(tmp_path: Path) -> None:
+    profile = _valid_profile(tmp_path)
+    (profile / "evals" / "cases.json").write_text(
+        json.dumps({"evals": [{"id": "scalar", "target_skills": "retired-skill"}]}), encoding="utf-8"
+    )
+
+    errors = lint_profile(profile, registered_tools={"patch_project"})
+
+    assert any("target_skills must be a list" in error for error in errors)
+
+
 def test_rejects_non_standard_json_constants_in_eval_ids(tmp_path: Path) -> None:
     profile = _valid_profile(tmp_path)
     (profile / "evals" / "constants.json").write_text('{"evals":[{"id":NaN}]}', encoding="utf-8")

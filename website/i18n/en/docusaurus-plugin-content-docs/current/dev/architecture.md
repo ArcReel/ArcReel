@@ -179,7 +179,8 @@ Each Subagent focuses on one task, such as:
 - splitting reference-to-video units;
 - producing a structured script for one episode;
 - generating assets;
-- reviewing footage.
+- reviewing footage;
+- reviewing images.
 
 The first three are script planning tasks, and they also identify the new assets in the episode.
 
@@ -415,6 +416,8 @@ Version history is used to:
 - provide complete context for project archives.
 
 The service layer should operate through a unified asset version interface rather than allowing each provider adapter to decide how files are overwritten.
+
+The Agent tool `inspect_images` lets an Agent look at asset sheets and storyboard images. It reads the version snapshot of the requested version (current by default) by ID. When the default current has no history, it reads the current image registered in metadata and returns `version: null` without creating a version record. It downscales the image in memory to a JPEG with a long edge of at most 2000 px, and returns it as an MCP image content block through the same `images` hook as the contact sheets in [Video Review](#video-review). The tool is read-only, free, and never triggers generation; one call returns at most 20 images. The review checkpoint after asset sheets and storyboard images are generated is delegated to the `review-images` Subagent: it compares the images with the asset descriptions and prompts and returns only a text report, and the user decides whether to regenerate. Like the footage reviewer it is read-only: both the `tools` frontmatter and `AgentAccessPolicy.READ_ONLY_SUBAGENT_TOOLS` expose only Read, Glob, Grep, and `inspect_images`.
 
 ## 12. Usage and Cost {#usage-and-cost}
 

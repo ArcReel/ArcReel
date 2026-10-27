@@ -22,6 +22,6 @@ status: accepted
 
 ## Consequences
 
-- `AgentAccessPolicy` 把两级记忆目录列为 Agent 可读可写区：hook 层放行 Read/Write/Edit/Glob/Grep，内核沙箱层对用户记忆目录加 `allowWrite`（项目记忆在 cwd 内本已可写）。用户记忆目录由 policy 从 `projects_root` + `user_id` 纯派生，`user_id` 与 `project_cwd` 同级逐调用传参，policy 仍为进程级单例。
+- `AgentAccessPolicy` 把两级记忆目录列为 Agent 可读可写区：hook 层放行 Read/Write/Edit/Glob/Grep。内核沙箱层不为用户记忆目录设置写放行：内置文件工具不经内核沙箱，无须此配置；`allowWrite` 只作用于 Bash，其在 bwrap 下的可写绑定挂载会覆盖 `users/` 的 `denyRead`。移除该放行后，Bash 对用户记忆目录的读写均被拒绝。项目记忆在 cwd 内，Bash 照常读写。用户记忆目录由 policy 从 `projects_root` + `user_id` 纯派生，`user_id` 与 `project_cwd` 同级逐调用传参，policy 仍为进程级单例。
 - 子进程 HOME、`CLAUDE_CONFIG_DIR` 与 `claude_projects_dir` 的 tool-results 读例外均不改。
 - 子智能体 `memory: "project"` 落 `<cwd>/.claude/agent-memory/`，同样会被 profile reset 清掉；子智能体记忆作用域选型须另行考虑这一点。

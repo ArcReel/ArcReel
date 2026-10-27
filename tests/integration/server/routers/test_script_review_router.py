@@ -203,7 +203,9 @@ class TestScriptReviewRouter:
             script_path.write_text(json.dumps(produced, ensure_ascii=False), encoding="utf-8")
             before = script_path.read_bytes()
             expected_overwrite = {
-                "revision": script_review.content_fingerprint_of_data(json.loads(before)),
+                "revision": script_review.published_revision(
+                    script_review.content_fingerprint_of_data(json.loads(before))
+                ),
                 "entries": [
                     {
                         "id": "E1S01",

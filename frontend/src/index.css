@@ -18,6 +18,9 @@
    - 危险用 destructive（红），警告与过期用 warn（琥珀），完成与可用用 good。
    - 文字三档：foreground（正文）> subtle-foreground（次要）> muted-foreground（弱化）；
      muted-foreground 在页面底色上的对比度两种模式下都高于 5:1，正文不再叠加透明度降低它。
+   - input 是表单控件的描边色，WCAG 1.4.11 要求对页面底、卡片和弹层都不低于 3:1，两种模式都用不透明色；
+     border 只做卡片、分隔线等装饰，不承载控件边界，不受这条约束。input 的透明度修饰（bg-input/12）
+     只用于填充，描边不要写 border-input/30 这类半透明形式。
    - 内联样式与 CSS 直接引用这里的变量（var(--primary)），需要透明度时用
      color-mix(in oklab, var(--primary) 15%, transparent)。 */
 :root {
@@ -41,7 +44,7 @@
     --accent-foreground: var(--foreground);
     --destructive: oklch(0.55 0.20 25);
     --border: oklch(0.88 0.006 265);
-    --input: oklch(0.84 0.008 265);
+    --input: oklch(0.62 0.008 265);
     --ring: oklch(0.50 0.15 295);
 
     --good: oklch(0.50 0.12 155);
@@ -123,7 +126,7 @@
     --accent-foreground: var(--foreground);
     --destructive: oklch(0.70 0.18 25);
     --border: oklch(0.40 0.012 265 / 0.35);
-    --input: oklch(0.45 0.014 265 / 0.55);
+    --input: oklch(0.55 0.014 265);
     --ring: oklch(0.76 0.09 295);
 
     --good: oklch(0.78 0.10 155);

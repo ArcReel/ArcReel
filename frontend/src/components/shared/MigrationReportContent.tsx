@@ -79,6 +79,14 @@ function adjustmentText(t: TFunction, item: WorkflowMigrationAdjustment, episode
         name: params.name,
         kept: params.kept,
       });
+    case "shared_reference_file_copied":
+      return t("dashboard:migration_adjustment_shared_reference_file_copied", {
+        assetType: assetTypeLabel(t, params.asset_type),
+        name: params.name,
+        owner: params.owner,
+        from: params.from ?? "",
+        file: item.file ?? "",
+      });
     case "placeholder_asset_added":
       return t("dashboard:migration_adjustment_placeholder_asset_added", {
         assetType: assetTypeLabel(t, params.asset_type),

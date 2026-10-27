@@ -42,7 +42,7 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
 2. **创作输入**：带货项目未登记商品或缺原图时，引导用户在 WebUI 上传；原图是保真锚点。用 `mcp__arcreel__patch_project` 写商品描述、品牌与 `brief`。通用短片不索要商品。
 3. **起草卖点**：卖点不挡脚本生成。`status.content.products_without_selling_points` 非空时可向用户提议起草；用户同意或主动要求时，根据 brief、描述与原图起草，与用户确认后用 `patch_project` 写回。
 4. **一键生成剧本**：`brief` 与商品至少一项后，调用 `mcp__arcreel__generate_episode_script({"episode_id": target.episode})`。广告不走 script_plan，结果直接成为正式脚本；分镜图生视频直接产出 `shots[]`，参考生视频直接产出自包含 `video_units[]`。剧本引用的新角色、场景、道具随之登记为待生成资产，回执列出它们。总时长偏离 `target_duration` 时提醒用户，不阻塞保存。用户要整份重做时传 `regenerate: true`，丢失清单的确认与违约失败的处理见 generate-script skill。
-5. **资产图**：调用 `mcp__arcreel__generate_assets({"episode_id": <next_action.args.episode_id>})`：服务端生成本集引用、仍缺资产图的全部资产（含商品、衍生与剧本生成时新登记的资产），与 Web 集层同一份名单。
+5. **资产图**：调用 `mcp__arcreel__generate_assets({"episode_id": <next_action.args.episode_id>})`：服务端生成本集引用、仍缺资产图的全部资产（含商品、衍生与剧本生成时新登记的资产），与 Web 集层同一份名单。生成完成后按 [generate-assets](../generate-assets/SKILL.md) 的「审核检查点：审图」派发 `review-images` 审图，把审图报告交给用户确认。
 6. **sheet 过目（软门禁）**：商品有 `product_sheet` 时，请用户在首次分镜或参考生视频生成前确认它与真品一致；只有原图时直接继续。
 7. **编排与生成**：
 
@@ -51,6 +51,7 @@ description: 广告/短片项目的工作流入口。当用户提到做视频、
      `mcp__arcreel__generate_storyboards({"script": target.script_filename, "segment_ids": requested_ids})`
    - `next_action.type == "generate_grid"` → 调
      `mcp__arcreel__generate_grid({"script": target.script_filename})`（不传 `scene_ids`：缺失即生成，不重做联合图已就绪、未切分的宫格）
+   - 分镜图写入后（宫格在切分落格之后），按 [generate-storyboard](../generate-storyboard/SKILL.md) 的「审核检查点：审图」派发 `review-images` 审图，把审图报告交给用户确认
    - `next_action.type == "confirm_request_duration"` → 按 `admission.confirmation.tiers[]` 逐档位展示
      涉及的视频单元与费用，确认后经 `confirmed_request_durations` 带回下一次 `mcp__arcreel__get_workflow_plan`
    - `next_action.type == "generate_videos"` → 先看 `plan.steps[].admission.decision`：只有 `admitted`

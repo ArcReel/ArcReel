@@ -149,7 +149,6 @@ const customModel = (id: number, model_id: string, endpoint: string, extra: Reco
   matched_entry: null,
   system_capabilities: null,
   capability_overrides: null,
-  global_bucket_refs: null,
   ...extra,
 });
 
@@ -186,7 +185,6 @@ const customProvider = {
     customModel(6, "doubao-seedance-1-0-pro-250528", "ark-seedance", {
       matched_entry: entry("bytedance", "doubao-seedance-1-0-pro", "video", "Doubao Seedance 1.0 Pro"),
       system_capabilities: VIDEO_CAPABILITIES,
-      global_bucket_refs: ["default_video_backend_i2v"],
     }),
     customModel(7, "MiniMax-Hailuo-02", "minimax-hailuo-v1", { system_capabilities: VIDEO_CAPABILITIES }),
     customModel(8, "tts-1-hd", "openai-tts", { is_default: true }),

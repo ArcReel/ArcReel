@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { CallType, EpisodeItemRef, UsageSummary } from "@/types";
 import type { UsageRecordsFilters, UsageTimeRange } from "@/stores/usage-records-store";
 import { episodeItemRefLabel } from "@/utils/episode-display";
+import { episodeItemKind } from "@/utils/episode-item";
 import { MEDIA_META, projectTitleResolver, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
 
 interface UsageFilterBarProps {
@@ -105,7 +106,9 @@ export function UsageFilterBar({
   if (filters.segment) {
     chips.push({
       key: "segment",
-      label: t("usage_target_segment", { id: episodeItemRefLabel(filters.segment, segmentRef, t) }),
+      label: t(episodeItemKind(filters.segment) === "unit" ? "usage_target_unit" : "usage_target_segment", {
+        id: episodeItemRefLabel(filters.segment, segmentRef, t),
+      }),
       clear: { segment: null },
     });
   }

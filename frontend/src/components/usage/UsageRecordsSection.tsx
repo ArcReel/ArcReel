@@ -48,8 +48,8 @@ function taskMatchesFilters(task: TaskItem, filters: UsageRecordsFilters): boole
   if (filters.provider !== null && task.provider_id !== filters.provider) return false;
   // 任务的分镜就是它的资源 id；生成图片、视频、配音的任务都以分镜为目标。
   if (filters.segment !== null && task.resource_id !== filters.segment) return false;
-  // 排队中的任务还没解析出模型，按模型筛选时一律算不匹配。
-  if (filters.model !== null) return false;
+  // 排队中的任务还没解析出模型（model 为 null），按模型筛选时算不匹配。
+  if (filters.model !== null && task.model !== filters.model) return false;
   return true;
 }
 

@@ -227,7 +227,8 @@ def _problem_code(outcome: ToolOutcome[ScriptPatchResult]) -> str:
 
 
 class TestPatchEpisodeScript:
-    async def test_four_operation_union_commits_as_one_batch(self, ctx: ToolHarness) -> None:
+    @pytest.mark.parametrize("spelling", ["prefixed", "bare"])
+    async def test_four_operation_union_commits_as_one_batch(self, ctx: ToolHarness, spelling: str) -> None:
         """内嵌信封：摘要在前，其后的 JSON 就是结构化结果，重新生成提示与 mention 警告同时出现在两处。"""
         revision = script_revision(_load(ctx))
         session_server = build_arcreel_mcp_server(project_name="demo", data_root=ctx.data_root)["instance"]
@@ -236,7 +237,7 @@ class TestPatchEpisodeScript:
                 name="patch_episode_script",
                 arguments={
                     "script": "episode_1.json",
-                    "base_revision": revision,
+                    "base_revision": revision.removeprefix("sha256-v1:") if spelling == "bare" else revision,
                     "operations": [
                         {"op": "update", "id": "E1S01", "fields": {"image_prompt.scene": "@[无名路人]回头"}},
                         {"op": "insert", "after_id": "E1S01", "item": _segment("ignored")},

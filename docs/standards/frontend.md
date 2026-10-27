@@ -83,6 +83,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 原始色值和内联颜色由 `@shadcn/lint` 的 `no-raw-colors`、`no-inline-styles` 拦截。以下几点 lint 判断不了，由审查核对：
 
 - 浅底、描边、选中态写成基色加透明度修饰（`bg-primary/15`、`border-border/50`），不为某种深浅新增变体 token：变体 token 会让同一语义出现多个近似色，旧色板的变体色已按这一原则删除。CSS 中需要透明度时写 `color-mix(in oklab, var(--primary) 15%, transparent)`。
+- 表单控件的描边用 `border-input`，不加透明度修饰：`--input` 在浅色与深色下对页面底、卡片和弹层都不低于 3:1（WCAG 1.4.11），半透明会让对比度随底色漂移。填充可以用 `bg-input/12` 这类透明度，不要把控件填充调到让占位符低于 4.5:1。卡片、分隔线等装饰性描边仍用 `border`。
 - 语义不混用：危险操作用 `destructive`，琥珀色 `warn` 只表示警告与过期。
 - 文字只分 `foreground`、`subtle-foreground`、`muted-foreground` 三档。`muted-foreground` 上不再叠加透明度或 `opacity`：它在页面底色上的对比度浅色与深色下都只略高于 5:1，再降就低于 WCAG AA 要求的 4.5:1。
 - 按集、按视频单元、按资产类型着色时用身份色 token（`episode`、`unit-clip`、`unit-narration`、`asset-*`），色相和配色经 `episodeHue`、`unitHue`、`assetColor` 取值，不在调用处另算颜色。
@@ -105,6 +106,8 @@ AlertDialog 打开时焦点落在「取消」上，误按 Enter 不会执行操�
 列表行内的轻量对象（如托盘里的排队消息）原地确认：该行换成提示文字、`variant="destructive"` 的确认按钮与 `outline` 的「取消」，焦点落在「取消」按钮上，Esc 或取消退出确认并把焦点交还触发它的按钮，焦点离开确认区域也退出确认。先例是 `QueuedMessageTray` 的删除。
 
 移除、移动、隐藏这类可以恢复的操作不弹确认，执行后调用 `pushToast(text, tone, { action: { label: t("common:undo"), onClick } })`。点击「撤销」会执行回调并关闭这条提示。
+
+提示按钮也可用于打开刚完成的结果：耗时操作（如导入项目）完成时用户已经离开发起页，就不强行跳转，改推带「打开项目」这类按钮的提示。「已离开」在 await 之后复核卸载时 abort 的 `signal.aborted` 判断，发起的写入请求本身不接这个 signal。已离开时每个结果分支（成功、失败、需确认）都要有提示，不能因为对话框随页面卸载而静默丢失。参考实现：`frontend/src/components/pages/lobby/useProjectImport.tsx`。
 
 ## 按钮
 

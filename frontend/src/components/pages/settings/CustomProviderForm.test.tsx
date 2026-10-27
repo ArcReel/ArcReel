@@ -63,7 +63,6 @@ function model(id: number, modelId: string, endpoint = "openai-chat"): CustomPro
     matched_entry: null,
     capability_overrides: null,
     system_capabilities: null,
-    global_bucket_refs: [],
     path_overrides: null,
     requests: [],
   };

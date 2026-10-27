@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, cast
@@ -224,6 +225,43 @@ async def test_configured_lookup_evaluates_each_bucket_once_for_many_units(
     assert [capability.generation_type for capability in capabilities] == ["r2v", "i2v"] * 4
     assert sorted(call.kwargs["generation_type"] for call in evaluate.await_args_list) == ["i2v", "r2v"]
     assert set(reference_unit_capability_payloads(capabilities)) == {unit["unit_id"] for unit in units}
+
+
+class _CountingAvailableAssets(_AvailableAssets):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls = 0
+
+    def is_available(self, asset: ResolvedReferenceAsset) -> bool:
+        self.calls += 1
+        return super().is_available(asset)
+
+
+@pytest.mark.parametrize("count", [4, 8])
+@pytest.mark.asyncio
+async def test_batch_hydration_cost_follows_the_asset_count_not_the_unit_count(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int
+) -> None:
+    """整批单元引用同一张图：路径解析与可用性判定的次数不随单元数增长。"""
+    project = _project(tmp_path, sheet_present=True)
+    units = [{"unit_id": f"E1U{index}", "text": "@[阿离] 抬头。", "duration_seconds": 8} for index in range(count)]
+    counts = {"realpaths": 0}
+    original_realpath = os.path.realpath
+
+    def _counted_realpath(path: Any, *args: Any, **kwargs: Any) -> Any:
+        counts["realpaths"] += 1
+        return original_realpath(path, *args, **kwargs)
+
+    availability = _CountingAvailableAssets()
+    monkeypatch.setattr(os.path, "realpath", _counted_realpath)
+    capabilities = await evaluate_reference_unit_capabilities(
+        project, tmp_path, units, request_facts=_CountingFacts(), availability=availability
+    )
+    monkeypatch.undo()
+
+    assert [capability.generation_type for capability in capabilities] == ["r2v"] * count
+    assert counts == {"realpaths": 2}
+    assert availability.calls == 1
 
 
 @pytest.mark.asyncio

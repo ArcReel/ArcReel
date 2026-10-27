@@ -1104,6 +1104,7 @@ class TaskRepository(BaseRepository):
         items_stmt = self._scope_query(items_stmt, Task)
         result = await self.session.execute(items_stmt)
         items = [_task_to_dict(t) for t in result.scalars().all()]
+        await self._attach_running_models(items)
 
         return {
             "items": items,
@@ -1111,6 +1112,24 @@ class TaskRepository(BaseRepository):
             "page": page,
             "page_size": page_size,
         }
+
+    async def _attach_running_models(self, items: list[dict[str, Any]]) -> None:
+        """给运行中任务补上实际调用的模型（取该任务最近一次调用记录）；其余任务的 model 为 None。
+
+        排队中的任务还没发出调用，模型尚未解析，使用记录按模型筛选时据此把它们算作不匹配。
+        """
+        for item in items:
+            item["model"] = None
+        running = {item["task_id"]: item for item in items if item["status"] == "running"}
+        if not running:
+            return
+        stmt = (
+            select(ApiCall.task_id, ApiCall.model)
+            .where(ApiCall.task_id.in_(running.keys()))
+            .order_by(ApiCall.started_at.asc(), ApiCall.id.asc())
+        )
+        for task_id, model in (await self.session.execute(stmt)).all():
+            running[task_id]["model"] = model
 
     async def get_stats(self, *, project_name: str | None = None) -> dict[str, int]:
         filters = []

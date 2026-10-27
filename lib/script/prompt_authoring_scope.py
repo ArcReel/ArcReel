@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from lib.infra.content_digest import prefixed
 from lib.script.script_models import PENDING_AUTHORING_FIELD
 
 #: 各条目形态的视觉层字段。参考生视频单元的正文即其视觉层。
@@ -109,7 +110,7 @@ class PromptOverwrite:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "revision": self.fingerprint,
+            "revision": prefixed(self.fingerprint) if self.fingerprint is not None else None,
             "entries": [{"id": entry.entry_id, "fields": list(entry.overwritten)} for entry in self.entries],
         }
 

@@ -104,7 +104,8 @@ from server.agent_runtime.session_manager import SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 
 # 事件循环阻塞护栏：同步与异步用例全程启用，豁免清单外的阻塞调用让用例失败，见 tests/blocking_guard。
-pytest_plugins = ["tests.blocking_guard"]
+# 挂起诊断：设了 ARCREEL_TEST_HANG_DUMP_DIR 时，进程长时间无进展就转储全部线程的调用栈，见 tests/hang_watchdog.py。
+pytest_plugins = ["tests.blocking_guard", "tests.hang_watchdog"]
 
 
 @pytest.fixture
