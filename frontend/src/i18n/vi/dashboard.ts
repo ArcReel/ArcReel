@@ -2131,7 +2131,7 @@ export default {
   'ext_agent_mcp_endpoint': 'Endpoint MCP',
   'ext_agent_copy_mcp_endpoint': 'Sao chép endpoint MCP',
   'ext_agent_step_token_title': 'Chuẩn bị token truy cập',
-  'ext_agent_step_token_desc': 'Skill thiết lập còn cần một token truy cập. Token đầy đủ chỉ hiển thị một lần khi tạo. Hãy lưu ngay và chỉ chia sẻ với Agent bên ngoài mà bạn tin cậy. Skill thiết lập lưu token dạng văn bản thuần vào cấu hình MCP và .arcreel/settings.json. Nếu các tệp này nằm trong kho mã, hãy thêm chúng vào .gitignore để token không bị commit.',
+  'ext_agent_step_token_desc': 'Skill thiết lập còn cần một token truy cập. Token đầy đủ chỉ hiển thị một lần khi tạo. Hãy lưu ngay và chỉ chia sẻ với Agent bên ngoài mà bạn tin cậy. Skill thiết lập lưu token dạng văn bản thuần vào cấu hình MCP và .arcreel/settings.json. Nếu các tệp này nằm trong kho mã, hãy thêm chúng vào .gitignore và ngừng theo dõi những tệp Git đã theo dõi, để token không bị commit.',
   'ext_agent_manage_tokens': 'Quản lý token truy cập',
   'ext_agent_prompt_title': 'Để AI Agent kết nối giúp bạn',
   'ext_agent_prompt_desc': 'Gửi lời nhắc này cho AI Agent. Agent sẽ đọc hướng dẫn cài đặt dành riêng và hoàn tất skills, MCP cùng bước xác minh kết nối.',

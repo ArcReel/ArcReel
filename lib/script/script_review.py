@@ -552,7 +552,7 @@ class FormalScriptOverwrite:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "revision": self.fingerprint,
+            "revision": published_revision(self.fingerprint),
             "entries": [entry.to_dict() for entry in self.entries],
             "storyboard_count": sum(entry.has_storyboard for entry in self.entries),
             "video_count": sum(entry.has_video for entry in self.entries),

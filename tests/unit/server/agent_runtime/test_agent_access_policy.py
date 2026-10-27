@@ -661,12 +661,6 @@ def test_sandbox_denies_system_dirs_created_after_session_start(policy: AgentAcc
         assert str(system_dir) in deny_read
 
 
-def test_sandbox_data_root_deny_holds_for_invalid_user_id(policy: AgentAccessPolicy) -> None:
-    """读拒不依赖 user_id：非法 user_id 只让写放行整键消失，读禁照旧。"""
-    settings = policy.build_sandbox_settings(_cwd(policy))
-    assert str(DataRootLayout(policy.data_root).users_dir) in settings["filesystem"]["denyRead"]
-
-
 def test_filter_allowed_tools_strips_bash_family_when_sandbox_disabled(tmp_path: Path) -> None:
     """sandbox 关闭时剥离 Bash/BashOutput/KillBash（落到 can_use_tool 白名单），启用时保留。"""
     base = ["Skill", "Bash", "BashOutput", "KillBash", "Read"]

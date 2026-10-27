@@ -29,7 +29,7 @@ def _entry(entry_id: str, **overrides: object) -> OverwrittenScriptEntry:
 
 def test_counts_cover_voice_end_frame_and_grid_membership():
     overwrite = FormalScriptOverwrite(
-        fingerprint="sha256-v1:x",
+        fingerprint="a" * 64,
         entries=(
             _entry("E1S01", has_storyboard=True, has_video=True, has_narration_audio=True, grid_id="grid_a"),
             _entry("E1S02", has_end_frame=True, grid_id="grid_a"),
@@ -47,7 +47,7 @@ def test_counts_cover_voice_end_frame_and_grid_membership():
 
 def test_text_lists_every_lost_kind_and_the_entries_holding_them():
     overwrite = FormalScriptOverwrite(
-        fingerprint="sha256-v1:x",
+        fingerprint="a" * 64,
         entries=(
             _entry(
                 "E1S01",
@@ -73,7 +73,7 @@ def test_text_lists_every_lost_kind_and_the_entries_holding_them():
 
 
 def test_text_without_products_still_warns_about_history():
-    overwrite = FormalScriptOverwrite(fingerprint="sha256-v1:x", entries=(_entry("E1S01"),)).to_dict()
+    overwrite = FormalScriptOverwrite(fingerprint="a" * 64, entries=(_entry("E1S01"),)).to_dict()
 
     assert render_overwrite_loss_text(overwrite, i18n_message).splitlines() == [
         "本集已有正式脚本，确认会整份覆盖它：现有 1 条脚本条目全部移除，时间线上手改的台词与提示词一并丢弃。",
@@ -85,18 +85,18 @@ def test_text_without_products_still_warns_about_history():
 def test_overwrite_with_text_passes_none_through_and_keeps_the_token():
     assert overwrite_with_text(None, i18n_message) is None
 
-    overwrite = FormalScriptOverwrite(fingerprint="sha256-v1:x", entries=(_entry("E1S01"),)).to_dict()
+    overwrite = FormalScriptOverwrite(fingerprint="a" * 64, entries=(_entry("E1S01"),)).to_dict()
     rendered = overwrite_with_text(overwrite, i18n_message)
 
     assert rendered is not None
-    assert rendered["revision"] == "sha256-v1:x"
+    assert rendered["revision"] == "sha256-v1:" + "a" * 64
     assert rendered["text"] == render_overwrite_loss_text(overwrite, i18n_message)
 
 
 @pytest.mark.parametrize("locale", SUPPORTED_LOCALES)
 def test_every_locale_renders_a_complete_text(locale: str):
     overwrite = FormalScriptOverwrite(
-        fingerprint="sha256-v1:x",
+        fingerprint="a" * 64,
         entries=(
             _entry(
                 "E1S01",

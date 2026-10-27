@@ -45,3 +45,29 @@ def test_project_relative_outcome_rewrites_detail_and_action_only_for_problems(t
 
     assert rewritten == ToolProblem("draft_invalid", "见 drafts/x.json", action="打开 drafts")
     assert _project_relative_outcome(succeeded, spellings) is succeeded
+
+
+def test_project_relative_outcome_rewrites_nested_params(tmp_path: Path) -> None:
+    """迁移失败记录读不出时，OSError 文本带着记录的绝对路径进入 params.details[].violation。"""
+    project_dir = tmp_path / "projects" / "demo"
+    record = f"{project_dir}/.migration_failure.json"
+    failed = ToolOutcome(
+        problem=ToolProblem(
+            "project_migration_failed",
+            "项目数据升级失败",
+            params={
+                "details": [{"file": ".migration_failure.json", "violation": f"Permission denied: '{record}'"}],
+                "episode": 1,
+                "paths": (record,),
+            },
+        )
+    )
+
+    rewritten = _project_relative_outcome(failed, (str(project_dir),)).problem
+
+    assert rewritten is not None
+    assert rewritten.params == {
+        "details": [{"file": ".migration_failure.json", "violation": "Permission denied: '.migration_failure.json'"}],
+        "episode": 1,
+        "paths": (".migration_failure.json",),
+    }
