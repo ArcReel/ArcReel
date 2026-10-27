@@ -532,14 +532,14 @@ def test_build_sandbox_settings_disabled_returns_only_enabled_false(tmp_path: Pa
     """sandbox_enabled=False（Windows 回退）时只返回 {"enabled": False}。"""
     policy = _make_policy(tmp_path, sandbox_enabled=False)
     cwd = _projects_dir(policy) / "demo"
-    assert policy.build_sandbox_settings(cwd, user_id=_USER_ID) == {"enabled": False}
+    assert policy.build_sandbox_settings(cwd) == {"enabled": False}
 
 
 def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> None:
     """sandbox_enabled=True 时出站与 loopback 均显式放行，文件围栏保持完整。"""
     policy = _make_policy(tmp_path, sandbox_enabled=True)
     cwd = _projects_dir(policy) / "demo"
-    settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
+    settings = policy.build_sandbox_settings(cwd)
     assert settings["enabled"] is True
     assert settings["autoAllowBashIfSandboxed"] is True
     assert settings["allowUnsandboxedCommands"] is False
@@ -553,19 +553,14 @@ def test_build_sandbox_settings_enabled_returns_full_config(tmp_path: Path) -> N
 def test_build_sandbox_settings_in_docker_enables_weaker_nested(tmp_path: Path) -> None:
     """in_docker 透传到 enableWeakerNestedSandbox；非 Docker 默认 False。"""
     cwd = _projects_dir(_make_policy(tmp_path)) / "demo"
-    assert _make_policy(tmp_path).build_sandbox_settings(cwd, user_id=_USER_ID)["enableWeakerNestedSandbox"] is False
-    assert (
-        _make_policy(tmp_path, in_docker=True).build_sandbox_settings(cwd, user_id=_USER_ID)[
-            "enableWeakerNestedSandbox"
-        ]
-        is True
-    )
+    assert _make_policy(tmp_path).build_sandbox_settings(cwd)["enableWeakerNestedSandbox"] is False
+    assert _make_policy(tmp_path, in_docker=True).build_sandbox_settings(cwd)["enableWeakerNestedSandbox"] is True
 
 
 def test_build_sandbox_settings_denies_write_to_project_json(policy: AgentAccessPolicy) -> None:
     """sandbox 启用时 denyWrite 覆盖 scripts/、project.json、edit_timelines/、drafts/、source/、.arcreel/trash/、媒体目录与 versions/（Bash 子进程内核级封堵）。"""
     cwd = _cwd(policy)
-    settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
+    settings = policy.build_sandbox_settings(cwd)
     deny_write = settings["filesystem"]["denyWrite"]
     assert str(cwd / "scripts") in deny_write
     assert str(cwd / "project.json") in deny_write
@@ -585,7 +580,7 @@ def test_build_sandbox_settings_denies_drafts_dir_not_per_episode_files(policy: 
     增删的：「同集会话内先拆分出第 N 集、再改它」这条主流程上，逐文件枚举必然落空。
     与 hook 层刻意不对称（hook 只拒正式 script_plan，草稿留给内置 Edit）。"""
     cwd = _cwd(policy)
-    deny_write = policy.build_sandbox_settings(cwd, user_id=_USER_ID)["filesystem"]["denyWrite"]
+    deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
     assert str(cwd / "drafts") in deny_write
     assert not any("episode_" in p for p in deny_write)
 
@@ -600,7 +595,7 @@ def test_build_sandbox_settings_deny_write_includes_resolved_paths(policy: Agent
     link_cwd = _projects_dir(policy) / "selfproj_link"
     link_cwd.symlink_to(real_root / "projects" / "selfproj")
 
-    settings = policy.build_sandbox_settings(link_cwd, user_id=_USER_ID)
+    settings = policy.build_sandbox_settings(link_cwd)
     deny_write = settings["filesystem"]["denyWrite"]
     resolved_cwd = link_cwd.resolve()
     assert resolved_cwd != link_cwd
@@ -626,9 +621,7 @@ def test_sandbox_denies_read_of_existing_sensitive_files_outside_data_root(tmp_p
     (profile_dir / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
 
     policy = _make_policy(tmp_path)
-    deny_read = policy.build_sandbox_settings(_projects_dir(policy) / "demo", user_id=_USER_ID)["filesystem"][
-        "denyRead"
-    ]
+    deny_read = policy.build_sandbox_settings(_projects_dir(policy) / "demo")["filesystem"]["denyRead"]
 
     assert str(root.resolve() / ".env") in deny_read
     assert str(root.resolve() / ".env.local") in deny_read
@@ -646,7 +639,7 @@ def test_sandbox_denies_read_of_every_data_root_entry_but_projects(policy: Agent
     (root / ".system_config.json").write_text("{}", encoding="utf-8")
     (root / "future_dir").mkdir()
 
-    deny_read = policy.build_sandbox_settings(_cwd(policy), user_id=_USER_ID)["filesystem"]["denyRead"]
+    deny_read = policy.build_sandbox_settings(_cwd(policy))["filesystem"]["denyRead"]
 
     for name in ("arcreel.db", ".arcreel.db-wal", ".arcreel", ".system_config.json", "future_dir"):
         assert str(root / name) in deny_read
@@ -661,7 +654,7 @@ def test_sandbox_denies_system_dirs_created_after_session_start(policy: AgentAcc
     system_dirs = DataRootLayout(policy.data_root).system_dirs
     assert not any(system_dir.exists() for system_dir in system_dirs)
 
-    deny_read = policy.build_sandbox_settings(_cwd(policy), user_id=_USER_ID)["filesystem"]["denyRead"]
+    deny_read = policy.build_sandbox_settings(_cwd(policy))["filesystem"]["denyRead"]
 
     for system_dir in system_dirs:
         assert system_dir.is_dir(), f"{system_dir} 应在会话启动时建出"
@@ -670,7 +663,7 @@ def test_sandbox_denies_system_dirs_created_after_session_start(policy: AgentAcc
 
 def test_sandbox_data_root_deny_holds_for_invalid_user_id(policy: AgentAccessPolicy) -> None:
     """读拒不依赖 user_id：非法 user_id 只让写放行整键消失，读禁照旧。"""
-    settings = policy.build_sandbox_settings(_cwd(policy), user_id="../escape")
+    settings = policy.build_sandbox_settings(_cwd(policy))
     assert str(DataRootLayout(policy.data_root).users_dir) in settings["filesystem"]["denyRead"]
 
 
@@ -796,7 +789,7 @@ def test_protected_write_rules_project_new_rule_in_both_layers(
     assert not allowed
     assert reason == synthetic.deny_message
     # sandbox 层：denyWrite 投影同表同步
-    deny_write = policy.build_sandbox_settings(cwd, user_id=_USER_ID)["filesystem"]["denyWrite"]
+    deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
     assert str(cwd / "meta.lock") in deny_write
     # 既有规则不受影响
     assert str(cwd / "project.json") in deny_write
@@ -885,20 +878,28 @@ def test_invalid_user_id_denies_memory_instead_of_widening(policy: AgentAccessPo
     assert not allowed
 
 
-def test_build_sandbox_settings_allows_write_to_user_memory(policy: AgentAccessPolicy) -> None:
-    """内核沙箱层：用户记忆目录在 cwd 外，Bash/Write 要落盘须显式 allowWrite。"""
+@pytest.mark.parametrize(
+    "in_docker",
+    [pytest.param(False, id="macos-seatbelt-or-linux-bwrap"), pytest.param(True, id="docker-linux-bwrap")],
+)
+def test_build_sandbox_settings_gives_bash_no_access_to_user_memory(tmp_path: Path, in_docker: bool) -> None:
+    """内核沙箱层不给用户记忆目录开任何口子，Bash 读写都被拒，两个平台的编译结果相同。
+
+    bwrap 把 ``allowWrite`` 编成可写绑定挂载，会盖掉 ``users/`` 的 ``denyRead``；Seatbelt
+    则读拒写放。内置 Read/Write/Edit/Glob/Grep 不经内核沙箱，由 hook 层放行记忆目录。
+    """
+    policy = _make_policy(tmp_path, in_docker=in_docker)
     cwd = _cwd(policy)
-    settings = policy.build_sandbox_settings(cwd, user_id=_USER_ID)
-    assert settings["filesystem"]["allowWrite"] == [str(DataRootLayout(policy.data_root).user_memory_dir(_USER_ID))]
-    # 其余沙箱规则不变
-    assert str(cwd / "project.json") in settings["filesystem"]["denyWrite"]
-    assert settings["network"] == {"allowedDomains": ["*"], "allowLocalBinding": True}
+    layout = DataRootLayout(policy.data_root)
+    filesystem = policy.build_sandbox_settings(cwd)["filesystem"]
 
-
-def test_build_sandbox_settings_omits_allow_write_for_invalid_user_id(policy: AgentAccessPolicy) -> None:
-    """非法 user_id 派生不出安全目录：整键不写，而非放行一个逃出数据根的路径。"""
-    settings = policy.build_sandbox_settings(_cwd(policy), user_id="../escape")
-    assert "allowWrite" not in settings["filesystem"]
+    assert "allowWrite" not in filesystem
+    assert str(layout.users_dir) in filesystem["denyRead"]
+    # 内置工具照常读写用户记忆
+    memory_file = layout.user_memory_dir(_USER_ID) / "MEMORY.md"
+    for tool in ("Read", "Write", "Edit", "Glob", "Grep"):
+        allowed, reason = policy.check_path_access(str(memory_file), tool, cwd, user_id=_USER_ID)
+        assert allowed, f"{tool} 访问用户记忆应放行：{reason}"
 
 
 # ============================================================

@@ -266,7 +266,7 @@ class AgentAccessPolicy:
             resolved, project_cwd, user_id=user_id, is_search=tool_name in self._SEARCH_TOOLS
         )
 
-    def build_sandbox_settings(self, project_cwd: Path, *, user_id: str) -> dict[str, Any]:
+    def build_sandbox_settings(self, project_cwd: Path) -> dict[str, Any]:
         """构造 SandboxSettings dict（SDK Python TypedDict 未声明 filesystem
         子结构，但 CLI 运行时透传 JSON 接受）——内核沙箱层对同一份规则的编译投影。
 
@@ -280,10 +280,11 @@ class AgentAccessPolicy:
           ``patch_project`` / ``upload_source`` / 参考拆分的取回与晋升等，跑在主进程不受 sandbox 约束），
           堵死 Bash（``echo>`` / ``sed`` / ``python -c``）旁路。OS 级对 sandbox 内所有子进程生效。
           sandbox 内已无合法 Bash 写这几类路径，故不误伤。
-        - ``filesystem.allowWrite``：用户记忆目录（``<数据根>/users/<user_id>/memory/``）
-          在 cwd 外，默认不可写；Agent 要用 Write/Edit 记跨项目笔记，须在内核层单独放行。
-          项目记忆在 cwd 内本已可写，不重复登记。``user_id`` 非法（不是单个路径段）时不
-          登记任何放行——fail-closed 优先于让记忆可写。
+        - 不写 ``filesystem.allowWrite``：用户记忆目录（``<数据根>/users/<user_id>/memory/``）
+          对 Bash 读写都关闭。内置 Read/Write/Edit/Glob/Grep 在主进程执行、不经内核沙箱，
+          由 hook 层放行记忆目录，用不着内核层放行；而给它加 ``allowWrite`` 会让两个平台各漏
+          一边：bwrap 把可写目录绑定挂载回来，盖掉 ``users/`` 的 ``denyRead``，Bash 可读可写；
+          Seatbelt 读拒写放，Bash 能盲写。项目记忆在 cwd 内，Bash 照常读写。
         - ``filesystem.denyRead`` 另含数据根下 ``projects/`` 以外的全部顶层条目（见
           ``_build_data_root_deny_read_abs_paths``）：hook 层的数据根默认拒只管内置 Read/Glob/Grep，
           Bash 不经该 hook（ADR 0026）。
@@ -301,10 +302,6 @@ class AgentAccessPolicy:
             "denyRead": self._build_sensitive_abs_paths() + self._build_data_root_deny_read_abs_paths(),
             "denyWrite": self._build_protected_write_abs_paths(project_cwd),
         }
-        # 无路径可放行时整键不写：``allowWrite`` 是加法放行，空列表不表达任何意图。
-        memory_allow_write = self._build_memory_allow_write_abs_paths(user_id)
-        if memory_allow_write:
-            filesystem["allowWrite"] = memory_allow_write
         return {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
@@ -348,11 +345,6 @@ class AgentAccessPolicy:
             logger.warning("数据根无法列出,sandbox deny 只含布局登记的系统目录: %s", self.data_root)
         entries.discard(layout.projects_dir)
         return sorted(str(entry) for entry in entries)
-
-    def _build_memory_allow_write_abs_paths(self, user_id: str) -> list[str]:
-        """内核沙箱层的记忆写放行清单：仅用户记忆目录（项目记忆在 cwd 内本已可写）。"""
-        user_dir = self._user_memory_dir_or_none(user_id)
-        return [] if user_dir is None else [str(user_dir)]
 
     def _user_memory_dir_or_none(self, user_id: str) -> Path | None:
         """当前用户的记忆目录；``user_id`` 不是单个路径段时返回 None。
