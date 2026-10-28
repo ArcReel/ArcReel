@@ -377,6 +377,39 @@ class TestReferenceVideoRouter:
             assert confirmed.json()["status"] == "confirmed"
             assert script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "confirmed"
 
+    def test_web_save_and_confirm_tag_project_changes_as_webui(self, tmp_path, monkeypatch, video_request_facts):
+        """内容确认页的保存与确认是用户在 Web 上的操作：写入产生的项目变更须标为 webui。
+
+        未标注时变更按默认的 filesystem 来源广播，前端把它当作外部改动，自动跳到确认时登记的资产窗格。
+        """
+        from lib.project.project_change_hints import (
+            register_project_change_batch_listener,
+            register_project_change_listener,
+        )
+
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        sources: list[str] = []
+        unregister_hint = register_project_change_listener(lambda _name, source, _paths: sources.append(source))
+        unregister_batch = register_project_change_batch_listener(
+            lambda _name, source, _changes: sources.append(source)
+        )
+        try:
+            with client:
+                base = "/api/v1/projects/demo/episodes/1/script-review"
+                _write_rv_script_plan(pm, _rv_script_plan())
+                sources.clear()
+
+                edited = _rv_script_plan()
+                edited["units"][0]["text"] = "@[阿离] 转身离去。"
+                assert client.put(f"{base}/content", json=edited).status_code == 200
+                assert client.post(f"{base}/confirm").status_code == 200
+        finally:
+            unregister_hint()
+            unregister_batch()
+
+        assert sources
+        assert set(sources) == {"webui"}
+
     def test_quarantine_surfaced_with_recomputed_line_anchored_violations(
         self, tmp_path, monkeypatch, video_request_facts
     ):

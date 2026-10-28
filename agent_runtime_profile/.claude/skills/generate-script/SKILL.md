@@ -49,6 +49,10 @@ mcp__arcreel__generate_episode_script({"episode_id": N})
   `prompt_overwrite_required`，回执正文是服务端生成的丢失清单，`params.prompt_overwrite.revision` 是认可令牌：
   把清单原文转述给用户，得到同意后才以该 revision 作为 `overwrite_revision` 重新调用。
 - 没有要编写的条目时工具不调用模型、不改剧本，回执会说明。整集重做走重跑脚本规划并重新确认。
+- 参考生视频在调用模型前按正式脚本复判待编写单元的正文与台词量。不通过时任务失败，问题码
+  `prompt_authoring_dialogue_overload`（台词念不完）或 `prompt_authoring_unit_invalid`，`action` 为 `fix_input`；
+  `params.position` 是该单元在本集的位置，界面称「视频单元 N」。向用户转述原因时用这个称呼，请用户在时间线上
+  修改该单元的正文或时长，不要原样重试。
 
 ### 广告/短片整份重做（`regenerate`）
 

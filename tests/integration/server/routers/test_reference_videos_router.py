@@ -1423,6 +1423,107 @@ def test_generate_batch_aggregates_the_confirmation_by_tier_then_enqueues_on_con
     assert options == {"confirmed_request_duration_seconds": 4}
 
 
+PREVIEW_ENDPOINT = f"{BATCH_ENDPOINT}/preview"
+
+
+def test_preview_batch_lists_the_targets_and_totals_their_quotes_without_creating_tasks(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """确认框读的是提交会给出的同一份结论，外加已定价部分的合计；预览一个任务也不建。"""
+
+    first = _seed_unit(reference_videos_client)
+    second = _seed_second_unit(reference_videos_client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9], quote_amount=0.8)
+
+    from server.routers import reference_videos
+
+    project_path = reference_videos.get_project_manager().get_project_path("demo")
+    script_path = project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["video_units"][0]["duration_override"] = 3
+    script_path.write_text(json.dumps(script), encoding="utf-8")
+    before = {path.relative_to(project_path): path.read_bytes() for path in project_path.rglob("*") if path.is_file()}
+
+    resp = reference_videos_client.post(PREVIEW_ENDPOINT, json={"unit_ids": [first, second]})
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["decision"] == "admitted"
+    assert [item["unit_id"] for item in body["units"]] == [first, second]
+    assert body["skipped_unit_ids"] == []
+    assert body["estimated_cost"] == {"USD": pytest.approx(1.6)}
+    assert body["unpriced_count"] == 0
+    assert "task_ids" not in body
+    assert enqueued == []
+    assert {
+        path.relative_to(project_path): path.read_bytes() for path in project_path.rglob("*") if path.is_file()
+    } == before
+
+
+def test_preview_batch_awaiting_consent_totals_the_cost_at_the_tiers_to_accept(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """需确认的档位与提交时同一份分组，合计按待确认的档位报价，确认框据此一次拍板。"""
+
+    first = _seed_unit(reference_videos_client)
+    second = _seed_second_unit(reference_videos_client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[4, 8], quote_amount=0.8)
+
+    body = reference_videos_client.post(PREVIEW_ENDPOINT, json={}).json()
+
+    assert body["decision"] == "confirmation_required"
+    tiers = body["confirmation"]["tiers"]
+    assert [tier["request_duration_seconds"] for tier in tiers] == [4]
+    assert sorted(tiers[0]["unit_ids"]) == sorted([first, second])
+    assert body["estimated_cost"] == {"USD": pytest.approx(1.6)}
+    assert enqueued == []
+
+
+def test_preview_batch_counts_units_without_a_quote_instead_of_guessing(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_unit(reference_videos_client)
+    _seed_second_unit(reference_videos_client)
+    _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    body = reference_videos_client.post(PREVIEW_ENDPOINT, json={}).json()
+
+    assert body["decision"] == "admitted"
+    assert body["estimated_cost"] is None
+    assert body["unpriced_count"] == 2
+
+
+def test_preview_batch_reports_a_blocked_batch_and_skipped_clips(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """受阻与已有成片的跳过项在预览里就说清，用户不必先提交一次才知道。"""
+
+    first = _seed_unit(reference_videos_client)
+    second = _seed_second_unit(reference_videos_client)
+    third = _seed_second_unit(reference_videos_client)
+    enqueued = _patch_batch_admission(
+        monkeypatch,
+        durations=[3, 6, 9],
+        active_tasks=[{"resource_id": third, "id": "task-running", "status": "running"}],
+    )
+    _record_finished_clip(first)
+
+    body = reference_videos_client.post(PREVIEW_ENDPOINT, json={}).json()
+
+    assert body["decision"] == "blocked"
+    assert body["skipped_unit_ids"] == [first]
+    codes = {item["unit_id"]: [problem["code"] for problem in item["problems"]] for item in body["units"]}
+    assert codes == {second: ["generation_batch_admission_withheld"], third: ["generation_active_task_conflict"]}
+    assert all(problem["message"] for item in body["units"] for problem in item["problems"])
+    assert enqueued == []
+
+
+def test_preview_batch_rejects_an_empty_selection(reference_videos_client: TestClient) -> None:
+    resp = reference_videos_client.post(PREVIEW_ENDPOINT, json={"unit_ids": []})
+
+    assert resp.status_code == 400
+
+
 @pytest.mark.parametrize("invalid", [0, -4, 4.5])
 def test_generate_batch_rejects_non_positive_confirmed_duration(
     reference_videos_client: TestClient, invalid: object

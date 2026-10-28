@@ -183,6 +183,25 @@ class BatchAdmission:
             )
         return tuple(tiers)
 
+    def quoted_total(self) -> tuple[dict[str, float], int]:
+        """The whole request's quoted cost by currency, and how many targets have no quote.
+
+        Each unit is quoted at the tier it would be billed at, so a batch awaiting consent
+        totals what it costs once the user accepts. Currencies stay apart; units the price
+        list cannot quote are counted instead, so the caller knows the total is a floor.
+        """
+
+        total: dict[str, float] = {}
+        unpriced = 0
+        for ticket in self.tickets:
+            amount = _cost_amount(ticket.request_cost)
+            currency = _cost_currency(ticket.request_cost)
+            if amount is None or currency is None:
+                unpriced += 1
+                continue
+            total[currency] = round(total.get(currency, 0.0) + amount, 6)
+        return {currency: amount for currency, amount in total.items() if amount > 0}, unpriced
+
     def projections(self) -> list[dict[str, object]]:
         return [dict(ticket.projection) for ticket in self.tickets if ticket.projection is not None]
 

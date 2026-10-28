@@ -96,6 +96,7 @@ from lib.script.script_generator import (
     AdScriptOverwriteRequired,
     AdScriptRejected,
     PromptAuthoringTargetError,
+    PromptAuthoringUnitRejected,
     ScriptGenerator,
 )
 from lib.script.script_models import (
@@ -175,10 +176,21 @@ class TextGenerationResult:
     warnings: list[dict[str, Any]] = dataclass_field(default_factory=list)
     #: 广告/短片整份生成本次登记的新资产与衍生（``{"type", "name"}``），随任务结果交给 Web 列出。
     new_assets: list[dict[str, str]] = dataclass_field(default_factory=list)
+    #: 提示词编写没有待编写的条目、未调用文本模型；Web 据此提示用户勾选覆盖后重写。
+    no_pending_authoring: bool = False
 
 
 class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
+
+
+class PromptAuthoringInputError(TextGenerationError):
+    """提示词编写的输入没有通过调用文本模型前的预判，修改输入后才能编写；携带任务失败的问题码与参数。"""
+
+    def __init__(self, message: str, *, code: str, params: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.code = code
+        self.params = params
 
 
 class PromptOverwriteRequiredError(TextGenerationError):
@@ -775,6 +787,8 @@ async def generate_episode_script(
         raise _ad_overwrite_error(await _describe(projects, project_name, episode), exc.overwrite) from exc
     except PromptOverwriteRequired as exc:
         raise _prompt_overwrite_error(await _describe(projects, project_name, episode), exc) from exc
+    except PromptAuthoringUnitRejected as exc:
+        raise PromptAuthoringInputError(str(exc), code=exc.code, params=exc.params) from exc
     except PromptAuthoringTargetError as exc:
         # 点名的条目不在正式剧本内是调用方的错：报「拒绝生成」而不是让它冒成 internal_error，
         # 后者会引导 Agent 原样重试同一份必然失败的参数。
@@ -793,7 +807,8 @@ async def generate_episode_script(
         return TextGenerationResult(
             f"✅ {describe_episode_for_agent(generator.project_json, episode)} 没有待编写的条目，"
             f"未调用文本模型，正式脚本未改动: {result_path.relative_to(project_path).as_posix()}{skipped_note}\n"
-            f"   要覆盖已有视觉层请用 entry_ids 点名并传 rewrite=true；{redo}。"
+            f"   要覆盖已有视觉层请用 entry_ids 点名并传 rewrite=true；{redo}。",
+            no_pending_authoring=True,
         )
     rewritten_note = "、".join(rewritten) if rewritten else "整份生成"
     summary = (
