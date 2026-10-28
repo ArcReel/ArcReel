@@ -39,6 +39,7 @@ import {
   type OptimisticHandle,
   type ResourceKind,
 } from "@/stores/tasks-store";
+import { isTerminalStatus } from "@/types/task";
 import { episodeItemLabel } from "@/utils/episode-display";
 
 /** toast 不局限在集页面：条目按「标题 · 5」指称。 */
@@ -497,7 +498,34 @@ export async function enqueuePromptAuthoring(
     i18n.t(request.rewrite ? "dashboard:prompt_authoring_rewrite_queued" : "dashboard:prompt_authoring_queued"),
     "info",
   );
+  if (!deduped) watchPromptAuthoringNoop(projectName, taskIds);
   return { taskIds, deduped };
+}
+
+/**
+ * 提示词编写以空操作收尾（范围内没有待编写的条目，未调用文本模型）时弹提示，说明勾选覆盖可以重写。
+ * 编写入口提交后即关闭，只能在入队层跟踪任务结果；任务都到达终态，或任务列表不再跟踪本项目
+ * （切到别的项目、离开工作室）后停止跟踪，回来时不补弹过期的提示。
+ */
+function watchPromptAuthoringNoop(projectName: string, taskIds: readonly string[]): void {
+  const pending = new Set(taskIds);
+  if (pending.size === 0) return;
+  const check = (state: ReturnType<typeof useTasksStore.getState>): void => {
+    if (state.refreshScope?.projectName !== projectName) {
+      unsubscribe();
+      return;
+    }
+    for (const task of state.tasks) {
+      if (!pending.has(task.task_id) || !isTerminalStatus(task.status)) continue;
+      pending.delete(task.task_id);
+      if (task.status === "succeeded" && task.result?.no_pending_authoring === true) {
+        useAppStore.getState().pushToast(i18n.t("dashboard:prompt_authoring_nothing_pending"), "info");
+      }
+    }
+    if (pending.size === 0) unsubscribe();
+  };
+  const unsubscribe = useTasksStore.subscribe(check);
+  check(useTasksStore.getState());
 }
 
 /** 脚本规划任务的占用槽：一集一个文本任务，resource_id 与服务端 `episode-{N}` 一致。 */

@@ -1584,6 +1584,24 @@ describe("API.referenceVideos", () => {
     expect(res.decision).toBe("admitted");
   });
 
+  it("previewReferenceVideoBatch posts the same selection to the preview endpoint", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ decision: "admitted", units: [], skipped_unit_ids: [], estimated_cost: null, unpriced_count: 0 }),
+        { status: 200 },
+      ),
+    );
+
+    const res = await API.previewReferenceVideoBatch("proj", 1, { unit_ids: ["E1U1"] });
+
+    expect(fetchMock.mock.calls[0]![0]).toContain(
+      "/projects/proj/reference-videos/episodes/1/units/generate-batch/preview",
+    );
+    expect(fetchMock.mock.calls[0]![1]!.method).toBe("POST");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({ unit_ids: ["E1U1"] });
+    expect(res.unpriced_count).toBe(0);
+  });
+
   it("precheckReferenceVideoDuration sends no query string", async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }));
 

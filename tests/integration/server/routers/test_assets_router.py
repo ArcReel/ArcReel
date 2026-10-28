@@ -16,6 +16,7 @@ from lib.artifacts.artifact_manifest import (
 from lib.i18n import _ as translate_message
 from lib.project.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
 from lib.project.asset_types import DERIVATIVES_FIELD
+from lib.project.project_change_hints import register_project_change_listener
 from server.routers import assets
 from tests.fakes import fail_project_json_write
 
@@ -498,14 +499,21 @@ class TestApplyToProject:
             client.post("/api/v1/assets", data={"type": "scene", "name": n})
         ids = [a["id"] for a in client.get("/api/v1/assets?type=scene").json()["items"]]
 
-        r = client.post(
-            "/api/v1/assets/apply-to-project",
-            json={
-                "asset_ids": ids,
-                "target_project": "target",
-                "conflict_policy": "skip",
-            },
-        )
+        sources: list[str] = []
+        unregister = register_project_change_listener(lambda _name, source, _paths: sources.append(source))
+        try:
+            r = client.post(
+                "/api/v1/assets/apply-to-project",
+                json={
+                    "asset_ids": ids,
+                    "target_project": "target",
+                    "conflict_policy": "skip",
+                },
+            )
+        finally:
+            unregister()
+        assert sources
+        assert set(sources) == {"webui"}
         assert r.status_code == 200
         body = r.json()
         assert len(body["succeeded"]) == 2
