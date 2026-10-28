@@ -23,7 +23,7 @@ shadcn 文档和社区示例大多基于 Radix，本仓库的原语底层是 Bas
 
 `no-restyle` 只放行布局类名：间距、边框、配色写在原语外的一层普通元素上，原语自身只用 margin 与它隔开。折叠触发器写成 `<CollapsibleTrigger render={<Button variant="ghost" size="sm" />}>`，展开图标用 `group-aria-expanded/button:rotate-90` 旋转。
 
-`render` 元素上的类名按它所替换的原语核对。自身不带样式的触发器与 `Collapsible` 登记在 `eslint.config.js` 的 `UNSTYLED_PRIMITIVES`，不限类别；其余原语仍只放行布局类名。
+`render` 传入 `Button` 等原语组件时，它上面的类名按该组件的契约核对；传入原生元素或 `Link` 等非原语组件时，按外层原语核对。自身不带样式的触发器与 `Collapsible` 登记在 `eslint.config.js` 的 `UNSTYLED_PRIMITIVES`，不限类别；其余原语仍只放行布局类名。
 
 ## 测试打桩
 
