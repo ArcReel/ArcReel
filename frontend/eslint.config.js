@@ -212,9 +212,21 @@ const RESTRICT_UI_PRIMITIVE_IMPORTS = {
   ],
 };
 
+// 自身不带任何样式的行为原语：components/ui 里的实现只透传 props，不写 className（InfoTipTrigger 只补 focus-ring）。
+// 它们渲染的元素外观由调用处给出，写在 render 元素或 className 上（见 info-tip.tsx 的说明）。
+// @shadcn/lint 0.2.2 起把 render 元素上的 class 记到原语名下，按默认契约会误报「原语自带样式」，
+// 故为这几个原语单列不限类别的契约。新增条目前先确认该原语在 components/ui 中确实不带样式。
+const UNSTYLED_PRIMITIVES = ["Collapsible", "DialogTrigger", "InfoTipTrigger", "PopoverTrigger", "TooltipTrigger"];
+
 // @shadcn/lint 规则：components/ui 内的原语自身负责样式，关闭 restyle、任意值与静态 class 三条（见下方原语块）。
 const SHADCN_RULES = {
-  "shadcn/no-restyle": ["error", { allow: ["layout"] }],
+  "shadcn/no-restyle": [
+    "error",
+    {
+      allow: ["layout"],
+      contracts: [{ pattern: `^(${UNSTYLED_PRIMITIVES.join("|")})$`, allow: ["*"] }],
+    },
+  ],
   "shadcn/no-raw-colors": "error",
   "shadcn/no-arbitrary-values": ["error", { allow: ["layout"] }],
   "shadcn/no-inline-styles": "error",

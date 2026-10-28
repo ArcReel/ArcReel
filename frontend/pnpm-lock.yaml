@@ -107,7 +107,7 @@ importers:
         version: 1.63.0
       '@shadcn/lint':
         specifier: ^0.2.0
-        version: 0.2.0(@typescript-eslint/parser@8.70.1(eslint@10.11.0(jiti@2.7.0))(typescript@6.0.3))(eslint@10.11.0(jiti@2.7.0))
+        version: 0.2.3(@typescript-eslint/parser@8.70.1(eslint@10.11.0(jiti@2.7.0))(typescript@6.0.3))(eslint@10.11.0(jiti@2.7.0))
       '@tailwindcss/vite':
         specifier: ^4.3.3
         version: 4.3.3(vite@8.3.5(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))
@@ -1854,8 +1854,8 @@ packages:
     resolution: {integrity: sha512-wogj6Trj8fAu+aD7HbpvHEBlyANMOvvO9MP5NFJaiQbprLKugtCdE6rFTxDhofXvRo4nswL9m4Cvysg3k5KcvQ==}
     engines: {node: '>=18'}
 
-  '@shadcn/lint@0.2.0':
-    resolution: {integrity: sha512-DTYr427BR8cDc0J0Y++u1Uh12NAYGmdPiqgy4wKSogi7RNEhFanIcfBMPRPUvkunt9QiJUfI7B28TW39MrPCFA==}
+  '@shadcn/lint@0.2.3':
+    resolution: {integrity: sha512-N/eAXidyPYXpbUOzPCf6uX5UN/hhObMZbrURrHe71CLNvPio78agqBt4EW/V89KQyS1NTxXcqMsNfiLxsBh8sA==}
     engines: {node: '>=20.19'}
     peerDependencies:
       '@typescript-eslint/parser': '>=8.40.0'
@@ -2592,11 +2592,6 @@ packages:
 
   cn@0.2.6:
     resolution: {integrity: sha512-+i4L0zUGgRcEnhsxueVrP7iBGxBx5iD0WOTYg1MwFEu2ZyCmH5Ov2V1cul2Ht5UchRQQgftCf4be/RxspuW6QQ==}
-    engines: {node: '>=20'}
-    hasBin: true
-
-  cn@0.3.2:
-    resolution: {integrity: sha512-RKzY5Edavc8B2Ka6tjJecKFC4nm0p7lADY72xzICmiJSf4TkaxWXt0fHsib2P2G4FkFyXfSDi9oDtIBuCZvY2g==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -6934,10 +6929,10 @@ snapshots:
       '@sentry/conventions': 0.16.0
       '@sentry/core': 10.76.2
 
-  '@shadcn/lint@0.2.0(@typescript-eslint/parser@8.70.1(eslint@10.11.0(jiti@2.7.0))(typescript@6.0.3))(eslint@10.11.0(jiti@2.7.0))':
+  '@shadcn/lint@0.2.3(@typescript-eslint/parser@8.70.1(eslint@10.11.0(jiti@2.7.0))(typescript@6.0.3))(eslint@10.11.0(jiti@2.7.0))':
     dependencies:
       '@eslint/core': 0.17.0
-      cn: 0.3.2
+      cn: 0.4.0
     optionalDependencies:
       '@typescript-eslint/parser': 8.70.1(eslint@10.11.0(jiti@2.7.0))(typescript@6.0.3)
       eslint: 10.11.0(jiti@2.7.0)
@@ -7801,8 +7796,6 @@ snapshots:
       - '@types/react-dom'
 
   cn@0.2.6: {}
-
-  cn@0.3.2: {}
 
   cn@0.4.0: {}
 
