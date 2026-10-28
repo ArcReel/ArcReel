@@ -452,6 +452,47 @@ it("tells what a degraded restore recovered and offers the remaining structure f
   await waitFor(() => expect(downloads).toEqual([TIMELINE_DOCUMENT]));
 });
 
+it("names shot, unit and end frame records by their position and text when deleted", async () => {
+  const project: ProjectData = {
+    title: "演示", content_mode: "narration", style: "Anime", characters: {},
+    episodes: [{ episode: 1, title: "雨夜", script_file: "scripts/episode_1.json" }],
+  };
+  useProjectsStore.getState().setCurrentProject("demo", project, {}, {});
+  onTestFinished(() => useProjectsStore.getState().setCurrentProject(null, null));
+  const entry = { kind: "script_entry", episode: 1, item_kind: "segments" };
+  vi.stubGlobal("fetch", (input: RequestInfo | URL) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("/trash")) {
+      const records = [
+        timelineRecord({ id: "a", object: { ...entry, id: "E1S07", item_position: 5, item_excerpt: "他推开门…" } }),
+        timelineRecord({ id: "b", object: { ...entry, id: "E1S09", item_position: 6, item_excerpt: "" } }),
+        timelineRecord({
+          id: "c",
+          object: { ...entry, id: "E1U3", item_kind: "video_units", item_position: 2, item_excerpt: "@林 回头" },
+        }),
+        timelineRecord({
+          id: "d",
+          object: {
+            kind: "end_frame", shot_id: "E1S07", script_file: "episode_1.json", path: "end_frames/scene_E1S07.png",
+            episode: 1, item_position: 5, item_excerpt: "他推开门…",
+          },
+        }),
+      ];
+      return Promise.resolve(Response.json({ records, total_size: 40, retention_days: 30 }));
+    }
+    return Promise.resolve(Response.json({ path: "", entries: [] }));
+  });
+  render(<FileView projectName="demo" />);
+  await userEvent.setup().click(screen.getByRole("tab", { name: "项目回收站" }));
+
+  // 同一集删掉的多条记录凭删除时的位置与正文区分，不露内部编号。
+  expect(await screen.findByText("分镜 雨夜 · 5：他推开门…")).toBeInTheDocument();
+  expect(screen.getByText("分镜 雨夜 · 6")).toBeInTheDocument();
+  expect(screen.getByText("视频单元 雨夜 · 2：@林 回头")).toBeInTheDocument();
+  expect(screen.getByText("分镜 雨夜 · 5 的尾帧：他推开门…")).toBeInTheDocument();
+  expect(screen.queryByText(/E1S07|E1S09|E1U3/)).not.toBeInTheDocument();
+});
+
 it("uses the current position after restoring a shot under a new ID", async () => {
   const toasts = collectToasts();
   const shot = { kind: "script_entry", id: "E1S03", episode: 1, item_kind: "segments" };
@@ -494,6 +535,7 @@ it("uses the current position after restoring a shot under a new ID", async () =
   render(<FileView projectName="demo" />);
   const user = userEvent.setup();
   await user.click(screen.getByRole("tab", { name: "项目回收站" }));
+  // 没有位置快照的旧记录退回编号显示。
   expect(await screen.findByText("分镜 E1S03（第 1 集）")).toBeInTheDocument();
   expect(screen.getByText("视频单元 E1U2（第 1 集）")).toBeInTheDocument();
 

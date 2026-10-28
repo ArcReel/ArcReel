@@ -356,7 +356,7 @@ def clear_quarantine(project_path: Path, episode: int, kind: str, *, record_acti
 
 
 def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, episode: int) -> str:
-    """渲染回给 Agent 的违约报告：逐条定位 + 按处置路径写的修复指引。
+    """渲染回给 Agent 的违约报告：逐条定位 + 按处置路径写的修复指引。``draft`` 是项目内相对路径。
 
     指引写「改哪个文件的哪个字段、改完调什么」而非泛泛的「请修正」：处置路径是本机制的全部
     要点，Agent 若不知道产物还在盘上，就会退回重抽。
@@ -364,7 +364,7 @@ def render_report(draft: Path, kind: str, violations: list[DraftViolation], *, e
     stage, field = _QUARANTINE_REPORT_HINTS[kind]
     doc_type = QUARANTINE_KIND_TO_DOC_TYPE[kind]
     return (
-        f"❌ {stage}产出有 {len(violations)} 处违约，已保存为待修复草稿（正式文件未被改动）：{draft}\n\n"
+        f"❌ {stage}产出有 {len(violations)} 处违约，已保存为待修复草稿（正式文件未被改动）：{draft.as_posix()}\n\n"
         f"{render_violation_report(violations)}\n\n"
         f'处置：调用 open_draft({{"episode_id": {episode}, "doc_type": "{doc_type}"}}) 读取正文与 revision；'
         f"修正 {field} 后用 patch_draft 携带 base_revision 提交；"
@@ -391,7 +391,8 @@ def quarantine_and_report(
     出现「报告说去改某个文件、而那个文件没被写出来」的分叉。
     """
     path = write_quarantine(project_path, episode, kind, content=content, violations=violations, meta=meta)
-    return render_report(path, kind, violations, episode=episode)
+    # 报告会原样回给（可能在远程的）Agent：草稿只按项目内相对路径指名，不外泄服务端目录布局。
+    return render_report(path.relative_to(project_path), kind, violations, episode=episode)
 
 
 __all__ = [

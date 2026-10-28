@@ -96,6 +96,7 @@ from lib.script.script_generator import (
     AdScriptOverwriteRequired,
     AdScriptRejected,
     PromptAuthoringTargetError,
+    PromptAuthoringUnitRejected,
     ScriptGenerator,
 )
 from lib.script.script_models import (
@@ -175,10 +176,21 @@ class TextGenerationResult:
     warnings: list[dict[str, Any]] = dataclass_field(default_factory=list)
     #: 广告/短片整份生成本次登记的新资产与衍生（``{"type", "name"}``），随任务结果交给 Web 列出。
     new_assets: list[dict[str, str]] = dataclass_field(default_factory=list)
+    #: 提示词编写没有待编写的条目、未调用文本模型；Web 据此提示用户勾选覆盖后重写。
+    no_pending_authoring: bool = False
 
 
 class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
+
+
+class PromptAuthoringInputError(TextGenerationError):
+    """提示词编写的输入没有通过调用文本模型前的预判，修改输入后才能编写；携带任务失败的问题码与参数。"""
+
+    def __init__(self, message: str, *, code: str, params: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.code = code
+        self.params = params
 
 
 class PromptOverwriteRequiredError(TextGenerationError):
@@ -593,7 +605,7 @@ def _prompt_authoring_draft_action(project_path: Path, episode: int) -> str:
         action = translate("operation_draft_repair_violations", tool=PROMOTE_TOOL_NAME)
     else:
         action = translate("operation_draft_finish", tool=PROMOTE_TOOL_NAME)
-    return translate("operation_draft_action", path=path, action=action)
+    return translate("operation_draft_action", path=path.relative_to(project_path).as_posix(), action=action)
 
 
 def _ad_overwrite_error(
@@ -625,7 +637,7 @@ def _regenerate_preflight(
     )
     require_admitted("generate_script", admission, episode=episode)
     overwrite = script_review.formal_script_overwrite(project_path, project, episode)
-    if overwrite is not None and overwrite_revision != overwrite.fingerprint:
+    if overwrite is not None and script_review.fingerprint_of_revision(overwrite_revision) != overwrite.fingerprint:
         raise _ad_overwrite_error(describe_episode_for_agent(project, episode), overwrite)
 
 
@@ -775,6 +787,8 @@ async def generate_episode_script(
         raise _ad_overwrite_error(await _describe(projects, project_name, episode), exc.overwrite) from exc
     except PromptOverwriteRequired as exc:
         raise _prompt_overwrite_error(await _describe(projects, project_name, episode), exc) from exc
+    except PromptAuthoringUnitRejected as exc:
+        raise PromptAuthoringInputError(str(exc), code=exc.code, params=exc.params) from exc
     except PromptAuthoringTargetError as exc:
         # 点名的条目不在正式剧本内是调用方的错：报「拒绝生成」而不是让它冒成 internal_error，
         # 后者会引导 Agent 原样重试同一份必然失败的参数。
@@ -792,11 +806,15 @@ async def generate_episode_script(
         )
         return TextGenerationResult(
             f"✅ {describe_episode_for_agent(generator.project_json, episode)} 没有待编写的条目，"
-            f"未调用文本模型，正式脚本未改动: {result_path}{skipped_note}\n"
-            f"   要覆盖已有视觉层请用 entry_ids 点名并传 rewrite=true；{redo}。"
+            f"未调用文本模型，正式脚本未改动: {result_path.relative_to(project_path).as_posix()}{skipped_note}\n"
+            f"   要覆盖已有视觉层请用 entry_ids 点名并传 rewrite=true；{redo}。",
+            no_pending_authoring=True,
         )
     rewritten_note = "、".join(rewritten) if rewritten else "整份生成"
-    summary = f"✅ 剧本生成完成: {result_path}\n   本次编写条目: {rewritten_note}{skipped_note}"
+    summary = (
+        f"✅ 剧本生成完成: {result_path.relative_to(project_path).as_posix()}\n"
+        f"   本次编写条目: {rewritten_note}{skipped_note}"
+    )
     if registered:
         labels = {asset_type: spec.label_zh for asset_type, spec in ASSET_SPECS.items()}
         summary += "\n   本次登记的新资产（待生成）: " + "、".join(
@@ -1065,7 +1083,9 @@ async def generate_drama_script_plan(
                     )
                 ) from exc
 
-        return TextGenerationResult(drama_script_plan_result_text(script_plan_path, raw_scenes, action="生成"))
+        return TextGenerationResult(
+            drama_script_plan_result_text(script_plan_path.relative_to(project_path), raw_scenes, action="生成")
+        )
     except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
         raise
     except VideoRequestFactsError as exc:
@@ -1830,7 +1850,7 @@ async def generate_reference_script_plan(
                 ) from exc
         return TextGenerationResult(
             reference_result_text(
-                script_review.official_reference_script_plan_path(project_path, episode),
+                script_review.official_reference_script_plan_path(project_path, episode).relative_to(project_path),
                 raw_units,
                 soft_violations,
                 action="拆分",
@@ -1981,7 +2001,9 @@ async def generate_narration_script_plan(
                     )
                 ) from exc
 
-        return TextGenerationResult(narration_script_plan_result_text(script_plan_path, raw_segments, action="拆分"))
+        return TextGenerationResult(
+            narration_script_plan_result_text(script_plan_path.relative_to(project_path), raw_segments, action="拆分")
+        )
     except (TextGenerationError, TextOutputTruncatedError, ModelNotInCatalogError):
         raise
     except VideoRequestFactsError as exc:

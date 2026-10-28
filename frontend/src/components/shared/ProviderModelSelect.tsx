@@ -41,6 +41,11 @@ interface ProviderModelSelectProps {
    * 默认模型而非全局层，由调用方改写为「跟随默认」。
    */
   fallbackLabel?: string;
+  /**
+   * 值与 `fallbackValue` 都为空（各层全空）时后端自动选中的 "provider/model"，触发按钮显示
+   * 「自动选择（当前：…）」；null 表示没有可用供应商、自动选择会失败。省略即显示 placeholder。
+   */
+  autoValue?: string | null;
   /** Accessible label for the trigger button */
   "aria-label"?: string;
   /** Enable in-dropdown search input. Defaults to true. */
@@ -91,6 +96,7 @@ export function ProviderModelSelect({
   defaultHint,
   fallbackValue,
   fallbackLabel,
+  autoValue,
   "aria-label": ariaLabel,
   searchable = true,
   searchThreshold = 6,
@@ -143,11 +149,17 @@ export function ProviderModelSelect({
   };
 
   const showFallback = !value && !!fallbackValue;
+  const autoText =
+    autoValue === null
+      ? t("auto_select_unavailable")
+      : autoValue
+        ? t("auto_select_current", { model: describe(autoValue) })
+        : undefined;
   const displayText = value
     ? describe(value)
     : showFallback
       ? `${fallbackLabel ?? t("follow_global_default")} · ${describe(fallbackValue)}`
-      : (placeholder ?? t("select_model_placeholder"));
+      : (autoText ?? placeholder ?? t("select_model_placeholder"));
 
   return (
     <Combobox<string>

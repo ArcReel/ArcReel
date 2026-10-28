@@ -435,6 +435,25 @@ async def get_model_candidates(
     )
 
 
+class AutoBackendsResponse(BaseModel):
+    """各用途在项目与全局各层都留空时自动选中的模型（``provider/model``）；没有可用供应商时为 None。"""
+
+    t2i: str | None
+    i2i: str | None
+    i2v: str | None
+    r2v: str | None
+    text: str | None
+
+
+@router.get("/system/config/auto-backends", response_model=AutoBackendsResponse)
+async def get_auto_backends() -> AutoBackendsResponse:
+    """「自动选择」的实际模型：与执行期解析同口径，设置界面据此显示当前模型并按它查询能力。"""
+    resolved = await ConfigResolver(async_session_factory).auto_resolved_backends()
+    return AutoBackendsResponse(
+        **{purpose: f"{pair[0]}/{pair[1]}" if pair else None for purpose, pair in resolved.items()}
+    )
+
+
 class NarrationDefaultsResponse(BaseModel):
     """新建 TTS 项目的预填值；未配置任何音频供应商时 ``audio_backend`` 为 None。"""
 

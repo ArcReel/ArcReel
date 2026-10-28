@@ -182,11 +182,11 @@
 .driver-popover.arc-tour .driver-popover-prev-btn {
     color: var(--foreground);
     border-color: var(--input);
-    background: color-mix(in oklab, var(--input) 30%, transparent);
+    background: color-mix(in oklab, var(--input) 12%, transparent);
 }
 
 .driver-popover.arc-tour .driver-popover-prev-btn:hover {
-    background: color-mix(in oklab, var(--input) 50%, transparent);
+    background: color-mix(in oklab, var(--input) 20%, transparent);
 }
 
 /* 跳过：ghost，排在最左。它是退出路径，不是导航 */

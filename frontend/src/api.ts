@@ -36,6 +36,7 @@ import type {
   ProjectEventSnapshotPayload,
   ProjectDeletedPayload,
   AssistantSessionResumedPayload,
+  AutoBackendsResponse,
   GetSystemConfigResponse,
   GetSystemVersionResponse,
   NarrationDefaultsResponse,
@@ -113,6 +114,7 @@ import type {
   ReferenceGenerationRequestOptions,
   ReferenceBatchAdmission,
   ReferenceBatchGenerateRequest,
+  ReferenceBatchPreview,
   ScriptPreview,
   ReferenceUnitPromptPreview,
   ItemPromptPreview,
@@ -430,6 +432,11 @@ class API {
     options: { signal?: AbortSignal } = {}
   ): Promise<ModelCandidatesResponse> {
     return this.request("/system/config/model-candidates", { signal: options.signal });
+  }
+
+  /** 「自动选择」的实际模型：各用途在全部层留空时后端自动选中的模型，供应商配置变化后需重取。 */
+  static async getAutoBackends(options: { signal?: AbortSignal } = {}): Promise<AutoBackendsResponse> {
+    return this.request("/system/config/auto-backends", { signal: options.signal });
   }
 
   /** 新建 TTS 项目的预填值（全局默认的 TTS 模型、音色与语速）。 */
@@ -4277,6 +4284,19 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/${encodeURIComponent(unitId)}/generate`,
       { method: "POST", body: JSON.stringify(options) },
+    );
+  }
+
+  /** 批量生成的准入预览：与提交同一份结论与预估费用，不建任务，供确认框列名单。 */
+  static async previewReferenceVideoBatch(
+    projectName: string,
+    episode: number,
+    payload: ReferenceBatchGenerateRequest,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ReferenceBatchPreview> {
+    return this.request(
+      `/projects/${encodeURIComponent(projectName)}/reference-videos/episodes/${episode}/units/generate-batch/preview`,
+      { method: "POST", body: JSON.stringify(payload), signal: options.signal },
     );
   }
 

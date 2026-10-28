@@ -546,7 +546,7 @@ class TestConfirmMaterializesScript:
         before = (pm.get_project_path("demo") / "scripts" / "episode_1.json").read_bytes()
         svc = _service(pm)
         expected_overwrite = {
-            "revision": script_review.content_fingerprint_of_data(json.loads(before)),
+            "revision": script_review.published_revision(script_review.content_fingerprint_of_data(json.loads(before))),
             "entries": [
                 {
                     "id": "E1S01",
@@ -582,8 +582,9 @@ class TestConfirmMaterializesScript:
         assert (pm.get_project_path("demo") / "scripts" / "episode_1.json").read_bytes() == before
         assert script_review.stored_review(pm.load_project("demo"), 1) == {}
 
+    @pytest.mark.parametrize("spelling", ["prefixed", "bare"])
     async def test_acknowledged_overwrite_replaces_script_and_forgets_old_entry_claims(
-        self, tmp_path, video_request_facts
+        self, tmp_path, video_request_facts, spelling: str
     ):
         pm = _make_project(tmp_path, "narration")
         _write_script_plan(pm, "narration", _narration_script_plan())
@@ -595,6 +596,10 @@ class TestConfirmMaterializesScript:
 
         svc = _service(pm)
         revision = (await svc.get_state("demo", 1))["script_overwrite"]["revision"]
+
+        assert revision.startswith("sha256-v1:")
+        if spelling == "bare":
+            revision = revision.removeprefix("sha256-v1:")
 
         state = await svc.confirm("demo", 1, overwrite_revision=revision)
 

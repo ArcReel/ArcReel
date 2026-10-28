@@ -2,7 +2,8 @@
 """Static integrity checks for the materialized Agent Runtime Profile.
 
 校验范围限于能对照代码真相源的结构：frontmatter 与变体身份、按创作类型物化后的
-Markdown 指针可达性、`mcp__arcreel__*` 工具名是否已注册、eval id 是否唯一。
+Markdown 指针可达性、`mcp__arcreel__*` 工具名是否已注册、eval id 是否唯一，以及 eval 点名的
+skill 与工具是否仍存在。
 档案散文本身不做措辞校验——越界行为（如直改正式 script_plan）由 ``AgentAccessPolicy``
 在工具边界上拒绝，不靠对散文做黑名单。
 """
@@ -124,8 +125,32 @@ def _validate_projection(
         )
 
 
-def _validate_evals(profile_dir: Path, errors: list[str]) -> None:
+def _skill_names(profile_dir: Path) -> set[str]:
+    skills_root = profile_dir / ".claude" / "skills"
+    return {path.parent.name for path in _metadata_files(profile_dir) if path.is_relative_to(skills_root)}
+
+
+def _validate_eval_targets(label: str, record: dict[str, object], skills: set[str], tools: set[str]) -> list[str]:
+    """eval 是验收资产：点名的 skill 或工具已退役时，按它验收就是在验一份不存在的契约。"""
+    errors: list[str] = []
+    target_skills = record.get("target_skills", [])
+    if isinstance(target_skills, list):
+        errors.extend(f"{label}: unknown target skill {skill!r}" for skill in target_skills if str(skill) not in skills)
+    else:
+        errors.append(f"{label}: target_skills must be a list")
+    text = json.dumps(record, ensure_ascii=False)
+    tool_names = {match.rstrip(_MCP_SENTENCE_PUNCTUATION) for match in _MCP_RE.findall(text)}
+    errors.extend(
+        f"{label}: unregistered MCP tool mcp__arcreel__{tool_name}"
+        for tool_name in sorted(tool_names)
+        if tool_name != "*" and tool_name not in tools
+    )
+    return errors
+
+
+def _validate_evals(profile_dir: Path, registered_tools: set[str], errors: list[str]) -> None:
     seen: dict[object, Path] = {}
+    skills = _skill_names(profile_dir)
     for path in sorted(profile_dir.rglob("*.json")):
         if "eval" not in path.as_posix().lower():
             continue
@@ -145,6 +170,11 @@ def _validate_evals(profile_dir: Path, errors: list[str]) -> None:
             if not isinstance(record, dict) or "id" not in record:
                 continue
             eval_id = record["id"]
+            errors.extend(
+                _validate_eval_targets(
+                    f"{path.relative_to(profile_dir)}: eval {eval_id!r}", record, skills, registered_tools
+                )
+            )
             try:
                 duplicate = eval_id in seen
             except TypeError:
@@ -168,7 +198,7 @@ def lint_profile(profile_dir: Path, *, registered_tools: set[str] | None = None)
     tool_ids = set(ARCREEL_MCP_TOOL_IDS) if registered_tools is None else registered_tools
     for mode in sorted(VALID_CONTENT_MODES):
         _validate_projection(profile_dir, mode, tool_ids, errors)
-    _validate_evals(profile_dir, errors)
+    _validate_evals(profile_dir, tool_ids, errors)
     return sorted(set(errors))
 
 

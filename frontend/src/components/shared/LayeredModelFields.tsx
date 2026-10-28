@@ -5,7 +5,7 @@
  * 折叠区收纳细分项。全局设置、项目设置两层复用同一组件，创建向导不传 subFields 即只剩默认层。
  *
  * 细分项留空时触发按钮显示穿透演算后的最终生效模型，用户不展开也能看到会真正执行的模型；
- * 演算结果由调用方按各层键位算好传入，本组件不持有层级知识。
+ * 各层全空时显示后端自动选中的模型。演算结果由调用方按各层键位算好传入，本组件不持有层级知识。
  *
  * 界面文案统一用「按用途指定模型」，不出现「能力」「桶」字样（见 GLOSSARY.md 任务类型桶词条）。
  */
@@ -46,6 +46,8 @@ export interface LayeredSubField {
   options: string[];
   /** 留空时的最终生效模型（provider/model）；演算不出即省略。 */
   effective?: string;
+  /** 各层全空时自动选中的模型，语义同 `ProviderModelSelect` 的 `autoValue`。 */
+  auto?: string | null;
   onChange: (next: string) => void;
 }
 
@@ -61,6 +63,11 @@ export interface LayeredModelFieldsProps {
   emptyHint?: string;
   /** 默认层留空时的生效模型（项目层 = 全局默认层）；全局层是基准、不传。 */
   defaultEffective?: string;
+  /**
+   * 默认层与其继承来源全空时自动选中的模型，语义同 `ProviderModelSelect` 的 `autoValue`。
+   * 仅在 `defaultEffective` 之外再无继承层时传入：继承链上任一层有值时，自动选择不会发生。
+   */
+  defaultAuto?: string | null;
   providerNames: Record<string, string>;
   /** "provider/model" → 当前语言下的模型名，与 `providerNames` 同源；缺键退回 model id。 */
   modelNames?: Record<string, string>;
@@ -98,6 +105,7 @@ export function LayeredModelFields({
   emptyLabel,
   emptyHint,
   defaultEffective,
+  defaultAuto,
   providerNames,
   modelNames,
   renderOptionMeta,
@@ -135,10 +143,11 @@ export function LayeredModelFields({
         allowDefault
         defaultLabel={emptyLabel}
         defaultHint={emptyHint}
-        // 全层皆空时演算不出具体模型，触发按钮落到 placeholder。这里给的是空值语义本身
+        // 全层皆空且自动选择预览也缺席时，触发按钮落到 placeholder。这里给的是空值语义本身
         // （「自动选择」/「使用全局默认」），否则通用的「选择模型」会读成这项必须选。
         placeholder={emptyLabel}
         fallbackValue={defaultEffective}
+        autoValue={defaultAuto}
         aria-label={defaultLabel}
         renderOptionMeta={renderOptionMeta}
       />
@@ -184,6 +193,7 @@ export function LayeredModelFields({
                       placeholder={t("follow_model_default")}
                       fallbackValue={field.effective}
                       fallbackLabel={t("follow_model_default")}
+                      autoValue={field.auto}
                       aria-label={field.label}
                       renderOptionMeta={
                         renderOptionMeta && ((fullValue: string) => renderOptionMeta(fullValue, field.key))

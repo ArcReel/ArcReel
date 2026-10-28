@@ -32,7 +32,7 @@ import { VideoModelSpecBar } from "./VideoModelSpecBar";
 import { useEndpointCatalogStore } from "@/stores/endpoint-catalog-store";
 import type { ProviderInfo, VoiceConsistencyTier } from "@/types/provider";
 import type { CustomProviderInfo } from "@/types/custom-provider";
-import type { ModelCandidatesResponse } from "@/types/system";
+import type { AutoBackendsResponse, ModelCandidatesResponse } from "@/types/system";
 
 const EMPTY_CUSTOM_PROVIDERS: CustomProviderInfo[] = [];
 
@@ -100,6 +100,8 @@ export interface ModelConfigSectionProps {
     textDefault: string;
     textSimple: string;
     textComplex: string;
+    /** 各层全空时后端自动选中的模型（`API.getAutoBackends`）；缺席即不显示、也不参与能力查询。 */
+    auto?: AutoBackendsResponse | null;
   };
   /**
    * 项目级「生成有声视频」覆盖（null=跟随全局，true/false=显式覆盖）。
@@ -248,6 +250,7 @@ export function ModelConfigSection({
           value: value.videoProviderI2V,
           options: mediaCandidates?.video.buckets.i2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoI2V, globalDefaults.video),
+          auto: globalDefaults.auto?.i2v,
           onChange: (next: string) => applyVideoLayer({ videoProviderI2V: next }),
         },
         {
@@ -256,6 +259,7 @@ export function ModelConfigSection({
           value: value.videoProviderR2V,
           options: mediaCandidates?.video.buckets.r2v ?? [],
           effective: effectiveModel(value.videoBackend, globalDefaults.videoR2V, globalDefaults.video),
+          auto: globalDefaults.auto?.r2v,
           onChange: (next: string) => applyVideoLayer({ videoProviderR2V: next }),
         },
       ], !!mediaCandidates)
@@ -269,6 +273,7 @@ export function ModelConfigSection({
           value: value.imageBackendT2I,
           options: mediaCandidates?.image.buckets.t2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageT2I, globalDefaults.image),
+          auto: globalDefaults.auto?.t2i,
           onChange: (next: string) => applyImageLayer({ imageBackendT2I: next }),
         },
         {
@@ -277,6 +282,7 @@ export function ModelConfigSection({
           value: value.imageBackendI2I,
           options: mediaCandidates?.image.buckets.i2i ?? [],
           effective: effectiveModel(value.imageBackendDefault, globalDefaults.imageI2I, globalDefaults.image),
+          auto: globalDefaults.auto?.i2i,
           onChange: (next: string) => applyImageLayer({ imageBackendI2I: next }),
         },
       ], !!mediaCandidates)
@@ -416,8 +422,7 @@ export function ModelConfigSection({
   const audioOverride = onVideoGenerateAudioChange ? (videoGenerateAudio ?? null) : null;
   const overrideCount = countModelOverrides(value, audioOverride);
 
-  const modelLabel = (fullValue: string | undefined) => {
-    if (!fullValue) return t("dashboard:auto_select");
+  const namedModel = (fullValue: string) => {
     const idx = fullValue.indexOf("/");
     if (idx === -1) return options.providerNames[fullValue] || fullValue;
     return options.modelNames?.[fullValue] || fullValue.slice(idx + 1);
@@ -428,13 +433,27 @@ export function ModelConfigSection({
     image: effectiveModel(globalDefaults.imageT2I, globalDefaults.image),
     text: effectiveModel(globalDefaults.textDefault),
   };
+  // 全局层也全空时各通道的自动选择：路径与 globalChannelModel 同口径。只在全局层全空时有值——
+  // 默认层下拉的 fallbackValue 只看全局默认模型，全局细分项有值时不能让它显示成自动选择。
+  const channelAuto: Record<ModelChannel, string | null | undefined> = {
+    video: globalChannelModel.video ? undefined : globalDefaults.auto?.[usesReferenceImages ? "r2v" : "i2v"],
+    image: globalChannelModel.image ? undefined : globalDefaults.auto?.t2i,
+    text: globalChannelModel.text ? undefined : globalDefaults.auto?.text,
+  };
+  const channelModelLabel = (channel: ModelChannel) => {
+    const model = globalChannelModel[channel];
+    if (model) return namedModel(model);
+    const auto = channelAuto[channel];
+    if (auto === null) return t("dashboard:auto_select_unavailable");
+    return auto ? t("dashboard:auto_select_current", { model: namedModel(auto) }) : t("dashboard:auto_select");
+  };
 
   const channelSource = (channel: ModelChannel, title: string) => {
     if (!showOverrideSources) return undefined;
     if (!channelOverridden(channel, value, audioOverride)) {
       return (
         <TruncatedText
-          text={t("dashboard:model_follow_global_source", { model: modelLabel(globalChannelModel[channel]) })}
+          text={t("dashboard:model_follow_global_source", { model: channelModelLabel(channel) })}
           className="text-xs text-muted-foreground"
         />
       );
@@ -488,6 +507,7 @@ export function ModelConfigSection({
                 : undefined
             }
             defaultEffective={globalDefaults.video || undefined}
+            defaultAuto={channelAuto.video}
             providerNames={options.providerNames}
             modelNames={options.modelNames}
             renderOptionMeta={renderVideoOptionMeta}
@@ -619,6 +639,7 @@ export function ModelConfigSection({
                 : undefined
             }
             defaultEffective={globalDefaults.image || undefined}
+            defaultAuto={channelAuto.image}
             providerNames={options.providerNames}
             modelNames={options.modelNames}
             subFields={imageSubFields}
@@ -667,6 +688,7 @@ export function ModelConfigSection({
                 globalDefaults.textDefault,
               ),
             }}
+            auto={globalDefaults.auto?.text}
             showTiers={showSubFields}
           />
         </ChannelCard>

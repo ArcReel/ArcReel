@@ -57,7 +57,7 @@ from lib.custom_provider.declarative_image_backend import DeclarativeImageBacken
 from lib.db.base import DEFAULT_USER_ID
 from lib.db.repositories.usage_repo import bound_provider_response
 from lib.generation.task_failure import encode_failure
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_async, run_noninterruptible_sync, run_sync_transaction
 from lib.infra.data_root_layout import DataRootLayout
 
 from .check import STAGES, check_response, stage_report_payload
@@ -275,6 +275,7 @@ class TrialRunManager:
         self._owners: dict[str, str] = {}  # run_id -> user_id
         self._staging: dict[str, Path] = {}  # run_id -> 素材临时目录
         self._response_writes: dict[str, set[asyncio.Task[None]]] = {}  # run_id -> 在途诊断写入
+        self._settling: set[str] = set()  # 已拿到结局、正在收尾的 run，取消不再打断它们
 
     @property
     def root(self) -> Path:
@@ -402,14 +403,20 @@ class TrialRunManager:
 
         远端叫不叫得停不在这一层：backend 的生成路径自己接住这次取消（ComfyUI 据 ``prompt_id``
         叫停一次），而停不下来的通道远端任务照跑、钱照花，故结算一律按取消走。
+
+        已拿到结局（供应商成功返回，或已判定失败）的 run 拒绝晚到的取消、返回 False：账本已按
+        结局结算，此时再删目录只会丢掉一笔已经计费的结果。
         """
         task = self._tasks.get(run_id)
         run = self._runs.get(run_id)
-        if task is None or run is None:
+        if task is None or run is None or run_id in self._settling:
             return False
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        # backend 的产物落盘可能吞掉取消并成功返回；等任务结束后重新核验，不能再删掉已结算的结果。
+        if run.status in (TrialRunStatus.SUCCEEDED, TrialRunStatus.FAILED):
+            return False
         # 被 shield 保护的诊断写入在任务停下后可能还在跑：结算前等它写完，否则 resume_cancelled
         # 会与它并发写同一行，关停路径还可能在写入未完时就关库。
         for write in list(self._response_writes.get(run_id, ())):
@@ -497,13 +504,15 @@ class TrialRunManager:
                     )
                 )
                 result = await backend.generate(request)
+                # 供应商已成功返回：从这里起取消不再打断这次 run，结局按成功收尾（见 ``cancel``）。
+                self._settling.add(run.id)
                 call.success(result)
                 run.provider_job_id = getattr(result, "task_id", None)
                 # 产物在供应商那儿的地址：两类结果各叫一个名字，落进同一格。
                 run.video_url = getattr(result, "video_uri", None) or getattr(result, "image_uri", None)
                 run.duration_seconds = getattr(result, "duration_seconds", None)
-                run.has_artifact = await asyncio.to_thread(_artifact_file(run_dir, target.media_type).is_file)
-            await self._finish(run, run_dir, target, capture, TrialRunStatus.SUCCEEDED)
+                run.has_artifact = await run_noninterruptible_sync(_artifact_file(run_dir, target.media_type).is_file)
+            await run_noninterruptible_async(self._finish(run, run_dir, target, capture, TrialRunStatus.SUCCEEDED))
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -513,7 +522,8 @@ class TrialRunManager:
                 exc, DeclarativeRuntimeError | ComfyuiError | VideoCapabilityError | ImageCapabilityError
             )
             run.error = encode_failure(exc.code, **exc.params) if structured else str(exc)
-            await self._finish(run, run_dir, target, capture, TrialRunStatus.FAILED)
+            self._settling.add(run.id)
+            await run_noninterruptible_async(self._finish(run, run_dir, target, capture, TrialRunStatus.FAILED))
 
     def _response_writer(
         self, run: TrialRun, capture: _ResponseCapture, call_id: int
@@ -609,6 +619,8 @@ class TrialRunManager:
         capture: _ResponseCapture,
         status: TrialRunStatus,
     ) -> None:
+        """终态标记、写盘、让出名额。调用方用 ``run_noninterruptible_async`` 把它整段收进不可中断区间：
+        取消落在中间会留下「内存里已终态、盘上没有结果」的 run。"""
         run.status = status
         run.finished_at = time.time()
         _merge_capture(run, capture)
@@ -628,10 +640,15 @@ class TrialRunManager:
 
         单条 run 结算失败（如库已不可用）不中断这趟排空：异常穿透出去会让后面的 run 一条都
         不停，关停流程里排在本步之后的关 HTTP 客户端与关库也一起跳过。
+
+        已在收尾的 run 拒绝取消，关停等它写完结果：之后关库，收尾段里的记账写入就没处落。
         """
         for run_id in list(self._tasks):
+            task = self._tasks.get(run_id)
             try:
-                await self.cancel(run_id)
+                if not await self.cancel(run_id) and task is not None:
+                    # ``asyncio.wait`` 不把任务自己的异常抛给关停方，关停方自己被取消时照常传出去。
+                    await asyncio.wait([task])
             except Exception:
                 logger.warning("关停时结算测试连接失败：%s", run_id, exc_info=True)
 
@@ -640,6 +657,7 @@ class TrialRunManager:
         self._runs.pop(run_id, None)
         self._owners.pop(run_id, None)
         self._response_writes.pop(run_id, None)
+        self._settling.discard(run_id)
         return self._staging.pop(run_id, None)
 
     def _prepare_run_dir(self, run_id: str, active: Collection[str]) -> Path:

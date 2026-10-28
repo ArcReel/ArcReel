@@ -126,7 +126,7 @@ from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequ
 from lib.i18n import _ as i18n_message
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.async_thread import run_sync_transaction as _run_sync_transaction
-from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest
+from lib.infra.content_digest import prefixed, prefixed_canonical_json_digest, unprefixed
 from lib.infra.data_root_layout import DataRootLayout
 from lib.infra.path_safety import safe_join
 from lib.infra.schema_guards import is_str
@@ -226,6 +226,7 @@ from server.text_generation import (
     SCOPE_REMOVED_MESSAGE,
     AdScriptRejectedError,
     OperationNotAdmittedError,
+    PromptAuthoringInputError,
     PromptOverwriteRequiredError,
     ScriptOverwriteRequiredError,
     TextGenerationError,
@@ -521,11 +522,17 @@ class PatchEpisodeScriptRequest(BaseModel):
         min_length=1, description="剧本纯文件名（不含目录），如 episode_1.json；单集单文件，多集编辑每集一次调用"
     )
     base_revision: str = Field(
-        pattern=r"^sha256-v1:[0-9a-f]{64}$", description="get_episode_script 返回的当前 revision"
+        pattern=r"^(?:sha256-v1:)?[0-9a-f]{64}$",
+        description="get_episode_script 返回的当前 revision；带 sha256-v1: 前缀与裸 hex 两种写法等价",
     )
     operations: list[PatchEpisodeScriptOperation] = Field(
         min_length=1, description="按顺序执行的编辑操作，整批原子提交：update / insert / move / remove / split"
     )
+
+    @field_validator("base_revision")
+    @classmethod
+    def _normalize_revision(cls, value: str) -> str:
+        return prefixed(unprefixed(value))
 
     @field_validator("script")
     @classmethod
@@ -684,6 +691,10 @@ async def _run_text_generation(
         return ToolOutcome(problem=truncation_problem(exc))
     except VideoRequestFactsUnavailableError as exc:
         return ToolOutcome(problem=video_facts_problem(exc.failure, str(exc)))
+    except PromptAuthoringInputError as exc:
+        return ToolOutcome(
+            problem=ToolProblem(exc.code, str(exc), action=GenerationAction.FIX_INPUT, params=dict(exc.params))
+        )
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except ModelNotInCatalogError as exc:
@@ -876,7 +887,7 @@ class GenerateEpisodeScriptRequest(BaseModel):
         default=None,
         description=(
             "用户听完丢失清单并同意覆盖后，才传入的令牌：提示词重写取 prompt_overwrite.revision，"
-            "整份重做取 script_overwrite.revision；不覆盖已有内容时不必给"
+            "整份重做取 script_overwrite.revision；带 sha256-v1: 前缀与裸 hex 两种写法等价；不覆盖已有内容时不必给"
         ),
     )
     dry_run: bool = Field(default=False, description=_DRY_RUN_DESCRIPTION)
@@ -1016,7 +1027,7 @@ class ConfirmScriptReviewRequest(BaseModel):
     episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     overwrite_revision: str | SkipJsonSchema[None] = Field(
         default=None,
-        description="用户听完丢失清单并同意覆盖后，才传入的令牌，取自 script_overwrite.revision；尚无正式脚本时不必给",
+        description="用户听完丢失清单并同意覆盖后，才传入的令牌，取自 script_overwrite.revision；带 sha256-v1: 前缀与裸 hex 两种写法等价；尚无正式脚本时不必给",
     )
 
 
@@ -1549,7 +1560,9 @@ class RepairDraftRequest(BaseModel):
 
     episode_id: PositiveEpisode = Field(description=EPISODE_ID_DESCRIPTION)
     doc_type: DraftDocType = Field(description="待修复草稿对应的文档，取值同 open_draft")
-    base_revision: str = Field(description="读取草稿时拿到的 revision；修复写回前按它校验草稿未被改动")
+    base_revision: str = Field(
+        description="读取草稿时拿到的 revision；带 sha256-v1: 前缀与裸 hex 两种写法等价；修复写回前按它校验草稿未被改动"
+    )
     instructions: _TextInstructions | SkipJsonSchema[None] = None
 
 
@@ -2689,7 +2702,7 @@ class CompleteScriptPlanRebuildRequest(BaseModel):
     expected_stale_script_plan_revision: str | None = Field(
         description=(
             "重建基线，原样取自制作计划 next_action.args.expected_stale_script_plan_revision（可能为 null，"
-            "null 也须显式传）；与项目记录不一致时拒绝"
+            "null 也须显式传；带 sha256-v1: 前缀与裸 hex 两种写法等价）；与项目记录不一致时拒绝"
         )
     )
 
@@ -3204,12 +3217,14 @@ async def stop_episode_planning(
 
 
 def _text_result_payload(value: TextGenerationResult) -> dict[str, Any]:
-    """任务结果里的文本回执：``warnings`` 与 ``new_assets`` 只在非空时写入，读侧按 ``result.warnings`` 渲染。"""
+    """任务结果里的文本回执：``warnings``、``new_assets`` 与 ``no_pending_authoring`` 只在非空时写入，读侧按 ``result.warnings`` 渲染。"""
     payload: dict[str, Any] = {"message": value.message}
     if value.warnings:
         payload["warnings"] = list(value.warnings)
     if value.new_assets:
         payload["new_assets"] = list(value.new_assets)
+    if value.no_pending_authoring:
+        payload["no_pending_authoring"] = True
     return payload
 
 
@@ -3805,7 +3820,7 @@ async def complete_script_plan_rebuild(
     except Exception as exc:
         return ToolOutcome(problem=_unexpected("complete_script_plan_rebuild", exc))
     return ToolOutcome(
-        value=CompleteScriptPlanRebuildResult(episode_id=value.episode_id, script_plan_revision=revision)
+        value=CompleteScriptPlanRebuildResult(episode_id=value.episode_id, script_plan_revision=prefixed(revision))
     )
 
 

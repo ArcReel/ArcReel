@@ -1,14 +1,16 @@
-"""lib/backends/grok_shared.py grok_should_retry 重试谓词测试。"""
+"""lib/backends/grok_shared.py 测试：xAI 客户端工厂与 grok_should_retry 重试谓词。"""
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import grpc
 import grpc.aio
 import pytest
+from xai_sdk.aio import chat, image, video
 
-from lib.backends.grok_shared import grok_should_retry
+from lib.backends.grok_shared import create_grok_client, grok_should_retry
 from lib.infra.retry import with_retry_async
 from tests.fakes import bounded_poll_clock
 
@@ -22,6 +24,21 @@ def _make_aio_rpc_error(code: grpc.StatusCode, details: str = "") -> grpc.aio.Ai
         details=details,
         debug_error_string=f"test: {details}",
     )
+
+
+class TestCreateGrokClient:
+    async def test_client_created_off_the_event_loop_works_on_it(self):
+        """在没有事件循环的工作线程里创建，回到事件循环里能拿到真实的 SDK 子客户端。"""
+        client = await asyncio.to_thread(create_grok_client, api_key="xai-key")
+
+        assert isinstance(client.chat, chat.Client)
+        assert isinstance(client.image, image.Client)
+        assert isinstance(client.video, video.Client)
+
+    @pytest.mark.parametrize("api_key", [None, "", "   "])
+    def test_missing_api_key_fails_at_creation(self, api_key):
+        with pytest.raises(ValueError, match="xAI API Key"):
+            create_grok_client(api_key=api_key)
 
 
 class TestGrokShouldRetry:

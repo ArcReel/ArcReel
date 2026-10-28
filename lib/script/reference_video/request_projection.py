@@ -39,7 +39,7 @@ from lib.references.reference_admission import (
     ReferenceAdmission,
     admit_references,
 )
-from lib.references.reference_catalog import build_reference_catalog
+from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
 from lib.script.reference_video.duration_slots import (
     DurationSlot,
     project_request_duration,
@@ -313,10 +313,18 @@ def hydrate_unit_references(
     unit: dict,
     resolved_assets: Sequence[ResolvedReferenceAsset],
     availability: ReferenceAssetAvailability,
+    *,
+    catalog: ReferenceCatalog | None = None,
 ) -> ReferenceUnitHydration:
-    """把单元正文的声明引用水合成可用参考图，并据此定桶。"""
+    """把单元正文的声明引用水合成可用参考图，并据此定桶。
 
-    canonical = unit_reference_declarations(project, unit)
+    ``catalog`` 是调用方已从同一份 ``project`` 构造的引用目录，批量水合时传入以免逐单元重建。
+    """
+
+    if catalog is None:
+        catalog = build_reference_catalog(project)
+    references, unregistered = derive_references_from_text(_unit_text(unit), project, catalog=catalog)
+    canonical = tuple(references)
     declared_generation_type: VideoGenerationType = "r2v" if canonical else "i2v"
     hydration = hydrate_reference_assets(canonical, resolved_assets, availability)
     available = hydration.available
@@ -325,7 +333,7 @@ def hydrate_unit_references(
     # 未登记引用不产生派生引用，因而不会出现在 ``hydration.missing`` 里，须在此单独阻断并
     # 列名。无资产图的角色 / 场景 / 道具不需要在此另报——它们不退回原图，展开时就不产生
     # 候选，一律落进 ``hydration.missing``。
-    admission = unit_reference_admission(project, unit)
+    admission = _admit_unit_references(catalog, references, unregistered)
     if admission.unregistered:
         problems.append(
             _problem(
@@ -390,7 +398,51 @@ def _candidate_path(project_path: Path, value: object) -> Path | None:
         return None
 
 
-def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceResource, ...]:
+class MemoizedReferenceAssets:
+    """一批读侧计算内按图片记住可用性：成本随设计图数量增长，而不是随被引用次数增长。"""
+
+    def __init__(self, inner: ReferenceAssetAvailability) -> None:
+        self._inner = inner
+        self._known: dict[tuple[Path, str, str, str], bool] = {}
+
+    def is_available(self, asset: ResolvedReferenceAsset) -> bool:
+        # 判定依赖路径、候选种类与认领键（引用类型 + 名称），四者共同决定一张图。
+        key = (asset.path, asset.kind, asset.reference.type, asset.reference.name)
+        known = self._known.get(key)
+        if known is None:
+            known = self._known[key] = self._inner.is_available(asset)
+        return known
+
+
+class ReferenceExpansionCache:
+    """一次读侧批量计算内共用的引用目录与候选路径解析。
+
+    整批单元在同一份 ``project`` 上展开引用时，目录只构造一次，同一登记路径只做一次越界解析，
+    成本随资产数而不是随被引用次数增长。期间 ``project`` 不得被改动。只缓存路径解析，
+    不缓存文件是否存在：那由可用性适配器回答。
+    """
+
+    def __init__(self, project: dict, project_path: Path) -> None:
+        self.catalog = build_reference_catalog(project)
+        self._project_path = project_path
+        self._paths: dict[str, Path | None] = {}
+
+    def candidate_path(self, value: object) -> Path | None:
+        if not isinstance(value, str):
+            return _candidate_path(self._project_path, value)
+        if value not in self._paths:
+            self._paths[value] = _candidate_path(self._project_path, value)
+        return self._paths[value]
+
+
+def _unit_text(unit: dict) -> str:
+    raw_text = unit.get("text")
+    return raw_text if isinstance(raw_text, str) else ""
+
+
+def unit_reference_declarations(
+    project: dict, unit: dict, *, catalog: ReferenceCatalog | None = None
+) -> tuple[ReferenceResource, ...]:
     """视频单元正文 → 该单元生成所用的逻辑参考图引用，按首次提及顺序。
 
     正文是唯一真相：引用不落盘，读侧一律经本函数派生，商品与其它资产走同一条规则、
@@ -398,9 +450,7 @@ def unit_reference_declarations(project: dict, unit: dict) -> tuple[ReferenceRes
     非阻断 warning，不挡住这次生成。
     """
 
-    raw_text = unit.get("text")
-    text = raw_text if isinstance(raw_text, str) else ""
-    references, _missing = derive_references_from_text(text, project)
+    references, _missing = derive_references_from_text(_unit_text(unit), project, catalog=catalog)
     return tuple(references)
 
 
@@ -410,17 +460,28 @@ def unit_reference_admission(project: dict, unit: dict) -> ReferenceAdmission:
     单条生成与整批准入都经本投影器，两者因此不会对同一份正文给出相反的答复。
     """
 
-    raw_text = unit.get("text")
-    text = raw_text if isinstance(raw_text, str) else ""
-    references, unregistered = derive_references_from_text(text, project)
+    catalog = build_reference_catalog(project)
+    references, unregistered = derive_references_from_text(_unit_text(unit), project, catalog=catalog)
+    return _admit_unit_references(catalog, references, unregistered)
+
+
+def _admit_unit_references(
+    catalog: ReferenceCatalog, references: Sequence[ReferenceResource], unregistered: Sequence[str]
+) -> ReferenceAdmission:
     return admit_references(
-        build_reference_catalog(project),
+        catalog,
         references=[(reference.type, reference.name) for reference in references],
         unregistered=unregistered,
     )
 
 
-def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> tuple[ResolvedReferenceAsset, ...]:
+def resolve_reference_assets(
+    project: dict,
+    project_path: Path,
+    unit: dict,
+    *,
+    expansion: ReferenceExpansionCache | None = None,
+) -> tuple[ResolvedReferenceAsset, ...]:
     """把正文派生的逻辑引用展开为图片候选，不把「路径已登记」误当成「文件存在」。
 
     有资产图就用资产图。没有资产图时只有商品退到它的全部原图——原图是商品的保真验收锚点
@@ -428,11 +489,15 @@ def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> t
     没有资产图就不产生候选、由 projector 报成阻断。有资产图时任何类型都不额外注入原图，
     也不按类型排序（见 ADR 0064）。缺字段、未登记或越界路径不制造候选，由 projector 对照
     派生引用统一产出 ``reference_asset_missing``。
+
+    批量展开时传入 ``expansion``，整批共用一份引用目录与路径解析。
     """
 
-    catalog = build_reference_catalog(project)
+    if expansion is None:
+        expansion = ReferenceExpansionCache(project, project_path)
+    catalog = expansion.catalog
     result: list[ResolvedReferenceAsset] = []
-    for reference in unit_reference_declarations(project, unit):
+    for reference in unit_reference_declarations(project, unit, catalog=catalog):
         catalog_entry = catalog.lookup(reference.type, reference.name)
         if catalog_entry is None:
             continue
@@ -440,14 +505,14 @@ def resolve_reference_assets(project: dict, project_path: Path, unit: dict) -> t
         if not isinstance(entry, dict):
             continue
         spec = catalog_entry.spec
-        sheet = _candidate_path(project_path, entry.get(spec.sheet_field))
+        sheet = expansion.candidate_path(entry.get(spec.sheet_field))
         if sheet is not None:
             result.append(ResolvedReferenceAsset(path=sheet, reference=reference, kind="sheet"))
             continue
         if catalog_entry.asset_type in SHEET_REQUIRED_ASSET_TYPES:
             continue
         for raw_path in _original_image_paths(entry, spec):
-            original = _candidate_path(project_path, raw_path)
+            original = expansion.candidate_path(raw_path)
             if original is not None:
                 result.append(ResolvedReferenceAsset(path=original, reference=reference, kind="original"))
     return tuple(result)

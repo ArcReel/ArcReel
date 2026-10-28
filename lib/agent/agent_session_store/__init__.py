@@ -33,6 +33,12 @@ def make_project_key(project_cwd: Path | str) -> str:
     return project_key_for_directory(str(project_cwd))
 
 
+def default_sdk_config_dir() -> Path:
+    """Claude SDK 配置目录：``CLAUDE_CONFIG_DIR`` > ``~/.claude``。SDK 本地会话数据在其下的 ``projects/``。"""
+    raw = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    return Path(raw).expanduser() if raw else Path.home() / ".claude"
+
+
 def session_store_enabled() -> bool:
     """True when ARCREEL_SDK_SESSION_STORE is anything but 'off' (case-insensitive).
 
@@ -76,6 +82,7 @@ def session_store_flush_mode() -> FlushMode:
 __all__ = [
     "AgentSessionEntry",
     "AgentSessionSummary",
+    "default_sdk_config_dir",
     "is_known_session_store_mode",
     "make_project_key",
     "session_store_enabled",

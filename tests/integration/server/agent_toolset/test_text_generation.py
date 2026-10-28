@@ -392,6 +392,8 @@ async def test_generate_episode_script_writes_to_default_project_scripts(fake_ct
     assert out.problem is None
     # handler 不传 output_path —— ScriptGenerator 自己决定写到哪里
     assert "output_path" not in captured["calls"]
+    assert "scripts/episode_1.json" in said(out)
+    assert str(project_path) not in said(out)
 
 
 async def test_generate_episode_script_ad_skips_script_plan(fake_ctx: ToolHarness, monkeypatch) -> None:
@@ -495,7 +497,9 @@ async def test_generate_episode_script_rewrite_over_existing_prompts_returns_the
     assert out.problem is not None
     assert out.problem.code == "prompt_overwrite_required"
     overwrite = (out.problem.params or {})["prompt_overwrite"]
-    assert overwrite["revision"] == script_review.content_fingerprint(scripts / "episode_1.json")
+    assert overwrite["revision"] == script_review.published_revision(
+        script_review.content_fingerprint(scripts / "episode_1.json")
+    )
     assert overwrite["entries"] == [{"id": "E1S01", "fields": ["image_prompt"]}]
     assert overwrite["text"] in said(out)
 
@@ -632,6 +636,102 @@ async def test_generate_episode_script_unknown_entry_id_is_refused_not_internal(
     text = said(out)
     assert "编写范围无效" in text
     assert "generate_episode_script 失败" not in text
+
+
+def _narration_formal_script(project_path: Path) -> None:
+    _write_formal_script(project_path)
+    (project_path / "project.json").write_text(
+        json.dumps({"schema_version": CURRENT_PROJECT_SCHEMA_VERSION, "content_mode": "narration"}), encoding="utf-8"
+    )
+    _prepare_script_admission(project_path)
+
+
+async def test_generate_episode_script_unit_rejected_before_the_model_is_an_input_problem(
+    fake_ctx: ToolHarness, monkeypatch, set_video_request_facts
+) -> None:
+    """正式脚本单元没过编写前的预判：问题码与参数原样透出、归为修改输入，不冒成 internal_error 引导重试。"""
+    set_video_request_facts(make_video_request_facts(route="reference_video", generation_type="i2v"))
+    fake_ctx.pm.project_payload.update(
+        {
+            "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+            "content_mode": "narration",
+            "generation_mode": "reference_video",
+            "characters": {"主角": {"description": "d"}},
+            "scenes": {"酒馆": {"description": "d"}},
+            "props": {},
+            "episodes": [{"episode": 1, "script_file": "scripts/episode_1.json", "generation_mode": "reference_video"}],
+        }
+    )
+    (fake_ctx.project_path / "project.json").write_text(
+        json.dumps(fake_ctx.pm.project_payload, ensure_ascii=False), encoding="utf-8"
+    )
+    # 在时间线上改短时长后台词念不完：第 2 个单元在调用文本模型前被拦下。
+    long_line = "他站在门口足足看了半晌才缓缓开口说出这句迟到了整整十年的道歉与告别" * 2
+    scripts = fake_ctx.project_path / "scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    (scripts / "episode_1.json").write_text(
+        json.dumps(
+            {
+                "episode": 1,
+                "title": "第1集",
+                "content_mode": "narration",
+                "video_units": [
+                    {"unit_id": "E1U01", "text": "@[主角] 推开 @[酒馆] 的门", "duration_seconds": 4},
+                    {
+                        "unit_id": "E1U04",
+                        "text": f"@[主角] 推开 @[酒馆] 的门\n@[主角]：{{{long_line}}}",
+                        "duration_seconds": 4,
+                        "pending_authoring": True,
+                    },
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    _prepare_script_admission(fake_ctx.project_path)
+    model = FakeTextGenerator(AssertionError("预判拦下的单元不应调用文本模型"))
+    use_text_generator(monkeypatch, model.create)
+
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1})
+
+    problem = problem_of(out).model_dump()
+    assert (problem["code"], problem["action"]) == (
+        "prompt_authoring_dialogue_overload",
+        GenerationAction.FIX_INPUT.value,
+    )
+    # 按界面上的位置称呼单元（视频单元 2），参数原样透出供 Agent 转述。
+    assert {key: problem["params"][key] for key in ("unit_id", "position", "duration_seconds")} == {
+        "unit_id": "E1U04",
+        "position": 2,
+        "duration_seconds": 4,
+    }
+    assert float(problem["params"]["spoken_seconds"]) > 4
+    assert "generate_episode_script 失败" not in said(out)
+    assert model.requests == []
+
+
+async def test_generate_episode_script_without_anything_to_write_marks_the_result(
+    fake_ctx: ToolHarness, monkeypatch
+) -> None:
+    """只补缺而范围内没有待编写的条目：未调用文本模型，结果带上空操作标记，Web 据此提示勾选覆盖。"""
+    _narration_formal_script(fake_ctx.project_path)
+    script_path = fake_ctx.project_path / "scripts" / "episode_1.json"
+    script = json.loads(script_path.read_text(encoding="utf-8"))
+    script["segments"][0].update(pending_authoring=False, image_prompt="手写画面", video_prompt="手写镜头")
+    script_path.write_text(json.dumps(script), encoding="utf-8")
+    original = script_path.read_bytes()
+
+    model = FakeTextGenerator(AssertionError("没有待编写条目时不应调用文本模型"))
+    use_text_generator(monkeypatch, model.create)
+    out = await run_declared_tool("generate_episode_script", fake_ctx, {"episode_id": 1, "entry_ids": ["E1S01"]})
+
+    assert out.problem is None
+    assert isinstance(out.value, TextGenerationResult)
+    assert out.value.no_pending_authoring is True
+    assert script_path.read_bytes() == original
+    assert model.requests == []
+    assert "没有待编写的条目" in out.value.message
 
 
 async def test_generate_episode_script_facts_failure_reports_the_real_problem(
@@ -993,6 +1093,8 @@ async def test_normalize_drama_script_passes_project_name_to_backend(
         f"normalize_drama_script 必须向 TextGenerator.generate 传入 project_name，"
         f"实际传入: {captured.get('generate_project_name')!r}"
     )
+    assert "drafts/episode_1/script_plan_normalized_script.json" in said(out)
+    assert str(project_path) not in said(out)
 
 
 async def test_normalize_drama_script_registers_the_frozen_explicit_source_basis(

@@ -50,7 +50,7 @@ from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILIT
 from lib.billing.metering import Usage
 from lib.config.system_config import resolve_vertex_credentials_path
 from lib.config.url_utils import normalize_base_url
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -378,7 +378,7 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
         video_ref = generated_video.video
         video_uri = video_ref.uri if video_ref else None
 
-        await asyncio.to_thread(request.output_path.parent.mkdir, parents=True, exist_ok=True)
+        await run_noninterruptible_sync(request.output_path.parent.mkdir, parents=True, exist_ok=True)
         await self._download_video_with_retry(video_ref, request.output_path)
         await faststart_video_artifact(request.output_path)
 
@@ -425,6 +425,12 @@ class GeminiVideoBackend(ProviderJobIdPersistenceMixin):
 
         SDK 取件抛的不是 ``HTTPStatusError``，故退到按 ``retryable_errors`` 判定。
         """
+        if self._backend_type == "vertex" and video_ref and getattr(video_ref, "video_bytes", None):
+            # 已有字节只需落盘，不进入网络取件的超时与重试预算。
+            await run_noninterruptible_sync(
+                _write_atomically, output_path, lambda target: target.write_bytes(video_ref.video_bytes)
+            )
+            return
         # 线程里写 .part 再替换成片：取消须等这次写盘结束、结果确定后再传播，否则调用方清理后线程才落盘。
         # 外层 asyncio.timeout 结束不了线程，线程按同一份预算的墙钟期限自行收尾。
         deadline = time.monotonic() + ARTIFACT_DOWNLOAD_MAX_WAIT_SECONDS

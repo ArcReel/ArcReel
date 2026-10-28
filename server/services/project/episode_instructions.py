@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Any
 
 from lib.infra.api_errors import NotFoundError
+from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import ProjectManager, find_episode
 
 
@@ -36,6 +37,7 @@ def save_episode_instructions(
             entry.pop(kind.value, None)
 
     try:
-        pm.update_project(project_name, mutate)
+        with project_change_source("webui"):
+            pm.update_project(project_name, mutate)
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc

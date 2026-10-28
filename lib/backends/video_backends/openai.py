@@ -34,7 +34,7 @@ from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
 from lib.backends.video_backends.name_family import UNRECOGNIZED_MODEL_CAPABILITIES, capabilities_by_names
 from lib.billing.metering import Usage
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
 
@@ -300,7 +300,7 @@ class OpenAIVideoBackend(ProviderJobIdPersistenceMixin):
             request.output_path.parent.mkdir(parents=True, exist_ok=True)
             request.output_path.write_bytes(content.content)
 
-        await run_sync_transaction(_write)
+        await run_noninterruptible_sync(_write)
         await faststart_video_artifact(request.output_path)
 
         logger.info("OpenAI 视频下载完成: %s", request.output_path)

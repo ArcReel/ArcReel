@@ -19,6 +19,8 @@ from lib.final_cut.basis import FinalCutVariant, final_cut_key
 from lib.final_cut.service import FinalCutService
 from lib.project.project_manager import ProjectManager
 from lib.project.project_trash import list_records
+from lib.script.grid.grid_manager import GridManager
+from lib.script.grid.models import GridGeneration
 from server.error_handlers import register_error_handlers
 from server.routers import edit_timelines, episode_management
 from server.routers import project_trash as trash_router
@@ -160,6 +162,50 @@ async def test_a_timeline_deleted_before_its_episode_restores_normally_once_the_
     assert timeline_back.status_code == 200, timeline_back.text
     assert timeline_back.json()["degraded"] is False
     assert (await episode_client.get(f"/api/v1/projects/demo/edit-timelines/{timeline_id}")).status_code == 200
+
+
+async def test_a_grid_deleted_before_its_episode_restores_normally_once_the_episode_is_back(
+    episode_client: AsyncClient, timeline_project: ProjectManager
+) -> None:
+    project_dir = timeline_project.get_project_path("demo")
+    grids = GridManager(project_dir)
+    grid = GridGeneration.create(
+        episode=1,
+        script_file="episode_1.json",
+        scene_ids=["E1U1"],
+        rows=1,
+        cols=2,
+        grid_size="grid_2",
+        provider="test",
+        model="m",
+        video_aspect_ratio="9:16",
+    )
+    grid.status = "completed"
+    grid.grid_image_path = f"grids/{grid.id}.png"
+    grids.save(grid)
+    grids.image_path(grid.id).write_bytes(b"grid-image")
+    VersionManager(project_dir).add_version("grids", grid.id, "prompt", source_file=grids.image_path(grid.id))
+    assert grids.move_to_trash(grid.id)
+    await _delete_episode_1(episode_client)
+    by_kind = {record["object"]["kind"]: record for record in await _records(episode_client)}
+    # 集还在项目回收站里：宫格只能随集恢复，不降级成没有归属的普通文件。
+    too_early = await episode_client.post(f"/api/v1/projects/demo/trash/{by_kind['grid']['id']}/restore")
+    assert too_early.status_code == 409
+    assert "只能随集恢复" in too_early.json()["detail"]
+    assert grids.get(grid.id) is None
+    assert by_kind["grid"]["id"] in {record["id"] for record in await _records(episode_client)}
+
+    episode_back = await episode_client.post(f"/api/v1/projects/demo/trash/{by_kind['episode']['id']}/restore")
+    grid_back = await episode_client.post(f"/api/v1/projects/demo/trash/{by_kind['grid']['id']}/restore")
+
+    assert episode_back.status_code == 200, episode_back.text
+    assert grid_back.status_code == 200, grid_back.text
+    assert grid_back.json()["degraded"] is False
+    restored = grids.get(grid.id)
+    assert restored is not None
+    assert restored.grid_image_path == f"grids/{grid.id}.png"
+    assert grids.image_path(grid.id).read_bytes() == b"grid-image"
+    assert VersionManager(project_dir).has_versions("grids", grid.id)
 
 
 @pytest.mark.parametrize(

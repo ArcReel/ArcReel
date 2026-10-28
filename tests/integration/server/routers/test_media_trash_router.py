@@ -133,6 +133,26 @@ def test_a_cleared_end_frame_returns_to_its_shot(media_trash_pm, media_trash_cli
     assert (media_trash_pm.get_project_path("demo") / END_FRAME).read_bytes() == b"frame"
 
 
+def test_an_end_frame_record_names_its_shot_by_position_and_text(media_trash_pm):
+    """回收站按分镜在集里的位置与正文摘录称呼尾帧，不露分镜的内部编号。"""
+    _set_end_frame(media_trash_pm, b"frame")
+    _clear_end_frame(media_trash_pm)
+
+    [record] = project_trash.list_records(media_trash_pm.get_project_path("demo"))
+    assert (record.object["episode"], record.object["item_position"], record.object["item_excerpt"]) == (1, 1, "t")
+
+
+def test_an_end_frame_record_takes_its_episode_from_the_script_file_when_the_script_has_none(media_trash_pm):
+    """剧本内没有整数 episode 时，尾帧记录的集号取自规范文件名，回收站仍按位置称呼分镜。"""
+    _set_end_frame(media_trash_pm, b"frame")
+    with media_trash_pm.locked_script("demo", "episode_1.json", validate=False) as script:
+        del script["episode"]
+    _clear_end_frame(media_trash_pm)
+
+    [record] = project_trash.list_records(media_trash_pm.get_project_path("demo"))
+    assert (record.object["episode"], record.object["item_position"], record.object["item_excerpt"]) == (1, 1, "t")
+
+
 def test_an_end_frame_restored_onto_a_newer_one_takes_a_new_name(media_trash_pm, media_trash_client):
     _set_end_frame(media_trash_pm, b"old")
     _clear_end_frame(media_trash_pm)
@@ -169,6 +189,35 @@ def test_reference_audio_of_a_deleted_character_restores_only_its_file(media_tra
     assert result["degraded"] is True
     assert (media_trash_pm.get_project_path("demo") / AUDIO).read_bytes() == b"voice"
     assert project_trash.list_records(media_trash_pm.get_project_path("demo")) == []
+
+
+def test_a_reference_audio_restored_to_a_new_name_does_not_relink_to_another_characters_file(
+    media_trash_pm, media_trash_client
+):
+    project_dir = media_trash_pm.get_project_path("demo")
+    media_trash_pm.add_project_character("demo", "Alice (1)", "another", "soft")
+    record_ids: list[str] = []
+    for content in (b"first", b"second"):
+        media_trash_pm.install_character_reference_audio("demo", "Alice", AUDIO, content)
+        media_trash_pm.clear_character_reference_audio("demo", "Alice")
+        record_ids.append(
+            next(record.id for record in project_trash.list_records(project_dir) if record.id not in record_ids)
+        )
+    first, second = record_ids
+    mp3 = "characters/refs_audio/Alice.mp3"
+    media_trash_pm.install_character_reference_audio("demo", "Alice", mp3, b"current")
+    # 当前音色仍有效：先恢复的一份只作为未引用文件加回原位。
+    project_trash.restore(project_dir, first)
+    media_trash_pm.clear_character_reference_audio("demo", "Alice")
+
+    restored = media_trash_client.post(f"{TRASH}/{second}/restore")
+
+    assert restored.status_code == 200, restored.text
+    renamed = "characters/refs_audio/Alice (1).wav"
+    assert restored.json()["object"]["path"] == renamed
+    assert (project_dir / renamed).read_bytes() == b"second"
+    assert (project_dir / AUDIO).read_bytes() == b"first"
+    assert media_trash_pm.load_project("demo")["characters"]["Alice"]["reference_audio"] == ""
 
 
 @pytest.mark.parametrize("kind", ["end_frame", "reference_audio"])

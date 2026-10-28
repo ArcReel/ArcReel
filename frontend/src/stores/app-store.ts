@@ -8,7 +8,7 @@ import type {
   WorkspaceNotificationTarget,
 } from "@/types";
 
-/** 提示上的操作按钮，用于可逆操作的「撤销」；点击后执行回调并关闭这条提示。 */
+/** 提示上的操作按钮，用于可逆操作的「撤销」，或在用户已离开时打开刚完成的结果（如「打开项目」）；点击后执行回调并关闭这条提示。 */
 interface ToastAction {
   label: string;
   onClick: () => void;

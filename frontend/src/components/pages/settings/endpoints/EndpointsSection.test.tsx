@@ -36,7 +36,6 @@ function model(overrides: Partial<CustomProviderModelInfo>): CustomProviderModel
     matched_entry: null,
     system_capabilities: null,
     capability_overrides: null,
-    global_bucket_refs: null,
     path_overrides: null,
     requests: [],
     ...overrides,

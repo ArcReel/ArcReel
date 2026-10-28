@@ -328,7 +328,9 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(screen.queryByText("本单元未引用场景，画面地点将由模型自由决定")).not.toBeInTheDocument();
   });
 
-  it("confirms, then prefills a continue message into the assistant input without sending", async () => {
+  it("confirms without opening the assistant panel or prefilling a message", async () => {
+    // Web 全流程不打开 Agent 面板：确认后由页面的下一步接续，与 ScriptReviewGate 一致。
+    useAppStore.setState({ assistantPanelOpen: false });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     const confirm = vi
       .spyOn(API, "confirmScriptReview")
@@ -340,8 +342,10 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /确认拆分，继续生成/ }));
 
     await waitFor(() => expect(confirm).toHaveBeenCalledWith("p", 1, {}));
-    await waitFor(() => expect(useAssistantStore.getState().input).toContain("（集 ID 1）"));
-    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+    await waitFor(() => expect(screen.getByRole("button", { name: "已确认" })).toBeDisabled());
+    expect(useAppStore.getState().toast?.text).toBe("已确认 — 视觉生成已放行");
+    expect(useAssistantStore.getState().input).toBe("");
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
   it("renders confirmed units without edit controls and offers the timeline", async () => {
@@ -522,8 +526,7 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     expect(button).toBeEnabled();
   });
 
-  it("suppresses the confirm toast/prefill if the user has switched to a different project mid-request", async () => {
-    useAppStore.setState({ assistantPanelOpen: false });
+  it("suppresses the confirm toast if the user has switched to a different project mid-request", async () => {
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     let resolveConfirm: (value: ScriptReviewState) => void = () => {};
     vi.spyOn(API, "confirmScriptReview").mockReturnValue(
@@ -543,14 +546,13 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     // adopt() 运行在守卫之前，确认本身已生效——用按钮态的变化确认异步流程真的跑完了，
     // 而不是靠一个从始至终都为空的断言碰巧「通过」。
     await waitFor(() => expect(screen.getByRole("button", { name: "已确认" })).toBeDisabled());
-    expect(useAssistantStore.getState().input).toBe("");
     expect(useAppStore.getState().toast).toBeNull();
-    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
-  it("still shows the confirm toast/prefill after switching tabs within the same project", async () => {
+  it("still shows the confirm toast after switching tabs within the same project", async () => {
     // 同项目内切 tab（本组件会被卸载，但 useProjectsStore.currentProjectName 不变）不该被
-    // 当成「切走了」而抑制全局副作用——预填文案本身带着具体集号，写进全局输入框依然准确。
+    // 当成「切走了」而抑制确认提示。
+    useAppStore.setState({ assistantPanelOpen: false });
     vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
     let resolveConfirm: (value: ScriptReviewState) => void = () => {};
     vi.spyOn(API, "confirmScriptReview").mockReturnValue(
@@ -565,8 +567,9 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     unmount();
     resolveConfirm(pendingState(CONFIRMED));
 
-    await waitFor(() => expect(useAssistantStore.getState().input).toContain("（集 ID 1）"));
-    expect(useAppStore.getState().assistantPanelOpen).toBe(true);
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("已确认 — 视觉生成已放行"));
+    expect(useAssistantStore.getState().input).toBe("");
+    expect(useAppStore.getState().assistantPanelOpen).toBe(false);
   });
 
   it("draft state anchors a line-level violation inline and aggregates the unit-level one, without a confirm", async () => {
@@ -603,6 +606,76 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
         "rev-1",
       ),
     );
+  });
+
+  function anchorBrokenState(): ScriptReviewState {
+    return {
+      ...quarantinedState(),
+      quarantine: draftView({
+        content: { units: [{ duration_seconds: 8, source_text: "阿离撑伞走过。", text: "@[阿离] 撑伞走过 @[长街]" }] },
+        violations: [
+          {
+            code: "source_text_not_verbatim",
+            label: "unit E1U01",
+            message: "unit E1U01 的 source_text 不是小说原文的逐字片段（存在改写、翻译或杜撰）",
+            line: null,
+            item_index: 0,
+          },
+        ],
+      }),
+    };
+  }
+
+  it("hand-fixes a broken source anchor in the draft, then unblocks confirmation once adopted", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValueOnce(anchorBrokenState()).mockResolvedValue(pendingState());
+    const save = vi
+      .spyOn(API, "saveEpisodeDraft")
+      .mockResolvedValue({ episode: 1, doc_type: "reference_script_plan", adopted: true, draft: null });
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    expect(await screen.findByText("非源文逐字子串")).toBeInTheDocument();
+    expect(screen.getByText(/视频单元 1 的 source_text 不是小说原文的逐字片段/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "编辑文稿" }));
+    const source = screen.getByRole("textbox", { name: "视频单元 1 原文" });
+    expect(source).toHaveAttribute("aria-invalid", "true");
+    fireEvent.change(source, { target: { value: "阿离撑伞走过长街。" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
+
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        "p",
+        1,
+        "reference_script_plan",
+        { units: [{ duration_seconds: 8, source_text: "阿离撑伞走过长街。", text: "@[阿离] 撑伞走过 @[长街]" }] },
+        "rev-1",
+      ),
+    );
+    expect(await screen.findByRole("button", { name: /确认拆分，继续生成/ })).toBeEnabled();
+    expect(screen.queryByText("非源文逐字子串")).not.toBeInTheDocument();
+  });
+
+  it("keeps blocking on the server's verbatim check when the edited source text is still not in the novel", async () => {
+    const stillBroken = anchorBrokenState();
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(stillBroken);
+    const save = vi.spyOn(API, "saveEpisodeDraft").mockResolvedValue({
+      episode: 1,
+      doc_type: "reference_script_plan",
+      adopted: false,
+      draft: { ...stillBroken.quarantine!, revision: "rev-2", episode: 1, item_ids: ["E1U01"] },
+    });
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "视频单元 1 原文" }), { target: { value: "杜撰的一句话。" } });
+    fireEvent.click(screen.getByRole("button", { name: /保存并校验/ }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][3]).toMatchObject({ units: [{ source_text: "杜撰的一句话。" }] });
+    expect(await screen.findByText(/视频单元 1 的 source_text 不是小说原文的逐字片段/)).toBeInTheDocument();
+    expect(screen.getByText("非源文逐字子串")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /确认拆分，继续生成/ })).not.toBeInTheDocument();
   });
 
   it("shows server soft violations on their unit without blocking a save", async () => {
@@ -687,6 +760,21 @@ describe("ReferenceScriptPlanPreviewPanel", () => {
     });
     // 保存携带 GET 时拿到的内容指纹，供服务端做并发编辑冲突比对
     expect(baseFingerprint).toBe("fp1");
+  });
+
+  it("edits the unit source text in the non-quarantined state and saves it with the units", async () => {
+    vi.spyOn(API, "getScriptReview").mockResolvedValue(pendingState());
+    const save = vi.spyOn(API, "saveScriptReviewContent").mockResolvedValue(pendingState());
+    render(<ReferenceScriptPlanPreviewPanel projectName="p" episode={1} lookup={LOOKUP} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "编辑文稿" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "视频单元 1 原文" }), { target: { value: "阿离撑伞。" } });
+    fireEvent.click(await screen.findByText("保存"));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][2]).toMatchObject({
+      units: [{ unit_id: "E1U01", source_text: "阿离撑伞。", text: "@[阿离] 撑伞走过 @[长街]" }],
+    });
   });
 
   it("renders the spoken-line count in the unit header", async () => {

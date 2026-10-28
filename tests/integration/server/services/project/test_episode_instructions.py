@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from lib.infra.api_errors import NotFoundError
+from lib.project.project_change_hints import register_project_change_listener
 from lib.project.project_manager import ProjectManager
 from server.services.project.episode_instructions import EpisodeInstructionKind, save_episode_instructions
 
@@ -25,8 +26,15 @@ def _episode(pm: ProjectManager) -> dict:
 
 
 def test_each_action_keeps_its_own_instructions_per_episode(pm: ProjectManager) -> None:
-    save_episode_instructions(pm, "demo", 1, EpisodeInstructionKind.SCRIPT_PLAN, "  节奏紧凑一些  ")
-    save_episode_instructions(pm, "demo", 1, EpisodeInstructionKind.PROMPT_AUTHORING, "冷色调")
+    sources: list[str] = []
+    unregister = register_project_change_listener(lambda _name, source, _paths: sources.append(source))
+    try:
+        save_episode_instructions(pm, "demo", 1, EpisodeInstructionKind.SCRIPT_PLAN, "  节奏紧凑一些  ")
+        save_episode_instructions(pm, "demo", 1, EpisodeInstructionKind.PROMPT_AUTHORING, "冷色调")
+    finally:
+        unregister()
+    assert sources
+    assert set(sources) == {"webui"}
 
     episode = _episode(pm)
     assert episode["script_plan_instructions"] == "节奏紧凑一些"

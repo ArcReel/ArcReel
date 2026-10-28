@@ -302,11 +302,18 @@ function createRefreshCoordinator<T>(
     });
 }
 
-interface RecordsTarget {
-  query: UsageRecordsQuery;
+interface PageSlot {
   pageIndex: number;
   cursors: (string | null)[];
 }
+
+/**
+ * 列表页请求。两个视图写同一组总数与分页状态，所以共用一个协调器：
+ * 换视图即作废另一视图在途的请求，它晚到的结果不会再覆盖当前视图的分页。
+ */
+type PageTarget =
+  | (PageSlot & { view: "generation"; query: UsageRecordsQuery })
+  | (PageSlot & { view: "agent"; query: UsageSessionsQuery });
 
 export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
   const recordQuery = (filters: UsageRecordsFilters, cursor: string | null): UsageRecordsQuery => ({
@@ -358,83 +365,46 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
     return scheduleSummary(JSON.stringify(query), query);
   };
 
-  const runRecords = async (
-    { query, pageIndex, cursors }: RecordsTarget,
-    signal: AbortSignal,
-  ) => {
+  const runPage = async (target: PageTarget, signal: AbortSignal) => {
     set({ recordsLoading: true, recordsFailed: false });
+    const paging = (page: { total: number; next_cursor: string | null }) => ({
+      total: page.total,
+      nextCursor: page.next_cursor,
+      pageIndex: target.pageIndex,
+      cursors: target.cursors,
+      recordsLoading: false,
+    });
     try {
-      const page = await API.getUsageRecords(query, { signal });
-      if (signal.aborted) return;
-      set({
-        records: page.items,
-        total: page.total,
-        nextCursor: page.next_cursor,
-        pageIndex,
-        cursors,
-        recordsLoading: false,
-      });
+      if (target.view === "agent") {
+        const page = await API.getUsageSessions(target.query, { signal });
+        if (signal.aborted) return;
+        set({ sessions: page.items, ...paging(page) });
+      } else {
+        const page = await API.getUsageRecords(target.query, { signal });
+        if (signal.aborted) return;
+        set({ records: page.items, ...paging(page) });
+      }
     } catch {
       if (signal.aborted) return;
-      set({ records: [], total: 0, nextCursor: null, recordsLoading: false, recordsFailed: true });
+      const failed = { total: 0, nextCursor: null, recordsLoading: false, recordsFailed: true };
+      set(target.view === "agent" ? { sessions: [], ...failed } : { records: [], ...failed });
     }
   };
-  const scheduleRecords = createRefreshCoordinator(runRecords);
-  const fetchRecords = (
-    filters: UsageRecordsFilters,
-    cursor: string | null,
-    pageIndex: number,
-    cursors: (string | null)[],
-  ) => {
-    const query = recordQuery(filters, cursor);
-    const target = { query, pageIndex, cursors };
-    return scheduleRecords(JSON.stringify({ query, pageIndex }), target);
-  };
-
-  interface SessionsTarget {
-    query: UsageSessionsQuery;
-    pageIndex: number;
-    cursors: (string | null)[];
-  }
-  const runSessions = async ({ query, pageIndex, cursors }: SessionsTarget, signal: AbortSignal) => {
-    set({ recordsLoading: true, recordsFailed: false });
-    try {
-      const page = await API.getUsageSessions(query, { signal });
-      if (signal.aborted) return;
-      set({
-        sessions: page.items,
-        total: page.total,
-        nextCursor: page.next_cursor,
-        pageIndex,
-        cursors,
-        recordsLoading: false,
-      });
-    } catch {
-      if (signal.aborted) return;
-      set({ sessions: [], total: 0, nextCursor: null, recordsLoading: false, recordsFailed: true });
-    }
-  };
-  const scheduleSessions = createRefreshCoordinator(runSessions);
-  const fetchSessions = (
-    filters: UsageRecordsFilters,
-    cursor: string | null,
-    pageIndex: number,
-    cursors: (string | null)[],
-  ) => {
-    const query = sessionQuery(filters, cursor);
-    return scheduleSessions(JSON.stringify({ query, pageIndex }), { query, pageIndex, cursors });
-  };
-
+  const schedulePage = createRefreshCoordinator(runPage);
   /** 当前视图的列表页：「生成调用」取记录，「Agent 会话」取会话。 */
   const fetchPage = (
     filters: UsageRecordsFilters,
     cursor: string | null,
     pageIndex: number,
     cursors: (string | null)[],
-  ) =>
-    filters.view === "agent"
-      ? fetchSessions(filters, cursor, pageIndex, cursors)
-      : fetchRecords(filters, cursor, pageIndex, cursors);
+  ) => {
+    const target: PageTarget =
+      filters.view === "agent"
+        ? { view: "agent", query: sessionQuery(filters, cursor), pageIndex, cursors }
+        : { view: "generation", query: recordQuery(filters, cursor), pageIndex, cursors };
+    const key = JSON.stringify({ view: target.view, query: target.query, pageIndex });
+    return schedulePage(key, target);
+  };
 
   const runPending = async (query: UsageRecordsQuery, signal: AbortSignal) => {
     try {
@@ -471,12 +441,11 @@ export const useUsageRecordsStore = create<UsageRecordsState>((set, get) => {
       const previous = get().filters;
       const summaryStale = sharedDimensions(previous) !== sharedDimensions(filters);
       const first = get().summary === null && !get().summaryLoading;
-      // 换视图时旧视图的列表与总数不再适用：先清空，免得新视图加载期间显示旧内容。
-      if (previous.view !== filters.view) {
-        set({ filters, records: [], sessions: [], total: 0, nextCursor: null, pendingRecords: [] });
-      } else {
-        set({ filters });
-      }
+      // 新查询先重置游标，避免第一页返回前的刷新沿用旧查询的分页位置。
+      set({
+        filters, pageIndex: 0, cursors: [null], nextCursor: null,
+        ...(previous.view !== filters.view ? { records: [], sessions: [], total: 0, pendingRecords: [] } : {}),
+      });
       await Promise.all([
         summaryStale || first || options.refetchSummary
           ? fetchSummary(filters)

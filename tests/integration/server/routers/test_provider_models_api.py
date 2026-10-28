@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from arcreel_catalog_core import EntryKey
 from lib.catalog import query as catalog
+from lib.config.retired_model_ids import GLOBAL_MODEL_SETTING_KEYS
 from lib.config.service import ConfigService
 from lib.db import get_async_session
 from lib.db.repositories.credential_repository import CredentialRepository
@@ -396,7 +398,7 @@ async def test_custom_unmatched_video_model_detail_and_settings(
     assert resp.status_code == 422
 
 
-async def test_custom_model_rename_and_remove_clear_global_references(
+async def test_custom_model_rename_rewrites_and_remove_clears_references(
     models_client: TestClient, db_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     db_id = await _custom_provider(
@@ -432,10 +434,16 @@ async def test_custom_model_rename_and_remove_clear_global_references(
         == 422
     )
     async with db_factory() as session:
+        assert await ConfigService(session).get_setting("default_text_backend", "") == f"{provider_id}/house-v2"
+    assert pm.load_project("demo")["text_backend_simple"] == f"{provider_id}/house-v2"
+
+    assert models_client.delete(f"/api/v1/providers/{provider_id}/models/house-v2").status_code == 204
+    async with db_factory() as session:
         assert await ConfigService(session).get_setting("default_text_backend", "") == ""
+    assert "text_backend_simple" not in pm.load_project("demo")
 
     assert models_client.delete(f"/api/v1/providers/{provider_id}/models/spare").status_code == 204
-    assert set(_models(models_client, provider_id)) == {"house-v2"}
+    assert set(_models(models_client, provider_id)) == set()
 
 
 # ---------------------------------------------------------------------------
@@ -1094,3 +1102,13 @@ async def test_discovery_drops_model_ids_with_dot_segment(
     for resp in (custom, builtin):
         assert resp.status_code == 200
         assert sorted(m["model_id"] for m in resp.json()["models"]) == ["gpt-4.1", "x/y"]
+
+
+def test_model_reference_setting_keys_have_i18n_labels() -> None:
+    """删除确认列出的全局引用按 `global_bucket_label_<key>` 动态取词，每个键都须有三语文案：缺文案会把
+    原始 key 渲染给用户，而 zh/en/vi 三语一致性检查只比对彼此、看不见后端新增的键。"""
+    i18n_dir = Path(__file__).resolve().parents[4] / "frontend" / "src" / "i18n"
+    for locale in ("zh", "en", "vi"):
+        content = (i18n_dir / locale / "dashboard.ts").read_text(encoding="utf-8")
+        for key in GLOBAL_MODEL_SETTING_KEYS:
+            assert f"'global_bucket_label_{key}'" in content, f"{locale} 缺 global_bucket_label_{key} 文案"

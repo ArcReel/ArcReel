@@ -87,6 +87,7 @@ from lib.script.draft_quarantine import (
     read_quarantine,
 )
 from lib.script.draft_violation import locate_violations, locate_violations_by_id, schema_violations
+from lib.script.item_excerpt import find_item
 from lib.script.plan_new_assets import (
     NEW_ASSETS_FIELD,
     NewAssetResolution,
@@ -107,6 +108,7 @@ from lib.script.reference_video.draft_validation import (
     DraftViolations,
     assert_dialogue_preserved,
     dialogue_speakers,
+    dialogue_spoken_seconds,
     validate_dialogue_load,
     validate_unit_text,
     violation_items,
@@ -145,6 +147,7 @@ from lib.script.script_review import (
     ScriptPlanWriteConflict,
     content_fingerprint,
     content_fingerprint_of_data,
+    fingerprint_of_revision,
     formal_script_filename,
     formal_script_overwrite,
     formal_script_plan_lock,
@@ -202,6 +205,20 @@ _KIND_PARSE_SCHEMA: dict[str, type[BaseModel]] = {
 
 class PromptAuthoringTargetError(ValueError):
     """提示词编写的对象无效：该集尚无正式脚本，或 ``entry_ids`` 点名的条目不在正式脚本里。"""
+
+
+class PromptAuthoringUnitRejected(ValueError):
+    """提示词编写调用文本模型前，正式脚本里待编写单元的现值没有通过预判。
+
+    这是输入问题：编写会逐字保留单元台词，重试同一份输入必然再次失败，出路是在时间线上修改该单元。
+    ``code`` 与 ``params`` 是任务失败的问题码与参数，界面按问题码本地化；``params["position"]`` 是该单元
+    在本集视频单元里的位置（从 1 起），界面按位置称呼单元。消息面向 Agent，按单元 ID 定位。
+    """
+
+    def __init__(self, message: str, *, code: str, params: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.code = code
+        self.params = params
 
 
 class AdScriptRejected(ValueError):
@@ -295,7 +312,7 @@ def _require_overwrite_acknowledged(
 ) -> None:
     """显式重写会替换已有视觉层内容时，覆盖令牌须与读取目标时的正式剧本指纹一致。"""
     overwritten = targets.selection.overwritten
-    if overwritten and (overwrite_revision is None or overwrite_revision != baseline):
+    if overwritten and (overwrite_revision is None or fingerprint_of_revision(overwrite_revision) != baseline):
         raise PromptOverwriteRequired(PromptOverwrite(fingerprint=baseline, entries=overwritten))
 
 
@@ -495,7 +512,7 @@ class ScriptGenerator:
             if entry_ids or rewrite:
                 raise PromptAuthoringTargetError("整份重做不能与 entry_ids / rewrite 同时使用")
             overwrite = await asyncio.to_thread(formal_script_overwrite, self.project_path, self.project_json, episode)
-            if overwrite is not None and overwrite_revision != overwrite.fingerprint:
+            if overwrite is not None and fingerprint_of_revision(overwrite_revision) != overwrite.fingerprint:
                 raise AdScriptOverwriteRequired(overwrite)
             prompt, schema = await self._compose_ad(episode, gen_mode, instructions)
             return await self._generate_and_save(
@@ -1489,6 +1506,29 @@ class ScriptGenerator:
                 )
         self._assert_reference_unit_text_valid(units, max_refs=self._resolve_max_refs(facts))
 
+    def _unit_rejection(
+        self, targets: PromptAuthoringTargets, exc: DraftViolation
+    ) -> PromptAuthoringUnitRejected | None:
+        """把正式脚本单元的预判违约转成任务失败的问题码：台词念不完带上估算秒数，其余违约只指出单元。
+
+        违约定位不到正式脚本里的单元时返回 None。
+        """
+        first = violation_items(exc)[0]
+        found = find_item(targets.script, first.item_id) if first.item_id else None
+        if found is None:
+            return None
+        position, unit = found
+        params: dict[str, Any] = {"unit_id": first.item_id, "position": position}
+        if first.code == "dialogue_overload":
+            spoken = dialogue_spoken_seconds(
+                str(unit.get("text") or ""),
+                self.project_json.get("source_language"),
+                project_speech_rate_override(self.project_json),
+            )
+            params.update(spoken_seconds=f"{spoken:.1f}", duration_seconds=int(unit["duration_seconds"]))
+            return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_dialogue_overload", params=params)
+        return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_unit_invalid", params=params)
+
     def _assert_reference_unit_text_valid(self, units: list[dict], *, max_refs: int | None) -> None:
         """按机器产物的严格口径预判正式脚本各 unit 正文，违约时把定位与出路指回时间线。
 
@@ -1528,6 +1568,7 @@ class ScriptGenerator:
                         locations=item.locations,
                         reason=item.reason,
                         action=item.action,
+                        item_id=str(unit["unit_id"]),
                     )
                     for item in violation_items(exc)
                 ]
@@ -1578,7 +1619,13 @@ class ScriptGenerator:
         units = list(targets.entries)
 
         def preflight() -> str | None:
-            self._assert_reference_units_authorable(units, facts=facts)
+            try:
+                self._assert_reference_units_authorable(units, facts=facts)
+            except DraftViolation as exc:
+                rejection = self._unit_rejection(targets, exc)
+                if rejection is None:
+                    raise
+                raise rejection from exc
             return self._reference_prompt_authoring_draft_revision(episode)
 
         if await asyncio.to_thread(preflight) is not None:
@@ -1928,9 +1975,10 @@ class ScriptGenerator:
     ) -> Path:
         draft = read_quarantine(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
         if draft is None:
+            draft_path = quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)
             raise FileNotFoundError(
                 f"集（id={episode}）没有可晋升的 prompt_authoring 待修复草稿"
-                f"（{quarantine_path(self.project_path, episode, QUARANTINE_KIND_PROMPT_AUTHORING)} 缺失或内容不是合法信封）"
+                f"（{draft_path.relative_to(self.project_path).as_posix()} 缺失或内容不是合法信封）"
             )
 
         filename = output_filename or formal_script_filename(self.project_path, self.project_json, episode)

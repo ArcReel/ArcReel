@@ -259,12 +259,33 @@ def rewrite_entry_paths(entry: dict, spec: AssetSpec, old_name: str, new_name: s
     return count
 
 
-def _named_file_dirs(project_dir: Path, spec: AssetSpec) -> list[tuple[Path, bool]]:
-    """按名命名的资产文件所在的目录，及该目录是否放行 ``名字_{序号}`` 形态。"""
-    base = project_dir / spec.subdir
+def _named_file_layout(spec: AssetSpec) -> tuple[tuple[PurePosixPath, bool], ...]:
+    """按名命名的资产文件所在的目录（项目相对），及该目录是否放行 ``名字_{序号}`` 形态。"""
+    base = PurePosixPath(spec.subdir)
     sequenced_refs = "reference_images" in spec.extra_list_fields
-    candidates = ((base, False), (base / "refs", sequenced_refs), (base / "refs_audio", False))
+    return ((base, False), (base / "refs", sequenced_refs), (base / "refs_audio", False))
+
+
+def _named_file_dirs(project_dir: Path, spec: AssetSpec) -> list[tuple[Path, bool]]:
+    candidates = ((project_dir.joinpath(*directory.parts), allow) for directory, allow in _named_file_layout(spec))
     return [(directory, allow_sequence) for directory, allow_sequence in candidates if directory.is_dir()]
+
+
+#: 资产条目里登记上传原件的路径字段（参考图、参考音频、多图序列），按名归属。
+REFERENCE_FILE_FIELDS = ("reference_image", "reference_audio", "reference_images")
+
+
+def owns_named_file(spec: AssetSpec, name: str, rel: str) -> bool:
+    """项目相对路径 *rel* 是 *name* 名下的文件，与 :func:`asset_files_named` 同一判据。
+
+    参考图与参考音频按名归属、不跨资产共用：改名只迁移、删除只带走、恢复只加回本资产名下的文件，
+    指向别处的字段在这些操作之后可能悬空，所以写入时只接受本资产名下的路径。
+    """
+    path = PurePosixPath(rel.replace("\\", "/"))
+    for directory, allow_sequence in _named_file_layout(spec):
+        if path.parent == directory:
+            return renamed_file_stem(path.stem, name, name, allow_sequence=allow_sequence) is not None
+    return False
 
 
 def asset_files_named(project_dir: Path, spec: AssetSpec, name: str) -> list[Path]:
@@ -325,13 +346,37 @@ def plan_asset_file_renames(
     return moves
 
 
+def foreign_reference_file_field(
+    spec: AssetSpec, name: str, entry: Mapping[str, object], values: Mapping[str, object]
+) -> str | None:
+    """*values* 新写进参考文件字段的路径里有不在 *name* 名下的，返回第一个这样的字段；都在则为 ``None``。
+
+    只看新写入的值：条目里已有的值原样提交不算新写入。
+    """
+    for field in REFERENCE_FILE_FIELDS:
+        if field not in spec.extra_string_fields and field not in spec.extra_list_fields:
+            continue
+        value, current = values.get(field), entry.get(field)
+        written = value if isinstance(value, list) else [value]
+        kept = current if isinstance(current, list) else [current]
+        if any(
+            isinstance(item, str) and item and item not in kept and not owns_named_file(spec, name, item)
+            for item in written
+        ):
+            return field
+    return None
+
+
 __all__ = [
+    "REFERENCE_FILE_FIELDS",
     "AssetRenameConflictError",
     "AssetRenameFileCollisionError",
     "AssetRenameHistoryCollisionError",
     "AssetRenameNotFoundError",
     "AssetRenameReport",
     "asset_files_named",
+    "foreign_reference_file_field",
+    "owns_named_file",
     "plan_asset_file_renames",
     "renamed_file_stem",
     "renamed_relpath",

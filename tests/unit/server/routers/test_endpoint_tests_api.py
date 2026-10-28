@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from lib.billing.ledger import Ledger
 from lib.config.resolver import ConfigResolver
@@ -41,18 +41,28 @@ COMFYUI_CREDENTIALS = {"base_url": "https://comfy.test", "api_key": ""}
 
 
 @pytest.fixture
-def trial_runs(tmp_path, db_engine) -> TrialRunManager:
-    """隔离到 tmp_path 与内存库的登记处，经依赖覆盖注入。"""
+def file_db_engine(file_db_factory: async_sessionmaker[AsyncSession]) -> AsyncEngine:
+    """本文件各夹具共用的文件库 engine，每个连接独立。
+
+    ``TestClient`` 在响应体发完即返回，请求依赖的 session 收尾与后台 trial run 的落账并发写库；
+    独立连接让两边的事务互不连带。
+    """
+    return file_db_factory.kw["bind"]
+
+
+@pytest.fixture
+def trial_runs(tmp_path, file_db_engine) -> TrialRunManager:
+    """隔离到 tmp_path 与文件库的登记处，经依赖覆盖注入。"""
     return TrialRunManager(
         root=tmp_path / "trial_runs",
-        ledger=Ledger(session_factory=async_sessionmaker(db_engine, expire_on_commit=False)),
+        ledger=Ledger(session_factory=async_sessionmaker(file_db_engine, expire_on_commit=False)),
         read_poll_timeout=_fixed_timeout,
     )
 
 
 @pytest.fixture
-def endpoint_tests_app(db_engine, trial_runs: TrialRunManager) -> FastAPI:
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+def endpoint_tests_app(file_db_engine, trial_runs: TrialRunManager) -> FastAPI:
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     app = FastAPI()
 
     async def _override_session():
@@ -858,19 +868,19 @@ class TestTrialRuns:
 
 
 @pytest.fixture
-async def stored_model_row(db_engine) -> dict[str, Any]:
+async def stored_model_row(file_db_engine) -> dict[str, Any]:
     """一条挂着自定义调用端点的视频模型行，供 ``model_ref`` 用例引用。"""
-    return await _store_model_row(db_engine)
+    return await _store_model_row(file_db_engine)
 
 
 @pytest.fixture
-async def stored_model_row_with_submit_override(db_engine) -> dict[str, Any]:
+async def stored_model_row_with_submit_override(file_db_engine) -> dict[str, Any]:
     """同 ``stored_model_row``，提交请求的路径被覆盖为 ``/v2/create``。"""
-    return await _store_model_row(db_engine, path_overrides={"submit": "/v2/create"})
+    return await _store_model_row(file_db_engine, path_overrides={"submit": "/v2/create"})
 
 
-async def _store_model_row(db_engine, *, path_overrides: dict[str, str] | None = None) -> dict[str, Any]:
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+async def _store_model_row(file_db_engine, *, path_overrides: dict[str, str] | None = None) -> dict[str, Any]:
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     async with session_factory() as session:
         endpoint = await CustomEndpointRepository(session).create(
             definition=custom_endpoint_definition(),
@@ -900,18 +910,18 @@ async def _store_model_row(db_engine, *, path_overrides: dict[str, str] | None =
 
 
 @pytest.fixture
-async def stored_minimax_config(db_engine) -> None:
+async def stored_minimax_config(file_db_engine) -> None:
     """内置 minimax 的凭证配置，供内置直连 ``model_ref`` 用例引用。"""
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     async with session_factory() as session:
         await ConfigService(session).set_provider_config("minimax", "api_key", "sk-minimax-key-0001")
         await session.commit()
 
 
 @pytest.fixture
-async def stored_provider_without_api_key(db_engine) -> dict[str, Any]:
+async def stored_provider_without_api_key(file_db_engine) -> dict[str, Any]:
     """一条没存 api_key 的供应商行，供「凭证读库缺字段」用例引用。"""
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     async with session_factory() as session:
         provider = await CustomProviderRepository(session).create_provider(
             display_name="中转站",
@@ -925,9 +935,9 @@ async def stored_provider_without_api_key(db_engine) -> dict[str, Any]:
 
 
 @pytest.fixture
-async def stored_model_row_without_api_key(db_engine) -> dict[str, Any]:
+async def stored_model_row_without_api_key(file_db_engine) -> dict[str, Any]:
     """同样的模型行，但供应商没存 api_key——定义的 auth 节非空，空凭证发不出合法请求。"""
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     async with session_factory() as session:
         endpoint = await CustomEndpointRepository(session).create(
             definition=custom_endpoint_definition(),
@@ -956,9 +966,9 @@ async def stored_model_row_without_api_key(db_engine) -> dict[str, Any]:
 
 
 @pytest.fixture
-async def stored_builtin_endpoint_model_row(db_engine) -> dict[str, Any]:
+async def stored_builtin_endpoint_model_row(file_db_engine) -> dict[str, Any]:
     """挂内置声明式端点（newapi-video）的模型行：定义随版发布，不落 custom_endpoint 表。"""
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     async with session_factory() as session:
         provider = await CustomProviderRepository(session).create_provider(
             display_name="中转站",
@@ -980,9 +990,9 @@ async def stored_builtin_endpoint_model_row(db_engine) -> dict[str, Any]:
 
 
 @pytest.fixture
-async def stored_model_row_without_base_url(db_engine) -> dict[str, Any]:
+async def stored_model_row_without_base_url(file_db_engine) -> dict[str, Any]:
     """同样的模型行，但供应商没填接口地址——声明式端点的提交 URL 需要它。"""
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     async with session_factory() as session:
         endpoint = await CustomEndpointRepository(session).create(
             definition=custom_endpoint_definition(),
@@ -1011,9 +1021,9 @@ async def stored_model_row_without_base_url(db_engine) -> dict[str, Any]:
 
 
 @pytest.fixture
-async def stored_disabled_model_row(db_engine) -> dict[str, Any]:
+async def stored_disabled_model_row(file_db_engine) -> dict[str, Any]:
     """一条已禁用的视频模型行，供拒绝用例引用。"""
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     async with session_factory() as session:
         endpoint = await CustomEndpointRepository(session).create(
             definition=custom_endpoint_definition(),
@@ -1317,7 +1327,7 @@ class TestComfyuiEndpoints:
         assert resp.json()["submit"]["url"] == "https://comfy.test/prompt"
 
     def test_an_image_endpoint_runs_a_trial_run_and_serves_the_image(
-        self, client: TestClient, trial_runs: TrialRunManager, db_engine
+        self, client: TestClient, trial_runs: TrialRunManager, file_db_engine
     ):
         """图像端点跑的是同一条测试连接：四段状态点齐备，产物按图的 MIME 下发。"""
         with capture_http() as router, bounded_poll_clock():
@@ -1346,7 +1356,7 @@ class TestComfyuiEndpoints:
         assert artifact.headers["content-type"] == "image/png"
         # 账本这一行记的是实际发出的那笔调用：图像请求形状里没有时长与音轨这两维。
         assert client.portal is not None
-        row = client.portal.call(_only_api_call, async_sessionmaker(db_engine, expire_on_commit=False))
+        row = client.portal.call(_only_api_call, async_sessionmaker(file_db_engine, expire_on_commit=False))
         assert (row.call_type, row.duration_seconds, row.generate_audio) == ("image", None, False)
 
     def test_an_image_model_row_with_a_reference_image_passes_the_capability_gate(
@@ -1411,12 +1421,12 @@ class TestComfyuiEndpoints:
 
 
 @pytest.fixture
-async def stored_comfyui_image_model_row(db_engine) -> dict[str, Any]:
+async def stored_comfyui_image_model_row(file_db_engine) -> dict[str, Any]:
     """一条挂着 ComfyUI 图生图端点的图像模型行，供图像 ``model_ref`` 用例引用。"""
     definition = _comfyui_image_definition()
     definition["workflow"]["20"] = {"class_type": "LoadImage", "inputs": {"image": "draft.png"}}
     definition["bindings"]["reference_images"] = [{"node": "20", "input": "image", "class_type": "LoadImage"}]
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     async with session_factory() as session:
         endpoint = await CustomEndpointRepository(session).create(
             definition=definition,
@@ -1445,9 +1455,9 @@ async def stored_comfyui_image_model_row(db_engine) -> dict[str, Any]:
 
 
 @pytest.fixture
-async def stored_provider(db_engine) -> dict[str, Any]:
+async def stored_provider(file_db_engine) -> dict[str, Any]:
     """一条自定义供应商行，供「凭证读库」用例引用。"""
-    session_factory = async_sessionmaker(db_engine, expire_on_commit=False)
+    session_factory = async_sessionmaker(file_db_engine, expire_on_commit=False)
     async with session_factory() as session:
         provider = await CustomProviderRepository(session).create_provider(
             display_name="中转站",

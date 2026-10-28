@@ -35,7 +35,7 @@ from lib.custom_provider.declarative_backend import (
     response_extract_guard,
 )
 from lib.custom_provider.path_overrides import NO_PATH_OVERRIDES, PathOverrides
-from lib.infra.async_thread import run_sync_transaction
+from lib.infra.async_thread import run_noninterruptible_sync
 
 _HTTP_TIMEOUT_SECONDS = 60
 
@@ -167,6 +167,8 @@ class DeclarativeImageBackend:
     def _reference_limit(self) -> int:
         """定义声明的参考图上限；未声明时为 ``0``。校验器保证声明了图生图就有正数上限。"""
         value = (self._definition.get("capabilities") or {}).get("max_reference_images")
+        if isinstance(value, float) and value.is_integer():
+            value = int(value)
         return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
     async def generate(self, request: ImageGenerationRequest) -> ImageGenerationResult:
@@ -252,7 +254,7 @@ async def _write_inline_image(state: ImageJobState, output_path: Path) -> None:
 
     try:
         # 解码大图是 CPU 密集操作，放到线程里免得卡住事件循环。
-        await run_sync_transaction(decode_and_save)
+        await run_noninterruptible_sync(decode_and_save)
     except ValueError as exc:
         raise DeclarativeRuntimeError("declarative_response_extract_failed", detail=str(exc)) from exc
     except OSError as exc:

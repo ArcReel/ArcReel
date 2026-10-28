@@ -124,10 +124,25 @@ class TestCapabilitiesFromDefinition:
         assert caps.first_frame is False
         assert caps.text_to_video is True
 
+    @pytest.mark.parametrize("limit", [0, 0.0, 1, 1.0])
+    def test_integral_reference_limits_become_integer_capabilities(self, limit: int | float):
+        caps = video_capabilities_from_definition(
+            self._definition(source="reference_images", max_reference_images=limit)
+        )
+
+        assert caps.max_reference_images == limit
+        assert type(caps.max_reference_images) is int
+
     @pytest.mark.parametrize(
         "capabilities",
-        [{"not_a_capability": True}, {"max_reference_images": -1}, {"first_frame": "yes"}],
-        ids=["unknown-key", "negative-count", "wrong-type"],
+        [
+            {"not_a_capability": True},
+            {"max_reference_images": -1},
+            {"max_reference_images": 1.5},
+            {"max_reference_images": True},
+            {"first_frame": "yes"},
+        ],
+        ids=["unknown-key", "negative-count", "fractional-count", "boolean-count", "wrong-type"],
     )
     def test_invalid_capability_declaration_raises(self, capabilities: dict[str, object]):
         """定义里的能力节不走覆盖那套「丢弃脏键继续跑」：定义是唯一真相源，脏声明必须炸。"""

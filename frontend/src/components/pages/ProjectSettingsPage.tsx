@@ -93,12 +93,14 @@ interface LoadedSettings {
 }
 
 async function loadSettings(projectName: string, signal: AbortSignal): Promise<LoadedSettings> {
-  const [configRes, projectRes, providers, customProviders, narrationDefaults] = await Promise.all([
+  const [configRes, projectRes, providers, customProviders, narrationDefaults, auto] = await Promise.all([
     API.getSystemConfig({ signal }),
     API.getProject(projectName, { signal }),
     getProviderModels({ signal }).catch(() => [] as ProviderInfo[]),
     getCustomProviderModels({ signal }).catch(() => [] as CustomProviderInfo[]),
     API.getNarrationDefaults({ signal }).catch(() => null),
+    // 自动选择的实际模型只用于展示与能力查询，读不到时退回只显示「自动选择」
+    API.getAutoBackends({ signal }).catch(() => null),
   ]);
   const settings = configRes.settings;
   const globals: GlobalModelDefaults = {
@@ -111,6 +113,7 @@ async function loadSettings(projectName: string, signal: AbortSignal): Promise<L
     textDefault: settings?.default_text_backend ?? "",
     textSimple: settings?.text_backend_simple ?? "",
     textComplex: settings?.text_backend_complex ?? "",
+    auto,
   };
   const project = projectRes.project as unknown as Record<string, unknown>;
   return {

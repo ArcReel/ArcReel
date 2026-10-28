@@ -3,9 +3,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import re
-import threading
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
@@ -33,6 +31,7 @@ from lib.backends.dashscope_shared import extract_audio_url
 from lib.backends.providers import PROVIDER_DASHSCOPE
 from tests.fakes import captured_openai_clients
 from tests.http_capture import capture_http, only_request, request_json
+from tests.unit.lib.backends.write_cancel_gate import GatedWritePath, WriteGate, cancel_during_write
 
 
 class TestRegistry:
@@ -279,33 +278,23 @@ class TestDashScopeAudioBackend:
         assert routes.download.call_count == 1, "4xx 不可重试，下载 GET 不应被重试"
         assert not out.exists()
 
-    async def test_download_write_settles_before_cancellation_propagates(self, tmp_path: Path):
-        # 落盘走线程卸载，但 staging 文件的写入必须在取消传播前结算完：调用方
-        # MediaGenerator.generate_audio_async 的 finally 会 unlink staging 路径，
-        # 写入线程若仍在跑就会与该清理交错（POSIX 下写出孤儿文件，Windows 下 unlink 报错）。
+    async def test_download_write_settles_through_cancellation(self, tmp_path: Path):
+        # 供应商已返回、音频字节已到手：取消落在 staging 写盘期间时，写入先结算，取消随之消失，
+        # 调用方 MediaGenerator.generate_audio_async 的后续产物提交与 finally 清理都在写入完成之后进行。
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 
-        started = threading.Event()
-        release = threading.Event()
-        out = _GatedWritePath(tmp_path / "gated.wav").attach(started, release)
+        gate = WriteGate()
+        out = GatedWritePath(tmp_path / "gated.wav").attach(gate)
+        written = tmp_path / "gated.wav"
 
         with _dashscope_audio_routes(download=httpx.Response(200, content=b"RIFFwavbytes")):
             b = DashScopeAudioBackend(api_key="sk")
-            task = asyncio.create_task(
-                b.synthesize(AudioSynthesisRequest(text="你好", output_path=out, voice="Cherry"))
+            steps = await cancel_during_write(
+                lambda: b.synthesize(AudioSynthesisRequest(text="你好", output_path=out, voice="Cherry")), gate
             )
-            # 事件握手：写入线程已进入 write_bytes 且被闸门挡住
-            await asyncio.to_thread(started.wait, 5)
-            task.cancel()
-            # 线程往返把控制权交还事件循环，可中断实现会在此结束
-            await asyncio.to_thread(lambda: None)
-            assert not task.done(), "取消不得在已启动的 staging 写入结算前返回"
 
-            release.set()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-
-        assert out.read_bytes() == b"RIFFwavbytes"
+        assert steps == ["follow-up"]
+        assert written.read_bytes() == b"RIFFwavbytes"
 
     async def test_download_over_audio_limit_is_rejected_without_retry(self, tmp_path: Path, poll_clock):
         from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
@@ -331,23 +320,6 @@ class TestDashScopeAudioBackend:
 
         assert routes.download.call_count == 0
         assert not out.exists()
-
-
-class _GatedWritePath(Path):
-    """写入被闸门挡住的 ``output_path``：观测取消与线程写入的交错。
-
-    作为请求的输入对象注入，不 patch 生产符号。
-    """
-
-    def attach(self, started: threading.Event, release: threading.Event) -> _GatedWritePath:
-        self._started = started
-        self._release = release
-        return self
-
-    def write_bytes(self, data) -> int:
-        self._started.set()
-        self._release.wait(5)
-        return super().write_bytes(data)
 
 
 class _RecordingSpeechClient:
@@ -397,6 +369,22 @@ class TestOpenAIAudioBackend:
         assert result.model == "tts-1"
         assert result.text == "你好世界"
         assert result.output_path == out
+
+    async def test_write_settles_through_cancellation(self, tmp_path: Path):
+        # 合成已计费、字节已到手：取消落在写盘期间时，写入先结算，取消随之消失，后续产物提交照常执行
+        gate = WriteGate()
+        out = GatedWritePath(tmp_path / "o.wav").attach(gate)
+        written = tmp_path / "o.wav"
+        with captured_openai_clients(_mock_speech_client()):
+            from lib.backends.audio_backends.openai import OpenAIAudioBackend
+
+            b = OpenAIAudioBackend(api_key="sk", model="tts-1")
+            steps = await cancel_during_write(
+                lambda: b.synthesize(AudioSynthesisRequest(text="你好", output_path=out, voice="alloy")), gate
+            )
+
+        assert steps == ["follow-up"]
+        assert written.read_bytes() == b"RIFFwavbytes"
 
     def test_metadata(self):
         with captured_openai_clients():

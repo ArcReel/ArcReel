@@ -30,7 +30,7 @@ from lib.script.reference_video.draft_validation import DraftViolation
 from lib.script.reference_video.request_projection import configured_reference_request_facts
 from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
-from lib.script.script_generator import PlanningVideoFacts, ScriptGenerator
+from lib.script.script_generator import PlanningVideoFacts, PromptAuthoringUnitRejected, ScriptGenerator
 from server.services.project.episode_drafts import EpisodeDraftService
 from tests.factories import make_video_request_facts
 from tests.fakes import use_text_generator
@@ -996,9 +996,13 @@ async def test_formal_text_violation_is_caught_before_the_paid_prompt_authoring_
     _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "text": "@[查无此人} 推门"}])
     generator = _idle_generator()
 
-    with pytest.raises(DraftViolation, match=r"来自正式脚本.*时间线"):
+    with pytest.raises(PromptAuthoringUnitRejected, match=r"来自正式脚本.*时间线") as exc_info:
         await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
     generator.generate.assert_not_awaited()
+    assert (exc_info.value.code, exc_info.value.params) == (
+        "prompt_authoring_unit_invalid",
+        {"unit_id": "E1U01", "position": 1},
+    )
 
 
 def test_speech_violation_preserves_canonical_unit_and_locations(reference_project: Path):
@@ -1034,13 +1038,23 @@ async def test_dialogue_overload_is_caught_before_the_paid_prompt_authoring_call
     long_line = "他站在门口足足看了半晌才缓缓开口说出这句迟到了整整十年的道歉与告别" * 2
     _write_formal_units(
         reference_project,
-        [{**SCRIPT_PLAN_UNIT, "text": f"@[主角] 推开 @[酒馆] 的门\n@[主角]：{{{long_line}}}"}],
+        [
+            {**SCRIPT_PLAN_UNIT, "pending_authoring": False},
+            {**SCRIPT_PLAN_UNIT, "unit_id": "E1U04", "text": f"@[主角] 推开 @[酒馆] 的门\n@[主角]：{{{long_line}}}"},
+        ],
     )
     generator = _idle_generator()
 
-    with pytest.raises(DraftViolation, match="台词念完约需"):
+    with pytest.raises(PromptAuthoringUnitRejected, match="台词念完约需") as exc_info:
         await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
     generator.generate.assert_not_awaited()
+    # 问题码按输入问题归类，参数按界面上的位置称呼单元（第 2 个），而不是只分配不复用的单元 ID。
+    rejection = exc_info.value
+    assert rejection.code == "prompt_authoring_dialogue_overload"
+    assert rejection.params["position"] == 2
+    assert rejection.params["unit_id"] == "E1U04"
+    assert rejection.params["duration_seconds"] == 4
+    assert float(rejection.params["spoken_seconds"]) > 4
 
 
 async def test_prompt_authoring_missing_title_does_not_fail_the_paid_call(reference_project: Path):
