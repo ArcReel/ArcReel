@@ -101,6 +101,11 @@ async def _extract_frames(video_path: Path, indices: list[int]) -> list[Image.Im
     chunks = [chunk + _PNG_END for chunk in result.stdout.split(_PNG_END) if chunk]
     if len(chunks) != len(indices):
         raise ContactSheetError(f"抽帧数量不符：{video_path.name} 期望 {len(indices)} 帧，得到 {len(chunks)} 帧")
+    # 逐帧解码 PNG 是纯 CPU 工作，放进工作线程，不占用事件循环。
+    return await asyncio.to_thread(_decode_frames, chunks)
+
+
+def _decode_frames(chunks: list[bytes]) -> list[Image.Image]:
     frames: list[Image.Image] = []
     for chunk in chunks:
         image = Image.open(io.BytesIO(chunk))

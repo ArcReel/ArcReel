@@ -12,7 +12,7 @@
 pytest-timeout 只管单个用例的 setup/call/teardown，而且 signal 法要等主线程回到字节码才能
 生效；会话收尾、worker 退出时等待非 daemon 线程这类卡点它看不到。这里的看门狗是独立的
 daemon 线程，这些阶段都覆盖。不借用 faulthandler 的 ``dump_traceback_later``：它在进程内只有
-一个定时器，``lib/infra/loop_stall_probe`` 在应用 lifespan 里会重置并撤销它。
+一个定时器，被任何其他调用方重置或撤销后转储就会丢失。
 """
 
 from __future__ import annotations
