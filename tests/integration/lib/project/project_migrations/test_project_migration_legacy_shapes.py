@@ -56,6 +56,7 @@ from tests.legacy_project_shapes import (
     reuse_item_id_across_episodes,
     set_script_episode,
     share_asset_sheets,
+    share_derivative_sheet,
     share_episode_script,
     share_reference_files,
     write_legacy_ad_reference_video_project,
@@ -388,7 +389,7 @@ def test_an_asset_name_with_path_separators_gets_no_copy_outside_its_directory(
         share_reference_files(project_dir)
         image, audio = "characters/refs/阿离.png", "characters/refs_audio/阿离.wav"
     project = _read_json(project_dir / "project.json")
-    escaping = {"description": "escaping", "reference_image": image, "reference_audio": audio}
+    escaping = {"description": "escaping", "reference_image": image, "reference_audio": audio, "character_sheet": image}
     project["characters"]["../../../../escaped"] = escaping
     (project_dir / "project.json").write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
 
@@ -396,7 +397,7 @@ def test_an_asset_name_with_path_separators_gets_no_copy_outside_its_directory(
 
     assert list(tmp_path.rglob("escaped*")) == []
     entry = _read_json(project_dir / "project.json")["characters"]["../../../../escaped"]
-    assert (entry["reference_image"], entry["reference_audio"]) == (image, audio)
+    assert (entry["reference_image"], entry["reference_audio"], entry["character_sheet"]) == (image, audio, image)
 
 
 def test_copying_shared_reference_files_converges_after_a_failed_commit(
@@ -520,7 +521,9 @@ def test_a_failed_sheet_copy_commit_rolls_the_claims_back_and_the_retry_converge
         with pytest.raises(OSError, match="disk full"):
             runner.migrate_project_dir(project_dir)
 
-    # 改指没能提交：登记与 project.json 一并回到改前。
+    # 改指没能提交：复制落点、登记与 project.json 一并回到改前。
+    assert (project_dir / "characters/阿青.png").read_bytes() == b"qing-stray"
+    assert (project_dir / "scenes/雨巷.png").read_bytes() == contents["scenes/雨巷.png"]
     assert (project_dir / MANIFEST_FILENAME).read_bytes() == manifest
     assert (project_dir / "project.json").read_bytes() == project
 
@@ -529,6 +532,182 @@ def test_a_failed_sheet_copy_commit_rolls_the_claims_back_and_the_retry_converge
     _assert_sheets_keep_their_currency(tmp_path, project_dir, contents, qing_digest)
     assert len(list((project_dir / "characters").glob("阿青.png.kept.*"))) == 1
     assert len(list((project_dir / "scenes").glob("雨巷.png.kept.*"))) == 1
+
+
+def test_a_body_sheet_pointing_at_another_assets_derivative_gets_its_own_copy(tmp_path: Path) -> None:
+    project_dir, *_ = _project(tmp_path)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION - 1)
+    project_path = project_dir / "project.json"
+    derivative = share_derivative_sheet(project_dir)
+
+    _migrate(project_dir)
+
+    characters = _read_json(project_path)["characters"]
+    assert characters["阿青"]["character_sheet"] == "characters/阿青.png"
+    assert (project_dir / "characters/阿青.png").read_bytes() == b"raincoat"
+    assert (project_dir / derivative).read_bytes() == b"raincoat"
+    assert _sheet_status(project_dir, "character", "阿青", "characters/阿青.png") == "missing"
+
+
+@pytest.mark.parametrize("source_link", ["file", "parent"])
+def test_an_unsafe_shared_sheet_source_is_not_copied_into_a_current_claim(tmp_path: Path, source_link: str) -> None:
+    project_dir, _, _ = _project_sharing_sheets(tmp_path)
+    source = project_dir / "characters/refs/阿离.png"
+    if source_link == "file":
+        real = source.with_name("real.png")
+        source.rename(real)
+        source.symlink_to(real)
+    else:
+        directory = source.parent
+        real = directory.with_name("real-refs")
+        directory.rename(real)
+        directory.symlink_to(real, target_is_directory=True)
+    claim = _sheet_claim(project_dir, "character", "阿青")
+
+    runner.migrate_project_dir(project_dir)
+
+    assert (
+        _read_json(project_dir / "project.json")["characters"]["阿青"]["character_sheet"] == "characters/refs/阿离.png"
+    )
+    assert (project_dir / "characters/阿青.png").read_bytes() == b"qing-stray"
+    assert _sheet_status(project_dir, "character", "阿青", "characters/阿青.png") != "current"
+    assert _sheet_claim(project_dir, "character", "阿青") == claim
+    observed = ArtifactManifest(ProjectArtifactManifestAdapter(project_dir)).compare_entry(
+        ArtifactKey.asset_sheet("character", "阿青"), artifact_path="characters/refs/阿离.png", expected=None
+    )
+    assert observed.status.value == "blocked"
+    assert observed.blocker is not None
+    assert observed.blocker.code == "artifact_symlink"
+
+
+@pytest.mark.parametrize("external_bytes", [b"ali-image", b"other", None])
+def test_a_sheet_copy_replaces_the_destination_symlink_without_touching_its_target(
+    tmp_path: Path, external_bytes: bytes | None
+) -> None:
+    project_dir, contents, digest = _project_sharing_sheets(tmp_path)
+    external = tmp_path / "external.png"
+    if external_bytes is not None:
+        external.write_bytes(external_bytes)
+    target = project_dir / "characters/阿青.png"
+    target.unlink()
+    target.symlink_to(external)
+
+    _migrate(project_dir)
+
+    assert not target.is_symlink()
+    _assert_sheets_keep_their_currency(tmp_path, project_dir, contents, digest)
+    if external_bytes is not None:
+        assert external.read_bytes() == external_bytes
+    else:
+        assert not external.exists()
+
+
+def test_a_sheet_copy_does_not_write_through_a_symlink_directory(tmp_path: Path) -> None:
+    manager = ProjectManager(tmp_path / "data")
+    manager.create_project("demo")
+    project_dir = manager.get_project_path("demo")
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["schema_version"] = CURRENT_PROJECT_SCHEMA_VERSION - 1
+    project["characters"] = {"Bob": {"description": "Bob", "character_sheet": "props/Umbrella.png"}}
+    project["props"] = {"Umbrella": {"description": "Umbrella", "prop_sheet": "props/Umbrella.png"}}
+    project_path.write_text(json.dumps(project), encoding="utf-8")
+    (project_dir / "props/Umbrella.png").write_bytes(b"source")
+    outside = tmp_path / "outside"
+    (project_dir / "characters").rename(outside)
+    (project_dir / "characters").symlink_to(outside, target_is_directory=True)
+    original = project_path.read_bytes()
+
+    with pytest.raises(ValueError, match="copy directory is a symlink"):
+        runner.migrate_project_dir(project_dir)
+
+    assert not (outside / "Bob.png").exists()
+    assert project_path.read_bytes() == original
+
+
+@pytest.mark.parametrize(
+    "spelling", ["./characters/refs/阿离.png", "characters/refs/../refs/阿离.png", "characters\\refs\\阿离.png"]
+)
+def test_a_shared_sheet_with_a_noncanonical_spelling_gets_a_safe_copy(tmp_path: Path, spelling: str) -> None:
+    project_dir, _, _ = _project_sharing_sheets(tmp_path)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["characters"]["阿青"]["character_sheet"] = spelling
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    assert _read_json(project_path)["characters"]["阿青"]["character_sheet"] == "characters/阿青.png"
+    assert (project_dir / "characters/阿青.png").read_bytes() == b"ali-image"
+    assert _sheet_status(project_dir, "character", "阿青", "characters/阿青.png") == "missing"
+
+
+def test_bidirectional_sheet_sharing_copies_the_original_bytes(tmp_path: Path) -> None:
+    project_dir, *_ = _project(tmp_path)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION - 1)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["characters"]["阿离"]["character_sheet"] = "characters/阿青.png"
+    project["characters"]["阿青"] = {"description": "青衣少年", "character_sheet": "characters/阿离.png"}
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    original = (project_dir / "characters/阿离.png").read_bytes()
+    (project_dir / "characters/阿青.png").write_bytes(b"qing")
+
+    _migrate(project_dir)
+
+    characters = _read_json(project_path)["characters"]
+    assert characters["阿离"]["character_sheet"] == "characters/阿离.png"
+    assert characters["阿青"]["character_sheet"] == "characters/阿青.png"
+    assert (project_dir / "characters/阿离.png").read_bytes() == b"qing"
+    assert (project_dir / "characters/阿青.png").read_bytes() == original
+    assert _sheet_status(project_dir, "character", "阿离", "characters/阿离.png") == "missing"
+
+
+def test_bidirectional_sheet_sharing_with_crossed_claims_carries_both_claims(tmp_path: Path) -> None:
+    project_dir, *_ = _project(tmp_path)
+    advance_project_schema(project_dir, to_version=CURRENT_PROJECT_SCHEMA_VERSION - 1)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["characters"]["阿离"]["character_sheet"] = "characters/阿青.png"
+    project["characters"]["阿青"] = {"description": "青衣少年", "character_sheet": "characters/阿离.png"}
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+    ali_bytes = (project_dir / "characters/阿离.png").read_bytes()
+    (project_dir / "characters/阿青.png").write_bytes(b"qing")
+    # 两张图的登记都在各自共用的路径上：逐条改指时，第一条会落到另一条尚未换走的路径上。
+    adapter = ProjectArtifactManifestAdapter(project_dir)
+    ali_key = ArtifactKey.asset_sheet("character", "阿离")
+    qing_key = ArtifactKey.asset_sheet("character", "阿青")
+    ali_claim = adapter.get_entry(ali_key)
+    assert ali_claim is not None
+    qing_digest = "sha256-v1:" + "0" * 64
+    crossed = {
+        ali_key: replace(ali_claim, artifact_path="characters/阿青.png"),
+        qing_key: replace(ali_claim, artifact_path="characters/阿离.png", basis_digest=qing_digest),
+    }
+    assert adapter.replace_entries_if_matches_atomically(expected={ali_key: ali_claim}, replacements=crossed)
+
+    _migrate(project_dir)
+
+    characters = _read_json(project_path)["characters"]
+    assert characters["阿离"]["character_sheet"] == "characters/阿离.png"
+    assert characters["阿青"]["character_sheet"] == "characters/阿青.png"
+    assert (project_dir / "characters/阿离.png").read_bytes() == b"qing"
+    assert (project_dir / "characters/阿青.png").read_bytes() == ali_bytes
+    assert _sheet_claim(project_dir, "character", "阿离") == ("characters/阿离.png", ali_claim.basis_digest)
+    assert _sheet_claim(project_dir, "character", "阿青") == ("characters/阿青.png", qing_digest)
+
+
+def test_a_copied_sheet_keeps_its_stale_claim(tmp_path: Path) -> None:
+    project_dir, _, digest = _project_sharing_sheets(tmp_path)
+    project_path = project_dir / "project.json"
+    project = _read_json(project_path)
+    project["characters"]["阿青"]["description"] = "改变了描述"
+    project_path.write_text(json.dumps(project, ensure_ascii=False), encoding="utf-8")
+
+    _migrate(project_dir)
+
+    assert _sheet_claim(project_dir, "character", "阿青") == ("characters/阿青.png", digest)
+    assert _sheet_status(project_dir, "character", "阿青", "characters/阿青.png") == "stale"
 
 
 def test_schema_five_shared_asset_sheets_get_their_own_copy(tmp_path: Path) -> None:

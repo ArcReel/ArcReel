@@ -1288,6 +1288,19 @@ def share_asset_sheets(project_dir: Path) -> dict[str, bytes]:
     return {reference: b"ali-image"}
 
 
+def share_derivative_sheet(project_dir: Path) -> str:
+    """旧版 PATCH 允许本体资产图指向另一个资产的衍生图。"""
+    project_path = project_dir / "project.json"
+    project = _load_json_object(project_path)
+    derivative = "characters/derivatives/阿离/雨衣.png"
+    project["characters"]["阿离"]["derivatives"] = {"雨衣": {"description": "穿雨衣", "character_sheet": derivative}}
+    project["characters"]["阿青"] = {"description": "青衣少年", "character_sheet": derivative}
+    _write_json(project_path, project)
+    (project_dir / derivative).parent.mkdir(parents=True, exist_ok=True)
+    (project_dir / derivative).write_bytes(b"raincoat")
+    return derivative
+
+
 def repoint_registered_asset_sheet(project_dir: Path) -> dict[str, bytes]:
     """资产图登记之后才经 PATCH 改指别的资产名下的图：场景「雨巷」的资产图改指道具「伞」的资产图。
 
