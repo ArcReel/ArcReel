@@ -8,6 +8,8 @@ import math
 from pathlib import Path
 from typing import ClassVar, Literal
 
+import openai
+
 from arcreel_market_core.aspect_size import IMAGE_TIER_SHORT_EDGE, aspect_size, resolution_to_short_edge
 from arcreel_market_core.video_backend_contract import IMAGE_MIME_TYPES
 from lib.backends.image_backends.base import (
@@ -275,7 +277,14 @@ class OpenAIImageBackend:
             self.name,
             format_kwargs_for_log({**edit_kwargs, "image": f"<{len(image_files)} files>"}),
         )
-        response = await self._client.images.edit(**edit_kwargs)
+        try:
+            response = await self._client.images.edit(**edit_kwargs)
+        except openai.NotFoundError as exc:
+            # 火山方舟没有 /images/edits：Seedream 带参考图要走「火山方舟 (Seedream)」端点。早先按名字推断
+            # 落在 OpenAI 图片端点上的存量配置会在这里稳定 404，改报一条指明换端点的原因，不改写用户配置。
+            if "seedream" in self._model.lower():
+                raise ImageCapabilityError("image_seedream_edits_unavailable", model=self._model) from exc
+            raise
         return await self._save_and_return(response, request, params)
 
     async def _save_and_return(

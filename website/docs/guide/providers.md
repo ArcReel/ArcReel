@@ -430,6 +430,8 @@ ArcReel 可以接入 OpenAI 兼容或 Google 兼容服务。典型用途：
 
 通过 OpenRouter 接入图片模型时，在[模型设置](#model-settings)里把调用端点改为「OpenRouter 图片」。OpenRouter 不提供 OpenAI 的 `/images/edits` 接口，挂在「OpenAI 图片」上的模型无法图生图；「OpenRouter 图片」的文生图与图生图都走 `/images`，比例、清晰度和参考图上限按 OpenRouter 对该模型声明的参数确定。参考图多于该模型的上限时，只发送前面的参考图，并在任务结果中提示；任一张参考图读取失败时，生成直接报错，不会少带参考图继续生成。
 
+通过自定义供应商接入火山方舟 Seedream 时，使用调用端点「火山方舟 (Seedream)」。名称含 `seedream` 的模型默认推断到这个端点。方舟不提供 `/images/edits` 接口，文生图与带参考图生成都走 `/images/generations`，参考图随请求一起发送，最多 14 张；尺寸按项目比例取方舟推荐的宽高，计费与预置的火山方舟供应商一致。此前添加、仍挂在「OpenAI 图片」上的 Seedream 模型，文生图照常可用，带参考图生成时会报错并提示更换调用端点，在[模型设置](#model-settings)里改为「火山方舟 (Seedream)」即可。
+
 需要的调用端点如果已经有人适配过，可以从[市场](./market.md)直接安装，不必自己编写定义。
 
 供应商以 JSON 提交任务、再用任务 ID 轮询 JSON 结果时，可以在「调用端点」分区点击「新建端点」，自己编写声明式定义。
