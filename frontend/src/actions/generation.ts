@@ -22,6 +22,7 @@ import { useProjectsStore } from "@/stores/projects-store";
 import type {
   AssetSheetBatchScope,
   AssetSheetBatchSubmitted,
+  AssetSheetRef,
   AuthorPromptsRequest,
   DraftDocType,
   PlanningGap,
@@ -32,8 +33,10 @@ import type {
   ReferenceGenerationRequestOptions,
   StoryboardBatchKind,
   StoryboardBatchSubmitted,
+  TaskStatus,
 } from "@/types";
 import {
+  isOccupyingStatus,
   useTasksStore,
   type ImageEditResourceKind,
   type OptimisticHandle,
@@ -61,10 +64,11 @@ function notifyEnqueued(
   deduped: boolean,
   successText: string | null,
   successTone: "success" | "info" = "success",
+  dedupedText: string = i18n.t("dashboard:enqueue_deduped_toast"),
 ): void {
   const { pushToast } = useAppStore.getState();
   if (deduped) {
-    pushToast(i18n.t("dashboard:enqueue_deduped_toast"), "info");
+    pushToast(dedupedText, "info");
   } else if (successText !== null) {
     pushToast(successText, successTone);
   }
@@ -442,27 +446,51 @@ export async function enqueueStoryboardBatch(
 }
 
 /**
+ * 资产图成员/预览目标的占用槽：衍生随本体名复合成资源 id，与衍生行的复核口径一致。
+ * 提交响应的成员与预览的目标共用这一映射，确认框的提交前复核才不会与服务端判据分叉。
+ */
+export function assetSheetResource(ref: AssetSheetRef): { kind: ResourceKind; id: string } {
+  return ref.derivative
+    ? { kind: "character_derivative", id: derivativeResourceId(ref.name, ref.derivative) }
+    : { kind: ref.asset_type, id: ref.name };
+}
+
+/**
  * 资产图批量生成：目标集合由服务端按范围决定，占用标记在响应后按成员逐项补打；
  * 衍生成员占 `本体/衍生` 复合槽（character_derivative），与本体互不遮蔽。
- * 已有同资源任务（deduped）时弹统一去重提示，否则报入队张数；未建出任务的成员不打标。
+ * 已有同资源任务（deduped）时弹统一去重提示，否则报入队张数；未建出任务、
+ * 或整批返回时已进入终态的成员都不打标——它们不再占用资源。
  */
 export async function enqueueAssetSheetBatch(
   projectName: string,
   scope: AssetSheetBatchScope,
 ): Promise<AssetSheetBatchSubmitted> {
   const res = await API.submitAssetSheetBatch(projectName, scope);
-  let queued = 0;
-  for (const member of res.members) {
-    if (!member.task_id) continue;
-    queued += 1;
-    const [kind, id]: [ResourceKind, string] = member.derivative
-      ? ["character_derivative", derivativeResourceId(member.name, member.derivative)]
-      : [member.asset_type, member.name];
-    markResource(projectName, kind, id, kind).settle([member.task_id]);
+  // 整批顺序建任务，先建的成员可能在响应返回前就已终态（去重指向的既有任务也可能在此期间
+  // 结束）。给这些成员补打标记会让资源一直显示忙碌：标记要等它的 task_id 进入任务快照才
+  // 让位，而快照只保留最新若干行，早的行可能永不出现，只能靠刷新解救。
+  const marked = res.members.filter(
+    (member) => member.task_id !== null && isOccupyingStatus(member.status as TaskStatus),
+  );
+  for (const member of marked) {
+    const { kind, id } = assetSheetResource(member);
+    markResource(projectName, kind, id, kind).settle([member.task_id as string]);
   }
+  // 入队张数按「是否新建了任务」计，与占用标记分开：已终态的成员不再占资源，但它确实
+  // 是被新建出来的任务，漏计会让提示少报，全批提前结束或混有去重成员时还会变成
+  // 「本次未新建任务」这种与事实相反的文案。
+  const createdTaskCount = res.members.filter(
+    (member) => member.task_id !== null && !member.deduped,
+  ).length;
   notifyEnqueued(
     res.members.some((member) => member.deduped),
-    queued > 0 ? i18n.t("assets:sheet_batch_submitted", { count: queued }) : null,
+    createdTaskCount > 0 ? i18n.t("assets:sheet_batch_submitted", { count: createdTaskCount }) : null,
+    "success",
+    // 混合批次里确实新建了任务，统一文案「本次未新建任务」与事实相反；但去重那一半
+    // 仍须提示，所以换成混合措辞而不是整条省掉。
+    createdTaskCount > 0
+      ? i18n.t("assets:sheet_batch_mixed_submitted", { count: createdTaskCount })
+      : undefined,
   );
   return res;
 }

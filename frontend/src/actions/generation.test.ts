@@ -744,8 +744,8 @@ describe("enqueueStoryboardBatch", () => {
 });
 
 describe("enqueueAssetSheetBatch", () => {
-  const member = (unit_id: string, asset_type: "character" | "scene", name: string, derivative: string | null, task_id: string | null, deduped = false) => ({
-    unit_id, asset_type, name, derivative, task_id, deduped, status: task_id ? "queued" : "failed",
+  const member = (unit_id: string, asset_type: "character" | "scene", name: string, derivative: string | null, task_id: string | null, deduped = false, status?: string) => ({
+    unit_id, asset_type, name, derivative, task_id, deduped, status: status ?? (task_id ? "queued" : "failed"),
   });
 
   it("按成员逐项打占用标记（衍生占复合槽、未建任务的不打标），并弹提交提示", async () => {
@@ -790,5 +790,65 @@ describe("enqueueAssetSheetBatch", () => {
     await expect(enqueueAssetSheetBatch("demo", { episode_id: 1 })).rejects.toThrow("boom");
 
     expect(markCounts()).toEqual({ resource: 0, scriptFile: 0 });
+  });
+
+  it("成员在整批返回前已终态时不补打占用标记，但仍计入入队张数", async () => {
+    vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
+      batch_id: "b2",
+      members: [
+        member("scene/庭院", "scene", "庭院", null, "t1"),
+        // 顺序建任务：先建的成员可能已经跑完，task_id 还在但不再占用资源
+        member("character/Alice", "character", "Alice", null, "t2", false, "succeeded"),
+        member("character/Alice/战损", "character", "Alice", "战损", "t3", false, "cancelled"),
+      ],
+    });
+
+    await enqueueAssetSheetBatch("demo", { episode_id: 1 });
+
+    expect(occupied("demo", "scene", "庭院")).toBe(true);
+    expect(occupied("demo", "character", "Alice")).toBe(false);
+    expect(occupied("demo", "character_derivative", "Alice/战损")).toBe(false);
+    // 三个任务都建出来了，只是其中两个已经结束：张数按新建任务计，不按还在跑的标记计。
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: i18n.t("assets:sheet_batch_submitted", { count: 3 }),
+      tone: "success",
+    });
+  });
+
+  it("整批在响应返回前全部终态时仍报入队张数，不退回去重文案", async () => {
+    vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
+      batch_id: "b3",
+      members: [member("scene/庭院", "scene", "庭院", null, "t1", false, "succeeded")],
+    });
+
+    await enqueueAssetSheetBatch("demo", { episode_id: 1 });
+
+    expect(occupied("demo", "scene", "庭院")).toBe(false);
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: i18n.t("assets:sheet_batch_submitted", { count: 1 }),
+      tone: "success",
+    });
+  });
+
+  it("混合批次保留去重提示，且只统计新建的任务", async () => {
+    vi.spyOn(API, "submitAssetSheetBatch").mockResolvedValue({
+      batch_id: "b4",
+      members: [
+        // 去重命中既有任务：该成员没有新建任务行
+        member("scene/庭院", "scene", "庭院", null, "t9", true, "running"),
+        member("character/Alice", "character", "Alice", null, "t10"),
+        member("character/Bob", "character", "Bob", null, "t11", false, "succeeded"),
+      ],
+    });
+
+    await enqueueAssetSheetBatch("demo", { episode_id: 1 });
+
+    expect(occupied("demo", "scene", "庭院")).toBe(true);
+    expect(occupied("demo", "character", "Alice")).toBe(true);
+    expect(occupied("demo", "character", "Bob")).toBe(false);
+    expect(useAppStore.getState().toast).toMatchObject({
+      text: i18n.t("assets:sheet_batch_mixed_submitted", { count: 2 }),
+      tone: "info",
+    });
   });
 });
