@@ -85,7 +85,7 @@ class GrokVideoBackend:
         - ``grok-imagine-video-1.5``：另支持 ``last_frame`` 钉住尾帧。参考音频只收预置
           ``voice_id``，自备音频仅向受信合作方开放，表达不了项目的参考音频文件，不声明。
         - ``grok-imagine-video-1.5-lite``：官方只写了文生与图生视频，不声明参考图（真实调用返回
-          ``reference_images is not supported for this model``，#3495）；首尾帧官方只写在 1.5 上，不声明尾帧。
+          ``reference_images is not supported for this model``）；首尾帧官方只写在 1.5 上，不声明尾帧。
         - ``grok-imagine-video``：官方写明拒收 ``last_frame``，也拒收首帧与参考图并存，后者由 ``generate``
           请求期校验。
 

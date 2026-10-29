@@ -280,8 +280,7 @@ class OpenAIImageBackend:
         try:
             response = await self._client.images.edit(**edit_kwargs)
         except openai.NotFoundError as exc:
-            # 火山方舟没有 /images/edits：Seedream 带参考图要走「火山方舟 (Seedream)」端点。早先按名字推断
-            # 落在 OpenAI 图片端点上的存量配置会在这里稳定 404，改报一条指明换端点的原因，不改写用户配置。
+            # Seedream 的参考图请求需要方舟端点；只在 edits 不存在时提示，兼容支持 edits 的中转站。
             if "seedream" in self._model.lower():
                 raise ImageCapabilityError("image_seedream_edits_unavailable", model=self._model) from exc
             raise
