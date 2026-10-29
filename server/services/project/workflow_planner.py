@@ -313,7 +313,9 @@ class WorkflowPlanner:
             if isinstance(units, list):
                 units = [unit for unit in units if not (isinstance(unit, dict) and unit.get("unit_id") in in_flight)]
             screened, malformed = screen_script_entries(units, requested_ids=None)
-            targets, selection, _states = resolve_reference_batch_targets(
+            # 读产物清单（含等清单锁）与内容摘要，只读，放进工作线程。
+            targets, selection, _states = await asyncio.to_thread(
+                resolve_reference_batch_targets,
                 units=screened,
                 requested_ids=None,
                 project=facts.project,

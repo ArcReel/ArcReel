@@ -539,7 +539,7 @@ async def lifespan(app: FastAPI):
     finally:
         await stop_trash_expiry(trash_expiry)
         await stop_official_sync(catalog_sync)
-        # 运行期异常或关停被取消时同样撤销延时转储，免得收尾阶段误写调用栈。
+        # 运行期异常或关停被取消时同样停掉探针，免得收尾阶段把关停工作误报成卡顿。
         await stop_loop_stall_probe(stall_probe)
 
     # Shutdown

@@ -915,27 +915,30 @@ class CostEstimationService:
 
         projector = ReferenceUnitRequestProjector(request_facts_lookup, availability)
 
-        # (unit, unit_id, 可入队)；先筛出有效 unit，水合只对可入队的做。
-        candidates: list[tuple[dict[str, Any], str, bool]] = []
-        for unit in units:
-            if not isinstance(unit, dict):
-                continue
-            # unit_id 必须原本就是字符串：入队执行时按该字符串与剧本原始（未转型）值比较定位
-            # unit（``execute_reference_video_task``），数字/布尔等裸写 truthy 值 str() 后能通过
-            # 这里的估算，但执行时永远因类型不等找不到 unit——估算不能展示一笔实际跑不起来的费用。
-            raw_unit_id = unit.get("unit_id")
-            if not isinstance(raw_unit_id, str) or not raw_unit_id:
-                continue
-            # text 非字符串（如裸写 "text": true/1）同样不能让单条脏数据中断整次估算。
-            text = unit.get("text")
-            enqueueable = isinstance(text, str) and bool(text.strip()) and not video_unit_replan_problems(unit)
-            candidates.append((unit, raw_unit_id, enqueueable))
+        def _screen_candidates() -> list[tuple[dict[str, Any], str, bool]]:
+            # (unit, unit_id, 可入队)；先筛出有效 unit，水合只对可入队的做。
+            candidates: list[tuple[dict[str, Any], str, bool]] = []
+            for unit in units:
+                if not isinstance(unit, dict):
+                    continue
+                # unit_id 必须原本就是字符串：入队执行时按该字符串与剧本原始（未转型）值比较定位
+                # unit（``execute_reference_video_task``），数字/布尔等裸写 truthy 值 str() 后能通过
+                # 这里的估算，但执行时永远因类型不等找不到 unit——估算不能展示一笔实际跑不起来的费用。
+                raw_unit_id = unit.get("unit_id")
+                if not isinstance(raw_unit_id, str) or not raw_unit_id:
+                    continue
+                # text 非字符串（如裸写 "text": true/1）同样不能让单条脏数据中断整次估算。
+                text = unit.get("text")
+                enqueueable = isinstance(text, str) and bool(text.strip()) and not video_unit_replan_problems(unit)
+                candidates.append((unit, raw_unit_id, enqueueable))
+            return candidates
 
         # Agent/外部编辑过的剧本可能写入非数值 duration_seconds（如 "bad"/列表/字典）；
         # 单个 unit 的无效内容不应让整个项目估算失败，因此资产解析、水合与 request projection
         # 的 ValueError/TypeError 只跳过该 unit。能力解析错误由 projector 转为结构化 blocker，
         # 正常保留在该 unit 的报价结果中。
-        def _hydrate_episode() -> list[ReferenceUnitHydration | None]:
+        def _hydrate_episode() -> tuple[list[tuple[dict[str, Any], str, bool]], list[ReferenceUnitHydration | None]]:
+            candidates = _screen_candidates()
             # 与 candidates 逐项对齐；不可入队或水合失败的位置为 None。
             hydrations: list[ReferenceUnitHydration | None] = []
             for unit, unit_id, enqueueable in candidates:
@@ -966,10 +969,11 @@ class CostEstimationService:
                 except (ValueError, TypeError):
                     logger.warning("费用估算跳过时长非法的 unit %s", unit_id, exc_info=True)
                 hydrations.append(hydration)
-            return hydrations
+            return candidates, hydrations
 
-        # 展开候选与可用性判定都碰文件系统；整集一次进工作线程，不按 unit 逐个排队。
-        hydrations = await asyncio.to_thread(_hydrate_episode)
+        # 逐 unit 解析台词与提及是大块 CPU 工作，展开候选与可用性判定碰文件系统；
+        # 筛选与水合整集一次进工作线程，不按 unit 逐个排队。
+        candidates, hydrations = await asyncio.to_thread(_hydrate_episode)
 
         for (unit, unit_id, enqueueable), hydration in zip(candidates, hydrations, strict=True):
             est_video: CostBreakdown = {}
