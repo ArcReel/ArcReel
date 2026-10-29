@@ -43,7 +43,8 @@ class Step:
 
 
 UV = ("uv", "run")
-# 域名 → 步骤。`-n 4 --dist loadfile` 的取值理由见 pyproject.toml 的 pytest 配置注释。
+# 域名 → 步骤。`-n 4 --dist loadfile` 的取值理由见 pyproject.toml 的 pytest 配置注释，
+# `--max-worker-restart=0` 的理由见 .github/workflows/test.yml 的后端测试步骤。
 DOMAINS: dict[str, tuple[Step, ...]] = {
     "backend": (
         Step((*UV, "ruff", "check", ".")),
@@ -51,7 +52,7 @@ DOMAINS: dict[str, tuple[Step, ...]] = {
         Step((*UV, "basedpyright", "--warnings")),
         Step((*UV, "lint-imports")),
         Step((*UV, "deptry", "lib", "server", "alembic", "scripts", "tests")),
-        Step((*UV, "python", "-m", "pytest", "-n", "4", "--dist", "loadfile")),
+        Step((*UV, "python", "-m", "pytest", "-n", "4", "--dist", "loadfile", "--max-worker-restart=0")),
     ),
     "market-core": (
         Step((*UV, "deptry", "src", "tests"), ROOT / "packages" / "arcreel-market-core"),
