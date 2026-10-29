@@ -24,6 +24,7 @@ from lib.custom_provider.factory import create_custom_backend
 # endpoints 模块里被 build_backend 闭包直接构造的全部后端类。
 _ENDPOINT_BACKEND_CLASSES = (
     "AnthropicTextBackend",
+    "ArkImageBackend",
     "ArkVideoBackend",
     "DashScopeImageBackend",
     "DashScopeVideoBackend",
@@ -250,6 +251,27 @@ class TestEndpointDispatch:
         assert result.model == "MiniMax-Hailuo-2.3"
         assert built["backend"] == "DeclarativeVideoBackend"
         assert built["kwargs"]["base_url"] == "https://api.minimaxi.com/v1"
+
+    def test_ark_seedream(self):
+        provider = _make_provider(base_url="https://ark.cn-beijing.volces.com")
+        result, built = _built(provider, "doubao-seedream-5-0-260128", "ark-seedream")
+        assert isinstance(result, CustomImageBackend)
+        assert result.model == "doubao-seedream-5-0-260128"
+        # 仅 host → 补全方舟协议挂载路径 /api/v3；请求构造整份交给内置 ArkImageBackend
+        assert built == {
+            "backend": "ArkImageBackend",
+            "kwargs": {
+                "api_key": "sk-test",
+                "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+                "model": "doubao-seedream-5-0-260128",
+                "transport_layer": None,
+            },
+        }
+
+    def test_ark_seedream_keeps_an_explicit_api_v3_path(self):
+        provider = _make_provider(base_url="https://relay.example.com/api/v3/")
+        _result, built = _built(provider, "doubao-seedream-5-0-260128", "ark-seedream")
+        assert built["kwargs"]["base_url"] == "https://relay.example.com/api/v3"
 
     def test_kling_image(self):
         provider = _make_provider(base_url="https://relay.example.com/v1")

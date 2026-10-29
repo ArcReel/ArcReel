@@ -162,6 +162,8 @@ _TASK_FAILURE_ACTIONS: dict[str, GenerationAction] = {
     "image_capability_missing_t2i": GenerationAction.CONFIGURE_PROVIDER,
     "image_endpoint_mismatch_no_i2i": GenerationAction.CONFIGURE_PROVIDER,
     "image_endpoint_mismatch_no_t2i": GenerationAction.CONFIGURE_PROVIDER,
+    # Seedream 挂在 OpenAI 图片端点上：改选方舟 Seedream 端点即可。
+    "image_seedream_edits_unavailable": GenerationAction.CONFIGURE_PROVIDER,
     "provider_unsupported_media": GenerationAction.CONFIGURE_PROVIDER,
     "model_not_in_provider_catalog": GenerationAction.CONFIGURE_PROVIDER,
     # 上游按确定性 4xx 拒了这个请求：原样重发只会被同样拒绝，还要再付一次。

@@ -111,7 +111,7 @@ class TestArkImageBackendInit:
             from lib.backends.image_backends.ark import ArkImageBackend
 
             ArkImageBackend(api_key="my-key")
-        assert created == [{"api_key": "my-key", "base_url": None}]
+        assert created == [{"api_key": "my-key", "base_url": None, "transport_layer": None}]
 
     def test_custom_base_url_passed_through(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv("ARK_API_KEY", raising=False)
@@ -119,7 +119,9 @@ class TestArkImageBackendInit:
             from lib.backends.image_backends.ark import ArkImageBackend
 
             ArkImageBackend(api_key="k", base_url="https://ark.cn-beijing.volces.com/api/plan/v3")
-        assert created == [{"api_key": "k", "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3"}]
+        assert created == [
+            {"api_key": "k", "base_url": "https://ark.cn-beijing.volces.com/api/plan/v3", "transport_layer": None}
+        ]
 
 
 class TestArkImageBackendProperties:
