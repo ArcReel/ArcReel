@@ -591,7 +591,7 @@ MESSAGES = {
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "模型 {model} 仅支持文生图（不支持 /v1/images/edits）；请去掉参考图或换一个支持图生图的模型",
     "image_endpoint_mismatch_no_t2i": "模型 {model} 仅支持图生图（必须传参考图）；请提供参考图或换一个支持文生图的模型",
-    "image_seedream_edits_unavailable": "模型 {model} 带参考图生成时，供应商返回 404：火山方舟没有 /images/edits 接口；请在模型设置里把调用端点改为「火山方舟 (Seedream)」后重试",
+    "image_seedream_edits_unavailable": "模型 {model} 当前的调用端点不支持带参考图生成；请在模型设置里把调用端点改为「火山方舟 (Seedream)」后重试",
     "image_capability_missing_i2i": "{provider}/{model} 不支持图生图；请配置一个支持图生图的默认模型",
     "image_capability_missing_t2i": "{provider}/{model} 不支持文生图；请配置一个支持文生图的默认模型",
     "image_dashscope_4k_t2i_only": "模型 {model} 的 4K 输出仅 wan2.7-image-pro 文生图支持；请改用 2K 或更低分辨率",

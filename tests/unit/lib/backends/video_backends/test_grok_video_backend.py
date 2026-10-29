@@ -318,7 +318,7 @@ class TestGrokVideo15Models:
         assert caps.audio_track is VideoAudioMode.CONTROLLABLE
 
     def test_1_5_lite_declares_neither_reference_images_nor_last_frame(self):
-        """官方只写了 lite 的文生与图生视频；真实调用带参考图返回 INVALID_ARGUMENT（#3495）。"""
+        """官方只写了 lite 的文生与图生视频；真实调用带参考图返回 INVALID_ARGUMENT。"""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         caps = GrokVideoBackend.video_capabilities_for_model("grok-imagine-video-1.5-lite")

@@ -654,7 +654,7 @@ MESSAGES = {
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "Mô hình {model} chỉ hỗ trợ text-to-image (không có /v1/images/edits); hãy bỏ ảnh tham chiếu hoặc chọn mô hình hỗ trợ chỉnh sửa ảnh",
     "image_endpoint_mismatch_no_t2i": "Mô hình {model} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image",
-    "image_seedream_edits_unavailable": "Nhà cung cấp trả về 404 khi mô hình {model} tạo ảnh có ảnh tham chiếu: Volcengine Ark không có giao diện /images/edits; hãy đổi endpoint gọi của mô hình thành «Volcengine Ark (Seedream)» trong cài đặt mô hình rồi thử lại",
+    "image_seedream_edits_unavailable": "Endpoint gọi hiện tại của mô hình {model} không hỗ trợ tạo ảnh có ảnh tham chiếu; hãy đổi thành «Volcengine Ark (Seedream)» trong cài đặt mô hình rồi thử lại",
     "image_capability_missing_i2i": "{provider}/{model} không hỗ trợ image-to-image; hãy cấu hình mô hình mặc định có hỗ trợ chỉnh sửa ảnh",
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
     "image_dashscope_4k_t2i_only": "Mô hình {model}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",

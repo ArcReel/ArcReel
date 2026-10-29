@@ -7,8 +7,8 @@
 from __future__ import annotations
 
 import base64
+from functools import partial
 from pathlib import Path
-from types import SimpleNamespace
 
 import httpx
 import openai
@@ -21,11 +21,23 @@ from lib.backends.image_backends.base import (
     ImageRequestFacts,
     ReferenceImage,
 )
+from lib.custom_provider.backends import CustomImageBackend
 from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+from lib.custom_provider.factory import create_custom_backend
 from lib.custom_provider.metering import custom_image_estimate
+from lib.db.models.custom_provider import CustomProvider
+from lib.generation.task_failure import parse_failure, render_failure
+from lib.generation.task_failure_encoding import encode_task_failure_message
+from lib.i18n import _ as translate_message
+from tests.factories import make_display_names
 from tests.http_capture import capture_http, only_request, request_json
 
-_PROVIDER = SimpleNamespace(provider_id="custom-7", api_key="sk", base_url="https://relay.example/proxy")
+
+def _provider(base_url: str = "https://relay.example/proxy") -> CustomProvider:
+    return CustomProvider(id=7, display_name="relay", discovery_format="openai", base_url=base_url, api_key="sk")
+
+
+_PROVIDER = _provider()
 _MODEL = "doubao-seedream-5-0-260128"
 _GENERATIONS = "https://relay.example/proxy/api/v3/images/generations"
 
@@ -118,6 +130,28 @@ async def test_generate_path_override_is_relative_to_the_raw_base_url(tmp_path: 
     assert request_json(only_request(route))["image"] == [_data_uri(0), _data_uri(1)]
 
 
+@pytest.mark.parametrize(
+    ("base_url", "generations_url"),
+    [
+        # 只填 host：补全方舟协议挂载路径 /api/v3
+        ("https://ark.cn-beijing.volces.com", "https://ark.cn-beijing.volces.com/api/v3/images/generations"),
+        # 已写到 /api/v3：不重复拼接
+        ("https://relay.example.com/api/v3/", "https://relay.example.com/api/v3/images/generations"),
+    ],
+)
+async def test_factory_builds_a_seedream_backend_on_the_ark_api_root(tmp_path: Path, base_url, generations_url):
+    backend = create_custom_backend(provider=_provider(base_url), model_id=_MODEL, endpoint="ark-seedream")
+    assert isinstance(backend, CustomImageBackend)
+    assert backend.name == "custom-7"
+    assert backend.model == _MODEL
+
+    with capture_http() as router:
+        route = router.post(generations_url).mock(return_value=_image_response())
+        await backend.generate(ImageGenerationRequest(prompt="猫", output_path=tmp_path / "o.png"))
+
+    assert request_json(only_request(route))["model"] == _MODEL
+
+
 @pytest.mark.parametrize("reference_count", [0, 2, 20, None])
 def test_estimate_matches_the_builtin_ark_backend(reference_count):
     spec = ENDPOINT_REGISTRY["ark-seedream"]
@@ -133,7 +167,7 @@ def test_estimate_matches_the_builtin_ark_backend(reference_count):
 
 
 async def test_seedream_saved_on_openai_images_explains_the_404_from_images_edits(tmp_path: Path):
-    """早先按名字推断到 OpenAI 图片端点的存量 Seedream 配置：带参考图时报出换端点的原因，不再是裸 404。"""
+    """OpenAI 图片端点上的 Seedream 配置：带参考图遇到 404 时提示更换端点。"""
     backend = ENDPOINT_REGISTRY["openai-images"].build_backend(_PROVIDER, _MODEL)
     with capture_http() as router:
         router.post("https://relay.example/proxy/v1/images/edits").mock(
@@ -146,6 +180,18 @@ async def test_seedream_saved_on_openai_images_explains_the_404_from_images_edit
 
     assert excinfo.value.code == "image_seedream_edits_unavailable"
     assert excinfo.value.params == {"model": _MODEL}
+    stored = encode_task_failure_message(excinfo.value)
+    assert parse_failure(stored) == ("image_seedream_edits_unavailable", {"model": _MODEL})
+    messages = [
+        render_failure(stored, partial(translate_message, locale=locale), make_display_names(locale))
+        for locale in ("zh", "en", "vi")
+    ]
+    assert len(set(messages)) == 3
+    for message in messages:
+        assert message is not None
+        assert "(Seedream)" in message
+        assert "image_seedream_edits_unavailable" not in message
+        assert "404" not in message
 
 
 async def test_other_models_keep_the_raw_404_from_images_edits(tmp_path: Path):

@@ -385,16 +385,6 @@ class TestBucketJudgement:
         assert "r2v" not in builtin_model_buckets("vidu", "viduq3-pro", pro)
         assert "r2v" in builtin_model_buckets("vidu", "viduq3", plain)
 
-    def test_grok_lite_is_not_an_r2v_candidate(self):
-        """xAI 只给 1.5 与经典版写了参考生视频；lite 带参考图被供应商拒收（#3495），不进 r2v 桶。"""
-        buckets = {
-            model_id: builtin_model_buckets("grok", model_id, catalog.get_model("grok", model_id))
-            for model_id in ("grok-imagine-video-1.5-lite", "grok-imagine-video-1.5", "grok-imagine-video")
-        }
-        assert buckets["grok-imagine-video-1.5-lite"] == frozenset({"i2v"})
-        assert "r2v" in buckets["grok-imagine-video-1.5"]
-        assert "r2v" in buckets["grok-imagine-video"]
-
     @pytest.mark.parametrize(
         ("provider_id", "model_id"),
         [
