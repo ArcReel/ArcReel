@@ -6,6 +6,7 @@ Grok (xAI) 共享工具模块
 包含：
 - create_grok_client — xAI AsyncClient 客户端工厂（惰性创建，见 LazyGrokClient）
 - grok_should_retry — gRPC 感知的重试谓词
+- grpc_rejection — 把 gRPC 确定性拒绝换算成 HTTP 状态码与拒因摘要
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from lib.infra.retry import BASE_RETRYABLE_ERRORS, should_retry
 
 # gRPC 瞬态状态码（等价于 HTTP 429/500/502/503/504）
 _GRPC_RETRYABLE_CODES: set | None = None
+# gRPC 确定性拒绝 → 等价 HTTP 状态码（按 gRPC 官方 HTTP 映射）。改输入或凭证前重试无益。
+_GRPC_REJECTION_STATUS: dict | None = None
 
 try:
     import grpc
@@ -25,6 +28,14 @@ try:
         grpc.StatusCode.DEADLINE_EXCEEDED,  # 504 — 超时
         grpc.StatusCode.RESOURCE_EXHAUSTED,  # 429 — 限流
         grpc.StatusCode.ABORTED,  # 冲突重试
+    }
+    _GRPC_REJECTION_STATUS = {
+        grpc.StatusCode.INVALID_ARGUMENT: 400,
+        grpc.StatusCode.FAILED_PRECONDITION: 400,
+        grpc.StatusCode.OUT_OF_RANGE: 400,
+        grpc.StatusCode.UNAUTHENTICATED: 401,
+        grpc.StatusCode.PERMISSION_DENIED: 403,
+        grpc.StatusCode.NOT_FOUND: 404,
     }
 except ImportError:
     pass  # grpc is optional; fall back to pattern-based retry below
@@ -45,6 +56,31 @@ def grok_should_retry(exc: Exception) -> bool:
         except ImportError:
             pass  # grpc available at module level but aio submodule missing; fall through
     return should_retry(exc, BASE_RETRYABLE_ERRORS)
+
+
+def grpc_rejection(exc: BaseException) -> tuple[int, str | None] | None:
+    """gRPC 确定性拒绝的等价 HTTP 状态码与脱敏拒因摘要；不是这类拒绝时为 ``None``。
+
+    ``AioRpcError`` 的 ``str()`` 是整段调试表示（``<AioRpcError of RPC that terminated with …>``），
+    直接落进任务失败原因用户读不懂。换算后落库侧按 ``provider_rejected`` 结构化编码。
+    认证失败的详情讲的就是凭证本身，与 HTTP 401 同口径不透传。
+    """
+    if _GRPC_REJECTION_STATUS is None:
+        return None
+    try:
+        from grpc.aio import AioRpcError
+    except ImportError:
+        return None
+    if not isinstance(exc, AioRpcError):
+        return None
+    status = _GRPC_REJECTION_STATUS.get(exc.code())
+    if status is None:
+        return None
+    if status == 401:
+        return status, None
+    from lib.backends.backend_runtime import summarize_provider_reason
+
+    return status, summarize_provider_reason(exc.details())
 
 
 def resolve_grok_api_key(api_key: str | None = None) -> str:
