@@ -34,7 +34,7 @@ worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文�
 | --- | --- |
 | 调用 `os._exit` | 该 worker 的 `.stacks`，抬头是 `调用 os._exit(<退出码>)` |
 | 被 SIGTERM、SIGHUP、SIGINT 终止或打断 | 该进程同名的 `.SIGTERM` 等文件 |
-| 段错误等致命信号 | 测试步骤 stderr 里的 `Fatal Python error` |
+| 段错误等致命信号 | 测试步骤 stderr 里的 `Fatal Python error`；没有这行说明 faulthandler 的处理函数没能运行，例如非主线程栈溢出 |
 | 被 SIGKILL | 没有栈，看内核日志里有没有 OOM |
 
 CI 与本地闸门的 xdist 命令带 `--max-worker-restart=0`：worker 崩溃后不补新 worker，直接失败。pytest-xdist 3.8.0 补 worker 时会把已跑完的文件重新排队，会话卡在 99%（上游 pytest-dev/pytest-xdist#1378，修复提交 25282ab）。依赖升到包含该提交的版本后，可以去掉这个参数。本地复现时设同一个环境变量即可得到同样的文件。

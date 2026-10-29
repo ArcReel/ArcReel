@@ -5,19 +5,22 @@
 - 会话结束后进程迟迟不退出（被非 daemon 线程挡住）时，转储里有当前阶段与挡路线程的调用栈。
 - worker 被直接杀掉时，进展文件的最后一条是它正在执行的用例。
 - 进程调用 ``os._exit`` 时，转储里有退出码与调用它的栈；收到 SIGTERM 时，信号文件里有当时的栈，
-  进程照常被结束。用例 fork 出的子进程用 ``os._exit`` 收尾不算。
+  进程照常被结束。用例 fork 出的子进程用 ``os._exit`` 收尾不算；转储失败也照常退出。
 - xdist 的 worker 宕掉时，controller 的进展文件记下它和终止它的信号。
 - 未设转储目录时插件不写任何文件。
 """
 
 from __future__ import annotations
 
+import faulthandler
 import os
 import signal
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
+
+import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -112,6 +115,25 @@ def test_records_test_and_stack_when_process_calls_os_exit(tmp_path: Path) -> No
     assert "test_killed" in stacks
 
 
+def test_os_exit_still_exits_when_dump_fails(tmp_path: Path) -> None:
+    result = _run(
+        tmp_path,
+        """
+        import os
+
+        from tests import hang_watchdog
+
+        def test_dump_fails():
+            hang_watchdog._watchdog._stacks.close()
+            os._exit(7)
+        """,
+        dump_dir=tmp_path / "dump",
+    )
+
+    assert result.returncode == 7, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="平台无 fork")
 def test_forked_child_exiting_via_os_exit_leaves_no_dump(tmp_path: Path) -> None:
     dump_dir = tmp_path / "dump"
     result = _run(
@@ -132,6 +154,7 @@ def test_forked_child_exiting_via_os_exit_leaves_no_dump(tmp_path: Path) -> None
     assert _single(dump_dir, "stacks") == ""
 
 
+@pytest.mark.skipif(not hasattr(faulthandler, "register"), reason="平台无 faulthandler.register")
 def test_dumps_stack_on_sigterm_and_still_terminates(tmp_path: Path) -> None:
     dump_dir = tmp_path / "dump"
     result = _run(
@@ -150,6 +173,7 @@ def test_dumps_stack_on_sigterm_and_still_terminates(tmp_path: Path) -> None:
     assert "test_terminated" in _single(dump_dir, "SIGTERM")
 
 
+@pytest.mark.skipif(not hasattr(signal, "SIGKILL"), reason="平台无 SIGKILL")
 def test_controller_records_how_crashed_worker_died(tmp_path: Path) -> None:
     dump_dir = tmp_path / "dump"
     result = _run(

@@ -230,8 +230,8 @@ jobs:
         # 末尾是阶段记录的进程已跑完会话，末尾停在某条用例的进程就卡在那条用例上。
         # worker 宕掉（node down: Not properly terminated）时，controller 的进展记有它的退出码或终止信号；
         # 死于 os._exit 的 worker 在 .stacks 里留有调用栈，收到 SIGTERM/SIGHUP/SIGINT 的进程在
-        # 同名的 .SIGTERM 等文件里留有当时的栈，段错误的栈在测试步骤的 stderr（Fatal Python error），
-        # 被 SIGKILL 的看内核日志里有没有 OOM。
+        # 同名的 .SIGTERM 等文件里留有当时的栈，段错误的栈在测试步骤的 stderr（Fatal Python error，
+        # faulthandler 没能运行时没有），被 SIGKILL 的看内核日志里有没有 OOM。
         if: failure() || cancelled()
         env:
           DUMP_DIR: ${{ runner.temp }}/pytest-hang

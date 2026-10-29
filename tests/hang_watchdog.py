@@ -39,7 +39,8 @@ IDLE_SECONDS_ENV = "ARCREEL_TEST_HANG_IDLE_SECONDS"
 # 单个用例的超时是 120s（pyproject 的 timeout），这里留出余量，只在用例超时也没能收场时转储。
 IDLE_DUMP_SECONDS = 180.0
 # 收到时转储调用栈的信号：会无声结束进程的 SIGTERM、SIGHUP，以及 execnet 失联与 CI 取消时发来的 SIGINT。
-# SIGSEGV 这类致命信号归 pytest 的 faulthandler 插件，它把调用栈写到 stderr。
+# SIGSEGV 这类致命信号归 pytest 的 faulthandler 插件，它把调用栈写到 stderr；它只给启用它的线程
+# 准备了备用信号栈，别的线程栈溢出时处理函数跑不起来，进程无声死掉。
 CRASH_SIGNALS = ("SIGTERM", "SIGHUP", "SIGINT")
 # worker 宕掉后等它的进程结束、取退出状态的上限（秒）。
 EXIT_STATUS_WAIT_SECONDS = 5.0
@@ -99,9 +100,12 @@ def _timestamp() -> str:
 def _traced_os_exit(status: int) -> NoReturn:
     # os._exit 不跑 finally 与 atexit，进程直接消失；先留下是谁、在哪条路径上调用的。
     # 用例 fork 出的子进程照常用 os._exit 收尾，不转储。
-    if _watchdog is not None and _watchdog.pid == os.getpid():
-        _watchdog.dump(f"调用 os._exit({status})")
-    _real_os_exit(status)
+    # 转储失败（如磁盘写满）也必须照常退出。
+    try:
+        if _watchdog is not None and _watchdog.pid == os.getpid():
+            _watchdog.dump(f"调用 os._exit({status})")
+    finally:
+        _real_os_exit(status)
 
 
 def _dump_stacks_on_signals(directory: Path, stem: str) -> None:
