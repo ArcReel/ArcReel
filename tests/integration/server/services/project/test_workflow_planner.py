@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from lib.config.resolver import ConfigResolver
 from lib.episode.episode_ledger import SOURCE_FINGERPRINTS_KEY, compute_source_fingerprints
 from lib.episode.episode_sources import discover_sources
 from lib.generation.batch_admission import BatchAdmission, UnitAdmissionTicket
@@ -281,55 +282,54 @@ async def test_planner_uses_shared_admission_and_never_reads_the_real_task_singl
     assert next(step for step in first.steps if step.id == "video").admission["decision"] == "admitted"
 
 
-async def test_reference_plan_selects_targets_from_the_real_artifact_manifest(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """参考生视频的计划按真实产物清单挑出缺视频且不在生成中的 unit；读清单与产物不占用事件循环线程。"""
-
+async def test_reference_plan_selects_targets_from_the_real_artifact_manifest(tmp_path: Path, db_factory) -> None:
+    """真实计划只对缺视频且不在生成中的 unit 做准入；读清单与产物不占用事件循环。"""
     pm = ProjectManager(tmp_path / "projects")
     pm.create_project("demo")
     pm.create_project_metadata(
-        "demo", "Demo", "", "narration", extras={"generation_mode": "reference_video", "grid_storyboard": False}
+        "demo",
+        "Demo",
+        "",
+        "ad",
+        target_duration=30,
+        extras={"generation_mode": "reference_video", "grid_storyboard": False},
     )
-    script = {
-        "episode": 1,
-        "content_mode": "narration",
-        "video_units": [
-            {"unit_id": "E1U1", "text": "空镜头", "duration_seconds": 3},
-            {"unit_id": "E1U2", "text": "空镜头", "duration_seconds": 3},
-        ],
-    }
-    status = _status().model_copy(
-        update={
-            "project": WorkflowProject(
-                content_mode="narration", generation_mode="reference_video", grid_storyboard=False
-            ),
-            "next_action": WorkflowNextAction(
-                type=WorkflowActionType("generate_videos"), requested_ids=["E1U1", "E1U2"], reason="next"
-            ),
-        }
+    pm.save_script(
+        "demo",
+        {
+            "episode": 1,
+            "title": "广告",
+            "content_mode": "ad",
+            "video_units": [
+                {"unit_id": "E1U1", "text": "空镜头", "duration_seconds": 3},
+                {"unit_id": "E1U2", "text": "空镜头", "duration_seconds": 3},
+            ],
+        },
+        "episode_1.json",
     )
-    planner_pm = _ProjectManager(pm.get_project_path("demo"), script)
-    monkeypatch.setattr(workflow_planner.WorkflowStateService, "get_status", lambda *_args: status)
+    queue = GenerationQueue(session_factory=db_factory, project_manager=pm)
+    task = await queue.enqueue_task(
+        project_name="demo",
+        task_type="reference_video",
+        media_type="video",
+        resource_id="E1U2",
+        script_file="episode_1.json",
+        source="web",
+    )
 
-    async def _active_tasks(**kwargs: Any) -> list[dict[str, Any]]:
-        if kwargs["task_type"] != "reference_video":
-            return []
-        return [{"task_id": "task-2", "resource_id": "E1U2", "task_type": "reference_video", "status": "running"}]
+    plan = await workflow_planner.WorkflowPlanner(pm).get_plan(
+        "demo",
+        WorkflowPlanRequest(),
+        queue=queue,
+        config_resolver=ConfigResolver(db_factory),
+    )
 
-    admitted_units: list[list[str]] = []
-
-    async def _admit(**kwargs: Any) -> BatchAdmission:
-        admitted_units.append([unit["unit_id"] for unit in kwargs["units"]])
-        return BatchAdmission(operation=kwargs["operation"], selection=kwargs["selection"], tickets=())
-
-    monkeypatch.setattr(workflow_planner, "get_active_tasks_for_resources", _active_tasks)
-    use_active_tasks_lookup(monkeypatch, _active_tasks)
-    monkeypatch.setattr(workflow_planner, "admit_reference_video_batch", _admit)
-
-    await workflow_planner.WorkflowPlanner(planner_pm).get_plan("demo", WorkflowPlanRequest())
-
-    assert admitted_units == [["E1U1"]]
+    video = next(step for step in plan.steps if step.id == "video")
+    assert video.artifacts["missing_ids"] == ["E1U1", "E1U2"]
+    assert video.admission is not None
+    assert video.admission["selection"] == "missing_only"
+    assert [unit["unit_id"] for unit in video.admission["units"]] == ["E1U1"]
+    assert [(item.unit_id, item.task_id) for item in video.tasks] == [("E1U2", task["task_id"])]
 
 
 async def test_active_task_and_provider_checkpoint_are_reported_as_separate_axes(
