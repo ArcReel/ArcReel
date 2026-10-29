@@ -666,6 +666,55 @@ def test_provider_rejection_without_a_reason_still_stores_the_status():
         ].format(status=401)
 
 
+def _aio_rpc_error(code, details: str):
+    import grpc
+
+    return grpc.aio.AioRpcError(
+        code=code,
+        initial_metadata=grpc.aio.Metadata(),
+        trailing_metadata=grpc.aio.Metadata(),
+        details=details,
+        debug_error_string=f"UNKNOWN:Error received from peer {details}",
+    )
+
+
+def test_grpc_invalid_argument_encodes_as_provider_rejection():
+    """xAI 走 gRPC：确定性拒绝按 HTTP 等价状态码结构化落库，不落 AioRpcError 的调试表示（#3495）。"""
+    import grpc
+
+    exc = _aio_rpc_error(grpc.StatusCode.INVALID_ARGUMENT, "`reference_images` is not supported for this model.")
+
+    stored = encode_task_failure_message(exc)
+
+    assert "AioRpcError" not in stored
+    assert json.loads(stored.split("] ", 1)[1]) == {
+        "provider_reason": "`reference_images` is not supported for this model.",
+        "status": 400,
+    }
+    for locale in ("zh", "en", "vi"):
+        rendered = render_failure(stored, _translator(locale), make_display_names(locale))
+        assert rendered == MESSAGES[locale]["task_fail_provider_rejected"].format(status=400)
+
+
+def test_grpc_unauthenticated_drops_details():
+    """认证失败的详情可能回显凭证，与 HTTP 401 同口径只落状态码。"""
+    import grpc
+
+    stored = encode_task_failure_message(_aio_rpc_error(grpc.StatusCode.UNAUTHENTICATED, "bad key xai-SECRET"))
+
+    assert json.loads(stored.split("] ", 1)[1]) == {"status": 401}
+    assert "SECRET" not in stored
+
+
+def test_grpc_transient_error_is_not_classified_as_rejection():
+    """瞬态码（限流、不可用）不是确定性拒绝，不套 provider_rejected 的「修改输入」。"""
+    import grpc
+
+    stored = encode_task_failure_message(_aio_rpc_error(grpc.StatusCode.UNAVAILABLE, "Socket closed"))
+
+    assert not stored.startswith("[provider_rejected]")
+
+
 @pytest.mark.parametrize(
     "legacy",
     [
