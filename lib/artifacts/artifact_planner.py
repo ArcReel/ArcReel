@@ -1303,9 +1303,9 @@ class TargetStatePlanner:
         if "persisted-presentations" in self._planned:
             return
         # Typed media must be planned first.  Persisted presentation files carry
-        # observed duration/content evidence, but only a selected managed media
-        # snapshot that independently proves its canonical formal file may anchor
-        # that evidence.  This is not a same-name filesystem fallback.
+        # observed duration/content evidence anchored to managed media snapshots.
+        # Selected snapshots must prove their canonical formal files; preservation
+        # may instead prove a non-selected video snapshot for an old presentation.
         self._plan_typed_media()
         for episode in self.episodes:
             for item in episode.items:
