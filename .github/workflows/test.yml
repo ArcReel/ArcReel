@@ -213,19 +213,25 @@ jobs:
         # psutil，CI worker 数会静默减半。loadfile 而非默认 load：仓库根共享路径
         # （PROJECT_ROOT 下 mkdir/rmdir、module 级 autouse fixture）要求同文件用例
         # 留在同一 worker。
+        # --max-worker-restart=0：worker 崩溃后不补新 worker，直接失败并报出崩溃时在跑的用例。
+        # 锁定的 pytest-xdist 补 worker 时会把崩溃 worker 已跑完的文件重新排队，补上的 worker
+        # 领到空任务后会话卡在 99%；何时可以去掉见 docs/agents/testing.md「CI 挂起诊断」。
         # 步骤超时短于 job 超时，挂起时留出时间给下一步输出诊断。
         timeout-minutes: 20
         env:
           ARCREEL_TEST_HANG_DUMP_DIR: ${{ runner.temp }}/pytest-hang
         run: >-
-          uv run python -m pytest ${{ matrix.path }} ${{ matrix.extra_args }} -n 4 --dist loadfile
+          uv run python -m pytest ${{ matrix.path }} ${{ matrix.extra_args }} -n 4 --dist loadfile --max-worker-restart=0
           --cov=lib --cov=server --cov=arcreel_market_core --cov=arcreel_catalog_core --cov-report=term-missing
           --cov-report=xml:coverage-${{ matrix.suite }}.xml
 
       - name: Hang and crash diagnostics
         # tests/hang_watchdog.py 写下的各进程最后的进展（开始执行的用例与 sessionfinish/unconfigure 阶段）与无进展时的线程栈；
         # 末尾是阶段记录的进程已跑完会话，末尾停在某条用例的进程就卡在那条用例上。
-        # worker 被直接杀掉（node down: Not properly terminated）时，内核日志能看出是否 OOM。
+        # worker 宕掉（node down: Not properly terminated）时，controller 的进展记有它的退出码或终止信号；
+        # 死于 os._exit 的 worker 在 .stacks 里留有调用栈，收到 SIGTERM/SIGHUP/SIGINT 的进程在
+        # 同名的 .SIGTERM 等文件里留有当时的栈，段错误的栈在测试步骤的 stderr（Fatal Python error，
+        # faulthandler 没能运行时没有），被 SIGKILL 的看内核日志里有没有 OOM。
         if: failure() || cancelled()
         env:
           DUMP_DIR: ${{ runner.temp }}/pytest-hang
@@ -236,7 +242,7 @@ jobs:
             tail -n 5 "$f"
             echo "::endgroup::"
           done
-          for f in "$DUMP_DIR"/*.stacks; do
+          for f in "$DUMP_DIR"/*.stacks "$DUMP_DIR"/*.SIG*; do
             [ -s "$f" ] || continue
             echo "===== $(basename "$f")"
             cat "$f"
@@ -307,7 +313,7 @@ jobs:
         run: |
           uv run python -m pytest -v \
             -m "uses_db and not sqlite_only" \
-            -n 4 --dist loadfile \
+            -n 4 --dist loadfile --max-worker-restart=0 \
             --cov=lib --cov=server --cov-report=xml:coverage-pg.xml
 
       - name: Upload PG coverage

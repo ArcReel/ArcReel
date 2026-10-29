@@ -4,21 +4,30 @@
 
 - 会话结束后进程迟迟不退出（被非 daemon 线程挡住）时，转储里有当前阶段与挡路线程的调用栈。
 - worker 被直接杀掉时，进展文件的最后一条是它正在执行的用例。
+- 进程调用 ``os._exit`` 时，转储里有退出码与调用它的栈；收到 SIGTERM 时，信号文件里有当时的栈，
+  进程照常被结束。用例 fork 出的子进程用 ``os._exit`` 收尾不算；转储失败也照常退出。
+- xdist 的 worker 宕掉时，controller 的进展文件记下它和终止它的信号。
 - 未设转储目录时插件不写任何文件。
 """
 
 from __future__ import annotations
 
+import faulthandler
 import os
+import signal
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _run(root: Path, source: str, *, dump_dir: Path | None) -> subprocess.CompletedProcess[str]:
+def _run(
+    root: Path, source: str, *, dump_dir: Path | None, extra_args: tuple[str, ...] = ()
+) -> subprocess.CompletedProcess[str]:
     (root / "test_probe.py").write_text(textwrap.dedent(source), encoding="utf-8")
     env = {**os.environ, "PYTHONPATH": str(_REPO_ROOT), "ARCREEL_TEST_HANG_IDLE_SECONDS": "0.4"}
     env.pop("ARCREEL_TEST_HANG_DUMP_DIR", None)
@@ -26,7 +35,18 @@ def _run(root: Path, source: str, *, dump_dir: Path | None) -> subprocess.Comple
     if dump_dir is not None:
         env["ARCREEL_TEST_HANG_DUMP_DIR"] = str(dump_dir)
     return subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "tests.hang_watchdog", "-p", "no:cacheprovider", "-q", "test_probe.py"],
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-p",
+            "tests.hang_watchdog",
+            "-p",
+            "no:cacheprovider",
+            "-q",
+            *extra_args,
+            "test_probe.py",
+        ],
         cwd=root,
         env=env,
         capture_output=True,
@@ -72,7 +92,7 @@ def test_dumps_thread_blocking_process_exit(tmp_path: Path) -> None:
     assert "linger_after_session" in stacks
 
 
-def test_progress_names_test_running_when_process_killed(tmp_path: Path) -> None:
+def test_records_test_and_stack_when_process_calls_os_exit(tmp_path: Path) -> None:
     dump_dir = tmp_path / "dump"
     result = _run(
         tmp_path,
@@ -90,6 +110,88 @@ def test_progress_names_test_running_when_process_killed(tmp_path: Path) -> None
 
     assert result.returncode == 9
     assert _single(dump_dir, "progress").splitlines()[-1].endswith("run test_probe.py::test_killed")
+    stacks = _single(dump_dir, "stacks")
+    assert "调用 os._exit(9)" in stacks
+    assert "test_killed" in stacks
+
+
+def test_os_exit_still_exits_when_dump_fails(tmp_path: Path) -> None:
+    result = _run(
+        tmp_path,
+        """
+        import os
+
+        from tests import hang_watchdog
+
+        def test_dump_fails():
+            hang_watchdog._watchdog._stacks.close()
+            os._exit(7)
+        """,
+        dump_dir=tmp_path / "dump",
+    )
+
+    assert result.returncode == 7, result.stdout + result.stderr
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="平台无 fork")
+def test_forked_child_exiting_via_os_exit_leaves_no_dump(tmp_path: Path) -> None:
+    dump_dir = tmp_path / "dump"
+    result = _run(
+        tmp_path,
+        """
+        import os
+
+        def test_fork():
+            pid = os.fork()
+            if pid == 0:
+                os._exit(0)
+            assert os.waitpid(pid, 0)[1] == 0
+        """,
+        dump_dir=dump_dir,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    # 阈值只有 0.4s，负载高时可能有无进展转储；只断言子进程的 os._exit 没有留下转储。
+    assert "os._exit" not in _single(dump_dir, "stacks")
+
+
+@pytest.mark.skipif(not hasattr(faulthandler, "register"), reason="平台无 faulthandler.register")
+def test_dumps_stack_on_sigterm_and_still_terminates(tmp_path: Path) -> None:
+    dump_dir = tmp_path / "dump"
+    result = _run(
+        tmp_path,
+        """
+        import os
+        import signal
+
+        def test_terminated():
+            os.kill(os.getpid(), signal.SIGTERM)
+        """,
+        dump_dir=dump_dir,
+    )
+
+    assert result.returncode == -signal.SIGTERM
+    assert "test_terminated" in _single(dump_dir, "SIGTERM")
+
+
+@pytest.mark.skipif(not hasattr(signal, "SIGKILL"), reason="平台无 SIGKILL")
+def test_controller_records_how_crashed_worker_died(tmp_path: Path) -> None:
+    dump_dir = tmp_path / "dump"
+    result = _run(
+        tmp_path,
+        """
+        import os
+        import signal
+
+        def test_killed():
+            os.kill(os.getpid(), signal.SIGKILL)
+        """,
+        dump_dir=dump_dir,
+        extra_args=("-n", "1", "--max-worker-restart=0"),
+    )
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "worker gw0 宕机（Not properly terminated），进程被信号 SIGKILL 终止" in _single(dump_dir, "progress")
 
 
 def test_writes_nothing_without_dump_dir(tmp_path: Path) -> None:
