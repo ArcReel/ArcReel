@@ -1,6 +1,7 @@
 """事件循环卡顿探针：事件循环停滞超过阈值时，把事件循环线程的调用栈写进日志。
 
-心跳协程每隔一个心跳间隔在事件循环上记一次时间；守护线程按同样的间隔醒来检查，发现心跳停滞超过阈值时，
+心跳协程每隔一个心跳间隔在事件循环上记一次时间；守护线程按同样的间隔醒来检查。心跳之后事件循环
+本就要空闲一个心跳间隔，停滞从下一次心跳该到的时刻算起，日志里的停滞时长因此是下限。停滞超过阈值时，
 用 ``sys._current_frames()`` 取事件循环线程的当前帧，格式化后经 logger 写出。守护线程是普通
 Python 线程，取栈与格式化都在持有 GIL 时进行，不会读到其他线程改到一半的帧。代价是事件循环线程
 在 C 代码里长时间不释放 GIL 时，取栈要等到它释放之后。只取事件循环线程一份栈：定位卡顿只需要
@@ -80,7 +81,8 @@ class LoopStallProbe:
         now = self._clock()
         self._flush_repeats(now)
         beat, beat_at = self._beat
-        stalled_for = now - beat_at
+        # 停滞可能始于两次心跳之间的任一时刻，确定的停滞只从下一次心跳该到时算起。
+        stalled_for = now - beat_at - self._heartbeat_interval
         if stalled_for <= self._stall_threshold or beat == self._reported_beat:
             return
         self._reported_beat = beat
@@ -97,7 +99,7 @@ class LoopStallProbe:
         stack_id = hashlib.sha1(repr(key).encode(), usedforsecurity=False).hexdigest()[:8]
         self._repeats[key] = _RepeatedStall(window_start=now, stack_id=stack_id)
         logger.warning(
-            "事件循环已停滞 %.1f 秒，事件循环线程的调用栈 %s（最近的调用在最后）：\n%s",
+            "事件循环已停滞至少 %.1f 秒，事件循环线程的调用栈 %s（最近的调用在最后）：\n%s",
             stalled_for,
             stack_id,
             "".join(stack.format()).rstrip("\n"),
