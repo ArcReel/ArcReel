@@ -214,9 +214,8 @@ jobs:
         # （PROJECT_ROOT 下 mkdir/rmdir、module 级 autouse fixture）要求同文件用例
         # 留在同一 worker。
         # --max-worker-restart=0：worker 崩溃后不补新 worker，直接失败并报出崩溃时在跑的用例。
-        # pytest-xdist 3.8.0 补 worker 时会把崩溃 worker 已跑完的文件重新排队，补上的 worker
-        # 领到空任务后会话卡在 99%（pytest-dev/pytest-xdist#1378，主干 25282ab 已修、尚未发版）；
-        # 升到含该修复的版本后可去掉。
+        # 锁定的 pytest-xdist 补 worker 时会把崩溃 worker 已跑完的文件重新排队，补上的 worker
+        # 领到空任务后会话卡在 99%；何时可以去掉见 docs/agents/testing.md「CI 挂起诊断」。
         # 步骤超时短于 job 超时，挂起时留出时间给下一步输出诊断。
         timeout-minutes: 20
         env:

@@ -37,4 +37,4 @@ worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文�
 | 段错误等致命信号 | 测试步骤 stderr 里的 `Fatal Python error` |
 | 被 SIGKILL | 没有栈，看内核日志里有没有 OOM |
 
-CI 的 xdist 命令带 `--max-worker-restart=0`：worker 崩溃后不补新 worker，直接失败。pytest-xdist 3.8.0 补 worker 时会把已跑完的文件重新排队，会话卡在 99%（上游 #1378，主干已修、未发版），升到含修复的版本后可去掉。本地复现时设同一个环境变量即可得到同样的文件。
+CI 与本地闸门的 xdist 命令带 `--max-worker-restart=0`：worker 崩溃后不补新 worker，直接失败。pytest-xdist 3.8.0 补 worker 时会把已跑完的文件重新排队，会话卡在 99%（上游 pytest-dev/pytest-xdist#1378，修复提交 25282ab）。依赖升到包含该提交的版本后，可以去掉这个参数。本地复现时设同一个环境变量即可得到同样的文件。
