@@ -39,7 +39,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePath, PurePosixPath
 from typing import Any, cast
@@ -59,6 +59,7 @@ from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
     derivative_artifact_id,
     derivative_artifact_key,
+    derivative_sheet_dir,
     derivative_sheet_relative_path,
     derivative_table,
     ensure_derivative_table,
@@ -762,29 +763,45 @@ def _copy_shared_reference_files(work: _Work) -> None:
                 continue
             if field_name == "reference_audio" and PurePosixPath(rel).parent != PurePosixPath("characters/refs_audio"):
                 continue
+            path = PurePosixPath(rel)
+            if any(
+                (work.project_dir / part).is_symlink() for part in (path, *path.parents) if part != PurePosixPath(".")
+            ):
+                continue
             source = try_safe_join(work.project_dir, rel)
-            if source is not None and source.is_file() and not source.is_symlink():
+            if source is not None and source.is_file():
                 sources[rel] = source
     content = {rel: source.read_bytes() for rel, source in sources.items()}
     before = len(work.adjusted)
     #: 改指到副本的资产图：（资产类型, 名字, 旧值, 副本路径）。
     sheets: list[tuple[str, str, str, str]] = []
     manifest = work.project_dir / MANIFEST_FILENAME
-    with formal_write_transaction(work.project_dir / "project.json", manifest, *sources.values()):
-        for asset_type, name, entry, field_name in fields:
-            value = entry.get(field_name)
-            if isinstance(value, list):
-                for index, item in enumerate(value):
-                    copied = _own_reference_copy(work, asset_type, name, field_name, item, content, siblings=value)
-                    if copied is not None:
-                        value[index] = copied
-            elif (copied := _own_reference_copy(work, asset_type, name, field_name, value, content)) is not None:
-                entry[field_name] = copied
-                if field_name == ASSET_SPECS[asset_type].sheet_field:
-                    sheets.append((asset_type, name, cast(str, value), copied))
-        if len(work.adjusted) > before:
-            _carry_sheet_claims(work, sheets)
-            _commit_project(work)
+    try:
+        with (
+            formal_write_transaction(work.project_dir / "project.json", manifest, *sources.values()),
+            contextlib.ExitStack() as copies,
+        ):
+            for asset_type, name, entry, field_name in fields:
+                value = entry.get(field_name)
+                if isinstance(value, list):
+                    for index, item in enumerate(value):
+                        copied = _own_reference_copy(
+                            work, asset_type, name, field_name, item, content, copies, siblings=value
+                        )
+                        if copied is not None:
+                            value[index] = copied
+                elif (
+                    copied := _own_reference_copy(work, asset_type, name, field_name, value, content, copies)
+                ) is not None:
+                    entry[field_name] = copied
+                    if field_name == ASSET_SPECS[asset_type].sheet_field:
+                        sheets.append((asset_type, name, cast(str, value), copied))
+            if len(work.adjusted) > before:
+                _carry_sheet_claims(work, sheets)
+                _commit_project(work)
+    except BaseException:
+        del work.adjusted[before:]
+        raise
 
 
 def _carry_sheet_claims(work: _Work, sheets: list[tuple[str, str, str, str]]) -> None:
@@ -792,11 +809,14 @@ def _carry_sheet_claims(work: _Work, sheets: list[tuple[str, str, str, str]]) ->
 
     改指前的时效看登记是否在旧值的路径上：在的话把它换到副本，依据摘要原样保留（副本与原文件同字节，读作时新
     的仍读作时新）；不在的话本就读作缺失，落点上的登记描述的是被挪成保留副本的那份图，撤掉，不借副本伪造成时新。
+    互相共用时登记可能交叉在对方的路径上，逐条改写会经过同一路径被两个键登记的中间态，所以一次整体提交。
     """
 
     if not sheets or not (work.project_dir / MANIFEST_FILENAME).is_file():
         return
     adapter = ProjectArtifactManifestAdapter(work.project_dir)
+    expected: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
+    replacements: dict[ArtifactKey, ArtifactManifestEntry | None] = {}
     for asset_type, name, old_value, copied in sheets:
         identity = asset_name_comparison_key(name)
         if not identity:
@@ -815,9 +835,13 @@ def _carry_sheet_claims(work: _Work, sheets: list[tuple[str, str, str, str]]) ->
             replacement = None
         else:
             continue
-        ensure_versioned_backup(work.project_dir / MANIFEST_FILENAME, work.schema_version)
-        if not adapter.replace_entries_if_matches_atomically(expected={key: stored}, replacements={key: replacement}):
-            raise RuntimeError("artifact manifest changed while carrying an asset sheet claim")
+        expected[key] = stored
+        replacements[key] = replacement
+    if not replacements:
+        return
+    ensure_versioned_backup(work.project_dir / MANIFEST_FILENAME, work.schema_version)
+    if not adapter.replace_entries_if_matches_atomically(expected=expected, replacements=replacements):
+        raise RuntimeError("artifact manifest changed while carrying an asset sheet claim")
 
 
 def _own_reference_copy(
@@ -827,6 +851,7 @@ def _own_reference_copy(
     field_name: str,
     value: object,
     sources: dict[str, bytes],
+    copies: contextlib.ExitStack,
     *,
     siblings: list[Any] | None = None,
 ) -> str | None:
@@ -848,16 +873,24 @@ def _own_reference_copy(
     content = sources.get(rel)
     if content is None:
         return None
+    if any(
+        (work.project_dir / directory).is_symlink()
+        for directory in (target_dir, *target_dir.parents)
+        if directory != PurePosixPath(".")
+    ):
+        raise ValueError(f"asset copy directory is a symlink: {target_dir}")
     stem, suffix = normalize_asset_name(name), PurePosixPath(rel).suffix
     backup: str | None = None
     if siblings is None:
         target_rel = (target_dir / f"{stem}{suffix}").as_posix()
         target = work.project_dir / target_rel
-        if target.exists() and not (target.is_file() and target.read_bytes() == content):
-            backup = work.rel(set_aside_as_kept_copy(target, work.schema_version))
+        copies.enter_context(formal_write_transaction(target))
+        if target.is_symlink() or (target.exists() and not (target.is_file() and target.read_bytes() == content)):
+            backup = work.rel(copies.enter_context(_displaced_copy(target, work.schema_version)))
     else:
         target_rel = _sequenced_copy_target(work, spec, target_dir, stem, suffix, content, siblings)
         target = work.project_dir / target_rel
+        copies.enter_context(formal_write_transaction(target))
     work.adjusted.append(
         MigrationAdjustment(
             code="shared_reference_file_copied",
@@ -871,6 +904,17 @@ def _own_reference_copy(
         atomic_write_bytes(target, content)
     work.project_changed = True
     return target_rel
+
+
+@contextlib.contextmanager
+def _displaced_copy(target: Path, schema_version: int) -> Generator[Path]:
+    """保留被替下的文件；外层提交失败时挪回原位，避免重试积累重复保留副本。"""
+    backup = set_aside_as_kept_copy(target, schema_version)
+    try:
+        yield backup
+    except BaseException:
+        backup.replace(target)
+        raise
 
 
 def _sequenced_copy_target(
@@ -895,6 +939,7 @@ def _sequenced_copy_target(
         if (
             existing_rel not in listed
             and existing.suffix == suffix
+            and not existing.is_symlink()
             and existing.is_file()
             and existing.read_bytes() == content
         ):
@@ -926,7 +971,11 @@ def _named_file_owner(project: dict[str, Any], rel: str) -> tuple[str, str] | No
     for asset_type, spec in ASSET_SPECS.items():
         bucket = project.get(spec.bucket_key)
         for name in bucket if isinstance(bucket, dict) else ():
-            if isinstance(name, str) and owns_named_file(spec, name, rel):
+            if not isinstance(name, str):
+                continue
+            if owns_named_file(spec, name, rel) or (
+                spec.supports_derivatives and PurePosixPath(rel).parent == PurePosixPath(derivative_sheet_dir(name))
+            ):
                 return asset_type, name
     return None
 
