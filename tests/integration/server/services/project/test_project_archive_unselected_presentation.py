@@ -12,7 +12,8 @@ import pytest
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.version_manager import VersionManager, selected_manual_upload_snapshot
-from lib.project.project_manager import ProjectManager
+from lib.infra.app_data_dir import reset_for_tests
+from lib.project.project_manager import ProjectManager, reset_project_manager_for_tests
 from lib.speech.speech_presentation import presentation_artifact_paths
 from server.services.currency import upload_finalize
 from server.services.currency.typed_media_restore import restore_typed_media_resource
@@ -48,7 +49,9 @@ async def _project_with_materialized_presentations(tmp_path: Path) -> tuple[Proj
 
 
 async def _upload_e1s01_video(pm: ProjectManager, project_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(upload_finalize, "get_project_manager", lambda: pm)
+    monkeypatch.setenv("ARCREEL_DATA_DIR", str(pm.data_root))
+    reset_for_tests()
+    reset_project_manager_for_tests()
     source = project_path.parent.parent / "upload" / "clip.mp4"
     make_test_video(source, duration_sec=1.0, fps=10)
     target = project_path / "videos" / "scene_E1S01.mp4"
