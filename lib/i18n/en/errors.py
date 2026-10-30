@@ -273,6 +273,7 @@ MESSAGES = {
     "prompt_authoring_refused": "Prompt writing could not be submitted: {reason}",
     "prompt_authoring_dialogue_overload": "Video unit {position} needs about {spoken_seconds} s to speak its lines, longer than its {duration_seconds} s duration. Lengthen the unit on the timeline, split it, or shorten the lines",
     "prompt_authoring_unit_invalid": "The text of video unit {position} doesn't meet the prompt-writing requirements. Edit the unit's text or duration on the timeline, then try again",
+    "prompt_authoring_duration_off_tier": "Video unit {position} is {duration_seconds} s long, which the current video model doesn't support (available: {tiers} s). Change the unit's duration on the timeline to an available option, then try again",
     "ad_script_overwrite_required": "Regenerating replaces the formal script of this episode entirely. Review the loss list, acknowledge the overwrite and retry",
     "ad_script_task_active": "A script generation task for this episode is already running. Wait for it to finish before submitting again",
     "ad_script_refused": "AI script generation could not be submitted: {reason}",

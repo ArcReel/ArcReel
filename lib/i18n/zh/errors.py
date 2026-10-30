@@ -262,6 +262,7 @@ MESSAGES = {
     "prompt_authoring_refused": "提示词编写未能提交：{reason}",
     "prompt_authoring_dialogue_overload": "视频单元 {position} 的台词念完约需 {spoken_seconds} 秒，超过单元时长 {duration_seconds} 秒。请在时间线上加长这个单元、把它拆开，或精简台词",
     "prompt_authoring_unit_invalid": "视频单元 {position} 的正文不符合编写要求。请在时间线上修改这个单元的正文或时长后重试",
+    "prompt_authoring_duration_off_tier": "视频单元 {position} 的时长 {duration_seconds} 秒不在当前视频模型支持的档位内（可选 {tiers} 秒）。请在时间线上把这个单元的时长改到可选档位后重试",
     "ad_script_overwrite_required": "重新生成会整份替换本集已有的正式脚本。请核对丢失清单，确认覆盖后重试",
     "ad_script_task_active": "本集已有进行中的脚本生成任务，请等待完成后再提交",
     "ad_script_refused": "AI 生成脚本未能提交：{reason}",

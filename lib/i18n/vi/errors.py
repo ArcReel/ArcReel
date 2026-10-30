@@ -273,6 +273,7 @@ MESSAGES = {
     "prompt_authoring_refused": "Không thể gửi yêu cầu viết prompt: {reason}",
     "prompt_authoring_dialogue_overload": "Đơn vị video {position} cần khoảng {spoken_seconds} giây để đọc hết lời thoại, vượt quá thời lượng {duration_seconds} giây của đơn vị. Hãy kéo dài đơn vị này trên dòng thời gian, tách nó ra hoặc rút gọn lời thoại",
     "prompt_authoring_unit_invalid": "Nội dung của đơn vị video {position} không đáp ứng yêu cầu viết prompt. Hãy sửa nội dung hoặc thời lượng của đơn vị này trên dòng thời gian rồi thử lại",
+    "prompt_authoring_duration_off_tier": "Đơn vị video {position} dài {duration_seconds} giây, không thuộc các mức thời lượng mà mô hình video hiện tại hỗ trợ (có thể chọn: {tiers} giây). Hãy đổi thời lượng của đơn vị này trên dòng thời gian sang một mức hợp lệ rồi thử lại",
     "ad_script_overwrite_required": "Tạo lại sẽ thay thế toàn bộ kịch bản chính thức của tập này. Hãy xem danh sách mất mát, đồng ý ghi đè rồi thử lại",
     "ad_script_task_active": "Tập này đang có tác vụ tạo kịch bản chưa hoàn tất. Hãy đợi tác vụ xong rồi gửi lại",
     "ad_script_refused": "Không thể gửi yêu cầu tạo kịch bản bằng AI: {reason}",
