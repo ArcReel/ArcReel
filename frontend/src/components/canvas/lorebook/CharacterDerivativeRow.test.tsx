@@ -5,7 +5,7 @@ import { useAppStore } from "@/stores/app-store";
 import { useProjectsStore } from "@/stores/projects-store";
 import { useTasksStore } from "@/stores/tasks-store";
 import { makeTask } from "@/test/factories";
-import type { CharacterDerivativeStatus } from "@/types";
+import type { CharacterDerivativeStatus, ProjectData } from "@/types";
 import { CharacterDerivativeRow, type CharacterDerivativeRowProps } from "./CharacterDerivativeRow";
 
 const SHEET_PATH = "characters/derivatives/阿岚/战斗装.png";
@@ -44,7 +44,7 @@ describe("CharacterDerivativeRow", () => {
 
   afterEach(() => {
     useTasksStore.setState({ tasks: [], optimisticActive: new Set() });
-    useProjectsStore.setState({ assetFingerprints: {} });
+    useProjectsStore.setState(useProjectsStore.getInitialState(), true);
     vi.restoreAllMocks();
   });
 
@@ -64,24 +64,36 @@ describe("CharacterDerivativeRow", () => {
     expect(screen.getByRole("menuitem", { name: "上传衍生图" })).toBeEnabled();
   });
 
-  it("uploads the chosen file as the derivative sheet and refreshes its fingerprint", async () => {
+  it("uploads the chosen file as the derivative sheet and refreshes the project and its fingerprint", async () => {
     const upload = vi.spyOn(API, "uploadCharacterDerivativeSheet").mockResolvedValue({
       success: true,
       path: SHEET_PATH,
       version: 2,
       asset_fingerprints: { [SHEET_PATH]: 42 },
     });
-    const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    const project = (character_sheet?: string): ProjectData => ({
+      title: "Demo",
+      content_mode: "narration",
+      style: "Anime",
+      episodes: [],
+      characters: { 阿岚: { description: "", derivatives: { 战斗装: { description: "换上黑色重甲", character_sheet } } } },
+      scenes: {},
+      props: {},
+    });
+    useProjectsStore.getState().setCurrentProject("demo", project());
+    const getProject = vi.spyOn(API, "getProject").mockResolvedValue({ project: project(SHEET_PATH), scripts: {} });
     const onSheetsChanged = vi.fn();
-    renderRow({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: true }, { onSheetsChanged });
+    renderRow({ description: "换上黑色重甲", character_sheet: "", stale: false }, { onSheetsChanged });
     const file = new File(["png"], "armor.png", { type: "image/png" });
 
     fireEvent.change(screen.getByLabelText("上传「阿岚/战斗装」的衍生图"), { target: { files: [file] } });
 
     await waitFor(() => expect(onSheetsChanged).toHaveBeenCalled());
     expect(upload).toHaveBeenCalledWith("demo", "阿岚", "战斗装", file);
-    expect(refresh).toHaveBeenCalledWith("demo", undefined);
-    expect(useProjectsStore.getState().assetFingerprints[SHEET_PATH]).toBe(42);
+    expect(getProject).toHaveBeenCalledWith("demo", expect.anything());
+    const state = useProjectsStore.getState();
+    expect(state.currentProjectData?.characters["阿岚"].derivatives?.["战斗装"].character_sheet).toBe(SHEET_PATH);
+    expect(state.assetFingerprints[SHEET_PATH]).toBe(42);
   });
 
   it("drops the upload while the base look is being generated", async () => {
