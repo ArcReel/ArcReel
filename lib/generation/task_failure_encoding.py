@@ -14,6 +14,7 @@ from arcreel_market_core.video_backend_contract import VideoCapabilityError
 from lib.backends.grok_shared import grpc_rejection
 from lib.backends.http_status_errors import ArtifactDownloadError, ProviderRejectedError
 from lib.backends.image_backends.base import ImageCapabilityError, ImageOutputFormatError, ImageOutputMissingError
+from lib.billing.call_failure import CallErrorCode, classify_call_failure
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.resolver import ImageBucketCapabilityError, VideoBucketCapabilityError
 from lib.custom_provider.comfyui.failures import ComfyuiError
@@ -76,6 +77,23 @@ def encode_task_failure_message(exc: Exception) -> str:
         # 非结构化文本在读侧原样透传，不会丢失原因。
         return _try_encode_failure(exc.code, exc.params) or str(exc)
     return str(exc)
+
+
+def is_provider_refusal(exc: BaseException) -> bool:
+    """供应商是否真正拒绝了这次请求的内容或输入：原样重发只会被同样拒绝，该改输入。
+
+    与 :func:`encode_task_failure_message` 落 ``provider_rejected`` 的判据同口径（httpx 通道的确定性 4xx、
+    gRPC 的确定性拒绝），另认上游错误体里的内容策略码（与记账层 ``content_policy`` 同一判据）。
+    沿 ``__cause__`` 链逐层判：调用方常把 SDK 异常包一层再抛。其余异常都不算拒绝。
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, ProviderRejectedError) or grpc_rejection(current) is not None:
+            return True
+        seen.add(id(current))
+        current = current.__cause__
+    return classify_call_failure(exc).error_code == CallErrorCode.CONTENT_POLICY
 
 
 def _try_encode_failure(code: str, params: dict[str, Any]) -> str | None:
