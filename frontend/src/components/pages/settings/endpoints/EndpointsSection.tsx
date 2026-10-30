@@ -60,7 +60,7 @@ function detailInstanceKey(selectedKey: string | null, selection: EndpointSelect
 
 interface MarketUpdateTarget {
   entry: MarketEntry;
-  currentDefinition: EndpointDefinition;
+  currentDefinition: AnyEndpointDefinition;
   hasUnsavedChanges: boolean;
 }
 
@@ -477,7 +477,7 @@ export function EndpointsSection() {
   const handleUpdateFromMarket = useCallback(
     async (
       installation: EndpointInstallation,
-      currentDefinition: EndpointDefinition,
+      currentDefinition: AnyEndpointDefinition,
       hasUnsavedChanges: boolean,
     ) => {
       if (installation.source_id === null) return;

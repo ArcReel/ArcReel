@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
-import { Copy, Download, ExternalLink, Loader2, Plus, RefreshCw, Share2, Store, Trash2, Upload } from "lucide-react";
+import { Copy, Download, ExternalLink, Loader2, Plus, Share2, Store, Trash2, Upload } from "lucide-react";
 import { Link } from "wouter";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type {
+  AnyEndpointDefinition,
   ComfyuiEndpointDefinition,
   CustomEndpointInfo,
   CustomProviderInfo,
@@ -37,7 +38,6 @@ import type {
   EndpointValidateResponse,
   MarketSubmission,
 } from "@/types";
-import { MarketInstallBadges } from "../market/MarketInstallBadges";
 import { MarketSubmissionBadge } from "../market/MarketSubmissionBadge";
 import { MARKET_CONTRIBUTING_URL } from "../market/market-links";
 import {
@@ -58,6 +58,7 @@ import { exportEndpointDefinition } from "./export-endpoint-definition";
 import { EXAMPLE_TEMPLATES } from "./example-templates";
 import { VariableInsertionProvider } from "./endpoint-form-primitives";
 import { ComfyuiEndpointDetail } from "./ComfyuiEndpointDetail";
+import { EndpointInstallBadges, MarketOrigin, MarketUpdateButton } from "./EndpointMarketInfo";
 import { ShareToMarketDialog } from "./ShareToMarketDialog";
 import type { ComfyuiImportDraft } from "./comfyui-import";
 
@@ -96,10 +97,10 @@ interface EndpointDetailProps {
   onNavigateToModel: (reference: EndpointReference) => void;
   /** 打开导入对话框（新建端点页的入口）。 */
   onImport: () => void;
-  /** 打开安装确认弹窗的更新态；只在市场轴可更新时提供入口。 */
+  /** 打开安装确认弹窗的更新态；只在市场轴可更新时提供入口，两种 kind 共用。 */
   onUpdateFromMarket: (
     installation: EndpointInstallation,
-    currentDefinition: EndpointDefinition,
+    currentDefinition: AnyEndpointDefinition,
     hasUnsavedChanges: boolean,
   ) => void;
   /** 更新弹窗所需的条目详情正在加载。 */
@@ -110,19 +111,6 @@ interface EndpointDetailProps {
   onDiscardComfyui: () => void;
   /** 官方服务开启时提供：该端点最近一次分享提交与提交完成回调。 */
   share?: { submission: MarketSubmission | null; onSubmitted: (submission: MarketSubmission) => void };
-}
-
-/** 安装记录的来源描述：来源被删除时只剩规范键原文，禁用或删除都注明。 */
-function MarketOrigin({ installation }: { installation: EndpointInstallation }) {
-  const { t } = useTranslation("dashboard");
-  const source = installation.source_display_name ?? installation.source_key;
-  const key =
-    installation.source_enabled === null
-      ? "ce_from_market_source_deleted"
-      : installation.source_enabled
-        ? "ce_from_market"
-        : "ce_from_market_source_disabled";
-  return <span className="min-w-0 break-all">{t(key, { source })}</span>;
 }
 
 function kindLabelKey(selection: EndpointSelection): string {
@@ -430,6 +418,8 @@ export function EndpointDetail({
           onSaved={onSaved}
           onReimport={onReimportComfyui}
           onDiscard={onDiscardComfyui}
+          onUpdateFromMarket={onUpdateFromMarket}
+          marketUpdatePending={marketUpdatePending}
           menuItems={(unsaved, pending) => (
             <>
               {shareItem(unsaved, pending)}
@@ -506,19 +496,13 @@ export function EndpointDetail({
     menu = exportItem;
   }
 
-  const updateButton = installation?.state === "update_available" && (
-    <Button
-      variant="outline"
-      onClick={() => draft && onUpdateFromMarket(installation, draft, hasUnsavedChanges)}
-      disabled={marketUpdatePending || !draft}
-    >
-      {marketUpdatePending ? (
-        <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />
-      ) : (
-        <RefreshCw aria-hidden data-icon="inline-start" />
-      )}
-      {t("market_update")}
-    </Button>
+  const updateButton = (
+    <MarketUpdateButton
+      installation={installation}
+      pending={marketUpdatePending}
+      disabled={!draft}
+      onUpdate={(target) => draft && onUpdateFromMarket(target, draft, hasUnsavedChanges)}
+    />
   );
 
   return (
@@ -531,7 +515,7 @@ export function EndpointDetail({
             badges={
               <>
                 <Badge variant={editable ? "secondary" : "outline"}>{t(kindLabelKey(selection))}</Badge>
-                {installation && <MarketInstallBadges state={installation.state} modified={installation.modified} />}
+                <EndpointInstallBadges installation={installation} />
                 {submissionBadge}
               </>
             }
@@ -543,7 +527,7 @@ export function EndpointDetail({
                       {draft.meta.author} · v{draft.meta.version}
                     </span>
                   )}
-                  {installation && <MarketOrigin installation={installation} />}
+                  <MarketOrigin installation={installation} />
                 </>
               )
             }

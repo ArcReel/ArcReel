@@ -11,8 +11,9 @@ import type {
   ComfyuiInferResponse,
   ComfyuiKeyInference,
   CustomEndpointInfo,
+  EndpointInstallation,
 } from "@/types";
-import { ComfyuiEndpointDetail } from "./ComfyuiEndpointDetail";
+import { ComfyuiEndpointDetail, type ComfyuiEndpointDetailProps } from "./ComfyuiEndpointDetail";
 
 const WORKFLOW: Record<string, unknown> = {
   "6": { class_type: "CLIPTextEncode", inputs: { text: "a cat" }, _meta: { title: "Positive" } },
@@ -92,6 +93,8 @@ function renderDetail(
     onSaved?: (record: CustomEndpointInfo) => void;
     onReimport?: (current: ComfyuiEndpointDefinition) => void;
     onDiscard?: () => void;
+    onUpdateFromMarket?: ComfyuiEndpointDetailProps["onUpdateFromMarket"];
+    marketUpdatePending?: boolean;
   } = {},
 ) {
   return render(
@@ -106,9 +109,27 @@ function renderDetail(
       onSaved={options.onSaved ?? vi.fn()}
       onReimport={options.onReimport ?? vi.fn()}
       onDiscard={options.onDiscard ?? vi.fn()}
+      onUpdateFromMarket={options.onUpdateFromMarket ?? vi.fn()}
+      marketUpdatePending={options.marketUpdatePending ?? false}
       menuItems={() => null}
     />,
   );
+}
+
+const INSTALLATION: EndpointInstallation = {
+  source_key: "github:arcreel/arcreel-market@HEAD",
+  source_id: 1,
+  source_display_name: "ArcReel 官方市场",
+  source_enabled: true,
+  slug: "wan-i2v",
+  installed_version: "1.0.0",
+  installed_at: "2026-09-01T00:00:00+00:00",
+  state: "current",
+  modified: false,
+};
+
+function installedRecord(defn: ComfyuiEndpointDefinition, overrides?: Partial<EndpointInstallation>): CustomEndpointInfo {
+  return { ...savedRecord(defn), installation: { ...INSTALLATION, ...overrides } };
 }
 
 /** 一行的表头格：语义键的 mono id 与它的状态、目标、展开按钮同处一格，展开面板在格子外。 */
@@ -132,6 +153,74 @@ describe("ComfyuiEndpointDetail", () => {
     expect(screen.getByText("ce-8")).toBeInTheDocument();
     expect(screen.getByText("来自 wan22_i2v_api.json")).toBeInTheDocument();
     expect(screen.getByText("4 个节点")).toBeInTheDocument();
+  });
+
+  it("shows where a market-installed endpoint came from and both status axes, without an update action", () => {
+    renderDetail({ record: installedRecord(definition(), { modified: true }) });
+
+    expect(screen.getByText("来自市场 ArcReel 官方市场")).toBeInTheDocument();
+    expect(screen.getByText("已安装")).toBeInTheDocument();
+    expect(screen.getByText("已修改")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "更新" })).not.toBeInTheDocument();
+  });
+
+  it("names a disabled source and falls back to the canonical key once the source is deleted", () => {
+    const { unmount } = renderDetail({
+      record: installedRecord(definition(), { state: "unavailable", source_enabled: false }),
+    });
+    expect(screen.getByText("来自市场 ArcReel 官方市场（来源已禁用）")).toBeInTheDocument();
+    expect(screen.getByText("市场中不可用")).toBeInTheDocument();
+    unmount();
+
+    renderDetail({
+      record: installedRecord(definition(), {
+        state: "unavailable",
+        source_id: null,
+        source_display_name: null,
+        source_enabled: null,
+      }),
+    });
+    expect(screen.getByText("来自市场 github:arcreel/arcreel-market@HEAD（来源已删除）")).toBeInTheDocument();
+  });
+
+  it("leaves a hand-made or freshly imported endpoint without market origin, badges or update", () => {
+    const { unmount } = renderDetail({ record: savedRecord(definition()) });
+    expect(screen.queryByText(/来自市场/)).not.toBeInTheDocument();
+    expect(screen.queryByText("已安装")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "更新" })).not.toBeInTheDocument();
+    unmount();
+
+    renderDetail({ record: null });
+    expect(screen.queryByText(/来自市场/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "更新" })).not.toBeInTheDocument();
+  });
+
+  it("hands the installation and the current draft, unsaved edits included, to the market update", async () => {
+    const onUpdateFromMarket = vi.fn();
+    const defn = definition({ bindings: { prompt: [PROMPT], output: [OUTPUT] } });
+    const record = installedRecord(defn, { state: "update_available" });
+    renderDetail({ record, definition: defn, onUpdateFromMarket });
+
+    await userEvent.click(screen.getByRole("button", { name: "更新" }));
+    expect(onUpdateFromMarket).toHaveBeenLastCalledWith(record.installation, defn, false);
+
+    await userEvent.type(screen.getByLabelText("端点名称"), "!");
+    await userEvent.click(screen.getByRole("button", { name: "更新" }));
+    expect(onUpdateFromMarket).toHaveBeenLastCalledWith(
+      record.installation,
+      { ...defn, meta: { ...defn.meta, name: "Wan 2.2 i2v!" } },
+      true,
+    );
+  });
+
+  it("holds the update and the re-import while the entry for an update is loading", () => {
+    renderDetail({
+      record: installedRecord(definition(), { state: "update_available" }),
+      marketUpdatePending: true,
+    });
+
+    expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "重新导入" })).toBeDisabled();
   });
 
   it("gives each semantic its own row, with the six states each saying what to do next", () => {
