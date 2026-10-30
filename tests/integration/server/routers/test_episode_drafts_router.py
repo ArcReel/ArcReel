@@ -90,8 +90,11 @@ def test_web_save_blocked_by_the_video_model_reports_the_real_reason(
     ],
     ids=["dialogue_overload", "duration_off_tier"],
 )
+@pytest.mark.parametrize(
+    ("locale", "unit_label"), [("zh", "视频单元 1"), ("en", "video unit 1"), ("vi", "đơn vị video 1")]
+)
 def test_web_save_blocked_by_a_formal_unit_names_it_by_position(
-    tmp_path: Path, video_request_facts, monkeypatch, unit: dict, phrase: str
+    tmp_path: Path, video_request_facts, monkeypatch, unit: dict, phrase: str, locale: str, unit_label: str
 ) -> None:
     """提示词编写草稿手修保存后，晋升被正式剧本单元挡下：按「视频单元 N」说明原因，不含内部单元 ID。"""
     pm = ProjectManager(tmp_path / "projects")
@@ -129,12 +132,15 @@ def test_web_save_blocked_by_a_formal_unit_names_it_by_position(
         response = client.put(
             path,
             json={"content": {"title": "第一集", "units": [{"text": "@[张三] 坐好"}]}, "base_revision": revision},
-            headers={"Accept-Language": "zh"},
+            headers={"Accept-Language": locale},
         )
 
     assert response.status_code == 422
     body = response.json()
     assert body["diagnostic"] == {"code": "draft_invalid"}
-    assert phrase in body["detail"]
+    assert unit_label in body["detail"]
+    assert "{" not in body["detail"]
+    if locale == "zh":
+        assert phrase in body["detail"]
     assert "E1U01" not in body["detail"]
     assert quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()

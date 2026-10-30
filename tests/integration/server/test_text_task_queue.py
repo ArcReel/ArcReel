@@ -209,6 +209,72 @@ async def test_web_prompt_authoring_returns_the_batch_without_waiting(tmp_path: 
     assert task["payload"]["rewrite"] is False
 
 
+@pytest.mark.usefixtures("video_request_facts")
+async def test_prompt_authoring_off_tier_fails_as_fix_input_through_the_worker(
+    file_db_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """提交、执行、落库保留时长越档的修改输入指引，并在付费调用前停止。"""
+    projects = ProjectManager(DataRootLayout.current().root)
+    project_path = projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.update_project("demo", lambda project: project.update(generation_mode="reference_video"))
+    projects.add_character("demo", "张三", "村民")
+    projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+    _admit_text_operations(projects, "demo")
+    projects.save_script(
+        "demo",
+        {
+            "title": "第一集",
+            "episode": 1,
+            "content_mode": "narration",
+            "video_units": [
+                {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4},
+                {"unit_id": "E1U04", "text": "@[张三] 出门", "duration_seconds": 5, "pending_authoring": True},
+            ],
+        },
+        "episode_1.json",
+    )
+    activate_artifact_target_state(project_path, bump_schema=False)
+    model = FakeTextGenerator(AssertionError("时长越档不应调用文本模型"))
+    use_text_generator(monkeypatch, model.create)
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+
+    async def execute(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
+        del claimed_provider_id
+        return await execute_queued_text_task(task)
+
+    worker = await _start_text_worker(queue, execute)
+    services = Services(
+        projects=projects,
+        workflow_planner=object(),
+        capabilities=ConfigResolver(async_session_factory),
+        queue=queue,
+    )
+    try:
+        submitted = await generate_episode_script(
+            ToolRequest(GenerateEpisodeScriptRequest(episode_id=1)),
+            ProjectScope(project_name="demo", data_root=projects.data_root),
+            CallerContext(user_id=DEFAULT_USER_ID, source="webui"),
+            services,
+        )
+        assert submitted.value is not None, submitted.problem
+        task_id = submitted.value.members[0].task_id
+        assert task_id is not None
+        task = await wait_for_task(task_id, 0.01, queue=queue)
+    finally:
+        await worker.stop()
+
+    assert task["status"] == "failed"
+    problem = problem_from_task_failure(task["error_message"])
+    assert (problem.code, problem.action, problem.params) == (
+        "prompt_authoring_duration_off_tier",
+        GenerationAction.FIX_INPUT,
+        {"unit_id": "E1U04", "position": 2, "duration_seconds": 5, "tiers": "4 / 6 / 8"},
+    )
+    assert "generate_episode_script 失败" not in problem.detail
+    assert model.requests == []
+
+
 def _narration_segment(**overrides: Any) -> dict[str, Any]:
     segment: dict[str, Any] = {
         "segment_id": "E1S01",
