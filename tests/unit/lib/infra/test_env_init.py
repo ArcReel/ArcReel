@@ -37,6 +37,48 @@ def test_explicit_non_empty_env_wins_over_env_file(env_file: Path, monkeypatch: 
     assert os.environ["AUTH_PASSWORD"] == "from-env"
 
 
+def test_interpolation_preserves_explicit_environment_auth_setting(env_file: Path, monkeypatch: pytest.MonkeyPatch):
+    from server.auth import is_auth_enabled
+
+    env_file.write_text("ARCREEL_TEST_FLAG=false\nAUTH_ENABLED=${ARCREEL_TEST_FLAG}\n", encoding="utf-8")
+    monkeypatch.setenv("ARCREEL_TEST_FLAG", "true")
+    monkeypatch.delenv("AUTH_ENABLED", raising=False)
+
+    env_init.load_env_file(env_file)
+
+    assert is_auth_enabled()
+
+
+@pytest.mark.parametrize("value", ["true", "false"])
+def test_empty_auth_enabled_uses_env_file(env_file: Path, monkeypatch: pytest.MonkeyPatch, value: str):
+    from server.auth import is_auth_enabled
+
+    env_file.write_text(f"AUTH_ENABLED={value}\n", encoding="utf-8")
+    monkeypatch.setenv("AUTH_ENABLED", "")
+
+    assert env_init.load_env_file(env_file) == ()
+    assert is_auth_enabled() is (value == "true")
+
+
+def test_disabled_dotenv_does_not_load_auth_configuration(env_file: Path, monkeypatch: pytest.MonkeyPatch):
+    env_file.write_text("AUTH_ENABLED=false\n", encoding="utf-8")
+    monkeypatch.setenv("PYTHON_DOTENV_DISABLED", "1")
+    monkeypatch.delenv("AUTH_ENABLED", raising=False)
+
+    assert env_init.load_env_file(env_file) == ()
+    assert "AUTH_ENABLED" not in os.environ
+
+
+def test_cleared_file_value_warns_while_explicit_environment_still_wins(
+    env_file: Path, monkeypatch: pytest.MonkeyPatch
+):
+    env_file.write_text("AUTH_ENABLED=\n", encoding="utf-8")
+    monkeypatch.setenv("AUTH_ENABLED", "false")
+
+    assert env_init.load_env_file(env_file) == ("AUTH_ENABLED",)
+    assert os.environ["AUTH_ENABLED"] == "false"
+
+
 def test_unset_keys_are_loaded_including_empty_values(env_file: Path, monkeypatch: pytest.MonkeyPatch):
     env_file.write_text("ARCREEL_TEST_FILLED=v\nARCREEL_TEST_BLANK=\n", encoding="utf-8")
     monkeypatch.delenv("ARCREEL_TEST_FILLED", raising=False)
@@ -49,7 +91,7 @@ def test_unset_keys_are_loaded_including_empty_values(env_file: Path, monkeypatc
 
 
 def test_returns_keys_whose_values_diverge(env_file: Path, monkeypatch: pytest.MonkeyPatch):
-    """只有两边都非空且不同才算不一致；空串由 .env 补齐，不算。"""
+    """保留的进程值与文件不同才算不一致；空串由 .env 补齐，不算。"""
     env_file.write_text("AUTH_PASSWORD=new\nAUTH_USERNAME=admin\nAUTH_TOKEN_SECRET=s\n", encoding="utf-8")
     monkeypatch.setenv("AUTH_PASSWORD", "old")
     monkeypatch.setenv("AUTH_USERNAME", "admin")
@@ -99,7 +141,7 @@ def test_unreadable_env_file_is_ignored(env_file: Path, monkeypatch: pytest.Monk
     def deny(*_args, **_kwargs):
         raise PermissionError("denied by sandbox")
 
-    monkeypatch.setattr(env_init, "dotenv_values", deny)
+    monkeypatch.setattr(env_init, "DotEnv", deny)
 
     assert env_init.load_env_file(env_file) == ()
     assert "ARCREEL_TEST_DENIED" not in os.environ

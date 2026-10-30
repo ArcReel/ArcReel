@@ -134,7 +134,7 @@ ArcReel Agent（智能体）与内容生成使用两套独立配置：
 
 ### Windows 从源码启动后，Agent 提示事件循环不支持创建子进程怎么办？ {#windows-reload-agent}
 
-在 Windows 原生环境用 `--reload` 启动后端时，uvicorn 会改用不支持子进程的事件循环，Agent 无法拉起 Claude Code。界面显示“后端的事件循环不支持创建子进程”，旧版本只显示 `Failed to start Claude Code:`，冒号后为空。
+在 Windows 原生环境用 `--reload` 启动后端时，uvicorn 会改用不支持子进程的事件循环，Agent 无法拉起 Claude Code。界面显示「后端的事件循环不支持创建子进程」，旧版本只显示 `Failed to start Claude Code:`，冒号后为空。
 
 去掉 `--reload` 重新启动后端：
 

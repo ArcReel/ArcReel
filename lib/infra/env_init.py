@@ -14,9 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from dotenv import dotenv_values, find_dotenv
+    from dotenv import find_dotenv
+    from dotenv.main import DotEnv
 except ImportError:  # pragma: no cover - python-dotenv 是运行依赖，缺失时不加载 .env
-    dotenv_values = None
+    DotEnv = None
     find_dotenv = None
 
 logger = logging.getLogger(__name__)
@@ -40,15 +41,18 @@ def load_env_file(env_path: Path) -> tuple[str, ...]:
     - 进程环境里不存在的键，取 .env 中的值（含空值）；
     - 进程环境里为空串的键视为未设置，.env 中的非空值生效。Docker Compose 的 ``env_file``
       会把模板里的 ``AUTH_PASSWORD=`` 注入为空串，不这样处理时 .env 里后来写入的值永远进不来；
-    - 进程环境里显式设置的非空值优先，不被 .env 覆盖。两边都非空但不同的键名记入返回值。
+    - 进程环境里显式设置的非空值优先，不被 .env 覆盖。与文件值不同的键名记入返回值。
 
-    文件读不了（沙箱拒读、不存在）时什么也不做，返回空元组。
+    文件读不了（沙箱拒读、不存在）或 PYTHON_DOTENV_DISABLED 开启时，返回空元组。
     """
     global _last_load
-    if dotenv_values is None:
+    if DotEnv is None:
+        return ()
+    if os.environ.get("PYTHON_DOTENV_DISABLED", "").casefold() in {"1", "true", "t", "yes", "y"}:
         return ()
     try:
-        file_values = dotenv_values(env_path)
+        # 插值沿用 load_dotenv 的进程环境优先级，避免文件中的引用改变显式配置。
+        file_values = DotEnv(env_path, encoding="utf-8", override=False).dict()
     except OSError:
         return ()
     diverged: list[str] = []
@@ -58,7 +62,7 @@ def load_env_file(env_path: Path) -> tuple[str, ...]:
         current = os.environ.get(key)
         if current is None or (current == "" and value):
             os.environ[key] = value
-        elif current and value and current != value:
+        elif current and current != value:
             diverged.append(key)
     _last_load = _EnvFileLoad(path=Path(env_path), diverged_keys=tuple(diverged))
     return _last_load.diverged_keys
