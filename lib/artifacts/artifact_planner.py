@@ -10,7 +10,7 @@ import json
 import re
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -156,6 +156,11 @@ class ArtifactTargetStatePlan:
     script_paths: tuple[Path, ...]
     skipped: tuple[MigrationSkippedArtifact, ...] = ()
     """Formal pointers the planner saw but could not register, with the reason each was left out."""
+    unselected_video_formal_paths: Mapping[ArtifactKey, str] = field(default_factory=dict)
+    """依据的视频版本已不是单元当前选中版本、对那个版本仍完整自证的字幕与呈现产物的正式路径。
+
+    只在 ``allow_stale_formal_targets`` 下收集：这类登记暂不适用于当前视频，切回它依据的版本即重新成立。
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,6 +308,7 @@ class TargetStatePlanner:
         self.bases: dict[ArtifactKey, ArtifactBasis] = {}
         self.current_presentation_bases: dict[ArtifactKey, ArtifactBasis] = {}
         self.formal_paths: dict[ArtifactKey, str] = {}
+        self.unselected_video_formal_paths: dict[ArtifactKey, str] = {}
         self._path_owners: dict[str, ArtifactKey] = {}
         self.skipped: list[MigrationSkippedArtifact] = []
         self._versions: Mapping[str, Any] | None = None
@@ -353,6 +359,7 @@ class TargetStatePlanner:
         return ArtifactTargetStatePlan(
             entries=dict(self.entries),
             formal_paths=dict(self.formal_paths),
+            unselected_video_formal_paths=dict(self.unselected_video_formal_paths),
             project=dict(self.project),
             project_bytes=self.project_bytes,
             dependency_bytes=dict(self.dependencies),
@@ -1296,9 +1303,9 @@ class TargetStatePlanner:
         if "persisted-presentations" in self._planned:
             return
         # Typed media must be planned first.  Persisted presentation files carry
-        # observed duration/content evidence, but only a selected managed media
-        # snapshot that independently proves its canonical formal file may anchor
-        # that evidence.  This is not a same-name filesystem fallback.
+        # observed duration/content evidence anchored to managed media snapshots.
+        # Selected snapshots must prove their canonical formal files; preservation
+        # may instead prove a non-selected video snapshot for an old presentation.
         self._plan_typed_media()
         for episode in self.episodes:
             for item in episode.items:
@@ -1326,6 +1333,17 @@ class TargetStatePlanner:
                         presentation=presentation,
                     )
                     if proof is None:
+                        if self.allow_stale_formal_targets:
+                            self._record_unselected_video_presentation(
+                                episode=episode,
+                                item=item,
+                                resource_id=resource_id,
+                                variant=variant,
+                                subtitle_path=subtitle_path,
+                                presentation_path=presentation_path,
+                                subtitle=subtitle,
+                                presentation=presentation,
+                            )
                         continue
                     presentation_key = ArtifactKey.episode_presentation(episode.episode, resource_id, variant)
                     if proof.current_presentation_basis is not None and proof.admitted:
@@ -1349,6 +1367,47 @@ class TargetStatePlanner:
                             basis_digest=presentation_basis.digest,
                         )
         self._planned.add("persisted-presentations")
+
+    def _record_unselected_video_presentation(
+        self,
+        *,
+        episode: _EpisodeState,
+        item: Mapping[str, Any],
+        resource_id: str,
+        variant: RenditionVariant,
+        subtitle_path: str,
+        presentation_path: str,
+        subtitle: Mapping[str, Any],
+        presentation: Mapping[str, Any],
+    ) -> None:
+        """单元换了选中视频（手动上传、AI 重新生成或切换版本）后，按旧视频物化的字幕与呈现暂不适用。
+
+        只有对它们自己依据的那个视频版本仍完整自证时才记下正式路径；其余证明不了的原因照常不记。
+        """
+
+        raw_video = presentation.get("video")
+        video_version = raw_video.get("version") if isinstance(raw_video, Mapping) else None
+        if type(video_version) is not int:
+            return
+        proof = self._prove_persisted_presentation(
+            episode=episode,
+            item=item,
+            resource_id=resource_id,
+            variant=variant,
+            subtitle_path=subtitle_path,
+            presentation_path=presentation_path,
+            subtitle=subtitle,
+            presentation=presentation,
+            unselected_video_version=video_version,
+        )
+        if proof is None:
+            return
+        self.unselected_video_formal_paths[ArtifactKey.episode_subtitle(episode.episode, resource_id, variant)] = (
+            subtitle_path
+        )
+        self.unselected_video_formal_paths[ArtifactKey.episode_presentation(episode.episode, resource_id, variant)] = (
+            presentation_path
+        )
 
     def _plan_final_cut(self, key: ArtifactKey) -> None:
         """Rebuild one final cut basis from its edit timeline's latest revision.
@@ -1536,8 +1595,12 @@ class TargetStatePlanner:
         presentation_path: str,
         subtitle: Mapping[str, Any],
         presentation: Mapping[str, Any],
+        unselected_video_version: int | None = None,
     ) -> _PersistedPresentationProof | None:
-        """Validate a frozen typed presentation and derive its current basis."""
+        """Validate a frozen typed presentation and derive its current basis.
+
+        ``unselected_video_version`` 给定时，视频按这个非选中的历史版本核验（见 :meth:`_presentation_media_pair`）。
+        """
 
         resource_type = "reference_videos" if episode.kind == "video_units" else "videos"
         video_pair = self._presentation_media_pair(
@@ -1545,6 +1608,7 @@ class TargetStatePlanner:
             episode=episode,
             resource_id=resource_id,
             resource_type=resource_type,
+            unselected_version=unselected_video_version,
         )
         if video_pair is None:
             return None
@@ -1657,8 +1721,13 @@ class TargetStatePlanner:
         episode: _EpisodeState,
         resource_id: str,
         resource_type: str,
+        unselected_version: int | None = None,
     ) -> tuple[PresentationMedia, PresentationMedia] | None:
-        """Prove one selected media snapshot and expose frozen/current currency."""
+        """Prove one selected media snapshot and expose frozen/current currency.
+
+        ``unselected_version`` 给定时改为核验这个非选中的历史版本：它的快照不在正式路径上，
+        不比对正式文件字节，只核验快照本身与登记的内容摘要一致。
+        """
 
         if not isinstance(raw, Mapping) or raw.get("selection") != "current":
             return None
@@ -1675,10 +1744,15 @@ class TargetStatePlanner:
         resource = bucket.get(resource_id) if isinstance(bucket, Mapping) else None
         selected_version = resource.get("current_version") if isinstance(resource, Mapping) else None
         records = resource.get("versions") if isinstance(resource, Mapping) else None
-        if type(selected_version) is not int or not isinstance(records, list) or raw.get("version") != selected_version:
+        if type(selected_version) is not int or not isinstance(records, list):
+            return None
+        proven_version = selected_version if unselected_version is None else unselected_version
+        if raw.get("version") != proven_version or (
+            unselected_version is not None and unselected_version == selected_version
+        ):
             return None
         selected = [
-            record for record in records if isinstance(record, Mapping) and record.get("version") == selected_version
+            record for record in records if isinstance(record, Mapping) and record.get("version") == proven_version
         ]
         if len(selected) != 1:
             return None
@@ -1701,11 +1775,11 @@ class TargetStatePlanner:
         ):
             return None
         snapshot = self._safe_present_path(cast(str, snapshot_path))
-        artifact = self._safe_present_path(planned.artifact_path)
-        if snapshot is None or artifact is None:
+        artifact = self._safe_present_path(planned.artifact_path) if unselected_version is None else None
+        if snapshot is None or (unselected_version is None and artifact is None):
             return None
         try:
-            if snapshot.samefile(artifact) or snapshot.read_bytes() != artifact.read_bytes():
+            if artifact is not None and (snapshot.samefile(artifact) or snapshot.read_bytes() != artifact.read_bytes()):
                 return None
             content_digest = media_content_digest(snapshot)
             evidence = SelectedMediaEvidence(
@@ -1722,7 +1796,7 @@ class TargetStatePlanner:
             return None
         frozen = PresentationMedia(
             artifact_path=cast(str, snapshot_path),
-            version=selected_version,
+            version=proven_version,
             selection="current",
             currency=cast(Any, frozen_currency),
             evidence=evidence,
