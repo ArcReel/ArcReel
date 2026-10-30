@@ -1733,6 +1733,7 @@ export default {
   'endpoint_gemini_image_display': 'Ảnh Google Gemini',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_ark_seedance_display': 'Volcengine Ark (Seedance)',
+  'endpoint_ark_seedream_display': 'Volcengine Ark (Seedream)',
   'endpoint_vidu_video_display': 'Vidu Video',
   'endpoint_dashscope_image_display': 'Alibaba Model Studio (Ảnh)',
   'endpoint_dashscope_async_video_display': 'Alibaba Model Studio (Video bất đồng bộ)',

@@ -1742,6 +1742,7 @@ export default {
   'endpoint_gemini_image_display': 'Gemini 图片',
   'endpoint_openai_video_display': 'OpenAI 视频 (Sora)',
   'endpoint_ark_seedance_display': '火山方舟 (Seedance)',
+  'endpoint_ark_seedream_display': '火山方舟 (Seedream)',
   'endpoint_vidu_video_display': 'Vidu 视频',
   'endpoint_dashscope_image_display': '阿里百炼（图片）',
   'endpoint_dashscope_async_video_display': '阿里百炼（异步视频）',
