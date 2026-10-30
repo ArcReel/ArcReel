@@ -584,6 +584,37 @@ class TestMergeWithProducedArtifacts:
         assert storyboards == {"E1S01": False, "E1S02": True, "E1S03": True}
         assert videos == {"E2U1": False, "E2U2": True, "E2U3": False}  # E2U3 只换了说话人
 
+    @pytest.mark.parametrize("uploaded", [False, True])
+    def test_a_selected_uploaded_video_is_not_counted_as_outdated(
+        self, produced: ProjectManager, uploaded: bool
+    ) -> None:
+        """选中手动上传的视频只由上传字节决定时效：合并换了它的画面引用和说话人，预览也不计入。"""
+        project_dir = produced.get_project_path(PROJECT)
+        if uploaded:
+            for unit_id in ("E2U1", "E2U3"):
+                staged = project_dir / f".{unit_id}.upload.mp4"
+                staged.write_bytes(f"uploaded-{unit_id}".encode())
+                VersionManager(project_dir).commit_staged_version(
+                    "reference_videos",
+                    unit_id,
+                    "",
+                    staged_file=staged,
+                    current_file=project_dir / f"reference_videos/{unit_id}.mp4",
+                    source=MANUAL_UPLOAD_VERSION_SOURCE,
+                )
+                _claim_current(project_dir, ArtifactKey.episode_video(2, unit_id))
+
+        preview = produced.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
+        produced.merge_asset(PROJECT, "characters", "老王", "王建国")
+
+        actual = [
+            self._current(produced, ArtifactKey.episode_video(2, unit_id), f"reference_videos/{unit_id}.mp4")
+            for unit_id in ("E2U1", "E2U2", "E2U3")
+        ]
+        assert actual == [uploaded, True, uploaded]
+        assert preview.episodes[-1].episode == 2
+        assert preview.episodes[-1].videos == actual.count(False)
+
     def test_a_storyboard_on_a_folded_derivative_is_counted_as_outdated(self, produced: ProjectManager) -> None:
         """并入保留方已有衍生的换成了另一张图：引用它的分镜图照常计入、照常过期。"""
         project_dir = produced.get_project_path(PROJECT)
