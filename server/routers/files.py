@@ -59,7 +59,11 @@ from lib.infra.image_utils import normalize_uploaded_image, validate_image_bytes
 from lib.infra.json_io import atomic_write_bytes
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.project.asset_types import ASSET_SPECS, GLOBAL_LIBRARY_ASSET_TYPES, resolve_asset_key, validate_asset_name
-from lib.project.project_change_hints import build_change_label, emit_project_change_batch, project_change_source
+from lib.project.project_change_hints import (
+    build_change_label,
+    emit_project_change_batch,
+    project_change_source,
+)
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.project_migration_guard import assert_project_migration_ok
 from lib.script import script_review
@@ -1020,8 +1024,7 @@ async def update_source_file(
             project_dir = manager.get_project_path(project_name)
             project = manager.load_project(project_name)
             if f"source/{filename}" in whole_source_files(project):
-                with project_change_source("webui"):
-                    outcome = edit_whole_source_file(manager, project_name, filename, content, revision=revision)
+                outcome = edit_whole_source_file(manager, project_name, filename, content, revision=revision)
                 payload = source_file_change_payload(outcome, project, _t)
                 return {"success": outcome.applied, **payload, "path": f"source/{filename}"}
 
@@ -1039,7 +1042,9 @@ async def update_source_file(
                     register_whole_source_file(project, rel)
             return {"success": True, "path": f"source/{filename}"}
 
-        return await run_sync_transaction(_sync)
+        # 两个分支都标 webui：未登记文件的新建经 locked_source_registration 改写登记，同样会广播。
+        with project_change_source("webui"):
+            return await run_sync_transaction(_sync)
 
     except SourceFileChangeError as exc:
         raise source_file_change_http_error(exc, _t) from exc
@@ -1074,8 +1079,7 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
             project_dir = manager.get_project_path(project_name)
             project = manager.load_project(project_name)
             if f"source/{filename}" in whole_source_files(project):
-                with project_change_source("webui"):
-                    outcome = delete_whole_source_file(manager, project_name, filename, revision=revision)
+                outcome = delete_whole_source_file(manager, project_name, filename, revision=revision)
                 return {"success": outcome.applied, **source_file_change_payload(outcome, project, _t)}
 
             with manager.locked_source_registration(project_name) as (_source_dir, project, undo):
@@ -1091,7 +1095,9 @@ async def delete_source_file(project_name: str, filename: str, _t: Translator, r
                 trash_source_file(project_dir, f"source/{filename}", undo)
             return {"success": True}
 
-        return await run_sync_transaction(_sync)
+        # 两个分支都标 webui：删除自带原文的集文件会改写集元数据，删除记录的发起方也按来源记为用户。
+        with project_change_source("webui"):
+            return await run_sync_transaction(_sync)
 
     except SourceFileChangeError as exc:
         raise source_file_change_http_error(exc, _t) from exc
@@ -1237,46 +1243,49 @@ async def update_draft_content(
 
         project_dir, content_mode, draft_path = await asyncio.to_thread(_resolve_target)
 
-        if draft_path.name == REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME:
-            # 参考生视频正式 script_plan 不走本端点的裸文本直写：它的写盘统一收敛在
-            # ScriptReviewService.save_content 的单一出口（结构校验、references 重派生、
-            # per-path 锁与 prompt_authoring 草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
-            # 本端点无基线指纹可传，不做并发基线比对（同其余无基线的直连调用）。
-            try:
-                parsed = json.loads(content)
-            except json.JSONDecodeError as exc:
-                raise BadRequestError("script_review_invalid_content").with_diagnostic(str(exc)) from exc
-            # 存在性探测同其余同步文件 I/O 卸到线程：本函数由请求协程直接 await，
-            # 裸 exists() 会跑在事件循环上阻塞并发请求。
-            is_new = not await asyncio.to_thread(draft_path.exists)
-            try:
-                await ScriptReviewService(get_project_manager()).save_content(project_name, episode, parsed)
-            except ScriptReviewError as exc:
-                raise_review_error(exc, episode, _t)
-        else:
-            is_new = await run_sync_transaction(
-                _write_plain_draft, project_name, project_dir, episode, draft_path, content, _t
-            )
+        # 用户在 Web 端的保存：草稿事件与连带的写入（参考模式清掉的提示词编写草稿）都按 webui 广播，
+        # 前端不把它当成外部改动去通知或跳转。
+        with project_change_source("webui"):
+            if draft_path.name == REFERENCE_VIDEO_SCRIPT_PLAN_FILENAME:
+                # 参考生视频正式 script_plan 不走本端点的裸文本直写：它的写盘统一收敛在
+                # ScriptReviewService.save_content 的单一出口（结构校验、references 重派生、
+                # per-path 锁与 prompt_authoring 草稿清理），裸写会成为一条未经校验、绕开写盘语义的旁路。
+                # 本端点无基线指纹可传，不做并发基线比对（同其余无基线的直连调用）。
+                try:
+                    parsed = json.loads(content)
+                except json.JSONDecodeError as exc:
+                    raise BadRequestError("script_review_invalid_content").with_diagnostic(str(exc)) from exc
+                # 存在性探测同其余同步文件 I/O 卸到线程：本函数由请求协程直接 await，
+                # 裸 exists() 会跑在事件循环上阻塞并发请求。
+                is_new = not await asyncio.to_thread(draft_path.exists)
+                try:
+                    await ScriptReviewService(get_project_manager()).save_content(project_name, episode, parsed)
+                except ScriptReviewError as exc:
+                    raise_review_error(exc, episode, _t)
+            else:
+                is_new = await run_sync_transaction(
+                    _write_plain_draft, project_name, project_dir, episode, draft_path, content, _t
+                )
 
-        # 发射 draft 事件通知前端
-        action = "created" if is_new else "updated"
-        draft_label_key = "draft_segment_splitting" if content_mode == "narration" else "draft_normalized_script"
-        change = {
-            "entity_type": "draft",
-            "action": action,
-            "entity_id": f"episode_{episode}_{stage}",
-            **build_change_label(draft_label_key, episode=episode),
-            "episode": episode,
-            "focus": {
-                "pane": "episode",
+            # 发射 draft 事件通知前端：正式脚本规划不在事件服务的轮询范围内，这一批是它唯一的变更信号。
+            action = "created" if is_new else "updated"
+            draft_label_key = "draft_segment_splitting" if content_mode == "narration" else "draft_normalized_script"
+            change = {
+                "entity_type": "draft",
+                "action": action,
+                "entity_id": f"episode_{episode}_{stage}",
+                **build_change_label(draft_label_key, episode=episode),
                 "episode": episode,
-            },
-            "important": is_new,
-        }
-        try:
-            emit_project_change_batch(project_name, [change], source="worker")
-        except Exception:
-            logger.warning("发送 draft 事件失败 project=%s episode=%s", project_name, episode, exc_info=True)
+                "focus": {
+                    "pane": "episode",
+                    "episode": episode,
+                },
+                "important": is_new,
+            }
+            try:
+                emit_project_change_batch(project_name, [change])
+            except Exception:
+                logger.warning("发送 draft 事件失败 project=%s episode=%s", project_name, episode, exc_info=True)
 
         return {"success": True, "path": draft_path.relative_to(project_dir).as_posix()}
 
@@ -1356,7 +1365,8 @@ async def delete_draft(project_name: str, episode: int, stage: str, _t: Translat
                 return {"success": True}
             raise HTTPException(status_code=404, detail=_t("draft_file_not_found"))
 
-        return await run_sync_transaction(_sync)
+        with project_change_source("webui"):
+            return await run_sync_transaction(_sync)
 
     except FileNotFoundError as exc:
         raise NotFoundError("project_not_found", name=project_name) from exc

@@ -17,7 +17,7 @@ from lib.script.draft_quarantine import (
 )
 from server.error_handlers import register_error_handlers
 from server.routers import episode_drafts
-from tests.fakes import FakeTextGenerator, use_text_generator
+from tests.fakes import FakeTextGenerator, use_project_manager, use_text_generator
 
 
 def test_web_save_blocked_by_the_video_model_reports_the_real_reason(
@@ -48,7 +48,7 @@ def test_web_save_blocked_by_the_video_model_reports_the_real_reason(
         violations=[],
         meta={"source": None},
     )
-    monkeypatch.setattr(episode_drafts, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     app.include_router(episode_drafts.router)
     register_error_handlers(app)
@@ -121,7 +121,7 @@ def test_web_save_blocked_by_a_formal_unit_names_it_by_position(
     )
     # 预判在调用文本模型之前：替身只为晋升装配 ScriptGenerator，不会被调用。
     use_text_generator(monkeypatch, FakeTextGenerator("").create)
-    monkeypatch.setattr(episode_drafts, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     app.include_router(episode_drafts.router)
     register_error_handlers(app)

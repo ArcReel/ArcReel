@@ -1121,6 +1121,7 @@ def use_project_manager(monkeypatch, pm: Any) -> None:
     monkeypatch.setattr("lib.project.project_migration_guard.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.characters.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.derivative_uploads.get_project_manager", for_pm)
+    monkeypatch.setattr("server.routers.episode_drafts.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.files.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.generate.get_project_manager", for_pm)
     monkeypatch.setattr("server.routers.grids.get_project_manager", for_pm)

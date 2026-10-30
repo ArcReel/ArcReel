@@ -30,7 +30,11 @@ from lib.artifacts.version_manager import VersionManager
 from lib.episode.episode_ledger import SOURCE_TEXT_SUFFIXES
 from lib.infra.api_errors import ConflictError, NotFoundError
 from lib.infra.json_io import atomic_write_json
-from lib.project.project_change_hints import emit_project_change_batch, get_project_change_source
+from lib.project.project_change_hints import (
+    emit_project_change_batch,
+    emit_project_change_hint,
+    get_project_change_source,
+)
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.project.resource_paths import resource_of_path, resource_relative_path
 
@@ -405,6 +409,12 @@ def purge_expired(project_dir: Path, *, now: datetime | None = None) -> int:
 
 
 def _notify(project_dir: Path) -> None:
+    """广播回收站变化，并先替被删或加回的项目文件发一次同来源的 hint。
+
+    这批只描述回收站自身；被删文件引起的项目变更（草稿消失、登记变化）由事件服务读盘补扫或轮询发现，
+    来源按读盘前已到达的 hint 结算。hint 要先于这批送达，否则 Web 端的删除会被补扫成外部改动。
+    """
+    emit_project_change_hint(project_dir.name)
     change = {"entity_type": TRASH_ENTITY_TYPE, "action": "updated", "entity_id": "trash", "label": "trash"}
     emit_project_change_batch(project_dir.name, [{**change, "focus": None, "important": False}])
 
