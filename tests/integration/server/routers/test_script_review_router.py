@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import cast
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -377,13 +378,17 @@ class TestReferenceVideoRouter:
             assert confirmed.json()["status"] == "confirmed"
             assert script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "confirmed"
 
+    @pytest.mark.parametrize("supported_durations", [(4, 6, 8), (4, 8)])
     def test_confirm_with_off_tier_unit_names_its_position_and_tiers(
-        self, tmp_path, monkeypatch, set_video_request_facts
+        self, tmp_path, monkeypatch, set_video_request_facts, supported_durations
     ):
         """已确认时长被收窄出局：422 专用文案按单元位置给出现时长与可选档位，不回落通用的转换拒绝。"""
         set_video_request_facts(
             make_video_request_facts(
-                route="reference_video", generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(4, 8)
+                route="reference_video",
+                generation_type="i2v",
+                supported_durations=supported_durations,
+                allowed_durations=(4, 8),
             )
         )
         client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
