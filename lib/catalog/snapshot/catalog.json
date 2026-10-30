@@ -1,5 +1,5 @@
 {
-  "dataset_version": "2026-10-24T06:01:38Z",
+  "dataset_version": "2026-10-30T07:18:39Z",
   "entries": [
     {
       "maker": "agnes",
@@ -1646,7 +1646,7 @@
       "media_type": "text",
       "display_name": "Qwen3.6 Plus",
       "aliases": [
-        "qwen-3-6-plus"
+        "qwen-3.6-plus"
       ],
       "facts": {
         "image_input": true,
@@ -2199,10 +2199,10 @@
       "media_type": "text",
       "display_name": "Claude Fable 5",
       "aliases": [
-        "eu.anthropic.claude-fable-5",
-        "global.anthropic.claude-fable-5",
+        "anthropic.claude-fable-5",
         "us.anthropic.claude-fable-5",
-        "anthropic.claude-fable-5"
+        "eu.anthropic.claude-fable-5",
+        "global.anthropic.claude-fable-5"
       ],
       "context_length": 1000000,
       "facts": {
@@ -2272,8 +2272,8 @@
       "media_type": "text",
       "display_name": "Claude Fable 5.1",
       "aliases": [
-        "us.anthropic.claude-fable-5-1",
         "anthropic.claude-fable-5-1",
+        "us.anthropic.claude-fable-5-1",
         "global.anthropic.claude-fable-5-1"
       ],
       "context_length": 1000000,
@@ -2345,8 +2345,8 @@
       "display_name": "Claude Haiku 4.5",
       "aliases": [
         "claude-haiku-4-5-20251001",
-        "anthropic-claude-haiku-4.5",
-        "databricks-claude-haiku-4-5"
+        "databricks-claude-haiku-4-5",
+        "anthropic-claude-haiku-4.5"
       ],
       "context_length": 200000,
       "facts": {
@@ -2416,12 +2416,12 @@
       "media_type": "text",
       "display_name": "Claude Haiku 5.5",
       "aliases": [
-        "global.anthropic.claude-haiku-5-5",
-        "anthropic.claude-haiku-5-5",
         "jp.anthropic.claude-haiku-5-5",
-        "eu.anthropic.claude-haiku-5-5",
+        "au.anthropic.claude-haiku-5-5",
         "us.anthropic.claude-haiku-5-5",
-        "au.anthropic.claude-haiku-5-5"
+        "anthropic.claude-haiku-5-5",
+        "eu.anthropic.claude-haiku-5-5",
+        "global.anthropic.claude-haiku-5-5"
       ],
       "context_length": 1000000,
       "facts": {
@@ -2542,9 +2542,9 @@
       "display_name": "Claude Opus 4.5",
       "aliases": [
         "claude-opus-4-5-20251101",
+        "databricks-claude-opus-4-5",
         "claude-opus4-5",
-        "anthropic-claude-opus-4.5",
-        "databricks-claude-opus-4-5"
+        "anthropic-claude-opus-4.5"
       ],
       "context_length": 200000,
       "facts": {
@@ -2614,9 +2614,9 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.6",
       "aliases": [
+        "databricks-claude-opus-4-6",
         "claude-opus4-6",
-        "anthropic-claude-opus-4.6",
-        "databricks-claude-opus-4-6"
+        "anthropic-claude-opus-4.6"
       ],
       "context_length": 1000000,
       "facts": {
@@ -2686,14 +2686,14 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.7",
       "aliases": [
-        "eu.anthropic.claude-opus-4-7",
-        "anthropic.claude-opus-4-7",
+        "databricks-claude-opus-4-7",
         "us.anthropic.claude-opus-4-7",
-        "au.anthropic.claude-opus-4-7",
-        "global.anthropic.claude-opus-4-7",
         "jp.anthropic.claude-opus-4-7",
-        "claude-opus4-7",
-        "databricks-claude-opus-4-7"
+        "anthropic.claude-opus-4-7",
+        "au.anthropic.claude-opus-4-7",
+        "eu.anthropic.claude-opus-4-7",
+        "global.anthropic.claude-opus-4-7",
+        "claude-opus4-7"
       ],
       "context_length": 1000000,
       "facts": {
@@ -2763,12 +2763,12 @@
       "media_type": "text",
       "display_name": "Claude Opus 4.8",
       "aliases": [
-        "eu.anthropic.claude-opus-4-8",
-        "jp.anthropic.claude-opus-4-8",
         "anthropic.claude-opus-4-8",
-        "au.anthropic.claude-opus-4-8",
         "global.anthropic.claude-opus-4-8",
+        "au.anthropic.claude-opus-4-8",
+        "jp.anthropic.claude-opus-4-8",
         "us.anthropic.claude-opus-4-8",
+        "eu.anthropic.claude-opus-4-8",
         "claude-opus4-8"
       ],
       "context_length": 1000000,
@@ -2839,13 +2839,13 @@
       "media_type": "text",
       "display_name": "Claude Opus 5",
       "aliases": [
+        "in.anthropic.claude-opus-5",
         "eu.anthropic.claude-opus-5",
         "global.anthropic.claude-opus-5",
         "jp.anthropic.claude-opus-5",
-        "in.anthropic.claude-opus-5",
+        "anthropic.claude-opus-5",
         "au.anthropic.claude-opus-5",
-        "us.anthropic.claude-opus-5",
-        "anthropic.claude-opus-5"
+        "us.anthropic.claude-opus-5"
       ],
       "context_length": 1000000,
       "facts": {
@@ -2916,11 +2916,11 @@
       "display_name": "Claude Opus 5.5",
       "aliases": [
         "au.anthropic.claude-opus-5-5",
+        "jp.anthropic.claude-opus-5-5",
+        "global.anthropic.claude-opus-5-5",
         "eu.anthropic.claude-opus-5-5",
         "us.anthropic.claude-opus-5-5",
-        "anthropic.claude-opus-5-5",
-        "global.anthropic.claude-opus-5-5",
-        "jp.anthropic.claude-opus-5-5"
+        "anthropic.claude-opus-5-5"
       ],
       "context_length": 1000000,
       "facts": {
@@ -3061,13 +3061,13 @@
       "media_type": "text",
       "display_name": "Claude Sonnet 4.6",
       "aliases": [
-        "jp.anthropic.claude-sonnet-4-6",
-        "us.anthropic.claude-sonnet-4-6",
-        "global.anthropic.claude-sonnet-4-6",
+        "databricks-claude-sonnet-4-6",
         "eu.anthropic.claude-sonnet-4-6",
-        "au.anthropic.claude-sonnet-4-6",
         "anthropic.claude-sonnet-4-6",
-        "databricks-claude-sonnet-4-6"
+        "us.anthropic.claude-sonnet-4-6",
+        "jp.anthropic.claude-sonnet-4-6",
+        "global.anthropic.claude-sonnet-4-6",
+        "au.anthropic.claude-sonnet-4-6"
       ],
       "context_length": 1000000,
       "facts": {
@@ -3138,12 +3138,12 @@
       "display_name": "Claude Sonnet 5",
       "aliases": [
         "au.anthropic.claude-sonnet-5",
-        "eu.anthropic.claude-sonnet-5",
-        "us.anthropic.claude-sonnet-5",
-        "in.anthropic.claude-sonnet-5",
-        "global.anthropic.claude-sonnet-5",
+        "jp.anthropic.claude-sonnet-5",
         "anthropic.claude-sonnet-5",
-        "jp.anthropic.claude-sonnet-5"
+        "in.anthropic.claude-sonnet-5",
+        "us.anthropic.claude-sonnet-5",
+        "eu.anthropic.claude-sonnet-5",
+        "global.anthropic.claude-sonnet-5"
       ],
       "context_length": 1000000,
       "facts": {
@@ -3214,9 +3214,10 @@
       "display_name": "Claude Sonnet 5.5",
       "aliases": [
         "anthropic.claude-sonnet-5-5",
-        "eu.anthropic.claude-sonnet-5-5",
+        "us.anthropic.claude-sonnet-5-5",
+        "au.anthropic.claude-sonnet-5-5",
         "global.anthropic.claude-sonnet-5-5",
-        "us.anthropic.claude-sonnet-5-5"
+        "eu.anthropic.claude-sonnet-5-5"
       ],
       "context_length": 1000000,
       "facts": {
@@ -4972,8 +4973,8 @@
       "display_name": "DeepSeek V4 Flash",
       "aliases": [
         "deepseek-flash",
-        "alicloud-deepseek-v4-flash",
-        "deep-deepseek-v4-flash"
+        "deep-deepseek-v4-flash",
+        "alicloud-deepseek-v4-flash"
       ],
       "facts": {
         "max_output_tokens": 393216
@@ -5033,8 +5034,8 @@
       "media_type": "text",
       "display_name": "DeepSeek V4 Pro",
       "aliases": [
-        "deep-deepseek-v4-pro",
-        "alicloud-deepseek-v4-pro"
+        "alicloud-deepseek-v4-pro",
+        "deep-deepseek-v4-pro"
       ],
       "facts": {
         "max_output_tokens": 393216
@@ -7598,8 +7599,8 @@
       "media_type": "text",
       "display_name": "MiniMax-M2.5",
       "aliases": [
-        "minimax.minimax-m2.5",
-        "minimax-m25"
+        "minimax-m25",
+        "minimax.minimax-m2.5"
       ],
       "discontinued": true,
       "context_length": 204800,
@@ -8185,9 +8186,10 @@
       "media_type": "text",
       "display_name": "Kimi K3",
       "aliases": [
-        "us.moonshotai.kimi-k3",
+        "morph-kimik3",
+        "umans-kimi-k3",
         "global.moonshotai.kimi-k3",
-        "umans-kimi-k3"
+        "us.moonshotai.kimi-k3"
       ],
       "context_length": 1048576,
       "facts": {
@@ -8911,9 +8913,9 @@
       "media_type": "text",
       "display_name": "GPT-5.1",
       "aliases": [
+        "openai-gpt-5.1",
         "databricks-gpt-5-1",
-        "duo-chat-gpt-5-1",
-        "openai-gpt-5.1"
+        "duo-chat-gpt-5-1"
       ],
       "context_length": 400000,
       "facts": {
@@ -8964,8 +8966,8 @@
       "display_name": "GPT-5.2",
       "aliases": [
         "openai-gpt-5.2",
-        "openai-gpt-52",
         "databricks-gpt-5-2",
+        "openai-gpt-52",
         "duo-chat-gpt-5-2"
       ],
       "context_length": 400000,
@@ -9066,9 +9068,9 @@
       "media_type": "text",
       "display_name": "GPT-5.3-Codex",
       "aliases": [
-        "openai-gpt-5.3-codex",
         "openai-gpt-53-codex",
-        "duo-chat-gpt-5-3-codex"
+        "duo-chat-gpt-5-3-codex",
+        "openai-gpt-5.3-codex"
       ],
       "facts": {
         "image_input": true,
@@ -9203,9 +9205,9 @@
       "media_type": "text",
       "display_name": "GPT-5.4",
       "aliases": [
-        "openai.gpt-5.4",
-        "openai-gpt-54",
+        "openai-gpt-5.4",
         "databricks-gpt-5-4",
+        "openai-gpt-54",
         "duo-chat-gpt-5-4"
       ],
       "facts": {
@@ -9366,10 +9368,10 @@
       "media_type": "text",
       "display_name": "GPT-5.4 Mini",
       "aliases": [
-        "openai-gpt-5.4-mini",
-        "openai-gpt-54-mini",
         "databricks-gpt-5-4-mini",
-        "duo-chat-gpt-5-4-mini"
+        "openai-gpt-54-mini",
+        "duo-chat-gpt-5-4-mini",
+        "openai-gpt-5.4-mini"
       ],
       "facts": {
         "image_input": true,
@@ -9475,9 +9477,9 @@
       "media_type": "text",
       "display_name": "GPT-5.4 Nano",
       "aliases": [
-        "openai-gpt-5.4-nano",
         "databricks-gpt-5-4-nano",
-        "duo-chat-gpt-5-4-nano"
+        "duo-chat-gpt-5-4-nano",
+        "openai-gpt-5.4-nano"
       ],
       "facts": {
         "image_input": true,
@@ -9565,8 +9567,8 @@
       "media_type": "text",
       "display_name": "GPT-5.4 Pro",
       "aliases": [
-        "openai-gpt-5.4-pro",
-        "openai-gpt-54-pro"
+        "openai-gpt-54-pro",
+        "openai-gpt-5.4-pro"
       ],
       "context_length": 1050000,
       "facts": {
@@ -9646,10 +9648,10 @@
       "media_type": "text",
       "display_name": "GPT-5.5",
       "aliases": [
-        "openai.gpt-5.5",
-        "openai-gpt-55",
-        "databricks-gpt-5-5",
+        "openai-gpt-5.5",
         "xpersona-gpt-5.5",
+        "databricks-gpt-5-5",
+        "openai-gpt-55",
         "duo-chat-gpt-5-5"
       ],
       "facts": {
@@ -10025,12 +10027,12 @@
       "media_type": "text",
       "display_name": "GPT-5.6 Luna",
       "aliases": [
-        "openai.gpt-5.6-luna",
-        "us.openai.gpt-5.6-luna",
-        "global.openai.gpt-5.6-luna",
-        "in.openai.gpt-5.6-luna",
-        "openai-gpt-56-luna",
+        "openai-gpt-5.6-luna",
         "databricks-gpt-5-6-luna",
+        "openai-gpt-56-luna",
+        "global.openai.gpt-5.6-luna",
+        "us.openai.gpt-5.6-luna",
+        "in.openai.gpt-5.6-luna",
         "duo-chat-gpt-5-6-luna"
       ],
       "context_length": 1050000,
@@ -10131,11 +10133,11 @@
       "media_type": "text",
       "display_name": "GPT-5.6 Sol",
       "aliases": [
-        "global.openai.gpt-5.6-sol",
-        "openai.gpt-5.6-sol",
-        "us.openai.gpt-5.6-sol",
-        "openai-gpt-56-sol",
+        "openai-gpt-5.6-sol",
         "databricks-gpt-5-6-sol",
+        "openai-gpt-56-sol",
+        "global.openai.gpt-5.6-sol",
+        "us.openai.gpt-5.6-sol",
         "duo-chat-gpt-5-6-sol"
       ],
       "context_length": 1050000,
@@ -10236,12 +10238,12 @@
       "media_type": "text",
       "display_name": "GPT-5.6 Terra",
       "aliases": [
-        "in.openai.gpt-5.6-terra",
-        "global.openai.gpt-5.6-terra",
-        "openai.gpt-5.6-terra",
-        "us.openai.gpt-5.6-terra",
-        "openai-gpt-56-terra",
+        "openai-gpt-5.6-terra",
         "databricks-gpt-5-6-terra",
+        "openai-gpt-56-terra",
+        "global.openai.gpt-5.6-terra",
+        "in.openai.gpt-5.6-terra",
+        "us.openai.gpt-5.6-terra",
         "duo-chat-gpt-5-6-terra"
       ],
       "context_length": 1050000,
@@ -10342,7 +10344,7 @@
       "media_type": "text",
       "display_name": "GPT-6 Astra",
       "aliases": [
-        "openai.gpt-6-astra",
+        "openai-gpt-6-astra",
         "global.openai.gpt-6-astra",
         "us.openai.gpt-6-astra",
         "duo-chat-gpt-6-astra"
@@ -10445,9 +10447,9 @@
       "media_type": "text",
       "display_name": "GPT-6 Luna",
       "aliases": [
-        "global.openai.gpt-6-luna",
+        "openai-gpt-6-luna",
         "us.openai.gpt-6-luna",
-        "openai.gpt-6-luna",
+        "global.openai.gpt-6-luna",
         "duo-chat-gpt-6-luna"
       ],
       "context_length": 1050000,
@@ -10548,9 +10550,9 @@
       "media_type": "text",
       "display_name": "GPT-6 Sol",
       "aliases": [
-        "openai.gpt-6-sol",
-        "us.openai.gpt-6-sol",
+        "openai-gpt-6-sol",
         "global.openai.gpt-6-sol",
+        "us.openai.gpt-6-sol",
         "duo-chat-gpt-6-sol"
       ],
       "context_length": 1050000,
@@ -10651,10 +10653,10 @@
       "media_type": "text",
       "display_name": "GPT-6.1 Sol",
       "aliases": [
+        "openai-gpt-61-sol",
         "us.openai.gpt-6.1-sol",
         "openai.gpt-6.1-sol",
         "global.openai.gpt-6.1-sol",
-        "openai-gpt-61-sol",
         "duo-chat-gpt-6-1-sol"
       ],
       "context_length": 1050000,
@@ -10743,6 +10745,109 @@
                   "context_tier": 272000
                 },
                 "price": 15.0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "maker": "openai",
+      "name": "gpt-6.1-terra",
+      "media_type": "text",
+      "display_name": "GPT-6.1 Terra",
+      "aliases": [
+        "openai-gpt-61-terra",
+        "global.openai.gpt-6.1-terra",
+        "us.openai.gpt-6.1-terra",
+        "openai.gpt-6.1-terra"
+      ],
+      "context_length": 1050000,
+      "facts": {
+        "image_input": true,
+        "structured_output": true,
+        "max_output_tokens": 128000
+      },
+      "price": {
+        "currency": "USD",
+        "meters": [
+          {
+            "meter": "uncached_input_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 2.0
+              }
+            ]
+          },
+          {
+            "meter": "cache_read_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 0.05
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 0.1
+              }
+            ]
+          },
+          {
+            "meter": "cache_write_5m_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 1.25
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 2.5
+              }
+            ]
+          },
+          {
+            "meter": "output_tokens",
+            "dims": [
+              "context_tier"
+            ],
+            "rows": [
+              {
+                "when": {
+                  "context_tier": 0
+                },
+                "price": 5.0
+              },
+              {
+                "when": {
+                  "context_tier": 272000
+                },
+                "price": 7.5
               }
             ]
           }
@@ -12349,9 +12454,9 @@
       "media_type": "text",
       "display_name": "Grok 4.6",
       "aliases": [
-        "global.xai.grok-4.6",
         "xai.grok-4.6",
-        "us.xai.grok-4.6"
+        "us.xai.grok-4.6",
+        "global.xai.grok-4.6"
       ],
       "context_length": 500000,
       "facts": {
@@ -13230,8 +13335,8 @@
       "media_type": "text",
       "display_name": "GLM-4.7",
       "aliases": [
-        "zai.glm-4.7",
-        "zai-org-glm-4.7"
+        "zai-org-glm-4.7",
+        "zai.glm-4.7"
       ],
       "context_length": 204800,
       "facts": {
@@ -13448,8 +13553,8 @@
       "media_type": "text",
       "display_name": "GLM-5",
       "aliases": [
-        "zai.glm-5",
-        "zai-org-glm-5"
+        "zai-org-glm-5",
+        "zai.glm-5"
       ],
       "context_length": 204800,
       "facts": {
@@ -13549,8 +13654,8 @@
       "media_type": "text",
       "display_name": "GLM-5.1",
       "aliases": [
-        "zai-glm-5-1",
         "zai-org-glm-5-1",
+        "zai-glm-5-1",
         "alicloud-glm-5.1",
         "coding-glm-5.1"
       ],
@@ -13653,8 +13758,8 @@
       "display_name": "GLM-5.2",
       "aliases": [
         "zai-glm-5-2",
-        "zai-org-glm-5-2",
         "databricks-glm-5-2",
+        "zai-org-glm-5-2",
         "glm5.2"
       ],
       "context_length": 1000000,
@@ -13716,11 +13821,11 @@
       "display_name": "GLM-5.3",
       "aliases": [
         "zai-glm-5-3",
-        "global.zai.glm-5.3",
-        "us.zai.glm-5.3",
-        "umans-glm-5.3",
         "z-ai-glm-5-3",
-        "glm5.3"
+        "glm5.3",
+        "umans-glm-5.3",
+        "us.zai.glm-5.3",
+        "global.zai.glm-5.3"
       ],
       "context_length": 1000000,
       "facts": {
@@ -13781,9 +13886,10 @@
       "display_name": "GLM-5.3-Flash",
       "aliases": [
         "zai-glm-5-3-flash",
-        "umans-glm-5.3-flash",
+        "morph-glm53flash",
         "z-ai-glm-5-3-flash",
-        "glm5.3-flash"
+        "glm5.3-flash",
+        "umans-glm-5.3-flash"
       ],
       "context_length": 1000000,
       "facts": {
@@ -14268,20 +14374,20 @@
           "entry": "bytedance/doubao-seed-evolving"
         },
         {
-          "api_model_name": "deepseek-v4-pro",
-          "entry": "deepseek/deepseek-v4-pro"
+          "api_model_name": "kimi-k3",
+          "entry": "moonshot/kimi-k3"
         },
         {
           "api_model_name": "glm-5.3-flash",
           "entry": "zhipu/glm-5.3-flash"
         },
         {
-          "api_model_name": "deepseek-v4-flash",
-          "entry": "deepseek/deepseek-v4-flash"
+          "api_model_name": "deepseek-v4-pro",
+          "entry": "deepseek/deepseek-v4-pro"
         },
         {
-          "api_model_name": "kimi-k3",
-          "entry": "moonshot/kimi-k3"
+          "api_model_name": "deepseek-v4-flash",
+          "entry": "deepseek/deepseek-v4-flash"
         },
         {
           "api_model_name": "glm-5.3",
@@ -14420,6 +14526,10 @@
         {
           "api_model_name": "gpt-6.1-sol",
           "entry": "openai/gpt-6.1-sol"
+        },
+        {
+          "api_model_name": "gpt-6.1-terra",
+          "entry": "openai/gpt-6.1-terra"
         }
       ],
       "defaults": {
@@ -14578,6 +14688,18 @@
           "entry": "alibaba/qwen3.8-max"
         },
         {
+          "api_model_name": "kimi-k2.6",
+          "entry": "moonshot/kimi-k2.6"
+        },
+        {
+          "api_model_name": "kimi-k3",
+          "entry": "moonshot/kimi-k3"
+        },
+        {
+          "api_model_name": "glm-5",
+          "entry": "zhipu/glm-5"
+        },
+        {
           "api_model_name": "deepseek-v4-pro",
           "entry": "deepseek/deepseek-v4-pro"
         },
@@ -14586,24 +14708,12 @@
           "entry": "zhipu/glm-5.2"
         },
         {
-          "api_model_name": "kimi-k3",
-          "entry": "moonshot/kimi-k3"
-        },
-        {
-          "api_model_name": "glm-5.1",
-          "entry": "zhipu/glm-5.1"
-        },
-        {
           "api_model_name": "glm-5.3",
           "entry": "zhipu/glm-5.3"
         },
         {
-          "api_model_name": "kimi-k2.6",
-          "entry": "moonshot/kimi-k2.6"
-        },
-        {
-          "api_model_name": "glm-5",
-          "entry": "zhipu/glm-5"
+          "api_model_name": "glm-5.1",
+          "entry": "zhipu/glm-5.1"
         }
       ],
       "defaults": {
