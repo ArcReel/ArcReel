@@ -188,8 +188,9 @@ def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) ->
 
 
 UPLOADED_STORYBOARD_BASIS_KIND = "artifact-visual/storyboard-upload"
-UPLOADED_VIDEO_BASIS_KIND = "artifact-video/upload"
 """手动上传分镜图的依据种类：只含上传字节，提示词与参考图都不是输入。"""
+
+UPLOADED_VIDEO_BASIS_KIND = "artifact-video/upload"
 
 
 def build_uploaded_storyboard_basis(*, content_digest: str) -> ArtifactBasis:

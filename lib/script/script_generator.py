@@ -1284,8 +1284,8 @@ class ScriptGenerator:
 
         返回 unit dict 列表（unit_id / text / duration_seconds / source_text），供内容确认整份转为正式剧本。
         校验：结构合法（``ReferenceScriptPlanDraft``）、units 非空、unit_id 唯一、
-        有结构档位时校验 unit ``duration_seconds`` ∈ ``supported_durations``；i2v 未知时只做
-        结构收编，随后由逐单元事实校验阻断无图单元。仅存在结构化前的旧 ``script_plan_reference_units.md`` 时给
+        ``supported_durations`` 只用于存量结构收编，时长准入随后按逐单元事实校验。
+        仅存在结构化前的旧 ``script_plan_reference_units.md`` 时给
         明确的「重跑拆分」报错——不写 md→json 迁移器（旧 md 产于结构化中间态引入前，
         与 narration 同决策）。
         """
@@ -1362,12 +1362,6 @@ class ScriptGenerator:
             raise ValueError(
                 f"script_plan_reference_units.json unit_id 改写到 episode={episode} 后重复: {rewritten_dupes}"
             )
-
-        if supported_durations is not None:
-            allowed = {int(d) for d in supported_durations}
-            bad = sorted({u["duration_seconds"] for u in units if u["duration_seconds"] not in allowed})
-            if bad:
-                raise ValueError(f"script_plan_reference_units.json unit 时长非法（不在 {sorted(allowed)} 内）: {bad}")
 
         return units
 

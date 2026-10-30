@@ -565,8 +565,6 @@ class ScriptReviewService:
             raise ScriptReviewError("unregistered_references", str(exc)) from exc
         except UnitDurationOffTier as exc:
             # 先于下面的 ValueError 分支：已确认时长被收窄出局，按脚本规划的单元位置给出现时长与可选档位。
-            if exc.position is None:
-                raise ScriptReviewError("conversion_refused", str(exc)) from exc
             params = {
                 "position": exc.position,
                 "duration_seconds": exc.duration_seconds,
