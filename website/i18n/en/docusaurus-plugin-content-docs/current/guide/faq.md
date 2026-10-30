@@ -120,6 +120,18 @@ These messages mean that the Agent process did not start normally or could not i
 
 A successful connectivity check proves only that a minimal request succeeded. Long sessions may still be affected by quotas, context limits, rate limits, or proxy timeouts.
 
+### After starting from source on Windows, the Agent reports that the event loop cannot create subprocesses. What should I do? {#windows-reload-agent}
+
+When the backend is started with `--reload` on native Windows, uvicorn switches to an event loop that cannot create subprocesses, so the Agent cannot launch Claude Code. The UI says that the backend's event loop can't create subprocesses; earlier versions show only `Failed to start Claude Code:` with nothing after the colon.
+
+Restart the backend without `--reload`:
+
+```bash
+uv run uvicorn server.app:app --port 1241
+```
+
+You can also run `uv run python -m server.app`. It does not enable reload on Windows and reads the listen address from `LISTEN_HOST` and `LISTEN_PORT`. Without reload, restart the backend manually after changing code.
+
 ## Providers, models, and APIs {#providers-models-api}
 
 ### Which providers and models does ArcReel support? {#supported-providers}

@@ -712,6 +712,7 @@ export default {
   'agent_failure_conclusion_cli_connection_failed': '无法连接 Claude Code 命令行程序。',
   'agent_failure_conclusion_process_failed': 'Claude Code 进程异常退出。',
   'agent_failure_conclusion_startup_timeout': '等待 Agent 启动超时。',
+  'agent_failure_conclusion_subprocess_unsupported': '后端的事件循环不支持创建子进程，无法拉起 Claude Code。Windows 上用 --reload 启动后端会出现这种情况，请去掉 --reload 后重启后端。',
   'agent_failure_conclusion_startup_failed': '启动过程中出错，原始信息见「详情」。',
 
   // StudioCanvasRouter & Toasts

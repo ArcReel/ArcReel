@@ -713,6 +713,7 @@ export default {
   'agent_failure_conclusion_cli_connection_failed': "Couldn't connect to the Claude Code CLI.",
   'agent_failure_conclusion_process_failed': 'The Claude Code process exited unexpectedly.',
   'agent_failure_conclusion_startup_timeout': 'Timed out waiting for the Agent to start.',
+  'agent_failure_conclusion_subprocess_unsupported': "The backend's event loop can't create subprocesses, so Claude Code couldn't be launched. This happens on Windows when the backend is started with --reload; restart the backend without --reload.",
   'agent_failure_conclusion_startup_failed': 'An error occurred during startup. The raw information is under Details.',
 
   // StudioCanvasRouter & Toasts

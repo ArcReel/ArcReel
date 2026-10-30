@@ -13,7 +13,8 @@ import { copyText } from "@/utils/clipboard";
 // AgentFailureCard — Agent 失败：标题、一句话结论与操作，原始信息折叠在「详情」里。
 //
 // 结论由后端下发的稳定 key 本地化（key 只取自结构化证据，见
-// server/agent_runtime/failure_observation.py），只描述观测、不推断根因；不认识的
+// server/agent_runtime/failure_observation.py），只描述观测、不推断根因；唯一的例外是
+// subprocess_unsupported，异常类本身就确定了根因，结论顺带给出处理办法。不认识的
 // key 和早于该字段的历史事件按阶段的通用 key 显示。操作只给与根因无关的三项：
 // Agent 设置、复制诊断信息、启动失败的重试。轮次失败不提供重试，避免重放已执行的工具操作。
 // ---------------------------------------------------------------------------
@@ -28,7 +29,13 @@ const CONCLUSION_KEYS: Record<FailureObservation["phase"], ReadonlySet<string>> 
     "error_max_turns",
     "error_max_budget_usd",
   ]),
-  startup: new Set(["cli_not_found", "cli_connection_failed", "process_failed", "startup_timeout"]),
+  startup: new Set([
+    "cli_not_found",
+    "cli_connection_failed",
+    "subprocess_unsupported",
+    "process_failed",
+    "startup_timeout",
+  ]),
 };
 const GENERIC_KEY: Record<FailureObservation["phase"], string> = {
   turn: "turn_failed",

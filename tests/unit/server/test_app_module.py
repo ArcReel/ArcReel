@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import uvicorn
 
 import server.app as app_module
 from server.services.tasks.generation_tasks import execute_generation_task
@@ -89,6 +90,34 @@ class TestListenEnvVars:
         monkeypatch.setenv("LISTEN_HOST", "")
         monkeypatch.setenv("LISTEN_PORT", "")
         assert app_module._resolve_listen_addr() == ("0.0.0.0", 1241)
+
+
+class TestMainEntry:
+    """``python -m server.app`` 的 uvicorn 参数：reload 要求导入字符串，Windows 上不开 reload。"""
+
+    def test_reload_uses_import_string_and_limits_watched_dirs(self, monkeypatch):
+        monkeypatch.setenv("LISTEN_HOST", "127.0.0.1")
+        monkeypatch.setenv("LISTEN_PORT", "18080")
+
+        target, options = app_module._main_uvicorn_args("darwin")
+
+        assert target == "server.app:app"
+        assert options == {
+            "host": "127.0.0.1",
+            "port": 18080,
+            "reload": True,
+            "reload_dirs": ["server", "lib"],
+        }
+        config = uvicorn.Config(target, **options)
+        assert config.should_reload
+
+    def test_windows_runs_without_reload_so_agent_can_spawn_cli(self):
+        target, options = app_module._main_uvicorn_args("win32")
+
+        assert target is app_module.app
+        assert options["reload"] is False
+        assert "reload_dirs" not in options
+        assert not uvicorn.Config(target, **options).use_subprocess
 
 
 @pytest.mark.asyncio

@@ -39,6 +39,9 @@ uv run alembic upgrade head
 # Note: --reload-dir is required to limit the watched directories; otherwise watchfiles scans
 # node_modules / .venv / .git / .worktrees and hundreds of thousands of files, using over 50% of one CPU core
 uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --port 1241
+# On native Windows, drop --reload: with reload enabled, uvicorn on Windows switches to an event loop
+# that cannot create subprocesses, so the built-in Agent cannot launch Claude Code. Restart the backend manually after code changes
+uv run uvicorn server.app:app --port 1241
 
 # Start the frontend (terminal 2)
 cd frontend && pnpm dev

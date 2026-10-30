@@ -34,6 +34,9 @@ uv run alembic upgrade head
 # 注意：必须用 --reload-dir 限定监视目录，否则 watchfiles 会扫描
 # node_modules / .venv / .git / .worktrees 等数十万个文件，单核 CPU 占用超过 50%
 uv run uvicorn server.app:app --reload --reload-dir server --reload-dir lib --port 1241
+# Windows 原生环境去掉 --reload：uvicorn 启用 reload 时在 Windows 上改用不支持子进程的事件循环，
+# 内置 Agent 无法拉起 Claude Code。改代码后手动重启后端
+uv run uvicorn server.app:app --port 1241
 
 # 启动前端 (终端 2)
 cd frontend && pnpm dev
