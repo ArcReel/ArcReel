@@ -32,6 +32,11 @@ function renderRow(status: CharacterDerivativeStatus | undefined, overrides: Par
   );
 }
 
+async function openMenu() {
+  fireEvent.click(screen.getByRole("button", { name: "「战斗装」的更多操作" }));
+  await screen.findByRole("menu");
+}
+
 describe("CharacterDerivativeRow", () => {
   beforeEach(() => {
     useAppStore.setState(useAppStore.getInitialState(), true);
@@ -50,11 +55,48 @@ describe("CharacterDerivativeRow", () => {
     expect(screen.getByText("已过期")).toBeInTheDocument();
   });
 
-  it("refuses to generate before the character has a sheet of its own", () => {
+  it("refuses to generate before the character has a sheet of its own but still offers an upload", async () => {
     renderRow({ description: "换上黑色重甲", character_sheet: "", stale: false }, { ownerHasSheet: false });
 
-    expect(screen.getByText("请先生成本体资产图")).toBeInTheDocument();
+    expect(screen.getByText("生成衍生图需要本体资产图，也可以直接上传衍生图")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "生成衍生图" })).toBeDisabled();
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "上传衍生图" })).toBeEnabled();
+  });
+
+  it("uploads the chosen file as the derivative sheet and refreshes its fingerprint", async () => {
+    const upload = vi.spyOn(API, "uploadCharacterDerivativeSheet").mockResolvedValue({
+      success: true,
+      path: SHEET_PATH,
+      version: 2,
+      asset_fingerprints: { [SHEET_PATH]: 42 },
+    });
+    const refresh = vi.spyOn(useProjectsStore.getState(), "refreshProject").mockResolvedValue("success");
+    const onSheetsChanged = vi.fn();
+    renderRow({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: true }, { onSheetsChanged });
+    const file = new File(["png"], "armor.png", { type: "image/png" });
+
+    fireEvent.change(screen.getByLabelText("上传「阿岚/战斗装」的衍生图"), { target: { files: [file] } });
+
+    await waitFor(() => expect(onSheetsChanged).toHaveBeenCalled());
+    expect(upload).toHaveBeenCalledWith("demo", "阿岚", "战斗装", file);
+    expect(refresh).toHaveBeenCalledWith("demo", undefined);
+    expect(useProjectsStore.getState().assetFingerprints[SHEET_PATH]).toBe(42);
+  });
+
+  it("drops the upload while the base look is being generated", async () => {
+    const upload = vi.spyOn(API, "uploadCharacterDerivativeSheet");
+    renderRow({ description: "换上黑色重甲", character_sheet: SHEET_PATH, stale: false });
+    useTasksStore.setState({
+      tasks: [makeTask({ project_name: "demo", task_type: "character", resource_id: "阿岚" })],
+      optimisticActive: new Set(),
+    });
+    const file = new File(["png"], "armor.png", { type: "image/png" });
+
+    fireEvent.change(screen.getByLabelText("上传「阿岚/战斗装」的衍生图"), { target: { files: [file] } });
+
+    await waitFor(() => expect(useAppStore.getState().toast?.text).toBe("生成或编辑进行中，暂无法修改衍生"));
+    expect(upload).not.toHaveBeenCalled();
   });
 
   it("treats a registered but unreadable derivative image as pending", () => {

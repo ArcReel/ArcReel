@@ -1,5 +1,6 @@
-"""带上传版本记录的资产图：迁移补录与各种归档导入得出同一时效结论，无上传记录的存量结论不变。"""
+"""带上传版本记录的资产图与衍生资产图：迁移补录与各种归档导入得出同一时效结论，无上传记录的存量结论不变。"""
 
+import asyncio
 import json
 import shutil
 import zipfile
@@ -10,13 +11,28 @@ import pytest
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import MANIFEST_FILENAME, ArtifactKey
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
+from lib.project.asset_derivatives import (
+    DerivativeSheetTarget,
+    derivative_artifact_key,
+    derivative_sheet_relative_path,
+)
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager
 from lib.project.project_migrations.runner import migrate_project_dir
 from lib.workflow.workflow_state import WorkflowStateService
-from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
+from server.services.currency.upload_finalize import (
+    commit_manual_derivative_upload,
+    install_manual_asset_sheet_upload,
+    stage_uploaded_bytes,
+)
 from server.services.project.project_archive import ARCHIVE_MANIFEST_NAME, ProjectArchiveService
-from tests.integration.server.derivative_sheet_support import solid_png_bytes
+from tests.fakes import use_project_manager
+from tests.integration.server.derivative_sheet_support import (
+    run_derivative_generation,
+    seed_derivative_project,
+    solid_png_bytes,
+    write_two_tone_png,
+)
 
 #: Alice 描述为空时上传；Bob 上传后改了描述；Carol 与 Dave 的资产图没有上传版本记录，Dave 描述为空——
 #: 生成缺口只拦生成（ADR 0098），Dave 照常补录；Eve 描述为空且没有资产图。
@@ -203,4 +219,53 @@ def test_current_package_carries_only_the_selected_upload_and_keeps_the_source_c
     resolver = ArtifactCurrencyResolver(imported_dir)
     assert resolver.compare(key, artifact_path=sheet_path).status.value == source_status == "current"
     pm.update_asset_entry(asset_type, "demo", "Hero", lambda entry: entry.update(description="白发老者"))
+    assert ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path=sheet_path).status.value == "current"
+
+
+def _upload_derivative_sheet(project_dir: Path, content: bytes) -> None:
+    target = DerivativeSheetTarget(owner_key="阿岚", derivative_key="战斗装")
+    current_image = project_dir / target.sheet_path
+    upload = commit_manual_derivative_upload(
+        project_name="demo",
+        target=target,
+        staged_image=stage_uploaded_bytes(content, current_image),
+        current_image=current_image,
+        versions=VersionManager(project_dir),
+        original_filename="armor.png",
+    )
+    asyncio.run(upload)
+
+
+@pytest.mark.parametrize(
+    ("scope", "envelope"),
+    [("full", True), ("current", True), ("full", False), ("current", False)],
+)
+def test_uploaded_derivative_sheet_survives_archive_round_trip_as_finished_content(
+    tmp_path, monkeypatch, scope, envelope
+):
+    pm, project_dir = seed_derivative_project(tmp_path)
+    run_derivative_generation(pm, project_dir, monkeypatch)
+    use_project_manager(monkeypatch, pm)
+    uploaded = solid_png_bytes((200, 120, 10))
+    _upload_derivative_sheet(project_dir, uploaded)
+    key = derivative_artifact_key("阿岚", "战斗装")
+    sheet_path = derivative_sheet_relative_path("阿岚", "战斗装")
+    service = ProjectArchiveService(pm)
+
+    archive_path, _ = service.export_project("demo", scope=scope)
+    if not envelope:
+        stripped = tmp_path / "stripped.zip"
+        _strip_manifest_envelope(archive_path, stripped)
+        archive_path = stripped
+    shutil.rmtree(project_dir)
+    service.import_project_archive(archive_path, uploaded_filename="demo.zip")
+
+    imported_dir = pm.get_project_path("demo")
+    assert (imported_dir / sheet_path).read_bytes() == uploaded
+    assert ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path=sheet_path).status.value == "current"
+    # 本体资产图换了字节、变化描述改写：上传的衍生图是成品，两者都不让它过期。
+    write_two_tone_png(imported_dir / "characters/阿岚.png", left=(10, 10, 10), right=(240, 240, 240))
+    pm.update_asset_entry(
+        "character", "demo", "阿岚", lambda entry: entry["derivatives"]["战斗装"].update(description="银色轻甲")
+    )
     assert ArtifactCurrencyResolver(imported_dir).compare(key, artifact_path=sheet_path).status.value == "current"

@@ -162,6 +162,10 @@ def build_asset_sheet_visual_basis(
     )
 
 
+UPLOADED_ASSET_SHEET_BASIS_KIND = "artifact-visual/asset-sheet-upload"
+"""作为成品带入的资产图与衍生资产图的依据种类：只含图字节，描述、画风与本体资产图都不是输入。"""
+
+
 def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) -> ArtifactBasis:
     """Describe an asset sheet or derivative sheet brought in as finished content.
 
@@ -174,7 +178,7 @@ def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) ->
     if asset_type not in ASSET_TYPES:
         raise ValueError(f"unsupported asset type: {asset_type!r}")
     return ArtifactBasis.build(
-        "artifact-visual/asset-sheet-upload",
+        UPLOADED_ASSET_SHEET_BASIS_KIND,
         kind_version=1,
         inputs={
             "asset": {"type": asset_type},
@@ -712,6 +716,7 @@ def _require_string(field: str, value: object) -> str:
 __all__ = [
     "ASSET_NAME_FREE_IMAGE_BASIS_KINDS",
     "ASSET_NAME_FREE_IMAGE_BASIS_SCHEMA_VERSION",
+    "UPLOADED_ASSET_SHEET_BASIS_KIND",
     "UPLOADED_STORYBOARD_BASIS_KIND",
     "GridStoryboardVisual",
     "VisualReference",

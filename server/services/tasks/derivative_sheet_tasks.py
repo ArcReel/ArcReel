@@ -141,10 +141,12 @@ def derivative_sheet_commit_callback(
     basis: ArtifactBasis | ArtifactBasisDescriptor | None,
     outcome_box: list[FormalImageCommitOutcome],
     project_manager: ProjectManager | None = None,
+    selected_upload: bool = False,
 ) -> StagedImageCommit:
     """衍生资产图的正式活化回调：写回衍生条目 + 版本活化 + 清单登记同一次提交。
 
-    生成与图片编辑共用它，两条路线的写回口径因此不分叉。
+    生成、图片编辑与作者上传共用它，三条路线的写回口径因此不分叉。``selected_upload``
+    标记作者上传：上传的图是成品，依据只由图字节决定，由规划器在选中上传版本后投影。
     """
     pm = project_manager or get_project_manager()
     project_path = pm.get_project_path(project_name)
@@ -169,6 +171,7 @@ def derivative_sheet_commit_callback(
         basis=basis,
         outcome_box=outcome_box,
         commit_metadata=_commit_metadata,
+        selected_upload=selected_upload,
     )
 
 
