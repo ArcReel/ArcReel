@@ -78,6 +78,7 @@ from server.routers import (
     cost_estimation,
     custom_endpoints,
     custom_providers,
+    derivative_uploads,
     edit_timelines,
     end_frames,
     episode_drafts,
@@ -757,6 +758,12 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["分镜上传"],
+)
+app.include_router(
+    derivative_uploads.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["衍生资产图上传"],
 )
 app.include_router(
     end_frames.router,

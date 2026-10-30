@@ -1,4 +1,4 @@
-"""用户自主上传资产图、分镜图与视频的 finalize 服务层。
+"""用户自主上传资产图、衍生资产图、分镜图与视频的 finalize 服务层。
 
 复用生成链路的元数据回写、缩略图与版本记录原语，让上传产出的资产
 在状态推导、SSE 刷新、版本回滚上与 AI 生成的资产行为一致。
@@ -19,8 +19,10 @@ from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionM
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.mp4_faststart import ensure_faststart
 from lib.infra.thumbnail import extract_video_thumbnail
+from lib.project.asset_derivatives import DerivativeSheetTarget
 from lib.project.asset_types import ASSET_SPECS
 from lib.project.project_manager import ProjectManager, get_project_manager
+from server.services.tasks.derivative_sheet_tasks import derivative_sheet_commit_callback
 from server.services.tasks.formal_image_commit import storyboard_formal_image_callback
 
 # 版本记录里标记「用户手动上传」的 source 值；前端按此显示翻译文案
@@ -243,6 +245,48 @@ async def commit_manual_storyboard_upload(
         version = commit(staged_image, current_image, metadata)
         if len(outcomes) != 1 or outcomes[0].version != version:
             raise RuntimeError("manual storyboard upload skipped formal image activation")
+        return version
+
+    try:
+        return await run_noninterruptible_sync(_commit)
+    finally:
+        await asyncio.to_thread(staged_image.unlink, missing_ok=True)  # hard-delete: temp -- 上传暂存文件
+
+
+async def commit_manual_derivative_upload(
+    *,
+    project_name: str,
+    target: DerivativeSheetTarget,
+    staged_image: Path,
+    current_image: Path,
+    versions: VersionManager,
+    original_filename: str | None,
+) -> int:
+    """把作者上传的衍生资产图作为成品选中：衍生条目指针、版本记录与清单登记同一次提交。
+
+    上传只替换资产图，变化描述不动；登记由规划器按上传字节投影，本体资产图与描述都不参与。
+    """
+
+    metadata: dict[str, str] = {"source": UPLOAD_VERSION_SOURCE}
+    if original_filename:
+        metadata["original_filename"] = original_filename
+    outcomes = []
+
+    def _commit() -> int:
+        commit = derivative_sheet_commit_callback(
+            project_name=project_name,
+            target=target,
+            prompt="",
+            versions=versions,
+            task_id=None,
+            basis=None,
+            outcome_box=outcomes,
+            project_manager=get_project_manager(),
+            selected_upload=True,
+        )
+        version = commit(staged_image, current_image, metadata)
+        if len(outcomes) != 1 or outcomes[0].version != version:
+            raise RuntimeError("manual derivative sheet upload skipped formal image activation")
         return version
 
     try:
