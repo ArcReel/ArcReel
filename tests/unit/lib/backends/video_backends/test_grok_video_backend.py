@@ -317,14 +317,15 @@ class TestGrokVideo15Models:
         assert caps.reference_audio_mode is ReferenceAudioMode.NONE
         assert caps.audio_track is VideoAudioMode.CONTROLLABLE
 
-    def test_1_5_lite_declares_reference_images_without_last_frame(self):
+    def test_1_5_lite_declares_neither_reference_images_nor_last_frame(self):
+        """官方只写了 lite 的文生与图生视频；真实调用带参考图返回 INVALID_ARGUMENT。"""
         from lib.backends.video_backends.grok import GrokVideoBackend
 
         caps = GrokVideoBackend.video_capabilities_for_model("grok-imagine-video-1.5-lite")
         assert caps.text_to_video is True
         assert caps.first_frame is True
         assert caps.last_frame is False
-        assert caps.max_reference_images == 7
+        assert caps.max_reference_images == 0
         assert caps.audio_track is VideoAudioMode.CONTROLLABLE
 
     def test_classic_model_keeps_rejecting_last_frame(self):
@@ -431,7 +432,7 @@ class TestGrokVideo15Models:
         [
             ("grok-imagine-video-1.5", "reference_images"),
             ("grok-imagine-video-1.5", "end_image"),
-            ("grok-imagine-video-1.5-lite", "reference_images"),
+            ("grok-imagine-video", "reference_images"),
         ],
     )
     async def test_reference_route_rejects_1080p_before_provider_call(
@@ -510,7 +511,7 @@ class TestGrokVideo15Models:
         assert kwargs["image_url"].startswith("data:image/png;base64,")
         assert len(kwargs["reference_image_urls"]) == 1
 
-    @pytest.mark.parametrize("model", ["grok-imagine-video-1.5", "grok-imagine-video-1.5-lite"])
+    @pytest.mark.parametrize("model", ["grok-imagine-video-1.5", "grok-imagine-video"])
     async def test_reference_route_at_720p_reaches_sdk(self, video_output_path: Path, tmp_path: Path, model: str):
         from lib.backends.video_backends.grok import GrokVideoBackend
 

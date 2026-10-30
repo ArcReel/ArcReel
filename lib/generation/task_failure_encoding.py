@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 from arcreel_market_core.video_backend_contract import VideoCapabilityError
+from lib.backends.grok_shared import grpc_rejection
 from lib.backends.http_status_errors import ArtifactDownloadError, ProviderRejectedError
 from lib.backends.image_backends.base import ImageCapabilityError, ImageOutputFormatError, ImageOutputMissingError
 from lib.catalog.errors import ModelNotInCatalogError
@@ -47,6 +48,13 @@ def encode_task_failure_message(exc: Exception) -> str:
         if exc.provider_reason:
             params["provider_reason"] = exc.provider_reason
         return _try_encode_failure("provider_rejected", params) or str(exc)
+    if (rejection := grpc_rejection(exc)) is not None:
+        # gRPC 通道（xAI）的确定性拒绝与 HTTP 4xx 同一编码：不落 AioRpcError 的调试表示。
+        status, reason = rejection
+        grpc_params: dict[str, Any] = {"status": status}
+        if reason:
+            grpc_params["provider_reason"] = reason
+        return _try_encode_failure("provider_rejected", grpc_params) or str(exc)
     if isinstance(
         exc,
         ArtifactDownloadError

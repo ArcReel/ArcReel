@@ -24,6 +24,7 @@ from lib.custom_provider.factory import create_custom_backend
 # endpoints 模块里被 build_backend 闭包直接构造的全部后端类。
 _ENDPOINT_BACKEND_CLASSES = (
     "AnthropicTextBackend",
+    "ArkImageBackend",
     "ArkVideoBackend",
     "DashScopeImageBackend",
     "DashScopeVideoBackend",

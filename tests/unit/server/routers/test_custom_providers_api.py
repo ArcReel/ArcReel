@@ -215,6 +215,7 @@ class TestEndpointCatalog:
             "newapi-video",
             "v2-video-generations",
             "ark-seedance",
+            "ark-seedream",
             "vidu-video",
             "openrouter-video",
             "xai-video",

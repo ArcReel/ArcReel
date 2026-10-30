@@ -637,6 +637,14 @@ def provider_reason_summary(response: httpx.Response) -> str | None:
         reason = body_text
     else:
         reason = _reason_text(payload)
+    return summarize_provider_reason(reason)
+
+
+def summarize_provider_reason(reason: object) -> str | None:
+    """把上游拒因原文脱敏、压平空白并截断；无可用内容返回 ``None``。
+
+    HTTP 响应体（:func:`provider_reason_summary`）与 gRPC 状态详情共用同一套口径。
+    """
     if not reason:
         return None
     summary = " ".join(redact_provider_text(reason).split())
