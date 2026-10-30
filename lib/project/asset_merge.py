@@ -347,12 +347,20 @@ CurrentArtifactProbe = Callable[[ArtifactKey, object], bool]
 def current_artifact_probe(project_dir: Path) -> CurrentArtifactProbe:
     """按产物清单判定现行与否的探针；项目没有可用的清单（未升级、清单损坏）时一律答「否」。
 
-    选中手动上传的分镜图按上传字节判定时效，剧本引用与宫格参考图都不是它的输入，合并不会让它过期，
-    同样答「否」。上传依据由规划器判定（选中版本是上传且字节与正式文件一致），这里不另行推断。
+    选中手动上传的分镜图或视频按上传字节判定时效，剧本引用、说话人与宫格参考图都不是它的输入，
+    合并不会让它过期，同样答「否」。上传依据由规划器判定（选中版本是上传且字节与正式文件一致），这里不另行推断。
     """
     # artifact_currency 经产物规划依赖 project_manager，模块级导入会成环。
     from lib.artifacts.artifact_currency import ArtifactCurrencyResolver
-    from lib.artifacts.visual_artifact_provenance import UPLOADED_STORYBOARD_BASIS_KIND
+    from lib.artifacts.visual_artifact_provenance import (
+        UPLOADED_STORYBOARD_BASIS_KIND,
+        UPLOADED_VIDEO_BASIS_KIND,
+    )
+
+    uploaded_basis_kinds = {
+        ArtifactKind.EPISODE_STORYBOARD: UPLOADED_STORYBOARD_BASIS_KIND,
+        ArtifactKind.EPISODE_VIDEO: UPLOADED_VIDEO_BASIS_KIND,
+    }
 
     try:
         resolver = ArtifactCurrencyResolver(project_dir)
@@ -365,9 +373,10 @@ def current_artifact_probe(project_dir: Path) -> CurrentArtifactProbe:
         try:
             if resolver.compare(key, artifact_path=artifact_path).status is not ArtifactStatus.CURRENT:
                 return False
-            if key.kind is ArtifactKind.EPISODE_STORYBOARD:
+            uploaded_kind = uploaded_basis_kinds.get(key.kind)
+            if uploaded_kind is not None:
                 basis = resolver.resolve_basis(key)
-                return basis is None or basis.kind != UPLOADED_STORYBOARD_BASIS_KIND
+                return basis is None or basis.kind != uploaded_kind
             return True
         except (ArtifactManifestError, OSError, RuntimeError, TypeError, ValueError):
             return False

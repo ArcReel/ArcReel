@@ -1150,9 +1150,9 @@ class TargetStatePlanner:
             else:
                 uploaded = None
             if uploaded is not None:
-                self.entries[key] = self._media_entry(
-                    artifact_path, build_uploaded_video_basis(content_digest=uploaded).digest, uploaded
-                )
+                # 记下上传依据，供 resolve_basis 区分「选中上传」与生成视频（资产合并预览据此不计过期）。
+                basis = self.bases[key] = build_uploaded_video_basis(content_digest=uploaded)
+                self.entries[key] = self._media_entry(artifact_path, basis.digest, uploaded)
                 return
         try:
             target = parse_typed_media_version_target(resource_type, record)
