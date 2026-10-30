@@ -176,11 +176,11 @@ async def test_capturing_the_stack_while_other_threads_are_busy_does_not_crash(
     stall_log: _StallLog,
 ) -> None:
     clock = _Clock()
-    # 重复窗口足够长，每次停滞都取栈但只合并计数，不在用例期间写汇总。
+    # 调度会让取栈落在线程启动或结果等待处；逐次记录，不要求每次停在同一份栈上。
     probe: LoopStallProbe = start_loop_stall_probe(
         heartbeat_interval=_FAST_HEARTBEAT,
         check_interval=_IDLE_CHECK_INTERVAL,
-        repeat_window=_IDLE_CHECK_INTERVAL,
+        repeat_window=0,
         clock=clock,
     )
     done = threading.Event()
@@ -204,17 +204,11 @@ async def test_capturing_the_stack_while_other_threads_are_busy_does_not_crash(
             await _let_heartbeat_beat(clock)
             clock.now += STALL_THRESHOLD_SECONDS + 1
             _hold_loop_thread(probe.check)
-
-        clock.now += _IDLE_CHECK_INTERVAL
-        await _let_heartbeat_beat(clock)
-        probe.check()
     finally:
         done.set()
         for worker in workers:
             worker.join()
         await stop_loop_stall_probe(probe)
 
-    assert len(stall_log.records) == 2
-    full, summary = (record.getMessage() for record in stall_log.records)
-    assert "_hold_loop_thread" in full
-    assert "上停滞了 199 次" in summary
+    assert len(stall_log.records) == 200
+    assert all("_hold_loop_thread" in record.getMessage() for record in stall_log.records)
