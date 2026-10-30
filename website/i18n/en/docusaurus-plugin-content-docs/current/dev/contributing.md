@@ -11,6 +11,8 @@ Contributions of code, bug reports, and feature proposals are welcome.
 
 Contributions whose main purpose is to promote a commercial service (for example, adding an integration for one particular service, or adding service recommendations and links to the docs) do not go through the PR process, and such PRs will be closed. For collaboration, contact support@arc-reel.com.
 
+Issues labeled `ready-for-agent` already have implementation notes and are implemented by the maintainers' coding Agent. An external PR will not get them done sooner; it only adds another round of review, so such PRs will be closed.
+
 Before developing a new feature or making a large-scale change, open an issue to discuss the direction first.
 
 Before a PR can be merged, its author must sign the CLA. CLA Assistant posts the signing link as a PR comment.
