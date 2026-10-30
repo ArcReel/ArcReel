@@ -53,6 +53,86 @@ class TestTokenSecret:
             assert secret1 == secret2
 
 
+def _simulate_restart() -> None:
+    """进程重启：进程内缓存全部丢失，数据目录与 .env 保留。"""
+    auth_module.reset_token_secret_for_tests()
+    auth_module._cached_password_hash = None
+
+
+class TestTokenSecretPersistence:
+    """未设置 AUTH_TOKEN_SECRET 时签名密钥落在数据目录，重启后沿用。"""
+
+    def setup_method(self):
+        _simulate_restart()
+
+    def teardown_method(self):
+        _simulate_restart()
+
+    @pytest.mark.parametrize("unset", ["missing", "empty"])
+    def test_token_survives_restart_without_configured_secret(self, monkeypatch, unset):
+        if unset == "missing":
+            monkeypatch.delenv("AUTH_TOKEN_SECRET", raising=False)
+        else:
+            monkeypatch.setenv("AUTH_TOKEN_SECRET", "")
+        token = auth_module.create_token("admin")
+
+        _simulate_restart()
+
+        payload = auth_module.verify_token(token)
+        assert payload is not None
+        assert payload["sub"] == "admin"
+
+    def test_persisted_secret_file_is_owner_only(self, monkeypatch):
+        from lib.infra.data_root_layout import DataRootLayout
+
+        monkeypatch.delenv("AUTH_TOKEN_SECRET", raising=False)
+        auth_module.ensure_token_secret()
+
+        secret_path = DataRootLayout.current().auth_token_secret_path
+        assert secret_path.read_text(encoding="utf-8").strip() == auth_module.get_token_secret()
+        if os.name == "posix":
+            assert secret_path.stat().st_mode & 0o777 == 0o600
+
+    def test_existing_secret_file_is_reused(self, monkeypatch):
+        from lib.infra.data_root_layout import DataRootLayout
+
+        monkeypatch.delenv("AUTH_TOKEN_SECRET", raising=False)
+        secret_path = DataRootLayout.current().auth_token_secret_path
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+        secret_path.write_text("previously-persisted-secret\n", encoding="utf-8")
+
+        assert auth_module.get_token_secret() == "previously-persisted-secret"
+
+    def test_configured_secret_wins_over_persisted_file(self, monkeypatch):
+        monkeypatch.delenv("AUTH_TOKEN_SECRET", raising=False)
+        token_signed_with_persisted = auth_module.create_token("admin")
+
+        _simulate_restart()
+        monkeypatch.setenv("AUTH_TOKEN_SECRET", "explicit-secret-that-is-at-least-32-bytes")
+
+        assert auth_module.get_token_secret() == "explicit-secret-that-is-at-least-32-bytes"
+        assert auth_module.verify_token(token_signed_with_persisted) is None
+
+    def test_unwritable_data_dir_falls_back_to_process_secret(self, monkeypatch, tmp_path, caplog):
+        """数据目录写不进密钥时不阻断启动，退回进程内随机密钥（重启后需重新登录）。"""
+        from lib.infra.app_data_dir import reset_for_tests
+
+        monkeypatch.delenv("AUTH_TOKEN_SECRET", raising=False)
+        data_root = tmp_path / "data-root"
+        data_root.mkdir()
+        (data_root / "runtime").write_text("", encoding="utf-8")  # runtime/ 建不出来
+        monkeypatch.setenv("ARCREEL_DATA_DIR", str(data_root))
+        reset_for_tests()
+
+        with caplog.at_level("WARNING", logger=auth_module.__name__):
+            secret = auth_module.get_token_secret()
+
+        assert secret
+        assert auth_module.get_token_secret() == secret
+        assert any("AUTH_TOKEN_SECRET" in r.getMessage() for r in caplog.records)
+        assert all(secret not in r.getMessage() for r in caplog.records)
+
+
 class TestCreateAndVerifyToken:
     def setup_method(self):
         auth_module._cached_token_secret = None
@@ -219,6 +299,39 @@ class TestEnsureAuthPassword:
             assert password.isalnum()
             # .env 内容未被破坏（不强制覆写避免丢用户内容）
             assert env_file.read_bytes() == "# 注释\nAUTH_PASSWORD=old\n".encode("cp936")
+
+
+class TestPasswordAcrossRestarts:
+    """Docker 重启不重建容器时，compose 注入的 AUTH_PASSWORD 一直是空串。"""
+
+    def _restart(self, env_file, monkeypatch) -> str:
+        from lib.infra.env_init import load_env_file
+
+        _simulate_restart()
+        monkeypatch.setenv("AUTH_PASSWORD", "")  # 容器创建时由模板 `AUTH_PASSWORD=` 固定下来的值
+        load_env_file(env_file)
+        return auth_module.ensure_auth_password(env_path=str(env_file))
+
+    def test_password_edited_in_env_file_is_kept(self, tmp_path, monkeypatch):
+        env_file = tmp_path / ".env"
+        env_file.write_text("AUTH_USERNAME=admin\nAUTH_PASSWORD=my-new-pass\n", encoding="utf-8")
+
+        assert self._restart(env_file, monkeypatch) == "my-new-pass"
+        assert env_file.read_text(encoding="utf-8") == "AUTH_USERNAME=admin\nAUTH_PASSWORD=my-new-pass\n"
+        assert auth_module.check_credentials("admin", "my-new-pass") is True
+
+    def test_generated_once_on_first_start_then_stable(self, tmp_path, monkeypatch):
+        env_file = tmp_path / ".env"
+        env_file.write_text("AUTH_USERNAME=admin\nAUTH_PASSWORD=\n", encoding="utf-8")
+
+        generated = self._restart(env_file, monkeypatch)
+        assert len(generated) == 16
+        written = env_file.read_text(encoding="utf-8")
+        assert f"AUTH_PASSWORD={generated}" in written
+
+        assert self._restart(env_file, monkeypatch) == generated
+        assert self._restart(env_file, monkeypatch) == generated
+        assert env_file.read_text(encoding="utf-8") == written
 
 
 class TestDownloadToken:

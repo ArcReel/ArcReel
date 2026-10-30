@@ -47,6 +47,7 @@ from lib.db import async_session_factory, close_db, init_db
 from lib.generation.generation_worker import GenerationWorker
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.infra.data_root_layout_migration import migrate_data_root_layout
+from lib.infra.env_init import warn_if_env_diverges_from_file
 from lib.infra.ffmpeg import log_ffmpeg_status
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from lib.infra.logging_config import (
@@ -59,7 +60,7 @@ from lib.infra.loop_stall_probe import start_loop_stall_probe, stop_loop_stall_p
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.script.source_loader.migration import migrate_project_source_encoding, migrate_project_source_encoding_once
-from server.auth import ensure_auth_password, get_current_user, warn_if_auth_disabled
+from server.auth import ensure_auth_password, ensure_token_secret, get_current_user, warn_if_auth_disabled
 from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok, require_valid_project_name
 from server.error_handlers import register_error_handlers
@@ -369,6 +370,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(migrate_legacy_log_dir)
     attach_file_handler()
     warn_if_log_dir_env_set()
+    warn_if_env_diverges_from_file()
 
     ensure_auth_password()
     warn_if_auth_disabled()
@@ -384,6 +386,9 @@ async def lifespan(app: FastAPI):
         session_factory=async_session_factory,
         sdk_config_dir=default_sdk_config_dir(),
     )
+    # 签名密钥可能落在数据根的 runtime/ 下，须在布局迁移之后解析：旧布局里名为 runtime 的项目
+    # 会被搬进 projects/，提前写入的密钥文件会随它进入项目目录。
+    await asyncio.to_thread(ensure_token_secret)
 
     # 源文件编码迁移（幂等；失败不阻塞启动）。先于 schema 迁移跑：源文一律先归到 UTF-8，
     # 之后所有按 UTF-8 读源文的链路（分集规划、派生文件对账）才有统一的输入。

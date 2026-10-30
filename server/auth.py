@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict
 
 from lib import PROJECT_ROOT
 from lib.infra.api_errors import ApiError
+from lib.infra.data_root_layout import DataRootLayout
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +102,8 @@ def generate_password(length: int = 16) -> str:
 def get_token_secret() -> str:
     """获取 JWT 签名密钥
 
-    优先使用 AUTH_TOKEN_SECRET 环境变量，否则自动生成并缓存。
+    显式设置的非空 ``AUTH_TOKEN_SECRET`` 优先；未设置时使用数据目录里持久化的密钥，
+    首次使用时生成，重启后沿用，已登录会话不因重启失效。
     """
     global _cached_token_secret
 
@@ -109,12 +111,66 @@ def get_token_secret() -> str:
     if env_secret:
         return env_secret
 
-    if _cached_token_secret is not None:
-        return _cached_token_secret
-
-    _cached_token_secret = secrets.token_hex(32)
-    logger.info("已自动生成 JWT 签名密钥")
+    if _cached_token_secret is None:
+        _cached_token_secret = _load_or_create_persisted_token_secret()
     return _cached_token_secret
+
+
+def reset_token_secret_for_tests() -> None:
+    """清掉进程内缓存的签名密钥，模拟进程重启。"""
+    global _cached_token_secret
+    _cached_token_secret = None
+
+
+def ensure_token_secret() -> None:
+    """启动时预先解析签名密钥，请求路径上不再读写密钥文件。"""
+    get_token_secret()
+
+
+def _load_or_create_persisted_token_secret() -> str:
+    """读取数据目录里的签名密钥，不存在则生成并以 0600 写入。
+
+    读写失败时退回进程内随机密钥，不阻断启动；此时重启后已登录会话失效。
+    """
+    path = DataRootLayout.current().auth_token_secret_path
+    try:
+        existing = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        existing = ""
+    except OSError:
+        logger.warning("无法读取 JWT 签名密钥文件 %s，本次启动改用临时密钥；请修复后重启或设置 AUTH_TOKEN_SECRET", path)
+        return secrets.token_hex(32)
+
+    if existing:
+        return existing
+
+    secret = secrets.token_hex(32)
+    try:
+        _write_owner_only(path, secret)
+    except OSError:
+        logger.warning(
+            "无法写入 JWT 签名密钥文件 %s，本次启动改用临时密钥，重启后需重新登录；请检查数据目录权限或设置 AUTH_TOKEN_SECRET",
+            path,
+        )
+        return secret
+    logger.info("未设置 AUTH_TOKEN_SECRET，已生成 JWT 签名密钥并保存到 %s", path)
+    return secret
+
+
+def _write_owner_only(path: Path, content: str) -> None:
+    """先写同目录临时文件（创建即 0600）再换入，中途失败不留下半个密钥文件。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(content + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # hard-delete: infra -- 写入失败的签名密钥临时文件
+        raise
 
 
 def create_token(username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS) -> str:

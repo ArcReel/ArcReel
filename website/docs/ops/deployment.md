@@ -172,7 +172,7 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 |---|---|---|
 | `AUTH_USERNAME` | `admin` | 可修改管理员用户名 |
 | `AUTH_PASSWORD` | 空 | 正式部署必须显式设置强密码 |
-| `AUTH_TOKEN_SECRET` | 空 | 正式部署必须设置长期固定随机值 |
+| `AUTH_TOKEN_SECRET` | 空 | 建议设置长期固定随机值；留空时自动生成并保存到数据根下的 `runtime/auth-token-secret`，重启后沿用 |
 | `AUTH_ENABLED` | `true` | 远程部署不得关闭；设为 `false` 时全部管理接口无需认证 |
 | `LOG_LEVEL` | `INFO` | 排障时临时改为 `DEBUG`，完成后恢复 |
 | `POSTGRES_PASSWORD` | 无 | 仅生产部署需要，必须设置 |
@@ -184,7 +184,8 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 
 注意：
 
-- `AUTH_TOKEN_SECRET` 变化后，现有登录 Token 会失效。
+- `AUTH_TOKEN_SECRET` 变化后，现有登录 Token 会失效。显式设置时以设置值为准，数据根下自动生成的密钥文件不再使用；删除该文件同样会让现有登录失效。
+- 修改 `.env` 后，在 Compose 目录执行 `docker compose up -d` 重建容器。`docker compose restart` 与容器自动拉起沿用创建容器时的环境变量，不会重新载入 `.env`；启动时发现进程环境变量与挂载的 `.env` 取值不一致，日志会输出一条 WARNING，只列出变量名。
 - `AUTH_ENABLED=false` 仅适用于受独立网络边界保护的本机环境。Compose 默认把 `1241` 端口发布到宿主机所有网卡，远程部署不得关闭认证。认证关闭时，启动日志会输出 WARNING。
 - `.env` 中可能包含密钥，不要提交到版本库。
 - Vertex 凭据文件应只授予运行 ArcReel 的用户读取权限。
@@ -697,6 +698,7 @@ docker compose logs --tail=300 arcreel
 - 检查 `AUTH_USERNAME`；
 - 检查 `.env` 中的 `AUTH_PASSWORD`；
 - 如果首次启动时密码留空，查看是否已被回写；
+- 修改 `.env` 后是否执行过 `docker compose up -d`，启动日志里是否有进程环境变量与 `.env` 不一致的 WARNING；
 - 修改 `AUTH_TOKEN_SECRET` 后需要重新登录。
 
 ### Agent 请求失败 {#agent-request-fails}

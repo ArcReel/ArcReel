@@ -65,6 +65,18 @@ docker compose up -d --force-recreate
 
 源码部署则重启 ArcReel 服务。不要在公网部署中关闭身份认证。
 
+### 修改 `.env` 后为什么没有生效？ {#env-changes-not-applied}
+
+Docker 部署在创建容器时读取 `.env`，之后 `docker compose restart`、容器崩溃后的自动拉起和宿主机重启都沿用当时的环境变量。修改 `.env` 后，在实际使用的 Compose 目录执行：
+
+```bash
+docker compose up -d
+```
+
+不要用 `docker compose restart` 让修改生效。启动时发现进程环境变量与挂载的 `.env` 取值不一致，日志会输出一条 WARNING，只列出变量名，不输出取值。
+
+`AUTH_PASSWORD` 留空时只在首次启动生成一次，之后重启沿用 `.env` 中的值。`AUTH_TOKEN_SECRET` 留空时，签名密钥保存在数据目录的 `runtime/auth-token-secret`（Docker 部署的数据目录是 Compose 目录下的 `projects/`），重启后已登录的会话仍然有效；在 `.env` 中设置后以设置值为准。
+
 ### Docker 怎样更新？更新会丢失项目吗？ {#docker-update}
 
 先完成备份，再在对应的 Compose 目录执行：
