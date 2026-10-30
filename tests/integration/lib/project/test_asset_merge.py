@@ -16,7 +16,7 @@ from lib.artifacts.artifact_manifest import (
     ProjectArtifactManifestAdapter,
     compose_video_artifact_basis,
 )
-from lib.artifacts.version_manager import VersionManager
+from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.artifacts.video_artifact_facts import VideoArtifactCurrencyFacts
 from lib.artifacts.video_visual_provenance import resolve_video_aspect_ratio
 from lib.artifacts.visual_artifact_provenance import build_reference_video_artifact_visual_basis
@@ -674,6 +674,34 @@ class TestMergeWithProducedArtifacts:
 
         assert self._grid_currency(produced) == (False, False)
 
+    def test_a_grid_prompt_uses_the_shared_frozen_references_for_the_merge_preview(
+        self, produced: ProjectManager
+    ) -> None:
+        self._split_storyboard(produced, "老王/战损")
+        project_dir = produced.get_project_path(PROJECT)
+        script = _script(produced, 1)
+        script["segments"][1]["characters_in_segment"] = ["老王/战损"]
+        script["segments"][1]["generated_assets"].update(grid_id=self._GRID_ID, grid_cell_index=0)
+        script["segments"][2]["characters_in_segment"] = []
+        script["segments"][2]["image_prompt"] = "@[老王/战损] 推开门"
+        script["segments"][2]["generated_assets"]["grid_cell_index"] = 1
+        produced.save_script(PROJECT, script, "episode_1.json")
+        path = project_dir / "grids" / f"{self._GRID_ID}.json"
+        grid = GridGeneration.from_dict(load_json_or_none(path))
+        grid.scene_ids = ["E1S02", "E1S03"]
+        grid.frame_chain = build_frame_chain(grid.scene_ids, 2, 2)
+        atomic_write_json(path, grid.to_dict())
+        _claim_current(project_dir, ArtifactKey.episode_grid(1, self._GRID_ID))
+        for resource_id in grid.scene_ids:
+            _claim_current(project_dir, ArtifactKey.episode_storyboard(1, resource_id))
+
+        preview = produced.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
+        produced.merge_asset(PROJECT, "characters", "老王", "王建国")
+
+        assert preview.episodes[0].storyboards == 1
+        assert self._grid_currency(produced) == (True, True)
+        assert self._current(produced, ArtifactKey.episode_storyboard(1, "E1S02"), "storyboards/scene_E1S02.png")
+
     def test_a_grid_on_a_folded_derivative_is_counted_as_outdated(self, produced: ProjectManager) -> None:
         """并入保留方已有衍生的换成了另一张图：宫格记录不改指，宫格与切格分镜照常计入、照常过期。"""
         self._split_storyboard(produced, "老王/便装")
@@ -685,6 +713,57 @@ class TestMergeWithProducedArtifacts:
         assert self._grid_currency(produced) == (False, False)
         record = load_json_or_none(produced.get_project_path(PROJECT) / "grids" / f"{self._GRID_ID}.json")
         assert record["reference_images"][0]["name"] == "老王/便装"
+
+    @pytest.mark.parametrize("uploaded_cell", [False, True])
+    @pytest.mark.parametrize("script_still_references_source", [True, False])
+    def test_a_lost_shared_grid_reference_outdates_every_split_storyboard(
+        self, produced: ProjectManager, script_still_references_source: bool, uploaded_cell: bool
+    ) -> None:
+        """选中手动上传的格子按上传字节判定时效：宫格丢了共享参考图也保持现行，预览不计入。"""
+        self._split_storyboard(produced, "老王/战损")
+        project_dir = produced.get_project_path(PROJECT)
+        script = _script(produced, 1)
+        script["segments"][1]["characters_in_segment"] = ["老王/便装"]
+        script["segments"][1]["generated_assets"].update(grid_id=self._GRID_ID, grid_cell_index=0)
+        script["segments"][2]["generated_assets"]["grid_cell_index"] = 1
+        if not script_still_references_source:
+            for segment in script["segments"]:
+                segment["characters_in_segment"] = ["王建国"]
+        _write_episode(produced, 1, script)
+        path = project_dir / "grids" / f"{self._GRID_ID}.json"
+        grid = GridGeneration.from_dict(load_json_or_none(path))
+        grid.scene_ids = ["E1S02", "E1S03"]
+        grid.frame_chain = build_frame_chain(grid.scene_ids, 2, 2)
+        assert grid.reference_images is not None
+        grid.reference_images.append(
+            ReferenceImage(path="characters/derivatives/老王/便装.png", name="老王/便装", ref_type="character")
+        )
+        atomic_write_json(path, grid.to_dict())
+        if uploaded_cell:
+            staged = project_dir / ".E1S03.upload.png"
+            staged.write_bytes(b"uploaded-cell")
+            VersionManager(project_dir).commit_staged_version(
+                "storyboards",
+                "E1S03",
+                "",
+                staged_file=staged,
+                current_file=project_dir / "storyboards/scene_E1S03.png",
+                source=MANUAL_UPLOAD_VERSION_SOURCE,
+            )
+        for resource_id in ("E1S01", "E1S02", "E1S03"):
+            _claim_current(project_dir, ArtifactKey.episode_storyboard(1, resource_id))
+
+        preview = produced.merge_asset(PROJECT, "characters", "老王", "王建国", dry_run=True)
+        produced.merge_asset(PROJECT, "characters", "老王", "王建国")
+
+        actual = [
+            self._current(
+                produced, ArtifactKey.episode_storyboard(1, resource_id), f"storyboards/scene_{resource_id}.png"
+            )
+            for resource_id in ("E1S01", "E1S02", "E1S03")
+        ]
+        assert actual == [not script_still_references_source, False, uploaded_cell]
+        assert preview.episodes[0].storyboards == actual.count(False)
 
     @pytest.mark.parametrize("reference", ["老王", "老王/便装"])
     @pytest.mark.parametrize("mentioned", [False, True])

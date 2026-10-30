@@ -183,6 +183,10 @@ def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) ->
     )
 
 
+UPLOADED_STORYBOARD_BASIS_KIND = "artifact-visual/storyboard-upload"
+"""手动上传分镜图的依据种类：只含上传字节，提示词与参考图都不是输入。"""
+
+
 def build_uploaded_storyboard_basis(*, content_digest: str) -> ArtifactBasis:
     """Describe a storyboard image the author uploaded as finished content.
 
@@ -192,7 +196,7 @@ def build_uploaded_storyboard_basis(*, content_digest: str) -> ArtifactBasis:
     """
 
     return ArtifactBasis.build(
-        "artifact-visual/storyboard-upload",
+        UPLOADED_STORYBOARD_BASIS_KIND,
         kind_version=1,
         inputs={"upload": {"sha256": _require_sha256("uploaded storyboard content_digest", content_digest)}},
     )
@@ -708,6 +712,7 @@ def _require_string(field: str, value: object) -> str:
 __all__ = [
     "ASSET_NAME_FREE_IMAGE_BASIS_KINDS",
     "ASSET_NAME_FREE_IMAGE_BASIS_SCHEMA_VERSION",
+    "UPLOADED_STORYBOARD_BASIS_KIND",
     "GridStoryboardVisual",
     "VisualReference",
     "build_asset_sheet_visual_basis",
