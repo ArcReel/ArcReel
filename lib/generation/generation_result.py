@@ -286,7 +286,7 @@ def decode_generation_problem(error_message: str | None) -> GenerationProblem | 
 def migration_problem(record: MigrationFailureRecord) -> GenerationProblem:
     """The single blocking problem every consumer reports for a broken project.
 
-    ``detail`` is the migration failure message exactly as raised, so the user
+    ``detail`` is the recorded migration failure message (project-relative paths), so the user
     reads the same sentence in the project banner, in the production plan and in
     any refused generation call. ``params`` carries the structured locations the
     agent needs to navigate straight to the offending episode or file.

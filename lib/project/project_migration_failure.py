@@ -26,6 +26,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from lib.artifacts.artifact_manifest import ArtifactManifestError
+from lib.project.project_path_text import project_path_spellings, relativize_project_paths
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION, parse_project_schema_version
 
 logger = logging.getLogger(__name__)
@@ -75,12 +76,42 @@ class MigrationFailureRecord(BaseModel):
     failed_at: str
     """When the attempt failed; empty when the verdict rests on no attempt at all."""
     reason: str
-    """The failure message exactly as raised — surfaced to the user unchanged."""
+    """The failure message as raised, with the project directory written as project-relative paths.
+
+    Surfaced to the user, the embedded agent and remote MCP hosts alike, so it
+    must not carry the server's filesystem layout.
+    """
     details: list[MigrationFailureDetail] = Field(default_factory=list)
 
 
 def migration_failure_path(project_dir: Path) -> Path:
     return project_dir / MIGRATION_FAILURE_FILENAME
+
+
+def _project_relative(record: MigrationFailureRecord, project_dir: Path) -> MigrationFailureRecord:
+    """Name every location in the verdict relative to the project directory.
+
+    Exception texts (an ``OSError`` above all) quote absolute paths; the verdict
+    travels to remote hosts inside successful results, where no adapter rewrites
+    it. Only the record's own message fields are touched: the project-relative
+    path still lets every reader find the offending file.
+    """
+
+    spellings = project_path_spellings(project_dir)
+    return record.model_copy(
+        update={
+            "reason": relativize_project_paths(record.reason, spellings),
+            "details": [
+                detail.model_copy(
+                    update={
+                        "file": relativize_project_paths(detail.file, spellings) if detail.file is not None else None,
+                        "violation": relativize_project_paths(detail.violation, spellings),
+                    }
+                )
+                for detail in record.details
+            ],
+        }
+    )
 
 
 def _readable_schema_version(project_dir: Path) -> int | None:
@@ -162,11 +193,14 @@ def record_migration_failure(
     claim the project is blocked while no guard can see it on disk.
     """
 
-    record = MigrationFailureRecord(
-        schema_version=schema_version,
-        failed_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
-        reason=str(exc),
-        details=migration_failure_details(exc),
+    record = _project_relative(
+        MigrationFailureRecord(
+            schema_version=schema_version,
+            failed_at=time.strftime("%Y-%m-%dT%H:%M:%S"),
+            reason=str(exc),
+            details=migration_failure_details(exc),
+        ),
+        project_dir,
     )
     _write_atomically(migration_failure_path(project_dir), record)
     return record
@@ -192,6 +226,7 @@ def load_migration_failure(project_dir: Path) -> MigrationFailureRecord | None:
 
     A record that cannot be parsed still means "this project failed to migrate":
     it degrades to a minimal record rather than silently unblocking generation.
+    Records written before verdicts were project-relative are rewritten on read.
     """
 
     path = migration_failure_path(project_dir)
@@ -201,12 +236,13 @@ def load_migration_failure(project_dir: Path) -> MigrationFailureRecord | None:
         return None
     except OSError as exc:
         logger.warning("无法读取迁移失败记录：%s（%s）", path, exc)
-        return _unreadable_record(str(exc))
+        return _project_relative(_unreadable_record(str(exc)), project_dir)
     try:
-        return MigrationFailureRecord.model_validate_json(raw)
+        record = MigrationFailureRecord.model_validate_json(raw)
     except ValueError as exc:
         logger.warning("迁移失败记录损坏：%s（%s）", path, exc)
-        return _unreadable_record(str(exc))
+        record = _unreadable_record(str(exc))
+    return _project_relative(record, project_dir)
 
 
 def _unreadable_record(detail: str) -> MigrationFailureRecord:
