@@ -2,7 +2,7 @@
 
 来源上下文缺省是 ``filesystem``：漏标的 Web 写入会被前端当成外部改动，弹通知、排队聚焦，新建草稿还会自动
 跳转。路由从应用路由表枚举，新增的写路由自动纳入检查。端点函数或它在同模块内调用的函数里出现
-``project_change_source(`` 即算已标记；来源标在跨模块服务里的，登记在 :data:`_EXEMPT`，写明出处。
+``project_change_source("webui")`` 调用即算已标记；来源标在跨模块服务里的，登记在 :data:`_EXEMPT`，写明出处。
 
 标记只是机械下限：Web 写入的变更要靠 hint 或显式批次才能带着来源广播，行为由
 ``tests/integration/server/routers/test_web_write_change_source.py`` 经真实项目事件服务验证。
@@ -17,18 +17,21 @@ from collections.abc import Callable
 from functools import cache
 from pathlib import Path
 
+import pytest
 from fastapi.routing import iter_route_contexts
 
 import server.routers
+from scripts.audit_tests import alias_map_from, call_name
 from server.app import app
 
-_MARK = "project_change_source("
+_HINT_MODULE = "lib.project.project_change_hints"
+_SOURCE_POSITIONS = {"project_change_source": 0, "emit_project_change_hint": 1, "emit_project_change_batch": 2}
 
 _TASK = "只提交、停止或取消任务；写入发生在任务执行侧，按任务来源广播"
 _NO_WRITE = "预览或只读计算，不写项目文件"
 _NOT_PROJECT_CHANGE = "Agent 会话、Agent 记忆或项目整体操作，不产生创作内容的变更事件"
 _SERVICE = "来源在服务层标记：{}"
-# 本检查落地时（#3510）已存在、写项目文件却未标来源的路由，按 follow-up 逐个核查。新路由不得加入。
+# 这些存量路由写项目文件却未标来源，待逐个核查；新路由不得加入。
 _UNREVIEWED = "存量待核查：写项目文件但未标来源"
 
 _EXEMPT: dict[str, str] = {
@@ -112,40 +115,65 @@ _EXEMPT: dict[str, str] = {
 
 
 @cache
-def _module_functions(module_name: str) -> dict[str, ast.AST]:
-    tree = ast.parse(inspect.getsource(sys.modules[module_name]))
+def _module_tree(module_name: str) -> ast.Module:
+    return ast.parse(inspect.getsource(sys.modules[module_name]))
+
+
+def _source_calls(node: ast.AST, aliases: dict[str, str]):
+    for call in ast.walk(node):
+        if not isinstance(call, ast.Call) or (name := call_name(call)) is None:
+            continue
+        head, dot, tail = name.partition(".")
+        qualified = aliases.get(head, head) + dot + tail
+        module, _, function = qualified.rpartition(".")
+        if module != _HINT_MODULE or function not in _SOURCE_POSITIONS:
+            continue
+        index = _SOURCE_POSITIONS[function]
+        source = next((kw.value for kw in call.keywords if kw.arg == "source"), None)
+        if source is None and len(call.args) > index:
+            source = call.args[index]
+        yield call, function, source
+
+
+def _is_webui(source: ast.expr | None) -> bool:
+    return isinstance(source, ast.Constant) and source.value == "webui"
+
+
+def _marks_webui_in_tree(tree: ast.Module, entry: str) -> bool:
+    aliases = alias_map_from(tree)
     functions: dict[str, ast.AST] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             functions.setdefault(node.name, node)
-    return functions
-
-
-def _called_names(node: ast.AST) -> set[str]:
-    names = set()
-    for call in ast.walk(node):
-        if isinstance(call, ast.Call):
-            if isinstance(call.func, ast.Name):
-                names.add(call.func.id)
-            elif isinstance(call.func, ast.Attribute):
-                names.add(call.func.attr)
-    return names
-
-
-def _marks_webui(endpoint: Callable) -> bool:
-    """端点函数或它在同模块内（传递地）调用的函数里出现来源标记。"""
-    functions = _module_functions(endpoint.__module__)
-    pending, seen = [endpoint.__name__], set()
+    pending, seen = [entry], set()
     while pending:
         name = pending.pop()
         if name in seen or name not in functions:
             continue
         seen.add(name)
         node = functions[name]
-        if _MARK in ast.unparse(node):
+        if any(
+            function == "project_change_source" and _is_webui(source)
+            for _, function, source in _source_calls(node, aliases)
+        ):
             return True
-        pending.extend(_called_names(node))
+        pending.extend(
+            call.func.id for call in ast.walk(node) if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+        )
     return False
+
+
+def _marks_webui(endpoint: Callable) -> bool:
+    """端点函数或它在同模块内（传递地）调用的函数里出现 webui 来源调用。"""
+    return _marks_webui_in_tree(_module_tree(endpoint.__module__), endpoint.__name__)
+
+
+def _wrong_source_lines(tree: ast.Module) -> list[int]:
+    return [
+        call.lineno
+        for call, function, source in _source_calls(tree, alias_map_from(tree))
+        if function != "project_change_source" and source is not None and not _is_webui(source)
+    ]
 
 
 def _route_key(endpoint: Callable) -> str:
@@ -182,16 +210,42 @@ def test_exemptions_only_list_unmarked_write_routes() -> None:
 
 def test_routers_do_not_broadcast_under_another_source() -> None:
     """路由里发 hint 或批次时不写死别的来源：写死 ``worker`` 会让用户自己的保存触发外部改动的通知与跳转。"""
-    emitters = {"emit_project_change_batch", "emit_project_change_hint"}
     offenders = []
     for path in sorted(Path(server.routers.__file__).parent.glob("*.py")):
-        for call in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if (
-                not isinstance(call, ast.Call)
-                or getattr(call.func, "id", getattr(call.func, "attr", None)) not in emitters
-            ):
-                continue
-            source = next((kw.value for kw in call.keywords if kw.arg == "source"), None)
-            if source is not None and not (isinstance(source, ast.Constant) and source.value == "webui"):
-                offenders.append(f"{path.name}:{call.lineno}")
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        offenders.extend(f"{path.name}:{line}" for line in _wrong_source_lines(tree))
     assert not offenders, f"路由按上下文来源广播，不要传别的 source：{offenders}"
+
+
+@pytest.mark.parametrize("function", _SOURCE_POSITIONS)
+@pytest.mark.parametrize("keyword", [False, True])
+@pytest.mark.parametrize("source", ["webui", "worker"])
+@pytest.mark.parametrize(
+    ("imports", "callee"),
+    [
+        ("from {module} import {function}", "{function}"),
+        ("from {module} import {function} as tagged", "tagged"),
+        ("import {module}", "{module}.{function}"),
+        ("import {module} as hints", "hints.{function}"),
+        ("from lib.project import project_change_hints as hints", "hints.{function}"),
+    ],
+)
+def test_source_guard_resolves_imports_and_arguments(function, keyword, source, imports, callee) -> None:
+    names = {"module": _HINT_MODULE, "function": function}
+    args = ["'demo'", "[]"][: _SOURCE_POSITIONS[function]]
+    args.append(f"source={source!r}" if keyword else repr(source))
+    tree = ast.parse(imports.format(**names) + f"\ndef route():\n    {callee.format(**names)}({', '.join(args)})")
+
+    assert _marks_webui_in_tree(tree, "route") == (function == "project_change_source" and source == "webui")
+    assert bool(_wrong_source_lines(tree)) == (function != "project_change_source" and source != "webui")
+
+
+def test_source_guard_requires_a_call_and_follows_local_helpers() -> None:
+    tree = ast.parse(
+        f"from {_HINT_MODULE} import project_change_source\n"
+        "def documented():\n    '''project_change_source('webui')'''\n"
+        "def route():\n    helper()\n"
+        "def helper():\n    project_change_source('webui')\n"
+    )
+    assert not _marks_webui_in_tree(tree, "documented")
+    assert _marks_webui_in_tree(tree, "route")
