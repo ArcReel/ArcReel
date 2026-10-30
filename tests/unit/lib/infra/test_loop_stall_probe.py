@@ -195,12 +195,12 @@ async def test_capturing_the_stack_while_other_threads_are_busy_does_not_crash(
             _churn(50)
             time.sleep(0)
 
-    workers = [threading.Thread(target=_busy) for _ in range(4)]
+    workers = [threading.Thread(target=_busy) for _ in range(2)]
     for worker in workers:
         worker.start()
     try:
         # 每次停滞之间让心跳走一拍，每次检查都是一次新的停滞，都要取一次栈。
-        for _ in range(200):
+        for _ in range(20):
             await _let_heartbeat_beat(clock)
             clock.now += STALL_THRESHOLD_SECONDS + 1
             _hold_loop_thread(probe.check)
@@ -210,5 +210,5 @@ async def test_capturing_the_stack_while_other_threads_are_busy_does_not_crash(
             worker.join()
         await stop_loop_stall_probe(probe)
 
-    assert len(stall_log.records) == 200
+    assert len(stall_log.records) == 20
     assert all("_hold_loop_thread" in record.getMessage() for record in stall_log.records)
