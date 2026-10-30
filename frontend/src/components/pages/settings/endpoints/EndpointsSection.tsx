@@ -626,6 +626,9 @@ export function EndpointsSection() {
           hasUnsavedEndpointChanges={marketUpdateTarget.hasUnsavedChanges}
           onClose={() => setMarketUpdateTarget(null)}
           onInstallationChange={(installation) => {
+            setComfyuiDraft((current) =>
+              current?.record?.id === marketUpdateTarget.entry.installation?.endpoint_id ? null : current,
+            );
             voidCall(reload().then(() => (installation === null ? select(null) : undefined)));
           }}
         />
