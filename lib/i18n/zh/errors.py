@@ -277,6 +277,7 @@ MESSAGES = {
     "episode_planning_failed": "出现错误，请重试；反复失败时，可以交给 Agent 排查",
     "text_output_truncated": "文本模型 {model} 的输出超出了最大输出长度，内容不完整",
     "script_review_conversion_refused": "脚本规划暂不能转为正式脚本，本次确认未完成；请检查分镜时长、台词与脚本规划状态后重试",
+    "script_review_duration_off_tier": "脚本规划里视频单元 {position} 的时长 {duration_seconds} 秒不在当前视频模型支持的档位内（可选 {tiers} 秒），本次确认未完成。请把这个单元的时长改到可选档位后重新确认",
     "script_review_invalid_new_assets": "本集有新增资产无法按所选方式处理，本次确认未完成；请检查「归到」选择的资产与衍生的本体角色后重试",
     "script_review_unregistered_references": "以下条目引用的名字既未登记，也不是本集登记的新增资产，本次确认未完成：{details}。请从引用中移除这些名字或改选已登记的资产后重试",
     "script_review_foreign_formal_script": "集（id={episode}）绑定的剧本文件已不在，而规范路径 scripts/{filename} 上是另一集的剧本，本次确认未完成——写进去会重建那一集的剧本；请把该集的 script_file 改回它自己的剧本文件后重试",

@@ -43,7 +43,7 @@ from lib.script.draft_quarantine import (
     violation_entries,
 )
 from lib.script.plan_new_assets import NEW_ASSETS_FIELD, NewAssetsError, UnregisteredReferencesError, resolve_new_assets
-from lib.script.script_generator import ScriptGenerator
+from lib.script.script_generator import ScriptGenerator, UnitDurationOffTier
 from lib.script.script_models import DramaNormalizedScript, NarrationScriptPlanDraft, ReferenceScriptPlanDraft
 from lib.speech.speech_composition import SpeechAdmission, SpeechAdmissionError, admit_script_unit
 from server.services.tasks.video_caps import (
@@ -77,6 +77,7 @@ class ScriptReviewError(Exception):
         overwrite: dict[str, Any] | None = None,
         script_filename: str | None = None,
         problem: VideoRequestFactsFailure | None = None,
+        params: Mapping[str, object] | None = None,
     ):
         super().__init__(message or code)
         self.code = code
@@ -88,6 +89,8 @@ class ScriptReviewError(Exception):
         self.overwrite = overwrite
         #: ``foreign_formal_script`` 携带占着本集规范路径的那份文件名。
         self.script_filename = script_filename
+        #: ``duration_off_tier`` 携带越档单元的界面位置、现时长与可选档位，router 按此渲染文案。
+        self.params: dict[str, object] = dict(params or {})
 
 
 def _require_changed_speech_admitted(kind: str, previous: object, candidate: object) -> None:
@@ -560,6 +563,16 @@ class ScriptReviewService:
             raise ScriptReviewError("invalid_new_assets", str(exc)) from exc
         except UnregisteredReferencesError as exc:
             raise ScriptReviewError("unregistered_references", str(exc)) from exc
+        except UnitDurationOffTier as exc:
+            # 先于下面的 ValueError 分支：已确认时长被收窄出局，按脚本规划的单元位置给出现时长与可选档位。
+            if exc.position is None:
+                raise ScriptReviewError("conversion_refused", str(exc)) from exc
+            params = {
+                "position": exc.position,
+                "duration_seconds": exc.duration_seconds,
+                "tiers": " / ".join(str(tier) for tier in exc.tiers),
+            }
+            raise ScriptReviewError("duration_off_tier", str(exc), params=params) from exc
         except (ValueError, FileNotFoundError) as exc:
             raise ScriptReviewError("conversion_refused", str(exc)) from exc
 

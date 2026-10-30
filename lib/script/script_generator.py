@@ -234,13 +234,17 @@ class UnitDurationOffTier(ValueError):
     """待编写单元的现时长不在该单元所落参考桶的生效档位内（通常是模型、分辨率或参考图状态变化让档位收窄）。
 
     ``unit_id`` / ``duration_seconds`` / ``tiers`` 供调用方按自己的口径转成面向用户的提示；消息面向 Agent。
+    ``position`` 是单元在所判那份内容里的界面位置（从 1 起）；判的是正式剧本时为 None，调用方按正式剧本自行定位。
     """
 
-    def __init__(self, message: str, *, unit_id: str, duration_seconds: int, tiers: list[int]) -> None:
+    def __init__(
+        self, message: str, *, unit_id: str, duration_seconds: int, tiers: list[int], position: int | None = None
+    ) -> None:
         super().__init__(message)
         self.unit_id = unit_id
         self.duration_seconds = duration_seconds
         self.tiers = tiers
+        self.position = position
 
 
 class AdScriptRejected(ValueError):
@@ -1494,19 +1498,25 @@ class ScriptGenerator:
     ) -> None:
         """转为正式剧本前判脚本规划已确认的单元时长仍在当前生效档位内；正文由之后的提示词编写改写并校验。
 
-        单元按此刻可用的参考图定桶（无引用、引用缺图或图未被清单认领落 i2v），须有所落桶的事实。
+        单元按此刻可用的参考图定桶（无引用、引用缺图或图未被清单认领落 i2v），须有所落桶的事实。越档时抛
+        ``UnitDurationOffTier``，按脚本规划里的单元位置称呼（与内容确认面板的「视频单元 N」同口径），不带内部单元 ID。
         """
-        for unit, hydration in zip(script_plan_units, self._hydrate_reference_units(script_plan_units), strict=True):
+        hydrations = self._hydrate_reference_units(script_plan_units)
+        for position, (unit, hydration) in enumerate(zip(script_plan_units, hydrations, strict=True), start=1):
             bucket = hydration.hydrated_generation_type
             facts.require(bucket)
-            off_tiers = self._unit_duration_off_every_tier(
-                unit["duration_seconds"], facts=facts, generation_type=bucket
-            )
+            duration = int(unit["duration_seconds"])
+            off_tiers = self._unit_duration_off_every_tier(duration, facts=facts, generation_type=bucket)
             if off_tiers is not None:
-                raise ValueError(
-                    f"unit {unit['unit_id']} 已确认时长 {unit['duration_seconds']}s 不在当前生效档位 "
-                    f"{sorted(set(off_tiers))} 内；通常是模型或分辨率配置变化让档位收窄导致，"
-                    "请调整配置回原档位，或重新拆分该集 script_plan 并重新完成内容确认"
+                tiers = sorted(set(off_tiers))
+                raise UnitDurationOffTier(
+                    f"视频单元 {position} 已确认时长 {duration}s 不在当前生效档位 {tiers} 内；"
+                    "通常是模型或分辨率配置变化让档位收窄导致，请调整配置回原档位，"
+                    "或在脚本规划里把该单元时长改到档位内（也可重新拆分该集 script_plan）后重新完成内容确认",
+                    unit_id=str(unit["unit_id"]),
+                    duration_seconds=duration,
+                    tiers=tiers,
+                    position=position,
                 )
 
     def _assert_reference_units_authorable(self, units: list[dict], *, facts: PlanningVideoFacts) -> None:

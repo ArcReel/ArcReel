@@ -26,7 +26,7 @@ _ERROR_STATUS: dict[str, int] = {
 }
 # 仅无参错误码走本映射；invalid_content / episode_not_found 需注参，在 raise_review_error 单独处理。
 # 只读拒绝（script_plan_confirmed）与确认转换的错误码（overwrite_required / invalid_new_assets /
-# unregistered_references / conversion_refused / conversion_conflict / video_request_facts / foreign_formal_script）
+# unregistered_references / duration_off_tier / conversion_refused / conversion_conflict / video_request_facts / foreign_formal_script）
 # 带诊断或专用状态，同样在 raise_review_error 单独处理。
 _ERROR_I18N: dict[str, str] = {
     "not_applicable": "script_review_not_applicable",
@@ -46,6 +46,8 @@ def raise_review_error(exc: ScriptReviewError, episode: int, _t: Translator) -> 
         raise UnprocessableError("script_review_invalid_new_assets").with_diagnostic(exc.message)
     if exc.code == "unregistered_references":
         raise UnprocessableError("script_review_unregistered_references", details=exc.message)
+    if exc.code == "duration_off_tier":
+        raise UnprocessableError("script_review_duration_off_tier", **exc.params).with_diagnostic(exc.message)
     if exc.code == "conversion_refused":
         raise UnprocessableError("script_review_conversion_refused").with_diagnostic(exc.message)
     if exc.code == "video_request_facts" and exc.problem is not None:
