@@ -155,7 +155,7 @@ def resolve_current_image_pointer(
 
     The identity is the key the resource's versions are recorded under: the asset's on-disk
     name (NFC/NFD tolerant), ``本体/衍生`` for a derivative, the item ID for a storyboard.
-    A resource that does not exist raises ``KeyError``.
+    A resource that does not exist, including a malformed derivative ID, raises ``KeyError``.
     """
 
     if resource_type == "storyboard":
@@ -172,7 +172,11 @@ def resolve_current_image_pointer(
         return resolved_id, None
 
     if resource_type == DERIVATIVE_TASK_TYPE:
-        owner_name, derivative_name = split_derivative_artifact_id(resource_id)
+        try:
+            owner_name, derivative_name = split_derivative_artifact_id(resource_id)
+        except ValueError as exc:
+            # 不是「本体名/衍生名」的 ID 不指向任何衍生，与不存在同样处理
+            raise KeyError(f"derivative not found: {resource_id}") from exc
         try:
             target = resolve_derivative_target(project, owner_name, derivative_name)
         except NotFoundError as exc:
