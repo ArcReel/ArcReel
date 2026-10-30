@@ -8,11 +8,14 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
+import openai
 import pytest
 from sqlalchemy import func, select
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+from lib.backends.http_status_errors import ProviderRejectedError
 from lib.backends.text_backends.base import TextGenerationResult as BackendTextGenerationResult
 from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.backends.text_generator import TextGenerator
@@ -868,6 +871,73 @@ async def test_queued_text_task_with_a_retired_text_model_fails_with_a_reselecta
         GenerationAction.CONFIGURE_PROVIDER,
         {"provider": "gemini-aistudio", "model": "retired-model"},
     )
+
+
+def _content_filter_rejection() -> Exception:
+    """OpenAI 兼容端点的内容策略拒绝：错误体 ``code`` 挂在 SDK 异常上。"""
+    response = httpx.Response(400, request=httpx.Request("POST", "https://llm.example/v1/chat/completions"))
+    return openai.BadRequestError("blocked", response=response, body={"code": "content_filter"})
+
+
+def _provider_rejected() -> Exception:
+    """httpx 通道的确定性 4xx 拒绝，与图片任务落 ``provider_rejected`` 的是同一个异常类型。"""
+    request = httpx.Request("POST", "https://llm.example/v1/generate")
+    return ProviderRejectedError(
+        "422 response", request=request, response=httpx.Response(422, request=request), provider_reason="bad input"
+    )
+
+
+_TEXT_TASK_SHAPES = [
+    ("ad", "text_episode_script", False),
+    ("drama", "text_drama_script_plan", False),
+    ("narration", "text_narration_script_plan", False),
+    ("narration", "text_reference_script_plan", True),
+]
+
+
+@pytest.mark.usefixtures("video_request_facts")
+@pytest.mark.parametrize(("content_mode", "task_type", "reference"), _TEXT_TASK_SHAPES)
+@pytest.mark.parametrize(
+    ("failure", "code", "action"),
+    [
+        pytest.param(
+            lambda: RuntimeError("backend 构造失败"),
+            "generation_task_failed",
+            GenerationAction.RETRY,
+            id="unexpected",
+        ),
+        pytest.param(_content_filter_rejection, "generation_refused", GenerationAction.FIX_INPUT, id="content-policy"),
+        pytest.param(_provider_rejected, "generation_refused", GenerationAction.FIX_INPUT, id="provider-rejected"),
+    ],
+)
+async def test_queued_text_task_failure_is_refused_only_when_the_provider_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    content_mode: str,
+    task_type: str,
+    reference: bool,
+    failure: Callable[[], Exception],
+    code: str,
+    action: GenerationAction,
+) -> None:
+    """意外异常按任务失败给出重试，与图片任务一致；只有供应商真正拒绝了内容或输入才归为修改输入。"""
+    projects = ProjectManager(DataRootLayout.current().root)
+    projects.create_project("failing", content_mode=content_mode)
+    projects.create_project_metadata("failing", "Failing", "", content_mode)
+    if reference:
+        projects.update_project("failing", lambda project: project.update(generation_mode="reference_video"))
+    _admit_text_operations(projects, "failing")
+
+    async def raise_failure(*_args, **_kwargs):
+        raise failure()
+
+    use_text_generator(monkeypatch, raise_failure)
+    task = {"task_id": "task-failing", "project_name": "failing", "task_type": task_type, "payload": {"episode": 1}}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action) == (code, action)
 
 
 async def test_queued_reference_plan_fails_with_the_real_video_model_problem(set_video_request_facts) -> None:

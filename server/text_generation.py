@@ -184,6 +184,10 @@ class TextGenerationError(Exception):
     """Expected refusal from a text-generation handler."""
 
 
+class UnexpectedTextGenerationError(TextGenerationError):
+    """生成过程中的意外失败，原异常在 ``__cause__``：调用方据此区分供应商拒绝与可重试的任务失败。"""
+
+
 class PromptAuthoringInputError(TextGenerationError):
     """提示词编写的输入没有通过调用文本模型前的预判，修改输入后才能编写；携带任务失败的问题码与参数。"""
 
@@ -1091,7 +1095,7 @@ async def generate_drama_script_plan(
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
-        raise TextGenerationError(f"generate_script_plan 失败: {exc}") from exc
+        raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -1861,7 +1865,7 @@ async def generate_reference_script_plan(
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
-        raise TextGenerationError(f"generate_script_plan 失败: {exc}") from exc
+        raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}") from exc
 
 
 async def generate_narration_script_plan(
@@ -2009,4 +2013,4 @@ async def generate_narration_script_plan(
     except VideoRequestFactsError as exc:
         raise VideoRequestFactsUnavailableError(exc.failure) from exc
     except Exception as exc:
-        raise TextGenerationError(f"generate_script_plan 失败: {exc}") from exc
+        raise UnexpectedTextGenerationError(f"generate_script_plan 失败: {exc}") from exc

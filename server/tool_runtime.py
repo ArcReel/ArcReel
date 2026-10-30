@@ -115,6 +115,7 @@ from lib.generation.generation_result import (
     GenerationAction,
     GenerationBatchResult,
     GenerationProblem,
+    GenerationProblemCode,
     GenerationSelectionMode,
     GenerationTargetState,
     encode_generation_problem,
@@ -122,6 +123,7 @@ from lib.generation.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
+from lib.generation.task_failure_encoding import is_provider_refusal
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.async_thread import run_sync_transaction
@@ -232,6 +234,7 @@ from server.text_generation import (
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
+    UnexpectedTextGenerationError,
     VideoRequestFactsUnavailableError,
     generate_drama_script_plan,
     generate_narration_script_plan,
@@ -695,12 +698,21 @@ async def _run_text_generation(
         return ToolOutcome(
             problem=ToolProblem(exc.code, str(exc), action=GenerationAction.FIX_INPUT, params=dict(exc.params))
         )
+    except UnexpectedTextGenerationError as exc:
+        return ToolOutcome(problem=_unexpected_text_failure_problem(str(exc), exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except ModelNotInCatalogError as exc:
         return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except Exception as exc:
-        return ToolOutcome(problem=ToolProblem("internal_error", f"{operation} 失败: {exc}"))
+        return ToolOutcome(problem=_unexpected_text_failure_problem(f"{operation} 失败: {exc}", exc))
+
+
+def _unexpected_text_failure_problem(detail: str, cause: BaseException) -> ToolProblem:
+    """生成中的意外异常：供应商真正拒绝了内容或输入时归为拒绝（修改输入），其余按任务失败重试，与图片任务一致。"""
+    if is_provider_refusal(cause):
+        return ToolProblem("generation_refused", detail)
+    return ToolProblem(GenerationProblemCode.TASK_FAILED.value, detail, action=GenerationAction.RETRY)
 
 
 _TEXT_EPISODE_SCRIPT = "text_episode_script"
