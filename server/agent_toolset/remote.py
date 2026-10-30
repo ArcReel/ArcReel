@@ -9,11 +9,9 @@ schema 头部追加必填 ``project``，每次调用显式定位项目；任何�
 from __future__ import annotations
 
 import asyncio
-import re
 from collections.abc import Awaitable, Callable, Iterable
 from copy import deepcopy
 from dataclasses import replace
-from pathlib import Path
 from typing import Any
 
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -23,6 +21,7 @@ from pydantic import Field
 
 from lib.db.base import DEFAULT_USER_ID
 from lib.project.project_manager import ProjectManager
+from lib.project.project_path_text import project_path_spellings, relativize_project_paths
 from server.agent_toolset.declaration import (
     AgentToolDeclaration,
     ToolDeclaration,
@@ -62,18 +61,6 @@ def resolve_project_scope(project: object, projects: ProjectManager) -> ProjectS
     if not projects.project_exists(project_name):
         raise FileNotFoundError(f"项目 '{project_name}' 缺少 project.json")
     return ProjectScope(project_name=project_name, data_root=projects.data_root)
-
-
-def project_path_spellings(project_dir: Path) -> tuple[str, ...]:
-    """项目目录在消息里可能出现的绝对路径写法：原样与解析符号链接后的（macOS 的 /tmp → /private/tmp），长者在前。"""
-    return tuple(sorted({str(project_dir), str(project_dir.resolve())}, key=len, reverse=True))
-
-
-def relativize_project_paths(text: str, spellings: Iterable[str]) -> str:
-    """把消息里的项目目录绝对路径改写为项目内相对路径；项目目录本身写作 ``.``。"""
-    for root in spellings:
-        text = re.sub(re.escape(root) + r"(?:([\\/])|(?![\w.\-]))", lambda m: "" if m.group(1) else ".", text)
-    return text
 
 
 def _relativize_payload(value: Any, spellings: tuple[str, ...]) -> Any:
@@ -199,8 +186,6 @@ __all__ = [
     "LONG_TASK_NOTE",
     "PROJECT_PROPERTY",
     "authenticated_caller",
-    "project_path_spellings",
-    "relativize_project_paths",
     "remote_description",
     "remote_input_schema",
     "remote_result",

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from server.agent_toolset.remote import _project_relative_outcome, project_path_spellings, relativize_project_paths
+from lib.project.project_path_text import project_path_spellings, relativize_project_paths
+from server.agent_toolset.remote import _project_relative_outcome
 from server.tool_runtime import ToolOutcome, ToolProblem
 
 
