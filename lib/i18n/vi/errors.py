@@ -288,6 +288,7 @@ MESSAGES = {
     "episode_planning_failed": "Đã xảy ra lỗi. Hãy thử lại, hoặc giao cho Agent nếu vẫn thất bại",
     "text_output_truncated": "Đầu ra của mô hình văn bản {model} vượt quá độ dài đầu ra tối đa nên không đầy đủ",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
+    "script_review_duration_off_tier": "Đơn vị video {position} trong kế hoạch kịch bản dài {duration_seconds} giây, không thuộc các mức thời lượng mà mô hình video hiện tại hỗ trợ (có thể chọn: {tiers} giây), nên chưa được xác nhận. Hãy đổi thời lượng của đơn vị này sang một mức hợp lệ rồi xác nhận lại",
     "script_review_invalid_new_assets": "Một số tài sản mới của tập này không thể xử lý theo lựa chọn nên kế hoạch chưa được xác nhận; hãy kiểm tra tài sản được gộp vào và nhân vật gốc của biến thể rồi thử lại",
     "script_review_unregistered_references": "Chưa xác nhận được kế hoạch vì các mục sau tham chiếu những tên chưa đăng ký và cũng không phải tài sản mới được đăng ký trong tập này: {details}. Hãy gỡ các tên này khỏi tham chiếu hoặc chọn tài sản đã đăng ký rồi thử lại",
     "script_review_foreign_formal_script": (

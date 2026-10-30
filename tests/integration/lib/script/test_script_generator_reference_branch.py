@@ -30,7 +30,12 @@ from lib.script.reference_video.draft_validation import DraftViolation
 from lib.script.reference_video.request_projection import configured_reference_request_facts
 from lib.script.reference_video.text_parser import extract_mentions
 from lib.script.reference_video.unit_capabilities import evaluate_reference_unit_capabilities
-from lib.script.script_generator import PlanningVideoFacts, PromptAuthoringUnitRejected, ScriptGenerator
+from lib.script.script_generator import (
+    PlanningVideoFacts,
+    PromptAuthoringUnitRejected,
+    ScriptGenerator,
+    UnitDurationOffTier,
+)
 from server.services.project.episode_drafts import EpisodeDraftService
 from tests.factories import make_video_request_facts
 from tests.fakes import use_text_generator
@@ -828,8 +833,10 @@ async def test_reference_script_plan_rejects_out_of_enum_duration(
     _claim_character_sheet(plan_only_reference_project, "主角")
 
     gen = ScriptGenerator(plan_only_reference_project)
-    with pytest.raises(ValueError, match="不在当前生效档位"):
+    with pytest.raises(UnitDurationOffTier, match="视频单元 1 已确认时长 6s 不在当前生效档位") as exc_info:
         await _materialize(gen)
+    assert (exc_info.value.position, exc_info.value.duration_seconds, exc_info.value.tiers) == (1, 6, [4, 8])
+    assert "E1U01" not in str(exc_info.value)
 
 
 @pytest.mark.asyncio

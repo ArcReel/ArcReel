@@ -377,6 +377,31 @@ class TestReferenceVideoRouter:
             assert confirmed.json()["status"] == "confirmed"
             assert script_review.review_status(pm.get_project_path("demo"), pm.load_project("demo"), 1) == "confirmed"
 
+    def test_confirm_with_off_tier_unit_names_its_position_and_tiers(
+        self, tmp_path, monkeypatch, set_video_request_facts
+    ):
+        """已确认时长被收窄出局：422 专用文案按单元位置给出现时长与可选档位，不回落通用的转换拒绝。"""
+        set_video_request_facts(
+            make_video_request_facts(
+                route="reference_video", generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(4, 8)
+            )
+        )
+        client, pm = _client(monkeypatch, tmp_path, generation_mode="reference_video")
+        with client:
+            base = "/api/v1/projects/demo/episodes/1/script-review"
+            plan = _rv_script_plan()
+            plan["units"].append({"unit_id": "E1U02", "text": "@[阿离] 转身。", "duration_seconds": 6})
+            _write_rv_script_plan(pm, plan)
+
+            refused = client.post(f"{base}/confirm")
+
+            assert refused.status_code == 422
+            assert refused.json()["detail"] == i18n_message(
+                "script_review_duration_off_tier", position=2, duration_seconds=6, tiers="4 / 8"
+            )
+            assert "E1U02" not in refused.text
+            assert not (pm.get_project_path("demo") / "scripts" / "episode_1.json").exists()
+
     def test_web_save_and_confirm_tag_project_changes_as_webui(self, tmp_path, monkeypatch, video_request_facts):
         """内容确认页的保存与确认是用户在 Web 上的操作：写入产生的项目变更须标为 webui。
 
