@@ -251,7 +251,7 @@ def stub_sandbox_check(isolated_data_root, monkeypatch, request):
 
 
 @pytest.fixture(autouse=True)
-def offline_official_catalog_sync(monkeypatch):
+def offline_official_catalog_sync(isolated_data_root, monkeypatch):
     """应用 lifespan 启动的模型目录官方同步换成不发请求的空任务。
 
     真实 lifespan 会立刻向目录数据仓库的 raw 地址取清单文件，用例结果随之依赖外网与网络时序：
