@@ -87,6 +87,12 @@ os.environ["ARCREEL_DATA_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "data")
 os.environ["CLAUDE_CONFIG_DIR"] = str(Path(_OWNED_TEST_HOME_DIR) / "claude-config")
 os.environ.pop("AI_ANIME_PROJECTS", None)
 
+# 未设置 AUTH_TOKEN_SECRET 时，签名密钥由 lifespan 在启动期从数据根读出或生成，之后缓存在进程内。
+# 不经 lifespan 直接签发 token 的用例会在事件循环上首次读写密钥文件，缓存又跨用例共享，
+# 哪条用例撞上首次读写取决于执行顺序。钉一个固定值；验证密钥持久化的用例自行 delenv。
+if not os.environ.get("AUTH_TOKEN_SECRET"):
+    os.environ["AUTH_TOKEN_SECRET"] = "arcreel-test-token-secret-0123456789abcdef"
+
 
 def _remove_owned_test_home_dir() -> None:
     """只在创建临时目录的进程里回收（pid 守卫的理由同 ``_remove_owned_test_db_dir``）。"""

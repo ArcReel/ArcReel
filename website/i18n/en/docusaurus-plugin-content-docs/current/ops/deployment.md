@@ -172,7 +172,7 @@ The default deployment examples currently include these core variables:
 |---|---|---|
 | `AUTH_USERNAME` | `admin` | Change the administrator username if needed |
 | `AUTH_PASSWORD` | Empty | Explicitly set a strong password for production deployments |
-| `AUTH_TOKEN_SECRET` | Empty | Set a fixed, long-lived random value for production deployments |
+| `AUTH_TOKEN_SECRET` | Empty | Set a fixed, long-lived random value; if left empty, ArcReel generates one, saves it to `runtime/auth-token-secret` under the data root, and reuses it after restarts |
 | `AUTH_ENABLED` | `true` | Never disable for remote deployments; `false` leaves every management endpoint unauthenticated |
 | `LOG_LEVEL` | `INFO` | Temporarily change to `DEBUG` while troubleshooting, then restore it |
 | `POSTGRES_PASSWORD` | None | Required and must be set only for production deployments |
@@ -184,7 +184,8 @@ The default deployment examples currently include these core variables:
 
 Notes:
 
-- Changing `AUTH_TOKEN_SECRET` invalidates existing login tokens.
+- Changing `AUTH_TOKEN_SECRET` invalidates existing login tokens. A value you set takes precedence, and the secret file generated under the data root is no longer used; deleting that file also invalidates existing logins.
+- After editing `.env`, run `docker compose up -d` in the Compose directory to recreate the container. `docker compose restart` and automatic container restarts keep the environment variables captured when the container was created and do not reload `.env`. If startup finds that a process environment variable differs from the mounted `.env`, the log shows one WARNING that lists only the variable names.
 - `AUTH_ENABLED=false` is only for a local machine protected by its own network boundary. Compose publishes port `1241` on all host interfaces by default, so never disable authentication for remote deployments. While authentication is off, startup logs a WARNING.
 - `.env` may contain secrets. Do not commit it to version control.
 - Vertex credential files should be readable only by the user who runs ArcReel.
@@ -694,6 +695,7 @@ If the container has just started, check whether database migrations are still r
 - Check `AUTH_USERNAME`;
 - Check `AUTH_PASSWORD` in `.env`;
 - If the password was left empty on first startup, check whether it was written back to the file;
+- Check whether you ran `docker compose up -d` after editing `.env`, and whether the startup log has a WARNING that process environment variables differ from `.env`;
 - Log in again after changing `AUTH_TOKEN_SECRET`.
 
 ### Agent Requests Fail {#agent-request-fails}

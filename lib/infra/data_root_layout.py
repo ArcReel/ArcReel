@@ -162,6 +162,11 @@ class DataRootLayout:
         return self.runtime_dir / "project-migration-errors.log"
 
     @property
+    def auth_token_secret_path(self) -> Path:
+        """未设置 ``AUTH_TOKEN_SECRET`` 时自动生成的 JWT 签名密钥；仅属主可读写。"""
+        return self.runtime_dir / "auth-token-secret"
+
+    @property
     def image_thumbnail_cache_dir(self) -> Path:
         """公开媒体端点按 ``?w=`` 生成的图片缩略图缓存，可随时整目录删除。
 
