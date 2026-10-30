@@ -56,6 +56,9 @@ def _raise_draft_error(exc: DraftWorkflowError, episode: int) -> NoReturn:
         raise UnprocessableError(failure.code, **failure.parameters()).with_diagnostic(
             {"code": failure.code, "params": failure.parameters()}
         ) from exc
+    if exc.notice_key is not None:
+        # 草稿已写回，采用被正式剧本单元挡下：按界面单元称呼说明原因与出路，错误码仍是 draft_invalid。
+        raise UnprocessableError(exc.notice_key, **exc.notice_params).with_diagnostic({"code": exc.code}) from exc
     if exc.code == "draft_repair_failed":
         logger.warning("草稿 AI 修复失败 episode=%s：%s", episode, exc.detail)
         raise UnprocessableError("draft_repair_failed").with_diagnostic({"code": exc.code}) from exc

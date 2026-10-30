@@ -168,6 +168,9 @@ class DraftWorkflowError(Exception):
 
     ``failure`` 非空表示重判被视频请求事实挡下（模型能力不满足、档位缺失等配置问题，不是草稿本身的
     违约）：``code`` 即其问题码，Web 与 Agent 都按问题码、参数与修复指引呈现真实原因。
+
+    ``notice_key`` 非空表示违约带有面向用户的文案 key 与参数 ``notice_params``（如晋升前正式剧本单元
+    没过预判）：``code`` 不变，Web 按该 key 本地化说明原因，``detail`` 仍面向 Agent。
     """
 
     def __init__(
@@ -177,12 +180,16 @@ class DraftWorkflowError(Exception):
         *,
         draft_refreshed: bool = False,
         failure: VideoRequestFactsFailure | None = None,
+        notice_key: str | None = None,
+        notice_params: dict[str, Any] | None = None,
     ):
         super().__init__(detail)
         self.code = code
         self.detail = detail
         self.draft_refreshed = draft_refreshed
         self.failure = failure
+        self.notice_key = notice_key
+        self.notice_params = notice_params or {}
 
     @classmethod
     def video_facts(cls, failure: VideoRequestFactsFailure) -> DraftWorkflowError:
@@ -1474,8 +1481,17 @@ class DraftWorkflow:
                     "formal_revision_conflict", _render_prompt_authoring_conflict_report(episode, draft, exc)
                 ) from exc
             except DraftViolation as exc:
-                # 提示词编写晋升被违约挡下时，报告已写回草稿（code="quarantined"）；其余违约来自正式剧本。
-                raise DraftWorkflowError("draft_invalid", str(exc), draft_refreshed=exc.code == "quarantined") from exc
+                # 提示词编写晋升被违约挡下时，报告已写回草稿（code="quarantined"）；其余违约来自正式剧本，
+                # 带文案 key 的（正式剧本单元没过预判）按界面单元称呼说明原因。
+                refreshed = exc.code == "quarantined"
+                notice = exc.params is not None and not refreshed
+                raise DraftWorkflowError(
+                    "draft_invalid",
+                    str(exc),
+                    draft_refreshed=refreshed,
+                    notice_key=exc.code if notice else None,
+                    notice_params=dict(exc.params or {}) if notice else None,
+                ) from exc
             except Exception as exc:
                 raise DraftWorkflowError("draft_promote_failed", str(exc)) from exc
         value: dict[str, Any] = {

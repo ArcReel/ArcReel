@@ -1580,11 +1580,68 @@ async def test_promote_prompt_authoring_draft_revalidates_edited_formal_unit(ref
     formal.write_text(_json.dumps(script, ensure_ascii=False), encoding="utf-8")
     formal_before = formal.read_bytes()
 
-    with pytest.raises(DraftViolation, match="正式脚本"):
+    with pytest.raises(DraftViolation, match="正式脚本") as excinfo:
         await ScriptGenerator(reference_project).promote_reference_prompt_authoring_draft(episode=1)
 
     assert path.exists()
     assert formal.read_bytes() == formal_before
+    # 正文违约按界面位置称呼，具体原因随附，不带内部单元 ID
+    assert (excinfo.value.code, excinfo.value.params) == ("draft_formal_unit_invalid", {"position": 1})
+    assert "视频单元 1 引用了未登记的资产名" in str(excinfo.value)
+    assert "E1U01" not in str(excinfo.value)
+
+
+async def _quarantine_then_edit_formal_unit(project: Path, **changes: Any) -> tuple[Path, bytes]:
+    """先落一份可晋升的提示词编写草稿，再在时间线上改正式剧本的单元：返回草稿路径与改后的正式剧本字节。"""
+    gen = ScriptGenerator(project, generator=_fake_prompt_authoring_generator(BAD_PROMPT_AUTHORING_UNIT_TEXT))
+    with pytest.raises(DraftViolation):
+        await gen.generate(episode=1)
+    path = _prompt_authoring_quarantine(project)
+    envelope = _json.loads(path.read_text(encoding="utf-8"))
+    envelope["content"]["units"][0]["text"] = PROMPT_AUTHORING_UNIT_TEXT
+    path.write_text(_json.dumps(envelope, ensure_ascii=False), encoding="utf-8")
+    formal = _script_path(project)
+    script = _json.loads(formal.read_text(encoding="utf-8"))
+    script["video_units"][0].update(changes)
+    formal.write_text(_json.dumps(script, ensure_ascii=False), encoding="utf-8")
+    return path, formal.read_bytes()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("changes", "code", "params", "phrase"),
+    [
+        (
+            {"text": "@[主角] 推开 @[酒馆] 的门\n@[主角]：{" + "这是一段非常长的台词" * 6 + "}"},
+            "draft_formal_unit_dialogue_overload",
+            {"position": 1, "duration_seconds": 4},
+            "视频单元 1 的台词念完约需",
+        ),
+        (
+            {"duration_seconds": 5},
+            "draft_formal_unit_duration_off_tier",
+            {"position": 1, "duration_seconds": 5, "tiers": "4 / 6 / 8"},
+            "视频单元 1 的时长 5 秒",
+        ),
+    ],
+    ids=["dialogue_overload", "duration_off_tier"],
+)
+async def test_promote_prompt_authoring_draft_names_rejected_formal_unit_by_position(
+    reference_project: Path, changes: dict[str, Any], code: str, params: dict[str, Any], phrase: str
+):
+    """晋升前正式剧本单元没过预判：仍报草稿违约，问题码与参数供界面按「视频单元 N」本地化，消息不带内部 ID。"""
+    path, formal_before = await _quarantine_then_edit_formal_unit(reference_project, **changes)
+
+    with pytest.raises(DraftViolation) as excinfo:
+        await ScriptGenerator(reference_project).promote_reference_prompt_authoring_draft(episode=1)
+
+    violation = excinfo.value
+    assert violation.code == code
+    assert {key: value for key, value in (violation.params or {}).items() if key != "spoken_seconds"} == params
+    assert phrase in str(violation)
+    assert "E1U01" not in str(violation)
+    assert path.exists()
+    assert _script_path(reference_project).read_bytes() == formal_before
 
 
 @pytest.mark.asyncio

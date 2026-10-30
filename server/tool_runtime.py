@@ -1481,12 +1481,21 @@ def _draft_workflow(scope: ProjectScope, services: Services) -> DraftWorkflow:
     )
 
 
-async def _run_draft(call: Awaitable[dict[str, Any]]) -> ToolOutcome[dict[str, Any]]:
+async def _run_draft(
+    call: Awaitable[dict[str, Any]], *, notice_as_problem: bool = False
+) -> ToolOutcome[dict[str, Any]]:
+    """``notice_as_problem`` 为真时，带文案 key 的草稿错误以该 key 为问题码、按修改输入呈现（任务失败原因用）。"""
     try:
         return ToolOutcome(value=await call)
     except DraftWorkflowError as exc:
         if exc.failure is not None:
             return ToolOutcome(problem=video_facts_problem(exc.failure, exc.detail))
+        if notice_as_problem and exc.notice_key is not None:
+            return ToolOutcome(
+                problem=ToolProblem(
+                    exc.notice_key, exc.detail, action=GenerationAction.FIX_INPUT, params=dict(exc.notice_params)
+                )
+            )
         return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
@@ -1625,10 +1634,11 @@ async def _execute_draft_repair(
     outcome = await _run_draft(
         _draft_repair(scope, services).repair(
             request.episode_id, request.doc_type, request.base_revision, request.instructions
-        )
+        ),
+        notice_as_problem=True,
     )
     if outcome.problem is not None and outcome.problem.action is not None:
-        # 带修复指引的问题（输出截断、视频模型配置）原样透出：问题码即文案 key，失败原因按真实原因呈现。
+        # 带修复指引的问题（输出截断、视频模型配置、正式剧本单元没过晋升预判）原样透出：问题码即文案 key，失败原因按真实原因呈现。
         return ToolOutcome(problem=outcome.problem)
     if outcome.problem is not None:
         # 任务失败原因按问题码本地化呈现：换成草稿命令对应的错误文案 key，Agent 面向的 detail 只作诊断。
