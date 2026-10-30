@@ -1,7 +1,10 @@
+import asyncio
 import json
+import sys
 
 import pytest
-from claude_agent_sdk import CLIConnectionError, CLINotFoundError, ProcessError
+from claude_agent_sdk import ClaudeAgentOptions, CLIConnectionError, CLINotFoundError, ProcessError
+from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
 
 from server.agent_runtime.failure_observation import (
     build_startup_failure_observation,
@@ -131,3 +134,29 @@ def test_startup_failure_key_follows_the_exception_class_and_its_cause_chain() -
     wrapped.__cause__ = CLINotFoundError("missing")
     assert _startup_key(wrapped) == "cli_not_found"
     assert _startup_key(RuntimeError("cli not found in PATH")) == "startup_failed"
+
+
+class _NoSubprocessEventLoop(asyncio.SelectorEventLoop):
+    """复刻 Windows 的 SelectorEventLoop：沿用 asyncio 基类不支持子进程的实现。"""
+
+    async def _make_subprocess_transport(self, *args, **kwargs):
+        return await asyncio.BaseEventLoop._make_subprocess_transport(self, *args, **kwargs)
+
+
+def test_startup_failure_key_reports_event_loop_without_subprocess_support(monkeypatch) -> None:
+    """Windows 上 uvicorn --reload 换成 SelectorEventLoop 后，SDK 拉起 CLI 只得到空消息的连接错误。"""
+    monkeypatch.setenv("CLAUDE_AGENT_SDK_SKIP_VERSION_CHECK", "1")
+    transport = SubprocessCLITransport(prompt="", options=ClaudeAgentOptions(cli_path=sys.executable))
+
+    with asyncio.Runner(loop_factory=_NoSubprocessEventLoop) as runner, pytest.raises(CLIConnectionError) as caught:
+        runner.run(transport.connect())
+
+    assert isinstance(caught.value.__cause__, NotImplementedError)
+    assert _startup_key(caught.value) == "subprocess_unsupported"
+
+
+def test_not_implemented_outside_cli_connection_keeps_generic_key() -> None:
+    assert _startup_key(NotImplementedError()) == "startup_failed"
+    wrapped = RuntimeError("provider")
+    wrapped.__cause__ = NotImplementedError()
+    assert _startup_key(wrapped) == "startup_failed"

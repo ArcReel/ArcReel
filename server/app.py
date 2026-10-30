@@ -7,6 +7,13 @@
 
 注意：必须用 --reload-dir 限定监视目录，否则 watchfiles 会扫描
 node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+。
+
+Windows 原生环境不要加 --reload：uvicorn 启用 reload 时在 Windows 上改用
+SelectorEventLoop，它不支持子进程，内置 Agent 无法拉起 Claude Code。改用：
+    uv run uvicorn server.app:app --port 1241
+
+也可以 ``uv run python -m server.app``：监听地址取 LISTEN_HOST / LISTEN_PORT，
+Windows 上自动不开 reload，其他平台开启 reload 并只监视 server 与 lib。
 """
 
 import asyncio
@@ -15,6 +22,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -969,8 +977,20 @@ else:
     logger.warning("frontend/dist/index.html 不存在，跳过前端页面挂载（API 不受影响）")
 
 
+def _main_uvicorn_args(platform_name: str = sys.platform) -> tuple[str | FastAPI, dict[str, Any]]:
+    """``__main__`` 交给 ``uvicorn.run`` 的应用与参数。
+
+    reload 只接受导入字符串。Windows 上 uvicorn 一旦启用 reload 就改用不支持子进程的
+    SelectorEventLoop，内置 Agent 拉不起 Claude Code CLI，因此 Windows 不开 reload。
+    """
+    host, port = _resolve_listen_addr()
+    if platform_name == "win32":
+        return app, {"host": host, "port": port, "reload": False}
+    return "server.app:app", {"host": host, "port": port, "reload": True, "reload_dirs": ["server", "lib"]}
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    _host, _port = _resolve_listen_addr()
-    uvicorn.run(app, host=_host, port=_port, reload=True)
+    _target, _options = _main_uvicorn_args()
+    uvicorn.run(_target, **_options)

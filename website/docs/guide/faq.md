@@ -120,6 +120,18 @@ ArcReel Agent（智能体）与内容生成使用两套独立配置：
 
 连通性检查只代表最小请求成功；长会话仍可能受到额度、上下文长度、限流或代理超时影响。
 
+### Windows 从源码启动后，Agent 提示事件循环不支持创建子进程怎么办？ {#windows-reload-agent}
+
+在 Windows 原生环境用 `--reload` 启动后端时，uvicorn 会改用不支持子进程的事件循环，Agent 无法拉起 Claude Code。界面显示“后端的事件循环不支持创建子进程”，旧版本只显示 `Failed to start Claude Code:`，冒号后为空。
+
+去掉 `--reload` 重新启动后端：
+
+```bash
+uv run uvicorn server.app:app --port 1241
+```
+
+也可以运行 `uv run python -m server.app`，它在 Windows 上不启用 reload，监听地址取 `LISTEN_HOST` 与 `LISTEN_PORT`。不启用 reload 时，修改代码后需要手动重启后端。
+
 ## 供应商、模型与 API {#providers-models-api}
 
 ### ArcReel 支持哪些供应商和模型？ {#supported-providers}
