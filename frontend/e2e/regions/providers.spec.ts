@@ -589,6 +589,7 @@ defineRegionScenarios("供应商", [
       await trigger.press("Enter");
       const listbox = page.getByRole("listbox");
       await expect(listbox.getByRole("option", { name: /OpenAI 图片/ }).first()).toBeVisible();
+      await expect(listbox.getByRole("option", { name: /火山方舟 \(Seedream\)/ })).toBeAttached();
       await expect(listbox).toBeInViewport();
     },
     // 下拉渲染在弹层里，截 Sheet 连同盖在上面的下拉一起看

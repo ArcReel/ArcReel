@@ -19,6 +19,7 @@ from lib.backends.image_backends.base import (
     save_image_from_response_item,
 )
 from lib.backends.providers import PROVIDER_ARK
+from lib.backends.transport_layer import TransportLayer
 from lib.billing.metering import Usage
 from lib.infra.logging_utils import format_kwargs_for_log
 from lib.infra.retry import with_retry_async
@@ -84,8 +85,9 @@ class ArkImageBackend:
         api_key: str | None = None,
         model: str | None = None,
         base_url: str | None = None,
+        transport_layer: TransportLayer | None = None,
     ):
-        self._client = create_ark_client(api_key=api_key, base_url=base_url)
+        self._client = create_ark_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
         self._model = model or self.DEFAULT_MODEL
 
     @property

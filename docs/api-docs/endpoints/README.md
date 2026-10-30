@@ -4,6 +4,7 @@
 
 - [anthropic-messages](anthropic-messages.md)
 - [ark-seedance](ark-seedance.md)
+- [ark-seedream](ark-seedream.md)
 - [dashscope-async-video](dashscope-async-video.md)
 - [dashscope-image](dashscope-image.md)
 - [dashscope-tts](dashscope-tts.md)
