@@ -3287,7 +3287,7 @@ class ProjectManager:
             for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
             self._rename_grid_references(
-                project_dir, asset_type, old_key, new_clean, moves=(*moves, *derivatives.moves)
+                project_dir, asset_type, ((old_key, new_clean),), moves=(*moves, *derivatives.moves)
             )
             for src, dst in moves:
                 if src.exists():
@@ -3309,15 +3309,15 @@ class ProjectManager:
     def _rename_grid_references(
         project_dir: Path,
         asset_type: str,
-        old_name: str,
-        new_name: str,
+        renames: Sequence[tuple[str, str]],
         *,
         moves: Iterable[tuple[Path, Path]],
     ) -> None:
         """宫格记录冻结的参考图随改名改写名字与路径（规则见 ``rewrite_grid_reference_images``）。
 
-        在文件迁移之前写：中途失败重跑同一次改名时，已改写的记录不再命中旧名，未改写的记录
-        对应的文件迁移也还在规划里，两种情况都能收敛。读不出的记录原样留下。
+        *renames* 是本次改写的（旧引用名 → 新引用名）：改名与衍生改名各一对，资产合并是每个随图迁到
+        保留方名下的衍生一对。在文件迁移之前写：中途失败重跑同一次改名或合并时，已改写的记录不再命中
+        旧名，未改写的记录对应的文件迁移也还在规划里，两种情况都能收敛。读不出的记录原样留下。
         """
         from lib.script.grid.grid_manager import GridManager
 
@@ -3332,8 +3332,11 @@ class ProjectManager:
         }
 
         def rewrite(grid: "GridGeneration") -> int:
-            return rewrite_grid_reference_images(
-                grid.reference_images or [], asset_type, old_name, new_name, path_rewrites
+            return sum(
+                rewrite_grid_reference_images(
+                    grid.reference_images or [], asset_type, old_name, new_name, path_rewrites
+                )
+                for old_name, new_name in renames
             )
 
         def mutate(grid: "GridGeneration") -> None:
@@ -3439,7 +3442,9 @@ class ProjectManager:
             self._carry_script_plan_confirmations(project_dir, project, changed_drafts)
             for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
-            self._rename_grid_references(project_dir, asset_type, old_reference, new_reference, moves=relocation.moves)
+            self._rename_grid_references(
+                project_dir, asset_type, ((old_reference, new_reference),), moves=relocation.moves
+            )
             relocation.relocate()
             self._touch_metadata(project)
             project_file = self._get_project_file_path(project_name)
@@ -3546,7 +3551,8 @@ class ProjectManager:
 
             is_current = current_artifact_probe(project_dir)
             storyboard_identities = storyboard_reference_identities(project_dir, project, asset_type)
-            for new_reference, old_reference in derivative_plan.carried_references(source, target).items():
+            carried_references = derivative_plan.carried_references(source, target)
+            for new_reference, old_reference in carried_references.items():
                 if old_reference in storyboard_identities:
                     storyboard_identities[new_reference] = storyboard_identities[old_reference]
             changed_scripts: list[tuple[str, dict, dict]] = []
@@ -3568,6 +3574,7 @@ class ProjectManager:
                         episode,
                         is_current,
                         storyboard_identities=storyboard_identities,
+                        carried_references=carried_references,
                     )
                     if episode is not None
                     else (0, 0)
@@ -3669,6 +3676,14 @@ class ProjectManager:
             self._carry_script_plan_confirmations(project_dir, mutated, changed_drafts)
             for path, payload, _fingerprint in changed_drafts:
                 atomic_write_json(path, payload)
+            # 随图迁来的衍生只换了名字，宫格记录冻结的名字与路径一并改写，与改名同一条级联；
+            # 并入已有衍生的换成了另一张图，记录不改指，宫格照常判过期。
+            self._rename_grid_references(
+                project_dir,
+                asset_type,
+                tuple((old_reference, new_reference) for new_reference, old_reference in carried_references.items()),
+                moves=relocation.moves,
+            )
             relocation.relocate()
             self._touch_metadata(mutated)
             project_file = self._get_project_file_path(project_name)

@@ -384,13 +384,15 @@ def count_outdated_artifacts(
     is_current: CurrentArtifactProbe,
     *,
     storyboard_identities: Mapping[str, str],
+    carried_references: Mapping[str, str],
 ) -> tuple[int, int]:
     """一份正式剧本经合并改写后，将从现行转为过期的 ``(分镜图数, 视频数)``。
 
     只数此刻是现行的产物，判据取各自登记依据里与引用有关的部分：
 
     - 分镜图：引用到的图变了（:func:`storyboard_reference_signature`）；随图迁来的衍生只换了名字，不算。
-      切格分镜的依据取宫格记录冻结的参考图路径，合并不改写宫格记录，引用一变就计入。
+      切格分镜的依据取宫格记录冻结的参考图，合并只把随图迁来的衍生（*carried_references*，
+      合并后的引用名 → 合并前的引用名）在记录里改名改路径，其余引用一变就计入。
     - 参考生视频：画面引用变了，或角色台词的说话人变了（:func:`speech_signature`）。
     - 分镜图生视频：说话人变了。它的画面输入是分镜图本身，分镜图重新生成之前不受画面引用影响。
     """
@@ -399,6 +401,10 @@ def count_outdated_artifacts(
         after_items, _id_field, _kind = resolve_items(after)
     except ScriptEditError:
         return 0, 0
+    # 随图迁来的衍生在宫格记录里改写成新名新路径，图还是那张：新旧两个名字视作同一个引用。
+    grid_identities = {
+        name: previous for current, previous in carried_references.items() for name in (current, previous)
+    }
     storyboards = videos = 0
     for old, new in zip(before_items, after_items, strict=True):
         if not isinstance(old, dict) or not isinstance(new, dict):
@@ -411,7 +417,9 @@ def count_outdated_artifacts(
         generated = old.get("generated_assets")
         generated = generated if isinstance(generated, Mapping) else {}
         if generated.get("grid_id") is not None or generated.get("grid_cell_index") is not None:
-            storyboard_changed = visual_changed
+            storyboard_changed = storyboard_reference_signature(
+                old, asset_type, grid_identities
+            ) != storyboard_reference_signature(new, asset_type, grid_identities)
         else:
             storyboard_changed = storyboard_reference_signature(
                 old, asset_type, storyboard_identities
