@@ -48,6 +48,7 @@ from lib.project.project_migration_failure import ProjectMigrationError, record_
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+    QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
     draft_revision,
     quarantine_path,
@@ -423,6 +424,54 @@ async def test_draft_repair_with_a_retired_model_fails_with_a_reselectable_probl
     draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
     assert draft is not None
     assert draft_revision(draft) == revision
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_draft_repair_blocked_by_a_formal_unit_fails_with_the_unit_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """提示词编写草稿修完晋升，被正式剧本单元挡下：任务失败按「视频单元 N」本地化、归为修改输入，草稿不变。"""
+    projects = ProjectManager(DataRootLayout.current().root)
+    projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.update_project("demo", lambda p: p.__setitem__("generation_mode", "reference_video"))
+    projects.add_character("demo", "张三", "村民")
+    projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+    project_path = projects.get_project_path("demo")
+    (project_path / "source").mkdir(exist_ok=True)
+    (project_path / "source" / "episode_1.txt").write_text("张三起身。", encoding="utf-8")
+    unit = {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 5}
+    projects.save_script(
+        "demo", {"title": "第一集", "episode": 1, "content_mode": "narration", "video_units": [unit]}, "episode_1.json"
+    )
+    activate_artifact_target_state(project_path, bump_schema=False)
+    write_quarantine(
+        project_path,
+        1,
+        QUARANTINE_KIND_PROMPT_AUTHORING,
+        content={"title": "第一集", "units": [{"text": "@[张三] 坐下"}]},
+        violations=[],
+        meta={"unit_ids": ["E1U01"]},
+    )
+    draft = read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
+    assert draft is not None
+    revision = draft_revision(draft)
+    # 草稿无违约，修复不调用模型直接按保存口径重判；替身只为晋升装配 ScriptGenerator。
+    use_text_generator(monkeypatch, FakeTextGenerator("").create)
+    payload = {"episode_id": 1, "doc_type": "reference_prompt_authoring", "base_revision": revision}
+    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "draft_formal_unit_duration_off_tier",
+        GenerationAction.FIX_INPUT,
+        {"position": 1, "duration_seconds": 5, "tiers": "4 / 6 / 8"},
+    )
+    assert "E1U01" not in problem.detail
+    assert quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()
 
 
 async def test_draft_repair_blocked_by_the_video_model_fails_with_the_real_problem(set_video_request_facts) -> None:

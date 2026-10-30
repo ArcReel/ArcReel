@@ -33,6 +33,7 @@ from lib.script.draft_quarantine import (
 from lib.workflow.workflow_state import WorkflowStateService
 from server.draft_workflow import DraftContext, DraftWorkflow, DraftWorkflowError
 from server.tool_runtime import ToolOutcome
+from tests.fakes import FakeTextGenerator, use_text_generator
 from tests.integration.server.agent_tool_support import (
     _RV_NOVEL,
     ToolHarness,
@@ -1089,3 +1090,44 @@ async def test_open_reference_prompt_authoring_returns_flat_editable_content(fak
         quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).read_text(encoding="utf-8")
     )
     assert draft["formal_revision"] == f"sha256-v1:{envelope['meta']['base_fingerprint']}"
+
+
+@pytest.mark.parametrize(
+    ("unit", "phrase"),
+    [
+        (
+            {"text": "@[张三] 起身\n@[张三]：{" + "这是一段非常长的台词" * 6 + "}", "duration_seconds": 4},
+            "视频单元 1 的台词念完约需",
+        ),
+        ({"text": "@[张三] 起身", "duration_seconds": 5}, "视频单元 1 的时长 5 秒"),
+    ],
+    ids=["dialogue_overload", "duration_off_tier"],
+)
+async def test_promote_prompt_authoring_draft_names_rejected_formal_unit_by_position(
+    fake_ctx: ToolHarness, monkeypatch, unit: dict[str, Any], phrase: str
+) -> None:
+    """正式剧本单元没过晋升前预判：Agent 仍收到 draft_invalid，说明按「视频单元 N」称呼，不带内部单元 ID。"""
+    rv_source(fake_ctx)
+    # 预判在调用文本模型之前：替身只为晋升装配 ScriptGenerator，不会被调用。
+    use_text_generator(monkeypatch, FakeTextGenerator("").create)
+    _write_reference_prompt_authoring(
+        fake_ctx,
+        {
+            "title": "第一集",
+            "content_mode": "narration",
+            "episode": 1,
+            "video_units": [{"unit_id": "E1U01", **unit}],
+        },
+    )
+    # 正式剧本经产物清单登记才算在场，晋升才会读到它。
+    fake_ctx.pm.mirror_to_disk("episode_1.json")
+    args = {"episode_id": 1, "doc_type": "reference_prompt_authoring"}
+    opened = draft_of(await run_declared_tool("open_draft", fake_ctx, args))
+
+    out = await run_declared_tool("promote_draft", fake_ctx, {**args, "base_revision": opened["revision"]})
+
+    problem = problem_of(out)
+    assert problem.code == "draft_invalid", problem.detail
+    assert phrase in problem.detail
+    assert "E1U01" not in problem.detail
+    assert quarantine_path(fake_ctx.project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()

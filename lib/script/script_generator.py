@@ -221,6 +221,15 @@ class PromptAuthoringUnitRejected(ValueError):
         self.params = params
 
 
+#: 晋升前正式剧本单元预判的问题码 → 草稿晋升的文案 key。编写入口把同一份预判报成任务失败，
+#: 草稿晋升要说明的是「草稿未采用」，文案另起一套。
+_FORMAL_UNIT_PROMOTION_KEYS: dict[str, str] = {
+    "prompt_authoring_dialogue_overload": "draft_formal_unit_dialogue_overload",
+    "prompt_authoring_duration_off_tier": "draft_formal_unit_duration_off_tier",
+    "prompt_authoring_unit_invalid": "draft_formal_unit_invalid",
+}
+
+
 class UnitDurationOffTier(ValueError):
     """待编写单元的现时长不在该单元所落参考桶的生效档位内（通常是模型、分辨率或参考图状态变化让档位收窄）。
 
@@ -1562,6 +1571,37 @@ class ScriptGenerator:
         }
         return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_duration_off_tier", params=params)
 
+    def _formal_unit_promotion_violation(
+        self, targets: PromptAuthoringTargets, exc: DraftViolation | UnitDurationOffTier
+    ) -> DraftViolation:
+        """晋升前正式剧本单元没过预判时的违约：仍是 ``DraftViolation``（晋升照常报 ``draft_invalid``），按界面位置称呼单元。
+
+        问题码与参数沿用编写入口的同一份预判结果（``_unit_rejection`` / ``_duration_rejection``），换成草稿
+        晋升的文案 key：呈现层按 ``code`` 与 ``params`` 本地化。消息面向 Agent，同样按「视频单元 N」称呼，
+        不带内部单元 ID。违约定位不到正式剧本里的单元时原样保留消息。
+        """
+        rejection = (
+            self._duration_rejection(targets, exc)
+            if isinstance(exc, UnitDurationOffTier)
+            else self._unit_rejection(targets, exc)
+        )
+        if rejection is None:
+            return exc if isinstance(exc, DraftViolation) else DraftViolation(str(exc), code="duration_off_tier")
+        params = {key: value for key, value in rejection.params.items() if key != "unit_id"}
+        unit_id = str(rejection.params["unit_id"])
+        code = _FORMAL_UNIT_PROMOTION_KEYS[rejection.code]
+        message = translate(code, **params)
+        if isinstance(exc, DraftViolation) and rejection.code == "prompt_authoring_unit_invalid":
+            # 正文违约的具体原因换成位置称呼后附上，Agent 据此知道该改什么；改不掉内部 ID 的条目不附。
+            label = f"视频单元 {params['position']}"
+            reasons = [
+                f"{label}{str(item)[len(item.label) :]}"
+                for item in violation_items(exc)
+                if item.item_id == unit_id and item.label and str(item).startswith(item.label)
+            ]
+            message += "".join(f"\n   - {reason}" for reason in reasons if unit_id not in reason)
+        return DraftViolation(message, code=code, params=params, item_id=unit_id)
+
     def _assert_reference_unit_text_valid(self, units: list[dict], *, max_refs: int | None) -> None:
         """按机器产物的严格口径预判正式脚本各 unit 正文，违约时把定位与出路指回时间线。
 
@@ -2035,7 +2075,10 @@ class ScriptGenerator:
         units = list(targets.entries)
         # 与产出路径同一份预判：草稿在场期间用户可能在时间线上改过单元，不复判就会让改短时长后
         # 念不完的台词、或未登记的 @[名称] 借晋升一路落盘。
-        self._assert_reference_units_authorable(units, facts=facts)
+        try:
+            self._assert_reference_units_authorable(units, facts=facts)
+        except (DraftViolation, UnitDurationOffTier) as exc:
+            raise self._formal_unit_promotion_violation(targets, exc) from exc
         max_refs = self._resolve_max_refs(facts)
         try:
             authored = self._merge_reference_visual(units, json.dumps(draft.content), episode, max_refs=max_refs)
