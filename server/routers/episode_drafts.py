@@ -12,6 +12,7 @@ from fastapi import APIRouter, Body
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
+from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from server.agent_toolset.envelope import json_value
 from server.auth import CurrentUser
@@ -116,9 +117,11 @@ async def save_episode_draft(
 ):
     """手修保存：服务端全量重判，违约清零即采用为正式内容，否则返回刷新后的草稿视图。"""
     try:
-        result = await EpisodeDraftService(get_project_manager()).save_draft(
-            project_name, episode, doc_type, req.content, req.base_revision
-        )
+        # 用户自己的保存按 webui 广播，前端不当成外部改动去通知或跳转。
+        with project_change_source("webui"):
+            result = await EpisodeDraftService(get_project_manager()).save_draft(
+                project_name, episode, doc_type, req.content, req.base_revision
+            )
     except DraftWorkflowError as exc:
         _raise_draft_error(exc, episode)
     except FileNotFoundError as exc:
@@ -173,9 +176,10 @@ async def repair_episode_draft(
 async def discard_episode_draft(project_name: str, episode: int, doc_type: str, base_revision: str = ""):
     """丢弃草稿，回到正式内容。"""
     try:
-        return await EpisodeDraftService(get_project_manager()).discard_draft(
-            project_name, episode, doc_type, base_revision
-        )
+        with project_change_source("webui"):
+            return await EpisodeDraftService(get_project_manager()).discard_draft(
+                project_name, episode, doc_type, base_revision
+            )
     except DraftWorkflowError as exc:
         _raise_draft_error(exc, episode)
     except FileNotFoundError as exc:

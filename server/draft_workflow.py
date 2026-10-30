@@ -35,6 +35,7 @@ from lib.script.draft_quarantine import (
     QUARANTINE_KIND_SCRIPT_PLAN,
     QUARANTINE_KIND_TO_DOC_TYPE,
     QuarantinedDraft,
+    announce_draft_change,
     clear_quarantine,
     draft_owner,
     draft_payload,
@@ -1376,6 +1377,7 @@ class DraftWorkflow:
                 meta=meta,
             ),
         )
+        announce_draft_change(self.ctx.project_path, path)
         record_project_activity(self.ctx.project_path)
         receipt = self._read(episode, resolved)
         # 草稿里的违约是上一轮产出 / 晋升针对旧正文的判定，修改后不再对应现值：回执不带它，
