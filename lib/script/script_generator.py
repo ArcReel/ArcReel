@@ -221,6 +221,19 @@ class PromptAuthoringUnitRejected(ValueError):
         self.params = params
 
 
+class UnitDurationOffTier(ValueError):
+    """待编写单元的现时长不在该单元所落参考桶的生效档位内（通常是模型、分辨率或参考图状态变化让档位收窄）。
+
+    ``unit_id`` / ``duration_seconds`` / ``tiers`` 供调用方按自己的口径转成面向用户的提示；消息面向 Agent。
+    """
+
+    def __init__(self, message: str, *, unit_id: str, duration_seconds: int, tiers: list[int]) -> None:
+        super().__init__(message)
+        self.unit_id = unit_id
+        self.duration_seconds = duration_seconds
+        self.tiers = tiers
+
+
 class AdScriptRejected(ValueError):
     """广告/短片整份生成的产出违约：不写正式脚本、不登记资产、不落待修复草稿。
 
@@ -1500,9 +1513,13 @@ class ScriptGenerator:
             # 必然失败的时长在付费调用之前拦下；放到 _add_metadata 才拦，TextBackend 的费用已经产生。
             off_tiers = self._unit_duration_off_every_tier(duration, facts=facts, generation_type=bucket)
             if off_tiers is not None:
-                raise ValueError(
-                    f"unit {unit['unit_id']} 时长 {duration}s 不在当前生效档位 {sorted(set(off_tiers))} 内；"
-                    "通常是模型或分辨率配置变化让档位收窄导致，请调整配置回原档位，或在时间线上把该单元时长改到档位内"
+                tiers = sorted(set(off_tiers))
+                raise UnitDurationOffTier(
+                    f"unit {unit['unit_id']} 时长 {duration}s 不在当前生效档位 {tiers} 内；"
+                    "通常是模型或分辨率配置变化让档位收窄导致，请调整配置回原档位，或在时间线上把该单元时长改到档位内",
+                    unit_id=str(unit["unit_id"]),
+                    duration_seconds=duration,
+                    tiers=tiers,
                 )
         self._assert_reference_unit_text_valid(units, max_refs=self._resolve_max_refs(facts))
 
@@ -1528,6 +1545,22 @@ class ScriptGenerator:
             params.update(spoken_seconds=f"{spoken:.1f}", duration_seconds=int(unit["duration_seconds"]))
             return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_dialogue_overload", params=params)
         return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_unit_invalid", params=params)
+
+    @staticmethod
+    def _duration_rejection(
+        targets: PromptAuthoringTargets, exc: UnitDurationOffTier
+    ) -> PromptAuthoringUnitRejected | None:
+        """单元时长越出生效档位转成修改输入：按界面位置称呼单元，带上现时长与可选档位。定位不到时返回 None。"""
+        found = find_item(targets.script, exc.unit_id)
+        if found is None:
+            return None
+        params: dict[str, Any] = {
+            "unit_id": exc.unit_id,
+            "position": found[0],
+            "duration_seconds": exc.duration_seconds,
+            "tiers": " / ".join(str(tier) for tier in exc.tiers),
+        }
+        return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_duration_off_tier", params=params)
 
     def _assert_reference_unit_text_valid(self, units: list[dict], *, max_refs: int | None) -> None:
         """按机器产物的严格口径预判正式脚本各 unit 正文，违约时把定位与出路指回时间线。
@@ -1623,6 +1656,11 @@ class ScriptGenerator:
                 self._assert_reference_units_authorable(units, facts=facts)
             except DraftViolation as exc:
                 rejection = self._unit_rejection(targets, exc)
+                if rejection is None:
+                    raise
+                raise rejection from exc
+            except UnitDurationOffTier as exc:
+                rejection = self._duration_rejection(targets, exc)
                 if rejection is None:
                     raise
                 raise rejection from exc

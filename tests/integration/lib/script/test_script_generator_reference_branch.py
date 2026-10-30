@@ -363,13 +363,24 @@ async def test_prompt_authoring_rejects_formal_duration_outside_effective_tiers(
             route="reference_video", generation_type="i2v", supported_durations=(4, 6, 8), allowed_durations=(4,)
         )
     )
-    _write_formal_units(reference_project, [{**SCRIPT_PLAN_UNIT, "duration_seconds": 8}])
+    _write_formal_units(
+        reference_project,
+        [
+            {**SCRIPT_PLAN_UNIT, "pending_authoring": False},
+            {**SCRIPT_PLAN_UNIT, "unit_id": "E1U04", "duration_seconds": 8},
+        ],
+    )
     generator = _idle_generator()
 
     gen = ScriptGenerator(reference_project, generator=generator)
-    with pytest.raises(ValueError, match=r"不在当前生效档位.*时间线"):
+    with pytest.raises(PromptAuthoringUnitRejected, match=r"不在当前生效档位.*时间线") as exc_info:
         await gen.generate(episode=1)
     generator.generate.assert_not_awaited()
+    # 归为修改输入，按界面位置称呼单元（第 2 个），带上现时长与可选档位。
+    assert (exc_info.value.code, exc_info.value.params) == (
+        "prompt_authoring_duration_off_tier",
+        {"unit_id": "E1U04", "position": 2, "duration_seconds": 8, "tiers": "4"},
+    )
 
 
 @pytest.mark.asyncio
