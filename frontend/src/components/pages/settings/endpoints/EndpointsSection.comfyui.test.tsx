@@ -9,6 +9,7 @@ import type {
   ComfyuiInferResponse,
   ComfyuiMatchOrigin,
   CustomEndpointInfo,
+  MarketEntry,
 } from "@/types";
 import {
   CATALOG,
@@ -127,6 +128,88 @@ describe("EndpointsSection", () => {
       expect(JSON.parse(await downloads[0].blob.text())).toEqual({
         ...COMFYUI_MINE.definition,
         bindings: { prompt: [PROMPT_TARGET], output: [OUTPUT_TARGET] },
+      });
+    });
+
+    it("updates a market-installed workflow endpoint through the same dialog, exporting the current draft first", async () => {
+      vi.mocked(API.listCustomEndpoints).mockResolvedValue({
+        endpoints: [
+          MINE,
+          {
+            ...COMFYUI_MINE,
+            installation: {
+              source_key: "github:arcreel/arcreel-market@HEAD",
+              source_id: 1,
+              source_display_name: "ArcReel 官方市场",
+              source_enabled: true,
+              slug: "my-comfyui",
+              installed_version: "1.0.0",
+              installed_at: "2026-09-01T00:00:00+00:00",
+              state: "update_available",
+              modified: false,
+            },
+          },
+        ],
+      });
+      const entry: MarketEntry = {
+        source_id: 1,
+        source_display_name: "ArcReel 官方市场",
+        type: "endpoint",
+        slug: "my-comfyui",
+        path: "endpoints/my-comfyui/definition.json",
+        name: "我的 ComfyUI",
+        author: "Ada",
+        version: "1.1.0",
+        media_type: "video",
+        description: null,
+        homepage: null,
+        icon: null,
+        min_app_version: null,
+        min_app_version_satisfied: true,
+        installation: {
+          endpoint_id: 8,
+          endpoint_key: "ce-8",
+          endpoint_display_name: "我的 ComfyUI",
+          installed_version: "1.0.0",
+          state: "update_available",
+          modified: false,
+        },
+      };
+      vi.spyOn(API, "getMarketEntry").mockResolvedValue({
+        entry,
+        source: {
+          id: 1,
+          kind: "official",
+          display_name: "ArcReel 官方市场",
+          canonical_key: "github:arcreel/arcreel-market@HEAD",
+          is_enabled: true,
+          status: "ok",
+          fetched_at: null,
+          index: null,
+        },
+        app_version: null,
+      });
+      vi.spyOn(API, "getMarketEntryDefinition").mockResolvedValue({
+        definition: { ...COMFYUI_MINE.definition, meta: { name: "我的 ComfyUI", author: "Ada", version: "1.1.0" } },
+        entry_matches_definition: true,
+        definition_digest: "comfyui-digest",
+      });
+      renderSection("section=endpoints&endpoint=ce-8");
+
+      expect(await screen.findByText("来自市场 ArcReel 官方市场")).toBeInTheDocument();
+      expect(screen.getByText("可更新")).toBeInTheDocument();
+      await userEvent.type(screen.getByLabelText("端点名称"), "!");
+      await userEvent.click(screen.getByRole("button", { name: "更新" }));
+
+      expect(await screen.findByRole("button", { name: "更新到 v1.1.0" })).toBeInTheDocument();
+      expect(API.getMarketEntry).toHaveBeenCalledWith(1, "my-comfyui", expect.anything());
+      expect(await screen.findByText("你的本地修改会被覆盖")).toBeInTheDocument();
+      const downloads = captureDownloads();
+      await userEvent.click(screen.getByRole("button", { name: "先导出当前定义" }));
+      expect(downloads[0].name).toBe("my-comfyui.json");
+      expect(JSON.parse(await downloads[0].blob.text())).toMatchObject({
+        kind: "comfyui",
+        meta: { name: "我的 ComfyUI!" },
       });
     });
 

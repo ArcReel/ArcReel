@@ -119,7 +119,7 @@ Only endpoints installed through the market count as "Installed". A definition i
 
 ## 4. Updates and Local Changes {#updates-and-local-changes}
 
-Installed endpoints carry two-axis status badges, shown on market cards, in the installation confirmation dialog, and in the detail header of declarative endpoints in the "Endpoints" section:
+Installed endpoints carry two-axis status badges, shown on market cards, in the installation confirmation dialog, and in the endpoint detail header in the "Endpoints" section (for both declarative and ComfyUI endpoints):
 
 | Market status | Meaning |
 |---|---|
@@ -129,11 +129,11 @@ Installed endpoints carry two-axis status badges, shown on market cards, in the 
 
 "Modified" is a separate axis, independent of market status: it appears when the current definition differs from the installed definition. You can edit an installed endpoint directly, like any other custom call endpoint, and editing does not unbind it from the market entry.
 
-The metadata row of a declarative endpoint's detail header shows "From market <market source display name>". When the market source is disabled, "(market source disabled)" is appended. When it is deleted, the row shows the canonical form of the market source address instead, followed by "(market source deleted)".
+The metadata row of an endpoint's detail header shows "From market <market source display name>". When the market source is disabled, "(market source disabled)" is appended. When it is deleted, the row shows the canonical form of the market source address instead, followed by "(market source deleted)".
 
 ### 4.1 Run an Update {#run-update}
 
-When the status is "Update available", click "Update" on the market card or "Update" in the action row of a declarative endpoint's detail to open the same confirmation dialog. ComfyUI endpoint details do not yet show market status badges or "Update"; update them from the market card.
+When the status is "Update available", click "Update" on the market card or "Update" in the action row of the endpoint's detail to open the same confirmation dialog. Both declarative and ComfyUI endpoint details offer this entry point; endpoints not installed from the market show no market status badges, source information, or "Update".
 
 - The header shows "Installed vX → Market vY". Validation, hints, and trust information are the same as during installation, so check where credentials are sent again before updating.
 - When the endpoint carries the "Modified" badge, or its detail has unsaved changes, "Your local changes will be overwritten" appears above the primary button. Click "Export current definition first" to keep a copy.
