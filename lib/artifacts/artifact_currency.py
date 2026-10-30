@@ -180,6 +180,11 @@ class ArtifactCurrencyResolver:
             key, observation=self._observe(artifact_path), expected=expected, entries=entries
         )
 
+    def resolve_basis(self, key: ArtifactKey) -> ArtifactBasis | None:
+        """Canonical basis of *key* from this resolver's planners; ``None`` when none is derivable."""
+
+        return self._planner_for(key).resolve_basis(key)
+
     def _observe(self, artifact_path: str) -> ArtifactObservation:
         observation = self._observations.get(artifact_path)
         if observation is None:

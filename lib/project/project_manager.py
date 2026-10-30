@@ -3500,6 +3500,7 @@ class ProjectManager:
             DerivativeMergePlan,
             count_outdated_artifacts,
             current_artifact_probe,
+            grid_merge_references,
             merge_payload_references,
             plan_derivative_merge,
             storyboard_reference_identities,
@@ -3552,6 +3553,9 @@ class ProjectManager:
             is_current = current_artifact_probe(project_dir)
             storyboard_identities = storyboard_reference_identities(project_dir, project, asset_type)
             carried_references = derivative_plan.carried_references(source, target)
+            outdated_grid_ids, grid_reference_names = grid_merge_references(
+                project_dir, asset_type, source, derivative_plan.folded
+            )
             for new_reference, old_reference in carried_references.items():
                 if old_reference in storyboard_identities:
                     storyboard_identities[new_reference] = storyboard_identities[old_reference]
@@ -3562,9 +3566,8 @@ class ProjectManager:
                 changes = merge_payload_references(
                     script, asset_type, source, target, as_derivative=as_derivative, derivatives=derivative_plan
                 )
-                if not changes.total:
-                    continue
-                changed_scripts.append((filename, script, before))
+                if changes.total:
+                    changed_scripts.append((filename, script, before))
                 episode = self.canonical_script_episode(filename)
                 storyboards, videos = (
                     count_outdated_artifacts(
@@ -3575,10 +3578,14 @@ class ProjectManager:
                         is_current,
                         storyboard_identities=storyboard_identities,
                         carried_references=carried_references,
+                        outdated_grid_ids=outdated_grid_ids,
+                        grid_reference_names=grid_reference_names,
                     )
                     if episode is not None
                     else (0, 0)
                 )
+                if not changes.total and not storyboards and not videos:
+                    continue
                 tally(
                     episode,
                     script=changes.names,
