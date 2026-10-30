@@ -213,7 +213,7 @@ describe("ComfyuiEndpointDetail", () => {
     );
   });
 
-  it("holds the update and the re-import while the entry for an update is loading", () => {
+  it("holds editing and actions while the entry for an update is loading", () => {
     renderDetail({
       record: installedRecord(definition(), { state: "update_available" }),
       marketUpdatePending: true,
@@ -221,6 +221,9 @@ describe("ComfyuiEndpointDetail", () => {
 
     expect(screen.getByRole("button", { name: "更新" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "重新导入" })).toBeDisabled();
+    expect(screen.getByLabelText("端点名称")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "图片" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
   });
 
   it("gives each semantic its own row, with the six states each saying what to do next", () => {

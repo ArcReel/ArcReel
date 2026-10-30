@@ -92,7 +92,7 @@ export interface ComfyuiEndpointDetailProps {
     currentDefinition: ComfyuiEndpointDefinition,
     hasUnsavedChanges: boolean,
   ) => void;
-  /** 更新弹窗所需的条目详情正在加载：更新与重新导入都先停下，避免交出去的定义与屏幕上的不一致。 */
+  /** 更新弹窗所需的条目详情正在加载：暂停编辑，保持导出快照与当前定义一致。 */
   marketUpdatePending: boolean;
   /** 「更多操作」里由上层提供的条目（分享、删除）。 */
   menuItems: (hasUnsavedChanges: boolean, pending: boolean) => ReactNode;
@@ -227,6 +227,7 @@ export function ComfyuiEndpointDetail({
   const dirty = draftJson !== savedJson;
 
   const blockers = inference ? saveBlockers(bindings, inference, definition, COMFYUI_PLACEHOLDER_NAME) : [];
+  const pending = saving || inference === null || reinferring !== null;
 
   const changeBinding = useCallback((key: ComfyuiBindingKey, targets: ComfyuiBindingTarget[] | undefined) => {
     setBindings((current) => {
@@ -355,6 +356,7 @@ export function ComfyuiEndpointDetail({
               <MarketUpdateButton
                 installation={installation}
                 pending={marketUpdatePending}
+                disabled={pending}
                 onUpdate={(target) => onUpdateFromMarket(target, draft, dirty)}
               />
               <Button variant="outline" onClick={() => onReimport(draft)} disabled={marketUpdatePending}>
@@ -368,14 +370,18 @@ export function ComfyuiEndpointDetail({
               <DropdownMenuItem onClick={() => exportEndpointDefinition(draft, record?.installation?.slug)}>
                 {t("ce_export_json")}
               </DropdownMenuItem>
-              {menuItems(dirty, saving || inference === null || reinferring !== null)}
+              {menuItems(dirty, pending)}
             </>
           }
         />
       }
-      footer={<SaveBar unit={controls} className="max-w-178" />}
+      footer={
+        <fieldset disabled={marketUpdatePending}>
+          <SaveBar unit={controls} className="max-w-178" />
+        </fieldset>
+      }
     >
-      <div className="flex max-w-190 flex-col gap-8 px-6 py-6">
+      <fieldset disabled={marketUpdatePending} className="flex min-w-0 max-w-190 flex-col gap-8 px-6 py-6">
         {record && <EndpointUsageList usages={usages} />}
 
         <Section title={t("ce_cf_bindings_title")}>
@@ -494,7 +500,7 @@ export function ComfyuiEndpointDetail({
         <Section title={t("ce_cf_test_title")} description={t("ce_cf_test_desc")}>
           <ComfyuiEndpointTestSection definition={draft} providers={providers} blocked={testRefused(blockers)} />
         </Section>
-      </div>
+      </fieldset>
     </DetailPane>
   );
 }
