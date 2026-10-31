@@ -508,6 +508,8 @@ HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id
 
 成片登记后 best-effort 生成一张联系表：复用 `lib/video_review/` 的抽帧、信号检测（黑屏/卡帧/切点）与拼版，对成片文件抽约 12 帧（切点优先、均匀补点），写成同目录的 `final_cut.{旁白版本}.{字幕方式}_sheet.jpg`，与成片同一产物身份，随成片一起被覆盖或删除；生成失败只让这一版没有联系表，不阻断出片。状态接口返回联系表预览地址 `preview_url`；工具结果带 `preview_url` 与联系表图像块（与 `inspect_video_units` 相同的图片信封），摘要提示 Agent 先看图核对画面并读交付检查结论，再向创作者汇报。
 
+联系表检测出的画面信号再按阈值复核成内容信号告警（`lib/final_cut/content_signals.py`）：黑屏段 ≥2 秒、卡帧段 ≥3 秒各记一条（卡帧阈值比时间线级「定格过长」的 2 秒略长，有意的定格不重复告警）；音轨另用 `silencedetect`（−40 dB 噪声底）检测静默段，静默段 ≥3 秒且落在预期有声窗口（出声的源音频片段、旁白、BGM）内才记一条——没有预期有声的成片本就无声，不告警。告警（`FinalCutSignalWarning`，带时间区间）与时间线级 issue 一起进 `FinalCutRender.warnings`，工具摘要逐条列出；检测失败只是这一版没有画面告警，不阻断出片。
+
 ### 剪映草稿 {#jianying-draft}
 
 导出可继续编辑的项目结构，用于：

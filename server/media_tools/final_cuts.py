@@ -17,7 +17,9 @@ from pydantic.json_schema import SkipJsonSchema
 
 from lib.delivery.platforms import PLATFORMS, DeliveryCheck
 from lib.edit_timeline.errors import EditTimelineError
+from lib.edit_timeline.readout import TimelineIssue
 from lib.final_cut.basis import BURNED_SUBTITLES, NO_SUBTITLES
+from lib.final_cut.content_signals import FinalCutSignalWarning, SignalWarningKind
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutRender, FinalCutService
 from lib.generation.generation_batch import GenerationBatchReadModel
@@ -172,12 +174,33 @@ def _delivery_sentence(delivery: DeliveryCheck) -> str:
     return translate("delivery_summary_pass", platform=name, count=len(delivery.rows))
 
 
+_SIGNAL_KIND_LABELS = {
+    SignalWarningKind.BLACK: "黑场",
+    SignalWarningKind.FREEZE: "卡帧",
+    SignalWarningKind.SILENCE: "静音",
+}
+
+
+def _signal_sentence(warnings: Sequence[FinalCutSignalWarning]) -> str:
+    if not warnings:
+        return ""
+    parts = [
+        f"{_SIGNAL_KIND_LABELS[warning.kind]} {warning.end - warning.start:.1f} 秒"
+        f"（{warning.start:.1f}–{warning.end:.1f} 秒）"
+        for warning in warnings
+    ]
+    return "；画面警告：" + "、".join(parts)
+
+
 def final_cut_summary(value: FinalCutToolValue) -> str | None:
     if isinstance(value, GenerationBatchReadModel):
         return None
     final_cut = value.final_cut
     acceptance = final_cut.acceptance
-    warnings = f"；警告 {len(final_cut.warnings)} 条" if final_cut.warnings else ""
+    timeline_warnings = [warning for warning in final_cut.warnings if isinstance(warning, TimelineIssue)]
+    signal_warnings = [warning for warning in final_cut.warnings if isinstance(warning, FinalCutSignalWarning)]
+    warnings = f"；警告 {len(timeline_warnings)} 条" if timeline_warnings else ""
+    signals = _signal_sentence(signal_warnings)
     loudness = (
         f"，响度 {acceptance.integrated_lufs:.1f} LUFS / 峰值 {acceptance.true_peak_dbtp:.1f} dBTP"
         if acceptance.integrated_lufs is not None and acceptance.true_peak_dbtp is not None
@@ -188,7 +211,7 @@ def final_cut_summary(value: FinalCutToolValue) -> str | None:
     sheet = f"。{translate('delivery_sheet_attached')}" if value.sheet is not None else ""
     return (
         f"成片已渲染：剪辑时间线 {final_cut.timeline_id} 修订 {final_cut.revision}，第 {final_cut.version} 版，"
-        f"时长 {acceptance.video_duration} 秒（剪辑时间线 {acceptance.expected_duration} 秒）{loudness}{warnings}{loudness_warnings}。"
+        f"时长 {acceptance.video_duration} 秒（剪辑时间线 {acceptance.expected_duration} 秒）{loudness}{warnings}{signals}{loudness_warnings}。"
         f"下载：{value.download_url}{delivery}{sheet}"
     )
 

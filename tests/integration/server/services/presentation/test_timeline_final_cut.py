@@ -14,6 +14,8 @@ import pytest
 
 from lib.artifacts.artifact_manifest import ArtifactStatus
 from lib.artifacts.version_manager import VersionManager
+from lib.edit_timeline.readout import TimelineIssue
+from lib.final_cut.content_signals import FinalCutSignalWarning, SignalWarningKind
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService
 from lib.infra.ffmpeg import ffmpeg_executable
@@ -85,9 +87,13 @@ async def test_narrated_final_cut_mixes_each_narration_from_its_carrying_clip_an
     silent = await service.render("demo", timeline_id, narration="without_narration", subtitles="no_subtitles")
 
     # S02 的 2 秒旁白从 1.5 秒起、超出 3 秒的时间线末尾：如实渲染，随成片截止，时长仍与剪辑时间线一致。
-    assert [(issue.code, issue.params.get("cause")) for issue in narrated.warnings] == [
-        ("narration_overrun", "timeline_end")
-    ]
+    assert [
+        (issue.code, issue.params.get("cause")) for issue in narrated.warnings if isinstance(issue, TimelineIssue)
+    ] == [("narration_overrun", "timeline_end")]
+    # 素材是没有音轨的黑屏：整条成片是一个黑场段，画面警告如实记下（无预期有声，不记静音）。
+    signals = [issue for issue in narrated.warnings if isinstance(issue, FinalCutSignalWarning)]
+    assert [issue.kind for issue in signals] == [SignalWarningKind.BLACK]
+    assert (signals[0].start, signals[0].end) == (pytest.approx(0.0, abs=0.15), pytest.approx(3.0, abs=0.15))
     assert narrated.acceptance.audio_duration == narrated.acceptance.expected_duration == 3.0
     narrated_path = project_path / narrated.artifact_path
     # S01 的 1.2 秒旁白从 0 秒起，S02 的旁白从 c2 的起点 1.5 秒起，中间留空。
@@ -95,6 +101,9 @@ async def test_narrated_final_cut_mixes_each_narration_from_its_carrying_clip_an
     assert _peak(narrated_path, 1.27, 1.43) < 300
     assert _peak(narrated_path, 1.6, 2.9) > 3000
     assert _peak(project_path / silent.artifact_path, 0.0, 3.0) < 300
+    # 无预期有声的成片整条静音是正常状态，不记静音告警（黑场照记）。
+    silent_signals = [issue for issue in silent.warnings if isinstance(issue, FinalCutSignalWarning)]
+    assert all(issue.kind is not SignalWarningKind.SILENCE for issue in silent_signals)
 
 
 async def test_a_corrupted_narration_snapshot_names_the_unit_and_version(tmp_path: Path) -> None:

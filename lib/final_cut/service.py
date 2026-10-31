@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -53,6 +54,11 @@ from lib.final_cut.basis import (
     resolve_final_cut_variant,
     video_resource_type_for,
 )
+from lib.final_cut.content_signals import (
+    FinalCutSignalWarning,
+    content_signal_warnings,
+    detect_silence_spans,
+)
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.ffmpeg_render import (
     DEFAULT_RENDER_DEADLINES,
@@ -64,8 +70,8 @@ from lib.final_cut.ffmpeg_render import (
     final_cut_component_gaps,
     render_plan_to_file,
 )
-from lib.final_cut.render_plan import RenderMedia, plan_render, render_clips
-from lib.final_cut.sheet import build_final_cut_sheet
+from lib.final_cut.render_plan import RenderMedia, RenderPlan, plan_render, render_clips
+from lib.final_cut.sheet import build_final_cut_sheet, load_sheet_materials
 from lib.final_cut.subtitles import BurnedSubtitle
 from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable
 from lib.infra.media_probe import MediaProbe, MediaProbeError, probe_media
@@ -82,6 +88,7 @@ from lib.jianying_draft.placement import (
 from lib.project.project_manager import ProjectManager
 from lib.speech.narration_config import project_narration_delivery
 from lib.speech.narration_delivery import USE_TTS
+from lib.video_review.signals import TimeSpan
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +125,8 @@ class FinalCutRender(BaseModel):
     version: int
     rendered_at: str
     acceptance: FinalCutAcceptance
-    warnings: tuple[TimelineIssue, ...]
+    warnings: tuple[TimelineIssue | FinalCutSignalWarning, ...]
+    """时间线级不阻断出片的 issue，加上渲染后内容信号（黑场 / 卡帧 / 静音段）的阈值告警。"""
     delivery: DeliveryCheck | None = None
     """按画幅推导的默认平台的交付检查；探测不出时没有。"""
     sheet_path: str | None = None
@@ -163,6 +171,24 @@ def _verify_snapshots(versions: VersionManager, resource_type: str, snapshot_pat
 
 def _applies(issue: TimelineIssue, variant: FinalCutVariant) -> bool:
     return issue.applies_to is IssueScope.ALL or variant.with_narration
+
+
+def _expected_audio_spans(
+    plan: RenderPlan, placement: DraftPlacement | None, bgm: Sequence[BgmInput]
+) -> tuple[TimeSpan, ...]:
+    """成片里预期有声的窗口：出声的源音频片段、旁白与 BGM；窗口外的静默是正常留白，不记静音告警。"""
+    fps = plan.profile.fps
+    spans = [
+        TimeSpan(planned.start_frame / fps, (planned.start_frame + planned.source_frames) / fps)
+        for planned in plan.clips
+        if planned.clip.has_audio and planned.clip.source_volume > 0 and planned.source_frames > 0
+    ]
+    if placement is not None:
+        spans += [
+            TimeSpan(narration.start_us / 1_000_000, narration.end_us / 1_000_000) for narration in placement.narrations
+        ]
+    spans += [TimeSpan(item.start_us / 1_000_000, (item.start_us + item.duration_us) / 1_000_000) for item in bgm]
+    return tuple(spans)
 
 
 @dataclass(frozen=True, slots=True)
@@ -495,13 +521,15 @@ class FinalCutService:
             platform,
             loudness=rendered.acceptance,
         )
-        sheet_path = await self._contact_sheet(
+        sheet_path, signal_warnings = await self._sheet_and_signals(
             project_dir,
             episode=inputs.episode,
             timeline_id=inputs.timeline_id,
             variant=variant,
             version=rendered.record.version,
             video=project_dir / rendered.artifact_path,
+            expected_audio=_expected_audio_spans(plan, placement, bgm),
+            audio_duration=rendered.acceptance.audio_duration,
         )
         return FinalCutRender(
             episode=inputs.episode,
@@ -513,12 +541,12 @@ class FinalCutService:
             version=rendered.record.version,
             rendered_at=rendered.record.rendered_at,
             acceptance=rendered.acceptance,
-            warnings=checked.check.warnings,
+            warnings=(*checked.check.warnings, *signal_warnings),
             delivery=delivery,
             sheet_path=sheet_path,
         )
 
-    async def _contact_sheet(
+    async def _sheet_and_signals(
         self,
         project_dir: Path,
         *,
@@ -527,17 +555,27 @@ class FinalCutService:
         variant: FinalCutVariant,
         version: int,
         video: Path,
-    ) -> str | None:
-        """best-effort 生成成片联系表；失败不阻断出片，只是这一版没有联系表。"""
+        expected_audio: Sequence[TimeSpan],
+        audio_duration: float,
+    ) -> tuple[str | None, tuple[FinalCutSignalWarning, ...]]:
+        """best-effort 生成成片联系表与内容信号告警；失败不阻断出片，只是这一版没有联系表与画面告警。"""
         sheet_path = final_cut_sheet_path(episode, timeline_id, variant)
+        materials, silence = await asyncio.gather(
+            load_sheet_materials(video),
+            detect_silence_spans(video, duration_seconds=audio_duration),
+        )
+        if materials is None:
+            return None, ()
+        warnings = content_signal_warnings(materials.signals, silence, expected_audio=expected_audio)
         if not await build_final_cut_sheet(
             video,
             project_dir / sheet_path,
             label=f"final_cut.{variant.slug}",
             version=version,
+            materials=materials,
         ):
-            return None
-        return sheet_path
+            return None, warnings
+        return sheet_path, warnings
 
     async def _delivery_check(
         self,

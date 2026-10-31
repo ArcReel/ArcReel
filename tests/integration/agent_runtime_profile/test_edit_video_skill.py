@@ -14,3 +14,5 @@ def test_final_cut_delivery_requires_looking_at_the_contact_sheet_first() -> Non
     assert "交付检查结论" in section
     # 看图与读交付结论都在给出下载链接与验收结果之前。
     assert section.index("先看图") < section.index("再给出下载链接")
+    # 摘要带画面警告时，验收里逐条列出并提示核对。
+    assert "画面警告" in section
