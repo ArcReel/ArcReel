@@ -137,6 +137,7 @@ _FINAL_CUT_STATUS: dict[str, int] = {
     "final_cut_ffmpeg_unavailable": 503,
     "final_cut_render_failed": 500,
     "final_cut_acceptance_failed": 500,
+    "final_cut_unknown_platform": 422,
 }
 
 
@@ -419,12 +420,17 @@ async def read_final_cut(
     service: FinalCutServiceDep,
     narration: DraftNarration | None = Query(None, description="旁白版本；省略时按项目取默认版本"),
     subtitles: SubtitleMode | None = Query(None, description="字幕方式；省略时为烧入字幕"),
+    platform: str | None = Query(None, description="交付检查的平台；省略时按画幅推导默认平台"),
 ) -> FinalCutStatusResponse:
     """成片现状；stale 的成片仍可下载，``download_url`` 只在文件存在时给出。"""
     try:
-        status = await service.status(project_name, timeline_id, narration=narration, subtitles=subtitles)
+        status = await service.status(
+            project_name, timeline_id, narration=narration, subtitles=subtitles, platform=platform
+        )
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
+    except FinalCutError as exc:
+        raise final_cut_api_error(exc) from exc
     download_url = (
         final_cut_download_url(project_name, status.artifact_path, status.version)
         if status.version is not None

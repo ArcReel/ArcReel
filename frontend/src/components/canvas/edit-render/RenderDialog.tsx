@@ -13,6 +13,7 @@ import { errMsg } from "@/utils/async";
 import { formatRelativeTime, isJustNow } from "@/utils/date-format";
 import { triggerBrowserDownload } from "@/utils/download";
 import type {
+  DeliveryCheck,
   EditTimelineIssueRef,
   JianyingVersion,
   RenderArtifactStatus,
@@ -306,6 +307,9 @@ function RenderPanel({
             loadError={state.loadError}
             language={i18n.language}
           />
+          {!isDraft && artifact !== null && "delivery" in artifact && (
+            <DeliverySection delivery={artifact.delivery} />
+          )}
 
           {isDraft && (
             <>
@@ -478,6 +482,43 @@ function ArtifactStatusRow({
           <span className="text-xs text-subtle-foreground">{t("edit_render_status_stale_hint")}</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** 交付检查结果：一行结论 + 非通过行明细；全部通过时只有结论。 */
+function DeliverySection({ delivery }: { delivery: DeliveryCheck | null }) {
+  const { t, i18n } = useTranslation("dashboard");
+  if (delivery === null) return null;
+  const platform = t(`delivery_platform_${delivery.platform}`);
+  const problems = delivery.rows.filter((row) => row.status !== "pass");
+  const fails = problems.filter((row) => row.status === "fail").length;
+  const warns = problems.length - fails;
+  const separator = i18n.language === "zh" ? "；" : "; ";
+  const details = problems
+    .slice(0, 3)
+    .map((row) => t(row.hint_key ?? "delivery_hint_probe_incomplete", row.hint_params))
+    .join(separator);
+  const summary = t(fails > 0 ? "delivery_summary_fail" : warns > 0 ? "delivery_summary_warn" : "delivery_summary_pass", {
+    platform,
+    count: fails > 0 ? fails : warns > 0 ? warns : delivery.rows.length,
+    details: problems.length > 3 ? `${details}${separator}${t("delivery_more", { count: problems.length })}` : details,
+  });
+  const tone = fails > 0 ? "text-destructive" : warns > 0 ? "text-warn" : "text-good";
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-border/50 bg-muted/50 px-3 py-2.5 text-sm">
+      <span className={tone}>{summary}</span>
+      {problems.length > 0 && (
+        <ul className="flex flex-col gap-1" aria-label={t("delivery_title")}>
+          {problems.map((row) => (
+            <li key={row.field} className={cn("text-xs", row.status === "fail" ? "text-destructive" : "text-warn")}>
+              {row.hint_key !== null && row.hint_key !== undefined
+                ? t(row.hint_key, row.hint_params)
+                : `${t(`delivery_field_${row.field}`)}: ${row.expected ?? ""} → ${row.actual ?? ""}`}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

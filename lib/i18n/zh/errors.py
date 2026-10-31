@@ -745,6 +745,7 @@ MESSAGES = {
     "final_cut_render_failed": "成片渲染失败，请重试",
     "final_cut_acceptance_failed": "渲染出的成片未通过验收，请重试",
     "final_cut_render_in_progress": "这条剪辑时间线已有一个参数不同的成片渲染任务在排队或执行（{task_id}），请等它结束后再提交",
+    "final_cut_unknown_platform": "平台「{platform}」没有交付规格，无法按它检查成片，请核对平台名",
     # Jianying draft
     "jianying_draft_narration_unavailable": "只有 TTS 配音项目可以导出带旁白版本的剪映草稿",
     "jianying_draft_blocked": "剪辑时间线有阻止导出剪映草稿的问题，涉及视频单元：{units}。处理这些问题后再提交导出",

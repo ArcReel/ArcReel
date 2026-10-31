@@ -806,6 +806,7 @@ MESSAGES = {
     "final_cut_render_failed": "Rendering the final cut failed; please try again",
     "final_cut_acceptance_failed": "The rendered final cut failed acceptance; please try again",
     "final_cut_render_in_progress": "A final-cut render with different parameters is already queued or running for this edit timeline ({task_id}); submit again after it finishes",
+    "final_cut_unknown_platform": "No delivery spec for platform '{platform}', so the final cut cannot be checked against it; check the platform name",
     # Jianying draft
     "jianying_draft_narration_unavailable": "Only TTS voiceover projects can export the Jianying draft version with narration",
     "jianying_draft_blocked": "The edit timeline has issues that block exporting the Jianying draft, in video units: {units}. Resolve them, then submit the export again",

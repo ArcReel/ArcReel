@@ -808,6 +808,7 @@ MESSAGES = {
     "final_cut_render_failed": "Kết xuất video thành phẩm thất bại, vui lòng thử lại",
     "final_cut_acceptance_failed": "Video thành phẩm vừa kết xuất không đạt kiểm tra, vui lòng thử lại",
     "final_cut_render_in_progress": "Dòng thời gian dựng này đã có một tác vụ kết xuất với tham số khác đang chờ hoặc đang chạy ({task_id}); hãy gửi lại sau khi tác vụ đó kết thúc",
+    "final_cut_unknown_platform": "Nền tảng '{platform}' không có quy cách xuất bản nên không thể kiểm tra video thành phẩm; hãy kiểm tra lại tên nền tảng",
     # Jianying draft
     "jianying_draft_narration_unavailable": "Chỉ dự án lồng tiếng TTS mới xuất được bản nháp Jianying có lời dẫn",
     "jianying_draft_blocked": "Dòng thời gian dựng có vấn đề chặn việc xuất bản nháp Jianying, ở các đơn vị video: {units}. Hãy xử lý các vấn đề này rồi gửi xuất lại",

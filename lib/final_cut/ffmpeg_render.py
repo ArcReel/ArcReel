@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lib.bgm.loudness import LoudnessMeasurementError, LoudnessSummary, measure_loudness
+from lib.delivery.platforms import SafeZone
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.loudness import is_silent_loudness, loudness_warnings, normalize_audio_filter
 from lib.final_cut.render_plan import PlannedClip, RenderPlan, RenderSegment
@@ -437,6 +438,7 @@ async def render_plan_to_file(
     subtitles: Sequence[BurnedSubtitle] | None = None,
     deadlines: RenderDeadlines = DEFAULT_RENDER_DEADLINES,
     spawn: Spawner | None = None,
+    safe_zone: SafeZone | None = None,
 ) -> None:
     """执行渲染规划：逐段渲染画面、整集混音并归一响度，再拼接封装到 ``output``；中间文件只写在 ``workspace``。
 
@@ -445,7 +447,7 @@ async def render_plan_to_file(
     fps = plan.profile.fps
     burn = subtitles is not None
     if subtitles is not None:
-        await run_sync_transaction(_stage_subtitles, workspace, ass_document(subtitles, plan.profile))
+        await run_sync_transaction(_stage_subtitles, workspace, ass_document(subtitles, plan.profile, safe_zone))
     segment_files: list[Path] = []
     for index, segment in enumerate(plan.segments):
         segment_file = workspace / f"segment_{index:04d}.mp4"

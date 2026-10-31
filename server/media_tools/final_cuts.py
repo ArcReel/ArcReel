@@ -12,11 +12,13 @@ from urllib.parse import quote
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 
+from lib.delivery.platforms import PLATFORMS, DeliveryCheck
 from lib.edit_timeline.errors import EditTimelineError
 from lib.final_cut.basis import BURNED_SUBTITLES, NO_SUBTITLES
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutRender, FinalCutService
 from lib.generation.generation_batch import GenerationBatchReadModel
+from lib.i18n import _ as translate
 from lib.jianying_draft.basis import DraftNarration
 from server.agent_toolset.envelope import json_value
 from server.media_tools.context import tool_error, tool_problem
@@ -115,6 +117,22 @@ def final_cut_projection(value: FinalCutToolValue) -> dict[str, Any]:
     return json_value(value)
 
 
+def _delivery_sentence(delivery: DeliveryCheck) -> str:
+    """交付检查结论的一句话：点名平台，非通过行按文案键渲染（最多列 3 条）。"""
+    name = translate(PLATFORMS[delivery.platform].name_key)
+    details = [
+        translate(row.hint_key, **row.hint_params)
+        for row in delivery.rows
+        if row.status != "pass" and row.hint_key is not None
+    ]
+    shown = "；".join(details[:3]) + (f" 等 {len(details)} 项" if len(details) > 3 else "")
+    if delivery.fail_count:
+        return translate("delivery_summary_fail", platform=name, count=delivery.fail_count, details=shown)
+    if delivery.warn_count:
+        return translate("delivery_summary_warn", platform=name, count=delivery.warn_count, details=shown)
+    return translate("delivery_summary_pass", platform=name, count=len(delivery.rows))
+
+
 def final_cut_summary(value: FinalCutToolValue) -> str | None:
     if isinstance(value, GenerationBatchReadModel):
         return None
@@ -127,10 +145,11 @@ def final_cut_summary(value: FinalCutToolValue) -> str | None:
         else ""
     )
     loudness_warnings = f"；{'；'.join(acceptance.loudness_warnings)}" if acceptance.loudness_warnings else ""
+    delivery = f"{_delivery_sentence(final_cut.delivery)}。" if final_cut.delivery is not None else ""
     return (
         f"成片已渲染：剪辑时间线 {final_cut.timeline_id} 修订 {final_cut.revision}，第 {final_cut.version} 版，"
         f"时长 {acceptance.video_duration} 秒（剪辑时间线 {acceptance.expected_duration} 秒）{loudness}{warnings}{loudness_warnings}。"
-        f"下载：{value.download_url}"
+        f"下载：{value.download_url}{delivery}"
     )
 
 

@@ -6,6 +6,7 @@ from typing import Any
 
 from .display_names import DisplayNames
 from .en import assets as en_assets
+from .en import delivery as en_delivery
 from .en import emails as en_emails
 from .en import errors as en_errors
 from .en import events as en_events
@@ -14,6 +15,7 @@ from .en import system as en_system
 from .en import templates as en_templates
 from .en import validation as en_validation
 from .vi import assets as vi_assets
+from .vi import delivery as vi_delivery
 from .vi import emails as vi_emails
 from .vi import errors as vi_errors
 from .vi import events as vi_events
@@ -22,6 +24,7 @@ from .vi import system as vi_system
 from .vi import templates as vi_templates
 from .vi import validation as vi_validation
 from .zh import assets as zh_assets
+from .zh import delivery as zh_delivery
 from .zh import emails as zh_emails
 from .zh import errors as zh_errors
 from .zh import events as zh_events
@@ -53,6 +56,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         **zh_providers.MESSAGES,
         **zh_templates.MESSAGES,
         **zh_assets.MESSAGES,
+        **zh_delivery.MESSAGES,
         **zh_validation.MESSAGES,
     },
     "en": {
@@ -63,6 +67,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         **en_providers.MESSAGES,
         **en_templates.MESSAGES,
         **en_assets.MESSAGES,
+        **en_delivery.MESSAGES,
         **en_validation.MESSAGES,
     },
     "vi": {
@@ -73,6 +78,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         **vi_providers.MESSAGES,
         **vi_templates.MESSAGES,
         **vi_assets.MESSAGES,
+        **vi_delivery.MESSAGES,
         **vi_validation.MESSAGES,
     },
 }

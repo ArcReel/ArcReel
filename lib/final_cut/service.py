@@ -13,6 +13,7 @@ BGM 按片段起点混入整集音频，音量是登记时缓存的响度增益�
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,8 @@ from lib.artifacts.artifact_manifest import ArtifactStatus, ProjectArtifactManif
 from lib.artifacts.rendered_artifact import commit_rendered_artifact, read_render_record
 from lib.artifacts.version_manager import VersionManager, VersionSnapshotCorruptedError
 from lib.bgm.library import resolve_bgm_sources
+from lib.bgm.loudness import LoudnessMeasurementError, LoudnessSummary, measure_loudness
+from lib.delivery.platforms import PLATFORMS, DeliveryCheck, check_delivery, default_platform
 from lib.edit_timeline.bgm import bgm_ids, place_bgm
 from lib.edit_timeline.errors import EditTimelineError
 from lib.edit_timeline.model import EditTimelineDocument, TimelineRevision
@@ -63,7 +66,7 @@ from lib.final_cut.ffmpeg_render import (
 from lib.final_cut.render_plan import RenderMedia, plan_render, render_clips
 from lib.final_cut.subtitles import BurnedSubtitle
 from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable
-from lib.infra.media_probe import MediaProbeError, probe_media
+from lib.infra.media_probe import MediaProbe, MediaProbeError, probe_media
 from lib.infra.path_safety import PathTraversalError, safe_join
 from lib.infra.subprocess_deadline import Spawner
 from lib.jianying_draft.basis import DraftNarration
@@ -77,6 +80,8 @@ from lib.jianying_draft.placement import (
 from lib.project.project_manager import ProjectManager
 from lib.speech.narration_config import project_narration_delivery
 from lib.speech.narration_delivery import USE_TTS
+
+logger = logging.getLogger(__name__)
 
 
 class FinalCutCheck(BaseModel):
@@ -112,6 +117,8 @@ class FinalCutRender(BaseModel):
     rendered_at: str
     acceptance: FinalCutAcceptance
     warnings: tuple[TimelineIssue, ...]
+    delivery: DeliveryCheck | None = None
+    """按画幅推导的默认平台的交付检查；探测不出时没有。"""
 
 
 class FinalCutStatus(BaseModel):
@@ -127,6 +134,8 @@ class FinalCutStatus(BaseModel):
     artifact_path: str
     version: int | None
     rendered_at: str | None
+    delivery: DeliveryCheck | None = None
+    """按请求平台（缺省按画幅推导）的交付检查；没有成片文件时没有。"""
 
 
 def _verify_snapshots(versions: VersionManager, resource_type: str, snapshot_paths: set[str]) -> None:
@@ -431,6 +440,8 @@ class FinalCutService:
         plan = plan_render(render_clips([item.clip for item in inputs.clips], media), inputs.profile)
         if not plan.segments:
             raise FinalCutError("final_cut_empty", "剪辑时间线没有可渲染的剪辑片段", timeline_id=inputs.timeline_id)
+        platform = default_platform(plan.profile.width, plan.profile.height)
+        safe_zone = PLATFORMS[platform].safe_zone
         placement = self._placement(checked, materials, media) if materials is not None else None
         burned: tuple[BurnedSubtitle, ...] | None = None
         if placement is not None and variant.burns_subtitles:
@@ -459,6 +470,7 @@ class FinalCutService:
                 subtitles=burned,
                 deadlines=self._deadlines,
                 spawn=self._spawn,
+                safe_zone=safe_zone,
             )
 
         async def accept_step(output: Path) -> FinalCutAcceptance:
@@ -472,6 +484,11 @@ class FinalCutService:
             render=render_step,
             accept=accept_step,
         )
+        delivery = await self._delivery_check(
+            project_dir / rendered.artifact_path,
+            platform,
+            loudness=rendered.acceptance,
+        )
         return FinalCutRender(
             episode=inputs.episode,
             timeline_id=inputs.timeline_id,
@@ -483,6 +500,31 @@ class FinalCutService:
             rendered_at=rendered.record.rendered_at,
             acceptance=rendered.acceptance,
             warnings=checked.check.warnings,
+            delivery=delivery,
+        )
+
+    async def _delivery_check(
+        self,
+        path: Path,
+        platform: str,
+        *,
+        loudness: FinalCutAcceptance | LoudnessSummary | None = None,
+        probe: MediaProbe | None = None,
+    ) -> DeliveryCheck | None:
+        """交付检查（只报告，不阻断出片）：探测成片文件并核对平台规格；文件探测不出时没有检查结果。"""
+        try:
+            if probe is None:
+                probe = await probe_media(path, spawn=self._spawn)
+            file_size = await asyncio.to_thread(lambda: path.stat().st_size)
+        except (MediaProbeError, OSError):
+            logger.warning("交付检查跳过：无法探测 %s", path, exc_info=True)
+            return None
+        return check_delivery(
+            probe,
+            platform,
+            file_size_bytes=file_size,
+            integrated_lufs=loudness.integrated_lufs if loudness is not None else None,
+            true_peak_dbtp=loudness.true_peak_dbtp if loudness is not None else None,
         )
 
     async def status(
@@ -492,10 +534,14 @@ class FinalCutService:
         *,
         narration: DraftNarration | None = None,
         subtitles: SubtitleMode | None = None,
+        platform: str | None = None,
     ) -> FinalCutStatus:
-        """一个成片产物身份的时效：current、stale（仍可下载）或 missing；省略的选项按项目补齐，同 :meth:`check`。"""
+        """一个成片产物身份的时效：current、stale（仍可下载）或 missing；省略的选项按项目补齐，同 :meth:`check`。
 
-        def resolve() -> FinalCutStatus:
+        有成片文件时附交付检查：``platform`` 省略时按项目画幅推导默认平台。
+        """
+
+        def resolve() -> tuple[FinalCutStatus, str | None]:
             project_dir = self._project_dir(project_name)
             document = EditTimelineStore(self._projects, project_name).find(timeline_id)
             project = self._projects.load_project(project_name)
@@ -510,18 +556,55 @@ class FinalCutService:
                 if comparison.status in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}
                 else None
             )
-            return FinalCutStatus(
-                episode=document.episode,
-                timeline_id=document.id,
-                narration=chosen.narration,
-                subtitles=chosen.subtitles,
-                status=comparison.status,
-                artifact_path=artifact_path,
-                version=record.version if record is not None else None,
-                rendered_at=record.rendered_at if record is not None else None,
+            target_platform: str | None = None
+            if comparison.status in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}:
+                if platform is not None:
+                    if platform not in PLATFORMS:
+                        raise FinalCutError(
+                            "final_cut_unknown_platform", f"平台「{platform}」没有交付规格", platform=platform
+                        )
+                    target_platform = platform
+                else:
+                    script = load_episode_script_units(self._projects, project_name, document.episode)
+                    profile = output_profile_for_project(project, script.kind)
+                    target_platform = default_platform(profile.width, profile.height)
+            return (
+                FinalCutStatus(
+                    episode=document.episode,
+                    timeline_id=document.id,
+                    narration=chosen.narration,
+                    subtitles=chosen.subtitles,
+                    status=comparison.status,
+                    artifact_path=artifact_path,
+                    version=record.version if record is not None else None,
+                    rendered_at=record.rendered_at if record is not None else None,
+                ),
+                target_platform,
             )
 
-        return await asyncio.to_thread(resolve)
+        resolved, target_platform = await asyncio.to_thread(resolve)
+        if target_platform is None:
+            return resolved
+        project_dir = await asyncio.to_thread(self._project_dir, project_name)
+        path = project_dir / resolved.artifact_path
+        try:
+            probe = await probe_media(path, spawn=self._spawn)
+        except (MediaProbeError, OSError):
+            logger.warning("交付检查跳过：无法探测 %s", path, exc_info=True)
+            return resolved
+        loudness: LoudnessSummary | None = None
+        try:
+            loudness = await measure_loudness(
+                ffmpeg_executable(),
+                path,
+                duration_seconds=probe.duration_seconds or 0.0,
+                spawn=self._spawn,
+                true_peak=True,
+            )
+        except (LoudnessMeasurementError, FfmpegUnavailableError, OSError):
+            logger.warning("交付检查跳过响度：%s", path, exc_info=True)
+        delivery = await self._delivery_check(path, target_platform, loudness=loudness, probe=probe)
+        return resolved.model_copy(update={"delivery": delivery})
 
 
 __all__ = ["FinalCutCheck", "FinalCutRender", "FinalCutService", "FinalCutStatus"]

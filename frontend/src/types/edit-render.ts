@@ -36,11 +36,32 @@ interface RenderArtifactStatusBase {
   rendered_at: string | null;
 }
 
+/** 交付检查一行的状态。 */
+export type DeliveryRowStatus = "pass" | "warn" | "fail";
+
+/** 交付检查的一行：字段、期望与实测、文案键与参数（前端按 locale 渲染）。 */
+export interface DeliveryRow {
+  field: string;
+  status: DeliveryRowStatus;
+  expected: string | null;
+  actual: string | null;
+  hint_key: string | null;
+  hint_params: Record<string, string | number>;
+}
+
+/** 一次平台交付检查的完整结果；按请求平台（缺省按画幅推导）检查。 */
+export interface DeliveryCheck {
+  platform: string;
+  rows: DeliveryRow[];
+}
+
 export interface FinalCutStatus extends RenderArtifactStatusBase {
   narration: TimelineNarration;
   subtitles: SubtitleMode;
   /** 只在文件存在时给出；走匿名媒体路由，可直接下载。 */
   download_url: string | null;
+  /** 按画幅推导的默认平台（或请求指定平台）的交付检查；没有成片文件时没有。 */
+  delivery: DeliveryCheck | null;
 }
 
 export interface JianyingDraftStatus extends RenderArtifactStatusBase {

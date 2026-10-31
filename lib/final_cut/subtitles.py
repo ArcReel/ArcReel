@@ -14,6 +14,7 @@ import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from lib.delivery.platforms import SafeZone
 from lib.final_cut.render_plan import OutputProfile
 from lib.infra.text_metrics import count_reading_units
 from lib.subtitle_style.baseline import JIANYING_FONT_PX_PER_SIZE, subtitle_style_baseline
@@ -37,31 +38,55 @@ class SubtitleLayout:
     """成片画布上的字幕版式（像素）。
 
     ``em`` 是字身；``line_capacity`` 是一行可用宽度能放下的全角字数，即「可用宽度 ÷ 字号」；
-    ``margin_x`` 是左右边距，``margin_bottom`` 是底边到单行字幕行盒底部的距离。
+    ``margin_left``/``margin_right`` 是左右边距（有安全区时字幕块在安全区内居中，两侧不等），
+    ``margin_bottom`` 是底边到单行字幕行盒底部的距离。
     """
 
     width: int
     height: int
     em: int
     line_capacity: float
-    margin_x: int
+    margin_left: int
+    margin_right: int
     margin_bottom: int
 
 
-def subtitle_layout(profile: OutputProfile) -> SubtitleLayout:
-    """按样式基线把剪映字号、行宽与纵向位置换算到成片画布。"""
+def subtitle_layout(profile: OutputProfile, safe_zone: SafeZone | None = None) -> SubtitleLayout:
+    """按样式基线把剪映字号、行宽与纵向位置换算到成片画布。
+
+    给出 ``safe_zone`` 时，行宽收缩到安全区宽度内、字幕块在安全区内水平居中、
+    底边距抬到不低于安全区下沿；不给时与样式基线默认版式完全一致（兜底）。
+    """
     baseline = subtitle_style_baseline(profile.width, profile.height)
     em = round(baseline.size * JIANYING_FONT_PX_PER_SIZE * min(profile.width, profile.height) / _BASE_SHORT_SIDE)
-    usable = profile.width * baseline.max_line_width
     center_from_top = profile.height * (1 - baseline.transform_y) / 2
     cell = em * cell_height_per_em()
+    if safe_zone is None:
+        usable = profile.width * baseline.max_line_width
+        return SubtitleLayout(
+            width=profile.width,
+            height=profile.height,
+            em=em,
+            line_capacity=usable / em,
+            margin_left=round((profile.width - usable) / 2),
+            margin_right=round((profile.width - usable) / 2),
+            margin_bottom=max(round(profile.height - center_from_top - cell / 2), 0),
+        )
+    safe_width = max(profile.width * (1 - safe_zone.left - safe_zone.right), 0)
+    usable = safe_width * baseline.max_line_width
+    center_x = profile.width * (safe_zone.left + (1 - safe_zone.left - safe_zone.right) / 2)
     return SubtitleLayout(
         width=profile.width,
         height=profile.height,
         em=em,
         line_capacity=usable / em,
-        margin_x=round((profile.width - usable) / 2),
-        margin_bottom=max(round(profile.height - center_from_top - cell / 2), 0),
+        margin_left=round(center_x - usable / 2),
+        margin_right=round(profile.width - center_x - usable / 2),
+        margin_bottom=max(
+            round(profile.height - center_from_top - cell / 2),
+            round(profile.height * safe_zone.bottom),
+            0,
+        ),
     )
 
 
@@ -171,9 +196,9 @@ def _escape(line: str) -> str:
     return line.replace("\\", "＼").replace("{", "｛").replace("}", "｝")
 
 
-def ass_document(subtitles: Sequence[BurnedSubtitle], profile: OutputProfile) -> str:
-    """整集字幕的 ASS 文档；画布即成片画布，时间即成片时间。"""
-    layout = subtitle_layout(profile)
+def ass_document(subtitles: Sequence[BurnedSubtitle], profile: OutputProfile, safe_zone: SafeZone | None = None) -> str:
+    """整集字幕的 ASS 文档；画布即成片画布，时间即成片时间，版式避让 ``safe_zone``。"""
+    layout = subtitle_layout(profile, safe_zone)
     font_size = round(layout.em * cell_height_per_em())
     outline = round(layout.em * _OUTLINE_PER_EM, 1)
     shadow = round(layout.em * _SHADOW_PER_EM, 1)
@@ -191,7 +216,7 @@ def ass_document(subtitles: Sequence[BurnedSubtitle], profile: OutputProfile) ->
         "MarginL, MarginR, MarginV, Encoding",
         f"Style: Subtitle,{SUBTITLE_FONT_FAMILY},{font_size},&H00FFFFFF,&H00FFFFFF,&H00000000,"
         f"&H{_SHADOW_ALPHA:02X}000000,-1,0,0,0,100,100,0,0,1,{outline},{shadow},2,"
-        f"{layout.margin_x},{layout.margin_x},{layout.margin_bottom},1",
+        f"{layout.margin_left},{layout.margin_right},{layout.margin_bottom},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

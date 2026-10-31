@@ -19,6 +19,7 @@ function finalCut(overrides: Partial<FinalCutStatus> = {}): FinalCutStatus {
     version: null,
     rendered_at: null,
     download_url: null,
+    delivery: null,
     ...overrides,
   };
 }
@@ -138,6 +139,63 @@ describe("RenderDialog", () => {
     expect(screen.getByText("旧文件仍可下载，重新生成后会被替换。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下载" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "重新渲染" })).toBeEnabled();
+  });
+
+  it("交付检查有警告时列出非通过行", async () => {
+    vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(
+      finalCut({
+        status: "current",
+        version: 1,
+        download_url: "/api/v1/files/demo/a.mp4?v=1",
+        delivery: {
+          platform: "douyin",
+          rows: [
+            {
+              field: "aspect_ratio",
+              status: "pass",
+              expected: "9:16、1:1、16:9",
+              actual: "9:16",
+              hint_key: null,
+              hint_params: {},
+            },
+            {
+              field: "duration",
+              status: "warn",
+              expected: "≤ 15 min",
+              actual: "14 min",
+              hint_key: "delivery_hint_duration_near_limit",
+              hint_params: { actual: "14 min", max: "15 min" },
+            },
+          ],
+        },
+      }),
+    );
+
+    renderDialog();
+
+    expect(await screen.findByText("交付检查（抖音）：1 项警告 — 时长 14 min 接近平台上限 15 min")).toBeInTheDocument();
+    expect(screen.getByText("时长 14 min 接近平台上限 15 min")).toBeInTheDocument();
+  });
+
+  it("交付检查全部通过时只显示结论", async () => {
+    vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(
+      finalCut({
+        status: "current",
+        version: 1,
+        delivery: {
+          platform: "douyin",
+          rows: [
+            { field: "aspect_ratio", status: "pass", expected: "9:16", actual: "9:16", hint_key: null, hint_params: {} },
+            { field: "duration", status: "pass", expected: "≤ 15 min", actual: "1 s", hint_key: null, hint_params: {} },
+          ],
+        },
+      }),
+    );
+
+    renderDialog();
+
+    expect(await screen.findByText("交付检查（抖音）：2 项全部通过")).toBeInTheDocument();
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
   it("提交后在对话框内显示任务进度", async () => {

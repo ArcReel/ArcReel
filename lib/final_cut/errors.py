@@ -14,6 +14,7 @@ type FinalCutErrorCode = Literal[
     "final_cut_ffmpeg_unavailable",
     "final_cut_render_failed",
     "final_cut_acceptance_failed",
+    "final_cut_unknown_platform",
 ]
 
 

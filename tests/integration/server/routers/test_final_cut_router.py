@@ -98,6 +98,43 @@ async def test_submit_queues_a_render_task_and_status_reads_missing_until_render
     assert after.json()["download_url"] == f"/api/v1/files/demo/{rendered.artifact_path}?v=1"
 
 
+async def test_render_and_status_carry_the_delivery_check(
+    tmp_path: Path, timeline_project: ProjectManager, final_cut_client: AsyncClient
+) -> None:
+    _install(timeline_project, tmp_path, "E1U1")
+    _install(timeline_project, tmp_path, "E1U2")
+    timeline_id = await _timeline(timeline_project)
+    url = f"/api/v1/projects/demo/edit-timelines/{timeline_id}/final-cut"
+    clean = {"subtitles": "no_subtitles"}
+    await final_cut_client.post(url, json=clean)
+
+    rendered = await FinalCutService(timeline_project).render(
+        "demo", timeline_id, narration="without_narration", subtitles="no_subtitles"
+    )
+    defaulted = await final_cut_client.get(url, params=clean)
+    tiktok = await final_cut_client.get(url, params={**clean, "platform": "tiktok"})
+    bogus = await final_cut_client.get(url, params={**clean, "platform": "nosuchplatform"})
+
+    # demo 项目是 9:16：默认平台推导出抖音，交付行覆盖规格表的主要字段。
+    assert rendered.delivery is not None
+    assert rendered.delivery.platform == "douyin"
+    fields = {row.field for row in rendered.delivery.rows}
+    assert {
+        "aspect_ratio",
+        "resolution",
+        "duration",
+        "fps",
+        "container",
+        "video_codec",
+        "audio_codec",
+        "file_size",
+    } <= fields
+    assert defaulted.json()["delivery"]["platform"] == "douyin"
+    assert tiktok.json()["delivery"]["platform"] == "tiktok"
+    assert bogus.status_code == 422
+    assert bogus.json()["detail"]
+
+
 async def test_omitted_options_follow_the_project_and_burn_subtitles_while_narration_needs_tts(
     tmp_path: Path, timeline_project: ProjectManager, final_cut_client: AsyncClient
 ) -> None:
