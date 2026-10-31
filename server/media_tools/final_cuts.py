@@ -121,9 +121,15 @@ def final_cut_summary(value: FinalCutToolValue) -> str | None:
     final_cut = value.final_cut
     acceptance = final_cut.acceptance
     warnings = f"；警告 {len(final_cut.warnings)} 条" if final_cut.warnings else ""
+    loudness = (
+        f"，响度 {acceptance.integrated_lufs:.1f} LUFS / 峰值 {acceptance.true_peak_dbtp:.1f} dBTP"
+        if acceptance.integrated_lufs is not None and acceptance.true_peak_dbtp is not None
+        else ""
+    )
+    loudness_warnings = f"；{'；'.join(acceptance.loudness_warnings)}" if acceptance.loudness_warnings else ""
     return (
         f"成片已渲染：剪辑时间线 {final_cut.timeline_id} 修订 {final_cut.revision}，第 {final_cut.version} 版，"
-        f"时长 {acceptance.video_duration} 秒（剪辑时间线 {acceptance.expected_duration} 秒）{warnings}。"
+        f"时长 {acceptance.video_duration} 秒（剪辑时间线 {acceptance.expected_duration} 秒）{loudness}{warnings}{loudness_warnings}。"
         f"下载：{value.download_url}"
     )
 

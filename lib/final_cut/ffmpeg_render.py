@@ -6,22 +6,25 @@
 渲染。各段用同一组编码参数输出，最后以 ``-c copy`` 无损拼接。音频不分段：整集原声按片段音量与帧边界、
 旁白配音（仅带旁白版本）按承载片段的起点、BGM 按片段起点以响度增益乘片段音量并做淡入淡出，一次混音、
 一次编码，再与拼好的画面封装，避免各段 AAC 编码的前置填充在段边界产生缝隙与累积偏差。各路相加后先过限幅器，
-高增益 BGM 与原声、旁白叠加也不越过满幅。旁白越界如实渲染：
+高增益 BGM 与原声、旁白叠加也不越过满幅。混音后按 EBU R128 实测归一到目标响度与真峰（无声混音保持原样），交付文件的响度在验收时重测记录。旁白越界如实渲染：
 重叠处同时响起，超出末尾的部分随成片截止。
 """
 
 from __future__ import annotations
 
+import math
 import shutil
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from lib.bgm.loudness import LoudnessMeasurementError, LoudnessSummary, measure_loudness
 from lib.final_cut.errors import FinalCutError
+from lib.final_cut.loudness import is_silent_loudness, loudness_warnings, normalize_audio_filter
 from lib.final_cut.render_plan import PlannedClip, RenderPlan, RenderSegment
 from lib.final_cut.subtitles import BurnedSubtitle, ass_document
 from lib.infra.async_thread import run_sync_transaction
-from lib.infra.ffmpeg import ffmpeg_status, local_file_input
+from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable, ffmpeg_status, local_file_input
 from lib.infra.media_probe import MediaProbeError, probe_media
 from lib.infra.subprocess_deadline import (
     DEFAULT_TERMINATE_GRACE_SECONDS,
@@ -73,6 +76,7 @@ FINAL_CUT_COMPONENTS: dict[str, frozenset[str]] = {
             "aresample",
             "asetpts",
             "atrim",
+            "ebur128",
             "fade",
             "fps",
             "format",
@@ -316,6 +320,64 @@ def audio_mix_args(
     ]
 
 
+def normalize_reencode_args(
+    ffmpeg: str, audio: Path, output: Path, measurement: LoudnessSummary, *, total_samples: int
+) -> list[str]:
+    """响度归一的重编码参数：整集混音按实测值归一（二遍线性 loudnorm，或常数增益加限幅），编码参数与混音输出一致。
+
+    混音容器里的 AAC 解码比混音多一段前置填充，重编码前按混音采样数截止，填充不逐代累积。
+    """
+    return [
+        *_base_args(ffmpeg),
+        *local_file_input(audio),
+        "-af",
+        f"atrim=end_sample={total_samples},asetpts=PTS-STARTPTS,{normalize_audio_filter(measurement)}",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-ar",
+        str(AUDIO_SAMPLE_RATE),
+        "-f",
+        "mp4",
+        str(output),
+    ]
+
+
+async def _normalize_audio_loudness(
+    ffmpeg: str,
+    mix: Path,
+    workspace: Path,
+    *,
+    duration_seconds: float,
+    total_samples: int,
+    deadlines: RenderDeadlines,
+    spawn: Spawner | None,
+) -> Path:
+    """实测整集混音后归一到目标响度，返回供封装的音轨路径；无声混音原样返回。"""
+    try:
+        measurement = await measure_loudness(
+            ffmpeg,
+            mix,
+            duration_seconds=duration_seconds,
+            spawn=spawn,
+            true_peak=True,
+        )
+    except LoudnessMeasurementError as exc:
+        raise FinalCutError("final_cut_render_failed", f"混音响度实测失败：{exc}") from exc
+    if is_silent_loudness(measurement.integrated_lufs):
+        return mix
+    normalized = workspace / "audio_normalized.m4a"
+    await _run(
+        normalize_reencode_args(ffmpeg, mix, normalized, measurement, total_samples=total_samples),
+        deadline=deadlines.for_seconds(duration_seconds),
+        grace=deadlines.grace,
+        spawn=spawn,
+        output=normalized,
+    )
+    return normalized
+
+
 def mux_args(ffmpeg: str, concat_list: Path, audio: Path, output: Path) -> list[str]:
     """把各段画面无损拼接，并与整集混音封装成成片。"""
     return [
@@ -376,7 +438,7 @@ async def render_plan_to_file(
     deadlines: RenderDeadlines = DEFAULT_RENDER_DEADLINES,
     spawn: Spawner | None = None,
 ) -> None:
-    """执行渲染规划：逐段渲染画面、整集混音，再拼接封装到 ``output``；中间文件只写在 ``workspace``。
+    """执行渲染规划：逐段渲染画面、整集混音并归一响度，再拼接封装到 ``output``；中间文件只写在 ``workspace``。
 
     ``subtitles`` 不为 None 时烧入字幕（可以为空），``narrations`` 与 ``bgm`` 是要混进整集音频的旁白配音与 BGM。
     """
@@ -403,6 +465,15 @@ async def render_plan_to_file(
         grace=deadlines.grace,
         spawn=spawn,
         output=audio_file,
+    )
+    audio_file = await _normalize_audio_loudness(
+        ffmpeg,
+        audio_file,
+        workspace,
+        duration_seconds=plan.duration_seconds,
+        total_samples=_samples(plan.total_frames, fps),
+        deadlines=deadlines,
+        spawn=spawn,
     )
     concat_list = workspace / "segments.txt"
     await run_sync_transaction(
@@ -431,16 +502,34 @@ def _stage_subtitles(workspace: Path, document: str) -> None:
 
 @dataclass(frozen=True, slots=True)
 class FinalCutAcceptance:
-    """成片验收结果：剪辑时间线应有的时长与实测的音视频流时长（秒）。"""
+    """成片验收结果：剪辑时间线应有的时长与实测的音视频流时长（秒），以及重测的整集音频响度。
+
+    响度两字段测不出时为 None，警告非空时表示实测偏离目标超出容差或无法实测。
+    """
 
     expected_duration: float
     video_duration: float
     audio_duration: float
     tolerance: float = ACCEPTANCE_TOLERANCE_SECONDS
+    integrated_lufs: float | None = None
+    """重测的积分响度（LUFS）；无声成片为 EBU R128 门限 −70，测不出时为 None。"""
+    true_peak_dbtp: float | None = None
+    """重测的真峰（dBTP）；无声成片为 None（−inf 不可落库），测不出时为 None。"""
+    loudness_warnings: tuple[str, ...] = ()
 
 
-async def accept_final_cut(path: Path, plan: RenderPlan, *, spawn: Spawner | None = None) -> FinalCutAcceptance:
-    """经媒体探测接口验收成片：音视频流齐全，两者时长都与剪辑时间线时长相差不超过容差。"""
+def _measured(value: float | None) -> float | None:
+    """验收落库的实测值：保留两位小数，−inf 这类非有限值记为 None。"""
+    return round(value, 2) if value is not None and math.isfinite(value) else None
+
+
+async def accept_final_cut(
+    path: Path, plan: RenderPlan, *, spawn: Spawner | None = None, ffmpeg: str | None = None
+) -> FinalCutAcceptance:
+    """经媒体探测接口验收成片：音视频流齐全，两者时长都与剪辑时间线时长相差不超过容差。
+
+    时长验收通过后重测交付文件的积分响度与真峰记入结果；响度测不出或偏离目标超出容差只记警告。
+    """
     try:
         probe = await probe_media(path, spawn=spawn)
     except MediaProbeError as exc:
@@ -454,24 +543,38 @@ async def accept_final_cut(path: Path, plan: RenderPlan, *, spawn: Spawner | Non
             has_video=video is not None,
             has_audio=audio is not None,
         )
-    acceptance = FinalCutAcceptance(
-        expected_duration=round(plan.duration_seconds, 3),
-        video_duration=round(video.duration_seconds, 3),
-        audio_duration=round(audio.duration_seconds, 3),
-    )
+    expected_duration = round(plan.duration_seconds, 3)
+    video_duration = round(video.duration_seconds, 3)
+    audio_duration = round(audio.duration_seconds, 3)
     worst = max(
         abs(video.duration_seconds - plan.duration_seconds), abs(audio.duration_seconds - plan.duration_seconds)
     )
     if worst > ACCEPTANCE_TOLERANCE_SECONDS:
         raise FinalCutError(
             "final_cut_acceptance_failed",
-            f"成片时长偏差超出容差：应为 {acceptance.expected_duration} 秒，"
-            f"视频 {acceptance.video_duration} 秒、音频 {acceptance.audio_duration} 秒",
-            expected_duration=acceptance.expected_duration,
-            video_duration=acceptance.video_duration,
-            audio_duration=acceptance.audio_duration,
+            f"成片时长偏差超出容差：应为 {expected_duration} 秒，视频 {video_duration} 秒、音频 {audio_duration} 秒",
+            expected_duration=expected_duration,
+            video_duration=video_duration,
+            audio_duration=audio_duration,
         )
-    return acceptance
+    try:
+        measurement = await measure_loudness(
+            ffmpeg if ffmpeg is not None else ffmpeg_executable(),
+            path,
+            duration_seconds=audio.duration_seconds,
+            spawn=spawn,
+            true_peak=True,
+        )
+    except (LoudnessMeasurementError, FfmpegUnavailableError):
+        measurement = None
+    return FinalCutAcceptance(
+        expected_duration=expected_duration,
+        video_duration=video_duration,
+        audio_duration=audio_duration,
+        integrated_lufs=_measured(measurement.integrated_lufs if measurement is not None else None),
+        true_peak_dbtp=_measured(measurement.true_peak_dbtp if measurement is not None else None),
+        loudness_warnings=loudness_warnings(measurement),
+    )
 
 
 __all__ = [
@@ -487,6 +590,7 @@ __all__ = [
     "audio_mix_args",
     "final_cut_component_gaps",
     "mux_args",
+    "normalize_reencode_args",
     "render_plan_to_file",
     "segment_args",
 ]

@@ -26,8 +26,8 @@ RENDER_FINAL_CUT = ToolDeclaration(
         "省略 revision 时渲染提交时的最新修订：渲染期间剪辑时间线又被改动，或显式渲染旧修订，成片一出来就是 stale，"
         "仍可下载。每条剪辑时间线的每个版本只保留最新一份成片，再次渲染会覆盖它并把 version 加一。"
         "终态结果的 final_cut 带 revision、narration、subtitles、version、artifact_path、acceptance（expected_duration 为剪辑时间线时长，"
-        "video_duration、audio_duration 为实测音视频流时长，单位秒）与 warnings（warning 级 issues），"
-        "download_url 是下载链接。"
+        "video_duration、audio_duration 为实测音视频流时长，单位秒；integrated_lufs、true_peak_dbtp 为交付文件重测的积分响度与真峰，无声成片为 −70/缺省）"
+        "与 warnings（warning 级 issues），download_url 是下载链接。"
     ),
     request_model=RenderFinalCutRequest,
     migration=BLOCKED,
