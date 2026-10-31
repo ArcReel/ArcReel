@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useAppStore } from "@/stores/app-store";
 import { UnitPreviewPanel } from "./UnitPreviewPanel";
+import { makeReferenceUnitCapability } from "@/test/factories";
 import type { ReferenceVideoUnit, UnitGeneratedAssets } from "@/types";
 
 // VersionTimeMachine 的 busy 只关面板内的恢复按钮，触发按钮的可用性不变；替身把这个
@@ -121,6 +122,32 @@ describe("UnitPreviewPanel", () => {
   it("hides upload entry when onUploadVideo is not provided", () => {
     const { container } = render(<UnitPreviewPanel unit={mkUnit()} projectName="proj" />);
     expect(container.querySelector('input[type="file"]')).toBeNull();
+  });
+
+  it("shows the resolved execution endpoint in the metadata when the capability carries one", () => {
+    render(
+      <UnitPreviewPanel
+        unit={mkUnit()}
+        projectName="proj"
+        capability={makeReferenceUnitCapability("E1U1", {
+          provider_id: "gemini-aistudio",
+          model_id: "veo-3",
+        })}
+      />,
+    );
+    expect(screen.getByText("执行端点")).toBeInTheDocument();
+    expect(screen.getByText("gemini-aistudio/veo-3")).toBeInTheDocument();
+  });
+
+  it("omits the execution endpoint row when the capability has no resolved identity", () => {
+    render(
+      <UnitPreviewPanel
+        unit={mkUnit()}
+        projectName="proj"
+        capability={makeReferenceUnitCapability("E1U1")}
+      />,
+    );
+    expect(screen.queryByText("执行端点")).not.toBeInTheDocument();
   });
 
   it("disables upload button while the unit is generating", () => {

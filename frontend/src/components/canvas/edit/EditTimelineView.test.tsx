@@ -135,6 +135,10 @@ describe("EditTimelineView", () => {
       ],
     });
     const read = vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+    // 视频 cache-bust 用文件 mtime 指纹（与版本号无关）：设两枚指纹，断言地址随指纹而非版本变化。
+    useProjectsStore.setState({
+      assetFingerprints: { "reference_videos/E1U1.mp4": 101, "reference_videos/E1U3.mp4": 103 },
+    });
 
     renderView();
 
@@ -143,7 +147,7 @@ describe("EditTimelineView", () => {
     await screen.findByTestId("edit-clip-c1");
     expect(read).toHaveBeenCalledWith("demo", "tl-00000002", expect.anything());
     const [current, idle] = [screen.getByTestId("edit-player-video-0"), screen.getByTestId("edit-player-video-1")];
-    expect(current).toHaveAttribute("src", "/api/v1/files/demo/reference_videos/E1U1.mp4?v=1");
+    expect(current).toHaveAttribute("src", "/api/v1/files/demo/reference_videos/E1U1.mp4?v=101");
     expect(current).toHaveAttribute("preload", "metadata");
     // 播放之前不预载下一段
     expect(idle).not.toHaveAttribute("src");
@@ -151,10 +155,34 @@ describe("EditTimelineView", () => {
     fireEvent.click(screen.getByRole("button", { name: "播放" }));
 
     // 已删除单元的片段被跳过，空闲的元素预载下一个可播放片段，并在这次点击里一并解锁
-    expect(idle).toHaveAttribute("src", "/api/v1/files/demo/reference_videos/E1U3.mp4?v=2");
+    expect(idle).toHaveAttribute("src", "/api/v1/files/demo/reference_videos/E1U3.mp4?v=103");
     expect(vi.mocked(HTMLMediaElement.prototype.play).mock.contexts).toContain(idle);
     expect(current).toHaveAttribute("preload", "auto");
     expect(idle).toHaveAttribute("preload", "auto");
+  });
+
+  it("re-busts the playing clip's url when the unit video fingerprint changes", async () => {
+    vi.spyOn(API, "listEditTimelines").mockResolvedValue({
+      timelines: [summary("tl-00000002", "初剪", "2026-09-30T10:00:00Z", 3)],
+    });
+    vi.spyOn(API, "getEditTimeline").mockResolvedValue(INITIAL_CUT);
+    useProjectsStore.setState({
+      assetFingerprints: { "reference_videos/E1U1.mp4": 101, "reference_videos/E1U3.mp4": 103 },
+    });
+
+    renderView();
+    const current = await screen.findByTestId("edit-player-video-0");
+    expect(current).toHaveAttribute("src", "/api/v1/files/demo/reference_videos/E1U1.mp4?v=101");
+
+    // 单元视频重新生成：文件指纹更新，剪辑地址随之换 cache-bust 重拉，与视频单元预览同口径
+    act(() => {
+      useProjectsStore.setState((s) => ({
+        assetFingerprints: { ...s.assetFingerprints, "reference_videos/E1U1.mp4": 202 },
+      }));
+    });
+    await waitFor(() =>
+      expect(current).toHaveAttribute("src", "/api/v1/files/demo/reference_videos/E1U1.mp4?v=202"),
+    );
   });
 
   it("releases the buffered video and audio when the player unmounts", async () => {

@@ -12,11 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, Response, UploadFile, status
-from pydantic import BaseModel, ConfigDict, Field, PositiveInt
+from pydantic import BaseModel, ConfigDict, Field, PositiveInt, field_validator
 
 from lib.artifacts.artifact_activation import resolve_artifact_episode
 from lib.artifacts.version_manager import VersionManager
-from lib.config.resolver import ConfigResolver
+from lib.config.resolver import ConfigResolver, VideoGenerationType
 from lib.db import async_session_factory
 from lib.generation.batch_admission import BatchAdmissionDecision, refused_ticket
 from lib.generation.generation_queue import get_generation_queue
@@ -31,6 +31,12 @@ from lib.generation.generation_result import (
     GenerationSelection,
     GenerationSelectionMode,
     normalize_requested_ids,
+)
+from lib.generation.video_request_facts import (
+    ExecutionVideoIdentity,
+    VideoRequestFacts,
+    VideoRequestFactsFailure,
+    evaluate_video_request_facts,
 )
 from lib.i18n import render_message
 from lib.i18n.display_names import DisplayNames
@@ -133,9 +139,51 @@ class GenerateUnitsBatchRequest(BaseModel):
 
     unit_ids: list[str] | None = None
     confirmed_request_durations: dict[str, PositiveInt] = Field(default_factory=dict)
+    #: 按单元临时切换执行端点：``unit_id -> "<provider_id>/<model_id>"``，每段非空、恰好一个分隔。
+    #: 未列出的单元照常按项目配置解析；列出的单元按各自端点投影与执行，只作用于这一次请求，不改项目配置。
+    execution_backends: dict[str, str] | None = None
+
+    @field_validator("execution_backends")
+    @classmethod
+    def _validate_execution_backends(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return value
+        for unit_id, backend in value.items():
+            provider_id, sep, model_id = backend.partition("/")
+            if not sep or not provider_id or not model_id or "/" in model_id or " " in backend:
+                raise ValueError(f"execution_backends[{unit_id}] 必须是 'provider/model' 形式的复合键")
+        return value
 
 
 # ============ 辅助 ============
+
+
+def _execution_backend_facts_lookup(project: dict, provider_id: str, model_id: str) -> ReferenceRequestFactsLookup:
+    """按指定端点求值参考路线的视频请求事实：批量补齐的「临时切换执行端点」让某单元按该端点投影。
+
+    身份固定为 :class:`ExecutionVideoIdentity`，读侧与执行侧看到同一端点；同一桶只求值一次。
+    某桶不支持该端点时返回对应失败对象，由准入逐单元如实报告，不回退到项目配置。
+    """
+
+    evaluated: dict[VideoGenerationType, VideoRequestFacts | VideoRequestFactsFailure] = {}
+    resolver = ConfigResolver(async_session_factory)
+
+    async def lookup(
+        generation_type: VideoGenerationType, reference_count: int | None = None
+    ) -> VideoRequestFacts | VideoRequestFactsFailure:
+        result = evaluated.get(generation_type)
+        if result is None:
+            result = await evaluate_video_request_facts(
+                project,
+                route="reference_video",
+                generation_type=generation_type,
+                identity=ExecutionVideoIdentity(provider_id, model_id),
+                resolver=resolver,
+            )
+            evaluated[generation_type] = result
+        return result
+
+    return lookup
 
 
 def _load_episode_script(project_name: str, episode: int, _t: Translator) -> tuple[dict, dict, str]:
@@ -660,6 +708,15 @@ async def generate_units_batch(
     except ValueError as exc:
         raise BadRequestError("ref_batch_empty_selection") from exc
 
+    # 临时端点切换：按单元给定「provider/model」时各单元按自己的端点投影与执行（不改项目配置）。
+    # 未列出的单元照旧按项目配置解析。字段校验已保证恰好一个分隔、两段非空，直接按第一个 / 拆。
+    pinned_backend_by_unit: dict[str, str] = {}
+    request_facts_by_unit: dict[str, ReferenceRequestFactsLookup] = {}
+    for unit_id, backend in (body.execution_backends or {}).items():
+        provider_id, _, model_id = backend.partition("/")
+        pinned_backend_by_unit[unit_id] = backend
+        request_facts_by_unit[unit_id] = _execution_backend_facts_lookup(project, provider_id, model_id)
+
     # 容器原样交给筛查：`or []` 会把假值（false / 0 / ""）变成合法的空数组，那次请求就会
     # 报成「通过且零任务」，而不是如实说剧本的 video_units 坏了。成不了目标的条目（非对象、
     # 缺 unit_id、id 不是标量、id 重复，来自外部编辑或 Agent 裸写）在「缺失即生成」的目标
@@ -712,6 +769,7 @@ async def generate_units_batch(
         extra_tickets=[*unmatched, *malformed, *artifact_state_tickets(selection.unavailable)],
         user_id=user.id,
         queue=queue,
+        request_facts=request_facts_by_unit or None,
     )
     payload = localized_admission_payload(admission, _t, names)
     payload["skipped_unit_ids"] = sorted(state.unit_id for state in selection.skipped)
@@ -736,6 +794,29 @@ async def generate_units_batch(
             **(spec.payload or {}),
             "reference_request_options": options.to_payload(),
         }
+    if pinned_backend_by_unit:
+        # 被 pin 的单元两个桶的键都写同一端点：单元按可用参考图定桶（i2v / r2v），任一桶执行时都能
+        # 命中 pin。未 pin 的单元不写身份键，照旧按项目配置解析。
+        for spec in specs:
+            backend = pinned_backend_by_unit.get(spec.resource_id)
+            if backend is None:
+                continue
+            spec.payload = {
+                **(spec.payload or {}),
+                "video_provider_i2v": backend,
+                "video_provider_r2v": backend,
+            }
+    if len(specs) > 1:
+        # 批量补齐按剧本单元顺序串成顺序链：U02 等 U01、U03 等 U02……targets 保持剧本
+        # 原序，即叙事顺序。放行口径取 terminal——前一个单元失败或取消时后续单元照常继续
+        # （各单元是独立的付费单元，前一个单元的失败不该整链停摆），而不是被失败级联拖死。
+        batch_group = f"{script_file}:reference_batch"
+        for index, spec in enumerate(specs):
+            if index > 0:
+                spec.dependency_resource_id = specs[index - 1].resource_id
+                spec.dependency_release = "terminal"
+            spec.dependency_group = batch_group
+            spec.dependency_index = index
     enqueued, enqueue_failures = await batch_enqueue_only(
         project_name=project_name,
         specs=specs,

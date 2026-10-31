@@ -617,6 +617,7 @@ class TestBatchEnqueueAndWaitSync:
                 dependency_resource_id="S01",
                 dependency_group="ep1:group:1",
                 dependency_index=1,
+                dependency_release="terminal",
             ),
         ]
         batch_enqueue_and_wait_sync(project_name="demo", specs=specs)
@@ -624,12 +625,14 @@ class TestBatchEnqueueAndWaitSync:
         # First enqueue: no dependency
         first_call = mock_enqueue.call_args_list[0]
         assert first_call.kwargs.get("dependency_task_id") is None
+        assert first_call.kwargs.get("dependency_release") is None
 
         # Second enqueue: dependency_task_id resolved to "t-first"
         second_call = mock_enqueue.call_args_list[1]
         assert second_call.kwargs["dependency_task_id"] == "t-first"
         assert second_call.kwargs["dependency_group"] == "ep1:group:1"
         assert second_call.kwargs["dependency_index"] == 1
+        assert second_call.kwargs["dependency_release"] == "terminal"
 
     @patch("lib.generation.generation_queue_client.wait_for_task", new_callable=AsyncMock)
     @patch("lib.generation.generation_queue_client.enqueue_task_only", new_callable=AsyncMock)

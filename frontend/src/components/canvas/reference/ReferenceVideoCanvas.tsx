@@ -567,6 +567,24 @@ export function ReferenceVideoCanvas({
   const durationGate = useReferenceDurationGate({ projectName, episode });
   /** 整批准入判定的未决结论（需确认 / 受阻）；admitted 由 toast 反馈，不进这里。 */
   const [batchAdmission, setBatchAdmission] = useState<ReferenceBatchAdmission | null>(null);
+  // 批量补齐可临时切换执行端点：按单元记录复合键 "provider/model"，未列出的单元照项目配置解析。
+  // 选项取自系统配置的视频后端清单，与设置页同一口径。
+  const [batchExecutionBackends, setBatchExecutionBackends] = useState<Record<string, string>>({});
+  const [videoBackendOptions, setVideoBackendOptions] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    API.getSystemConfig()
+      .then((res) => {
+        if (!cancelled) setVideoBackendOptions(res.options.video_backends ?? []);
+      })
+      .catch(() => {
+        // 配置未就绪时留空清单：控件停在「按项目配置」，不阻断批量补齐。
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const enqueue = useCallback(
     async (unitId: string, confirmedRequestDuration: number | undefined) => {
@@ -720,9 +738,16 @@ export function ReferenceVideoCanvas({
   const runBatch = useCallback(
     async (unitIds: string[], confirmedDurations?: Record<string, number>) => {
       try {
+        // 按单元带上各自选定的临时端点（仅列被 pin 的单元）；未选端的单元照项目配置解析。
+        const executionBackends: Record<string, string> = {};
+        for (const unitId of unitIds) {
+          const backend = batchExecutionBackends[unitId];
+          if (backend) executionBackends[unitId] = backend;
+        }
         const admission = await enqueueReferenceVideoBatch(projectName, episode, {
           unit_ids: unitIds,
           ...(confirmedDurations ? { confirmed_request_durations: confirmedDurations } : {}),
+          ...(Object.keys(executionBackends).length > 0 ? { execution_backends: executionBackends } : {}),
         });
         setBatchAdmission(referenceBatchOutcome(admission) === "queued" ? null : admission);
       } catch (e) {
@@ -730,7 +755,7 @@ export function ReferenceVideoCanvas({
         toastError(e, (msg) => t("reference_batch_request_failed", { error: msg }));
       }
     },
-    [projectName, episode, t],
+    [projectName, episode, batchExecutionBackends, t],
   );
 
   const handleBatchGenerate = useCallback(async () => {
@@ -784,6 +809,16 @@ export function ReferenceVideoCanvas({
     }
     void runBatch(targets, confirmed);
   }, [batchAdmission, canEnqueueBatchUnit, runBatch, t]);
+
+  // 单元级端点选择：null 表示回到「按项目配置」，即从记录里移除该单元。
+  const handleEndpointChange = useCallback((unitId: string, backend: string | null) => {
+    setBatchExecutionBackends((prev) => {
+      const next = { ...prev };
+      if (backend == null) delete next[unitId];
+      else next[unitId] = backend;
+      return next;
+    });
+  }, []);
 
   const onAdd = useCallback(() => handleAdd(), [handleAdd]);
 
@@ -958,6 +993,7 @@ export function ReferenceVideoCanvas({
     <UnitPreviewPanel
       unit={selected}
       projectName={projectName}
+      capability={selectedCapability}
       status={selected ? statusMap[selected.unit_id] : undefined}
       errorMessage={failureMessage}
       busy={selectedBusy}
@@ -1255,6 +1291,9 @@ export function ReferenceVideoCanvas({
               onAdd={onAdd}
               onMove={handleMove}
               statusMap={statusMap}
+              endpointOptions={videoBackendOptions}
+              endpointByUnit={batchExecutionBackends}
+              onEndpointChange={handleEndpointChange}
               className="min-w-0 flex-1"
             />
           </div>
@@ -1321,6 +1360,9 @@ export function ReferenceVideoCanvas({
             }}
             onMove={handleMove}
             statusMap={statusMap}
+            endpointOptions={videoBackendOptions}
+            endpointByUnit={batchExecutionBackends}
+            onEndpointChange={handleEndpointChange}
             className="min-h-0 flex-1 border-r-0"
           />
         </SheetContent>

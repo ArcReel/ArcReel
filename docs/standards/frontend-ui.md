@@ -120,7 +120,7 @@ Base UI 的 Combobox 只接受候选项，不能提交候选之外的文字；�
 
 颜色 token 沿用 shadcn 命名（`primary`、`destructive`、`border`、`input`、`muted-foreground` 等），另有状态色 `good`、`warn`、文字中间档 `subtle-foreground` 和每集的身份色 `episode`。`episode` 的色相按集 ID 取：在元素上用内联样式写入 `--episode-hue`（取值用 `components/canvas/episodes/episodes-view-model.ts` 的 `episodeHue`），元素及其子孙用 `bg-episode`、`text-episode`、`border-episode` 取这一集的颜色。剪辑视图轨道上的视频单元色 `unit-clip`、`unit-narration` 用同样的写法，色相变量是 `--unit-hue`（取值用 `components/canvas/edit/timeline-view.ts` 的 `unitHue`）。剧本里的 @ 提及与说话人按资产类型着色，用 `asset-product`、`asset-character`、`asset-scene`、`asset-prop`，解析不到的提及用 `destructive`；配色经 `components/canvas/reference/asset-colors.ts` 的 `assetColor` 取用。浅底、描边、选中态写成基色加透明度修饰（`bg-primary/15`、`border-border/50`），不为某种深浅另设变体 token；变体 token 会让同一语义出现多个近似色，旧色板中的变体色已按这一原则删除。危险操作用 `destructive`，琥珀色 `warn` 只表示警告与过期。内联样式和 CSS 引用 `:root` 中的原始变量（`var(--primary)`），需要透明度时写 `color-mix(in oklab, var(--primary) 15%, transparent)`。
 
-文字只分三档：`foreground`、`subtle-foreground`、`muted-foreground`。正文不在 `muted-foreground` 上再叠加透明度或 `opacity`：它在页面底色上的对比度是 5.7:1，再降低就达不到 WCAG AA 要求的 4.5:1。
+文字只分三档：`foreground`、`subtle-foreground`、`muted-foreground`。正文不在 `muted-foreground` 上再叠加透明度或 `opacity`：它在页面底色上的对比度是 7.1:1，在最亮的表面（muted 底、弹层加输入框底色）上也有 5.0:1 以上，再降低就达不到 WCAG AA 要求的 4.5:1。
 
 ## 弹层与提示
 

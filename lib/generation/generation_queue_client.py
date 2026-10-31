@@ -204,6 +204,7 @@ async def enqueue_task_only(
     dependency_task_id: str | None = None,
     dependency_group: str | None = None,
     dependency_index: int | None = None,
+    dependency_release: str | None = None,
     user_id: str = DEFAULT_USER_ID,
     batch_id: str | None = None,
     batch_unit_id: str | None = None,
@@ -236,6 +237,7 @@ async def enqueue_task_only(
         dependency_task_id=dependency_task_id,
         dependency_group=dependency_group,
         dependency_index=dependency_index,
+        dependency_release=dependency_release,
         user_id=user_id,
         batch_id=batch_id,
         batch_unit_id=batch_unit_id,
@@ -439,6 +441,9 @@ class TaskSpec:
     dependency_resource_id: str | None = None
     dependency_group: str | None = None
     dependency_index: int | None = None
+    # Release semantics for the dependency edge (see Task.dependency_release): None = the
+    # dependency must succeed; "terminal" = any terminal state releases the dependent.
+    dependency_release: str | None = None
     unit_id: str | None = None
     batch_unit_ids: tuple[str, ...] = ()
 
@@ -456,6 +461,7 @@ class TaskSpec:
         dependency_resource_id: str | None = None,
         dependency_group: str | None = None,
         dependency_index: int | None = None,
+        dependency_release: str | None = None,
         unit_id: str | None = None,
         batch_unit_ids: tuple[str, ...] = (),
     ) -> TaskSpec:
@@ -510,6 +516,7 @@ class TaskSpec:
             dependency_resource_id=dependency_resource_id,
             dependency_group=dependency_group,
             dependency_index=dependency_index,
+            dependency_release=dependency_release,
             unit_id=unit_id,
             batch_unit_ids=batch_unit_ids,
         )
@@ -631,6 +638,7 @@ async def _enqueue_sequentially(
                 dependency_task_id=dep_task_id,
                 dependency_group=spec.dependency_group,
                 dependency_index=spec.dependency_index,
+                dependency_release=spec.dependency_release,
                 user_id=user_id,
                 batch_id=batch_id,
                 batch_unit_ids=(

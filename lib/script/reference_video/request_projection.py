@@ -41,12 +41,14 @@ from lib.references.reference_admission import (
     admit_references,
 )
 from lib.references.reference_catalog import build_reference_catalog
+from lib.script.reference_video.draft_validation import SPEECH_OVERFLOW_TOLERANCE, normative_lines
 from lib.script.reference_video.duration_slots import (
     DurationSlot,
     project_request_duration,
 )
 from lib.script.reference_video.text_parser import derive_references_from_text
 from lib.script.script_models import ReferenceResource
+from lib.speech.speech_rate import estimate_spoken_seconds, project_speech_rate_override
 
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
@@ -509,6 +511,7 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     ),
     "reference_duration_confirmation_required": ("confirm_duration", (("duration_seconds",),)),
     "needs_replan": ("replan_unit", (("duration_seconds",),)),
+    "dialogue_overload": ("confirm_request_duration", (("text",),)),
     "reference_supported_durations_missing": ("configure_video_model", (("duration_seconds",),)),
     "reference_supported_durations_invalid": ("configure_video_model", (("duration_seconds",),)),
     "reference_supported_durations_incompatible": ("configure_video_model", (("duration_seconds",),)),
@@ -536,6 +539,22 @@ def _planned_duration(unit: dict) -> int:
     if value <= 0:
         raise ValueError("duration_seconds must be a positive integer")
     return value
+
+
+def _estimate_unit_dialogue_seconds(unit: dict, project: dict) -> float:
+    """单元全部发声记号（台词与旁白）的口播时长估算（秒），与草稿期 ``validate_dialogue_load`` 同一口径。
+
+    语言取自 project 的 ``source_language``，非字符串回退 None（按默认语速估算），
+    语速覆盖由项目级字段解析——两处共用同一把尺，避免投影侧与草稿侧判出相反的超载结论。
+    """
+    raw_text = unit.get("text")
+    text = raw_text if isinstance(raw_text, str) else ""
+    if not text:
+        return 0.0
+    language = project.get("source_language")
+    language = language if isinstance(language, str) else None
+    override = project_speech_rate_override(project)
+    return sum(estimate_spoken_seconds(line[2], language, override) for line in normative_lines(text))
 
 
 class ReferenceUnitRequestProjector:
@@ -680,6 +699,27 @@ class ReferenceUnitRequestProjector:
                     request_facts=facts,
                     duration_seconds=projected.slot.seconds,
                 )
+                # 台词量硬闸门：完整台词必须在所选档位内念完，绝不截断成片。估算超出档位（含宽容
+                # 系数）即阻断——与草稿期 ``validate_dialogue_load`` 同一把尺。有更长档位则引导确认
+                # 升档，已无更长档位则引导重排（拆 unit 或精简台词）。
+                spoken = _estimate_unit_dialogue_seconds(unit, project)
+                budget = projected.slot.seconds * (1 + SPEECH_OVERFLOW_TOLERANCE)
+                if spoken > budget:
+                    problems.append(
+                        ProjectionProblem(
+                            code="dialogue_overload",
+                            blocking=True,
+                            params=(
+                                ("spoken", round(spoken, 1)),
+                                ("duration", projected.slot.seconds),
+                            ),
+                            action=(
+                                "confirm_request_duration"
+                                if any(duration > projected.slot.seconds for duration in facts.allowed_durations)
+                                else "replan_unit"
+                            ),
+                        )
+                    )
 
         return ReferenceUnitRequestProjection(
             unit_id=str(unit.get("unit_id") or ""),

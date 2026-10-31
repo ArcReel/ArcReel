@@ -52,6 +52,10 @@ class ReferenceUnitCapability:
         hydration = self.hydration
         return {
             "unit_id": self.unit_id,
+            # 该单元此刻会落到的执行端点（按当前项目设置解析）：供界面展示「这次用哪个
+            # 供应商/模型生成」。事实失败（配置不可用）时两者为 None。
+            "provider_id": resolved.provider_id if resolved is not None else None,
+            "model_id": resolved.model_id if resolved is not None else None,
             "declared_capability": hydration.declared_generation_type,
             "hydrated_capability": hydration.hydrated_generation_type,
             "declared_references": [

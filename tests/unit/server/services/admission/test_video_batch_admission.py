@@ -110,6 +110,42 @@ async def test_an_active_task_conflicts_before_anything_is_projected(monkeypatch
     assert problem.params["task_id"] == "task-1"
 
 
+async def test_admission_projects_pinned_units_with_their_own_request_facts(monkeypatch, tmp_path: Path):
+    """按单元临时切换端点：被 pin 的单元按自己的 facts lookup 投影，其余回落项目配置。"""
+    _stub_state(monkeypatch)
+
+    pinned_lookup = object()
+    configured_lookup = object()
+    monkeypatch.setattr(admission_mod, "configured_reference_request_facts", lambda *_a, **_k: configured_lookup)
+
+    seen: dict[str, object] = {}
+
+    async def _project(*_args, **kwargs):
+        seen[kwargs["unit"]["unit_id"]] = kwargs["request_facts_lookup"]
+        raise ValueError("已记录")
+
+    monkeypatch.setattr(admission_mod, "project_reference_unit_request", _project)
+
+    await admit_reference_video_batch(
+        project_name="demo",
+        project={},
+        project_path=tmp_path,
+        script={"video_units": []},
+        script_file="episode_1.json",
+        units=[
+            {"unit_id": "E1U1", "text": "镜头"},
+            {"unit_id": "E1U2", "text": "镜头"},
+        ],
+        request_options=ReferenceRequestOptions(),
+        operation="generate_videos",
+        selection=GenerationSelectionMode.MISSING_ONLY,
+        request_facts={"E1U1": pinned_lookup},
+    )
+
+    assert seen["E1U1"] is pinned_lookup
+    assert seen["E1U2"] is configured_lookup
+
+
 async def test_a_unit_that_cannot_be_enqueued_is_refused_with_its_own_code(monkeypatch, tmp_path: Path):
     _stub_state(monkeypatch)
 

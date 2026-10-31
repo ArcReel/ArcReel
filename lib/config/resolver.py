@@ -307,6 +307,18 @@ def _payload_video_pinned_pair(
     return None
 
 
+def payload_video_pinned_pair(
+    payload: dict | None, generation_type: VideoGenerationType | None
+) -> tuple[VideoGenerationType, tuple[str, str]] | None:
+    """请求 payload 里物化的视频执行身份（外部读入口）：无 pin 时返回 None。
+
+    执行入口用它判断该按哪条路解析身份：有 pin 时 ``resolve_video_backend`` 按 payload
+    优先执行物化身份；无 pin 时参考生视频 r2v 单元按当前配置按参考图数精确选 I{N} 端点，
+    读侧（能力载荷）与执行侧因此看到同一个端点。
+    """
+    return _payload_video_pinned_pair(payload or {}, generation_type)
+
+
 def caps_generation_mode(project: dict | None) -> str | None:
     """能力查询口径的 generation_mode：直读项目字段，无项目上下文时为 None。
 

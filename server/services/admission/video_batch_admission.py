@@ -62,6 +62,7 @@ from lib.references.reference_admission import admit_storyboard_item
 from lib.references.reference_catalog import build_reference_catalog
 from lib.script.reference_video.request_projection import (
     ProjectionProblem,
+    ReferenceRequestFactsLookup,
     ReferenceRequestOptions,
     ReferenceUnitRequestProjection,
     configured_reference_request_facts,
@@ -573,6 +574,7 @@ async def admit_reference_video_batch(
     user_id: str = DEFAULT_USER_ID,
     queue: GenerationQueue | None = None,
     config_resolver: ConfigResolver | None = None,
+    request_facts: Mapping[str, ReferenceRequestFactsLookup] | None = None,
 ) -> BatchAdmission:
     """Evaluate every reference unit of one request against the current state.
 
@@ -580,13 +582,18 @@ async def admit_reference_video_batch(
     (structural enqueue validation and speech admission). Sharing it keeps the
     admission and the later spec construction on one verdict instead of two.
 
+    ``request_facts`` pins the execution identity the admission is judged against,
+    per unit (a per-unit endpoint override): a ``unit_id -> lookup`` map. Units not
+    in the map keep the default "current project settings" lookup; ``None`` pins nothing.
+
     ``extra_tickets`` are targets the caller already refused before reaching this
     seam (an unreadable artifact state, an id that is not in the script). They
     belong to the same request, so they take part in the same all-or-nothing fold
     rather than being reported next to a batch that went ahead without them.
     """
 
-    request_facts_lookup = configured_reference_request_facts(
+    # 未 pin 的单元按项目配置解析；pin 的单元在循环里按 unit_id 取各自的端点 lookup。
+    configured_lookup = configured_reference_request_facts(
         project, config_resolver or ConfigResolver(async_session_factory)
     )
     unit_ids = [str(unit.get("unit_id") or "") for unit in units if str(unit.get("unit_id") or "")]
@@ -648,9 +655,11 @@ async def admit_reference_video_batch(
             continue
 
         unit_options = request_options_for_unit(request_options, unit_id, confirmed_request_durations)
+        # 该单元若 pin 了自己的执行端点，按其端点投影；否则回落到项目配置。
+        unit_lookup = request_facts.get(unit_id) if request_facts is not None else None
         try:
             projection = await project_reference_unit_request(
-                request_facts_lookup=request_facts_lookup,
+                request_facts_lookup=unit_lookup or configured_lookup,
                 project=project,
                 script=script,
                 unit=unit,

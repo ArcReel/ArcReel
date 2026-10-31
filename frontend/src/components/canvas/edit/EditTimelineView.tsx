@@ -328,14 +328,18 @@ function TimelinePreview({
   // 内容相同的重新读取不换计划引用，播放不因项目的无关变更而重新定位。
   const planJson = useMemo(() => JSON.stringify(buildPlaybackPlan(readout, media)), [readout, media]);
   const plan = useMemo(() => JSON.parse(planJson) as PlaybackPlan, [planJson]);
-  // 源视频地址只随视频单元的 current 版本变化；脚本对象每次刷新都换引用，这里只取它的形状。
+  // 源视频地址的 cache-bust 用单元视频文件的 mtime 指纹（与视频单元预览同一口径），不用版本号：
+  // 版本号只在「登记新版本且读取结果重新拉取」时才变，重新生成后剪辑与单元预览会各持一份缓存而画面不一致。
+  // 脚本对象每次刷新都换引用，这里只取它的形状。
+  const assetFingerprints = useProjectsStore((s) => s.assetFingerprints);
   const referenceVideo = isReferenceVideoScript(script);
   const sourceUrl = useCallback(
-    (segment: PlaybackSegment) =>
-      segment.hasVideo && segment.videoVersion !== null
-        ? API.getFileUrl(projectName, unitVideoPath(referenceVideo, segment.unitId), segment.videoVersion)
-        : null,
-    [projectName, referenceVideo],
+    (segment: PlaybackSegment) => {
+      if (!segment.hasVideo || segment.videoVersion === null) return null;
+      const path = unitVideoPath(referenceVideo, segment.unitId);
+      return API.getFileUrl(projectName, path, assetFingerprints[path] ?? null);
+    },
+    [projectName, referenceVideo, assetFingerprints],
   );
   // 音频摆放与旁白配音地址同样按内容去重，内容不变的刷新不打断正在播放的音频。
   const audioJson = useMemo(
@@ -364,10 +368,11 @@ function TimelinePreview({
         const path = sources.bgm[placement.sourceId];
         return path ? API.getFileUrl(projectName, path, null) : null;
       }
+      // 旁白配音与视频单元预览同口径，用文件 mtime 指纹 cache-bust，重新生成后不再各持一份缓存。
       const source = sources.narration[placement.sourceId];
-      return source ? API.getFileUrl(projectName, source.path, source.version) : null;
+      return source ? API.getFileUrl(projectName, source.path, assetFingerprints[source.path] ?? null) : null;
     };
-  }, [audioSourcesJson, projectName]);
+  }, [audioSourcesJson, projectName, assetFingerprints]);
   const playback = useTimelinePlayback(plan, sourceUrl, audio, audioUrl);
   const narration = useMemo(() => narrationSpans(readout, ttsNarration), [readout, ttsNarration]);
   const subtitles = useMemo(() => placeSubtitles(readout, plan, media), [readout, plan, media]);

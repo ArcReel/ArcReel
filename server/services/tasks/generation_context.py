@@ -29,6 +29,7 @@ from lib.backends.gemini_shared import get_shared_rate_limiter
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
+    payload_video_pinned_pair,
     video_bucket_for_generation_mode,
 )
 from lib.custom_provider.backends import CustomVideoBackend
@@ -402,11 +403,14 @@ async def resolve_generation_context(
                 generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
             # r2v 单元按可用参考图数在家族内精确选 I{N} 端点；其余情形保持原解析（payload 优先、
             # 桶骨架 + 能力闸 / 身份收敛）。换的只有 resolved 这一步，后续构造与求值不变。
+            # payload 里的执行身份 pin 是显式物化身份（续跑 / 批量临时切换）：有 pin 时按
+            # ``resolve_video_backend`` 的 payload 优先执行，无 pin 才按当前配置选 I{N}——
+            # 读侧能力载荷按当前配置显示端点，执行侧据此落同一端点，展示与执行不再分叉。
             if (
                 video.route == "reference_video"
                 and generation_type == "r2v"
                 and video.reference_count is not None
-                and not payload
+                and payload_video_pinned_pair(payload, generation_type) is None
             ):
                 resolved = await r.resolve_reference_video_backend_for_count(
                     project, reference_count=video.reference_count

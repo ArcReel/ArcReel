@@ -90,6 +90,9 @@ export interface ReferenceDeclaredResource {
  */
 export interface ReferenceUnitCapability {
   unit_id: string;
+  /** 该单元此刻按当前项目设置会落到的执行端点；事实失败时为 null。 */
+  provider_id: string | null;
+  model_id: string | null;
   declared_capability: ReferenceVideoBucket;
   hydrated_capability: ReferenceVideoBucket;
   declared_references: ReferenceDeclaredResource[];
@@ -181,6 +184,8 @@ export interface ReferenceBatchGenerateRequest {
   unit_ids?: string[];
   /** 用户已确认的申请档位，按 unit 给 */
   confirmed_request_durations?: Record<string, number>;
+  /** 按单元临时切换执行端点：`unit_id -> "provider_id/model_id"`。未列出的单元按项目配置解析。 */
+  execution_backends?: Record<string, string>;
 }
 
 /**

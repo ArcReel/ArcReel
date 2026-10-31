@@ -785,6 +785,129 @@ class TestCancelCascade:
         assert by_task == {a: 1, b: 1, c: 1}
 
 
+class TestTerminalDependencyRelease:
+    """dependency_release='terminal'：依赖任务进任意终态即放行，失败/取消不级联下游。
+
+    参考生视频批量补齐的顺序链（U01→U09）靠它在前一个单元失败或被取消后继续跑后面的单元。
+    """
+
+    async def _pair(self, repo: TaskRepository, *, release: str | None) -> tuple[dict, dict]:
+        parent = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="U01",
+            payload={},
+            script_file="ep1.json",
+        )
+        child = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="U02",
+            payload={},
+            script_file="ep1.json",
+            dependency_task_id=parent["task_id"],
+            dependency_release=release,
+        )
+        return parent, child
+
+    async def test_terminal_release_not_cascade_failed(self, db_session):
+        repo = TaskRepository(db_session)
+        parent, child = await self._pair(repo, release="terminal")
+
+        await repo.claim_next("video")
+        await repo.mark_failed(parent["task_id"], "boom")
+
+        child_task = await repo.get(child["task_id"])
+        assert child_task["status"] == "queued"
+        assert child_task["error_message"] is None
+
+    async def test_terminal_release_claimable_after_dependency_failed(self, db_session):
+        repo = TaskRepository(db_session)
+        parent, child = await self._pair(repo, release="terminal")
+
+        await repo.claim_next("video")
+        await repo.mark_failed(parent["task_id"], "boom")
+
+        claimed = await repo.claim_next("video")
+        assert claimed is not None
+        assert claimed["task_id"] == child["task_id"]
+
+    async def test_terminal_release_claimable_after_dependency_cancelled(self, db_session):
+        repo = TaskRepository(db_session)
+        parent, child = await self._pair(repo, release="terminal")
+
+        result = await repo.cancel_task(parent["task_id"])
+
+        # 取消只落在父任务：terminal 放行的子任务不被级联取消。
+        assert [t["task_id"] for t in result["cancelled"]] == [parent["task_id"]]
+        assert (await repo.get(child["task_id"]))["status"] == "queued"
+
+        claimed = await repo.claim_next("video")
+        assert claimed is not None
+        assert claimed["task_id"] == child["task_id"]
+
+    async def test_default_release_still_cascade_failed(self, db_session):
+        repo = TaskRepository(db_session)
+        parent, child = await self._pair(repo, release=None)
+
+        await repo.claim_next("video")
+        await repo.mark_failed(parent["task_id"], "boom")
+
+        child_task = await repo.get(child["task_id"])
+        assert child_task["status"] == "failed"
+        assert child_task["error_message"] == encode_failure(
+            "cascade_blocked_dependency", dependency_task_id=parent["task_id"], reason="boom"
+        )
+
+    async def test_terminal_release_chain_continues_past_middle_failure(self, db_session):
+        """U01→U02→U03 全 terminal：U02 失败后 U03 仍被放行，U01 的失败不拖死 U03。"""
+        repo = TaskRepository(db_session)
+        u01 = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="U01",
+            payload={},
+            script_file="ep1.json",
+        )
+        u02 = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="U02",
+            payload={},
+            script_file="ep1.json",
+            dependency_task_id=u01["task_id"],
+            dependency_release="terminal",
+        )
+        u03 = await repo.enqueue(
+            project_name="demo",
+            task_type="video",
+            media_type="video",
+            resource_id="U03",
+            payload={},
+            script_file="ep1.json",
+            dependency_task_id=u02["task_id"],
+            dependency_release="terminal",
+        )
+
+        await repo.claim_next("video")  # U01 → running
+        # U02 依赖 U01、U03 依赖 U02：U01 未终态时链上无人可被领取。
+        assert await repo.claim_next("video") is None
+        await repo.mark_failed(u01["task_id"], "boom")
+        claimed = await repo.claim_next("video")  # U02 放行 → running
+        assert claimed is not None
+        assert claimed["task_id"] == u02["task_id"]
+        await repo.mark_failed(u02["task_id"], "boom2")
+
+        claimed = await repo.claim_next("video")
+        assert claimed is not None
+        assert claimed["task_id"] == u03["task_id"]
+        assert (await repo.get(u03["task_id"]))["status"] == "running"
+
+
 class ResourceScopedTaskRepository(TaskRepository):
     """只看得到 resource_id 为 ``visible`` 的任务，用来验证取消与下载重试路径的目标行查询经过 ``_scope_query``。"""
 

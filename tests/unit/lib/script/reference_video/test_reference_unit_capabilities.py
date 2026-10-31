@@ -101,6 +101,7 @@ async def test_registered_reference_without_image_lands_in_i2v_with_its_tiers(tm
 
     payload = capability.to_payload()
     assert (payload["declared_capability"], payload["hydrated_capability"]) == ("r2v", "i2v")
+    assert (payload["provider_id"], payload["model_id"]) == ("image-provider", "image-model")
     assert payload["allowed_durations"] == [4, 6]
     assert payload["excluded_durations"] == {"8": "resolution"}
     assert payload["declared_references"] == [{"type": "character", "name": "阿离"}]
@@ -128,6 +129,7 @@ async def test_available_reference_lands_in_r2v_without_split(tmp_path: Path) ->
 
     payload = capability.to_payload()
     assert (payload["declared_capability"], payload["hydrated_capability"]) == ("r2v", "r2v")
+    assert (payload["provider_id"], payload["model_id"]) == ("reference-provider", "reference-model")
     assert payload["allowed_durations"] == [8, 16]
     assert payload["unavailable_references"] == []
     assert payload["problems"] == []
@@ -164,6 +166,7 @@ async def test_bucket_facts_failure_is_reported_per_unit(tmp_path: Path) -> None
 
     payload = capability.to_payload()
     assert payload["hydrated_capability"] == "i2v"
+    assert (payload["provider_id"], payload["model_id"]) == (None, None)
     assert payload["allowed_durations"] is None
     assert payload["excluded_durations"] is None
     assert payload["duration_endpoint_fixed"] is False

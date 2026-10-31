@@ -401,16 +401,7 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
 
     monkeypatch.setattr(rvt, "extract_video_thumbnail", _fake_extract)
 
-    await rvt.execute_reference_video_task(
-        "demo",
-        "E1U1",
-        {
-            "script_file": "scripts/episode_1.json",
-            "video_provider_i2v": "legacy/i2v-model",
-            "video_provider_r2v": "legacy/r2v-model",
-        },
-        user_id="u1",
-    )
+    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
 
     assert captured["video"].generation_type == expected_generation_type
     assert "video_provider_i2v" not in captured["payload"]

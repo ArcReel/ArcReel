@@ -16,36 +16,39 @@
 /* 语义 token，命名沿用 shadcn：原始值写在 :root，由下方 @theme inline 映射成工具类。
    - 品牌紫只有 primary 一个基色；浅底、描边、选中态用透明度修饰（bg-primary/15）。
    - 危险用 destructive（红），警告与过期用 warn（琥珀），完成与可用用 good。
-   - 文字三档：foreground（正文）> subtle-foreground（次要）> muted-foreground（弱化）；
-     muted-foreground 在页面底色上的对比度为 5.7:1，正文不再叠加透明度降低它。
+    - 文字三档：foreground（正文）> subtle-foreground（次要）> muted-foreground（弱化）；
+      三档在页面底色上的对比度为 17.3:1 / 10.2:1 / 7.1:1，正文不再叠加透明度降低它；
+      在最亮表面（muted 底、弹层加输入框底色）上 muted-foreground 仍有 5.0:1 以上，满足 WCAG AA。
    - 内联样式与 CSS 直接引用这里的变量（var(--primary)），需要透明度时用
      color-mix(in oklab, var(--primary) 15%, transparent)。 */
 :root {
     --radius: 0.625rem;
 
-    --background: oklch(0.168 0.009 265);
-    --foreground: oklch(0.975 0.004 265);
-    --subtle-foreground: oklch(0.820 0.008 265);
-    --card: oklch(0.182 0.011 270);
+    /* 色板：深炭底 #0E0F14、面板 #161821、卡片 #1C1F2B，品牌紫 #8B7CFF，就绪绿 #4ADE80
+       （ArcReel Studio Dark 设计系统，见 Stitch 项目同名 design system）。 */
+    --background: oklch(0.170 0.011 276);
+    --foreground: oklch(0.965 0.005 275);
+    --subtle-foreground: oklch(0.800 0.015 272);
+    --card: oklch(0.242 0.023 274);
     --card-foreground: var(--foreground);
     /* 弹层材质：不透明 surface，比卡片略亮；一条 border、一个 overlay 阴影，不用模糊与渐变 */
-    --popover: oklch(0.205 0.011 265);
+    --popover: oklch(0.260 0.024 274);
     --popover-foreground: var(--foreground);
-    --primary: oklch(0.76 0.09 295);
+    --primary: oklch(0.663 0.188 285);
     --primary-foreground: oklch(0.14 0 0);
-    --secondary: oklch(0.250 0.012 265);
+    --secondary: oklch(0.255 0.022 274);
     --secondary-foreground: var(--foreground);
-    --muted: oklch(0.250 0.012 265);
-    --muted-foreground: oklch(0.640 0.010 265);
+    --muted: oklch(0.270 0.024 274);
+    --muted-foreground: oklch(0.700 0.018 272);
     /* shadcn 的 accent 是菜单项悬停底色，不是品牌色 */
-    --accent: oklch(0.26 0.012 265 / 0.5);
+    --accent: oklch(0.30 0.020 274 / 0.45);
     --accent-foreground: var(--foreground);
     --destructive: oklch(0.70 0.18 25);
-    --border: oklch(0.40 0.012 265 / 0.35);
-    --input: oklch(0.45 0.014 265 / 0.55);
-    --ring: oklch(0.76 0.09 295);
+    --border: oklch(1 0 0 / 0.09);
+    --input: oklch(1 0 0 / 0.16);
+    --ring: oklch(0.720 0.160 285);
 
-    --good: oklch(0.78 0.10 155);
+    --good: oklch(0.800 0.182 152);
     --warn: oklch(0.80 0.12 70);
 
     --chart-1: var(--primary);
@@ -68,7 +71,7 @@
     --asset-prop: oklch(0.88 0.15 92);
 
     /* sidebar 取页面底色渐变的第二色 */
-    --sidebar: oklch(0.148 0.009 260);
+    --sidebar: oklch(0.150 0.008 276);
     --sidebar-foreground: var(--foreground);
     --sidebar-primary: var(--primary);
     --sidebar-primary-foreground: var(--primary-foreground);
@@ -97,10 +100,10 @@
 }
 
 @theme {
-    /* 字体 — 设计稿统一使用 Inter，display 仅在字号/字重上做区分。
+    /* 字体 — 界面文字统一使用 Inter；display（标题档）用 Space Grotesk 做几何感区分。
        西文字体由 main.tsx 引入 @fontsource 包自托管；中文不加载网络字体，回退系统字体。 */
     --font-sans: "Inter Variable", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
-    --font-display: "Inter Variable", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    --font-display: "Space Grotesk Variable", "Inter Variable", system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     --font-mono: "JetBrains Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     /* 衬线 — 仅项目大厅 (Darkroom) 用于编辑式电影感大标题 */
     --font-editorial: "Instrument Serif", "Songti SC", "Noto Serif SC", Georgia, serif;
@@ -212,9 +215,9 @@ html { color-scheme: dark; }
 
 body {
     background:
-        radial-gradient(1000px 500px at 8% -10%, oklch(0.32 0.05 295 / 0.28), transparent 55%),
-        radial-gradient(900px 500px at 98% 110%, oklch(0.26 0.04 260 / 0.25), transparent 55%),
-        linear-gradient(180deg, var(--card), var(--sidebar));
+        radial-gradient(1000px 500px at 8% -10%, oklch(0.42 0.07 285 / 0.16), transparent 55%),
+        radial-gradient(900px 500px at 98% 110%, oklch(0.30 0.04 270 / 0.14), transparent 55%),
+        linear-gradient(180deg, var(--background), var(--sidebar));
     background-attachment: fixed;
     color: var(--foreground);
     font-family: var(--font-sans);

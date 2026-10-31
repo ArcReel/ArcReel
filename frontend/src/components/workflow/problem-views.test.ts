@@ -16,6 +16,7 @@ function translatorFor(catalog: Record<string, string>) {
 const PLAN_PROBLEM_CODES = [
   "mixed_speech",
   "needs_replan",
+  "dialogue_overload",
   "parse_failed",
   "empty_speaker",
   "project_migration_failed",

@@ -281,6 +281,50 @@ async def test_projection_rejects_duration_above_maximum_as_needs_replan() -> No
 
 
 @pytest.mark.asyncio
+async def test_projection_blocks_overloaded_dialogue_and_offers_a_longer_tier() -> None:
+    """台词口播超出所选档位（含宽容系数）即阻断；还有更长档位时引导确认升档。"""
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
+    dialogue = "一二三四五六七八九十" * 4  # 40 字，约 8s，超过 4s 档位的 4.8s 上限
+    unit = {"unit_id": "E1U1", "text": f"空镜：海面翻涌。\n{{{dialogue}}}", "duration_seconds": 4}
+
+    result = await projector.project_current(
+        project={"source_language": "zh"},
+        script={"video_units": [unit]},
+        unit=unit,
+        resolved_assets=[],
+    )
+
+    assert result.request_duration is not None
+    assert result.request_duration.seconds == 4
+    assert [problem.code for problem in result.blocking_problems] == ["dialogue_overload"]
+    problem = result.blocking_problems[0]
+    assert problem.blocking is True
+    assert problem.parameters()["duration"] == 4
+    assert problem.parameters()["spoken"] > 4 * 1.2
+    assert result.problem_payloads()[0]["action"] == "confirm_request_duration"
+
+
+@pytest.mark.asyncio
+async def test_projection_blocks_overloaded_dialogue_at_max_tier_and_suggests_replan() -> None:
+    """已在最长档位时台词仍超载：没有更长档位可升，引导重排而非确认升档。"""
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
+    dialogue = "一二三四五六七八九十" * 12  # 120 字，约 24s，超过 16s 档位的 19.2s 上限
+    unit = {"unit_id": "E1U1", "text": f"空镜：海面翻涌。\n{{{dialogue}}}", "duration_seconds": 16}
+
+    result = await projector.project_current(
+        project={"source_language": "zh"},
+        script={"video_units": [unit]},
+        unit=unit,
+        resolved_assets=[],
+    )
+
+    assert result.request_duration is not None
+    assert result.request_duration.seconds == 16
+    assert [problem.code for problem in result.blocking_problems] == ["dialogue_overload"]
+    assert result.problem_payloads()[0]["action"] == "replan_unit"
+
+
+@pytest.mark.asyncio
 async def test_projection_exposes_declared_to_hydrated_bucket_change() -> None:
     request_facts = _FakeRequestFacts()
     missing = Path("/fake/missing.png")

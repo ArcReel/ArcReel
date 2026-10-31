@@ -1085,6 +1085,7 @@ export default {
   'script_preview_none': 'Không có',
   'reference_editor_placeholder': 'Mô tả đơn vị video này. Dùng @ để tham chiếu hàng hóa / nhân vật / cảnh / đạo cụ và {} cho lời thoại.',
   'reference_editor_aria_name': 'Prompt đơn vị',
+  'reference_editor_split_aria': 'Điều chỉnh chiều cao của kịch bản và văn bản gốc tương ứng',
   'reference_editor_unknown_mentions_label': 'Mention chưa đăng ký',
   'reference_editor_unknown_mention': 'Chưa đăng ký: @{{name}} (không có trong hàng hóa/nhân vật/cảnh/đạo cụ)',
   'reference_picker_title': 'Chèn tham chiếu',
@@ -1443,6 +1444,8 @@ export default {
 
   // ArcReel Workbench v3 — Video Tham Chiếu
   'reference_batch_nothing_to_do': 'Tất cả đơn vị đã được tạo hoặc đang xử lý',
+  'reference_unit_endpoint_aria': 'Điểm cuối thực thi của {{id}}',
+  'reference_unit_endpoint_default': 'Theo cài đặt dự án',
   'reference_generate_busy': 'Đơn vị này đang được tạo, vui lòng thử lại sau',
   'reference_duration_seconds': '{{value}} giây',
   'reference_duration_confirm_title': 'Xác nhận thay đổi mức thời lượng video',
@@ -1495,6 +1498,8 @@ export default {
   'reference_preview_regenerate': 'Tạo lại video',
   'reference_preview_retry': 'Thử lại',
   'reference_meta_status': 'Trạng thái',
+  'reference_meta_endpoint': 'Điểm cuối thực thi',
+  'reference_meta_endpoint_hint': 'Được phân giải từ cài đặt dự án hiện tại; tạo video dùng nhà cung cấp và mô hình này.',
   'reference_meta_cost': 'Chi phí',
   'reference_meta_cost_spent': 'đã chi',
 

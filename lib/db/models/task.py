@@ -31,6 +31,10 @@ class Task(UserOwnedMixin, Base):
     dependency_task_id: Mapped[str | None] = mapped_column(String)
     dependency_group: Mapped[str | None] = mapped_column(String)
     dependency_index: Mapped[int | None] = mapped_column(Integer)
+    # 依赖任务的放行口径：NULL（默认）= 依赖任务成功才放行；'terminal' = 依赖任务进入任意终态
+    # （成功/失败/取消）即放行。参考生视频批量补齐用它把 U01→U09 串成顺序链：前一个单元失败或
+    # 被取消时，后续单元照常继续，而不是被失败级联整链拖死。
+    dependency_release: Mapped[str | None] = mapped_column(String)
     cancelled_by: Mapped[str | None] = mapped_column(String)
     provider_id: Mapped[str | None] = mapped_column(String)
     provider_job_id: Mapped[str | None] = mapped_column(String)

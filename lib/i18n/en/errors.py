@@ -131,6 +131,7 @@ MESSAGES = {
     "reference_supported_durations_incompatible": "{provider}/{model} has no compatible duration tier for the current resolution and reference-image request",
     "reference_duration_confirmation_required": "The {duration_input}s request basis will use the {request_duration}s tier; confirm and try again",
     "needs_replan": "The request duration exceeds the model's largest tier; replan this unit instead of truncating it",
+    "dialogue_overload": "This unit's dialogue is estimated at about {spoken}s of speech, which exceeds the {duration}s request tier plus tolerance; extend the tier or trim the dialogue",
     "mixed_speech": "This unit mixes character dialogue with narration; split them and retry",
     "parse_failed": "This unit's speech could not be parsed; check the script formatting",
     "empty_speaker": "This unit has a line with no speaker assigned; name the character and retry",

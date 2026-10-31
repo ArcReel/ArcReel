@@ -1253,6 +1253,69 @@ def test_generate_batch_creates_the_whole_task_set_in_one_admission(
     assert enqueued[0]["source"] == "webui"
 
 
+def test_generate_batch_chains_units_sequentially_with_terminal_release(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """批量补齐按剧本单元顺序串成顺序链：U02 等 U01，放行口径为 terminal。
+
+    前一个单元失败或被取消时后续单元照常继续（独立付费单元），不被失败级联整链拖死。
+    """
+
+    _seed_unit(reference_videos_client)
+    _seed_second_unit(reference_videos_client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    resp = reference_videos_client.post(BATCH_ENDPOINT, json={})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["decision"] == "admitted"
+
+    assert enqueued[0]["dependency_task_id"] is None
+    assert enqueued[0]["dependency_index"] == 0
+    assert enqueued[1]["dependency_task_id"] == "task-1"
+    assert enqueued[1]["dependency_release"] == "terminal"
+    assert enqueued[1]["dependency_index"] == 1
+    assert enqueued[1]["dependency_group"] == enqueued[0]["dependency_group"]
+
+
+def test_generate_batch_pins_the_execution_backend_per_unit(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """批量补齐可按单元临时切换执行端点：被 pin 的单元 payload 带上双桶 pin，其余照配置解析。
+
+    pin 物化进任务载荷（两个桶键都写），执行侧据此按 pin 选端点；不改项目配置，只作用于本批。
+    """
+
+    first = _seed_unit(reference_videos_client)
+    second = _seed_second_unit(reference_videos_client)
+    enqueued = _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    resp = reference_videos_client.post(BATCH_ENDPOINT, json={"execution_backends": {first: "custom-3/veo-x"}})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["decision"] == "admitted"
+    by_unit = {call["resource_id"]: cast(dict[str, Any], call["payload"]) for call in enqueued}
+    # 被 pin 的单元：两个桶键都写上同一端点，任一桶执行时都能命中 pin。
+    assert by_unit[first]["video_provider_i2v"] == "custom-3/veo-x"
+    assert by_unit[first]["video_provider_r2v"] == "custom-3/veo-x"
+    # 未 pin 的单元：不写身份键，照旧按项目配置解析。
+    assert "video_provider_i2v" not in by_unit[second]
+    assert "video_provider_r2v" not in by_unit[second]
+
+
+def test_generate_batch_rejects_malformed_execution_backend(
+    reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """端点必须是「provider/model」复合键：缺分隔或空段一律 422，不静默按配置解析。"""
+
+    _seed_unit(reference_videos_client)
+    _patch_batch_admission(monkeypatch, durations=[3, 6, 9])
+
+    for bad in ("veo-x", "custom-3/", "/veo-x", "a/b/c"):
+        resp = reference_videos_client.post(BATCH_ENDPOINT, json={"execution_backends": {"E1U1": bad}})
+        assert resp.status_code == 422, f"{bad!r} -> {resp.status_code}: {resp.text}"
+
+
 def test_generate_batch_keeps_created_tasks_when_the_enqueue_is_interrupted(
     reference_videos_client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

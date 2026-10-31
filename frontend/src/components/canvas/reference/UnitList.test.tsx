@@ -75,6 +75,55 @@ describe("UnitList", () => {
     expect(onAdd).toHaveBeenCalled();
   });
 
+  describe("执行端点选择", () => {
+    it("提供端点清单时每行渲染一个端点下拉，默认停在「按项目配置」", () => {
+      render(
+        <UnitList
+          units={[mkUnit("E1U1"), mkUnit("E1U2")]}
+          selectedId={null}
+          onSelect={vi.fn()}
+          onAdd={vi.fn()}
+          endpointOptions={["custom-3/veo-x"]}
+          onEndpointChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByRole("combobox", { name: /Execution endpoint for U1|U1的执行端点/ })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: /Execution endpoint for U2|U2的执行端点/ })).toBeInTheDocument();
+    });
+
+    it("未提供端点清单时不渲染端点下拉", () => {
+      render(
+        <UnitList units={[mkUnit("E1U1")]} selectedId={null} onSelect={vi.fn()} onAdd={vi.fn()} />,
+      );
+      expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    });
+
+    it("选择端点按单元回调 backend，回到默认回调 null", async () => {
+      const onEndpointChange = vi.fn();
+      render(
+        <UnitList
+          units={[mkUnit("E1U1")]}
+          selectedId={null}
+          onSelect={vi.fn()}
+          onAdd={vi.fn()}
+          endpointOptions={["custom-3/veo-x", "gemini-aistudio/veo-3"]}
+          endpointByUnit={{ E1U1: "gemini-aistudio/veo-3" }}
+          onEndpointChange={onEndpointChange}
+        />,
+      );
+      const endpoint = screen.getByRole("combobox", { name: /Execution endpoint for U1|U1的执行端点/ });
+      await userEvent.click(endpoint);
+      await userEvent.click(await screen.findByRole("option", { name: "custom-3/veo-x" }));
+      expect(onEndpointChange).toHaveBeenCalledWith("E1U1", "custom-3/veo-x");
+
+      await userEvent.click(screen.getByRole("combobox", { name: /Execution endpoint for U1|U1的执行端点/ }));
+      await userEvent.click(
+        await screen.findByRole("option", { name: /Follow project settings|按项目配置/ }),
+      );
+      expect(onEndpointChange).toHaveBeenCalledWith("E1U1", null);
+    });
+  });
+
   describe("排序", () => {
     afterEach(() => vi.restoreAllMocks());
 

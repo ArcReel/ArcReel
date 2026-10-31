@@ -131,6 +131,7 @@ MESSAGES = {
     "reference_supported_durations_incompatible": "{provider}/{model} không có mức thời lượng tương thích với độ phân giải và ảnh tham chiếu hiện tại",
     "reference_duration_confirmation_required": "Mốc thời lượng {duration_input}s của yêu cầu sẽ dùng mức {request_duration}s; hãy xác nhận rồi thử lại",
     "needs_replan": "Thời lượng yêu cầu vượt mức lớn nhất của mô hình; hãy lập kế hoạch lại đơn vị thay vì cắt ngắn video",
+    "dialogue_overload": "Lời thoại của đơn vị này ước tính dài khoảng {spoken}s, vượt quá mức {duration}s yêu cầu (kể cả dung sai); hãy tăng mức thời lượng hoặc rút ngắn lời thoại",
     "mixed_speech": "Đơn vị này vừa có thoại nhân vật vừa có lời dẫn; hãy tách ra rồi thử lại",
     "parse_failed": "Không phân tích được nội dung thoại của đơn vị này; hãy kiểm tra định dạng kịch bản",
     "empty_speaker": "Đơn vị này có câu thoại chưa gán nhân vật; hãy bổ sung người nói rồi thử lại",

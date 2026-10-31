@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Callable, Collection
 from typing import Any
 
-from sqlalchemy import ColumnElement, func, select, text, update
+from sqlalchemy import ColumnElement, func, or_, select, text, update
 from sqlalchemy import bindparam as sa_bindparam
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
@@ -112,6 +112,7 @@ def _task_to_dict(row: Task) -> dict[str, Any]:
         "dependency_task_id": row.dependency_task_id,
         "dependency_group": row.dependency_group,
         "dependency_index": row.dependency_index,
+        "dependency_release": row.dependency_release,
         "cancelled_by": row.cancelled_by,
         "provider_id": row.provider_id,
         "provider_job_id": row.provider_job_id,
@@ -205,6 +206,7 @@ class TaskRepository(BaseRepository):
         dependency_task_id: str | None = None,
         dependency_group: str | None = None,
         dependency_index: int | None = None,
+        dependency_release: str | None = None,
         user_id: str = DEFAULT_USER_ID,
         provider_id: str | None = None,
         batch_id: str | None = None,
@@ -242,6 +244,7 @@ class TaskRepository(BaseRepository):
             dependency_task_id=dependency_task_id,
             dependency_group=dependency_group,
             dependency_index=dependency_index,
+            dependency_release=dependency_release,
             provider_id=provider_id,
             queued_at=now,
             updated_at=now,
@@ -500,6 +503,9 @@ class TaskRepository(BaseRepository):
             params["providers"] = tuple(pool_full_providers)
 
         # Use raw SQL for the dependency join (clearer than ORM for self-join)
+        # 放行口径由依赖方自己的 dependency_release 决定（逐任务，而非整条链）：默认只认
+        # 依赖任务成功；'terminal' 时依赖任务失败/取消同样放行——参考生视频批量补齐的顺序链
+        # 据此在前一个单元失败或取消后继续跑后面的单元，而不是整链停摆。
         raw_stmt = text(f"""
             SELECT tasks.task_id
             FROM tasks
@@ -511,6 +517,7 @@ class TaskRepository(BaseRepository):
               AND (
                 tasks.dependency_task_id IS NULL
                 OR dependency.status = 'succeeded'
+                OR (tasks.dependency_release = 'terminal' AND dependency.status IN ('failed', 'cancelled'))
               )
             ORDER BY tasks.queued_at ASC
             LIMIT 1
@@ -721,12 +728,16 @@ class TaskRepository(BaseRepository):
         """按依赖链级联标失败。`error_message` 沿链条原样传递（根因，不随层数重新嵌套），
         每层只把自己的直接阻塞方 `task_id` 写入编码——避免深层依赖链把上一层的完整编码串
         再嵌套进新一层 JSON 造成的近指数增长与落库截断损坏。
+
+        ``dependency_release='terminal'`` 的依赖任务在此放行（失败即视为完成），不进级联：
+        参考生视频批量补齐的顺序链靠它在前一个单元失败后继续跑后续单元。
         """
         result = await self.session.execute(
             select(Task.task_id)
             .where(
                 Task.dependency_task_id == task_id,
                 Task.status == "queued",
+                or_(Task.dependency_release.is_(None), Task.dependency_release != "terminal"),
             )
             .order_by(Task.queued_at.asc())
         )
@@ -767,12 +778,17 @@ class TaskRepository(BaseRepository):
         return {"task": task_summary, "cascaded": cascaded}
 
     async def _collect_queued_dependents(self, task_id: str) -> list[dict[str, Any]]:
-        """递归收集依赖于 task_id 的所有 queued 任务摘要。"""
+        """递归收集依赖于 task_id 的所有 queued 任务摘要。
+
+        与 :meth:`cancel_task` 的级联同口径：``dependency_release='terminal'`` 的依赖任务
+        在依赖方取消时放行、不被级联取消，故预览也不列出它们。
+        """
         result = await self.session.execute(
             select(Task.task_id, Task.task_type, Task.resource_id, Task.project_name)
             .where(
                 Task.dependency_task_id == task_id,
                 Task.status == "queued",
+                or_(Task.dependency_release.is_(None), Task.dependency_release != "terminal"),
             )
             .order_by(Task.queued_at.asc())
         )
@@ -854,10 +870,15 @@ class TaskRepository(BaseRepository):
         )
 
         # 先把自身入列再级联，响应体里父先于子。
+        # dependency_release='terminal' 的依赖任务在此放行（取消即视为完成），不进级联。
         cancelled.append(task_data)
         dependents = await self.session.execute(
             select(Task.task_id)
-            .where(Task.dependency_task_id == task_id, Task.status == "queued")
+            .where(
+                Task.dependency_task_id == task_id,
+                Task.status == "queued",
+                or_(Task.dependency_release.is_(None), Task.dependency_release != "terminal"),
+            )
             .order_by(Task.queued_at.asc())
         )
         for dep_task_id in dependents.scalars().all():

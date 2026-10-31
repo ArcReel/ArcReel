@@ -300,6 +300,7 @@ export default {
   'problem_reference_supported_durations_incompatible': 'The selected video model has no compatible duration tier for the current resolution and reference images.',
   'problem_mixed_speech': 'This unit mixes character dialogue with narration; split them.',
   'problem_needs_replan': "This unit is longer than the selected model's largest duration tier; replan it.",
+  'problem_dialogue_overload': "This unit's dialogue is about {spoken}s of speech, more than the {duration}s tier can hold; extend the tier or trim the dialogue.",
   'problem_parse_failed': "This unit's dialogue can't be read; check how it is written.",
   'problem_empty_speaker': 'This unit has a line with no speaking character.',
   'problem_project_migration_failed': "The project's data upgrade didn't finish, so nothing can be generated yet.",

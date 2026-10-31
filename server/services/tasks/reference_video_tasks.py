@@ -28,7 +28,6 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import (
     ensure_dispatch_provider,
     get_generation_queue,
-    without_reference_video_execution_identity,
 )
 from lib.generation.video_request_facts import (
     DEFAULT_PLANNED_DURATION_SECONDS,
@@ -338,7 +337,9 @@ async def execute_reference_video_task(
     #    有参考图 → r2v；无参考图的视频单元降级 → i2v，不送入拒空参考的 r2v 桶模型。
     #    判据取解析结果而非声明，与 backend 的实际请求同源。
     execution_generation_type = reference_video_bucket(with_references=bool(hydration.available))
-    execution_payload = without_reference_video_execution_identity(payload)
+    # 显式执行身份 pin（批量补齐的临时端点切换 / 续跑物化）只在入队时按意图写入 payload；无 pin 的
+    # 普通任务入队边界已剥掉身份键。故这里直接透传即「有 pin 按 pin、无 pin 按项目现状」。
+    execution_payload = payload
     request_options = ReferenceRequestOptions.from_payload(payload, legacy_duration_confirmed=True)
     ctx = await resolve_generation_context(
         project_name,
