@@ -112,3 +112,80 @@ async def test_silent_vfr_reports_presentation_packet_span(tmp_path: Path):
     assert probe.streams[0].packet_count == 21
     assert probe.streams[0].duration_seconds == pytest.approx(28 / 15, abs=1e-6)
     assert probe.duration_seconds == pytest.approx(28 / 15, abs=1e-6)
+    # 实测 21 包 / 28/15 秒 ≈ 11.25 fps，与标称 30 tbr 明显偏离，判为可变帧率。
+    assert probe.streams[0].fps == pytest.approx(11.25, abs=0.01)
+    assert probe.streams[0].variable_frame_rate
+
+
+async def test_video_stream_reports_geometry_rate_color_and_audio_params(tmp_path: Path):
+    path = tmp_path / "cfr.mp4"
+    run_bundled_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=640x360:rate=30:duration=1",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=1",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        "-ac",
+        "2",
+        "-ar",
+        "44100",
+        "-shortest",
+        str(path),
+    )
+
+    probe = await probe_media(path)
+
+    video = probe.first_stream("video")
+    audio = probe.first_stream("audio")
+    assert (video.width, video.height) == (640, 360)
+    assert video.fps == pytest.approx(30.0, abs=0.01)
+    assert not video.variable_frame_rate
+    assert video.bit_depth == 8
+    assert video.color_transfer is None
+    assert video.rotation is None
+    assert not video.is_hdr
+    assert audio.sample_rate == 44100
+    assert audio.channel_count == 2
+    assert audio.fps is None
+
+
+async def test_10_bit_video_reports_bit_depth_and_color_triple(tmp_path: Path):
+    path = tmp_path / "bt709-10bit.mp4"
+    run_bundled_ffmpeg(
+        "-f",
+        "lavfi",
+        "-i",
+        "testsrc2=size=64x64:rate=25:duration=1",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p10le",
+        "-colorspace",
+        "bt709",
+        str(path),
+    )
+
+    video = (await probe_media(path)).first_stream("video")
+
+    assert video.bit_depth == 10
+    # banner 三元组是 colorspace/trc/primaries（bt709/unknown/unknown）：trc 未声明，读不到传函。
+    assert video.color_transfer is None
+    assert not video.is_hdr
+
+
+async def test_mono_audio_reports_sample_rate_and_channel_count(tmp_path: Path):
+    path = _sine(tmp_path / "mono.wav", 1.0, "-c:a", "pcm_s16le")
+
+    audio = (await probe_media(path)).first_stream("audio")
+
+    assert audio.sample_rate == 44100
+    assert audio.channel_count == 1

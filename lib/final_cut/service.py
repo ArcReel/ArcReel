@@ -57,6 +57,7 @@ from lib.final_cut.ffmpeg_render import (
     NarrationInput,
     RenderDeadlines,
     accept_final_cut,
+    final_cut_component_gaps,
     render_plan_to_file,
 )
 from lib.final_cut.render_plan import RenderMedia, plan_render, render_clips
@@ -227,6 +228,12 @@ class FinalCutService:
             await asyncio.to_thread(ffmpeg_executable)
         except FfmpegUnavailableError as exc:
             raise FinalCutError("final_cut_ffmpeg_unavailable", f"随包 ffmpeg 不可用：{exc}") from exc
+        missing, _ = await asyncio.to_thread(final_cut_component_gaps)
+        if missing:
+            raise FinalCutError(
+                "final_cut_ffmpeg_unavailable",
+                f"随包 ffmpeg 缺少成片渲染所需的组件：{'、'.join(missing)}",
+            )
         check = FinalCutCheck(
             episode=document.episode,
             timeline_id=document.id,

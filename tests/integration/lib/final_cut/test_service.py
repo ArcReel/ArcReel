@@ -37,7 +37,7 @@ from lib.edit_timeline.store import EditTimelineStore
 from lib.final_cut.basis import FinalCutVariant, final_cut_key
 from lib.final_cut.errors import FinalCutError
 from lib.final_cut.service import FinalCutService
-from lib.infra.ffmpeg import ffmpeg_executable
+from lib.infra.ffmpeg import FfmpegStatus, ffmpeg_executable, ffmpeg_status
 from lib.infra.media_probe import probe_media
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import resource_relative_path
@@ -468,3 +468,46 @@ async def test_a_bgm_missing_from_the_project_blocks_the_final_cut(render_projec
         await FinalCutService(render_project).check("demo", timeline_id)
 
     assert caught.value.code == "final_cut_blocked"
+
+
+def _status_without_component(monkeypatch: pytest.MonkeyPatch, *, listed: bool, drop: str = "xfade") -> None:
+    """把渲染链路的 ffmpeg 组件自检结果替换成缺 ``drop`` 组件（或组件未枚举）的状态。"""
+    real = ffmpeg_status()
+    if listed:
+        assert real.listed_filters is not None
+        fake = FfmpegStatus(
+            executable=real.executable,
+            version=real.version,
+            unavailable_reason=None,
+            listed_encoders=real.listed_encoders,
+            listed_filters=frozenset(name for name in real.listed_filters if name != drop),
+        )
+    else:
+        fake = FfmpegStatus(executable=real.executable, version=real.version, unavailable_reason=None)
+    monkeypatch.setattr("lib.final_cut.ffmpeg_render.ffmpeg_status", lambda: fake)
+
+
+@pytest.mark.usefixtures("media")
+async def test_check_refuses_when_a_render_component_is_missing(
+    render_project: ProjectManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    timeline_id = await _create_timeline(render_project)
+    _status_without_component(monkeypatch, listed=True)
+
+    with pytest.raises(FinalCutError) as caught:
+        await FinalCutService(render_project).check("demo", timeline_id, **PLAIN)
+
+    assert caught.value.code == "final_cut_ffmpeg_unavailable"
+    assert "xfade" in str(caught.value)
+
+
+@pytest.mark.usefixtures("media")
+async def test_check_treats_unlisted_components_as_unknown_not_missing(
+    render_project: ProjectManager, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    timeline_id = await _create_timeline(render_project)
+    _status_without_component(monkeypatch, listed=False)
+
+    check = await FinalCutService(render_project).check("demo", timeline_id, **PLAIN)
+
+    assert check.timeline_id == timeline_id

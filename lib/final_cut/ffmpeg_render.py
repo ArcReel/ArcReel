@@ -21,7 +21,7 @@ from lib.final_cut.errors import FinalCutError
 from lib.final_cut.render_plan import PlannedClip, RenderPlan, RenderSegment
 from lib.final_cut.subtitles import BurnedSubtitle, ass_document
 from lib.infra.async_thread import run_sync_transaction
-from lib.infra.ffmpeg import local_file_input
+from lib.infra.ffmpeg import ffmpeg_status, local_file_input
 from lib.infra.media_probe import MediaProbeError, probe_media
 from lib.infra.subprocess_deadline import (
     DEFAULT_TERMINATE_GRACE_SECONDS,
@@ -59,6 +59,47 @@ class RenderDeadlines:
 
 
 DEFAULT_RENDER_DEADLINES = RenderDeadlines()
+
+FINAL_CUT_COMPONENTS: dict[str, frozenset[str]] = {
+    "encoder": frozenset({"aac", "libx264"}),
+    "filter": frozenset(
+        {
+            "adelay",
+            "afade",
+            "alimiter",
+            "amix",
+            "anullsrc",
+            "aformat",
+            "aresample",
+            "asetpts",
+            "atrim",
+            "fade",
+            "fps",
+            "format",
+            "loudnorm",
+            "pad",
+            "scale",
+            "setpts",
+            "subtitles",
+            "tpad",
+            "trim",
+            "xfade",
+            "volume",
+        }
+    ),
+}
+"""成片渲染链路依赖的 ffmpeg 组件；loudnorm 供响度归一版本使用。"""
+
+
+def final_cut_component_gaps() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """成片渲染链路的组件缺口 (missing, unknown)；unknown 不阻塞。
+
+    ffmpeg 本身不可用时返回空，不可用原因由可执行文件查找单独报明。
+    """
+    status = ffmpeg_status()
+    if not status.available:
+        return (), ()
+    return status.component_gaps(FINAL_CUT_COMPONENTS)
 
 
 def _base_args(ffmpeg: str) -> list[str]:
@@ -437,12 +478,14 @@ __all__ = [
     "ACCEPTANCE_TOLERANCE_SECONDS",
     "AUDIO_SAMPLE_RATE",
     "DEFAULT_RENDER_DEADLINES",
+    "FINAL_CUT_COMPONENTS",
     "BgmInput",
     "FinalCutAcceptance",
     "NarrationInput",
     "RenderDeadlines",
     "accept_final_cut",
     "audio_mix_args",
+    "final_cut_component_gaps",
     "mux_args",
     "render_plan_to_file",
     "segment_args",

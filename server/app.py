@@ -45,6 +45,7 @@ from lib.agent.agent_session_store.store import DbSessionStore
 from lib.catalog.official_sync import start_official_sync, stop_official_sync
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
+from lib.final_cut.ffmpeg_render import FINAL_CUT_COMPONENTS
 from lib.generation.generation_worker import GenerationWorker
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.infra.data_root_layout_migration import migrate_data_root_layout
@@ -364,8 +365,8 @@ async def lifespan(app: FastAPI):
     app.state.in_docker = is_docker
     app.state.sandbox_enabled = sandbox_enabled
 
-    # 随包 ffmpeg 自检一次，结论缓存在进程内；不可用不阻断启动。
-    await asyncio.to_thread(log_ffmpeg_status)
+    # 随包 ffmpeg 自检一次，结论缓存在进程内；不可用不阻断启动，缺失组件如实记日志。
+    await asyncio.to_thread(log_ffmpeg_status, FINAL_CUT_COMPONENTS)
 
     # 日志文件持久化：先把代码目录下的旧日志迁入数据根，再挂 file handler。
     # 顺序很重要——handler 会在新位置创建 arcreel.log，提前挂会让旧的同名文件因冲突留在原处。
