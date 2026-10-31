@@ -506,6 +506,8 @@ BGM 是项目级素材，各集的剪辑时间线共用。创作者在剪辑视�
 
 HTTP 入口为 `POST /api/v1/projects/{project_name}/edit-timelines/{timeline_id}/final-cut`（可带 `revision`、`narration` 与 `subtitles`，`revision` 省略时渲染提交时的最新修订，`subtitles` 取 `burned_subtitles` 或 `no_subtitles`；返回任务 ID）与 `GET` 同一路径（以同名查询参数选版本，返回时效、版本与下载地址）；下载走公开媒体文件路由；隐藏的临时文件、渲染记录与剪映草稿 zip 不可匿名读取。Agent 工具 `render_final_cut` 以 `narration` 与 `burn_subtitles` 选版本，声明为长任务：ArcReel Agent 等到渲染完成拿到下载地址，外部 Agent 拿到生成批次句柄后轮询。
 
+成片登记后 best-effort 生成一张联系表：复用 `lib/video_review/` 的抽帧、信号检测（黑屏/卡帧/切点）与拼版，对成片文件抽约 12 帧（切点优先、均匀补点），写成同目录的 `final_cut.{旁白版本}.{字幕方式}_sheet.jpg`，与成片同一产物身份，随成片一起被覆盖或删除；生成失败只让这一版没有联系表，不阻断出片。状态接口返回联系表预览地址 `preview_url`；工具结果带 `preview_url` 与联系表图像块（与 `inspect_video_units` 相同的图片信封），摘要提示 Agent 先看图核对画面并读交付检查结论，再向创作者汇报。
+
 ### 剪映草稿 {#jianying-draft}
 
 导出可继续编辑的项目结构，用于：

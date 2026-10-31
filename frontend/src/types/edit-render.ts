@@ -62,6 +62,8 @@ export interface FinalCutStatus extends RenderArtifactStatusBase {
   download_url: string | null;
   /** 按画幅推导的默认平台（或请求指定平台）的交付检查；没有成片文件时没有。 */
   delivery: DeliveryCheck | null;
+  /** 成片联系表的预览地址；没有联系表时没有。 */
+  preview_url: string | null;
 }
 
 export interface JianyingDraftStatus extends RenderArtifactStatusBase {

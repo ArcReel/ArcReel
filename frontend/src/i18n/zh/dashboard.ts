@@ -452,6 +452,7 @@ export default {
   'edit_render_status_stale_hint': '旧文件仍可下载，重新生成后会被替换。',
   'edit_render_status_load_failed': '无法读取产物状态：{{message}}',
   'edit_render_download': '下载',
+  'edit_render_sheet': '联系表',
   'edit_render_render_final_cut': '渲染成片',
   'edit_render_rerender_final_cut': '重新渲染',
   'edit_render_export_draft': '导出剪映草稿',

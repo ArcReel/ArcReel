@@ -35,4 +35,5 @@ MESSAGES = {
     "delivery_summary_pass": "Delivery check ({platform}): all {count} items pass",
     "delivery_summary_warn": "Delivery check ({platform}): {count} warnings — {details}",
     "delivery_summary_fail": "Delivery check ({platform}): {count} items fail — {details}",
+    "delivery_sheet_attached": "Contact sheet attached (image 1); check the frames before reporting",
 }

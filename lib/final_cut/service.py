@@ -47,6 +47,7 @@ from lib.final_cut.basis import (
     final_cut_artifact_path,
     final_cut_basis,
     final_cut_key,
+    final_cut_sheet_path,
     output_profile_for_project,
     resolve_final_cut_inputs,
     resolve_final_cut_variant,
@@ -64,6 +65,7 @@ from lib.final_cut.ffmpeg_render import (
     render_plan_to_file,
 )
 from lib.final_cut.render_plan import RenderMedia, plan_render, render_clips
+from lib.final_cut.sheet import build_final_cut_sheet
 from lib.final_cut.subtitles import BurnedSubtitle
 from lib.infra.ffmpeg import FfmpegUnavailableError, ffmpeg_executable
 from lib.infra.media_probe import MediaProbe, MediaProbeError, probe_media
@@ -119,6 +121,8 @@ class FinalCutRender(BaseModel):
     warnings: tuple[TimelineIssue, ...]
     delivery: DeliveryCheck | None = None
     """按画幅推导的默认平台的交付检查；探测不出时没有。"""
+    sheet_path: str | None = None
+    """成片联系表的路径；生成失败或没有画面时没有。"""
 
 
 class FinalCutStatus(BaseModel):
@@ -136,6 +140,8 @@ class FinalCutStatus(BaseModel):
     rendered_at: str | None
     delivery: DeliveryCheck | None = None
     """按请求平台（缺省按画幅推导）的交付检查；没有成片文件时没有。"""
+    sheet_path: str | None = None
+    """成片联系表的路径；有成片文件且联系表在时才有。"""
 
 
 def _verify_snapshots(versions: VersionManager, resource_type: str, snapshot_paths: set[str]) -> None:
@@ -489,6 +495,14 @@ class FinalCutService:
             platform,
             loudness=rendered.acceptance,
         )
+        sheet_path = await self._contact_sheet(
+            project_dir,
+            episode=inputs.episode,
+            timeline_id=inputs.timeline_id,
+            variant=variant,
+            version=rendered.record.version,
+            video=project_dir / rendered.artifact_path,
+        )
         return FinalCutRender(
             episode=inputs.episode,
             timeline_id=inputs.timeline_id,
@@ -501,7 +515,29 @@ class FinalCutService:
             acceptance=rendered.acceptance,
             warnings=checked.check.warnings,
             delivery=delivery,
+            sheet_path=sheet_path,
         )
+
+    async def _contact_sheet(
+        self,
+        project_dir: Path,
+        *,
+        episode: int,
+        timeline_id: str,
+        variant: FinalCutVariant,
+        version: int,
+        video: Path,
+    ) -> str | None:
+        """best-effort 生成成片联系表；失败不阻断出片，只是这一版没有联系表。"""
+        sheet_path = final_cut_sheet_path(episode, timeline_id, variant)
+        if not await build_final_cut_sheet(
+            video,
+            project_dir / sheet_path,
+            label=f"final_cut.{variant.slug}",
+            version=version,
+        ):
+            return None
+        return sheet_path
 
     async def _delivery_check(
         self,
@@ -568,6 +604,7 @@ class FinalCutService:
                     script = load_episode_script_units(self._projects, project_name, document.episode)
                     profile = output_profile_for_project(project, script.kind)
                     target_platform = default_platform(profile.width, profile.height)
+            sheet_path = final_cut_sheet_path(document.episode, document.id, chosen)
             return (
                 FinalCutStatus(
                     episode=document.episode,
@@ -578,6 +615,10 @@ class FinalCutService:
                     artifact_path=artifact_path,
                     version=record.version if record is not None else None,
                     rendered_at=record.rendered_at if record is not None else None,
+                    sheet_path=sheet_path
+                    if comparison.status in {ArtifactStatus.CURRENT, ArtifactStatus.STALE}
+                    and (project_dir / sheet_path).exists()
+                    else None,
                 ),
                 target_platform,
             )

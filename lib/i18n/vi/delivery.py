@@ -35,4 +35,5 @@ MESSAGES = {
     "delivery_summary_pass": "Kiểm tra xuất bản ({platform}): cả {count} mục đều đạt",
     "delivery_summary_warn": "Kiểm tra xuất bản ({platform}): {count} mục cảnh báo — {details}",
     "delivery_summary_fail": "Kiểm tra xuất bản ({platform}): {count} mục không đạt — {details}",
+    "delivery_sheet_attached": "Đã đính kèm 1 bảng khung (hình 1); xem khung trước khi báo cáo",
 }

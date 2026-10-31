@@ -94,6 +94,11 @@ def final_cut_artifact_path(episode: int, timeline_id: str, variant: FinalCutVar
     return f"{timeline_renders_dir(episode, timeline_id)}/final_cut.{variant.slug}.mp4"
 
 
+def final_cut_sheet_path(episode: int, timeline_id: str, variant: FinalCutVariant) -> str:
+    """成片联系表的正式路径；与成片同目录同名同身份，随成片一起被覆盖或删除。"""
+    return f"{timeline_renders_dir(episode, timeline_id)}/final_cut.{variant.slug}_sheet.jpg"
+
+
 def video_resource_type_for(script_kind: str) -> str:
     return "reference_videos" if script_kind == "video_units" else "videos"
 
@@ -305,6 +310,7 @@ __all__ = [
     "final_cut_artifact_path",
     "final_cut_basis",
     "final_cut_key",
+    "final_cut_sheet_path",
     "output_profile_for_project",
     "resolve_final_cut_inputs",
     "resolve_final_cut_variant",

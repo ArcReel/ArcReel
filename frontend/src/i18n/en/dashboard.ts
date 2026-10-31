@@ -452,6 +452,7 @@ export default {
   'edit_render_status_stale_hint': 'You can still download the old file. Rendering again replaces it.',
   'edit_render_status_load_failed': 'Couldn’t load the status: {{message}}',
   'edit_render_download': 'Download',
+  'edit_render_sheet': 'Contact sheet',
   'edit_render_render_final_cut': 'Render final cut',
   'edit_render_rerender_final_cut': 'Render again',
   'edit_render_export_draft': 'Export Jianying draft',

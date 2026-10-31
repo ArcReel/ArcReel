@@ -24,6 +24,7 @@ import type {
 import type { TimelineNarration } from "@/types/edit-timeline";
 import { useBlockedReason } from "./useBlockedReason";
 import { useRenderArtifact, type RenderArtifactView } from "./useRenderArtifact";
+import { AssetImageDialog } from "@/components/canvas/lorebook/AssetImageDialog";
 
 const DRAFT_PATH_STORAGE_KEY = "arcreel_jianying_draft_path";
 const JIANYING_VERSION_STORAGE_KEY = "arcreel_jianying_version";
@@ -166,6 +167,8 @@ function RenderPanel({
   const { artifact, submitting, requesting } = state;
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
+  // 联系表放大查看：null 时关闭。
+  const [sheetUrl, setSheetUrl] = useState<string | null>(null);
 
   const busy = requesting || downloading;
   useEffect(() => {
@@ -307,6 +310,9 @@ function RenderPanel({
             loadError={state.loadError}
             language={i18n.language}
           />
+          {!isDraft && artifact !== null && "preview_url" in artifact && artifact.preview_url != null && (
+            <SheetPreview url={artifact.preview_url} title={t("edit_render_sheet")} onEnlarge={setSheetUrl} />
+          )}
           {!isDraft && artifact !== null && "delivery" in artifact && (
             <DeliverySection delivery={artifact.delivery} />
           )}
@@ -354,7 +360,22 @@ function RenderPanel({
         {hasFile && (downloadIsPrimary ? <>{renderButton}{downloadButton}</> : <>{downloadButton}{renderButton}</>)}
         {!hasFile && renderButton}
       </DialogFooter>
+      <AssetImageDialog src={sheetUrl} title={t("edit_render_sheet")} alt={t("edit_render_sheet")} onClose={() => setSheetUrl(null)} />
     </>
+  );
+}
+
+/** 成片联系表缩略图：点击放大查看抽帧（切点优先，黑屏/卡帧/切点有标注）。 */
+function SheetPreview({ url, title, onEnlarge }: { url: string; title: string; onEnlarge: (url: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onEnlarge(url)}
+      className="group flex items-center gap-2.5 rounded-lg border border-border/50 bg-muted/50 px-3 py-2.5 text-left transition-colors hover:bg-accent"
+    >
+      <img src={url} alt={title} className="h-14 w-24 shrink-0 rounded border border-border/50 bg-background object-cover" />
+      <span className="text-sm text-subtle-foreground transition-colors group-hover:text-foreground">{title}</span>
+    </button>
   );
 }
 

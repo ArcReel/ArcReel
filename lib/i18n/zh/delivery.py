@@ -35,4 +35,5 @@ MESSAGES = {
     "delivery_summary_pass": "交付检查（{platform}）：{count} 项全部通过",
     "delivery_summary_warn": "交付检查（{platform}）：{count} 项警告 — {details}",
     "delivery_summary_fail": "交付检查（{platform}）：{count} 项不通过 — {details}",
+    "delivery_sheet_attached": "附联系表 1 张（图 1），汇报前先看图核对画面",
 }

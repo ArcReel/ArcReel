@@ -6,6 +6,9 @@ without creating a batch; the render task checks again when it starts.
 
 from __future__ import annotations
 
+import asyncio
+import logging
+from collections.abc import Sequence
 from typing import Any
 from urllib.parse import quote
 
@@ -20,6 +23,7 @@ from lib.final_cut.service import FinalCutRender, FinalCutService
 from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.i18n import _ as translate
 from lib.jianying_draft.basis import DraftNarration
+from server.agent_toolset.declaration import ToolImage
 from server.agent_toolset.envelope import json_value
 from server.media_tools.context import tool_error, tool_problem
 from server.media_tools.render_submission import submit_render_task
@@ -27,6 +31,8 @@ from server.services.tasks.render_tasks import final_cut_task_request
 from server.tool_runtime import CallerContext, ProjectScope, Services, ToolOutcome, ToolProblem, ToolRequest
 
 _OPERATION = "render_final_cut"
+
+logger = logging.getLogger(__name__)
 
 
 def final_cut_download_url(project_name: str, artifact_path: str, version: int) -> str:
@@ -59,6 +65,10 @@ class FinalCutToolResult(BaseModel):
     final_cut: FinalCutRender
     download_url: str
     batch_id: str
+    preview_url: str | None = None
+    """成片联系表的预览地址；没有联系表时没有。"""
+    sheet: bytes | None = None
+    """成片联系表图像字节；只随结果交给 Agent 看图，不进入结构化结果。"""
 
 
 type FinalCutToolValue = FinalCutToolResult | GenerationBatchReadModel
@@ -102,19 +112,48 @@ async def render_final_cut(
     if submission.result is None:
         return ToolOutcome(value=submission.batch)
     final_cut = FinalCutRender.model_validate(submission.result["final_cut"])
+    preview_url, sheet = await _sheet_payload(scope, services, final_cut)
     return ToolOutcome(
         value=FinalCutToolResult(
             final_cut=final_cut,
             download_url=final_cut_download_url(scope.project_name, final_cut.artifact_path, final_cut.version),
             batch_id=submission.batch.batch_id,
+            preview_url=preview_url,
+            sheet=sheet,
         )
     )
+
+
+async def _sheet_payload(
+    scope: ProjectScope, services: Services, final_cut: FinalCutRender
+) -> tuple[str | None, bytes | None]:
+    """成片联系表的预览地址与图像字节；没有联系表或文件读不出时都没有。"""
+    sheet_path = final_cut.sheet_path
+    if sheet_path is None:
+        return None, None
+
+    def _read() -> bytes:
+        project_dir = services.projects.get_project_path(scope.project_name)
+        return (project_dir / sheet_path).read_bytes()
+
+    try:
+        sheet = await asyncio.to_thread(_read)
+    except OSError:
+        logger.warning("成片联系表读不出：%s / %s", scope.project_name, sheet_path, exc_info=True)
+        return None, None
+    return final_cut_download_url(scope.project_name, sheet_path, final_cut.version), sheet
 
 
 def final_cut_projection(value: FinalCutToolValue) -> dict[str, Any]:
     if isinstance(value, GenerationBatchReadModel):
         return {"generation_batch": json_value(value)}
-    return json_value(value)
+    return json_value(value.model_dump(mode="json", exclude={"sheet"}))
+
+
+def final_cut_images(value: FinalCutToolValue) -> Sequence[ToolImage]:
+    if isinstance(value, GenerationBatchReadModel) or value.sheet is None:
+        return []
+    return [ToolImage(data=value.sheet, mime_type="image/jpeg")]
 
 
 def _delivery_sentence(delivery: DeliveryCheck) -> str:
@@ -146,10 +185,11 @@ def final_cut_summary(value: FinalCutToolValue) -> str | None:
     )
     loudness_warnings = f"；{'；'.join(acceptance.loudness_warnings)}" if acceptance.loudness_warnings else ""
     delivery = f"{_delivery_sentence(final_cut.delivery)}。" if final_cut.delivery is not None else ""
+    sheet = f"。{translate('delivery_sheet_attached')}" if value.sheet is not None else ""
     return (
         f"成片已渲染：剪辑时间线 {final_cut.timeline_id} 修订 {final_cut.revision}，第 {final_cut.version} 版，"
         f"时长 {acceptance.video_duration} 秒（剪辑时间线 {acceptance.expected_duration} 秒）{loudness}{warnings}{loudness_warnings}。"
-        f"下载：{value.download_url}{delivery}"
+        f"下载：{value.download_url}{delivery}{sheet}"
     )
 
 
@@ -157,6 +197,7 @@ __all__ = [
     "FinalCutToolResult",
     "RenderFinalCutRequest",
     "final_cut_download_url",
+    "final_cut_images",
     "final_cut_projection",
     "final_cut_summary",
     "render_final_cut",

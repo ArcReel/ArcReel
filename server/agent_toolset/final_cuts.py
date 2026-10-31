@@ -5,6 +5,7 @@ from __future__ import annotations
 from server.agent_toolset.declaration import BLOCKED, ToolDeclaration
 from server.media_tools.final_cuts import (
     RenderFinalCutRequest,
+    final_cut_images,
     final_cut_projection,
     final_cut_summary,
     render_final_cut,
@@ -28,6 +29,8 @@ RENDER_FINAL_CUT = ToolDeclaration(
         "终态结果的 final_cut 带 revision、narration、subtitles、version、artifact_path、acceptance（expected_duration 为剪辑时间线时长，"
         "video_duration、audio_duration 为实测音视频流时长，单位秒；integrated_lufs、true_peak_dbtp 为交付文件重测的积分响度与真峰，无声成片为 −70/缺省）"
         "与 warnings（warning 级 issues），download_url 是下载链接。"
+        "成片出来后随结果附一张联系表图像（抽帧按镜头切点优先，黑屏/卡帧/切点有标注）：先看这张图核对画面"
+        "（黑场、卡帧、坏帧、字幕是否出安全区），并读摘要里的交付检查结论，再向创作者汇报。"
     ),
     request_model=RenderFinalCutRequest,
     migration=BLOCKED,
@@ -36,6 +39,7 @@ RENDER_FINAL_CUT = ToolDeclaration(
     long_task=True,
     summary=final_cut_summary,
     projection=final_cut_projection,
+    images=final_cut_images,
 )
 
 FINAL_CUT_TOOLS = (RENDER_FINAL_CUT,)

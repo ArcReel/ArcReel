@@ -15,8 +15,9 @@ from lib.generation.generation_batch import GenerationBatchReadModel
 from lib.generation.generation_queue import GenerationQueue
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
 from lib.project.project_manager import ProjectManager
+from server.agent_toolset.envelope import encode_outcome
 from server.agent_toolset.final_cuts import RENDER_FINAL_CUT
-from server.media_tools.final_cuts import FinalCutToolResult
+from server.media_tools.final_cuts import FinalCutToolResult, final_cut_projection
 from server.services.tasks.render_tasks import execute_render_task
 from server.tool_runtime import CallerContext
 from tests.factories import install_current_video, make_test_clip
@@ -92,6 +93,19 @@ async def test_embedded_agent_waits_for_a_downloadable_final_cut(
     assert (timeline_project.get_project_path("demo") / final_cut.artifact_path).is_file()
     assert outcome.value.download_url == f"/api/v1/files/demo/{final_cut.artifact_path}?v=1"
     assert final_cut.acceptance.video_duration == pytest.approx(2.0, abs=0.05)
+
+    # 成片联系表：落盘在成片旁，随结果带预览地址与图像块，字节不进结构化结果。
+    assert final_cut.sheet_path is not None
+    assert (timeline_project.get_project_path("demo") / final_cut.sheet_path).is_file()
+    assert outcome.value.preview_url == f"/api/v1/files/demo/{final_cut.sheet_path}?v=1"
+    assert outcome.value.sheet
+    envelope = encode_outcome(RENDER_FINAL_CUT, outcome)
+    assert [image.mime_type for image in envelope.images] == ["image/jpeg"]
+    assert envelope.images[0].data == outcome.value.sheet
+    projected = final_cut_projection(outcome.value)
+    assert "sheet" not in projected
+    assert projected["preview_url"] == outcome.value.preview_url
+    assert "联系表" in (envelope.texts[0] or "")
     batch = await render_queue.get_generation_batch(
         project_name="demo",
         batch_id=outcome.value.batch_id,

@@ -87,6 +87,8 @@ async def test_submit_queues_a_render_task_and_status_reads_missing_until_render
     assert conflicting.status_code == 409
     assert submitted.json()["task_id"] in conflicting.json()["detail"]
     assert (before.json()["status"], before.json()["download_url"]) == ("missing", None)
+    assert before.json()["sheet_path"] is None
+    assert before.json()["preview_url"] is None
 
     rendered = await FinalCutService(timeline_project).render(
         "demo", timeline_id, narration="without_narration", subtitles="no_subtitles"
@@ -133,6 +135,27 @@ async def test_render_and_status_carry_the_delivery_check(
     assert tiktok.json()["delivery"]["platform"] == "tiktok"
     assert bogus.status_code == 422
     assert bogus.json()["detail"]
+
+
+async def test_render_and_status_carry_the_contact_sheet(
+    tmp_path: Path, timeline_project: ProjectManager, final_cut_client: AsyncClient
+) -> None:
+    _install(timeline_project, tmp_path, "E1U1")
+    _install(timeline_project, tmp_path, "E1U2")
+    timeline_id = await _timeline(timeline_project)
+    url = f"/api/v1/projects/demo/edit-timelines/{timeline_id}/final-cut"
+    clean = {"subtitles": "no_subtitles"}
+
+    rendered = await FinalCutService(timeline_project).render(
+        "demo", timeline_id, narration="without_narration", subtitles="no_subtitles"
+    )
+    after = await final_cut_client.get(url, params=clean)
+
+    assert rendered.sheet_path is not None
+    assert rendered.sheet_path.endswith("_sheet.jpg")
+    assert (timeline_project.get_project_path("demo") / rendered.sheet_path).is_file()
+    assert after.json()["sheet_path"] == rendered.sheet_path
+    assert after.json()["preview_url"] == f"/api/v1/files/demo/{rendered.sheet_path}?v=1"
 
 
 async def test_omitted_options_follow_the_project_and_burn_subtitles_while_narration_needs_tts(

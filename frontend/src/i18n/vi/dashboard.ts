@@ -454,6 +454,7 @@ export default {
   'edit_render_status_stale_hint': 'Vẫn tải được tệp cũ. Tạo lại sẽ thay thế tệp này.',
   'edit_render_status_load_failed': 'Không tải được trạng thái: {{message}}',
   'edit_render_download': 'Tải xuống',
+  'edit_render_sheet': 'Bảng khung hình',
   'edit_render_render_final_cut': 'Kết xuất video thành phẩm',
   'edit_render_rerender_final_cut': 'Kết xuất lại',
   'edit_render_export_draft': 'Xuất bản nháp Jianying',

@@ -196,6 +196,7 @@ class FinalCutSubmission(BaseModel):
 
 class FinalCutStatusResponse(FinalCutStatus):
     download_url: str | None
+    preview_url: str | None
 
 
 class EditTimelineListResponse(BaseModel):
@@ -422,7 +423,7 @@ async def read_final_cut(
     subtitles: SubtitleMode | None = Query(None, description="字幕方式；省略时为烧入字幕"),
     platform: str | None = Query(None, description="交付检查的平台；省略时按画幅推导默认平台"),
 ) -> FinalCutStatusResponse:
-    """成片现状；stale 的成片仍可下载，``download_url`` 只在文件存在时给出。"""
+    """成片现状；stale 的成片仍可下载，``download_url`` 只在文件存在时给出，``preview_url`` 指向成片联系表。"""
     try:
         status = await service.status(
             project_name, timeline_id, narration=narration, subtitles=subtitles, platform=platform
@@ -436,7 +437,12 @@ async def read_final_cut(
         if status.version is not None
         else None
     )
-    return FinalCutStatusResponse(**status.model_dump(), download_url=download_url)
+    preview_url = (
+        final_cut_download_url(project_name, status.sheet_path, status.version)
+        if status.sheet_path is not None and status.version is not None
+        else None
+    )
+    return FinalCutStatusResponse(**status.model_dump(), download_url=download_url, preview_url=preview_url)
 
 
 class ExportJianyingDraftBody(BaseModel):

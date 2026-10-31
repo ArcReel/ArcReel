@@ -20,6 +20,7 @@ function finalCut(overrides: Partial<FinalCutStatus> = {}): FinalCutStatus {
     rendered_at: null,
     download_url: null,
     delivery: null,
+    preview_url: null,
     ...overrides,
   };
 }
@@ -196,6 +197,28 @@ describe("RenderDialog", () => {
 
     expect(await screen.findByText("交付检查（抖音）：2 项全部通过")).toBeInTheDocument();
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
+  });
+
+  it("成片带联系表时显示缩略图，点击放大查看", async () => {
+    vi.spyOn(API, "getFinalCutStatus").mockResolvedValue(
+      finalCut({
+        status: "current",
+        version: 1,
+        preview_url: "/api/v1/files/demo/renders/episode_1/tl-1/final_cut.without_narration.burned_subtitles_sheet.jpg?v=1",
+      }),
+    );
+    const user = userEvent.setup();
+
+    renderDialog();
+
+    const thumb = await screen.findByAltText("联系表");
+    expect(thumb).toHaveAttribute(
+      "src",
+      "/api/v1/files/demo/renders/episode_1/tl-1/final_cut.without_narration.burned_subtitles_sheet.jpg?v=1",
+    );
+    await user.click(thumb);
+
+    expect(await screen.findByRole("heading", { name: "联系表" })).toBeInTheDocument();
   });
 
   it("提交后在对话框内显示任务进度", async () => {
