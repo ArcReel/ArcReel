@@ -120,9 +120,7 @@ def _resolve_ids(
         try:
             resolved.append(resolve_current_image_pointer(project, resource_type, item_id, None))
         except KeyError:
-            missing.append(item_id)
-        except ValueError:
-            # 衍生 ID 不是「本体名/衍生名」时不指向任何资产，与不存在同样处理
+            # 包括不合「本体名/衍生名」格式的衍生 ID
             missing.append(item_id)
     return resolved, missing
 

@@ -23,7 +23,6 @@ def test_missing_draft_and_task_failure_use_ledger_title_without_changing_ids(tm
     projects.create_project_metadata("demo", "Demo", "Anime", "narration")
     projects.add_episode("demo", 9, "雨夜", "scripts/episode_9.json")
     projects.add_episode("demo", 3, "", "scripts/episode_3.json")
-    monkeypatch.setattr(episode_drafts, "get_project_manager", lambda: projects)
     monkeypatch.setattr(episode_display, "get_project_manager", lambda: projects)
     use_project_manager(monkeypatch, projects)
     grid = GridGeneration.create(9, "episode_9.json", ["E9S01"], 2, 2, "grid_4", "p", "m", "16:9")

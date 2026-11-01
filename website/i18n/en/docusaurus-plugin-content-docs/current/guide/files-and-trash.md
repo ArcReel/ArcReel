@@ -43,7 +43,7 @@ To delete an unreferenced file or a past version, select it and click **Move to 
 ### General restore rules {#restore-rules}
 
 - A restore only adds. The restored object comes back as new content: it does not overwrite existing content and does not merge with it. If its original name or number is taken, it comes back under a new name or number. The few cases where it cannot be put back are covered later in this section.
-- If the original name or number is free, it is reused. If it is already taken, the object comes back under a new name or number. The notification after the restore states the new name or number.
+- If the original name or number is free, it is reused. If it is already taken, the object comes back under a new name or number. Storyboards and video units are the exception: they always come back under a new number. The notification after the restore states the new name or number.
 - Restored artifacts are checked for freshness as usual: if their inputs changed after the deletion, they show as stale and need regenerating.
 - Content you just restored can be deleted again and goes back to the project trash.
 - If the same deletion record is restored several times at once, only one restore takes effect, and the later requests report that the record no longer exists.
@@ -72,7 +72,7 @@ When you restore an asset:
 
 When you create an asset whose name matches a record in the trash, the interface offers to recover the earlier asset sheet from the project trash.
 
-A derivative that was deleted on its own needs its character to still exist. If the character is gone, only the files are restored.
+A derivative that was deleted on its own needs its character to still exist. If the character is also in the project trash, restore the character first and then the derivative; if the character was permanently deleted, only the files are restored.
 
 ### Restoring after an asset merge {#after-merge}
 
@@ -89,17 +89,17 @@ When you restore the merged asset, the system only adds:
 
 When you remove a storyboard or a video unit in the storyboard detail or the reference-to-video workbench, it becomes one deletion record together with its storyboard image, end frame, video, voice-over, thumbnails, subtitles, presentation, and version history. An entry without any media still becomes a record.
 
-The same applies in these cases: when a content confirmation overwrites the final script, entries that the old script has and the new one lacks; and when a new entry reuses the number of a removed entry, the media left by the old entry.
+When a content confirmation or a full regeneration overwrites the final script, the entries in the old script also become deletion records.
 
 A restored entry returns to its original episode and is inserted after its original previous entry. If it was first, it goes back to the front; if the previous entry is gone, it is placed at the end of the episode. When several adjacent entries were removed in one batch, restore them in their original order so the position is closest to what it was before the deletion.
 
-If the original number is free, it is reused, and the media and version history come back unchanged. If another entry has taken the original number, the entry is restored under a new number: the media and version history come back under the new number, derived files such as subtitles and presentation are not restored, and the artifact registration is not restored either, so regenerate them if you need them. A storyboard restored under a new number no longer belongs to its original grid and is planned as an ordinary storyboard.
+Storyboard and video unit numbers are only ever assigned, never reused, so a restored entry always gets a new number, even if the original number is free. Clips in an edit timeline that reference the original number still show as deleted, and their old trims are not applied to the restored entry. The media and version history come back under the new number, and the storyboard image, video, and voice-over are checked for freshness against the restored entry as usual. Derived files such as subtitles and presentation are not restored; regenerate them if you need them. A restored storyboard no longer belongs to its original grid and is planned as an ordinary storyboard.
 
 ### Grids, end frames, and reference audio {#grids-end-frames-audio}
 
 - Grids: when you regenerate a grid, the old grid it replaces becomes a deletion record that holds the grid record, the combined image, and the version history. If the original grid ID is free, the grid comes back as a whole.
 - End frames: when you clear a storyboard's end frame, the end frame image becomes a deletion record. If the original location is free, it goes back there; if not, it comes back under a new file name. If the storyboard has no usable end frame at that moment, the restored image becomes its end frame again; otherwise it stays in the project as an unreferenced file.
-- Reference audio: when you delete a character's reference audio in its voice settings, or replace it with audio of a different extension, the old file becomes a deletion record. The location rules are the same as for end frames, and if the character has no usable reference audio at that moment, the restored file becomes its reference audio again.
+- Reference audio: when you delete a character's reference audio in its voice settings, or replace it with audio of a different extension, the old file becomes a deletion record. If the original location is free, it goes back there, and if the character has no usable reference audio at that moment, the restored file becomes its reference audio again. If the original location is taken, it comes back under a new file name and stays in the project as an unreferenced file.
 
 If the episode, storyboard, or character they belong to no longer exists, these three types of records fall back to restoring files only; see [Records that cannot be restored with their original structure](#degraded).
 
@@ -134,7 +134,9 @@ A restore falls back to restoring files only in these cases:
 
 In that case, media and other files return to their original paths, and the notification states how many files were recovered. Structure files such as scripts and edit timelines stay in the deletion record and can only be downloaded. Such a record no longer has a **Restore** button; from then on you can only download the files in it one by one.
 
-If the episode of a storyboard, a video unit, or an edit timeline is still in the project trash, the restore does not fall back. It asks you to restore the episode first and leaves the record unchanged. Restore the episode, then this record, and it comes back with its original structure.
+If the episode of a storyboard, a video unit, an edit timeline, or a grid, or the character of a derivative, is still in the project trash, the restore does not fall back. It asks you to restore that episode or character first and leaves the record unchanged. Restore it, then this record, and it comes back with its original structure.
+
+If a read or write error such as insufficient disk space or missing permissions occurs during a restore, the restore does not fall back either: this restore fails and the record is kept unchanged. Fix the problem and try again.
 
 ## Retention, permanent deletion, and emptying {#retention-and-purge}
 

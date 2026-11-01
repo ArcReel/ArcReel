@@ -65,6 +65,18 @@ docker compose up -d --force-recreate
 
 For a source deployment, restart the ArcReel service. Do not disable authentication on a public deployment.
 
+### Why didn't my `.env` changes take effect? {#env-changes-not-applied}
+
+A Docker deployment reads `.env` when the container is created. After that, `docker compose restart`, automatic restarts after a crash, and host reboots all keep the environment variables captured at that time. After editing `.env`, run the following in the Compose directory you actually use:
+
+```bash
+docker compose up -d
+```
+
+Do not use `docker compose restart` to apply changes. If startup finds that a process environment variable differs from the mounted `.env`, the log shows one WARNING that lists only the variable names, never their values.
+
+If `AUTH_PASSWORD` is empty, ArcReel generates it only once on first startup and reuses the value in `.env` after restarts. If `AUTH_TOKEN_SECRET` is empty, the signing secret is saved to `runtime/auth-token-secret` in the data directory (`projects/` under the Compose directory for Docker deployments), so signed-in sessions stay valid after restarts; once you set it in `.env`, the value you set takes precedence.
+
 ### How do I update Docker? Will an update delete my projects? {#docker-update}
 
 Create a backup first, then run these commands in the appropriate Compose directory:
@@ -119,6 +131,18 @@ These messages mean that the Agent process did not start normally or could not i
 4. Download diagnostic logs from the About section of Settings and inspect the specific upstream status code near the time of the error.
 
 A successful connectivity check proves only that a minimal request succeeded. Long sessions may still be affected by quotas, context limits, rate limits, or proxy timeouts.
+
+### After starting from source on Windows, the Agent reports that the event loop cannot create subprocesses. What should I do? {#windows-reload-agent}
+
+When the backend is started with `--reload` on native Windows, uvicorn switches to an event loop that cannot create subprocesses, so the Agent cannot launch Claude Code. The UI says that the backend's event loop can't create subprocesses; earlier versions show only `Failed to start Claude Code:` with nothing after the colon.
+
+Restart the backend without `--reload`:
+
+```bash
+uv run uvicorn server.app:app --port 1241
+```
+
+You can also run `uv run python -m server.app`. It does not enable reload on Windows and reads the listen address from `LISTEN_HOST` and `LISTEN_PORT`. Without reload, restart the backend manually after changing code.
 
 ## Providers, models, and APIs {#providers-models-api}
 

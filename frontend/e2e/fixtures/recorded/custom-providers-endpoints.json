@@ -417,6 +417,38 @@
         ]
       },
       {
+        "key": "ark-seedream",
+        "media_type": "image",
+        "family": "ark",
+        "kind": "python",
+        "source": "builtin",
+        "display_name_key": "endpoint_ark_seedream_display",
+        "display_name": null,
+        "request_method": "POST",
+        "request_path_template": "/api/v3/images/generations",
+        "image_capabilities": [
+          "image_to_image",
+          "text_to_image"
+        ],
+        "end_image_capable": false,
+        "size_fixed": false,
+        "duration_fixed": false,
+        "duration_frame_rate_missing": false,
+        "duration_tier_empty": false,
+        "native_resolution": null,
+        "requests": [
+          {
+            "name": "generate",
+            "display_name_key": "cp_request_generate",
+            "default_path": "/images/generations",
+            "placeholders": [
+              "model"
+            ],
+            "base_url_rule": "ensure_api_v3"
+          }
+        ]
+      },
+      {
         "key": "vidu-video",
         "media_type": "video",
         "family": "vidu",

@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+import uvicorn
 
 import server.app as app_module
 from server.services.tasks.generation_tasks import execute_generation_task
@@ -68,6 +69,45 @@ class TestAppModule:
         ]
         assert bool(warnings) is expect_warning
 
+    @pytest.fixture
+    def startup_state_reset(self):
+        """用例改动的进程级启动状态（.env 读取记录、签名密钥缓存）在结束后清掉。"""
+        import server.auth as auth_module
+        from lib.infra import env_init
+
+        auth_module.reset_token_secret_for_tests()
+        yield
+        env_init.reset_env_file_load_for_tests()
+        auth_module.reset_token_secret_for_tests()
+
+    @pytest.mark.asyncio
+    @pytest.mark.usefixtures("startup_state_reset")
+    async def test_lifespan_persists_token_secret_and_reports_env_divergence(self, monkeypatch, caplog, tmp_path):
+        """启动时签名密钥落到数据目录；挂载的 .env 与进程环境不一致时只告警键名。"""
+        import server.auth as auth_module
+        from lib.infra import env_init
+        from lib.infra.data_root_layout import DataRootLayout
+
+        monkeypatch.delenv("AUTH_TOKEN_SECRET", raising=False)
+        env_file = tmp_path / ".env"
+        env_file.write_text("ARCREEL_TEST_EDITED=value-from-file\n", encoding="utf-8")
+        monkeypatch.setenv("ARCREEL_TEST_EDITED", "value-from-container")
+        env_init.load_env_file(env_file)
+        stub_lifespan_dependencies(monkeypatch)
+
+        app = app_module.app
+        app.state = SimpleNamespace()
+
+        with caplog.at_level("WARNING", logger=env_init.__name__):
+            async with app_module.lifespan(app):
+                secret_path = DataRootLayout.current().auth_token_secret_path
+                assert secret_path.read_text(encoding="utf-8").strip() == auth_module.get_token_secret()
+
+        divergence = [r.getMessage() for r in caplog.records if r.name == env_init.__name__]
+        assert len(divergence) == 1
+        assert "ARCREEL_TEST_EDITED" in divergence[0]
+        assert "value-from" not in divergence[0]
+
 
 class TestListenEnvVars:
     """``LISTEN_HOST`` / ``LISTEN_PORT`` 的解析仅在 ``__main__`` 块被 uvicorn 消费，
@@ -89,6 +129,34 @@ class TestListenEnvVars:
         monkeypatch.setenv("LISTEN_HOST", "")
         monkeypatch.setenv("LISTEN_PORT", "")
         assert app_module._resolve_listen_addr() == ("0.0.0.0", 1241)
+
+
+class TestMainEntry:
+    """``python -m server.app`` 的 uvicorn 参数：reload 要求导入字符串，Windows 上不开 reload。"""
+
+    def test_reload_uses_import_string_and_limits_watched_dirs(self, monkeypatch):
+        monkeypatch.setenv("LISTEN_HOST", "127.0.0.1")
+        monkeypatch.setenv("LISTEN_PORT", "18080")
+
+        target, options = app_module._main_uvicorn_args("darwin")
+
+        assert target == "server.app:app"
+        assert options == {
+            "host": "127.0.0.1",
+            "port": 18080,
+            "reload": True,
+            "reload_dirs": ["server", "lib"],
+        }
+        config = uvicorn.Config(target, **options)
+        assert config.should_reload
+
+    def test_windows_runs_without_reload_so_agent_can_spawn_cli(self):
+        target, options = app_module._main_uvicorn_args("win32")
+
+        assert target is app_module.app
+        assert options["reload"] is False
+        assert "reload_dirs" not in options
+        assert not uvicorn.Config(target, **options).use_subprocess
 
 
 @pytest.mark.asyncio

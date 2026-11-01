@@ -108,6 +108,24 @@ def _rv_script_plan() -> dict:
     }
 
 
+def _narrowed_rv_facts(supported_durations):
+    """生效档位为 4/8 秒，覆盖配置收窄与换型号后声明全集收窄。"""
+    return make_video_request_facts(
+        route="reference_video",
+        generation_type="i2v",
+        supported_durations=supported_durations,
+        allowed_durations=(4, 8),
+    )
+
+
+def _off_tier_rv_script_plan() -> dict:
+    """第二个单元的已确认时长 6 秒落在收窄后的档位之外。"""
+    plan = _rv_script_plan()
+    plan["units"][0]["duration_seconds"] = 4
+    plan["units"].append({"unit_id": "E1U02", "text": "@[裴与] 策马而来。", "duration_seconds": 6})
+    return plan
+
+
 @pytest.fixture(autouse=True)
 def unresolvable_video_request_facts(set_video_request_facts) -> None:
     """本模块默认让视频请求事实解析不到型号：不碰 DB，也不让系统级默认模型的档位漂进断言。
@@ -1024,6 +1042,61 @@ class TestReferenceVideoGateFlow:
             await svc.confirm("demo", 1)
 
         assert exc.value.code == "speech_admission"
+
+    @pytest.mark.parametrize("supported_durations", [(4, 6, 8), (4, 8)])
+    async def test_confirm_names_the_off_tier_unit_by_position(
+        self, tmp_path, set_video_request_facts, supported_durations
+    ):
+        """已确认时长被收窄出局的单元：按脚本规划里的单元位置报出现时长与可选档位，原因不带内部单元 ID。"""
+        set_video_request_facts(_narrowed_rv_facts(supported_durations))
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        _write_rv_script_plan(pm, _off_tier_rv_script_plan())
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await _service(pm).confirm("demo", 1)
+
+        assert exc.value.code == "duration_off_tier"
+        assert exc.value.params == {"position": 2, "duration_seconds": 6, "tiers": "4 / 8"}
+        assert "视频单元 2" in exc.value.message
+        assert "E1U02" not in exc.value.message
+        assert not (pm.get_project_path("demo") / "scripts" / "episode_1.json").exists()
+        assert (await _service(pm).get_state("demo", 1))["status"] == "pending_review"
+
+    @pytest.mark.parametrize("supported_durations", [(4, 6, 8), (4, 8)])
+    async def test_confirm_tool_reports_the_off_tier_unit_by_position(
+        self, tmp_path, set_video_request_facts, supported_durations
+    ):
+        """Agent 入口：同一场景下失败原因按单元位置说明，不含内部单元 ID。"""
+        set_video_request_facts(_narrowed_rv_facts(supported_durations))
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        _write_rv_script_plan(pm, _off_tier_rv_script_plan())
+        ctx = ToolHarness(
+            project_name="demo",
+            data_root=tmp_path / "projects",
+            pm=pm,
+            config_resolver=cast(ConfigResolver, FakeConfigResolver()),
+        )
+
+        refused = await run_declared_tool(CONFIRM_SCRIPT_REVIEW, ctx, {"episode_id": 1})
+
+        assert refused.problem is not None
+        assert "视频单元 2" in refused.problem.detail
+        assert "6s" in refused.problem.detail
+        assert "[4, 8]" in refused.problem.detail
+        assert "E1U02" not in refused.problem.detail
+
+    async def test_confirm_other_conversion_refusals_stay_generic(self, tmp_path, video_request_facts):
+        """时长越档之外的转换拒绝仍走通用的 conversion_refused。"""
+        pm = _make_project(tmp_path, "drama", generation_mode="reference_video")
+        plan = _rv_script_plan()
+        plan["units"].append(dict(plan["units"][0]))
+        _write_rv_script_plan(pm, plan)
+
+        with pytest.raises(ScriptReviewError) as exc:
+            await _service(pm).confirm("demo", 1)
+
+        assert exc.value.code == "conversion_refused"
+        assert "unit_id 重复" in exc.value.message
 
     async def test_reference_duration_tiers_take_narrowed_with_reference_durations(
         self, tmp_path, set_video_request_facts

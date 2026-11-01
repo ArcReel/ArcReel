@@ -12,6 +12,7 @@ from fastapi import APIRouter, Body
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from lib.infra.api_errors import BadRequestError, ConflictError, NotFoundError, UnprocessableError
+from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from server.agent_toolset.envelope import json_value
 from server.auth import CurrentUser
@@ -56,6 +57,9 @@ def _raise_draft_error(exc: DraftWorkflowError, episode: int) -> NoReturn:
         raise UnprocessableError(failure.code, **failure.parameters()).with_diagnostic(
             {"code": failure.code, "params": failure.parameters()}
         ) from exc
+    if exc.notice_key is not None:
+        # 草稿已写回，采用被正式剧本单元挡下：按界面单元称呼说明原因与出路，错误码仍是 draft_invalid。
+        raise UnprocessableError(exc.notice_key, **exc.notice_params).with_diagnostic({"code": exc.code}) from exc
     if exc.code == "draft_repair_failed":
         logger.warning("草稿 AI 修复失败 episode=%s：%s", episode, exc.detail)
         raise UnprocessableError("draft_repair_failed").with_diagnostic({"code": exc.code}) from exc
@@ -113,9 +117,11 @@ async def save_episode_draft(
 ):
     """手修保存：服务端全量重判，违约清零即采用为正式内容，否则返回刷新后的草稿视图。"""
     try:
-        result = await EpisodeDraftService(get_project_manager()).save_draft(
-            project_name, episode, doc_type, req.content, req.base_revision
-        )
+        # 用户自己的保存按 webui 广播，前端不当成外部改动去通知或跳转。
+        with project_change_source("webui"):
+            result = await EpisodeDraftService(get_project_manager()).save_draft(
+                project_name, episode, doc_type, req.content, req.base_revision
+            )
     except DraftWorkflowError as exc:
         _raise_draft_error(exc, episode)
     except FileNotFoundError as exc:
@@ -170,9 +176,10 @@ async def repair_episode_draft(
 async def discard_episode_draft(project_name: str, episode: int, doc_type: str, base_revision: str = ""):
     """丢弃草稿，回到正式内容。"""
     try:
-        return await EpisodeDraftService(get_project_manager()).discard_draft(
-            project_name, episode, doc_type, base_revision
-        )
+        with project_change_source("webui"):
+            return await EpisodeDraftService(get_project_manager()).discard_draft(
+                project_name, episode, doc_type, base_revision
+            )
     except DraftWorkflowError as exc:
         _raise_draft_error(exc, episode)
     except FileNotFoundError as exc:

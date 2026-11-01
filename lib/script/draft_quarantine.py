@@ -50,6 +50,7 @@ from lib.episode.episode_paths import (
 from lib.infra.content_digest import prefixed_canonical_json_digest
 from lib.infra.json_io import atomic_write_json, load_json_or_none
 from lib.project.project_activity import record_project_activity
+from lib.project.project_change_hints import emit_project_change_hint
 from lib.script.draft_violation import DraftViolation, render_violation_report
 
 #: 草稿的产出来源。``content`` 与该来源那一步的模型输出 schema 同形：参考生视频 script_plan 是
@@ -264,6 +265,16 @@ def violation_entries(violations: list[DraftViolation]) -> list[dict[str, Any]]:
     return entries
 
 
+def announce_draft_change(project_path: Path, path: Path) -> None:
+    """草稿文件刚写入或删除：按当前来源发一次项目变更 hint。
+
+    草稿不经 ProjectManager 写盘，事件服务靠轮询发现它的变化，来源取同一扫描窗口内到达的 hint。
+    写盘后立即发出，Web 端的手修保存才会按 ``webui`` 结算；Agent 与文本任务不设来源，仍按
+    ``filesystem`` 广播。
+    """
+    emit_project_change_hint(project_path.name, changed_paths=[path.relative_to(project_path).as_posix()])
+
+
 def write_quarantine(
     project_path: Path,
     episode: int,
@@ -290,6 +301,7 @@ def write_quarantine(
             meta=meta,
         ),
     )
+    announce_draft_change(project_path, path)
     record_project_activity(project_path)
     return path
 
@@ -345,11 +357,13 @@ def clear_quarantine(project_path: Path, episode: int, kind: str, *, record_acti
     缺失时静默——晋升可能来自一次直接重跑，本就没有草稿要清。在外层写事务内清除时传
     ``record_activity=False``，由外层提交后记账：账本是项目全局的，不随事务回滚。
     """
+    path = quarantine_path(project_path, episode, kind)
     try:
         # hard-delete: temp -- 晋升的暂存草稿，内容已写入正式文件
-        quarantine_path(project_path, episode, kind).unlink()
+        path.unlink()
     except FileNotFoundError:
         return False
+    announce_draft_change(project_path, path)
     if record_activity:
         record_project_activity(project_path)
     return True

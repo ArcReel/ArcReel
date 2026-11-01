@@ -60,7 +60,7 @@ function detailInstanceKey(selectedKey: string | null, selection: EndpointSelect
 
 interface MarketUpdateTarget {
   entry: MarketEntry;
-  currentDefinition: EndpointDefinition;
+  currentDefinition: AnyEndpointDefinition;
   hasUnsavedChanges: boolean;
 }
 
@@ -477,7 +477,7 @@ export function EndpointsSection() {
   const handleUpdateFromMarket = useCallback(
     async (
       installation: EndpointInstallation,
-      currentDefinition: EndpointDefinition,
+      currentDefinition: AnyEndpointDefinition,
       hasUnsavedChanges: boolean,
     ) => {
       if (installation.source_id === null) return;
@@ -626,6 +626,9 @@ export function EndpointsSection() {
           hasUnsavedEndpointChanges={marketUpdateTarget.hasUnsavedChanges}
           onClose={() => setMarketUpdateTarget(null)}
           onInstallationChange={(installation) => {
+            setComfyuiDraft((current) =>
+              current?.record?.id === marketUpdateTarget.entry.installation?.endpoint_id ? null : current,
+            );
             voidCall(reload().then(() => (installation === null ? select(null) : undefined)));
           }}
         />

@@ -233,6 +233,9 @@ MESSAGES = {
     "blank_script_formal_exists": "Tập này đã có kịch bản chính thức nên không thể bắt đầu từ trang trống. Hãy sửa trực tiếp trên dòng thời gian",
     "draft_doc_type_not_applicable": "Loại bản nháp này không áp dụng cho dự án hiện tại",
     "draft_save_failed": "Bản nháp đã được lưu nhưng chưa kiểm tra xong; vui lòng thử lại sau",
+    "draft_formal_unit_dialogue_overload": "Bản nháp đã được lưu nhưng chưa được áp dụng: đơn vị video {position} trong kịch bản cần khoảng {spoken_seconds} giây để đọc hết lời thoại, vượt quá thời lượng {duration_seconds} giây của đơn vị. Hãy kéo dài đơn vị này trên dòng thời gian, tách nó ra hoặc rút gọn lời thoại, rồi lưu lại bản nháp",
+    "draft_formal_unit_duration_off_tier": "Bản nháp đã được lưu nhưng chưa được áp dụng: đơn vị video {position} trong kịch bản dài {duration_seconds} giây, không thuộc các mức thời lượng mà mô hình video hiện tại hỗ trợ (có thể chọn: {tiers} giây). Hãy đổi thời lượng của đơn vị này trên dòng thời gian sang một mức hợp lệ, rồi lưu lại bản nháp",
+    "draft_formal_unit_invalid": "Bản nháp đã được lưu nhưng chưa được áp dụng: nội dung của đơn vị video {position} trong kịch bản không đáp ứng yêu cầu viết prompt. Hãy sửa nội dung hoặc thời lượng của đơn vị này trên dòng thời gian, rồi lưu lại bản nháp",
     "draft_repair_failed": "AI chưa sửa xong, bản nháp không thay đổi. Hãy thử lại, tự sửa hoặc giao cho Agent",
     "draft_repair_task_active": "AI đang sửa bản nháp này. Hãy thử lại sau khi hoàn tất",
     "script_review_not_applicable": "Tập này không áp dụng xác nhận nội dung (chế độ này không tạo ra kết quả kế hoạch kịch bản để xác nhận)",
@@ -273,6 +276,7 @@ MESSAGES = {
     "prompt_authoring_refused": "Không thể gửi yêu cầu viết prompt: {reason}",
     "prompt_authoring_dialogue_overload": "Đơn vị video {position} cần khoảng {spoken_seconds} giây để đọc hết lời thoại, vượt quá thời lượng {duration_seconds} giây của đơn vị. Hãy kéo dài đơn vị này trên dòng thời gian, tách nó ra hoặc rút gọn lời thoại",
     "prompt_authoring_unit_invalid": "Nội dung của đơn vị video {position} không đáp ứng yêu cầu viết prompt. Hãy sửa nội dung hoặc thời lượng của đơn vị này trên dòng thời gian rồi thử lại",
+    "prompt_authoring_duration_off_tier": "Đơn vị video {position} dài {duration_seconds} giây, không thuộc các mức thời lượng mà mô hình video hiện tại hỗ trợ (có thể chọn: {tiers} giây). Hãy đổi thời lượng của đơn vị này trên dòng thời gian sang một mức hợp lệ rồi thử lại",
     "ad_script_overwrite_required": "Tạo lại sẽ thay thế toàn bộ kịch bản chính thức của tập này. Hãy xem danh sách mất mát, đồng ý ghi đè rồi thử lại",
     "ad_script_task_active": "Tập này đang có tác vụ tạo kịch bản chưa hoàn tất. Hãy đợi tác vụ xong rồi gửi lại",
     "ad_script_refused": "Không thể gửi yêu cầu tạo kịch bản bằng AI: {reason}",
@@ -284,6 +288,7 @@ MESSAGES = {
     "episode_planning_failed": "Đã xảy ra lỗi. Hãy thử lại, hoặc giao cho Agent nếu vẫn thất bại",
     "text_output_truncated": "Đầu ra của mô hình văn bản {model} vượt quá độ dài đầu ra tối đa nên không đầy đủ",
     "script_review_conversion_refused": "Kế hoạch kịch bản chưa thể chuyển thành kịch bản chính thức nên chưa được xác nhận; hãy kiểm tra thời lượng phân cảnh, lời thoại và trạng thái kế hoạch kịch bản rồi thử lại",
+    "script_review_duration_off_tier": "Đơn vị video {position} trong kế hoạch kịch bản dài {duration_seconds} giây, không thuộc các mức thời lượng mà mô hình video hiện tại hỗ trợ (có thể chọn: {tiers} giây), nên chưa được xác nhận. Hãy đổi thời lượng của đơn vị này sang một mức hợp lệ rồi xác nhận lại",
     "script_review_invalid_new_assets": "Một số tài sản mới của tập này không thể xử lý theo lựa chọn nên kế hoạch chưa được xác nhận; hãy kiểm tra tài sản được gộp vào và nhân vật gốc của biến thể rồi thử lại",
     "script_review_unregistered_references": "Chưa xác nhận được kế hoạch vì các mục sau tham chiếu những tên chưa đăng ký và cũng không phải tài sản mới được đăng ký trong tập này: {details}. Hãy gỡ các tên này khỏi tham chiếu hoặc chọn tài sản đã đăng ký rồi thử lại",
     "script_review_foreign_formal_script": (
@@ -654,6 +659,7 @@ MESSAGES = {
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "Mô hình {model} chỉ hỗ trợ text-to-image (không có /v1/images/edits); hãy bỏ ảnh tham chiếu hoặc chọn mô hình hỗ trợ chỉnh sửa ảnh",
     "image_endpoint_mismatch_no_t2i": "Mô hình {model} chỉ hỗ trợ image-to-image (cần ảnh tham chiếu); hãy cung cấp ảnh tham chiếu hoặc chọn mô hình hỗ trợ text-to-image",
+    "image_seedream_edits_unavailable": "Endpoint gọi hiện tại của mô hình {model} không hỗ trợ tạo ảnh có ảnh tham chiếu; hãy đổi thành «Volcengine Ark (Seedream)» trong cài đặt mô hình rồi thử lại",
     "image_capability_missing_i2i": "{provider}/{model} không hỗ trợ image-to-image; hãy cấu hình mô hình mặc định có hỗ trợ chỉnh sửa ảnh",
     "image_capability_missing_t2i": "{provider}/{model} không hỗ trợ text-to-image; hãy cấu hình mô hình mặc định có hỗ trợ text-to-image",
     "image_dashscope_4k_t2i_only": "Mô hình {model}: đầu ra 4K chỉ được wan2.7-image-pro hỗ trợ cho text-to-image; hãy dùng 2K hoặc thấp hơn",

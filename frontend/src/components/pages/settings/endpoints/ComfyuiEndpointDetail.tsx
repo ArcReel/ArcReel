@@ -22,6 +22,7 @@ import type {
   ComfyuiMediaType,
   CustomEndpointInfo,
   CustomProviderInfo,
+  EndpointInstallation,
 } from "@/types";
 import {
   bindingsFromInference,
@@ -36,6 +37,7 @@ import {
 import { ComfyuiBindingTable } from "./ComfyuiBindingTable";
 import { ComfyuiEndpointTestSection } from "./ComfyuiEndpointTestSection";
 import { EndpointHeader, type EndpointBackTarget } from "./EndpointHeader";
+import { EndpointInstallBadges, MarketOrigin, MarketUpdateButton } from "./EndpointMarketInfo";
 import type { EndpointUsage } from "./endpoint-usages";
 import { EndpointUsageList } from "./EndpointUsageList";
 import { exportEndpointDefinition } from "./export-endpoint-definition";
@@ -81,6 +83,17 @@ export interface ComfyuiEndpointDetailProps {
   onReimport: (current: ComfyuiEndpointDefinition) => void;
   /** 放弃未保存修改：上层丢掉导入的未保存定义，并重建本组件回到已保存内容。 */
   onDiscard: () => void;
+  /**
+   * 打开安装确认弹窗的更新态，与声明式详情、市场卡片走同一个弹窗；交出去的是编辑器里这一刻的定义
+   * （含未保存的修改），弹窗据此提示覆盖并提供先导出。只在市场轴可更新时有入口。
+   */
+  onUpdateFromMarket: (
+    installation: EndpointInstallation,
+    currentDefinition: ComfyuiEndpointDefinition,
+    hasUnsavedChanges: boolean,
+  ) => void;
+  /** 更新弹窗所需的条目详情正在加载：暂停编辑，保持导出快照与当前定义一致。 */
+  marketUpdatePending: boolean;
   /** 「更多操作」里由上层提供的条目（分享、删除）。 */
   menuItems: (hasUnsavedChanges: boolean, pending: boolean) => ReactNode;
   submissionBadge?: ReactNode;
@@ -104,12 +117,15 @@ export function ComfyuiEndpointDetail({
   onSaved,
   onReimport,
   onDiscard,
+  onUpdateFromMarket,
+  marketUpdatePending,
   menuItems,
   submissionBadge,
 }: ComfyuiEndpointDetailProps) {
   const { t } = useTranslation(["dashboard", "common"]);
   const nameId = useId();
   const mediaLabelId = useId();
+  const installation = record?.installation ?? null;
 
   const [definition, setDefinition] = useState(initialDefinition);
   const [bindings, setBindings] = useState<ComfyuiBindings>(() =>
@@ -211,6 +227,7 @@ export function ComfyuiEndpointDetail({
   const dirty = draftJson !== savedJson;
 
   const blockers = inference ? saveBlockers(bindings, inference, definition, COMFYUI_PLACEHOLDER_NAME) : [];
+  const pending = saving || inference === null || reinferring !== null;
 
   const changeBinding = useCallback((key: ComfyuiBindingKey, targets: ComfyuiBindingTarget[] | undefined) => {
     setBindings((current) => {
@@ -318,6 +335,7 @@ export function ComfyuiEndpointDetail({
               <Badge variant="outline">
                 {t(definition.media_type === "image" ? "endpoint_image_group" : "endpoint_video_group")}
               </Badge>
+              <EndpointInstallBadges installation={installation} />
               {submissionBadge}
             </>
           }
@@ -330,27 +348,40 @@ export function ComfyuiEndpointDetail({
               )}
               {sourceFileName && <span className="min-w-0 break-all">{t("ce_cf_source_file", { file: sourceFileName })}</span>}
               <span>{t("ce_cf_node_count", { n: nodes.length })}</span>
+              <MarketOrigin installation={installation} />
             </>
           }
           primary={
-            <Button variant="outline" onClick={() => onReimport(draft)}>
-              <FileJson2 aria-hidden data-icon="inline-start" />
-              {t("ce_cf_reimport")}
-            </Button>
+            <>
+              <MarketUpdateButton
+                installation={installation}
+                pending={marketUpdatePending}
+                disabled={pending}
+                onUpdate={(target) => onUpdateFromMarket(target, draft, dirty)}
+              />
+              <Button variant="outline" onClick={() => onReimport(draft)} disabled={marketUpdatePending}>
+                <FileJson2 aria-hidden data-icon="inline-start" />
+                {t("ce_cf_reimport")}
+              </Button>
+            </>
           }
           menu={
             <>
               <DropdownMenuItem onClick={() => exportEndpointDefinition(draft, record?.installation?.slug)}>
                 {t("ce_export_json")}
               </DropdownMenuItem>
-              {menuItems(dirty, saving || inference === null || reinferring !== null)}
+              {menuItems(dirty, pending)}
             </>
           }
         />
       }
-      footer={<SaveBar unit={controls} className="max-w-178" />}
+      footer={
+        <fieldset disabled={marketUpdatePending}>
+          <SaveBar unit={controls} className="max-w-178" />
+        </fieldset>
+      }
     >
-      <div className="flex max-w-190 flex-col gap-8 px-6 py-6">
+      <fieldset disabled={marketUpdatePending} className="flex min-w-0 max-w-190 flex-col gap-8 px-6 py-6">
         {record && <EndpointUsageList usages={usages} />}
 
         <Section title={t("ce_cf_bindings_title")}>
@@ -469,7 +500,7 @@ export function ComfyuiEndpointDetail({
         <Section title={t("ce_cf_test_title")} description={t("ce_cf_test_desc")}>
           <ComfyuiEndpointTestSection definition={draft} providers={providers} blocked={testRefused(blockers)} />
         </Section>
-      </div>
+      </fieldset>
     </DetailPane>
   );
 }
