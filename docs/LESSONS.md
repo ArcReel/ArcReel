@@ -108,11 +108,11 @@
 判定方式：机械（拟用 `tests/unit/scripts/test_gate.py`：共享样例路径同时选中 frontend 与 backend 域）
 - #3492 · 2026-10-26 · 集成审查发现：新增的 `frontend/src/test/contracts/reference-unit-add-requests.json` 只触发 frontend 域，后端读取它的用例在单改样例时不跑，2700f4a31 给 `scripts/gate.py` 与 CI 的 domain-filter 补上路径；没拦住：检查没接上
 
-### 用脚本批量改写测试文件后，确认每个文件的用例收集数只增不减
+### 用脚本批量改写测试文件后，核对被删除的用例都是有意删除的
 模式：按锚点切片整段替换测试代码时，范围夹住了插入点以外的测试类；被删的用例不再被收集，完整测试照样全绿
 代价：已有的回归用例静默消失，覆盖下降却看不出来（严重度：常规）
-判定方式：机械（拟用闸门比较 base 与 HEAD 按文件的 `pytest --collect-only` 计数，或报出 diff 中被删除的 `def test_`）
-- #3543 · 2026-10-30 · 自查：切片替换误删 `tests/unit/server/test_auth.py` 的 TestCreateAndVerifyToken、TestCheckCredentials、TestEnsureAuthPassword 三个类，对比各文件收集数后恢复（终版 249b7e622 三类俱在）；没拦住：没有对应规则（闸门不比较收集数）
+判定方式：机械（拟用闸门比较 base 与 HEAD 的 `pytest --collect-only` 节点 ID，列出消失的节点，移动或有意删除的由 PR 说明；只比较数量会放过「删一个、加一个」）
+- #3543 · 2026-10-30 · 自查：切片替换误删 `tests/unit/server/test_auth.py` 的 TestCreateAndVerifyToken、TestCheckCredentials、TestEnsureAuthPassword 三个类，对比各文件收集结果后恢复（终版 249b7e622 三类俱在）；没拦住：没有对应规则（闸门不比较收集数）
 
 ## 前端异步状态在作用域切换与重叠操作下归属不清
 
