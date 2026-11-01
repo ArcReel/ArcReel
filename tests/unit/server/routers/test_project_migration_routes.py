@@ -17,10 +17,11 @@ from lib.project.project_migration_report import (
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import project_migration
+from tests.fakes import use_project_manager
 
 
 def _client(monkeypatch, pm: ProjectManager) -> TestClient:
-    monkeypatch.setattr(project_migration, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="tester", role="admin")
     app.include_router(project_migration.router, dependencies=[Depends(get_current_user)])

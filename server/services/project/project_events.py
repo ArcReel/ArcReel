@@ -440,9 +440,9 @@ class ProjectEventService:
         """文件 I/O 在线程中执行，状态更新和广播在事件循环线程中执行。"""
         try:
             async with channel.rebuild_lock:
-                # 读盘前在册的来源标记整体换出：读盘期间新增的 hint 落进新集合，留给下一轮扫描
-                # 结算。若改为读盘后减去旧集合，同一来源在窗口内重复到达会被一并减掉，那条新
-                # 变更会在下一轮扫描被 _resolve_batch_source 误标成 filesystem。
+                # 读盘前在册的来源标记整体换出：读盘期间新增的 hint 落进新集合，参与本轮结算，
+                # 同时留给下一轮扫描。若改为读盘后减去旧集合，同一来源在窗口内重复到达会被一并
+                # 减掉，那条新变更会在下一轮扫描被 _resolve_batch_source 误标成 filesystem。
                 covered_sources = channel.pending_sources
                 channel.pending_sources = set()
                 try:
@@ -480,7 +480,7 @@ class ProjectEventService:
                         project_name,
                         channel,
                         fingerprint=snapshot.fingerprint,
-                        source=self._resolve_batch_source(covered_sources),
+                        source=self._settled_source(channel, covered_sources),
                         changes=swept,
                     )
         finally:
@@ -599,15 +599,22 @@ class ProjectEventService:
                 try:
                     async with channel.rebuild_lock:
                         known_stamp = None if forced or channel.snapshot is None else channel.input_stamp
-                        # 仅文件 I/O 在线程中执行
-                        stamp, snapshot = await asyncio.to_thread(self._poll_snapshot, project_name, known_stamp)
-                        if snapshot is None:
-                            # 输入未变：快照沿用，只结算来源标记（与无差异的扫描同一口径）
-                            channel.pending_sources.clear()
-                        else:
+                        # 与显式重建同一口径：读盘前在册的来源标记换出，由本轮结算消费；读盘期间
+                        # 到达的 hint 落进新集合，参与本轮结算并留给下一轮。读盘可能早于那次写入，
+                        # 随本轮清掉的话，下一轮读到这次写入时已没有标记，会被标成 filesystem。
+                        covered_sources = channel.pending_sources
+                        channel.pending_sources = set()
+                        try:
+                            # 仅文件 I/O 在线程中执行
+                            stamp, snapshot = await asyncio.to_thread(self._poll_snapshot, project_name, known_stamp)
+                        except BaseException:
+                            channel.pending_sources |= covered_sources
+                            raise
+                        # 输入未变时快照沿用，换出的来源标记随之结算（与无差异的扫描同一口径）
+                        if snapshot is not None:
                             # 状态更新和广播在事件循环线程中执行（线程安全）
                             channel.input_stamp = stamp
-                            self._apply_scan_result(project_name, channel, snapshot)
+                            self._apply_scan_result(project_name, channel, snapshot, covered_sources)
                 except asyncio.CancelledError:
                     raise
                 except FileNotFoundError:
@@ -637,12 +644,12 @@ class ProjectEventService:
         project_name: str,
         channel: _ProjectChannel,
         snapshot: ProjectSnapshot,
+        covered_sources: set[ProjectChangeSource],
     ) -> None:
         """在事件循环线程中更新 channel 状态并广播变更。"""
         previous = channel.snapshot
         channel.snapshot = snapshot
-        source = self._resolve_batch_source(channel.pending_sources)
-        channel.pending_sources.clear()
+        source = self._settled_source(channel, covered_sources)
         if previous is None or previous.fingerprint == snapshot.fingerprint:
             return
 
@@ -668,6 +675,13 @@ class ProjectEventService:
             "fingerprint": channel.snapshot.fingerprint if channel.snapshot is not None else "",
             "generated_at": _utc_now_iso(),
         }
+
+    @classmethod
+    def _settled_source(
+        cls, channel: _ProjectChannel, covered_sources: set[ProjectChangeSource]
+    ) -> ProjectChangeSource:
+        """一轮读盘的来源：读盘前换出的标记，加上读盘期间已送达、仍留给下一轮的标记。"""
+        return cls._resolve_batch_source(covered_sources | channel.pending_sources)
 
     @staticmethod
     def _resolve_batch_source(

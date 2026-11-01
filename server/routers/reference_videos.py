@@ -189,17 +189,19 @@ async def _commit_episode_edit(
 ) -> ScriptBatchEditResult:
     """在工作线程里执行一次剧本编辑：等项目文件锁、写回剧本都不占事件循环。
 
-    编辑一旦开始就跑完再传播取消，调用方拿到的结论与落盘结果一致。
+    编辑一旦开始就跑完再传播取消，调用方拿到的结论与落盘结果一致。写入按 ``webui`` 广播，
+    删除单元时移入回收站的产物也记为用户删除。
     """
-    return await run_sync_transaction(
-        execute_current_episode_edit,
-        get_project_manager(),
-        project_name,
-        episode,
-        script_file,
-        current,
-        operations,
-    )
+    with project_change_source("webui"):
+        return await run_sync_transaction(
+            execute_current_episode_edit,
+            get_project_manager(),
+            project_name,
+            episode,
+            script_file,
+            current,
+            operations,
+        )
 
 
 def _problem_payload(
