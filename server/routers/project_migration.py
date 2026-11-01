@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from lib.infra.api_errors import NotFoundError, UnprocessableError
 from lib.infra.async_thread import run_sync_transaction
+from lib.project.project_change_hints import emit_project_change_hint, project_change_source
 from lib.project.project_manager import ProjectManager, get_project_manager
 from lib.project.project_migration_report import acknowledge_migration_report
 from server.auth import CurrentUser
@@ -36,12 +37,18 @@ async def retry_migration(name: str, user: CurrentUser):
     pm = get_project_manager()
     if not await asyncio.to_thread(pm.project_exists, name):
         raise NotFoundError("project_not_found", name=name)
-    outcome = await retry_project_migration(
-        ToolRequest(NoArguments()),
-        ProjectScope(project_name=name, data_root=pm.data_root),
-        CallerContext(user_id=user.id, source="webui"),
-        Services.defaults(pm),
-    )
+    with project_change_source("webui"):
+        try:
+            outcome = await retry_project_migration(
+                ToolRequest(NoArguments()),
+                ProjectScope(project_name=name, data_root=pm.data_root),
+                CallerContext(user_id=user.id, source="webui"),
+                Services.defaults(pm),
+            )
+        finally:
+            # 升级链直接改写 project.json 与剧本，不发 hint；在这里补发，升级带来的变更按 webui 广播，
+            # 而不是等定时轮询发现、按 filesystem 广播。
+            emit_project_change_hint(name)
     if outcome.problem is not None:
         params = outcome.problem.params or {}
         raise UnprocessableError("project_migration_retry_failed").with_diagnostic(
@@ -61,7 +68,8 @@ async def acknowledge_report(name: str, body: AcknowledgeReportRequest, _user: C
 
     ``acknowledged`` 为假表示盘上没有这份待确认的报告：要么已确认过，要么已换成另一份。
     """
-    acknowledged = await run_sync_transaction(_acknowledge, get_project_manager(), name, body.migrated_at)
+    with project_change_source("webui"):
+        acknowledged = await run_sync_transaction(_acknowledge, get_project_manager(), name, body.migrated_at)
     return {"success": True, "acknowledged": acknowledged}
 
 
