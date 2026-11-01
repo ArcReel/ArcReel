@@ -22,7 +22,11 @@ from lib.generation.generation_result import GenerationSelectionMode
 from lib.generation.generation_worker import CapacityTable, GenerationWorker
 from lib.infra.api_errors import ConflictError
 from lib.project.project_manager import ProjectManager
-from lib.project.project_migration_failure import MIGRATION_FAILURE_CODE, record_migration_failure
+from lib.project.project_migration_failure import (
+    MIGRATION_FAILURE_CODE,
+    MIGRATION_FAILURE_FILENAME,
+    record_migration_failure,
+)
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.draft_quarantine import QUARANTINE_KIND_DRAMA_SCRIPT_PLAN, read_quarantine
 from lib.workflow.workflow_plan import WorkflowPlanRequest, build_workflow_plan
@@ -33,6 +37,7 @@ from server.agent_toolset.toolset import ARCREEL_MCP_TOOL_IDS
 from server.auth import create_download_token, create_token
 from server.cors_config import resolve_cors_policy
 from server.remote_mcp import ArcApiKeyVerifier, RemoteMCPHost, build_remote_mcp_server, mount_remote_mcp
+from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import Services, TextGenerationResult
 from tests.factories import install_current_video, make_test_clip, make_video_request_facts, register_project_sources
 from tests.fakes import refuse_resume_execution
@@ -1091,6 +1096,76 @@ async def test_remote_mcp_draft_errors_name_only_project_relative_paths(remote_s
     assert "drafts/episode_1/script_plan_normalized_script.invalid.json" in message
     assert str(project_dir) not in message
     assert str(project_dir.resolve()) not in message
+
+
+def _plant_migration_failure(project_dir: Path, origin: str) -> None:
+    script = project_dir / "scripts" / "episode_1.json"
+    if origin == "raised":
+        record_migration_failure(
+            project_dir,
+            FileNotFoundError(2, "No such file or directory", str(script)),
+            schema_version=CURRENT_PROJECT_SCHEMA_VERSION,
+        )
+    elif origin == "legacy_record":
+        reason = f"cannot read {script.resolve()}"
+        (project_dir / MIGRATION_FAILURE_FILENAME).write_text(
+            json.dumps(
+                {
+                    "schema_version": CURRENT_PROJECT_SCHEMA_VERSION,
+                    "failed_at": "2026-01-01T00:00:00",
+                    "reason": reason,
+                    "details": [{"file": str(script), "violation": reason}],
+                }
+            ),
+            encoding="utf-8",
+        )
+    else:  # 判定记录本身读不出：OSError 文本带着记录文件的绝对路径
+        (project_dir / MIGRATION_FAILURE_FILENAME).mkdir()
+
+
+@pytest.mark.parametrize("origin", ["raised", "legacy_record", "unreadable_record"])
+async def test_remote_workflow_plan_names_migration_failures_by_project_relative_path(
+    remote_projects: ProjectManager, origin: str
+) -> None:
+    """迁移失败原因经成功返回值回给远程 Agent：只带项目内相对路径，仍能定位问题文件。"""
+    project_dir = remote_projects.get_project_path("demo")
+    _plant_migration_failure(project_dir, origin)
+
+    async def verify_api_key(token: str):
+        return {"sub": "apikey:test", "via": "apikey"} if token == "arc-valid" else None
+
+    services = Services(
+        projects=remote_projects, workflow_planner=WorkflowPlanner(remote_projects), capabilities=_Capabilities()
+    )
+    server = build_remote_mcp_server(
+        projects=remote_projects, services=services, token_verifier=ArcApiKeyVerifier(verify_api_key)
+    )
+    app = _mounted(server)
+    async with (
+        server.session_manager.run(),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://localhost",
+            headers={"Authorization": "Bearer arc-valid"},
+            follow_redirects=True,
+        ) as client,
+        streamable_http_client("http://localhost/mcp", http_client=client) as (read, write, _),
+        ClientSession(read, write) as session,
+    ):
+        await session.initialize()
+        result = await session.call_tool("get_workflow_plan", {"project": "demo", "episode_id": 1})
+
+    assert not result.isError
+    plan = result.structuredContent["workflow_plan"]
+    message = json.dumps(result.structuredContent, ensure_ascii=False) + "".join(
+        block.text for block in result.content if isinstance(block, TextContent)
+    )
+    assert str(project_dir) not in message
+    assert str(project_dir.resolve()) not in message
+    blocker = next(item for item in plan["blockers"] if item["code"] == MIGRATION_FAILURE_CODE)
+    expected = MIGRATION_FAILURE_FILENAME if origin == "unreadable_record" else "scripts/episode_1.json"
+    assert expected in blocker["reason"]
+    assert expected in json.dumps(plan["next_action"]["args"]["details"], ensure_ascii=False)
 
 
 async def test_remote_mcp_host_initializes_first_request_and_can_restart() -> None:

@@ -172,7 +172,7 @@ The default deployment examples currently include these core variables:
 |---|---|---|
 | `AUTH_USERNAME` | `admin` | Change the administrator username if needed |
 | `AUTH_PASSWORD` | Empty | Explicitly set a strong password for production deployments |
-| `AUTH_TOKEN_SECRET` | Empty | Set a fixed, long-lived random value for production deployments |
+| `AUTH_TOKEN_SECRET` | Empty | Set a fixed, long-lived random value; if left empty, ArcReel generates one, saves it to `runtime/auth-token-secret` under the data root, and reuses it after restarts |
 | `AUTH_ENABLED` | `true` | Never disable for remote deployments; `false` leaves every management endpoint unauthenticated |
 | `LOG_LEVEL` | `INFO` | Temporarily change to `DEBUG` while troubleshooting, then restore it |
 | `POSTGRES_PASSWORD` | None | Required and must be set only for production deployments |
@@ -184,7 +184,8 @@ The default deployment examples currently include these core variables:
 
 Notes:
 
-- Changing `AUTH_TOKEN_SECRET` invalidates existing login tokens.
+- Changing `AUTH_TOKEN_SECRET` invalidates existing login tokens. A value you set takes precedence, and the secret file generated under the data root is no longer used. When no value is explicitly set, deleting the secret file and restarting generates a new secret and invalidates existing logins.
+- After editing `.env`, run `docker compose up -d` in the Compose directory to recreate the container. `docker compose restart` and automatic container restarts keep the environment variables captured when the container was created and do not reload `.env`. If startup finds that a process environment variable differs from the mounted `.env`, the log shows one WARNING that lists only the variable names.
 - `AUTH_ENABLED=false` is only for a local machine protected by its own network boundary. Compose publishes port `1241` on all host interfaces by default, so never disable authentication for remote deployments. While authentication is off, startup logs a WARNING.
 - `.env` may contain secrets. Do not commit it to version control.
 - Vertex credential files should be readable only by the user who runs ArcReel.
@@ -360,6 +361,7 @@ Migration rejects a whole project only for these data problems: `project.json` o
 
 - Legacy shapes written by the normal workflow of earlier versions are normalized automatically: when the same episode is listed more than once, only one entry is kept; when different episodes are bound to the same script, the script stays with the episode it records and the others switch to their own script paths; when a script does not record its episode, or records one that differs from its binding, the episode list wins; when an episode's script binding is not `scripts/episode_N.json`, the script is moved to that canonical path and rebound, and references in version records and grid records are rewritten with it; when script plan drafts exist under both the old and the new file name, the new name wins; within one asset type, entries whose names match after trimming surrounding whitespace and Unicode normalization, ignoring case, are reduced to the first one: derivatives of a removed entry move to the kept one (a derivative whose name differs from an existing one only in case merges into it), and references in scripts and script plans that use the removed name's casing are rewritten to the kept name; script items with a missing or duplicate ID get a new ID (duplicates from the second one on), and media files under the original ID stay with the item that keeps it; when two episodes have an item with the same ID, the media stays with the episode the ID prefix names (or, if it names neither, the one listed first), and the item in the other episode gets a new ID; duplicate shot or unit numbers in legacy ad shot indexes are renumbered the same way.
 - A reference-to-video unit that does not fit the current unit format (for example a unit with empty text, which older versions allowed) is kept as is and marked as needing replanning. The interface treats it like any other unit that needs replanning, and it is not listed in the report.
+- When an asset sheet, reference image, reference audio, or merchandise photo points to a file under another existing asset (including derivative images), the migration copies it under this asset and rewrites the reference, leaving the original file with the original asset. Copying uses extra disk space; if the destination under this asset already holds different content, the existing file is first moved to a kept copy. Copying does not change an asset sheet's production status: one that was up to date before the rewrite stays up to date, and one that was already outdated still needs regenerating. The copy destination, the reference, and the asset sheet registration are committed in one transaction and restored if it fails. A source path that contains a symbolic link is not copied; if the destination directory is a symbolic link, the migration fails, and you need to restore it to a real directory inside the project before retrying; if the destination file is a symbolic link, only the link itself is replaced and the file it points to is left unchanged. The locations of copies and kept copies are listed under "Changed".
 - When normalization has to choose, the other copy is kept next to the original file with a `.kept.v<from-version>-<timestamp>` suffix. Kept copies are never cleaned up automatically, and the "Changed" entry in the report shows where each one is.
 - When a single grid record, script plan draft, or media file cannot be read, the file stays where it is, is not registered, and is listed under "Not carried over"; the rest of the project migrates normally. When a script in an imported archive references an undefined character, scene, or prop, the import adds an empty definition for it and lists it under "Changed".
 
@@ -425,6 +427,8 @@ image: arcreel/arcreel:X.Y.Z
 Explicitly changing the version when upgrading reduces the risk of unintentionally pulling a new version.
 
 ## 6. Backup and Restore {#backup-and-restore}
+
+After the whole site is moved to a different absolute path, the application relocates the storage of existing Agent sessions to match the current project directories at startup, so conversations can continue with their context. Sessions of deleted projects follow the new name the project is restored under. With `ARCREEL_SDK_SESSION_STORE=off`, sessions are stored only in the SDK's local directory, so keep that directory when migrating (`claude_data/` for Docker, or `CLAUDE_CONFIG_DIR` or the default `~/.claude` for native deployments). When the same session has records in several source locations, or the destination already has a record, they are not merged automatically; a failed move logs a warning, and the service still starts.
 
 ### 6.1 Back Up a SQLite Deployment {#backup-sqlite}
 
@@ -694,6 +698,7 @@ If the container has just started, check whether database migrations are still r
 - Check `AUTH_USERNAME`;
 - Check `AUTH_PASSWORD` in `.env`;
 - If the password was left empty on first startup, check whether it was written back to the file;
+- Check whether you ran `docker compose up -d` after editing `.env`, and whether the startup log has a WARNING that process environment variables differ from `.env`;
 - Log in again after changing `AUTH_TOKEN_SECRET`.
 
 ### Agent Requests Fail {#agent-request-fails}

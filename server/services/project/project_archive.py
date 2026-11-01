@@ -643,6 +643,8 @@ class ProjectArchiveService:
                 snapshot_preserved_artifact_manifest(
                     snapshot_dir,
                     source_manifest_entries,
+                    # 仅当前版本的包只带选中版本的快照（CURRENT_EXPORT_VERSION_RETENTION）
+                    ships_unselected_versions=scope == "full",
                 )
             )
         manifest = self._build_archive_manifest(

@@ -19,6 +19,7 @@ from lib.backends.audio_backends.dashscope import DashScopeAudioBackend
 from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
+from lib.backends.image_backends.ark import ArkImageBackend
 from lib.backends.image_backends.base import ImageGenerationRequest
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.backends.image_backends.gemini import GeminiImageBackend
@@ -90,6 +91,9 @@ _CALLS: dict[str, Call] = {
     ).generate(_image(tmp_path)),
     "minimax-image": lambda layer, tmp_path: MiniMaxImageBackend(
         api_key="k", base_url=BASE, transport_layer=layer
+    ).generate(_image(tmp_path)),
+    "ark-seedream": lambda layer, tmp_path: ArkImageBackend(
+        api_key="k", base_url=f"{BASE}/api/v3", transport_layer=layer
     ).generate(_image(tmp_path)),
     "kling-image": lambda layer, tmp_path: KlingImageBackend(
         auth_mode="bearer", api_key="k", base_url=f"{BASE}/v1", transport_layer=layer

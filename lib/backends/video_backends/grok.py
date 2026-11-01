@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 _MODEL_CLASSIC = "grok-imagine-video"
 _MODEL_1_5 = "grok-imagine-video-1.5"
+_MODEL_1_5_LITE = "grok-imagine-video-1.5-lite"
 
 
 def _match_video_capabilities(name: str) -> VideoCapabilities | None:
@@ -37,7 +38,9 @@ def _match_video_capabilities(name: str) -> VideoCapabilities | None:
     if not name.startswith(_MODEL_CLASSIC):
         return None
     return VideoCapabilities(
-        last_frame=name == _MODEL_1_5, max_reference_images=7, audio_track=VideoAudioMode.CONTROLLABLE
+        last_frame=name == _MODEL_1_5,
+        max_reference_images=0 if name == _MODEL_1_5_LITE else 7,
+        audio_track=VideoAudioMode.CONTROLLABLE,
     )
 
 
@@ -77,11 +80,12 @@ class GrokVideoBackend:
         （https://docs.x.ai/developers/model-capabilities/video/generation 与
         https://docs.x.ai/developers/model-capabilities/video/reference-to-video.md）：
 
-        - 全系支持参考生视频，该路径分辨率上限 720p，由 ``generate`` 请求期校验。参考图上限 7
-          取自参考生视频页「A maximum of 7 reference images can be provided per request」，不分模型。
+        - 1.5 与经典版支持参考生视频，该路径分辨率上限 720p，由 ``generate`` 请求期校验。参考图上限 7
+          取自参考生视频页「A maximum of 7 reference images can be provided per request」。
         - ``grok-imagine-video-1.5``：另支持 ``last_frame`` 钉住尾帧。参考音频只收预置
           ``voice_id``，自备音频仅向受信合作方开放，表达不了项目的参考音频文件，不声明。
-        - ``grok-imagine-video-1.5-lite``：首尾帧官方只写在 1.5 上，不声明尾帧。
+        - ``grok-imagine-video-1.5-lite``：官方只写了文生与图生视频，不声明参考图（真实调用返回
+          ``reference_images is not supported for this model``）；首尾帧官方只写在 1.5 上，不声明尾帧。
         - ``grok-imagine-video``：官方写明拒收 ``last_frame``，也拒收首帧与参考图并存，后者由 ``generate``
           请求期校验。
 

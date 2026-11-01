@@ -1048,7 +1048,7 @@ class API {
 
   /**
    * 衍生是挂在角色下的子身份（换装、变身、易容），名字只在该角色内唯一，脚本中写作
-   * `@[角色/衍生]`。以下四个方法只做登记；资产图的读取与生成见本节末尾两个方法，版本与
+   * `@[角色/衍生]`。以下四个方法只做登记；资产图的读取、生成与上传见本节末尾三个方法，版本与
    * 图片编辑复用通用端点（资源类型 `character_derivatives` / `character_derivative`）。
    */
   static async addCharacterDerivative(
@@ -1133,6 +1133,22 @@ class API {
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}/derivatives/${encodeURIComponent(derivativeName)}`,
       { method: "POST" }
+    );
+  }
+
+  /**
+   * 上传一张图替换衍生资产图，成为该衍生的当前版本并进入版本历史。上传的图是成品：
+   * 不需要本体资产图，本体资产图重生成或改外观变化都不让它过期。
+   */
+  static async uploadCharacterDerivativeSheet(
+    projectName: string,
+    charName: string,
+    derivativeName: string,
+    file: File
+  ): Promise<ShotUploadResult> {
+    return API.postFileUpload<ShotUploadResult>(
+      `${derivativesPath(projectName, charName)}/${encodeURIComponent(derivativeName)}/upload`,
+      file
     );
   }
 

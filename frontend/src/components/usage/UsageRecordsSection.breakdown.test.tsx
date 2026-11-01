@@ -300,4 +300,18 @@ describe("UsageRecordsSection attention", () => {
 
     expect(await screen.findByRole("button", { name: "清除筛选：视频单元 第 1 集 · 2" })).toBeInTheDocument();
   });
+
+  it("names a grid filter chip by its reference label without the segment prefix", async () => {
+    mockAttention([]);
+    const ref: EpisodeItemRef = { ...E1S10_REF, item_id: "G01", item_position: null };
+    vi.mocked(API.getUsageRecords).mockResolvedValue({
+      items: [makeUsageRecord({ id: 7, segment_id: "E1G01", segment_ref: ref })],
+      next_cursor: null,
+      total: 1,
+    });
+    renderUsageRecordsSection("section=usage&u_segment=E1G01");
+
+    // 宫格不是分镜：芯片只给指称标签，不加类型前缀。
+    expect(await screen.findByRole("button", { name: "清除筛选：第 1 集 · G01" })).toBeInTheDocument();
+  });
 });

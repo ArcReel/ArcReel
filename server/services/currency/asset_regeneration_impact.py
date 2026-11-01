@@ -7,7 +7,8 @@
   写到了这个名字。衍生引用 ``本体/衍生`` 用的是衍生自己的资产图，不算引用本体。
 - 视频：只有参考生视频直接以资产图为参考；分镜图生视频的输入是分镜图，资产图重生不会
   直接让它过期。参考生视频单元的引用取正文 ``@[名称]`` 与引用字段。
-- 衍生资产图：本体资产图是衍生资产图唯一的输入，本体重生后它的现行衍生图全部过期。
+- 衍生资产图：本体资产图是生成的衍生资产图唯一的输入，本体重生后它的现行生成衍生图全部过期。
+  上传或从资产库带入的衍生资产图是成品，依据只由图字节决定，不随本体重生过期，不计入。
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from typing import Any
 
 from lib.artifacts.artifact_activation import ArtifactCurrencyResolver, active_artifact_currency_resolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus
+from lib.artifacts.visual_artifact_provenance import UPLOADED_ASSET_SHEET_BASIS_KIND
 from lib.generation.generation_result import observe_artifact_status
 from lib.project.asset_derivatives import derivative_artifact_id, derivative_artifact_key, derivative_table
 from lib.project.asset_types import ASSET_SPECS, asset_name_comparison_key, resolve_asset_key
@@ -50,6 +52,14 @@ def _visual_reference_names(item: Mapping[str, Any]) -> set[str]:
 def _is_current(resolver: ArtifactCurrencyResolver, key: ArtifactKey, artifact_path: object) -> bool:
     status, _blocker = observe_artifact_status(resolver=resolver, key=key, artifact_path=artifact_path)
     return status is ArtifactStatus.CURRENT
+
+
+def _follows_owner_sheet(resolver: ArtifactCurrencyResolver, key: ArtifactKey, artifact_path: object) -> bool:
+    """这张衍生资产图现行、且依据含本体资产图：作为成品带入的衍生图按图字节判定，本体重生不影响它。"""
+    if not _is_current(resolver, key, artifact_path):
+        return False
+    basis = resolver.resolve_basis(key)
+    return basis is None or basis.kind != UPLOADED_ASSET_SHEET_BASIS_KIND
 
 
 def _episode_scripts(
@@ -103,7 +113,7 @@ def asset_regeneration_impact(
     derivatives = 0
     if spec.supports_derivatives and derivative_name is None:
         for derivative_name, derivative in derivative_table(entry).items():
-            if isinstance(derivative, Mapping) and _is_current(
+            if isinstance(derivative, Mapping) and _follows_owner_sheet(
                 resolver,
                 derivative_artifact_key(target, asset_name_comparison_key(derivative_name)),
                 derivative.get(spec.sheet_field),

@@ -142,6 +142,35 @@ class TestWarningRendering:
             assert result["error_code"] == "prompt_authoring_dialogue_overload"
             assert result["error_detail"] == detail
 
+    def test_prompt_authoring_duration_off_tier_lists_duration_and_tiers(self):
+        detail = "unit E1U04 时长 8s 不在当前生效档位 [4, 6] 内"
+        task = _task(
+            status="failed",
+            error_message=encode_generation_problem(
+                GenerationProblem(
+                    code="prompt_authoring_duration_off_tier",
+                    detail=detail,
+                    action=GenerationAction.FIX_INPUT,
+                    params={"unit_id": "E1U04", "position": 2, "duration_seconds": 8, "tiers": "4 / 6"},
+                )
+            ),
+        )
+
+        localized = {
+            locale: _localize_task(task, _translator(locale), make_display_names(locale))
+            for locale in ("zh", "en", "vi")
+        }
+
+        assert localized["zh"]["error_message"].startswith("视频单元 2 的时长 8 秒")
+        assert localized["en"]["error_message"].startswith("Video unit 2 ")
+        assert localized["vi"]["error_message"].startswith("Đơn vị video 2 ")
+        for result in localized.values():
+            assert "8" in result["error_message"]
+            assert "4 / 6" in result["error_message"]
+            assert "E1U04" not in result["error_message"]
+            assert "generate_episode_script" not in result["error_message"]
+            assert result["error_detail"] == detail
+
     def test_prompt_authoring_unit_invalid_renders_in_every_locale(self):
         task = _task(
             status="failed",

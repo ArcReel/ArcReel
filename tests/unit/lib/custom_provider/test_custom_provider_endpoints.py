@@ -67,6 +67,7 @@ class TestRegistry:
             "newapi-video",
             "v2-video-generations",
             "ark-seedance",
+            "ark-seedream",
             "vidu-video",
             "openrouter-video",
             "xai-video",
@@ -309,6 +310,7 @@ class TestRegistry:
             "dashscope-image",
             "minimax-image",
             "kling-image",
+            "ark-seedream",
         }
         assert video_keys == {
             "openai-video",
@@ -555,7 +557,11 @@ class TestInferEndpoint:
             ("kling-image2video", "openai", "kling-video"),
             ("kling-img2video", "openai", "kling-video"),
             ("proxy/kling-image2video", "openai", "kling-video"),
-            ("seedream-3.0", "openai", "openai-images"),
+            # 方舟 Seedream 没有 /images/edits，带参考图也走 /images/generations；不分 discovery_format
+            ("seedream-3.0", "openai", "ark-seedream"),
+            ("doubao-seedream-5-0-260128", "openai", "ark-seedream"),
+            ("proxy/Doubao-Seedream-4.5", "openai", "ark-seedream"),
+            ("doubao-seedream-4-0-250828", "google", "ark-seedream"),
             ("jimeng-3.0", "openai", "openai-images"),
             ("jimeng-video-3.0", "openai", "openai-video"),
             ("jimengvideo-3.0", "openai", "openai-video"),
@@ -626,6 +632,7 @@ class TestInferEndpoint:
             # 名字规则推出的端点就在这个媒体类型里：照用
             ("seedance-2.0-pro", "openai", "video", "ark-seedance"),
             ("gpt-5.5", "openai", "text", "openai-chat"),
+            ("doubao-seedream-5-0-260128", "openai", "image", "ark-seedream"),
             # 两栖模型按条目的媒体类型在名字族内选
             ("kling-v3-omni", "openai", "image", "kling-image"),
             ("gemini-3-pro-image", "openai", "text", "gemini-generate"),
@@ -655,6 +662,7 @@ def test_image_endpoint_registry_entries():
         "dashscope-image",
         "minimax-image",
         "kling-image",
+        "ark-seedream",
     }
 
 

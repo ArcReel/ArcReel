@@ -1,0 +1,4 @@
+interface:
+  display_name: "Model Routing"
+  short_description: "按 Category 为委派任务选模型与 effort"
+  default_prompt: "使用 $model-routing 为这次委派选择 Category、模型与 effort。"

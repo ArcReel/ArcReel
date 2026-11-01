@@ -81,6 +81,20 @@ describe("AgentFailureCard", () => {
     );
   });
 
+  it("explains how to recover when the backend event loop cannot create subprocesses", () => {
+    render(
+      <AgentFailureCard
+        failure={{
+          ...turnFailure,
+          phase: "startup",
+          summary: { ...turnFailure.summary, key: "subprocess_unsupported" },
+        }}
+      />,
+    );
+
+    expect(screen.getByText(/后端的事件循环不支持创建子进程/)).toHaveTextContent("请去掉 --reload 后重启后端");
+  });
+
   it("offers retry only for a startup failure whose caller supplies it", () => {
     const onRetry = vi.fn();
     render(

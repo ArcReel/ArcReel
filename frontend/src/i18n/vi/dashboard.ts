@@ -710,6 +710,7 @@ export default {
   'agent_failure_conclusion_cli_connection_failed': 'Không kết nối được với chương trình dòng lệnh Claude Code.',
   'agent_failure_conclusion_process_failed': 'Tiến trình Claude Code đã thoát bất thường.',
   'agent_failure_conclusion_startup_timeout': 'Hết thời gian chờ Agent khởi động.',
+  'agent_failure_conclusion_subprocess_unsupported': 'Vòng lặp sự kiện của backend không hỗ trợ tạo tiến trình con nên không khởi chạy được Claude Code. Trên Windows, lỗi này xảy ra khi khởi động backend với --reload; hãy khởi động lại backend mà không dùng --reload.',
   'agent_failure_conclusion_startup_failed': 'Đã xảy ra lỗi khi khởi động. Thông tin gốc nằm trong Chi tiết.',
 
   // StudioCanvasRouter & Toasts
@@ -1733,6 +1734,7 @@ export default {
   'endpoint_gemini_image_display': 'Ảnh Google Gemini',
   'endpoint_openai_video_display': 'OpenAI Video (Sora)',
   'endpoint_ark_seedance_display': 'Volcengine Ark (Seedance)',
+  'endpoint_ark_seedream_display': 'Volcengine Ark (Seedream)',
   'endpoint_vidu_video_display': 'Vidu Video',
   'endpoint_dashscope_image_display': 'Alibaba Model Studio (Ảnh)',
   'endpoint_dashscope_async_video_display': 'Alibaba Model Studio (Video bất đồng bộ)',

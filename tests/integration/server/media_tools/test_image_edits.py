@@ -187,6 +187,40 @@ async def test_edit_images_one_manifest_fail_loud_error_does_not_abort_the_batch
     assert blocked_item.problem.code == "generation_artifact_state_unavailable"
 
 
+async def test_edit_images_malformed_derivative_id_is_not_found_without_aborting_the_batch(
+    fake_ctx: ToolHarness,
+) -> None:
+    """不合「本体名/衍生名」格式的衍生 ID 只让这一条记为不存在，同批合法衍生照常提交。"""
+    project_path = fake_ctx.project_path
+    (project_path / "characters").mkdir()
+    (project_path / "characters" / "zhangsan-battle.png").write_bytes(b"png")
+    fake_ctx.pm.project_payload["characters"]["张三"]["derivatives"] = {
+        "战斗装": {"description": "重甲", "character_sheet": "characters/zhangsan-battle.png"}
+    }
+    use_fake_caps(fake_ctx)
+    fake_ctx.pm.mirror_to_disk()
+
+    out = await run_declared_tool(
+        "edit_images",
+        fake_ctx,
+        {
+            "resource_type": "character_derivative",
+            "edits": [
+                {"id": "战斗装", "instruction": "换发色"},
+                {"id": "张三/战斗装", "instruction": "换衣服"},
+            ],
+        },
+        batch_waiter=_succeed_every_spec,
+    )
+
+    result = read_generation_result(out)
+    assert result.succeeded == ["张三/战斗装"]
+    assert result.blocked == ["战斗装"]
+    blocked_item = next(entry for entry in result.items if entry.unit_id == "战斗装")
+    assert blocked_item.problem is not None
+    assert blocked_item.problem.code == "generation_unit_not_found"
+
+
 @pytest.mark.parametrize(
     "arguments",
     [

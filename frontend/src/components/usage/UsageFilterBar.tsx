@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { CallType, EpisodeItemRef, UsageSummary } from "@/types";
 import type { UsageRecordsFilters, UsageTimeRange } from "@/stores/usage-records-store";
 import { episodeItemRefLabel } from "@/utils/episode-display";
-import { episodeItemKind } from "@/utils/episode-item";
+import { episodeItemKind, isPositionedItemId } from "@/utils/episode-item";
 import { MEDIA_META, projectTitleResolver, providerLabelResolver, usageProjectLabel } from "./usage-record-format";
 
 interface UsageFilterBarProps {
@@ -103,12 +103,14 @@ export function UsageFilterBar({
     chips.push({ key: "media", label: t(MEDIA_META[filters.mediaType].labelKey), clear: { mediaType: null } });
   }
   // 分镜没有下拉可选，只由「需要关注」的连续失败条目写入；chip 是它唯一的出口。
+  // 只有分镜与视频单元带类型前缀；宫格等其他条目直接用指称标签。
   if (filters.segment) {
+    const id = episodeItemRefLabel(filters.segment, segmentRef, t);
     chips.push({
       key: "segment",
-      label: t(episodeItemKind(filters.segment) === "unit" ? "usage_target_unit" : "usage_target_segment", {
-        id: episodeItemRefLabel(filters.segment, segmentRef, t),
-      }),
+      label: isPositionedItemId(filters.segment)
+        ? t(episodeItemKind(filters.segment) === "unit" ? "usage_target_unit" : "usage_target_segment", { id })
+        : id,
       clear: { segment: null },
     });
   }

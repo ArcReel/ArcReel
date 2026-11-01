@@ -1,6 +1,6 @@
 import { useCallback, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, History, Loader2, MoreHorizontal, PenLine, Pencil, Shirt, Trash2, X } from "lucide-react";
+import { Check, History, ImageUp, Loader2, MoreHorizontal, PenLine, Pencil, Shirt, Trash2, X } from "lucide-react";
 import { API, CHARACTER_DERIVATIVE_RESOURCE_TYPE, derivativeResourceId } from "@/api";
 import { enqueueCharacterDerivative } from "@/actions/generation";
 import { ImageEditDialog } from "@/components/canvas/timeline/ImageEditButton";
@@ -62,7 +62,7 @@ export interface CharacterDerivativeRowProps {
   derivative: CharacterDerivative;
   /** 衍生图与过期标记；还没取到时为 undefined。 */
   status: CharacterDerivativeStatus | undefined;
-  /** 本体是否已有资产图。衍生图是对它的一次编辑，没有本体图就不能生成。 */
+  /** 本体是否已有资产图。生成的衍生图是对它的一次编辑，没有本体图就不能生成，但可以上传。 */
   ownerHasSheet: boolean;
   readOnly: boolean;
   /** 详情里其他写入或本体生成占用中：本条的写入入口一起禁用。 */
@@ -78,7 +78,7 @@ export interface CharacterDerivativeRowProps {
  * 角色详情「衍生」区块里的一条衍生：缩略图、名称、可复制的引用记号、脚本引用状态、外观变化与生成入口。
  *
  * 外观变化是这一条自己的编辑单元，在行内保存，与资产本体的编辑单元并存，离开拦截覆盖两者。
- * 改名、删除、局部修改与版本恢复是立即执行的动作。
+ * 改名、删除、局部修改、上传与版本恢复是立即执行的动作。上传的衍生图是成品，不需要本体资产图。
  */
 export function CharacterDerivativeRow({
   projectName,
@@ -97,6 +97,7 @@ export function CharacterDerivativeRow({
   const descriptionId = useId();
   const moreRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
   const track = useTrackWrite();
   const [dialog, setDialog] = useState<RowDialog | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -264,6 +265,18 @@ export function CharacterDerivativeRow({
     if (ok) setDialog(null);
   };
 
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    await run(() =>
+      API.uploadCharacterDerivativeSheet(projectName, characterName, name, file).then((result) => {
+        useProjectsStore.getState().updateAssetFingerprints(result.asset_fingerprints);
+        return refreshAfterWrite(projectName, t);
+      }),
+    );
+  };
+
   // 打开会写这条衍生的对话框前复核占用态
   const openGuarded = (key: RowDialog) => {
     if (!rejectIfBusy()) setDialog(key);
@@ -362,6 +375,16 @@ export function CharacterDerivativeRow({
                         <Pencil aria-hidden />
                         {t("assets:derivative_rename")}
                       </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={rowBusy}
+                        onClick={() => {
+                          // 打开文件选择前复核占用态，选好文件提交时由 run 再复核一次
+                          if (!rejectIfBusy()) uploadRef.current?.click();
+                        }}
+                      >
+                        <ImageUp aria-hidden />
+                        {t("assets:derivative_upload")}
+                      </DropdownMenuItem>
                       <DropdownMenuItem disabled={rowBusy || !imageUrl} onClick={() => openGuarded("image-edit")}>
                         <PenLine aria-hidden />
                         {t("dashboard:image_edit_action")}
@@ -447,6 +470,14 @@ export function CharacterDerivativeRow({
             <p className="text-xs text-muted-foreground">{t("assets:derivative_owner_sheet_required")}</p>
           )}
 
+          <input
+            ref={uploadRef}
+            type="file"
+            accept=".png,.jpg,.jpeg,.webp"
+            aria-label={t("assets:derivative_upload_of", { name: qualified })}
+            className="hidden"
+            onChange={(event) => void handleUpload(event)}
+          />
           {staleConfirm.dialog}
           <ImageEditDialog
             open={dialog === "image-edit"}

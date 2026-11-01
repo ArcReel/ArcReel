@@ -115,6 +115,7 @@ from lib.generation.generation_result import (
     GenerationAction,
     GenerationBatchResult,
     GenerationProblem,
+    GenerationProblemCode,
     GenerationSelectionMode,
     GenerationTargetState,
     encode_generation_problem,
@@ -122,6 +123,7 @@ from lib.generation.generation_result import (
     migration_problem,
     problem_from_task_failure,
 )
+from lib.generation.task_failure_encoding import is_provider_refusal
 from lib.generation.video_request_facts import VideoRequestFactsError, VideoRequestFactsFailure
 from lib.i18n import _ as i18n_message
 from lib.infra.async_thread import run_sync_transaction
@@ -232,6 +234,7 @@ from server.text_generation import (
     TextGenerationError,
     TextGenerationRequest,
     TextGenerationResult,
+    UnexpectedTextGenerationError,
     VideoRequestFactsUnavailableError,
     generate_drama_script_plan,
     generate_narration_script_plan,
@@ -695,12 +698,21 @@ async def _run_text_generation(
         return ToolOutcome(
             problem=ToolProblem(exc.code, str(exc), action=GenerationAction.FIX_INPUT, params=dict(exc.params))
         )
+    except UnexpectedTextGenerationError as exc:
+        return ToolOutcome(problem=_unexpected_text_failure_problem(str(exc), exc))
     except TextGenerationError as exc:
         return ToolOutcome(problem=ToolProblem("generation_refused", str(exc)))
     except ModelNotInCatalogError as exc:
         return ToolOutcome(problem=model_not_in_catalog_problem(exc))
     except Exception as exc:
-        return ToolOutcome(problem=ToolProblem("internal_error", f"{operation} 失败: {exc}"))
+        return ToolOutcome(problem=_unexpected_text_failure_problem(f"{operation} 失败: {exc}", exc))
+
+
+def _unexpected_text_failure_problem(detail: str, cause: BaseException) -> ToolProblem:
+    """生成中的意外异常：供应商真正拒绝了内容或输入时归为拒绝（修改输入），其余按任务失败重试，与图片任务一致。"""
+    if is_provider_refusal(cause):
+        return ToolProblem("generation_refused", detail)
+    return ToolProblem(GenerationProblemCode.TASK_FAILED.value, detail, action=GenerationAction.RETRY)
 
 
 _TEXT_EPISODE_SCRIPT = "text_episode_script"
@@ -1481,12 +1493,21 @@ def _draft_workflow(scope: ProjectScope, services: Services) -> DraftWorkflow:
     )
 
 
-async def _run_draft(call: Awaitable[dict[str, Any]]) -> ToolOutcome[dict[str, Any]]:
+async def _run_draft(
+    call: Awaitable[dict[str, Any]], *, notice_as_problem: bool = False
+) -> ToolOutcome[dict[str, Any]]:
+    """``notice_as_problem`` 为真时，带文案 key 的草稿错误以该 key 为问题码、按修改输入呈现（任务失败原因用）。"""
     try:
         return ToolOutcome(value=await call)
     except DraftWorkflowError as exc:
         if exc.failure is not None:
             return ToolOutcome(problem=video_facts_problem(exc.failure, exc.detail))
+        if notice_as_problem and exc.notice_key is not None:
+            return ToolOutcome(
+                problem=ToolProblem(
+                    exc.notice_key, exc.detail, action=GenerationAction.FIX_INPUT, params=dict(exc.notice_params)
+                )
+            )
         return ToolOutcome(problem=ToolProblem(exc.code, exc.detail))
     except TextOutputTruncatedError as exc:
         return ToolOutcome(problem=truncation_problem(exc))
@@ -1625,10 +1646,11 @@ async def _execute_draft_repair(
     outcome = await _run_draft(
         _draft_repair(scope, services).repair(
             request.episode_id, request.doc_type, request.base_revision, request.instructions
-        )
+        ),
+        notice_as_problem=True,
     )
     if outcome.problem is not None and outcome.problem.action is not None:
-        # 带修复指引的问题（输出截断、视频模型配置）原样透出：问题码即文案 key，失败原因按真实原因呈现。
+        # 带修复指引的问题（输出截断、视频模型配置、正式剧本单元没过晋升预判）原样透出：问题码即文案 key，失败原因按真实原因呈现。
         return ToolOutcome(problem=outcome.problem)
     if outcome.problem is not None:
         # 任务失败原因按问题码本地化呈现：换成草稿命令对应的错误文案 key，Agent 面向的 detail 只作诊断。
