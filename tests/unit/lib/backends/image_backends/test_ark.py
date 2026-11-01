@@ -22,7 +22,7 @@ from lib.backends.image_backends.base import (
     ReferenceImage,
 )
 from lib.backends.providers import PROVIDER_ARK
-from tests.http_capture import capture_http, only_request
+from tests.http_capture import capture_http, only_request, request_json
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -174,7 +174,7 @@ class TestArkImageBackendProperties:
             assert asyncio.run(ArkImageBackend(api_key="k", model=model).reference_image_limit()) == 14
 
 
-# Seedream 5.0 pro / flash 官方上限 10 张：https://www.volcengine.com/docs/82379/1541523（2026-11-01 核验）。
+# Seedream 5.0 pro / flash 官方上限 10 张：https://www.volcengine.com/docs/82379/1541523。
 # 内置目录不收录这两个型号，但用户可按 ID 手动添加，或经自定义端点 ark-seedream 复用本后端。
 _TEN_REFERENCE_MODELS = [
     "doubao-seedream-5-0-pro-260628",
@@ -187,16 +187,12 @@ _TEN_REFERENCE_MODELS = [
 class TestArkImageBackendSeedream5ProFlashLimit:
     """5.0 pro / flash 上限 10 张：声明、截断、计量三处同口径。"""
 
-    @pytest.fixture
-    def client(self, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.delenv("ARK_API_KEY", raising=False)
-        with _recorded_ark_client() as (_created, recorded):
-            yield recorded
-
     @pytest.mark.parametrize("model", _TEN_REFERENCE_MODELS)
-    async def test_declares_ten_and_sends_only_ten(self, client, tmp_path: Path, model: str):
+    async def test_declares_ten_and_sends_only_ten(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, model: str):
+        from lib.backends.ark_shared import ARK_BASE_URL
         from lib.backends.image_backends.ark import ArkImageBackend
 
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
         backend = ArkImageBackend(api_key="k", model=model)
         refs = []
         for index in range(14):
@@ -204,14 +200,18 @@ class TestArkImageBackendSeedream5ProFlashLimit:
             ref_file.write_bytes(f"img-{index}".encode())
             refs.append(ReferenceImage(path=str(ref_file)))
 
-        result = await backend.generate(
-            ImageGenerationRequest(prompt="merge", output_path=tmp_path / "out.png", reference_images=refs)
-        )
+        with capture_http() as router:
+            route = router.post(f"{ARK_BASE_URL}/images/generations").mock(
+                return_value=httpx.Response(200, json={"model": model, "created": 1, "data": [{"b64_json": FAKE_B64}]})
+            )
+            result = await backend.generate(
+                ImageGenerationRequest(prompt="merge", output_path=tmp_path / "out.png", reference_images=refs)
+            )
 
         assert await backend.reference_image_limit() == 10
-        sent = client.requests[-1]["image"]
-        assert len(sent) == 10
-        assert sent[-1] == "data:image/png;base64," + base64.b64encode(b"img-9").decode()
+        sent = request_json(only_request(route))["image"]
+        expected = ["data:image/png;base64," + base64.b64encode(f"img-{i}".encode()).decode() for i in range(10)]
+        assert sent == expected
         assert result.usage.quantities["input_images"] == 10
 
     @pytest.mark.parametrize("model", _TEN_REFERENCE_MODELS)
