@@ -51,7 +51,7 @@
 
 ## 对 ArcReel 的可选最小方案
 
-以下保留研究时的方案比较。后续讨论已确认采用用户自有对象存储中转，并在本期以独立阶段交付新增图片的远端主存储；素材存储与供应商关联保持分离。当前采纳范围以 [ADR-0108](../adr/0108-material-storage-independent-of-provider-registration.md) 为准。
+以下保留研究时的方案比较。后续讨论已确认采用用户自有对象存储中转，并在本期以独立阶段交付新增图片的远端主存储；素材存储与供应商关联保持分离。当前交付范围以 [Spec #3559](https://github.com/ArcReel/ArcReel/issues/3559) 为准；独立建模的决策与理由见 [ADR-0108](../adr/0108-material-storage-independent-of-provider-registration.md)。
 
 | 选项 | 最小链路 | 需要作出的决定 |
 |---|---|---|
