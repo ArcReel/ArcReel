@@ -563,6 +563,21 @@ describe("ComfyuiEndpointDetail", () => {
     expect(screen.getByRole("button", { name: "保存" })).toBeEnabled();
   });
 
+  it("keeps a saved endpoint clean when the arrival re-inference only re-confirms part of its bindings", async () => {
+    // 落盘的绑定里带「显式不支持」的空表（negative_prompt: []）；重跑识别只回填自动选中的两条。
+    // 已确认的绑定要压过新一轮推断，首帧与识别回来之后都不能凭空判成已修改。
+    const defn = definition({ bindings: { prompt: [PROMPT], output: [OUTPUT], negative_prompt: [] } });
+    const infer = vi
+      .spyOn(API, "inferComfyuiBindings")
+      .mockResolvedValue(inference({ bindings: { prompt: picked(PROMPT), output: picked(OUTPUT) } }));
+    renderDetail({ record: savedRecord(defn), definition: defn, inference: null });
+
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+
+    await waitFor(() => expect(infer).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+  });
+
   it("shows an image endpoint only the seven semantics it can use", () => {
     renderDetail({ definition: definition({ media_type: "image" }), inference: inference({ media_type: "image" }) });
 

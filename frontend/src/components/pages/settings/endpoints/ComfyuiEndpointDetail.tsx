@@ -128,8 +128,13 @@ export function ComfyuiEndpointDetail({
   const installation = record?.installation ?? null;
 
   const [definition, setDefinition] = useState(initialDefinition);
+  // 已保存的端点带它已确认的节点绑定进来；只有导入的新端点（有现成推断）才从零按推断结果起步。
+  // 否则首帧 `bindings` 为空、`{ ...definition, bindings }` 把已存绑定冲掉，落回「从未推断」，
+  // 指纹即与 `savedJson` 相异，未动过也判成已修改。
   const [bindings, setBindings] = useState<ComfyuiBindings>(() =>
-    initialInference ? bindingsFromInference(initialInference, initialDefinition.media_type) : {},
+    initialInference
+      ? bindingsFromInference(initialInference, initialDefinition.media_type)
+      : (initialDefinition.bindings ?? {}),
   );
   const [touched, setTouched] = useState<ReadonlySet<ComfyuiBindingKey>>(() => new Set());
   const [inference, setInference] = useState<ComfyuiInferResponse | null>(initialInference);
@@ -207,8 +212,9 @@ export function ComfyuiEndpointDetail({
   const [mountDefinition] = useState(initialDefinition);
   useEffect(() => {
     if (initialInference !== null) return;
+    // 已确认的节点绑定压过新一轮推断（ADR 0082），否则重跑会把已存绑定换成候选、凭空判成已修改。
     // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-only 初始化，load 在首个 await 前不写 state
-    voidCall(load(mountDefinition));
+    voidCall(load(mountDefinition, { keep: mountDefinition.bindings ?? {} }));
   }, [initialInference, mountDefinition, load]);
 
   useEffect(
