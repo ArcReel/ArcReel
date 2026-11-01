@@ -18,6 +18,7 @@ from lib.backends.image_backends.base import (
     ImageCapability,
     ImageGenerationRequest,
     ImageGenerationResult,
+    ImageRequestFacts,
     ReferenceImage,
 )
 from lib.backends.providers import PROVIDER_ARK
@@ -171,6 +172,61 @@ class TestArkImageBackendProperties:
             from lib.backends.image_backends.ark import ArkImageBackend
 
             assert asyncio.run(ArkImageBackend(api_key="k", model=model).reference_image_limit()) == 14
+
+
+# Seedream 5.0 pro / flash 官方上限 10 张：https://www.volcengine.com/docs/82379/1541523（2026-11-01 核验）。
+# 内置目录不收录这两个型号，但用户可按 ID 手动添加，或经自定义端点 ark-seedream 复用本后端。
+_TEN_REFERENCE_MODELS = [
+    "doubao-seedream-5-0-pro-260628",
+    "doubao-seedream-5-0-flash-260915",
+    "dola-seedream-5-0-flash-260915",
+    "doubao-seedream-5.0-pro",
+]
+
+
+class TestArkImageBackendSeedream5ProFlashLimit:
+    """5.0 pro / flash 上限 10 张：声明、截断、计量三处同口径。"""
+
+    @pytest.fixture
+    def client(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("ARK_API_KEY", raising=False)
+        with _recorded_ark_client() as (_created, recorded):
+            yield recorded
+
+    @pytest.mark.parametrize("model", _TEN_REFERENCE_MODELS)
+    async def test_declares_ten_and_sends_only_ten(self, client, tmp_path: Path, model: str):
+        from lib.backends.image_backends.ark import ArkImageBackend
+
+        backend = ArkImageBackend(api_key="k", model=model)
+        refs = []
+        for index in range(14):
+            ref_file = tmp_path / f"ref{index}.png"
+            ref_file.write_bytes(f"img-{index}".encode())
+            refs.append(ReferenceImage(path=str(ref_file)))
+
+        result = await backend.generate(
+            ImageGenerationRequest(prompt="merge", output_path=tmp_path / "out.png", reference_images=refs)
+        )
+
+        assert await backend.reference_image_limit() == 10
+        sent = client.requests[-1]["image"]
+        assert len(sent) == 10
+        assert sent[-1] == "data:image/png;base64," + base64.b64encode(b"img-9").decode()
+        assert result.usage.quantities["input_images"] == 10
+
+    @pytest.mark.parametrize("model", _TEN_REFERENCE_MODELS)
+    def test_estimate_caps_input_images_at_ten(self, model: str):
+        from lib.backends.image_backends.ark import ArkImageBackend
+
+        facts = ImageRequestFacts(model=model, aspect_ratio="16:9", reference_count=14)
+        assert ArkImageBackend.estimate_usage(facts).quantities["input_images"] == 10
+
+    @pytest.mark.parametrize("model", ["doubao-seedream-5-0-lite-260128", "doubao-seedream-4-5-251128"])
+    def test_estimate_keeps_fourteen_for_other_models(self, model: str):
+        from lib.backends.image_backends.ark import ArkImageBackend
+
+        facts = ImageRequestFacts(model=model, aspect_ratio="16:9", reference_count=20)
+        assert ArkImageBackend.estimate_usage(facts).quantities["input_images"] == 14
 
 
 class TestArkImageBackendGenerate:
