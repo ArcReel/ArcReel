@@ -26,6 +26,7 @@ from lib.backends.audio_backends.gemini import GeminiAudioBackend
 from lib.backends.audio_backends.minimax import MiniMaxAudioBackend
 from lib.backends.audio_backends.openai import OpenAIAudioBackend
 from lib.backends.dashscope_shared import dashscope_native_base_url
+from lib.backends.image_backends.ark import ArkImageBackend
 from lib.backends.image_backends.base import ImageCapability
 from lib.backends.image_backends.dashscope import DashScopeImageBackend
 from lib.backends.image_backends.gemini import GeminiImageBackend
@@ -531,6 +532,8 @@ _ARK_SEEDANCE_REQUESTS = _python_requests(
     ("submit", "cp_request_submit", "/contents/generations/tasks"),
     ("poll", "cp_request_poll", "/contents/generations/tasks/{{ task_id }}"),
 )
+# 方舟 Seedream 文生图与多参考图生成同走一条 JSON 接口（参考图放在 image 字段），没有 /images/edits
+_ARK_SEEDREAM_REQUESTS = _python_requests("ensure_api_v3", ("generate", "cp_request_generate", "/images/generations"))
 _VIDU_VIDEO_REQUESTS = _python_requests(
     "ensure_ent_v2",
     ("submit_text2video", "cp_request_submit_text2video", "/text2video"),
@@ -637,6 +640,16 @@ def _build_ark_seedance(
     layer = path_override_layer(_ARK_SEEDANCE_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
     delegate = ArkVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
+
+
+def _build_ark_seedream(
+    provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
+) -> CustomImageBackend:
+    # 直接包装内置 ArkImageBackend：尺寸推导、参考图上限与编码、计量都与预置方舟供应商同一份
+    base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
+    layer = path_override_layer(_ARK_SEEDREAM_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
+    delegate = ArkImageBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
+    return CustomImageBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
 def _build_vidu_video(provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES) -> CustomVideoBackend:
@@ -877,6 +890,19 @@ ENDPOINT_REGISTRY: dict[str, EndpointSpec] = {
         end_image_capable=True,
         # _create_task 为 reference_audio_files 逐段组装 audio_url + role: reference_audio
         reference_audio_capable=True,
+    ),
+    "ark-seedream": EndpointSpec(
+        key="ark-seedream",
+        media_type="image",
+        family="ark",
+        display_name_key="endpoint_ark_seedream_display",
+        request_method="POST",
+        # 文生图与带参考图生成同走 /images/generations，参考图按方舟格式放进 JSON 的 image 字段
+        request_path_template="/api/v3/images/generations",
+        image_capabilities=frozenset({ImageCapability.TEXT_TO_IMAGE, ImageCapability.IMAGE_TO_IMAGE}),
+        build_backend=_build_ark_seedream,
+        requests=_ARK_SEEDREAM_REQUESTS,
+        metering_backend=ArkImageBackend,
     ),
     "vidu-video": EndpointSpec(
         key="vidu-video",
@@ -1444,6 +1470,7 @@ _FAMILY_ENDPOINTS: tuple[tuple[str, Mapping[str, str]], ...] = (
     ("kling", {"image": "kling-image", "video": "kling-video"}),
     ("gemini", {"text": "gemini-generate", "image": "gemini-image", "audio": "gemini-tts"}),
     ("seedance", {"video": "ark-seedance"}),
+    ("seedream", {"image": "ark-seedream"}),
     ("viduq3", {"video": "vidu-video"}),
     ("hailuo", {"video": "minimax-hailuo-v1"}),
 )
@@ -1510,8 +1537,8 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
        "gemini-generate"（不分 discovery_format）
     4) 视频家族 → seedance→"ark-seedance"、viduq3→"vidu-video"、Veo 且 discovery_format=google→
        "gemini-video"、否则 "openai-video"
-    5) 图像家族 → discovery_format=google 走 "gemini-image" 否则 "openai-images"（imagen 随图像家族
-       推断，不再单独拦截）
+    5) 图像家族 → seedream→"ark-seedream"（不分 discovery_format），其余 discovery_format=google 走
+       "gemini-image" 否则 "openai-images"（imagen 随图像家族推断，不再单独拦截）
     6) TTS 家族（tts/speech/cosyvoice）→ qwen-tts / qwen3-tts 走 "dashscope-tts"，MiniMax 的
        speech-<版本>-hd|turbo 走 "minimax-tts"，其余 "openai-tts"
        （不分 discovery_format；precedence 在 text 默认之前）
@@ -1621,6 +1648,9 @@ def _infer_endpoint_by_name(model_id: str, discovery_format: str) -> str:
             return "gemini-video"
         return "openai-video"
     if is_image:
+        # 方舟 Seedream 没有 /images/edits，带参考图的生成也走 /images/generations；不分 discovery_format
+        if "seedream" in lowered:
+            return "ark-seedream"
         return "gemini-image" if discovery_format == "google" else "openai-images"
     if _AUDIO_PATTERN.search(model_id) and not _ASR_PATTERN.search(model_id):
         if _QWEN_TTS_PATTERN.search(model_id):

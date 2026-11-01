@@ -7,6 +7,13 @@
 
 注意：必须用 --reload-dir 限定监视目录，否则 watchfiles 会扫描
 node_modules / .venv / .git / .worktrees 等十几万个文件，单核 CPU 50%+。
+
+Windows 原生环境不要加 --reload：uvicorn 启用 reload 时在 Windows 上改用
+SelectorEventLoop，它不支持子进程，内置 Agent 无法拉起 Claude Code。改用：
+    uv run uvicorn server.app:app --port 1241
+
+也可以 ``uv run python -m server.app``：监听地址取 LISTEN_HOST / LISTEN_PORT，
+Windows 上自动不开 reload，其他平台开启 reload 并只监视 server 与 lib。
 """
 
 import asyncio
@@ -15,6 +22,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from contextlib import asynccontextmanager
@@ -34,11 +42,13 @@ from lib.agent.agent_session_store import default_sdk_config_dir, session_store_
 from lib.agent.agent_session_store.import_local import migrate_local_transcripts_to_store
 from lib.agent.agent_session_store.key_alignment import align_session_keys
 from lib.agent.agent_session_store.store import DbSessionStore
+from lib.catalog.official_sync import start_official_sync, stop_official_sync
 from lib.config.env_keys import PROVIDER_SECRET_KEYS
 from lib.db import async_session_factory, close_db, init_db
 from lib.generation.generation_worker import GenerationWorker
 from lib.infra.data_root_layout import DataRootLayout, list_project_dirs
 from lib.infra.data_root_layout_migration import migrate_data_root_layout
+from lib.infra.env_init import warn_if_env_diverges_from_file
 from lib.infra.ffmpeg import log_ffmpeg_status
 from lib.infra.httpx_shared import shutdown_http_client, startup_http_client
 from lib.infra.logging_config import (
@@ -51,7 +61,7 @@ from lib.infra.loop_stall_probe import start_loop_stall_probe, stop_loop_stall_p
 from lib.infra.path_safety import try_safe_join
 from lib.project.project_migrations import cleanup_stale_backups, run_project_migrations
 from lib.script.source_loader.migration import migrate_project_source_encoding, migrate_project_source_encoding_once
-from server.auth import ensure_auth_password, get_current_user, warn_if_auth_disabled
+from server.auth import ensure_auth_password, ensure_token_secret, get_current_user, warn_if_auth_disabled
 from server.cors_config import resolve_cors_policy
 from server.dependencies import require_project_migration_ok, require_valid_project_name
 from server.error_handlers import register_error_handlers
@@ -69,6 +79,7 @@ from server.routers import (
     cost_estimation,
     custom_endpoints,
     custom_providers,
+    derivative_uploads,
     edit_timelines,
     end_frames,
     episode_drafts,
@@ -361,6 +372,7 @@ async def lifespan(app: FastAPI):
     await asyncio.to_thread(migrate_legacy_log_dir)
     attach_file_handler()
     warn_if_log_dir_env_set()
+    warn_if_env_diverges_from_file()
 
     ensure_auth_password()
     warn_if_auth_disabled()
@@ -376,6 +388,9 @@ async def lifespan(app: FastAPI):
         session_factory=async_session_factory,
         sdk_config_dir=default_sdk_config_dir(),
     )
+    # 签名密钥可能落在数据根的 runtime/ 下，须在布局迁移之后解析：旧布局里名为 runtime 的项目
+    # 会被搬进 projects/，提前写入的密钥文件会随它进入项目目录。
+    await asyncio.to_thread(ensure_token_secret)
 
     # 源文件编码迁移（幂等；失败不阻塞启动）。先于 schema 迁移跑：源文一律先归到 UTF-8，
     # 之后所有按 UTF-8 读源文的链路（分集规划、派生文件对账）才有统一的输入。
@@ -526,8 +541,6 @@ async def lifespan(app: FastAPI):
     # 卡顿探针放在启动步骤之后：迁移等启动期同步工作不算线上卡顿，避免误报。
     stall_probe = start_loop_stall_probe()
     # 模型目录的官方同步：启动时检查一次，之后每天一次；随应用关停取消
-    from lib.catalog.official_sync import start_official_sync, stop_official_sync
-
     catalog_sync = start_official_sync(async_session_factory)
     # 项目回收站与已删除项目的过期清理：启动时清一次，之后定期清理；随应用关停取消
     from server.services.project.trash_expiry import start_trash_expiry, stop_trash_expiry
@@ -744,6 +757,12 @@ app.include_router(
     prefix="/api/v1",
     dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
     tags=["分镜上传"],
+)
+app.include_router(
+    derivative_uploads.router,
+    prefix="/api/v1",
+    dependencies=[Depends(get_current_user), Depends(require_project_migration_ok)],
+    tags=["衍生资产图上传"],
 )
 app.include_router(
     end_frames.router,
@@ -969,8 +988,20 @@ else:
     logger.warning("frontend/dist/index.html 不存在，跳过前端页面挂载（API 不受影响）")
 
 
+def _main_uvicorn_args(platform_name: str = sys.platform) -> tuple[str | FastAPI, dict[str, Any]]:
+    """``__main__`` 交给 ``uvicorn.run`` 的应用与参数。
+
+    reload 只接受导入字符串。Windows 上 uvicorn 一旦启用 reload 就改用不支持子进程的
+    SelectorEventLoop，内置 Agent 拉不起 Claude Code CLI，因此 Windows 不开 reload。
+    """
+    host, port = _resolve_listen_addr()
+    if platform_name == "win32":
+        return app, {"host": host, "port": port, "reload": False}
+    return "server.app:app", {"host": host, "port": port, "reload": True, "reload_dirs": ["server", "lib"]}
+
+
 if __name__ == "__main__":
     import uvicorn
 
-    _host, _port = _resolve_listen_addr()
-    uvicorn.run(app, host=_host, port=_port, reload=True)
+    _target, _options = _main_uvicorn_args()
+    uvicorn.run(_target, **_options)

@@ -221,6 +221,32 @@ class PromptAuthoringUnitRejected(ValueError):
         self.params = params
 
 
+#: 晋升前正式剧本单元预判的问题码 → 草稿晋升的文案 key。编写入口把同一份预判报成任务失败，
+#: 草稿晋升要说明的是「草稿未采用」，文案另起一套。
+_FORMAL_UNIT_PROMOTION_KEYS: dict[str, str] = {
+    "prompt_authoring_dialogue_overload": "draft_formal_unit_dialogue_overload",
+    "prompt_authoring_duration_off_tier": "draft_formal_unit_duration_off_tier",
+    "prompt_authoring_unit_invalid": "draft_formal_unit_invalid",
+}
+
+
+class UnitDurationOffTier(ValueError):
+    """待编写单元的现时长不在该单元所落参考桶的生效档位内（通常是模型、分辨率或参考图状态变化让档位收窄）。
+
+    ``unit_id`` / ``duration_seconds`` / ``tiers`` 供调用方按自己的口径转成面向用户的提示；消息面向 Agent。
+    ``position`` 是单元在所判那份内容里的界面位置（从 1 起）；判的是正式剧本时为 None，调用方按正式剧本自行定位。
+    """
+
+    def __init__(
+        self, message: str, *, unit_id: str, duration_seconds: int, tiers: list[int], position: int | None = None
+    ) -> None:
+        super().__init__(message)
+        self.unit_id = unit_id
+        self.duration_seconds = duration_seconds
+        self.tiers = tiers
+        self.position = position
+
+
 class AdScriptRejected(ValueError):
     """广告/短片整份生成的产出违约：不写正式脚本、不登记资产、不落待修复草稿。
 
@@ -1258,8 +1284,8 @@ class ScriptGenerator:
 
         返回 unit dict 列表（unit_id / text / duration_seconds / source_text），供内容确认整份转为正式剧本。
         校验：结构合法（``ReferenceScriptPlanDraft``）、units 非空、unit_id 唯一、
-        有结构档位时校验 unit ``duration_seconds`` ∈ ``supported_durations``；i2v 未知时只做
-        结构收编，随后由逐单元事实校验阻断无图单元。仅存在结构化前的旧 ``script_plan_reference_units.md`` 时给
+        ``supported_durations`` 只用于存量结构收编，时长准入随后按逐单元事实校验。
+        仅存在结构化前的旧 ``script_plan_reference_units.md`` 时给
         明确的「重跑拆分」报错——不写 md→json 迁移器（旧 md 产于结构化中间态引入前，
         与 narration 同决策）。
         """
@@ -1336,12 +1362,6 @@ class ScriptGenerator:
             raise ValueError(
                 f"script_plan_reference_units.json unit_id 改写到 episode={episode} 后重复: {rewritten_dupes}"
             )
-
-        if supported_durations is not None:
-            allowed = {int(d) for d in supported_durations}
-            bad = sorted({u["duration_seconds"] for u in units if u["duration_seconds"] not in allowed})
-            if bad:
-                raise ValueError(f"script_plan_reference_units.json unit 时长非法（不在 {sorted(allowed)} 内）: {bad}")
 
         return units
 
@@ -1472,19 +1492,25 @@ class ScriptGenerator:
     ) -> None:
         """转为正式剧本前判脚本规划已确认的单元时长仍在当前生效档位内；正文由之后的提示词编写改写并校验。
 
-        单元按此刻可用的参考图定桶（无引用、引用缺图或图未被清单认领落 i2v），须有所落桶的事实。
+        单元按此刻可用的参考图定桶（无引用、引用缺图或图未被清单认领落 i2v），须有所落桶的事实。越档时抛
+        ``UnitDurationOffTier``，按脚本规划里的单元位置称呼（与内容确认面板的「视频单元 N」同口径），不带内部单元 ID。
         """
-        for unit, hydration in zip(script_plan_units, self._hydrate_reference_units(script_plan_units), strict=True):
+        hydrations = self._hydrate_reference_units(script_plan_units)
+        for position, (unit, hydration) in enumerate(zip(script_plan_units, hydrations, strict=True), start=1):
             bucket = hydration.hydrated_generation_type
             facts.require(bucket)
-            off_tiers = self._unit_duration_off_every_tier(
-                unit["duration_seconds"], facts=facts, generation_type=bucket
-            )
+            duration = int(unit["duration_seconds"])
+            off_tiers = self._unit_duration_off_every_tier(duration, facts=facts, generation_type=bucket)
             if off_tiers is not None:
-                raise ValueError(
-                    f"unit {unit['unit_id']} 已确认时长 {unit['duration_seconds']}s 不在当前生效档位 "
-                    f"{sorted(set(off_tiers))} 内；通常是模型或分辨率配置变化让档位收窄导致，"
-                    "请调整配置回原档位，或重新拆分该集 script_plan 并重新完成内容确认"
+                tiers = sorted(set(off_tiers))
+                raise UnitDurationOffTier(
+                    f"视频单元 {position} 已确认时长 {duration}s 不在当前生效档位 {tiers} 内；"
+                    "通常是模型或分辨率配置变化让档位收窄导致，请调整配置回原档位，"
+                    "或在脚本规划里把该单元时长改到档位内（也可重新拆分该集 script_plan）后重新完成内容确认",
+                    unit_id=str(unit["unit_id"]),
+                    duration_seconds=duration,
+                    tiers=tiers,
+                    position=position,
                 )
 
     def _assert_reference_units_authorable(self, units: list[dict], *, facts: PlanningVideoFacts) -> None:
@@ -1500,9 +1526,13 @@ class ScriptGenerator:
             # 必然失败的时长在付费调用之前拦下；放到 _add_metadata 才拦，TextBackend 的费用已经产生。
             off_tiers = self._unit_duration_off_every_tier(duration, facts=facts, generation_type=bucket)
             if off_tiers is not None:
-                raise ValueError(
-                    f"unit {unit['unit_id']} 时长 {duration}s 不在当前生效档位 {sorted(set(off_tiers))} 内；"
-                    "通常是模型或分辨率配置变化让档位收窄导致，请调整配置回原档位，或在时间线上把该单元时长改到档位内"
+                tiers = sorted(set(off_tiers))
+                raise UnitDurationOffTier(
+                    f"unit {unit['unit_id']} 时长 {duration}s 不在当前生效档位 {tiers} 内；"
+                    "通常是模型或分辨率配置变化让档位收窄导致，请调整配置回原档位，或在时间线上把该单元时长改到档位内",
+                    unit_id=str(unit["unit_id"]),
+                    duration_seconds=duration,
+                    tiers=tiers,
                 )
         self._assert_reference_unit_text_valid(units, max_refs=self._resolve_max_refs(facts))
 
@@ -1528,6 +1558,53 @@ class ScriptGenerator:
             params.update(spoken_seconds=f"{spoken:.1f}", duration_seconds=int(unit["duration_seconds"]))
             return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_dialogue_overload", params=params)
         return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_unit_invalid", params=params)
+
+    @staticmethod
+    def _duration_rejection(
+        targets: PromptAuthoringTargets, exc: UnitDurationOffTier
+    ) -> PromptAuthoringUnitRejected | None:
+        """单元时长越出生效档位转成修改输入：按界面位置称呼单元，带上现时长与可选档位。定位不到时返回 None。"""
+        found = find_item(targets.script, exc.unit_id)
+        if found is None:
+            return None
+        params: dict[str, Any] = {
+            "unit_id": exc.unit_id,
+            "position": found[0],
+            "duration_seconds": exc.duration_seconds,
+            "tiers": " / ".join(str(tier) for tier in exc.tiers),
+        }
+        return PromptAuthoringUnitRejected(str(exc), code="prompt_authoring_duration_off_tier", params=params)
+
+    def _formal_unit_promotion_violation(
+        self, targets: PromptAuthoringTargets, exc: DraftViolation | UnitDurationOffTier
+    ) -> DraftViolation:
+        """晋升前正式剧本单元没过预判时的违约：仍是 ``DraftViolation``（晋升照常报 ``draft_invalid``），按界面位置称呼单元。
+
+        问题码与参数沿用编写入口的同一份预判结果（``_unit_rejection`` / ``_duration_rejection``），换成草稿
+        晋升的文案 key：呈现层按 ``code`` 与 ``params`` 本地化。消息面向 Agent，同样按「视频单元 N」称呼，
+        不带内部单元 ID。违约定位不到正式剧本里的单元时原样保留消息。
+        """
+        rejection = (
+            self._duration_rejection(targets, exc)
+            if isinstance(exc, UnitDurationOffTier)
+            else self._unit_rejection(targets, exc)
+        )
+        if rejection is None:
+            return exc if isinstance(exc, DraftViolation) else DraftViolation(str(exc), code="duration_off_tier")
+        params = {key: value for key, value in rejection.params.items() if key != "unit_id"}
+        unit_id = str(rejection.params["unit_id"])
+        code = _FORMAL_UNIT_PROMOTION_KEYS[rejection.code]
+        message = translate(code, **params)
+        if isinstance(exc, DraftViolation) and rejection.code == "prompt_authoring_unit_invalid":
+            # 正文违约的具体原因换成位置称呼后附上，Agent 据此知道该改什么；改不掉内部 ID 的条目不附。
+            label = f"视频单元 {params['position']}"
+            reasons = [
+                f"{label}{str(item)[len(item.label) :]}"
+                for item in violation_items(exc)
+                if item.item_id == unit_id and item.label and str(item).startswith(item.label)
+            ]
+            message += "".join(f"\n   - {reason}" for reason in reasons if unit_id not in reason)
+        return DraftViolation(message, code=code, params=params, item_id=unit_id)
 
     def _assert_reference_unit_text_valid(self, units: list[dict], *, max_refs: int | None) -> None:
         """按机器产物的严格口径预判正式脚本各 unit 正文，违约时把定位与出路指回时间线。
@@ -1623,6 +1700,11 @@ class ScriptGenerator:
                 self._assert_reference_units_authorable(units, facts=facts)
             except DraftViolation as exc:
                 rejection = self._unit_rejection(targets, exc)
+                if rejection is None:
+                    raise
+                raise rejection from exc
+            except UnitDurationOffTier as exc:
+                rejection = self._duration_rejection(targets, exc)
                 if rejection is None:
                     raise
                 raise rejection from exc
@@ -1997,7 +2079,10 @@ class ScriptGenerator:
         units = list(targets.entries)
         # 与产出路径同一份预判：草稿在场期间用户可能在时间线上改过单元，不复判就会让改短时长后
         # 念不完的台词、或未登记的 @[名称] 借晋升一路落盘。
-        self._assert_reference_units_authorable(units, facts=facts)
+        try:
+            self._assert_reference_units_authorable(units, facts=facts)
+        except (DraftViolation, UnitDurationOffTier) as exc:
+            raise self._formal_unit_promotion_violation(targets, exc) from exc
         max_refs = self._resolve_max_refs(facts)
         try:
             authored = self._merge_reference_visual(units, json.dumps(draft.content), episode, max_refs=max_refs)

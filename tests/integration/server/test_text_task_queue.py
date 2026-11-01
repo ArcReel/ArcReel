@@ -8,11 +8,14 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
+import openai
 import pytest
 from sqlalchemy import func, select
 
 from lib.artifacts.artifact_activation import activate_artifact_target_state
 from lib.artifacts.artifact_manifest import ArtifactKey, ProjectArtifactManifestAdapter
+from lib.backends.http_status_errors import ProviderRejectedError
 from lib.backends.text_backends.base import TextGenerationResult as BackendTextGenerationResult
 from lib.backends.text_backends.base import TextOutputTruncatedError
 from lib.backends.text_generator import TextGenerator
@@ -48,6 +51,7 @@ from lib.project.project_migration_failure import ProjectMigrationError, record_
 from lib.project.project_schema import CURRENT_PROJECT_SCHEMA_VERSION
 from lib.script.draft_quarantine import (
     QUARANTINE_KIND_NARRATION_SCRIPT_PLAN,
+    QUARANTINE_KIND_PROMPT_AUTHORING,
     QUARANTINE_KIND_SCRIPT_PLAN,
     draft_revision,
     quarantine_path,
@@ -206,6 +210,72 @@ async def test_web_prompt_authoring_returns_the_batch_without_waiting(tmp_path: 
     assert task["source"] == "webui"
     assert task["payload"]["instructions"] == "冷色调"
     assert task["payload"]["rewrite"] is False
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_prompt_authoring_off_tier_fails_as_fix_input_through_the_worker(
+    file_db_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """提交、执行、落库保留时长越档的修改输入指引，并在付费调用前停止。"""
+    projects = ProjectManager(DataRootLayout.current().root)
+    project_path = projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.update_project("demo", lambda project: project.update(generation_mode="reference_video"))
+    projects.add_character("demo", "张三", "村民")
+    projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+    _admit_text_operations(projects, "demo")
+    projects.save_script(
+        "demo",
+        {
+            "title": "第一集",
+            "episode": 1,
+            "content_mode": "narration",
+            "video_units": [
+                {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 4},
+                {"unit_id": "E1U04", "text": "@[张三] 出门", "duration_seconds": 5, "pending_authoring": True},
+            ],
+        },
+        "episode_1.json",
+    )
+    activate_artifact_target_state(project_path, bump_schema=False)
+    model = FakeTextGenerator(AssertionError("时长越档不应调用文本模型"))
+    use_text_generator(monkeypatch, model.create)
+    queue = GenerationQueue(session_factory=file_db_factory, project_manager=projects)
+
+    async def execute(task: dict[str, Any], *, claimed_provider_id: str | None = None) -> dict[str, Any]:
+        del claimed_provider_id
+        return await execute_queued_text_task(task)
+
+    worker = await _start_text_worker(queue, execute)
+    services = Services(
+        projects=projects,
+        workflow_planner=object(),
+        capabilities=ConfigResolver(async_session_factory),
+        queue=queue,
+    )
+    try:
+        submitted = await generate_episode_script(
+            ToolRequest(GenerateEpisodeScriptRequest(episode_id=1)),
+            ProjectScope(project_name="demo", data_root=projects.data_root),
+            CallerContext(user_id=DEFAULT_USER_ID, source="webui"),
+            services,
+        )
+        assert submitted.value is not None, submitted.problem
+        task_id = submitted.value.members[0].task_id
+        assert task_id is not None
+        task = await wait_for_task(task_id, 0.01, queue=queue)
+    finally:
+        await worker.stop()
+
+    assert task["status"] == "failed"
+    problem = problem_from_task_failure(task["error_message"])
+    assert (problem.code, problem.action, problem.params) == (
+        "prompt_authoring_duration_off_tier",
+        GenerationAction.FIX_INPUT,
+        {"unit_id": "E1U04", "position": 2, "duration_seconds": 5, "tiers": "4 / 6 / 8"},
+    )
+    assert "generate_episode_script 失败" not in problem.detail
+    assert model.requests == []
 
 
 def _narration_segment(**overrides: Any) -> dict[str, Any]:
@@ -423,6 +493,54 @@ async def test_draft_repair_with_a_retired_model_fails_with_a_reselectable_probl
     draft = read_quarantine(projects.get_project_path("demo"), 1, QUARANTINE_KIND_NARRATION_SCRIPT_PLAN)
     assert draft is not None
     assert draft_revision(draft) == revision
+
+
+@pytest.mark.usefixtures("video_request_facts")
+async def test_draft_repair_blocked_by_a_formal_unit_fails_with_the_unit_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """提示词编写草稿修完晋升，被正式剧本单元挡下：任务失败按「视频单元 N」本地化、归为修改输入，草稿不变。"""
+    projects = ProjectManager(DataRootLayout.current().root)
+    projects.create_project("demo")
+    projects.create_project_metadata("demo", "Demo", "Anime", "narration")
+    projects.update_project("demo", lambda p: p.__setitem__("generation_mode", "reference_video"))
+    projects.add_character("demo", "张三", "村民")
+    projects.add_episode("demo", 1, "第一集", "scripts/episode_1.json")
+    project_path = projects.get_project_path("demo")
+    (project_path / "source").mkdir(exist_ok=True)
+    (project_path / "source" / "episode_1.txt").write_text("张三起身。", encoding="utf-8")
+    unit = {"unit_id": "E1U01", "text": "@[张三] 起身", "duration_seconds": 5}
+    projects.save_script(
+        "demo", {"title": "第一集", "episode": 1, "content_mode": "narration", "video_units": [unit]}, "episode_1.json"
+    )
+    activate_artifact_target_state(project_path, bump_schema=False)
+    write_quarantine(
+        project_path,
+        1,
+        QUARANTINE_KIND_PROMPT_AUTHORING,
+        content={"title": "第一集", "units": [{"text": "@[张三] 坐下"}]},
+        violations=[],
+        meta={"unit_ids": ["E1U01"]},
+    )
+    draft = read_quarantine(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING)
+    assert draft is not None
+    revision = draft_revision(draft)
+    # 草稿无违约，修复不调用模型直接按保存口径重判；替身只为晋升装配 ScriptGenerator。
+    use_text_generator(monkeypatch, FakeTextGenerator("").create)
+    payload = {"episode_id": 1, "doc_type": "reference_prompt_authoring", "base_revision": revision}
+    task = {"task_id": "task-repair", "project_name": "demo", "task_type": "text_draft_repair", "payload": payload}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action, problem.params) == (
+        "draft_formal_unit_duration_off_tier",
+        GenerationAction.FIX_INPUT,
+        {"position": 1, "duration_seconds": 5, "tiers": "4 / 6 / 8"},
+    )
+    assert "E1U01" not in problem.detail
+    assert quarantine_path(project_path, 1, QUARANTINE_KIND_PROMPT_AUTHORING).exists()
 
 
 async def test_draft_repair_blocked_by_the_video_model_fails_with_the_real_problem(set_video_request_facts) -> None:
@@ -753,6 +871,73 @@ async def test_queued_text_task_with_a_retired_text_model_fails_with_a_reselecta
         GenerationAction.CONFIGURE_PROVIDER,
         {"provider": "gemini-aistudio", "model": "retired-model"},
     )
+
+
+def _content_filter_rejection() -> Exception:
+    """OpenAI 兼容端点的内容策略拒绝：错误体 ``code`` 挂在 SDK 异常上。"""
+    response = httpx.Response(400, request=httpx.Request("POST", "https://llm.example/v1/chat/completions"))
+    return openai.BadRequestError("blocked", response=response, body={"code": "content_filter"})
+
+
+def _provider_rejected() -> Exception:
+    """httpx 通道的确定性 4xx 拒绝，与图片任务落 ``provider_rejected`` 的是同一个异常类型。"""
+    request = httpx.Request("POST", "https://llm.example/v1/generate")
+    return ProviderRejectedError(
+        "422 response", request=request, response=httpx.Response(422, request=request), provider_reason="bad input"
+    )
+
+
+_TEXT_TASK_SHAPES = [
+    ("ad", "text_episode_script", False),
+    ("drama", "text_drama_script_plan", False),
+    ("narration", "text_narration_script_plan", False),
+    ("narration", "text_reference_script_plan", True),
+]
+
+
+@pytest.mark.usefixtures("video_request_facts")
+@pytest.mark.parametrize(("content_mode", "task_type", "reference"), _TEXT_TASK_SHAPES)
+@pytest.mark.parametrize(
+    ("failure", "code", "action"),
+    [
+        pytest.param(
+            lambda: RuntimeError("backend 构造失败"),
+            "generation_task_failed",
+            GenerationAction.RETRY,
+            id="unexpected",
+        ),
+        pytest.param(_content_filter_rejection, "generation_refused", GenerationAction.FIX_INPUT, id="content-policy"),
+        pytest.param(_provider_rejected, "generation_refused", GenerationAction.FIX_INPUT, id="provider-rejected"),
+    ],
+)
+async def test_queued_text_task_failure_is_refused_only_when_the_provider_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    content_mode: str,
+    task_type: str,
+    reference: bool,
+    failure: Callable[[], Exception],
+    code: str,
+    action: GenerationAction,
+) -> None:
+    """意外异常按任务失败给出重试，与图片任务一致；只有供应商真正拒绝了内容或输入才归为修改输入。"""
+    projects = ProjectManager(DataRootLayout.current().root)
+    projects.create_project("failing", content_mode=content_mode)
+    projects.create_project_metadata("failing", "Failing", "", content_mode)
+    if reference:
+        projects.update_project("failing", lambda project: project.update(generation_mode="reference_video"))
+    _admit_text_operations(projects, "failing")
+
+    async def raise_failure(*_args, **_kwargs):
+        raise failure()
+
+    use_text_generator(monkeypatch, raise_failure)
+    task = {"task_id": "task-failing", "project_name": "failing", "task_type": task_type, "payload": {"episode": 1}}
+
+    with pytest.raises(RuntimeError) as raised:
+        await execute_queued_text_task(task)
+
+    problem = problem_from_task_failure(str(raised.value))
+    assert (problem.code, problem.action) == (code, action)
 
 
 async def test_queued_reference_plan_fails_with_the_real_video_model_problem(set_video_request_facts) -> None:

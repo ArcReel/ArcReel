@@ -65,6 +65,18 @@ docker compose up -d --force-recreate
 
 源码部署则重启 ArcReel 服务。不要在公网部署中关闭身份认证。
 
+### 修改 `.env` 后为什么没有生效？ {#env-changes-not-applied}
+
+Docker 部署在创建容器时读取 `.env`，之后 `docker compose restart`、容器崩溃后的自动拉起和宿主机重启都沿用当时的环境变量。修改 `.env` 后，在实际使用的 Compose 目录执行：
+
+```bash
+docker compose up -d
+```
+
+不要用 `docker compose restart` 让修改生效。启动时发现进程环境变量与挂载的 `.env` 取值不一致，日志会输出一条 WARNING，只列出变量名，不输出取值。
+
+`AUTH_PASSWORD` 留空时只在首次启动生成一次，之后重启沿用 `.env` 中的值。`AUTH_TOKEN_SECRET` 留空时，签名密钥保存在数据目录的 `runtime/auth-token-secret`（Docker 部署的数据目录是 Compose 目录下的 `projects/`），重启后已登录的会话仍然有效；在 `.env` 中设置后以设置值为准。
+
 ### Docker 怎样更新？更新会丢失项目吗？ {#docker-update}
 
 先完成备份，再在对应的 Compose 目录执行：
@@ -119,6 +131,18 @@ ArcReel Agent（智能体）与内容生成使用两套独立配置：
 4. 在设置页“关于”中下载诊断日志，查看错误发生时间附近的具体上游状态码。
 
 连通性检查只代表最小请求成功；长会话仍可能受到额度、上下文长度、限流或代理超时影响。
+
+### Windows 从源码启动后，Agent 提示事件循环不支持创建子进程怎么办？ {#windows-reload-agent}
+
+在 Windows 原生环境用 `--reload` 启动后端时，uvicorn 会改用不支持子进程的事件循环，Agent 无法拉起 Claude Code。界面显示「后端的事件循环不支持创建子进程」，旧版本只显示 `Failed to start Claude Code:`，冒号后为空。
+
+去掉 `--reload` 重新启动后端：
+
+```bash
+uv run uvicorn server.app:app --port 1241
+```
+
+也可以运行 `uv run python -m server.app`，它在 Windows 上不启用 reload，监听地址取 `LISTEN_HOST` 与 `LISTEN_PORT`。不启用 reload 时，修改代码后需要手动重启后端。
 
 ## 供应商、模型与 API {#providers-models-api}
 

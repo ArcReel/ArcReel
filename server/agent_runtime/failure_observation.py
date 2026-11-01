@@ -86,16 +86,30 @@ def _turn_failure_key(assistant_error: object, result_subtype: object, status: o
     return _status_key(status) or TURN_FAILED_KEY
 
 
+# SDK 拉起 CLI 时把任何异常包成 CLIConnectionError；cause 是 NotImplementedError 说明
+# 当前事件循环不能创建子进程（Windows 上 uvicorn --reload 会换成 SelectorEventLoop）。
+SUBPROCESS_UNSUPPORTED_KEY = "subprocess_unsupported"
+
+
+def _cause_chain(exc: BaseException) -> list[BaseException]:
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and all(current is not seen for seen in chain):
+        chain.append(current)
+        current = current.__cause__
+    return chain
+
+
 def _startup_failure_key(exc: BaseException) -> str:
     """沿显式 cause 链找第一个可识别的异常类。"""
-    seen: set[int] = set()
-    current: BaseException | None = exc
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
+    chain = _cause_chain(exc)
+    for index, current in enumerate(chain):
+        connection_failed = isinstance(current, CLIConnectionError) and not isinstance(current, CLINotFoundError)
+        if connection_failed and any(isinstance(cause, NotImplementedError) for cause in chain[index + 1 :]):
+            return SUBPROCESS_UNSUPPORTED_KEY
         for exc_type, key in _STARTUP_EXCEPTION_KEYS:
             if isinstance(current, exc_type):
                 return key
-        current = current.__cause__
     return STARTUP_FAILED_KEY
 
 

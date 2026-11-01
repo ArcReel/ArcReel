@@ -162,6 +162,10 @@ def build_asset_sheet_visual_basis(
     )
 
 
+UPLOADED_ASSET_SHEET_BASIS_KIND = "artifact-visual/asset-sheet-upload"
+"""作为成品带入的资产图与衍生资产图的依据种类：只含图字节，描述、画风与本体资产图都不是输入。"""
+
+
 def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) -> ArtifactBasis:
     """Describe an asset sheet or derivative sheet brought in as finished content.
 
@@ -174,13 +178,19 @@ def build_uploaded_asset_sheet_basis(*, asset_type: str, content_digest: str) ->
     if asset_type not in ASSET_TYPES:
         raise ValueError(f"unsupported asset type: {asset_type!r}")
     return ArtifactBasis.build(
-        "artifact-visual/asset-sheet-upload",
+        UPLOADED_ASSET_SHEET_BASIS_KIND,
         kind_version=1,
         inputs={
             "asset": {"type": asset_type},
             "upload": {"sha256": _require_sha256("uploaded sheet content_digest", content_digest)},
         },
     )
+
+
+UPLOADED_STORYBOARD_BASIS_KIND = "artifact-visual/storyboard-upload"
+"""手动上传分镜图的依据种类：只含上传字节，提示词与参考图都不是输入。"""
+
+UPLOADED_VIDEO_BASIS_KIND = "artifact-video/upload"
 
 
 def build_uploaded_storyboard_basis(*, content_digest: str) -> ArtifactBasis:
@@ -192,7 +202,7 @@ def build_uploaded_storyboard_basis(*, content_digest: str) -> ArtifactBasis:
     """
 
     return ArtifactBasis.build(
-        "artifact-visual/storyboard-upload",
+        UPLOADED_STORYBOARD_BASIS_KIND,
         kind_version=1,
         inputs={"upload": {"sha256": _require_sha256("uploaded storyboard content_digest", content_digest)}},
     )
@@ -206,7 +216,7 @@ def build_uploaded_video_basis(*, content_digest: str) -> ArtifactBasis:
     """
 
     return ArtifactBasis.build(
-        "artifact-video/upload",
+        UPLOADED_VIDEO_BASIS_KIND,
         kind_version=1,
         inputs={"upload": {"sha256": _require_sha256("uploaded video content_digest", content_digest)}},
     )
@@ -708,6 +718,9 @@ def _require_string(field: str, value: object) -> str:
 __all__ = [
     "ASSET_NAME_FREE_IMAGE_BASIS_KINDS",
     "ASSET_NAME_FREE_IMAGE_BASIS_SCHEMA_VERSION",
+    "UPLOADED_ASSET_SHEET_BASIS_KIND",
+    "UPLOADED_STORYBOARD_BASIS_KIND",
+    "UPLOADED_VIDEO_BASIS_KIND",
     "GridStoryboardVisual",
     "VisualReference",
     "build_asset_sheet_visual_basis",

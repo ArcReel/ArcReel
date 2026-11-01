@@ -347,6 +347,15 @@ Confirm:
 - Merchandise;
 - Style references.
 
+#### Character derivative sheets {#derivative-sheets}
+
+A character's other persistent looks, such as a costume change or a transformation, are registered as derivatives and viewed and edited in the "Derivatives" block of the character details. A derivative sheet comes from one of two sources:
+
+- **Generate**: the base sheet is edited according to the derivative's appearance change. A derivative sheet cannot be generated before the character has a base sheet. After the base sheet is regenerated, generated derivative sheets are marked as stale.
+- **Upload**: choose "Upload derivative sheet" in the derivative's more actions menu to replace the current derivative sheet with a local image; no base sheet is needed. An uploaded sheet is treated as finished content: regenerating the base sheet or editing the base description or the appearance change never makes it stale.
+
+Both generated and uploaded derivative sheets go into the version history, and you can switch between them at any time. After switching back to a generated version, staleness is judged again from the base sheet and the appearance change. The appearance change still applies after an upload: the character's appearance in storyboard and video prompts is the base description plus the appearance change.
+
 #### Merge assets registered twice {#merge-assets}
 
 When the same person, place, or object is registered as two assets (for example, "Old Wang" and "Wang Jianguo"), open the menu on one of the asset cards, choose **Merge into…**, and pick the asset of the same type to keep. Only characters, scenes, and props can be merged.

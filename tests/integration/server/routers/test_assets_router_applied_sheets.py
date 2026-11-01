@@ -12,13 +12,21 @@ from lib.artifacts.artifact_activation import ArtifactCurrencyResolver
 from lib.artifacts.artifact_manifest import ArtifactKey, ArtifactStatus, ProjectArtifactManifestAdapter
 from lib.artifacts.generation_input import InputRefused, project_input_observation, storyboard_image_input
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
-from lib.project.asset_derivatives import derivative_artifact_key, derivative_sheet_relative_path
+from lib.project.asset_derivatives import (
+    DerivativeSheetTarget,
+    derivative_artifact_key,
+    derivative_sheet_relative_path,
+)
 from lib.project.asset_types import DERIVATIVES_FIELD
 from lib.project.project_manager import ProjectManager
 from lib.project.resource_paths import CHARACTER_DERIVATIVE_RESOURCE_TYPE
 from lib.workflow.workflow_state import WorkflowStateService
 from server.routers import assets, versions
-from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
+from server.services.currency.upload_finalize import (
+    commit_manual_derivative_upload,
+    install_manual_asset_sheet_upload,
+    stage_uploaded_bytes,
+)
 from server.services.tasks import generation_tasks
 from tests.fakes import use_generation_context, use_project_manager
 from tests.integration.server.asset_library_support import (
@@ -407,3 +415,46 @@ async def test_restoring_the_applied_derivative_version_claims_it_by_the_image_a
     assert (project_dir / restored["file_path"]).read_bytes() == applied
     pm.update_asset_entry("character", "demo", "王", _rewrite_descriptions)
     assert character_sheet_statuses(pm, "demo", "王") == _ALL_CURRENT
+
+
+def test_an_uploaded_derivative_sheet_round_trips_through_the_library_as_finished_content(library, monkeypatch):
+    """项目里上传的衍生资产图存入资产库时带上上传的字节，再应用到项目仍按图本身登记。"""
+    client, pm = library
+    pm.create_project("source")
+    pm.create_project_metadata("source", "Source", "Anime", "narration")
+    pm.add_character("source", "王", "白衣少年")
+    pm.install_asset_sheet_bytes("character", "source", "王", "characters/王.png", solid_png_bytes((30, 30, 30)))
+    pm.update_asset_entry(
+        "character",
+        "source",
+        "王",
+        lambda entry: entry.__setitem__(DERIVATIVES_FIELD, {"战斗装": {"description": "黑甲", "character_sheet": ""}}),
+    )
+    source_dir = pm.get_project_path("source")
+    target = DerivativeSheetTarget(owner_key="王", derivative_key="战斗装")
+    uploaded = solid_png_bytes((200, 120, 10))
+    use_project_manager(monkeypatch, pm)
+    asyncio.run(
+        commit_manual_derivative_upload(
+            project_name="source",
+            target=target,
+            staged_image=stage_uploaded_bytes(uploaded, source_dir / target.sheet_path),
+            current_image=source_dir / target.sheet_path,
+            versions=VersionManager(source_dir),
+            original_filename="armor.png",
+        )
+    )
+    response = client.post(
+        "/api/v1/assets/from-project",
+        json={"project_name": "source", "resource_type": "character", "resource_id": "王"},
+    )
+    assert response.status_code == 200, response.text
+
+    _apply(client, response.json()["asset"]["id"])
+
+    project_dir = pm.get_project_path("demo")
+    assert (project_dir / target.sheet_path).read_bytes() == uploaded
+    statuses = {"王": ArtifactStatus.CURRENT, "战斗装": ArtifactStatus.CURRENT}
+    assert character_sheet_statuses(pm, "demo", "王") == statuses
+    pm.update_asset_entry("character", "demo", "王", _rewrite_descriptions)
+    assert character_sheet_statuses(pm, "demo", "王") == statuses

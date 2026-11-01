@@ -233,6 +233,9 @@ MESSAGES = {
     "blank_script_formal_exists": "This episode already has a formal script, so it cannot start from blank. Edit it on the timeline instead",
     "draft_doc_type_not_applicable": "This kind of draft does not apply to the current project",
     "draft_save_failed": "The draft was saved, but validation could not finish; please retry later",
+    "draft_formal_unit_dialogue_overload": "The draft was saved but not adopted: video unit {position} in the script needs about {spoken_seconds} s to speak its lines, longer than its {duration_seconds} s duration. Lengthen the unit on the timeline, split it, or shorten the lines, then save the draft again",
+    "draft_formal_unit_duration_off_tier": "The draft was saved but not adopted: video unit {position} in the script is {duration_seconds} s long, which the current video model doesn't support (available: {tiers} s). Change the unit's duration on the timeline to an available option, then save the draft again",
+    "draft_formal_unit_invalid": "The draft was saved but not adopted: the text of video unit {position} in the script doesn't meet the prompt-writing requirements. Edit the unit's text or duration on the timeline, then save the draft again",
     "draft_repair_failed": "AI repair did not finish and the draft is unchanged. Try again, edit it yourself, or hand it to the Agent",
     "draft_repair_task_active": "AI is already repairing this draft. Try again after it finishes",
     "script_review_not_applicable": "Content confirmation does not apply to this episode (this mode produces no script plan result to confirm)",
@@ -273,6 +276,7 @@ MESSAGES = {
     "prompt_authoring_refused": "Prompt writing could not be submitted: {reason}",
     "prompt_authoring_dialogue_overload": "Video unit {position} needs about {spoken_seconds} s to speak its lines, longer than its {duration_seconds} s duration. Lengthen the unit on the timeline, split it, or shorten the lines",
     "prompt_authoring_unit_invalid": "The text of video unit {position} doesn't meet the prompt-writing requirements. Edit the unit's text or duration on the timeline, then try again",
+    "prompt_authoring_duration_off_tier": "Video unit {position} is {duration_seconds} s long, which the current video model doesn't support (available: {tiers} s). Change the unit's duration on the timeline to an available option, then try again",
     "ad_script_overwrite_required": "Regenerating replaces the formal script of this episode entirely. Review the loss list, acknowledge the overwrite and retry",
     "ad_script_task_active": "A script generation task for this episode is already running. Wait for it to finish before submitting again",
     "ad_script_refused": "AI script generation could not be submitted: {reason}",
@@ -284,6 +288,7 @@ MESSAGES = {
     "episode_planning_failed": "An error occurred. Try again, or hand it to the Agent if it keeps failing",
     "text_output_truncated": "The output of text model {model} exceeded its maximum output length and is incomplete",
     "script_review_conversion_refused": "The script plan cannot be converted to a formal script yet, so it was not confirmed; check shot durations, dialogue and the script plan status, then retry",
+    "script_review_duration_off_tier": "Video unit {position} in the script plan is {duration_seconds} s long, which the current video model doesn't support (available: {tiers} s), so the plan was not confirmed. Change the unit's duration to an available option, then confirm again",
     "script_review_invalid_new_assets": "Some new assets in this episode cannot be handled as chosen, so the plan was not confirmed; check the assets they are merged into and the base characters of derivatives, then retry",
     "script_review_unregistered_references": "The plan was not confirmed because these items reference names that are neither registered nor new assets registered in this episode: {details}. Remove these names from the references or pick registered assets instead, then retry",
     "script_review_foreign_formal_script": (
@@ -652,6 +657,7 @@ MESSAGES = {
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "Model {model} only supports text-to-image (no /v1/images/edits); remove reference images or pick a model that supports image edits",
     "image_endpoint_mismatch_no_t2i": "Model {model} only supports image-to-image (reference images required); supply reference images or pick a model that supports text-to-image",
+    "image_seedream_edits_unavailable": "The current call endpoint for model {model} does not support generation with reference images; change it to “Volcengine Ark (Seedream)” in model settings and try again",
     "image_capability_missing_i2i": "{provider}/{model} does not support image-to-image; configure a default model that supports image edits",
     "image_capability_missing_t2i": "{provider}/{model} does not support text-to-image; configure a default model that supports text-to-image",
     "image_dashscope_4k_t2i_only": "Model {model}: 4K output is only supported by wan2.7-image-pro for text-to-image; use 2K or lower",

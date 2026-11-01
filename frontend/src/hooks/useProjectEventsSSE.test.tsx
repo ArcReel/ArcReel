@@ -698,6 +698,63 @@ describe("useProjectEventsSSE", () => {
     expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
   });
 
+  // 草稿新建是唯一会自动导航的变更：Agent 写出的新草稿跳到对应集，用户自己在 Web 端保存的草稿留在原页。
+  function emitDraftCreated(stream: ReturnType<typeof mockProjectEventStream>, source: "webui" | "worker") {
+    act(() => {
+      stream.options?.onChanges?.({
+        project_name: "demo",
+        batch_id: `batch-draft-${source}`,
+        fingerprint: `fp-draft-${source}`,
+        generated_at: "2026-03-01T00:00:00Z",
+        source,
+        changes: [
+          {
+            entity_type: "draft",
+            action: "created",
+            entity_id: "episode_1_script_plan",
+            label: "第 1 集的剧本",
+            label_key: "draft_normalized_script",
+            label_params: { episode: 1 },
+            episode: 1,
+            focus: { pane: "episode", episode: 1 },
+            important: true,
+          },
+        ],
+      });
+    });
+  }
+
+  it("navigates to the episode when another writer creates a draft", async () => {
+    const stream = mockProjectEventStream();
+    renderHarness("/characters");
+
+    emitDraftCreated(stream, "worker");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("location")).toHaveTextContent("/episodes/1");
+    });
+    await waitFor(() => {
+      expect(useAppStore.getState().toast).not.toBeNull();
+    });
+  });
+
+  it("stays put without notifications when the user's own draft save creates a draft", async () => {
+    const stream = mockProjectEventStream();
+    renderHarness("/characters");
+
+    emitDraftCreated(stream, "webui");
+
+    await waitFor(() => {
+      expect(API.getProject).toHaveBeenCalledWith("demo", { signal: expect.any(AbortSignal) });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("location")).toHaveTextContent("/characters");
+    expect(useAppStore.getState().toast).toBeNull();
+    expect(useAppStore.getState().workspaceNotifications).toHaveLength(0);
+  });
+
   it("defers remote navigation when a workspace edit marker is present", async () => {
     const stream = mockProjectEventStream();
 
