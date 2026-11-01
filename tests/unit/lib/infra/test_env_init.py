@@ -11,6 +11,12 @@ import pytest
 from lib.infra import env_init
 
 
+@pytest.fixture(autouse=True)
+def _dotenv_enabled(monkeypatch: pytest.MonkeyPatch):
+    # 根 conftest 为整个测试进程关掉 .env 读取，这里验证的正是读取规则。
+    monkeypatch.delenv("PYTHON_DOTENV_DISABLED", raising=False)
+
+
 @pytest.fixture
 def env_file(tmp_path: Path):
     # load_env_file 会记下本次读取的结果供启动告警使用，用例结束后清掉，不让后续的 lifespan 用例告警。

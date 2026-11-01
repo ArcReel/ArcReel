@@ -93,6 +93,18 @@ os.environ.pop("AI_ANIME_PROJECTS", None)
 if not os.environ.get("AUTH_TOKEN_SECRET"):
     os.environ["AUTH_TOKEN_SECRET"] = "arcreel-test-token-secret-0123456789abcdef"
 
+# `import lib` 时 `lib.infra.env_init` 读取 .env：项目根没有 .env 就向上回溯，`.worktrees/` 下的
+# worktree 会读到主检出的 .env，其中的 provider 密钥让走 lifespan 的用例被启动期密钥检查拦下。
+# 测试结果不应依赖 checkout 里外的 .env，故整个测试进程（含其子进程）不读 .env；
+# 验证读取规则的用例自行 delenv。
+os.environ["PYTHON_DOTENV_DISABLED"] = "1"
+
+# lifespan 的 `ensure_auth_password` 在 AUTH_PASSWORD 未设置时生成口令并回写项目根的 .env。
+# 钉一个固定值，未替换该步骤的 lifespan 用例不再改写仓库里的 .env；验证生成与回写的用例
+# 自行清掉 AUTH_PASSWORD 并传入 tmp 下的 env_path。
+if not os.environ.get("AUTH_PASSWORD"):
+    os.environ["AUTH_PASSWORD"] = "arcreel-test-password"
+
 
 def _remove_owned_test_home_dir() -> None:
     """只在创建临时目录的进程里回收（pid 守卫的理由同 ``_remove_owned_test_db_dir``）。"""

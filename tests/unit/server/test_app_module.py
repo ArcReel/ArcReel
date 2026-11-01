@@ -92,6 +92,7 @@ class TestAppModule:
         env_file = tmp_path / ".env"
         env_file.write_text("ARCREEL_TEST_EDITED=value-from-file\n", encoding="utf-8")
         monkeypatch.setenv("ARCREEL_TEST_EDITED", "value-from-container")
+        monkeypatch.delenv("PYTHON_DOTENV_DISABLED", raising=False)  # 根 conftest 关掉了 .env 读取
         env_init.load_env_file(env_file)
         stub_lifespan_dependencies(monkeypatch)
 
