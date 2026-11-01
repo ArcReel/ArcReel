@@ -298,14 +298,14 @@ def snapshot_preserved_artifact_manifest(
 ) -> ArtifactManifestArchiveSnapshot:
     """Rebase preserved claims and bind them to one stable formal-byte snapshot.
 
-    依据视频已不是选中版本的字幕与呈现登记暂不适用、不让导出失败。``ships_unselected_versions`` 为假时
+    依据的视频或音频已不是选中版本的字幕与呈现登记暂不适用、不让导出失败。``ships_unselected_versions`` 为假时
     包里没有它们依据的旧版本快照，导入方核验不了，这些登记不随包。
     """
 
     with project_metadata_lock(project_dir):
         plan = _plan_preserved_artifact_target_state(project_dir)
         rebased = _rebase_preserved_artifact_entries(
-            plan, preserved_entries, keep_unselected_video_claims=ships_unselected_versions
+            plan, preserved_entries, keep_unselected_media_claims=ships_unselected_versions
         )
         assert_artifact_target_state_plan_unchanged(project_dir, plan)
         adapter = ProjectArtifactManifestAdapter(project_dir)
@@ -345,12 +345,12 @@ def _rebase_preserved_artifact_entries(
     plan: ArtifactTargetStatePlan,
     preserved_entries: Mapping[ArtifactKey, ArtifactManifestEntry],
     *,
-    keep_unselected_video_claims: bool = True,
+    keep_unselected_media_claims: bool = True,
 ) -> dict[ArtifactKey, ArtifactManifestEntry]:
     """把保全的 claim 落到规划器证明的正式路径上，依据摘要不变；证明不了的 claim 一律拒绝。
 
-    依据视频已不是选中版本、对那个版本仍自证的字幕与呈现 claim 暂不适用：保留时照常落路径，
-    ``keep_unselected_video_claims`` 为假时略去。
+    依据的视频或音频已不是选中版本、对那个版本仍自证的字幕与呈现 claim 暂不适用：保留时照常落路径，
+    ``keep_unselected_media_claims`` 为假时略去。
     """
 
     rebased: dict[ArtifactKey, ArtifactManifestEntry] = {}
@@ -358,10 +358,10 @@ def _rebase_preserved_artifact_entries(
     for key, archived in preserved_entries.items():
         current = plan.entries.get(key)
         artifact_path = current.artifact_path if current is not None else plan.formal_paths.get(key)
-        if artifact_path is None and key in plan.unselected_video_formal_paths:
-            if not keep_unselected_video_claims:
+        if artifact_path is None and key in plan.unselected_media_formal_paths:
+            if not keep_unselected_media_claims:
                 continue
-            artifact_path = plan.unselected_video_formal_paths[key]
+            artifact_path = plan.unselected_media_formal_paths[key]
         if artifact_path is None:
             invalid.append(key.encode())
             continue
