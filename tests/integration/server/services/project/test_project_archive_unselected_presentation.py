@@ -250,7 +250,7 @@ async def test_regenerating_narration_keeps_export_and_draft_download_available(
     assert _status(imported, _PRESENTATION, _PRESENTATION_PATH) is ArtifactStatus.CURRENT
 
 
-@pytest.mark.parametrize("damage", ["subtitle", "snapshot", "record", "basis", "current_video"])
+@pytest.mark.parametrize("damage", ["subtitle", "snapshot", "record", "basis", "current_video", "current_audio"])
 async def test_unprovable_old_audio_claims_still_fail_export(tmp_path: Path, damage: str) -> None:
     pm, project_path, _ = await _project_with_materialized_presentations(tmp_path)
     _install_narration(project_path, narration_segment("E1S01", "旁白一句"), 1.4)
@@ -270,12 +270,16 @@ async def test_unprovable_old_audio_claims_still_fail_export(tmp_path: Path, dam
     elif damage == "basis":
         old_audio["artifact_audio_basis"]["digest"] = "sha256-v1:" + "0" * 64
         versions_path.write_text(json.dumps(versions), encoding="utf-8")
-    else:
+    elif damage == "current_video":
         (project_path / "videos/scene_E1S01.mp4").write_bytes(b"corrupted current video")
+    else:
+        (project_path / "audio/segment_E1S01.wav").write_bytes(b"corrupted current audio")
 
     for scope in ("current", "full"):
-        with pytest.raises(ValueError, match="unprovable formal claims"):
+        with pytest.raises(ValueError, match="unprovable formal claims") as exc:
             ProjectArchiveService(pm).get_export_diagnostics("demo", scope=scope)
+        assert _SUBTITLE.encode() in str(exc.value)
+        assert _PRESENTATION.encode() in str(exc.value)
 
 
 async def test_changing_both_video_and_narration_keeps_old_claims_in_full_archive(tmp_path: Path) -> None:

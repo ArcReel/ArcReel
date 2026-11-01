@@ -67,7 +67,7 @@ def _resolve_seedream_size(model_id: str, aspect_ratio: str) -> str:
     return size or "2K"
 
 
-# 单请求参考图上限（2026-11-01 核验）：Seedream 5.0 pro / 5.0 flash 最多 10 张；
+# 单请求参考图上限：Seedream 5.0 pro / 5.0 flash 最多 10 张；
 # 5.0 lite / 4.5 / 4.0 最多 14 张（输入参考图 + 生成图 ≤ 15）。
 # doubao-seedream-5-0-260128 与 doubao-seedream-5-0-lite-260128 是同一模型的两个 ID。
 # pro / flash 不在内置目录，但可按 ID 手动添加或经自定义端点 ark-seedream 复用本后端；
