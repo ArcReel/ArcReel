@@ -18,7 +18,7 @@
 
 ## 在 worktree 里运行
 
-worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文档站在各自目录 `pnpm install --frozen-lockfile`。把主检出的 `.testmondata` 复制进 worktree 可以跳过 testmon 的首次建库；文件里记录的是按代码指纹索引的覆盖关系，与当前代码不一致的部分会被当作改动重跑。标了 `local_port` 的用例在禁止绑定本地端口的沙箱里会被跳过并注明原因，完整测试需要在允许绑定端口的环境里运行一次。
+worktree 没有 `.venv` 与 `node_modules`：后端先 `uv sync`，前端与文档站在各自目录 `pnpm install --frozen-lockfile`。把主检出的 `.testmondata` 复制进 worktree 可以跳过 testmon 的首次建库；文件里记录的是按代码指纹索引的覆盖关系，与当前代码不一致的部分会被当作改动重跑。标了 `local_port` 的用例在禁止绑定本地端口的沙箱里会被跳过并注明原因，完整测试需要在允许绑定端口的环境里运行一次。根 conftest 为测试进程设置 `PYTHON_DOTENV_DISABLED=1`，不读取任何 `.env`，worktree 根不必为挡住主检出的 `.env` 再放一份空文件；验证 `.env` 读取规则的用例自行 `delenv`。
 
 ## 事件循环阻塞护栏
 
