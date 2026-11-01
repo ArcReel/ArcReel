@@ -618,7 +618,7 @@ export function CustomProviderForm({
                   mono
                   id={keyId}
                   type={showApiKey ? "text" : "password"}
-                  autoComplete="off"
+                  autoComplete="new-password"
                   value={value.apiKey}
                   onChange={(e) => setField("apiKey", e.target.value)}
                   placeholder={
