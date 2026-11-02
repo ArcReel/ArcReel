@@ -43,9 +43,9 @@ disable-model-invocation: true
 6. 由 qa-verifier 按 [qa-verifier.md](references/qa-verifier.md) 以全量模式验收 green HEAD。有失败项时，把本轮全部失败项交给一个新的 fixer 按 [fixer.md](references/fixer.md) 修复，再由 qa-verifier 只复验这些项；循环到没有失败项，或剩余失败项**卡住**（同一失败特征第 2 次出现）。卡住的项按性质分流：
    - **回归**（批次前已有的行为被破坏）：按第 3 节暂停该 issue 及其下游。
    - **新验收未达成**（已有行为完好）：该 issue 的 commit 留在 stage，从 PR 的 `Closes` 清单中移除，在 issue 上评论 QA 证据摘要，保持 open 与 `ready-for-agent`。
-7. 创建 draft PR，按上表用 `Closes #<N>` 覆盖本 stage 中没有留 open 的 issues，其无法验证项进入收尾的人工清单；QA 结论以一条文字评论发在 PR 上，证据留在本地批次记录；本 stage 各 handoff 中的教训候选发成 `lesson-candidate` 评论，格式见 [lessons.md](../../../docs/agents/lessons.md)；handoff 中自行裁决的事项及一行理由写进 PR 正文。再以当前 PR HEAD 为起点启动 review-looper，按 [review-looper.md](references/review-looper.md) 收敛 AI 审查与 commit history。
+7. 创建 draft PR，按上表用 `Closes #<N>` 覆盖本 stage 中没有留 open 的 issues；QA 结论以一条文字评论发在 PR 上；本 stage 各 handoff 中的教训候选发成 `lesson-candidate` 评论，格式见 [lessons.md](../../../docs/agents/lessons.md)；handoff 中自行裁决的事项及一行理由写进 PR 正文。再启动 review-looper，按 [review-looper.md](references/review-looper.md) 收敛 AI 审查与 commit history。
 8. review-looper 回报达标 HEAD 后，若 QA 之后的 commits 改动了测试与文档以外的文件，由 qa-verifier 以复验模式验收该 commit 范围波及的项。失败时按第 6 步修复，fixer push 后以新 HEAD 重入审查循环。
-9. 把第 7 步之后 handoff 中新增的教训候选发到 PR。核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，以该 `headRefOid` 为 expected-head 执行 rebase merge；不匹配则重入审查循环。下一 stage 从最新 `origin/main` 开始。
+9. 核对达标 HEAD 等于当前 `headRefOid` 且 `mergeable=MERGEABLE`，以该 `headRefOid` 为 expected-head 执行 rebase merge；不匹配则重入审查循环。下一 stage 从最新 `origin/main` 开始。
 
 ## 3. 暂停边界
 
@@ -60,7 +60,7 @@ disable-model-invocation: true
 
 ## 4. 收尾
 
-1. **部署冒烟**：全部 stage 合并后，取本批最后一个触发 `docker-edge` 构建的合并 commit 为目标，等该次构建成功，由新的 qa-verifier 以冒烟模式在部署实例上验收全批跨 stage 的主路径与各 stage 的「待部署验证」项，费用以授权预算为上限。冒烟失败项按 escalation.md「范围外的真缺陷」开 issue 并附证据摘要，不开启修复轮。本批没有合并触发镜像构建或该次构建失败时跳过冒烟，待部署验证项转为无法验证。
+1. **部署冒烟**：全部 stage 合并后，取本批最后一个触发 `docker-edge` 构建的合并 commit 为目标，由新的 qa-verifier 以冒烟模式在部署实例上验收全批跨 stage 的主路径与各 stage 的「待部署验证」项，费用以授权预算为上限。冒烟失败项按 escalation.md「范围外的真缺陷」开 issue 并附证据摘要，不开启修复轮。本批没有合并触发镜像构建时跳过冒烟，待部署验证项转为无法验证。
 2. **收尾报告**：按上表发布一条消息，按已合并 stage 组织，列出 PR、QA 与冒烟的结论计数、留 open 的 issue、暂停或跳过项。其后是人工清单：各 `results.md` 中当前结论仍为无法验证的项各附原因（待部署验证项以冒烟结论为准），以及需要用户裁决的事项，后者按 escalation.md「怎么问」的格式合成。两者都为空时省略人工清单。
 3. 移除已认领 issue 的 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
 

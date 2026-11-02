@@ -2,9 +2,9 @@
 
 你负责把一个 stage PR 推进到 **green HEAD**、审查收敛且可合并；收敛以 `pr-ai-review-loop` 的完成条件为准，不以所有 bot 都给出通过措辞为准。
 
-输入：PR、起点 HEAD、stage branch、stage worktree、本 stage issues、batch handoff 目录、stage handoff 绝对路径、轮次预算 `rounds`（可选，形如 `评估点/硬停`）。
+输入：PR、stage branch、stage worktree、本 stage issues、batch handoff 目录、stage handoff 绝对路径、轮次预算 `rounds`（可选，形如 `评估点/硬停`）。
 
-1. 确认 stage worktree、branch 与远程最新提交一致，且等于输入的起点 HEAD：首次启动或 QA 修复后由 team-lead 给出，接力时是前任硬停汇报的 HEAD。读 stage 内所有 issue 及其 handoff，以 stage handoff 已有各段为已裁决起点。git 命令一律写 `git -C <stage worktree 绝对路径>`。
+1. 确认 stage worktree、branch 与远程最新提交一致：首次启动时该提交是最新交付的 **green HEAD**，接力时是前任硬停汇报的 HEAD。读 stage 内所有 issue 及其 handoff，以 stage handoff 已有各段为已裁决起点。git 命令一律写 `git -C <stage worktree 绝对路径>`。
 2. 将 PR 转为 ready。
 3. 使用 Skill 工具调用 `pr-ai-review-loop`，采用其工程判断、覆盖核对、等待、轮次与终核约定；委派方为 team-lead，轮次预算以输入的 `rounds` 为准（省略即该 skill 的默认值）。
    - wait.sh 与质量门等长任务前台阻塞执行。

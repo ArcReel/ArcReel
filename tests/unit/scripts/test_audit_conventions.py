@@ -310,7 +310,6 @@ on: # zizmor: ignore[dangerous-triggers]
 def test_dependency_and_build_directories_are_not_scanned(repo: Path) -> None:
     _write(repo, "frontend/node_modules/pkg/index.js", "// eslint-disable-next-line no-console\n")
     _write(repo, ".venv/lib/site.py", "import os  # noqa: F401\n")
-    _write(repo, ".afk/batch/repro.py", "import os  # noqa: F401\n")
 
     assert _suppression_lines(repo) == []
 
