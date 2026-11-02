@@ -584,6 +584,17 @@ Only reference images for the Seedance 2.0 and 2.5 model series on Volcano Engin
 
 When the provider rejects a request because an input image failed moderation (error codes that start with `InputImageSensitiveContentDetected`, for example `InputImageSensitiveContentDetected.PrivacyInformation`), ArcReel does not upload automatically, does not retry generation, and does not switch providers. The error shows the provider's error code and suggests uploading the related asset image to the provider asset library and generating again once ingestion is available. The error names the image only when the request contains a single reference image and no first or last frame; when the provider error does not identify the image, ArcReel does not guess. When the rejected image was already sent as an asset reference, the error instead suggests checking that asset in the provider console.
 
+### Use the Asset Library in a Conversation {#asset-library-in-agent}
+
+The ArcReel Agent and external Agents connected through remote MCP can perform the same asset library operations, using the same links as the asset cards:
+
+- check the links and ingestion status of an image's current version, and the available asset library accounts;
+- browse the existing assets in an asset library account, and save the image you choose as a new version of the asset image;
+- upload a specific image to the asset library when you explicitly ask for it;
+- unlink after you agree; neither the ArcReel image nor the provider asset is deleted.
+
+The Agent uploads only when you explicitly ask. After a provider rejects a generation during moderation, the Agent relays the reason and explains that you can upload; you decide, and it does not upload or generate again automatically. After an upload, the Agent receives the ingestion job right away and does not wait for provider review; you can ask the Agent to check the status later. Asset library accounts, object storage, and inference credential bindings are still configured in the **Asset library & storage** section. The Agent cannot see their keys, and it cannot rename or delete assets in the provider asset library.
+
 ## 13. Cost Tracking {#cost-tracking}
 
 ArcReel can record costs by provider and media type, but keep in mind:
