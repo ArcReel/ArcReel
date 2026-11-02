@@ -568,65 +568,76 @@ class GenerationWorker:
     async def _run_loop(self) -> None:
         try:
             while not self._stop_event.is_set():
-                had_lease = self._owns_lease
-                self._owns_lease = await self.queue.acquire_or_renew_worker_lease(
-                    name=self.lease_name,
-                    owner_id=self.owner_id,
-                    ttl_seconds=self.lease_ttl,
-                )
-
-                if self._owns_lease and not had_lease:
-                    logger.info("获得 worker lease (owner=%s)", self.owner_id)
-                if had_lease and not self._owns_lease:
-                    logger.warning("失去 worker lease (owner=%s)", self.owner_id)
-
-                await self._drain_finished_tasks()
-
-                # Lease 状态变化跟踪：首次失去 lease 时打点；重夺 lease 后判断
-                # 「真切换 owner」（>= 3× ttl）→ 重置开关；「续约 flap」（< 3× ttl）→ 保持。
-                if had_lease and not self._owns_lease and self._lease_lost_monotonic is None:
-                    self._lease_lost_monotonic = time.monotonic()
-                if self._owns_lease and self._lease_lost_monotonic is not None:
-                    lost_duration = time.monotonic() - self._lease_lost_monotonic
-                    if lost_duration > self.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
-                        logger.info(
-                            "lease 丢失 %.1fs（> %d×ttl=%.1fs），认为另一进程曾持过 lease，重扫 orphan",
-                            lost_duration,
-                            _ORPHAN_RESCAN_LEASE_LOST_MULT,
-                            self.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT,
-                        )
-                        self._orphan_handled_once = False
-                    self._lease_lost_monotonic = None
-
-                # 一次性扫描：进程持 lease 后只扫一次 orphan；后续主循环不再重扫。
-                # 单 lease 互斥保证不会与另一个 worker 同时扫；跨进程接管由上述阈值兜底。
-                if self._owns_lease and not self._orphan_handled_once:
-                    await self._recovery.handle_orphans()
-                    # 首次收口是进程启动：构造时刻之前发起的无任务 pending 行（文本调用、端点试跑）
-                    # 没人接续，一并翻终态。lease 长时间丢失触发的重扫发生在进程存活期间，无任务行
-                    # 可能正在本进程里跑，只收口绑定了任务的行。
-                    await self._recovery.settle_interrupted_calls(
-                        taskless_started_before=None if self._startup_settled else self._constructed_at
-                    )
-                    self._startup_settled = True
-                    self._orphan_handled_once = True
-
-                if not self._owns_lease:
+                try:
+                    await self._run_cycle()
+                except Exception:
+                    # 一轮里任何一步（续约 lease、收尾、认领）抛错都不能让主循环退出：退出会在 finally 里
+                    # 释放 lease，进程里再没有 worker，所有入队请求都报 worker offline，直到重启进程。
+                    # 典型来源是负载高峰时连接池取连接超时，等一个心跳间隔重试即可恢复。
+                    logger.exception("worker 主循环本轮出错，%.1fs 后重试", self.heartbeat_interval)
                     await self._wait_for_wake(self.heartbeat_interval)
-                    continue
-
-                claimed_any = await self._claim_tasks()
-
-                if claimed_any:
-                    await asyncio.sleep(0.05)
-                else:
-                    await self._wait_for_wake(self.poll_interval)
 
             await self._wait_inflight_completion()
         finally:
             if self._owns_lease:
                 await self.queue.release_worker_lease(name=self.lease_name, owner_id=self.owner_id)
             self._owns_lease = False
+
+    async def _run_cycle(self) -> None:
+        """主循环的一轮：续约 lease、收尾已完成任务、按需收口孤儿任务，持有 lease 时认领新任务。"""
+        had_lease = self._owns_lease
+        self._owns_lease = await self.queue.acquire_or_renew_worker_lease(
+            name=self.lease_name,
+            owner_id=self.owner_id,
+            ttl_seconds=self.lease_ttl,
+        )
+
+        if self._owns_lease and not had_lease:
+            logger.info("获得 worker lease (owner=%s)", self.owner_id)
+        if had_lease and not self._owns_lease:
+            logger.warning("失去 worker lease (owner=%s)", self.owner_id)
+
+        await self._drain_finished_tasks()
+
+        # Lease 状态变化跟踪：首次失去 lease 时打点；重夺 lease 后判断
+        # 「真切换 owner」（>= 3× ttl）→ 重置开关；「续约 flap」（< 3× ttl）→ 保持。
+        if had_lease and not self._owns_lease and self._lease_lost_monotonic is None:
+            self._lease_lost_monotonic = time.monotonic()
+        if self._owns_lease and self._lease_lost_monotonic is not None:
+            lost_duration = time.monotonic() - self._lease_lost_monotonic
+            if lost_duration > self.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT:
+                logger.info(
+                    "lease 丢失 %.1fs（> %d×ttl=%.1fs），认为另一进程曾持过 lease，重扫 orphan",
+                    lost_duration,
+                    _ORPHAN_RESCAN_LEASE_LOST_MULT,
+                    self.lease_ttl * _ORPHAN_RESCAN_LEASE_LOST_MULT,
+                )
+                self._orphan_handled_once = False
+            self._lease_lost_monotonic = None
+
+        # 一次性扫描：进程持 lease 后只扫一次 orphan；后续主循环不再重扫。
+        # 单 lease 互斥保证不会与另一个 worker 同时扫；跨进程接管由上述阈值兜底。
+        if self._owns_lease and not self._orphan_handled_once:
+            await self._recovery.handle_orphans()
+            # 首次收口是进程启动：构造时刻之前发起的无任务 pending 行（文本调用、端点试跑）
+            # 没人接续，一并翻终态。lease 长时间丢失触发的重扫发生在进程存活期间，无任务行
+            # 可能正在本进程里跑，只收口绑定了任务的行。
+            await self._recovery.settle_interrupted_calls(
+                taskless_started_before=None if self._startup_settled else self._constructed_at
+            )
+            self._startup_settled = True
+            self._orphan_handled_once = True
+
+        if not self._owns_lease:
+            await self._wait_for_wake(self.heartbeat_interval)
+            return
+
+        claimed_any = await self._claim_tasks()
+
+        if claimed_any:
+            await asyncio.sleep(0.05)
+        else:
+            await self._wait_for_wake(self.poll_interval)
 
     def _pool_full_providers(self, media_type: str) -> frozenset[str]:
         """返回当前 cycle ``media_type`` 已满的 provider_id 集合（黑名单，用于 claim SQL）。

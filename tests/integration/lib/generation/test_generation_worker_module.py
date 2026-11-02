@@ -943,6 +943,45 @@ class TestGenerationWorker:
         assert worker._main_task is None
 
     @pytest.mark.asyncio
+    async def test_run_loop_survives_lease_renewal_error_and_keeps_claiming(self):
+        """续约 lease 时连接池超时之类的错误只让这一轮失败，主循环继续续约、继续认领。"""
+
+        class _FlakyLeaseQueue(FakeWorkerQueue):
+            def __init__(self):
+                super().__init__()
+                self.renewals = 0
+                self.claims = 0
+                self.claimed_after_error = asyncio.Event()
+
+            async def acquire_or_renew_worker_lease(self, name, owner_id, ttl_seconds):
+                self.renewals += 1
+                if self.renewals == 2:
+                    raise TimeoutError("QueuePool limit reached")
+                return True
+
+            async def claim_next_task(self, media_type, **_kwargs):
+                self.claims += 1
+                if self.renewals > 2:
+                    self.claimed_after_error.set()
+                return
+
+        queue = _FlakyLeaseQueue()
+        worker = GenerationWorker(
+            queue=queue, executor=stub_executors.execute, resume_executor=stub_executors.execute_resume
+        )
+        worker.heartbeat_interval = 0.01
+        worker.poll_interval = 0.01
+
+        await worker.start()
+        await asyncio.wait_for(queue.claimed_after_error.wait(), timeout=2.0)
+        assert worker._main_task is not None
+        assert not worker._main_task.done()
+        assert not queue.released
+        await worker.stop()
+
+        assert queue.released
+
+    @pytest.mark.asyncio
     async def test_claim_tasks_dispatches_to_correct_pool(self, monkeypatch):
         """Tasks are dispatched to the correct provider slot."""
 
