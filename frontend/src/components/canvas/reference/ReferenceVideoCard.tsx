@@ -1,5 +1,15 @@
-import { Fragment, useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "cn";
 import { MENTION_PICKER_DEFAULT_ID, MentionPicker, type MentionCandidate } from "./MentionPicker";
 import { ASSET_COLORS, assetColor } from "./asset-colors";
 import { useUnitPromptHighlight, type Token } from "@/hooks/useUnitPromptHighlight";
@@ -23,6 +33,12 @@ const MENTION_SPAN_CLASS = "rounded-sm";
 // 两层都显式用正文比例字体，否则字宽不同，光标与选区落在可见字符旁边；输入框出现滚动条时
 // 可用宽度变窄、折行位置也会分叉，所以两层都预留滚动条槽位。
 const EDITOR_LAYER_CLASS = "p-3 font-sans text-sm leading-6 [scrollbar-gutter:stable]";
+
+/** 文稿栏高度（占分隔容器比例）的拖动上下限，防止任一方被拖没。 */
+const SPLIT_MIN = 0.25;
+const SPLIT_MAX = 0.85;
+const SPLIT_DEFAULT = 0.5;
+const clampSplit = (next: number) => Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, next));
 
 /**
  * 渲染 pre 层的 token span 串；当 caretOffset 命中某个 token 内部或边界时，在该位置
@@ -309,6 +325,60 @@ export function ReferenceVideoCard({
     [currentText, atStart, onChange],
   );
 
+  // 文稿（上栏）与对应原文（下栏）之间是可拖的分隔条：有原文时上栏高度取分隔容器
+  // 的百分比、下栏占剩余空间，两栏各自滚动；手动新增的单元没有原文，保持原来
+  // 「编辑框撑开、原文随内容」的布局。
+  const hasSourceText = (unit.source_text ?? "").trim().length > 0;
+  const [split, setSplit] = useState(SPLIT_DEFAULT);
+  const [splitDragging, setSplitDragging] = useState(false);
+  const splitRef = useRef<HTMLDivElement>(null);
+
+  const setSplitFromY = useCallback((clientY: number) => {
+    const box = splitRef.current;
+    if (!box) return;
+    const rect = box.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    setSplit(clampSplit((clientY - rect.top) / rect.height));
+  }, []);
+
+  const handleSplitPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    // jsdom 未实现 setPointerCapture；真实拖动会话里靠它把指针事件锁在分隔条上。
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    setSplitDragging(true);
+    document.body.style.cursor = "row-resize";
+  }, []);
+
+  const handleSplitPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (splitDragging) setSplitFromY(e.clientY);
+    },
+    [splitDragging, setSplitFromY],
+  );
+
+  const stopSplitDrag = useCallback(() => {
+    setSplitDragging(false);
+    document.body.style.cursor = "";
+  }, []);
+
+  const handleSplitKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+      e.preventDefault();
+      const step = e.shiftKey ? 0.1 : 0.05;
+      setSplit((s) => clampSplit(s + (e.key === "ArrowDown" ? step : -step)));
+    },
+    [],
+  );
+
+  // 拖动途中组件卸载时恢复 body 光标。
+  useEffect(
+    () => () => {
+      document.body.style.cursor = "";
+    },
+    [],
+  );
+
   const onScroll = () => {
     if (preRef.current && taRef.current) {
       preRef.current.scrollTop = taRef.current.scrollTop;
@@ -355,85 +425,135 @@ export function ReferenceVideoCard({
         </div>
       )}
 
-      {/* 编辑框随栏高撑开，栏太矮时不低于 12rem，由外层滚动。 */}
-      <div className="relative min-h-48 flex-1 rounded-md border border-input bg-background/60 transition-colors duration-fast focus-within:border-ring">
-        <pre
-          ref={preRef}
-          aria-hidden
-          // 着色镜像层：只显示与输入框同步滚动的那一段，溢出部分由输入框自己滚动到达。
-          data-overflow-ok="与输入框同步滚动的着色镜像层"
-          className={`pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words ${EDITOR_LAYER_CLASS}`}
-        >
-          {pickerOpen
-            ? renderHighlightedTokens(tokens, atStart, setAnchorEl, voiceoverLabel)
-            : staticHighlightedNodes}
-          {currentText.endsWith("\n") ? "\u200b" : null}
-        </pre>
-
-        {/* eslint-disable-next-line no-restricted-syntax -- 与着色镜像层逐字对齐、同步滚动，Textarea 的自动撑高会破坏对齐 */}
-        <textarea
-          ref={taRef}
-          value={currentText}
-          onChange={handleChange}
-          onKeyUp={handleCursorUpdate}
-          onKeyDown={handleKeyDown}
-          onClick={handleCursorUpdate}
-          onBlur={handleTextareaBlur}
-          onScroll={onScroll}
-          role="combobox"
-          aria-expanded={pickerOpen}
-          aria-controls={MENTION_PICKER_DEFAULT_ID}
-          aria-autocomplete="list"
-          aria-activedescendant={pickerOpen && activeOptionId ? activeOptionId : undefined}
-          aria-describedby={unknownMentions.length > 0 ? "reference-editor-unknown-desc" : undefined}
-          placeholder={t("reference_editor_placeholder")}
-          aria-label={t("reference_editor_aria_name")}
-          spellCheck={false}
-          className={`absolute inset-0 h-full w-full resize-none bg-transparent ${EDITOR_LAYER_CLASS} text-transparent caret-foreground placeholder:text-muted-foreground focus:outline-none`}
-        />
-
-        {pickerOpen && anchorEl && (
-          <MentionPicker
-            open
-            query={pickerQuery}
-            candidates={candidates}
-            projectName={projectName}
-            anchorElement={anchorEl}
-            onSelect={handlePickerSelect}
-            onClose={() => {
-              setPickerOpen(false);
-              setPickerQuery("");
-              setAtStart(null);
-              setActiveOptionId(null);
-            }}
-            onActiveChange={setActiveOptionId}
-          />
-        )}
-      </div>
-
-      <SourceTextReadonly text={unit.source_text} className="mt-3 shrink-0" />
-
-      {unknownMentions.length > 0 && (
+      {/* 分隔容器：上栏文稿、下栏对应原文；有原文时拖分隔条自由调整两栏高度。 */}
+      <div ref={splitRef} className="flex min-h-0 flex-1 flex-col">
         <div
-          id="reference-editor-unknown-desc"
-          role="status"
-          aria-live="polite"
-          className="mt-2 flex flex-wrap gap-1"
+          className={cn("flex min-h-0 flex-col", hasSourceText ? "flex-(--split-top)" : "flex-1")}
+          style={hasSourceText ? ({ "--split-top": `0 0 ${split * 100}%` } as CSSProperties) : undefined}
         >
-          <span className="sr-only">{t("reference_editor_unknown_mentions_label")}: </span>
-          {unknownMentions.map((name) => {
-            const palette = ASSET_COLORS.unknown;
-            return (
-              <span
-                key={name}
-                className={`rounded-sm border px-2 py-0.5 text-xs ${palette.textClass} ${palette.bgClass} ${palette.borderClass}`}
-              >
-                {t("reference_editor_unknown_mention", { name })}
-              </span>
-            );
-          })}
+          {/* 编辑框填满所在栏；文稿超出栏高时由 textarea 内部滚动。 */}
+          <div
+            className={cn(
+              "relative rounded-md border border-input bg-background/60 transition-colors duration-fast focus-within:border-ring",
+              hasSourceText ? "min-h-0 flex-1" : "min-h-48 flex-1",
+            )}
+          >
+            <pre
+              ref={preRef}
+              aria-hidden
+              // 着色镜像层：只显示与输入框同步滚动的那一段，溢出部分由输入框自己滚动到达。
+              data-overflow-ok="与输入框同步滚动的着色镜像层"
+              className={`pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words ${EDITOR_LAYER_CLASS}`}
+            >
+              {pickerOpen
+                ? renderHighlightedTokens(tokens, atStart, setAnchorEl, voiceoverLabel)
+                : staticHighlightedNodes}
+              {currentText.endsWith("\n") ? "\u200b" : null}
+            </pre>
+
+            {/* eslint-disable-next-line no-restricted-syntax -- 与着色镜像层同步滚动，必须用原生 textarea */}
+            <textarea
+              ref={taRef}
+              value={currentText}
+              onChange={handleChange}
+              onKeyUp={handleCursorUpdate}
+              onKeyDown={handleKeyDown}
+              onClick={handleCursorUpdate}
+              onBlur={handleTextareaBlur}
+              onScroll={onScroll}
+              role="combobox"
+              aria-expanded={pickerOpen}
+              aria-controls={MENTION_PICKER_DEFAULT_ID}
+              aria-autocomplete="list"
+              aria-activedescendant={pickerOpen && activeOptionId ? activeOptionId : undefined}
+              aria-describedby={unknownMentions.length > 0 ? "reference-editor-unknown-desc" : undefined}
+              placeholder={t("reference_editor_placeholder")}
+              aria-label={t("reference_editor_aria_name")}
+              spellCheck={false}
+              className={`absolute inset-0 h-full w-full resize-none bg-transparent ${EDITOR_LAYER_CLASS} text-transparent caret-foreground placeholder:text-muted-foreground focus:outline-none`}
+            />
+
+            {pickerOpen && anchorEl && (
+              <MentionPicker
+                open
+                query={pickerQuery}
+                candidates={candidates}
+                projectName={projectName}
+                anchorElement={anchorEl}
+                onSelect={handlePickerSelect}
+                onClose={() => {
+                  setPickerOpen(false);
+                  setPickerQuery("");
+                  setAtStart(null);
+                  setActiveOptionId(null);
+                }}
+                onActiveChange={setActiveOptionId}
+              />
+            )}
+          </div>
         </div>
-      )}
+
+        {hasSourceText && (
+          // 可聚焦 separator：指针与键盘是它仅有的交互方式，非交互角色误报，整体豁免。
+          /* eslint-disable jsx-a11y/no-noninteractive-element-interactions */
+          <div
+            role="separator"
+            aria-orientation="horizontal"
+            aria-label={t("reference_editor_split_aria")}
+            aria-valuemin={Math.round(SPLIT_MIN * 100)}
+            aria-valuemax={Math.round(SPLIT_MAX * 100)}
+            aria-valuenow={Math.round(split * 100)}
+            // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- 分隔条键盘须能聚焦以调整高度
+            tabIndex={0}
+            onPointerDown={handleSplitPointerDown}
+            onPointerMove={handleSplitPointerMove}
+            onPointerUp={stopSplitDrag}
+            onPointerCancel={stopSplitDrag}
+            onKeyDown={handleSplitKeyDown}
+            className="focus-ring flex shrink-0 cursor-row-resize touch-none items-center justify-center py-1.5"
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "h-0.5 w-10 rounded-full transition-colors duration-fast",
+                splitDragging ? "bg-ring" : "bg-border",
+              )}
+            />
+          </div>
+          /* eslint-enable jsx-a11y/no-noninteractive-element-interactions */
+        )}
+
+        <div
+          className={cn(
+            "min-h-0",
+            hasSourceText ? "relative flex-1 overflow-y-auto [scrollbar-gutter:stable]" : "shrink-0",
+          )}
+        >
+          <SourceTextReadonly text={unit.source_text} className={hasSourceText ? undefined : "mt-3 shrink-0"} />
+
+          {unknownMentions.length > 0 && (
+            <div
+              id="reference-editor-unknown-desc"
+              role="status"
+              aria-live="polite"
+              className="mt-2 flex flex-wrap gap-1"
+            >
+              <span className="sr-only">{t("reference_editor_unknown_mentions_label")}: </span>
+              {unknownMentions.map((name) => {
+                const palette = ASSET_COLORS.unknown;
+                return (
+                  <span
+                    key={name}
+                    className={`rounded-sm border px-2 py-0.5 text-xs ${palette.textClass} ${palette.bgClass} ${palette.borderClass}`}
+                  >
+                    {t("reference_editor_unknown_mention", { name })}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

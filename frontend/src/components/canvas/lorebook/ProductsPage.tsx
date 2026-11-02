@@ -5,7 +5,7 @@ import { AssetGallery } from "./AssetGallery";
 interface Props {
   projectName: string;
   products: Record<string, Product>;
-  onGenerateProduct: (name: string) => void;
+  onGenerateProduct: (name: string, endpoint?: string) => void;
   onRestoreProductVersion?: () => Promise<unknown> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingProductNames?: Set<string>;

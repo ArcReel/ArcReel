@@ -534,7 +534,10 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         generate_audio = self._effective_audio(request, subpath=subpath)
         logger.info("调用 Kling 视频 API payload=%s", self._safe_log_view(subpath, payload))
         # 建任务与轮询与产物下载共用出站目的地闸：base_url 由用户配置，同按不可信目标处理。
-        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
+        # base_url 内网（如用户自建反代）时对该 host 绕系统代理，公网时仍走代理。
+        async with artifact_http_client(
+            timeout=self._http_timeout, transport_layer=self._transport_layer, bypass_proxy_for=self._base_url
+        ) as client:
             task_id = await self._submit_task(client, f"videos/{subpath}", payload, request)
             logger.info("Kling 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 持久化「子路径:task_id:有声标志」而非裸 task_id：resume 据此复原查询端点
@@ -560,7 +563,9 @@ class KlingVideoBackend(KlingBackendBase, ProviderJobIdPersistenceMixin):
         """
         subpath, task_id, persisted_audio = _decode_job_id(job_id)
         generate_audio = persisted_audio if persisted_audio is not None else False
-        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
+        async with artifact_http_client(
+            timeout=self._http_timeout, transport_layer=self._transport_layer, bypass_proxy_for=self._base_url
+        ) as client:
             return await self._poll_and_build(
                 client, subpath, task_id, request, generate_audio=generate_audio, resume_job_id=job_id
             )

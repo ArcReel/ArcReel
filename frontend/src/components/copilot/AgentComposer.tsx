@@ -365,9 +365,19 @@ export function AgentComposer({
                   <Square aria-hidden />
                 </Button>
               ) : (
-                <Button size="icon-sm" className="ml-auto" onClick={send} disabled={!canSend} aria-label={t("send_message")}>
-                  <ArrowUp aria-hidden />
-                </Button>
+                // 空态用 aria-disabled 而非原生 disabled：后者会命中 InputGroup 的 has-disabled，
+                // 把整组（含可编辑输入框）压到 50% 透明度，使正文对比度跌破 WCAG AA。
+                // 灰度与禁点画在外层 span 上（Button 自带 opacity 语义，no-restyle 不允许覆盖）。
+                <span className={cn("ml-auto", !canSend && "pointer-events-none opacity-50")}>
+                  <Button
+                    size="icon-sm"
+                    onClick={send}
+                    aria-disabled={canSend ? undefined : true}
+                    aria-label={t("send_message")}
+                  >
+                    <ArrowUp aria-hidden />
+                  </Button>
+                </span>
               )}
             </InputGroupAddon>
           </InputGroup>

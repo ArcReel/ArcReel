@@ -163,7 +163,9 @@ class MiniMaxImageBackend:
             self._model,
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
+        async with artifact_http_client(
+            timeout=self._http_timeout, transport_layer=self._transport_layer, bypass_proxy_for=self._base_url
+        ) as client:
             resp = await submit_post(
                 lambda: client.post(
                     f"{self._base_url}{_IMAGE_ENDPOINT}",

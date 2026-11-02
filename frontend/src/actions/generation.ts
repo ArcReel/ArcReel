@@ -121,6 +121,19 @@ function manyTaskIds(res: { task_ids: string[] }): string[] {
 }
 
 /**
+ * 资产图本次生成的端点覆盖：``"provider/model"`` 拆成 payload 键。裸 provider（无 ``/``）省略
+ * model，交由该供应商默认模型；空端点返回 undefined，不带覆盖、走当前配置默认。
+ */
+function imageEndpointOptions(
+  endpoint?: string,
+): { image_provider: string; image_model?: string } | undefined {
+  if (!endpoint) return undefined;
+  const idx = endpoint.indexOf("/");
+  if (idx === -1) return { image_provider: endpoint };
+  return { image_provider: endpoint.slice(0, idx), image_model: endpoint.slice(idx + 1) };
+}
+
+/**
  * 按后端返回的「资源 id → task_id」映射逐项补打资源粒度标记。
  *
  * 用于目标集合由服务端决定的批量入口：请求发出前调用方不知道会命中哪些资源，标记
@@ -202,10 +215,14 @@ export async function enqueueEpisodeNarration(
 export async function enqueueCharacter(
   projectName: string,
   name: string,
+  endpoint?: string,
 ): Promise<EnqueueResult> {
+  const endpointOpts = imageEndpointOptions(endpoint);
   const res = await submit(
     [markResource(projectName, "character", name, "character")],
-    () => API.generateCharacter(projectName, name),
+    // 无覆盖时只传两个参数，保持本次生成端点可省略
+    () =>
+      endpointOpts ? API.generateCharacter(projectName, name, endpointOpts) : API.generateCharacter(projectName, name),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:character_task_submitted_toast", { name }));
@@ -220,11 +237,14 @@ export async function enqueueCharacterDerivative(
   projectName: string,
   characterName: string,
   derivativeName: string,
+  endpoint?: string,
+  referenceImage?: string,
 ): Promise<EnqueueResult> {
   const resourceId = derivativeResourceId(characterName, derivativeName);
+  const endpointOpts = imageEndpointOptions(endpoint);
   const res = await submit(
     [markResource(projectName, "character_derivative", resourceId, "character_derivative")],
-    () => API.generateCharacterDerivative(projectName, characterName, derivativeName),
+    () => API.generateCharacterDerivative(projectName, characterName, derivativeName, endpointOpts, referenceImage),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, res.message);
@@ -251,10 +271,15 @@ export async function enqueueCharacterVoiceSample(
 export async function enqueueScene(
   projectName: string,
   name: string,
+  endpoint?: string,
 ): Promise<EnqueueResult> {
+  const endpointOpts = imageEndpointOptions(endpoint);
   const res = await submit(
     [markResource(projectName, "scene", name, "scene")],
-    () => API.generateProjectScene(projectName, name),
+    () =>
+      endpointOpts
+        ? API.generateProjectScene(projectName, name, endpointOpts)
+        : API.generateProjectScene(projectName, name),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:scene_task_submitted_toast", { name }));
@@ -264,10 +289,12 @@ export async function enqueueScene(
 export async function enqueueProp(
   projectName: string,
   name: string,
+  endpoint?: string,
 ): Promise<EnqueueResult> {
+  const endpointOpts = imageEndpointOptions(endpoint);
   const res = await submit(
     [markResource(projectName, "prop", name, "prop")],
-    () => API.generateProjectProp(projectName, name),
+    () => (endpointOpts ? API.generateProjectProp(projectName, name, endpointOpts) : API.generateProjectProp(projectName, name)),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:prop_task_submitted_toast", { name }));
@@ -277,10 +304,15 @@ export async function enqueueProp(
 export async function enqueueProduct(
   projectName: string,
   name: string,
+  endpoint?: string,
 ): Promise<EnqueueResult> {
+  const endpointOpts = imageEndpointOptions(endpoint);
   const res = await submit(
     [markResource(projectName, "product", name, "product")],
-    () => API.generateProjectProduct(projectName, name),
+    () =>
+      endpointOpts
+        ? API.generateProjectProduct(projectName, name, endpointOpts)
+        : API.generateProjectProduct(projectName, name),
     oneTaskId,
   );
   notifyEnqueued(res.deduped, i18n.t("dashboard:product_task_submitted_toast", { name }));

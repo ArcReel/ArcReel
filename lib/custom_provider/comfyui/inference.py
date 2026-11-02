@@ -47,6 +47,30 @@ MESSAGE_KEY_PREFIX = "val_ce_infer_"
 #: 标题约定的前缀，大小写不敏感，截到首个空白。
 TITLE_MARKER_PREFIX = "arcreel:"
 
+#: 用户工作流里 PrimitiveStringMultiline 等节点的标题常写成 ``(input:prompt) prompt`` 这种带括号的
+#: 形态——左括号起、``input:``、键名、右括号，大小写不敏感；它与 ``ARCREEL:`` 前缀是同一个「标题标记」
+#: 的两种写法，右括号之后的尾随文本（上例里的 ``prompt``）忽略，与 arcreel 路径忽略 key 之后的词一致。
+_INPUT_TITLE_MARKER = re.compile(r"^\(\s*input\s*:\s*([a-z_]+)\s*\)", re.IGNORECASE)
+
+
+def parse_title_marker(title: str) -> str | None:
+    """标题标记声明的语义键；标题没有标记时返回 ``None``。
+
+    两种写法等价、大小写不敏感：``ARCREEL:<key>`` 前缀（key 取到首个空白为止）与带括号的
+    ``(<key>)`` 形态（右括号之后的尾随文本不是标记的一部分）。导入期推断（:func:`_title_markers`）
+    与能力推导的标题兜底（:mod:`.capabilities`）共用这一处解析，两种写法的约定不复制。
+    """
+    stripped = title.strip()
+    if not stripped:
+        return None
+    lowered = stripped.lower()
+    if lowered.startswith(TITLE_MARKER_PREFIX):
+        words = stripped[len(TITLE_MARKER_PREFIX) :].split()
+        return words[0].lower() if words else None
+    match = _INPUT_TITLE_MARKER.match(stripped)
+    return match.group(1).lower() if match else None
+
+
 #: 只读的语义键：ArcReel 从 workflow 读出它的字面值，不写回。
 READ_ONLY_BINDING_KEYS = frozenset({"fps"})
 
@@ -415,7 +439,7 @@ def _rematch(key: str, saved: Sequence[Any], workflow: Mapping[str, Any], engine
     # 有条目丢失时一个也不自动选：沿用下来的那几条同样要在用户眼前过一遍。
     pending = tuple(
         Candidate(c.target, c.signals, selected=False, origin=c.origin, depth=c.depth)
-        for c in sorted(merged, key=lambda c: (-c.score, _node_order(c.node)))
+        for c in sorted(merged, key=lambda c: (-c.score, node_id_order(c.node)))
     )
     return KeyInference(BindingState.NEEDS_CONFIRMATION, pending, (*notes, *fresh.notes))
 
@@ -898,7 +922,7 @@ def _pick(candidates: Sequence[Candidate], key: str) -> tuple[int, ...]:
     best = max(candidate.score for candidate in candidates)
     tied = [index for index, candidate in enumerate(candidates) if candidate.score == best]
     if key in LIST_BINDING_KEYS:
-        return tuple(sorted(tied, key=lambda index: _node_order(candidates[index].node)))
+        return tuple(sorted(tied, key=lambda index: node_id_order(candidates[index].node)))
     if len(tied) == 1:
         return (tied[0],)
     if key == "output":
@@ -910,18 +934,24 @@ def _pick(candidates: Sequence[Candidate], key: str) -> tuple[int, ...]:
 
 
 def _title_markers(workflow: Mapping[str, Any], rules: InferenceRules) -> Mapping[str, tuple[str, ...]]:
-    """``_meta.title`` 上的 ``ARCREEL:<key>`` 标记：语义键 → 打了标记的节点，按节点 id 升序。"""
+    """``_meta.title`` 上的标题标记：语义键 → 打了标记的节点，按节点 id 升序。
+
+    标记有两种等价写法，都大小写不敏感：``ARCREEL:<key>`` 前缀（截到首个空白取 key），以及用户工作流
+    里 PrimitiveStringMultiline 等节点常见的 ``(input:<key>)`` 括号形态（如 ``(input:prompt) prompt``，
+    右括号后的尾随文本忽略）。两种写法共用「key 落在名录里才登记」的判定。标题标记是最强的推断信号
+    （``TITLE_MARKER``，仅次于已保存绑定），一旦某键上有节点被标记，该键只认标记节点、别名等其余信号
+    一律不再参与——即标题标记优先于别名推断。
+    """
     found: dict[str, list[str]] = {}
     allowed = set(rules.semantic_keys) | {"output"} | set(rules.consumer_ports)
-    for node_id, node in _nodes(workflow):
-        title = node_title(node).strip()
-        if not title.lower().startswith(TITLE_MARKER_PREFIX):
-            continue
-        words = title[len(TITLE_MARKER_PREFIX) :].split()
-        key = words[0].lower() if words else ""
-        if key in allowed:
+
+    def register(key: str | None, node_id: str) -> None:
+        if key is not None and key in allowed:
             found.setdefault(key, []).append(node_id)
-    return {key: tuple(sorted(nodes, key=_node_order)) for key, nodes in found.items()}
+
+    for node_id, node in _nodes(workflow):
+        register(parse_title_marker(node_title(node)), node_id)
+    return {key: tuple(sorted(nodes, key=node_id_order)) for key, nodes in found.items()}
 
 
 def _polarity_by_node(workflow: Mapping[str, Any], rules: InferenceRules) -> Mapping[tuple[str, str], str]:
@@ -997,7 +1027,7 @@ def _decide(key: str, scored: Sequence[Candidate], notes: tuple[Note, ...]) -> K
     """按分排序定选中项与状态。分数已经算全，同一批候选反复跑结果一致。"""
     if not scored:
         return KeyInference(BindingState.NOT_FOUND, (), notes)
-    ranked = sorted(scored, key=lambda candidate: (-candidate.score, _node_order(candidate.node)))
+    ranked = sorted(scored, key=lambda candidate: (-candidate.score, node_id_order(candidate.node)))
     chosen = set(_pick(ranked, key))
     selected = tuple(
         Candidate(c.target, c.signals, index in chosen, c.origin, c.depth) for index, c in enumerate(ranked)
@@ -1006,7 +1036,7 @@ def _decide(key: str, scored: Sequence[Candidate], notes: tuple[Note, ...]) -> K
     return KeyInference(state, selected, notes)
 
 
-def _node_order(node_id: str) -> tuple[int, str]:
+def node_id_order(node_id: str) -> tuple[int, str]:
     """节点 id 的排序：数字串按数值比，其余按字面。"""
     match = _NUMERIC_PREFIX.match(node_id)
     return (int(match.group(1)), node_id) if match else (2**31, node_id)

@@ -198,15 +198,14 @@ class EndpointSpec:
 
     @property
     def duration_fixed(self) -> bool:
-        """时长这一维是不是由端点固定：ComfyUI 端点上 ``frames`` 未绑定即为真。
+        """时长这一维是不是由端点固定：ComfyUI 端点上 ``frames`` 与 ``duration`` 两条通道都无写目标即为真。
 
         与 :attr:`duration_tier_optional` 是两件事：后者说的是「档位允不允许是空集」，本属性说的
-        是「用户能不能编辑档位」。绑了 ``frames`` 却读不到帧率来源时档位同样是空集，但那是一份
-        可修的定义（补一个 ``fps`` 绑定或手填帧率），不是这份 workflow 的时长天生固定。
+        是「用户能不能编辑档位」。绑了 ``frames`` 却读不到帧率来源、或 ``duration`` 入口读不出字面值
+        时档位同样是空集，但那是一份可修的定义（补一个 ``fps`` 绑定或手填帧率、把秒数接回字面值），
+        不是这份 workflow 的时长天生固定。``duration`` 通道认标题标记（``capabilities`` 同口径）。
         """
-        return (
-            self.definition is not None and self.kind == COMFYUI_KIND and duration_is_fixed(self.definition["bindings"])
-        )
+        return self.definition is not None and self.kind == COMFYUI_KIND and duration_is_fixed(self.definition)
 
     @property
     def duration_frame_rate_missing(self) -> bool:
@@ -234,13 +233,14 @@ class EndpointSpec:
 
     @property
     def duration_tier_empty(self) -> bool:
-        """时长这一维根本给不出档位：ComfyUI 端点上原生时长推不出来即为真。
+        """时长这一维根本给不出档位：ComfyUI 端点上两条推导线都推不出原生时长即为真。
 
-        三支都落在这里——``frames`` 未绑定（读不到字面帧数）、绑了 ``frames`` 却没有帧率来源
+        落在这里的形态——``frames`` 未绑且 ``duration`` 通道无写目标（两条线都无从推起）、``frames``
+        未绑但 ``duration`` 入口读不出字面值（秒数接了连线）、绑了 ``frames`` 却没有帧率来源
         （既无 ``fps`` 只读绑定、也无条目手填 fps），以及帧率读得到但换算不出整秒档位。界面的
         只读与禁用判据是本属性而不是 :attr:`duration_fixed`：用户编不动的是「档位为空」这件事，
         说给用户听的是哪一句则由 :attr:`duration_fixed` 与 :attr:`duration_frame_rate_missing`
-        挑——「时长天生固定」、「没提供帧率」，两位都为假时是「帧数与帧率都在、换算不出整秒档位」。
+        挑——「时长天生固定」、「没提供帧率」，两位都为假时是「换算不出整秒档位」。
         """
         return self.endpoint_durations == []
 

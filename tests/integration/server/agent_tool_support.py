@@ -213,7 +213,8 @@ def fake_reference_projection(
         else:
             requested_seconds = int(slot_for(None, unit).seconds)
 
-        async def _request_facts(generation_type):
+        async def _request_facts(generation_type, reference_count=None):
+            del reference_count
             return make_video_request_facts(
                 route="reference_video",
                 generation_type=generation_type,

@@ -192,7 +192,7 @@ class AgnesImageBackend:
             self._model,
             format_kwargs_for_log(_safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, bypass_proxy_for=self._base_url) as client:
             resp = await submit_post(
                 lambda: client.post(
                     f"{self._base_url}{_IMAGE_ENDPOINT}",

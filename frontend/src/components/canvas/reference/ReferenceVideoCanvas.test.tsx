@@ -1455,6 +1455,82 @@ describe("ReferenceVideoCanvas", () => {
     expect(batchSpy).toHaveBeenCalledWith("proj", 1, { unit_ids: ["E1U1"] });
   });
 
+  it("批量补齐可选择临时执行端点并随请求下发", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")], unit_capabilities: {} });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      settings: {},
+      options: { video_backends: ["custom-3/veo-x", "gemini-aistudio/veo-3"] },
+    } as never);
+    const batchSpy = vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue(mkAdmission());
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+    const endpoint = await screen.findByRole("combobox", { name: /Execution endpoint for U1|U1的执行端点/ });
+    await userEvent.click(endpoint);
+    await userEvent.click(await screen.findByRole("option", { name: "custom-3/veo-x" }));
+
+    const batch = await screen.findByRole("button", { name: /Fill in videos|补齐视频/ });
+    await waitFor(() => expect(batch).toBeEnabled());
+    fireEvent.click(batch);
+    await confirmBatchPreview();
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledWith("proj", 1, {
+      unit_ids: ["E1U1"],
+      execution_backends: { E1U1: "custom-3/veo-x" },
+    }));
+  });
+
+  it("批量补齐默认按项目配置解析：未选端点时不携带 execution_backends", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [mkUnit("E1U1")], unit_capabilities: {} });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      settings: {},
+      options: { video_backends: ["custom-3/veo-x"] },
+    } as never);
+    const batchSpy = vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue(mkAdmission());
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+    // 每单元端点选择器在场且默认停在「按项目配置」
+    await screen.findByRole("combobox", { name: /Execution endpoint for U1|U1的执行端点/ });
+
+    const batch = await screen.findByRole("button", { name: /Fill in videos|补齐视频/ });
+    await waitFor(() => expect(batch).toBeEnabled());
+    fireEvent.click(batch);
+    await confirmBatchPreview();
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledWith("proj", 1, { unit_ids: ["E1U1"] }));
+  });
+
+  it("按单元选择不同执行端点时，请求按 unit 各带各的端点", async () => {
+    vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({
+      units: [mkUnit("E1U1"), mkUnit("E1U2")], unit_capabilities: {} });
+    vi.spyOn(API, "getSystemConfig").mockResolvedValue({
+      settings: {},
+      options: { video_backends: ["custom-3/veo-x", "gemini-aistudio/veo-3"] },
+    } as never);
+    const batchSpy = vi.spyOn(API, "generateReferenceVideoBatch").mockResolvedValue(mkAdmission());
+    vi.mocked(useActiveResourceIds).mockReturnValue(new Set());
+    vi.mocked(useLatestTasksByResource).mockReturnValue(new Map());
+
+    render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
+    // 两个单元各选不同端点，验证端点是按 unit 独立生效而非整批共用
+    const endpointU1 = await screen.findByRole("combobox", { name: /Execution endpoint for U1|U1的执行端点/ });
+    await userEvent.click(endpointU1);
+    await userEvent.click(await screen.findByRole("option", { name: "custom-3/veo-x" }));
+    const endpointU2 = await screen.findByRole("combobox", { name: /Execution endpoint for U2|U2的执行端点/ });
+    await userEvent.click(endpointU2);
+    await userEvent.click(await screen.findByRole("option", { name: "gemini-aistudio/veo-3" }));
+
+    const batch = await screen.findByRole("button", { name: /Fill in videos|补齐视频/ });
+    await waitFor(() => expect(batch).toBeEnabled());
+    fireEvent.click(batch);
+    await confirmBatchPreview();
+    await waitFor(() => expect(batchSpy).toHaveBeenCalledWith("proj", 1, {
+      unit_ids: ["E1U1", "E1U2"],
+      execution_backends: { E1U1: "custom-3/veo-x", E1U2: "gemini-aistudio/veo-3" },
+    }));
+  });
+
   // 上传与生成回写同一个成片文件：文件选择对话框打开期间同一 unit 可能已被占用，
   // 按钮渲染期的禁用态挡不住这段窗口，提交时刻须再用 getState() 新鲜读复核一次。
   it("上传确认时刻复核占用态，命中即拒绝并提示", async () => {
@@ -2333,7 +2409,7 @@ describe("ReferenceVideoCanvas", () => {
       vi.spyOn(API, "listReferenceVideoUnits").mockResolvedValue({ units: [staleUnit()], unit_capabilities: {} });
       render(<ReferenceVideoCanvas {...BOARD} projectName="proj" episode={1} />);
 
-      await screen.findAllByRole("img", { name: "视频单元 1" });
+      await screen.findAllByText("U1");
       expect(screen.queryByRole("button", { name: /Got it|知道了/ })).not.toBeInTheDocument();
     });
   });

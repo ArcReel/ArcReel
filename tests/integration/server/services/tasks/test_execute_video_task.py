@@ -338,6 +338,38 @@ class TestGenerationTasks:
         assert result["resource_type"] == "videos"
         assert fake_generator.video_calls[0]["duration_seconds"] == 8
 
+    @pytest.mark.parametrize(("shot_index", "expected"), [(0, (1, 0)), (2, (3, 2))])
+    async def test_execute_video_task_derives_integer_shot_ids_from_script_order(
+        self, monkeypatch, tmp_path, shot_index, expected
+    ):
+        project_path = prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        target = fake_pm.script["segments"].pop(0)
+        fake_pm.script["segments"].insert(shot_index, target)
+        seed_current_storyboard(fake_pm)
+        fake_generator = FakeGenerator()
+
+        monkeypatch.setattr(generation_tasks, "get_project_manager", lambda: fake_pm)
+        monkeypatch.setattr(generation_tasks, "resolve_generation_context", fake_resolve_ctx(fake_generator))
+        monkeypatch.setattr(generation_tasks, "extract_video_thumbnail", async_return(None))
+        monkeypatch.setattr(generation_tasks, "emit_project_change_batch", lambda *a, **kw: None)
+
+        await generation_tasks.execute_video_task(
+            "demo",
+            "E1S01",
+            {
+                "script_file": "episode_1.json",
+                "prompt": {"action": "跑", "camera_motion": "Static", "dialogue": []},
+                "shot_cur_seq": 999,
+                "shot_pre_seq": 998,
+            },
+        )
+
+        call = fake_generator.video_calls[0]
+        assert (call["shot_cur_seq"], call["shot_pre_seq"]) == expected
+        assert type(call["shot_cur_seq"]) is int
+        assert type(call["shot_pre_seq"]) is int
+
     async def test_execute_video_task_refuses_a_script_outside_the_episode_ledger(self, monkeypatch, tmp_path):
         """剧本身份只认 project.json 的 episodes 账本：未绑定的剧本文件一律拒绝，不猜集号。"""
         project_path = prepare_files(tmp_path)

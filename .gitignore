@@ -68,6 +68,9 @@ frontend/playwright-report/
 # Superpowers (Claude Code plugin cache)
 .superpowers/
 
+# CodeGraph agent index (local code knowledge graph, built by codegraph init)
+.codegraph/
+
 # Test coverage
 htmlcov/
 .coverage
@@ -99,3 +102,9 @@ docs/verification-reports/
 
 # mutmut 变异测试的工作副本（`mutmut run` 生成的整仓复制品）
 mutants/
+
+# 本地工作/临时产物（调研笔记、开发便捷脚本、项目分析文档），不入库
+PROJECT_ANALYSIS.md
+dev.sh
+stop.sh
+.agents/tasks/

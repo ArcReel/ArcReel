@@ -86,6 +86,10 @@
         "WanVideoImageToVideoEncode"
       ]
     },
+    "duration": {
+      "input_names": ["duration", "duration_seconds", "seconds", "length_seconds"],
+      "class_types": ["PrimitiveInt", "PrimitiveFloat", "PrimitiveStringMultiline", "PrimitiveString"]
+    },
     "fps": {
       "input_names": ["fps", "frame_rate"],
       "class_types": ["CreateVideo", "VHS_VideoCombine"],
@@ -104,6 +108,12 @@
         "RandomNoise",
         "WanVideoSampler"
       ]
+    },
+    "shot_cur_seq": {
+      "input_names": ["shot_cur_seq"]
+    },
+    "shot_pre_seq": {
+      "input_names": ["shot_pre_seq"]
     }
   },
   "image_loaders": [

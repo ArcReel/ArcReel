@@ -429,3 +429,190 @@ async def test_image_bucket_gate_leaves_disabled_reference_to_the_default_fallba
 
     resolved = await resolver.resolve_image_backend(project, None, generation_type="i2i")
     assert (resolved.provider_id, resolved.model_id) == (provider_id_str, "t2i-m")
+
+
+# ── 参考生视频家族装配：按 N 建 {max_reference_images: model_id} 索引 ──
+
+
+def _slot_video_endpoint(key: str, slots: int, *, first_frame: bool = False):
+    """造一个 video endpoint spec：video_caps_for_model 恒返回指定槽数的能力。
+
+    R2V 候选用 first_frame=False、slots>0；i2v 用 first_frame=True、slots=0（R2V 能力位不满足）。
+    """
+    import dataclasses
+
+    from arcreel_market_core.video_backend_contract import VideoCapabilities
+    from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+
+    def _caps(_model_id: str) -> VideoCapabilities:
+        return VideoCapabilities(max_reference_images=slots, first_frame=first_frame)
+
+    return dataclasses.replace(
+        ENDPOINT_REGISTRY["ark-seedance"],
+        key=key,
+        video_max_reference_images=None,
+        video_caps_for_model=_caps,
+    )
+
+
+@pytest.mark.asyncio
+async def test_reference_video_family_indexes_by_slot_count_and_excludes_i2v(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+):
+    """装配 I1..I9（真实 model_id）+ 一个 i2v 首帧模型，family 恰为 {1..9} 且排除 i2v。
+
+    I3 索引到无 `_shot` 的真实 model_id——端到端验证真相源不是字符串模板。
+    """
+    from lib.custom_provider import make_provider_id, parse_provider_id
+    from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+    from lib.custom_provider.reference_video_model_selection import resolve_reference_video_family
+
+    real_model_ids = {
+        1: "HONGYU-MinimaxH3-I1-A1-First_shot-AutoPrompt",
+        2: "HONGYU-MinimaxH3-I2-A2-First_shot-AutoPrompt",
+        3: "HONGYU-MinimaxH3-I3-A3-First-AutoPrompt",  # 无 _shot
+        4: "HONGYU-MinimaxH3-I4-A3-First_shot-AutoPrompt",
+        5: "HONGYU-MinimaxH3-I5-A3-First_shot-AutoPrompt",
+        6: "HONGYU-MinimaxH3-I6-A3-First_shot-AutoPrompt",
+        7: "HONGYU-MinimaxH3-I7-A3-First_shot-AutoPrompt",
+        8: "HONGYU-MinimaxH3-I8-A3-First_shot-AutoPrompt",
+        9: "HONGYU-MinimaxH3-I9-A3-First_shot-AutoPrompt",
+    }
+
+    for n in range(1, 10):
+        monkeypatch.setitem(ENDPOINT_REGISTRY, f"test-i{n}", _slot_video_endpoint(f"test-i{n}", n))
+    monkeypatch.setitem(ENDPOINT_REGISTRY, "test-i2v", _slot_video_endpoint("test-i2v", 0, first_frame=True))
+
+    provider = CustomProvider(
+        display_name="HONGYU",
+        discovery_format="openai",
+        base_url="https://api.example.com",
+        api_key="k",
+    )
+    db_session.add(provider)
+    await db_session.flush()
+
+    for n in range(1, 10):
+        db_session.add(
+            CustomProviderModel(
+                provider_id=provider.id,
+                model_id=real_model_ids[n],
+                display_name=real_model_ids[n],
+                endpoint=f"test-i{n}",
+                is_default=(n == 3),
+                is_enabled=True,
+            )
+        )
+    db_session.add(
+        CustomProviderModel(
+            provider_id=provider.id,
+            model_id="HONYU_MinimaxH3_First_frome",
+            display_name="i2v",
+            endpoint="test-i2v",
+            is_default=False,
+            is_enabled=True,
+        )
+    )
+    await db_session.flush()
+
+    db_pid = parse_provider_id(make_provider_id(provider.id))
+    family = await resolve_reference_video_family(db_session, db_pid)
+
+    assert family == real_model_ids
+    assert family[3] == "HONGYU-MinimaxH3-I3-A3-First-AutoPrompt"
+    assert "_shot" not in family[3]
+    assert "HONYU_MinimaxH3_First_frome" not in family.values()
+
+
+@pytest.mark.asyncio
+async def test_reference_video_family_skips_disabled_models(db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch):
+    """禁用的候选不进 family——该 N 在选择时会 fail loud。"""
+    from lib.custom_provider import make_provider_id, parse_provider_id
+    from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+    from lib.custom_provider.reference_video_model_selection import resolve_reference_video_family
+
+    monkeypatch.setitem(ENDPOINT_REGISTRY, "test-i3", _slot_video_endpoint("test-i3", 3))
+    monkeypatch.setitem(ENDPOINT_REGISTRY, "test-i5", _slot_video_endpoint("test-i5", 5))
+
+    provider = CustomProvider(
+        display_name="HONGYU",
+        discovery_format="openai",
+        base_url="https://api.example.com",
+        api_key="k",
+    )
+    db_session.add(provider)
+    await db_session.flush()
+    db_session.add_all(
+        [
+            CustomProviderModel(
+                provider_id=provider.id,
+                model_id="m-i3",
+                display_name="i3",
+                endpoint="test-i3",
+                is_default=True,
+                is_enabled=True,
+            ),
+            CustomProviderModel(
+                provider_id=provider.id,
+                model_id="m-i5",
+                display_name="i5",
+                endpoint="test-i5",
+                is_default=False,
+                is_enabled=False,  # 禁用
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    db_pid = parse_provider_id(make_provider_id(provider.id))
+    family = await resolve_reference_video_family(db_session, db_pid)
+    assert family == {3: "m-i3"}
+
+
+@pytest.mark.asyncio
+async def test_reference_video_family_tie_break_prefers_default_then_lexicographic(
+    db_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+):
+    """同一 N 多个候选：is_default 优先，其次 model_id 字典序升序，不依赖查询 id 顺序。"""
+    from lib.custom_provider import make_provider_id, parse_provider_id
+    from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+    from lib.custom_provider.reference_video_model_selection import resolve_reference_video_family
+
+    monkeypatch.setitem(ENDPOINT_REGISTRY, "test-i3a", _slot_video_endpoint("test-i3a", 3))
+    monkeypatch.setitem(ENDPOINT_REGISTRY, "test-i3b", _slot_video_endpoint("test-i3b", 3))
+
+    provider = CustomProvider(
+        display_name="HONGYU",
+        discovery_format="openai",
+        base_url="https://api.example.com",
+        api_key="k",
+    )
+    db_session.add(provider)
+    await db_session.flush()
+    # 先插入字典序更小、非默认的候选（id 更小），再插入 default 候选：
+    # 验证 default 覆盖 id 顺序而非被先到者占位。
+    db_session.add_all(
+        [
+            CustomProviderModel(
+                provider_id=provider.id,
+                model_id="zzz-non-default",
+                display_name="z",
+                endpoint="test-i3a",
+                is_default=False,
+                is_enabled=True,
+            ),
+            CustomProviderModel(
+                provider_id=provider.id,
+                model_id="aaa-default",
+                display_name="a",
+                endpoint="test-i3b",
+                is_default=True,
+                is_enabled=True,
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    db_pid = parse_provider_id(make_provider_id(provider.id))
+    family = await resolve_reference_video_family(db_session, db_pid)
+    assert family == {3: "aaa-default"}

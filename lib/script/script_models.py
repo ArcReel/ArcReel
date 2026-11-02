@@ -1182,8 +1182,8 @@ def build_reference_units_script_plan_model(supported_durations: list[int]) -> t
     生成层即被卡死），与 prompt_authoring 同口径衔接：prompt_authoring 沿用 script_plan 的 unit 时长，只做提示词编写。
     参考图数上限与文本内语法依赖运行时能力值 / 项目登记表，不进 schema，由拆分工具后校验。
 
-    prompt_authoring 无对应工厂：它不产出时长，没有需要按能力收窄的枚举字段，直接用静态
-    ``ReferencePromptAuthoringFlatScript``。
+    prompt_authoring 不产出时长，无按能力收窄的枚举字段，时长口径不涉本工厂；它的另一维硬约束
+    （unit 数与 script_plan 等长）见 ``build_reference_prompt_authoring_model``。
     """
     unit = _constrained_duration_item(
         ReferenceScriptPlanFlatUnit,
@@ -1194,4 +1194,26 @@ def build_reference_units_script_plan_model(supported_durations: list[int]) -> t
         "ReferenceScriptPlanFlatDraft",
         __base__=ReferenceScriptPlanFlatDraft,
         units=(_list_of(unit), Field(min_length=1, description="按叙事顺序排列的 unit 列表")),
+    )
+
+
+def build_reference_prompt_authoring_model(unit_count: int) -> type[BaseModel]:
+    """构造 unit 列表长度被硬约束为 ``unit_count`` 的参考生视频 prompt_authoring 模型（扁平形状）。
+
+    prompt_authoring 只做提示词编写：unit 数与顺序是 script_plan 已定稿、用户已确认的内容契约，
+    LLM 须逐 unit 扩写、不得合并 / 拆分 / 增删，故把产出的 ``units`` 列表长度硬约束为待编写单元数
+    （response_schema 渲染为 ``minItems`` / ``maxItems``，约束解码下 LLM 生成层即被卡死）。与
+    ``build_reference_units_script_plan_model`` 同用 ``create_model`` 动态收紧的口径，但不涉时长
+    （prompt_authoring 不产出时长字段）。解析侧仍按静态基类校验，使数量失配以 ``unit_count_changed``
+    违约形式给出可读报告，而非 Pydantic 报错。
+    """
+    if unit_count < 1:
+        raise ValueError("unit_count 须 ≥ 1，无法构造 prompt_authoring 模型")
+    return create_model(
+        "ReferencePromptAuthoringFlatScript",
+        __base__=ReferencePromptAuthoringFlatScript,
+        units=(
+            list[ReferencePromptAuthoringFlatUnit],
+            Field(min_length=unit_count, max_length=unit_count, description="与 script_plan units 一一对应、顺序不变"),
+        ),
     )

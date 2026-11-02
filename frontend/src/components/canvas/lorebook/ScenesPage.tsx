@@ -6,7 +6,7 @@ import { AssetGallery } from "./AssetGallery";
 interface Props {
   projectName: string;
   scenes: Record<string, Scene>;
-  onGenerateScene: (name: string) => void;
+  onGenerateScene: (name: string, endpoint?: string) => void;
   onRestoreSceneVersion?: () => Promise<unknown> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingSceneNames?: Set<string>;

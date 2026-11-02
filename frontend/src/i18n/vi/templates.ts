@@ -86,6 +86,7 @@ export default {
   default_hint: "Có thể đổi mô hình mặc định trong Bảng điều khiển → Cài đặt → Mô hình mặc định",
   current_global_default: "Mặc định toàn cục hiện tại: {{value}}",
   use_global_default: "Dùng mặc định toàn cục",
+  use_project_default: "Dùng mặc định dự án",
   model_video: "Mô hình video",
   model_video_default: "Mô hình video mặc định",
   model_image: "Mô hình ảnh",

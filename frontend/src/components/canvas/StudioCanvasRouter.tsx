@@ -355,37 +355,37 @@ export function StudioCanvasRouter() {
   ]);
 
   // ---- Asset sheet generation callbacks ----
-  const handleGenerateCharacter = useCallback(async (name: string) => {
+  const handleGenerateCharacter = useCallback(async (name: string, endpoint?: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueCharacter(currentProjectName, name);
+      await enqueueCharacter(currentProjectName, name, endpoint);
     } catch (err) {
       useAppStore.getState().pushToast(t("submit_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, t]);
 
-  const handleGenerateScene = useCallback(async (name: string) => {
+  const handleGenerateScene = useCallback(async (name: string, endpoint?: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueScene(currentProjectName, name);
+      await enqueueScene(currentProjectName, name, endpoint);
     } catch (err) {
       useAppStore.getState().pushToast(t("submit_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, t]);
 
-  const handleGenerateProp = useCallback(async (name: string) => {
+  const handleGenerateProp = useCallback(async (name: string, endpoint?: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueProp(currentProjectName, name);
+      await enqueueProp(currentProjectName, name, endpoint);
     } catch (err) {
       useAppStore.getState().pushToast(t("submit_failed", { message: errMsg(err) }), "error");
     }
   }, [currentProjectName, t]);
 
-  const handleGenerateProduct = useCallback(async (name: string) => {
+  const handleGenerateProduct = useCallback(async (name: string, endpoint?: string) => {
     if (!currentProjectName) return;
     try {
-      await enqueueProduct(currentProjectName, name);
+      await enqueueProduct(currentProjectName, name, endpoint);
     } catch (err) {
       useAppStore.getState().pushToast(t("submit_failed", { message: errMsg(err) }), "error");
     }

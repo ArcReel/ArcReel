@@ -590,6 +590,8 @@ class DataValidator:
                 )
                 if char_spec.supports_derivatives:
                     self._validate_derivatives(char_data, "character", char_name, errors)
+            if char_spec.supports_derivatives:
+                self._validate_derivative_name_conflicts(characters, errors)
 
         if project.get("clues") is not None:
             errors.append(_m("val_deprecated_clues"))
@@ -662,6 +664,39 @@ class DataValidator:
                             name=qualified,
                             field=field_name,
                             actual=type(value).__name__,
+                        )
+                    )
+
+    @staticmethod
+    def _validate_derivative_name_conflicts(
+        characters: dict[str, Any],
+        errors: list[ValidationMessage],
+    ) -> None:
+        """衍生名与顶层角色名同名时判违约：同一外观两种登记形态会让正文引用二选一地漂移。
+
+        ``@[本体/衍生]`` 与 ``@[衍生]`` 各自解析到不同条目、不同产物键——图片绑在哪一形态上，
+        另一形态就缺图（ADR 0072）。一种外观只允许登记一种形态：挂本体 derivatives 表，
+        或独立角色条目，二者取其一。
+        """
+        top_level_keys = {
+            asset_name_comparison_key(str(name)) for name, entry in characters.items() if isinstance(entry, dict)
+        }
+        for char_name, char_data in characters.items():
+            if not isinstance(char_data, dict):
+                continue
+            table = char_data.get(DERIVATIVES_FIELD)
+            if not isinstance(table, dict):
+                continue
+            for derivative_name in table:
+                if not isinstance(derivative_name, str):
+                    continue
+                if asset_name_comparison_key(derivative_name) in top_level_keys:
+                    errors.append(
+                        _m(
+                            "val_derivative_name_conflict",
+                            asset_type=_asset("character"),
+                            owner=char_name,
+                            derivative=derivative_name,
                         )
                     )
 

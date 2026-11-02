@@ -131,6 +131,7 @@ MESSAGES = {
     "reference_supported_durations_incompatible": "{provider}/{model} 在当前分辨率与参考图条件下没有兼容的时长档位",
     "reference_duration_confirmation_required": "本次时长基准 {duration_input}s 将按 {request_duration}s 档位生成，请确认后重试",
     "needs_replan": "请求时长超过模型最大档位；请重新规划该单元，不会截断成片",
+    "dialogue_overload": "该单元台词口播约 {spoken} 秒，超出 {duration} 秒请求档位（含容差）；请延长档位或精简台词",
     "mixed_speech": "该单元同时含角色台词与旁白，请拆分后重试",
     "parse_failed": "无法解析该单元的台词内容，请检查文稿格式",
     "empty_speaker": "该单元有台词未指定角色，请补齐说话人",

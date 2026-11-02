@@ -24,7 +24,7 @@ def image_to_base64_data_uri(image_path: Path) -> str:
 
 async def download_image_to_path(url: str, output_path: Path, *, timeout: int = 60) -> None:  # noqa: ASYNC109 -- 转交 httpx 的 I/O 超时配置，非 async 取消 deadline
     """从 URL 异步流式下载图片到本地文件；目的地与体积受产物下载入口约束。"""
-    async with artifact_http_client() as client:
+    async with artifact_http_client(bypass_proxy_for=url) as client:
         await stream_to_file(client, url, output_path, max_bytes=IMAGE_ARTIFACT_MAX_BYTES, timeout=timeout)
 
 

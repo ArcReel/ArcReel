@@ -38,6 +38,7 @@ from lib.db.base import DEFAULT_USER_ID
 from lib.generation.generation_queue import ensure_dispatch_provider
 from lib.project.asset_derivatives import (
     DERIVATIVE_ASSET_TYPE,
+    DERIVATIVE_TASK_TYPE,
     DerivativeSheetTarget,
     resolve_derivative_target,
     split_derivative_artifact_id,
@@ -185,7 +186,9 @@ class _DerivativeSheetInputs:
     generation_input: DerivativeSheetInput
 
 
-def _load(project_name: str, owner_name: str, derivative_name: str) -> _DerivativeSheetInputs:
+def _load(
+    project_name: str, owner_name: str, derivative_name: str, reference_override: str | None = None
+) -> _DerivativeSheetInputs:
     pm = get_project_manager()
     project = pm.load_project(project_name)
     project_path = pm.get_project_path(project_name)
@@ -195,6 +198,7 @@ def _load(project_name: str, owner_name: str, derivative_name: str) -> _Derivati
         owner=target.owner_key,
         derivative=target.derivative_key,
         observation=project_input_observation(project_path),
+        reference_override=reference_override,
     )
     # 缺变化描述或本体资产图不可用时在解析供应商通道与付费之前失败，一次报出全部缺口。
     if (refusal := generation_input.refusal) is not None:
@@ -222,7 +226,8 @@ async def execute_character_derivative_task(
     不提交任何付费请求。
     """
     owner_name, derivative_name = split_derivative_artifact_id(resource_id)
-    inputs = await asyncio.to_thread(_load, project_name, owner_name, derivative_name)
+    reference_override = (payload.get("reference_image") or "").strip() or None
+    inputs = await asyncio.to_thread(_load, project_name, owner_name, derivative_name, reference_override)
     project, project_path, target = inputs.project, inputs.project_path, inputs.target
     context = await resolve_generation_context(
         project_name,
@@ -231,6 +236,7 @@ async def execute_character_derivative_task(
         project_path=project_path,
         user_id=user_id,
         image=ImageLaneRequest(generation_type="i2i"),
+        task_type=DERIVATIVE_TASK_TYPE,
     )
     ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
     currency_resolver = await asyncio.to_thread(active_artifact_currency_resolver, project_path, project)

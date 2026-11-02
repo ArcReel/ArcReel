@@ -447,3 +447,44 @@ class TestStoppingTheRemote:
                 await _backend().generate(_request(tmp_path))
 
         assert interrupt.call_count == 1
+
+
+class TestProxyBypass:
+    """ComfyUI 是内网 / Tailscale 服务：图像通道按 ``base_url`` 决定是否绕系统代理——内网 base_url
+    对该 host 直连（否则 macOS 系统代理会把内网请求劫持成 502，本次 ``comfyui_upload_failed`` 的根因），
+    公网 base_url 仍走代理。调用点把 ComfyUI 的 ``base_url`` 作 ``bypass_proxy_for`` 传入；spy 住本模块
+    命名空间里的 ``comfyui_http_client`` 记录它收到的 kwargs 后转调真身，故 respx 行为不变。
+    """
+
+    async def test_generate_passes_base_url_as_bypass_target(self, tmp_path: Path):
+        from lib.custom_provider.comfyui import comfyui_image_backend
+
+        captured: list[dict[str, Any]] = []
+        with capture_http() as router, pytest.MonkeyPatch.context() as patch:
+            real = comfyui_image_backend.comfyui_http_client
+
+            def _record(**kwargs: Any) -> Any:
+                captured.append(kwargs)
+                return real(**kwargs)
+
+            patch.setattr(comfyui_image_backend, "comfyui_http_client", _record)
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _image_output()}))
+            )
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=PNG_BYTES))
+
+            await _backend().generate(_request(tmp_path))
+
+        assert captured
+        assert all(entry.get("bypass_proxy_for") == BASE_URL for entry in captured)
+
+    def test_internal_base_url_client_bypasses_proxy(self, monkeypatch: pytest.MonkeyPatch):
+        """内网 base_url 的客户端对该 host 的 transport 不走系统代理（ComfyUI 内网访问继续可用）。"""
+        from lib.custom_provider.comfyui.comfyui_http_client import comfyui_http_client
+
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:7890")
+        monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:7890")
+        client = comfyui_http_client(bypass_proxy_for="http://192.168.5.149:8188")
+        transport = client._transport_for_url(httpx.URL("http://192.168.5.149:8188/view"))
+        assert getattr(getattr(transport, "_pool", None), "_proxy_url", None) is None

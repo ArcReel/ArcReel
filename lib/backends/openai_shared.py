@@ -17,6 +17,7 @@ import logging
 
 from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
+from lib.backends.proxy_bypass import openai_async_proxy_http_client
 from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.config.url_utils import OFFICIAL_OPENAI_BASE_URL
 
@@ -60,13 +61,24 @@ def create_openai_client(
 
     base_url 为空（None/空白）时显式回填官方端点：AsyncOpenAI 对空 base_url
     会回落读取 OPENAI_BASE_URL 环境变量，环境残留将静默覆盖 DB 配置。base_url
-    的唯一来源是 DB，此处兜死显式值断掉该回落路径。``transport_layer`` 叠在 SDK 默认客户端之上。
+    的唯一来源是 DB，此处兜死显式值断掉该回落路径。
+
+    base_url 判为内网时内层 http_client 挂绕系统代理的 mounts：AsyncOpenAI 自建的 httpx
+    client 默认读系统代理（如 Clash 127.0.0.1:7890），发往内网兼容端点（如
+    192.168.5.149:8001）会被劫持到代理上回 502。绕代理判定与连接须用同一个回填后的
+    effective_base_url；公网 base_url（含回填的官方端点）用 SDK 默认客户端。
+    ``transport_layer`` 叠在内层客户端之上。
     """
-    kwargs: dict = {"base_url": (base_url or "").strip() or OFFICIAL_OPENAI_BASE_URL}
+    effective_base_url = (base_url or "").strip() or OFFICIAL_OPENAI_BASE_URL
+    kwargs: dict = {"base_url": effective_base_url}
     if api_key:
         kwargs["api_key"] = api_key
     if max_retries is not None:
         kwargs["max_retries"] = max_retries
-    if transport_layer is not None:
-        kwargs["http_client"] = layer_async_client(DefaultAsyncHttpxClient(), transport_layer)
+    # http_client 只在需要时下发：内网 base_url 挂绕系统代理的 mounts，或 transport_layer 叠在客户端之上；
+    # 公网 base_url（含回填的官方端点）且无 transport_layer 时不传 http_client，维持 SDK 默认走系统代理。
+    proxy_client = openai_async_proxy_http_client(effective_base_url)
+    if proxy_client is not None or transport_layer is not None:
+        inner_client = proxy_client or DefaultAsyncHttpxClient()
+        kwargs["http_client"] = layer_async_client(inner_client, transport_layer)
     return AsyncOpenAI(**kwargs)

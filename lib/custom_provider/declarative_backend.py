@@ -808,7 +808,9 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         context = await asyncio.to_thread(self._request_context, request, require_declared_inputs=True)
-        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        async with artifact_http_client(
+            timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True, bypass_proxy_for=self._engine.base_url
+        ) as client:
             job_id = await self._engine.submit(client, context, _job_call(request))
             # 落提交域名供续跑回放：用户在途改了供应商 base_url 时，按新域名轮旧 job 会查无，
             # 把一笔已付费的任务误判成过期丢掉。
@@ -819,7 +821,9 @@ class DeclarativeVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         context = await asyncio.to_thread(self._request_context, request)
-        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        async with artifact_http_client(
+            timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True, bypass_proxy_for=self._engine.base_url
+        ) as client:
             return await self._poll_download(client, job_id, request, context=context, is_resume=True)
 
     def _request_context(

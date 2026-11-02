@@ -18,7 +18,9 @@ class _FakeResolver:
         self.asked_generation_type: str | None = None
         self.asked_identity: tuple[str, str] | None = None
 
-    async def resolve_image_backend(self, project: dict, payload: Any, *, generation_type: str):
+    async def resolve_image_backend(
+        self, project: dict, payload: Any, *, generation_type: str, task_type: str | None = None
+    ):
         if self._raises:
             raise RuntimeError("no image provider configured")
         self.asked_generation_type = generation_type

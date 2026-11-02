@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { InlineWarning } from "@/components/shared/InlineWarning";
+import { ProviderModelSelect } from "@/components/shared/ProviderModelSelect";
 import { TruncatedText } from "@/components/shared/TruncatedText";
 import {
   durationOutOfRangeReason,
@@ -45,6 +46,15 @@ export interface ModelConfigValue {
   imageBackendDefault: string;
   imageBackendT2I: string;
   imageBackendI2I: string;
+  /**
+   * 图片资产槽位（docs/adr/0098）项目级覆盖：按资产图类别细分的默认端点。留空 = 回退项目桶 /
+   * 项目默认 / 全局层。project.json 字段名与全局设置键同名（``default_image_backend_<类别>``）。
+   */
+  imageBackendCharacter: string;
+  imageBackendCharacterDerivative: string;
+  imageBackendScene: string;
+  imageBackendProp: string;
+  imageBackendProduct: string;
   textBackendDefault: string;
   textBackendSimple: string;
   textBackendComplex: string;
@@ -53,6 +63,24 @@ export interface ModelConfigValue {
   videoResolutions?: Record<string, string | null>;
   imageResolution: string | null;
 }
+
+/**
+ * 图片资产槽位（docs/adr/0098）：与 lib.config.resolver.IMAGE_ASSET_SLOT_KEYS 一一对应。
+ * `field` 是 {@link ModelConfigValue} 键、`settingKey` 是 project.json / 全局设置共用键、
+ * `globalField` 是 `globalDefaults` prop 里对应全局槽位的键。标签键沿用
+ * `global_bucket_label_<settingKey>`，与全局设置页同一批文案。
+ */
+const IMAGE_ASSET_SLOTS = [
+  { field: "imageBackendCharacter", settingKey: "default_image_backend_character", globalField: "imageCharacter" },
+  {
+    field: "imageBackendCharacterDerivative",
+    settingKey: "default_image_backend_character_derivative",
+    globalField: "imageCharacterDerivative",
+  },
+  { field: "imageBackendScene", settingKey: "default_image_backend_scene", globalField: "imageScene" },
+  { field: "imageBackendProp", settingKey: "default_image_backend_prop", globalField: "imageProp" },
+  { field: "imageBackendProduct", settingKey: "default_image_backend_product", globalField: "imageProduct" },
+] as const;
 
 export interface ModelConfigSectionProps {
   value: ModelConfigValue;
@@ -97,6 +125,12 @@ export interface ModelConfigSectionProps {
     image: string;
     imageT2I: string;
     imageI2I: string;
+    /** 全局图片资产槽位（docs/adr/0098）；项目资产槽位留空时的穿透演算来源之一。 */
+    imageCharacter: string;
+    imageCharacterDerivative: string;
+    imageScene: string;
+    imageProp: string;
+    imageProduct: string;
     textDefault: string;
     textSimple: string;
     textComplex: string;
@@ -649,6 +683,42 @@ export function ModelConfigSection({
               onChange({ ...value, imageResolution: v }),
             )}
           </LayeredModelFields>
+          {/* 资产槽位是项目级细分（与 t2i / i2i 桶同类），创建向导只暴露默认层、不呈现。 */}
+          {showSubFields && (
+            <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+              <div className="flex flex-col gap-0.5">
+                <h4 className="text-sm font-medium">{t("dashboard:image_asset_slots_title")}</h4>
+                <p className="text-xs text-muted-foreground">{t("dashboard:image_asset_slots_hint")}</p>
+              </div>
+              {IMAGE_ASSET_SLOTS.map((slot) => (
+                <div key={slot.field} className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">
+                    {t(`dashboard:global_bucket_label_${slot.settingKey}`)}
+                  </span>
+                  <ProviderModelSelect
+                    value={value[slot.field] ?? ""}
+                    options={options.imageBackends}
+                    providerNames={options.providerNames}
+                    modelNames={options.modelNames}
+                    onChange={(v) => onChange({ ...value, [slot.field]: v })}
+                    allowDefault
+                    defaultLabel={t("use_project_default")}
+                    fallbackLabel={t("follow_model_default")}
+                    fallbackValue={
+                      effectiveModel(
+                        value.imageBackendT2I,
+                        value.imageBackendDefault,
+                        globalDefaults[slot.globalField],
+                        globalDefaults.imageT2I,
+                        globalDefaults.image,
+                      ) || undefined
+                    }
+                    aria-label={t(`dashboard:global_bucket_label_${slot.settingKey}`)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </ChannelCard>
       )}
 

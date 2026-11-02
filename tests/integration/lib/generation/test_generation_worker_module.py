@@ -119,8 +119,12 @@ class TestExtractProvider:
         task = {"payload": {}, "project_name": "demo", "task_type": "reference_video"}
         assert await _extract_provider(task) == "ark"
 
-    async def test_reference_video_prefers_r2v_bucket_provider(self, monkeypatch):
-        """视频单元级状态读不到时回退当前 r2v 配置，不采用 payload 中的 enqueue-time pin。"""
+    async def test_reference_video_adopts_payload_execution_pin(self, monkeypatch):
+        """参考生视频认领采纳 payload 里的执行身份 pin（批量补齐临时端点 / 续跑物化）。
+
+        pin 由入队边界按意图写入，键存在即意图：认领与执行据此同槽，不多走一轮回队。
+        这里 pin（ark）与当前 r2v 配置（minimax）不同，仍取 pin 的 provider。
+        """
         _patch_pm(
             monkeypatch,
             {
@@ -133,7 +137,7 @@ class TestExtractProvider:
             "project_name": "demo",
             "task_type": "reference_video",
         }
-        assert await _extract_provider(task) == "dashscope"
+        assert await _extract_provider(task) == "ark"
 
     @pytest.mark.parametrize(
         ("text", "expected_provider"),

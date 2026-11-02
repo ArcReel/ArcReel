@@ -138,6 +138,7 @@ from lib.script.script_models import (
     ReferenceScriptPlanDraft,
     ReferenceVideoScript,
     build_episode_script_model,
+    build_reference_prompt_authoring_model,
     script_duration_total,
     with_new_assets_field,
 )
@@ -1689,8 +1690,9 @@ class ScriptGenerator:
         """参考生视频的提示词编写：只改写本次选中单元的正文，其余单元逐字不动。
 
         LLM 只出引用语法正文（与待编写单元等长、同序）；违约不丢弃，连同逐条报告落待修复草稿，
-        修复后经草稿晋升重判写回正式剧本。重抽既烧钱又不收敛——同一个模型对同一份正文
-        大概率再犯同一类错。
+        修复后经草稿晋升重判写回正式剧本。内容类违约重抽既烧钱又不收敛——同一个模型对同一份正文
+        大概率再犯同一类错——故直接落草稿；唯 unit 数失配是纯结构错且 schema 已把长度卡死，
+        仅在非约束解码通道下首失配时带纠正反馈重抽一次，再失配即落草稿。
         """
         facts = await self._fetch_video_request_facts()
         units = list(targets.entries)
@@ -1717,14 +1719,39 @@ class ScriptGenerator:
             )
         max_refs = self._resolve_max_refs(facts)
         logger.info("正在为第 %d 集编写提示词（video_units，%d/%d 个单元）...", episode, len(units), len(targets.items))
-        result = await self._generate_text(
-            TextGenerationRequest(
-                prompt=self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions),
-                response_schema=ReferencePromptAuthoringFlatScript,
-                max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+        base_prompt = self._build_reference_prompt_authoring_prompt(episode, targets, facts, instructions)
+        response_schema = build_reference_prompt_authoring_model(len(units))
+
+        response_text = ""
+        last_violation: DraftViolation | None = None
+        authored: list[dict] | None = None
+        # unit 数失配是纯结构错、一条纠正反馈即可收敛，与「重抽不收敛」的内容类违约不同：schema 已把长度
+        # 卡死（minItems/maxItems），约束解码通道下本不会走到这里，仅非约束解码通道在首失配时带反馈重抽一次。
+        for _attempt in range(2):
+            if last_violation is None:
+                prompt = base_prompt
+            else:
+                prompt = (
+                    f"{base_prompt}\n\n"
+                    f"【纠正】你上一轮产出的 unit 数有误（{last_violation}）。本轮必须恰好产出 {len(units)} 个 unit，"
+                    f"与上方 {len(units)} 个待编写单元一一对应、顺序不变，不得合并、拆分或增删任何 unit。"
+                )
+            result = await self._generate_text(
+                TextGenerationRequest(
+                    prompt=prompt,
+                    response_schema=response_schema,
+                    max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+                )
             )
-        )
-        response_text = result.text
+            response_text = result.text
+            try:
+                authored = self._merge_reference_visual(units, response_text, episode, max_refs=max_refs)
+                last_violation = None
+                break
+            except DraftViolation as exc:
+                last_violation = exc
+                if exc.code != "unit_count_changed":
+                    break
 
         async def quarantine(exc: DraftViolation) -> DraftViolation:
             return await run_sync_transaction(
@@ -1738,10 +1765,13 @@ class ScriptGenerator:
                 before_commit=before_quarantine_commit,
             )
 
+        if authored is None:
+            assert last_violation is not None  # 循环仅在违约时留下 authored=None，此时必带违约记录
+            raise await quarantine(last_violation) from last_violation
+
         # _add_metadata 一并纳入草稿保护：它按落地后的最终正文重算生效档位，一个新增 / 去掉了
         # `@` 引用的 unit 要到合并之后才判出档——不接住的话，这份已付费产出只存在于内存里。
         def author() -> dict[str, Any]:
-            authored = self._merge_reference_visual(units, response_text, episode, max_refs=max_refs)
             return self._authored_script(
                 episode, targets, authored, reference_unit_durations=self._unit_durations(targets), facts=facts
             )
@@ -1861,7 +1891,7 @@ class ScriptGenerator:
         result = await self._generate_text(
             TextGenerationRequest(
                 prompt=self._build_ad_reference_prompt_authoring_prompt(episode, targets, instructions),
-                response_schema=ReferencePromptAuthoringFlatScript,
+                response_schema=build_reference_prompt_authoring_model(len(targets.entries)),
                 max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
             )
         )

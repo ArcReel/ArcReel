@@ -122,7 +122,7 @@ def _client(monkeypatch, fake_pm, fake_queue, *, i2i_ready=True, resolve_error: 
     use_project_manager(monkeypatch, fake_pm)
     use_generation_queue(monkeypatch, fake_queue)
 
-    async def _resolve(self, project, payload, *, generation_type):
+    async def _resolve(self, project, payload, *, generation_type, task_type=None):
         assert generation_type == "i2i"
         if resolve_error is not None:
             raise resolve_error

@@ -163,7 +163,9 @@ class DashScopeAudioBackend:
             len(request.text),
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
+        async with artifact_http_client(
+            timeout=self._http_timeout, transport_layer=self._transport_layer, bypass_proxy_for=self._base_url
+        ) as client:
             # 合成是非幂等的「计费」POST：submit_post 把歧义传输错误（请求可能已送达但响应在途丢失）
             # 转 AmbiguousSubmitError 终态失败避免重复计费；>=400 落 body 日志 + 抛 HTTPStatusError
             # （保留 status_code），交 should_retry_submit 按状态码分流——4xx fail-fast、5xx/429 重试。
@@ -200,7 +202,9 @@ class DashScopeAudioBackend:
         # 日志与异常只带去掉 query 的 URL：预签名参数在有效期内等同下载凭证
         safe_url = url.split("?", 1)[0]
         async with (
-            artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client,
+            artifact_http_client(
+                timeout=self._http_timeout, transport_layer=self._transport_layer, bypass_proxy_for=url
+            ) as client,
             client.stream("GET", url) as resp,
         ):
             if resp.status_code >= 400:

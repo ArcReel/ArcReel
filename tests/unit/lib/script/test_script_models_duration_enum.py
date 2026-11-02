@@ -216,3 +216,43 @@ class TestReferenceUnitsScriptPlanModel:
             self._model().model_validate({"units": [self._unit(text="")]})
         with pytest.raises(ValidationError):
             self._model().model_validate({"units": [self._unit(source_text="")]})
+
+
+class TestReferencePromptAuthoringModel:
+    """build_reference_prompt_authoring_model：unit 列表长度硬约束为待编写单元数。"""
+
+    def _model(self, unit_count: int = 3):
+        from lib.script.script_models import build_reference_prompt_authoring_model
+
+        return build_reference_prompt_authoring_model(unit_count)
+
+    def _script(self, count: int) -> dict:
+        return {"title": "第 3 集", "units": [{"text": f"unit {i} 正文"} for i in range(1, count + 1)]}
+
+    def _units_field(self, model: type[BaseModel]) -> dict:
+        return model.model_json_schema()["properties"]["units"]
+
+    def test_unit_count_rendered_as_min_max_items(self):
+        field = self._units_field(self._model(3))
+        assert field["minItems"] == 3
+        assert field["maxItems"] == 3
+
+    def test_exact_count_accepted(self):
+        draft = self._model(3).model_validate(self._script(3))
+        assert len(draft.units) == 3
+
+    def test_too_few_units_rejected(self):
+        with pytest.raises(ValidationError):
+            self._model(3).model_validate(self._script(1))
+
+    def test_too_many_units_rejected(self):
+        with pytest.raises(ValidationError):
+            self._model(3).model_validate(self._script(4))
+
+    def test_blank_unit_text_rejected(self):
+        with pytest.raises(ValidationError):
+            self._model(1).model_validate({"title": "t", "units": [{"text": ""}]})
+
+    def test_zero_count_raises(self):
+        with pytest.raises(ValueError, match="unit_count"):
+            self._model(0)

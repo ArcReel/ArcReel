@@ -293,6 +293,61 @@ describe("ReferenceVideoCard", () => {
   });
 });
 
+describe("ReferenceVideoCard 文稿/原文 分隔条", () => {
+  it("只有单元带对应原文时渲染分隔条", () => {
+    const { unmount } = render(<ControlledCard unit={mkUnit({ source_text: "张三推开了门。" })} />);
+    expect(screen.getByRole("separator", { name: "调整文稿与对应原文的高度" })).toBeInTheDocument();
+    unmount();
+
+    render(<ControlledCard unit={mkUnit()} />);
+    expect(screen.queryAllByRole("separator")).toHaveLength(0);
+  });
+
+  it("拖动分隔条按比例调整文稿栏高度，并夹在上下限内", () => {
+    render(<ControlledCard unit={mkUnit({ source_text: "原文" })} />);
+    const handle = screen.getByRole("separator") as HTMLElement;
+    expect(handle).toHaveAttribute("aria-valuenow", "50");
+
+    // jsdom 的 getBoundingClientRect 全为 0，桩成 400px 高的分隔容器。
+    const box = handle.parentElement! as HTMLElement;
+    const rect = {
+      top: 100,
+      left: 0,
+      right: 0,
+      bottom: 500,
+      width: 0,
+      height: 400,
+      x: 0,
+      y: 100,
+      toJSON: () => ({}),
+    };
+    vi.spyOn(box, "getBoundingClientRect").mockReturnValue(rect as DOMRect);
+
+    fireEvent.pointerDown(handle, { pointerId: 1 });
+    // (320-100)/400 = 0.55
+    fireEvent.pointerMove(handle, { clientY: 320 });
+    expect(handle).toHaveAttribute("aria-valuenow", "55");
+    // (200-100)/400 = 0.25，恰在下限
+    fireEvent.pointerMove(handle, { clientY: 200 });
+    expect(handle).toHaveAttribute("aria-valuenow", "25");
+    // (450-100)/400 = 0.875，夹到上限 0.85
+    fireEvent.pointerMove(handle, { clientY: 450 });
+    expect(handle).toHaveAttribute("aria-valuenow", "85");
+    fireEvent.pointerUp(handle);
+  });
+
+  it("方向键微调分隔条，Shift 加大步长", () => {
+    render(<ControlledCard unit={mkUnit({ source_text: "原文" })} />);
+    const handle = screen.getByRole("separator");
+    fireEvent.keyDown(handle, { key: "ArrowDown" });
+    expect(handle).toHaveAttribute("aria-valuenow", "55");
+    fireEvent.keyDown(handle, { key: "ArrowUp" });
+    expect(handle).toHaveAttribute("aria-valuenow", "50");
+    fireEvent.keyDown(handle, { key: "ArrowUp", shiftKey: true });
+    expect(handle).toHaveAttribute("aria-valuenow", "40");
+  });
+});
+
 describe("ReferenceVideoCard combobox ARIA", () => {
   function renderCard(unit = mkUnit()) {
     return render(<ControlledCard unit={unit} />);

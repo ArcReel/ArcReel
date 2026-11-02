@@ -492,12 +492,16 @@ def derivative_sheet_input(
     owner: str,
     derivative: str,
     observation: InputObservation,
+    reference_override: str | None = None,
 ) -> DerivativeSheetInput:
     """按项目现状为一张衍生资产图备齐生成输入。
 
     本体资产图是唯一参考图（见 ``docs/adr/0072``），可用性与分镜图引用的资产图同一判定。
 
-    缺口：衍生缺外观变化描述；本体资产图未声明或不可用。
+    ``reference_override`` 是本次生成临时用的参考图（项目内相对路径），非空时替代本体资产图
+    作为唯一参考图，只作用于这一次生成、不落盘。
+
+    缺口：衍生缺外观变化描述；参考图（本体资产图或临时覆盖图）未声明或不可用。
 
     本体或衍生不存在、字段结构损坏抛 ``ValueError``。
     """
@@ -512,7 +516,10 @@ def derivative_sheet_input(
     description = _stored_description(derivative_asset)
     if not description:
         assembly.gap(InputGap(DERIVATIVE_DESCRIPTION_REQUIRED_CODE, DERIVATIVE_ASSET_TYPE, derivative_name))
-    assembly.add_owner_sheet(spec, owner_name, owner_asset)
+    if reference_override:
+        assembly.add_override_source(owner_name, reference_override)
+    else:
+        assembly.add_owner_sheet(spec, owner_name, owner_asset)
 
     return DerivativeSheetInput(
         semantics=DerivativeSheetSemantics(owner=owner_name, derivative=derivative_name, description=description),
@@ -685,6 +692,31 @@ class _Assembly:
                 ),
                 artifact_path=observed.artifact_path,
                 claim=claim,
+            )
+        )
+
+    def add_override_source(self, owner: str, path: str) -> None:
+        """本次生成临时用的参考图覆盖：项目内一张在场图片，读不到即缺口。
+
+        与原图同口径（不作登记产物、不产 claim），只把来源角色与本体资产图保持一致，让
+        编辑指令与依据仍按「本体的一个来源」构造。
+        """
+
+        observed = self._observation.observe(path)
+        if observed is None:
+            self.gap(InputGap(DERIVATIVE_OWNER_SHEET_MISSING_CODE, DERIVATIVE_ASSET_TYPE, owner))
+            return
+        self._append(
+            AssembledReference(
+                visual=_visual(
+                    observed,
+                    role=DERIVATIVE_SOURCE_ROLE,
+                    logical_type=DERIVATIVE_ASSET_TYPE,
+                    logical_id=owner,
+                    kind=DERIVATIVE_SOURCE_KIND,
+                ),
+                artifact_path=observed.artifact_path,
+                claim=None,
             )
         )
 

@@ -304,6 +304,7 @@ export default {
   'problem_reference_supported_durations_incompatible': '所选视频模型在当前分辨率与参考图条件下没有兼容的时长档位。',
   'problem_mixed_speech': '这个单元同时有角色台词和旁白，需要拆开。',
   'problem_needs_replan': '这个单元的时长超过所选模型的最大档位，需要重新规划。',
+  'problem_dialogue_overload': '这个单元的台词口播约 {spoken} 秒，超过 {duration} 秒档位能装下的量；请延长档位或精简台词。',
   'problem_parse_failed': '这个单元的台词读不出来，请检查写法。',
   'problem_empty_speaker': '这个单元有台词没有指定说话的角色。',
   'problem_project_migration_failed': '项目数据升级没有完成，暂时不能生成。',

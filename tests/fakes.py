@@ -558,7 +558,8 @@ def fake_reference_request_facts(
 
     from tests.factories import make_video_request_facts
 
-    async def lookup(generation_type):
+    async def lookup(generation_type, reference_count=None):
+        del reference_count
         if failures is not None and generation_type in failures:
             return failures[generation_type]
         fields: dict[str, Any] = {
@@ -738,6 +739,7 @@ class FakeConfigResolver:
         payload: dict[str, Any] | None = None,
         *,
         generation_type: str | None = None,
+        task_type: str | None = None,
     ) -> Any:
         """解析图像供应商；``image_backend_error`` 给「项目槽位解析不出可用供应商」那条路径。"""
         from lib.config.resolver import ProviderModel

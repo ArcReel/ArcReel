@@ -933,6 +933,8 @@ class MediaGenerator:
         resolution: str | None = None,
         poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS,
         task_id: str | None = None,
+        shot_cur_seq: int | None = None,
+        shot_pre_seq: int | None = None,
         before_submit: Callable[[], Awaitable[Mapping[str, object] | None]] | None = None,
         formal_output: bool = False,
         before_formal_commit: Callable[[Path, int, Mapping[str, Any]], Awaitable[None]] | None = None,
@@ -957,6 +959,8 @@ class MediaGenerator:
             aspect_ratio: 宽高比，默认 9:16（竖屏）
             duration_seconds: 视频时长，可选 "4", "6", "8"
             resolution: 分辨率，默认不传（由 backend/SDK 决定）
+            shot_cur_seq: 当前镜头在剧本顺序中的 1-based 整数 ID
+            shot_pre_seq: 前一镜的整数 ID；首镜为 0
             before_submit: 首次 provider 提交紧前执行一次的异步持久化钩子；
                 返回值并入当次版本元数据
             formal_output: 将 provider 产物先写入同目录临时文件，成功后再与版本历史一起提交
@@ -1154,6 +1158,8 @@ class MediaGenerator:
                     poll_timeout_seconds=poll_timeout_seconds,
                     project_name=self.project_name,
                     task_id=task_id,
+                    shot_cur_seq=shot_cur_seq,
+                    shot_pre_seq=shot_pre_seq,
                     on_provider_resubmit_unsafe=_mark_provider_resubmit_unsafe,
                     on_provider_response=lambda _stage, body: self.ledger.record_provider_response(
                         call_id=call.call_id, body=body

@@ -8,6 +8,7 @@ import { initTheme } from "@/theme";
 
 import "@fontsource-variable/inter";
 import "@fontsource-variable/jetbrains-mono";
+import "@fontsource-variable/space-grotesk";
 import "@fontsource/instrument-serif/400.css";
 import "@fontsource/instrument-serif/400-italic.css";
 import "driver.js/dist/driver.css";

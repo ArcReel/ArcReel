@@ -1037,6 +1037,7 @@ async def execute_video_task(
         _items, _id_field, _, _, _ = get_storyboard_items(_script)
         _resolved = find_storyboard_item(_items, _id_field, resource_id)
         _item = _resolved[0] if _resolved else {}
+        _shot_index = _resolved[1] if _resolved else None
         return (
             _project,
             _project_path,
@@ -1045,9 +1046,21 @@ async def execute_video_task(
             resolve_script_kind(_script),
             _script,
             _script_input,
+            _shot_index,
         )
 
-    project, project_path, item, content_mode, script_kind, _script, script_input = await run_sync_transaction(_load)
+    (
+        project,
+        project_path,
+        item,
+        content_mode,
+        script_kind,
+        _script,
+        script_input,
+        shot_index,
+    ) = await run_sync_transaction(_load)
+    shot_cur_seq = shot_index + 1 if shot_index is not None else None
+    shot_pre_seq = shot_index if shot_index is not None else None
     # Queue execution re-materializes mutable visual intent from the current script unit. Direct/internal callers
     # without a task row retain the request-prompt fallback for compatibility with synchronous service tests.
     current_prompt = item.get("video_prompt") if isinstance(item, dict) else None
@@ -1337,6 +1350,8 @@ async def execute_video_task(
             duration_seconds=duration_seconds,
             resolution=resolution,
             task_id=task_id,
+            shot_cur_seq=shot_cur_seq,
+            shot_pre_seq=shot_pre_seq,
             before_submit=checkpoint_hook,
             formal_output=task_id is not None,
             before_formal_commit=artifact_committer.prepare_selection if artifact_committer is not None else None,
@@ -1480,6 +1495,7 @@ async def execute_asset_sheet_task(
         project_path=project_path,
         user_id=user_id,
         image=ImageLaneRequest(generation_type="i2i" if generation_input.references else "t2i"),
+        task_type=kind,
     )
     ensure_dispatch_provider(claimed_provider_id, context.image.provider_model.provider_id)
 

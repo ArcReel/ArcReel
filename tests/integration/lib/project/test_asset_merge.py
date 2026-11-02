@@ -383,7 +383,12 @@ class TestMergeFoldsCaseOnlyDerivatives:
         assert segment["image_prompt"]["scene"] == "@[Alice/coat] 与 @[Alice/Hat] 同框"
 
     def test_merging_as_a_derivative_folds_into_a_case_only_derivative(self, cast: ProjectManager) -> None:
-        cast.upsert_assets(PROJECT, "characters", {"Coat": {"description": "披大衣的人"}})
+        # 独立角色「Coat」与已有衍生只差大小写（Alice/coat、Bob/Coat）：upsert_assets 的结构校验
+        # 会拒绝这种「一种外观两种登记形态」，故直接写盘模拟历史脏数据，再验证合并把它折回单形态。
+        def _add_coat(project: dict[str, Any]) -> None:
+            project["characters"]["Coat"] = {"description": "披大衣的人"}
+
+        cast.update_project(PROJECT, _add_coat)
         self._save(cast, ["Coat"], "@[Coat] 走来")
 
         report = cast.merge_asset(PROJECT, "characters", "Coat", "Alice", as_derivative=True)

@@ -56,14 +56,14 @@ class _FakeRequestFacts:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    async def __call__(self, generation_type: str) -> VideoRequestFactsResult:
+    async def __call__(self, generation_type: str, reference_count: int | None = None) -> VideoRequestFactsResult:
         self.calls.append(generation_type)
         return _bucket_facts(generation_type)
 
 
 def _fixed_request_facts(result: VideoRequestFactsResult):
-    async def lookup(generation_type: str) -> VideoRequestFactsResult:
-        del generation_type
+    async def lookup(generation_type: str, reference_count: int | None = None) -> VideoRequestFactsResult:
+        del generation_type, reference_count
         return result
 
     return lookup
@@ -281,6 +281,50 @@ async def test_projection_rejects_duration_above_maximum_as_needs_replan() -> No
 
 
 @pytest.mark.asyncio
+async def test_projection_blocks_overloaded_dialogue_and_offers_a_longer_tier() -> None:
+    """台词口播超出所选档位（含宽容系数）即阻断；还有更长档位时引导确认升档。"""
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
+    dialogue = "一二三四五六七八九十" * 4  # 40 字，约 8s，超过 4s 档位的 4.8s 上限
+    unit = {"unit_id": "E1U1", "text": f"空镜：海面翻涌。\n{{{dialogue}}}", "duration_seconds": 4}
+
+    result = await projector.project_current(
+        project={"source_language": "zh"},
+        script={"video_units": [unit]},
+        unit=unit,
+        resolved_assets=[],
+    )
+
+    assert result.request_duration is not None
+    assert result.request_duration.seconds == 4
+    assert [problem.code for problem in result.blocking_problems] == ["dialogue_overload"]
+    problem = result.blocking_problems[0]
+    assert problem.blocking is True
+    assert problem.parameters()["duration"] == 4
+    assert problem.parameters()["spoken"] > 4 * 1.2
+    assert result.problem_payloads()[0]["action"] == "confirm_request_duration"
+
+
+@pytest.mark.asyncio
+async def test_projection_blocks_overloaded_dialogue_at_max_tier_and_suggests_replan() -> None:
+    """已在最长档位时台词仍超载：没有更长档位可升，引导重排而非确认升档。"""
+    projector = ReferenceUnitRequestProjector(_FakeRequestFacts(), _FakeAssets(set()))
+    dialogue = "一二三四五六七八九十" * 12  # 120 字，约 24s，超过 16s 档位的 19.2s 上限
+    unit = {"unit_id": "E1U1", "text": f"空镜：海面翻涌。\n{{{dialogue}}}", "duration_seconds": 16}
+
+    result = await projector.project_current(
+        project={"source_language": "zh"},
+        script={"video_units": [unit]},
+        unit=unit,
+        resolved_assets=[],
+    )
+
+    assert result.request_duration is not None
+    assert result.request_duration.seconds == 16
+    assert [problem.code for problem in result.blocking_problems] == ["dialogue_overload"]
+    assert result.problem_payloads()[0]["action"] == "replan_unit"
+
+
+@pytest.mark.asyncio
 async def test_projection_exposes_declared_to_hydrated_bucket_change() -> None:
     request_facts = _FakeRequestFacts()
     missing = Path("/fake/missing.png")
@@ -343,8 +387,10 @@ async def test_projection_passes_the_planned_duration_through_endpoint_fixed_dur
 
 @pytest.mark.asyncio
 async def test_projection_sanitizes_unexpected_capability_failures() -> None:
-    async def _broken_request_facts(generation_type: str) -> VideoRequestFactsResult:
-        del generation_type
+    async def _broken_request_facts(
+        generation_type: str, reference_count: int | None = None
+    ) -> VideoRequestFactsResult:
+        del generation_type, reference_count
         raise RuntimeError("database password leaked by driver")
 
     projector = ReferenceUnitRequestProjector(_broken_request_facts, _FakeAssets(set()))
@@ -526,3 +572,76 @@ async def test_production_entry_treats_an_unclaimed_sheet_as_unavailable_like_th
         "reference_capability_changed",
     ]
     assert dict(projections[1].problems[0].params)["missing"] == (("character", "李四"),)
+
+
+# ── 读执行同源：R2V 单元按可用参考图数 N 选到不同 I{N}（docs/adr/0086） ──
+
+_I3 = "HONGYU-MinimaxH3-I3-A3-First-AutoPrompt"
+_I7 = "HONGYU-MinimaxH3-I7-A3-First_shot-AutoPrompt"
+
+
+def _per_n_request_facts():
+    """按 (桶, N) 作答的 lookup：r2v 按 N 选 I{N}（max_reference_images==N，不触发裁剪），
+    N=11 返回 required_slots=11 的失败对象；i2v 原样作答。"""
+
+    async def lookup(generation_type: str, reference_count: int | None = None) -> VideoRequestFactsResult:
+        if generation_type == "i2v":
+            return _bucket_facts("i2v")
+        if reference_count == 11:
+            return VideoRequestFactsFailure(
+                "video_capability_missing_r2v",
+                (("provider", "custom-2"), ("model", _I3), ("required_slots", 11)),
+            )
+        model_id = {3: _I3, 7: _I7}[reference_count or 0]
+        return make_video_request_facts(
+            route="reference_video",
+            generation_type="r2v",
+            provider_id="custom-2",
+            model_id=model_id,
+            resolution="1080p",
+            supported_durations=(8, 16),
+            allowed_durations=(8, 16),
+            max_reference_images=reference_count,
+            audio_switch_controllable=True,
+        )
+
+    return lookup
+
+
+def _n_character_project(count: int) -> tuple[dict, dict, list[ResolvedReferenceAsset]]:
+    names = [f"角色{i}" for i in range(count)]
+    project = {"generation_mode": "reference_video", "characters": {name: {} for name in names}}
+    unit = {"unit_id": "E1U1", "text": "".join(f"@[{name}] " for name in names), "duration_seconds": 8}
+    assets = [_asset("character", name, f"/fake/{i}.png") for i, name in enumerate(names)]
+    return project, unit, assets
+
+
+@pytest.mark.asyncio
+async def test_projection_selects_distinct_models_by_reference_count() -> None:
+    """A=3 张 → I3、B=7 张 → I7：同一 lookup 按 N 给出不同身份，且精确档位下无裁剪告警。"""
+    projector = ReferenceUnitRequestProjector(_per_n_request_facts(), _FakeAssets(set()))
+
+    for count, expected_model in ((3, _I3), (7, _I7)):
+        project, unit, assets = _n_character_project(count)
+        result = await projector.project_current(
+            project=project, script={"video_units": [unit]}, unit=unit, resolved_assets=assets
+        )
+        assert result.hydrated_generation_type == "r2v"
+        assert result.model_id == expected_model
+        assert "reference_images_clamped" not in [problem.code for problem in result.problems]
+
+
+@pytest.mark.asyncio
+async def test_projection_blocks_when_no_endpoint_matches_the_reference_count() -> None:
+    """11 张可用图没有对应 I{N} 端点 → blocking problem、required_slots=11，不静默裁到 I9。"""
+    projector = ReferenceUnitRequestProjector(_per_n_request_facts(), _FakeAssets(set()))
+    project, unit, assets = _n_character_project(11)
+
+    result = await projector.project_current(
+        project=project, script={"video_units": [unit]}, unit=unit, resolved_assets=assets
+    )
+
+    assert result.request_facts is None
+    blocking = result.blocking_problems
+    assert [problem.code for problem in blocking] == ["video_capability_missing_r2v"]
+    assert ("required_slots", 11) in blocking[0].params

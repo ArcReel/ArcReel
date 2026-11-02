@@ -304,6 +304,7 @@ export default {
   'problem_reference_supported_durations_incompatible': 'Mô hình video đã chọn không có mức thời lượng tương thích với độ phân giải và ảnh tham chiếu hiện tại.',
   'problem_mixed_speech': 'Đơn vị này có cả lời thoại nhân vật lẫn lời dẫn, cần tách ra.',
   'problem_needs_replan': 'Đơn vị này dài hơn mức thời lượng lớn nhất của mô hình đã chọn, cần lập kế hoạch lại.',
+  'problem_dialogue_overload': 'Lời thoại của đơn vị này ước tính dài khoảng {spoken}s, vượt quá mức {duration}s có thể chứa; hãy tăng mức thời lượng hoặc rút ngắn lời thoại.',
   'problem_parse_failed': 'Không đọc được lời thoại của đơn vị này, hãy kiểm tra cách viết.',
   'problem_empty_speaker': 'Đơn vị này có lời thoại chưa chỉ định nhân vật nói.',
   'problem_project_migration_failed': 'Việc nâng cấp dữ liệu dự án chưa hoàn tất, tạm thời chưa thể tạo nội dung.',

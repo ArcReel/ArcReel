@@ -876,7 +876,7 @@ async def download_video(
     """从 URL 流式下载视频到本地文件，重试走共用的产物下载预算；落盘后尽力做 faststart。"""
 
     async def attempt() -> None:
-        async with artifact_http_client(follow_redirects=True) as http_client:
+        async with artifact_http_client(follow_redirects=True, bypass_proxy_for=url) as http_client:
             await stream_to_file(http_client, url, output_path, max_bytes=VIDEO_ARTIFACT_MAX_BYTES, timeout=timeout)
 
     await with_artifact_retry(

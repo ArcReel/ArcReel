@@ -24,9 +24,11 @@ from lib.config.resolver import (
 from lib.generation.video_request_facts import (
     CONFIGURED_VIDEO_IDENTITY,
     DEFAULT_PLANNED_DURATION_SECONDS,
+    ConfiguredReferenceVideoIdentity,
     VideoRequestCostFacts,
     VideoRequestFacts,
     VideoRequestFactsFailure,
+    VideoRequestIdentity,
     audio_switch_conflict,
     evaluate_video_request_facts,
 )
@@ -40,12 +42,14 @@ from lib.references.reference_admission import (
     admit_references,
 )
 from lib.references.reference_catalog import ReferenceCatalog, build_reference_catalog
+from lib.script.reference_video.draft_validation import SPEECH_OVERFLOW_TOLERANCE, normative_lines
 from lib.script.reference_video.duration_slots import (
     DurationSlot,
     project_request_duration,
 )
 from lib.script.reference_video.text_parser import derive_references_from_text
 from lib.script.script_models import ReferenceResource
+from lib.speech.speech_rate import estimate_spoken_seconds, project_speech_rate_override
 
 if TYPE_CHECKING:
     from lib.config.resolver import ConfigResolver
@@ -241,27 +245,48 @@ class ReferenceAssetAvailability(Protocol):
 
 VideoRequestFactsResult = VideoRequestFacts | VideoRequestFactsFailure
 
-#: 按任务类型桶取视频请求事实。读侧用 :func:`configured_reference_request_facts`，执行侧交出
-#: lane 已求得的那一份；测试直接返回构造好的结果对象或失败对象。
-ReferenceRequestFactsLookup = Callable[[VideoGenerationType], Awaitable[VideoRequestFactsResult]]
+
+class ReferenceRequestFactsLookup(Protocol):
+    """按任务类型桶 × 可用参考图数取视频请求事实。读侧用 :func:`configured_reference_request_facts`，
+    执行侧交出 lane 已求得的那一份；测试直接返回构造好的结果对象或失败对象。
+
+    ``reference_count`` 可缺省（r2v 单元传可用参考图数，裁剪前；i2v 单元为 0 或省略）：r2v
+    身份依赖 N，读侧据此与执行侧选到同一个 I{N} 端点（``docs/adr/0086``）。只关心 i2v 的
+    调用方可省略该参数（生产 projector 恒传）。
+    """
+
+    def __call__(
+        self,
+        generation_type: VideoGenerationType,
+        reference_count: int | None = None,
+    ) -> Awaitable[VideoRequestFactsResult]: ...
 
 
 def configured_reference_request_facts(project: dict, resolver: ConfigResolver) -> ReferenceRequestFactsLookup:
-    """读侧：以当前配置为身份，对参考路线逐桶求值视频请求事实；同一查找内每个桶只求值一次。"""
+    """读侧：以当前配置为身份，对参考路线逐桶求值视频请求事实；同一查找内每个 (桶, N) 只求值一次。"""
 
-    evaluated: dict[VideoGenerationType, VideoRequestFactsResult] = {}
+    evaluated: dict[tuple[VideoGenerationType, int | None], VideoRequestFactsResult] = {}
 
-    async def lookup(generation_type: VideoGenerationType) -> VideoRequestFactsResult:
-        result = evaluated.get(generation_type)
+    async def lookup(
+        generation_type: VideoGenerationType, reference_count: int | None = None
+    ) -> VideoRequestFactsResult:
+        key = (generation_type, reference_count)
+        result = evaluated.get(key)
         if result is None:
+            # r2v 单元按可用参考图数精确选端点（I{N}）；i2v 单元按配置身份求值，忽略 N。
+            identity: VideoRequestIdentity = (
+                ConfiguredReferenceVideoIdentity(reference_count)
+                if generation_type == "r2v" and reference_count is not None
+                else CONFIGURED_VIDEO_IDENTITY
+            )
             result = await evaluate_video_request_facts(
                 project,
                 route="reference_video",
                 generation_type=generation_type,
-                identity=CONFIGURED_VIDEO_IDENTITY,
+                identity=identity,
                 resolver=resolver,
             )
-            evaluated[generation_type] = result
+            evaluated[key] = result
         return result
 
     return lookup
@@ -552,6 +577,7 @@ _PROBLEM_PRESENTATION: dict[str, tuple[str, tuple[tuple[str | int, ...], ...]]] 
     ),
     "reference_duration_confirmation_required": ("confirm_duration", (("duration_seconds",),)),
     "needs_replan": ("replan_unit", (("duration_seconds",),)),
+    "dialogue_overload": ("confirm_request_duration", (("text",),)),
     "reference_supported_durations_missing": ("configure_video_model", (("duration_seconds",),)),
     "reference_supported_durations_invalid": ("configure_video_model", (("duration_seconds",),)),
     "reference_supported_durations_incompatible": ("configure_video_model", (("duration_seconds",),)),
@@ -580,6 +606,22 @@ def _planned_duration(unit: dict) -> int:
     if value <= 0:
         raise ValueError("duration_seconds must be a positive integer")
     return value
+
+
+def _estimate_unit_dialogue_seconds(unit: dict, project: dict) -> float:
+    """单元全部发声记号（台词与旁白）的口播时长估算（秒），与草稿期 ``validate_dialogue_load`` 同一口径。
+
+    语言取自 project 的 ``source_language``，非字符串回退 None（按默认语速估算），
+    语速覆盖由项目级字段解析——两处共用同一把尺，避免投影侧与草稿侧判出相反的超载结论。
+    """
+    raw_text = unit.get("text")
+    text = raw_text if isinstance(raw_text, str) else ""
+    if not text:
+        return 0.0
+    language = project.get("source_language")
+    language = language if isinstance(language, str) else None
+    override = project_speech_rate_override(project)
+    return sum(estimate_spoken_seconds(line[2], language, override) for line in normative_lines(text))
 
 
 class ReferenceUnitRequestProjector:
@@ -629,7 +671,9 @@ class ReferenceUnitRequestProjector:
 
         facts: VideoRequestFacts | None = None
         try:
-            evaluated = await self._request_facts(hydrated_generation_type)
+            # N 恒取裁剪前的可用参考图数：r2v 身份按它精确选 I{N}；取裁剪后长度会自我验证成
+            # 任意大槽端点、破坏严格路由。i2v 单元 available 为空、N=0，由 lookup 忽略。
+            evaluated = await self._request_facts(hydrated_generation_type, len(available))
         except Exception:
             evaluated = VideoRequestFactsFailure(
                 "reference_capability_unavailable", (("capability", hydrated_generation_type),)
@@ -736,6 +780,27 @@ class ReferenceUnitRequestProjector:
                     aspect_ratio=resolve_video_aspect_ratio(project),
                     reference_image_count=len(request_assets),
                 )
+                # 台词量硬闸门：完整台词必须在所选档位内念完，绝不截断成片。估算超出档位（含宽容
+                # 系数）即阻断——与草稿期 ``validate_dialogue_load`` 同一把尺。有更长档位则引导确认
+                # 升档，已无更长档位则引导重排（拆 unit 或精简台词）。
+                spoken = _estimate_unit_dialogue_seconds(unit, project)
+                budget = projected.slot.seconds * (1 + SPEECH_OVERFLOW_TOLERANCE)
+                if spoken > budget:
+                    problems.append(
+                        ProjectionProblem(
+                            code="dialogue_overload",
+                            blocking=True,
+                            params=(
+                                ("spoken", round(spoken, 1)),
+                                ("duration", projected.slot.seconds),
+                            ),
+                            action=(
+                                "confirm_request_duration"
+                                if any(duration > projected.slot.seconds for duration in facts.allowed_durations)
+                                else "replan_unit"
+                            ),
+                        )
+                    )
 
         return ReferenceUnitRequestProjection(
             unit_id=str(unit.get("unit_id") or ""),

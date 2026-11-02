@@ -401,16 +401,7 @@ async def test_execute_reference_video_task_bucket_follows_resolved_references(
 
     use_video_thumbnail_extractor(monkeypatch, _fake_extract)
 
-    await rvt.execute_reference_video_task(
-        "demo",
-        "E1U1",
-        {
-            "script_file": "scripts/episode_1.json",
-            "video_provider_i2v": "legacy/i2v-model",
-            "video_provider_r2v": "legacy/r2v-model",
-        },
-        user_id="u1",
-    )
+    await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
 
     assert captured["video"].generation_type == expected_generation_type
     assert "video_provider_i2v" not in captured["payload"]
@@ -528,13 +519,15 @@ async def test_execute_reference_video_task_sends_reference_audio_in_prompt_orde
     await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
 
     prompt = captured["prompt"]
-    # speaker 首现顺序 = 音频编号 = 请求字段顺序（李四先开口，尽管张三先入画）
+    # speaker 首现顺序 = 音频编号 = 请求字段顺序（李四先开口，尽管张三先入画）；张三有参考图 → <Subject 1>，李四纯画外 → 名字记号
     assert "<李四>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。" in prompt
-    assert "<张三>的台词音色参考 @音频2，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。" in prompt
+    assert (
+        "<Subject 1>的台词音色参考 @音频2，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。" in prompt
+    )
     assert [p.name for p in captured["reference_audio_files"]] == ["李四.mp3", "张三.wav"]
-    # speaker 位不产生参考图：李四没有 @图片N 绑定
-    assert "<张三>@图片1。" in prompt
-    assert "<李四>@图片" not in prompt
+    # speaker 位不产生参考图：张三有主体绑定行，李四从不作为参考图主体出现
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in prompt
+    assert "<李四> is the" not in prompt
 
     frozen_speech_paths: dict[str, Path] = {}
     submitted_audio_paths: list[Path] = []
@@ -631,8 +624,8 @@ async def test_execute_reference_video_task_omits_reference_audio_when_episode_i
     prompt = captured["prompt"]
     assert "@音频" not in prompt
     # 台词与参考图绑定照常，只有音色参考行消失
-    assert "<张三>说 {今晚的酒，我请。}" in prompt
-    assert "<张三>@图片1。" in prompt
+    assert "<Subject 1>说 {今晚的酒，我请。}" in prompt
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in prompt
     assert {"key": "ref_warn_silent_episode", "params": {}} in result["warnings"]
 
 
@@ -873,7 +866,7 @@ async def test_execute_reference_video_task_omits_audio_field_for_soft_tier(
     await rvt.execute_reference_video_task("demo", "E1U1", {"script_file": "scripts/episode_1.json"}, user_id="u1")
 
     assert captured["reference_audio_files"] is None
-    assert "<张三>的声音特征：低沉沙哑的男声。" in captured["prompt"]
+    assert "<Subject 1>的声音特征：低沉沙哑的男声。" in captured["prompt"]
     assert "@音频" not in captured["prompt"]
 
 
@@ -1872,17 +1865,17 @@ async def test_execute_reference_video_task_prompt_matches_clipped_refs(
         user_id="u1",
     )
 
-    # 3 张裁到 1 张，第一段只能绑出 @图片1，不能出现 @图片2/@图片3
+    # 3 张裁到 1 张，subject_definitions 只能绑出 <Picture 1>，不能出现 <Picture 2>/<Picture 3>
     assert len(captured["reference_images"]) == 1
     prompt = captured["prompt"]
-    assert "@图片1" in prompt
-    assert "@图片2" not in prompt
-    assert "@图片3" not in prompt
-    # 被裁掉的 @酒馆 / @瓶子 仍是画面主体（<X> 与图号解耦），只是没有绑定行、没随请求发图
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in prompt
+    assert "<Picture 2>" not in prompt
+    assert "<Picture 3>" not in prompt
+    # 被裁掉的 @酒馆 / @瓶子 仍是画面主体（名字记号与图号解耦），只是没有主体绑定行、没随请求发图
     assert "<酒馆>" in prompt
     assert "<瓶子>" in prompt
-    assert "<酒馆>@图片" not in prompt
-    assert "<瓶子>@图片" not in prompt
+    assert "<酒馆> is the" not in prompt
+    assert "<瓶子> is the" not in prompt
     from lib.script.reference_video.request_projection import clamp_reference_assets
     from server.services.tasks.reference_video_tasks import reference_video_visual_basis_digest
 
@@ -1983,12 +1976,12 @@ async def test_execute_reference_video_task_prompt_matches_deduped_refs(
         user_id="u1",
     )
 
-    # 3 条 references（含一对 NFC/NFD 重复）去重后只剩 2 张图，图号必须与之对齐
+    # 3 条 references（含一对 NFC/NFD 重复）去重后只剩 2 张图，<Picture N> 编号必须与之对齐
     assert len(captured["reference_images"]) == 2
     prompt = captured["prompt"]
-    assert "@图片1" in prompt
-    assert "@图片2" in prompt
-    assert "@图片3" not in prompt
+    assert "<Picture 1>" in prompt
+    assert "<Picture 2>" in prompt
+    assert "<Picture 3>" not in prompt
 
 
 @pytest.mark.asyncio

@@ -110,6 +110,12 @@ async function loadSettings(projectName: string, signal: AbortSignal): Promise<L
     image: settings?.default_image_backend ?? "",
     imageT2I: settings?.default_image_backend_t2i ?? "",
     imageI2I: settings?.default_image_backend_i2i ?? "",
+    // 全局图片资产槽位（docs/adr/0098）：项目资产槽位留空时的穿透演算来源
+    imageCharacter: settings?.default_image_backend_character ?? "",
+    imageCharacterDerivative: settings?.default_image_backend_character_derivative ?? "",
+    imageScene: settings?.default_image_backend_scene ?? "",
+    imageProp: settings?.default_image_backend_prop ?? "",
+    imageProduct: settings?.default_image_backend_product ?? "",
     textDefault: settings?.default_text_backend ?? "",
     textSimple: settings?.text_backend_simple ?? "",
     textComplex: settings?.text_backend_complex ?? "",

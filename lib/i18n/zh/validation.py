@@ -76,6 +76,10 @@ MESSAGES = {
         "项目资产名称重复：{duplicate_type}「{duplicate_name}」与{first_type}「{first_name}」"
         "按 strip + Unicode NFC 判定同名"
     ),
+    "val_derivative_name_conflict": (
+        "衍生「{owner}/{derivative}」与独立{asset_type}「{derivative}」同名：一种外观只能登记一种形态，"
+        "请保留其一（本体 derivatives 表里的衍生，或独立角色条目）"
+    ),
     # ---- 条目级引用 ----
     "val_refs_unregistered": "{prefix}: {field} 引用了不存在于 project.json 的{asset_type}: {names}",
     "val_missing_defaults_empty_array": "{prefix}: 缺少 {field}，将使用默认空数组",

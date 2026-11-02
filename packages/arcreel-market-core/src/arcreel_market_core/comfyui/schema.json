@@ -533,6 +533,12 @@
             "$ref": "#/$defs/framesTarget"
           }
         },
+        "duration": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/steppedTarget"
+          }
+        },
         "fps": {
           "type": "array",
           "items": {
@@ -543,6 +549,18 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/seedTarget"
+          }
+        },
+        "shot_cur_seq": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeTarget"
+          }
+        },
+        "shot_pre_seq": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/writeTarget"
           }
         },
         "output": {

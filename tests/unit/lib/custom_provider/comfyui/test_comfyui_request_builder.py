@@ -243,6 +243,96 @@ class TestFrames:
         assert built.frames is None
 
 
+class TestDuration:
+    """``duration`` 把秒数直写进节点输入，不经 fps 换算；有 step 则向下对齐到步长整数倍。"""
+
+    @staticmethod
+    def _with_duration(**extra: Any) -> dict[str, Any]:
+        """绑一个 ``duration`` 目标到独立字段 ``9.length``，避开 width/height/seed 的既有落点。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["9"]["inputs"]["length"] = 1
+        definition["bindings"]["duration"] = [{"node": "9", "input": "length", "class_type": "SaveVideo", **extra}]
+        return definition
+
+    def test_the_seconds_are_written_as_is_without_a_step(self):
+        built = _build(self._with_duration(), duration_seconds=5)
+
+        assert built.duration == 5
+        assert _inputs(built, "9")["length"] == 5
+
+    def test_a_fractional_second_is_rounded_to_an_int(self):
+        """直写秒数是整数：11.6 秒取整写 12，没有 frames 那套 ``× fps + 1``。"""
+        built = _build(self._with_duration(), duration_seconds=11.6)
+
+        assert built.duration == 12
+        assert _inputs(built, "9")["length"] == 12
+
+    def test_a_stepped_duration_is_aligned_down_to_a_multiple_of_the_step(self):
+        """10 秒、步长 4：向下对齐到 8，而不是 frames 的 ``+1`` 语义（那会给 9）。"""
+        built = _build(self._with_duration(step=4), duration_seconds=10)
+
+        assert built.duration == 8
+        assert _inputs(built, "9")["length"] == 8
+        assert built.duration % 4 == 0
+
+    def test_a_duration_below_one_step_is_floored_at_one_step(self):
+        """2 秒、步长 4：下限一个 step（4），不是 frames 的 ``1 + step``（那会给 5）。"""
+        built = _build(self._with_duration(step=4), duration_seconds=2)
+
+        assert built.duration == 4
+        assert _inputs(built, "9")["length"] == 4
+
+    def test_a_none_duration_writes_nothing(self):
+        built = _build(self._with_duration(), duration_seconds=None)
+
+        assert built.duration is None
+        assert _inputs(built, "9")["length"] == 1
+
+    def test_an_unbound_duration_key_writes_nothing(self):
+        definition = comfyui_endpoint_definition()
+
+        built = _build(definition, duration_seconds=5)
+
+        assert built.duration is None
+
+
+class TestDurationTitleMarkerFallback:
+    """标题标记的时长节点与正式绑定同口径：能力层说可驱动，填值层就得真写进去。"""
+
+    @staticmethod
+    def _with_titled_duration(value: int = 16) -> dict[str, Any]:
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["37"] = {
+            "class_type": "PrimitiveFloat",
+            "inputs": {"value": value},
+            "_meta": {"title": "(input:duration) Duration"},
+        }
+        return definition
+
+    def test_the_planned_seconds_land_on_the_titled_node(self):
+        built = _build(self._with_titled_duration(), duration_seconds=8)
+
+        assert built.duration == 8
+        assert _inputs(built, "37")["value"] == 8
+
+    def test_no_planned_seconds_keeps_the_titled_node_literal(self):
+        built = _build(self._with_titled_duration(), duration_seconds=None)
+
+        assert built.duration is None
+        assert _inputs(built, "37")["value"] == 16
+
+    def test_the_formal_binding_still_wins_over_the_title_marker(self):
+        definition = self._with_titled_duration(99)
+        definition["workflow"]["9"]["inputs"]["length"] = 1
+        definition["bindings"]["duration"] = [{"node": "9", "input": "length", "class_type": "SaveVideo"}]
+
+        built = _build(definition, duration_seconds=5)
+
+        assert built.duration == 5
+        assert _inputs(built, "9")["length"] == 5
+        assert _inputs(built, "37")["value"] == 99
+
+
 class TestSeed:
     def test_the_random_policy_rolls_inside_the_thirty_two_bit_range(self):
         built = _build(comfyui_endpoint_definition(), rng=Random(1234))
@@ -294,6 +384,81 @@ class TestSeed:
 
         assert built.seed is None
         assert _inputs(built, "3")["seed"] == 123456
+
+
+class TestShotSequence:
+    @staticmethod
+    def _definition() -> dict[str, Any]:
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["10"] = {
+            "class_type": "MotionContext",
+            "inputs": {"shot_cur_seq": 99, "shot_pre_seq": 98},
+        }
+        definition["bindings"]["shot_cur_seq"] = [
+            {"node": "10", "input": "shot_cur_seq", "class_type": "MotionContext"}
+        ]
+        definition["bindings"]["shot_pre_seq"] = [
+            {"node": "10", "input": "shot_pre_seq", "class_type": "MotionContext"}
+        ]
+        return definition
+
+    def test_integer_ids_are_written_to_the_bound_motion_context_inputs(self):
+        built = _build(self._definition(), shot_cur_seq=3, shot_pre_seq=2)
+
+        assert _inputs(built, "10")["shot_cur_seq"] == 3
+        assert _inputs(built, "10")["shot_pre_seq"] == 2
+        assert type(_inputs(built, "10")["shot_cur_seq"]) is int
+        assert type(_inputs(built, "10")["shot_pre_seq"]) is int
+
+    def test_absent_sequence_context_keeps_the_workflow_literals(self):
+        built = _build(self._definition())
+
+        assert _inputs(built, "10")["shot_cur_seq"] == 99
+        assert _inputs(built, "10")["shot_pre_seq"] == 98
+
+    def test_a_string_typed_target_receives_the_string_form(self):
+        """目标当前字面值是字符串（TEXT 输入）：写入的是序号的字符串形，而不是 Python int。"""
+        definition = self._definition()
+        definition["workflow"]["10"]["inputs"] = {"shot_cur_seq": "0", "shot_pre_seq": "0"}
+
+        built = _build(definition, shot_cur_seq=3, shot_pre_seq=2)
+
+        assert _inputs(built, "10")["shot_cur_seq"] == "3"
+        assert _inputs(built, "10")["shot_pre_seq"] == "2"
+        assert type(_inputs(built, "10")["shot_cur_seq"]) is str
+        assert type(_inputs(built, "10")["shot_pre_seq"]) is str
+
+    def test_a_link_target_falls_back_to_the_int_form(self):
+        """目标是连线（``literal_of`` 返回 list，非 str）：落回 int 分支，照既有 ``_write_one`` 覆盖语义写 int。"""
+        definition = self._definition()
+        definition["bindings"]["shot_cur_seq"] = [{"node": "6", "input": "clip", "class_type": "CLIPTextEncode"}]
+
+        built = _build(definition, shot_cur_seq=3)
+
+        assert _inputs(built, "6")["clip"] == 3
+        assert type(_inputs(built, "6")["clip"]) is int
+
+    def test_an_absent_input_falls_back_to_the_int_form(self):
+        """节点在图里但该 input 不存在（``literal_of`` 返回 None，非 str）：落回 int 分支写 int。"""
+        definition = self._definition()
+        definition["bindings"]["shot_cur_seq"] = [
+            {"node": "5", "input": "shot_cur_seq", "class_type": "EmptyLatentImage"}
+        ]
+
+        built = _build(definition, shot_cur_seq=3)
+
+        assert _inputs(built, "5")["shot_cur_seq"] == 3
+        assert type(_inputs(built, "5")["shot_cur_seq"]) is int
+
+    def test_the_zero_sentinel_survives_str_conversion_on_a_string_target(self):
+        """首镜哨兵 0 绑在字符串输入上：``str(0)`` 得 ``"0"``，不被当成假值丢掉。"""
+        definition = self._definition()
+        definition["workflow"]["10"]["inputs"] = {"shot_cur_seq": "0", "shot_pre_seq": "0"}
+
+        built = _build(definition, shot_pre_seq=0)
+
+        assert _inputs(built, "10")["shot_pre_seq"] == "0"
+        assert type(_inputs(built, "10")["shot_pre_seq"]) is str
 
 
 class TestAvoidSplit:
@@ -352,6 +517,87 @@ class TestMediaValues:
         assert _inputs(built, "20")["image"] == "a.png"
         assert _inputs(built, "21")["image"] == "b.png"
         assert built.dropped_nodes == ()
+
+
+class TestTitleMarkerFallbackSlots:
+    """绑定表缺条、标题标记认出的图输入：只填不删，不给值时保留底稿字面值。"""
+
+    def _titled_definition(self, key: str, node: str = "20") -> dict[str, Any]:
+        definition = comfyui_endpoint_definition()
+        definition["workflow"][node] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": "draft.png"},
+            "_meta": {"title": f"(input:{key}) Ref 1"},
+        }
+        definition["workflow"]["3"]["inputs"]["image"] = [node, 0]
+        return definition
+
+    def test_a_given_start_frame_is_written_to_the_title_marked_node(self):
+        built = _build(self._titled_definition("start_image"), media=MediaInputs(start_image="sub/first.png"))
+
+        assert _inputs(built, "20")["image"] == "sub/first.png"
+        assert built.dropped_nodes == ()
+
+    def test_a_missing_start_frame_keeps_the_draft_literal_and_the_node(self):
+        built = _build(self._titled_definition("start_image"), media=MediaInputs(start_image=None))
+
+        assert _inputs(built, "20")["image"] == "draft.png"
+        assert "20" in built.workflow
+        assert built.dropped_nodes == ()
+
+    def test_reference_slots_fill_in_node_id_order_without_dropping(self):
+        definition = comfyui_endpoint_definition()
+        for node, name in (("21", "ref_b"), ("20", "ref_a")):
+            definition["workflow"][node] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": f"{name}.png"},
+                "_meta": {"title": "(input:reference_images) Ref"},
+            }
+
+        built = _build(definition, media=MediaInputs(reference_images=("x.png", "y.png")))
+
+        assert _inputs(built, "20")["image"] == "x.png"
+        assert _inputs(built, "21")["image"] == "y.png"
+        assert built.dropped_nodes == ()
+
+    def test_fewer_references_than_title_slots_repeat_the_last_image(self):
+        """标题格子没有 consumer 记录、改不动图：退回复制最后一张，而不是删格子。"""
+        definition = comfyui_endpoint_definition()
+        for node in ("20", "21"):
+            definition["workflow"][node] = {
+                "class_type": "LoadImage",
+                "inputs": {"image": f"{node}.png"},
+                "_meta": {"title": "(input:reference_images) Ref"},
+            }
+
+        built = _build(definition, media=MediaInputs(reference_images=("x.png",)))
+
+        assert _inputs(built, "20")["image"] == "x.png"
+        assert _inputs(built, "21")["image"] == "x.png"
+        assert built.dropped_nodes == ()
+
+    def test_no_references_keeps_every_title_slot_at_its_draft_literal(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["20"] = {
+            "class_type": "LoadImage",
+            "inputs": {"image": "ref_a.png"},
+            "_meta": {"title": "(input:reference_images) Ref 1"},
+        }
+
+        built = _build(definition, media=MediaInputs(reference_images=()))
+
+        assert _inputs(built, "20")["image"] == "ref_a.png"
+        assert built.dropped_nodes == ()
+
+    def test_formal_binding_still_drops_when_the_title_marker_also_sits_there(self):
+        """正式绑定与标题标记同节点：绑定表优先，不给值照样改图。"""
+        definition = _i2v_definition()
+        definition["workflow"]["20"]["_meta"] = {"title": "(input:start_image) Ref 1"}
+
+        built = _build(definition, media=MediaInputs(start_image=None))
+
+        assert "20" not in built.workflow
+        assert "20" in built.dropped_nodes
 
 
 class TestImageDrop:

@@ -86,6 +86,7 @@ export default {
   default_hint: "默认模型可在「项目大厅 → 设置 → 默认模型」中调整",
   current_global_default: "当前全局默认：{{value}}",
   use_global_default: "使用全局默认",
+  use_project_default: "使用项目默认",
   model_video: "视频模型",
   model_video_default: "默认视频模型",
   model_image: "图片模型",

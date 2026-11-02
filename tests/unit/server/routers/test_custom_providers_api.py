@@ -25,6 +25,7 @@ from lib.custom_provider.endpoints import (
     declarative_endpoint_spec,
     get_endpoint_spec,
 )
+from server.routers import custom_providers
 from tests.factories import custom_endpoint_definition
 from tests.fakes import use_project_manager
 from tests.http_capture import capture_http, only_request
@@ -1968,3 +1969,89 @@ class TestPathOverrides:
         resp = self._create(custom_providers_client, {"result": "/api/result"})
 
         assert resp.status_code == 422
+
+
+class _ConnFakeModels:
+    def list(self):
+        return iter([])
+
+
+class _ConnModelsPager(_ConnFakeModels):
+    def __iter__(self):
+        return iter([])
+
+
+class TestConnectivityProxyBypass:
+    """连通性检查按 base_url 决定 SDK 是否绕系统代理：内网 base_url 注入绕代理配置、公网零改动。
+
+    8001 这类自建兼容端点是本次连通性失败的根因路径。用 ``client_factory`` spy SDK 构造参数，断言内网
+    base_url 时 OpenAI 收到非 None ``http_client``、genai 收到含 ``client_args.mounts`` 的 ``http_options``；
+    公网 base_url 时 OpenAI 无 ``http_client``、genai 无 ``client_args``（回归「公网仍走代理」）。
+    """
+
+    @staticmethod
+    def _t(key: str, **_kwargs: Any) -> str:
+        return key
+
+    def test_openai_internal_base_url_injects_http_client(self):
+        captured: dict[str, Any] = {}
+
+        def _factory(**kwargs: Any):
+            captured.update(kwargs)
+            client = MagicMock()
+            client.models = _ConnFakeModels()
+            return client
+
+        http_client = None
+        try:
+            custom_providers._check_openai("http://192.168.5.149:8001/v1", "sk-x", self._t, client_factory=_factory)
+            http_client = captured.get("http_client")
+            assert isinstance(http_client, httpx.Client)
+        finally:
+            if isinstance(http_client, httpx.Client):
+                http_client.close()
+
+    def test_openai_public_base_url_omits_http_client(self):
+        captured: dict[str, Any] = {}
+
+        def _factory(**kwargs: Any):
+            captured.update(kwargs)
+            client = MagicMock()
+            client.models = _ConnFakeModels()
+            return client
+
+        custom_providers._check_openai("https://api.openai.com/v1", "sk-x", self._t, client_factory=_factory)
+        # 公网 base_url 不注入绕代理 client：http_client 为 None（即 SDK 默认，读系统代理），
+        # 与完全不传等价。
+        assert captured.get("http_client") is None
+
+    def test_google_internal_base_url_injects_client_args(self):
+        captured: dict[str, Any] = {}
+
+        def _factory(**kwargs: Any):
+            captured.update(kwargs)
+            client = MagicMock()
+            client.models = _ConnModelsPager()
+            return client
+
+        custom_providers._check_google("http://192.168.5.149:8001", "k", self._t, client_factory=_factory)
+        opts = captured.get("http_options")
+        assert opts is not None
+        assert "client_args" in opts
+        assert "mounts" in opts["client_args"]
+
+    def test_google_public_base_url_omits_client_args(self):
+        captured: dict[str, Any] = {}
+
+        def _factory(**kwargs: Any):
+            captured.update(kwargs)
+            client = MagicMock()
+            client.models = _ConnModelsPager()
+            return client
+
+        custom_providers._check_google(
+            "https://generativelanguage.googleapis.com", "k", self._t, client_factory=_factory
+        )
+        opts = captured.get("http_options")
+        assert opts is not None
+        assert "client_args" not in opts

@@ -193,7 +193,9 @@ class DeclarativeImageBackend:
             on_provider_response=request.on_provider_response,
             label=None,
         )
-        async with artifact_http_client(timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True) as client:
+        async with artifact_http_client(
+            timeout=_HTTP_TIMEOUT_SECONDS, follow_redirects=True, bypass_proxy_for=self._engine.base_url
+        ) as client:
             job_id = await self._engine.submit(client, context, call)
             try:
                 return await self._collect(client, job_id, call, context, request)

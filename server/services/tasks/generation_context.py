@@ -29,6 +29,7 @@ from lib.backends.gemini_shared import get_shared_rate_limiter
 from lib.config.resolver import (
     ConfigResolver,
     VideoGenerationType,
+    payload_video_pinned_pair,
     video_bucket_for_generation_mode,
 )
 from lib.custom_provider.backends import CustomVideoBackend
@@ -218,10 +219,15 @@ class VideoLaneRequest:
 
     ``route`` 声明时 lane 附带该路线的执行侧视频请求事实（``docs/adr/0086``），能力只经它读取；
     未显式定桶时按项目生成模式定桶解析身份与求值。不声明路线的 lane（续跑按检查点排空）不求值能力。
+
+    ``reference_count`` 是本单元**裁剪前**的可用参考图数：r2v 单元按它在家族内精确选 I{N}
+    端点（``docs/adr/0054``）。None 表示不按 N 选（i2v / 续跑排空 / 非家族），走原
+    ``resolve_video_backend``。
     """
 
     generation_type: VideoGenerationType | None = None
     route: VideoRoute | None = None
+    reference_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -356,6 +362,7 @@ async def resolve_generation_context(
     image: ImageLaneRequest | None = None,
     video: VideoLaneRequest | None = None,
     audio: AudioLaneRequest | None = None,
+    task_type: str | None = None,
 ) -> GenerationContext:
     """在单个 ConfigResolver session 内解析全部声明 lane、构造 backend 并组装 MediaGenerator。
 
@@ -368,6 +375,9 @@ async def resolve_generation_context(
     ``lib.config.resolver.caps_generation_mode``）——生成模式创建即定、整个项目按同一种模式生成，
     声音一致性等二维派生值因此不需要集号；显式给定时按指定桶解析（参考生视频内按视频单元分流的
     调用方自带判定结果）。
+
+    ``task_type`` 只参与 image lane 的资产槽位解析（docs/adr/0098）：资产图任务传入自身
+    task_type，解析优先该资产类别的全局默认端点；非资产图片任务不传（None 时骨架跳过该层）。
     """
     from lib.db import async_session_factory
 
@@ -389,7 +399,9 @@ async def resolve_generation_context(
 
     async with resolver.session() as r:
         if image is not None:
-            resolved = await r.resolve_image_backend(project, payload, generation_type=image.generation_type)
+            resolved = await r.resolve_image_backend(
+                project, payload, generation_type=image.generation_type, task_type=task_type
+            )
             image_backend = await _get_or_create_image_backend(
                 resolved.provider_id,
                 {},
@@ -404,7 +416,22 @@ async def resolve_generation_context(
             generation_type = video.generation_type
             if generation_type is None and video.route is not None:
                 generation_type = video_bucket_for_generation_mode(project.get("generation_mode"))
-            resolved = await r.resolve_video_backend(project, payload, generation_type=generation_type)
+            # r2v 单元按可用参考图数在家族内精确选 I{N} 端点；其余情形保持原解析（payload 优先、
+            # 桶骨架 + 能力闸 / 身份收敛）。换的只有 resolved 这一步，后续构造与求值不变。
+            # payload 里的执行身份 pin 是显式物化身份（续跑 / 批量临时切换）：有 pin 时按
+            # ``resolve_video_backend`` 的 payload 优先执行，无 pin 才按当前配置选 I{N}——
+            # 读侧能力载荷按当前配置显示端点，执行侧据此落同一端点，展示与执行不再分叉。
+            if (
+                video.route == "reference_video"
+                and generation_type == "r2v"
+                and video.reference_count is not None
+                and payload_video_pinned_pair(payload, generation_type) is None
+            ):
+                resolved = await r.resolve_reference_video_backend_for_count(
+                    project, reference_count=video.reference_count
+                )
+            else:
+                resolved = await r.resolve_video_backend(project, payload, generation_type=generation_type)
             video_backend = await _get_or_create_video_backend(
                 resolved.provider_id,
                 {},

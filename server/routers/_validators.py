@@ -8,7 +8,12 @@ from fastapi.exceptions import RequestValidationError
 from lib.catalog import query as catalog
 from lib.catalog.errors import ModelNotInCatalogError
 from lib.config.registry import PROVIDER_REGISTRY
-from lib.config.resolver import ConfigResolver, VideoBucketCapabilityError, VideoGenerationType
+from lib.config.resolver import (
+    IMAGE_ASSET_SLOT_KEYS,
+    ConfigResolver,
+    VideoBucketCapabilityError,
+    VideoGenerationType,
+)
 from lib.infra.api_errors import BadRequestError
 
 
@@ -104,6 +109,8 @@ _FIELD_MEDIA_TYPES: dict[str, str] = {
     "default_image_backend": "image",
     "default_image_backend_t2i": "image",
     "default_image_backend_i2i": "image",
+    # 图片资产槽位（docs/adr/0098）：键位与 lib.config.resolver.IMAGE_ASSET_SLOT_KEYS 一致
+    **dict.fromkeys(IMAGE_ASSET_SLOT_KEYS.values(), "image"),
     "audio_backend": "audio",
     "default_audio_backend": "audio",
     "text_backend_simple": "text",

@@ -75,6 +75,11 @@ const EMPTY_VALUE = {
   imageBackendDefault: "",
   imageBackendT2I: "",
   imageBackendI2I: "",
+  imageBackendCharacter: "",
+  imageBackendCharacterDerivative: "",
+  imageBackendScene: "",
+  imageBackendProp: "",
+  imageBackendProduct: "",
   textBackendDefault: "",
   textBackendSimple: "",
   textBackendComplex: "",
@@ -86,6 +91,7 @@ const EMPTY_VALUE = {
 const EMPTY_GLOBALS = {
   video: "", videoI2V: "", videoR2V: "",
   image: "", imageT2I: "", imageI2I: "",
+  imageCharacter: "", imageCharacterDerivative: "", imageScene: "", imageProp: "", imageProduct: "",
   textDefault: "", textSimple: "", textComplex: "",
 } as const;
 
@@ -465,6 +471,28 @@ describe("ModelConfigSection", () => {
       const [videoDisclosure] = screen.getAllByRole("button", { name: /按用途指定模型/ });
       expect(videoDisclosure).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByText("已指定 1 项")).toBeInTheDocument();
+    });
+
+    it("renders per-asset-category image slots and falls back to the global slot when the project one is empty", () => {
+      renderWithCandidates({
+        globalDefaults: { ...EMPTY_GLOBALS, image: "gemini/nano-banana", imageCharacter: "openai/gpt-image-edit" },
+      });
+      // 五个资产槽位下拉常驻图片通道（不折叠）
+      for (const name of ["资产图 - 角色", "资产图 - 角色衍生", "资产图 - 场景", "资产图 - 道具", "资产图 - 商品"]) {
+        expect(screen.getByRole("combobox", { name })).toBeInTheDocument();
+      }
+      // 项目槽位留空时，触发按钮显示穿透演算后的生效模型：全局同类槽位
+      expect(screen.getByRole("combobox", { name: "资产图 - 角色" })).toHaveTextContent(
+        /跟随默认 · openai · gpt-image-edit/,
+      );
+    });
+
+    it("does not render the asset slots when the create wizard only exposes the default layer", () => {
+      render(<ModelConfigSection showSubFields={false} value={EMPTY_VALUE} onChange={() => {}}
+        providers={PROVIDERS} options={OPTIONS} globalDefaults={EMPTY_GLOBALS} />);
+      // 创建向导路径：图片通道只剩默认层下拉，资产槽位不出现
+      expect(screen.queryByRole("combobox", { name: "资产图 - 角色" })).not.toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: /^默认图片模型$/ })).toBeInTheDocument();
     });
   });
 

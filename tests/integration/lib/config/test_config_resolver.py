@@ -1983,3 +1983,209 @@ class TestAutoResolvedBackendsPreview:
         pid = make_provider_id(provider.id)
         assert preview == {"t2i": (pid, "t2i-m"), "i2i": (pid, "i2i-m"), "i2v": None, "r2v": None, "text": None}
         assert preview == executed
+
+
+class TestImageAssetSlots:
+    """图片资产槽位（docs/adr/0098）：全局层与项目层按任务资产类别细分的默认端点。
+
+    解析顺序：payload > 项目资产槽位 > 项目桶 > 项目默认 > 全局资产槽位 > 全局桶 > 全局默认 > 自动推断。
+    槽位登记在 ``IMAGE_ASSET_SLOT_KEYS``（按 task_type），未登记的 task_type 两层都跳过。
+    """
+
+    _BOTH = "gemini-aistudio/gemini-3.1-flash-image-preview"  # t2i + i2i
+    _T2I_ONLY_SLOT = "grok/grok-imagine-image"  # 仅用于区分槽位值，t2i + i2i
+
+    async def _resolve(self, db_session, settings, project, generation_type, task_type):
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+        from lib.config.service import ConfigService
+
+        svc = ConfigService(db_session)
+        for key, value in settings.items():
+            await svc.set_setting(key, value)
+        await db_session.commit()
+        factory = async_sessionmaker(bind=db_session.bind, class_=AsyncSession, expire_on_commit=False)
+        resolver = ConfigResolver(factory, _bound_session=db_session)
+        return await resolver.resolve_image_backend(project, None, generation_type=generation_type, task_type=task_type)
+
+    # ---- 项目层资产槽位（docs/adr/0098，project.json 同名键）----
+
+    async def test_project_asset_slot_overrides_project_bucket(self, db_session):
+        """项目资产槽位在所属层内最具体：覆盖同项目 t2i 桶。"""
+        result = await self._resolve(
+            db_session,
+            {},
+            {
+                "default_image_backend_character": self._T2I_ONLY_SLOT,
+                "image_provider_t2i": "grok/grok-imagine-image-pro",
+            },
+            "t2i",
+            "character",
+        )
+        assert (result.provider_id, result.model_id) == ("grok", "grok-imagine-image")
+
+    async def test_project_asset_slot_beats_project_default(self, db_session):
+        """项目资产槽位覆盖同项目默认层。"""
+        result = await self._resolve(
+            db_session,
+            {},
+            {
+                "default_image_backend_character": self._T2I_ONLY_SLOT,
+                "default_image_backend": "gemini-aistudio/gemini-3.1-flash-image-preview",
+            },
+            "t2i",
+            "character",
+        )
+        assert (result.provider_id, result.model_id) == ("grok", "grok-imagine-image")
+
+    async def test_project_asset_slot_wins_over_global_asset_slot(self, db_session):
+        """项目槽位属项目层，优先于全局同类槽位。"""
+        result = await self._resolve(
+            db_session,
+            {"default_image_backend_character": "ark/doubao-seedream-4-0-250828"},
+            {"default_image_backend_character": self._T2I_ONLY_SLOT},
+            "t2i",
+            "character",
+        )
+        assert (result.provider_id, result.model_id) == ("grok", "grok-imagine-image")
+
+    async def test_project_asset_slot_empty_falls_back_to_global_asset_slot(self, db_session):
+        """项目槽位留空时穿透到全局同类槽位。"""
+        result = await self._resolve(
+            db_session,
+            {"default_image_backend_character": "ark/doubao-seedream-4-0-250828"},
+            {"default_image_backend_character": ""},
+            "t2i",
+            "character",
+        )
+        assert (result.provider_id, result.model_id) == ("ark", "doubao-seedream-4-0-250828")
+
+    async def test_project_asset_slot_only_covers_its_task_type(self, db_session):
+        """项目槽位按 task_type 命中：scene 任务不读 character 项目槽位。"""
+        result = await self._resolve(
+            db_session,
+            {"default_image_backend_scene": self._BOTH},
+            {"default_image_backend_character": self._T2I_ONLY_SLOT},
+            "t2i",
+            "scene",
+        )
+        assert (result.provider_id, result.model_id) == ("gemini-aistudio", "gemini-3.1-flash-image-preview")
+
+    async def test_asset_slot_overrides_global_bucket(self, db_session):
+        """资产槽位比全局桶更具体：同 generation_type 下槽位覆盖 t2i 桶。"""
+        result = await self._resolve(
+            db_session,
+            {
+                "default_image_backend": self._BOTH,
+                "default_image_backend_t2i": "grok/grok-imagine-image-pro",
+                "default_image_backend_character": self._T2I_ONLY_SLOT,
+            },
+            {},
+            "t2i",
+            "character",
+        )
+        assert (result.provider_id, result.model_id) == ("grok", "grok-imagine-image")
+
+    async def test_project_bucket_still_wins_over_asset_slot(self, db_session):
+        """项目桶优先于资产槽位：槽位仍属全局层。"""
+        result = await self._resolve(
+            db_session,
+            {"default_image_backend_character": self._T2I_ONLY_SLOT},
+            {"image_provider_t2i": "grok/grok-imagine-image-pro"},
+            "t2i",
+            "character",
+        )
+        assert (result.provider_id, result.model_id) == ("grok", "grok-imagine-image-pro")
+
+    async def test_project_default_wins_over_asset_slot(self, db_session):
+        """项目默认层同样优先于资产槽位。"""
+        result = await self._resolve(
+            db_session,
+            {"default_image_backend_character": self._T2I_ONLY_SLOT},
+            {"default_image_backend": "grok/grok-imagine-image-pro"},
+            "t2i",
+            "character",
+        )
+        assert (result.provider_id, result.model_id) == ("grok", "grok-imagine-image-pro")
+
+    async def test_empty_slot_falls_back_to_global_bucket(self, db_session):
+        """未登记的资产类别（scene 槽位空）回退全局桶，不受 character 槽位影响。"""
+        result = await self._resolve(
+            db_session,
+            {
+                "default_image_backend": self._BOTH,
+                "default_image_backend_t2i": "grok/grok-imagine-image-pro",
+                "default_image_backend_character": self._T2I_ONLY_SLOT,
+            },
+            {},
+            "t2i",
+            "scene",
+        )
+        assert (result.provider_id, result.model_id) == ("grok", "grok-imagine-image-pro")
+
+    async def test_unregistered_task_type_skips_slot(self, db_session):
+        """未登记 task_type（分镜图等）跳过槽位层，行为与槽位无关。"""
+        result = await self._resolve(
+            db_session,
+            {
+                "default_image_backend": self._BOTH,
+                "default_image_backend_character": self._T2I_ONLY_SLOT,
+            },
+            {},
+            "t2i",
+            None,
+        )
+        assert (result.provider_id, result.model_id) == ("gemini-aistudio", "gemini-3.1-flash-image-preview")
+
+    async def test_character_derivative_uses_derivative_slot(self, db_session):
+        """衍生任务恒为 character_derivative，命中独立的衍生槽位。"""
+        result = await self._resolve(
+            db_session,
+            {
+                "default_image_backend": self._BOTH,
+                "default_image_backend_i2i": "grok/grok-imagine-image-pro",
+                "default_image_backend_character": self._T2I_ONLY_SLOT,
+                "default_image_backend_character_derivative": "ark/doubao-seedream-4-0-250828",
+            },
+            {},
+            "i2i",
+            "character_derivative",
+        )
+        assert (result.provider_id, result.model_id) == ("ark", "doubao-seedream-4-0-250828")
+
+    async def test_asset_slot_capability_gate(self, db_session):
+        """槽位值同样过能力闸：i2i-only 自定义模型解析 t2i 任务时结构化报错，不静默换模型。"""
+        from lib.config.resolver import ImageBucketCapabilityError
+        from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
+
+        provider = CustomProvider(
+            display_name="Custom Image",
+            discovery_format="openai",
+            base_url="https://example.com",
+            api_key="xxx",
+        )
+        db_session.add(provider)
+        await db_session.flush()
+        db_session.add(
+            CustomProviderModel(
+                provider_id=provider.id,
+                model_id="i2i-only",
+                display_name="I2I Only",
+                endpoint="openai-images-edits",
+                is_enabled=True,
+                is_default=True,
+            )
+        )
+        await db_session.commit()
+        provider_id = f"custom-{provider.id}"
+
+        with pytest.raises(ImageBucketCapabilityError) as excinfo:
+            await self._resolve(
+                db_session,
+                {"default_image_backend_scene": f"{provider_id}/i2i-only"},
+                {},
+                "t2i",
+                "scene",
+            )
+        assert excinfo.value.code == "image_capability_missing_t2i"
+        assert excinfo.value.model_id == "i2i-only"

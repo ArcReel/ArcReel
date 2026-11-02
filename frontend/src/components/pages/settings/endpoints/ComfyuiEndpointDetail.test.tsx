@@ -246,8 +246,8 @@ describe("ComfyuiEndpointDetail", () => {
     expect(within(row("start_image")).getByText("未找到")).toBeInTheDocument();
     expect(within(row("end_image")).getByText("不支持")).toBeInTheDocument();
     expect(within(row("output")).getByText("必填未绑定")).toBeInTheDocument();
-    // 没被推断提到的语义键一并算未找到：reference_images、宽、高、帧数、帧率与 output 共 7 项。
-    expect(screen.getByText("已绑定 2 · 需选择 1 · 未找到 7 · 不支持 1")).toBeInTheDocument();
+    // 未被推断提到的语义键一并算未找到：参考图、宽、高、帧数、时长、帧率、两个续镜序号与 output 共 10 项。
+    expect(screen.getByText("已绑定 2 · 需选择 1 · 未找到 10 · 不支持 1")).toBeInTheDocument();
   });
 
   it("opens the tied row on arrival and leaves the settled ones folded", () => {
@@ -439,6 +439,54 @@ describe("ComfyuiEndpointDetail", () => {
     expect(within(row("output")).getByText(/#61/)).toBeInTheDocument();
   });
 
+  it("gives duration the same optional write-key treatment: not found, hand-pick, rebind and mark unsupported", async () => {
+    // duration 是视频轴上的可选直写键，不该走必填那一套，手选落点、改绑、标为不支持都要像 seed/宽那样成立。
+    renderDetail({
+      inference: inference({
+        bindings: {
+          prompt: picked(PROMPT),
+          output: picked(OUTPUT),
+          duration: { state: "not_found", candidates: [], notes: [] },
+        },
+      }),
+    });
+
+    // (a) 没有推断条目时是「未找到」而非「必填未绑定」——确认 duration 不在必填集里。
+    expect(within(row("duration")).getByText("未找到")).toBeInTheDocument();
+    expect(within(row("duration")).queryByText("必填未绑定")).not.toBeInTheDocument();
+
+    // (b) 手选把 duration 直写到节点 50 的字面值输入 length 上，行翻到「手动指定」并显示落点。
+    await userEvent.click(within(row("duration")).getByRole("button", { name: "手选" }));
+    await userEvent.selectOptions(screen.getByLabelText("为 duration 手选落点"), "50.length");
+    expect(within(row("duration")).getByText("手动指定")).toBeInTheDocument();
+    expect(within(row("duration")).getByText(/#50/)).toBeInTheDocument();
+
+    // (c) 可选键能标为不支持，点一下行翻到「不支持」。
+    await userEvent.click(screen.getByRole("button", { name: "标为不支持" }));
+    expect(within(row("duration")).getByText("不支持")).toBeInTheDocument();
+  });
+
+  it("lets the user resolve a tied duration inference by picking a candidate", async () => {
+    // duration 是单写键，候选以 radiogroup 呈现（像 negative_prompt/output，不是宽高那种多选 group）。
+    const lengthA: ComfyuiBindingTarget = { node: "50", input: "length", class_type: "WanImageToVideo" };
+    const widthB: ComfyuiBindingTarget = { node: "50", input: "width", class_type: "WanImageToVideo" };
+    renderDetail({
+      inference: inference({
+        bindings: {
+          prompt: picked(PROMPT),
+          output: picked(OUTPUT),
+          duration: { state: "ambiguous", candidates: [candidate(lengthA), candidate(widthB)], notes: [] },
+        },
+      }),
+    });
+
+    expect(within(row("duration")).getByText("需选择")).toBeInTheDocument();
+    const group = screen.getByRole("radiogroup", { name: "候选落点" });
+    await userEvent.click(within(group).getAllByRole("radio")[0]);
+
+    expect(within(row("duration")).getByText("手动指定")).toBeInTheDocument();
+  });
+
   it("offers to mark an optional semantic unsupported, but never a required one", async () => {
     renderDetail({
       inference: inference({
@@ -584,6 +632,7 @@ describe("ComfyuiEndpointDetail", () => {
     expect(screen.getByText("prompt", { selector: "span.font-mono" })).toBeInTheDocument();
     expect(screen.queryByText("start_image", { selector: "span.font-mono" })).not.toBeInTheDocument();
     expect(screen.queryByText("frames", { selector: "span.font-mono" })).not.toBeInTheDocument();
+    expect(screen.queryByText("duration", { selector: "span.font-mono" })).not.toBeInTheDocument();
   });
 
   it("re-runs recognition under the other rule set when the media type changes", async () => {

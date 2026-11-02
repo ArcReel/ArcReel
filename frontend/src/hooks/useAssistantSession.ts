@@ -916,8 +916,16 @@ function getPendingQuestionFromEvent(payload: Record<string, unknown>): PendingQ
     return null;
   }
 
-  return {
+  const pending: PendingQuestion = {
     question_id: payload.question_id,
     questions: payload.questions as PendingQuestion["questions"],
   };
+  // 文件访问授权 payload 的附加字段透传给渲染层（守卫仍要求 questions 为数组，后端已保证）。
+  if (payload.request_kind === "file_access") {
+    pending.request_kind = "file_access";
+    pending.path = typeof payload.path === "string" ? payload.path : null;
+    pending.reason = typeof payload.reason === "string" ? payload.reason : null;
+    pending.title = typeof payload.title === "string" ? payload.title : null;
+  }
+  return pending;
 }

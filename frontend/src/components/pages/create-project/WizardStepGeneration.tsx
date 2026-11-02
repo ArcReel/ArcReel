@@ -29,6 +29,11 @@ export interface WizardGenerationData {
     image: string;
     imageT2I: string;
     imageI2I: string;
+    imageCharacter: string;
+    imageCharacterDerivative: string;
+    imageScene: string;
+    imageProp: string;
+    imageProduct: string;
     textDefault: string;
     textSimple: string;
     textComplex: string;

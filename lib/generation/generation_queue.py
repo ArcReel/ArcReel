@@ -51,7 +51,11 @@ def _normalized_script_file(script_file: str | None) -> str | None:
 
 
 _VIDEO_EXECUTION_IDENTITY_KEYS = frozenset({"video_provider_i2v", "video_provider_r2v"})
-_REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = frozenset({"script_file", "reference_request_options"})
+_REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS_BASE = frozenset({"script_file", "reference_request_options"})
+# 参考生视频入队载荷保留的键：定位与请求选项之外，还保留显式的执行身份 pin——批量补齐的
+# 「临时切换执行端点」在入队时物化进 payload，执行侧据此按 pin 选端点；不写 pin 的任务不受影响
+# （无该键）。
+_REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS = _REFERENCE_VIDEO_ENQUEUE_PAYLOAD_KEYS_BASE | _VIDEO_EXECUTION_IDENTITY_KEYS
 
 
 #: 旧版本入队的文本任务在载荷里带着入队时的数据根；执行按当前配置解析，判同也不计它。
@@ -117,7 +121,14 @@ def _reference_request_facts(task_type: str, payload: dict[str, Any] | None) -> 
 
     from lib.script.reference_video.request_projection import ReferenceRequestOptions
 
-    return ReferenceRequestOptions.from_payload(payload or {}).to_payload()
+    payload = payload or {}
+    facts = ReferenceRequestOptions.from_payload(payload).to_payload()
+    # 显式执行身份 pin 是请求的一部分：同一单元换端点是不同请求，不得与无 pin / 异 pin 的活动
+    # 任务互相去重（否则临时切换会被静默复用成旧端点的任务）。无 pin 的任务不带这些键，口径不变。
+    for key in sorted(_VIDEO_EXECUTION_IDENTITY_KEYS):
+        if key in payload:
+            facts[key] = payload[key]
+    return facts
 
 
 class DispatchProviderChanged(RuntimeError):
@@ -261,6 +272,27 @@ async def resolve_video_execution_for_queued_task(
         if task_type == "reference_video"
         else None
     )
+    generation_type = (
+        projection.hydrated_generation_type
+        if projection is not None
+        else await video_bucket_for_queued_task(
+            project=project,
+            project_name=project_name,
+            task_type=task_type,
+            payload=payload,
+            resource_id=resource_id,
+        )
+    )
+    # 显式执行身份 pin（批量补齐的临时端点切换 / 续跑物化）只对参考生视频生效：它的入队边界
+    # 只在有 pin 时保留身份键，故键存在即意图。advisory provider 跟着 pin 走，认领时的池过滤与
+    # 槽位归属就和执行一致，不多走一轮 DispatchProviderChanged 回队。分镜视频没有这条入队写 pin
+    # 的通路，仍按项目现状认领（payload 里的旧身份键不采纳）。
+    if task_type == "reference_video":
+        from lib.config.resolver import ProviderModel, payload_video_pinned_pair
+
+        pinned = payload_video_pinned_pair(payload or {}, generation_type)
+        if pinned is not None:
+            return ProviderModel(pinned[1][0], pinned[1][1]), generation_type
     if projection is not None and projection.request_facts is not None:
         from lib.config.resolver import ProviderModel
 
@@ -268,13 +300,6 @@ async def resolve_video_execution_for_queued_task(
             projection.provider_id or "", projection.model_id or ""
         ), projection.hydrated_generation_type
 
-    generation_type = await video_bucket_for_queued_task(
-        project=project,
-        project_name=project_name,
-        task_type=task_type,
-        payload=payload,
-        resource_id=resource_id,
-    )
     execution_payload = (
         without_video_execution_identity(payload) if task_type in ("video", "reference_video") else payload
     )
@@ -333,9 +358,11 @@ async def _derive_execution_model_for_enqueue(
             resolved = await resolver.resolve_audio_backend(project, payload or {})
         else:
             # image_edit / 衍生资产图必然 i2i 且入队即知（唯一例外，见 docs/adr/0001），按 i2i
-            # 槽解析；其余 image 任务的任务类型执行时才定，取 t2i 作代表性 provider。
+            # 槽解析；其余 image 任务的任务类型执行时才定，取 t2i 作 representative provider.
             generation_type = "i2i" if task_type in I2I_ONLY_TASK_TYPES else "t2i"
-            resolved = await resolver.resolve_image_backend(project, payload or {}, generation_type=generation_type)
+            resolved = await resolver.resolve_image_backend(
+                project, payload or {}, generation_type=generation_type, task_type=task_type
+            )
     except Exception:
         logger.debug("入队时派生执行身份失败，留 NULL 由 worker 兜底", exc_info=True)
         return None
@@ -407,6 +434,7 @@ class GenerationQueue:
         dependency_task_id: str | None = None,
         dependency_group: str | None = None,
         dependency_index: int | None = None,
+        dependency_release: str | None = None,
         user_id: str = DEFAULT_USER_ID,
         provider_id: str | None = None,
         batch_id: str | None = None,
@@ -472,6 +500,7 @@ class GenerationQueue:
                     dependency_task_id=dependency_task_id,
                     dependency_group=dependency_group,
                     dependency_index=dependency_index,
+                    dependency_release=dependency_release,
                     user_id=user_id,
                     provider_id=provider_id,
                     batch_id=batch_id,

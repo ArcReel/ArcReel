@@ -38,7 +38,7 @@ def _asset_prompt(asset_type: str, name: str, description: str, style: str = "",
 
 
 def build_character_prompt(name: str, description: str, style: str = "", style_description: str = "") -> str:
-    """角色资产图（三视图 16:9）。"""
+    """角色资产图（仅画面风格、标题与描述，不附带固定版式或负向约束）。"""
     return _asset_prompt("character", name, description, style, style_description)
 
 

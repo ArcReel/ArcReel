@@ -106,6 +106,12 @@ export interface PendingQuestion {
     options: Array<{ label: string; description: string }>;
     multiSelect: boolean;
   }>;
+  // 文件访问授权弹窗（复用 AskUserQuestion 通道）：后端在 payload 上多带这些字段，
+  // request_kind === "file_access" 时前端渲染「批准/拒绝」并高亮真实 resolved 路径。
+  request_kind?: "file_access";
+  path?: string | null;
+  reason?: string | null;
+  title?: string | null;
 }
 
 /** 会话事件日志条目（UI 时间线唯一读源；seq 为会话内单调序号）。 */

@@ -93,6 +93,13 @@ export async function expectAccessible(page: Page) {
     rule: violation.id,
     help: violation.help,
     targets: violation.nodes.map((node) => node.target.join(" ")),
+    data: violation.nodes.map((node) => {
+      const check =
+        node.any?.find((c) => c.id === "color-contrast") ??
+        node.all?.find((c) => c.id === "color-contrast") ??
+        node.none?.find((c) => c.id === "color-contrast");
+      return (check?.data ?? null) as unknown;
+    }),
   }));
   expect(violations, "axe 报告了可访问性问题").toEqual([]);
 }

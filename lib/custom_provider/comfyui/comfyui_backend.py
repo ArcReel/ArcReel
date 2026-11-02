@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -34,11 +34,11 @@ from arcreel_market_core.video_backend_contract import (
     VideoGenerationRequest,
     VideoGenerationResult,
 )
-from lib.backends.artifact_download_guard import artifact_http_client
 from lib.backends.backend_runtime import ProviderJobIdPersistenceMixin, notify_provider_response
-from lib.custom_provider.comfyui.capabilities import derive_video_capabilities
+from lib.custom_provider.comfyui.capabilities import derive_video_capabilities, image_key_targets
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, client_id_for, upload_filename
 from lib.custom_provider.comfyui.comfyui_execution import HTTP_TIMEOUT_SECONDS, ComfyuiExecution, PickedArtifact
+from lib.custom_provider.comfyui.comfyui_http_client import comfyui_http_client
 from lib.custom_provider.comfyui.request_builder import BuiltWorkflow, MediaInputs, build_workflow
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,9 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         job_label = request.task_id or self._job_label or uuid4().hex
-        async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
+        async with comfyui_http_client(
+            timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True, bypass_proxy_for=self._base_url
+        ) as http:
             media = await self._upload_media(http, request, job_label=job_label)
             built = build_workflow(
                 self._definition,
@@ -109,6 +111,8 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
                 resolution=request.resolution,
                 media=media,
                 seed=request.seed,
+                shot_cur_seq=request.shot_cur_seq,
+                shot_pre_seq=request.shot_pre_seq,
             )
             prompt_id = await self._client.submit_prompt(
                 http,
@@ -145,7 +149,9 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         submitted = request.submitted_base_url
         if submitted and submitted != self._base_url:
             return await self._bound_to(submitted).resume_video(job_id, request)
-        async with artifact_http_client(timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True) as http:
+        async with comfyui_http_client(
+            timeout=HTTP_TIMEOUT_SECONDS, follow_redirects=True, bypass_proxy_for=self._base_url
+        ) as http:
             picked = await self._execution.fetch_artifact(
                 http,
                 job_id,
@@ -205,13 +211,27 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
     ) -> MediaInputs:
         """把这次要用到的素材传上去，换回读图节点认的引用名。
 
-        只传「绑定了、且这次给了」的那些：多传的图不会被任何节点读到，白占用户的带宽与磁盘，而
-        参考图格子数就是这份 workflow 能收几张，多出来的那几张在构造层本来就用不上。
+        只传「有格子、且这次给了」的那些：多传的图不会被任何节点读到，白占用户的带宽与磁盘，而
+        参考图格子数就是这份 workflow 能收几张，多出来的那几张在构造层本来就用不上。格子认「正式
+        绑定 ∪ 标题标记」（:func:`image_key_targets`），与构造层落图认的是同一份。
         """
         bindings: Mapping[str, Any] = self._definition.get("bindings") or {}
-        start = await self._upload_one(http, request.start_image, bindings, "start_image", job_label=job_label)
-        end = await self._upload_one(http, request.end_image, bindings, "end_image", job_label=job_label)
-        slots = len(_targets(bindings.get("reference_images")))
+        workflow: Mapping[str, Any] = self._definition.get("workflow") or {}
+        start = await self._upload_one(
+            http,
+            request.start_image,
+            image_key_targets(workflow, bindings, "start_image"),
+            "start_image",
+            job_label=job_label,
+        )
+        end = await self._upload_one(
+            http,
+            request.end_image,
+            image_key_targets(workflow, bindings, "end_image"),
+            "end_image",
+            job_label=job_label,
+        )
+        slots = len(image_key_targets(workflow, bindings, "reference_images"))
         references: list[str] = []
         for index, path in enumerate((request.reference_images or [])[:slots]):
             references.append(
@@ -225,18 +245,14 @@ class ComfyuiVideoBackend(ProviderJobIdPersistenceMixin):
         self,
         http: httpx.AsyncClient,
         path: Path | None,
-        bindings: Mapping[str, Any],
+        targets: Sequence[Mapping[str, Any]],
         key: str,
         *,
         job_label: str,
     ) -> str | None:
-        if path is None or not _targets(bindings.get(key)):
+        if path is None or not targets:
             return None
         return await self._client.upload_image(http, path, filename=upload_filename(job_label, key, path))
-
-
-def _targets(raw: object) -> list[Mapping[str, Any]]:
-    return [target for target in raw if isinstance(target, Mapping)] if isinstance(raw, list) else []
 
 
 def binding_video_capabilities(definition: Mapping[str, Any]) -> VideoCapabilities:

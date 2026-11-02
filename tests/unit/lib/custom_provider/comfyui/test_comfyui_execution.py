@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
+import pytest
 
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient
 from lib.custom_provider.comfyui.comfyui_execution import ComfyuiExecution
@@ -14,6 +17,7 @@ from tests.factories import comfyui_endpoint_definition
 from tests.http_capture import capture_http
 
 METADATA_BASE_URL = "http://169.254.169.254"
+BASE_URL = "https://comfy.test"
 
 
 async def test_a_stop_toward_a_metadata_address_is_never_sent():
@@ -36,3 +40,38 @@ async def test_a_stop_toward_a_metadata_address_is_never_sent():
     assert version.call_count == 0
     assert cancel.call_count == 0
     assert queue.call_count == 0
+
+
+async def test_stop_remote_passes_base_url_as_bypass_target():
+    """叫停远端那条路另开的客户端按 ``base_url`` 决定是否绕系统代理：调用点把 ComfyUI 的 base_url
+    作 ``bypass_proxy_for`` 传入——内网 base_url 对该 host 直连（否则内网地址被 macOS 系统代理劫持成
+    502，本次 ``comfyui_upload_failed`` 的根因），公网 base_url 仍走代理。spy 住 ``comfyui_execution``
+    命名空间里的 ``comfyui_http_client`` 记录 kwargs 后转调真身，respx 行为不变。
+    """
+    from lib.custom_provider.comfyui import comfyui_execution
+
+    definition = comfyui_endpoint_definition()
+    client = ComfyuiClient(base_url=BASE_URL, api_key="", definition=definition)
+    execution = ComfyuiExecution(
+        client=client,
+        definition=definition,
+        media_type="video",
+    )
+    captured: list[dict[str, Any]] = []
+    with capture_http() as router, pytest.MonkeyPatch.context() as patch:
+        real = comfyui_execution.comfyui_http_client
+
+        def _record(**kwargs: Any) -> Any:
+            captured.append(kwargs)
+            return real(**kwargs)
+
+        patch.setattr(comfyui_execution, "comfyui_http_client", _record)
+        router.get(f"{BASE_URL}/system_stats").mock(
+            return_value=httpx.Response(200, json={"system": {"comfyui_version": "0.26.0"}})
+        )
+        router.post(f"{BASE_URL}/api/jobs/p-1/cancel").mock(return_value=httpx.Response(200, json={}))
+
+        await execution.stop_remote("p-1")
+
+    assert captured
+    assert all(entry.get("bypass_proxy_for") == client.base_url for entry in captured)

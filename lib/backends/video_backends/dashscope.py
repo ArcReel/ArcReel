@@ -515,7 +515,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
             self._model,
             format_kwargs_for_log(safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
+        async with artifact_http_client(
+            timeout=self._http_timeout, transport_layer=self._transport_layer, bypass_proxy_for=self._request_base_url
+        ) as client:
             task_id = await self._create_task(client, payload, request)
             logger.info("DashScope 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             # 一并写回实际提交域名（wan3.0 走独立 maas 域名，且两者都随用户配置可变）：
@@ -527,7 +529,9 @@ class DashScopeVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 DashScope task：仅 poll + 下载（ADR 0007）。"""
-        async with artifact_http_client(timeout=self._http_timeout, transport_layer=self._transport_layer) as client:
+        async with artifact_http_client(
+            timeout=self._http_timeout, transport_layer=self._transport_layer, bypass_proxy_for=self._request_base_url
+        ) as client:
             return await self._poll_and_build(client, job_id, request, is_resume=True)
 
     # ── request building ────────────────────────────────────────────────

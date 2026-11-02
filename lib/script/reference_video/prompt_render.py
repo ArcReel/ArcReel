@@ -1,26 +1,34 @@
-"""参考生视频路径的三段论渲染：unit 内容 + 资产表 + 能力档 → 发给视频模型的 prompt。
+"""参考生视频路径的 H3 渲染：unit 内容 + 资产表 + 能力档 → 发给视频模型的 prompt。
 
-第一段（主体绑定 + 声音声明）与第三段（风格块 + 负向约束）在渲染期机械生成，不依赖 LLM 自觉；
-整段提示词由内置模版 ``reference_video/unit`` 渲染，前两段由本模块产出槽位值。渲染是纯函数、
-结果不落盘，存量内容无需迁移即获得新渲染。
+按 MiniMax H3 的参考生视频（Ref2VA）六段式产出，整段提示词由内置模版 ``reference_video/unit``
+渲染，各段槽位值由本模块在渲染期机械生成，不依赖 LLM 自觉。渲染是纯函数、结果不落盘，存量
+内容无需迁移即获得新渲染。
 
-三段分工：
+有参考图时的六段分工：
 
-- **第一段**：``<X>@图片N`` 简式绑定（图片编号 = 随请求发出的参考图顺序）+ 声音声明集中
-  声明区（``<X>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``）。听得到声音的 A/B 类均注入声音特征，
-  两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入
-- **第二段**：单元正文 + 角色台词记号（``<X>说 {台词}``）；无归属旁白（裸 ``{台词}``）
-  不下发视频模型，由 TTS / 后期配音承担
-- **第三段**：共享风格块 + ``Avoid`` 行（视频负向提示词，本路径的反向约束全部由它承担）；
-  画面里有两个及以上不同角色时追加分身或双胞胎排除项。带商品参考图时其后再接商品高保真声明
+- **subject_definitions**：逐主体声明 ``<Subject N> is the {type} {名称}, shown in <Picture N>``
+  （N = 随请求发出的参考图顺序，同一主体多张参考图全部列出）+ 同一角色的形态声明 + 声音声明
+  （``<Subject N>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``）。
+  听得到声音的 A/B 类均注入声音特征，两条无声路径（模型不产音的 C 类、本集关闭音频）都不注入。
+- **summary**：``[reference generation]`` 任务类型 + 参考主体概述。
+- **retention_analysis**：逐主体 ``fully_preserved``——参考图即该主体外观的真相，全部保留。
+- **detailed_description**：单元正文，``@[名称]`` 换成 ``<Subject N>``、角色台词记号重组成
+  ``<Subject N>说 {台词}``；无归属旁白（裸 ``{台词}``）不下发视频模型，由 TTS / 后期配音承担。
+- **overall_soundscape**：环境 / 物理动作声概述（指向 detailed_description 写到的声音，不断言静音）。
+- **non_diegetic_music**：``N/A``——本路径不加配乐，负向约束由 ``Avoid`` 行承担。
 
-所有创作类型的输入均是 unit 正文这一段自由文本，正文只写第二段；主体绑定与参考图顺序都经
-``@[X]`` mention 解析派生（:func:`render_unit_prompt`）。文本不含绝对秒数，时长走请求字段。
+无参考图的单元退为基础三字段（``integrated_multimodal_description`` + ``overall_soundscape`` +
+``non_diegetic_music``），不产出 subject_definitions / summary / retention_analysis。末尾始终保留
+共享风格块 + ``Avoid`` 行（视频负向提示词）；画面里有两个及以上不同角色时追加分身或双胞胎排除项，
+带商品参考图时其后再接商品高保真声明。
+
+所有创作类型的输入均是 unit 正文这一段自由文本；主体绑定与参考图顺序都经 ``@[X]`` mention 解析
+派生（:func:`render_unit_prompt`）。文本不含绝对秒数，时长走请求字段。
 """
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -38,7 +46,7 @@ from lib.script.reference_video.text_parser import (
     SpeechMark,
     derive_references_from_text,
     extract_mentions,
-    render_mentions_as_subjects,
+    render_mentions_with_label,
     resolve_references,
     split_speech_line,
 )
@@ -91,31 +99,32 @@ def render_unit_prompt(
     references: list[ReferenceResource],
     settings: VoiceRenderSettings,
 ) -> RenderedUnitPrompt:
-    """把一个 unit 的书写文稿渲染成三段论 backend prompt。
+    """把一个 unit 的书写文稿渲染成 H3 参考生视频 backend prompt。
 
-    ``references`` 是**实际随请求发出**的参考图列表（已按能力上限裁剪），其顺序即
-    ``图片N`` 编号——与 ``reference_images`` 严格等长同序，被裁掉的名字退化为原文不产生
-    悬空绑定。参考图顺序由调用方从同一份正文派生（``@mention`` 首现、台词记号的 speaker 位
-    不计入），本函数只消费不重算。
+    有参考图时产出 Ref2VA 六段（subject_definitions / summary / retention_analysis /
+    detailed_description / overall_soundscape / non_diegetic_music）；无参考图时退为基础三字段
+    （integrated_multimodal_description / overall_soundscape / non_diegetic_music）。
+
+    ``references`` 是**实际随请求发出**的参考图列表（已按能力上限裁剪），其顺序即 ``<Picture N>``
+    编号——与 ``reference_images`` 严格等长同序，被裁掉的名字退化为名字记号不产生悬空绑定。
+    参考图顺序由调用方从同一份正文派生（``@mention`` 首现、台词记号的 speaker 位不计入），
+    本函数只消费不重算。
 
     ``settings`` 是渲染所用的声音输入档（见 :class:`~lib.script.reference_video.voice_settings
     .VoiceRenderSettings`），必填无兜底：这一档决定这一集听不听得到声音，缺省成任何一个方向都是
-    替调用方猜——猜有声会给无声项目注入声音特征，漏传时报错才让新调用方在接线阶段就发现。
-    ``requires_reference_image`` 为 True 时（backend 要求音频逐段挂在
-    具体参考素材项上），纯画外 speaker 不绑定音频（降级 + warning）——绑定后 ``@音频N`` 编号会
-    写进 prompt 文本，若随后才在 backend 层过滤会让文本承诺的绑定与实际发出的
-    ``reference_audio_files`` 分叉，必须在编号生成前就排除。
+    替调用方猜。``requires_reference_image`` 为 True 时（backend 要求音频逐段挂在具体参考素材项上），
+    纯画外 speaker 不绑定音频（降级 + warning）——绑定后 ``@音频N`` 编号会写进 prompt 文本，若随后才在
+    backend 层过滤会让文本承诺的绑定与实际发出的 ``reference_audio_files`` 分叉，必须在编号生成前排除。
 
     无声路径（``settings.is_silent``）不产出任何音频绑定：``@音频N`` 与「声音特征：…」都不进
-    prompt、``audio_speakers`` 为空，调用方组装出的 ``reference_audio_files`` 随之为空。第二段的
-    台词渲染不看这一位——无声视频里台词文本照常下发，供应商可用作口型参考。
+    subject_definitions、``audio_speakers`` 为空，调用方组装出的 ``reference_audio_files`` 随之为空。
+    detailed_description 的台词渲染不看这一位——无声视频里台词文本照常下发，供应商可用作口型参考。
 
     warning 与解析预览面板同一批 ``{key, params}`` 条目，由调用方并入任务 ``result.warnings``。
 
-    第三段的风格块取 ``project`` 的 ``style`` 与 ``style_description``。分身排除项按正文中已登记的
-    完整角色列表判断，不随供应商参考图上限裁剪；同一角色的本体与衍生仍合并计一个（见 ``docs/adr/0072``）。
-    商品高保真声明只在商品参考图实际随请求发出时注入——声明指向「商品参考图」，参考缺席时
-    注入只会误导模型。
+    风格块取 ``project`` 的 ``style`` 与 ``style_description``。分身排除项按正文中已登记的完整角色
+    列表判断，不随供应商参考图上限裁剪；同一角色的本体与衍生仍合并计一个（见 ``docs/adr/0072``）。
+    商品高保真声明只在商品参考图实际随请求发出时注入。
     """
     mentions = extract_mentions(text)
     utterances, warnings = derive_utterances(text)
@@ -148,17 +157,46 @@ def render_unit_prompt(
 
     request_character_forms = _character_forms_by_entity(references, catalog)
     co_present_characters = list(_character_forms_by_entity(registered, catalog))
-    prompt = builtin_templates.render(
-        "reference_video/unit",
-        declarations=_render_segment_one(
-            [ref.name for ref in references],
+
+    # H3 主体映射：每个随请求发出的参考图主体一个 ``<Subject N>``（N = 参考图首现顺序），
+    # ``<Picture N>`` 与 references 下标严格对应；被能力上限裁掉的名字无图，正文里退为名字记号。
+    subject_order = _distinct_subject_order(references)
+    subject_label = {name: f"<Subject {i}>" for i, name in enumerate(subject_order, start=1)}
+    subject_type = {ref.name: ref.type for ref in references if ref.name}
+    subject_pictures = _subject_pictures(references)
+
+    body = _render_body(text, _body_label(subject_label, subjects), characters, catalog)
+    if references:
+        subject_definitions = _render_subject_definitions(
+            subject_order,
+            subject_label,
+            subject_type,
+            subject_pictures,
+            request_character_forms,
             bindings.speakers,
             audio_no,
             characters,
             settings,
-            request_character_forms,
-        ),
-        body=_render_segment_two(text, subjects, characters, catalog),
+        )
+        summary = _render_summary(subject_label, subject_order)
+        retention_analysis = _render_retention_analysis(subject_label, subject_order)
+        body_label = "detailed_description"
+    else:
+        # 无参考图退为基础三字段：正文即 integrated_multimodal_description，不产出前两段。
+        subject_definitions = ""
+        summary = ""
+        retention_analysis = ""
+        body_label = "integrated_multimodal_description"
+
+    prompt = builtin_templates.render(
+        "reference_video/unit",
+        subject_definitions=subject_definitions,
+        summary=summary,
+        retention_analysis=retention_analysis,
+        body_label=body_label,
+        body=body,
+        overall_soundscape=_OVERALL_SOUNDSCAPE,
+        non_diegetic_music="N/A",
         style=normalize_style_value(project.get("style")),
         style_description=normalize_style_value(project.get("style_description")),
         co_present_characters=co_present_characters if len(co_present_characters) >= 2 else [],
@@ -195,22 +233,65 @@ def _warning_unregistered(name: str) -> dict[str, Any]:
     return {"key": WARN_UNREGISTERED_MENTION, "params": {"name": name}}
 
 
+#: H3 overall_soundscape 段的固定措辞：指向 detailed_description 写到的环境 / 物理声，不断言静音
+#: （N/A 仅用于明确要求完全无声的场景，本路径默认有环境声）。
+_OVERALL_SOUNDSCAPE = (
+    "Scene-appropriate ambient and physical action sounds as implied by the detailed description above."
+)
+
+#: 参考主体在 subject_definitions 里的类型词（英文，与 H3 措辞一致）。
+_H3_SUBJECT_TYPE_WORDS = {
+    "character": "character",
+    "scene": "scene",
+    "prop": "prop",
+    "product": "product",
+}
+
+
+def _distinct_subject_order(references: list[ReferenceResource]) -> list[str]:
+    """references 里出现过的名字，按首现顺序去重——每个名字一个 H3 主体（``<Subject N>``）。"""
+    order: list[str] = []
+    for ref in references:
+        if ref.name and ref.name not in order:
+            order.append(ref.name)
+    return order
+
+
+def _subject_pictures(references: list[ReferenceResource]) -> dict[str, list[int]]:
+    """每个主体对应的参考图位置（1-based，随 references 顺序）；同一主体多张参考图全部列出。"""
+    pictures: dict[str, list[int]] = {}
+    for i, ref in enumerate(references, start=1):
+        if ref.name:
+            pictures.setdefault(ref.name, []).append(i)
+    return pictures
+
+
+def _body_label(subject_label: dict[str, str], subjects: Collection[str]) -> Callable[[str], str | None]:
+    """正文 mention 的标签函数：有参考图 → ``<Subject N>``；已登记但被裁掉 → ``<名称>``；未登记 → 留原文。"""
+
+    def label(name: str) -> str | None:
+        if name in subject_label:
+            return subject_label[name]
+        if name in subjects:
+            return f"<{name}>"
+        return None
+
+    return label
+
+
 def _render_voice_declarations(
     speakers: list[str],
     audio_no: dict[str, int],
     characters: dict,
     settings: VoiceRenderSettings,
+    subject_label: dict[str, str],
 ) -> list[str]:
-    """声音声明行：``<X>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``。剧集与 ad 路径共用——两者的
-    主体绑定行统一使用 mention 派生的 ``ReferenceResource``；声音声明只认「已登记的
-    dialogue speaker」，与主体绑定行解耦，可整段复用。
+    """声音声明行：``<Subject N>的台词音色参考 @音频N，只取音色、语速与情绪，台词以正文为准，声音特征：…``。
 
-    两条无声路径（``settings.is_silent``：模型不产音的 C 类、本集关闭音频）都不注入声音声明；
-    听得到声音的 A/B 类均注入声音特征——官方建议音色还原不佳时补描述。台词渲染不受影响，
-    照常进第二段（见 :func:`_render_segment_two`）。
-
-    角色记录非 dict（外部编辑写坏的 project.json）按无声音特征处理，不索引脏值，保持
-    软降级口径而非崩溃。
+    剧集与 ad 路径共用——声音声明只认「已登记的 dialogue speaker」，与主体声明解耦，可整段复用。
+    两条无声路径（``settings.is_silent``）都不注入；听得到声音的 A/B 类均注入声音特征。角色记录非
+    dict（外部编辑写坏的 project.json）按无声音特征处理。说话人没有参考图（纯画外角色）时退为名字
+    记号 ``<名称>``。
     """
     if settings.is_silent:
         return []
@@ -224,7 +305,7 @@ def _render_voice_declarations(
         if voice_style:
             parts.append(f"声音特征：{voice_style}")
         if parts:
-            lines.append(f"<{name}>的" + "，".join(parts) + "。")
+            lines.append(f"{subject_label.get(name, f'<{name}>')}的" + "，".join(parts) + "。")
     return lines
 
 
@@ -233,8 +314,8 @@ def _number_audio_speakers(
 ) -> tuple[dict[str, int], list[int | None]]:
     """``@音频N`` 编号与「每段音频对应哪张参考图」的下标，两条路径共用同一份派生口径。
 
-    编号即 ``audio_speakers`` 的位置（speaker 首现顺序），也是 ``reference_audio_files``
-    的请求字段顺序；下标列表与之等长同序，无参考图的纯画外 speaker 落 None。两者必须在
+    编号即 ``audio_speakers`` 的位置（speaker 首现顺序），也是 ``reference_audio_files`` 的
+    请求字段顺序；下标列表与之等长同序，无参考图的纯画外 speaker 落 None。两者必须在
     同一处派生：分开算会让 prompt 文本里的 ``@音频N`` 与请求字段的下标各自漂移。
     """
     audio_no = {name: i for i, name in enumerate(audio_speakers, start=1)}
@@ -244,44 +325,39 @@ def _number_audio_speakers(
     return audio_no, reference_index
 
 
-def _render_segment_one(
-    labels: list[str],
+def _render_subject_definitions(
+    subject_order: list[str],
+    subject_label: dict[str, str],
+    subject_type: dict[str, str],
+    subject_pictures: dict[str, list[int]],
+    character_forms: dict[str, list[str]],
     speakers: list[str],
     audio_no: dict[str, int],
     characters: dict,
     settings: VoiceRenderSettings,
-    character_forms: dict[str, list[str]],
 ) -> str:
-    """主体绑定 + 声音声明。
+    """H3 subject_definitions 段：逐主体声明 + 同一角色形态声明 + 声音声明。
 
-    官方三段论第一段即参考来源声明区（人脸 / 运镜 / 音色参考同位），故音色参考与声音特征
-    集中于此，台词只留统一句式。声明遍历「有台词的已登记角色」而非参考图列表：纯画外角色
-    没有参考图（speaker 位不计入参考图派生），但音色声明照常。
-
-    ``labels`` 是 mention 派生的主体记号文本，逐项对应随请求发出的参考图。图号按位置
-    直接编号（非名字查表）；空 label 占位不产出绑定行，编号照样前进，以免后续图号与请求
-    顺序错位。
-
-    ``character_forms`` 是 :func:`_character_forms_by_entity` 的分组，用来声明同一角色的
-    多个形态；它按资产条目分组，与按位置编号的 ``labels`` 不同源。
-
-    返回 ``reference_video/unit`` 模版的 ``declarations`` 槽位值。
+    主体行把 ``<Subject N>`` 与参考图 ``<Picture N>``（及类型、名称）绑在一起，是 prompt 文本与
+    随请求发出的参考图之间唯一的归属契约；同一主体多张参考图全部列出。形态声明与声音声明紧随
+    其后，都用 ``<Subject N>`` 记号。
     """
     lines: list[str] = []
-    bindings = "、".join(f"<{label}>@图片{i}" for i, label in enumerate(labels, start=1) if label)
-    if bindings:
-        lines.append(bindings + "。")
-    lines.extend(_render_form_declarations(character_forms))
-    lines.extend(_render_voice_declarations(speakers, audio_no, characters, settings))
+    for name in subject_order:
+        type_word = _H3_SUBJECT_TYPE_WORDS.get(subject_type.get(name, ""), "asset")
+        pictures = "、".join(f"<Picture {p}>" for p in subject_pictures[name])
+        lines.append(f"{subject_label[name]} is the {type_word} {name}, shown in {pictures}.")
+    lines.extend(_render_form_declarations(character_forms, subject_label))
+    lines.extend(_render_voice_declarations(speakers, audio_no, characters, settings, subject_label))
     return "\n".join(lines)
 
 
 def _character_forms_by_entity(references: list[ReferenceResource], catalog: ReferenceCatalog) -> dict[str, list[str]]:
     """角色参考图按承载它的资产条目分组：``本体名 → [该条目出现的形态记号]``，顺序随参考图顺序。
 
-    衍生与本体是两个引用名、两张参考图，指的却是同一个人（见 ``docs/adr/0072``）。第一段对实际
-    随请求发出的参考图调用本函数，第三段对正文中完整的已登记引用调用；两处都按同一项目目录合并
-    角色身份。未登记的名字自成一条：它指不到任何条目，与别的名字不该合并。
+    衍生与本体是两个引用名、两张参考图，指的却是同一个人（见 ``docs/adr/0072``）。subject_definitions
+    段对实际随请求发出的参考图调用本函数，分身排除项（``Avoid`` 行）对正文中完整的已登记引用调用；
+    两处都按同一项目目录合并角色身份。未登记的名字自成一条：它指不到任何条目，与别的名字不该合并。
 
     只看 ``character`` 类型的引用：跨类型重名的存量项目里，同名场景按名字查角色表会查出条目，
     把两张毫无关系的图说成同一角色的两套外观。
@@ -295,20 +371,42 @@ def _character_forms_by_entity(references: list[ReferenceResource], catalog: Ref
     return grouped
 
 
-def _render_form_declarations(character_forms: dict[str, list[str]]) -> list[str]:
-    """同一角色的多个形态同现时，声明它们是同一个人的不同外观。
+def _render_form_declarations(character_forms: dict[str, list[str]], subject_label: dict[str, str]) -> list[str]:
+    """同一角色的多个形态同现时，声明它们是同一个人的不同外观（用 ``<Subject N>`` 记号）。
 
     角色的本体与衍生是各自独立的引用名、各带一张资产图（见 ``docs/adr/0072``），同现不设限。
-    不声明时模型只看到两张长相相近的角色参考图，会当成两个人物同框，故在参考来源声明区就把
-    归属讲清楚。只出现一个形态的角色不产出声明。
+    不声明时模型只看到两张长相相近的角色参考图，会当成两个人物同框，故在主体声明区就把归属讲清楚。
+    只出现一个形态的角色不产出声明。
     """
     lines: list[str] = []
     for forms in character_forms.values():
         if len(forms) < 2:
             continue
-        marks = [f"<{form}>" for form in forms]
-        lines.append("、".join(marks[:-1]) + f"与{marks[-1]}是同一角色的不同形态，各自按对应参考图呈现。")
+        labels = [subject_label.get(form, f"<{form}>") for form in forms]
+        lines.append("、".join(labels[:-1]) + f"与{labels[-1]}是同一角色的不同形态，各自按对应参考图呈现。")
     return lines
+
+
+def _render_summary(subject_label: dict[str, str], subject_order: list[str]) -> str:
+    """H3 summary 段：``[reference generation]`` 任务类型 + 参考主体概述。"""
+    labels = [subject_label[name] for name in subject_order]
+    if not labels:
+        return ""
+    if len(labels) == 1:
+        joined = labels[0]
+    elif len(labels) == 2:
+        joined = f"{labels[0]} and {labels[1]}"
+    else:
+        joined = ", ".join(labels[:-1]) + f" and {labels[-1]}"
+    return f"[reference generation] The target video is a reference-to-video generation using {joined} as reference images."
+
+
+def _render_retention_analysis(subject_label: dict[str, str], subject_order: list[str]) -> str:
+    """H3 retention_analysis 段：逐主体 ``fully_preserved``——参考图即该主体外观的真相，全部保留。"""
+    return "\n".join(
+        f"{subject_label[name]} (appears in the target video): fully_preserved - {name} is retained as shown in its reference image."
+        for name in subject_order
+    )
 
 
 #: 旁白记号被丢弃后，用于判定其两侧是否需要合并的分隔标点与空白（中英两形）。
@@ -316,43 +414,42 @@ def _render_form_declarations(character_forms: dict[str, list[str]]) -> list[str
 _MARK_JOINERS = "，,、；;：:"
 _MARK_TERMINATORS = "。.！!？?"
 _MARK_SEPARATORS = _MARK_JOINERS + _MARK_TERMINATORS
-_MARK_SPACES = " \t\u3000"
+_MARK_SPACES = " \t　"
 
 
-def _render_segment_two(text: str, subjects: Collection[str], characters: dict, catalog: ReferenceCatalog) -> str:
-    """单元正文段：画面描述做 mention 替换，发声记号就地重组为官方句式。
-
-    ``subjects`` 是已登记的 mention 名（未经能力上限裁剪）——主体记号 ``<X>`` 表达「画面里的
-    这个人 / 物」，不指向图号，故与参考图编号解耦：裁掉图的名字照样是主体，只有未登记的
-    mention 才留编辑器原文（配 ``ref_warn_unregistered_mention``）。
+def _render_body(
+    text: str,
+    label: Callable[[str], str | None],
+    characters: dict,
+    catalog: ReferenceCatalog,
+) -> str:
+    """单元正文段（H3 detailed_description / integrated_multimodal_description）：画面描述做 mention
+    标签替换（``<Subject N>`` 或名字记号），发声记号就地重组为 ``<…>说 {台词}``。
 
     正文逐行原样渲染，不再重排或加分段前缀：正文是作者写下的唯一真相，行文顺序即传达顺序。
-    记号可写在行内任意位置，重组按位置就地替换、描述部分留在原处。说话人按**资产表**判定
-    而非参考图列表：纯画外角色无参考图，台词照常重组。未登记的说话人按原文发送（warning 已由
-    :func:`derive_voice_bindings` 发出），未被识别成记号的花括号同样原样发送——不做剥除，
-    作者能在成片里看见自己写坏的那一段。
+    记号可写在行内任意位置，重组按位置就地替换、描述部分留在原处。说话人按**资产表**判定而非参考图
+    列表：纯画外角色无参考图，台词照常重组（记号退为名字 ``<名称>``）。未登记的 mention 留编辑器
+    原文（warning 由 :func:`derive_voice_bindings` 发出），未被识别成记号的花括号同样原样发送——不做
+    剥除，作者能在成片里看见自己写坏的那一段。
 
-    说话人位写下的形态与描述位同形：``@[张三/劲装]{台词}`` 渲染成 ``<张三/劲装>说 {台词}``，
-    同一角色在一条 prompt 里只有一种主体记号（见 ``docs/adr/0072``）。声音仍绑本体——那是
-    ``SpeechMark.speaker`` 的职责，与画面上呈现哪套外观无关。写下的衍生没登记时退回本体记号，
-    与描述位「未登记的 mention 留原文」不同：说话人位的记号是渲染期重组出来的，没有原文可留。
-
-    无归属旁白（裸 ``{台词}``）整段丢弃、不进 prompt：叙述旁白只经 TTS 与后期配音交付
-    （ADR 0040 / 0061），会产音的视频模型拿到这段文本会连提示语一起念出、或让画面人物对着
-    旁白对口型。同一行的画面描述照常渲染，只有记号本身消失。
+    说话人位写下的形态与描述位同形：``@[张三/劲装]{台词}`` 渲染成 ``<Subject N>说 {台词}``（有参考图时）或
+    ``<张三/劲装>说 {台词}``（无参考图时），同一角色在一条 prompt 里只有一种记号。写下的衍生没登记时
+    退回本体记号。无归属旁白（裸 ``{台词}``）整段丢弃、不进 prompt（ADR 0040 / 0061）。
     """
     lines: list[str] = []
     for line in text.splitlines():
         pieces: list[str | None] = []
         for part in split_speech_line(line):
             if isinstance(part, str):
-                pieces.append(render_mentions_as_subjects(part, subjects))
+                pieces.append(render_mentions_with_label(part, label))
             elif not part.speaker:
                 pieces.append(None)
             elif part.speaker in characters:
-                pieces.append(f"<{_speaker_subject(part, catalog)}>说 {{{part.text}}}")
+                speaker = _speaker_subject(part, catalog)
+                speaker_label = label(speaker) or f"<{speaker}>"
+                pieces.append(f"{speaker_label}说 {{{part.text}}}")
             else:
-                pieces.append(render_mentions_as_subjects(part.raw, subjects))
+                pieces.append(render_mentions_with_label(part.raw, label))
         lines.append(_join_line_pieces(pieces))
     return "\n".join(line for line in lines if line.strip())
 

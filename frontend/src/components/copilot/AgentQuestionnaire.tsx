@@ -1,7 +1,8 @@
 import type { FormEvent } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
+import { Button } from "@/components/ui/button";
 import {
   Questionnaire,
   QuestionnaireActions,
@@ -68,9 +69,66 @@ interface AgentQuestionnaireProps {
 // 数字键选择选项，「其他」写在每题末尾的输入框里。
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// FileAccessRequest — 文件访问授权弹窗（复用 AskUserQuestion 通道）。
+// 回显 Agent 要访问的真实 resolved 路径与原因，并以显著样式高亮路径，降低误批；
+// 「批准 / 拒绝」提交仍走既有 onSubmit(question_id, answers)，answers 的值为选项原文
+// （与后端 _handle_file_access_request 的解析约定一致）。
+// ---------------------------------------------------------------------------
+function FileAccessRequest({ pendingQuestion, answering, error, onSubmit }: AgentQuestionnaireProps) {
+  const { t } = useTranslation("dashboard");
+  const question = pendingQuestion.questions[0];
+  const approveLabel = question?.options?.[0]?.label ?? "批准";
+  const rejectLabel = question?.options?.[1]?.label ?? "拒绝";
+  const questionKey = question?.question?.trim() || "file_access";
+
+  const answer = (label: string) => {
+    if (answering) return;
+    onSubmit(pendingQuestion.question_id, { [questionKey]: label });
+  };
+
+  return (
+    <div className="flex max-h-[70cqh] min-h-0 flex-col gap-2.5 border-t border-border px-3 pt-2.5 pb-3">
+      <div className="flex items-center gap-2 text-xs">
+        <ShieldAlert aria-hidden className="size-4 shrink-0 text-warn" />
+        <span className="min-w-0 flex-1 truncate font-medium">{t("file_access_title")}</span>
+      </div>
+      <div className="relative min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain text-xs">
+        <p className="text-subtle-foreground">{pendingQuestion.title || t("file_access_prompt")}</p>
+        {pendingQuestion.path && (
+          <p className="break-all rounded bg-warn/10 px-2 py-1 font-mono text-warn" title={pendingQuestion.path}>
+            {pendingQuestion.path}
+          </p>
+        )}
+        {pendingQuestion.reason && <p className="break-words text-subtle-foreground">{pendingQuestion.reason}</p>}
+      </div>
+      {error && (
+        <p role="alert" className="shrink-0 text-xs text-destructive">
+          {error}
+        </p>
+      )}
+      <div className="flex shrink-0 items-center justify-end gap-2">
+        <Button size="sm" variant="ghost" disabled={answering} onClick={() => answer(rejectLabel)}>
+          {t("file_access_reject")}
+        </Button>
+        <Button size="sm" variant="destructive" disabled={answering} onClick={() => answer(approveLabel)}>
+          {answering && <Loader2 aria-hidden data-icon="inline-start" className="animate-spin" />}
+          {t("file_access_approve")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function AgentQuestionnaire({ pendingQuestion, answering, error, onSubmit }: AgentQuestionnaireProps) {
   const hasQueuedMessages = useAssistantStore((s) => s.queuedMessages.length > 0);
   const { t } = useTranslation("dashboard");
+  // 文件访问授权复用同一通道，但渲染批准/拒绝两键并高亮真实路径（见 FileAccessRequest）。
+  if (pendingQuestion.request_kind === "file_access") {
+    return (
+      <FileAccessRequest pendingQuestion={pendingQuestion} answering={answering} error={error} onSubmit={onSubmit} />
+    );
+  }
   const { questions } = pendingQuestion;
   if (questions.length === 0) return null;
 

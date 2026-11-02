@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import { useConfirmLeave } from "@/components/shared/edit-unit/LeaveGuard";
 import { EditUnitRetentionContext } from "@/components/shared/edit-unit/edit-unit-retention";
 import { RetainedEditUnit } from "@/components/shared/edit-unit/RetainedEditUnit";
-import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import type { AssetSheetStatusRow, AssetSheetType } from "@/types";
 import { AssetCreateForm } from "./AssetCreateForm";
-import { AssetDetailEditor } from "./AssetDetailEditor";
+import { AssetStudio, type StudioPager } from "./AssetStudio";
 import type { GalleryAssetSource } from "./gallery-model";
 
 /** 详情 Sheet 显示的内容：某个资产的详情，或新建一个资产的空白表单。 */
@@ -29,7 +27,7 @@ export interface AssetEditorSheetProps {
   /** 卡片上本地上传等写入，与详情里的入口互斥。 */
   writingNames?: ReadonlySet<string>;
   readOnly: boolean;
-  onGenerate: (name: string) => unknown;
+  onGenerate: (name: string, endpoint?: string) => unknown;
 }
 
 /**
@@ -105,32 +103,20 @@ export function AssetEditorSheet({
   const handleCreated = useCallback((created: string) => onTargetChange({ mode: "edit", name: created }), [onTargetChange]);
   const close = useCallback(() => onTargetChange(null), [onTargetChange]);
 
-  const navigation =
-    names.length > 1 && index >= 0 ? (
-      <div className="flex shrink-0 items-center">
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          disabled={previous === undefined}
-          onClick={() => previous !== undefined && switchTo(previous)}
-          aria-label={t("assets:editor_previous")}
-        >
-          <ChevronUp aria-hidden />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          disabled={next === undefined}
-          onClick={() => next !== undefined && switchTo(next)}
-          aria-label={t("assets:editor_next")}
-        >
-          <ChevronDown aria-hidden />
-        </Button>
-      </div>
-    ) : null;
-
   const shownName = name ?? last?.name ?? null;
   const shownAsset = live ?? (shownName !== null && last?.name === shownName ? last.asset : undefined);
+
+  // 编辑模式用整屏资产工作室（角色多一栏造型），新建沿用右侧表单 Sheet
+  const isStudio = target?.mode === "edit" && shownName !== null && shownAsset !== undefined;
+  const pager: StudioPager | null =
+    isStudio && sequence.length > 1 && index >= 0
+      ? {
+          index: index + 1,
+          total: sequence.length,
+          onPrev: previous !== undefined ? () => switchTo(previous) : undefined,
+          onNext: next !== undefined ? () => switchTo(next) : undefined,
+        }
+      : null;
 
   return (
     <Sheet
@@ -140,8 +126,8 @@ export function AssetEditorSheet({
         confirmLeave(close);
       }}
     >
-      <SheetContent side="right" className="data-[side=right]:w-140">
-        {target?.mode === "create" ? (
+      {target?.mode === "create" ? (
+        <SheetContent side="right" className="data-[side=right]:w-140">
           <AssetCreateForm
             key={session.id}
             projectName={projectName}
@@ -150,7 +136,9 @@ export function AssetEditorSheet({
             onCreated={handleCreated}
             onSubmittingChange={setSubmitting}
           />
-        ) : shownName !== null && shownAsset ? (
+        </SheetContent>
+      ) : isStudio ? (
+        <SheetContent side="right" fullscreen showCloseButton={false}>
           <EditUnitRetentionContext.Provider value={retention}>
             <RetainedEditUnit
               identity={live ? `${session.id}` : `${session.id}:removed`}
@@ -158,7 +146,7 @@ export function AssetEditorSheet({
               message={t("assets:editor_asset_removed")}
             >
               {(shown) => (
-                <AssetDetailEditor
+                <AssetStudio
                   key={session.id}
                   projectName={projectName}
                   assetType={assetType}
@@ -170,13 +158,14 @@ export function AssetEditorSheet({
                   readOnly={readOnly}
                   onGenerate={onGenerate}
                   onRenamed={handleRenamed}
-                  navigation={navigation}
+                  onClose={() => confirmLeave(close)}
+                  pager={pager}
                 />
               )}
             </RetainedEditUnit>
           </EditUnitRetentionContext.Provider>
-        ) : null}
-      </SheetContent>
+        </SheetContent>
+      ) : null}
     </Sheet>
   );
 }

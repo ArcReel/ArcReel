@@ -10,7 +10,7 @@ import { UPLOAD_VIDEO_ACCEPT, UploadIconButton } from "@/components/canvas/share
 import { formatCost } from "@/utils/cost-format";
 import { resolveUnitStatus } from "./unit-status";
 import { UnitStatusBadge } from "./UnitStatusBadge";
-import type { CostBreakdown, ReferenceVideoUnit, UnitStatus } from "@/types";
+import type { CostBreakdown, ReferenceUnitCapability, ReferenceVideoUnit, UnitStatus } from "@/types";
 import { previewAspect } from "@/utils/preview-aspect";
 import { Button } from "@/components/ui/button";
 
@@ -62,6 +62,8 @@ export interface UnitPreviewPanelProps {
   saveFirst?: boolean;
   /** 正文保存请求在途：生成按钮置灰，避免按保存前的内容生成。 */
   saving?: boolean;
+  /** 该单元此刻的定桶与执行端点（按当前项目设置）；用于在单元信息里展示落点。 */
+  capability?: ReferenceUnitCapability | null;
 }
 
 function hasCost(b: CostBreakdown | undefined): boolean {
@@ -92,6 +94,7 @@ export function UnitPreviewPanel({
   onRestored,
   saveFirst = false,
   saving = false,
+  capability,
 }: UnitPreviewPanelProps) {
   const { t } = useTranslation("dashboard");
   const clip = unit?.generated_assets?.video_clip ?? null;
@@ -293,6 +296,16 @@ export function UnitPreviewPanel({
           <dd>
             <UnitStatusBadge status={effectiveStatus} />
           </dd>
+          {capability?.provider_id && capability.model_id && (
+            <dt className="text-muted-foreground" title={t("reference_meta_endpoint_hint")}>
+              {t("reference_meta_endpoint")}
+            </dt>
+          )}
+          {capability?.provider_id && capability.model_id && (
+            <dd className="font-mono text-subtle-foreground" translate="no">
+              {capability.provider_id}/{capability.model_id}
+            </dd>
+          )}
           {hasCost(actualCost) && (
             <>
               <dt className="text-muted-foreground">{t("reference_meta_cost")}</dt>

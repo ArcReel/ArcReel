@@ -92,8 +92,16 @@ class _Fixture:
     def sheet(self, asset_type: str, name: str) -> AssetSheetInput:
         return asset_sheet_input(self.project, asset_type=asset_type, name=name, observation=self.observation())
 
-    def derivative(self, owner: str = "张三", derivative: str = "劲装") -> DerivativeSheetInput:
-        return derivative_sheet_input(self.project, owner=owner, derivative=derivative, observation=self.observation())
+    def derivative(
+        self, owner: str = "张三", derivative: str = "劲装", reference_override: str | None = None
+    ) -> DerivativeSheetInput:
+        return derivative_sheet_input(
+            self.project,
+            owner=owner,
+            derivative=derivative,
+            observation=self.observation(),
+            reference_override=reference_override,
+        )
 
 
 def _references(generation_input: AssetSheetInput | DerivativeSheetInput) -> list[tuple[str, str, str | None]]:
@@ -295,6 +303,23 @@ class TestDerivativeSheet:
         )
         assert result.canvas_ratio == "16:9"
         assert "换上劲装" in result.render(max_reference_images=0, model="m").prompt
+
+    def test_reference_override_replaces_the_owner_sheet_reference(self, tmp_path):
+        """临时参考图覆盖：唯一参考图换成覆盖图，来源角色仍是本体，但不再是登记产物（无 claim）。"""
+        result = _Fixture(tmp_path).derivative(reference_override="characters/refs/张三.png")
+
+        assert not result.gaps, result
+        assert _references(result) == [("characters/refs/张三.png", "derivative_source", "sheet")]
+        [reference] = result.references
+        assert reference.claim is None
+        assert reference.visual.logical_id == "张三"
+
+    def test_reference_override_that_is_absent_reports_a_gap(self, tmp_path):
+        """覆盖图不在场时按缺口拒绝，与本体资产图缺失同口径。"""
+        result = _Fixture(tmp_path).derivative(reference_override="characters/refs/不存在.png")
+
+        assert result.refusal is not None
+        assert list(result.refusal.reasons) == [InputGap("derivative_owner_sheet_missing", "character", "张三")]
 
     @pytest.mark.parametrize(
         ("mutate", "expected"),

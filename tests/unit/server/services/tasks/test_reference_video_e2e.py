@@ -212,15 +212,18 @@ async def test_e2e_three_bucket_mentions_with_multi_line_body(three_bucket_clien
         }
     )
 
-    # 5) 断言三段论渲染：第一段按正文提及顺序绑定，正文 @mention 全部替成 <X>
+    # 5) 断言 H3 六段式渲染：subject_definitions 按正文提及顺序逐主体绑定，正文 @mention 全部替成 <Subject N>
     rendered = captured_backend_kwargs["prompt"]
-    assert rendered.startswith("<张三>@图片1、<酒馆>@图片2、<长剑>@图片3。")
+    assert rendered.startswith("subject_definitions:\n")
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in rendered
+    assert "<Subject 2> is the scene 酒馆, shown in <Picture 2>." in rendered
+    assert "<Subject 3> is the prop 长剑, shown in <Picture 3>." in rendered
     assert "@张三" not in rendered  # 所有 @ 已替换
     assert "@酒馆" not in rendered
     assert "@长剑" not in rendered
     assert "[图" not in rendered  # 对照表编号已废除
-    assert "Style: 唐风水墨\nVisual style: 墨色晕染，留白构图\n" in rendered  # 第三段风格块
-    assert "Avoid: " in rendered  # 第三段视频负向提示词
+    assert "Style: 唐风水墨\nVisual style: 墨色晕染，留白构图\n" in rendered  # 风格块
+    assert "Avoid: " in rendered  # 视频负向提示词
 
     # 6) 断言 reference_images 传了 3 个临时文件
     ref_images = captured_backend_kwargs["reference_images"]

@@ -137,7 +137,7 @@ export interface EndpointDefinition {
 }
 
 /**
- * 节点绑定的语义键名录。视频端点用全部十一个，图像端点没有首尾帧与时间轴那四个。
+ * 节点绑定的语义键名录。视频端点用全部十四个，图像端点没有首尾帧、时间轴与续镜序号。
  * 与服务端 `packages/arcreel-market-core/src/arcreel_market_core/comfyui/bindings.py` 同名同序。
  */
 export const COMFYUI_VIDEO_BINDING_KEYS = [
@@ -149,8 +149,11 @@ export const COMFYUI_VIDEO_BINDING_KEYS = [
   "width",
   "height",
   "frames",
+  "duration",
   "fps",
   "seed",
+  "shot_cur_seq",
+  "shot_pre_seq",
   "output",
 ] as const;
 

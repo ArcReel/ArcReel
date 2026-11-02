@@ -21,6 +21,12 @@ export interface GlobalModelDefaults {
   image: string;
   imageT2I: string;
   imageI2I: string;
+  /** 全局图片资产槽位（docs/adr/0098）：项目资产槽位留空时穿透演算的来源。 */
+  imageCharacter: string;
+  imageCharacterDerivative: string;
+  imageScene: string;
+  imageProp: string;
+  imageProduct: string;
   textDefault: string;
   textSimple: string;
   textComplex: string;
@@ -158,6 +164,12 @@ export function deriveForm(
     imageBackendDefault: str(project.default_image_backend),
     imageBackendT2I: str(project.image_provider_t2i),
     imageBackendI2I: str(project.image_provider_i2i),
+    // 图片资产槽位（docs/adr/0098）：project.json 字段与全局设置键同名
+    imageBackendCharacter: str(project.default_image_backend_character),
+    imageBackendCharacterDerivative: str(project.default_image_backend_character_derivative),
+    imageBackendScene: str(project.default_image_backend_scene),
+    imageBackendProp: str(project.default_image_backend_prop),
+    imageBackendProduct: str(project.default_image_backend_product),
     textBackendDefault: str(project.default_text_backend),
     textBackendSimple: str(project.text_backend_simple),
     textBackendComplex: str(project.text_backend_complex),
@@ -264,6 +276,12 @@ function fullProjectPatch(
     default_image_backend: models.imageBackendDefault || null,
     image_provider_t2i: models.imageBackendT2I || null,
     image_provider_i2i: models.imageBackendI2I || null,
+    // 图片资产槽位（docs/adr/0098）：null 即清除项目级覆盖、回退下一层
+    default_image_backend_character: models.imageBackendCharacter || null,
+    default_image_backend_character_derivative: models.imageBackendCharacterDerivative || null,
+    default_image_backend_scene: models.imageBackendScene || null,
+    default_image_backend_prop: models.imageBackendProp || null,
+    default_image_backend_product: models.imageBackendProduct || null,
     video_generate_audio: models.generateAudio,
     narration_delivery: narration.delivery,
     audio_backend: narration.audioBackend || null,

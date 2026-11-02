@@ -243,6 +243,7 @@ class TestGenerate:
             ReferencePromptAuthoringFlatScript,
             build_drama_normalized_script_model,
             build_episode_script_model,
+            build_reference_prompt_authoring_model,
             build_reference_units_script_plan_model,
         )
 
@@ -258,7 +259,10 @@ class TestGenerate:
             build_reference_units_script_plan_model([4, 6, 8]),
             # 单值档位渲染为 const，与多值 enum 走不同归一路径
             build_reference_units_script_plan_model([8]),
-            # prompt_authoring 的实际 response_schema（静态，无枚举收窄）同样过这条通道
+            # prompt_authoring 的等长硬约束（minItems/maxItems）同样过这条通道
+            build_reference_prompt_authoring_model(3),
+            build_reference_prompt_authoring_model(1),
+            # 静态基类（解析侧口径）保留在清单里
             ReferencePromptAuthoringFlatScript,
         ]
         assert schemas, "schema 清单为空时下面的循环形同虚设"

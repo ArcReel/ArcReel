@@ -293,6 +293,14 @@ class _Resolver:
             if item.decision == "derivative" and item.type != "character":
                 self._problem("new_asset_derivative_not_character", index, "只有角色可以登记衍生")
                 continue
+            if item.decision == "register" and item.target:
+                self._problem(
+                    "new_asset_register_with_target",
+                    index,
+                    "register 独立登记新资产，不读 target；已登记角色换装 / 换形态请改用 derivative"
+                    "（target 填本体登记名，asset_name 填衍生名，description 只写相对本体的变化）",
+                )
+                continue
             if item.asset_name and not self._valid_name(item.asset_name, index, "asset_name"):
                 continue
             item_types[key] = item.type

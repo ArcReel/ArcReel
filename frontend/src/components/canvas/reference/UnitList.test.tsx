@@ -30,19 +30,17 @@ describe("UnitList", () => {
     expect(screen.getByText(/No video units in this episode yet|本集还没有视频单元/)).toBeInTheDocument();
   });
 
-  it("renders a row per unit with its position, duration and prompt preview", () => {
+  it("renders a row per unit with id, duration and prompt preview", () => {
     render(
       <UnitList
-        units={[mkUnit("E1U4"), mkUnit("E1U9", { duration_seconds: 8 })]}
+        units={[mkUnit("E1U1"), mkUnit("E1U2", { duration_seconds: 8 })]}
         selectedId={null}
         onSelect={vi.fn()}
         onAdd={vi.fn()}
       />,
     );
-    // 单元按本集里的位置称呼，条目 ID 不出现在界面上
-    expect(screen.getByTestId("unit-row-E1U4")).toContainElement(screen.getByRole("img", { name: "视频单元 1" }));
-    expect(screen.getByTestId("unit-row-E1U9")).toContainElement(screen.getByRole("img", { name: "视频单元 2" }));
-    expect(screen.queryByText(/U4|U9/)).not.toBeInTheDocument();
+    expect(screen.getByText("U1")).toBeInTheDocument();
+    expect(screen.getByText("U2")).toBeInTheDocument();
     expect(screen.getAllByText(/enter the pub/)).toHaveLength(2);
     expect(screen.getByText(/^(3s|3 ?秒)$/)).toBeInTheDocument();
     expect(screen.getByText(/^(8s|8 ?秒)$/)).toBeInTheDocument();
@@ -89,6 +87,55 @@ describe("UnitList", () => {
     render(<UnitList units={[]} selectedId={null} onSelect={vi.fn()} onAdd={onAdd} />);
     fireEvent.click(screen.getByRole("button", { name: /Add video unit|新增视频单元/ }));
     expect(onAdd).toHaveBeenCalled();
+  });
+
+  describe("执行端点选择", () => {
+    it("提供端点清单时每行渲染一个端点下拉，默认停在「按项目配置」", () => {
+      render(
+        <UnitList
+          units={[mkUnit("E1U1"), mkUnit("E1U2")]}
+          selectedId={null}
+          onSelect={vi.fn()}
+          onAdd={vi.fn()}
+          endpointOptions={["custom-3/veo-x"]}
+          onEndpointChange={vi.fn()}
+        />,
+      );
+      expect(screen.getByRole("combobox", { name: /Execution endpoint for U1|U1的执行端点/ })).toBeInTheDocument();
+      expect(screen.getByRole("combobox", { name: /Execution endpoint for U2|U2的执行端点/ })).toBeInTheDocument();
+    });
+
+    it("未提供端点清单时不渲染端点下拉", () => {
+      render(
+        <UnitList units={[mkUnit("E1U1")]} selectedId={null} onSelect={vi.fn()} onAdd={vi.fn()} />,
+      );
+      expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    });
+
+    it("选择端点按单元回调 backend，回到默认回调 null", async () => {
+      const onEndpointChange = vi.fn();
+      render(
+        <UnitList
+          units={[mkUnit("E1U1")]}
+          selectedId={null}
+          onSelect={vi.fn()}
+          onAdd={vi.fn()}
+          endpointOptions={["custom-3/veo-x", "gemini-aistudio/veo-3"]}
+          endpointByUnit={{ E1U1: "gemini-aistudio/veo-3" }}
+          onEndpointChange={onEndpointChange}
+        />,
+      );
+      const endpoint = screen.getByRole("combobox", { name: /Execution endpoint for U1|U1的执行端点/ });
+      await userEvent.click(endpoint);
+      await userEvent.click(await screen.findByRole("option", { name: "custom-3/veo-x" }));
+      expect(onEndpointChange).toHaveBeenCalledWith("E1U1", "custom-3/veo-x");
+
+      await userEvent.click(screen.getByRole("combobox", { name: /Execution endpoint for U1|U1的执行端点/ }));
+      await userEvent.click(
+        await screen.findByRole("option", { name: /Follow project settings|按项目配置/ }),
+      );
+      expect(onEndpointChange).toHaveBeenCalledWith("E1U1", null);
+    });
   });
 
   describe("排序", () => {

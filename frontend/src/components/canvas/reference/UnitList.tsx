@@ -4,10 +4,14 @@ import { Plus, Search } from "lucide-react";
 import { SortableHandle, SortableItem, SortableList, type SortableMove } from "@/components/shared/sortable/SortableList";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { resolveUnitStatus } from "./unit-status";
 import { UnitStatusBadge } from "./UnitStatusBadge";
 import type { ReferenceVideoUnit, UnitStatus } from "@/types";
-import { ItemPositionBadge } from "@/components/shared/episode-item/ItemPositionBadge";
+import { itemIdWithinEpisode } from "@/utils/episode-display";
+
+// Radix Select 不接受空串作「未选择」值；用一个真实后端绝不会取的哨兵表示「按项目配置」。
+const ENDPOINT_FOLLOW_PROJECT = "__follow_project__";
 
 export interface UnitListProps {
   units: ReferenceVideoUnit[];
@@ -21,6 +25,12 @@ export interface UnitListProps {
    * 提交期间按新顺序显示，不接受新的移动：锚点仍按 store 里的旧顺序换算，叠加的移动会算错落点。
    */
   onMove?: (unitId: string, afterId: string | null) => Promise<void>;
+  /** 可选的执行端点清单（复合键 "provider/model"）；提供后每行显示端点下拉。 */
+  endpointOptions?: string[];
+  /** 各单元当前选定的执行端点；缺省（或未列出）表示「按项目配置」。 */
+  endpointByUnit?: Record<string, string>;
+  /** 某单元端点变更；`null` 表示回到「按项目配置」。 */
+  onEndpointChange?: (unitId: string, backend: string | null) => void;
   className?: string;
 }
 
@@ -28,8 +38,21 @@ export interface UnitListProps {
  * 视频单元列表：搜索、新增与排序。拖动把手，或聚焦把手后用空格与方向键调整顺序；
  * 按搜索词筛选时不能排序。
  */
-export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove, className = "" }: UnitListProps) {
+export function UnitList({
+  units,
+  selectedId,
+  onSelect,
+  onAdd,
+  statusMap,
+  onMove,
+  endpointOptions,
+  endpointByUnit,
+  onEndpointChange,
+  className = "",
+}: UnitListProps) {
   const { t } = useTranslation("dashboard");
+  // 端点下拉仅在配置了清单且允许变更时出现；哨兵值与「按项目配置」占位文案对齐。
+  const showEndpoint = (endpointOptions?.length ?? 0) > 0 && typeof onEndpointChange === "function";
   const [query, setQuery] = useState("");
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
 
@@ -101,6 +124,7 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
           <ul aria-label={t("reference_unit_list_title")} className="relative min-h-0 flex-1 overflow-y-auto px-2 pb-2">
             {shown.map((u) => {
               const selected = u.unit_id === selectedId;
+              const shortId = itemIdWithinEpisode(u.unit_id);
               return (
                 <SortableItem
                   key={u.unit_id}
@@ -112,31 +136,76 @@ export function UnitList({ units, selectedId, onSelect, onAdd, statusMap, onMove
                       <SortableHandle label={t("reference_unit_reorder", { id: positionLabel(u.unit_id) })} />
                     </span>
                   )}
-                  <button
-                    type="button"
-                    data-testid={`unit-row-${u.unit_id}`}
-                    aria-current={selected || undefined}
-                    onClick={() => onSelect(u.unit_id)}
-                    className={`focus-ring flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg border p-2.5 text-left transition-colors duration-fast ${
+                  <div
+                    className={`flex min-w-0 flex-1 flex-col gap-1.5 rounded-lg border p-2.5 transition-colors duration-fast ${
                       selected ? "border-primary/30 bg-primary/10" : "border-transparent hover:bg-muted/50"
                     }`}
                   >
-                    <span className="flex items-center gap-1.5">
-                      <ItemPositionBadge position={positionById.get(u.unit_id) ?? null} kind="unit" active={selected} />
-                      <UnitStatusBadge status={resolveUnitStatus(u, statusMap)} />
-                      <span className="flex-1" />
-                      <span className="font-mono text-xs tabular-nums text-muted-foreground">
-                        {t("reference_editor_unit_meta", { duration: u.duration_seconds })}
-                      </span>
-                    </span>
-                    <span
-                      className={`line-clamp-2 text-xs leading-snug ${
-                        selected ? "text-subtle-foreground" : "text-muted-foreground"
-                      }`}
+                    <button
+                      type="button"
+                      data-testid={`unit-row-${u.unit_id}`}
+                      aria-current={selected || undefined}
+                      onClick={() => onSelect(u.unit_id)}
+                      className="focus-ring flex min-w-0 flex-col gap-1.5 rounded-lg text-left"
                     >
-                      {u.text}
-                    </span>
-                  </button>
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          translate="no"
+                          className={`rounded-sm px-1.5 py-0.5 font-mono text-xs font-semibold ${
+                            selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"
+                          }`}
+                        >
+                          {shortId}
+                        </span>
+                        <UnitStatusBadge status={resolveUnitStatus(u, statusMap)} />
+                        <span className="flex-1" />
+                        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                          {t("reference_editor_unit_meta", { duration: u.duration_seconds })}
+                        </span>
+                      </span>
+                      <span
+                        className={`line-clamp-2 text-xs leading-snug ${
+                          selected ? "text-subtle-foreground" : "text-muted-foreground"
+                        }`}
+                      >
+                        {u.text}
+                      </span>
+                    </button>
+                    {showEndpoint && (
+                      <Select
+                        value={endpointByUnit?.[u.unit_id] ?? ENDPOINT_FOLLOW_PROJECT}
+                        onValueChange={(value) =>
+                          onEndpointChange?.(u.unit_id, value === ENDPOINT_FOLLOW_PROJECT ? null : value)
+                        }
+                      >
+                        {/* eslint-disable shadcn/no-restyle -- 紧凑端点选择器：自定义间距/字号为刻意设计 */}
+                        <SelectTrigger
+                          size="sm"
+                          aria-label={t("reference_unit_endpoint_aria", { id: shortId })}
+                          className="h-auto w-full justify-start gap-1 py-1 text-xs font-normal"
+                        >
+                          <SelectValue className="min-w-0 flex-1 truncate">
+                            {(value: string) =>
+                              value === ENDPOINT_FOLLOW_PROJECT
+                                ? t("reference_unit_endpoint_default")
+                                : value
+                            }
+                          </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={ENDPOINT_FOLLOW_PROJECT}>
+                            {t("reference_unit_endpoint_default")}
+                          </SelectItem>
+                          {endpointOptions?.map((backend) => (
+                            <SelectItem key={backend} value={backend} className="font-mono">
+                              {backend}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                        {/* eslint-enable shadcn/no-restyle */}
+                      </Select>
+                    )}
+                   </div>
                 </SortableItem>
               );
             })}

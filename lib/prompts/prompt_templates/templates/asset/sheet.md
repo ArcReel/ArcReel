@@ -32,4 +32,4 @@ protected: false
 
 {{ variant("asset/sheet/guard", asset_type) }}
 
-Avoid: {{ variant("asset/sheet/exclusions", asset_type) }}{{ partial("shared/image_avoid") }}
+{{ variant("asset/sheet/avoid", asset_type) }}

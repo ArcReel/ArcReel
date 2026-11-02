@@ -31,7 +31,9 @@ def test_render_unit_prompt_binds_subjects_in_first_mention_order():
         project,
         VoiceRenderSettings(model_id="m", audio_ready=set()),
     )
-    assert "<张三>@图片1、<酒馆>@图片2。" in rendered.prompt
+    # 首现顺序即 <Subject N> 与 <Picture N> 编号：张三先出场 → Subject 1，酒馆后出场 → Subject 2
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in rendered.prompt
+    assert "<Subject 2> is the scene 酒馆, shown in <Picture 2>." in rendered.prompt
     assert "@张三" not in rendered.prompt
     assert "[图1]" not in rendered.prompt
 
@@ -47,5 +49,6 @@ def test_render_unit_prompt_binds_all_product_images_and_adds_fidelity_guard():
         ],
     )
 
-    assert "<商品甲>@图片1、<商品甲>@图片2。" in rendered.prompt
+    # 同一主体的多张商品参考图全部列进主体行（同一 <Subject> 下并列 <Picture 1>、<Picture 2>）
+    assert "<Subject 1> is the product 商品甲, shown in <Picture 1>、<Picture 2>." in rendered.prompt
     assert "商品高保真还原（最高优先级" in rendered.prompt

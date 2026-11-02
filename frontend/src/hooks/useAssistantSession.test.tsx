@@ -678,6 +678,46 @@ describe("useAssistantSession", () => {
     expect(useAssistantStore.getState().answeringQuestion).toBe(false);
   });
 
+  it("passes file-access authorization fields through question SSE events", async () => {
+    vi.spyOn(API, "listAssistantSessions").mockResolvedValue({
+      sessions: [makeSession("session-1", "running")],
+    });
+    vi.spyOn(API, "getAssistantSession").mockResolvedValue({ session: makeSession("session-1", "running") });
+
+    renderHook(() => useAssistantSession("demo"));
+
+    await waitFor(() => {
+      expect(useAssistantStore.getState().currentSessionId).toBe("session-1");
+      expect(FakeSseStream.instances).toHaveLength(1);
+    });
+
+    act(() => {
+      FakeSseStream.instances[0].emit("question", {
+        question_id: "fa-1",
+        request_kind: "file_access",
+        path: "/Users/dev/workspace-02657a9b/secret.txt",
+        reason: "需要授权：项目根外的 host 路径访问请求",
+        title: "Agent 想读取 secret.txt",
+        questions: [
+          {
+            header: "文件访问授权",
+            question: "是否允许本次 Read 访问？",
+            multiSelect: false,
+            options: [
+              { label: "批准", description: "放行本次访问" },
+              { label: "拒绝", description: "拒绝本次访问" },
+            ],
+          },
+        ],
+      });
+    });
+
+    const pending = useAssistantStore.getState().pendingQuestion;
+    expect(pending?.request_kind).toBe("file_access");
+    expect(pending?.path).toBe("/Users/dev/workspace-02657a9b/secret.txt");
+    expect(pending?.reason).toBe("需要授权：项目根外的 host 路径访问请求");
+  });
+
   it("submits answers successfully and clears pendingQuestion", async () => {
     mockIdleSession();
     const answerSpy = vi

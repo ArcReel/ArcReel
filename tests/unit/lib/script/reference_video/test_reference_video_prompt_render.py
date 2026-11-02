@@ -1,4 +1,4 @@
-"""三段论渲染管线：A/B/C 三档注入差异、编号顺序契约与降级 warning。"""
+"""H3 Ref2VA 六段式渲染管线：A/B/C 三档注入差异、编号顺序契约与降级 warning。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import pytest
 
 from lib.prompts.prompt_templates.builtin import builtin_templates
 from lib.script.reference_video.prompt_render import (
+    _OVERALL_SOUNDSCAPE,
     render_unit_prompt,
     resolve_reference_audio_paths,
 )
@@ -76,8 +77,9 @@ def test_native_tier_binds_audio_in_speaker_first_appearance_order():
     )
     # 音频顺序即请求字段顺序，也即 @音频N 编号
     assert rendered.audio_speakers == ["张三", "李四"]
+    # 张三在 references[1] → <Subject 2>；李四只在 speaker 位、无图，仍用名字记号
     assert (
-        "<张三>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。"
+        "<Subject 2>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：低沉沙哑的男声。"
         in rendered.prompt
     )
     assert (
@@ -101,7 +103,7 @@ def test_silent_episode_sends_dialogue_without_any_audio_binding():
     assert rendered.audio_speakers == []
     assert rendered.audio_speaker_reference_index == []
     assert "@音频" not in rendered.prompt
-    assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
+    assert "<Subject 2>说 {今晚的酒，我请。}" in rendered.prompt
     assert "<李四>说 {你终于来了。}" in rendered.prompt
 
 
@@ -150,7 +152,9 @@ def test_silent_paths_keep_the_whole_body_identical_to_the_audible_path(silencin
     silent = render_unit_prompt(_TEXT, _project(), refs, replace(settings, **silencing))
 
     def _body(prompt: str) -> str:
-        return prompt.split("\n\n")[1]
+        # 正文段以 detailed_description: 行领起，按标签行定位而非固定下标（下标现在是 summary 段）
+        segments = prompt.split("\n\n")
+        return next(seg for seg in segments if seg.startswith("detailed_description:"))
 
     # 有声侧确实绑定了两段音频，比对才有区分度（否则两侧本就无音频，断言恒真）
     assert audible.audio_speakers == ["张三", "李四"]
@@ -219,7 +223,10 @@ def test_first_segment_binds_images_in_reference_order():
         _refs(("scene", "酒馆"), ("character", "张三"), ("prop", "长剑")),
         VoiceRenderSettings(voice_consistency="soft"),
     )
-    assert rendered.prompt.startswith("<酒馆>@图片1、<张三>@图片2、<长剑>@图片3。")
+    assert rendered.prompt.startswith("subject_definitions:\n")
+    assert "<Subject 1> is the scene 酒馆, shown in <Picture 1>." in rendered.prompt
+    assert "<Subject 2> is the character 张三, shown in <Picture 2>." in rendered.prompt
+    assert "<Subject 3> is the prop 长剑, shown in <Picture 3>." in rendered.prompt
 
 
 def test_speaker_position_never_produces_a_reference_image():
@@ -244,7 +251,7 @@ def test_soft_tier_declares_voice_style_without_audio_designation():
     )
     assert rendered.audio_speakers == []
     assert "@音频" not in rendered.prompt
-    assert "<张三>的声音特征：低沉沙哑的男声。" in rendered.prompt
+    assert "<Subject 1>的声音特征：低沉沙哑的男声。" in rendered.prompt
     assert "<李四>的声音特征：清亮少女音。" in rendered.prompt
 
 
@@ -258,7 +265,7 @@ def test_silent_tier_keeps_dialogue_lines_but_injects_no_voice_declaration():
     assert "声音特征" not in rendered.prompt
     assert "@音频" not in rendered.prompt
     # 台词照常渲染：供口型与表演
-    assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
+    assert "<Subject 1>说 {今晚的酒，我请。}" in rendered.prompt
     assert {"key": WARN_SILENT_MODEL, "params": {"provider": "", "model": "minimax-01"}} in rendered.warnings
 
 
@@ -276,12 +283,17 @@ def test_reference_audio_overflow_truncates_and_warns():
 
 
 def test_speaker_without_reference_audio_warns_and_keeps_voice_style():
-    text = "镜头1：黑场。\n@[旁白人]：{很久很久以前。}"
+    text = "镜头1：@[旁白人] 开口。\n@[旁白人]：{很久很久以前。}"
     rendered = render_unit_prompt(
-        text, _project(), [], VoiceRenderSettings(voice_consistency="native", max_reference_audio=3)
+        text,
+        _project(),
+        _refs(("character", "旁白人")),
+        VoiceRenderSettings(voice_consistency="native", max_reference_audio=3),
     )
     assert rendered.audio_speakers == []
-    assert "<旁白人>的声音特征：温和中年男声。" in rendered.prompt
+    # 旁白人有参考图 → <Subject 1>；无参考音频故不绑 @音频，但音色声明照常注入
+    assert "<Subject 1>的声音特征：温和中年男声。" in rendered.prompt
+    assert "@音频" not in rendered.prompt
     assert {"key": WARN_SPEAKER_WITHOUT_AUDIO, "params": {"name": "旁白人"}} in rendered.warnings
 
 
@@ -308,8 +320,8 @@ def test_inline_speech_renders_the_same_official_phrasing_as_the_whole_line_form
         _SOFT,
     )
 
-    assert "<张三>说 {今晚的酒，我请。}" in legacy.prompt
-    assert "<张三> 推门而入。<张三>说 {今晚的酒，我请。}" in inline.prompt
+    assert "<Subject 1>说 {今晚的酒，我请。}" in legacy.prompt
+    assert "<Subject 1> 推门而入。<Subject 1>说 {今晚的酒，我请。}" in inline.prompt
     assert inline.warnings == legacy.warnings
     assert inline.audio_speakers == legacy.audio_speakers
 
@@ -322,7 +334,7 @@ def test_inline_speech_keeps_the_description_around_it_in_place():
         _refs(("character", "张三"), ("prop", "长剑")),
         _SOFT,
     )
-    assert "<张三> 推门，<张三>说 {我来了。}，他按住 <长剑>。" in rendered.prompt
+    assert "<Subject 1> 推门，<Subject 1>说 {我来了。}，他按住 <Subject 2>。" in rendered.prompt
 
 
 def test_inline_unattributed_narration_is_dropped_without_losing_the_line():
@@ -334,8 +346,8 @@ def test_inline_unattributed_narration_is_dropped_without_losing_the_line():
         _SOFT,
     )
     assert "夜风灌进来" not in rendered.prompt
-    assert "<张三> 推门" in rendered.prompt
-    assert "他按住 <长剑>。" in rendered.prompt
+    assert "<Subject 1> 推门" in rendered.prompt
+    assert "他按住 <Subject 2>。" in rendered.prompt
 
 
 def test_whitespace_around_a_dropped_narration_collapses_to_one_space():
@@ -346,7 +358,7 @@ def test_whitespace_around_a_dropped_narration_collapses_to_one_space():
         _refs(("character", "张三")),
         _SOFT,
     )
-    assert "<张三> 推门 他按住剑。" in rendered.prompt
+    assert "<Subject 1> 推门 他按住剑。" in rendered.prompt
 
 
 def test_line_leading_narration_does_not_leave_a_dangling_separator():
@@ -357,18 +369,18 @@ def test_line_leading_narration_does_not_leave_a_dangling_separator():
         _refs(("character", "张三")),
         _SOFT,
     )
-    assert "<张三> 推门。" in rendered.prompt
-    assert "，<张三>" not in rendered.prompt
+    assert "<Subject 1> 推门。" in rendered.prompt
+    assert "，<Subject 1>" not in rendered.prompt
 
 
 def test_line_trailing_narration_drops_the_dangling_joiner_but_keeps_a_terminator():
     """记号写在行尾时，左侧悬空的连接标点丢掉；收句的终止标点是作者写完的一句，保留。"""
     joined = render_unit_prompt("@[张三] 推门，{夜风灌进来}", _project(), _refs(("character", "张三")), _SOFT)
-    assert "<张三> 推门" in joined.prompt
+    assert "<Subject 1> 推门" in joined.prompt
     assert "推门，" not in joined.prompt
 
     terminated = render_unit_prompt("@[张三] 推门。{夜风灌进来}", _project(), _refs(("character", "张三")), _SOFT)
-    assert "<张三> 推门。" in terminated.prompt
+    assert "<Subject 1> 推门。" in terminated.prompt
 
 
 def test_unregistered_speaker_line_is_sent_verbatim_with_warning():
@@ -383,10 +395,12 @@ def test_clipped_reference_still_renders_as_subject():
     rendered = render_unit_prompt(_TEXT, _project(), _refs(("scene", "酒馆")), _SOFT)
     assert "@[张三]" not in rendered.prompt
     assert "@[长剑]" not in rendered.prompt
+    # 张三 / 长剑 被裁、无图，正文走名字记号，不变
     assert "<张三> 推门而入，手按 <长剑>。" in rendered.prompt
-    # 主体记号与图号解耦：只有随请求发出的那张图才有绑定行
-    assert rendered.prompt.startswith("<酒馆>@图片1。")
-    assert "<张三>@图片" not in rendered.prompt
+    # 主体记号与图号解耦：只有随请求发出的那张图才进 subject_definitions
+    assert "<Subject 1> is the scene 酒馆, shown in <Picture 1>." in rendered.prompt
+    assert "<张三> is the" not in rendered.prompt
+    assert "<Subject 2>" not in rendered.prompt
 
 
 def test_unregistered_mention_kept_verbatim_with_warning():
@@ -437,7 +451,12 @@ def test_third_segment_drops_quality_and_stability_packs():
 
 def test_third_segment_without_style_keeps_only_the_avoid_line():
     rendered = render_unit_prompt("镜头1：空镜。", _project(style=""), [], _SOFT)
-    assert rendered.prompt == f"镜头1：空镜。\n\n{_video_avoid_line()}"
+    # 无参考图 → 无前三段、body_label=integrated_multimodal_description；style 空 → media_style 整块消失
+    assert rendered.prompt == (
+        f"integrated_multimodal_description:\n镜头1：空镜。\n\n"
+        f"overall_soundscape: {_OVERALL_SOUNDSCAPE}\n\n"
+        f"non_diegetic_music: N/A\n\n{_video_avoid_line()}"
+    )
 
 
 def test_twin_exclusion_only_when_two_or_more_characters():
@@ -449,8 +468,9 @@ def test_twin_exclusion_only_when_two_or_more_characters():
         _refs(("character", "张三")),
         _SOFT,
     )
-    assert clipped.prompt.startswith("<张三>@图片1。")
-    assert "<李四>@图片" not in clipped.prompt
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in clipped.prompt
+    assert "<李四> is the" not in clipped.prompt
+    assert "<Subject 2>" not in clipped.prompt
     assert _avoid_line(clipped.prompt) == f"{_video_avoid_line()}、外形着装完全一致的分身或双胞胎"
 
 
@@ -468,8 +488,8 @@ def test_product_fidelity_tail_follows_the_third_segment():
     assert rendered.prompt.index(_video_avoid_line()) < rendered.prompt.index(tail)
 
 
-def test_script_without_dialogue_still_renders_three_segments():
-    """无台词记号的正文照样出三段：绑定 + 正文 + 约束包齐备，语义不回退。
+def test_script_without_dialogue_still_renders_the_six_segments():
+    """无台词记号的正文照样出六段式：subject_definitions + 正文 + 声景约束齐备，语义不回退。
 
     正文里的 `镜头N：` 只是普通文字，逐字进提示词，不被识别为结构。
     """
@@ -481,8 +501,9 @@ def test_script_without_dialogue_still_renders_three_segments():
     )
     assert rendered.audio_speakers == []
     assert rendered.warnings == []
-    assert "<张三>@图片1、<酒馆>@图片2。" in rendered.prompt
-    assert "镜头1：<张三> 走进 <酒馆>。\n镜头2：他坐下。" in rendered.prompt
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in rendered.prompt
+    assert "<Subject 2> is the scene 酒馆, shown in <Picture 2>." in rendered.prompt
+    assert "镜头1：<Subject 1> 走进 <Subject 2>。\n镜头2：他坐下。" in rendered.prompt
 
 
 def test_audio_ready_overrides_field_presence(tmp_path):
@@ -558,13 +579,14 @@ def test_combining_char_name_renders_identically_in_every_encoding_pairing(regis
     assert rendered.audio_speakers == [_NAME_NFC]
     assert rendered.audio_speaker_reference_index == [0]
     assert rendered.warnings == []
-    assert f"<{_NAME_NFC}>@图片1" in rendered.prompt
+    # 唯一主体 → <Subject 1>；主体行用 NFC 规范名
+    assert f"<Subject 1> is the character {_NAME_NFC}, shown in <Picture 1>." in rendered.prompt
     assert (
-        f"<{_NAME_NFC}>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。"
+        "<Subject 1>的台词音色参考 @音频1，只取音色、语速与情绪，台词以正文为准，声音特征：清亮少女音。"
         in rendered.prompt
     )
-    assert f"<{_NAME_NFC}> 推门而入" in rendered.prompt
-    assert f"<{_NAME_NFC}>说 {{Tôi đến rồi.}}" in rendered.prompt
+    assert "<Subject 1> 推门而入" in rendered.prompt
+    assert "<Subject 1>说 {Tôi đến rồi.}" in rendered.prompt
     # 引用语法记号一个都不该漏进供应商请求
     assert "@[" not in rendered.prompt
 
@@ -579,9 +601,9 @@ def test_padded_mention_and_speaker_render_with_canonical_asset_name():
 
     assert rendered.audio_speakers == ["张三"]
     assert rendered.audio_speaker_reference_index == [0]
-    assert "<张三>@图片1" in rendered.prompt
-    assert "<张三> 推门而入" in rendered.prompt
-    assert "<张三>说 {我来了}" in rendered.prompt
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in rendered.prompt
+    assert "<Subject 1> 推门而入" in rendered.prompt
+    assert "<Subject 1>说 {我来了}" in rendered.prompt
     assert "@[" not in rendered.prompt
 
 
@@ -658,8 +680,10 @@ def test_derivative_subject_marks_declare_one_character_in_several_forms():
         _SOFT,
     )
 
-    assert rendered.prompt.startswith("<张三>@图片1、<张三/劲装>@图片2。")
-    assert "<张三>与<张三/劲装>是同一角色的不同形态，各自按对应参考图呈现。" in rendered.prompt
+    assert rendered.prompt.startswith("subject_definitions:\n")
+    assert "<Subject 1> is the character 张三, shown in <Picture 1>." in rendered.prompt
+    assert "<Subject 2> is the character 张三/劲装, shown in <Picture 2>." in rendered.prompt
+    assert "<Subject 1>与<Subject 2>是同一角色的不同形态，各自按对应参考图呈现。" in rendered.prompt
 
 
 def test_several_derivatives_of_one_character_share_a_single_form_declaration():
@@ -670,7 +694,7 @@ def test_several_derivatives_of_one_character_share_a_single_form_declaration():
         _SOFT,
     )
 
-    assert "<张三/劲装>与<张三/兽化>是同一角色的不同形态，各自按对应参考图呈现。" in rendered.prompt
+    assert "<Subject 1>与<Subject 2>是同一角色的不同形态，各自按对应参考图呈现。" in rendered.prompt
 
 
 def test_one_character_in_two_forms_does_not_trigger_the_twin_exclusion():
@@ -716,7 +740,8 @@ def test_speaker_position_renders_the_form_written_down():
         VoiceRenderSettings(voice_consistency="soft"),
     )
 
-    assert "<张三/劲装>说 {今晚的酒，我请。}" in rendered.prompt
+    # 写下的衍生 张三/劲装 有参考图 → <Subject 1>；声音绑本体 张三（无图）→ 名字记号
+    assert "<Subject 1>说 {今晚的酒，我请。}" in rendered.prompt
     assert "<张三>说" not in rendered.prompt
     assert "<张三>的声音特征：低沉沙哑的男声。" in rendered.prompt
 
@@ -729,4 +754,6 @@ def test_unregistered_speaker_derivative_falls_back_to_the_ontology_mark():
         _SOFT,
     )
 
-    assert "<张三>说 {今晚的酒，我请。}" in rendered.prompt
+    # 张三有参考图 → <Subject 1>；未登记衍生退回本体，仍用本体的主体记号
+    assert "<Subject 1>说 {今晚的酒，我请。}" in rendered.prompt
+    assert "<张三/不存在>" not in rendered.prompt

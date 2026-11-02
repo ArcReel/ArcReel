@@ -584,6 +584,82 @@ class TestSessionManager:
         assert deny.interrupt is True
         assert "user interrupted" in deny.message
 
+    @pytest.mark.asyncio
+    async def test_can_use_tool_file_access_approve(self, session_manager, monkeypatch):
+        """文件工具被 hook 判 ASK（decision_reason 存在）→ _can_use_tool 发起 pending question；
+        用户批准 → PermissionResultAllow（透传 input_data）。"""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+
+        managed = ManagedSession(session_id="fa1", actor=_dummy_actor(), status="running", project_name="demo")
+        session_manager.sessions["fa1"] = managed
+        cb = await session_manager._build_can_use_tool_callback("fa1")
+
+        ctx = SimpleNamespace(decision_reason="需要授权：项目根外的 host 路径访问请求", blocked_path="/etc/hosts")
+        input_data = {"tool_name": "Read", "tool_input": {"file_path": "/etc/hosts"}}
+        task = asyncio.create_task(cb("Read", input_data, ctx))
+        await asyncio.sleep(0)
+        assert managed.pending_questions
+        pending = next(iter(managed.pending_questions.values()))
+        # 复用 ask_user_question 通道，payload 标注 file_access 并回显真实路径与原因
+        assert pending.payload["request_kind"] == "file_access"
+        assert pending.payload["path"] == "/etc/hosts"
+        assert pending.payload["reason"]
+        # 批准：答复值含「批准」
+        assert managed.resolve_pending_question(pending.question_id, {"文件访问授权": "批准"})
+        result = await task
+        assert isinstance(result, _FakeAllow)
+        assert result.updated_input == input_data
+
+    @pytest.mark.asyncio
+    async def test_can_use_tool_file_access_reject(self, session_manager, monkeypatch):
+        """用户拒绝 → PermissionResultDeny。"""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+
+        managed = ManagedSession(session_id="fa2", actor=_dummy_actor(), status="running", project_name="demo")
+        session_manager.sessions["fa2"] = managed
+        cb = await session_manager._build_can_use_tool_callback("fa2")
+
+        ctx = SimpleNamespace(decision_reason="需要授权：跨项目读取请求")
+        task = asyncio.create_task(cb("Read", {"tool_input": {"file_path": "/x/other.json"}}, ctx))
+        await asyncio.sleep(0)
+        pending = next(iter(managed.pending_questions.values()))
+        assert managed.resolve_pending_question(pending.question_id, {"文件访问授权": "拒绝"})
+        result = await task
+        assert isinstance(result, _FakeDeny)
+
+    @pytest.mark.asyncio
+    async def test_can_use_tool_file_access_interrupt(self, session_manager, monkeypatch):
+        """answer_future 异常（会话中断）→ PermissionResultDeny(interrupt=True)。"""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+
+        managed = ManagedSession(session_id="fa3", actor=_dummy_actor(), status="running", project_name="demo")
+        session_manager.sessions["fa3"] = managed
+        cb = await session_manager._build_can_use_tool_callback("fa3")
+
+        ctx = SimpleNamespace(decision_reason="需要授权：项目目录之外的写入请求")
+        task = asyncio.create_task(cb("Write", {"tool_input": {"file_path": "/tmp/escape.json"}}, ctx))
+        await asyncio.sleep(0)
+        assert managed.pending_questions
+        managed.cancel_pending_questions("user interrupted")
+        result = await task
+        assert isinstance(result, _FakeDeny)
+        assert result.interrupt is True
+
+    @pytest.mark.asyncio
+    async def test_can_use_tool_non_file_tool_with_reason_still_default_deny(self, session_manager, monkeypatch):
+        """非文件工具（Bash）即便带 decision_reason 也不走文件授权分支，仍落到白名单兜底 deny。"""
+        monkeypatch.setattr(sm_mod, "PermissionResultAllow", _FakeAllow)
+        monkeypatch.setattr(sm_mod, "PermissionResultDeny", _FakeDeny)
+
+        cb = await session_manager._build_can_use_tool_callback("unknown-session")
+        ctx = SimpleNamespace(decision_reason="No matching allow rule")
+        result = await cb("Bash", {"command": "rm -rf /"}, ctx)
+        assert isinstance(result, _FakeDeny)
+        assert "未授权" in result.message
+
     def test_misc_helpers_and_serialization(self, session_manager):
         msg = {}
         raw = SimpleNamespace(session_id="sdk-1")
@@ -688,7 +764,7 @@ class TestSessionManager:
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_read_within_project_root(self, tmp_path, meta_store):
         """Hook allows Read within cwd and cwd-external (non-projects) paths;
-        cross-project read is denied per new sandbox policy."""
+        cross-project read now asks for authorization (ask) per new policy."""
         projects_dir = DataRootLayout(tmp_path / "projects").projects_dir
         own_project = projects_dir / "alpha"
         own_project.mkdir(parents=True)
@@ -712,13 +788,14 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Read other project file — denied (跨项目隔离)
+        # Read other project file — ask（跨项目隔离改为弹窗请求授权）
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(other_project / "script.json")}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert result["hookSpecificOutput"]["permissionDecisionReason"]
 
         # Read docs dir — allowed (cwd 外且不在 projects/ 下，作为参考资料)
         result = await hook(
@@ -730,7 +807,7 @@ class TestSessionManager:
 
     @pytest.mark.asyncio
     async def test_file_access_hook_blocks_write_to_readonly_dir(self, tmp_path, meta_store):
-        """Hook denies Write to lib/, allows own project."""
+        """Hook asks for authorization on Write to lib/ (cwd 外写), allows own project."""
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
         lib_dir = tmp_path / "lib"
@@ -751,13 +828,14 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write to lib/ (readonly) — denied
+        # Write to lib/ (cwd 外) — ask（cwd 外写先于代码扩展名判定，改为弹窗请求授权）
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(lib_dir / "hack.py")}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert result["hookSpecificOutput"]["permissionDecisionReason"]
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_bash_without_path_check(self, tmp_path, meta_store):
@@ -781,11 +859,12 @@ class TestSessionManager:
         assert result.get("continue_") is True
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_blocks_write_non_whitelisted_ext(self, tmp_path, meta_store):
-        """Hook denies Write/Edit for forbidden code extensions in project dir.
+    async def test_file_access_hook_asks_write_non_whitelisted_ext(self, tmp_path, meta_store):
+        """Hook asks (not hard-denies) Write/Edit for forbidden code extensions in project dir.
 
-        New policy: blacklist of code extensions (.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml)
-        instead of data-file whitelist; non-code files (Makefile, .html, .csv) allowed.
+        Option-B policy: code extensions (.py/.js/.ts/.tsx/.sh/.yaml/.yml/.toml) now pop an
+        authorization request to the user (permissionDecision 'ask') instead of hard-deny;
+        non-code files (Makefile, .html, .csv) stay allowed.
         """
         own_project = tmp_path / "projects" / "alpha"
         own_project.mkdir(parents=True)
@@ -797,22 +876,22 @@ class TestSessionManager:
 
         hook = mgr._options_assembler._build_file_access_hook(own_project)
 
-        # Write .py in project dir — denied (code extension)
+        # Write .py in project dir — asks (code extension pops authorization request)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(own_project / "helper.py")}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
         assert ".py" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
-        # Edit .sh in project dir — denied (code extension)
+        # Edit .sh in project dir — asks (code extension pops authorization request)
         result = await hook(
             {"tool_name": "Edit", "tool_input": {"file_path": str(own_project / "run.sh")}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
         # Write 普通 .json — allowed（project.json / scripts/*.json 另由专门 deny 覆盖）
         result = await hook(
@@ -911,7 +990,7 @@ class TestSessionManager:
         """Hook allows Read for SDK tool-results of the CURRENT project.
 
         New policy: cwd-external non-projects paths (含 SDK 目录) 默认放行；
-        Write 仍受 cwd 内限制约束。
+        Write 仍受 cwd 内限制约束——cwd 外写改为弹窗请求授权（ask）。
         """
         hook, own_project, claude_home = await self._make_sdk_hook_env(tmp_path, meta_store)
 
@@ -929,20 +1008,21 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write to SDK tool-results — still denied (write tools only allow project_cwd)
+        # Write to SDK tool-results — ask (cwd 外写改为弹窗请求授权)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": str(result_file)}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert result["hookSpecificOutput"]["permissionDecisionReason"]
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_read_other_project_dir(self, tmp_path, meta_store):
-        """Hook denies Read for ANOTHER project's directory under projects/.
+    async def test_file_access_hook_asks_read_other_project_dir(self, tmp_path, meta_store):
+        """Hook asks for authorization on Read for ANOTHER project's directory under projects/.
 
         New policy: 跨项目隔离基于 project_root/projects/<other>/ 的物理位置，
-        而非 SDK 编码路径。
+        命中后改为弹窗请求授权（ask）而非硬拒。
         """
         hook, _, _ = await self._make_sdk_hook_env(tmp_path, meta_store)
 
@@ -951,29 +1031,31 @@ class TestSessionManager:
         other_file = other_project / "secret.json"
         other_file.write_text("{}")
 
-        # Read OTHER project directly — denied (cross-project isolation)
+        # Read OTHER project directly — ask (cross-project isolation 改为弹窗请求授权)
         result = await hook(
             {"tool_name": "Read", "tool_input": {"file_path": str(other_file)}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert result["hookSpecificOutput"]["permissionDecisionReason"]
 
     @pytest.mark.asyncio
-    async def test_file_access_hook_denies_write_outside_cwd(self, tmp_path, meta_store):
-        """Hook denies Write to any path outside project_cwd.
+    async def test_file_access_hook_asks_write_outside_cwd(self, tmp_path, meta_store):
+        """Hook asks for authorization on Write to any path outside project_cwd.
 
-        New policy: 写工具一律拒绝 cwd 外路径；Read 已放宽至 cwd 外非 projects/ 路径。
+        New policy: 写工具对 cwd 外路径改为弹窗请求授权（ask）；Read 已放宽至 cwd 外非 projects/ 路径。
         """
         hook, _, _ = await self._make_sdk_hook_env(tmp_path, meta_store)
 
-        # Write outside cwd — denied
+        # Write outside cwd — ask (cwd 外写改为弹窗请求授权)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": "/tmp/escape.json"}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert result["hookSpecificOutput"]["permissionDecisionReason"]
 
     @pytest.mark.asyncio
     async def test_file_access_hook_allows_read_sdk_task_output(self, tmp_path, meta_store):
@@ -993,13 +1075,44 @@ class TestSessionManager:
         )
         assert result.get("continue_") is True
 
-        # Write to task output — denied (write tools only allow project_cwd)
+        # Write to task output — ask (cwd 外写改为弹窗请求授权)
         result = await hook(
             {"tool_name": "Write", "tool_input": {"file_path": task_output}},
             None,
             None,
         )
-        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert result["hookSpecificOutput"]["permissionDecisionReason"]
+
+    @pytest.mark.asyncio
+    async def test_file_access_hook_asks_for_sensitive_and_host_paths(self, tmp_path, meta_store):
+        """敏感文件（.env）与 host 路径命中 ASK 分支：hook 返回 permissionDecision 'ask' 且带 reason。"""
+        own_project = tmp_path / "projects" / "alpha"
+        own_project.mkdir(parents=True)
+
+        mgr = sm_mod.SessionManager(
+            project_root=tmp_path,
+            meta_store=meta_store,
+        )
+        hook = mgr._options_assembler._build_file_access_hook(own_project)
+
+        # 数据根外敏感文件（.env 相对仓库根）→ ask
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": str(tmp_path / ".env")}},
+            None,
+            None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert "敏感文件" in result["hookSpecificOutput"]["permissionDecisionReason"]
+
+        # host 文件系统路径（项目根外）→ ask
+        result = await hook(
+            {"tool_name": "Read", "tool_input": {"file_path": "/etc/hosts"}},
+            None,
+            None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
+        assert result["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 class TestJsonValidationHook:

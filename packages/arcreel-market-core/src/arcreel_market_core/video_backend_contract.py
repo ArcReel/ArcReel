@@ -303,6 +303,11 @@ class VideoGenerationRequest:
     generate_audio: bool = True
     poll_timeout_seconds: int = DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS
 
+    # 剧本分镜列表中的 1-based 当前序号与前一镜序号；首镜的前一镜以 0 表示。
+    # 仅需要跨镜上下文的 backend 读取，其余 backend 忽略。
+    shot_cur_seq: int | None = None
+    shot_pre_seq: int | None = None
+
     # 项目上下文（用于构建文件服务 URL 等）
     project_name: str | None = None
 

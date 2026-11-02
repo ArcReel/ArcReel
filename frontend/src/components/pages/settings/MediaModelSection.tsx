@@ -45,6 +45,15 @@ import {
 import type { ProviderInfo, VideoRoute } from "@/types/provider";
 
 /** 本页编辑单元包含的系统设置字段；保存时只提交改过的字段。 */
+/** 资产图类别默认端点槽位（docs/adr/0098）：设置键与 i18n 标签键一一对应（``global_bucket_label_<设置键>``）。 */
+const IMAGE_ASSET_SLOT_KEYS = [
+  "default_image_backend_character",
+  "default_image_backend_character_derivative",
+  "default_image_backend_scene",
+  "default_image_backend_prop",
+  "default_image_backend_product",
+] as const satisfies readonly (keyof SystemConfigPatch & keyof SystemConfigSettings)[];
+
 const MEDIA_MODEL_KEYS = [
   "default_video_backend",
   "default_video_backend_i2v",
@@ -52,6 +61,7 @@ const MEDIA_MODEL_KEYS = [
   "default_image_backend",
   "default_image_backend_t2i",
   "default_image_backend_i2i",
+  ...IMAGE_ASSET_SLOT_KEYS,
   "default_text_backend",
   "text_backend_simple",
   "text_backend_complex",
@@ -434,20 +444,43 @@ export function MediaModelSection() {
 
       <ChannelCard title={t("default_models_channel_image")}>
         {imageBackends.length > 0 ? (
-          <LayeredModelFields
-            defaultLabel={t("default_image_model")}
-            defaultValue={currentImage}
-            defaultOptions={imageBackends}
-            onDefaultChange={(v) => setFields((prev) => ({ ...prev, default_image_backend: v }))}
-            emptyLabel={t("auto_select")}
-            emptyHint={t("auto")}
-            // 默认层跨两条路径，与无用途调用方的解析口径一致，取文生图
-            defaultAuto={auto?.t2i}
-            providerNames={allProviderNames}
-            modelNames={allModelNames}
-            subFields={imageSubFields}
-            subFieldsError={candidatesSubFieldsError}
-          />
+          <>
+            <LayeredModelFields
+              defaultLabel={t("default_image_model")}
+              defaultValue={currentImage}
+              defaultOptions={imageBackends}
+              onDefaultChange={(v) => setFields((prev) => ({ ...prev, default_image_backend: v }))}
+              emptyLabel={t("auto_select")}
+              emptyHint={t("auto")}
+              // 默认层跨两条路径，与无用途调用方的解析口径一致，取文生图
+              defaultAuto={auto?.t2i}
+              providerNames={allProviderNames}
+              modelNames={allModelNames}
+              subFields={imageSubFields}
+              subFieldsError={candidatesSubFieldsError}
+            />
+            <div className="flex flex-col gap-3 rounded-md border border-border p-3">
+              <div className="flex flex-col gap-0.5">
+                <h4 className="text-sm font-medium">{t("image_asset_slots_title")}</h4>
+                <p className="text-xs text-muted-foreground">{t("image_asset_slots_hint")}</p>
+              </div>
+              {IMAGE_ASSET_SLOT_KEYS.map((key) => (
+                <div key={key} className="flex flex-col gap-1">
+                  <span className="text-xs text-muted-foreground">{t(`global_bucket_label_${key}`)}</span>
+                  <ProviderModelSelect
+                    value={fields[key] ?? ""}
+                    options={imageBackends}
+                    providerNames={allProviderNames}
+                    modelNames={allModelNames}
+                    onChange={(v) => setFields((prev) => ({ ...prev, [key]: v }))}
+                    allowDefault
+                    defaultLabel={t("follow_global_default")}
+                    aria-label={t(`global_bucket_label_${key}`)}
+                  />
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <NoProviders message={t("no_image_providers_hint")} />
         )}

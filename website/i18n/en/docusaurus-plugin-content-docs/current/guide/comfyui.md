@@ -61,6 +61,7 @@ ComfyUI has no shared convention for parameters: each node in an export carries 
 | Width, height | Converts the aspect ratio and resolution tier, then rounds each value down to its alignment step |
 | Frame count | Converts seconds using the frame rate and aligns the result to `step × n + 1` |
 | Frame rate | Read-only binding; ArcReel reads the workflow literal for its conversions and never overwrites it |
+| Current shot sequence, previous shot sequence | Writes integer positions derived from the script order; the first shot uses `0` for the previous sequence |
 | Seed | Rewrites the seed according to that entry's policy |
 | Output node | Retrieves the final image or video from this node; required |
 

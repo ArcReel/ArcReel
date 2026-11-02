@@ -10,9 +10,12 @@ from lib.custom_provider.comfyui.capabilities import (
     default_supported_durations,
     derive_video_capabilities,
     duration_is_fixed,
+    duration_key_targets,
     frame_rate_is_missing,
+    image_key_targets,
     keeps_its_own_frame_count,
     native_duration,
+    native_duration_literal,
     native_short_edge,
     size_is_fixed,
     takes_reference_images,
@@ -22,6 +25,15 @@ from tests.factories import comfyui_endpoint_definition
 
 def _image_target(node: str, class_type: str = "LoadImage") -> dict[str, Any]:
     return {"node": node, "input": "image", "class_type": class_type}
+
+
+def _titled_image_node(node: str, key: str, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
+    """一个用标题标记声明图输入、但没有正式绑定的读图节点。"""
+    return {
+        "class_type": "LoadImage",
+        "inputs": inputs if inputs is not None else {"image": "draft.png", "upload": ""},
+        "_meta": {"title": f"(input:{key}) Ref"},
+    }
 
 
 def _frames_target(node: str = "5", **extra: Any) -> dict[str, Any]:
@@ -135,6 +147,106 @@ class TestReferenceImageSlotsDecideTheImageBucket:
 
         assert takes_reference_images(definition) is True
 
+    def test_a_title_marked_reference_slot_is_reported_too(self):
+        """绑定表没落 reference_images 时，标题标记的读图节点同样算参考图格子。"""
+        definition = comfyui_endpoint_definition(media_type="image")
+        definition["workflow"]["11"] = _titled_image_node("11", "reference_images")
+
+        assert takes_reference_images(definition) is True
+
+
+class TestTitleMarkersStandInForMissingImageBindings:
+    """绑定表缺条时回退认 workflow 上的标题标记：只补能力、不夺纯文能力。"""
+
+    def test_a_title_marked_start_image_node_is_the_target_when_unbound(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["11"] = _titled_image_node("11", "start_image")
+
+        targets = image_key_targets(definition["workflow"], definition["bindings"], "start_image")
+
+        assert [target["node"] for target in targets] == ["11"]
+        assert targets[0]["input"] == "image"
+
+    def test_formal_binding_wins_over_the_title_marker(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["11"] = _titled_image_node("11", "start_image")
+        definition["bindings"]["start_image"] = [_image_target("99")]
+
+        targets = image_key_targets(definition["workflow"], definition["bindings"], "start_image")
+
+        assert [target["node"] for target in targets] == ["99"]
+
+    def test_no_binding_and_no_marker_yields_no_target(self):
+        definition = comfyui_endpoint_definition()
+
+        assert image_key_targets(definition["workflow"], definition["bindings"], "start_image") == ()
+
+    def test_the_image_field_is_preferred_over_other_inputs(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["11"] = _titled_image_node("11", "start_image", inputs={"upload": "", "image": "a.png"})
+
+        assert image_key_targets(definition["workflow"], definition["bindings"], "start_image")[0]["input"] == "image"
+
+    def test_a_node_without_an_image_field_falls_back_to_the_first_literal_input(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["11"] = _titled_image_node("11", "start_image", inputs={"file": "a.png"})
+
+        assert image_key_targets(definition["workflow"], definition["bindings"], "start_image")[0]["input"] == "file"
+
+    def test_a_node_with_only_links_produces_no_target(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["11"] = _titled_image_node("11", "start_image", inputs={"image": ["4", 0]})
+
+        assert image_key_targets(definition["workflow"], definition["bindings"], "start_image") == ()
+
+    def test_multiple_markers_are_ordered_by_node_id(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["13"] = _titled_image_node("13", "reference_images")
+        definition["workflow"]["11"] = _titled_image_node("11", "reference_images")
+        definition["workflow"]["12"] = _titled_image_node("12", "reference_images")
+
+        targets = image_key_targets(definition["workflow"], definition["bindings"], "reference_images")
+
+        assert [target["node"] for target in targets] == ["11", "12", "13"]
+
+    def test_the_arcreel_prefix_notation_counts_the_same(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["11"] = _titled_image_node("11", "start_image")
+        definition["workflow"]["11"]["_meta"]["title"] = "ARCREEL:start_image first"
+
+        assert [
+            target["node"]
+            for target in image_key_targets(definition["workflow"], definition["bindings"], "start_image")
+        ] == ["11"]
+
+    def test_a_marker_for_a_different_key_does_not_leak(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["11"] = _titled_image_node("11", "end_image")
+
+        assert image_key_targets(definition["workflow"], definition["bindings"], "start_image") == ()
+
+    def test_a_title_marker_alone_grants_the_video_bits_but_keeps_text_to_video(self):
+        """标题标记是「可选增强格」：首帧位与参考图上限点亮，纯文能力不夺。"""
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["11"] = _titled_image_node("11", "start_image")
+        definition["workflow"]["12"] = _titled_image_node("12", "reference_images")
+
+        caps = derive_video_capabilities(definition)
+
+        assert (caps.text_to_video, caps.first_frame, caps.last_frame, caps.max_reference_images) == (
+            True,
+            True,
+            False,
+            1,
+        )
+
+    def test_a_formal_binding_still_takes_text_to_video_away_even_with_a_marker(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["11"] = _titled_image_node("11", "start_image")
+        definition["bindings"]["start_image"] = [_image_target("11")]
+
+        assert derive_video_capabilities(definition).text_to_video is False
+
 
 class TestSizeIsFixedUnlessBothSidesAreBound:
     def test_both_sides_bound_leaves_the_dimension_drivable(self):
@@ -183,6 +295,47 @@ class TestSizeIsFixedUnlessBothSidesAreBound:
         assert native_short_edge(definition) == 480
 
 
+class TestDurationIsFixedAcrossBothTimeAxisKeys:
+    """时长可被 ``frames`` 或 ``duration`` 任一维驱动（后者含标题标记）；两条都空才是固定。"""
+
+    def test_only_duration_bound_is_not_fixed(self):
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["duration"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+
+        assert duration_is_fixed(definition) is False
+
+    def test_only_frames_bound_is_not_fixed(self):
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["frames"] = [_frames_target()]
+
+        assert duration_is_fixed(definition) is False
+
+    def test_neither_bound_is_fixed(self):
+        assert duration_is_fixed(comfyui_endpoint_definition()) is True
+
+    def test_a_title_marked_duration_node_also_drives_the_dimension(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["37"] = {
+            "class_type": "PrimitiveFloat",
+            "inputs": {"value": 16},
+            "_meta": {"title": "(input:duration) Duration"},
+        }
+
+        assert duration_is_fixed(definition) is False
+
+    def test_duration_does_not_feed_the_frames_reconstruction(self):
+        """只绑 ``duration`` 时帧数重建那条线仍按「frames 未绑」给空：直写秒不参与帧率反算。
+
+        字面值落点 ``5.length`` 在图里不存在，字面秒数那条线同样无从推起，两条线都空。
+        """
+        definition = comfyui_endpoint_definition()
+        definition["bindings"]["duration"] = [{"node": "5", "input": "length", "class_type": "EmptyLatentImage"}]
+
+        assert native_duration(definition) is None
+        assert native_duration_literal(definition) is None
+        assert default_supported_durations(definition) == []
+
+
 class TestNativeDurationAndTheDefaultTier:
     def test_frames_and_a_read_only_fps_give_the_workflow_its_own_tier(self):
         """``SaveVideo.fps`` 字面 16、``length`` 字面 81 → ``round((81 − 1) / 16)`` = 5 秒。"""
@@ -204,7 +357,7 @@ class TestNativeDurationAndTheDefaultTier:
     def test_frames_unbound_means_the_duration_is_fixed_and_the_tier_is_empty(self):
         definition = comfyui_endpoint_definition()
 
-        assert duration_is_fixed(definition["bindings"]) is True
+        assert duration_is_fixed(definition) is True
         assert default_supported_durations(definition) == []
 
     def test_frames_bound_without_any_frame_rate_source_also_yields_an_empty_tier(self):
@@ -214,7 +367,7 @@ class TestNativeDurationAndTheDefaultTier:
         definition["bindings"].pop("fps")
         definition["bindings"]["frames"] = [_frames_target()]
 
-        assert duration_is_fixed(definition["bindings"]) is False
+        assert duration_is_fixed(definition) is False
         assert native_duration(definition) is None
         assert default_supported_durations(definition) == []
         assert frame_rate_is_missing(definition) is True
@@ -223,7 +376,7 @@ class TestNativeDurationAndTheDefaultTier:
         """三支互斥：连帧数入口都没有时缺的不是帧率，说「补一个 fps 绑定」无处可补。"""
         definition = comfyui_endpoint_definition()
 
-        assert duration_is_fixed(definition["bindings"]) is True
+        assert duration_is_fixed(definition) is True
         assert frame_rate_is_missing(definition) is False
 
     def test_a_frame_rate_that_converts_to_no_whole_second_is_not_a_missing_frame_rate(self):
@@ -235,7 +388,7 @@ class TestNativeDurationAndTheDefaultTier:
         definition["workflow"]["5"]["inputs"]["length"] = 50
         definition["bindings"]["frames"] = [_frames_target()]
 
-        assert duration_is_fixed(definition["bindings"]) is False
+        assert duration_is_fixed(definition) is False
         assert frame_rate_is_missing(definition) is False
         assert native_duration(definition) is None
         assert default_supported_durations(definition) == []
@@ -269,7 +422,7 @@ class TestNativeDurationAndTheDefaultTier:
         ]
 
         assert native_duration(definition) is None
-        assert duration_is_fixed(definition["bindings"]) is False
+        assert duration_is_fixed(definition) is False
         assert frame_rate_is_missing(definition) is False
         assert keeps_its_own_frame_count(definition) is False
 
@@ -314,3 +467,117 @@ class TestNativeDurationAndTheDefaultTier:
         definition["bindings"]["frames"] = [_frames_target()]
 
         assert native_duration(definition) == 7
+
+
+class TestDurationKeyTargetsAndTheNativeLiteral:
+    """``duration`` 直写秒通道：正式绑定 ∪ 标题标记，字面秒数即原生档位（不走帧率反算）。"""
+
+    @staticmethod
+    def _with_formal_duration(value: int, node: str = "9", **extra: Any) -> dict[str, Any]:
+        definition = comfyui_endpoint_definition()
+        definition["workflow"][node]["inputs"]["length"] = value
+        definition["bindings"]["duration"] = [{"node": node, "input": "length", "class_type": "SaveVideo", **extra}]
+        return definition
+
+    @staticmethod
+    def _with_titled_duration(value: int, node: str = "37") -> dict[str, Any]:
+        definition = comfyui_endpoint_definition()
+        definition["workflow"][node] = {
+            "class_type": "PrimitiveFloat",
+            "inputs": {"value": value},
+            "_meta": {"title": "(input:duration) Duration"},
+        }
+        return definition
+
+    def test_a_formal_duration_binding_reads_the_literal_seconds_as_the_tier(self):
+        definition = self._with_formal_duration(16)
+
+        assert native_duration(definition) is None
+        assert native_duration_literal(definition) == 16
+        assert default_supported_durations(definition) == [16]
+        assert duration_is_fixed(definition) is False
+
+    def test_a_title_marked_duration_node_stands_in_for_a_missing_binding(self):
+        definition = self._with_titled_duration(16)
+
+        assert native_duration_literal(definition) == 16
+        assert default_supported_durations(definition) == [16]
+        assert duration_is_fixed(definition) is False
+
+    def test_the_formal_binding_wins_over_a_title_marker(self):
+        definition = self._with_formal_duration(12)
+        definition["workflow"]["37"] = {
+            "class_type": "PrimitiveFloat",
+            "inputs": {"value": 99},
+            "_meta": {"title": "(input:duration) Duration"},
+        }
+
+        targets = duration_key_targets(definition["workflow"], definition["bindings"])
+        assert targets == ({"node": "9", "input": "length", "class_type": "SaveVideo"},)
+        assert native_duration_literal(definition) == 12
+
+    def test_the_frames_reconstruction_wins_over_the_duration_literal(self):
+        """两条线都推得出来时按序取帧数重建：81 帧 @ 16fps = 5 秒，而不是 duration 字面 16。"""
+        definition = self._with_formal_duration(16)
+        definition["workflow"]["5"]["inputs"]["length"] = 81
+        definition["bindings"]["frames"] = [_frames_target()]
+
+        assert native_duration(definition) == 5
+        assert native_duration_literal(definition) == 16
+        assert default_supported_durations(definition) == [5]
+
+    def test_a_linked_duration_input_has_no_literal_and_yields_no_tier(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["9"]["inputs"]["length"] = ["5", 0]
+        definition["bindings"]["duration"] = [{"node": "9", "input": "length", "class_type": "SaveVideo"}]
+
+        assert native_duration_literal(definition) is None
+        assert default_supported_durations(definition) == []
+        assert duration_is_fixed(definition) is False
+
+    def test_a_fractional_literal_seconds_is_not_a_native_tier(self):
+        definition = self._with_formal_duration(16)
+        definition["workflow"]["9"]["inputs"]["length"] = 16.4
+
+        assert native_duration_literal(definition) is None
+        assert default_supported_durations(definition) == []
+
+    def test_a_zero_literal_seconds_is_not_a_native_tier(self):
+        definition = self._with_formal_duration(0)
+
+        assert native_duration_literal(definition) is None
+        assert default_supported_durations(definition) == []
+
+    def test_a_literal_the_step_would_realign_is_not_a_native_tier(self):
+        """字面 10 秒、步长 4：选中会被对齐成 8，改图，故不报原生档。"""
+        definition = self._with_formal_duration(10, step=4)
+
+        assert native_duration_literal(definition) is None
+        assert default_supported_durations(definition) == []
+
+    def test_agreeing_duration_literals_keep_the_tier(self):
+        definition = self._with_formal_duration(16)
+        definition["workflow"]["12"] = {"class_type": "PrimitiveFloat", "inputs": {"value": 16}}
+        definition["bindings"]["duration"].append({"node": "12", "input": "value", "class_type": "PrimitiveFloat"})
+
+        assert native_duration_literal(definition) == 16
+
+    def test_disagreeing_duration_literals_void_the_tier(self):
+        definition = self._with_formal_duration(16)
+        definition["workflow"]["12"] = {"class_type": "PrimitiveFloat", "inputs": {"value": 20}}
+        definition["bindings"]["duration"].append({"node": "12", "input": "value", "class_type": "PrimitiveFloat"})
+
+        assert native_duration_literal(definition) is None
+        assert default_supported_durations(definition) == []
+
+    def test_a_title_marker_whose_input_is_linked_produces_no_target(self):
+        definition = comfyui_endpoint_definition()
+        definition["workflow"]["37"] = {
+            "class_type": "PrimitiveFloat",
+            "inputs": {"value": ["5", 0]},
+            "_meta": {"title": "(input:duration) Duration"},
+        }
+
+        assert duration_key_targets(definition["workflow"], definition["bindings"]) == ()
+        assert native_duration_literal(definition) is None
+        assert duration_is_fixed(definition) is True

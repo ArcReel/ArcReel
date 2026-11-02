@@ -19,7 +19,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from lib.backends.artifact_download_guard import ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE, artifact_http_client
+from lib.backends.artifact_download_guard import ARTIFACT_MAX_BYTES_BY_MEDIA_TYPE
 from lib.backends.backend_runtime import poll_with_retry, should_retry_poll
 from lib.backends.container_sniff import CONTAINER_HEAD_BYTES
 from lib.custom_provider.comfyui.artifacts import (
@@ -32,6 +32,7 @@ from lib.custom_provider.comfyui.artifacts import (
     terminal_failure,
 )
 from lib.custom_provider.comfyui.comfyui_client import ComfyuiClient, RecordResponse
+from lib.custom_provider.comfyui.comfyui_http_client import comfyui_http_client
 from lib.custom_provider.comfyui.failures import (
     JOB_LOST,
     OUTPUT_CONTAINER_MISMATCH,
@@ -243,14 +244,17 @@ class ComfyuiExecution:
 
         另开一个短超时的客户端而不是复用生成那一路的：这几个请求发在任务已经取消或超时之后，
         一台不响应的 ComfyUI 不该把 worker 的关停再拖上生成路径那一份超时。这个客户端同样经
-        :func:`~lib.backends.artifact_download_guard.artifact_http_client` 做目的地校验，被拒的
-        目的地与其他失败一样只记日志。
+        :func:`~lib.custom_provider.comfyui.comfyui_http_client.comfyui_http_client`（内部走
+        ``artifact_http_client``）做目的地校验，并按 ``base_url`` 决定是否绕系统代理（内网 base_url
+        直连、公网走代理），被拒的目的地与其他失败一样只记日志。
 
         版本现打一次 ``/system_stats`` 而不是构造时缓存：一台 ComfyUI 会在两次生成之间被升级，
         而这个判断只在取消的那一刻用得上，读不到就按低版本路径走。
         """
         try:
-            async with artifact_http_client(timeout=_STOP_TIMEOUT_SECONDS) as http:
+            async with comfyui_http_client(
+                timeout=_STOP_TIMEOUT_SECONDS, bypass_proxy_for=self._client.base_url
+            ) as http:
                 if _supports_job_cancel(await self._server_version(http)):
                     await self._client.cancel_job(http, prompt_id)
                     return

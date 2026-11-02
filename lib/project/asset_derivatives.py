@@ -261,12 +261,17 @@ def resolve_derivative_sheet_source(
     project: Mapping[str, Any],
     owner_name: str,
     derivative_name: str,
+    *,
+    require_owner_sheet: bool = True,
 ) -> DerivativeSheetSource:
     """解析衍生资产图生成的输入，并在此拒绝一切不可生成的形态。
 
     本体不存在抛 ``KeyError``（与本体资产的寻址口径一致），衍生不存在抛 404；本体没有
     资产图、或衍生还没写变化描述时抛 400——两者都是用户可自行修复的前置条件，说明
     分开给，指向的动作不同。
+
+    ``require_owner_sheet=False`` 时本体资产图不作为前置条件（本次生成改用参考图覆盖），
+    此时本体没有资产图只记为空路径而不拒绝。
     """
     spec = ASSET_SPECS[DERIVATIVE_ASSET_TYPE]
     target = resolve_derivative_target(project, owner_name, derivative_name)
@@ -280,7 +285,9 @@ def resolve_derivative_sheet_source(
 
     owner_sheet = entry.get(spec.sheet_field)
     if not isinstance(owner_sheet, str) or not owner_sheet:
-        raise BadRequestError("derivative_owner_sheet_missing", name=target.owner_key)
+        owner_sheet = ""
+        if require_owner_sheet:
+            raise BadRequestError("derivative_owner_sheet_missing", name=target.owner_key)
 
     return DerivativeSheetSource(
         target=target,

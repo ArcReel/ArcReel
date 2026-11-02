@@ -495,6 +495,28 @@ def render_mentions_as_subjects(text: str, names: Collection[str]) -> str:
     return "".join(parts)
 
 
+def render_mentions_with_label(text: str, label: Callable[[str], str | None]) -> str:
+    """把正文中每个 ``@[X]`` / ``@X`` 就地换成 ``label(X)``；``label(X)`` 返回 ``None`` 时保留原 token。
+
+    :func:`render_mentions_as_subjects` 的一般化：替换结果由调用方给定的映射决定（H3 参考生视频
+    用它把 ``@[名称]`` 换成 ``<Subject N>``，而非固定的 ``<名称>``）。未命中的 mention 从不删字
+    （原样保留），与渲染路径的降级口径一致。正文先经 :func:`_normalize_source` 归一，名字再归一到
+    比对坐标系（:func:`lib.project.asset_types.asset_name_comparison_key`）后交给 *label*。
+    """
+    normalized = _normalize_source(text)
+    parts: list[str] = []
+    last = 0
+    for start, end, name in _iter_mentions(normalized):
+        canonical = asset_name_comparison_key(name)
+        replacement = label(canonical)
+        parts.append(normalized[last:start])
+        parts.append(replacement if replacement is not None else normalized[start:end])
+        last = end
+
+    parts.append(normalized[last:])
+    return "".join(parts)
+
+
 def resolve_references(
     names: list[str],
     project: dict,

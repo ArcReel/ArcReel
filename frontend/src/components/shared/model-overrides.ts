@@ -11,15 +11,29 @@ type ChannelFields = Pick<
   | "imageBackendDefault"
   | "imageBackendT2I"
   | "imageBackendI2I"
+  | "imageBackendCharacter"
+  | "imageBackendCharacterDerivative"
+  | "imageBackendScene"
+  | "imageBackendProp"
+  | "imageBackendProduct"
   | "textBackendDefault"
   | "textBackendSimple"
   | "textBackendComplex"
 >;
 
-/** 每个通道里留空即跟随全局的模型字段：默认模型与两个细分项（文本是三个档位）。 */
+/** 每个通道里留空即跟随全局的模型字段：默认模型与两个细分项（图片另含资产槽位，文本是三个档位）。 */
 export const CHANNEL_MODEL_FIELDS: Record<ModelChannel, readonly (keyof ChannelFields)[]> = {
   video: ["videoBackend", "videoProviderI2V", "videoProviderR2V"],
-  image: ["imageBackendDefault", "imageBackendT2I", "imageBackendI2I"],
+  image: [
+    "imageBackendDefault",
+    "imageBackendT2I",
+    "imageBackendI2I",
+    "imageBackendCharacter",
+    "imageBackendCharacterDerivative",
+    "imageBackendScene",
+    "imageBackendProp",
+    "imageBackendProduct",
+  ],
   text: ["textBackendDefault", "textBackendSimple", "textBackendComplex"],
 };
 

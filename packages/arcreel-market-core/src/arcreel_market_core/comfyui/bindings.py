@@ -25,8 +25,18 @@ VIDEO_BINDING_KEYS = (
     "width",
     "height",
     "frames",
+    # 时长（秒）直写目标：把用户要的秒数原样写进节点输入（有 step 则向下对齐），不经 frames 那套
+    # fps 换算。与 frames 平行、各写各的目标：一份 workflow 的时间轴有的用帧数表达、有的直接吃秒，
+    # 两条通道互不干涉，没有谁覆盖谁的互斥规则。
+    "duration",
     "fps",
     "seed",
+    # 一镜到底（H3 motion-context）续镜：当前镜头序号与前一镜序号是整数 ID，可选绑定。
+    # 续接所需的上一段 latent/音频留在 ComfyUI 端由 workflow 自行缓存取用，ArcReel 只把这两个
+    # 序号写进工作流对应的 INT 入口；序号由剧本镜头顺序自动解析（非用户必填），首镜 shot_pre_seq
+    # 写哨兵值 0。
+    "shot_cur_seq",
+    "shot_pre_seq",
     "output",
 )
 
@@ -127,3 +137,13 @@ def align_frames(frames: int, step: int) -> int:
         logger.info("帧数 %d 低于步长 %d 的最小合法值，按 %d 提交", frames, step, 1 + step)
         return 1 + step
     return aligned
+
+
+def align_down(value: int, step: int) -> int:
+    """向下对齐到 ``step`` 的整数倍，下限一个 ``step``——零尺寸/零秒提交上去必然报错。
+
+    与 :func:`align_frames` 的 ``+1``（首帧 + 若干段间隔）不同：秒数与尺寸没有首帧语义，8 秒
+    片子不该因为步长 4 被抬到 9。填值层（``request_builder``）与能力推导（时长原生档位判
+    「选中后还是不是原来那份图」）共读这一份。
+    """
+    return max(step, value - value % step)

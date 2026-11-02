@@ -82,6 +82,11 @@ MESSAGES = {
         "Duplicate project asset name: {duplicate_type} '{duplicate_name}' conflicts with "
         "{first_type} '{first_name}' after strip + Unicode NFC normalization"
     ),
+    "val_derivative_name_conflict": (
+        "Derivative '{owner}/{derivative}' shares its name with standalone {asset_type} "
+        "'{derivative}': one look can be registered in only one form — keep either the "
+        "derivative under the base's derivatives table or the standalone character entry"
+    ),
     # ---- item-level references ----
     "val_refs_unregistered": "{prefix}: {field} references {asset_type} entries missing from project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: {field} is missing, defaulting to an empty array",

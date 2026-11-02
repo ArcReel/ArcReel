@@ -166,6 +166,16 @@ class TestGenerate:
     async def test_a_generation_uploads_submits_polls_and_stores_the_artifact(self, tmp_path: Path):
         """端到端一条：素材回填 → 提交 → 轮询 → 产物落到 output_path，溯源随结果回来。"""
         definition = _with_image_bindings()
+        definition["workflow"]["13"] = {
+            "class_type": "MotionContext",
+            "inputs": {"shot_cur_seq": 99, "shot_pre_seq": 98},
+        }
+        definition["bindings"]["shot_cur_seq"] = [
+            {"node": "13", "input": "shot_cur_seq", "class_type": "MotionContext"}
+        ]
+        definition["bindings"]["shot_pre_seq"] = [
+            {"node": "13", "input": "shot_pre_seq", "class_type": "MotionContext"}
+        ]
         start = tmp_path / "first.png"
         start.write_bytes(b"png-bytes")
         reference = tmp_path / "ref.jpg"
@@ -192,7 +202,13 @@ class TestGenerate:
             view = router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
 
             result = await _backend(definition).generate(
-                _request(tmp_path, start_image=start, reference_images=[reference])
+                _request(
+                    tmp_path,
+                    start_image=start,
+                    reference_images=[reference],
+                    shot_cur_seq=3,
+                    shot_pre_seq=2,
+                )
             )
 
         assert result.video_path.read_bytes() == MP4_BYTES
@@ -204,6 +220,8 @@ class TestGenerate:
         submitted = request_json(submit.calls.last.request)["prompt"]
         assert submitted["10"]["inputs"]["image"] == "arcreel/task-7-start_image.png"
         assert submitted["11"]["inputs"]["image"] == "arcreel/task-7-reference_images-1.jpg"
+        assert submitted["13"]["inputs"]["shot_cur_seq"] == 3
+        assert submitted["13"]["inputs"]["shot_pre_seq"] == 2
         assert request_json(submit.calls.last.request)["client_id"] == "arcreel-task-7"
         assert view.calls.last.request.url.params["filename"] == "final_00001.mp4"
         assert persisted == [
@@ -1199,3 +1217,73 @@ class TestStoppingTheRemote:
                 await _backend().generate(_request(tmp_path))
 
         assert drop.call_count == 1
+
+
+class TestProxyBypass:
+    """ComfyUI 是内网 / Tailscale 服务：这一侧按 ``base_url`` 决定是否绕系统代理——内网 base_url 对该
+    host 直连（否则 macOS 系统代理会把内网请求劫持成 502，本次 ``comfyui_upload_failed`` 的根因），
+    公网 base_url 仍走代理。调用点把 ComfyUI 的 ``base_url`` 作 ``bypass_proxy_for`` 传入；spy 住本模块
+    命名空间里的 ``comfyui_http_client`` 记录它收到的 kwargs 后转调真身，故 respx 行为不变。
+    """
+
+    @staticmethod
+    def _spy_http_client(patch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+        """替身转调真身，记录它收到的 kwargs：断言调用点把 base_url 作 bypass_proxy_for 传入。"""
+        from lib.custom_provider.comfyui import comfyui_backend
+
+        captured: list[dict[str, Any]] = []
+        real = comfyui_backend.comfyui_http_client
+
+        def _record(**kwargs: Any) -> Any:
+            captured.append(kwargs)
+            return real(**kwargs)
+
+        patch.setattr(comfyui_backend, "comfyui_http_client", _record)
+        return captured
+
+    async def test_generate_passes_base_url_as_bypass_target(self, tmp_path: Path):
+        with (
+            capture_http() as router,
+            bounded_poll_clock(),
+            captured_provider_job_ids(),
+            pytest.MonkeyPatch.context() as patch,
+        ):
+            captured = self._spy_http_client(patch)
+            router.post(f"{BASE_URL}/prompt").mock(return_value=httpx.Response(200, json={"prompt_id": "p-1"}))
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output()}))
+            )
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
+
+            await _backend().generate(_request(tmp_path))
+
+        assert captured
+        assert all(entry.get("bypass_proxy_for") == BASE_URL for entry in captured)
+
+    async def test_resume_passes_base_url_as_bypass_target(self, tmp_path: Path):
+        with (
+            capture_http() as router,
+            bounded_poll_clock(),
+            captured_provider_job_ids(),
+            pytest.MonkeyPatch.context() as patch,
+        ):
+            captured = self._spy_http_client(patch)
+            router.get(f"{BASE_URL}/history/p-1").mock(
+                return_value=httpx.Response(200, json=_history({"9": _video_output()}))
+            )
+            router.get(f"{BASE_URL}/view").mock(return_value=httpx.Response(200, content=MP4_BYTES))
+
+            await _backend().resume_video("p-1", _request(tmp_path))
+
+        assert captured
+        assert all(entry.get("bypass_proxy_for") == BASE_URL for entry in captured)
+
+    def test_internal_base_url_client_bypasses_proxy(self, monkeypatch: pytest.MonkeyPatch):
+        """内网 base_url 的客户端对该 host 的 transport 不走系统代理（ComfyUI 内网访问继续可用）。"""
+        from lib.custom_provider.comfyui.comfyui_http_client import comfyui_http_client
+
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:7890")
+        monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:7890")
+        client = comfyui_http_client(bypass_proxy_for="http://192.168.5.149:8188")
+        transport = client._transport_for_url(httpx.URL("http://192.168.5.149:8188/view"))
+        assert getattr(getattr(transport, "_pool", None), "_proxy_url", None) is None

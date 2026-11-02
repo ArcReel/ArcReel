@@ -273,8 +273,12 @@ async def test_script_generator_uses_reference_schema_on_generate(reference_proj
 
     # response_schema 是扁平形状，且不含 duration_seconds——时长没让 LLM 写
     schema = fake_generator.generate.await_args.args[0].response_schema
-    assert schema is ReferencePromptAuthoringFlatScript
+    assert issubclass(schema, ReferencePromptAuthoringFlatScript)
     assert "duration_seconds" not in _json.dumps(schema.model_json_schema())
+    # unit 数与待编写单元等长硬约束（minItems/maxItems）：约束解码下数量失配在生成层即被卡死
+    units_field = schema.model_json_schema()["properties"]["units"]
+    assert units_field["minItems"] == 1
+    assert units_field["maxItems"] == 1
 
 
 @pytest.mark.asyncio
@@ -601,6 +605,39 @@ async def test_script_generator_rejects_prompt_authoring_unit_count_change(refer
     )
     with pytest.raises(ValueError, match="unit 数"):
         await gen.generate(episode=1)
+
+
+@pytest.mark.asyncio
+async def test_prompt_authoring_retries_once_with_feedback_on_unit_count_change(reference_project: Path):
+    """unit 数首失配不直接落草稿：带纠正反馈重抽一次，二轮等长即放行。"""
+    first = _prompt_authoring_response(PROMPT_AUTHORING_UNIT_TEXT, "镜头1：多出来的一段")  # 2 个 unit
+    second = _prompt_authoring_response(PROMPT_AUTHORING_UNIT_TEXT)  # 1 个 unit（与待编写等长）
+    generator = MagicMock()
+    generator.model = "mock"
+    generator.generate = AsyncMock(side_effect=[MagicMock(text=first), MagicMock(text=second)])
+
+    out = await ScriptGenerator(reference_project, generator=generator).generate(episode=1)
+
+    data = _json.loads(out.read_text(encoding="utf-8"))
+    assert len(data["video_units"]) == 1
+    assert generator.generate.await_count == 2
+    first_prompt = generator.generate.await_args_list[0].args[0].prompt
+    second_prompt = generator.generate.await_args_list[1].args[0].prompt
+    assert "【纠正】" not in first_prompt
+    assert "【纠正】" in second_prompt
+    assert "1 个 unit" in second_prompt
+
+
+@pytest.mark.asyncio
+async def test_prompt_authoring_quarantines_after_failed_retry(reference_project: Path):
+    """重抽仍失配（或二轮非数量违约）：落待修复草稿并响亮失败，不无限重抽。"""
+    gen = ScriptGenerator(
+        reference_project, generator=_fake_prompt_authoring_generator(PROMPT_AUTHORING_UNIT_TEXT, "镜头1：多出来的一段")
+    )
+    with pytest.raises(ValueError, match="unit 数"):
+        await gen.generate(episode=1)
+    # 仅重抽一次：首失配 + 一次纠正重抽，共两次付费调用
+    assert gen.generator.generate.await_count == 2
 
 
 @pytest.mark.asyncio

@@ -676,6 +676,21 @@ class TestMediaGenerator:
         assert version2 == 2
         assert gen.ledger.started[-1]["call_type"] == "video"
 
+    async def test_shot_sequence_ids_reach_the_video_request_as_scalars(self, tmp_path):
+        gen = _build_generator(tmp_path)
+
+        await gen.generate_video_async(
+            prompt="p",
+            resource_type="videos",
+            resource_id="E1S03",
+            shot_cur_seq=3,
+            shot_pre_seq=2,
+        )
+
+        request = gen._video_backend.calls[0]
+        assert (request.shot_cur_seq, request.shot_pre_seq) == (3, 2)
+        assert request.reference_images is None
+
     @pytest.mark.asyncio
     async def test_video_before_submit_runs_once_immediately_before_first_backend_call(self, tmp_path):
         from lib.artifacts.version_manager import VersionManager

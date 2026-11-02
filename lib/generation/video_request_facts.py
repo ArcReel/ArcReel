@@ -78,6 +78,18 @@ class ConfiguredVideoIdentity:
 
 
 @dataclass(frozen=True)
+class ConfiguredReferenceVideoIdentity:
+    """读侧身份：参考生视频 R2V 单元按**可用参考图数** ``reference_count`` 精确选端点。
+
+    与 :class:`ConfiguredVideoIdentity` 同为「按当前配置解析」，区别是解析按 N 在家族内选
+    ``max_reference_images == N`` 的那个端点（``docs/adr/0054``），读侧因此与执行侧看到同一个
+    I{N}。只用于 r2v 桶；i2v 单元仍走 :data:`CONFIGURED_VIDEO_IDENTITY`。
+    """
+
+    reference_count: int
+
+
+@dataclass(frozen=True)
 class ExecutionVideoIdentity:
     """执行侧身份：lane 实际构造的 backend 的规范 ``provider_id`` 与实际 ``.model``。"""
 
@@ -87,7 +99,7 @@ class ExecutionVideoIdentity:
 
 CONFIGURED_VIDEO_IDENTITY = ConfiguredVideoIdentity()
 
-VideoRequestIdentity = ConfiguredVideoIdentity | ExecutionVideoIdentity
+VideoRequestIdentity = ConfiguredVideoIdentity | ConfiguredReferenceVideoIdentity | ExecutionVideoIdentity
 
 
 @dataclass(frozen=True)
@@ -309,7 +321,12 @@ async def evaluate_video_request_facts(
         provider_id, model_id = identity.provider_id, identity.model_id
     else:
         try:
-            selected = await resolver.resolve_video_backend(project, None, generation_type=generation_type)
+            if isinstance(identity, ConfiguredReferenceVideoIdentity):
+                selected = await resolver.resolve_reference_video_backend_for_count(
+                    project, reference_count=identity.reference_count
+                )
+            else:
+                selected = await resolver.resolve_video_backend(project, None, generation_type=generation_type)
         except (VideoBucketCapabilityError, ModelNotInCatalogError) as exc:
             return VideoRequestFactsFailure(exc.code, tuple(exc.params.items()))
         except (ValueError, SQLAlchemyError):

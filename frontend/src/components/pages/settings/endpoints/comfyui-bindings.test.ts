@@ -133,11 +133,18 @@ describe("classTypeCounts", () => {
 });
 
 describe("bindingKeysFor", () => {
-  it("drops the two frames and the timeline pair for an image endpoint", () => {
+  it("drops frame, timeline, and shot-sequence bindings for an image endpoint", () => {
     expect(bindingKeysFor("image")).not.toContain("start_image");
     expect(bindingKeysFor("image")).not.toContain("frames");
+    expect(bindingKeysFor("image")).not.toContain("shot_cur_seq");
+    expect(bindingKeysFor("image")).not.toContain("shot_pre_seq");
     expect(bindingKeysFor("image")).toHaveLength(7);
-    expect(bindingKeysFor("video")).toHaveLength(11);
+    expect(bindingKeysFor("video")).toHaveLength(14);
+  });
+
+  it("keeps duration on the video axis only, never on an image endpoint", () => {
+    expect(bindingKeysFor("video")).toContain("duration");
+    expect(bindingKeysFor("image")).not.toContain("duration");
   });
 });
 

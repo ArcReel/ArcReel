@@ -20,6 +20,55 @@ from lib.backends.artifact_download_guard import (
 from tests.http_capture import capture_http
 
 
+def _proxy_url(transport: object) -> object | None:
+    return getattr(getattr(transport, "_pool", None), "_proxy_url", None)
+
+
+class TestProxyBypass:
+    """按目标 host 决定是否绕系统代理：内网 host 直连、公网 host 仍走代理；安全闸不受影响。"""
+
+    def test_private_target_bypasses_proxy_public_target_keeps_it(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:7890")
+        monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:7890")
+        client = artifact_http_client(bypass_proxy_for="http://192.168.5.149:8001")
+        # 内网 host（含同机其它端口）的 transport 不走代理，公网 host 仍走代理。
+        assert _proxy_url(client._transport_for_url(httpx.URL("http://192.168.5.149:8001/x"))) is None
+        assert _proxy_url(client._transport_for_url(httpx.URL("http://192.168.5.149:8188/view"))) is None
+        assert _proxy_url(client._transport_for_url(httpx.URL("https://api.openai.com/v1"))) is not None
+
+    def test_base_url_is_used_when_bypass_target_absent(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:7890")
+        monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:7890")
+        # 未显式给 bypass_proxy_for 时回落到 kwargs["base_url"]。
+        client = artifact_http_client(base_url="http://192.168.5.149:8001")
+        assert _proxy_url(client._transport_for_url(httpx.URL("http://192.168.5.149:8001/x"))) is None
+
+    def test_public_target_does_not_bypass(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:7890")
+        monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:7890")
+        client = artifact_http_client(bypass_proxy_for="https://api.openai.com/v1")
+        # 公网目标未注入任何绕代理 mount，仍走系统代理。
+        assert _proxy_url(client._transport_for_url(httpx.URL("https://api.openai.com/v1"))) is not None
+
+    def test_explicit_mounts_win_over_bypass(self):
+        sentinel = httpx.ASGITransport(app=lambda scope, receive, send: None)
+        client = artifact_http_client(bypass_proxy_for="http://192.168.5.149:8001", mounts={"all://": sentinel})
+        # 调用方显式传 mounts 时以调用方为准：代理绕过逻辑不再注入自己的 all://<host> mount，
+        # 调用方的 all:// sentinel 原样生效。
+        patterns = {str(pattern.pattern): transport for pattern, transport in client._mounts.items()}
+        assert patterns.get("all://") is sentinel
+        assert "all://192.168.5.149" not in patterns
+
+    async def test_destination_guard_still_applies_to_private_target(self):
+        # 绕代理与出站安全闸正交：内网 host 仍过 request guard，解析到链路本地仍被拒。
+        async with artifact_http_client(
+            bypass_proxy_for="http://comfy.lan:8188",
+            resolver=_resolver_returning("169.254.169.254"),
+        ) as client:
+            with pytest.raises(ArtifactDestinationRejectedError):
+                await client.get("http://comfy.lan:8188/view")
+
+
 def _resolver_returning(*addresses: str) -> Callable[[str, int], object]:
     async def resolve(host: str, port: int) -> Iterable[str]:
         return addresses

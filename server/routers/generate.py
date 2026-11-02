@@ -679,6 +679,35 @@ _ASSET_GENERATE_I18N: dict[str, dict[str, str]] = {
 }
 
 
+class GenerateAssetSheetRequest(BaseModel):
+    """资产图生成的可选端点覆盖。
+
+    ``image_provider`` / ``image_model`` 进 payload 层（优先级最高），仅作用于本次生成；
+    均为 None（或整个请求体缺省）时不带覆盖、走当前配置默认。请求体没有 prompt：描述只取项目
+    里存储的条目，执行时按当次的项目状态重读。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    image_provider: str | None = None
+    image_model: str | None = None
+
+
+class GenerateCharacterDerivativeRequest(BaseModel):
+    """衍生资产图生成的可选覆盖。
+
+    ``image_provider`` / ``image_model`` 进 payload 层（优先级最高），仅作用于本次生成的端点；
+    ``reference_image`` 是本次生成用的参考图（项目内相对路径），缺省时用本体资产图。均为 None
+    （或整个请求体缺省）时不带覆盖，走当前配置默认端点与本体资产图。请求体没有 prompt。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    image_provider: str | None = None
+    image_model: str | None = None
+    reference_image: str | None = None
+
+
 async def _enqueue_asset_generation(
     *,
     asset_type: str,
@@ -686,10 +715,13 @@ async def _enqueue_asset_generation(
     resource_name: str,
     user_id: str,
     _t: Translator,
+    image_provider: str | None = None,
+    image_model: str | None = None,
 ) -> dict:
     """项目级资产（character / scene / prop / product）资产图生成共用入队逻辑。
 
-    请求体没有 prompt：描述只取项目里存储的条目，执行时按当次的项目状态重读。
+    请求体没有 prompt：描述只取项目里存储的条目，执行时按当次的项目状态重读。可选的
+    ``image_provider`` / ``image_model`` 作为 payload 覆盖写入任务，解析时优先于配置默认。
     """
     spec = ASSET_SPECS[asset_type]
     keys = _ASSET_GENERATE_I18N[asset_type]
@@ -709,10 +741,17 @@ async def _enqueue_asset_generation(
 
     resource_key = await asyncio.to_thread(_sync)
 
+    extra_payload: dict[str, str] | None = None
+    if image_provider:
+        extra_payload = {"image_provider": image_provider}
+        if image_model:
+            extra_payload["image_model"] = image_model
+
     task_spec = TaskSpec.from_request(
         task_type=asset_type,
         media_type="image",
         resource_id=resource_key,
+        extra_payload=extra_payload,
     )
 
     queue = get_generation_queue()
@@ -740,6 +779,7 @@ async def generate_character(
     char_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateAssetSheetRequest | None = None,
 ):
     """提交角色资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
@@ -748,6 +788,8 @@ async def generate_character(
         resource_name=char_name,
         user_id=user.id,
         _t=_t,
+        image_provider=req.image_provider if req else None,
+        image_model=req.image_model if req else None,
     )
 
 
@@ -758,30 +800,53 @@ async def generate_character_derivative(
     derivative_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateCharacterDerivativeRequest | None = None,
 ):
     """提交角色衍生资产图生成任务到队列，立即返回 task_id。
 
-    衍生图是对本体资产图的一次编辑，指令由衍生自己的外观变化描述加固定守卫构成，请求体
-    因此没有 prompt——入队与执行都按当次的项目状态取，避免两侧各持一份指令。本体没有
-    资产图、或衍生还没写变化描述时在此拒绝，不建任务。
+    衍生图默认是对本体资产图的一次编辑，指令由衍生自己的外观变化描述加固定守卫构成，请求体
+    因此没有 prompt——入队与执行都按当次的项目状态取，避免两侧各持一份指令。衍生还没写变化
+    描述时在此拒绝；缺参考图覆盖时本体也没有资产图才拒绝，不建任务。
+
+    可选的 ``image_provider`` / ``image_model`` 作本次生成端点覆盖（优先级最高，写 payload 层），
+    缺省时按当前配置解析默认 i2i 端点并校验已配置；可选的 ``reference_image`` 作本次生成参考图
+    覆盖（写 payload 层），缺省时用本体资产图。
     """
+
+    reference_image = (req.reference_image or "").strip() if req else ""
 
     def _sync() -> tuple[dict, DerivativeSheetSource]:
         project = get_project_manager().load_project(project_name)
-        return project, resolve_derivative_sheet_source(project, char_name, derivative_name)
+        return project, resolve_derivative_sheet_source(
+            project, char_name, derivative_name, require_owner_sheet=not reference_image
+        )
 
     try:
         project, source = await asyncio.to_thread(_sync)
     except KeyError as exc:
         raise NotFoundError("character_not_found", name=char_name) from exc
 
-    provider_id = await _require_i2i_image_provider_configured(project)
+    image_provider = req.image_provider if req else None
+    image_model = req.image_model if req else None
+    extra_payload: dict[str, str] = {}
+    if image_provider:
+        extra_payload["image_provider"] = image_provider
+    if image_model:
+        extra_payload["image_model"] = image_model
+    if reference_image:
+        extra_payload["reference_image"] = reference_image
+
+    if image_provider:
+        provider_id = image_provider
+    else:
+        provider_id = await _require_i2i_image_provider_configured(project, task_type=DERIVATIVE_TASK_TYPE)
 
     spec = TaskSpec.from_request(
         task_type=DERIVATIVE_TASK_TYPE,
         media_type="image",
         resource_id=source.target.artifact_id,
         prompt=build_derivative_sheet_instruction(source.description),
+        extra_payload=extra_payload or None,
     )
     result = await get_generation_queue().enqueue_task(
         project_name=project_name,
@@ -807,6 +872,7 @@ async def generate_scene(
     scene_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateAssetSheetRequest | None = None,
 ):
     """提交场景资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
@@ -815,6 +881,8 @@ async def generate_scene(
         resource_name=scene_name,
         user_id=user.id,
         _t=_t,
+        image_provider=req.image_provider if req else None,
+        image_model=req.image_model if req else None,
     )
 
 
@@ -824,6 +892,7 @@ async def generate_prop(
     prop_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateAssetSheetRequest | None = None,
 ):
     """提交道具资产图生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
@@ -832,6 +901,8 @@ async def generate_prop(
         resource_name=prop_name,
         user_id=user.id,
         _t=_t,
+        image_provider=req.image_provider if req else None,
+        image_model=req.image_model if req else None,
     )
 
 
@@ -841,6 +912,7 @@ async def generate_product(
     product_name: str,
     user: CurrentUser,
     _t: Translator,
+    req: GenerateAssetSheetRequest | None = None,
 ):
     """提交商品标准参考图（product sheet）生成任务到队列，立即返回 task_id。"""
     return await _enqueue_asset_generation(
@@ -849,24 +921,30 @@ async def generate_product(
         resource_name=product_name,
         user_id=user.id,
         _t=_t,
+        image_provider=req.image_provider if req else None,
+        image_model=req.image_model if req else None,
     )
 
 
 # ==================== 图片指令式编辑（image edit） ====================
 
 
-async def _require_i2i_image_provider_configured(project: dict) -> str:
+async def _require_i2i_image_provider_configured(project: dict, *, task_type: str | None = None) -> str:
     """项目 i2i 槽解析不出可用供应商时直接 400，不创建任务。
 
     图片编辑必然 i2i 且入队即知（唯一例外，见 ``docs/adr/0001`` 与 GLOSSARY.md「图片编辑」），
     故解析前置到入队；执行层 ``generate_image_async`` 的能力 gating 保留兜底。
     返回解析出的 provider_id，入队时直接复用（限流池路由按 i2i 槽精确记账）。
+
+    ``task_type`` 与执行层同参：资产图任务传自身 task_type，i2i 槽据此解析该资产类别的默认端点
+    （``IMAGE_ASSET_SLOT_KEYS``，docs/adr/0098）。入队前判定必须与执行层 ``resolve_generation_context``
+    走同一套骨架，否则项目默认端点是纯 t2i 而衍生资产槽位是 i2i 时，入队前误报无 i2i 端点。
     """
     from lib.db import async_session_factory
 
     try:
         resolved = await ConfigResolver(async_session_factory).resolve_image_backend(
-            project, None, generation_type="i2i"
+            project, None, generation_type="i2i", task_type=task_type
         )
     except ModelNotInCatalogError:
         # 引用的模型不在供应商清单中：交 app 级 handler 返回要求重新选择模型的 400（ValueError 子类，须先于其捕获）

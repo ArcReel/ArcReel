@@ -30,7 +30,7 @@ from arcreel_market_core.aspect_size import (
     aspect_size,
 )
 from arcreel_market_core.aspect_size import resolution_to_short_edge as short_edge_of_resolution
-from arcreel_market_core.comfyui.bindings import align_frames, step_of
+from arcreel_market_core.comfyui.bindings import align_down, align_frames, step_of
 from arcreel_market_core.comfyui.bindings import bound_fps as _bound_fps
 from arcreel_market_core.comfyui.bindings import int_literal_of as _int_literal
 from arcreel_market_core.comfyui.bindings import literal_of as _literal
@@ -39,7 +39,7 @@ from arcreel_market_core.comfyui.bindings import targets_of as _targets
 from arcreel_market_core.comfyui.workflow import is_link, node_inputs
 from lib.prompts.prompt_utils import append_avoid_text, split_avoid_lines
 
-from .capabilities import keeps_its_own_frame_count, size_is_fixed
+from .capabilities import duration_key_targets, image_key_targets, keeps_its_own_frame_count, size_is_fixed
 from .failures import IMAGE_DROP_UNSUPPORTED, ComfyuiError
 from .inference_rules import InferenceRules, MergeNode, load_inference_rules
 
@@ -69,9 +69,10 @@ class MediaInputs:
 class BuiltWorkflow:
     """一次构造的产出：实发 workflow、它的摘要，以及三项换算的落地值。
 
-    ``width`` / ``height`` / ``frames`` / ``seed`` 为 ``None`` 表示该维度没有绑定、值以 workflow
-    字面值为准。端点测试的预览请求按这几项给出换算说明，``dropped_nodes`` 则说明这次改图删掉了
-    哪些节点，故它们与 workflow 一并回传而不是只留在日志里。
+    ``width`` / ``height`` / ``frames`` / ``duration`` / ``seed`` 为 ``None`` 表示该维度没有绑定、
+    值以 workflow 字面值为准。``frames`` 是时长经 fps 换算后落地的帧数，``duration`` 是直写进节点的
+    秒数——两条互不替代，各自回传自己那一维的落地值。端点测试的预览请求按这几项给出换算说明，
+    ``dropped_nodes`` 则说明这次改图删掉了哪些节点，故它们与 workflow 一并回传而不是只留在日志里。
 
     ``negative_prompt`` 是从正文里拆出的排除项文本本身，不是负向节点最终的值——后者还带着
     workflow 作者写在那里的字面值，未绑定负向入口时更是一个字也没写进去。
@@ -83,6 +84,7 @@ class BuiltWorkflow:
     width: int | None = None
     height: int | None = None
     frames: int | None = None
+    duration: int | None = None
     negative_prompt: str = ""
     dropped_nodes: tuple[str, ...] = ()
 
@@ -96,6 +98,8 @@ def build_workflow(
     duration_seconds: float | None = None,
     media: MediaInputs | None = None,
     seed: int | None = None,
+    shot_cur_seq: int | None = None,
+    shot_pre_seq: int | None = None,
     rng: Random | None = None,
 ) -> BuiltWorkflow:
     """按一份 ComfyUI 端点定义与一次生成请求，构造实发 workflow。
@@ -116,11 +120,19 @@ def build_workflow(
     body, avoid_text = split_avoid_lines(prompt)
     _write_all(workflow, _targets(bindings.get("prompt")), body)
     _write_negative_prompt(workflow, bindings.get("negative_prompt"), avoid_text)
+    if shot_cur_seq is not None:
+        _write_shot_seq(workflow, _targets(bindings.get("shot_cur_seq")), shot_cur_seq)
+    if shot_pre_seq is not None:
+        _write_shot_seq(workflow, _targets(bindings.get("shot_pre_seq")), shot_pre_seq)
     width, height = _write_size(workflow, bindings, aspect_ratio=aspect_ratio, resolution=resolution, media=media_type)
     # 图自己写着片长、而这份片长凑不出一档原生时长时不动帧数：端点对外说的正是「时长不由
     # ArcReel 驱动」（档位为空、界面只读），请求里那个秒数是规划层借的，不是用户选的。
     driven = None if keeps_its_own_frame_count(definition) else duration_seconds
     frames = _write_frames(workflow, bindings, duration_seconds=driven)
+    # duration 直收原始秒数，不过 keeps_its_own_frame_count 那道开关：那道开关是 frames 专属的「图
+    # 自带帧数、别拿借来的时长改写它」逻辑，围着帧数↔帧率转。duration 是把用户要的秒数直写进节点，
+    # 与「保留自带帧数」无关，故这里绕过 driven、用 duration_seconds 本身。
+    duration = _write_duration(workflow, bindings, duration_seconds=duration_seconds)
     actual_seed = _write_seed(workflow, bindings, requested=seed, rng=rng or Random())
 
     return BuiltWorkflow(
@@ -130,6 +142,7 @@ def build_workflow(
         width=width,
         height=height,
         frames=frames,
+        duration=duration,
         negative_prompt=avoid_text,
         dropped_nodes=dropped,
     )
@@ -178,6 +191,24 @@ def _write_all(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], v
     """
     for target in targets:
         _write_one(workflow, target, value)
+
+
+def _write_shot_seq(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]], seq: int) -> None:
+    """把一镜到底的镜头序号写进每个目标，按该目标当前字面值的类型分流 int 与字符串。
+
+    续镜序号本是整数 ID，但有的 workflow 把它绑在 TEXT / PrimitiveString 这类字符串输入上，往字符串
+    输入塞一个 Python int 就是类型不匹配——ComfyUI 端要么直接报错，要么把它当别的东西静默错位。
+    因此按每个目标**当前**的字面值类型决定写法：字面值是 ``str`` 就写 ``str(seq)``，其余一律写原始
+    int ``seq``。
+
+    读不出字面值与非字符串字面值都落到 int 分支：``literal_of`` 返回 ``None`` 的两种情形——目标是
+    连线（本就不该被覆盖）、或该字段根本不存在，加上任何非 str 的字面值（int/number），统一写回整数
+    即保留既有默认整数行为；只有 ``isinstance(literal, str)`` 为真才判成字符串输入，不把别的类型当
+    字符串处理。
+    """
+    for target in targets:
+        literal = _literal(workflow, target)
+        _write_one(workflow, target, str(seq) if isinstance(literal, str) else seq)
 
 
 # ---------------------------------------------------------------- 负向提示词
@@ -257,14 +288,9 @@ def _write_stepped(workflow: dict[str, Any], targets: Sequence[Mapping[str, Any]
     """把一个派生尺寸按各条目的步长向下对齐后写入，回传最后写出的值。"""
     written: int | None = None
     for target in targets:
-        written = _align_down(value, step_of(target))
+        written = align_down(value, step_of(target))
         _write_one(workflow, target, written)
     return written
-
-
-def _align_down(value: int, step: int) -> int:
-    """向下对齐到 ``step`` 的整数倍，下限一个 ``step``——零尺寸提交上去必然报错。"""
-    return max(step, value - value % step)
 
 
 # ---------------------------------------------------------------- 帧数
@@ -298,6 +324,37 @@ def _write_frames(
             continue
         step = step_of(target)
         written = align_frames(round(duration_seconds * fps) + 1, step)
+        _write_one(workflow, target, written)
+    return written
+
+
+# ---------------------------------------------------------------- 时长
+
+
+def _write_duration(
+    workflow: dict[str, Any], bindings: Mapping[str, Any], *, duration_seconds: float | None
+) -> int | None:
+    """把时长（秒）原样写进 ``duration`` 目标，有步长则向下对齐，回传最后写出的值。
+
+    目标认「正式绑定 ∪ 标题标记」（:func:`.capabilities.duration_key_targets`），与能力推导同口径：
+    界面上「时长可驱动、默认档位读得出」的 workflow，提交时秒数真能落进图里。
+
+    不复用 :func:`~arcreel_market_core.comfyui.bindings.align_frames`：它的下限是 ``1 + step``，那是
+    「首帧 + 若干段间隔」的帧数语义——帧数至少要凑出一个完整步长才合法。秒数没有这层含义，一个
+    8 秒片不该因为步长是 4 就被抬到 9 秒。duration 的对齐就是尺寸那套
+    :func:`~arcreel_market_core.comfyui.bindings.align_down`：向下对齐到 step 的整数倍、下限一个
+    step（``step`` 缺省为 1 时等于把整数秒原样写进去）。
+
+    ``duration_seconds`` 为 ``None`` 即这一维不由本次请求驱动（与 :func:`_write_frames` 同样的 guard
+    风格）：workflow 节点里的字面秒数原样留着。
+    """
+    targets = duration_key_targets(workflow, bindings)
+    if not targets or duration_seconds is None:
+        return None
+    seconds = round(duration_seconds)
+    written: int | None = None
+    for target in targets:
+        written = align_down(seconds, step_of(target))
         _write_one(workflow, target, written)
     return written
 
@@ -340,16 +397,22 @@ def _apply_media(
 
     首尾帧与参考图都是「绑定了但这次没给值」就要改图：读图节点留在图里会按 workflow 的字面
     文件名去读一张上次的图，模型照着它出片，用户看到的是一张自己没选过的首帧。
+
+    标题标记兜底的格子（:func:`image_key_targets` 回退认出的、没有正式绑定的节点）只填不删：
+    它不是用户确认过的绑定，不给值时 workflow 保留自己的底稿，删了反而可能把图拆坏。
     """
     doomed: list[str] = []
     for key, value in (("start_image", media.start_image), ("end_image", media.end_image)):
-        targets = _targets(bindings.get(key))
+        targets = image_key_targets(workflow, bindings, key)
+        formal = _targets(bindings.get(key))
         if value is not None:
             _write_all(workflow, targets, value)
-        else:
-            doomed.extend(str(target["node"]) for target in targets)
+        elif formal:
+            doomed.extend(str(target["node"]) for target in formal)
     doomed.extend(
-        _apply_reference_images(workflow, _targets(bindings.get("reference_images")), media.reference_images, rules)
+        _apply_reference_images(
+            workflow, image_key_targets(workflow, bindings, "reference_images"), media.reference_images, rules
+        )
     )
     if not doomed:
         return ()

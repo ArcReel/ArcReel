@@ -200,6 +200,43 @@ describe("AgentCopilot", () => {
       expect(receipt).toHaveTextContent("结尾用哪张图作首帧？");
       expect(screen.getByRole("definition")).toHaveTextContent("人物特写");
     });
+
+    it("renders a file-access authorization popup echoing the resolved path and submits approve/reject", async () => {
+      const user = userEvent.setup();
+      const fileAccess: PendingQuestion = {
+        question_id: "fa-1",
+        request_kind: "file_access",
+        path: "/Users/dev/workspace-02657a9b/secret.txt",
+        reason: "需要授权：项目根外的 host 路径访问请求",
+        title: "Agent 想读取 secret.txt",
+        questions: [
+          {
+            header: "文件访问授权",
+            question: "是否允许本次 Read 访问？",
+            multiSelect: false,
+            options: [
+              { label: "批准", description: "放行本次访问" },
+              { label: "拒绝", description: "拒绝本次访问" },
+            ],
+          },
+        ],
+      };
+      useAssistantStore.setState({ currentSessionId: "session-1", sessionStatus: "running", pendingQuestion: fileAccess });
+      render(<AgentCopilot />);
+
+      // 回显真实 resolved 路径与原因
+      expect(screen.getByText("/Users/dev/workspace-02657a9b/secret.txt")).toBeInTheDocument();
+      expect(screen.getByText("需要授权：项目根外的 host 路径访问请求")).toBeInTheDocument();
+
+      // 批准：答复值为「批准」原文（与后端解析约定一致）
+      await user.click(screen.getByRole("button", { name: "批准" }));
+      expect(answerQuestion).toHaveBeenCalledWith("fa-1", { "是否允许本次 Read 访问？": "批准" });
+
+      // 拒绝走同一提交通道
+      answerQuestion.mockClear();
+      await user.click(screen.getByRole("button", { name: "拒绝" }));
+      expect(answerQuestion).toHaveBeenCalledWith("fa-1", { "是否允许本次 Read 访问？": "拒绝" });
+    });
   });
 
   describe("session history", () => {

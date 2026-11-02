@@ -195,6 +195,21 @@ def test_a_missing_key_is_inferred_from_scratch():
 
 # ---------------------------------------------------------------------------
 # 标题约定
+
+
+def test_motion_context_sequence_ids_are_inferred_from_their_input_names():
+    workflow = sample_workflow("wan21_t2v")
+    workflow["90"] = {
+        "class_type": "MotionContext",
+        "inputs": {"shot_cur_seq": 2, "shot_pre_seq": 1},
+    }
+
+    result = infer_sample("wan21_t2v", workflow=workflow)
+
+    assert landings(result, "shot_cur_seq") == [("90", "shot_cur_seq")]
+    assert landings(result, "shot_pre_seq") == [("90", "shot_pre_seq")]
+
+
 # ---------------------------------------------------------------------------
 
 
@@ -226,6 +241,66 @@ def test_reference_image_markers_are_numbered_by_ascending_node_id():
     marked(workflow, "142", "ARCREEL:reference_images 前一张")
     result = infer_sample("flux_kontext_edit", workflow=workflow)
     assert landings(result, "reference_images") == [("142", "image"), ("147", "image")]
+
+
+def test_an_input_title_marker_binds_the_primitive_value_field():
+    """``(input:prompt)`` 括号形态与 ``ARCREEL:prompt`` 等价：裸 Primitive 节点的落点是它的 value 字段，
+    别名推断出来的 prompt 候选被抑制。"""
+    workflow = sample_workflow("wan21_t2v")
+    workflow["90"] = {
+        "class_type": "PrimitiveStringMultiline",
+        "inputs": {"value": "剧情文本"},
+        "_meta": {"title": "(input:prompt) prompt"},
+    }
+    result = infer_sample("wan21_t2v", workflow=workflow)
+    assert landings(result, "prompt") == [("90", "value")]
+    assert graded_on(result, "prompt") == {BindingSignal.TITLE_MARKER.value}
+
+
+def test_an_input_title_marker_parses_underscore_keys():
+    """``(input:negative_prompt)`` 的下划线键名要完整解析出来。"""
+    workflow = sample_workflow("wan21_t2v")
+    workflow["91"] = {
+        "class_type": "PrimitiveStringMultiline",
+        "inputs": {"value": "避免"},
+        "_meta": {"title": "(input:negative_prompt)"},
+    }
+    result = infer_sample("wan21_t2v", workflow=workflow)
+    assert ("91", "value") in landings(result, "negative_prompt")
+
+
+def test_an_input_title_marker_marks_the_output_node():
+    """``(input:output)`` 打在 SaveVideo 上仍按节点级产物落点登记（input 为 None）。"""
+    workflow = marked(sample_workflow("wan21_t2v"), "58", "(input:output)")
+    result = infer_sample("wan21_t2v", workflow=workflow)
+    assert landings(result, "output") == [("58", None)]
+    assert graded_on(result, "output") == {BindingSignal.TITLE_MARKER.value}
+
+
+# ---------------------------------------------------------------------------
+# 时长
+
+
+def test_a_duration_title_marker_is_inferred():
+    """``(input:duration)`` 打在 PrimitiveInt 上：duration 进了 allowed 名录，标记选中它的 value。"""
+    workflow = sample_workflow("wan21_t2v")
+    workflow["91"] = {
+        "class_type": "PrimitiveInt",
+        "inputs": {"value": 5},
+        "_meta": {"title": "(input:duration)"},
+    }
+    result = infer_sample("wan21_t2v", workflow=workflow)
+    assert result.keys["duration"].state is BindingState.AUTO_SELECTED
+    assert landings(result, "duration") == [("91", "value")]
+
+
+def test_duration_falls_back_to_an_alias_input_name():
+    """无标题标记时，别名入口名 + duration 白名单 class_type 命中也能推断出 duration。"""
+    workflow = sample_workflow("wan21_t2v")
+    workflow["92"] = {"class_type": "PrimitiveFloat", "inputs": {"duration": 5.0}}
+    result = infer_sample("wan21_t2v", workflow=workflow)
+    assert ("92", "duration") in offered(result, "duration")
+    assert BindingSignal.ALIAS_WITH_CLASS_TYPE.value in signals_on(result, "duration")
 
 
 # ---------------------------------------------------------------------------

@@ -590,6 +590,10 @@ class SessionManager:
         "Grep",
         "Glob",
         "WebFetch",
+        # 多步任务进度跟踪：CLAUDE.*.md 系统提示指示 Agent 用 TodoWrite 汇报进度，
+        # 前端 TodoProgress 据此渲染待办进度条——漏加会让 Agent 调用时被 can_use_tool
+        # 白名单兜底拒绝（No such tool available: TodoWrite）。
+        "TodoWrite",
         "AskUserQuestion",
     ]
     DEFAULT_SETTING_SOURCES: ClassVar[list[SettingSource]] = ["project"]
@@ -2162,6 +2166,76 @@ class SessionManager:
         merged_input["answers"] = answers
         return PermissionResultAllow(updated_input=merged_input)
 
+    #: 文件访问授权弹窗里「批准 / 拒绝」两个选项的原文（前后端解析答复的同一真相源）。
+    _FILE_ACCESS_APPROVE_LABEL: ClassVar[str] = "批准"
+    _FILE_ACCESS_REJECT_LABEL: ClassVar[str] = "拒绝"
+
+    async def _handle_file_access_request(
+        self,
+        managed: Optional["ManagedSession"],
+        tool_name: str,
+        input_data: dict[str, Any],
+        context: Any,
+    ) -> Any:
+        """文件访问「向用户请求授权」处理：PreToolUse hook 判 ASK 后由此弹窗等答复。
+
+        复用 AskUserQuestion 的 ``PendingQuestion`` 基础设施（``type: "ask_user_question"``
+        payload + SSE ``"question"`` 事件 + ``/questions/{qid}/answer`` 端点零改动），只在
+        payload 上多带 ``request_kind: "file_access"`` 与 ``path`` / ``reason`` / ``title``
+        供前端区分并强调真实路径（敏感 / host 路径降低误批）。``questions`` 构造成合法的单题
+        数组（前端守卫要求 ``Array.isArray(questions)``），选项为「批准 / 拒绝」。
+
+        managed 为 None（会话解析不到）时与 ``_handle_ask_user_question`` 的 None 处理同向：
+        ASK 的本意是放行而非硬拒，退回 ``PermissionResultAllow``。用户批准 → Allow、
+        拒绝 → Deny、answer_future 异常（中断）→ Deny(interrupt=True)。
+        """
+        if managed is None:
+            return PermissionResultAllow(updated_input=input_data)
+
+        # 真实路径：优先 SDK 给出的 blocked_path，其次按 PATH_TOOLS 从 tool_input 取。
+        tool_input = input_data.get("tool_input") if isinstance(input_data.get("tool_input"), dict) else input_data
+        path_key = self.access_policy.PATH_TOOLS.get(tool_name)
+        path = getattr(context, "blocked_path", None) or (tool_input or {}).get(path_key) if path_key else None
+        reason = getattr(context, "decision_reason", None)
+        title = getattr(context, "title", None)
+        question_text = title or reason or f"是否允许本次 {tool_name} 访问？"
+
+        payload = {
+            "type": "ask_user_question",
+            "question_id": f"aq_{uuid4().hex}",
+            "tool_name": tool_name,
+            "request_kind": "file_access",
+            "path": str(path) if path else None,
+            "reason": reason,
+            "title": title,
+            "questions": [
+                {
+                    "header": "文件访问授权",
+                    "question": question_text,
+                    "options": [
+                        {"label": self._FILE_ACCESS_APPROVE_LABEL, "description": "放行本次访问"},
+                        {"label": self._FILE_ACCESS_REJECT_LABEL, "description": "拒绝本次访问"},
+                    ],
+                    "multiSelect": False,
+                }
+            ],
+            "timestamp": utc_now_iso(),
+        }
+        pending = managed.add_pending_question(payload)
+        managed.channel.broadcast(payload)
+
+        try:
+            answers = await pending.answer_future
+        except Exception as exc:
+            return PermissionResultDeny(
+                message=str(exc) or "session interrupted by user",
+                interrupt=True,
+            )
+        # 用户点「拒绝」→ Deny；其余（批准）→ 放行。答复的值是选项原文（见 options label）。
+        if self._FILE_ACCESS_REJECT_LABEL in answers.values():
+            return PermissionResultDeny(message=f"用户拒绝了本次文件访问：{reason or tool_name}")
+        return PermissionResultAllow(updated_input=input_data)
+
     async def _build_can_use_tool_callback(
         self,
         session_id: str,
@@ -2201,6 +2275,19 @@ class SessionManager:
                     managed,
                     tool_name,
                     input_data,
+                )
+
+            # 文件访问授权：文件工具（Read/Glob/Grep/Write/Edit）被 PreToolUse hook 判为 ASK 时，
+            # SDK 把 reason 转到 _context.decision_reason 并路由到这里。弹窗请求用户授权
+            # （复用 AskUserQuestion 通道），批准→放行 / 拒绝→拒绝。非文件工具（如 Bash 的
+            # default-deny hint）不走此分支，仍落到下方白名单兜底。
+            if tool_name in self.access_policy.PATH_TOOLS and getattr(_context, "decision_reason", None):
+                managed = managed_ref[0] if managed_ref else self.sessions.get(session_id)
+                return await self._handle_file_access_request(
+                    managed,
+                    tool_name,
+                    input_data,
+                    _context,
                 )
 
             # Windows 回退：sandbox 关闭时 Bash 系列不在 allowed_tools，

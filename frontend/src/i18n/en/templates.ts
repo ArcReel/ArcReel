@@ -83,6 +83,7 @@ export default {
   default_hint: "Default models can be changed in Dashboard → Settings → Default models",
   current_global_default: "Current global default: {{value}}",
   use_global_default: "Use global default",
+  use_project_default: "Use project default",
   model_video: "Video model",
   model_video_default: "Default video model",
   model_image: "Image model",

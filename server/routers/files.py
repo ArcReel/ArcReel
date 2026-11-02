@@ -296,6 +296,14 @@ UPLOAD_SPECS: dict[str, UploadSpec] = {
         host_bucket=ASSET_SPECS["product"].bucket_key,
         host_not_found_key="product_not_found",
     ),
+    # 衍生图生成的临时参考图：只落盘、不写回任何资产字段（生成时按路径作参考图覆盖）。
+    # 放在已服务的 characters 目录下可被前端预览；sequenced 命名保证多次上传不互相覆盖。
+    "derivative_ref": UploadSpec(
+        allowed_exts=_IMAGE_EXTS,
+        subdir=(ASSET_SPECS["character"].subdir, "derivative_refs"),
+        naming="sequenced",
+        content_check="validate_image",
+    ),
 }
 
 _FORMAL_SHEET_UPLOAD_TYPES = frozenset(ASSET_SPECS)
@@ -418,7 +426,7 @@ async def upload_file(
 
     Args:
         project_name: 项目名称
-        upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref/bgm)
+        upload_type: 上传类型 (source/character/character_ref/character_audio_ref/scene/prop/product/product_ref/derivative_ref/bgm)
         file: 上传的文件
         name: 可选，用于角色/场景/道具/商品名称（自动更新元数据）；product_ref 必填；
             分镜/视频上传走 shot_uploads 路由

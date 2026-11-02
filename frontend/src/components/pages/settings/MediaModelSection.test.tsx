@@ -427,6 +427,32 @@ describe("MediaModelSection", () => {
     expect(imageSection).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("已指定 1 项")).toBeInTheDocument();
   });
+
+  it("renders a per-asset-category default model section under the image channel", async () => {
+    render(<MediaModelSection />);
+    await screen.findByRole("combobox", { name: "默认图片模型" });
+    expect(screen.getByText("资产图分类默认模型")).toBeInTheDocument();
+    for (const label of ["资产图 - 角色", "资产图 - 角色衍生", "资产图 - 场景", "资产图 - 道具", "资产图 - 商品"]) {
+      expect(screen.getByRole("combobox", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("persists an asset slot selection to its own settings key", async () => {
+    const user = userEvent.setup();
+    const patch = vi
+      .spyOn(API, "updateSystemConfig")
+      .mockResolvedValue(CONFIG as unknown as Awaited<ReturnType<typeof API.updateSystemConfig>>);
+    render(<MediaModelSection />);
+    await screen.findByRole("combobox", { name: "默认图片模型" });
+
+    await user.click(screen.getByRole("combobox", { name: "资产图 - 角色" }));
+    await user.click(await screen.findByRole("option", { name: /gpt-image-edit/ }));
+    await user.click(screen.getByRole("button", { name: /保存|Save/ }));
+
+    await waitFor(() =>
+      expect(patch).toHaveBeenCalledWith({ default_image_backend_character: "openai/gpt-image-edit" }),
+    );
+  });
 });
 
 describe("MediaModelSection – 语言切换", () => {

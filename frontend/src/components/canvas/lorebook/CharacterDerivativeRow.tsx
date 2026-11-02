@@ -1,4 +1,4 @@
-import { useCallback, useId, useRef, useState } from "react";
+import { useCallback, useId, useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, History, ImageUp, Loader2, MoreHorizontal, PenLine, Pencil, Shirt, Trash2, X } from "lucide-react";
 import { API, CHARACTER_DERIVATIVE_RESOURCE_TYPE, derivativeResourceId } from "@/api";
@@ -53,6 +53,9 @@ function derivativeToken(characterName: string, derivativeName: string): string 
   return `@[${characterName}/${derivativeName}]`;
 }
 
+/** 参考图选择器里「上传任意图」选项的哨兵值（不是真实图片路径）。 */
+export const CUSTOM_REFERENCE_VALUE = "__custom__";
+
 type RowDialog = "image-edit" | "versions" | "delete";
 
 export interface CharacterDerivativeRowProps {
@@ -67,6 +70,12 @@ export interface CharacterDerivativeRowProps {
   readOnly: boolean;
   /** 详情里其他写入或本体生成占用中：本条的写入入口一起禁用。 */
   busy: boolean;
+  /** 本次衍生生成用的图像端点覆盖（"" / 省略 = 跟随当前配置默认）。 */
+  imageEndpoint?: string;
+  /** 可选的临时参考图来源（角色自己的图像）；每行默认仍是本体资产图。 */
+  referenceOptions: { label: string; value: string }[];
+  /** 默认参考图（本体资产图）；选择与它不同的图时才带 reference_image 覆盖。 */
+  defaultReference?: string;
   onView: (image: { src: string; alt: string; title: string }) => void;
   /** 改名已提交、项目数据刷新之前调用，让这一行沿用原来的编辑单元。 */
   onRenamed: (from: string, to: string) => void;
@@ -89,6 +98,9 @@ export function CharacterDerivativeRow({
   ownerHasSheet,
   readOnly,
   busy,
+  imageEndpoint,
+  referenceOptions,
+  defaultReference,
   onView,
   onRenamed,
   onSheetsChanged,
@@ -105,6 +117,11 @@ export function CharacterDerivativeRow({
   const [pending, setPending] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  // 本次生成临时用的参考图；空 = 跟随默认（本体资产图），只在切到别的图时带覆盖
+  const [selectedReference, setSelectedReference] = useState("");
+  // 「上传任意图」选项下已上传的参考图（项目内路径），以及上传在途
+  const [customReferencePath, setCustomReferencePath] = useState("");
+  const [customUploading, setCustomUploading] = useState(false);
 
   const resourceId = derivativeResourceId(characterName, name);
   const generating = useActiveResourceIds("character_derivative", projectName).has(resourceId);
@@ -167,6 +184,35 @@ export function CharacterDerivativeRow({
     );
   };
 
+  const effectiveReference =
+    selectedReference ||
+    defaultReference ||
+    referenceOptions.find((o) => o.value !== CUSTOM_REFERENCE_VALUE)?.value ||
+    referenceOptions[0]?.value ||
+    "";
+  const isCustomReference = effectiveReference === CUSTOM_REFERENCE_VALUE;
+  // 自定义（上传任意图）：用已上传的项目内路径；还没上传时回落到默认参考图
+  const referenceImage = isCustomReference
+    ? customReferencePath || undefined
+    : effectiveReference && effectiveReference !== defaultReference
+      ? effectiveReference
+      : undefined;
+
+  const handleCustomUpload = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setCustomUploading(true);
+    try {
+      const result = await API.uploadFile(projectName, "derivative_ref", file);
+      if (result.path) setCustomReferencePath(result.path);
+    } catch (err) {
+      useAppStore.getState().pushToast(errMsg(err), "error");
+    } finally {
+      setCustomUploading(false);
+    }
+  };
+
   const handleGenerate = async () => {
     if (
       isAssetBusy("character", projectName, characterName) ||
@@ -176,7 +222,7 @@ export function CharacterDerivativeRow({
       return;
     }
     try {
-      await enqueueCharacterDerivative(projectName, characterName, name);
+      await enqueueCharacterDerivative(projectName, characterName, name, imageEndpoint, referenceImage);
     } catch (err) {
       useAppStore.getState().pushToast(errMsg(err), "error");
     }
@@ -434,6 +480,39 @@ export function CharacterDerivativeRow({
         <>
           <UnsavedChangesBar unit={unit} />
           <div className="flex flex-wrap items-center gap-1.5">
+            <select
+              className="h-8 max-w-[160px] rounded-md border border-input bg-background px-2 text-xs"
+              value={effectiveReference}
+              onChange={(e) => setSelectedReference(e.target.value)}
+              disabled={rowBusy}
+              aria-label={t("assets:studio.derivative_reference_label")}
+            >
+              {referenceOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            {isCustomReference ? (
+              <label className="flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-background px-2 text-xs text-muted-foreground">
+                {customUploading ? <Loader2 aria-hidden className="size-3.5 animate-spin" /> : null}
+                {customReferencePath ? (
+                  <img
+                    src={API.getFileUrl(projectName, customReferencePath, null)}
+                    alt=""
+                    className="h-5 w-5 rounded-sm object-cover"
+                  />
+                ) : null}
+                {t("assets:studio.derivative_reference_upload")}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={rowBusy || customUploading}
+                  onChange={(e) => void handleCustomUpload(e)}
+                />
+              </label>
+            ) : null}
             <GenerateButton
               onClick={generate}
               loading={generating}

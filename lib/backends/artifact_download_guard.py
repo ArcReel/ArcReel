@@ -24,6 +24,7 @@ from typing import Any
 
 import httpx
 
+from lib.backends.proxy_bypass import proxy_bypass_mounts
 from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.infra.async_thread import run_noninterruptible_sync, run_sync_transaction
 from lib.infra.retry import NonRetryableError
@@ -121,16 +122,30 @@ def artifact_http_client(
     resolver: Resolver = resolve_host,
     resolve_timeout: float = DNS_RESOLVE_TIMEOUT_SECONDS,
     transport_layer: TransportLayer | None = None,
+    bypass_proxy_for: str | None = None,
     **kwargs: Any,
 ) -> httpx.AsyncClient:
     """构造对每次请求（含每一跳重定向）先做目的地校验的 ``httpx.AsyncClient``。
 
-    ``transport_layer`` 叠在校验之上（见 :func:`layer_async_client`），校验的是它改写后的请求。
-    其余关键字参数原样交给 ``httpx.AsyncClient``。
+    ``bypass_proxy_for`` 给出「据以判定是否绕系统代理」的目标 base_url / 完整 URL：目标落在私有 /
+    内网网段时，为该 host 挂 ``None`` mount 走 DIRECT 直连（不读系统代理），公网目标不动（仍按
+    ``trust_env`` 读系统代理）。未显式传时回落到 ``kwargs["base_url"]``——很多调用点已传 ``base_url``，
+    可自动生效。调用方显式传了 ``mounts`` 时以调用方为准，不覆盖。判定见
+    :func:`lib.backends.proxy_bypass.proxy_bypass_mounts`。
+
+    ``transport_layer`` 叠在校验之上（见 :func:`layer_async_client`），校验的是它改写后的请求；
+    与代理绕过正交：mounts 只决定走不走代理，不动下面挂的 request guard。其余关键字参数原样交给
+    ``httpx.AsyncClient``。
     """
 
     async def guard(request: httpx.Request) -> None:
         await check_destination(request.url, resolver=resolver, resolve_timeout=resolve_timeout)
+
+    if "mounts" not in kwargs:
+        target = bypass_proxy_for if bypass_proxy_for is not None else kwargs.get("base_url")
+        mounts = proxy_bypass_mounts(target)
+        if mounts:
+            kwargs["mounts"] = mounts
 
     return layer_async_client(httpx.AsyncClient(event_hooks={"request": [guard]}, **kwargs), transport_layer)
 

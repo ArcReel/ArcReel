@@ -37,7 +37,11 @@ def test_builtin_directory_has_valid_slots_variants_and_template_syntax():
             style_description="柔和笔触",
         )
         assert "外观描述" in rendered
-        assert "Avoid:" in rendered
+        if asset_type in {"character", "character_derivative"}:
+            # 角色 / 角色衍生资产图只由描述驱动（角色另含 Style + 标题），不附带 Avoid 负向约束。
+            assert "Avoid:" not in rendered
+        else:
+            assert "Avoid:" in rendered
         if asset_type in {"character_derivative", "product"}:
             assert "Style:" not in rendered
             assert "Visual style:" not in rendered

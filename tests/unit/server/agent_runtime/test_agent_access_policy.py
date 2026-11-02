@@ -1,18 +1,23 @@
-"""AgentAccessPolicy 纯规则测试：构造参数喂入，断言 allow/deny，无 env/私有方法 monkeypatch。
+"""AgentAccessPolicy 纯规则测试：构造参数喂入，断言三态 Decision，无 env/私有方法 monkeypatch。
 
-路径裁决四规则：数据根外敏感文件拒 + 数据根默认读拒 + cwd 外写拒 + 代码扩展名拒。
+路径裁决三态（见 Decision）：
+- ALLOW 直接放行：cwd 内 / 用户记忆 / 仓库根参考资料 / 合法写 / SDK tool-results 例外。
+- ASK 弹窗请求授权：数据根外敏感文件、跨项目读、数据根内其他条目、搜索根含数据根、host 路径、cwd 外写、
+  受保护写路径（PROTECTED_WRITE_RULES）、代码扩展名写入。
+- DENY 硬拒：无效路径（坏输入）。
 """
 
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from lib.agent.agent_memory_paths import project_memory_dir
 from lib.infra.data_root_layout import DataRootLayout
-from server.agent_runtime.agent_access_policy import AgentAccessPolicy
+from server.agent_runtime.agent_access_policy import AgentAccessPolicy, Decision
 
 #: 逐调用传入的当前用户 id（生产取自 SessionManager 的 CurrentUser 上下文）。
 _USER_ID = "default"
@@ -66,10 +71,10 @@ def test_pure_construction_with_fake_roots() -> None:
     )
     assert policy.sandbox_enabled is False
     cwd = DataRootLayout(fake / "repo" / "projects").projects_dir / "demo"
-    allowed, _ = policy.check_path_access(str(cwd / "data.json"), "Read", cwd, user_id=_USER_ID)
-    assert allowed
-    allowed, reason = policy.check_path_access(str(fake / "repo" / ".env"), "Read", cwd, user_id=_USER_ID)
-    assert not allowed
+    decision, _ = policy.check_path_access(str(cwd / "data.json"), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW
+    decision, reason = policy.check_path_access(str(fake / "repo" / ".env"), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK
     assert reason
     assert "敏感文件" in reason
 
@@ -88,67 +93,82 @@ def test_policy_module_does_not_import_sdk_types() -> None:
 
 def test_read_cwd_internal_passes(policy: AgentAccessPolicy) -> None:
     cwd = _cwd(policy)
-    allowed, _ = policy.check_path_access(str(cwd / "data.json"), "Read", cwd, user_id=_USER_ID)
-    assert allowed
+    decision, _ = policy.check_path_access(str(cwd / "data.json"), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW
 
 
-def test_read_other_project_denied(policy: AgentAccessPolicy) -> None:
+def test_read_other_project_asks(policy: AgentAccessPolicy) -> None:
+    """跨项目读改为弹窗请求授权（ASK）。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(
+    decision, reason = policy.check_path_access(
         str(_projects_dir(policy) / "other" / "x.json"), "Read", cwd, user_id=_USER_ID
     )
-    assert not allowed
+    assert decision is Decision.ASK
     assert "跨项目" in reason or "项目" in reason
+
+
+@pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Glob", "Grep"])
+def test_invalid_path_denies(policy: AgentAccessPolicy, tool: str) -> None:
+    """唯一仍硬拒（DENY）的分支：坏输入——路径字符串解析失败（含 NUL 字节会让
+    Path(...)/resolve() 抛 ValueError）。不是权限问题，不该弹窗请求授权，直接拒。
+    回归守卫：Option B 把其余分支全改 ASK 后，确保这条坏输入分支没被一并改掉。"""
+    cwd = _cwd(policy)
+    decision, reason = policy.check_path_access("bad\x00path.json", tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.DENY, f"{tool} 的无效路径应硬拒，却被判 {decision}"
+    assert reason
+    assert "无效" in reason
 
 
 def test_read_lib_passes(policy: AgentAccessPolicy) -> None:
     """cwd 外的非 projects 路径允许读（用于 Agent 查 docs/lib 等参考资料）。"""
     cwd = _cwd(policy)
-    allowed, _ = policy.check_path_access(str(policy.project_root / "lib" / "foo.py"), "Read", cwd, user_id=_USER_ID)
-    assert allowed
+    decision, _ = policy.check_path_access(str(policy.project_root / "lib" / "foo.py"), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW
 
 
-def test_write_cwd_external_denied(policy: AgentAccessPolicy) -> None:
+def test_write_cwd_external_asks(policy: AgentAccessPolicy) -> None:
+    """cwd 外写改为弹窗请求授权（ASK）。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(
+    decision, reason = policy.check_path_access(
         str(policy.project_root / "lib" / "foo.json"), "Write", cwd, user_id=_USER_ID
     )
-    assert not allowed
+    assert decision is Decision.ASK
     assert "项目目录之外" in reason or "cwd" in reason or "项目" in reason
 
 
-def test_write_cwd_internal_code_ext_denied(policy: AgentAccessPolicy) -> None:
+def test_write_cwd_internal_code_ext_asks(policy: AgentAccessPolicy) -> None:
+    """代码扩展名写入改为弹窗请求授权（ASK）：用户可批准本次写入。"""
     cwd = _cwd(policy)
     for ext in (".py", ".js", ".ts", ".tsx", ".sh", ".yaml", ".yml", ".toml"):
-        allowed, reason = policy.check_path_access(str(cwd / f"test{ext}"), "Write", cwd, user_id=_USER_ID)
-        assert not allowed, f"扩展名 {ext} 应被拒"
+        decision, reason = policy.check_path_access(str(cwd / f"test{ext}"), "Write", cwd, user_id=_USER_ID)
+        assert decision is Decision.ASK, f"扩展名 {ext} 应改为弹窗请求授权"
         assert "代码" in reason or "扩展名" in reason
 
 
 def test_write_cwd_internal_data_ext_allowed(policy: AgentAccessPolicy) -> None:
     cwd = _cwd(policy)
     for ext in (".json", ".md", ".txt", ".html", ".csv"):
-        allowed, _ = policy.check_path_access(str(cwd / f"data{ext}"), "Write", cwd, user_id=_USER_ID)
-        assert allowed, f"扩展名 {ext} 应允许"
+        decision, _ = policy.check_path_access(str(cwd / f"data{ext}"), "Write", cwd, user_id=_USER_ID)
+        assert decision is Decision.ALLOW, f"扩展名 {ext} 应允许"
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize("relative", ["scripts/episode_1.json", "scripts/episode_10.json", "project.json"])
-def test_write_protected_project_json_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """scripts/*.json 与 project.json 不可用 Write/Edit 直改，报错指向 MCP 工具。"""
+def test_write_protected_project_json_asks(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """scripts/*.json 与 project.json 用 Write/Edit 直改改为弹窗请求授权（ASK），reason 仍指向 MCP 工具。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert (reason and "patch_episode_script" in reason) or "patch_project" in (reason or "")
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
 @pytest.mark.parametrize("relative", ["edit_timelines/episode_1/tl-0000abcd.json", "edit_timelines/notes.md"])
-def test_write_edit_timeline_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """剪辑时间线只能经剪辑时间线工具写入，报错指向工具。"""
+def test_write_edit_timeline_asks(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """剪辑时间线用 Write/Edit 直改改为弹窗请求授权（ASK），reason 仍指向工具。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert "create_timeline" in (reason or "")
     assert "edit_timeline" in (reason or "")
 
@@ -160,8 +180,8 @@ def test_write_edit_timeline_denied(policy: AgentAccessPolicy, tool: str, relati
 def test_write_trash_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """项目回收站只经回收站模块增删，Agent 直写会绕过「清空只开放给创作者」；项目记忆不受影响。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert ".arcreel/trash/" in (reason or "")
     assert policy.check_path_access(str(cwd / ".arcreel/memory/MEMORY.md"), tool, cwd, user_id=_USER_ID)[0]
 
@@ -185,8 +205,8 @@ def test_write_trash_denied(policy: AgentAccessPolicy, tool: str, relative: str)
 def test_write_media_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """媒体只经生成与编辑工具写入，Agent 直写或删除会绕过项目回收站；报错指向回收站删除工具。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert "delete_project_file" in (reason or "")
 
 
@@ -208,8 +228,8 @@ def test_protected_media_covers_every_public_media_location() -> None:
 def test_write_version_history_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """版本历史只经版本管理维护，Agent 直写或删除会绕过项目回收站。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert "versions/" in (reason or "")
 
 
@@ -217,11 +237,11 @@ def test_write_version_history_denied(policy: AgentAccessPolicy, tool: str, rela
 @pytest.mark.parametrize(
     "relative", ["source/novel.txt", "source/episode_1.txt", "source/snapshots/novel.txt", "source/new.md"]
 )
-def test_write_source_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """source/ 只能经服务命令写入，报错指向上传与编辑源文的工具。"""
+def test_write_source_asks(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """source/ 用 Write/Edit 直改改为弹窗请求授权（ASK），reason 仍指向上传与编辑源文的工具。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert "upload_source" in (reason or "")
     assert "edit_source_text" in (reason or "")
 
@@ -241,13 +261,13 @@ def test_write_source_denied(policy: AgentAccessPolicy, tool: str, relative: str
         "drafts/episode_1/SCRIPT_PLAN_SEGMENTS.JSON",
     ],
 )
-def test_write_formal_script_plan_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """三条路线的正式 script_plan 都不可用 Write/Edit 直改：它另有几条持同一把 per-path 锁的写入路径
+def test_write_formal_script_plan_asks(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """三条路线的正式 script_plan 用 Write/Edit 直改改为弹窗请求授权（ASK）：它另有几条持同一把 per-path 锁的写入路径
     （迁移 / Web 端保存 / 晋升），沙箱内的 Write/Edit 取不到锁，直改即丢失更新窗口。
-    报错要指向取回草稿的工具，否则 Agent 只知被拒、不知改道哪里。"""
+    reason 要指向取回草稿的工具，否则 Agent 只知弹窗、不知改道哪里。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert reason
     assert "open_draft" in reason
     assert "promote_draft" in reason
@@ -279,8 +299,8 @@ def test_protected_script_plan_filenames_match_shared_constant() -> None:
 def test_write_near_formal_script_plan_allowed(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """写禁不外溢到未注册的同目录邻居。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert allowed, f"{tool} {relative} 应允许，却被拒：{reason}"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW, f"{tool} {relative} 应允许，却被判 {decision}：{reason}"
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
@@ -293,21 +313,21 @@ def test_write_near_formal_script_plan_allowed(policy: AgentAccessPolicy, tool: 
         "drafts/episode_1/prompt_authoring_reference_script.invalid.json",
     ],
 )
-def test_write_revisioned_draft_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+def test_write_revisioned_draft_asks(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert reason
     assert "patch_draft" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
-def test_write_protected_scripts_dir_itself_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """`scripts/` 目录路径本身（不带 trailing sep）也该拒：defense-in-depth，
+def test_write_protected_scripts_dir_itself_asks(policy: AgentAccessPolicy, tool: str) -> None:
+    """`scripts/` 目录路径本身（不带 trailing sep）也该弹窗请求授权：defense-in-depth，
     不依赖 OS 兜底 Agent 把目录名当文件路径的 typo。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / "scripts"), tool, cwd, user_id=_USER_ID)
-    assert not allowed
+    decision, reason = policy.check_path_access(str(cwd / "scripts"), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK
     assert reason
     assert "patch_episode_script" in reason or "patch_project" in reason
 
@@ -317,12 +337,12 @@ def test_write_protected_scripts_dir_itself_denied(policy: AgentAccessPolicy, to
     "relative",
     ["scripts/episode_1.bak", "scripts/notes.md", "scripts/.tmp", "scripts/subdir/anything.txt"],
 )
-def test_write_protected_scripts_non_json_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """`scripts/` 下任意文件类型都该拒（不只 .json）：sandbox denyWrite 把整个 scripts/ 列入
-    内核级 deny，hook 层须保持一致，避免 Agent 用 Write 污染剧本目录。"""
+def test_write_protected_scripts_non_json_asks(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """`scripts/` 下任意文件类型都该弹窗请求授权（不只 .json）：sandbox denyWrite 把整个 scripts/ 列入
+    内核级 deny，hook 层须保持一致（Bash 子进程仍硬拒），避免 Agent 用 Write 污染剧本目录。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert reason
     assert "patch_episode_script" in reason or "patch_project" in reason
 
@@ -332,51 +352,49 @@ def test_write_protected_scripts_non_json_denied(policy: AgentAccessPolicy, tool
     "relative",
     ["PROJECT.JSON", "Project.Json", "scripts/EPISODE_1.JSON", "Scripts/episode_1.json"],
 )
-def test_write_protected_case_variants_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+def test_write_protected_case_variants_asks(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
     """大小写变体（PROJECT.JSON / Scripts/x.json）在 Windows NTFS / macOS APFS 默认卷
     上指向同一物理文件，Path 字符串比较 case-sensitive 会漏判——`_is_protected_project_json`
-    用 casefold 比较后这类变体也应被拒，否则 Agent 可改大小写绕过收口。"""
+    用 casefold 比较后这类变体也应命中，改为弹窗请求授权，否则 Agent 可改大小写绕过收口。"""
     cwd = _cwd(policy)
-    allowed, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(cwd / relative), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert reason
     assert "patch_episode_script" in reason or "patch_project" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
-def test_write_protected_via_symlink_project_json_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """`project.json` 本身被做成项目内 symlink（指向另一个项目内文件）时，仍须拒——
-    防止"把入口换成 symlink"绕过 protected 区判定。仅靠 resolve 后路径比较会失配。"""
+def test_write_protected_via_symlink_project_json_asks(policy: AgentAccessPolicy, tool: str) -> None:
+    """`project.json` 本身被做成项目内 symlink（指向另一个项目内文件）时，仍须命中——
+    防止"把入口换成 symlink"绕过 protected 区判定，改为弹窗请求授权。仅靠 resolve 后路径比较会失配。"""
     cwd = _cwd(policy)
     real = cwd / "other.json"
     real.write_text("{}", encoding="utf-8")
     link = cwd / "project.json"
     link.symlink_to(real)
-    allowed, reason = policy.check_path_access(str(link), tool, cwd, user_id=_USER_ID)
-    assert not allowed, "symlink 形态的 project.json 写入应被拒"
+    decision, reason = policy.check_path_access(str(link), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, "symlink 形态的 project.json 写入应改为弹窗请求授权"
     assert reason
     assert "patch_project" in reason or "patch_episode_script" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
-def test_write_protected_via_symlink_scripts_dir_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """`scripts/` 整个目录被做成项目内 symlink 时，对其下 .json 的写入仍须拒。"""
+def test_write_protected_via_symlink_scripts_dir_asks(policy: AgentAccessPolicy, tool: str) -> None:
+    """`scripts/` 整个目录被做成项目内 symlink 时，对其下 .json 的写入仍须命中（弹窗请求授权）。"""
     cwd = _cwd(policy)
     real_dir = cwd / "data"
     real_dir.mkdir()
     link_dir = cwd / "scripts"
     link_dir.symlink_to(real_dir)
     target = link_dir / "episode_1.json"
-    allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
-    assert not allowed, "symlink 形态的 scripts/ 下 .json 写入应被拒"
+    decision, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, "symlink 形态的 scripts/ 下 .json 写入应改为弹窗请求授权"
     assert reason
     assert "patch_episode_script" in reason or "patch_project" in reason
 
 
 @pytest.mark.parametrize("tool", ["Write", "Edit"])
-def test_write_protected_with_symlinked_project_cwd_denied(
-    policy: AgentAccessPolicy, tmp_path: Path, tool: str
-) -> None:
+def test_write_protected_with_symlinked_project_cwd_asks(policy: AgentAccessPolicy, tmp_path: Path, tool: str) -> None:
     """project_cwd 本身是个 symlink 指向真实项目目录时(macOS /var↔/private/var、Linux
     symlinked 项目根),`_is_protected_project_json` 要把 base 也按 resolve 一次再拼接 protected
     路径,避免 resolved target 与 raw base 字符串不等 → bypass。"""
@@ -389,15 +407,15 @@ def test_write_protected_with_symlinked_project_cwd_denied(
     # caller 把 symlinked cwd 传入,check_path_access 内 logical.resolve() 会展开 symlink,
     # 然后 _check_write_access 把 resolved target 与原始 link_cwd 比较——若不把 base 也
     # resolve,就会因为字符串不等漏判。
-    allowed, reason = policy.check_path_access(str(link_cwd / "project.json"), tool, link_cwd, user_id=_USER_ID)
-    assert not allowed, "symlinked project_cwd 下 project.json 写入应被拒"
+    decision, reason = policy.check_path_access(str(link_cwd / "project.json"), tool, link_cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, "symlinked project_cwd 下 project.json 写入应改为弹窗请求授权"
     assert reason
     assert "patch_project" in reason or "patch_episode_script" in reason
 
-    allowed, reason = policy.check_path_access(
+    decision, reason = policy.check_path_access(
         str(link_cwd / "scripts" / "episode_1.json"), tool, link_cwd, user_id=_USER_ID
     )
-    assert not allowed, "symlinked project_cwd 下 scripts/*.json 写入应被拒"
+    assert decision is Decision.ASK, "symlinked project_cwd 下 scripts/*.json 写入应改为弹窗请求授权"
     assert reason
     assert "patch_episode_script" in reason or "patch_project" in reason
 
@@ -439,8 +457,8 @@ def test_write_drafts_still_allowed(policy: AgentAccessPolicy) -> None:
     """合法的草稿写入不受影响（drafts/*.md、scripts 外的 .json）。"""
     cwd = _cwd(policy)
     for relative in ("drafts/episode_1/script_plan_segments.md", "config_data.json"):
-        allowed, _ = policy.check_path_access(str(cwd / relative), "Write", cwd, user_id=_USER_ID)
-        assert allowed, f"{relative} 应允许"
+        decision, _ = policy.check_path_access(str(cwd / relative), "Write", cwd, user_id=_USER_ID)
+        assert decision is Decision.ALLOW, f"{relative} 应允许"
 
 
 @pytest.mark.parametrize(
@@ -452,42 +470,42 @@ def test_write_drafts_still_allowed(policy: AgentAccessPolicy) -> None:
     ],
 )
 @pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Glob", "Grep"])
-def test_sensitive_file_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """敏感文件无论 Read 还是 Write 一律拒，且报错信息包含"敏感文件"。"""
+def test_sensitive_file_asks(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """敏感文件无论 Read 还是 Write 改为弹窗请求授权（ASK），且报错信息含"敏感文件"。"""
     cwd = _cwd(policy)
-    # 文件实际存在与否不影响 deny 判断（resolve() 对不存在路径仍返回绝对路径）
+    # 文件实际存在与否不影响判断（resolve() 对不存在路径仍返回绝对路径）
     target = policy.project_root / relative
     target.parent.mkdir(parents=True, exist_ok=True)
-    allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} {relative} 应被拒"
+    decision, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} {relative} 应改为弹窗请求授权"
     assert reason
     assert "敏感文件" in reason
 
 
 @pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Glob", "Grep"])
-def test_agent_profile_settings_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """敏感判断对准构造时传入的 agent_profile_root，而不是源码根的硬编码路径。"""
+def test_agent_profile_settings_asks(policy: AgentAccessPolicy, tool: str) -> None:
+    """敏感判断对准构造时传入的 agent_profile_root，命中后改为弹窗请求授权（ASK）。"""
     cwd = _cwd(policy)
     target = policy.agent_profile_root / ".claude" / "settings.json"
     target.parent.mkdir(parents=True, exist_ok=True)
-    allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} agent_profile settings.json 应被拒"
+    decision, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} agent_profile settings.json 应改为弹窗请求授权"
     assert reason
     assert "敏感文件" in reason
 
 
-def test_read_host_file_outside_project_root_denied(policy: AgentAccessPolicy, tmp_path: Path) -> None:
-    """project_root 外的 host 文件（~/.ssh、/etc 等）不允许 Read/Glob/Grep。"""
+def test_read_host_file_outside_project_root_asks(policy: AgentAccessPolicy, tmp_path: Path) -> None:
+    """project_root 外的 host 文件（~/.ssh、/etc 等）改为弹窗请求授权（ASK）。"""
     cwd = _cwd(policy)
     # tmp_path 在 policy.project_root 之外（project_root = tmp_path / "repo"）
     outside = tmp_path / "host_fake_ssh"
     outside.mkdir()
     (outside / "id_rsa").write_text("secret", encoding="utf-8")
     for tool in ("Read", "Glob", "Grep"):
-        allowed, reason = policy.check_path_access(str(outside / "id_rsa"), tool, cwd, user_id=_USER_ID)
-        assert not allowed, f"{tool} 不应允许读 project_root 外的 host 文件"
+        decision, reason = policy.check_path_access(str(outside / "id_rsa"), tool, cwd, user_id=_USER_ID)
+        assert decision is Decision.ASK, f"{tool} 读 project_root 外的 host 文件应改为弹窗请求授权"
         assert reason
-        assert "项目根外" in reason
+        assert "host 路径" in reason or "项目根外" in reason
 
 
 def test_sensitive_glob_pattern_does_not_overmatch(policy: AgentAccessPolicy) -> None:
@@ -495,8 +513,8 @@ def test_sensitive_glob_pattern_does_not_overmatch(policy: AgentAccessPolicy) ->
     cwd = _cwd(policy)
     legal = policy.project_root / ".environment"
     legal.parent.mkdir(parents=True, exist_ok=True)
-    allowed, _ = policy.check_path_access(str(legal), "Read", cwd, user_id=_USER_ID)
-    assert allowed, ".environment 是合法文件，不应被 `.env.*` glob 误伤"
+    decision, _ = policy.check_path_access(str(legal), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW, ".environment 是合法文件，不应被 `.env.*` glob 误伤"
 
 
 # ============================================================
@@ -505,9 +523,9 @@ def test_sensitive_glob_pattern_does_not_overmatch(policy: AgentAccessPolicy) ->
 
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep"])
-def test_read_of_data_root_outside_current_project_and_memory_denied(policy: AgentAccessPolicy, tool: str) -> None:
+def test_read_of_data_root_outside_current_project_and_memory_asks(policy: AgentAccessPolicy, tool: str) -> None:
     """数据根位于仓库根内（开发默认布局）时，数据根里的条目不因「仓库根内参考资料」被放行：
-    布局登记的系统条目、旧布局残留、布局未登记的条目、根下与项目目录下的直放文件一律拒。"""
+    布局登记的系统条目、旧布局残留、布局未登记的条目、根下与项目目录下的直放文件改为弹窗请求授权（ASK）。"""
     layout = DataRootLayout(policy.data_root)
     assert policy.data_root.is_relative_to(policy.project_root)
     entries = [entry for entry in layout.top_level_entries if entry != layout.projects_dir]
@@ -518,8 +536,8 @@ def test_read_of_data_root_outside_current_project_and_memory_denied(policy: Age
     entries += [layout.projects_dir, layout.projects_dir / "stray.txt"]
     for entry in entries:
         for target in (entry, entry / "nested.json"):
-            allowed, reason = policy.check_path_access(str(target), tool, _cwd(policy), user_id=_USER_ID)
-            assert not allowed, f"{tool} {target} 应被拒"
+            decision, reason = policy.check_path_access(str(target), tool, _cwd(policy), user_id=_USER_ID)
+            assert decision is Decision.ASK, f"{tool} {target} 应改为弹窗请求授权"
             assert reason
 
 
@@ -778,9 +796,9 @@ def test_protected_write_rules_project_new_rule_in_both_layers(
     )
 
     cwd = _cwd(policy)
-    # hook 层：新规则立即生效
-    allowed, reason = policy.check_path_access(str(cwd / "meta.lock"), "Write", cwd, user_id=_USER_ID)
-    assert not allowed
+    # hook 层：新规则立即生效（受保护写改为弹窗请求授权 ASK）
+    decision, reason = policy.check_path_access(str(cwd / "meta.lock"), "Write", cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK
     assert reason == synthetic.deny_message
     # sandbox 层：denyWrite 投影同表同步
     deny_write = policy.build_sandbox_settings(cwd)["filesystem"]["denyWrite"]
@@ -802,8 +820,8 @@ def test_user_memory_dir_allowed_for_all_path_tools(policy: AgentAccessPolicy, t
     否则读被跨项目隔离拒、写被 cwd 外拒。"""
     cwd = _cwd(policy)
     target = DataRootLayout(policy.data_root).user_memory_dir(_USER_ID) / "MEMORY.md"
-    allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
-    assert allowed, f"{tool} 访问用户记忆应放行：{reason}"
+    decision, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW, f"{tool} 访问用户记忆应放行：{reason}"
 
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep", "Write", "Edit"])
@@ -811,35 +829,35 @@ def test_user_memory_subdirectory_allowed(policy: AgentAccessPolicy, tool: str) 
     """放行按子树而非单文件：记忆索引之外的笔记文件同样可读写。"""
     cwd = _cwd(policy)
     target = DataRootLayout(policy.data_root).user_memory_dir(_USER_ID) / "notes" / "style.md"
-    allowed, _ = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
-    assert allowed
+    decision, _ = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW
 
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep", "Write", "Edit"])
-def test_other_users_memory_dir_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """放行只覆盖当前 user_id 的子树；别人的记忆目录仍拒。"""
+def test_other_users_memory_dir_asks(policy: AgentAccessPolicy, tool: str) -> None:
+    """放行只覆盖当前 user_id 的子树；别人的记忆目录（在数据根内）改为弹窗请求授权（ASK）。"""
     cwd = _cwd(policy)
     target = DataRootLayout(policy.data_root).user_memory_dir("someone-else") / "MEMORY.md"
-    allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
-    assert not allowed, f"{tool} 访问他人记忆应被拒"
+    decision, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK, f"{tool} 访问他人记忆应改为弹窗请求授权"
     assert reason
 
 
 @pytest.mark.parametrize("tool", ["Read", "Write"])
-def test_users_namespace_root_outside_memory_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """放行的是 ``<user_id>/memory/``，同用户目录下的其它子树不在放行内。"""
+def test_users_namespace_root_outside_memory_asks(policy: AgentAccessPolicy, tool: str) -> None:
+    """放行的是 ``<user_id>/memory/``，同用户目录下的其它子树（在数据根内）改为弹窗请求授权（ASK）。"""
     cwd = _cwd(policy)
     target = DataRootLayout(policy.data_root).users_dir / _USER_ID / "secrets" / "x.md"
-    allowed, _ = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
-    assert not allowed
+    decision, _ = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK
 
 
 @pytest.mark.parametrize("tool", ["Read", "Write"])
-def test_data_root_other_paths_still_denied_with_memory_allowance(policy: AgentAccessPolicy, tool: str) -> None:
-    """记忆放行不外溢到数据根下的其它路径：别的项目目录仍拒。"""
+def test_data_root_other_paths_ask_with_memory_allowance(policy: AgentAccessPolicy, tool: str) -> None:
+    """记忆放行不外溢到数据根下的其它路径：别的项目目录（在数据根内）改为弹窗请求授权（ASK）。"""
     cwd = _cwd(policy)
-    allowed, _ = policy.check_path_access(str(_projects_dir(policy) / "other" / "x.json"), tool, cwd, user_id=_USER_ID)
-    assert not allowed
+    decision, _ = policy.check_path_access(str(_projects_dir(policy) / "other" / "x.json"), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK
 
 
 @pytest.mark.parametrize("tool", ["Read", "Glob", "Grep", "Write", "Edit"])
@@ -847,29 +865,31 @@ def test_project_memory_dir_allowed(policy: AgentAccessPolicy, tool: str) -> Non
     """项目记忆是 ``<cwd>/.arcreel/memory/``，由 cwd 围栏放行，五个工具都可读写。"""
     cwd = _cwd(policy)
     target = project_memory_dir(cwd) / "MEMORY.md"
-    allowed, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
-    assert allowed, f"{tool} 访问项目记忆应放行：{reason}"
+    decision, reason = policy.check_path_access(str(target), tool, cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW, f"{tool} 访问项目记忆应放行：{reason}"
 
 
-def test_memory_dirs_still_reject_code_extensions(policy: AgentAccessPolicy) -> None:
-    """记忆装的是笔记：放宽扩展名等于给 sandbox 内的 Bash 递可执行脚本。"""
+def test_memory_dirs_still_ask_for_code_extensions(policy: AgentAccessPolicy) -> None:
+    """记忆装的是笔记：记忆目录内的代码扩展名写入也改为弹窗请求授权（ASK），用户可批准本次写入。"""
     cwd = _cwd(policy)
     for target in (
         project_memory_dir(cwd) / "hack.sh",
         DataRootLayout(policy.data_root).user_memory_dir(_USER_ID) / "hack.sh",
     ):
-        allowed, reason = policy.check_path_access(str(target), "Write", cwd, user_id=_USER_ID)
-        assert not allowed, f"{target} 应被代码扩展名规则拒"
+        decision, reason = policy.check_path_access(str(target), "Write", cwd, user_id=_USER_ID)
+        assert decision is Decision.ASK, f"{target} 应被代码扩展名规则改为弹窗请求授权"
         assert "代码" in reason
 
 
 @pytest.mark.parametrize("bad_user_id", ["", "..", "../other", "a/b", "\x00"])
-def test_invalid_user_id_denies_memory_instead_of_widening(policy: AgentAccessPolicy, bad_user_id: str) -> None:
-    """user_id 不是单个路径段时 fail-closed：不放行任何记忆路径，也不逃出数据根。"""
+def test_invalid_user_id_does_not_widen_memory(policy: AgentAccessPolicy, bad_user_id: str) -> None:
+    """user_id 不是单个路径段时 fail-closed：不把记忆路径直接放行（ALLOW），逃出数据根的路径不被当作用户记忆。
+
+    非当前用户记忆的 cwd 外写走弹窗请求授权（ASK）而非直接放行——仍需用户点批准，不构成「无声放宽」。"""
     cwd = _cwd(policy)
     escaped = DataRootLayout(policy.data_root).user_memory_dir("victim") / "MEMORY.md"
-    allowed, _ = policy.check_path_access(str(escaped), "Write", cwd, user_id=bad_user_id)
-    assert not allowed
+    decision, _ = policy.check_path_access(str(escaped), "Write", cwd, user_id=bad_user_id)
+    assert decision is not Decision.ALLOW
 
 
 @pytest.mark.parametrize(
@@ -906,20 +926,182 @@ def test_build_sandbox_settings_gives_bash_no_access_to_user_memory(tmp_path: Pa
     "relative",
     ["PROJECTS/vertex_keys/key.json", "Projects/users/bob/memory/a.md", "PROJECTS/projects/other/project.json"],
 )
-def test_read_of_data_root_case_variant_denied(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
-    """大小写不敏感卷上 ``<仓库根>/PROJECTS`` 就是数据根：大小写变体不因「仓库根内参考资料」被放行。"""
+def test_read_of_data_root_case_variant_asks(policy: AgentAccessPolicy, tool: str, relative: str) -> None:
+    """大小写不敏感卷上 ``<仓库根>/PROJECTS`` 就是数据根：大小写变体不因「仓库根内参考资料」被放行，改为弹窗请求授权（ASK）。"""
     target = policy.project_root / relative
-    allowed, reason = policy.check_path_access(str(target), tool, _cwd(policy), user_id=_USER_ID)
-    assert not allowed
+    decision, reason = policy.check_path_access(str(target), tool, _cwd(policy), user_id=_USER_ID)
+    assert decision is Decision.ASK
     assert reason
 
 
 @pytest.mark.parametrize("tool", ["Glob", "Grep"])
-def test_search_rooted_above_data_root_denied(policy: AgentAccessPolicy, tool: str) -> None:
-    """数据根位于仓库根内时，以仓库根为搜索根会递归扫进数据根，须拒；仓库内其他参考资料目录照常可搜。"""
+def test_search_rooted_above_data_root_asks(policy: AgentAccessPolicy, tool: str) -> None:
+    """数据根位于仓库根内时，以仓库根为搜索根会递归扫进数据根，改为弹窗请求授权（ASK）；仓库内其他参考资料目录照常可搜。"""
     for search_root in (policy.project_root, policy.project_root / "."):
-        allowed, reason = policy.check_path_access(str(search_root), tool, _cwd(policy), user_id=_USER_ID)
-        assert not allowed
+        decision, reason = policy.check_path_access(str(search_root), tool, _cwd(policy), user_id=_USER_ID)
+        assert decision is Decision.ASK
         assert reason
-    allowed, _ = policy.check_path_access(str(policy.project_root / "lib"), tool, _cwd(policy), user_id=_USER_ID)
-    assert allowed
+    decision, _ = policy.check_path_access(str(policy.project_root / "lib"), tool, _cwd(policy), user_id=_USER_ID)
+    assert decision is Decision.ALLOW
+
+
+# ============================================================
+# resume + store-backed 物化的 SDK tool-results 读放行
+#
+# store-backed resume/continue 时 SDK 自建临时 CLAUDE_CONFIG_DIR
+# （``<tmp>/claude-resume-<随机>/``），tool-results 落到
+# ``.../claude-resume-*/projects/<project_key>/<uuid-session>/tool-results/``。
+# 该临时基准不在 ``~/.claude/projects`` 下，须按 SDK 临时树结构精确放行当前会话、
+# 当前项目的 tool-results，同时对伪造/跨项目/host 路径仍 fail-closed。
+# 用例经 ``resume_tmp_dir`` 字段注入可控的 tmp 根（``dataclasses.replace``），避免依赖机器
+# $TMPDIR，也不 patch 生产私有 cached_property。
+# ============================================================
+
+#: 合法 session 段形态（SDK 用 UUID 命名 resume 会话目录）。
+_RESUME_SESSION_UUID = "0123abcd-4567-89ab-cdef-0123456789ab"
+
+
+def _resume_base(tmp_path: Path) -> Path:
+    """造一个 SDK 风格的 resume 临时根 ``<tmp>/claude-resume-xxxx``（真实存在）。"""
+    base = tmp_path / "claude-resume-xxxx"
+    base.mkdir()
+    return base
+
+
+def _with_resume_tmp_dir(policy: AgentAccessPolicy, base: Path) -> AgentAccessPolicy:
+    """把 policy 的 resume 临时基准经 ``resume_tmp_dir`` 字段注入为 ``base`` 的父目录，
+    使派生前缀 ``<base.parent>/claude-resume-``（raw + resolved）对测试造出的
+    ``claude-resume-`` 目录成立，不依赖机器真实 $TMPDIR、也不 patch 私有 cached_property。
+    返回注入后的新 policy，调用方须改用它。"""
+    return replace(policy, resume_tmp_dir=base.parent)
+
+
+def _make_resume_tool_results(base: Path, encoded: str, session: str = _RESUME_SESSION_UUID) -> Path:
+    """在 resume 临时基准下造 ``projects/<encoded>/<session>/tool-results/f.txt`` 并返回该文件。"""
+    tool_results_dir = base / "projects" / encoded / session / "tool-results"
+    tool_results_dir.mkdir(parents=True)
+    result_file = tool_results_dir / "byvf5dyv5.txt"
+    result_file.write_text("tool output", encoding="utf-8")
+    return result_file
+
+
+def test_read_resume_tool_results_allowed(policy: AgentAccessPolicy, tmp_path: Path) -> None:
+    """正例（本次修复）：resume 临时基准 + 当前项目 encoded + 含 tool-results 段 → Read 放行。"""
+    from lib.agent.agent_session_store import make_project_key
+
+    cwd = _cwd(policy)
+    base = _resume_base(tmp_path)
+    policy = _with_resume_tmp_dir(policy, base)
+    result_file = _make_resume_tool_results(base, make_project_key(cwd))
+
+    decision, reason = policy.check_path_access(str(result_file), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW, f"resume tool-results 应放行：{reason}"
+
+
+def test_read_non_resume_tool_results_still_allowed(
+    policy: AgentAccessPolicy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """回归：非 resume（``~/.claude/projects``）下 tool-results 仍放行——换用 make_project_key
+    编码后 ``claude_projects_dir`` 例外仍命中。"""
+    from lib.agent.agent_session_store import make_project_key
+
+    cwd = _cwd(policy)
+    claude_projects = tmp_path / "claude_home" / "projects"
+    claude_projects.mkdir(parents=True)
+    policy = replace(policy, claude_projects_dir=claude_projects)
+    encoded = make_project_key(cwd)
+    tool_results_dir = claude_projects / encoded / "abc-session" / "tool-results"
+    tool_results_dir.mkdir(parents=True)
+    result_file = tool_results_dir / "r.txt"
+    result_file.write_text("x", encoding="utf-8")
+
+    decision, reason = policy.check_path_access(str(result_file), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW, f"非 resume tool-results 应放行：{reason}"
+
+
+def test_read_resume_tool_results_other_project_key_not_allowed(policy: AgentAccessPolicy, tmp_path: Path) -> None:
+    """负例：resume 临时基准但 encoded 段是别的项目 key → 不自动放行（锁定当前项目）；
+    落到 host tmp 路径分支，改为弹窗请求授权（ASK）而非直接 ALLOW。"""
+    from lib.agent.agent_session_store import make_project_key
+
+    cwd = _cwd(policy)
+    base = _resume_base(tmp_path)
+    policy = _with_resume_tmp_dir(policy, base)
+    other_cwd = _projects_dir(policy) / "other"
+    result_file = _make_resume_tool_results(base, make_project_key(other_cwd))
+
+    decision, reason = policy.check_path_access(str(result_file), "Read", cwd, user_id=_USER_ID)
+    assert decision is not Decision.ALLOW, "别的项目 key 的 resume tool-results 不应自动放行"
+    assert reason
+
+
+def test_read_fake_tmp_tool_results_not_allowed(policy: AgentAccessPolicy, tmp_path: Path) -> None:
+    """负例：$TMPDIR 下伪造的、非 claude-resume- 前缀的含 tool-results 路径 → 仍拒
+    （前缀收窄为 claude-resume-，普通 tmp 目录与泛 claude- 任务目录都不匹配）。"""
+    from lib.agent.agent_session_store import make_project_key
+
+    cwd = _cwd(policy)
+    base = _resume_base(tmp_path)
+    policy = _with_resume_tmp_dir(policy, base)
+    encoded = make_project_key(cwd)
+    # 同一父目录下但不是 claude-resume- 前缀：伪造的 evil 目录，结构照抄也应拒
+    evil = tmp_path / "evil-xxxx" / "projects" / encoded / _RESUME_SESSION_UUID / "tool-results"
+    evil.mkdir(parents=True)
+    evil_file = evil / "x.txt"
+    evil_file.write_text("x", encoding="utf-8")
+
+    decision, reason = policy.check_path_access(str(evil_file), "Read", cwd, user_id=_USER_ID)
+    assert decision is not Decision.ALLOW, "非 claude-resume- 前缀的伪造 tool-results 不应自动放行"
+    assert reason
+
+
+def test_read_resume_tool_results_bad_session_segment_not_allowed(policy: AgentAccessPolicy, tmp_path: Path) -> None:
+    """负例补强：claude-resume- 前缀 + 当前项目 encoded，但 session 段不是 UUID → 仍拒
+    （防止在合法前缀下塞非会话目录读到意外文件）。"""
+    from lib.agent.agent_session_store import make_project_key
+
+    cwd = _cwd(policy)
+    base = _resume_base(tmp_path)
+    policy = _with_resume_tmp_dir(policy, base)
+    result_file = _make_resume_tool_results(base, make_project_key(cwd), session="not-a-uuid")
+
+    decision, reason = policy.check_path_access(str(result_file), "Read", cwd, user_id=_USER_ID)
+    assert decision is not Decision.ALLOW, "session 段非 UUID 的 resume tool-results 不应自动放行"
+    assert reason
+
+
+def test_read_host_and_other_memory_with_resume_exception_not_allowed(
+    policy: AgentAccessPolicy, tmp_path: Path
+) -> None:
+    """负例：~/.ssh、/etc、他人记忆目录 → 不自动放行（resume 例外不放宽这些分支），改走弹窗请求授权（ASK）。"""
+    base = _resume_base(tmp_path)
+    policy = _with_resume_tmp_dir(policy, base)
+    cwd = _cwd(policy)
+
+    outside = tmp_path / "host_fake_ssh"
+    outside.mkdir()
+    (outside / "id_rsa").write_text("secret", encoding="utf-8")
+    decision, reason = policy.check_path_access(str(outside / "id_rsa"), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK
+    assert reason
+
+    other_memory = DataRootLayout(policy.data_root).user_memory_dir("someone-else") / "MEMORY.md"
+    decision, reason = policy.check_path_access(str(other_memory), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK
+    assert reason
+
+
+def test_read_resume_tool_results_underscore_space_project_path(tmp_path: Path) -> None:
+    """编码口径：含下划线/空格的项目路径，make_project_key 口径下 resume tool-results 仍能正确放行
+    （换用 make_project_key 后 encoded 段与 SDK 实际写入目录逐字节一致，不再因 replace 两字符而漂移）。"""
+    from lib.agent.agent_session_store import make_project_key
+
+    policy = _make_policy(tmp_path)
+    cwd = _projects_dir(policy) / "my_proj with space"
+    cwd.mkdir(parents=True)
+    base = _resume_base(tmp_path)
+    policy = _with_resume_tmp_dir(policy, base)
+    result_file = _make_resume_tool_results(base, make_project_key(cwd))
+
+    decision, reason = policy.check_path_access(str(result_file), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ALLOW, f"含下划线/空格路径的 resume tool-results 应放行：{reason}"

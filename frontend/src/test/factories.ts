@@ -139,6 +139,8 @@ export function makeReferenceUnitCapability(
 ): ReferenceUnitCapability {
   return {
     unit_id: unitId,
+    provider_id: null,
+    model_id: null,
     declared_capability: "i2v",
     hydrated_capability: "i2v",
     declared_references: [],

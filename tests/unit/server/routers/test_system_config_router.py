@@ -156,6 +156,11 @@ class TestGetSystemConfig:
             "default_image_backend",
             "default_image_backend_t2i",
             "default_image_backend_i2i",
+            "default_image_backend_character",
+            "default_image_backend_character_derivative",
+            "default_image_backend_scene",
+            "default_image_backend_prop",
+            "default_image_backend_product",
             "default_text_backend",
             "video_generate_audio",
             "video_poll_timeout_seconds",
@@ -373,12 +378,49 @@ class TestPatchSystemConfig:
         assert res.status_code == 200
         assert res.json()["settings"]["default_video_backend_r2v"] == ""
 
+    def test_patch_sets_image_asset_slots(self):
+        """资产槽位（docs/adr/0098）按普通 backend 键写入并在 GET 回显。"""
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={
+                    "default_image_backend_character": "ark/doubao-seedream-4-0-250828",
+                    "default_image_backend_scene": "gemini-aistudio/gemini-3.1-flash-image-preview",
+                },
+            )
+        assert res.status_code == 200
+        settings = res.json()["settings"]
+        assert settings["default_image_backend_character"] == "ark/doubao-seedream-4-0-250828"
+        assert settings["default_image_backend_scene"] == "gemini-aistudio/gemini-3.1-flash-image-preview"
+
+    def test_patch_clears_image_asset_slot(self):
+        """空串 = 清空槽位键；解析层按空槽位回退全局桶处理（docs/adr/0098）。"""
+        mock_svc = _make_mock_svc(settings={"default_image_backend_prop": "ark/doubao-seedream-4-0-250828"})
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"default_image_backend_prop": ""},
+            )
+        assert res.status_code == 200
+        assert res.json()["settings"]["default_image_backend_prop"] == ""
+
     def test_patch_rejects_non_video_model_in_video_bucket(self):
         mock_svc = _make_mock_svc()
         with TestClient(self._make_patch_app(mock_svc)) as client:
             res = client.patch(
                 "/api/v1/system/config",
                 json={"default_video_backend_i2v": "gemini-aistudio/gemini-3.1-flash-image"},
+            )
+        assert res.status_code == 400
+
+    def test_patch_rejects_non_image_model_in_asset_slot(self):
+        """资产槽位是图片键：非图片 registry 模型按 media_type 失配拒绝。"""
+        mock_svc = _make_mock_svc()
+        with TestClient(self._make_patch_app(mock_svc)) as client:
+            res = client.patch(
+                "/api/v1/system/config",
+                json={"default_image_backend_character": "minimax/MiniMax-H3"},
             )
         assert res.status_code == 400
 

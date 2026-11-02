@@ -92,10 +92,12 @@ class TestDiscoverModelsOpenAI:
             api_key="sk-test",
         )
 
-        # 鉴权与 base_url 原样透传到 SDK 客户端构造参数
+        # 鉴权与 base_url 原样透传到 SDK 客户端构造参数；公网 base_url 不绕代理，http_client
+        # 为 None（SDK 默认，读系统代理），与完全不传等价。
         mock_openai_cls.assert_called_once_with(
             api_key="sk-test",
             base_url="https://api.example.com/v1",
+            http_client=None,
         )
         assert len(result) == 3
         # 按 id 排序

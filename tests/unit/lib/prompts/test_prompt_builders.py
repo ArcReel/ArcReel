@@ -26,7 +26,9 @@ class TestCharacterPrompt:
         assert "黑发，冷静神态。" in prompt
         assert "Style: 古风" in prompt
         assert "Visual style: Cinematic, low-key lighting" in prompt
-        assert prompt.endswith("Avoid: 水印、多余文字、Logo")
+        # 角色资产图只含 Style + 标题 + 描述：不附带三视图版式、跨面板一致性守卫或 Avoid 负向约束。
+        assert "Avoid:" not in prompt
+        assert prompt.endswith("黑发，冷静神态。")
         assert "Cinematic, low-key lighting" in prompt
 
 
@@ -229,9 +231,8 @@ def test_product_sheet_preserves_product_and_ignores_project_style():
     assert prompt.endswith("Avoid: 出镜人物、水印、多余文字、Logo")
 
 
-def test_derivative_keeps_reference_layout_and_has_no_style_block():
+def test_derivative_renders_only_the_change_description():
     prompt = build_character_derivative_prompt("衣服变为黑色")
-    assert prompt.startswith("衣服变为黑色")
-    assert "保持原图的三视图版式" in prompt
+    assert prompt == "衣服变为黑色"
     assert "Style:" not in prompt
-    assert prompt.endswith("Avoid: 水印、多余文字、Logo")
+    assert "Avoid:" not in prompt

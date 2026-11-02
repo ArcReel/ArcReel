@@ -343,7 +343,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
             self._model,
             format_kwargs_for_log(_safe_body_for_log(payload)),
         )
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, bypass_proxy_for=self._base_url) as client:
             task_id = await self._create_task(client, payload, request)
             logger.info("Agnes 视频任务已创建: task_id=%s model=%s", task_id, self._model)
             await self._persist_provider_job_id(request, task_id, provider=PROVIDER_AGNES)
@@ -351,7 +351,7 @@ class AgnesVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def resume_video(self, job_id: str, request: VideoGenerationRequest) -> VideoGenerationResult:
         """接续已 submit 的 Agnes task：仅轮询 + 下载，不重新提交（ADR 0007）。"""
-        async with artifact_http_client(timeout=self._http_timeout) as client:
+        async with artifact_http_client(timeout=self._http_timeout, bypass_proxy_for=self._base_url) as client:
             return await self._poll_and_build(client, job_id, request, is_resume=True)
 
     @staticmethod

@@ -228,3 +228,33 @@ def test_constrain_durations_falls_back():
     assert constrain_durations(None, None, [4, 6, 8], resolution="4k") == [4, 6, 8]
     # 空候选原样返回
     assert constrain_durations(*_VEO, [], resolution="4k") == []
+
+
+def test_video_bucket_capability_error_params_without_extra() -> None:
+    """不传 extra_params 时 params 恒为 {provider, model}——锁住既有调用点零变化。"""
+    from lib.config.resolver import VideoBucketCapabilityError
+
+    exc = VideoBucketCapabilityError(
+        code="video_capability_missing_r2v",
+        generation_type="r2v",
+        provider_id="custom-2",
+        model_id="m",
+        message="x",
+    )
+    assert exc.params == {"provider": "custom-2", "model": "m"}
+
+
+def test_video_bucket_capability_error_params_with_required_slots() -> None:
+    """传 extra_params={"required_slots": n} 时追加该键，既有键不被覆盖，值类型为 int。"""
+    from lib.config.resolver import VideoBucketCapabilityError
+
+    exc = VideoBucketCapabilityError(
+        code="video_capability_missing_r2v",
+        generation_type="r2v",
+        provider_id="custom-2",
+        model_id="m",
+        message="x",
+        extra_params={"required_slots": 3},
+    )
+    assert exc.params == {"provider": "custom-2", "model": "m", "required_slots": 3}
+    assert isinstance(exc.params["required_slots"], int)

@@ -6,7 +6,7 @@ import { AssetGallery } from "./AssetGallery";
 interface Props {
   projectName: string;
   characters: Record<string, Character>;
-  onGenerateCharacter: (name: string) => void;
+  onGenerateCharacter: (name: string, endpoint?: string) => void;
   onRestoreCharacterVersion?: () => Promise<unknown> | void;
   onRefreshProject?: () => Promise<unknown> | void;
   generatingCharacterNames?: Set<string>;

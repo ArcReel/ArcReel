@@ -4,13 +4,15 @@ ComfyUI 端点的定义里没有 ``capabilities`` 节（``docs/adr/0082``）：�
 绑定表已是型号级的完整事实，再存一份能力声明只会与它打架。本模块把绑定表翻译成执行层与界面
 共读的两类结论——
 
-* **能力位**：首帧 / 尾帧 / 参考图上限 / 纯文生视频四位直接对应三项图绑定；音轨看产物那条链上
-  ``audio`` 入口有没有连线。四位都是纯函数，不看模型名——模型行换个名字不会改变这份 workflow
-  能做什么。本模块只回答「绑定表说了什么」，把结论装进 :class:`VideoCapabilities` /
+* **能力位**：首帧 / 尾帧 / 参考图上限三位看三项图绑定；绑定表缺条时回退认 workflow 上的标题标记
+  （:func:`image_key_targets`），纯文生视频仍只看正式绑定表——标题标记是「可选增强格」，只补能力
+  不夺纯文能力。音轨看产物那条链上 ``audio`` 入口有没有连线。各位都是纯函数，不看模型名——模型行
+  换个名字不会改变这份 workflow 能做什么。本模块只回答「绑定表说了什么」，把结论装进 :class:`VideoCapabilities` /
   :class:`ImageCapability` 是 ``lib/custom_provider/endpoints.py`` 的事：子包受「不依赖声明式
   运行时」的 import 契约约束（``pyproject.toml``），而 backend 层的那两个类型间接够得到它。
-* **参数约束**：宽高与帧数这两维 ArcReel 驱不驱动得了，取决于对应的语义键有没有绑定。驱动不了
-  的维度对应的选择器在界面上禁用并明示，而不是照收用户的选择再静默丢掉。
+* **参数约束**：尺寸（宽高）与时长这两维 ArcReel 驱不驱动得了，取决于对应的语义键有没有写目标：
+  时长可被 ``frames`` 或 ``duration`` 任一通道驱动（后者认标题标记，:func:`duration_key_targets`）。
+  驱动不了的维度对应的选择器在界面上禁用并明示，而不是照收用户的选择再静默丢掉。
 
 推导只读定义，不读库、不发请求，也不写回定义。
 """
@@ -22,16 +24,19 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from arcreel_market_core.comfyui.bindings import (
+    align_down,
     align_frames,
     bound_fps,
     int_literal_of,
+    literal_of,
     positive_number,
     step_of,
     targets_of,
 )
-from arcreel_market_core.comfyui.graph import class_type_of, link_of
+from arcreel_market_core.comfyui.graph import class_type_of, link_of, node_title
 from arcreel_market_core.comfyui.workflow import is_link, node_inputs
 
+from .inference import node_id_order, parse_title_marker
 from .inference_rules import AudioTrackSource, load_inference_rules
 
 #: 决定「有没有图输入」的三项语义键。三项全空即这份 workflow 不吃任何图片素材。
@@ -61,15 +66,20 @@ class BindingCapabilities:
 
 
 def derive_video_capabilities(definition: Mapping[str, Any]) -> BindingCapabilities:
-    """把一份视频端点定义的绑定表翻译成能力位。纯函数：不看模型名，不读库。"""
+    """把一份视频端点定义翻译成能力位。纯函数：不看模型名，不读库。
+
+    图输入三位认「正式绑定 ∪ 标题标记」（:func:`image_key_targets`）：标题标记是「可选增强格」，
+    只补能力、不夺纯文能力——``text_to_video`` 仍只看正式绑定表，因为未绑定的节点不归构造层管，
+    纯文提交时 workflow 保留自己的字面值，照样走得通。
+    """
     bindings: Mapping[str, Any] = definition["bindings"]
     workflow: Mapping[str, Any] = definition["workflow"]
-    has_image_input = any(targets_of(bindings.get(key)) for key in _IMAGE_BINDING_KEYS)
+    has_formal_image = any(targets_of(bindings.get(key)) for key in _IMAGE_BINDING_KEYS)
     return BindingCapabilities(
-        text_to_video=not has_image_input,
-        first_frame=bool(targets_of(bindings.get("start_image"))),
-        last_frame=bool(targets_of(bindings.get("end_image"))),
-        max_reference_images=len(targets_of(bindings.get("reference_images"))),
+        text_to_video=not has_formal_image,
+        first_frame=bool(image_key_targets(workflow, bindings, "start_image")),
+        last_frame=bool(image_key_targets(workflow, bindings, "end_image")),
+        max_reference_images=len(image_key_targets(workflow, bindings, "reference_images")),
         audio_track=derive_audio_track(workflow, bindings),
     )
 
@@ -125,12 +135,106 @@ def takes_reference_images(definition: Mapping[str, Any]) -> bool:
 
     没有即仅文生图、有即仅图生图，两者互斥而不是并集（``docs/adr/0082``）：有格子却不给图，
     构造层要么删读图节点、要么提交一张空图——都不是「也支持文生图」。按桶严格分流、不回退
-    （``docs/adr/0015``），端点因此只报它真正走得通的那一条。
+    （``docs/adr/0015``），端点因此只报它真正走得通的那一条。格子认「正式绑定 ∪ 标题标记」
+    （:func:`image_key_targets`）。
     """
-    return bool(targets_of(definition["bindings"].get("reference_images")))
+    bindings: Mapping[str, Any] = definition["bindings"]
+    workflow: Mapping[str, Any] = definition["workflow"]
+    return bool(image_key_targets(workflow, bindings, "reference_images"))
+
+
+def image_key_targets(
+    workflow: Mapping[str, Any], bindings: Mapping[str, Any], key: str
+) -> tuple[Mapping[str, Any], ...]:
+    """一个图语义键的图像目标：正式绑定条目优先，绑定表缺条时回退认标题标记。
+
+    绑定表是型号级的完整事实；workflow 里的节点却可能用标题标记（``ARCREEL:<key>`` 前缀或
+    ``(<key>)`` 括号形态，两种写法同约定，解析唯一处 :func:`.inference.parse_title_marker`）声明
+    图输入。绑定表没有该键的条目时（导入期推断没认出、或定义是旧版本落的盘），标记节点即该键的
+    目标。能力推导（本模块）与填值层（``request_builder``）读同一份目标：能力位不漏、图也不会在
+    填值时静默丢掉。
+
+    标题标记是「可选增强格」而非独占格：未绑定的节点不归构造层管，不给图时保留 workflow 自己的
+    字面值，所以它只补能力、不夺纯文能力（:func:`derive_video_capabilities` 的 ``text_to_video``
+    仍只看正式绑定表）。绑定表已有该键的条目时正式条目优先、不再看标题标记——与导入期信号分级
+    「手动绑定优先于标题标记」一致。
+    """
+    formal = targets_of(bindings.get(key))
+    if formal:
+        return formal
+    pseudo: list[Mapping[str, Any]] = []
+    for node_id, node in workflow.items():
+        if not isinstance(node, Mapping):
+            continue
+        if parse_title_marker(node_title(node)) != key:
+            continue
+        field = _image_field_of(node)
+        if field is not None:
+            pseudo.append({"node": str(node_id), "input": field})
+    return tuple(sorted(pseudo, key=lambda target: node_id_order(target["node"])))
+
+
+def _image_field_of(node: Mapping[str, Any]) -> str | None:
+    """节点上承载文件名的输入字段名：惯例的 ``image`` 字面值优先，否则第一个非连线输入。
+
+    ``image`` 接的是连线时该节点的图由上游供给，没有可写的文件名落点，``None``——写一个文件名进去
+    等于剪掉那条连线，标题标记不该产生这种目标。找不到任何非连线输入（或节点没有 ``inputs``）时
+    同样 ``None``。
+    """
+    inputs = node_inputs(node)
+    if not inputs:
+        return None
+    if "image" in inputs:
+        return "image" if not is_link(inputs["image"]) else None
+    for field_name, value in inputs.items():
+        if not is_link(value):
+            return field_name
+    return None
 
 
 # ── 参数约束 ──────────────────────────────────────────────────────
+
+
+def duration_key_targets(workflow: Mapping[str, Any], bindings: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+    """秒数写目标：正式 ``duration`` 绑定条目优先，绑定表缺条时回退认标题标记。
+
+    与图键同一套约定（:func:`image_key_targets`）：节点标题上的 ``(input:duration)`` 声明的就是
+    秒数入口（MiniMax H3 一族的 workflow 普遍用 PrimitiveFloat 节点 + 这种标题挂时长）。能力推导
+    （:func:`duration_is_fixed` / :func:`native_duration_literal`）与填值层（``request_builder``
+    的 ``_write_duration``）读同一份目标，判「驱不驱动得了」与「写到哪」因此不会各说各话。
+
+    标题标记是「可选增强格」而非独占格：未绑定节点上的字面值在不下发时长时原样保留，不产生破坏
+    性改写。绑定表已有 ``duration`` 条目时正式条目优先、不再看标题标记——与导入期信号分级
+    「手动绑定优先于标题标记」一致。
+    """
+    formal = targets_of(bindings.get("duration"))
+    if formal:
+        return formal
+    pseudo: list[Mapping[str, Any]] = []
+    for node_id, node in workflow.items():
+        if not isinstance(node, Mapping):
+            continue
+        if parse_title_marker(node_title(node)) != "duration":
+            continue
+        field = _duration_field_of(node)
+        if field is not None:
+            pseudo.append({"node": str(node_id), "input": field})
+    return tuple(sorted(pseudo, key=lambda target: node_id_order(target["node"])))
+
+
+def _duration_field_of(node: Mapping[str, Any]) -> str | None:
+    """节点上承载秒数的输入字段：第一个非连线输入（PrimitiveFloat 节点上即 ``value``）。
+
+    该输入接了连线时秒数由上游供给，没有可写落点，写一个数进去等于剪掉那条连线，标题标记不该
+    产生这种目标；找不到任何非连线输入（或节点没有 ``inputs``）时同样 ``None``。
+    """
+    inputs = node_inputs(node)
+    if not inputs:
+        return None
+    for field_name, value in inputs.items():
+        if not is_link(value):
+            return field_name
+    return None
 
 
 def size_is_fixed(bindings: Mapping[str, Any]) -> bool:
@@ -175,9 +279,23 @@ def native_short_edge(definition: Mapping[str, Any]) -> int | None:
     return min(edges)
 
 
-def duration_is_fixed(bindings: Mapping[str, Any]) -> bool:
-    """时长这一维 ArcReel 驱动不动：``frames`` 没有绑定，帧数只能是 workflow 的字面值。"""
-    return not targets_of(bindings.get("frames"))
+def duration_is_fixed(definition: Mapping[str, Any]) -> bool:
+    """时长这一维 ArcReel 驱动不动：``frames`` 与 ``duration`` 两条通道都没有写目标。
+
+    时长能被两种语义键驱动，各走各的填值路径：``frames`` 按时长 × 帧率换算成帧数写回，``duration``
+    把秒数直写进节点输入。任一条有目标，这一维就是可驱动的——界面放开时长控件、提交时下发时长；
+    两条都空才是「workflow 自己定死片长」，控件禁用。``duration`` 通道认「正式绑定 ∪ 标题标记」
+    （:func:`duration_key_targets`）：填值层对两种来源写同一处，判「驱不驱动得了」必须与它同口径。
+
+    frames↔fps↔seconds 的那套重建（:func:`native_duration` / :func:`keeps_its_own_frame_count` /
+    :func:`frame_rate_is_missing`）特意只认 ``frames``，不把 ``duration`` 塞进去：那套逻辑是「从
+    字面帧数 + 帧率反算出一档整秒时长」的逆向换算，整个围着 frames↔fps↔seconds 三者转。``duration``
+    是直写秒、根本不参与帧率换算，它的原生档位走 :func:`native_duration_literal` 那条独立的推导线，
+    再由 :func:`default_supported_durations` 按序取用。
+    """
+    workflow: Mapping[str, Any] = definition["workflow"]
+    bindings: Mapping[str, Any] = definition["bindings"]
+    return not (targets_of(bindings.get("frames")) or duration_key_targets(workflow, bindings))
 
 
 def frame_rate_is_missing(definition: Mapping[str, Any]) -> bool:
@@ -259,16 +377,51 @@ def keeps_its_own_frame_count(definition: Mapping[str, Any]) -> bool:
     return len(literals) == len(targets) and native_duration(definition) is None
 
 
+def native_duration_literal(definition: Mapping[str, Any]) -> int | None:
+    """这份 workflow 的 ``duration`` 入口当前写着的字面秒数（整数），即直写秒通道自己那一档。
+
+    ``duration`` 是直写秒通道：节点里的字面值就是这份 workflow 自己的时长，不需要帧率反算，因此
+    这是 :func:`duration_is_fixed` 文档里留下的「另一条推导线」，不借用 :func:`native_duration` 的
+    frames↔fps↔seconds 重建。写目标认「正式绑定 ∪ 标题标记」（:func:`duration_key_targets`）。
+
+    档位报「原生」的标准与帧数重建同一尺度：选中之后不改图。每个入口的字面值都得是正整数秒
+    （浮点字面值如 16.4 回写成整秒必然改图，同样不报）、多入口字面值一致、且经填值层的步长对齐
+    能原样写回（:func:`~arcreel_market_core.comfyui.bindings.align_down` 与 ``request_builder`` 共读）。
+    其中一个入口读不出字面值（接的是链接）时同样不报：填值层照样会写它，回写成什么无从判断。
+    """
+    workflow: Mapping[str, Any] = definition["workflow"]
+    bindings: Mapping[str, Any] = definition["bindings"]
+    targets = duration_key_targets(workflow, bindings)
+    if not targets:
+        return None
+    literals: list[int] = []
+    for target in targets:
+        raw = literal_of(workflow, target)
+        if isinstance(raw, bool) or not isinstance(raw, int | float) or raw <= 0 or raw != int(raw):
+            return None
+        seconds = int(raw)
+        if align_down(seconds, step_of(target)) != seconds:
+            return None
+        literals.append(seconds)
+    if len(set(literals)) != 1:
+        return None
+    return literals[0]
+
+
 def default_supported_durations(definition: Mapping[str, Any]) -> list[int]:
     """ComfyUI 视频模型行的 ``supported_durations`` 默认集：只含这份 workflow 的原生时长。
 
-    不走 ``duration_presets.infer_supported_durations`` 的模型名启发式：模型行的名字由用户随手填，
+    两条推导线按序取用：先 frames↔fps↔seconds 重建（:func:`native_duration`），推不出来再取
+    ``duration`` 入口的字面秒数（:func:`native_duration_literal`）。不走
+    ``duration_presets.infer_supported_durations`` 的模型名启发式：模型行的名字由用户随手填，
     与 workflow 实际能出多长毫无关系（``my-wan-workflow`` 这样的名字在预设表里会命中 ``[4, 8]``）。
 
-    原生时长推不出来时是空集——``frames`` 未绑定必然落在这一支（读不到字面帧数），绑了却没有帧率
-    来源也落在这一支。空集在这条通道上是合法状态而非缺陷（见 ``lib/config/resolver.py`` 对
-    ``kind: comfyui`` 的分叉）：时长这一维不由 ArcReel 驱动，界面禁用时长控件、提交时不下发时长，
-    让 workflow 出它自己那一档。
+    两条线都推不出来时才是空集——``frames`` 未绑、``duration`` 入口也不存在或读不出字面值。空集
+    在这条通道上是合法状态而非缺陷（见 ``lib/config/resolver.py`` 对 ``kind: comfyui`` 的分叉）：
+    时长这一维不由 ArcReel 驱动，界面禁用时长控件、提交时不下发时长，让 workflow 出它自己那一档。
     """
     native = native_duration(definition)
-    return [] if native is None or native <= 0 else [native]
+    if native is not None and native > 0:
+        return [native]
+    duration_native = native_duration_literal(definition)
+    return [] if duration_native is None else [duration_native]

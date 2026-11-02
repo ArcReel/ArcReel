@@ -571,6 +571,24 @@ class TestFilesRouter:
             assert project["characters"]["Alice"]["reference_image"] == "characters/refs/Alice.webp"
             assert project["props"]["玉佩"]["prop_sheet"] == "props/玉佩.jpg"
 
+    def test_derivative_ref_upload_stores_without_writing_asset_fields(self, tmp_path, monkeypatch):
+        """临时参考图只落盘：路径落在 characters/derivative_refs/ 下、可被公开端点服务，且不写回任何资产字段。"""
+        client, pm = _client(monkeypatch, tmp_path)
+
+        before = pm.load_project("demo")["characters"]["Alice"]
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/upload/derivative_ref",
+                files={"file": ("ref.jpg", _img_bytes("JPEG"), "image/jpeg")},
+            )
+            assert resp.status_code == 200, resp.text
+            path = resp.json()["path"]
+            assert path == "characters/derivative_refs/ref_1.jpg"
+            served = client.get(f"/api/v1/files/demo/{path}")
+            assert served.status_code == 200
+        # 资产字段未被写回
+        assert pm.load_project("demo")["characters"]["Alice"] == before
+
     def test_formal_sheet_upload_registration_failure_restores_file_and_metadata(self, tmp_path, monkeypatch):
         client, pm = _client(monkeypatch, tmp_path)
         with client:

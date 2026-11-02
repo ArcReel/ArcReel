@@ -842,9 +842,17 @@ def _check_gemini_aistudio(config: dict[str, str], _t: Callable[..., str]) -> Co
     """通过 models.list() 验证 Gemini AI Studio API Key。"""
     from google import genai
 
+    from lib.backends.proxy_bypass import genai_client_args
+
     api_key = config["api_key"]
     base_url = normalize_base_url(config.get("base_url"))
     http_options: genai.types.HttpOptionsDict | None = {"base_url": base_url} if base_url else None
+    # base_url 被改指到内网 / 反代时让 genai 内部 httpx client 对该 host 绕系统代理；公网 /
+    # 未填时不加 client_args、零改动。
+    if http_options is not None:
+        client_args = genai_client_args(base_url)
+        if client_args is not None:
+            http_options["client_args"] = client_args
     client = genai.Client(api_key=api_key, http_options=http_options)
 
     pager = client.models.list()
@@ -949,10 +957,16 @@ def _check_openai(config: dict[str, str], _t: Callable[..., str]) -> Connectivit
     """通过 models.list() 验证 OpenAI API Key。"""
     from openai import OpenAI
 
+    from lib.backends.proxy_bypass import openai_proxy_http_client
+
     kwargs: dict = {"api_key": config["api_key"]}
     base_url = config.get("base_url")
     if base_url:
         kwargs["base_url"] = base_url
+    # base_url 被改指到内网 / 反代时注入绕系统代理的 http_client；公网 / 未填时为 None、零改动。
+    http_client = openai_proxy_http_client(base_url)
+    if http_client is not None:
+        kwargs["http_client"] = http_client
     client = OpenAI(**kwargs)
     models = client.models.list()
     available = sorted(m.id for m in models.data if any(k in m.id.lower() for k in _OPENAI_MODEL_KEYWORDS))
@@ -984,10 +998,15 @@ def _check_dashscope(config: dict[str, str], _t: Callable[..., str]) -> Connecti
     from openai import OpenAI
 
     from lib.backends.dashscope_shared import dashscope_text_base_url
+    from lib.backends.proxy_bypass import openai_proxy_http_client
 
+    effective_url = dashscope_text_base_url(config.get("base_url"))
+    # base_url 被改指到内网 / 反代时注入绕系统代理的 http_client；公网时为 None、SDK 默认、零改动。
+    http_client = openai_proxy_http_client(effective_url)
     client = OpenAI(
         api_key=config["api_key"],
-        base_url=dashscope_text_base_url(config.get("base_url")),
+        base_url=effective_url,
+        http_client=http_client,
     )
     models = client.models.list()
     available = sorted(m.id for m in models.data if "qwen" in m.id.lower() or "wan" in m.id.lower())
@@ -1007,10 +1026,15 @@ def _check_minimax(config: dict[str, str], _t: Callable[..., str]) -> Connectivi
     from openai import OpenAI
 
     from lib.backends.minimax_shared import minimax_text_base_url
+    from lib.backends.proxy_bypass import openai_proxy_http_client
 
+    effective_url = minimax_text_base_url(config.get("base_url"))
+    # base_url 被改指到内网 / 反代时注入绕系统代理的 http_client；公网时为 None、SDK 默认、零改动。
+    http_client = openai_proxy_http_client(effective_url)
     client = OpenAI(
         api_key=config["api_key"],
-        base_url=minimax_text_base_url(config.get("base_url")),
+        base_url=effective_url,
+        http_client=http_client,
     )
     models = client.models.list()
     available = sorted(m.id for m in models.data if "minimax" in m.id.lower() or "abab" in m.id.lower())

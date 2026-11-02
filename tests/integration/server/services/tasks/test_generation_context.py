@@ -560,6 +560,114 @@ class TestAtomicFailure:
             await resolve_generation_context("nope", None, project={}, image=ImageLaneRequest())
 
 
+def _slot_video_endpoint(key: str, slots: int):
+    """造一个 R2V video endpoint spec：video_caps_for_model 恒返回指定槽数（first_frame=False）。"""
+    import dataclasses
+
+    from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+
+    def _caps(_model_id: str) -> VideoCapabilities:
+        return VideoCapabilities(max_reference_images=slots, first_frame=False)
+
+    return dataclasses.replace(
+        ENDPOINT_REGISTRY["ark-seedance"],
+        key=key,
+        video_max_reference_images=None,
+        video_caps_for_model=_caps,
+    )
+
+
+async def _seed_reference_video_family(patched_session_factory, monkeypatch) -> str:
+    """种一个带 I3 / I5 两档 R2V 家族的自定义供应商，project.json 的 video_backend 指向其中一个。"""
+    from lib.custom_provider.endpoints import ENDPOINT_REGISTRY
+
+    monkeypatch.setitem(ENDPOINT_REGISTRY, "test-i3", _slot_video_endpoint("test-i3", 3))
+    monkeypatch.setitem(ENDPOINT_REGISTRY, "test-i5", _slot_video_endpoint("test-i5", 5))
+
+    async with patched_session_factory() as session:
+        provider = CustomProvider(
+            display_name="HONGYU",
+            discovery_format="openai",
+            base_url="https://api.example.com",
+            api_key="k",
+        )
+        session.add(provider)
+        await session.flush()
+        session.add_all(
+            [
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="HONGYU-MinimaxH3-I3-A3-First-AutoPrompt",
+                    display_name="I3",
+                    endpoint="test-i3",
+                    is_default=True,
+                    is_enabled=True,
+                ),
+                CustomProviderModel(
+                    provider_id=provider.id,
+                    model_id="HONGYU-MinimaxH3-I5-A3-First_shot-AutoPrompt",
+                    display_name="I5",
+                    endpoint="test-i5",
+                    is_default=False,
+                    is_enabled=True,
+                ),
+            ]
+        )
+        await session.commit()
+        return make_provider_id(provider.id)
+
+
+class TestReferenceVideoPerCountSelection:
+    """r2v 单元按可用参考图数在家族内精确选 I{N}（docs/adr/0054）。"""
+
+    @pytest.mark.parametrize(
+        ("reference_count", "expected_model"),
+        [
+            (3, "HONGYU-MinimaxH3-I3-A3-First-AutoPrompt"),
+            (5, "HONGYU-MinimaxH3-I5-A3-First_shot-AutoPrompt"),
+        ],
+    )
+    async def test_reference_count_selects_matching_endpoint(
+        self, patched_session_factory, project_env, fake_assemble, monkeypatch, reference_count, expected_model
+    ):
+        provider_id = await _seed_reference_video_family(patched_session_factory, monkeypatch)
+        project = {
+            "generation_mode": "reference_video",
+            "video_backend": f"{provider_id}/HONGYU-MinimaxH3-I3-A3-First-AutoPrompt",
+        }
+
+        ctx = await resolve_generation_context(
+            "demo",
+            None,
+            project=project,
+            video=VideoLaneRequest(generation_type="r2v", route="reference_video", reference_count=reference_count),
+        )
+
+        assert ctx.video.backend_model == expected_model
+        facts = ctx.video.request_facts
+        assert isinstance(facts, VideoRequestFacts)
+        assert facts.model_id == expected_model
+
+    async def test_reference_count_none_keeps_configured_model(
+        self, patched_session_factory, project_env, fake_assemble, monkeypatch
+    ):
+        """reference_count=None（续跑排空）不按 N 选，走原解析、取配置选中的模型。"""
+        provider_id = await _seed_reference_video_family(patched_session_factory, monkeypatch)
+        project = {
+            "generation_mode": "reference_video",
+            "video_backend": f"{provider_id}/HONGYU-MinimaxH3-I3-A3-First-AutoPrompt",
+        }
+
+        ctx = await resolve_generation_context(
+            "demo",
+            None,
+            project=project,
+            video=VideoLaneRequest(generation_type="r2v", route="reference_video", reference_count=None),
+        )
+
+        assert ctx.video.backend_model == "HONGYU-MinimaxH3-I3-A3-First-AutoPrompt"
+
+
 class TestBackendCache:
     async def test_backend_reused_until_invalidated(self, patched_session_factory, project_env, fake_assemble):
         project = {"image_provider_t2i": "ark/img-model-x"}

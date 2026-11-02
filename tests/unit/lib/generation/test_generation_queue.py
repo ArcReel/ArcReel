@@ -149,6 +149,64 @@ class TestGenerationQueue:
                 provider_id="video-provider",
             )
 
+    async def test_active_reference_video_task_rejects_a_different_execution_pin(self, queue):
+        """同一单元换端点是不同请求：无 pin 的活动任务不得被异 pin 静默复用。"""
+
+        await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={},
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        with pytest.raises(RuntimeError, match="different request options"):
+            await queue.enqueue_task(
+                project_name="demo",
+                task_type="reference_video",
+                media_type="video",
+                resource_id="E1U1",
+                payload={
+                    "video_provider_i2v": "custom-3/veo-x",
+                    "video_provider_r2v": "custom-3/veo-x",
+                },
+                script_file="episode_01.json",
+                provider_id="video-provider",
+            )
+
+    async def test_reference_video_execution_pin_dedupes_same_pin(self, queue):
+        """同一 pin 重复提交判为同一请求：按 pin 去重，不新建任务。"""
+
+        first = await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={
+                "video_provider_i2v": "custom-3/veo-x",
+                "video_provider_r2v": "custom-3/veo-x",
+            },
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+        duplicate = await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="E1U1",
+            payload={
+                "video_provider_i2v": "custom-3/veo-x",
+                "video_provider_r2v": "custom-3/veo-x",
+            },
+            script_file="episode_01.json",
+            provider_id="video-provider",
+        )
+
+        assert duplicate["deduped"] is True
+        assert duplicate["task_id"] == first["task_id"]
+
     @pytest.mark.parametrize(
         ("first_alias", "second_alias"),
         [
@@ -613,7 +671,7 @@ def stub_enqueue_resolution(monkeypatch):
         async def resolve_video_backend(self, project, payload, *, generation_type=None):
             return holder["resolved"]
 
-        async def resolve_image_backend(self, project, payload, *, generation_type):
+        async def resolve_image_backend(self, project, payload, *, generation_type, task_type=None):
             return holder["resolved"]
 
         async def resolve_audio_backend(self, project, payload):
@@ -678,6 +736,29 @@ class TestProjectExecutionProviderOnEnqueue:
         assert "video_provider_r2v" not in task["payload"]
         assert "video_provider_i2v" not in task["payload"]
         assert task["provider_id"] == "custom-7"
+
+    async def test_reference_video_pin_drives_advisory_provider_and_survives_enqueue(
+        self, queue, stub_enqueue_resolution
+    ):
+        """批量补齐的临时端点 pin：入队边界保留 pin，advisory provider 跟着 pin 走而非项目配置。"""
+
+        enqueued = await queue.enqueue_task(
+            project_name="demo",
+            task_type="reference_video",
+            media_type="video",
+            resource_id="r1",
+            payload={
+                "prompt": "p",
+                "video_provider_i2v": "custom-3/veo-x",
+                "video_provider_r2v": "custom-3/veo-x",
+            },
+            script_file="ep1.json",
+        )
+        task = await queue.get_task(enqueued["task_id"])
+        assert task["payload"]["video_provider_i2v"] == "custom-3/veo-x"
+        assert task["payload"]["video_provider_r2v"] == "custom-3/veo-x"
+        # advisory provider 取 pin 的 provider 段，而不是项目配置解析出的 stub 身份。
+        assert task["provider_id"] == "custom-3"
 
     async def test_non_video_task_pins_nothing(self, queue, stub_enqueue_resolution):
         """图片任务的任务类型执行时才定，入队不锁——只落 provider_id。"""

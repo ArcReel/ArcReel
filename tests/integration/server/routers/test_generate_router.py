@@ -1001,6 +1001,187 @@ class TestGenerateRouter:
             assert resp.status_code == 404
             assert fake_queue.calls == []
 
+    @pytest.mark.parametrize(
+        ("path", "name"),
+        [
+            ("character/Alice", "Alice"),
+            ("scene/祠堂", "祠堂"),
+            ("prop/玉佩", "玉佩"),
+            ("product/保温杯", "保温杯"),
+        ],
+    )
+    def test_asset_enqueue_with_endpoint_override_lands_in_payload(self, tmp_path, monkeypatch, path, name):
+        """请求体里的 image_provider / image_model 进 payload 层，仅覆盖本次生成。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                f"/api/v1/projects/demo/generate/{path}",
+                json={"image_provider": "openai", "image_model": "gpt-image-1"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert fake_queue.calls[0]["resource_id"] == name
+        assert fake_queue.calls[0]["payload"] == {"image_provider": "openai", "image_model": "gpt-image-1"}
+
+    def test_asset_enqueue_with_provider_only_override_omits_model(self, tmp_path, monkeypatch):
+        """裸 provider（无 model）合法：payload 只带 image_provider，执行时按该供应商默认模型。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice",
+                json={"image_provider": "gemini"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert fake_queue.calls[0]["payload"] == {"image_provider": "gemini"}
+
+    def test_asset_enqueue_with_model_only_does_not_override(self, tmp_path, monkeypatch):
+        """只有 image_model 没有 image_provider 时不产生覆盖：payload 保持为空，走配置默认。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/scene/祠堂",
+                json={"image_model": "solo-model"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        assert fake_queue.calls[0]["payload"] == {}
+
+    def test_asset_sheet_request_forbids_unknown_fields(self, tmp_path, monkeypatch):
+        """请求体严格校验：prompt 等非端点字段一律拒绝，不得混入覆盖请求体。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice",
+                json={"prompt": "不应被接受"},
+            )
+
+        assert resp.status_code == 422, resp.text
+        assert [(item["type"], item["loc"][-1]) for item in resp.json()["detail"]] == [("extra_forbidden", "prompt")]
+        assert fake_queue.calls == []
+
+    def _client_with_character_derivative(self, tmp_path, monkeypatch):
+        """Alice 带一个已写变化描述的衍生（正脸），衍生图路由可寻址。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        fake_pm.project["characters"]["Alice"]["derivatives"] = {
+            "正脸": {"description": "面部特写", "character_sheet": ""},
+        }
+        fake_queue = _FakeQueue()
+        return _client(monkeypatch, fake_pm, fake_queue), fake_queue
+
+    def test_character_derivative_enqueue_with_endpoint_override_lands_in_payload(self, tmp_path, monkeypatch):
+        """衍生图与资产图同口径：请求体 image_provider/image_model 进 payload，仅覆盖本次。"""
+        client, fake_queue = self._client_with_character_derivative(tmp_path, monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice/derivatives/正脸",
+                json={"image_provider": "openai", "image_model": "gpt-image-1"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        call = fake_queue.calls[0]
+        assert call["provider_id"] == "openai"
+        assert call["payload"]["image_provider"] == "openai"
+        assert call["payload"]["image_model"] == "gpt-image-1"
+        assert call["payload"]["prompt"]  # 衍生指令（变化描述 + 守卫）仍在 payload
+
+    def test_character_derivative_enqueue_with_provider_only_override_omits_model(self, tmp_path, monkeypatch):
+        client, fake_queue = self._client_with_character_derivative(tmp_path, monkeypatch)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice/derivatives/正脸",
+                json={"image_provider": "gemini"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        call = fake_queue.calls[0]
+        assert call["provider_id"] == "gemini"
+        assert call["payload"]["image_provider"] == "gemini"
+        assert "image_model" not in call["payload"]
+
+    def test_character_derivative_enqueue_without_override_uses_configured_i2i_default(self, tmp_path, monkeypatch):
+        """无覆盖时落回 i2i 默认端点（按 character_derivative 槽位解析），payload 不带 image_provider。"""
+        client, fake_queue = self._client_with_character_derivative(tmp_path, monkeypatch)
+
+        async def _fake_i2i_default(project, *, task_type=None):
+            assert task_type == "character_derivative"
+            return "vertex/deri-model"
+
+        monkeypatch.setattr(generate, "_require_i2i_image_provider_configured", _fake_i2i_default)
+        with client:
+            resp = client.post("/api/v1/projects/demo/generate/character/Alice/derivatives/正脸")
+
+        assert resp.status_code == 200, resp.text
+        call = fake_queue.calls[0]
+        assert call["provider_id"] == "vertex/deri-model"
+        assert call["payload"].get("image_provider") is None
+
+    def test_character_derivative_reference_override_lands_in_payload(self, tmp_path, monkeypatch):
+        """本次生成参考图覆盖：reference_image 进 payload，端点未覆盖时走默认。"""
+        client, fake_queue = self._client_with_character_derivative(tmp_path, monkeypatch)
+
+        async def _fake_i2i_default(project, *, task_type=None):
+            return "vertex/deri-model"
+
+        monkeypatch.setattr(generate, "_require_i2i_image_provider_configured", _fake_i2i_default)
+        with client:
+            resp = client.post(
+                "/api/v1/projects/demo/generate/character/Alice/derivatives/正脸",
+                json={"reference_image": "characters/refs/Alice_ref.png"},
+            )
+
+        assert resp.status_code == 200, resp.text
+        call = fake_queue.calls[0]
+        assert call["payload"]["reference_image"] == "characters/refs/Alice_ref.png"
+        assert call["payload"].get("image_provider") is None  # 端点未覆盖，payload 不带 image_provider
+        assert call["provider_id"] == "vertex/deri-model"
+
+    def test_character_derivative_reference_override_relaxes_owner_sheet_requirement(self, tmp_path, monkeypatch):
+        """本体没有资产图时：不带覆盖仍被拒；带参考图覆盖放行，仅建这一次任务。"""
+        project_path = _prepare_files(tmp_path)
+        fake_pm = _FakePM(project_path)
+        # Bob 还没有本体资产图，只有一个已写变化描述的衍生
+        fake_pm.project["characters"]["Bob"] = {
+            "description": "no sheet yet",
+            "derivatives": {"礼服": {"description": "红色礼服", "character_sheet": ""}},
+        }
+        fake_queue = _FakeQueue()
+        client = _client(monkeypatch, fake_pm, fake_queue)
+
+        async def _fake_i2i_default(project, *, task_type=None):
+            return "vertex/deri-model"
+
+        monkeypatch.setattr(generate, "_require_i2i_image_provider_configured", _fake_i2i_default)
+        with client:
+            rejected = client.post("/api/v1/projects/demo/generate/character/Bob/derivatives/礼服")
+            assert rejected.status_code == 400, rejected.text
+
+            accepted = client.post(
+                "/api/v1/projects/demo/generate/character/Bob/derivatives/礼服",
+                json={"reference_image": "characters/refs/Alice_ref.png"},
+            )
+            assert accepted.status_code == 200, accepted.text
+
+        assert len(fake_queue.calls) == 1
+        assert fake_queue.calls[0]["payload"]["reference_image"] == "characters/refs/Alice_ref.png"
+
     def test_error_paths(self, tmp_path, monkeypatch):
         project_path = _prepare_files(tmp_path)
         fake_pm = _FakePM(project_path)
@@ -1419,10 +1600,12 @@ class TestNoServerPathLeak:
             ("/api/v1/projects/demo/generate/video/E1S01", {"script_file": "episode_1.json", "prompt": "x"}),
             ("/api/v1/projects/demo/generate/tts/E1S01", {"script_file": "episode_1.json"}),
             ("/api/v1/projects/demo/generate/tts", {"script_file": "episode_1.json"}),
-            ("/api/v1/projects/demo/generate/character/Alice", {"prompt": "x"}),
-            ("/api/v1/projects/demo/generate/scene/祠堂", {"prompt": "x"}),
-            ("/api/v1/projects/demo/generate/prop/玉佩", {"prompt": "x"}),
-            ("/api/v1/projects/demo/generate/product/保温杯", {"prompt": "x"}),
+            # 资产图端点不接收 prompt（描述取存储条目），请求体只认可选端点覆盖字段；
+            # 这里用空体走「项目缺失」404 路径，而不是被 body 校验拦在 422。
+            ("/api/v1/projects/demo/generate/character/Alice", {}),
+            ("/api/v1/projects/demo/generate/scene/祠堂", {}),
+            ("/api/v1/projects/demo/generate/prop/玉佩", {}),
+            ("/api/v1/projects/demo/generate/product/保温杯", {}),
         ]
         with client:
             for url, payload in requests:

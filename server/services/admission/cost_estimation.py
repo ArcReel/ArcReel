@@ -1065,6 +1065,7 @@ async def estimate_image_batch_cost(
     lanes: Sequence[ImageLane],
     *,
     aspect_ratio: str,
+    task_types: Sequence[str | None] | None = None,
     resolver: ConfigResolver,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> BatchCostEstimate:
@@ -1072,16 +1073,28 @@ async def estimate_image_batch_cost(
 
     每张图按自己的生图通道计价：文生图与图生图是两个正交的能力槽，可能配置成不同的模型。
     分辨率档与执行侧同样按通道解析出的模型取，取不到时不下发，按价目表的默认档计。``aspect_ratio`` 是这批
-    图下发的比例（按尺寸计价的模型要用）。供应商解析不出、读库失败或算不出价的通道，它名下的每一张都
-    计入未定价。
+    图下发的比例（按尺寸计价的模型要用）。``task_types`` 与 ``lanes`` 等长时按（通道，任务类型）解析执行身份——
+    资产图任务的资产槽位默认端点（docs/adr/0098）据此参与计价；不传则整批按通道解析（分镜图等无槽位任务）。
+    供应商解析不出、读库失败或算不出价的通道，它名下的每一张都计入未定价。
     """
-
-    counts = Counter(lanes)
+    if task_types is not None and len(task_types) != len(lanes):
+        raise ValueError("task_types must match lanes length")
+    pairs: list[tuple[ImageLane, str | None]]
+    if task_types is not None:  # noqa: SIM108 -- 分支需收窄 pairs 的不变 list 类型
+        pairs = list(zip(lanes, task_types, strict=True))
+    else:
+        pairs = [(lane, None) for lane in lanes]
+    counts = Counter(pairs)
     total: CostBreakdown = {}
     unpriced = 0
-    for lane, count in counts.items():
+    for (lane, task_type), count in counts.items():
         quote = await _quote_image_lane(
-            project, lane, aspect_ratio=aspect_ratio, resolver=resolver, session_factory=session_factory
+            project,
+            lane,
+            aspect_ratio=aspect_ratio,
+            task_type=task_type,
+            resolver=resolver,
+            session_factory=session_factory,
         )
         if quote is None:
             unpriced += count
@@ -1095,6 +1108,7 @@ async def _quote_image_lane(
     lane: ImageLane,
     *,
     aspect_ratio: str,
+    task_type: str | None = None,
     resolver: ConfigResolver,
     session_factory: async_sessionmaker[AsyncSession],
 ) -> tuple[float, str] | None:
@@ -1102,7 +1116,7 @@ async def _quote_image_lane(
 
     try:
         async with resolver.session() as r:
-            resolved = await r.resolve_image_backend(project, None, generation_type=lane)
+            resolved = await r.resolve_image_backend(project, None, generation_type=lane, task_type=task_type)
             provider, model = resolved.provider_id, resolved.model_id or ""
             try:
                 resolution = await r.resolve_resolution(project, provider, model)

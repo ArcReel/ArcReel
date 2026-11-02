@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from fastapi import FastAPI
@@ -50,13 +50,17 @@ class _FakeQueue:
 
 
 class _FakeConfigResolver:
-    """i2i 槽解析：只回一个已配置的供应商，能力闸本身另有用例覆盖。"""
+    """i2i 槽解析：只回一个已配置的供应商，能力闸本身另有用例覆盖。记录每次解析入参。"""
+
+    calls: ClassVar[list[dict[str, Any]]] = []
 
     def __init__(self, _session_factory: Any) -> None:
         pass
 
-    async def resolve_image_backend(self, project, payload=None, *, generation_type=None) -> ProviderModel:
-        del project, payload, generation_type
+    async def resolve_image_backend(
+        self, project, payload=None, *, generation_type=None, task_type=None
+    ) -> ProviderModel:
+        _FakeConfigResolver.calls.append({"generation_type": generation_type, "task_type": task_type})
         return ProviderModel("dashscope", "qwen-image-2.0")
 
 
@@ -85,6 +89,18 @@ class TestDerivativeGenerationEnqueue:
         assert queue.calls[0]["task_type"] == "character_derivative"
         assert queue.calls[0]["resource_id"] == "阿岚/战斗装"
         assert queue.calls[0]["media_type"] == "image"
+
+    def test_enqueue_resolves_the_i2i_slot_with_the_derivative_task_type(self, tmp_path, monkeypatch):
+        # 入队前的 i2i 判定必须与执行层同参（task_type=character_derivative）解析资产槽位：
+        # 否则项目默认端点是纯 t2i、衍生槽位是 i2i 时，入队前误报「无 i2i 端点」而执行层本可用。
+        pm, _project_path = seed_derivative_project(tmp_path)
+        queue = _FakeQueue()
+        _FakeConfigResolver.calls = []
+        with _client(monkeypatch, pm, queue=queue) as client:
+            response = client.post("/api/v1/projects/demo/generate/character/阿岚/derivatives/战斗装")
+
+        assert response.status_code == 200, response.text
+        assert _FakeConfigResolver.calls == [{"generation_type": "i2i", "task_type": "character_derivative"}]
 
     @pytest.mark.parametrize(
         ("locale", "fragment"),

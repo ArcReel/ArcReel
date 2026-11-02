@@ -298,6 +298,13 @@ class SystemConfigPatchRequest(BaseModel):
     default_image_backend: str | None = None
     default_image_backend_t2i: str | None = None
     default_image_backend_i2i: str | None = None
+    # 图片资产槽位（docs/adr/0098）：按资产图任务类别的默认端点；键位与
+    # lib.config.resolver.IMAGE_ASSET_SLOT_KEYS 一致；空值 = 回退全局桶/默认层
+    default_image_backend_character: str | None = None
+    default_image_backend_character_derivative: str | None = None
+    default_image_backend_scene: str | None = None
+    default_image_backend_prop: str | None = None
+    default_image_backend_product: str | None = None
     default_text_backend: str | None = None
     default_audio_backend: str | None = None
     narration_voice: str | None = None
@@ -319,6 +326,17 @@ class SystemConfigPatchRequest(BaseModel):
     # 各档未设置回退 default_text_backend。
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
+
+
+#: 图片资产槽位设置键（docs/adr/0098）：与 ``lib.config.resolver.IMAGE_ASSET_SLOT_KEYS``
+#: 的取值一一对应，改键位时两处同步。
+_IMAGE_ASSET_SLOT_SETTING_KEYS = (
+    "default_image_backend_character",
+    "default_image_backend_character_derivative",
+    "default_image_backend_scene",
+    "default_image_backend_prop",
+    "default_image_backend_product",
+)
 
 
 # Setting keys that map directly to string DB settings
@@ -376,6 +394,7 @@ async def get_system_config(
         "default_image_backend": all_s.get("default_image_backend", ""),
         "default_image_backend_t2i": all_s.get("default_image_backend_t2i", ""),
         "default_image_backend_i2i": all_s.get("default_image_backend_i2i", ""),
+        **{key: all_s.get(key, "") for key in _IMAGE_ASSET_SLOT_SETTING_KEYS},
         "default_text_backend": all_s.get("default_text_backend", ""),
         "default_audio_backend": all_s.get("default_audio_backend", ""),
         "narration_voice": all_s.get("narration_voice", ""),
@@ -572,6 +591,7 @@ async def patch_system_config(
         "default_image_backend",
         "default_image_backend_t2i",
         "default_image_backend_i2i",
+        *_IMAGE_ASSET_SLOT_SETTING_KEYS,
         "default_text_backend",
         "default_audio_backend",
         "text_backend_simple",

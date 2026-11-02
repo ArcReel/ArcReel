@@ -54,6 +54,10 @@ class ReferenceUnitCapability:
         hydration = self.hydration
         return {
             "unit_id": self.unit_id,
+            # 该单元此刻会落到的执行端点（按当前项目设置解析）：供界面展示「这次用哪个
+            # 供应商/模型生成」。事实失败（配置不可用）时两者为 None。
+            "provider_id": resolved.provider_id if resolved is not None else None,
+            "model_id": resolved.model_id if resolved is not None else None,
             "declared_capability": hydration.declared_generation_type,
             "hydrated_capability": hydration.hydrated_generation_type,
             "declared_references": [
@@ -129,7 +133,8 @@ async def evaluate_reference_unit_capabilities(
             ReferenceUnitCapability(
                 unit_id=str(unit.get("unit_id") or ""),
                 hydration=hydration,
-                request_facts=await request_facts(hydration.hydrated_generation_type),
+                # N 取裁剪前可用参考图数：r2v 单元据此与执行侧选到同一个 I{N}（docs/adr/0086）。
+                request_facts=await request_facts(hydration.hydrated_generation_type, len(hydration.available_assets)),
             )
         )
     return tuple(results)

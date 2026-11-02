@@ -35,7 +35,7 @@ export interface AssetGalleryProps<T extends GalleryAssetSource> {
   generatingNames?: Set<string>;
   /** 只读展示（引导演示项目）：不渲染新增、入库、生成、上传等改写入口。 */
   readOnly: boolean;
-  onGenerate: (name: string) => void;
+  onGenerate: (name: string, endpoint?: string) => void;
   onRestoreVersion?: () => Promise<unknown> | void;
   onReload?: () => Promise<unknown> | void;
   /**

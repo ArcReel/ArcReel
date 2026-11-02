@@ -163,6 +163,43 @@ class TestProjectsRouter:
             assert cleared.status_code == 200
             assert "video_provider_r2v" not in fake_pm.project_data["ready"]
 
+    def test_image_asset_slot_fields_create_patch_and_clear(self, tmp_path, monkeypatch):
+        """项目级图片资产槽位键可创建时写入、PATCH 设置；空值 = 清除，未设键不写入。"""
+        fake_pm = _FakePM(tmp_path)
+        client = build_projects_client(monkeypatch, fake_pm)
+
+        with client:
+            created = client.post(
+                "/api/v1/projects",
+                json={
+                    "generation_mode": "storyboard",
+                    "title": "资产槽位项目",
+                    "name": "ias-1",
+                    "default_image_backend_character": "gemini-aistudio/nano-banana",
+                    "default_image_backend_prop": "grok/grok-imagine-image",
+                },
+            )
+            assert created.status_code == 200
+            data = fake_pm.project_data["ias-1"]
+            assert data["default_image_backend_character"] == "gemini-aistudio/nano-banana"
+            assert data["default_image_backend_prop"] == "grok/grok-imagine-image"
+            assert "default_image_backend_scene" not in data
+            assert "default_image_backend_product" not in data
+
+            updated = client.patch(
+                "/api/v1/projects/ready",
+                json={"default_image_backend_scene": "ark/doubao-seedream-4-0-250828"},
+            )
+            assert updated.status_code == 200
+            assert fake_pm.project_data["ready"]["default_image_backend_scene"] == "ark/doubao-seedream-4-0-250828"
+
+            cleared = client.patch(
+                "/api/v1/projects/ready",
+                json={"default_image_backend_scene": ""},
+            )
+            assert cleared.status_code == 200
+            assert "default_image_backend_scene" not in fake_pm.project_data["ready"]
+
     def test_create_project_ignores_legacy_image_backend(self, tmp_path, monkeypatch):
         """退役的 image_backend 字段已从写模型移除，传入时被静默忽略。"""
         fake_pm = _FakePM(tmp_path)

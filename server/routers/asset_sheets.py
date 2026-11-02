@@ -23,7 +23,7 @@ from lib.config.resolver import ConfigResolver
 from lib.db import async_session_factory
 from lib.generation.generation_queue import get_generation_queue
 from lib.infra.api_errors import NotFoundError
-from lib.project.asset_derivatives import split_derivative_artifact_id
+from lib.project.asset_derivatives import DERIVATIVE_TASK_TYPE, split_derivative_artifact_id
 from lib.project.project_manager import get_project_manager
 from server.auth import CurrentUser
 from server.services.admission.asset_sheet_batch import (
@@ -142,6 +142,10 @@ async def preview_asset_sheet_batch(project_name: str, request: AssetSheetBatchR
         project,
         ["i2i" if plan.units[unit_id].image_to_image else "t2i" for unit_id in new_ids],
         aspect_ratio=get_aspect_ratio(project, "characters"),
+        task_types=[
+            DERIVATIVE_TASK_TYPE if plan.units[unit_id].is_derivative else plan.units[unit_id].asset_type
+            for unit_id in new_ids
+        ],
         resolver=ConfigResolver(async_session_factory),
         session_factory=async_session_factory,
     )

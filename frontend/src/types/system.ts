@@ -5,6 +5,12 @@ export interface SystemConfigSettings {
   default_image_backend: string;
   default_image_backend_t2i?: string;
   default_image_backend_i2i?: string;
+  // 图片资产槽位（docs/adr/0098）：按资产图类别的默认端点
+  default_image_backend_character?: string;
+  default_image_backend_character_derivative?: string;
+  default_image_backend_scene?: string;
+  default_image_backend_prop?: string;
+  default_image_backend_product?: string;
   default_text_backend: string;
   default_audio_backend?: string;
   narration_voice?: string;
@@ -105,6 +111,12 @@ export interface SystemConfigPatch {
   default_image_backend?: string;
   default_image_backend_t2i?: string;
   default_image_backend_i2i?: string;
+  // 图片资产槽位（docs/adr/0098）：按资产图类别的默认端点
+  default_image_backend_character?: string;
+  default_image_backend_character_derivative?: string;
+  default_image_backend_scene?: string;
+  default_image_backend_prop?: string;
+  default_image_backend_product?: string;
   default_text_backend?: string;
   default_audio_backend?: string;
   narration_voice?: string;

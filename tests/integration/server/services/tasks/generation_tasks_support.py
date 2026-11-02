@@ -69,6 +69,7 @@ def fake_resolve_ctx(
         image=None,
         video=None,
         audio=None,
+        task_type=None,
     ):
         if seen_lane_requests is not None:
             seen_lane_requests.append({"image": image, "video": video, "audio": audio})

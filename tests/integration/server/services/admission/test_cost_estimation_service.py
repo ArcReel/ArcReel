@@ -2737,3 +2737,74 @@ class TestImageBatchEstimate:
         )
 
         assert (estimated.total, estimated.unpriced_count) == ({}, 0)
+
+
+class TestEstimateImageBatchCostAssetSlots:
+    """资产图批量报价按（生成路径，资产类别）解析执行身份（docs/adr/0098）。"""
+
+    async def test_resolves_per_lane_and_task_type(self, db_factory, monkeypatch):
+        from lib.config.resolver import ProviderModel
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        calls: list[tuple[str, str | None]] = []
+
+        async def _fake_resolve(self, project, payload, *, generation_type, task_type=None):
+            calls.append((generation_type, task_type))
+            return ProviderModel("gemini-aistudio", "gemini-3.1-flash-image-preview")
+
+        monkeypatch.setattr(ConfigResolver, "resolve_image_backend", _fake_resolve)
+
+        project = {"title": "Test"}
+        lanes = ["t2i", "i2i", "t2i"]
+        task_types = ["character", "character_derivative", "scene"]
+        result = await estimate_image_batch_cost(
+            project,
+            lanes,
+            aspect_ratio="9:16",
+            task_types=task_types,
+            resolver=ConfigResolver(db_factory),
+            session_factory=db_factory,
+        )
+        # 报价算得出（内置模型有价），且按（通道，任务类型）逐个解析
+        assert result is not None
+        assert calls == [
+            ("t2i", "character"),
+            ("i2i", "character_derivative"),
+            ("t2i", "scene"),
+        ]
+
+    async def test_no_task_types_resolves_lane_only(self, db_factory, monkeypatch):
+        from lib.config.resolver import ProviderModel
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        calls: list[tuple[str, str | None]] = []
+
+        async def _fake_resolve(self, project, payload, *, generation_type, task_type=None):
+            calls.append((generation_type, task_type))
+            return ProviderModel("gemini-aistudio", "gemini-3.1-flash-image-preview")
+
+        monkeypatch.setattr(ConfigResolver, "resolve_image_backend", _fake_resolve)
+
+        result = await estimate_image_batch_cost(
+            {"title": "Test"},
+            ["t2i", "t2i", "i2i"],
+            aspect_ratio="9:16",
+            resolver=ConfigResolver(db_factory),
+            session_factory=db_factory,
+        )
+        assert result is not None
+        # 不传 task_types 时按通道解析，重复通道只解析一次
+        assert calls == [("t2i", None), ("i2i", None)]
+
+    async def test_mismatched_task_types_length_rejected(self, db_factory):
+        from server.services.admission.cost_estimation import estimate_image_batch_cost
+
+        with pytest.raises(ValueError, match="task_types must match lanes length"):
+            await estimate_image_batch_cost(
+                {"title": "Test"},
+                ["t2i"],
+                aspect_ratio="9:16",
+                task_types=["character", "scene"],
+                resolver=ConfigResolver(db_factory),
+                session_factory=db_factory,
+            )

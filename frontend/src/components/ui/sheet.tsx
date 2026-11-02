@@ -41,28 +41,34 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  fullscreen = false,
   ...props
 }: SheetPrimitive.Popup.Props & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  /** 铺满整个视口（角色工作室），不保留侧边栏的宽度与边框。 */
+  fullscreen?: boolean
 }) {
   const { t } = useTranslation("common")
   return (
     <SheetPortal>
       <SheetOverlay />
       {/* Header / Body / Footer 纵向排布，只有 SheetBody 滚动。左右两侧默认宽 28rem，
-          调用处用 data-[side=right]:w-* 覆盖宽度；不设按视口断点的 max-w，免得覆盖值被截断。 */}
+          调用处用 data-[side=right]:w-* 覆盖宽度；不设按视口断点的 max-w，免得覆盖值被截断。
+          fullscreen 用 !important 铺满视口，盖过上面按侧边排的宽度。 */}
       <SheetPrimitive.Popup
         data-slot="sheet-content"
         data-side={side}
+        data-fullscreen={fullscreen || undefined}
         className={cn(
           "fixed z-overlay flex max-w-[calc(100%-3rem)] flex-col bg-popover bg-clip-padding text-sm text-popover-foreground shadow-overlay transition duration-200 ease-in-out data-ending-style:opacity-0 data-starting-style:opacity-0 data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=bottom]:data-ending-style:translate-y-[2.5rem] data-[side=bottom]:data-starting-style:translate-y-[2.5rem] data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-md data-[side=left]:border-r data-[side=left]:data-ending-style:translate-x-[-2.5rem] data-[side=left]:data-starting-style:translate-x-[-2.5rem] data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-md data-[side=right]:border-l data-[side=right]:data-ending-style:translate-x-[2.5rem] data-[side=right]:data-starting-style:translate-x-[2.5rem] data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=top]:data-ending-style:translate-y-[-2.5rem] data-[side=top]:data-starting-style:translate-y-[-2.5rem]",
+          fullscreen && "!inset-0 !h-full !w-full !max-w-none !rounded-none !border-0",
           className
         )}
         {...props}
       >
         {children}
-        {showCloseButton && (
+        {showCloseButton && !fullscreen && (
           <SheetPrimitive.Close
             data-slot="sheet-close"
             render={

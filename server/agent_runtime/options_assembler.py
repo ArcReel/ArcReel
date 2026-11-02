@@ -33,7 +33,7 @@ from lib.i18n import DEFAULT_LOCALE, LOCALE_LANGUAGE_MAP
 from lib.infra.async_thread import run_sync_transaction
 from lib.infra.data_root_layout import DataRootLayout
 from lib.prompts.prompt_templates.builtin import builtin_templates
-from server.agent_runtime.agent_access_policy import AgentAccessPolicy
+from server.agent_runtime.agent_access_policy import AgentAccessPolicy, Decision
 from server.agent_runtime.arcreel_mcp import build_arcreel_mcp_server
 from server.auth import EMBEDDED_AGENT_SUB, create_token, is_auth_enabled
 
@@ -493,7 +493,7 @@ class OptionsAssembler:
             file_path = tool_input.get(path_key)
 
             if file_path:
-                allowed, deny_reason = await asyncio.to_thread(
+                decision, reason = await asyncio.to_thread(
                     policy.check_path_access,
                     file_path,
                     tool_name,
@@ -501,12 +501,25 @@ class OptionsAssembler:
                     # 与 policy 同为现取：user_id 决定用户记忆目录，随会话所属用户变化。
                     user_id=self._user_id_provider(),
                 )
-                if not allowed:
+                # 三态映射到 SDK 的 permissionDecision：
+                # DENY → 硬拒（仅无效路径这类坏输入；受保护写入/代码写入等现为 ASK）；
+                # ASK  → 向用户弹窗请求授权，SDK 把 reason 转发到 can_use_tool 的
+                #        decision_reason，由 SessionMan._handle_file_access_request 接住并弹窗；
+                # ALLOW→ 不干预，继续后续权限链（落到下方 continue_）。
+                if decision == Decision.DENY:
                     return {
                         "hookSpecificOutput": {
                             "hookEventName": "PreToolUse",
                             "permissionDecision": "deny",
-                            "permissionDecisionReason": deny_reason,
+                            "permissionDecisionReason": reason,
+                        },
+                    }
+                if decision == Decision.ASK:
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "ask",
+                            "permissionDecisionReason": reason,
                         },
                     }
 

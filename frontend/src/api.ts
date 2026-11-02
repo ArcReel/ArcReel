@@ -1128,11 +1128,19 @@ class API {
   static async generateCharacterDerivative(
     projectName: string,
     charName: string,
-    derivativeName: string
+    derivativeName: string,
+    endpoint?: { image_provider: string; image_model?: string },
+    referenceImage?: string
   ): Promise<{ success: boolean; task_id: string; deduped: boolean; message: string }> {
+    const body: Record<string, unknown> = { ...(endpoint ?? {}) };
+    if (referenceImage) body.reference_image = referenceImage;
     return this.request(
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}/derivatives/${encodeURIComponent(derivativeName)}`,
-      { method: "POST" }
+      {
+        method: "POST",
+        // 无覆盖时不带请求体，保持既有调用形态
+        body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
+      }
     );
   }
 
@@ -2663,7 +2671,8 @@ class API {
    */
   static async generateCharacter(
     projectName: string,
-    charName: string
+    charName: string,
+    endpoint?: { image_provider: string; image_model?: string }
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2674,6 +2683,8 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/character/${encodeURIComponent(charName)}`,
       {
         method: "POST",
+        // 无覆盖时不带请求体，保持既有调用形态
+        body: endpoint ? JSON.stringify(endpoint) : undefined,
       }
     );
   }
@@ -2688,7 +2699,8 @@ class API {
    */
   static async generateProjectScene(
     projectName: string,
-    sceneName: string
+    sceneName: string,
+    endpoint?: { image_provider: string; image_model?: string }
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2699,6 +2711,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/scene/${encodeURIComponent(sceneName)}`,
       {
         method: "POST",
+        body: endpoint ? JSON.stringify(endpoint) : undefined,
       }
     );
   }
@@ -2713,7 +2726,8 @@ class API {
    */
   static async generateProjectProp(
     projectName: string,
-    propName: string
+    propName: string,
+    endpoint?: { image_provider: string; image_model?: string }
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2724,6 +2738,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/prop/${encodeURIComponent(propName)}`,
       {
         method: "POST",
+        body: endpoint ? JSON.stringify(endpoint) : undefined,
       }
     );
   }
@@ -2738,7 +2753,8 @@ class API {
    */
   static async generateProjectProduct(
     projectName: string,
-    productName: string
+    productName: string,
+    endpoint?: { image_provider: string; image_model?: string }
   ): Promise<{
     success: boolean;
     task_id: string;
@@ -2749,6 +2765,7 @@ class API {
       `/projects/${encodeURIComponent(projectName)}/generate/product/${encodeURIComponent(productName)}`,
       {
         method: "POST",
+        body: endpoint ? JSON.stringify(endpoint) : undefined,
       }
     );
   }

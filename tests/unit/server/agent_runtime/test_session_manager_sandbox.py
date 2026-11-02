@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from lib.agent.agent_memory_paths import project_memory_dir
-from server.agent_runtime.agent_access_policy import AgentAccessPolicy
+from server.agent_runtime.agent_access_policy import AgentAccessPolicy, Decision
 from server.agent_runtime.session_manager import ManagedSession, SessionManager
 from server.agent_runtime.session_store import SessionMetaStore
 from tests.fakes import use_provider_env
@@ -86,10 +86,11 @@ def test_session_manager_wires_env_resolved_roots_into_policy(tmp_path: Path, mo
     assert policy.agent_profile_root == external_profile.resolve()
     assert policy.data_root == external_data.resolve()
     assert policy.project_root == repo.resolve()
-    # 端到端：数据根下的日志对内置读工具与 Bash（内核 denyRead）都不可读
+    # 端到端：数据根下的日志对内置读工具改为弹窗请求授权（ASK，R7）；Bash（内核 denyRead）仍硬拒
+    # ——ADR 0026 双层刻意不对称：内置文件工具可弹窗 ask，Bash 子进程内核沙箱只有 allow/deny。
     cwd = sm.layout.projects_dir / "demo"
-    allowed, _ = policy.check_path_access(str(data_logs / "arcreel.log"), "Read", cwd, user_id=_USER_ID)
-    assert not allowed
+    decision, _ = policy.check_path_access(str(data_logs / "arcreel.log"), "Read", cwd, user_id=_USER_ID)
+    assert decision is Decision.ASK
     deny_read = policy.build_sandbox_settings(cwd)["filesystem"]["denyRead"]
     assert str(data_logs.resolve()) in deny_read
     assert policy.is_sensitive_path((external_profile / ".claude" / "settings.json").resolve())

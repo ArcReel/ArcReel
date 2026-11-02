@@ -221,6 +221,12 @@ _PROJECT_BACKEND_FIELDS = (
     "image_provider_t2i",
     "image_provider_i2i",
     "default_image_backend",
+    # 图片资产槽位（docs/adr/0098）项目级覆盖：按资产图类别细分的默认端点，项目层内最具体。
+    "default_image_backend_character",
+    "default_image_backend_character_derivative",
+    "default_image_backend_scene",
+    "default_image_backend_prop",
+    "default_image_backend_product",
     "text_backend_simple",
     "text_backend_complex",
     "default_text_backend",
@@ -308,6 +314,13 @@ class CreateProjectRequest(BaseModel):
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
+    # 图片资产槽位（docs/adr/0098）项目级覆盖：按资产图类别细分的默认端点，项目层内最具体；
+    # 空值 = 回退项目桶 / 项目默认 / 全局层
+    default_image_backend_character: str | None = None
+    default_image_backend_character_derivative: str | None = None
+    default_image_backend_scene: str | None = None
+    default_image_backend_prop: str | None = None
+    default_image_backend_product: str | None = None
     # 文本任务档位（docs/adr/0051）项目级覆盖 + 项目默认模型；空值 = 继承全局
     text_backend_simple: str | None = None
     text_backend_complex: str | None = None
@@ -348,6 +361,12 @@ class UpdateProjectRequest(BaseModel):
     image_provider_t2i: str | None = None
     image_provider_i2i: str | None = None
     default_image_backend: str | None = None
+    # 图片资产槽位（docs/adr/0098）项目级覆盖；空值 = 清除、回退项目桶 / 项目默认 / 全局层
+    default_image_backend_character: str | None = None
+    default_image_backend_character_derivative: str | None = None
+    default_image_backend_scene: str | None = None
+    default_image_backend_prop: str | None = None
+    default_image_backend_product: str | None = None
     video_generate_audio: bool | None = None
     # 角色声音绑定方式：prompt（默认，voice_style 提示词软约束）/ reference_audio（挂角色参考音频）
     character_voice_binding: str | None = None

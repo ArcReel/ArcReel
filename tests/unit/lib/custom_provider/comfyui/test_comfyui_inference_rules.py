@@ -253,6 +253,12 @@ def test_frame_step_follows_the_carrier_model_family():
     assert rules.step_of("width", "EmptyHunyuanLatentVideo") == 16
 
 
+def test_video_rules_expose_duration():
+    """duration 是视频独有的直写秒数维度：video 规则表认它，image 规则表不认。"""
+    assert "duration" in load_inference_rules("video").semantic_keys
+    assert "duration" not in load_inference_rules("image").semantic_keys
+
+
 def test_image_rules_drop_the_time_axis_and_the_first_last_frames():
     image = load_inference_rules("image")
     assert "frames" not in image.semantic_keys

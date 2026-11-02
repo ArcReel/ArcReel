@@ -223,6 +223,12 @@ export interface ProjectData {
   default_image_backend?: string | null;
   image_provider_t2i?: string | null;
   image_provider_i2i?: string | null;
+  /** 图片资产槽位（docs/adr/0098）项目级覆盖：按资产图类别细分的默认端点，项目层内最具体。 */
+  default_image_backend_character?: string | null;
+  default_image_backend_character_derivative?: string | null;
+  default_image_backend_scene?: string | null;
+  default_image_backend_prop?: string | null;
+  default_image_backend_product?: string | null;
   /** 生成模式，创建时锁定、之后不可更改。 */
   generation_mode?: GenerationRoute;
   /** 多宫格分镜装配开关；仅分镜图生视频有意义，随时可切。 */

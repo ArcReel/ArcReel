@@ -82,6 +82,11 @@ MESSAGES = {
         "Trùng tên tài nguyên dự án: {duplicate_type} '{duplicate_name}' xung đột với "
         "{first_type} '{first_name}' sau khi strip + chuẩn hóa Unicode NFC"
     ),
+    "val_derivative_name_conflict": (
+        "Hình thái phái sinh '{owner}/{derivative}' trùng tên với {asset_type} độc lập "
+        "'{derivative}': một hình dáng chỉ đăng ký theo một hình thức — giữ lại hình thái "
+        "phái sinh trong bảng derivatives của nhân vật gốc, hoặc giữ lại mục nhân vật độc lập"
+    ),
     # ---- tham chiếu cấp mục ----
     "val_refs_unregistered": "{prefix}: {field} tham chiếu {asset_type} không có trong project.json: {names}",
     "val_missing_defaults_empty_array": "{prefix}: thiếu {field}, sẽ dùng mảng rỗng mặc định",

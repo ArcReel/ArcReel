@@ -1984,6 +1984,60 @@ class TestCharacterDerivativesStructure:
         assert DataValidator("/tmp").validate_project_payload(project).error_messages == []
 
 
+class TestDerivativeNameConflict:
+    """衍生名与顶层角色名同名须判违约：同一外观两种登记形态会让正文引用二选一地漂移。"""
+
+    @staticmethod
+    def _keys(characters: dict) -> list[str]:
+        project = _project_payload()
+        project["characters"] = characters
+        return [message.key for message in DataValidator("/tmp").validate_project_payload(project).error_messages]
+
+    def test_derivative_name_matching_standalone_character_rejected(self):
+        characters = {
+            "姜月茴": {
+                "description": "女主",
+                "derivatives": {"劲装": {"description": "换上劲装", "character_sheet": ""}},
+            },
+            "劲装": {"description": "独立登记的同一外观"},
+        }
+        assert "val_derivative_name_conflict" in self._keys(characters)
+
+    def test_error_names_both_forms(self):
+        project = _project_payload()
+        project["characters"] = {
+            "姜月茴": {
+                "description": "女主",
+                "derivatives": {"劲装": {"description": "换上劲装", "character_sheet": ""}},
+            },
+            "劲装": {"description": "独立登记的同一外观"},
+        }
+        errors = DataValidator("/tmp").validate_project_payload(project).errors
+        assert any("姜月茴/劲装" in error for error in errors)
+
+    def test_distinct_derivative_name_passes(self):
+        characters = {
+            "姜月茴": {
+                "description": "女主",
+                "derivatives": {"劲装": {"description": "换上劲装", "character_sheet": ""}},
+            },
+            "路人甲": {"description": "路人"},
+        }
+        assert "val_derivative_name_conflict" not in self._keys(characters)
+
+    def test_nfc_equivalent_names_conflict(self):
+        import unicodedata
+
+        nfd = unicodedata.normalize("NFD", "Élan")
+        assert nfd != "Élan"
+        characters = {
+            "姜月茴": {"description": "女主", "derivatives": {nfd: {"description": "换装形态", "character_sheet": ""}}},
+            "Élan": {"description": "独立登记的同一外观"},
+        }
+        # 衍生名与顶层名 strip + NFC 后同名即冲突，不论落盘编码形态
+        assert "val_derivative_name_conflict" in self._keys(characters)
+
+
 class TestAssetDescription:
     """资产描述只是生成资产图的输入：存在时须为字符串，空串与缺省都合法。"""
 
