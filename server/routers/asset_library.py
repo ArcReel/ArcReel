@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import AfterValidator, BaseModel, Field
@@ -20,12 +20,6 @@ from lib.asset_library.bindings import (
     list_bindable_credentials,
     list_binding_views,
 )
-from lib.asset_library.control_plane import (
-    AssetLibraryRequestError,
-    credentials_of,
-    list_assets,
-    request_failure_error,
-)
 from lib.asset_library.sites import DEFAULT_PROJECT_NAME, SITES, AssetLibrarySite, control_plane_host
 from lib.config.repository import mask_secret
 from lib.db import get_async_session
@@ -33,6 +27,7 @@ from lib.db.base import dt_to_iso
 from lib.db.models.asset_library import AssetLibraryAccount
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.infra.api_errors import NotFoundError, UnprocessableError
+from server.services.project.provider_asset_links import ProviderAssetListResponse, browse_provider_assets
 
 router = APIRouter(prefix="/asset-library", tags=["Asset Library"])
 
@@ -108,22 +103,6 @@ class BindingListResponse(BaseModel):
 
 class ConfirmBindingRequest(BaseModel):
     account_id: int
-
-
-class ProviderAssetResponse(BaseModel):
-    id: str
-    name: str
-    asset_type: str
-    status: Literal["active", "processing", "failed", "unknown"]
-    error_code: str | None
-    created_at: str | None
-
-
-class ProviderAssetListResponse(BaseModel):
-    items: list[ProviderAssetResponse]
-    total: int
-    page: int
-    page_size: int
 
 
 def _account_response(account: AssetLibraryAccount) -> AccountResponse:
@@ -281,24 +260,4 @@ async def browse_assets(
     session: AsyncSession = Depends(get_async_session),
 ) -> ProviderAssetListResponse:
     """按账号的站点、区域与项目范围分页列出供应商素材库里的素材。"""
-    account = await _get_account_or_404(AssetLibraryRepository(session), account_id)
-    try:
-        result = await list_assets(credentials_of(account), page_number=page, page_size=page_size)
-    except AssetLibraryRequestError as exc:
-        raise request_failure_error(exc) from exc
-    return ProviderAssetListResponse(
-        items=[
-            ProviderAssetResponse(
-                id=item.id,
-                name=item.name,
-                asset_type=item.asset_type,
-                status=item.status,
-                error_code=item.error_code,
-                created_at=item.created_at,
-            )
-            for item in result.items
-        ],
-        total=result.total,
-        page=result.page_number,
-        page_size=result.page_size,
-    )
+    return await browse_provider_assets(session, account_id=account_id, page=page, page_size=page_size)

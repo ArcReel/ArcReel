@@ -28,7 +28,7 @@ from lib.infra.async_thread import EventLoopBridge, run_sync_transaction
 from lib.infra.image_utils import normalize_uploaded_image
 from lib.material.storage import ContentVersion
 from lib.project.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
-from lib.project.project_change_hints import project_change_source
+from lib.project.project_change_hints import ProjectChangeSource, project_change_source
 from lib.project.project_manager import ProjectManager, get_project_manager
 from server.services.currency.upload_finalize import install_manual_asset_sheet_upload
 
@@ -80,8 +80,13 @@ async def import_provider_asset(
     resource_id: str,
     account_id: int,
     asset_id: str,
+    manager: ProjectManager | None = None,
+    change_source: ProjectChangeSource = "webui",
 ) -> ImportedProviderAsset:
     """把账号范围里的一张可用图片素材导入为资产图的新版本，并为该版本建立可用关联。提交事务。
+
+    ``manager`` 缺省为进程级项目管理器；``change_source`` 标记这次正式写入的来源（Web 为 ``webui``，
+    Agent 工具为 ``worker``）。
 
     Raises:
         BadRequestError: 资源类型不支持导入，或资产名无效。
@@ -99,7 +104,7 @@ async def import_provider_asset(
     account = await AssetLibraryRepository(session).get_account(account_id)
     if account is None:
         raise NotFoundError("asset_library_account_not_found")
-    manager = get_project_manager()
+    manager = manager or get_project_manager()
     await asyncio.to_thread(_require_asset, manager, project_name, asset_type, name)
 
     image = await fetch_provider_image(account, asset_id)
@@ -123,7 +128,7 @@ async def import_provider_asset(
         recorded.append(bridge.run(_record_link(content_version)))
 
     def _install() -> ContentVersion | None:
-        with project_change_source("webui"):
+        with project_change_source(change_source):
             return install_manual_asset_sheet_upload(
                 project_manager=manager,
                 project_name=project_name,

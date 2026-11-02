@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from server.agent_toolset.asset_library import ASSET_LIBRARY_TOOLS
 from server.agent_toolset.content_read import CONTENT_READ_TOOLS
 from server.agent_toolset.declaration import AgentToolDeclaration, Blocked, ToolDeclaration
 from server.agent_toolset.edit_timelines import EDIT_TIMELINE_TOOLS
@@ -30,6 +31,7 @@ AGENT_TOOLSET: tuple[AgentToolDeclaration, ...] = (
     *MEDIA_GENERATION_TOOLS,
     *GRID_STORYBOARD_TOOLS,
     *IMAGE_REVIEW_TOOLS,
+    *ASSET_LIBRARY_TOOLS,
     *VIDEO_VERSION_TOOLS,
     *VIDEO_REVIEW_TOOLS,
     *EDIT_TIMELINE_TOOLS,

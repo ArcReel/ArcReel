@@ -1,12 +1,13 @@
 """供应商素材库与内容版本关联：上传入库、状态查询、中转副本清理，以及从素材库选择已有图片导入。
 
-真实编排：资产图经文件路由上传成版本，入库经关联路由创建，后台处理直接调用 ``ingest.run_once``。
+真实编排：资产图经文件路由上传成版本，入库经关联路由或 Agent 工具创建，后台处理直接调用 ``ingest.run_once``。
 只替换外部边界：控制面请求与素材下载经 respx 拦截（控制面按 Action 分派），TOS SDK 在 ``create_sdk_client``
 换成内存桶，素材地址的主机解析换成固定的公网地址。
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Generator
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from mcp import types
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from tos.exceptions import TosServerError
@@ -26,6 +28,7 @@ from tos.exceptions import TosServerError
 from lib.artifacts import version_manager
 from lib.asset_library import importing, ingest
 from lib.asset_library.links import account_scope, selected_link
+from lib.config.resolver import ConfigResolver
 from lib.db import get_async_session
 from lib.db.base import utc_now
 from lib.db.models.asset_library import ProviderAssetLink
@@ -34,9 +37,15 @@ from lib.db.repositories.asset_library_repo import AssetLibraryRepository
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.object_storage import client as storage_client
 from lib.project.project_manager import ProjectManager
+from server.agent_toolset.declaration import ToolDeclaration
+from server.agent_toolset.embedded import embedded_server
+from server.agent_toolset.remote import remote_tool
+from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
 from server.routers import files, provider_asset_links, versions
+from server.services.project.workflow_planner import WorkflowPlanner
+from server.tool_runtime import CallerContext, ProjectScope, Services
 from tests.auth_deps import AUTH_DEPENDENCIES
 from tests.fakes import use_project_manager, use_upload_claim_registration
 from tests.http_capture import capture_http, request_json
@@ -670,3 +679,157 @@ async def test_import_commit_failure_keeps_selected_version_and_no_link(
     assert (project.get_project_path("demo") / "characters" / "Alice.png").read_bytes() == image_a
     assert _versions(api) == before
     assert await _all_links(sessions) == []
+
+
+# ── Agent 工具 ───────────────────────────────────────────────────────
+# 工具经两宿主的真实 adapter 调用，与 Web 共用同一组关联记录；领域规则已由上面的 Web 用例覆盖，
+# 这里只验证明确指令、立即返回、两宿主结果一致，以及结果里不带密钥与签名。
+
+
+@pytest.fixture
+def agent_services(project, sessions) -> Services:
+    return Services(
+        projects=project,
+        workflow_planner=WorkflowPlanner(project),
+        capabilities=ConfigResolver(sessions),
+        sessions=sessions,
+    )
+
+
+def _agent_tool(name: str) -> ToolDeclaration[Any, Any]:
+    declaration = next(d for d in AGENT_TOOLSET if d.name == name)
+    assert isinstance(declaration, ToolDeclaration)
+    return declaration
+
+
+async def _embedded(services: Services, name: str, arguments: dict[str, Any]) -> tuple[types.CallToolResult, Any]:
+    server = embedded_server(
+        [_agent_tool(name)],
+        name="arcreel",
+        version="1.0.0",
+        scope=ProjectScope(project_name="demo", data_root=services.projects.data_root),
+        caller=CallerContext(user_id="default", source="embedded"),
+        services=services,
+    )["instance"]
+    request = types.CallToolRequest(params=types.CallToolRequestParams(name=name, arguments=arguments))
+    result = (await server.request_handlers[types.CallToolRequest](request)).root
+    assert isinstance(result, types.CallToolResult)
+    texts = [block.text for block in result.content if isinstance(block, types.TextContent)]
+    return result, json.loads(texts[-1])
+
+
+async def _remote(services: Services, name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+    tool = remote_tool(
+        _agent_tool(name),
+        projects=services.projects,
+        services=services,
+        caller=lambda: CallerContext(user_id="default", source="mcp"),
+    )
+    result = await tool.run({"project": "demo", **arguments})
+    assert isinstance(result, types.CallToolResult)
+    return result
+
+
+def _tool_text(result: types.CallToolResult) -> str:
+    return "".join(block.text for block in result.content if isinstance(block, types.TextContent))
+
+
+async def test_agent_uploads_only_on_explicit_request_and_shares_the_web_links(api, sessions, bucket, agent_services):
+    """上传必须带用户明确要求；工具立即返回入库任务，两宿主与 Web 看到同一条关联，解除后两侧内容都在。"""
+    account_id = await _configure(sessions)
+    _upload_sheet(api, solid_png_bytes((200, 10, 10), size=(400, 400)))
+    target = {"resource_type": "character", "resource_id": "Alice", "account_id": account_id}
+
+    # 没有用户明确要求（例如只是生成被拒）时，入口拒绝，不创建入库任务
+    refused, refused_json = await _embedded(agent_services, "upload_to_provider_asset_library", target)
+    assert refused.isError is True
+    assert refused_json["problem"]["code"] == "invalid_request"
+    assert await _all_links(sessions) == []
+
+    started, started_json = await _embedded(
+        agent_services, "upload_to_provider_asset_library", {**target, "user_requested": True}
+    )
+    assert started.isError is False
+    job = started_json["provider_asset_link"]
+    # 不等待供应商：后台尚未推进，返回的是待上传的任务
+    assert (job["state"], job["usable"], job["polling"]) == ("pending", False, True)
+    assert [link["id"] for link in _panel(api)["links"]] == [job["id"]]
+
+    # 同一范围重复上传：沿用领域层的冲突判断与错误码
+    again = await _remote(agent_services, "upload_to_provider_asset_library", {**target, "user_requested": True})
+    assert again.isError is True
+    assert again.structuredContent is not None
+    assert again.structuredContent["problem"]["code"] == "provider_asset_link_exists"
+
+    control = ControlPlane(asset_status=[{"Status": "Active", "Name": "x", "AssetType": "Image"}])
+    t0 = utc_now()
+    query = {"resource_type": "character", "resource_id": "Alice"}
+    await _run(sessions, control, t0)
+    _, processing = await _embedded(agent_services, "get_provider_asset_links", query)
+    assert [link["state"] for link in processing["provider_asset_links"]["links"]] == ["processing"]
+    await _run(sessions, control, t0 + timedelta(minutes=10))
+
+    embedded, embedded_json = await _embedded(agent_services, "get_provider_asset_links", query)
+    remote = await _remote(agent_services, "get_provider_asset_links", query)
+    assert embedded.isError is remote.isError is False
+    assert embedded_json == remote.structuredContent
+    panel = embedded_json["provider_asset_links"]
+    assert panel == _panel(api)
+    [shown] = panel["links"]
+    assert (shown["id"], shown["state"], shown["usable"]) == (job["id"], "active", True)
+    assert [a["id"] for a in panel["accounts"]] == [account_id]
+
+    released = await _remote(agent_services, "release_provider_asset_link", {"link_id": job["id"]})
+    assert released.isError is False
+    assert released.structuredContent is not None
+    assert released.structuredContent["provider_asset_link"]["selected"] is False
+    assert _panel(api)["links"] == []
+    assert _panel(api)["content_version"] is not None
+    assert control.actions("DeleteAsset") == []
+
+    # 工具结果不带控制面密钥、对象存储密钥或签名地址
+    for result in (started, again, embedded, remote, released):
+        text = _tool_text(result)
+        assert SK not in text
+        assert "tos-secret" not in text
+        assert "X-Tos-Signature" not in text
+
+
+async def test_agent_selects_an_existing_library_image_as_a_new_version(api, sessions, public_dns, agent_services):
+    """浏览素材库后选择已有图片：保存实际内容为新版本并建立可用关联；结果不含签名地址。"""
+    account_id = await _configure(sessions, object_storage=False)
+    _upload_sheet(api, solid_png_bytes((200, 10, 10), size=(400, 400)))
+    image_b = solid_png_bytes((10, 10, 200), size=(400, 400))
+    control = ControlPlane(
+        asset_status=[_active_image()],
+        listed_assets=[{"Id": "asset-20261103-b", "Name": "林夕-正面", "AssetType": "Image", "Status": "Active"}],
+    )
+
+    with capture_http() as router:
+        router.post(VOLC_HOST).mock(side_effect=control)
+        router.get(ASSET_URL).mock(return_value=httpx.Response(200, content=image_b))
+        listed, listed_json = await _embedded(
+            agent_services, "list_provider_library_assets", {"account_id": account_id}
+        )
+        selected, selected_json = await _embedded(
+            agent_services,
+            "select_provider_library_asset",
+            {
+                "resource_type": "character",
+                "resource_id": "Alice",
+                "account_id": account_id,
+                "asset_id": "asset-20261103-b",
+            },
+        )
+
+    assert listed.isError is False
+    assert [item["id"] for item in listed_json["provider_library_assets"]["items"]] == ["asset-20261103-b"]
+    assert selected.isError is False
+    chosen = selected_json["provider_asset_selection"]
+    assert chosen["content_version"]["version"] == 2
+    assert (chosen["link"]["state"], chosen["link"]["usable"]) == ("active", True)
+    assert _versions(api)["versions"][-1]["source"] == "manual_upload"
+    assert [link["id"] for link in _panel(api)["links"]] == [chosen["link"]["id"]]
+    for result in (listed, selected):
+        assert "TEST-SIGNATURE" not in _tool_text(result)
+        assert SK not in _tool_text(result)
