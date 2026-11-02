@@ -236,6 +236,34 @@ class TestGenerate:
         with pytest.raises(RuntimeError, match="未返回图片"):
             await backend_aistudio.generate(request)
 
+    async def test_blocked_response_without_parts_reports_the_reason(self, backend_aistudio, tmp_path):
+        """内容被拦截时响应没有 part（parts 为 None），报出拦截原因而不是 TypeError，且不重试。"""
+        mock_response = MagicMock()
+        mock_response.parts = None
+        mock_response.prompt_feedback = None
+        candidate = MagicMock()
+        candidate.finish_reason = "FinishReason.IMAGE_SAFETY"
+        candidate.finish_message = None
+        mock_response.candidates = [candidate]
+        generate = AsyncMock(return_value=mock_response)
+        backend_aistudio._client.aio.models.generate_content = generate
+
+        request = ImageGenerationRequest(prompt="test", output_path=tmp_path / "out.png")
+        with pytest.raises(RuntimeError, match=r"未返回图片.*finish_reason=IMAGE_SAFETY"):
+            await backend_aistudio.generate(request)
+        assert generate.await_count == 1
+
+    async def test_blocked_prompt_reports_block_reason(self, backend_aistudio, tmp_path):
+        mock_response = MagicMock()
+        mock_response.parts = None
+        mock_response.prompt_feedback.block_reason = "BlockedReason.PROHIBITED_CONTENT"
+        mock_response.candidates = []
+        backend_aistudio._client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+
+        request = ImageGenerationRequest(prompt="test", output_path=tmp_path / "out.png")
+        with pytest.raises(RuntimeError, match="block_reason=PROHIBITED_CONTENT"):
+            await backend_aistudio.generate(request)
+
 
 # ---------------------------------------------------------------------------
 # Tests: helper methods
