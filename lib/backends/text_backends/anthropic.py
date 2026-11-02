@@ -37,7 +37,7 @@ from lib.backends.text_backends.base import (
 from lib.backends.transport_layer import TransportLayer, layer_async_client
 from lib.config.url_utils import OFFICIAL_ANTHROPIC_BASE_URL
 from lib.infra.logging_utils import format_kwargs_for_log
-from lib.infra.retry import with_retry_async
+from lib.infra.retry import TEXT_BACKOFF_SECONDS, with_retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ class AnthropicTextBackend:
 
         return await prompt_json_fallback(request, _once, provider=PROVIDER_ANTHROPIC, model=self._model)
 
-    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=ANTHROPIC_RETRYABLE_ERRORS)
+    @with_retry_async(max_attempts=4, backoff_seconds=TEXT_BACKOFF_SECONDS, retryable_errors=ANTHROPIC_RETRYABLE_ERRORS)
     async def _generate_native(
         self, request: TextGenerationRequest, content: list[dict], *, structured: bool
     ) -> TextGenerationResult | None:

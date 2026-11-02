@@ -25,7 +25,7 @@ from lib.backends.text_backends.base import (
 from lib.backends.transport_layer import TransportLayer
 from lib.config.url_utils import is_official_openai_base_url
 from lib.infra.logging_utils import format_kwargs_for_log
-from lib.infra.retry import with_retry_async
+from lib.infra.retry import TEXT_BACKOFF_SECONDS, with_retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ class OpenAITextBackend:
 
         return native
 
-    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    @with_retry_async(max_attempts=4, backoff_seconds=TEXT_BACKOFF_SECONDS, retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def _generate_native(
         self, request: TextGenerationRequest, messages: list[dict]
     ) -> TextGenerationResult | None:
@@ -253,7 +253,7 @@ def _is_schema_error(exc: BaseException) -> bool:
     return any(kw in error_str for kw in _SCHEMA_ERROR_KEYWORDS)
 
 
-@with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+@with_retry_async(max_attempts=4, backoff_seconds=TEXT_BACKOFF_SECONDS, retryable_errors=OPENAI_RETRYABLE_ERRORS)
 async def _instructor_fallback(
     client: AsyncOpenAI,
     model: str,

@@ -59,6 +59,14 @@ RETRYABLE_STATUS_PATTERNS = (
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_BACKOFF_SECONDS: tuple[int, ...] = (2, 4, 8)
 
+# 文本后端（OpenAI / OpenAI-Responses / Anthropic 的 generate 路径）专用的较长退避。
+# 这些路径直连大模型推理端点：自建 / 单槽的 llama.cpp 等后端处理一条复杂结构化请求
+# 可达 70~80s 且串行排队，繁忙时前置网关会先吐 5xx（502/503）。默认 (2,4,8) 的重试窗口
+# 远短于上游恢复时间，三次重试会全部撞在上游仍繁忙的窗口里、连锁失败。拉长到分钟级，
+# 让重试落到上游空闲窗口，显著降低偶发 5xx 直接判任务失败的概率。视频提交 / 轮询链路
+# 不受影响：它们另有 DEFAULT_BACKOFF_SECONDS 与 VIDEO_POLL_* 的独立预算。
+TEXT_BACKOFF_SECONDS: tuple[int, ...] = (15, 45, 90)
+
 # 下载阶段没有独立的重试配置：产物取件与轮询同属「供应商任务已建成后的幂等取件」，共用
 # lib.backends.backend_runtime.with_artifact_retry 的失败预算与退避。
 

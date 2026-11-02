@@ -29,7 +29,7 @@ from lib.backends.text_backends.base import (
 from lib.backends.text_backends.openai import DEFAULT_MODEL
 from lib.backends.transport_layer import TransportLayer
 from lib.infra.logging_utils import format_kwargs_for_log
-from lib.infra.retry import with_retry_async
+from lib.infra.retry import TEXT_BACKOFF_SECONDS, with_retry_async
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class OpenAIResponsesTextBackend:
             model=self._model,
         )
 
-    @with_retry_async(max_attempts=4, backoff_seconds=(2, 4, 8), retryable_errors=OPENAI_RETRYABLE_ERRORS)
+    @with_retry_async(max_attempts=4, backoff_seconds=TEXT_BACKOFF_SECONDS, retryable_errors=OPENAI_RETRYABLE_ERRORS)
     async def _generate_once(self, request: TextGenerationRequest, *, structured: bool) -> TextGenerationResult:
         """单次 Responses 调用：构造请求、解析与截断处理，瞬态错误重试。
 
