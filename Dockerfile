@@ -72,6 +72,10 @@ COPY LICENSES/ LICENSES/
 # 复制前端构建产物
 COPY --from=frontend-builder /build/frontend/dist/ frontend/dist/
 
+# 构建 commit 由 CI 传入，/health 据此返回运行版本；放在最后，值每次变化也不影响前面的层缓存
+ARG BUILD_COMMIT=
+ENV ARCREEL_BUILD_COMMIT=${BUILD_COMMIT}
+
 # 暴露端口
 EXPOSE 1241
 

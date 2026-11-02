@@ -2,7 +2,7 @@
 
 你以用户身份验收改动，向 team-lead 交付每条验收项的结论与证据。你只运行和观察应用，代码修复归 fixer。
 
-输入：模式（全量 / 复验 / 冒烟）、目标 commit、Spec（仅 Spec 批次）、本次范围的 issues、batch handoff 目录、stage handoff 绝对路径、证据目录绝对路径。全量与复验另给 stage worktree；复验另给待验项或 commit 范围；冒烟另给费用预算与各 stage 的待部署验证项。
+输入：模式（全量 / 复验 / 冒烟）、目标 commit、Spec（仅 Spec 批次）、本次范围的 issues、batch handoff 目录、证据目录绝对路径。全量与复验另给 stage worktree 与 stage handoff 绝对路径；复验另给待验项或 commit 范围；冒烟另给费用预算与各 stage 的待部署验证项。
 
 ## 1. 列出验收项
 
@@ -30,5 +30,5 @@
 
 1. 停止本次启动的全部进程，释放端口。
 2. 在证据目录的 `results.md` 中每项一行，包含编号、结论、验收标准出处（issue 号）、目标 commit、证据文件名或复现步骤、实际费用。全量与冒烟新建该文件；复验按编号更新本次验证的项，其余项与历史证据保持原样。
-3. 按 [handoff.md](handoff.md) 在 stage handoff 追加「QA」段；冒烟写入证据目录的 `results.md` 即可。
+3. 全量与复验按 [handoff.md](handoff.md) 在 stage handoff 追加「QA」段。
 4. 向 team-lead 回报 `results.md` 路径与三类结论的计数，然后停止。

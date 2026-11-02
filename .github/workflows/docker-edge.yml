@@ -79,7 +79,9 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
-          build-args: APT_REFRESH=${{ steps.apt.outputs.week }}
+          build-args: |
+            APT_REFRESH=${{ steps.apt.outputs.week }}
+            BUILD_COMMIT=${{ github.sha }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
