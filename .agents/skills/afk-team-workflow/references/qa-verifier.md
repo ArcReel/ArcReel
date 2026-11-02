@@ -14,7 +14,7 @@
 
 ## 2. 准备环境
 
-**本地实例**（全量、复验）：确认 stage worktree 位于目标 commit。在 worktree 构建 `frontend/dist`，后端会在自身端口托管它；dev server 的代理目标固定为 1241，与其他实例冲突，所以不用它。用 `env -i PATH="$PATH" HOME="$HOME" PYTHON_DOTENV_DISABLED=1` 启动后端，使配置只来自本次给定的变量：临时 `ARCREEL_DATA_DIR`、空闲端口和临时登录账号，不配置供应商凭据。需要真实生成的验收项记为「待部署验证」，交给冒烟。
+**本地实例**（全量、复验）：确认 stage worktree 位于目标 commit。在 worktree 构建 `frontend/dist`，后端会在自身端口托管它；dev server 的代理目标固定为 1241，与其他实例冲突，所以不用它。worktree 位于主仓目录下，后端会向上读到主仓 `.env`，所以设 `PYTHON_DOTENV_DISABLED=1`，用临时 `ARCREEL_DATA_DIR`、空闲端口和临时登录账号启动后端，不配置供应商凭据。需要真实生成的验收项记为「待部署验证」，交给冒烟。
 
 **部署实例**（冒烟）：地址与登录凭据在 `~/.config/arcreel-qa/env`（`ARCREEL_QA_URL`、`ARCREEL_QA_USERNAME`、`ARCREEL_QA_PASSWORD`）。轮询 `/health`，返回的构建 commit 等于目标 commit 后开始；文件缺失、响应不含构建 commit 或 60 分钟内未就绪时，全部冒烟项记为无法验证（环境故障）。新建项目以 `batch-id` 开头命名，全局设置保持原样，需要改全局设置的项记为无法验证。真实生成每项只做一次，选最便宜的模型与最小规格，失败不重试；累计费用以预算为上限。
 
@@ -29,6 +29,6 @@
 ## 4. 交付
 
 1. 停止本次启动的全部进程，释放端口。
-2. 在证据目录的 `results.md` 中每项一行，包含编号、结论、验收标准出处（issue 号）、目标 commit、证据文件名或复现步骤、实际费用。全量与冒烟新建该文件；复验按编号更新本次验证的项，仍失败且失败特征与更新前相同的项标注**卡住**，其余项与历史证据保持原样。
+2. 在证据目录的 `results.md` 中每项一行，包含编号、结论、验收标准出处（issue 号）、目标 commit、证据文件名或复现步骤、实际费用。全量与冒烟新建该文件；复验按编号更新本次验证的项，其余项与历史证据保持原样。
 3. 按 [handoff.md](handoff.md) 在 stage handoff 追加「QA」段；冒烟写入证据目录的 `results.md` 即可。
-4. 向 team-lead 回报 `results.md` 路径、三类结论的计数与卡住项编号，然后停止。
+4. 向 team-lead 回报 `results.md` 路径与三类结论的计数，然后停止。
