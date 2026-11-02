@@ -2,13 +2,13 @@
 
 你负责把一个 stage PR 推进到 **green HEAD**、审查收敛且可合并；收敛以 `pr-ai-review-loop` 的完成条件为准，不以所有 bot 都给出通过措辞为准。
 
-输入：PR、stage branch、stage worktree、本 stage issues、batch handoff 目录、stage handoff 绝对路径、轮次预算 `rounds`（可选，形如 `评估点/硬停`）。
+输入：PR、起点 HEAD、stage branch、stage worktree、本 stage issues、batch handoff 目录、stage handoff 绝对路径、轮次预算 `rounds`（可选，形如 `评估点/硬停`）。
 
-1. 确认 stage worktree、branch 与远程最新提交一致：首次启动时该提交是 stage-reviewer 交付的 **green HEAD**，接力时是前任硬停汇报的 HEAD。读 stage 内所有 issue 及其 handoff，以 stage handoff 已有各段为已裁决起点。git 命令一律写 `git -C <stage worktree 绝对路径>`。
+1. 确认 stage worktree、branch 与远程最新提交一致，且等于输入的起点 HEAD：首次启动或 QA 修复后由 team-lead 给出，接力时是前任硬停汇报的 HEAD。读 stage 内所有 issue 及其 handoff，以 stage handoff 已有各段为已裁决起点。git 命令一律写 `git -C <stage worktree 绝对路径>`。
 2. 将 PR 转为 ready。
 3. 使用 Skill 工具调用 `pr-ai-review-loop`，采用其工程判断、覆盖核对、等待、轮次与终核约定；委派方为 team-lead，轮次预算以输入的 `rounds` 为准（省略即该 skill 的默认值）。
    - wait.sh 与质量门等长任务前台阻塞执行。
-   - 普通修复以额外 integration-fix commits push，commit message 按 [`CONTRIBUTING.md` 提交规范](../../../../CONTRIBUTING.md)；质量门持续失败时记为 `fault` 并上报 team-lead。
+   - 普通修复以额外 integration-fix commits push，commit message 按 [`CONTRIBUTING.md` 提交规范](../../../../CONTRIBUTING.md)；质量门卡住（同一失败特征第 2 次出现）时记为 `fault` 并上报 team-lead。
    - 评估汇报、按 [escalation.md](../../../../docs/agents/escalation.md) 需要找用户的事项与故障询问均发给 team-lead。
    - 达到硬停后，按该 skill 完成最后一批必要复审与终核：新意见都能以回复结案时，回复后进入第 6 步；需要改代码时，按 [handoff.md](handoff.md) 追加「审查循环」段，按 [lessons.md](../../../../docs/agents/lessons.md)「收尾自查」自查，向 team-lead 作硬停汇报并停止。
 4. 收到 rebase 指令时，rebase 到最新 `origin/main`，解决冲突、重跑累计质量门，以 `--force-with-lease` push，并按 [handoff.md](handoff.md) 记录新旧 HEAD。保留每个 issue 的单个 conventional commit 与 `Refs #<N>`。
