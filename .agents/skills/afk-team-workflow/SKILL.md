@@ -60,7 +60,7 @@ disable-model-invocation: true
 
 ## 4. 收尾
 
-1. **部署冒烟**：全部 stage 合并后，取本批最后一个触发 `docker-edge` 构建的合并 commit 为目标，等该次构建成功（失败时冒烟项记为无法验证：环境故障），由新的 qa-verifier 以冒烟模式在部署实例上验收全批跨 stage 的主路径与各 stage 的「待部署验证」项，费用以授权预算为上限。本批没有合并触发镜像构建时跳过冒烟，待部署验证项转为无法验证。冒烟失败项按 escalation.md「范围外的真缺陷」开 issue 并附证据摘要，不开启修复轮。
+1. **部署冒烟**：全部 stage 合并后，取本批最后一个触发 `docker-edge` 构建的合并 commit 为目标，等该次构建成功，由新的 qa-verifier 以冒烟模式在部署实例上验收全批跨 stage 的主路径与各 stage 的「待部署验证」项，费用以授权预算为上限。冒烟失败项按 escalation.md「范围外的真缺陷」开 issue 并附证据摘要，不开启修复轮。本批没有合并触发镜像构建或该次构建失败时跳过冒烟，待部署验证项转为无法验证；构建失败源于本批代码或依赖时，同样按「范围外的真缺陷」开 issue。
 2. **收尾报告**：按上表发布一条消息，按已合并 stage 组织，列出 PR、QA 与冒烟的结论计数、留 open 的 issue、暂停或跳过项。其后是人工清单：各 `results.md` 中当前结论仍为无法验证的项各附原因（待部署验证项以冒烟结论为准），以及需要用户裁决的事项，后者按 escalation.md「怎么问」的格式合成。两者都为空时省略人工清单。
 3. 移除已认领 issue 的 assignee，清理本批的 agents、worktrees、本地 branches 与 Herdr workspace，最后 append `closed` 账本行。
 
