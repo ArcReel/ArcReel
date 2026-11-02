@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Callable, Generator, Mapping, Sequenc
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from instructor.core import InstructorRetryException
 
@@ -1145,10 +1145,21 @@ def use_generation_context(monkeypatch, resolve: Callable[..., Any]) -> None:
     """生成任务执行链各入口的 ``resolve_generation_context`` 都换成 *resolve*（返回固定上下文的 async 函数）。
 
     生成任务、正式图提交与参考视频任务各自在模块顶部导入这个解析函数，一处换掉就有一条链拿到真实解析。
+
+    ``MagicMock`` 替身生成器没有显式给出 ``choose_reference_image_assets`` 时，按「没有适用的供应商素材关联」
+    补上：每张参考图都照常发送图片内容。选用规则本身由 ``tests/integration/lib/asset_library`` 覆盖。
     """
-    monkeypatch.setattr("server.services.tasks.formal_image_commit.resolve_generation_context", resolve)
-    monkeypatch.setattr("server.services.tasks.generation_tasks.resolve_generation_context", resolve)
-    monkeypatch.setattr("server.services.tasks.reference_video_tasks.resolve_generation_context", resolve)
+
+    async def _resolve(*args, **kwargs):
+        ctx = await resolve(*args, **kwargs)
+        generator = getattr(ctx, "generator", None)
+        if isinstance(generator, MagicMock) and not isinstance(generator.choose_reference_image_assets, AsyncMock):
+            generator.choose_reference_image_assets = AsyncMock(side_effect=lambda sources: (None,) * len(sources))
+        return ctx
+
+    monkeypatch.setattr("server.services.tasks.formal_image_commit.resolve_generation_context", _resolve)
+    monkeypatch.setattr("server.services.tasks.generation_tasks.resolve_generation_context", _resolve)
+    monkeypatch.setattr("server.services.tasks.reference_video_tasks.resolve_generation_context", _resolve)
 
 
 def use_video_thumbnail_extractor(monkeypatch, extract: Callable[..., Any]) -> None:

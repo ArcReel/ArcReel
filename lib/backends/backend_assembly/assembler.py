@@ -29,11 +29,12 @@ async def _load_builtin_config(resolver: ConfigResolver, provider_id: str, rate_
     api_model_name 来源；rate_limiter 由调用方注入（共享实例）。这一段是唯一的 await/DB 触点，
     之后 sync 构造闭包只读信封。
     """
-    db_config = await resolver.provider_config(provider_id)
+    db_config, credential_id = await resolver.provider_config_with_credential(provider_id)
     return LoadedConfig(
         credentials=dict(db_config),
         provider_meta=PROVIDER_REGISTRY.get(provider_id),
         rate_limiter=rate_limiter,
+        credential_id=credential_id,
     )
 
 

@@ -28,6 +28,12 @@ from lib.backends.backend_runtime import (
     reference_audio_to_data_uri,
     should_retry_download,
 )
+from lib.backends.provider_assets import (
+    REFERENCE_IMAGE_ROLE,
+    InferenceCredentialRef,
+    ProviderInputImageRejectedError,
+    is_input_image_rejection,
+)
 from lib.backends.providers import PROVIDER_ARK
 from lib.backends.transport_layer import TransportLayer
 from lib.backends.video_backends.metering import video_usage
@@ -142,6 +148,50 @@ def _safe_create_params_for_log(create_params: dict[str, Any]) -> dict[str, Any]
     return view
 
 
+def _reference_asset_uris(request: VideoGenerationRequest) -> list[str | None]:
+    """与参考图等长同序的素材引用；请求没有给出时全部为 None。"""
+    refs = request.reference_images or []
+    uris = request.reference_image_asset_uris
+    if uris is None:
+        return [None] * len(refs)
+    if len(uris) != len(refs):
+        raise ValueError("reference_image_asset_uris must align with reference_images")
+    return list(uris)
+
+
+def _input_image_rejection(
+    request: VideoGenerationRequest, provider_code: object, provider_reason: object
+) -> ProviderInputImageRejectedError | None:
+    """方舟以「输入图片未通过审核」拒绝时的结构化错误；其他错误返回 None。
+
+    方舟的错误不给出被拒图片的位置，所以只有请求里恰好一张图片时才能确定是哪一张：这时点名它，
+    其余情况不猜测。
+    """
+    if not is_input_image_rejection(provider_code):
+        return None
+    refs = request.reference_images or []
+    frames = [image for image in (request.start_image, request.end_image) if image]
+    reference_index = 0 if len(refs) == 1 and not frames else None
+    asset_uris = _reference_asset_uris(request)
+    return ProviderInputImageRejectedError(
+        provider_code=str(provider_code),
+        provider_reason=provider_reason if isinstance(provider_reason, str) and provider_reason else None,
+        reference_index=reference_index,
+        sent_as_asset=reference_index is not None and asset_uris[reference_index] is not None,
+    )
+
+
+def _task_failure(task: Any, request: VideoGenerationRequest) -> str | None:
+    """轮询到的终态失败：输入图片被拒时抛结构化错误，其余失败返回原因文本，未失败返回 None。"""
+    if task.status not in ("failed", "expired"):
+        return None
+    error = getattr(task, "error", None)
+    rejection = _input_image_rejection(request, getattr(error, "code", None), getattr(error, "message", None))
+    if rejection is not None:
+        raise rejection
+    return f"Ark 视频生成失败(status={task.status}): {error or 'Unknown error'}"
+
+
 class ArkVideoBackend(ProviderJobIdPersistenceMixin):
     """Ark (火山方舟) 视频生成后端。"""
 
@@ -152,6 +202,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         model: str | None = None,
         base_url: str | None = None,
         transport_layer: TransportLayer | None = None,
+        inference_credential: InferenceCredentialRef | None = None,
     ):
         self._client = create_ark_client(api_key=api_key, base_url=base_url, transport_layer=transport_layer)
         self._transport_layer = transport_layer
@@ -171,10 +222,28 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
         # 音频用），两者不可互换。这是 backend 内部的运输细节，不进 VideoCapabilities——后者只
         # 声明调用方需要据以取舍的输入路径。
         self._supports_service_tier = self._accepts_service_tier(self._model)
+        self._inference_credential = inference_credential
 
     @property
     def name(self) -> str:
         return PROVIDER_ARK
+
+    @property
+    def inference_credential(self) -> InferenceCredentialRef | None:
+        """本实例发请求实际使用的推理凭证，素材库按它的绑定选用供应商素材；装配时没有给出则为 None。"""
+        return self._inference_credential
+
+    @property
+    def provider_asset_roles(self) -> frozenset[str]:
+        """当前模型可以用 ``asset://`` 素材引用代替图片内容的槽位。
+
+        官方《Seedance 人像素材使用指南》只给出 Seedance 2.0 / 2.5 在 ``reference_image`` 槽位使用素材 ID 的
+        契约，没有说明首帧、尾帧，也没有说明 1.x 系列，所以只为 2.x 的参考图槽位声明。未声明的槽位照常发送
+        图片内容。
+        """
+        if self._is_seedance_2(self._model) or self._is_seedance_2_5(self._model):
+            return frozenset({REFERENCE_IMAGE_ROLE})
+        return frozenset()
 
     @property
     def model(self) -> str:
@@ -407,7 +476,15 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
 
     async def generate(self, request: VideoGenerationRequest) -> VideoGenerationResult:
         """生成视频。任务创建和轮询阶段分离重试，避免瞬态错误导致重建任务。"""
-        provider_task_id = await self._create_task(request)
+        try:
+            provider_task_id = await self._create_task(request)
+        except Exception as exc:
+            body = getattr(exc, "body", None)
+            reason = body.get("message") if isinstance(body, dict) else getattr(exc, "message", None)
+            rejection = _input_image_rejection(request, getattr(exc, "code", None), reason)
+            if rejection is not None:
+                raise rejection from exc
+            raise
         # 一并写回本次实际请求的域名：续跑据此回放，否则在途改了 base_url 会按新域名去查旧任务。
         await self._persist_provider_job_id(request, provider_task_id, provider=PROVIDER_ARK, endpoint=self._base_url)
         return await self._poll_until_done(provider_task_id, request)
@@ -532,7 +609,15 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             )
 
         if request.reference_images:
-            missing = [p for r in request.reference_images if not (p := Path(r)).is_file()]
+            asset_uris = _reference_asset_uris(request)
+            if any(asset_uris) and REFERENCE_IMAGE_ROLE not in self.provider_asset_roles:
+                raise ValueError(f"model {self._model} does not accept provider asset references")
+            # 以素材引用发出的参考图不读本地内容，只核对其余参考图。
+            missing = [
+                p
+                for r, uri in zip(request.reference_images, asset_uris, strict=True)
+                if uri is None and not (p := Path(r)).is_file()
+            ]
             if missing:
                 # 与尾帧同理：少一张参考图仍会出片并计费，成片里的角色/场景却已跑偏。
                 raise VideoCapabilityError(
@@ -540,13 +625,14 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
                     model=self._model,
                     names=", ".join(p.name or str(p) for p in missing),
                 )
+            # 素材引用就地替换同一位置的图片内容，不增删、不重排：提示词里的「图片N」仍指向第 N 个参考图条目。
             content.extend(
                 {
                     "type": "image_url",
-                    "image_url": {"url": image_to_base64_data_uri(Path(ref_path))},
+                    "image_url": {"url": uri if uri is not None else image_to_base64_data_uri(Path(ref_path))},
                     "role": "reference_image",
                 }
-                for ref_path in request.reference_images
+                for ref_path, uri in zip(request.reference_images, asset_uris, strict=True)
             )
         return content
 
@@ -574,11 +660,7 @@ class ArkVideoBackend(ProviderJobIdPersistenceMixin):
             result = await poll_with_retry(
                 poll_fn=lambda: asyncio.to_thread(client.content_generation.tasks.get, task_id=task_id),
                 is_done=lambda r: r.status == "succeeded",
-                is_failed=lambda r: (
-                    f"Ark 视频生成失败(status={r.status}): {getattr(r, 'error', None) or 'Unknown error'}"
-                    if r.status in ("failed", "expired")
-                    else None
-                ),
+                is_failed=lambda r: _task_failure(r, request),
                 max_wait=request.poll_timeout_seconds,
                 label="Ark",
                 on_progress=lambda r, elapsed: logger.info(

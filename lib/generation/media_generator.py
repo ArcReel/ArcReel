@@ -19,7 +19,7 @@ import logging
 import os
 import tempfile
 import uuid
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -28,6 +28,7 @@ from PIL import Image
 
 if TYPE_CHECKING:
     from arcreel_market_core.video_backend_contract import VideoGenerationResult
+    from lib.asset_library.generation_inputs import ReferenceAssetChoice, ReferenceImageSource
     from lib.backends.audio_backends.base import AudioBackend
     from lib.backends.image_backends.base import ImageBackend
     from lib.config.resolver import ConfigResolver
@@ -191,6 +192,28 @@ def _ledger_inputs(**sections: object) -> dict[str, Any] | None:
     """丢掉空分组后的 ``inputs`` 值；全空时给 None，让记账列留空而不是写一个空对象。"""
     kept = {key: value for key, value in sections.items() if value not in (None, [], {})}
     return kept or None
+
+
+def _aligned_reference_asset_uris(
+    backend: object,
+    reference_images: list[Path] | None,
+    asset_uris: list[str | None] | None,
+    *,
+    model: str,
+) -> list[str | None] | None:
+    """校验与参考图对齐的素材引用；没有任何一项时返回 None，请求照常只发图片内容。
+
+    素材引用只能交给对参考图槽位声明了素材引用的 backend：其余 backend 不读这个字段，会悄悄改发图片内容。
+    """
+    from lib.backends.provider_assets import REFERENCE_IMAGE_ROLE, provider_asset_roles
+
+    if asset_uris is None or not any(asset_uris):
+        return None
+    if len(asset_uris) != len(reference_images or []):
+        raise ValueError("reference_image_asset_uris must align with reference_images")
+    if REFERENCE_IMAGE_ROLE not in provider_asset_roles(backend):
+        raise ValueError(f"video backend model {model} does not accept provider asset references")
+    return list(asset_uris)
 
 
 def _merge_result_provenance(version_metadata: dict[str, Any], result: "VideoGenerationResult") -> None:
@@ -918,6 +941,27 @@ class MediaGenerator:
         finally:
             await _discard_staged_output(staged_path)
 
+    async def choose_reference_image_assets(
+        self, sources: "Sequence[ReferenceImageSource]"
+    ) -> "tuple[ReferenceAssetChoice | None, ...]":
+        """按视频 backend 实际使用的推理凭证，为将要发出的参考图选用供应商素材关联。
+
+        与 ``sources`` 等长同序；可用关联给出素材引用，没有适用关联为 None。适用关联尚未可用或入库失败时抛
+        :class:`~lib.asset_library.generation_inputs.ProviderAssetLinkUnavailableError`，不改发图片内容。
+        """
+        from lib.asset_library.generation_inputs import choose_reference_image_assets
+        from lib.db import async_session_factory
+
+        if self._video_backend is None:
+            raise RuntimeError("video_backend not configured")
+        return await choose_reference_image_assets(
+            async_session_factory,
+            backend=self._video_backend,
+            project_name=self.project_name,
+            project_path=self.project_path,
+            sources=sources,
+        )
+
     async def generate_video_async(
         self,
         prompt: str,
@@ -926,6 +970,7 @@ class MediaGenerator:
         start_image: str | Path | Image.Image | None = None,
         end_image: Path | None = None,
         reference_images: list[Path] | None = None,
+        reference_image_asset_uris: list[str | None] | None = None,
         reference_audio_files: list[Path] | None = None,
         reference_audio_targets: list[int] | None = None,
         aspect_ratio: str = "9:16",
@@ -950,6 +995,8 @@ class MediaGenerator:
             start_image: 起始帧图片（image-to-video 模式）
             end_image: 结束帧图片（first_last 模式）
             reference_images: 参考图片列表（multi-reference 模式）
+            reference_image_asset_uris: 与 reference_images 等长同序；第 i 项非 None 时第 i 张参考图以该供应商
+                素材引用发出，不上传图片内容，也不进压缩与字节预检。只能交给对参考图槽位声明了素材引用的 backend
             reference_audio_files: 参考音频列表（音色复刻），顺序即 prompt 中「音频N」的指认顺序
             reference_audio_targets: 与 reference_audio_files 等长同序，第 i 项是该段音频对应
                 reference_images 的下标（0-based）；仅 backend 声明 reference_audio_per_image
@@ -1028,11 +1075,18 @@ class MediaGenerator:
             if reference_audio_files and video_caps.max_reference_audio_total_seconds is not None
             else None
         )
+        asset_uris = _aligned_reference_asset_uris(
+            self._video_backend, reference_images, reference_image_asset_uris, model=model_name
+        )
         slot_plan = plan_frame_slots(
             start_image=start_image,
             end_image=end_image,
             reference_images=reference_images,
         )
+        if asset_uris is not None and slot_plan.reference_start_index is not None:
+            for offset, uri in enumerate(asset_uris):
+                if uri is not None:
+                    slot_plan.specs[slot_plan.reference_start_index + offset].provider_asset = True
         gate_video_request(
             caps=video_caps,
             provider=self._video_backend.name,
@@ -1095,7 +1149,10 @@ class MediaGenerator:
                 inputs=_ledger_inputs(
                     reference_images=[
                         {"path": rel, "label": None, "role": "array"}
-                        for ref in (reference_images or [])
+                        | ({"provider_asset": uri} if uri is not None else {})
+                        for ref, uri in zip(
+                            reference_images or [], asset_uris or [None] * len(reference_images or []), strict=True
+                        )
                         if (rel := _project_relative_path(self.project_path, ref)) is not None
                     ],
                     start_image=_project_relative_path(self.project_path, start_image),
@@ -1144,6 +1201,8 @@ class MediaGenerator:
                     start_image=start_arg,
                     end_image=end_arg,
                     reference_images=ref_arg,
+                    # 压缩保序保数，素材引用项按原路径透传，按 reference_images 下标对齐的引用对 ref_arg 同样有效。
+                    reference_image_asset_uris=asset_uris,
                     # 音频不进压缩器（specs 只收图片），故直接透传原列表：顺序即 prompt
                     # 「音频N」的指认顺序，任何重排都会把 A 角色的音色安到 B 角色头上。
                     reference_audio_files=reference_audio_files,

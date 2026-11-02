@@ -1107,6 +1107,14 @@ class ConfigResolver:
         async with self._open_session() as (session, svc):
             return await self._resolve_provider_config(svc, session, provider_id)
 
+    async def provider_config_with_credential(self, provider_id: str) -> tuple[dict[str, str], int | None]:
+        """获取单个供应商配置，连同叠加进来的生效凭证记录 ID；没有生效凭证时 ID 为 None。
+
+        两者在同一次读取里取得：素材库绑定按凭证记录与它的实际内容核对，分开读会在中途切换凭证时对不上。
+        """
+        async with self._open_session() as (session, svc):
+            return await self._resolve_provider_config_and_credential(svc, session, provider_id)
+
     async def all_provider_configs(self) -> dict[str, dict[str, str]]:
         """批量获取所有供应商配置。"""
         async with self._open_session() as (session, svc):
@@ -1714,13 +1722,22 @@ class ConfigResolver:
         session: AsyncSession,
         provider_id: str,
     ) -> dict[str, str]:
+        config, _credential_id = await self._resolve_provider_config_and_credential(svc, session, provider_id)
+        return config
+
+    async def _resolve_provider_config_and_credential(
+        self,
+        svc: ConfigService,
+        session: AsyncSession,
+        provider_id: str,
+    ) -> tuple[dict[str, str], int | None]:
         config = await svc.get_provider_config(provider_id)
         cred_repo = CredentialRepository(session)
         active = await cred_repo.get_active(provider_id)
         if active:
             # 凭证叠加会探测 Vertex 凭证文件是否存在，放进工作线程。
             await asyncio.to_thread(active.overlay_config, config)
-        return config
+        return config, active.id if active else None
 
     async def _resolve_reference_payload_limits(
         self,

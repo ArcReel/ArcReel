@@ -26,6 +26,7 @@ from lib.backends.image_backends.base import (
     ImageGenerationRequest,
     ImageGenerationResult,
 )
+from lib.backends.provider_assets import InferenceCredentialRef, inference_credential, provider_asset_roles
 from lib.backends.text_backends.base import TextBackend, TextCapability, TextGenerationRequest, TextGenerationResult
 from lib.billing.metering import Usage
 from lib.custom_provider.metering import custom_video_usage, with_image_counts
@@ -236,6 +237,16 @@ class CustomVideoBackend:
         if self._video_capabilities is not None:
             return self._video_capabilities
         return self._delegate.video_capabilities
+
+    @property
+    def inference_credential(self) -> InferenceCredentialRef | None:
+        """被包装协议 backend 发请求所用的推理凭证，即这个自定义供应商的配置。"""
+        return inference_credential(self._delegate)
+
+    @property
+    def provider_asset_roles(self) -> frozenset[str]:
+        """沿用被包装协议 backend 的素材引用声明：能否发 ``asset://`` 取决于调用协议与模型，不随包装改变。"""
+        return provider_asset_roles(self._delegate)
 
     def video_capabilities_for_tier(self, service_tier: str, resolution: str | None = None) -> VideoCapabilities:
         """按请求档位收窄能力：以被包装 backend（如 Kling）的档位感知查询为基底——

@@ -38,6 +38,7 @@ from lib.backends.image_backends.openrouter import IMAGES_PATH as OPENROUTER_IMA
 from lib.backends.image_backends.openrouter import MODELS_PATH as OPENROUTER_MODELS_PATH
 from lib.backends.image_backends.openrouter import OpenRouterImageBackend
 from lib.backends.minimax_shared import minimax_text_base_url
+from lib.backends.provider_assets import InferenceCredentialRef
 from lib.backends.text_backends.anthropic import AnthropicTextBackend
 from lib.backends.text_backends.gemini import GeminiTextBackend
 from lib.backends.text_backends.openai import OpenAITextBackend
@@ -633,12 +634,35 @@ def _ensure_url_path_suffix(base_url: str | None, suffix: str) -> str | None:
     return normalized + suffix
 
 
+def _custom_inference_credential(provider) -> InferenceCredentialRef | None:
+    """自定义供应商作为推理凭证的引用；尚未入库（没有记录 ID）的供应商没有可绑定的记录。
+
+    素材库绑定按自定义供应商记录与它配置里的原始 Base URL 确认（见 ``lib.asset_library.bindings``），
+    不按补全 ``/api/v3`` 后的请求地址。
+    """
+    credential_id = getattr(provider, "id", None)
+    if not isinstance(credential_id, int) or isinstance(credential_id, bool):
+        return None
+    return InferenceCredentialRef(
+        credential_type="custom",
+        credential_id=credential_id,
+        api_key=provider.api_key or "",
+        base_url=provider.base_url,
+    )
+
+
 def _build_ark_seedance(
     provider, model_id: str, path_overrides: PathOverrides = NO_PATH_OVERRIDES
 ) -> CustomVideoBackend:
     base_url = _ensure_url_path_suffix(provider.base_url, "/api/v3")
     layer = path_override_layer(_ARK_SEEDANCE_REQUESTS, path_overrides, provider.base_url, base_url, model_id)
-    delegate = ArkVideoBackend(api_key=provider.api_key, base_url=base_url, model=model_id, transport_layer=layer)
+    delegate = ArkVideoBackend(
+        api_key=provider.api_key,
+        base_url=base_url,
+        model=model_id,
+        transport_layer=layer,
+        inference_credential=_custom_inference_credential(provider),
+    )
     return CustomVideoBackend(provider_id=provider.provider_id, delegate=delegate, model=model_id)
 
 
