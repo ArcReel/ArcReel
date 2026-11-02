@@ -4,6 +4,7 @@ from lib.db.models.agent_credential import AgentAnthropicCredential
 from lib.db.models.api_call import ApiCall
 from lib.db.models.api_key import ApiKey
 from lib.db.models.asset import Asset, AssetDerivative
+from lib.db.models.asset_library import AssetLibraryAccount, AssetLibraryBinding
 from lib.db.models.builtin_provider_model import BuiltinProviderModelState
 from lib.db.models.catalog_official_sync import CatalogOfficialSync
 from lib.db.models.catalog_user_entry import CatalogUserEntry
@@ -14,6 +15,7 @@ from lib.db.models.custom_provider import CustomProvider, CustomProviderModel
 from lib.db.models.market_installation import MarketInstallation
 from lib.db.models.market_source import MarketSource
 from lib.db.models.market_submission import MarketSubmission
+from lib.db.models.object_storage import ObjectStorageConnection
 from lib.db.models.session import AgentSession
 from lib.db.models.session_event import AgentSessionEventLogEntry
 from lib.db.models.session_message_link import AgentSessionUserMessageLink
@@ -29,6 +31,8 @@ __all__ = [
     "ApiKey",
     "Asset",
     "AssetDerivative",
+    "AssetLibraryAccount",
+    "AssetLibraryBinding",
     "BatchTask",
     "BuiltinProviderModelState",
     "CatalogOfficialSync",
@@ -40,6 +44,7 @@ __all__ = [
     "MarketInstallation",
     "MarketSource",
     "MarketSubmission",
+    "ObjectStorageConnection",
     "ProviderConfig",
     "ProviderCredential",
     "SystemSetting",

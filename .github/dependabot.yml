@@ -65,6 +65,7 @@ updates:
           - "google-genai"
           - "openai"
           - "volcengine-python-sdk*"
+          - "tos"
           - "xai-sdk"
           - "instructor"
         update-types:

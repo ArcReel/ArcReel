@@ -13,6 +13,7 @@ export const SETTINGS_SECTIONS = [
   "providers",
   "default-models",
   "endpoints",
+  "asset-library",
   "arcreel-agent",
   "agent-memory",
   "external-agent",

@@ -86,4 +86,5 @@ export default {
   'item_position_of_total': '{{position}} / {{total}}',
   'item_internal_id': 'Internal ID {{id}}',
   'item_agent_ref': '{{label}} (ID {{id}})',
+  "error_details": "Details",
 };

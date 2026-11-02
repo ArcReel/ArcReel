@@ -156,6 +156,10 @@ def setup_logging(level: str | None = None, *, file: bool = True) -> None:
     # 抑制 aiosqlite 的 DEBUG 噪音（每次 SQL 操作都会输出两行日志）
     logging.getLogger("aiosqlite").setLevel(max(numeric_level, logging.INFO))
 
+    # TOS SDK 在 INFO 级别记录重试时会带上请求体（上传的对象内容），DEBUG 级别记录签名过程；
+    # 媒体内容与签名不进普通诊断日志，只放行 WARNING 及以上。
+    logging.getLogger("tos").setLevel(max(numeric_level, logging.WARNING))
+
 
 def attach_file_handler(formatter: logging.Formatter | None = None) -> None:
     """为 root logger 挂 TimedRotatingFileHandler（默认开启，按天切，保留 7 份）。
