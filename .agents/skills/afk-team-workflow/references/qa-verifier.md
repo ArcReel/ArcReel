@@ -14,7 +14,7 @@
 
 ## 2. 准备环境
 
-**本地实例**（全量、复验）：确认 stage worktree 位于目标 commit。在 worktree 构建 `frontend/dist`，后端会在自身端口托管它；dev server 的代理目标固定为 1241，与其他实例冲突，所以不用它。用临时 `ARCREEL_DATA_DIR`、空闲端口和临时登录账号启动后端，不配置供应商凭据。需要真实生成的验收项记为「待部署验证」，交给冒烟。
+**本地实例**（全量、复验）：确认 stage worktree 位于目标 commit。在 worktree 构建 `frontend/dist`，后端会在自身端口托管它；dev server 的代理目标固定为 1241，与其他实例冲突，所以不用它。启动后端时设 `PYTHON_DOTENV_DISABLED=1` 并清除 `DATABASE_URL`，使配置只来自本次给定的环境：临时 `ARCREEL_DATA_DIR`、空闲端口和临时登录账号，不配置供应商凭据。需要真实生成的验收项记为「待部署验证」，交给冒烟。
 
 **部署实例**（冒烟）：地址与登录凭据在 `~/.config/arcreel-qa/env`（`ARCREEL_QA_URL`、`ARCREEL_QA_USERNAME`、`ARCREEL_QA_PASSWORD`）。轮询 `/health`，返回的构建 commit 等于目标 commit 后开始；文件缺失、响应不含构建 commit 或 60 分钟内未就绪时，全部冒烟项记为无法验证（环境故障）。新建项目以 `batch-id` 开头命名，全局设置保持原样，需要改全局设置的项记为无法验证。真实生成每项只做一次，选最便宜的模型与最小规格，失败不重试；累计费用以预算为上限。
 
