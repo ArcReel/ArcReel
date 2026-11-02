@@ -361,7 +361,7 @@ export default {
   "provider_asset_link_failure_provider": "The provider did not finish ingesting the image ({{reason}}). Unlink it to upload again.",
   "provider_asset_link_failure_unlinked_before_submit": "Unlinked before submission; nothing was submitted.",
   "provider_asset_link_failure_account_missing": "The asset library account was deleted; nothing was submitted.",
-  "provider_asset_link_failure_account_scope_changed": "The account's site, region, or project changed; nothing was submitted.",
+  "provider_asset_link_failure_account_scope_changed": "The account's Access Key, site, region, or project changed; nothing was submitted.",
   "provider_asset_link_failure_object_storage_missing": "The object storage connection was removed; nothing was submitted.",
   "provider_asset_link_failure_content_unavailable": "The image version file is missing; nothing was submitted.",
   "provider_asset_link_failure_content_changed": "The image version file no longer matches its record; nothing was submitted.",

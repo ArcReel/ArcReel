@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from lib.artifacts.version_manager import VersionManager
-from lib.asset_library.bindings import confirm_binding, get_bindable_credential
+from lib.asset_library.bindings import account_scope, confirm_binding, get_bindable_credential
 from lib.asset_library.generation_inputs import (
     ProviderAssetLinkUnavailableError,
     ReferenceImageSource,
@@ -86,6 +86,7 @@ class _World:
                     locator_path="versions/x.png",
                     origin=origin,
                     account_id=account.id,
+                    account_identity=account_scope(account).account_identity,
                     site=account.site,
                     region=account.region,
                     provider_project_name=account.project_name,

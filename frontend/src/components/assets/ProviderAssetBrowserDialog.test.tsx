@@ -75,6 +75,7 @@ const IMPORTED: ProviderAssetImportResult = {
     content_version_id: "cv-2",
     version: 2,
     account_id: 7,
+    scope_key: "scope-7",
     site: "volcengine",
     region: "cn-beijing",
     provider_project_name: "film",

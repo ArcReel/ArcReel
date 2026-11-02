@@ -13,6 +13,7 @@ function link(overrides: Partial<ProviderAssetLink> = {}): ProviderAssetLink {
     content_version_id: "cv-a",
     version: 2,
     account_id: 7,
+    scope_key: "scope-7",
     site: "volcengine",
     region: "cn-beijing",
     provider_project_name: "film",
@@ -35,7 +36,7 @@ function panel(links: ProviderAssetLink[], overrides: Partial<ProviderAssetLinkP
   return {
     content_version: { id: "cv-a", version: 2, digest: "d" },
     object_storage_configured: true,
-    accounts: [{ id: 7, name: "主账号", site: "volcengine", region: "cn-beijing", project_name: "film" }],
+    accounts: [{ id: 7, scope_key: "scope-7", name: "主账号", site: "volcengine", region: "cn-beijing", project_name: "film" }],
     links,
     ...overrides,
   };
@@ -132,8 +133,8 @@ describe("ProviderAssetUploadDialog", () => {
         {
           object_storage_configured: false,
           accounts: [
-            { id: 7, name: "主账号", site: "volcengine", region: "cn-beijing", project_name: "film" },
-            { id: 8, name: "海外账号", site: "byteplus", region: "ap-southeast-1", project_name: "default" },
+            { id: 7, scope_key: "scope-7", name: "主账号", site: "volcengine", region: "cn-beijing", project_name: "film" },
+            { id: 8, scope_key: "scope-8", name: "海外账号", site: "byteplus", region: "ap-southeast-1", project_name: "default" },
           ],
         },
       ),
@@ -145,5 +146,17 @@ describe("ProviderAssetUploadDialog", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/上传需要经你的对象存储中转/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "上传到 BytePlus 素材库" })).toBeDisabled();
+  });
+
+  it("账号换成另一个云账号的 Access Key 后，旧关联单列为历史范围，账号行可以重新上传", async () => {
+    vi.spyOn(API, "getProviderAssetLinks").mockResolvedValue(
+      panel([link({ state: "active", usable: true, polling: false, provider_asset_id: "TEST-asset-a" })], {
+        accounts: [{ id: 7, scope_key: "scope-7-new-key", name: "主账号", site: "volcengine", region: "cn-beijing", project_name: "film" }],
+      }),
+    );
+
+    renderDialog();
+    expect(await screen.findByText("账号范围已变更或账号已删除")).toBeInTheDocument();
+    expect(screen.getByText("未关联")).toBeInTheDocument();
   });
 });

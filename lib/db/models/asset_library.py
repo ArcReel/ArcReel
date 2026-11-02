@@ -59,9 +59,11 @@ class ProviderAssetLink(TimestampMixin, Base):
     """一个内容版本与供应商素材之间的关联，连同建立它的入库任务。
 
     关联属于 ``project_name`` 项目里的 ``content_version_id`` 内容版本：内容版本身份只在项目内唯一，
-    归档导入会原样带上版本记录，所以键必须带项目。``account_id`` / ``site`` / ``region`` /
-    ``provider_project_name`` 是提交时的调用范围，账号之后被修改或删除也不重解释；账号 ID 不回收，
-    故不建外键。取得供应商素材 ID 之前，记录已经存在并表示入库任务。
+    归档导入会原样带上版本记录，所以键必须带项目。``account_identity`` / ``site`` / ``region`` /
+    ``provider_project_name`` 是提交时的调用范围，账号之后被修改或删除也不重解释：账号记录可以原地换成
+    另一个云账号的 Access Key，所以范围按冻结的云账号身份判断，不按 ``account_id``。``account_id`` 只记
+    经哪条账号记录提交、之后经它查询状态；账号 ID 不回收，故不建外键。取得供应商素材 ID 之前，记录已经
+    存在并表示入库任务。
 
     每个内容版本在同一调用范围内至多一条 ``selected`` 记录，即当前选定的关联或入库任务；解除关联
     清掉 ``selected`` 并记下 ``unlinked_at``，之后的状态查询只更新事实，不恢复选定。
@@ -73,7 +75,7 @@ class ProviderAssetLink(TimestampMixin, Base):
             "uq_provider_asset_link_selected",
             "project_name",
             "content_version_id",
-            "account_id",
+            "account_identity",
             "site",
             "region",
             "provider_project_name",
@@ -98,6 +100,8 @@ class ProviderAssetLink(TimestampMixin, Base):
     locator_path: Mapped[str] = mapped_column(Text, nullable=False)
     origin: Mapped[str] = mapped_column(String(16), nullable=False)  # "upload" / "import"
     account_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 提交或导入时账号所属云账号的身份摘要（lib.asset_library.bindings.account_identity），不含任何密钥。
+    account_identity: Mapped[str] = mapped_column(String(64), nullable=False)
     site: Mapped[str] = mapped_column(String(16), nullable=False)
     region: Mapped[str] = mapped_column(String(64), nullable=False)
     provider_project_name: Mapped[str] = mapped_column(String(128), nullable=False)

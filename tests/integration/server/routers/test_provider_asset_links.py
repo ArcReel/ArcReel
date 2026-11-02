@@ -29,13 +29,16 @@ from tos.exceptions import TosServerError
 
 from lib.artifacts import version_manager
 from lib.asset_library import importing, ingest
-from lib.asset_library.links import account_scope, selected_link
+from lib.asset_library.bindings import resolve_bound_scope
+from lib.asset_library.links import account_scope, scope_of, selected_link
+from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.resolver import ConfigResolver
 from lib.db import get_async_session
 from lib.db.base import utc_now
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.models.object_storage import RelayObject
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
+from lib.db.repositories.credential_repository import CredentialRepository
 from lib.db.repositories.object_storage_repo import ObjectStorageConnectionRepository
 from lib.object_storage import client as storage_client
 from lib.project.project_manager import ProjectManager
@@ -45,7 +48,7 @@ from server.agent_toolset.remote import remote_tool
 from server.agent_toolset.toolset import AGENT_TOOLSET
 from server.auth import CurrentUserInfo, get_current_user
 from server.error_handlers import register_error_handlers
-from server.routers import files, provider_asset_links, versions
+from server.routers import asset_library, files, provider_asset_links, versions
 from server.services.project.workflow_planner import WorkflowPlanner
 from server.tool_runtime import CallerContext, ProjectScope, Services
 from tests.auth_deps import AUTH_DEPENDENCIES
@@ -158,7 +161,7 @@ def api(sessions, project) -> Generator[TestClient]:
 
     app.dependency_overrides[get_async_session] = _session
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="testuser", role="admin")
-    for router in (files.router, versions.router, provider_asset_links.router):
+    for router in (files.router, versions.router, provider_asset_links.router, asset_library.router):
         app.include_router(router, prefix="/api/v1", dependencies=AUTH_DEPENDENCIES)
     register_error_handlers(app)
     with TestClient(app) as client:
@@ -396,6 +399,99 @@ async def test_interrupted_submission_is_treated_as_uncertain_after_restart(api,
 
     assert await ingest.recover_interrupted(sessions) == 1
     assert (await _link(sessions, job["id"])).state == "uncertain"
+
+
+ACCOUNTS = "/api/v1/asset-library/accounts"
+INFERENCE_KEY = "TEST-inference-key-0003"
+
+
+def _switch_account_key(api: TestClient, account_id: int) -> None:
+    """经设置页接口把账号记录原地换成另一个云账号的 Access Key。"""
+    resp = api.patch(
+        f"{ACCOUNTS}/{account_id}",
+        json={"access_key_id": "TEST-CONTROL-PLANE-AK-OTHER", "secret_access_key": "TEST-SECRET-OTHER"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+async def _bound_scope(sessions, credential_id: int):
+    async with sessions() as session:
+        return await resolve_bound_scope(
+            session,
+            credential_type="builtin",
+            credential_id=credential_id,
+            api_key=INFERENCE_KEY,
+            base_url=None,
+            default_base_url=PROVIDER_REGISTRY["ark"].default_base_url,
+        )
+
+
+async def test_reconfirmed_binding_after_key_change_does_not_select_the_old_accounts_asset(api, sessions, bucket):
+    """账号记录换成另一个云账号的 Key 并重新确认绑定后，旧账号的素材 ID 不再被选中；旧关联保留原范围。"""
+    account_id = await _configure(sessions)
+    async with sessions() as session:
+        credential = await CredentialRepository(session).create(provider="ark", name="TEST-ark", api_key=INFERENCE_KEY)
+        await session.commit()
+    binding = f"/api/v1/asset-library/bindings/builtin/{credential.id}"
+    assert api.put(binding, json={"account_id": account_id}).status_code == 200
+    _upload_sheet(api, solid_png_bytes((40, 50, 60), size=(400, 400)))
+    content_version_id = _panel(api)["content_version"]["id"]
+    job = _start_upload(api, account_id)
+    await _run(sessions, ControlPlane(asset_status=[{"Status": "Active"}]), utc_now())
+    await _run(sessions, ControlPlane(asset_status=[{"Status": "Active"}]), utc_now() + timedelta(minutes=1))
+    old = await _link(sessions, job["id"])
+    assert old.state == "active"
+    scope_a = await _bound_scope(sessions, credential.id)
+    assert scope_a is not None
+
+    _switch_account_key(api, account_id)
+    assert await _bound_scope(sessions, credential.id) is None
+    assert api.put(binding, json={"account_id": account_id}).status_code == 200
+    scope_b = await _bound_scope(sessions, credential.id)
+    assert scope_b is not None
+    assert scope_b.account_id == account_id
+    async with sessions() as session:
+        assert (
+            await selected_link(session, project_name="demo", content_version_id=content_version_id, scope=scope_b)
+            is None
+        )
+        # 旧关联不删除、不改写，仍属于原账号身份的范围
+        kept = await selected_link(session, project_name="demo", content_version_id=content_version_id, scope=scope_a)
+    assert kept is not None
+    assert kept.id == job["id"]
+    assert scope_of(kept) == scope_a
+
+    # 面板把旧关联单列为另一范围，账号行可以为新身份重新上传
+    panel = _panel(api)
+    [shown] = panel["links"]
+    [account] = panel["accounts"]
+    assert shown["scope_key"] != account["scope_key"]
+    again = _start_upload(api, account_id)
+    assert again["id"] != job["id"]
+
+
+async def test_tasks_submitted_under_the_old_key_are_not_advanced_with_the_new_key(api, sessions, bucket):
+    """处理中与待提交的任务都不能用换过的 Key 推进：不建素材、不查询，也不把新账号的结果写进旧关联。"""
+    account_id = await _configure(sessions)
+    _upload_sheet(api, solid_png_bytes((70, 80, 90), size=(400, 400)))
+    processing = _start_upload(api, account_id)
+    t0 = utc_now()
+    await _run(sessions, ControlPlane(), t0)
+    assert (await _link(sessions, processing["id"])).state == "processing"
+    _upload_sheet(api, solid_png_bytes((90, 80, 70), size=(400, 400)))
+    pending = _start_upload(api, account_id)
+    relays_before = len(bucket["objects"])
+
+    _switch_account_key(api, account_id)
+    control = ControlPlane(asset_status=[{"Status": "Active"}])
+    await _run(sessions, control, t0 + timedelta(minutes=10))
+
+    assert control.calls == []
+    assert len(bucket["objects"]) == relays_before
+    failed = await _link(sessions, pending["id"])
+    assert (failed.state, failed.error_code) == ("failed", "account_scope_changed")
+    stalled = await _link(sessions, processing["id"])
+    assert (stalled.state, stalled.check_error, stalled.next_check_at) == ("processing", "account_unavailable", None)
 
 
 async def test_provider_rejection_keeps_reason_and_relay_is_cleaned_with_retry(api, sessions, bucket):

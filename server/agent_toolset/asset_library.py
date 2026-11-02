@@ -23,7 +23,7 @@ from server.media_tools.provider_assets import (
 )
 
 _LINK_FIELDS = (
-    "每条关联含 id、account_id、version、state（pending 等待上传、submitting 提交中、processing 供应商处理中、"
+    "每条关联含 id、account_id、scope_key、version、state（pending 等待上传、submitting 提交中、processing 供应商处理中、"
     "uncertain 提交结果待查回、active 可用、failed 失败）、usable、provider_asset_id、error_code、error_message"
     " 与 polling（false 且状态未定时后台已停止自动查询）。"
 )
@@ -34,8 +34,10 @@ GET_PROVIDER_ASSET_LINKS = ToolDeclaration(
         "查询一张图片当前选中版本在供应商素材库（火山方舟 / BytePlus ModelArk）里的关联与入库状态，"
         "与 Web 资产卡片「上传到供应商素材库」显示的是同一份记录。"
         "返回 content_version（当前版本，没有图片时为 null）、object_storage_configured（上传所需的对象存储是否已配置）、"
-        "accounts（可用的素材库账号：id、name、site、region、project_name）与 links。"
+        "accounts（可用的素材库账号：id、scope_key、name、site、region、project_name）与 links。"
         + _LINK_FIELDS
+        + "关联与账号的 scope_key 相等才属于该账号的范围；账号换成另一个云账号的 Access Key 后，"
+        "旧关联不再与任何账号相等，也不会用于生成，只能解除。"
         + "关联属于具体内容版本：换图后新版本不继承旧版本的关联，切回旧版本时它仍有效的关联照常使用。"
         "生成时只用状态为 active 的关联；处理中或失败的关联会让参考生视频明确失败，不会悄悄改发普通图片。"
         "recheck=true 时请后台立即重新查询仍在处理中的入库任务，同样立即返回，不等待供应商。"

@@ -12,7 +12,10 @@
 从素材库导入已有图片（``origin="import"``）时，关联在导入保存的新内容版本上直接以 ``active`` 建立：
 导入只接受供应商已处理完成的图片素材，内容取自该素材本身，没有入库任务要推进。
 
-**选定**：同一项目、同一内容版本、同一调用范围（账号、站点、区域、供应商项目）至多一条 ``selected``
+**调用范围**按提交或导入时冻结的云账号身份、站点、区域与供应商项目判断，不按账号记录 ID：账号记录
+改成另一个云账号的 Access Key 后，旧关联保留原范围，不适用于新身份，也不会被新身份的上传顶替。
+
+**选定**：同一项目、同一内容版本、同一调用范围至多一条 ``selected``
 记录，即生成时要用的关联或要等待的入库任务。选定只由用户的上传或解除关联改变；后台查询结果只更新状态
 事实，不改变选定，所以入库期间改选了另一张图片，结果仍归属提交时的内容版本，已解除的关系也不会因
 迟到的结果恢复。
@@ -33,7 +36,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lib.artifacts.version_manager import VersionManager
-from lib.asset_library.bindings import AssetLibraryScope
+from lib.asset_library.bindings import AssetLibraryScope, account_scope
 from lib.asset_library.control_plane import ProviderAssetDetail
 from lib.db.base import utc_now
 from lib.db.models.asset_library import AssetLibraryAccount, ProviderAssetLink
@@ -68,15 +71,10 @@ def scope_of(link: ProviderAssetLink) -> AssetLibraryScope:
     """关联提交时的调用范围。"""
     return AssetLibraryScope(
         account_id=link.account_id,
+        account_identity=link.account_identity,
         site=link.site,
         region=link.region,
         project_name=link.provider_project_name,
-    )
-
-
-def account_scope(account: AssetLibraryAccount) -> AssetLibraryScope:
-    return AssetLibraryScope(
-        account_id=account.id, site=account.site, region=account.region, project_name=account.project_name
     )
 
 
@@ -92,7 +90,7 @@ def asset_uri(link: ProviderAssetLink) -> str | None:
 
 def _scope_filter(scope: AssetLibraryScope):
     return (
-        ProviderAssetLink.account_id == scope.account_id,
+        ProviderAssetLink.account_identity == scope.account_identity,
         ProviderAssetLink.site == scope.site,
         ProviderAssetLink.region == scope.region,
         ProviderAssetLink.provider_project_name == scope.project_name,
@@ -209,6 +207,7 @@ async def request_upload(
         locator_path=content_version.locator.path,
         origin="upload",
         account_id=scope.account_id,
+        account_identity=scope.account_identity,
         site=scope.site,
         region=scope.region,
         provider_project_name=scope.project_name,
@@ -268,6 +267,7 @@ async def record_imported_link(
         locator_path=content_version.locator.path,
         origin="import",
         account_id=scope.account_id,
+        account_identity=scope.account_identity,
         site=scope.site,
         region=scope.region,
         provider_project_name=scope.project_name,

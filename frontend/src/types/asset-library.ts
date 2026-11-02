@@ -107,6 +107,8 @@ export interface ProviderAssetLink {
   content_version_id: string;
   version: number;
   account_id: number;
+  /** 提交或导入时的调用范围，与账号的 scope_key 相等才属于该账号；账号换了 Access Key 后不再相等。 */
+  scope_key: string;
   site: AssetLibrarySite;
   region: string;
   provider_project_name: string;
@@ -128,6 +130,8 @@ export interface ProviderAssetLink {
 
 export interface ProviderAssetLinkAccount {
   id: number;
+  /** 账号按当前云账号身份、站点、区域与项目覆盖的范围。 */
+  scope_key: string;
   name: string;
   site: AssetLibrarySite;
   region: string;

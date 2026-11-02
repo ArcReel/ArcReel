@@ -30,14 +30,55 @@ BINDABLE_BUILTIN_PROVIDERS: tuple[str, ...] = ("ark", "ark-agent-plan")
 BindingStatus = Literal["confirmed", "needs_confirmation"]
 
 
+#: 账号身份摘要的版本前缀；摘要算法变化时换前缀，旧关联不会与新摘要相等。
+_ACCOUNT_IDENTITY_DOMAIN = "arcreel/asset-library-account/v1"
+
+
+def account_identity(site: str, access_key_id: str) -> str:
+    """素材库账号所属云账号资源域的不可逆身份：站点与 Access Key ID 的摘要，不含 Secret Access Key。
+
+    账号记录 ID 与它上面的站点、区域、项目都可以原地修改，不能区分「同一记录换成了另一个云账号的 Key」。
+    供应商素材 ID 只在创建它的云账号内有效，关联与入库任务因此冻结这个身份；Access Key ID 变化即视为
+    另一个资源域，旧关联保留原范围，不适用于新身份。只改 Secret Access Key 不改变身份。
+    """
+    payload = json.dumps(
+        {"domain": _ACCOUNT_IDENTITY_DOMAIN, "site": site, "access_key_id": access_key_id.strip()},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
 @dataclass(frozen=True)
 class AssetLibraryScope:
-    """一次调用实际可用的素材库范围：账号记录、站点、区域与项目。"""
+    """一次调用实际可用的素材库范围：云账号身份、站点、区域与项目，连同提供它的账号记录。
+
+    关联是否适用只按 ``account_identity``、``site``、``region``、``project_name`` 判断；``account_id``
+    只说明经哪条账号记录访问控制面，记录被改成另一个云账号后身份随之变化。
+    """
 
     account_id: int
+    account_identity: str
     site: str
     region: str
     project_name: str
+
+
+def account_scope(account: AssetLibraryAccount) -> AssetLibraryScope:
+    """账号记录按当前内容覆盖的素材库范围。"""
+    return AssetLibraryScope(
+        account_id=account.id,
+        account_identity=account_identity(account.site, account.access_key_id),
+        site=account.site,
+        region=account.region,
+        project_name=account.project_name,
+    )
+
+
+def scope_key(scope: AssetLibraryScope) -> str:
+    """范围的不透明比较键，供界面判断关联与账号是否同一范围；不含、也推不出 Access Key ID。"""
+    payload = json.dumps([scope.account_identity, scope.site, scope.region, scope.project_name], ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:24]
 
 
 @dataclass(frozen=True)
@@ -199,6 +240,4 @@ async def resolve_bound_scope(
     )
     if binding_status(binding, actual, account) != "confirmed":
         return None
-    return AssetLibraryScope(
-        account_id=account.id, site=account.site, region=account.region, project_name=account.project_name
-    )
+    return account_scope(account)
