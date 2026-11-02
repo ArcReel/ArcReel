@@ -21,6 +21,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAppStore } from "@/stores/app-store";
+import type { RefreshProjectResult } from "@/stores/projects-store";
 import type { AssetLibraryAccount, ProviderAsset, ProviderAssetImportResult, ProviderAssetPage } from "@/types";
 import { cn } from "cn";
 
@@ -58,17 +59,24 @@ export interface ProviderAssetBrowserDialogProps {
   resourceType: string;
   resourceId: string;
   /** 导入成功后调用，用于刷新资产图；对话框随后关闭。 */
-  onImported?: (result: ProviderAssetImportResult) => void | Promise<void>;
+  onImported: (result: ProviderAssetImportResult) => Promise<RefreshProjectResult>;
+  checkBusy: () => boolean;
+  onImportingChange: (importing: boolean) => void;
 }
 
-type ImportTarget = Omit<ProviderAssetBrowserDialogProps, "open" | "onOpenChange">;
+type ImportTarget = Omit<ProviderAssetBrowserDialogProps, "open" | "onOpenChange" | "onImportingChange">;
 
 /**
  * 从供应商素材库选择：按所选素材库账号的站点、区域与项目范围分页列出素材，选择一张可用的图片后，
  * ArcReel 取回原图保存为这张资产图的新版本，并为该版本建立关联。素材库账号在全局设置「素材库与存储」中配置。
  * 导入进行中不能关闭对话框，避免误以为已取消。
  */
-export function ProviderAssetBrowserDialog({ open, onOpenChange, ...target }: ProviderAssetBrowserDialogProps) {
+export function ProviderAssetBrowserDialog({
+  open,
+  onOpenChange,
+  onImportingChange,
+  ...target
+}: ProviderAssetBrowserDialogProps) {
   const { t } = useTranslation(["assets", "dashboard", "common"]);
   const [importing, setImporting] = useState(false);
   const handleOpenChange = (next: boolean) => {
@@ -83,7 +91,14 @@ export function ProviderAssetBrowserDialog({ open, onOpenChange, ...target }: Pr
           <DialogDescription>{t("provider_asset_dialog_desc")}</DialogDescription>
         </DialogHeader>
         {open && (
-          <BrowserBody target={target} onImportingChange={setImporting} onDone={() => onOpenChange(false)} />
+          <BrowserBody
+            target={target}
+            onImportingChange={(value) => {
+              setImporting(value);
+              onImportingChange(value);
+            }}
+            onDone={() => onOpenChange(false)}
+          />
         )}
         <DialogFooter>
           <Button variant="outline" disabled={importing} onClick={() => onOpenChange(false)}>
@@ -164,7 +179,7 @@ function BrowserBody({
   }, [accountId, pageNumber, fetchPage]);
 
   const handleSelect = async (asset: ProviderAsset) => {
-    if (accountId === null || importingId !== null) return;
+    if (accountId === null || importingId !== null || target.checkBusy()) return;
     setImportingId(asset.id);
     setImportError(null);
     onImportingChange(true);
@@ -183,10 +198,10 @@ function BrowserBody({
       onImportingChange(false);
       return;
     }
-    useAppStore.getState().pushToast(t("provider_asset_import_done", { version: result.content_version.version }), "success");
     try {
-      // 刷新失败由调用方自行提示；导入已经成功，不再显示为导入错误
-      await target.onImported?.(result);
+      if ((await target.onImported(result)) === "success") {
+        useAppStore.getState().pushToast(t("provider_asset_import_done", { version: result.content_version.version }), "success");
+      }
     } finally {
       onImportingChange(false);
       onDone();

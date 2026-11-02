@@ -12,6 +12,7 @@ import logging
 from collections.abc import Generator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -21,6 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from mcp import types
+from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from tos.exceptions import TosServerError
@@ -539,14 +541,20 @@ async def _all_links(sessions) -> list[ProviderAssetLink]:
         return list((await session.execute(select(ProviderAssetLink))).scalars())
 
 
+@pytest.mark.parametrize("large_original", [False, True])
 async def test_import_saves_provider_image_as_uploaded_version_with_active_link(
-    api, sessions, project, public_dns, caplog
+    api, sessions, project, public_dns, caplog, large_original
 ):
     """导入闭环：取回素材原图保存为成品新版本，关联属于这个版本且可用；切回旧版本不继承关联。"""
     caplog.set_level(logging.INFO)
     account_id = await _configure(sessions, object_storage=False)  # 导入不经对象存储中转
     image_a = solid_png_bytes((200, 10, 10), size=(400, 400))
     image_b = solid_png_bytes((10, 10, 200), size=(400, 400))
+    if large_original:
+        buffer = BytesIO()
+        Image.new("RGB", (900, 900), (10, 10, 200)).save(buffer, format="PNG", compress_level=0)
+        image_b = buffer.getvalue()
+        assert len(image_b) > 2 * 1024 * 1024
     _upload_sheet(api, image_a)
     version_a = _panel(api)["content_version"]
 

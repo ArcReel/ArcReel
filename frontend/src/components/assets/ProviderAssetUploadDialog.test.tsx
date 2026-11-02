@@ -104,6 +104,20 @@ describe("ProviderAssetUploadDialog", () => {
     expect(await screen.findByText("未关联")).toBeInTheDocument();
   });
 
+  it("轮询一次失败后仍会继续获取最终状态", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(API, "getProviderAssetLinks")
+      .mockResolvedValueOnce(panel([link({ state: "processing" })]))
+      .mockRejectedValueOnce(new Error("temporary network failure"))
+      .mockResolvedValue(panel([link({ state: "active", usable: true, provider_asset_id: "asset-1", polling: false })]));
+    renderDialog();
+    expect(await screen.findByText("供应商处理中")).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(LINK_POLL_INTERVAL_MS));
+    expect(screen.getByText("供应商处理中")).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(LINK_POLL_INTERVAL_MS));
+    expect(screen.getByText("可用")).toBeInTheDocument();
+  });
+
   it("显示供应商的失败原因；没有对象存储时不能上传", async () => {
     vi.spyOn(API, "getProviderAssetLinks").mockResolvedValue(
       panel(

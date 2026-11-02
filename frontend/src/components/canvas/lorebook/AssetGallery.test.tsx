@@ -188,6 +188,29 @@ describe("AssetGallery", () => {
     expect(uploadFile).not.toHaveBeenCalled();
   });
 
+  it("从素材库选择时复核弹窗打开后的资源占用", async () => {
+    vi.spyOn(API, "listAssetLibraryAccounts").mockResolvedValue({
+      sites: [], default_project_name: "default",
+      accounts: [{ id: 7, site: "volcengine", name: "TEST-account", region: "cn-beijing", project_name: "film",
+        access_key_id_masked: "TEST…key", secret_access_key_masked: "TEST…key", created_at: "2026-11-03T00:00:00Z" }],
+    });
+    vi.spyOn(API, "listProviderAssets").mockResolvedValue({
+      items: [{ id: "TEST-asset", name: "供应商庭院", asset_type: "Image", status: "active", error_code: null, created_at: null }],
+      total: 1, page: 1, page_size: 20,
+    });
+    const importAsset = vi.spyOn(API, "importProviderAsset");
+    const user = userEvent.setup();
+    renderGallery();
+    await user.click(within(await openMenu(user, "庭院")).getByRole("menuitem", { name: "从供应商素材库选择" }));
+    const select = await screen.findByRole("button", { name: "选择 供应商庭院" });
+    act(() => useTasksStore.setState({
+      tasks: [makeTask({ project_name: "demo", task_type: "scene", media_type: "image", resource_id: "庭院", status: "running" })],
+    }));
+    await user.click(select);
+    expect(importAsset).not.toHaveBeenCalled();
+    expect(useAppStore.getState().toast?.text).toBe("资产图正在生成或修改，请等它结束后再操作");
+  });
+
   describe("deleting an asset", () => {
     beforeEach(() => {
       const project = {

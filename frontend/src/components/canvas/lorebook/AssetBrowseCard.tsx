@@ -22,6 +22,7 @@ import { ProviderAssetBrowserDialog } from "@/components/assets/ProviderAssetBro
 import { ProviderAssetUploadDialog } from "@/components/assets/ProviderAssetUploadDialog";
 import { ASSET_SHEET_TYPE_ICON } from "@/components/assets/asset-type-icons";
 import { CrossfadeImage } from "@/components/canvas/shared/CrossfadeImage";
+import { refreshAfterWrite } from "@/components/canvas/shared/refreshAfterWrite";
 import { ImageEditDialog } from "@/components/canvas/timeline/ImageEditButton";
 import { VersionTimeMachine } from "@/components/canvas/timeline/VersionTimeMachine";
 import { TruncatedText } from "@/components/shared/TruncatedText";
@@ -100,6 +101,7 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   const uploadRef = useRef<HTMLInputElement>(null);
   const [dialog, setDialog] = useState<DialogKey | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -114,8 +116,8 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
   const imageUrl = sheetUrl && sheetUrl !== failedUrl ? sheetUrl : null;
 
   // 资产图被生成、局部修改、上传或版本恢复占用，或资产正在删除时，兄弟操作一起禁用。
-  const busy = externalBusy || generating || uploading || restoring || deleting;
-  const writing = uploading || restoring || deleting;
+  const busy = externalBusy || generating || uploading || importing || restoring || deleting;
+  const writing = uploading || importing || restoring || deleting;
   useEffect(() => {
     if (!writing || !onWritingChange) return;
     onWritingChange(name, true);
@@ -286,9 +288,9 @@ export const AssetBrowseCard = memo(function AssetBrowseCard({
             projectName={projectName}
             resourceType={VERSION_RESOURCE[type]}
             resourceId={name}
-            onImported={async () => {
-              await onReload?.();
-            }}
+            checkBusy={() => rejectIfAssetBusy(type, projectName, name, t, "assets:gallery_busy_hint") || busy}
+            onImportingChange={setImporting}
+            onImported={() => refreshAfterWrite(projectName, t)}
           />
           <ProviderAssetUploadDialog
             open={dialog === "provider-upload"}

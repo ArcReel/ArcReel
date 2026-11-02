@@ -23,9 +23,8 @@ from lib.asset_library import links as link_service
 from lib.asset_library.importing import fetch_provider_image
 from lib.db.models.asset_library import ProviderAssetLink
 from lib.db.repositories.asset_library_repo import AssetLibraryRepository
-from lib.infra.api_errors import BadRequestError, NotFoundError, UnprocessableError
+from lib.infra.api_errors import BadRequestError, NotFoundError
 from lib.infra.async_thread import EventLoopBridge, run_sync_transaction
-from lib.infra.image_utils import normalize_uploaded_image
 from lib.material.storage import ContentVersion
 from lib.project.asset_types import ASSET_SPECS, resolve_asset_key, validate_asset_name
 from lib.project.project_change_hints import ProjectChangeSource, project_change_source
@@ -108,11 +107,8 @@ async def import_provider_asset(
     await asyncio.to_thread(_require_asset, manager, project_name, asset_type, name)
 
     image = await fetch_provider_image(account, asset_id)
-    try:
-        content, suffix = await asyncio.to_thread(normalize_uploaded_image, image.content, image.suffix)
-    except ValueError as exc:
-        raise UnprocessableError("provider_asset_import_invalid_image") from exc
-    sheet_path = f"{ASSET_SPECS[asset_type].subdir}/{name}{suffix}"
+    # 下载边界已校验图片；保留原始字节，确保此版本与关联的供应商素材是同一内容。
+    sheet_path = f"{ASSET_SPECS[asset_type].subdir}/{name}{image.suffix}"
 
     bridge = EventLoopBridge.capture()
     recorded: list[ProviderAssetLink] = []
@@ -135,7 +131,7 @@ async def import_provider_asset(
                 asset_type=asset_type,
                 name=name,
                 sheet_path=sheet_path,
-                content=content,
+                content=image.content,
                 original_filename=image.asset.name or None,
                 on_commit=_on_commit,
             )
