@@ -1,4 +1,4 @@
-"""单元换了选中视频后，基于旧视频版本物化的字幕与呈现登记在导出与导入时暂不适用，不让导出失败。"""
+"""单元换了选中媒体后，基于旧媒体版本物化的字幕与呈现登记在导出与导入时暂不适用，不让导出失败。"""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from server.services.presentation.timeline_jianying_draft import TimelineJianyin
 from server.services.project.project_archive import ARCHIVE_MANIFEST_NAME, ProjectArchiveService
 from tests.factories import make_test_video
 from tests.integration.server.services.presentation.timeline_render_support import (
+    _install_narration,
     _install_video,
     edited_timeline,
     narration_segment,
@@ -205,3 +206,87 @@ async def test_old_claims_naming_a_missing_video_version_still_fail_export(
 
     with pytest.raises(ValueError, match="unprovable formal claims"):
         ProjectArchiveService(pm).get_export_diagnostics("demo", scope="current")
+
+
+async def test_regenerating_narration_keeps_export_and_draft_download_available(tmp_path: Path) -> None:
+    pm, project_path, timeline_id = await _project_with_materialized_presentations(tmp_path)
+    claims_before = ProjectArtifactManifestAdapter(project_path).snapshot_entries()
+    _install_narration(project_path, narration_segment("E1S01", "旁白一句"), 1.4)
+    service = ProjectArchiveService(pm)
+
+    for scope in ("current", "full"):
+        service.get_export_diagnostics("demo", scope=scope)
+    current_archive, _ = service.export_project("demo", scope="current")
+    assert not {_SUBTITLE.encode(), _PRESENTATION.encode()} & _archived_claims(current_archive)
+    full_archive, _ = service.export_project("demo", scope="full")
+    assert {_SUBTITLE.encode(), _PRESENTATION.encode()} <= _archived_claims(full_archive)
+
+    package, _ = await TimelineJianyingDraftService(pm).package_download(
+        "demo", timeline_id, narration="with_narration", draft_root="/Users/me/JianyingPro Drafts", jianying_version="6"
+    )
+    assert package.is_file()
+    shutil.rmtree(package.parent)
+    service.get_export_diagnostics("demo", scope="current")
+
+    # 当前包不带旧音频快照与登记，仍可导入。
+    shutil.rmtree(project_path)
+    service.import_project_archive(current_archive, uploaded_filename="demo.zip")
+    assert not {_SUBTITLE, _PRESENTATION} & set(ProjectArtifactManifestAdapter(project_path).snapshot_entries())
+
+    # 完整包保全旧音频登记与快照，切回旧版本后再次 current。
+    shutil.rmtree(project_path)
+    service.import_project_archive(full_archive, uploaded_filename="demo.zip")
+    imported = pm.get_project_path("demo")
+    assert ProjectArtifactManifestAdapter(imported).snapshot_entries()[_SUBTITLE] == claims_before[_SUBTITLE]
+    await restore_typed_media_resource(
+        project_manager=pm,
+        versions=VersionManager(imported),
+        project_name="demo",
+        resource_type="audio",
+        resource_id="E1S01",
+        version=1,
+    )
+    assert _status(imported, _SUBTITLE, _SUBTITLE_PATH) is ArtifactStatus.CURRENT
+    assert _status(imported, _PRESENTATION, _PRESENTATION_PATH) is ArtifactStatus.CURRENT
+
+
+@pytest.mark.parametrize("damage", ["subtitle", "snapshot", "record", "basis", "current_video", "current_audio"])
+async def test_unprovable_old_audio_claims_still_fail_export(tmp_path: Path, damage: str) -> None:
+    pm, project_path, _ = await _project_with_materialized_presentations(tmp_path)
+    _install_narration(project_path, narration_segment("E1S01", "旁白一句"), 1.4)
+    versions_path = project_path / "versions" / "versions.json"
+    versions = json.loads(versions_path.read_text(encoding="utf-8"))
+    old_audio = versions["audio"]["E1S01"]["versions"][0]
+    if damage == "subtitle":
+        path = project_path / _SUBTITLE_PATH
+        subtitle = json.loads(path.read_text(encoding="utf-8"))
+        subtitle["cues"][0]["text"] = "被改过的字幕"
+        path.write_text(json.dumps(subtitle, ensure_ascii=False), encoding="utf-8")
+    elif damage == "snapshot":
+        (project_path / old_audio["file"]).write_bytes(b"corrupted audio")
+    elif damage == "record":
+        versions["audio"]["E1S01"]["versions"].remove(old_audio)
+        versions_path.write_text(json.dumps(versions), encoding="utf-8")
+    elif damage == "basis":
+        old_audio["artifact_audio_basis"]["digest"] = "sha256-v1:" + "0" * 64
+        versions_path.write_text(json.dumps(versions), encoding="utf-8")
+    elif damage == "current_video":
+        (project_path / "videos/scene_E1S01.mp4").write_bytes(b"corrupted current video")
+    else:
+        (project_path / "audio/segment_E1S01.wav").write_bytes(b"corrupted current audio")
+
+    for scope in ("current", "full"):
+        with pytest.raises(ValueError, match="unprovable formal claims") as exc:
+            ProjectArchiveService(pm).get_export_diagnostics("demo", scope=scope)
+        assert _SUBTITLE.encode() in str(exc.value)
+        assert _PRESENTATION.encode() in str(exc.value)
+
+
+async def test_changing_both_video_and_narration_keeps_old_claims_in_full_archive(tmp_path: Path) -> None:
+    pm, project_path, _ = await _project_with_materialized_presentations(tmp_path)
+    _install_video(project_path, narration_segment("E1S01", "旁白一句"), 1.0)
+    _install_narration(project_path, narration_segment("E1S01", "旁白一句"), 1.4)
+
+    archive, _ = ProjectArchiveService(pm).export_project("demo", scope="full")
+
+    assert {_SUBTITLE.encode(), _PRESENTATION.encode()} <= _archived_claims(archive)

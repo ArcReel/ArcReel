@@ -216,7 +216,7 @@ def test_web_retry_reports_the_reason_then_unblocks_once_repaired(tmp_path: Path
     _break_episode_script(project_dir)
     assert migrate_project_with_verdict(project_dir) is not None
     pm = ProjectManager(str(tmp_path))
-    monkeypatch.setattr(project_migration, "get_project_manager", lambda: pm)
+    use_project_manager(monkeypatch, pm)
     app = FastAPI()
     app.dependency_overrides[get_current_user] = lambda: CurrentUserInfo(id="default", sub="tester", role="admin")
     app.include_router(project_migration.router, dependencies=[Depends(get_current_user)])

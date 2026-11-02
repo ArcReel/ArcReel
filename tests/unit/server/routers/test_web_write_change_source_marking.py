@@ -31,8 +31,6 @@ _TASK = "只提交、停止或取消任务；写入发生在任务执行侧，�
 _NO_WRITE = "预览或只读计算，不写项目文件"
 _NOT_PROJECT_CHANGE = "Agent 会话、Agent 记忆或项目整体操作，不产生创作内容的变更事件"
 _SERVICE = "来源在服务层标记：{}"
-# 这些存量路由写项目文件却未标来源，待逐个核查；新路由不得加入。
-_UNREVIEWED = "存量待核查：写项目文件但未标来源"
 
 _EXEMPT: dict[str, str] = {
     # 任务提交与控制
@@ -99,18 +97,6 @@ _EXEMPT: dict[str, str] = {
         "server.services.project.episode_instructions"
     ),
     "script_plan:save_script_plan_instructions": _SERVICE.format("server.services.project.episode_instructions"),
-    # 存量待核查
-    "edit_timelines:copy_edit_timeline": _UNREVIEWED,
-    "edit_timelines:create_edit_timeline": _UNREVIEWED,
-    "edit_timelines:delete_edit_timeline": _UNREVIEWED,
-    "edit_timelines:rename_edit_timeline": _UNREVIEWED,
-    "edit_timelines:restore_edit_timeline_revision": _UNREVIEWED,
-    "project_migration:acknowledge_report": _UNREVIEWED,
-    "project_migration:retry_migration": _UNREVIEWED,
-    "reference_videos:add_unit": _UNREVIEWED,
-    "reference_videos:delete_unit": _UNREVIEWED,
-    "reference_videos:move_unit": _UNREVIEWED,
-    "reference_videos:patch_unit": _UNREVIEWED,
 }
 
 

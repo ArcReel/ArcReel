@@ -38,6 +38,7 @@ from lib.infra.api_errors import ApiError, UnprocessableError
 from lib.jianying_draft.basis import DraftNarration
 from lib.jianying_draft.errors import JianyingDraftError
 from lib.jianying_draft.results import JianyingDraftStatus
+from lib.project.project_change_hints import project_change_source
 from lib.project.project_manager import get_project_manager
 from lib.workflow.operation_admission import AdmissionState
 from lib.workflow.workflow_state import WorkflowActionType, WorkflowRequestError, WorkflowStateService
@@ -238,12 +239,13 @@ async def create_edit_timeline(
         reason = _t(f"operation_{admission.reason}", where=_t("operation_episode", episode=episode))
         raise UnprocessableError("edit_timeline_refused", reason=reason)
     try:
-        return await service.create_from_script(
-            project_name,
-            episode=episode,
-            name=body.name,
-            author=RevisionAuthor(kind="creator", user_id=user.id),
-        )
+        with project_change_source("webui"):
+            return await service.create_from_script(
+                project_name,
+                episode=episode,
+                name=body.name,
+                author=RevisionAuthor(kind="creator", user_id=user.id),
+            )
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
 
@@ -284,13 +286,14 @@ async def copy_edit_timeline(
 ) -> EditTimelineReadout:
     """把指定修订（缺省为最新修订）复制成同一集的新剪辑时间线，返回新时间线的第一个修订。"""
     try:
-        return await service.copy(
-            project_name,
-            timeline_id,
-            name=body.name,
-            revision=body.revision,
-            author=RevisionAuthor(kind="creator", user_id=user.id),
-        )
+        with project_change_source("webui"):
+            return await service.copy(
+                project_name,
+                timeline_id,
+                name=body.name,
+                revision=body.revision,
+                author=RevisionAuthor(kind="creator", user_id=user.id),
+            )
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
 
@@ -304,7 +307,8 @@ async def rename_edit_timeline(
 ) -> TimelineSummary:
     """改显示名：不产生修订，成片与剪映草稿不因此过期。"""
     try:
-        return await service.rename(project_name, timeline_id, name=body.name)
+        with project_change_source("webui"):
+            return await service.rename(project_name, timeline_id, name=body.name)
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
 
@@ -331,12 +335,13 @@ async def restore_edit_timeline_revision(
 ) -> EditTimelineWriteResult:
     """回滚：以旧修订的内容追加一个新修订，历史不改写。"""
     try:
-        return await service.restore(
-            project_name,
-            timeline_id,
-            revision=body.revision,
-            author=RevisionAuthor(kind="creator", user_id=user.id),
-        )
+        with project_change_source("webui"):
+            return await service.restore(
+                project_name,
+                timeline_id,
+                revision=body.revision,
+                author=RevisionAuthor(kind="creator", user_id=user.id),
+            )
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
 
@@ -357,7 +362,8 @@ async def delete_edit_timeline(
         if active:
             raise ApiError("edit_timeline_render_in_progress", status_code=409, task_id=active[0]["task_id"])
     try:
-        await service.delete(project_name, timeline_id)
+        with project_change_source("webui"):
+            await service.delete(project_name, timeline_id)
     except EditTimelineError as exc:
         raise edit_timeline_api_error(exc) from exc
     return Response(status_code=204)

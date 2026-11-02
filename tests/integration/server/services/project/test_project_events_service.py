@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import threading
 
 import pytest
 from fastapi import FastAPI
@@ -12,7 +13,11 @@ from lib.artifacts.artifact_manifest import ArtifactKey
 from lib.artifacts.version_manager import MANUAL_UPLOAD_VERSION_SOURCE, VersionManager
 from lib.edit_timeline import EditTimelineService
 from lib.generation.generation_queue import GenerationQueue
-from lib.project.project_change_hints import emit_project_change_batch, project_change_source
+from lib.project.project_change_hints import (
+    emit_project_change_batch,
+    emit_project_change_hint,
+    project_change_source,
+)
 from lib.project.project_manager import ProjectManager
 from lib.script.draft_quarantine import QUARANTINE_KIND_NARRATION_SCRIPT_PLAN, quarantine_path
 from lib.workflow.workflow_plan import WorkflowPlanRequest
@@ -136,7 +141,8 @@ async def test_timeline_creation_refreshes_project_events_and_completes_workflow
     try:
         async with service.stream_events("demo") as stream:
             assert (await anext(stream))[0] == "snapshot"
-            with project_change_source("worker" if entry == "agent" else "webui"):
+            # Web 入口的来源由路由自己标记，用例不替它套上。
+            with project_change_source("worker") if entry == "agent" else contextlib.nullcontext():
                 if entry == "agent":
                     created = await run_declared_tool(
                         CREATE_TIMELINE,
@@ -687,6 +693,91 @@ class TestProjectEventService:
                 assert ready[0]["focus"] is None
         finally:
             release_first.set()
+            await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_hint_of_a_write_the_scan_read_missed_settles_the_next_scan(self, tmp_path):
+        """多步 Web 写入的后一步落在扫描读盘之后、hint 在这轮结算前送达：下一轮扫描读到它，仍按 webui 广播。
+
+        前一步的 hint 唤醒扫描；扫描读完盘、尚未结算时，后一步写盘并发出 hint。这轮扫描没读到后一步，
+        它的来源标记要留给下一轮，不能随这轮结算一并清掉，否则下一轮读到的变更会被标成 filesystem。
+        """
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        reader = _ControlledReader(pm)
+        service = ProjectEventService(tmp_path, poll_interval=30.0, read_state=reader)
+        await service.start()
+        loop = asyncio.get_running_loop()
+        read_done = asyncio.Event()
+        release = threading.Event()
+
+        def _read_then_hold(read):
+            reader.hook = None
+            state = read()
+            loop.call_soon_threadsafe(read_done.set)
+            assert release.wait(timeout=5)
+            return state
+
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                assert (await anext(stream))[0] == "snapshot"
+                reader.hook = _read_then_hold
+
+                emit_project_change_hint("demo", source="webui")
+                await asyncio.wait_for(read_done.wait(), timeout=5)
+                # 写盘线程返回前已把 hint 投给事件循环，等它返回即保证 hint 先于这轮结算送达
+                with project_change_source("webui"):
+                    await asyncio.to_thread(pm.update_project, "demo", lambda project: project.update(style="水彩"))
+                release.set()
+
+                event_name, payload = await _next_event(stream, timeout=5)
+                assert event_name == "changes"
+                assert [change["entity_type"] for change in payload["changes"]] == ["project"]
+                assert payload["source"] == "webui"
+        finally:
+            release.set()
+            await service.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_hint_arriving_during_a_rebuild_read_settles_the_change_it_swept(self, tmp_path):
+        """显式重建读盘期间落盘的写入被这次读盘读到、它的 hint 也在结算前送达：补扫按该 hint 的来源广播。"""
+        pm = ProjectManager(tmp_path / "projects")
+        pm.create_project("demo")
+        pm.create_project_metadata("demo", "Demo", "Anime", "narration")
+        reader = _ControlledReader(pm)
+        service = ProjectEventService(tmp_path, poll_interval=30.0, read_state=reader)
+        await service.start()
+        loop = asyncio.get_running_loop()
+        read_started = asyncio.Event()
+        release = threading.Event()
+
+        def _hold_then_read(read):
+            reader.hook = None
+            loop.call_soon_threadsafe(read_started.set)
+            assert release.wait(timeout=5)
+            return read()
+
+        try:
+            async with service.stream_events("demo", idle_timeout=0.1) as stream:
+                assert (await anext(stream))[0] == "snapshot"
+                reader.hook = _hold_then_read
+
+                emit_project_change_batch("demo", [_terminal_task_change("task-1")], source="worker")
+                await asyncio.wait_for(read_started.wait(), timeout=5)
+                with project_change_source("webui"):
+                    await asyncio.to_thread(pm.update_project, "demo", lambda project: project.update(style="水彩"))
+                release.set()
+
+                event_name, own = await _next_event(stream, timeout=5)
+                assert (event_name, own["source"]) == ("changes", "worker")
+                assert [change["entity_type"] for change in own["changes"]] == ["task"]
+                event_name, swept = await _next_event(stream, timeout=5)
+                assert event_name == "changes"
+                assert [change["entity_type"] for change in swept["changes"]] == ["project"]
+                assert swept["source"] == "webui"
+        finally:
+            release.set()
             await service.shutdown()
 
     @pytest.mark.asyncio

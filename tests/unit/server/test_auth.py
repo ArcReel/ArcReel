@@ -308,6 +308,7 @@ class TestPasswordAcrossRestarts:
         from lib.infra.env_init import load_env_file
 
         _simulate_restart()
+        monkeypatch.delenv("PYTHON_DOTENV_DISABLED", raising=False)  # 根 conftest 关掉了 .env 读取
         monkeypatch.setenv("AUTH_PASSWORD", "")  # 容器创建时由模板 `AUTH_PASSWORD=` 固定下来的值
         load_env_file(env_file)
         return auth_module.ensure_auth_password(env_path=str(env_file))
